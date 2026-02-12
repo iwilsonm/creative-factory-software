@@ -1,0 +1,196 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
+  }
+
+  ::selection {
+    background-color: rgba(0, 122, 255, 0.2);
+  }
+}
+
+@layer components {
+  /* macOS-inspired frosted glass navbar */
+  .glass-nav {
+    background: rgba(255, 255, 255, 0.72);
+    backdrop-filter: saturate(180%) blur(20px);
+    -webkit-backdrop-filter: saturate(180%) blur(20px);
+    border-bottom: 1px solid rgba(0, 0, 0, 0.08);
+  }
+
+  /* Refined card styling */
+  .card {
+    @apply bg-white/80 backdrop-blur-sm rounded-2xl border border-gray-200/60;
+    box-shadow: 0 0.5px 0 rgba(0, 0, 0, 0.02),
+                0 1px 3px rgba(0, 0, 0, 0.04),
+                0 4px 12px rgba(0, 0, 0, 0.04);
+  }
+
+  .card:hover {
+    box-shadow: 0 0.5px 0 rgba(0, 0, 0, 0.02),
+                0 2px 6px rgba(0, 0, 0, 0.06),
+                0 8px 24px rgba(0, 0, 0, 0.06);
+  }
+
+  /* Apple-style primary button */
+  .btn-primary {
+    @apply px-5 py-2 rounded-xl text-sm font-medium text-white transition-all duration-200;
+    background: linear-gradient(180deg, #0A84FF 0%, #007AFF 100%);
+    box-shadow: 0 0.5px 0 rgba(0, 0, 0, 0.05), 0 1px 3px rgba(0, 122, 255, 0.3);
+  }
+  .btn-primary:hover {
+    background: linear-gradient(180deg, #007AFF 0%, #0062CC 100%);
+    box-shadow: 0 0.5px 0 rgba(0, 0, 0, 0.05), 0 2px 8px rgba(0, 122, 255, 0.35);
+    transform: translateY(-0.5px);
+  }
+  .btn-primary:active {
+    background: linear-gradient(180deg, #0062CC 0%, #004EA3 100%);
+    transform: translateY(0);
+    box-shadow: 0 0.5px 0 rgba(0, 0, 0, 0.05), 0 1px 2px rgba(0, 122, 255, 0.2);
+  }
+  .btn-primary:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    transform: none;
+    box-shadow: none;
+  }
+
+  /* Apple-style secondary button */
+  .btn-secondary {
+    @apply px-4 py-2 rounded-xl text-sm font-medium transition-all duration-200;
+    background: rgba(0, 0, 0, 0.04);
+    color: #1C1C1E;
+  }
+  .btn-secondary:hover {
+    background: rgba(0, 0, 0, 0.08);
+  }
+  .btn-secondary:active {
+    background: rgba(0, 0, 0, 0.12);
+  }
+
+  /* Apple-style input */
+  .input-apple {
+    @apply w-full rounded-xl px-3.5 py-2.5 text-sm transition-all duration-200;
+    background: rgba(0, 0, 0, 0.03);
+    border: 1px solid rgba(0, 0, 0, 0.08);
+    outline: none;
+  }
+  .input-apple::placeholder {
+    color: #AEAEB2;
+  }
+  .input-apple:focus {
+    background: white;
+    border-color: #007AFF;
+    box-shadow: 0 0 0 3px rgba(0, 122, 255, 0.15);
+  }
+
+  /* Apple-style segmented control */
+  .segmented-control {
+    @apply inline-flex rounded-xl p-0.5;
+    background: rgba(0, 0, 0, 0.06);
+  }
+  .segmented-control button,
+  .segmented-control a {
+    @apply px-3 py-1.5 rounded-[10px] text-xs font-medium transition-all duration-200;
+    color: #636366;
+    text-decoration: none;
+  }
+  .segmented-control button.active,
+  .segmented-control a.active {
+    background: white;
+    color: #1C1C1E;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08), 0 1px 1px rgba(0, 0, 0, 0.04);
+  }
+
+  /* Apple-style badge / pill */
+  .badge {
+    @apply inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold tracking-wide;
+  }
+
+  /* Smooth content transitions */
+  .fade-in {
+    animation: fadeIn 0.3s ease-out;
+  }
+  @keyframes fadeIn {
+    from { opacity: 0; transform: translateY(4px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  /* Toast slide-up animation */
+  .animate-slide-up {
+    animation: slideUp 0.25s ease-out;
+  }
+  @keyframes slideUp {
+    from { opacity: 0; transform: translateY(16px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  /* macOS-style scrollbar */
+  .scrollbar-thin {
+    scrollbar-width: thin;
+    scrollbar-color: rgba(0, 0, 0, 0.15) transparent;
+  }
+  .scrollbar-thin::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  .scrollbar-thin::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .scrollbar-thin::-webkit-scrollbar-thumb {
+    background: rgba(0, 0, 0, 0.15);
+    border-radius: 10px;
+  }
+  .scrollbar-thin::-webkit-scrollbar-thumb:hover {
+    background: rgba(0, 0, 0, 0.25);
+  }
+
+  /* Info tooltip — pure CSS, dark bg, white text */
+  .info-tooltip {
+    @apply relative inline-flex items-center ml-1;
+  }
+
+  .info-tooltip .info-tooltip-text {
+    @apply invisible opacity-0 absolute z-50 px-3 py-2 text-[11px] leading-relaxed
+           font-normal tracking-normal rounded-lg whitespace-normal
+           pointer-events-none transition-all duration-200;
+    color: #fff;
+    background: rgba(28, 28, 30, 0.95);
+    backdrop-filter: blur(8px);
+    -webkit-backdrop-filter: blur(8px);
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    width: max-content;
+    max-width: 240px;
+  }
+
+  .info-tooltip:hover .info-tooltip-text {
+    @apply visible opacity-100;
+  }
+
+  /* Tooltip positions */
+  .info-tooltip-top .info-tooltip-text {
+    bottom: calc(100% + 6px);
+    left: 50%;
+    transform: translateX(-50%);
+  }
+  .info-tooltip-bottom .info-tooltip-text {
+    top: calc(100% + 6px);
+    left: 50%;
+    transform: translateX(-50%);
+  }
+  .info-tooltip-left .info-tooltip-text {
+    right: calc(100% + 6px);
+    top: 50%;
+    transform: translateY(-50%);
+  }
+  .info-tooltip-right .info-tooltip-text {
+    left: calc(100% + 6px);
+    top: 50%;
+    transform: translateY(-50%);
+  }
+}

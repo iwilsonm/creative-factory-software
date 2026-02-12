@@ -1,0 +1,44 @@
+# Dependencies
+node_modules/
+
+# Build output
+frontend/dist/
+.vite/
+
+# Database & user data
+backend/data/app.db
+backend/data/app.db-wal
+backend/data/app.db-shm
+data/app.db
+data/app.db-wal
+data/app.db-shm
+data/ad-platform.db
+
+# Generated/uploaded files
+backend/data/generated-images/
+backend/data/templates/
+backend/data/uploads/
+backend/data/batch-product-images/
+backend/data/inspiration/
+data/generated-images/
+data/templates/
+data/uploads/
+data/inspiration/
+
+# Credentials & secrets
+.env
+backend/config/service-account.json
+config/service-account.json
+credentials.json
+token.json
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Logs
+logs/
+*.log
+
+# Claude
+.claude/

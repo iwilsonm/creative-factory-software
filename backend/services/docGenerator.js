@@ -1,0 +1,835 @@
+import { v4 as uuidv4 } from 'uuid';
+import { chatStream, deepResearch } from './openai.js';
+import { getProject, getLatestDoc, updateProject } from '../db.js';
+import db from '../db.js';
+
+// The 8 prompts from the SOP, organized as functions that return prompt text.
+// Steps 1-3 produce the research prompt (prep work via GPT-4.1).
+// Step 4 executes deep research (via o3-deep-research with web browsing).
+// Step 5 produces the Avatar Sheet (synthesis via GPT-4.1).
+// Step 6 produces the Offer Brief (synthesis via GPT-4.1).
+// Step 7 is the E5/Agora methodology training (no saved output, GPT-4.1).
+// Step 8 produces the Necessary Beliefs (synthesis via GPT-4.1).
+
+function prompt1_AnalyzeSalesPage(productDescription, salesPageContent) {
+  return `You are my expert copywriter and you specialize in writing highly persuasive direct response style copy for my ecommerce brand that sells ${productDescription}. I'm going to send you a PDF screenshot of my current sales page, and I want you to analyze it and please let me know your thoughts.
+
+${salesPageContent}`;
+}
+
+function prompt2_ResearchMethodology() {
+  return `Great work! I'm going to send you two documents that teach how to do deep research for your product in order to effectively write highly persuasive copy. Please analyze them and let me know your thoughts:
+
+--- RESEARCH METHODOLOGY PART 1: THE FRAMEWORK ---
+
+The foundation of great direct response copy is deep market research. The market will write your copy for you — if you listen. Your job isn't to invent language or guess at pain points. It's to excavate what already exists in forums, reviews, and communities, then reflect it back with precision.
+
+Your research must be organized into four distinct layers:
+
+LAYER 1: DEMOGRAPHIC & PSYCHOGRAPHIC PROFILE
+Research and document:
+- Who they are (age, gender, income, education, occupation)
+- What they believe (religious attitudes, political leanings, social views, economic outlook)
+- What they want (hopes, dreams, aspirations — in their exact words)
+- Where they've been (victories they're proud of, failures that haunt them)
+- Who they blame (outside forces they hold responsible for their problems)
+- What assumptions they hold (prejudices, tribal markers, in-group/out-group dynamics)
+- Core belief summary: a single statement capturing their worldview about this problem
+
+LAYER 2: EXISTING SOLUTION LANDSCAPE
+Research and document:
+- What solutions they're currently using or have tried
+- What they liked about those solutions (specific features, feelings, outcomes)
+- What they hated about those solutions (frustrations, side effects, broken promises)
+- Horror stories — the worst experiences with existing solutions, told in vivid detail
+- Whether they believe ANY solution actually works (and why or why not)
+- What would make them try something new vs. give up entirely
+
+LAYER 3: CURIOSITY / HISTORICAL ANGLES
+Research and document:
+- Old, forgotten, or suppressed attempts to solve this problem
+- Pre-1960 solutions or discoveries (the "lost discovery" hook)
+- "What did people do before [modern approach]?" angles
+- Conspiratorial or suppression narratives ("they don't want you to know")
+- Any isolated groups or cultures that don't have this problem (and why)
+- Scientific discoveries that haven't reached mainstream awareness
+
+LAYER 4: CORRUPTION / "FALL FROM EDEN"
+Research and document:
+- When and why this problem got worse (historical turning point)
+- Outside forces that created or exacerbated the problem
+- The "villain" — who or what is responsible (corporations, government, industry, cultural shift)
+- "Fall from Eden" narrative: there was a time when this wasn't a problem, and here's what changed
+- Isolated populations that still live in the "before" state
+
+--- RESEARCH METHODOLOGY PART 2: THE LIVE METHOD ---
+
+Here is the practical workflow for conducting this research:
+
+PRIMARY SOURCES:
+1. Forums (Reddit, niche forums, Facebook groups, community boards)
+2. Amazon reviews (for competing products or related products)
+3. Google searches for specific angles
+4. YouTube comments on related videos
+5. Quora threads
+6. App store reviews (if applicable)
+
+FORUM MINING STRATEGY:
+- Sort threads by REPLIES (engagement signal — these are active pain points people argue about)
+- Sort threads by VIEWS (attention signal — these thread titles could become email subject lines or hooks)
+- Look for confessional/journal-style posts — one deeply personal account is worth more than 50 surface-level comments
+- Look for threads with arguments — these reveal conflicting beliefs in the market
+- CRITICAL: Copy-paste verbatim. Do NOT paraphrase, do NOT clean up grammar. The prospect's exact words are your most powerful copy asset.
+
+AMAZON REVIEW MINING:
+- 5-star reviews: What worked, what they loved, what surprised them, what they'd tell a friend
+- 1-star reviews: What failed, side effects, broken promises, horror stories, frustrations
+- 3-star reviews: What was "meh" — reveals expectations vs. reality gaps
+- Pay attention to volume of reviews as a signal of category interest and market size
+
+KEY TECHNIQUE — "THE TINA DISCOVERY":
+One deeply confessional source is worth more than 50 surface-level comments. Look for:
+- Forum users who post journal-style updates about their struggle
+- Multi-paragraph confessions that reveal hopes, fears, family dynamics, cycles of failure
+- The actual emotional language (e.g., "I want my husband to look at me with pride" is infinitely more powerful than "wants to look attractive")
+- Read between the lines: what they SAY they want vs. what they ACTUALLY want (e.g., admiration vs. sexual attraction — don't assume)
+
+SUBJECT LINE HARVESTING:
+- Forum thread titles with high view counts can become email subject lines or ad hooks
+- These are pre-tested — the market has already shown interest by clicking
+
+GOOGLE SEARCHES FOR ANGLES:
+- "[Problem] horror stories"
+- "[Problem] history"
+- "Popular [solutions] from the 1900s"
+- "Why is [problem] getting worse"
+- "Places where [problem] doesn't exist"
+- "[Product category] scam" or "[Product category] doesn't work"
+
+OUTPUT REQUIREMENTS:
+Your research document should be:
+- Minimum 6 full pages of content
+- Rich with direct quotes from real consumers (verbatim, not paraphrased)
+- Organized by the four layers above
+- Written in plain language
+- Optimized for direct response copywriting use
+- Do NOT summarize vaguely or generalize without specific examples
+- Do NOT invent beliefs — all insights must be grounded in real consumer language
+- Prioritize emotional truth over technical explanation`;
+}
+
+function prompt3_GenerateResearchPrompt(productName) {
+  return `Great, now that you properly understand how to conduct research, I want you to create a full prompt to actually conduct this research for the ${productName}. Please be as specific as possible here in order to get the best quality research. Please include that you want the research compiled into a doc as well, and it should be a minimum of 6 pages worth of research.`;
+}
+
+function prompt5_AvatarSheet() {
+  return `Amazing work! Now that you have properly completed the research portion, I want you to please complete this Avatar sheet template:
+
+# [BRAND NAME] AVATAR SHEET TEMPLATE
+
+## Demographic & General Information
+- Age Range:
+- Gender:
+- Location:
+- Monthly Income/Spending Power:
+- Professional Backgrounds:
+- Typical Identities (how they see themselves — use first-person "I am..." framing):
+
+## Key Challenges & Pain Points
+(Identify 3-5 major challenge categories. Under each, list specific manifestations with detail and emotional weight.)
+
+### 1. [Challenge Category Name]
+- [Specific manifestation with emotional detail]
+- [Specific manifestation with emotional detail]
+- [Specific manifestation with emotional detail]
+
+### 2. [Challenge Category Name]
+- [Specific manifestation with emotional detail]
+- [Specific manifestation with emotional detail]
+
+### 3. [Challenge Category Name]
+- [Specific manifestation with emotional detail]
+- [Specific manifestation with emotional detail]
+
+## Goals & Aspirations
+### Short-Term Goals (2-4 weeks):
+-
+-
+### Long-Term Goals (3-12 months):
+-
+-
+### Ultimate Dream State:
+-
+
+## Emotional Drivers & Psychological Insights
+(List 6-10 deep psychological insights about what truly drives this person. Go beyond surface-level — what are the hidden motivations, identity needs, and emotional triggers?)
+1.
+2.
+3.
+
+## Direct Client Quotes
+(Use verbatim language from research. Do NOT paraphrase. Organize by category.)
+
+### General Quotes:
+- "..."
+- "..."
+
+### Pain Points & Frustrations Quotes:
+- "..."
+- "..."
+
+### Mindset Quotes:
+- "..."
+- "..."
+
+### Emotional State Quotes:
+- "..."
+- "..."
+
+### Emotional Responses to Struggles Quotes:
+- "..."
+- "..."
+
+### Motivation & Urgency Quotes:
+- "..."
+- "..."
+
+## Key Emotional Fears
+(List 4-6 deep fears. These are not surface-level — these are the fears they think about at 2am.)
+1.
+2.
+3.
+
+## Psychographic Insights
+(What are their core beliefs about themselves, their problem, and the world? What tribal markers do they have? What do they trust and distrust?)
+-
+-
+
+## Typical Emotional Journey
+Map the journey from first awareness to purchase:
+
+### Stage 1: Awareness
+(What triggers them to notice the problem? Internal monologue, behaviors, feelings.)
+
+### Stage 2: Frustration
+(What have they tried? Why did it fail? How do they feel about the failures?)
+
+### Stage 3: Desperation
+(What is the breaking point? What makes them actively search for a new solution?)
+
+### Stage 4: Relief
+(What does finding the right solution feel like? What do they say/think/feel?)
+
+## Avatar Summary
+- Avatar Name: [Give them a name]
+- One-Line Summary: [Single sentence capturing the essence of this person]`;
+}
+
+function prompt6_OfferBrief() {
+  return `Great work! Now that you've finished that, I want you to complete this offer brief document template for this product:
+
+# [BRAND NAME] OFFER BRIEF TEMPLATE
+
+## Potential Product Name Ideas
+(List 8-10 potential product names with brief rationale for each. Include recommendation.)
+1.
+2.
+
+## Level of Consciousness
+(How aware is the market that they have a problem? HIGH / MEDIUM / LOW. Explain with evidence from the research.)
+
+## Level of Awareness
+(Where is the market on Eugene Schwartz's 5 levels?)
+1. Unaware — Don't know they have a problem
+2. Problem Aware — Know they have a problem but not that solutions exist
+3. Solution Aware — Know solutions exist but not THIS solution
+4. Product Aware — Know about this product but haven't bought yet
+5. Most Aware — Know the product, just need a deal
+
+Current Level: ___
+Evidence: ___
+Implication for Copy: ___
+
+## Stage of Sophistication
+(Where is the market on the sophistication scale?)
+1. First to market — Simple direct claim works
+2. Second wave — Enlarge the claim (bigger, better, faster)
+3. Mechanism stage — Must explain WHY it works differently
+4. Exhausted — Need a new mechanism or angle
+5. Highly skeptical — Need identification/story-driven approach
+
+Current Stage: ___
+Evidence: ___
+Implication for Copy: ___
+
+## Big Idea
+(The single overarching concept that frames the entire marketing campaign. It should reframe the problem in a way the prospect hasn't considered.)
+
+## Metaphor
+(The primary metaphor or analogy that makes the big idea tangible and memorable.)
+
+## UMP — Unique Mechanism of the Problem
+(Why does the prospect ACTUALLY have this problem? Not the surface-level explanation — the deeper mechanism that reframes their understanding of why they're stuck.)
+
+## UMS — Unique Mechanism of the Solution
+(How does this product solve the problem in a way that is fundamentally different from everything else? What is the proprietary mechanism, method, or approach?)
+
+## Guru / Authority Figure
+(Who is the credible authority behind the product? Their story, credentials, why they should be trusted.)
+
+## Discovery Story
+(The narrative of how this solution was discovered or created. This should be compelling, specific, and emotionally resonant.)
+
+## Product Description
+(What the product actually is — features, format, delivery, components.)
+
+## Headline / Subheadline Ideas
+(List 10-15 headline options based on the big idea, mechanism, and key angles from research.)
+1.
+2.
+
+## All Objections
+(List every possible objection a prospect might have. Be exhaustive — include logical, emotional, and irrational objections.)
+1.
+2.
+
+## Belief Chains
+(For each major objection, map the sequence of beliefs that must be established to overcome it.)
+
+Objection: ___
+Belief Chain: ___ → ___ → ___ → Resolution
+
+## Funnel Architecture
+(Recommended funnel structure — traffic source, landing page type, upsell sequence, email follow-up.)
+
+## Potential Domains
+(List 5-10 domain name ideas for the product/brand.)
+
+## Examples / Swipes
+(Reference any competitor campaigns, ads, or copy that could serve as inspiration or models.)
+
+## Other Notes
+(Anything else relevant to the offer positioning, pricing, guarantees, bonuses, scarcity elements, etc.)`;
+}
+
+function prompt7_E5AgoraMethodology() {
+  return `Great work! Now, please analyze this transcript and let me know your thoughts:
+
+Please analyze this full video transcript and let me know your thoughts:
+
+--- E5/AGORA COPYWRITING METHODOLOGY TRANSCRIPT ---
+
+There is a fundamental difference in the copywriting approach that is taught and used at Agora that I fell in love with that really became kind of the Genesis or the foundation of the E5 method and the copywriting method that is most often taught in the internet marketing world. There is a fundamental difference and that fundamental difference really impedes the progress of most of the copywriters or most of the people that try to learn copywriting from the IM approach.
+
+You see, the internet marketing approach and the way that copy was kind of always taught was really based on the foundation of magnificent word choice. It was all about the words that you used. It was all about the phrases that you used. "The incredible steroid-like traffic generation system that brings a tsunami of buyers." It was all about the words. This idea that if I use these extremely exciting, compelling, almost hyperbolic words, that makes for good copy.
+
+This is why back in the day, almost every single copywriting training — what did it come with? They almost always included a power word list. "These are power words: astonishing. Let me see how often I can sprinkle in astonishing throughout the copy. Magnet." All these power words. And so everybody became trained on words. It's the words.
+
+That's why when Kyle was going through his swipes and examples, I was paying attention to the room. I could see people agonizing over, almost becoming overwhelmed with the copy. "Let me look at the copy. What did he say there? What's the word there? Is there a power word being used in there?"
+
+And I said to you guys that it's not the words that I want you to pay attention to. It's not the words. The exact word choice that I want you to model and swipe — it's not the one phrase in the third sentence of the fourth paragraph that I want you to swipe. It's the structure.
+
+Because I said that there's a fundamental difference in the copy approach that Agora uses compared to the IM world. In the IM world it's all about the magnificence of the words that you use. But in the Agora world, it's all about the magnificence of the argument. The magnificence of the argument.
+
+What I think about is: it's about a compelling argument, not compelling words. Meaning I'm not trying to convince people that this is great because I use the word magnificent, amazing, fantastic, steroid-like. It's not compelling because of solely the words that I use. It's compelling first and foremost because I'm presenting an argument that you can't dispute. That logically, emotionally — I'm showing it to you where at the end, you are led to one conclusion and only one conclusion.
+
+This is an important point for you to get because one of the things that I see often when I see critiques — one of the biggest mistakes or issues that I see is there is no structure. There is no argument being presented. It's kind of all over the place. They're saying a lot and saying nothing at the same time.
+
+What I mean is: the way that I approach every campaign, every sales letter, every VSL is that there is a belief that I need my prospect to have before I introduce my product. A belief. A belief that if they have, my product then becomes the obvious next step. The obvious conclusion.
+
+So the first thing that I do is I determine what is the belief that I need my prospect to have. What is the belief? And then everything that I do from the headline all the way through the body is built to lead them to that belief. Every section has a purpose. Every paragraph has a purpose. And the purpose is to advance the argument toward that belief.
+
+It's like a North Star. If you know the belief that you need the prospect to hold before you introduce the offer, then you have a diagnostic tool to evaluate every single sentence. "Does this advance the argument? Does this move them closer to the belief? If not, cut it — no matter how well written."
+
+And at the core of this is the concept of the unique mechanism. Because the way I position things is: I'm always introducing a proprietary solution. That solution falls under the heading of a unique mechanism. And then everything that I'm doing and saying and showing through education, through informing, is to show them what makes it different and most importantly what makes it better.
+
+I'm just trying to present that airtight, rock solid emotional and logical argument. I love when John got up here and talked about the syllogism and argumentation. I almost started crying with joy inside.
+
+The point that I'm really trying to make is: most folks are making their word choice the priority, the focus, the aim. Stop writing copy and start crafting arguments. Stop sitting down and putting on your copy cap and thinking "what's the next power word I can use?" Start with putting together rock solid, airtight logical and emotional arguments. Prove to the people that you've got something different and superior.
+
+You want to go back later through the editing process and layer in better verbs, more powerful verbs? Cool. I'm not saying that words don't matter. I'm saying that words matter when layered on a foundation of a rock solid argument.
+
+Be argument creators, not copy creators. Not copywriters — craft arguments first and foremost.
+
+--- END OF TRANSCRIPT ---`;
+}
+
+function prompt8_NecessaryBeliefs(researchContent, avatarContent, offerBriefContent) {
+  return `Great work! Now that you understand that marketing at its core is simply about changing the existing beliefs of a customer into the beliefs that align with them empowering them to purchase our product, I want you to please analyze the following documents about my prospect and write out the few absolutely necessary beliefs that a prospect must have before purchasing my product. It should be no more than 6 beliefs. I also want you to structure these as "I believe that…" statements. Go ahead.
+
+RESEARCH DOCUMENT:
+${researchContent}
+
+AVATAR SHEET:
+${avatarContent}
+
+OFFER BRIEF:
+${offerBriefContent}`;
+}
+
+// --- Step definitions ---
+// Steps 1-3: Prep work (GPT-4.1 Chat Completions) — analyzes sales page and builds research prompt
+// Step 4: Deep Research (o3-deep-research Responses API) — actual web research with browsing
+// Steps 5-8: Synthesis (GPT-4.1 Chat Completions) — generates docs from research
+
+const STEPS = [
+  { id: 1, label: 'Analyzing Sales Page', savedAs: null, mode: 'chat' },
+  { id: 2, label: 'Learning Research Methodology', savedAs: null, mode: 'chat' },
+  { id: 3, label: 'Generating Research Prompt', savedAs: null, mode: 'chat' },
+  { id: 4, label: 'Deep Research (Web Browsing)', savedAs: 'research', mode: 'deep_research' },
+  { id: 5, label: 'Creating Avatar Sheet', savedAs: 'avatar', mode: 'chat' },
+  { id: 6, label: 'Creating Offer Brief', savedAs: 'offer_brief', mode: 'chat' },
+  { id: 7, label: 'Analyzing E5/Agora Methodology', savedAs: null, mode: 'chat' },
+  { id: 8, label: 'Defining Necessary Beliefs', savedAs: 'necessary_beliefs', mode: 'chat' }
+];
+
+/**
+ * Run the full 8-prompt foundational doc generation chain.
+ * Steps 1-3 use GPT-4.1 for prep, Step 4 uses o3-deep-research for actual research,
+ * Steps 5-8 use GPT-4.1 for synthesis.
+ *
+ * @param {string} projectId
+ * @param {(event: object) => void} onEvent - SSE event emitter
+ *   Events: { type: 'step_start', step, label, mode }
+ *           { type: 'chunk', step, text }
+ *           { type: 'deep_research_progress', step, status, searchesCompleted, message, elapsedMs }
+ *           { type: 'step_complete', step, label, savedAs }
+ *           { type: 'complete' }
+ *           { type: 'error', message }
+ */
+export async function generateAllDocs(projectId, onEvent) {
+  const project = getProject(projectId);
+  if (!project) throw new Error('Project not found');
+
+  updateProject(projectId, { status: 'generating_docs' });
+
+  const chatMessages = []; // Multi-turn conversation for GPT-4.1 (steps 1-3, 5-8)
+  let step3Response = ''; // The research prompt generated by step 3
+
+  try {
+    for (const step of STEPS) {
+      onEvent({ type: 'step_start', step: step.id, label: step.label, mode: step.mode });
+
+      if (step.mode === 'chat') {
+        // --- CHAT COMPLETION STEPS (GPT-4.1) ---
+        let promptText;
+        let useIsolatedContext = false; // For token-heavy steps, use a fresh context
+
+        switch (step.id) {
+          case 1:
+            promptText = prompt1_AnalyzeSalesPage(
+              project.product_description,
+              project.sales_page_content || 'No sales page content provided.'
+            );
+            break;
+          case 2:
+            promptText = prompt2_ResearchMethodology();
+            break;
+          case 3:
+            promptText = prompt3_GenerateResearchPrompt(project.name);
+            break;
+          case 5:
+            // Reset context for synthesis steps — drop the heavy Steps 1-3 context
+            // (research methodology, E5 transcript, etc.) and start fresh with just the research
+            chatMessages.length = 0;
+            chatMessages.push(
+              { role: 'user', content: `You are my expert copywriter specializing in direct response copy for my ecommerce brand that sells ${project.product_description}. I've completed deep market research. Here is the research document:\n\n${getLatestDoc(projectId, 'research')?.content || ''}` },
+              { role: 'assistant', content: 'I\'ve thoroughly reviewed the research document. I can see the consumer insights, verbatim quotes, pain points, and market dynamics. I\'m ready to use this to create the foundational documents. Let\'s proceed.' }
+            );
+            promptText = prompt5_AvatarSheet();
+            break;
+          case 6:
+            promptText = prompt6_OfferBrief();
+            break;
+          case 7:
+            promptText = prompt7_E5AgoraMethodology();
+            break;
+          case 8: {
+            // Step 8 needs the 3 saved docs. Use an ISOLATED context to avoid
+            // exceeding token limits — the full chat history + 3 docs would be ~35k tokens.
+            useIsolatedContext = true;
+            const researchDoc = getLatestDoc(projectId, 'research');
+            const avatarDoc = getLatestDoc(projectId, 'avatar');
+            const offerDoc = getLatestDoc(projectId, 'offer_brief');
+            promptText = prompt8_NecessaryBeliefs(
+              researchDoc?.content || '',
+              avatarDoc?.content || '',
+              offerDoc?.content || ''
+            );
+            break;
+          }
+        }
+
+        // For isolated context steps, use a fresh messages array instead of the accumulated one
+        const messages = useIsolatedContext
+          ? [{ role: 'user', content: promptText }]
+          : (chatMessages.push({ role: 'user', content: promptText }), chatMessages);
+
+        const fullResponse = await chatStream(messages, (chunk) => {
+          onEvent({ type: 'chunk', step: step.id, text: chunk });
+        });
+
+        if (!useIsolatedContext) {
+          chatMessages.push({ role: 'assistant', content: fullResponse });
+        }
+
+        // Save step 3's response for deep research
+        if (step.id === 3) {
+          step3Response = fullResponse;
+        }
+
+        // Save document if this step produces one
+        if (step.savedAs) {
+          saveDoc(projectId, step.savedAs, fullResponse);
+        }
+
+      } else if (step.mode === 'deep_research') {
+        // --- DEEP RESEARCH STEP (o3-deep-research) ---
+        // Use the research prompt from step 3 as the input
+        const researchPrompt = step3Response;
+        if (!researchPrompt) {
+          throw new Error('No research prompt available from Step 3');
+        }
+
+        // Build a comprehensive system instruction for the deep researcher
+        const instructions = `You are a world-class market research analyst specializing in direct response copywriting research. Your job is to conduct exhaustive research across the web — forums, reviews, communities, news articles, scientific papers, and any other relevant sources.
+
+Your research must include VERBATIM quotes from real consumers. Do NOT paraphrase or clean up their language. Copy their exact words. This is critical for direct response copywriting.
+
+Your output should be a comprehensive research document of at least 6 pages covering:
+1. Demographic & Psychographic Profile
+2. Existing Solution Landscape (what they've tried, loved, hated)
+3. Curiosity / Historical Angles (old solutions, suppressed discoveries)
+4. Corruption / "Fall from Eden" narratives
+
+Include specific URLs and sources for all claims. The research should be organized, detailed, and rich with real consumer language.`;
+
+        onEvent({
+          type: 'deep_research_progress',
+          step: step.id,
+          status: 'starting',
+          searchesCompleted: 0,
+          message: 'Initiating deep research... This will take 5-15 minutes as the model browses the web and analyzes sources.',
+          elapsedMs: 0
+        });
+
+        const result = await deepResearch(researchPrompt, {
+          instructions,
+          onProgress: (progress) => {
+            onEvent({
+              type: 'deep_research_progress',
+              step: step.id,
+              ...progress
+            });
+          }
+        });
+
+        // Send the final text as a chunk for display
+        onEvent({ type: 'chunk', step: step.id, text: result.text });
+
+        // Save the research document (with citations appended)
+        let researchContent = result.text;
+        if (result.citations.length > 0) {
+          researchContent += '\n\n---\n## Sources\n';
+          for (const citation of result.citations) {
+            researchContent += `- [${citation.title}](${citation.url})\n`;
+          }
+        }
+
+        saveDoc(projectId, step.savedAs, researchContent);
+
+        // Add the research to the chat context for subsequent steps
+        // We inject it as if the assistant produced it in the multi-turn conversation
+        chatMessages.push({
+          role: 'user',
+          content: `Here is the completed deep research document for our product. Please use this as the foundation for all subsequent analysis:\n\n${researchContent}`
+        });
+        chatMessages.push({
+          role: 'assistant',
+          content: 'I have thoroughly reviewed the deep research document. This is excellent — it contains real consumer quotes, detailed market analysis across all four research layers, and specific source citations. I\'m ready to use this research to create the Avatar Sheet, Offer Brief, and other foundational documents. Let\'s proceed.'
+        });
+      }
+
+      onEvent({ type: 'step_complete', step: step.id, label: step.label, savedAs: step.savedAs });
+    }
+
+    updateProject(projectId, { status: 'docs_ready' });
+    onEvent({ type: 'complete' });
+  } catch (err) {
+    updateProject(projectId, { status: 'setup' });
+    onEvent({ type: 'error', message: err.message });
+    throw err;
+  }
+}
+
+/**
+ * Regenerate a single document.
+ * Uses a focused context for each doc type to stay within token limits.
+ * For synthesis docs (avatar, offer_brief, necessary_beliefs), builds a lean
+ * context with only the prerequisite documents — not the full conversation history.
+ */
+export async function regenerateDoc(projectId, docType, onEvent) {
+  const project = getProject(projectId);
+  if (!project) throw new Error('Project not found');
+
+  // Find which step produces this doc type
+  const targetStep = STEPS.find(s => s.savedAs === docType);
+  if (!targetStep) throw new Error(`Unknown doc type: ${docType}`);
+
+  try {
+    onEvent({ type: 'step_start', step: targetStep.id, label: targetStep.label, mode: targetStep.mode });
+
+    if (targetStep.mode === 'deep_research') {
+      // Re-run deep research — needs the research prompt from step 3
+      // Build steps 1-3 to get the prompt
+      const chatMessages = [];
+      chatMessages.push({ role: 'user', content: prompt1_AnalyzeSalesPage(project.product_description, project.sales_page_content || 'No sales page content provided.') });
+      chatMessages.push({ role: 'assistant', content: 'I have analyzed the sales page. Ready to proceed.' });
+      chatMessages.push({ role: 'user', content: prompt2_ResearchMethodology() });
+      chatMessages.push({ role: 'assistant', content: 'I have studied the research methodology framework. Ready to proceed.' });
+      chatMessages.push({ role: 'user', content: prompt3_GenerateResearchPrompt(project.name) });
+
+      const step3Response = await chatStream(chatMessages, () => {});
+
+      const instructions = `You are a world-class market research analyst specializing in direct response copywriting research. Conduct exhaustive web research with VERBATIM consumer quotes. Output a 6+ page research document covering: demographics, psychographics, existing solutions, historical angles, and corruption narratives.`;
+
+      onEvent({
+        type: 'deep_research_progress',
+        step: targetStep.id,
+        status: 'starting',
+        searchesCompleted: 0,
+        message: 'Re-running deep research... This will take 5-15 minutes.',
+        elapsedMs: 0
+      });
+
+      const result = await deepResearch(step3Response, {
+        instructions,
+        onProgress: (progress) => {
+          onEvent({ type: 'deep_research_progress', step: targetStep.id, ...progress });
+        }
+      });
+
+      onEvent({ type: 'chunk', step: targetStep.id, text: result.text });
+
+      let researchContent = result.text;
+      if (result.citations.length > 0) {
+        researchContent += '\n\n---\n## Sources\n';
+        for (const citation of result.citations) {
+          researchContent += `- [${citation.title}](${citation.url})\n`;
+        }
+      }
+
+      saveDoc(projectId, targetStep.savedAs, researchContent);
+      onEvent({ type: 'step_complete', step: targetStep.id, label: targetStep.label, savedAs: targetStep.savedAs });
+
+    } else {
+      // Chat-based synthesis steps — build a lean, focused context
+      let messages;
+
+      switch (targetStep.id) {
+        case 5: {
+          // Avatar Sheet: needs research doc
+          const researchDoc = getLatestDoc(projectId, 'research');
+          if (!researchDoc) throw new Error('No research document found. Please generate research first.');
+          messages = [
+            { role: 'user', content: `You are my expert copywriter specializing in direct response copy for my ecommerce brand that sells ${project.product_description}. Here is the research document:\n\n${researchDoc.content}` },
+            { role: 'assistant', content: 'I\'ve thoroughly reviewed the research document. Ready to proceed.' },
+            { role: 'user', content: prompt5_AvatarSheet() }
+          ];
+          break;
+        }
+        case 6: {
+          // Offer Brief: needs research doc + avatar
+          const researchDoc = getLatestDoc(projectId, 'research');
+          const avatarDoc = getLatestDoc(projectId, 'avatar');
+          if (!researchDoc) throw new Error('No research document found. Please generate research first.');
+          messages = [
+            { role: 'user', content: `You are my expert copywriter specializing in direct response copy for my ecommerce brand that sells ${project.product_description}. Here is the research document:\n\n${researchDoc.content}` },
+            { role: 'assistant', content: 'I\'ve thoroughly reviewed the research. Ready to proceed.' },
+            { role: 'user', content: prompt5_AvatarSheet() },
+            { role: 'assistant', content: avatarDoc?.content || 'Avatar sheet not yet created.' },
+            { role: 'user', content: prompt6_OfferBrief() }
+          ];
+          break;
+        }
+        case 8: {
+          // Necessary Beliefs: uses isolated context with all 3 docs injected directly
+          const researchDoc = getLatestDoc(projectId, 'research');
+          const avatarDoc = getLatestDoc(projectId, 'avatar');
+          const offerDoc = getLatestDoc(projectId, 'offer_brief');
+          messages = [
+            { role: 'user', content: prompt8_NecessaryBeliefs(
+              researchDoc?.content || '',
+              avatarDoc?.content || '',
+              offerDoc?.content || ''
+            )}
+          ];
+          break;
+        }
+        default:
+          throw new Error(`Cannot regenerate step ${targetStep.id} individually`);
+      }
+
+      const fullResponse = await chatStream(messages, (chunk) => {
+        onEvent({ type: 'chunk', step: targetStep.id, text: chunk });
+      });
+
+      saveDoc(projectId, targetStep.savedAs, fullResponse);
+      onEvent({ type: 'step_complete', step: targetStep.id, label: targetStep.label, savedAs: targetStep.savedAs });
+    }
+
+    onEvent({ type: 'complete' });
+  } catch (err) {
+    onEvent({ type: 'error', message: err.message });
+    throw err;
+  }
+}
+
+function saveDoc(projectId, docType, content, source = 'generated') {
+  const existing = getLatestDoc(projectId, docType);
+  const version = existing ? existing.version + 1 : 1;
+  const id = uuidv4();
+
+  db.prepare(`
+    INSERT INTO foundational_docs (id, project_id, doc_type, content, version, source, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, datetime('now'))
+  `).run(id, projectId, docType, content, version, source);
+
+  return id;
+}
+
+/**
+ * Generate synthesis docs (Steps 5-8) from a manually-provided research document.
+ * Skips the expensive deep research step — user provides their own research.
+ *
+ * @param {string} projectId
+ * @param {string} researchContent - The user's manually-produced research text
+ * @param {(event: object) => void} onEvent - SSE event emitter (same events as generateAllDocs)
+ */
+export async function generateFromManualResearch(projectId, researchContent, onEvent) {
+  const project = getProject(projectId);
+  if (!project) throw new Error('Project not found');
+
+  updateProject(projectId, { status: 'generating_docs' });
+
+  // Save the manual research as the 'research' doc
+  saveDoc(projectId, 'research', researchContent, 'manual_research');
+  onEvent({ type: 'step_complete', step: 4, label: 'Research (Manual Upload)', savedAs: 'research' });
+
+  // Build synthetic chat context so Steps 5-8 have the same priming
+  // they'd get in the automated flow
+  const chatMessages = [
+    {
+      role: 'user',
+      content: prompt1_AnalyzeSalesPage(
+        project.product_description,
+        project.sales_page_content || 'No sales page content provided.'
+      )
+    },
+    {
+      role: 'assistant',
+      content: 'I have analyzed the sales page content thoroughly. I understand the product positioning, claims, and target audience. Ready to proceed.'
+    },
+    {
+      role: 'user',
+      content: prompt2_ResearchMethodology()
+    },
+    {
+      role: 'assistant',
+      content: 'I have studied both research methodology documents in detail. I understand the four-layer research framework (demographic/psychographic profile, existing solution landscape, curiosity/historical angles, and corruption/fall from Eden narratives) and the practical workflow for forum mining, review mining, and subject line harvesting. Ready to proceed.'
+    },
+    {
+      role: 'user',
+      content: prompt3_GenerateResearchPrompt(project.name)
+    },
+    {
+      role: 'assistant',
+      content: 'I have generated the research prompt. Let me proceed with the research.'
+    },
+    {
+      role: 'user',
+      content: `Here is the completed deep research document for our product. Please use this as the foundation for all subsequent analysis:\n\n${researchContent}`
+    },
+    {
+      role: 'assistant',
+      content: 'I have thoroughly reviewed the research document. It contains detailed market analysis and consumer insights. I\'m ready to use this research to create the Avatar Sheet, Offer Brief, and other foundational documents. Let\'s proceed.'
+    }
+  ];
+
+  // Run only Steps 5-8 (synthesis)
+  // Trim the synthetic context to just what's needed — drop the bulky methodology prompts
+  // and keep only the role setup + research document
+  chatMessages.length = 0;
+  chatMessages.push(
+    { role: 'user', content: `You are my expert copywriter specializing in direct response copy for my ecommerce brand that sells ${project.product_description}. I've completed deep market research. Here is the research document:\n\n${researchContent}` },
+    { role: 'assistant', content: 'I\'ve thoroughly reviewed the research document. I can see the consumer insights, verbatim quotes, pain points, and market dynamics. I\'m ready to use this to create the foundational documents. Let\'s proceed.' }
+  );
+
+  const SYNTHESIS_STEPS = STEPS.filter(s => s.id >= 5);
+
+  try {
+    for (const step of SYNTHESIS_STEPS) {
+      onEvent({ type: 'step_start', step: step.id, label: step.label, mode: step.mode });
+
+      let promptText;
+      let useIsolatedContext = false;
+
+      switch (step.id) {
+        case 5:
+          promptText = prompt5_AvatarSheet();
+          break;
+        case 6:
+          promptText = prompt6_OfferBrief();
+          break;
+        case 7:
+          promptText = prompt7_E5AgoraMethodology();
+          break;
+        case 8: {
+          // Use isolated context for Step 8 to avoid token overflow
+          useIsolatedContext = true;
+          const researchDoc = getLatestDoc(projectId, 'research');
+          const avatarDoc = getLatestDoc(projectId, 'avatar');
+          const offerDoc = getLatestDoc(projectId, 'offer_brief');
+          promptText = prompt8_NecessaryBeliefs(
+            researchDoc?.content || '',
+            avatarDoc?.content || '',
+            offerDoc?.content || ''
+          );
+          break;
+        }
+      }
+
+      const messages = useIsolatedContext
+        ? [{ role: 'user', content: promptText }]
+        : (chatMessages.push({ role: 'user', content: promptText }), chatMessages);
+
+      const fullResponse = await chatStream(messages, (chunk) => {
+        onEvent({ type: 'chunk', step: step.id, text: chunk });
+      });
+
+      if (!useIsolatedContext) {
+        chatMessages.push({ role: 'assistant', content: fullResponse });
+      }
+
+      if (step.savedAs) {
+        saveDoc(projectId, step.savedAs, fullResponse);
+      }
+
+      onEvent({ type: 'step_complete', step: step.id, label: step.label, savedAs: step.savedAs });
+    }
+
+    updateProject(projectId, { status: 'docs_ready' });
+    onEvent({ type: 'complete' });
+  } catch (err) {
+    updateProject(projectId, { status: 'setup' });
+    onEvent({ type: 'error', message: err.message });
+    throw err;
+  }
+}
+
+export {
+  STEPS,
+  prompt1_AnalyzeSalesPage,
+  prompt2_ResearchMethodology,
+  prompt3_GenerateResearchPrompt
+};

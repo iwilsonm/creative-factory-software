@@ -1,0 +1,25 @@
+{
+  "name": "ad-platform-backend",
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "node --watch server.js"
+  },
+  "dependencies": {
+    "@google/genai": "^1.40.0",
+    "bcrypt": "^5.1.1",
+    "better-sqlite3": "^11.7.0",
+    "cors": "^2.8.5",
+    "express": "^4.21.0",
+    "express-rate-limit": "^7.4.1",
+    "express-session": "^1.18.1",
+    "googleapis": "^171.4.0",
+    "helmet": "^7.2.0",
+    "multer": "^1.4.5-lts.1",
+    "node-cron": "^4.2.1",
+    "openai": "^6.19.0",
+    "pdf-parse": "^1.1.1",
+    "uuid": "^9.0.1"
+  }
+}
