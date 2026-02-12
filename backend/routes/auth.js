@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import bcrypt from 'bcrypt';
 import rateLimit from 'express-rate-limit';
-import { getSetting, setSetting } from '../db.js';
+import { getSetting, setSetting } from '../convexClient.js';
 import { isSetupComplete } from '../auth.js';
 
 const router = Router();
@@ -13,8 +13,8 @@ const loginLimiter = rateLimit({
 });
 
 // Check session status + whether setup is done
-router.get('/session', (req, res) => {
-  const setupDone = isSetupComplete();
+router.get('/session', async (req, res) => {
+  const setupDone = await isSetupComplete();
   res.json({
     authenticated: !!(req.session && req.session.authenticated),
     username: req.session?.username || null,
@@ -24,7 +24,7 @@ router.get('/session', (req, res) => {
 
 // First-run setup — create account
 router.post('/setup', async (req, res) => {
-  if (isSetupComplete()) {
+  if (await isSetupComplete()) {
     return res.status(400).json({ error: 'Setup already completed' });
   }
   const { username, password } = req.body;
@@ -36,8 +36,8 @@ router.post('/setup', async (req, res) => {
   }
 
   const hash = await bcrypt.hash(password, 12);
-  setSetting('auth_username', username);
-  setSetting('auth_password_hash', hash);
+  await setSetting('auth_username', username);
+  await setSetting('auth_password_hash', hash);
 
   req.session.authenticated = true;
   req.session.username = username;
@@ -47,12 +47,12 @@ router.post('/setup', async (req, res) => {
 
 // Login
 router.post('/login', loginLimiter, async (req, res) => {
-  if (!isSetupComplete()) {
+  if (!(await isSetupComplete())) {
     return res.status(400).json({ error: 'Setup not completed. Please run setup first.' });
   }
   const { username, password } = req.body;
-  const storedUsername = getSetting('auth_username');
-  const storedHash = getSetting('auth_password_hash');
+  const storedUsername = await getSetting('auth_username');
+  const storedHash = await getSetting('auth_password_hash');
 
   if (username !== storedUsername) {
     return res.status(401).json({ error: 'Invalid credentials' });
@@ -91,14 +91,14 @@ router.put('/password', async (req, res) => {
     return res.status(400).json({ error: 'New password must be at least 6 characters' });
   }
 
-  const storedHash = getSetting('auth_password_hash');
+  const storedHash = await getSetting('auth_password_hash');
   const match = await bcrypt.compare(currentPassword, storedHash);
   if (!match) {
     return res.status(401).json({ error: 'Current password is incorrect' });
   }
 
   const hash = await bcrypt.hash(newPassword, 12);
-  setSetting('auth_password_hash', hash);
+  await setSetting('auth_password_hash', hash);
 
   res.json({ success: true });
 });

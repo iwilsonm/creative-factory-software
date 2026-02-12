@@ -1,7 +1,4 @@
 import { v4 as uuidv4 } from 'uuid';
-import fs from 'fs';
-import path from 'path';
-import { fileURLToPath } from 'url';
 import { chat, chatWithImage } from './openai.js';
 import { getClient } from './gemini.js';
 import {
@@ -12,15 +9,13 @@ import {
   reviewPromptWithGuidelines
 } from './adGenerator.js';
 import {
-  getProject, getLatestDoc, getBatchJob, updateBatchJob
-} from '../db.js';
+  getProject, getLatestDoc, getBatchJob, updateBatchJob,
+  uploadBuffer, downloadToBuffer,
+  convexClient, api
+} from '../convexClient.js';
 import { logGeminiCost } from './costTracker.js';
 import { withRetry } from './retry.js';
-import db from '../db.js';
-import { uploadFileToDrive } from '../routes/drive.js';
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const GENERATED_DIR = path.join(__dirname, '..', '..', 'data', 'generated-images');
+import { uploadBufferToDrive } from '../routes/drive.js';
 
 /**
  * Run a batch job end-to-end.
@@ -35,60 +30,62 @@ const GENERATED_DIR = path.join(__dirname, '..', '..', 'data', 'generated-images
 export async function runBatch(batchId, onProgress) {
   const emit = (event) => { if (onProgress) try { onProgress(event); } catch {} };
 
-  const batch = getBatchJob(batchId);
+  const batch = await getBatchJob(batchId);
   if (!batch) throw new Error('Batch job not found');
   if (!['pending'].includes(batch.status)) {
     throw new Error(`Batch is already ${batch.status}`);
   }
 
-  const project = getProject(batch.project_id);
+  const project = await getProject(batch.project_id);
   if (!project) {
-    updateBatchJob(batchId, { status: 'failed', error_message: 'Project not found.' });
+    await updateBatchJob(batchId, { status: 'failed', error_message: 'Project not found.' });
     throw new Error('Project not found');
   }
 
   // Load foundational docs
   const docs = {
-    research: getLatestDoc(batch.project_id, 'research'),
-    avatar: getLatestDoc(batch.project_id, 'avatar'),
-    offer_brief: getLatestDoc(batch.project_id, 'offer_brief'),
-    necessary_beliefs: getLatestDoc(batch.project_id, 'necessary_beliefs')
+    research: await getLatestDoc(batch.project_id, 'research'),
+    avatar: await getLatestDoc(batch.project_id, 'avatar'),
+    offer_brief: await getLatestDoc(batch.project_id, 'offer_brief'),
+    necessary_beliefs: await getLatestDoc(batch.project_id, 'necessary_beliefs')
   };
 
   const docCount = Object.values(docs).filter(d => d && d.content).length;
   if (docCount === 0) {
-    updateBatchJob(batchId, { status: 'failed', error_message: 'No foundational documents found. Generate docs first.' });
+    await updateBatchJob(batchId, { status: 'failed', error_message: 'No foundational documents found. Generate docs first.' });
     throw new Error('No foundational documents found.');
   }
 
   try {
     // Phase 1: Generate GPT prompts
-    updateBatchJob(batchId, { status: 'generating_prompts' });
+    await updateBatchJob(batchId, { status: 'generating_prompts' });
     emit({ type: 'status', status: 'generating_prompts', message: `Generating ${batch.batch_size} prompts via GPT-5.2...` });
 
     const prompts = await generateBatchPrompts(batch, project, docs, onProgress);
 
     // Store prompts in DB
-    updateBatchJob(batchId, { gpt_prompts: JSON.stringify(prompts), status: 'submitting' });
+    await updateBatchJob(batchId, { gpt_prompts: JSON.stringify(prompts), status: 'submitting' });
     emit({ type: 'status', status: 'submitting', message: 'Submitting to Gemini Batch API...' });
 
-    // Load product image if configured
+    // Load product image if configured (from Convex storage)
     let productImageData = null;
-    if (batch.product_image_path && fs.existsSync(batch.product_image_path)) {
-      const imgBuffer = fs.readFileSync(batch.product_image_path);
-      const ext = path.extname(batch.product_image_path).toLowerCase().replace('.', '');
-      const mimeMap = { jpg: 'image/jpeg', jpeg: 'image/jpeg', png: 'image/png', webp: 'image/webp', gif: 'image/gif' };
-      productImageData = {
-        base64: imgBuffer.toString('base64'),
-        mimeType: mimeMap[ext] || 'image/png'
-      };
-      console.log(`[BatchProcessor] Product image loaded (${(imgBuffer.length / 1024).toFixed(0)} KB)`);
+    if (batch.product_image_storageId) {
+      try {
+        const imgBuffer = await downloadToBuffer(batch.product_image_storageId);
+        productImageData = {
+          base64: imgBuffer.toString('base64'),
+          mimeType: 'image/png'
+        };
+        console.log(`[BatchProcessor] Product image loaded from Convex (${(imgBuffer.length / 1024).toFixed(0)} KB)`);
+      } catch (err) {
+        console.warn(`[BatchProcessor] Could not load product image from Convex: ${err.message}`);
+      }
     }
 
     // Phase 2: Submit to Gemini Batch API
     const geminiBatchName = await submitGeminiBatch(batchId, prompts, batch.aspect_ratio, project.name, productImageData);
 
-    updateBatchJob(batchId, {
+    await updateBatchJob(batchId, {
       gemini_batch_job: geminiBatchName,
       status: 'processing'
     });
@@ -97,7 +94,7 @@ export async function runBatch(batchId, onProgress) {
     console.log(`[BatchProcessor] Batch ${batchId.slice(0, 8)} submitted. Gemini job: ${geminiBatchName}`);
 
   } catch (err) {
-    updateBatchJob(batchId, { status: 'failed', error_message: err.message });
+    await updateBatchJob(batchId, { status: 'failed', error_message: err.message });
     emit({ type: 'error', error: err.message });
     console.error(`[BatchProcessor] Batch ${batchId.slice(0, 8)} failed:`, err.message);
     throw err;
@@ -127,13 +124,13 @@ async function generateBatchPrompts(batch, project, docs, onProgress) {
       let imageData;
       if (batch.generation_mode === 'mode2' && batch.template_image_id) {
         // Mode 2: Use the same uploaded template for every ad
-        imageData = selectTemplateImage(batch.template_image_id);
+        imageData = await selectTemplateImage(batch.template_image_id);
       } else if (batch.inspiration_image_id) {
         // Mode 1 with a specific Drive template: use the same one for every ad
-        imageData = selectInspirationImage(batch.project_id, batch.inspiration_image_id);
+        imageData = await selectInspirationImage(batch.project_id, batch.inspiration_image_id);
       } else {
         // Mode 1 random: pick a different random template each time
-        imageData = selectInspirationImage(batch.project_id, null);
+        imageData = await selectInspirationImage(batch.project_id, null);
       }
 
       // GPT-5.2 Message 1: Creative director prompt
@@ -188,7 +185,7 @@ async function generateBatchPrompts(batch, project, docs, onProgress) {
  * Submit prompts to Gemini Batch API.
  */
 async function submitGeminiBatch(batchId, prompts, aspectRatio, projectName, productImageData = null) {
-  const ai = getClient();
+  const ai = await getClient();
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 16);
 
   // Build inline requests (with optional product image)
@@ -235,10 +232,10 @@ async function submitGeminiBatch(batchId, prompts, aspectRatio, projectName, pro
  * @returns {'processing'|'completed'|'failed'}
  */
 export async function pollBatchJob(batchId) {
-  const batch = getBatchJob(batchId);
+  const batch = await getBatchJob(batchId);
   if (!batch || !batch.gemini_batch_job) return 'failed';
 
-  const ai = getClient();
+  const ai = await getClient();
 
   try {
     const job = await withRetry(
@@ -250,13 +247,13 @@ export async function pollBatchJob(batchId) {
       await processBatchResults(batchId, job);
       return 'completed';
     } else if (job.state === 'JOB_STATE_FAILED' || job.state === 'JOB_STATE_EXPIRED') {
-      updateBatchJob(batchId, {
+      await updateBatchJob(batchId, {
         status: 'failed',
         error_message: `Gemini batch job ${job.state.replace('JOB_STATE_', '').toLowerCase()}`
       });
       return 'failed';
     } else if (job.state === 'JOB_STATE_CANCELLED') {
-      updateBatchJob(batchId, {
+      await updateBatchJob(batchId, {
         status: 'failed',
         error_message: 'Gemini batch job was cancelled'
       });
@@ -272,7 +269,7 @@ export async function pollBatchJob(batchId) {
         failedCount: job.batchStats.failedCount || 0,
         totalCount: job.batchStats.totalCount || 0
       };
-      updateBatchJob(batchId, { batch_stats: JSON.stringify(stats) });
+      await updateBatchJob(batchId, { batch_stats: JSON.stringify(stats) });
       console.log(`[BatchProcessor] Batch ${batchId.slice(0, 8)}: ${stats.successfulCount} done, ${stats.processingCount} processing`);
     }
     return 'processing';
@@ -285,21 +282,18 @@ export async function pollBatchJob(batchId) {
 }
 
 /**
- * Process completed batch results: extract images, save to disk,
+ * Process completed batch results: extract images, upload to Convex storage,
  * upload to Drive, create ad_creative records.
  */
 async function processBatchResults(batchId, job) {
-  const batch = getBatchJob(batchId);
+  const batch = await getBatchJob(batchId);
   if (!batch) throw new Error('Batch not found');
 
-  const project = getProject(batch.project_id);
+  const project = await getProject(batch.project_id);
   const prompts = JSON.parse(batch.gpt_prompts || '[]');
 
   // Get responses from the batch job
   const responses = job.dest?.inlinedResponses || [];
-
-  const projectImageDir = path.join(GENERATED_DIR, batch.project_id);
-  if (!fs.existsSync(projectImageDir)) fs.mkdirSync(projectImageDir, { recursive: true });
 
   let savedCount = 0;
   let failedCount = 0;
@@ -331,51 +325,51 @@ async function processBatchResults(batchId, job) {
         continue;
       }
 
+      // Upload image to Convex storage
+      const storageId = await uploadBuffer(imageBuffer, mimeType);
+
       // Create ad_creative record
       const adId = uuidv4();
-      const ext = mimeType === 'image/jpeg' ? '.jpg' : '.png';
-      const imageFileName = `${adId}${ext}`;
-      const imagePath = path.join(projectImageDir, imageFileName);
-
-      fs.writeFileSync(imagePath, imageBuffer);
-
-      db.prepare(`
-        INSERT INTO ad_creatives (id, project_id, generation_mode, angle,
-          image_prompt, gpt_creative_output, aspect_ratio, image_path,
-          status, auto_generated, template_image_id)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'completed', 1, ?)
-      `).run(
-        adId, batch.project_id, batch.generation_mode,
-        batch.angle || null,
-        prompts[i] || null,
-        prompts[i] || null,
-        batch.aspect_ratio,
-        imagePath,
-        batch.template_image_id || null
-      );
+      await convexClient.mutation(api.adCreatives.create, {
+        externalId: adId,
+        project_id: batch.project_id,
+        generation_mode: batch.generation_mode,
+        angle: batch.angle || undefined,
+        image_prompt: prompts[i] || undefined,
+        gpt_creative_output: prompts[i] || undefined,
+        aspect_ratio: batch.aspect_ratio,
+        storageId,
+        status: 'completed',
+        auto_generated: true,
+        template_image_id: batch.template_image_id || undefined,
+      });
 
       // Upload to Drive
       if (project && project.drive_folder_id) {
         try {
+          const ext = mimeType === 'image/jpeg' ? '.jpg' : '.png';
           const slugAngle = batch.angle
             ? batch.angle.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 30)
             : 'batch';
           const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 16);
           const driveName = `${project.name}_Batch_${slugAngle}_${i + 1}_${ts}${ext}`;
-          const driveResult = await uploadFileToDrive(imagePath, driveName, project.drive_folder_id, mimeType);
+          const driveResult = await uploadBufferToDrive(imageBuffer, driveName, project.drive_folder_id, mimeType);
 
-          db.prepare('UPDATE ad_creatives SET drive_file_id = ?, drive_url = ? WHERE id = ?')
-            .run(driveResult.fileId, driveResult.webViewLink, adId);
+          await convexClient.mutation(api.adCreatives.update, {
+            externalId: adId,
+            drive_file_id: driveResult.fileId,
+            drive_url: driveResult.webViewLink,
+          });
         } catch (driveErr) {
           console.error(`[BatchProcessor] Drive upload failed for image ${i}:`, driveErr.message);
-          // Non-fatal — image is still saved locally
+          // Non-fatal — image is still saved in Convex storage
         }
       }
 
       savedCount++;
 
       // Log Gemini cost with batch discount (fire-and-forget)
-      try { logGeminiCost(batch.project_id, 1, '2K', true); } catch {}
+      try { await logGeminiCost(batch.project_id, 1, '2K', true); } catch {}
 
     } catch (err) {
       console.error(`[BatchProcessor] Failed to process result ${i}:`, err.message);
@@ -383,7 +377,7 @@ async function processBatchResults(batchId, job) {
     }
   }
 
-  updateBatchJob(batchId, {
+  await updateBatchJob(batchId, {
     status: 'completed',
     completed_at: new Date().toISOString(),
     completed_count: savedCount

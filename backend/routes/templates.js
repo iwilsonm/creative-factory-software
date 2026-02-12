@@ -3,19 +3,17 @@ import { v4 as uuidv4 } from 'uuid';
 import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
+import os from 'os';
 import { fileURLToPath } from 'url';
 import { requireAuth } from '../auth.js';
-import { getProject } from '../db.js';
-import db from '../db.js';
+import { getProject, uploadBuffer, getTemplateImageUrl, convexClient, api } from '../convexClient.js';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const TEMPLATES_DIR = path.join(__dirname, '..', '..', 'data', 'templates');
+const router = Router();
+router.use(requireAuth);
 
-// Ensure templates dir exists
-if (!fs.existsSync(TEMPLATES_DIR)) fs.mkdirSync(TEMPLATES_DIR, { recursive: true });
-
+// Use os.tmpdir() for multer uploads — we read and upload to Convex, then delete
 const upload = multer({
-  dest: TEMPLATES_DIR,
+  dest: os.tmpdir(),
   limits: { fileSize: 20 * 1024 * 1024 }, // 20MB
   fileFilter: (req, file, cb) => {
     const allowed = ['.jpg', '.jpeg', '.png', '.webp', '.gif'];
@@ -28,30 +26,40 @@ const upload = multer({
   }
 });
 
-const router = Router();
-router.use(requireAuth);
+// MIME type detection from extension
+const EXT_TO_MIME = {
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.png': 'image/png',
+  '.webp': 'image/webp',
+  '.gif': 'image/gif',
+};
 
 // List all template images for a project
-router.get('/:projectId/templates', (req, res) => {
-  const project = getProject(req.params.projectId);
+router.get('/:projectId/templates', async (req, res) => {
+  const project = await getProject(req.params.projectId);
   if (!project) return res.status(404).json({ error: 'Project not found' });
 
-  const templates = db.prepare(
-    'SELECT * FROM template_images WHERE project_id = ? ORDER BY created_at DESC'
-  ).all(req.params.projectId);
+  const templates = await convexClient.query(api.templateImages.getByProject, {
+    projectId: req.params.projectId,
+  });
 
   // Add thumbnail URLs
   const withUrls = templates.map(t => ({
-    ...t,
-    thumbnailUrl: `/api/projects/${req.params.projectId}/templates/${t.id}/file`
+    id: t.externalId,
+    project_id: t.project_id,
+    filename: t.filename,
+    description: t.description || '',
+    created_at: t.created_at,
+    thumbnailUrl: `/api/projects/${req.params.projectId}/templates/${t.externalId}/file`
   }));
 
   res.json({ templates: withUrls, total: withUrls.length });
 });
 
 // Upload a new template image
-router.post('/:projectId/templates', upload.single('image'), (req, res) => {
-  const project = getProject(req.params.projectId);
+router.post('/:projectId/templates', upload.single('image'), async (req, res) => {
+  const project = await getProject(req.params.projectId);
   if (!project) return res.status(404).json({ error: 'Project not found' });
 
   if (!req.file) return res.status(400).json({ error: 'No image file provided' });
@@ -59,25 +67,30 @@ router.post('/:projectId/templates', upload.single('image'), (req, res) => {
   try {
     const id = uuidv4();
     const ext = path.extname(req.file.originalname).toLowerCase();
-    const projectDir = path.join(TEMPLATES_DIR, req.params.projectId);
-    fs.mkdirSync(projectDir, { recursive: true });
+    const mimeType = EXT_TO_MIME[ext] || 'application/octet-stream';
 
-    const filename = `${id}${ext}`;
-    const filePath = path.join(projectDir, filename);
+    // Read file into buffer and upload to Convex
+    const buffer = fs.readFileSync(req.file.path);
+    const storageId = await uploadBuffer(buffer, mimeType);
 
-    // Move uploaded file to project directory with proper name
-    fs.renameSync(req.file.path, filePath);
+    // Clean up temp file
+    fs.unlinkSync(req.file.path);
 
     const description = req.body.description || '';
 
-    db.prepare(`
-      INSERT INTO template_images (id, project_id, filename, file_path, description)
-      VALUES (?, ?, ?, ?, ?)
-    `).run(id, req.params.projectId, req.file.originalname, filePath, description);
+    await convexClient.mutation(api.templateImages.create, {
+      externalId: id,
+      project_id: req.params.projectId,
+      filename: req.file.originalname,
+      storageId,
+      description,
+    });
 
-    const template = db.prepare('SELECT * FROM template_images WHERE id = ?').get(id);
     res.json({
-      ...template,
+      id,
+      project_id: req.params.projectId,
+      filename: req.file.originalname,
+      description,
       thumbnailUrl: `/api/projects/${req.params.projectId}/templates/${id}/file`
     });
   } catch (err) {
@@ -90,54 +103,56 @@ router.post('/:projectId/templates', upload.single('image'), (req, res) => {
 });
 
 // Update template description
-router.put('/:projectId/templates/:imageId', (req, res) => {
-  const template = db.prepare(
-    'SELECT * FROM template_images WHERE id = ? AND project_id = ?'
-  ).get(req.params.imageId, req.params.projectId);
-  if (!template) return res.status(404).json({ error: 'Template not found' });
+router.put('/:projectId/templates/:imageId', async (req, res) => {
+  const template = await convexClient.query(api.templateImages.getByExternalId, {
+    externalId: req.params.imageId,
+  });
+  if (!template || template.project_id !== req.params.projectId) {
+    return res.status(404).json({ error: 'Template not found' });
+  }
 
   const { description } = req.body;
   if (description === undefined) return res.status(400).json({ error: 'Description is required' });
 
-  db.prepare('UPDATE template_images SET description = ? WHERE id = ?').run(description, req.params.imageId);
+  await convexClient.mutation(api.templateImages.update, {
+    externalId: req.params.imageId,
+    description,
+  });
 
-  const updated = db.prepare('SELECT * FROM template_images WHERE id = ?').get(req.params.imageId);
   res.json({
-    ...updated,
-    thumbnailUrl: `/api/projects/${req.params.projectId}/templates/${updated.id}/file`
+    id: template.externalId,
+    project_id: template.project_id,
+    filename: template.filename,
+    description,
+    created_at: template.created_at,
+    thumbnailUrl: `/api/projects/${req.params.projectId}/templates/${template.externalId}/file`
   });
 });
 
 // Delete a template image
-router.delete('/:projectId/templates/:imageId', (req, res) => {
-  const template = db.prepare(
-    'SELECT * FROM template_images WHERE id = ? AND project_id = ?'
-  ).get(req.params.imageId, req.params.projectId);
-  if (!template) return res.status(404).json({ error: 'Template not found' });
-
-  // Delete the file
-  if (template.file_path && fs.existsSync(template.file_path)) {
-    fs.unlinkSync(template.file_path);
+router.delete('/:projectId/templates/:imageId', async (req, res) => {
+  const template = await convexClient.query(api.templateImages.getByExternalId, {
+    externalId: req.params.imageId,
+  });
+  if (!template || template.project_id !== req.params.projectId) {
+    return res.status(404).json({ error: 'Template not found' });
   }
 
-  // Delete from DB
-  db.prepare('DELETE FROM template_images WHERE id = ?').run(req.params.imageId);
+  // Delete from Convex (also deletes storage file)
+  await convexClient.mutation(api.templateImages.remove, {
+    externalId: req.params.imageId,
+  });
 
   res.json({ success: true, id: req.params.imageId });
 });
 
-// Serve template image file
-router.get('/:projectId/templates/:imageId/file', (req, res) => {
-  const template = db.prepare(
-    'SELECT * FROM template_images WHERE id = ? AND project_id = ?'
-  ).get(req.params.imageId, req.params.projectId);
-  if (!template) return res.status(404).json({ error: 'Template not found' });
-
-  if (!template.file_path || !fs.existsSync(template.file_path)) {
+// Serve template image file (redirect to Convex storage URL)
+router.get('/:projectId/templates/:imageId/file', async (req, res) => {
+  const url = await getTemplateImageUrl(req.params.imageId);
+  if (!url) {
     return res.status(404).json({ error: 'Image file not found' });
   }
-
-  res.sendFile(template.file_path);
+  res.redirect(url);
 });
 
 export default router;

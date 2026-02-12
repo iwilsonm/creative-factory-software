@@ -1,5 +1,5 @@
 import cron from 'node-cron';
-import { getActiveBatchJobs, getScheduledBatchJobs, getBatchJob, updateBatchJob } from '../db.js';
+import { getActiveBatchJobs, getScheduledBatchJobs, getBatchJob, updateBatchJob } from '../convexClient.js';
 import { runBatch, pollBatchJob } from './batchProcessor.js';
 import { syncOpenAICosts, refreshGeminiRates } from './costTracker.js';
 
@@ -11,11 +11,11 @@ const activeCronJobs = new Map(); // batchId -> cron.ScheduledTask
  * 1. Register cron jobs for all scheduled batches
  * 2. Start polling loop for active (processing) batch jobs
  */
-export function initScheduler() {
+export async function initScheduler() {
   console.log('[Scheduler] Initializing...');
 
   // Register scheduled batches
-  loadScheduledBatches();
+  await loadScheduledBatches();
 
   // Poll active batch jobs every 5 minutes
   cron.schedule('*/5 * * * *', async () => {
@@ -38,14 +38,14 @@ export function initScheduler() {
 /**
  * Load all scheduled batch jobs from DB and register cron tasks.
  */
-export function loadScheduledBatches() {
+export async function loadScheduledBatches() {
   // Clear existing cron jobs
   for (const [, task] of activeCronJobs) {
     task.stop();
   }
   activeCronJobs.clear();
 
-  const scheduled = getScheduledBatchJobs();
+  const scheduled = await getScheduledBatchJobs();
   for (const batch of scheduled) {
     registerCronJob(batch);
   }
@@ -73,7 +73,7 @@ export function registerCronJob(batch) {
     console.log(`[Scheduler] Triggering scheduled batch ${batch.id.slice(0, 8)}`);
     try {
       // Re-fetch to ensure it still exists and is still scheduled
-      const current = getBatchJob(batch.id);
+      const current = await getBatchJob(batch.id);
       if (!current || !current.scheduled) {
         task.stop();
         activeCronJobs.delete(batch.id);
@@ -83,7 +83,7 @@ export function registerCronJob(batch) {
       // Only run if not already running
       if (['pending', 'completed', 'failed'].includes(current.status)) {
         // Reset status to pending for re-execution
-        updateBatchJob(batch.id, { status: 'pending', error_message: null });
+        await updateBatchJob(batch.id, { status: 'pending', error_message: null });
         await runBatch(batch.id);
       } else {
         console.log(`[Scheduler] Batch ${batch.id.slice(0, 8)} already ${current.status}, skipping.`);
@@ -111,7 +111,7 @@ export function unregisterCronJob(batchId) {
  * Poll all active (processing/submitting) batch jobs for completion.
  */
 async function pollActiveBatches() {
-  const active = getActiveBatchJobs();
+  const active = await getActiveBatchJobs();
   if (active.length === 0) return;
 
   console.log(`[Scheduler] Polling ${active.length} active batch job(s)...`);
@@ -121,13 +121,13 @@ async function pollActiveBatches() {
       const result = await pollBatchJob(batch.id);
       if (result === 'failed') {
         // Check if eligible for auto-retry
-        const current = getBatchJob(batch.id);
+        const current = await getBatchJob(batch.id);
         const retryCount = current?.retry_count || 0;
         if (retryCount < 3 && current?.error_message !== 'Cancelled by user') {
           const delay = Math.pow(2, retryCount) * 60000; // 1m, 2m, 4m
           console.log(`[Scheduler] Batch ${batch.id.slice(0, 8)}: auto-retry ${retryCount + 1}/3 in ${delay / 1000}s`);
           setTimeout(async () => {
-            updateBatchJob(batch.id, {
+            await updateBatchJob(batch.id, {
               status: 'pending',
               error_message: null,
               retry_count: retryCount + 1

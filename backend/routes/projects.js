@@ -8,35 +8,37 @@ import {
   updateProject,
   deleteProject,
   getProjectStats
-} from '../db.js';
+} from '../convexClient.js';
 
 const router = Router();
 router.use(requireAuth);
 
 // List all projects
-router.get('/', (req, res) => {
-  const projects = getAllProjects();
-  const projectsWithStats = projects.map(p => ({
-    ...p,
-    ...getProjectStats(p.id)
-  }));
+router.get('/', async (req, res) => {
+  const projects = await getAllProjects();
+  const projectsWithStats = [];
+  for (const p of projects) {
+    const stats = await getProjectStats(p.id);
+    projectsWithStats.push({ ...p, ...stats });
+  }
   res.json(projectsWithStats);
 });
 
 // Get single project
-router.get('/:id', (req, res) => {
-  const project = getProject(req.params.id);
+router.get('/:id', async (req, res) => {
+  const project = await getProject(req.params.id);
   if (!project) return res.status(404).json({ error: 'Project not found' });
-  res.json({ ...project, ...getProjectStats(project.id) });
+  const stats = await getProjectStats(project.id);
+  res.json({ ...project, ...stats });
 });
 
 // Create project
-router.post('/', (req, res) => {
+router.post('/', async (req, res) => {
   const { name, brand_name, niche, product_description, sales_page_content, drive_folder_id, inspiration_folder_id } = req.body;
   if (!name) return res.status(400).json({ error: 'Project name is required' });
 
   const id = uuidv4();
-  createProject({
+  await createProject({
     id,
     name,
     brand_name: brand_name || '',
@@ -47,26 +49,26 @@ router.post('/', (req, res) => {
     inspiration_folder_id: inspiration_folder_id || ''
   });
 
-  const project = getProject(id);
+  const project = await getProject(id);
   res.status(201).json(project);
 });
 
 // Update project
-router.put('/:id', (req, res) => {
-  const project = getProject(req.params.id);
+router.put('/:id', async (req, res) => {
+  const project = await getProject(req.params.id);
   if (!project) return res.status(404).json({ error: 'Project not found' });
 
-  updateProject(req.params.id, req.body);
-  const updated = getProject(req.params.id);
+  await updateProject(req.params.id, req.body);
+  const updated = await getProject(req.params.id);
   res.json(updated);
 });
 
 // Delete project
-router.delete('/:id', (req, res) => {
-  const project = getProject(req.params.id);
+router.delete('/:id', async (req, res) => {
+  const project = await getProject(req.params.id);
   if (!project) return res.status(404).json({ error: 'Project not found' });
 
-  deleteProject(req.params.id);
+  await deleteProject(req.params.id);
   res.json({ success: true });
 });
 

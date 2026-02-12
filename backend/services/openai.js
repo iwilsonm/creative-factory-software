@@ -1,29 +1,26 @@
 import OpenAI from 'openai';
-import { getSetting } from '../db.js';
+import { getSetting } from '../convexClient.js';
 import { withRetry } from './retry.js';
 
 let client = null;
+let lastApiKey = null;
 
-function getClient() {
-  const apiKey = getSetting('openai_api_key');
+async function getClient() {
+  const apiKey = await getSetting('openai_api_key');
   if (!apiKey) throw new Error('OpenAI API key not configured. Set it in Settings.');
   // Recreate if key changed
-  if (!client || client.apiKey !== apiKey) {
+  if (!client || lastApiKey !== apiKey) {
     client = new OpenAI({ apiKey });
+    lastApiKey = apiKey;
   }
   return client;
 }
 
 /**
  * Send a multi-turn conversation to GPT and stream the response (Chat Completions API).
- * Used for prep/synthesis steps that don't need deep research.
- * @param {Array} messages - OpenAI chat messages array
- * @param {(chunk: string) => void} onChunk - Called with each text delta
- * @param {string} model - Model to use (default: gpt-4.1)
- * @returns {Promise<string>} The full assistant response
  */
 export async function chatStream(messages, onChunk, model = 'gpt-4.1') {
-  const openai = getClient();
+  const openai = await getClient();
   const stream = await withRetry(
     () => openai.chat.completions.create({ model, messages, stream: true }),
     { label: '[OpenAI chatStream]' }
@@ -42,13 +39,9 @@ export async function chatStream(messages, onChunk, model = 'gpt-4.1') {
 
 /**
  * Send a multi-turn conversation to GPT and get the full response (no streaming).
- * Used for quick tasks like auto-describe.
- * @param {Array} messages - OpenAI chat messages array
- * @param {string} model - Model to use (default: gpt-4.1)
- * @returns {Promise<string>} The assistant response
  */
 export async function chat(messages, model = 'gpt-4.1') {
-  const openai = getClient();
+  const openai = await getClient();
   const response = await withRetry(
     () => openai.chat.completions.create({ model, messages }),
     { label: '[OpenAI chat]' }
@@ -58,28 +51,17 @@ export async function chat(messages, model = 'gpt-4.1') {
 
 /**
  * Run a deep research query using the Responses API with o3-deep-research.
- * This uses background mode since deep research can take 5-15+ minutes.
- *
- * @param {string} prompt - The fully-formed research prompt
- * @param {object} options
- * @param {string} options.instructions - System-level instructions for the researcher
- * @param {(status: object) => void} options.onProgress - Called with status updates during polling
- * @param {number} options.pollIntervalMs - Polling interval (default: 5000ms)
- * @param {number} options.timeoutMs - Max wait time (default: 30 minutes)
- * @param {string} options.model - Deep research model (default: o3-deep-research)
- * @returns {Promise<{ text: string, citations: Array }>} The research report and citations
  */
 export async function deepResearch(prompt, options = {}) {
-  const openai = getClient();
+  const openai = await getClient();
   const {
     instructions,
     onProgress,
     pollIntervalMs = 5000,
-    timeoutMs = 30 * 60 * 1000, // 30 minutes
+    timeoutMs = 30 * 60 * 1000,
     model = 'o3-deep-research'
   } = options;
 
-  // Build the input messages
   const input = [];
   if (instructions) {
     input.push({
@@ -92,7 +74,6 @@ export async function deepResearch(prompt, options = {}) {
     content: [{ type: 'input_text', text: prompt }]
   });
 
-  // Create the deep research request in background mode
   let response = await withRetry(
     () => openai.responses.create({
       model,
@@ -115,25 +96,20 @@ export async function deepResearch(prompt, options = {}) {
     });
   }
 
-  // Poll for completion
   const startTime = Date.now();
   while (response.status === 'queued' || response.status === 'in_progress') {
-    // Check timeout
     if (Date.now() - startTime > timeoutMs) {
       throw new Error(`Deep research timed out after ${timeoutMs / 1000 / 60} minutes`);
     }
 
-    // Wait before polling
     await new Promise(resolve => setTimeout(resolve, pollIntervalMs));
 
-    // Retrieve updated status
     response = await withRetry(
       () => openai.responses.retrieve(response.id),
       { label: '[OpenAI deepResearch poll]', maxRetries: 2 }
     );
 
     if (onProgress) {
-      // Try to extract some progress info from intermediate output
       const searchCalls = (response.output || []).filter(o => o.type === 'web_search_call');
       const reasoningSteps = (response.output || []).filter(o => o.type === 'reasoning');
 
@@ -147,7 +123,6 @@ export async function deepResearch(prompt, options = {}) {
     }
   }
 
-  // Check for failure
   if (response.status === 'failed') {
     const errorMsg = response.error?.message || 'Deep research failed with unknown error';
     throw new Error(`Deep research failed: ${errorMsg}`);
@@ -157,13 +132,11 @@ export async function deepResearch(prompt, options = {}) {
     throw new Error('Deep research was cancelled');
   }
 
-  // Extract the final report text and citations
   const outputMessage = (response.output || []).find(
     o => o.type === 'message' && o.role === 'assistant'
   );
 
   if (!outputMessage) {
-    // Fallback: try output_text
     if (response.output_text) {
       return { text: response.output_text, citations: [] };
     }
@@ -192,15 +165,9 @@ export async function deepResearch(prompt, options = {}) {
 
 /**
  * Send a message with an image (base64) to GPT.
- * @param {Array} messages - Existing conversation messages
- * @param {string} text - Text prompt
- * @param {string} base64Image - Base64-encoded image
- * @param {string} mimeType - e.g. 'image/png'
- * @param {string} model - Model to use (default: gpt-4.1)
- * @returns {Promise<string>} The assistant response
  */
 export async function chatWithImage(messages, text, base64Image, mimeType, model = 'gpt-4.1') {
-  const openai = getClient();
+  const openai = await getClient();
   const newMessage = {
     role: 'user',
     content: [
@@ -218,14 +185,9 @@ export async function chatWithImage(messages, text, base64Image, mimeType, model
 
 /**
  * Send a message with multiple images (base64) to GPT.
- * @param {Array} messages - Existing conversation messages
- * @param {string} text - Text prompt
- * @param {Array<{ base64: string, mimeType: string }>} images - Array of images to attach
- * @param {string} model - Model to use (default: gpt-4.1)
- * @returns {Promise<string>} The assistant response
  */
 export async function chatWithImages(messages, text, images, model = 'gpt-4.1') {
-  const openai = getClient();
+  const openai = await getClient();
   const content = [
     { type: 'text', text }
   ];

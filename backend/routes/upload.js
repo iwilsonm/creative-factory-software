@@ -3,17 +3,14 @@ import multer from 'multer';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import fs from 'fs';
+import os from 'os';
 import { createRequire } from 'module';
 const require = createRequire(import.meta.url);
 const pdf = require('pdf-parse');
 import { requireAuth } from '../auth.js';
-import { getSetting } from '../db.js';
+import { getSetting } from '../convexClient.js';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const uploadDir = path.join(__dirname, '..', '..', 'data', 'uploads');
-
-// Ensure uploads dir exists
-if (!fs.existsSync(uploadDir)) fs.mkdirSync(uploadDir, { recursive: true });
+const uploadDir = os.tmpdir();
 
 const upload = multer({
   dest: uploadDir,
@@ -75,7 +72,7 @@ router.post('/auto-describe', async (req, res) => {
   const { sales_page_content } = req.body;
   if (!sales_page_content) return res.status(400).json({ error: 'Sales page content is required' });
 
-  const apiKey = getSetting('openai_api_key');
+  const apiKey = await getSetting('openai_api_key');
   if (!apiKey) return res.status(400).json({ error: 'OpenAI API key not configured. Set it in Settings first.' });
 
   try {

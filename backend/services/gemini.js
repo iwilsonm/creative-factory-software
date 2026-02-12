@@ -1,12 +1,12 @@
 import { GoogleGenAI } from '@google/genai';
-import { getSetting } from '../db.js';
+import { getSetting } from '../convexClient.js';
 import { withRetry } from './retry.js';
 
 let client = null;
 let lastApiKey = null;
 
-function getClient() {
-  const apiKey = getSetting('gemini_api_key');
+async function getClient() {
+  const apiKey = await getSetting('gemini_api_key');
   if (!apiKey) throw new Error('Gemini API key not configured. Set it in Settings.');
   // Recreate if key changed
   if (!client || lastApiKey !== apiKey) {
@@ -18,20 +18,12 @@ function getClient() {
 
 /**
  * Generate an image using Nano Banana Pro (Gemini 3 Pro Image Preview).
- * @param {string} prompt - The complete image generation prompt (from GPT-5.2 creative director)
- * @param {string} aspectRatio - Aspect ratio (default: "1:1")
- * @param {object} [productImage] - Optional product image to attach alongside the prompt
- * @param {string} productImage.base64 - Base64-encoded image data
- * @param {string} productImage.mimeType - MIME type (e.g. 'image/png')
- * @returns {{ imageBuffer: Buffer, mimeType: string, textResponse: string }}
  */
 export async function generateImage(prompt, aspectRatio = '1:1', productImage = null) {
-  const ai = getClient();
+  const ai = await getClient();
 
-  // Build contents: text prompt + optional product image
   let contents;
   if (productImage) {
-    // Multimodal: text + image parts
     contents = [
       { text: prompt },
       {
@@ -42,7 +34,6 @@ export async function generateImage(prompt, aspectRatio = '1:1', productImage = 
       }
     ];
   } else {
-    // Text-only prompt
     contents = prompt;
   }
 
@@ -61,7 +52,6 @@ export async function generateImage(prompt, aspectRatio = '1:1', productImage = 
     { label: '[Gemini generateImage]', maxRetries: 2 }
   );
 
-  // Extract image and text from response
   let imageBuffer = null;
   let mimeType = 'image/png';
   let textResponse = '';
@@ -70,7 +60,6 @@ export async function generateImage(prompt, aspectRatio = '1:1', productImage = 
     const parts = response.candidates[0].content?.parts || [];
     for (const part of parts) {
       if (part.inlineData) {
-        // Image data - decode from base64
         imageBuffer = Buffer.from(part.inlineData.data, 'base64');
         mimeType = part.inlineData.mimeType || 'image/png';
       } else if (part.text) {
@@ -86,5 +75,4 @@ export async function generateImage(prompt, aspectRatio = '1:1', productImage = 
   return { imageBuffer, mimeType, textResponse };
 }
 
-// Export client getter for batch API access (ai.batches.create, ai.batches.get)
 export { getClient };

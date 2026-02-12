@@ -1,8 +1,6 @@
 import { Router } from 'express';
-import fs from 'fs';
 import { requireAuth } from '../auth.js';
-import { getProject, getAdsByProject } from '../db.js';
-import db from '../db.js';
+import { getProject, getAdsByProject, getAd, getAdImageUrl, convexClient, api } from '../convexClient.js';
 import { generateAd, generateAdMode2, regenerateImageOnly } from '../services/adGenerator.js';
 
 const router = Router();
@@ -10,7 +8,7 @@ router.use(requireAuth);
 
 // Generate an ad creative (SSE stream)
 router.post('/:projectId/generate-ad', async (req, res) => {
-  const project = getProject(req.params.projectId);
+  const project = await getProject(req.params.projectId);
   if (!project) return res.status(404).json({ error: 'Project not found' });
 
   const { mode = 'mode1', aspect_ratio, angle, inspiration_image_id, uploaded_image, uploaded_image_mime, product_image, product_image_mime, headline, body_copy, template_image_id } = req.body;
@@ -28,7 +26,7 @@ router.post('/:projectId/generate-ad', async (req, res) => {
     'Content-Type': 'text/event-stream',
     'Cache-Control': 'no-cache',
     'Connection': 'keep-alive',
-    'X-Accel-Buffering': 'no' // nginx SSE support
+    'X-Accel-Buffering': 'no'
   });
 
   const sendEvent = (data) => {
@@ -39,7 +37,6 @@ router.post('/:projectId/generate-ad', async (req, res) => {
     let ad;
 
     if (mode === 'mode2') {
-      // Mode 2: Template-based generation
       ad = await generateAdMode2(req.params.projectId, {
         templateImageId: template_image_id,
         angle,
@@ -51,7 +48,6 @@ router.post('/:projectId/generate-ad', async (req, res) => {
         onEvent: sendEvent
       });
     } else {
-      // Mode 1: Inspiration-based generation
       ad = await generateAd(req.params.projectId, {
         angle,
         aspectRatio: aspect_ratio || '1:1',
@@ -66,7 +62,6 @@ router.post('/:projectId/generate-ad', async (req, res) => {
       });
     }
 
-    // Final done signal
     res.write('data: [DONE]\n\n');
     res.end();
   } catch (err) {
@@ -78,7 +73,7 @@ router.post('/:projectId/generate-ad', async (req, res) => {
 
 // Regenerate image only — skip GPT, use provided prompt (SSE stream)
 router.post('/:projectId/regenerate-image', async (req, res) => {
-  const project = getProject(req.params.projectId);
+  const project = await getProject(req.params.projectId);
   if (!project) return res.status(404).json({ error: 'Project not found' });
 
   const { image_prompt, aspect_ratio, parent_ad_id, product_image, product_image_mime, angle, headline, body_copy } = req.body;
@@ -122,62 +117,52 @@ router.post('/:projectId/regenerate-image', async (req, res) => {
 });
 
 // List all ads for a project
-router.get('/:projectId/ads', (req, res) => {
-  const project = getProject(req.params.projectId);
+router.get('/:projectId/ads', async (req, res) => {
+  const project = await getProject(req.params.projectId);
   if (!project) return res.status(404).json({ error: 'Project not found' });
 
-  const ads = getAdsByProject(req.params.projectId);
+  const ads = await getAdsByProject(req.params.projectId);
 
-  // Add image URLs
+  // Add image URLs — storageId means we use Convex redirect
   const withUrls = ads.map(ad => ({
     ...ad,
-    imageUrl: ad.image_path ? `/api/projects/${req.params.projectId}/ads/${ad.id}/image` : null
+    imageUrl: ad.storageId ? `/api/projects/${req.params.projectId}/ads/${ad.id}/image` : null
   }));
 
   res.json({ ads: withUrls, total: withUrls.length });
 });
 
 // Get single ad
-router.get('/:projectId/ads/:adId', (req, res) => {
-  const ad = db.prepare(
-    'SELECT * FROM ad_creatives WHERE id = ? AND project_id = ?'
-  ).get(req.params.adId, req.params.projectId);
+router.get('/:projectId/ads/:adId', async (req, res) => {
+  const ad = await getAd(req.params.adId);
+  if (!ad || ad.project_id !== req.params.projectId) {
+    return res.status(404).json({ error: 'Ad not found' });
+  }
 
-  if (!ad) return res.status(404).json({ error: 'Ad not found' });
-
-  ad.imageUrl = ad.image_path ? `/api/projects/${req.params.projectId}/ads/${ad.id}/image` : null;
+  ad.imageUrl = ad.storageId ? `/api/projects/${req.params.projectId}/ads/${ad.id}/image` : null;
   res.json(ad);
 });
 
-// Serve ad image file
-router.get('/:projectId/ads/:adId/image', (req, res) => {
-  const ad = db.prepare(
-    'SELECT * FROM ad_creatives WHERE id = ? AND project_id = ?'
-  ).get(req.params.adId, req.params.projectId);
-
-  if (!ad) return res.status(404).json({ error: 'Ad not found' });
-  if (!ad.image_path || !fs.existsSync(ad.image_path)) {
+// Serve ad image file (redirect to Convex storage URL)
+router.get('/:projectId/ads/:adId/image', async (req, res) => {
+  const url = await getAdImageUrl(req.params.adId);
+  if (!url) {
     return res.status(404).json({ error: 'Image file not found' });
   }
-
-  res.sendFile(ad.image_path);
+  res.redirect(url);
 });
 
 // Delete an ad
-router.delete('/:projectId/ads/:adId', (req, res) => {
-  const ad = db.prepare(
-    'SELECT * FROM ad_creatives WHERE id = ? AND project_id = ?'
-  ).get(req.params.adId, req.params.projectId);
-
-  if (!ad) return res.status(404).json({ error: 'Ad not found' });
-
-  // Delete local image file
-  if (ad.image_path && fs.existsSync(ad.image_path)) {
-    fs.unlinkSync(ad.image_path);
+router.delete('/:projectId/ads/:adId', async (req, res) => {
+  const ad = await getAd(req.params.adId);
+  if (!ad || ad.project_id !== req.params.projectId) {
+    return res.status(404).json({ error: 'Ad not found' });
   }
 
-  // Delete from DB
-  db.prepare('DELETE FROM ad_creatives WHERE id = ?').run(req.params.adId);
+  // Delete from Convex (also deletes storage file)
+  await convexClient.mutation(api.adCreatives.remove, {
+    externalId: req.params.adId,
+  });
 
   res.json({ success: true, id: req.params.adId });
 });

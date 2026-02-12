@@ -1,29 +1,21 @@
 import { Router } from 'express';
 import { v4 as uuidv4 } from 'uuid';
-import fs from 'fs';
-import path from 'path';
-import { fileURLToPath } from 'url';
 import { requireAuth } from '../auth.js';
 import {
   getProject, createBatchJob, getBatchJob, getBatchesByProject,
-  updateBatchJob, deleteBatchJob
-} from '../db.js';
+  updateBatchJob, deleteBatchJob, uploadBuffer
+} from '../convexClient.js';
 import { runBatch } from '../services/batchProcessor.js';
 import { registerCronJob, unregisterCronJob, loadScheduledBatches } from '../services/scheduler.js';
-
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const PRODUCT_IMAGES_DIR = path.join(__dirname, '..', 'data', 'batch-product-images');
-if (!fs.existsSync(PRODUCT_IMAGES_DIR)) fs.mkdirSync(PRODUCT_IMAGES_DIR, { recursive: true });
 
 const router = Router();
 router.use(requireAuth);
 
 /**
  * POST /:projectId/batches — Create a new batch job
- * Body: { generation_mode, batch_size, angle, aspect_ratio, template_image_id, scheduled, schedule_cron, run_immediately }
  */
 router.post('/:projectId/batches', async (req, res) => {
-  const project = getProject(req.params.projectId);
+  const project = await getProject(req.params.projectId);
   if (!project) return res.status(404).json({ error: 'Project not found' });
 
   const {
@@ -51,17 +43,15 @@ router.post('/:projectId/batches', async (req, res) => {
 
   const id = uuidv4();
 
-  // Save product image to disk if provided
-  let productImagePath = null;
+  // Upload product image to Convex storage if provided
+  let productImageStorageId = undefined;
   if (product_image && product_image_mime) {
-    const ext = product_image_mime.split('/')[1] || 'png';
-    const filename = `${id}.${ext}`;
-    productImagePath = path.join(PRODUCT_IMAGES_DIR, filename);
-    fs.writeFileSync(productImagePath, Buffer.from(product_image, 'base64'));
+    const buffer = Buffer.from(product_image, 'base64');
+    productImageStorageId = await uploadBuffer(buffer, product_image_mime);
   }
 
   try {
-    createBatchJob({
+    await createBatchJob({
       id,
       project_id: req.params.projectId,
       generation_mode,
@@ -70,14 +60,14 @@ router.post('/:projectId/batches', async (req, res) => {
       aspect_ratio,
       template_image_id: template_image_id || null,
       inspiration_image_id: inspiration_image_id || null,
-      product_image_path: productImagePath,
+      product_image_storageId: productImageStorageId,
       scheduled: !!scheduled,
       schedule_cron: schedule_cron || null
     });
 
     // If scheduled, register the cron job
     if (scheduled && schedule_cron) {
-      const batch = getBatchJob(id);
+      const batch = await getBatchJob(id);
       registerCronJob(batch);
     }
 
@@ -89,7 +79,7 @@ router.post('/:projectId/batches', async (req, res) => {
       });
     }
 
-    const batch = getBatchJob(id);
+    const batch = await getBatchJob(id);
     res.status(201).json(batch);
 
   } catch (err) {
@@ -101,19 +91,19 @@ router.post('/:projectId/batches', async (req, res) => {
 /**
  * GET /:projectId/batches — List all batch jobs for a project
  */
-router.get('/:projectId/batches', (req, res) => {
-  const project = getProject(req.params.projectId);
+router.get('/:projectId/batches', async (req, res) => {
+  const project = await getProject(req.params.projectId);
   if (!project) return res.status(404).json({ error: 'Project not found' });
 
-  const batches = getBatchesByProject(req.params.projectId);
+  const batches = await getBatchesByProject(req.params.projectId);
   res.json({ batches, total: batches.length });
 });
 
 /**
  * GET /:projectId/batches/:batchId — Get a single batch job
  */
-router.get('/:projectId/batches/:batchId', (req, res) => {
-  const batch = getBatchJob(req.params.batchId);
+router.get('/:projectId/batches/:batchId', async (req, res) => {
+  const batch = await getBatchJob(req.params.batchId);
   if (!batch || batch.project_id !== req.params.projectId) {
     return res.status(404).json({ error: 'Batch job not found' });
   }
@@ -123,8 +113,8 @@ router.get('/:projectId/batches/:batchId', (req, res) => {
 /**
  * PUT /:projectId/batches/:batchId — Update batch config (schedule, etc.)
  */
-router.put('/:projectId/batches/:batchId', (req, res) => {
-  const batch = getBatchJob(req.params.batchId);
+router.put('/:projectId/batches/:batchId', async (req, res) => {
+  const batch = await getBatchJob(req.params.batchId);
   if (!batch || batch.project_id !== req.params.projectId) {
     return res.status(404).json({ error: 'Batch job not found' });
   }
@@ -136,25 +126,25 @@ router.put('/:projectId/batches/:batchId', (req, res) => {
   if (schedule_cron !== undefined) updates.schedule_cron = schedule_cron;
 
   if (Object.keys(updates).length > 0) {
-    updateBatchJob(req.params.batchId, updates);
+    await updateBatchJob(req.params.batchId, updates);
   }
 
   // Update cron registration
   if (scheduled && schedule_cron) {
-    const updated = getBatchJob(req.params.batchId);
+    const updated = await getBatchJob(req.params.batchId);
     registerCronJob(updated);
   } else if (scheduled === false) {
     unregisterCronJob(req.params.batchId);
   }
 
-  res.json(getBatchJob(req.params.batchId));
+  res.json(await getBatchJob(req.params.batchId));
 });
 
 /**
  * DELETE /:projectId/batches/:batchId — Delete/cancel a batch job
  */
-router.delete('/:projectId/batches/:batchId', (req, res) => {
-  const batch = getBatchJob(req.params.batchId);
+router.delete('/:projectId/batches/:batchId', async (req, res) => {
+  const batch = await getBatchJob(req.params.batchId);
   if (!batch || batch.project_id !== req.params.projectId) {
     return res.status(404).json({ error: 'Batch job not found' });
   }
@@ -162,7 +152,7 @@ router.delete('/:projectId/batches/:batchId', (req, res) => {
   // Unregister cron if scheduled
   unregisterCronJob(req.params.batchId);
 
-  deleteBatchJob(req.params.batchId);
+  await deleteBatchJob(req.params.batchId);
   res.json({ success: true, id: req.params.batchId });
 });
 
@@ -170,32 +160,31 @@ router.delete('/:projectId/batches/:batchId', (req, res) => {
  * POST /:projectId/batches/:batchId/run — Manually trigger a batch job
  */
 router.post('/:projectId/batches/:batchId/run', async (req, res) => {
-  const batch = getBatchJob(req.params.batchId);
+  const batch = await getBatchJob(req.params.batchId);
   if (!batch || batch.project_id !== req.params.projectId) {
     return res.status(404).json({ error: 'Batch job not found' });
   }
 
-  // Only allow re-run if pending, completed, or failed
   if (!['pending', 'completed', 'failed'].includes(batch.status)) {
     return res.status(400).json({ error: `Cannot run batch in "${batch.status}" state. Wait for current run to finish.` });
   }
 
   // Reset status
-  updateBatchJob(req.params.batchId, { status: 'pending', error_message: null });
+  await updateBatchJob(req.params.batchId, { status: 'pending', error_message: null });
 
   // Run in background
   runBatch(req.params.batchId).catch(err => {
     console.error(`[Batches API] Manual run ${req.params.batchId.slice(0, 8)} failed:`, err.message);
   });
 
-  res.json({ success: true, message: 'Batch job started.', batch: getBatchJob(req.params.batchId) });
+  res.json({ success: true, message: 'Batch job started.', batch: await getBatchJob(req.params.batchId) });
 });
 
 /**
  * POST /:projectId/batches/:batchId/cancel — Cancel an active batch job
  */
 router.post('/:projectId/batches/:batchId/cancel', async (req, res) => {
-  const batch = getBatchJob(req.params.batchId);
+  const batch = await getBatchJob(req.params.batchId);
   if (!batch || batch.project_id !== req.params.projectId) {
     return res.status(404).json({ error: 'Batch job not found' });
   }
@@ -215,8 +204,8 @@ router.post('/:projectId/batches/:batchId/cancel', async (req, res) => {
     }
   }
 
-  updateBatchJob(req.params.batchId, { status: 'failed', error_message: 'Cancelled by user' });
-  res.json({ success: true, message: 'Batch cancelled.', batch: getBatchJob(req.params.batchId) });
+  await updateBatchJob(req.params.batchId, { status: 'failed', error_message: 'Cancelled by user' });
+  res.json({ success: true, message: 'Batch cancelled.', batch: await getBatchJob(req.params.batchId) });
 });
 
 export default router;

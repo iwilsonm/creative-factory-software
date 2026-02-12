@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { requireAuth } from '../auth.js';
-import { getProject, getProjectStats } from '../db.js';
+import { getProject, getProjectStats } from '../convexClient.js';
 import { getCostSummary, getCostHistoryData, syncOpenAICosts, getRecurringBatchCostEstimate } from '../services/costTracker.js';
 
 const router = Router();
@@ -9,9 +9,9 @@ router.use(requireAuth);
 /**
  * GET /costs — System-wide cost summaries (today, week, month)
  */
-router.get('/costs', (req, res) => {
+router.get('/costs', async (req, res) => {
   try {
-    const summary = getCostSummary(null);
+    const summary = await getCostSummary(null);
     res.json(summary);
   } catch (err) {
     console.error('[Costs API] Summary error:', err.message);
@@ -21,13 +21,12 @@ router.get('/costs', (req, res) => {
 
 /**
  * GET /costs/history — Daily cost history for charts
- * Query params: ?days=30&project_id=xxx
  */
-router.get('/costs/history', (req, res) => {
+router.get('/costs/history', async (req, res) => {
   try {
     const days = parseInt(req.query.days) || 30;
     const projectId = req.query.project_id || null;
-    const history = getCostHistoryData(days, projectId);
+    const history = await getCostHistoryData(days, projectId);
     res.json({ history, days });
   } catch (err) {
     console.error('[Costs API] History error:', err.message);
@@ -38,9 +37,9 @@ router.get('/costs/history', (req, res) => {
 /**
  * GET /costs/recurring — Estimated daily cost from scheduled batches
  */
-router.get('/costs/recurring', (req, res) => {
+router.get('/costs/recurring', async (req, res) => {
   try {
-    const estimate = getRecurringBatchCostEstimate();
+    const estimate = await getRecurringBatchCostEstimate();
     res.json(estimate);
   } catch (err) {
     console.error('[Costs API] Recurring estimate error:', err.message);
@@ -51,13 +50,13 @@ router.get('/costs/recurring', (req, res) => {
 /**
  * GET /projects/:id/costs — Project-scoped cost summaries
  */
-router.get('/projects/:id/costs', (req, res) => {
-  const project = getProject(req.params.id);
+router.get('/projects/:id/costs', async (req, res) => {
+  const project = await getProject(req.params.id);
   if (!project) return res.status(404).json({ error: 'Project not found' });
 
   try {
-    const summary = getCostSummary(req.params.id);
-    const stats = getProjectStats(req.params.id);
+    const summary = await getCostSummary(req.params.id);
+    const stats = await getProjectStats(req.params.id);
 
     // Calculate cost per ad
     const totalGeminiMonth = (summary.month.byService.gemini || 0);

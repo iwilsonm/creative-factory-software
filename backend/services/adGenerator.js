@@ -1,17 +1,23 @@
 import { v4 as uuidv4 } from 'uuid';
-import fs from 'fs';
-import path from 'path';
-import { fileURLToPath } from 'url';
 import { chat, chatWithImage, chatWithImages } from './openai.js';
 import { generateImage } from './gemini.js';
 import { logGeminiCost } from './costTracker.js';
-import { getProject, getLatestDoc } from '../db.js';
-import { uploadFileToDrive } from '../routes/drive.js';
-import db from '../db.js';
+import {
+  getProject, getLatestDoc, uploadBuffer, downloadToBuffer,
+  getInspirationImages, getInspirationImageUrl,
+  convexClient, api
+} from '../convexClient.js';
+import { uploadBufferToDrive } from '../routes/drive.js';
 
-const __dirname = path.dirname(fileURLToPath(import.meta.url));
-const GENERATED_DIR = path.join(__dirname, '..', '..', 'data', 'generated-images');
-const INSPIRATION_DIR = path.join(__dirname, '..', '..', 'data', 'inspiration');
+const EXT_TO_MIME = {
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.png': 'image/png',
+  '.gif': 'image/gif',
+  '.webp': 'image/webp',
+  '.bmp': 'image/bmp',
+  '.svg': 'image/svg+xml'
+};
 
 /**
  * Review and revise an image prompt against project-level prompt guidelines.
@@ -47,19 +53,6 @@ Rules:
     return imagePrompt;
   }
 }
-
-// Ensure generated images directory exists
-if (!fs.existsSync(GENERATED_DIR)) fs.mkdirSync(GENERATED_DIR, { recursive: true });
-
-const EXT_TO_MIME = {
-  '.jpg': 'image/jpeg',
-  '.jpeg': 'image/jpeg',
-  '.png': 'image/png',
-  '.gif': 'image/gif',
-  '.webp': 'image/webp',
-  '.bmp': 'image/bmp',
-  '.svg': 'image/svg+xml'
-};
 
 /**
  * Build the creative director prompt (Message 1) for GPT-5.2.
@@ -151,41 +144,38 @@ export function buildImageRequestText(angle, aspectRatio, hasProductImage = fals
 }
 
 /**
- * Select an inspiration image from the local cache.
+ * Select an inspiration image from Convex storage.
  * @param {string} projectId
- * @param {string|null} inspirationImageId - Specific file ID to use, or null for random
- * @returns {{ filePath: string, base64: string, mimeType: string, fileId: string }}
+ * @param {string|null} inspirationImageId - Specific Drive file ID to use, or null for random
+ * @returns {{ base64: string, mimeType: string, fileId: string }}
  */
-export function selectInspirationImage(projectId, inspirationImageId) {
-  const localDir = path.join(INSPIRATION_DIR, projectId);
-  if (!fs.existsSync(localDir)) {
+export async function selectInspirationImage(projectId, inspirationImageId) {
+  const images = await getInspirationImages(projectId);
+  if (!images || images.length === 0) {
     throw new Error('No inspiration images cached. Sync your inspiration folder first.');
   }
 
-  const files = fs.readdirSync(localDir).filter(f => !f.startsWith('.'));
-  if (files.length === 0) {
-    throw new Error('No inspiration images found. Add images to your Drive inspiration folder and sync.');
-  }
-
-  let selectedFile;
+  let selected;
   if (inspirationImageId) {
-    // Find the specific file by ID prefix
-    selectedFile = files.find(f => f.startsWith(inspirationImageId + '.'));
-    if (!selectedFile) {
-      throw new Error(`Inspiration image ${inspirationImageId} not found in local cache.`);
+    selected = images.find(img => img.drive_file_id === inspirationImageId);
+    if (!selected) {
+      throw new Error(`Inspiration image ${inspirationImageId} not found in cache.`);
     }
   } else {
     // Random selection
-    selectedFile = files[Math.floor(Math.random() * files.length)];
+    selected = images[Math.floor(Math.random() * images.length)];
   }
 
-  const filePath = path.join(localDir, selectedFile);
-  const ext = path.extname(selectedFile).toLowerCase();
-  const mimeType = EXT_TO_MIME[ext] || 'image/jpeg';
-  const base64 = fs.readFileSync(filePath).toString('base64');
-  const fileId = selectedFile.split('.')[0];
+  if (!selected.storageId) {
+    throw new Error('Inspiration image has no stored file. Re-sync your inspiration folder.');
+  }
 
-  return { filePath, base64, mimeType, fileId };
+  // Download from Convex storage to get base64
+  const buffer = await downloadToBuffer(selected.storageId);
+  const mimeType = selected.mimeType || 'image/jpeg';
+  const base64 = buffer.toString('base64');
+
+  return { base64, mimeType, fileId: selected.drive_file_id };
 }
 
 /**
@@ -198,6 +188,28 @@ function slugify(text) {
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '')
     .slice(0, 30);
+}
+
+/**
+ * Select a template image from Convex storage.
+ * @param {string} templateImageId - The template_images external ID
+ * @returns {{ base64: string, mimeType: string, fileId: string }}
+ */
+export async function selectTemplateImage(templateImageId) {
+  const template = await convexClient.query(api.templateImages.getByExternalId, { externalId: templateImageId });
+  if (!template) {
+    throw new Error(`Template image ${templateImageId} not found.`);
+  }
+  if (!template.storageId) {
+    throw new Error(`Template image has no stored file. Re-upload the template.`);
+  }
+
+  // Download from Convex storage
+  const buffer = await downloadToBuffer(template.storageId);
+  const mimeType = template.mimeType || 'image/jpeg';
+  const base64 = buffer.toString('base64');
+
+  return { base64, mimeType, fileId: template.externalId };
 }
 
 /**
@@ -228,22 +240,29 @@ export async function generateAd(projectId, options = {}) {
 
   // Create ad record at the start
   const adId = uuidv4();
-  db.prepare(`
-    INSERT INTO ad_creatives (id, project_id, generation_mode, angle, headline, body_copy, aspect_ratio, status, inspiration_image_id)
-    VALUES (?, ?, 'mode1', ?, ?, ?, ?, 'generating_copy', ?)
-  `).run(adId, projectId, angle || null, headline || null, bodyCopy || null, aspectRatio, inspirationImageId || null);
+  await convexClient.mutation(api.adCreatives.create, {
+    externalId: adId,
+    project_id: projectId,
+    generation_mode: 'mode1',
+    angle: angle || undefined,
+    headline: headline || undefined,
+    body_copy: bodyCopy || undefined,
+    aspect_ratio: aspectRatio,
+    status: 'generating_copy',
+    inspiration_image_id: inspirationImageId || undefined,
+  });
 
   try {
     // 1. Load project
-    const project = getProject(projectId);
+    const project = await getProject(projectId);
     if (!project) throw new Error('Project not found');
 
     // 2. Load foundational docs
     const docs = {
-      research: getLatestDoc(projectId, 'research'),
-      avatar: getLatestDoc(projectId, 'avatar'),
-      offer_brief: getLatestDoc(projectId, 'offer_brief'),
-      necessary_beliefs: getLatestDoc(projectId, 'necessary_beliefs')
+      research: await getLatestDoc(projectId, 'research'),
+      avatar: await getLatestDoc(projectId, 'avatar'),
+      offer_brief: await getLatestDoc(projectId, 'offer_brief'),
+      necessary_beliefs: await getLatestDoc(projectId, 'necessary_beliefs')
     };
 
     // Ensure at least some docs exist
@@ -265,10 +284,12 @@ export async function generateAd(projectId, options = {}) {
       };
     } else {
       // Select from inspiration folder (specific ID or random)
-      inspiration = selectInspirationImage(projectId, inspirationImageId);
+      inspiration = await selectInspirationImage(projectId, inspirationImageId);
       // Update the inspiration_image_id in the record
-      db.prepare('UPDATE ad_creatives SET inspiration_image_id = ? WHERE id = ?')
-        .run(inspiration.fileId, adId);
+      await convexClient.mutation(api.adCreatives.update, {
+        externalId: adId,
+        inspiration_image_id: inspiration.fileId,
+      });
     }
 
     // 4. GPT-5.2 Message 1: Creative director prompt + foundational docs
@@ -324,8 +345,12 @@ export async function generateAd(projectId, options = {}) {
     }
 
     // Update record with GPT output
-    db.prepare('UPDATE ad_creatives SET gpt_creative_output = ?, image_prompt = ?, status = ? WHERE id = ?')
-      .run(imagePrompt, imagePrompt, 'generating_image', adId);
+    await convexClient.mutation(api.adCreatives.update, {
+      externalId: adId,
+      gpt_creative_output: imagePrompt,
+      image_prompt: imagePrompt,
+      status: 'generating_image',
+    });
 
     // Generate image, save, upload to Drive (shared helper)
     const productImage = hasProductImage
@@ -340,14 +365,17 @@ export async function generateAd(projectId, options = {}) {
 
   } catch (err) {
     // Mark as failed
-    db.prepare("UPDATE ad_creatives SET status = 'failed' WHERE id = ?").run(adId);
+    await convexClient.mutation(api.adCreatives.update, {
+      externalId: adId,
+      status: 'failed',
+    });
     emit({ type: 'error', error: err.message });
     throw err;
   }
 }
 
 /**
- * Shared helper: Gemini image generation → save locally → upload to Drive → finalize record.
+ * Shared helper: Gemini image generation → upload to Convex storage → upload to Drive → finalize record.
  * Used by both generateAd() (full pipeline) and regenerateImageOnly() (prompt-only).
  */
 async function generateAndSaveImage({ adId, projectId, project, imagePrompt, aspectRatio, angle, productImage, emit, modeLabel = 'Mode1' }) {
@@ -359,19 +387,16 @@ async function generateAndSaveImage({ adId, projectId, project, imagePrompt, asp
   const { imageBuffer, mimeType: imgMime } = await generateImage(imagePrompt, aspectRatio, productImage);
 
   // Log Gemini cost (fire-and-forget)
-  try { logGeminiCost(projectId, 1, '2K', false); } catch {}
+  try { await logGeminiCost(projectId, 1, '2K', false); } catch {}
 
-  // Save image locally
-  const projectImageDir = path.join(GENERATED_DIR, projectId);
-  fs.mkdirSync(projectImageDir, { recursive: true });
+  // Upload image to Convex storage
+  const storageId = await uploadBuffer(imageBuffer, imgMime);
 
-  const ext = imgMime === 'image/jpeg' ? '.jpg' : '.png';
-  const imageFileName = `${adId}${ext}`;
-  const imagePath = path.join(projectImageDir, imageFileName);
-  fs.writeFileSync(imagePath, imageBuffer);
-
-  db.prepare('UPDATE ad_creatives SET image_path = ?, status = ? WHERE id = ?')
-    .run(imagePath, 'uploading_drive', adId);
+  await convexClient.mutation(api.adCreatives.update, {
+    externalId: adId,
+    storageId,
+    status: 'uploading_drive',
+  });
 
   // Upload to Google Drive (if configured)
   let driveFileId = null;
@@ -381,10 +406,11 @@ async function generateAndSaveImage({ adId, projectId, project, imagePrompt, asp
     emit({ type: 'status', status: 'uploading_drive', message: 'Uploading to Google Drive...' });
 
     try {
+      const ext = imgMime === 'image/jpeg' ? '.jpg' : '.png';
       const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 16);
       const angleSlug = slugify(angle);
       const driveName = `${project.name}_${modeLabel}_${angleSlug}_${timestamp}${ext}`;
-      const driveResult = await uploadFileToDrive(imagePath, driveName, project.drive_folder_id, imgMime);
+      const driveResult = await uploadBufferToDrive(imageBuffer, driveName, project.drive_folder_id, imgMime);
       driveFileId = driveResult.fileId;
       driveUrl = driveResult.webViewLink;
     } catch (driveErr) {
@@ -397,56 +423,34 @@ async function generateAndSaveImage({ adId, projectId, project, imagePrompt, asp
   }
 
   // Update final record
-  db.prepare(`
-    UPDATE ad_creatives
-    SET drive_file_id = ?, drive_url = ?, status = 'completed'
-    WHERE id = ?
-  `).run(driveFileId, driveUrl, adId);
+  await convexClient.mutation(api.adCreatives.update, {
+    externalId: adId,
+    drive_file_id: driveFileId || undefined,
+    drive_url: driveUrl || undefined,
+    status: 'completed',
+  });
 
   // Return the completed ad record
-  const ad = db.prepare('SELECT * FROM ad_creatives WHERE id = ?').get(adId);
-  ad.imageUrl = `/api/projects/${projectId}/ads/${adId}/image`;
+  const ad = await convexClient.query(api.adCreatives.getByExternalId, { externalId: adId });
+  const adRow = {
+    id: ad.externalId,
+    project_id: ad.project_id,
+    generation_mode: ad.generation_mode,
+    angle: ad.angle || null,
+    headline: ad.headline || null,
+    body_copy: ad.body_copy || null,
+    image_prompt: ad.image_prompt || null,
+    gpt_creative_output: ad.gpt_creative_output || null,
+    storageId: ad.storageId || null,
+    drive_file_id: ad.drive_file_id || null,
+    drive_url: ad.drive_url || null,
+    aspect_ratio: ad.aspect_ratio || '1:1',
+    status: ad.status,
+    imageUrl: `/api/projects/${projectId}/ads/${adId}/image`,
+  };
 
-  emit({ type: 'complete', ad });
-  return ad;
-}
-
-/**
- * Regenerate an image using a user-provided prompt (skip GPT entirely).
- * Creates a new ad record linked to the parent ad.
- *
- * @param {string} projectId
- * @param {object} options
- * @param {string} options.imagePrompt - The edited/custom prompt text
- * @param {string} [options.aspectRatio='1:1']
- * @param {string} [options.parentAdId] - The ad this was derived from
- * @param {string} [options.productImageBase64]
- * @param {string} [options.productImageMimeType]
- * @param {string} [options.angle] - Carry forward from parent
- * @param {string} [options.headline] - Carry forward from parent
- * @param {string} [options.bodyCopy] - Carry forward from parent
- * @param {(event: object) => void} [options.onEvent]
- * @returns {Promise<object>}
- */
-/**
- * Select a template image from local storage.
- * @param {string} templateImageId - The template_images.id to load
- * @returns {{ base64: string, mimeType: string, fileId: string }}
- */
-export function selectTemplateImage(templateImageId) {
-  const template = db.prepare('SELECT * FROM template_images WHERE id = ?').get(templateImageId);
-  if (!template) {
-    throw new Error(`Template image ${templateImageId} not found.`);
-  }
-  if (!template.file_path || !fs.existsSync(template.file_path)) {
-    throw new Error(`Template image file not found on disk. Re-upload the template.`);
-  }
-
-  const ext = path.extname(template.file_path).toLowerCase();
-  const mimeType = EXT_TO_MIME[ext] || 'image/jpeg';
-  const base64 = fs.readFileSync(template.file_path).toString('base64');
-
-  return { base64, mimeType, fileId: template.id };
+  emit({ type: 'complete', ad: adRow });
+  return adRow;
 }
 
 /**
@@ -481,22 +485,29 @@ export async function generateAdMode2(projectId, options = {}) {
 
   // Create ad record
   const adId = uuidv4();
-  db.prepare(`
-    INSERT INTO ad_creatives (id, project_id, generation_mode, angle, headline, body_copy, aspect_ratio, status, template_image_id)
-    VALUES (?, ?, 'mode2', ?, ?, ?, ?, 'generating_copy', ?)
-  `).run(adId, projectId, angle || null, headline || null, bodyCopy || null, aspectRatio, templateImageId);
+  await convexClient.mutation(api.adCreatives.create, {
+    externalId: adId,
+    project_id: projectId,
+    generation_mode: 'mode2',
+    angle: angle || undefined,
+    headline: headline || undefined,
+    body_copy: bodyCopy || undefined,
+    aspect_ratio: aspectRatio,
+    status: 'generating_copy',
+    template_image_id: templateImageId,
+  });
 
   try {
     // 1. Load project
-    const project = getProject(projectId);
+    const project = await getProject(projectId);
     if (!project) throw new Error('Project not found');
 
     // 2. Load foundational docs
     const docs = {
-      research: getLatestDoc(projectId, 'research'),
-      avatar: getLatestDoc(projectId, 'avatar'),
-      offer_brief: getLatestDoc(projectId, 'offer_brief'),
-      necessary_beliefs: getLatestDoc(projectId, 'necessary_beliefs')
+      research: await getLatestDoc(projectId, 'research'),
+      avatar: await getLatestDoc(projectId, 'avatar'),
+      offer_brief: await getLatestDoc(projectId, 'offer_brief'),
+      necessary_beliefs: await getLatestDoc(projectId, 'necessary_beliefs')
     };
 
     const docCount = Object.values(docs).filter(d => d && d.content).length;
@@ -506,7 +517,7 @@ export async function generateAdMode2(projectId, options = {}) {
 
     // 3. Select template image
     emit({ type: 'status', status: 'generating_copy', message: 'Loading template image...' });
-    const template = selectTemplateImage(templateImageId);
+    const template = await selectTemplateImage(templateImageId);
 
     // 4. GPT-5.2 Message 1: Creative director prompt + foundational docs
     emit({ type: 'status', status: 'generating_copy', message: 'Sending creative brief to GPT-5.2...' });
@@ -558,8 +569,12 @@ export async function generateAdMode2(projectId, options = {}) {
     }
 
     // Update record with GPT output
-    db.prepare('UPDATE ad_creatives SET gpt_creative_output = ?, image_prompt = ?, status = ? WHERE id = ?')
-      .run(imagePrompt, imagePrompt, 'generating_image', adId);
+    await convexClient.mutation(api.adCreatives.update, {
+      externalId: adId,
+      gpt_creative_output: imagePrompt,
+      image_prompt: imagePrompt,
+      status: 'generating_image',
+    });
 
     // Generate image, save, upload to Drive (shared helper)
     const productImage = hasProductImage
@@ -573,12 +588,19 @@ export async function generateAdMode2(projectId, options = {}) {
     return ad;
 
   } catch (err) {
-    db.prepare("UPDATE ad_creatives SET status = 'failed' WHERE id = ?").run(adId);
+    await convexClient.mutation(api.adCreatives.update, {
+      externalId: adId,
+      status: 'failed',
+    });
     emit({ type: 'error', error: err.message });
     throw err;
   }
 }
 
+/**
+ * Regenerate an image using a user-provided prompt (skip GPT entirely).
+ * Creates a new ad record linked to the parent ad.
+ */
 export async function regenerateImageOnly(projectId, options = {}) {
   const { imagePrompt, aspectRatio = '1:1', parentAdId, productImageBase64, productImageMimeType, angle, headline, bodyCopy, onEvent } = options;
 
@@ -594,13 +616,22 @@ export async function regenerateImageOnly(projectId, options = {}) {
 
   // Create new ad record
   const adId = uuidv4();
-  db.prepare(`
-    INSERT INTO ad_creatives (id, project_id, generation_mode, angle, headline, body_copy, aspect_ratio, status, image_prompt, gpt_creative_output, parent_ad_id)
-    VALUES (?, ?, 'image_only', ?, ?, ?, ?, 'generating_image', ?, ?, ?)
-  `).run(adId, projectId, angle || null, headline || null, bodyCopy || null, aspectRatio, imagePrompt.trim(), imagePrompt.trim(), parentAdId || null);
+  await convexClient.mutation(api.adCreatives.create, {
+    externalId: adId,
+    project_id: projectId,
+    generation_mode: 'image_only',
+    angle: angle || undefined,
+    headline: headline || undefined,
+    body_copy: bodyCopy || undefined,
+    aspect_ratio: aspectRatio,
+    status: 'generating_image',
+    image_prompt: imagePrompt.trim(),
+    gpt_creative_output: imagePrompt.trim(),
+    parent_ad_id: parentAdId || undefined,
+  });
 
   try {
-    const project = getProject(projectId);
+    const project = await getProject(projectId);
     if (!project) throw new Error('Project not found');
 
     // Apply prompt guidelines if set
@@ -610,8 +641,11 @@ export async function regenerateImageOnly(projectId, options = {}) {
       finalPrompt = await reviewPromptWithGuidelines(finalPrompt, project.prompt_guidelines);
       // Update the stored prompt if it changed
       if (finalPrompt !== imagePrompt.trim()) {
-        db.prepare('UPDATE ad_creatives SET image_prompt = ?, gpt_creative_output = ? WHERE id = ?')
-          .run(finalPrompt, finalPrompt, adId);
+        await convexClient.mutation(api.adCreatives.update, {
+          externalId: adId,
+          image_prompt: finalPrompt,
+          gpt_creative_output: finalPrompt,
+        });
       }
     }
 
@@ -630,7 +664,10 @@ export async function regenerateImageOnly(projectId, options = {}) {
     return ad;
 
   } catch (err) {
-    db.prepare("UPDATE ad_creatives SET status = 'failed' WHERE id = ?").run(adId);
+    await convexClient.mutation(api.adCreatives.update, {
+      externalId: adId,
+      status: 'failed',
+    });
     emit({ type: 'error', error: err.message });
     throw err;
   }

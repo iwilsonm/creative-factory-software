@@ -1,5 +1,5 @@
 import { v4 as uuidv4 } from 'uuid';
-import { getSetting, setSetting, logCost, getCostAggregates, getDailyCostHistory, deleteCostsBySource, getAllScheduledBatchesForCost } from '../db.js';
+import { getSetting, setSetting, logCost, getCostAggregates, getDailyCostHistory, deleteCostsBySource, getAllScheduledBatchesForCost } from '../convexClient.js';
 import { withRetry } from './retry.js';
 
 /**
@@ -12,10 +12,10 @@ import { withRetry } from './retry.js';
  * @param {string} resolution - '1K', '2K', or '4K'
  * @param {boolean} isBatch - Whether this is a batch generation (50% discount)
  */
-export function logGeminiCost(projectId, imageCount = 1, resolution = '2K', isBatch = false) {
+export async function logGeminiCost(projectId, imageCount = 1, resolution = '2K', isBatch = false) {
   try {
     const rateKey = `gemini_rate_${resolution.toLowerCase()}`;
-    const rateStr = getSetting(rateKey);
+    const rateStr = await getSetting(rateKey);
     const baseRate = rateStr ? parseFloat(rateStr) : 0;
 
     if (baseRate <= 0) {
@@ -39,7 +39,7 @@ export function logGeminiCost(projectId, imageCount = 1, resolution = '2K', isBa
       period_date: new Date().toISOString().split('T')[0]
     };
 
-    logCost(record);
+    await logCost(record);
     return record;
 
   } catch (err) {
@@ -55,7 +55,7 @@ export function logGeminiCost(projectId, imageCount = 1, resolution = '2K', isBa
  * @returns {{ synced: boolean, recordCount?: number, reason?: string }}
  */
 export async function syncOpenAICosts() {
-  const adminKey = getSetting('openai_admin_key');
+  const adminKey = await getSetting('openai_admin_key');
   if (!adminKey) {
     return { synced: false, reason: 'OpenAI Admin API key not configured.' };
   }
@@ -90,7 +90,7 @@ export async function syncOpenAICosts() {
 
     // Delete existing billing_api records in this window
     const startDate = new Date(startTime * 1000).toISOString().split('T')[0];
-    deleteCostsBySource('billing_api', startDate);
+    await deleteCostsBySource('billing_api', startDate);
 
     let recordCount = 0;
 
@@ -116,7 +116,7 @@ export async function syncOpenAICosts() {
           operation = 'foundational_docs';
         }
 
-        logCost({
+        await logCost({
           id: uuidv4(),
           project_id: null, // OpenAI costs are org-wide, not project-scoped by default
           service: 'openai',
@@ -171,10 +171,10 @@ export async function refreshGeminiRates() {
     const rates = parseGeminiImageRates(html);
 
     if (rates) {
-      if (rates.rate_1k) setSetting('gemini_rate_1k', String(rates.rate_1k));
-      if (rates.rate_2k) setSetting('gemini_rate_2k', String(rates.rate_2k));
-      if (rates.rate_4k) setSetting('gemini_rate_4k', String(rates.rate_4k));
-      setSetting('gemini_rates_updated_at', new Date().toISOString());
+      if (rates.rate_1k) await setSetting('gemini_rate_1k', String(rates.rate_1k));
+      if (rates.rate_2k) await setSetting('gemini_rate_2k', String(rates.rate_2k));
+      if (rates.rate_4k) await setSetting('gemini_rate_4k', String(rates.rate_4k));
+      await setSetting('gemini_rates_updated_at', new Date().toISOString());
 
       console.log(`[CostTracker] Gemini rates updated: 1K=$${rates.rate_1k}, 2K=$${rates.rate_2k}, 4K=$${rates.rate_4k}`);
       return { refreshed: true, rates };
@@ -231,7 +231,7 @@ function parseGeminiImageRates(html) {
  * @param {string|null} projectId - If null, returns system-wide costs
  * @returns {{ today: object, week: object, month: object }}
  */
-export function getCostSummary(projectId = null) {
+export async function getCostSummary(projectId = null) {
   const today = new Date().toISOString().split('T')[0];
 
   const weekAgo = new Date();
@@ -242,10 +242,16 @@ export function getCostSummary(projectId = null) {
   monthAgo.setDate(monthAgo.getDate() - 30);
   const monthStr = monthAgo.toISOString().split('T')[0];
 
+  const [todayData, weekData, monthData] = await Promise.all([
+    getCostAggregates(today, today, projectId),
+    getCostAggregates(weekStr, today, projectId),
+    getCostAggregates(monthStr, today, projectId),
+  ]);
+
   return {
-    today: getCostAggregates(today, today, projectId),
-    week: getCostAggregates(weekStr, today, projectId),
-    month: getCostAggregates(monthStr, today, projectId)
+    today: todayData,
+    week: weekData,
+    month: monthData
   };
 }
 
@@ -256,8 +262,8 @@ export function getCostSummary(projectId = null) {
  * @param {string|null} projectId
  * @returns {Array<{ date, openai, gemini, total }>}
  */
-export function getCostHistoryData(days = 30, projectId = null) {
-  return getDailyCostHistory(days, projectId);
+export async function getCostHistoryData(days = 30, projectId = null) {
+  return await getDailyCostHistory(days, projectId);
 }
 
 /**
@@ -268,9 +274,9 @@ export function getCostHistoryData(days = 30, projectId = null) {
  *
  * @returns {{ estimatedDailyCost: number, scheduledBatchCount: number, breakdown: Array }}
  */
-export function getRecurringBatchCostEstimate() {
-  const batches = getAllScheduledBatchesForCost();
-  const rate2k = parseFloat(getSetting('gemini_rate_2k') || '0');
+export async function getRecurringBatchCostEstimate() {
+  const batches = await getAllScheduledBatchesForCost();
+  const rate2k = parseFloat((await getSetting('gemini_rate_2k')) || '0');
 
   let totalDailyCost = 0;
   const breakdown = [];

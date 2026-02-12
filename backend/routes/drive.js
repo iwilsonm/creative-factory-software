@@ -1,16 +1,16 @@
 import express, { Router } from 'express';
 import { google } from 'googleapis';
+import { Readable } from 'stream';
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
+import fetch from 'node-fetch';
 import { withRetry } from '../services/retry.js';
 import { requireAuth } from '../auth.js';
-import { getProject } from '../db.js';
+import { getProject, getInspirationImages, getInspirationImage, getInspirationImageUrl, uploadBuffer, convexClient, api } from '../convexClient.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SERVICE_ACCOUNT_PATH = path.join(__dirname, '..', '..', 'config', 'service-account.json');
-const DATA_DIR = path.join(__dirname, '..', '..', 'data');
-const INSPIRATION_DIR = path.join(DATA_DIR, 'inspiration');
 
 const router = Router();
 router.use(requireAuth);
@@ -54,13 +54,11 @@ router.post('/upload-service-account', express.json({ limit: '1mb' }), (req, res
   if (!content) return res.status(400).json({ error: 'No content provided' });
 
   try {
-    // Validate it's valid JSON with expected fields
     const parsed = JSON.parse(content);
     if (!parsed.client_email || !parsed.private_key || parsed.type !== 'service_account') {
       return res.status(400).json({ error: 'Invalid service account JSON. Must contain client_email, private_key, and type "service_account".' });
     }
 
-    // Ensure config directory exists
     const configDir = path.dirname(SERVICE_ACCOUNT_PATH);
     if (!fs.existsSync(configDir)) fs.mkdirSync(configDir, { recursive: true });
 
@@ -88,7 +86,7 @@ router.post('/test', async (req, res) => {
   }
 });
 
-// List shared drives the service account has access to
+// List shared drives
 router.get('/shared-drives', async (req, res) => {
   try {
     const drive = getDriveClient();
@@ -107,7 +105,7 @@ router.get('/shared-drives', async (req, res) => {
   }
 });
 
-// List folders within a parent folder, or at root level (shared with me + shared drives)
+// List folders
 router.get('/folders', async (req, res) => {
   try {
     const drive = getDriveClient();
@@ -116,7 +114,6 @@ router.get('/folders', async (req, res) => {
     const allFolders = [];
 
     if (parentId) {
-      // Listing children of a specific folder
       const query = `mimeType = 'application/vnd.google-apps.folder' and trashed = false and '${parentId}' in parents`;
       const response = await drive.files.list({
         q: query,
@@ -128,8 +125,6 @@ router.get('/folders', async (req, res) => {
       });
       allFolders.push(...response.data.files);
     } else {
-      // Root level: show folders explicitly shared with the service account
-      // plus shared drive roots
       const sharedQuery = "mimeType = 'application/vnd.google-apps.folder' and trashed = false and sharedWithMe = true";
       const sharedResponse = await drive.files.list({
         q: sharedQuery,
@@ -141,7 +136,6 @@ router.get('/folders', async (req, res) => {
       });
       allFolders.push(...sharedResponse.data.files);
 
-      // Also list shared drives as top-level entries
       try {
         const drivesResponse = await drive.drives.list({
           pageSize: 50,
@@ -150,9 +144,7 @@ router.get('/folders', async (req, res) => {
         for (const d of (drivesResponse.data.drives || [])) {
           allFolders.push({ id: d.id, name: `[Shared Drive] ${d.name}`, parents: [] });
         }
-      } catch {
-        // Shared drives may not be available — that's fine
-      }
+      } catch {}
     }
 
     res.json({
@@ -168,7 +160,7 @@ router.get('/folders', async (req, res) => {
   }
 });
 
-// Get folder info (name, path breadcrumb)
+// Get folder info
 router.get('/folders/:folderId', async (req, res) => {
   try {
     const drive = getDriveClient();
@@ -178,7 +170,6 @@ router.get('/folders/:folderId', async (req, res) => {
       supportsAllDrives: true
     });
 
-    // Build breadcrumb
     const breadcrumb = [{ id: file.data.id, name: file.data.name }];
     let current = file.data;
 
@@ -192,7 +183,7 @@ router.get('/folders/:folderId', async (req, res) => {
         breadcrumb.unshift({ id: parent.data.id, name: parent.data.name });
         current = parent.data;
       } catch {
-        break; // Hit root or shared drive
+        break;
       }
     }
 
@@ -206,7 +197,7 @@ router.get('/folders/:folderId', async (req, res) => {
 });
 
 // ===========================
-// Inspiration Folder Sync
+// Inspiration Folder Sync — now uses Convex storage instead of local filesystem
 // ===========================
 
 const MIME_TO_EXT = {
@@ -219,19 +210,15 @@ const MIME_TO_EXT = {
 };
 
 /**
- * Sync images from a Google Drive folder to local cache.
+ * Sync images from a Google Drive folder to Convex storage.
  * Downloads new images, removes deleted ones.
- * @param {string} projectId
- * @returns {{ images: Array, synced: number, removed: number }}
  */
 async function syncInspirationFolder(projectId) {
-  const project = getProject(projectId);
+  const project = await getProject(projectId);
   if (!project) throw new Error('Project not found');
   if (!project.inspiration_folder_id) throw new Error('No inspiration folder configured for this project.');
 
   const drive = getDriveClient();
-  const localDir = path.join(INSPIRATION_DIR, projectId);
-  fs.mkdirSync(localDir, { recursive: true });
 
   // List all image files in the Drive folder
   const response = await drive.files.list({
@@ -244,94 +231,97 @@ async function syncInspirationFolder(projectId) {
   });
 
   const driveFiles = response.data.files || [];
-  const driveFileIds = new Set(driveFiles.map(f => f.id));
+  const driveFileIds = driveFiles.map(f => f.id);
   let synced = 0;
 
-  // Download new images
+  // Download new images and upload to Convex
   for (const file of driveFiles) {
-    const ext = MIME_TO_EXT[file.mimeType] || '.jpg';
-    const localPath = path.join(localDir, `${file.id}${ext}`);
+    // Check if already in Convex
+    const existing = await getInspirationImage(projectId, file.id);
+    if (existing && existing.storageId) continue; // Already cached
 
-    if (!fs.existsSync(localPath)) {
-      const dest = fs.createWriteStream(localPath);
-      const res = await drive.files.get(
-        { fileId: file.id, alt: 'media', supportsAllDrives: true },
-        { responseType: 'stream' }
-      );
-      await new Promise((resolve, reject) => {
-        res.data.pipe(dest);
-        dest.on('finish', resolve);
-        dest.on('error', reject);
+    // Download from Drive
+    const driveRes = await drive.files.get(
+      { fileId: file.id, alt: 'media', supportsAllDrives: true },
+      { responseType: 'arraybuffer' }
+    );
+    const buffer = Buffer.from(driveRes.data);
+
+    // Upload to Convex storage
+    const storageId = await uploadBuffer(buffer, file.mimeType || 'image/jpeg');
+
+    if (existing) {
+      // Update existing record with new storageId
+      await convexClient.mutation(api.inspirationImages.updateStorageId, {
+        projectId,
+        driveFileId: file.id,
+        storageId,
       });
-      synced++;
+    } else {
+      // Create new record
+      await convexClient.mutation(api.inspirationImages.create, {
+        project_id: projectId,
+        drive_file_id: file.id,
+        filename: file.name,
+        mimeType: file.mimeType || 'image/jpeg',
+        storageId,
+        modifiedTime: file.modifiedTime || null,
+        size: file.size ? parseInt(file.size) : undefined,
+      });
     }
+    synced++;
   }
 
-  // Remove locally cached images that no longer exist in Drive
-  let removed = 0;
-  if (fs.existsSync(localDir)) {
-    for (const localFile of fs.readdirSync(localDir)) {
-      const fileId = localFile.split('.')[0];
-      if (!driveFileIds.has(fileId)) {
-        fs.unlinkSync(path.join(localDir, localFile));
-        removed++;
-      }
-    }
-  }
-
-  // Build image list with metadata
-  const images = driveFiles.map(f => {
-    const ext = MIME_TO_EXT[f.mimeType] || '.jpg';
-    return {
-      id: f.id,
-      name: f.name,
-      mimeType: f.mimeType,
-      modifiedTime: f.modifiedTime,
-      size: f.size ? parseInt(f.size) : null,
-      localFile: `${f.id}${ext}`,
-      thumbnailUrl: `/api/projects/${projectId}/inspiration/${f.id}/thumbnail`
-    };
+  // Remove images from Convex that no longer exist in Drive
+  const result = await convexClient.mutation(api.inspirationImages.removeByProject, {
+    projectId,
+    driveFileIds,
   });
 
-  return { images, synced, removed, total: images.length };
+  // Build image list
+  const images = driveFiles.map(f => ({
+    id: f.id,
+    name: f.name,
+    mimeType: f.mimeType,
+    modifiedTime: f.modifiedTime,
+    size: f.size ? parseInt(f.size) : null,
+    thumbnailUrl: `/api/projects/${projectId}/inspiration/${f.id}/thumbnail`
+  }));
+
+  return { images, synced, removed: result.removed, total: images.length };
 }
 
 // ===========================
-// Inspiration routes — mounted separately under /api/projects
+// Inspiration routes
 // ===========================
 export const inspirationRouter = Router();
 inspirationRouter.use(requireAuth);
 
-// List inspiration images (syncs if needed on first call)
+// List inspiration images
 inspirationRouter.get('/:projectId/inspiration', async (req, res) => {
   try {
-    const project = getProject(req.params.projectId);
+    const project = await getProject(req.params.projectId);
     if (!project) return res.status(404).json({ error: 'Project not found' });
     if (!project.inspiration_folder_id) {
       return res.json({ images: [], total: 0, message: 'No inspiration folder configured.' });
     }
 
-    const localDir = path.join(INSPIRATION_DIR, req.params.projectId);
+    // Check if we have any cached in Convex
+    const cached = await getInspirationImages(req.params.projectId);
 
-    // If no local cache exists yet, sync first
-    if (!fs.existsSync(localDir) || fs.readdirSync(localDir).length === 0) {
+    if (cached.length === 0) {
+      // No cache yet — sync from Drive
       const result = await syncInspirationFolder(req.params.projectId);
       return res.json(result);
     }
 
-    // Otherwise, return cached list by re-reading local files
-    // (For an up-to-date list, user can call sync endpoint)
-    const localFiles = fs.readdirSync(localDir);
-    const images = localFiles.map(f => {
-      const fileId = f.split('.')[0];
-      const ext = path.extname(f);
-      return {
-        id: fileId,
-        name: f,
-        localFile: f,
-        thumbnailUrl: `/api/projects/${req.params.projectId}/inspiration/${fileId}/thumbnail`
-      };
-    });
+    // Return cached list
+    const images = cached.map(img => ({
+      id: img.drive_file_id,
+      name: img.filename,
+      mimeType: img.mimeType,
+      thumbnailUrl: `/api/projects/${req.params.projectId}/inspiration/${img.drive_file_id}/thumbnail`
+    }));
 
     res.json({ images, total: images.length });
   } catch (err) {
@@ -339,7 +329,7 @@ inspirationRouter.get('/:projectId/inspiration', async (req, res) => {
   }
 });
 
-// Force sync inspiration folder from Drive
+// Force sync
 inspirationRouter.post('/:projectId/inspiration/sync', async (req, res) => {
   try {
     const result = await syncInspirationFolder(req.params.projectId);
@@ -349,36 +339,28 @@ inspirationRouter.post('/:projectId/inspiration/sync', async (req, res) => {
   }
 });
 
-// Serve a cached inspiration image
-inspirationRouter.get('/:projectId/inspiration/:fileId/thumbnail', (req, res) => {
-  const localDir = path.join(INSPIRATION_DIR, req.params.projectId);
-  if (!fs.existsSync(localDir)) return res.status(404).json({ error: 'No inspiration images cached' });
-
-  // Find the file by ID (could have any extension)
-  const files = fs.readdirSync(localDir);
-  const match = files.find(f => f.startsWith(req.params.fileId + '.'));
-  if (!match) return res.status(404).json({ error: 'Image not found' });
-
-  res.sendFile(path.join(localDir, match));
+// Serve a cached inspiration image (redirect to Convex URL)
+inspirationRouter.get('/:projectId/inspiration/:fileId/thumbnail', async (req, res) => {
+  const url = await getInspirationImageUrl(req.params.projectId, req.params.fileId);
+  if (!url) {
+    return res.status(404).json({ error: 'Image not found' });
+  }
+  res.redirect(url);
 });
 
 // ===========================
-// Upload file to Google Drive (reusable utility)
+// Upload file to Google Drive — now reads from Buffer/stream instead of local path
 // ===========================
 
 /**
- * Upload a local file to a Google Drive folder.
- * Automatically detects if the folder is on a Shared Drive and handles accordingly.
- * Service accounts cannot upload to regular "My Drive" folders (no storage quota).
- * The target folder must be on a Shared Drive or the service account needs domain-wide delegation.
- *
- * @param {string} localPath - Path to the local file
+ * Upload a Buffer to a Google Drive folder.
+ * @param {Buffer} buffer - File data
  * @param {string} fileName - Name for the file in Drive
  * @param {string} folderId - Google Drive folder ID
  * @param {string} mimeType - MIME type of the file
  * @returns {{ fileId: string, webViewLink: string }}
  */
-export async function uploadFileToDrive(localPath, fileName, folderId, mimeType = 'image/png') {
+export async function uploadBufferToDrive(buffer, fileName, folderId, mimeType = 'image/png') {
   const drive = getDriveClient();
 
   // Check if the target folder is on a Shared Drive
@@ -390,26 +372,26 @@ export async function uploadFileToDrive(localPath, fileName, folderId, mimeType 
       supportsAllDrives: true
     });
     driveId = folderInfo.data.driveId || null;
-  } catch {
-    // If we can't check, proceed without driveId
-  }
+  } catch {}
 
   const fileMetadata = {
     name: fileName,
     parents: [folderId]
   };
 
+  // Create a readable stream from the buffer
+  const stream = Readable.from(buffer);
+
   const createParams = {
     requestBody: fileMetadata,
     media: {
       mimeType,
-      body: fs.createReadStream(localPath)
+      body: stream
     },
     fields: 'id, webViewLink',
     supportsAllDrives: true
   };
 
-  // If on a Shared Drive, include driveId so the file is owned by the shared drive (not the service account)
   if (driveId) {
     createParams.requestBody.driveId = driveId;
   }
@@ -424,6 +406,9 @@ export async function uploadFileToDrive(localPath, fileName, folderId, mimeType 
     webViewLink: response.data.webViewLink
   };
 }
+
+// Keep backward-compatible name for existing callers
+export const uploadFileToDrive = uploadBufferToDrive;
 
 export { getDriveClient };
 export default router;

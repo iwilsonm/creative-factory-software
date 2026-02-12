@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { requireAuth } from '../auth.js';
-import { getSetting, setSetting, getAllSettings } from '../db.js';
+import { getSetting, setSetting, getAllSettings } from '../convexClient.js';
 import { getDriveClient } from './drive.js';
 import { refreshGeminiRates } from '../services/costTracker.js';
 
@@ -12,8 +12,8 @@ const SENSITIVE_KEYS = ['auth_password_hash', 'session_secret'];
 const API_KEY_KEYS = ['openai_api_key', 'openai_admin_key', 'gemini_api_key'];
 
 // Get all settings (mask sensitive values)
-router.get('/', (req, res) => {
-  const settings = getAllSettings();
+router.get('/', async (req, res) => {
+  const settings = await getAllSettings();
   const masked = { ...settings };
 
   for (const key of SENSITIVE_KEYS) {
@@ -29,7 +29,7 @@ router.get('/', (req, res) => {
 });
 
 // Update settings
-router.put('/', (req, res) => {
+router.put('/', async (req, res) => {
   const allowed = [
     'openai_api_key',
     'openai_admin_key',
@@ -42,7 +42,7 @@ router.put('/', (req, res) => {
 
   for (const key of allowed) {
     if (req.body[key] !== undefined) {
-      setSetting(key, req.body[key]);
+      await setSetting(key, req.body[key]);
     }
   }
 
@@ -51,7 +51,7 @@ router.put('/', (req, res) => {
 
 // Test OpenAI connection
 router.post('/test-openai', async (req, res) => {
-  const apiKey = getSetting('openai_api_key');
+  const apiKey = await getSetting('openai_api_key');
   if (!apiKey) return res.status(400).json({ error: 'OpenAI API key not configured' });
 
   try {
@@ -69,7 +69,7 @@ router.post('/test-openai', async (req, res) => {
 
 // Test Gemini connection
 router.post('/test-gemini', async (req, res) => {
-  const apiKey = getSetting('gemini_api_key');
+  const apiKey = await getSetting('gemini_api_key');
   if (!apiKey) return res.status(400).json({ error: 'Gemini API key not configured' });
 
   try {
