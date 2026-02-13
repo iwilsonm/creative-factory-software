@@ -47,6 +47,147 @@ const SOURCE_LABELS = {
   manual_research: { label: 'Manual Research', color: 'bg-green-100 text-green-700' }
 };
 
+// ─── Copy Correction Bar ──────────────────────────────────────────────────────
+function CopyCorrection({ projectId, onDocsUpdated }) {
+  const [correction, setCorrection] = useState('');
+  const [searching, setSearching] = useState(false);
+  const [results, setResults] = useState(null);
+  const [applying, setApplying] = useState(false);
+  const [error, setError] = useState('');
+  const inputRef = useRef(null);
+
+  const handleSearch = async (e) => {
+    e.preventDefault();
+    if (!correction.trim()) return;
+    setSearching(true);
+    setError('');
+    setResults(null);
+    try {
+      const data = await api.correctDocs(projectId, correction.trim());
+      setResults(data);
+    } catch (err) {
+      setError(err.message || 'Failed to analyze documents');
+    } finally {
+      setSearching(false);
+    }
+  };
+
+  const handleApply = async () => {
+    if (!results?.corrections?.length) return;
+    setApplying(true);
+    try {
+      await api.applyCorrections(projectId, results.corrections);
+      await onDocsUpdated();
+      setResults(null);
+      setCorrection('');
+      setError('');
+    } catch (err) {
+      setError(err.message || 'Failed to apply corrections');
+    } finally {
+      setApplying(false);
+    }
+  };
+
+  const handleCancel = () => {
+    setResults(null);
+    setError('');
+    inputRef.current?.focus();
+  };
+
+  return (
+    <div className="bg-amber-50/60 border border-amber-200/60 rounded-xl p-4">
+      <div className="flex items-center gap-2 mb-2">
+        <div className="w-6 h-6 rounded-md bg-amber-100 flex items-center justify-center flex-shrink-0">
+          <svg className="w-3.5 h-3.5 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+          </svg>
+        </div>
+        <span className="text-[13px] font-semibold text-gray-800">Fix Inaccurate Info</span>
+        <InfoTooltip text="Noticed wrong claims in your ad copy? Describe the correction here and AI will scan all foundational documents to find and fix the source." position="right" />
+      </div>
+
+      <form onSubmit={handleSearch} className="flex gap-2">
+        <input
+          ref={inputRef}
+          value={correction}
+          onChange={e => setCorrection(e.target.value)}
+          placeholder='e.g. "We offer a lifetime warranty, not 90-day"'
+          disabled={searching}
+          className="input-apple text-[13px] py-1.5 flex-1"
+        />
+        <button
+          type="submit"
+          disabled={!correction.trim() || searching}
+          className="btn-primary text-[12px] px-3 py-1.5 disabled:opacity-30 whitespace-nowrap"
+        >
+          {searching ? (
+            <span className="flex items-center gap-1.5">
+              <svg className="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+              </svg>
+              Scanning...
+            </span>
+          ) : 'Find & Fix'}
+        </button>
+      </form>
+
+      {/* Error */}
+      {error && (
+        <p className="text-[12px] text-red-600 mt-2">{error}</p>
+      )}
+
+      {/* Results preview */}
+      {results && (
+        <div className="mt-3">
+          {results.corrections.length > 0 ? (
+            <>
+              <p className="text-[12px] font-medium text-gray-700 mb-2">{results.message}</p>
+              <div className="space-y-2">
+                {results.corrections.map((c, i) => (
+                  <div key={i} className="bg-white rounded-lg border border-gray-200 p-3">
+                    <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider mb-1.5">
+                      {c.doc_label}
+                    </p>
+                    <div className="space-y-1">
+                      <div className="flex items-start gap-2">
+                        <span className="text-[10px] font-medium text-red-400 mt-0.5 flex-shrink-0">OLD</span>
+                        <p className="text-[12px] text-red-700 bg-red-50 rounded px-2 py-1 line-through">{c.old_text}</p>
+                      </div>
+                      <div className="flex items-start gap-2">
+                        <span className="text-[10px] font-medium text-green-500 mt-0.5 flex-shrink-0">NEW</span>
+                        <p className="text-[12px] text-green-700 bg-green-50 rounded px-2 py-1">{c.new_text}</p>
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div className="flex gap-2 mt-3">
+                <button
+                  onClick={handleApply}
+                  disabled={applying}
+                  className="btn-primary text-[12px] px-4 py-1.5 disabled:opacity-50"
+                >
+                  {applying ? 'Applying...' : `Apply ${results.corrections.length === 1 ? 'Correction' : 'All Corrections'}`}
+                </button>
+                <button
+                  onClick={handleCancel}
+                  disabled={applying}
+                  className="text-[12px] text-gray-500 hover:text-gray-700 px-3 py-1.5"
+                >
+                  Cancel
+                </button>
+              </div>
+            </>
+          ) : (
+            <p className="text-[12px] text-gray-500 mt-1">{results.message || 'No matching claims found in any document. Try rephrasing your correction.'}</p>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function FoundationalDocs({ projectId, projectStatus }) {
   const toast = useToast();
   const [docs, setDocs] = useState([]);
@@ -958,6 +1099,11 @@ export default function FoundationalDocs({ projectId, projectStatus }) {
         <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded p-3">
           {genError}
         </div>
+      )}
+
+      {/* Copy Correction Bar — fix inaccurate info across all docs */}
+      {!editingDoc && !viewDoc && hasDocs && (
+        <CopyCorrection projectId={projectId} onDocsUpdated={loadDocs} />
       )}
 
       {/* Editing mode */}

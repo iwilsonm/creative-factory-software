@@ -7,6 +7,7 @@ import {
   generateAllDocs,
   regenerateDoc,
   generateFromManualResearch,
+  findAndCorrectDocs,
   STEPS,
   prompt1_AnalyzeSalesPage,
   prompt2_ResearchMethodology,
@@ -342,6 +343,56 @@ router.put('/:projectId/docs/:docId/approve', async (req, res) => {
   } catch (err) {
     res.status(404).json({ error: 'Document not found' });
   }
+});
+
+// =============================================
+// Copy Correction — find and fix inaccurate info
+// =============================================
+
+// Scan all docs for inaccurate claims and propose corrections
+router.post('/:projectId/correct-docs', async (req, res) => {
+  const project = await getProject(req.params.projectId);
+  if (!project) return res.status(404).json({ error: 'Project not found' });
+
+  const { correction } = req.body;
+  if (!correction || correction.trim().length === 0) {
+    return res.status(400).json({ error: 'Correction instruction is required' });
+  }
+
+  try {
+    const result = await findAndCorrectDocs(req.params.projectId, correction.trim());
+    res.json(result);
+  } catch (err) {
+    console.error('[CopyCorrection] Error:', err.message);
+    res.status(500).json({ error: err.message || 'Failed to analyze documents' });
+  }
+});
+
+// Apply proposed corrections to documents
+router.post('/:projectId/apply-corrections', async (req, res) => {
+  const project = await getProject(req.params.projectId);
+  if (!project) return res.status(404).json({ error: 'Project not found' });
+
+  const { corrections } = req.body;
+  if (!Array.isArray(corrections) || corrections.length === 0) {
+    return res.status(400).json({ error: 'Corrections array is required' });
+  }
+
+  const updated = [];
+  for (const c of corrections) {
+    if (!c.doc_id || !c.full_updated_content) continue;
+    try {
+      await convexClient.mutation(api.foundationalDocs.update, {
+        externalId: c.doc_id,
+        content: c.full_updated_content,
+      });
+      updated.push(c.doc_id);
+    } catch (err) {
+      console.error(`[CopyCorrection] Failed to update doc ${c.doc_id}:`, err.message);
+    }
+  }
+
+  res.json({ success: true, updated_count: updated.length, updated_doc_ids: updated });
 });
 
 export default router;

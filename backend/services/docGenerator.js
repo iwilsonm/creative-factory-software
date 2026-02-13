@@ -1,5 +1,5 @@
 import { v4 as uuidv4 } from 'uuid';
-import { chatStream, deepResearch } from './openai.js';
+import { chat, chatStream, deepResearch } from './openai.js';
 import { getProject, getLatestDoc, updateProject, convexClient, api } from '../convexClient.js';
 
 // The 8 prompts from the SOP, organized as functions that return prompt text.
@@ -831,9 +831,131 @@ export async function generateFromManualResearch(projectId, researchContent, onE
   }
 }
 
+// =============================================
+// Copy Correction — scan docs and propose fixes
+// =============================================
+
+const DOC_TYPES = ['research', 'avatar', 'offer_brief', 'necessary_beliefs'];
+const DOC_LABELS_MAP = {
+  research: 'Research Document',
+  avatar: 'Avatar Sheet',
+  offer_brief: 'Offer Brief',
+  necessary_beliefs: 'Necessary Beliefs'
+};
+
+async function findAndCorrectDocs(projectId, correctionInstruction) {
+  // 1. Fetch all latest docs
+  const docEntries = [];
+  for (const docType of DOC_TYPES) {
+    const doc = await getLatestDoc(projectId, docType);
+    if (doc && doc.content) {
+      docEntries.push({ doc_type: docType, id: doc.externalId, content: doc.content });
+    }
+  }
+
+  if (docEntries.length === 0) {
+    return { corrections: [], message: 'No foundational documents found to search.' };
+  }
+
+  // 2. Build GPT prompt
+  const systemPrompt = `You are a document correction assistant. You will receive foundational marketing documents and a correction instruction from the user.
+
+Your job:
+1. Search ALL documents for any claims, statements, or references that relate to the user's correction.
+2. The incorrect information may be worded differently than how the user describes it. Use semantic understanding — look for the same CONCEPT, not just the same words.
+3. For each instance found, produce the correction.
+4. Return your response as a JSON object. Do NOT include any text outside the JSON.
+
+CRITICAL RULES:
+- Search ALL documents thoroughly. The same incorrect claim may appear in multiple documents.
+- Make MINIMAL changes. Only fix the specific incorrect claim. Do NOT rewrite surrounding sentences or restructure paragraphs.
+- Preserve ALL markdown formatting, headers, bullet points, and structure exactly as-is.
+- If you find NO instances of the incorrect information in any document, return an empty corrections array.
+- The "old_text" field must be an EXACT substring of the original document content (copy-paste exact, including punctuation and whitespace). This will be used for programmatic find-and-replace.
+- The "new_text" field is what should replace the old_text.
+- The "full_updated_content" field must contain the COMPLETE document with the correction applied — the entire document text, not just a snippet.
+
+Return this exact JSON structure:
+{
+  "corrections": [
+    {
+      "doc_type": "research|avatar|offer_brief|necessary_beliefs",
+      "old_text": "exact substring from the original document",
+      "new_text": "the corrected replacement text",
+      "context": "...roughly 60 chars of surrounding text with the old_text in the middle for user preview...",
+      "full_updated_content": "the entire corrected document content"
+    }
+  ],
+  "message": "Brief summary of what was found and changed"
+}`;
+
+  let userContent = 'Here are the foundational documents:\n\n';
+  for (const entry of docEntries) {
+    userContent += `=== ${DOC_LABELS_MAP[entry.doc_type]} (doc_type: ${entry.doc_type}, doc_id: ${entry.id}) ===\n${entry.content}\n\n`;
+  }
+  userContent += `---\n\nCORRECTION INSTRUCTION:\n${correctionInstruction}`;
+
+  const messages = [
+    { role: 'system', content: systemPrompt },
+    { role: 'user', content: userContent }
+  ];
+
+  // 3. Call GPT
+  const raw = await chat(messages, 'gpt-4.1-mini', {
+    response_format: { type: 'json_object' }
+  });
+
+  let result;
+  try {
+    result = JSON.parse(raw);
+  } catch {
+    throw new Error('Failed to parse correction response from AI.');
+  }
+
+  if (!result.corrections || !Array.isArray(result.corrections)) {
+    return { corrections: [], message: result.message || 'No corrections found.' };
+  }
+
+  // 4. For each correction, attempt programmatic replace; fall back to GPT's full doc
+  const enriched = [];
+  for (const c of result.corrections) {
+    const docEntry = docEntries.find(d => d.doc_type === c.doc_type);
+    if (!docEntry) continue;
+
+    let finalContent;
+    if (c.old_text && docEntry.content.includes(c.old_text)) {
+      // Programmatic replace — more trustworthy
+      finalContent = docEntry.content.replace(c.old_text, c.new_text);
+    } else if (c.full_updated_content) {
+      // Fall back to GPT's full document
+      finalContent = c.full_updated_content;
+    } else {
+      continue; // Skip if we can't apply the correction
+    }
+
+    enriched.push({
+      doc_type: c.doc_type,
+      doc_id: docEntry.id,
+      doc_label: DOC_LABELS_MAP[c.doc_type],
+      old_text: c.old_text,
+      new_text: c.new_text,
+      context: c.context || '',
+      full_updated_content: finalContent
+    });
+  }
+
+  return {
+    corrections: enriched,
+    message: enriched.length > 0
+      ? `Found ${enriched.length} correction${enriched.length !== 1 ? 's' : ''} across ${new Set(enriched.map(c => c.doc_type)).size} document${new Set(enriched.map(c => c.doc_type)).size !== 1 ? 's' : ''}`
+      : result.message || 'No matching claims found in any document.'
+  };
+}
+
 export {
   STEPS,
   prompt1_AnalyzeSalesPage,
   prompt2_ResearchMethodology,
-  prompt3_GenerateResearchPrompt
+  prompt3_GenerateResearchPrompt,
+  findAndCorrectDocs
 };

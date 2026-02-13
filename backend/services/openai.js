@@ -40,10 +40,10 @@ export async function chatStream(messages, onChunk, model = 'gpt-4.1') {
 /**
  * Send a multi-turn conversation to GPT and get the full response (no streaming).
  */
-export async function chat(messages, model = 'gpt-4.1') {
+export async function chat(messages, model = 'gpt-4.1', options = {}) {
   const openai = await getClient();
   const response = await withRetry(
-    () => openai.chat.completions.create({ model, messages }),
+    () => openai.chat.completions.create({ model, messages, ...options }),
     { label: '[OpenAI chat]' }
   );
   return response.choices[0].message.content;
