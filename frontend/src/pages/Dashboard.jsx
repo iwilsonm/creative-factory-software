@@ -205,6 +205,8 @@ export default function Dashboard() {
     }
   };
 
+  const hasScheduledBatches = recurringCosts && recurringCosts.scheduledBatchCount > 0;
+
   return (
     <Layout>
       {/* Page Header */}
@@ -213,10 +215,7 @@ export default function Dashboard() {
         <p className="text-[13px] text-gray-500 mt-0.5">Manage your ad creative projects</p>
       </div>
 
-      {/* Roadmap / To-Do List */}
-      <TodoWidget />
-
-      {/* API Cost Summary */}
+      {/* 1. API Cost Summary */}
       <div className="mb-8 fade-in">
         <div className="flex items-center gap-2 mb-1">
           <h2 className="text-[15px] font-semibold text-gray-900 tracking-tight">API Costs</h2>
@@ -231,36 +230,43 @@ export default function Dashboard() {
         <div className="space-y-4">
           <CostSummaryCards costs={costs} loading={costsLoading} />
           <CostBarChart data={costHistory} loading={costsLoading} />
+        </div>
+      </div>
 
-          {/* Recurring Batch Cost Estimate */}
-          {recurringCosts && recurringCosts.scheduledBatchCount > 0 && (
-            <div className="card p-4">
-              {/* Header row */}
-              <div className="flex items-center gap-3">
-                <div className="w-8 h-8 rounded-xl bg-purple-100 flex items-center justify-center flex-shrink-0">
-                  <svg className="w-4 h-4 text-purple-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
-                  </svg>
-                </div>
-                <div className="flex-1">
-                  <p className="text-[11px] font-medium text-gray-400 uppercase tracking-wider">
-                    Est. Daily Recurring
-                  </p>
-                  <p className="text-lg font-semibold text-gray-900 tracking-tight">
-                    ~${recurringCosts.estimatedDailyCost.toFixed(2)}/day
-                  </p>
-                </div>
-                <InfoTooltip
-                  text={`Estimated cost from ${recurringCosts.scheduledBatchCount} scheduled batch${recurringCosts.scheduledBatchCount !== 1 ? 'es' : ''} running automatically. Based on current Gemini batch rates with 50% batch discount.`}
-                  position="left"
-                />
-              </div>
+      {/* 2. Recurring Automation Costs — always visible */}
+      <div className="mb-8 fade-in">
+        <div className="card p-4">
+          <div className="flex items-center gap-3">
+            <div className="w-8 h-8 rounded-xl bg-purple-100 flex items-center justify-center flex-shrink-0">
+              <svg className="w-4 h-4 text-purple-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
+              </svg>
+            </div>
+            <div className="flex-1">
+              <p className="text-[11px] font-medium text-gray-400 uppercase tracking-wider">
+                Est. Daily Recurring
+              </p>
+              <p className="text-lg font-semibold text-gray-900 tracking-tight">
+                {hasScheduledBatches
+                  ? `~$${recurringCosts.estimatedDailyCost.toFixed(2)}/day`
+                  : '$0.00/day'}
+              </p>
+            </div>
+            <InfoTooltip
+              text={hasScheduledBatches
+                ? `Estimated cost from ${recurringCosts.scheduledBatchCount} scheduled batch${recurringCosts.scheduledBatchCount !== 1 ? 'es' : ''} running automatically. Based on current Gemini batch rates with 50% batch discount.`
+                : 'Shows estimated daily cost once you set up scheduled batch automations in a project.'}
+              position="left"
+            />
+          </div>
+
+          {hasScheduledBatches ? (
+            <>
               <p className="text-[11px] text-gray-400 mt-2 ml-11">
                 {recurringCosts.scheduledBatchCount} scheduled batch{recurringCosts.scheduledBatchCount !== 1 ? 'es' : ''}
                 {' | '}~${(recurringCosts.estimatedDailyCost * 30).toFixed(2)}/month est.
               </p>
 
-              {/* Rate info */}
               {recurringCosts.perImageRate > 0 && (
                 <p className="text-[11px] text-gray-400 mt-1 ml-11">
                   Based on ${recurringCosts.perImageRate.toFixed(4)}/image Gemini rate
@@ -268,7 +274,6 @@ export default function Dashboard() {
                 </p>
               )}
 
-              {/* Breakdown table */}
               {recurringCosts.breakdown && recurringCosts.breakdown.length > 0 && (
                 <div className="mt-4 ml-11">
                   <table className="w-full text-[11px]">
@@ -310,10 +315,17 @@ export default function Dashboard() {
                   </table>
                 </div>
               )}
-            </div>
+            </>
+          ) : (
+            <p className="text-[11px] text-gray-400 mt-2 ml-11">
+              No scheduled automations. Set up batch schedules in a project to see estimated recurring costs.
+            </p>
           )}
         </div>
       </div>
+
+      {/* 3. Roadmap / To-Do List */}
+      <TodoWidget />
 
     </Layout>
   );
