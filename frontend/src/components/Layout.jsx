@@ -28,8 +28,8 @@ export default function Layout({ children }) {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between h-12">
             <div className="flex items-center gap-8">
-              <Link to="/" className="text-[15px] font-semibold text-gray-900 tracking-tight">
-                Dacia Static Gen
+              <Link to="/" className="flex items-center">
+                <img src="/logo.png" alt="Dacia Automation" className="h-8" />
               </Link>
               <div className="segmented-control hidden md:inline-flex">
                 {navLinks.map(link => {
