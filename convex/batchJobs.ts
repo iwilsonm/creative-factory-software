@@ -8,6 +8,7 @@ export const create = mutation({
     generation_mode: v.string(),
     batch_size: v.number(),
     angle: v.optional(v.string()),
+    angles: v.optional(v.string()),
     aspect_ratio: v.optional(v.string()),
     template_image_id: v.optional(v.string()),
     inspiration_image_id: v.optional(v.string()),
@@ -96,8 +97,12 @@ export const update = mutation({
     retry_count: v.optional(v.number()),
     batch_stats: v.optional(v.nullable(v.string())),
     angle: v.optional(v.string()),
+    angles: v.optional(v.string()),
     batch_size: v.optional(v.number()),
     aspect_ratio: v.optional(v.string()),
+    used_template_ids: v.optional(v.string()),
+    failed_count: v.optional(v.number()),
+    run_count: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     const batch = await ctx.db

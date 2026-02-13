@@ -1,6 +1,6 @@
 import { v4 as uuidv4 } from 'uuid';
 import { chat, chatWithImage } from './openai.js';
-import { getClient } from './gemini.js';
+import { getClient, generateImage } from './gemini.js';
 import {
   buildCreativeDirectorPrompt,
   buildImageRequestText,
@@ -15,7 +15,8 @@ import {
 } from '../convexClient.js';
 import { logGeminiCost } from './costTracker.js';
 import { withRetry } from './retry.js';
-import { uploadBufferToDrive } from '../routes/drive.js';
+// Drive upload skipped for batch images — Service Account has no storage quota.
+// Images are stored in Convex storage and viewable in the UI.
 
 /**
  * Run a batch job end-to-end.
@@ -104,8 +105,12 @@ export async function runBatch(batchId, onProgress) {
 /**
  * Generate GPT-5.2 image prompts for all images in a batch.
  * Runs sequentially to respect rate limits.
- * Returns array of { prompt, inspirationBase64, inspirationMimeType } objects.
+ * Returns array of { prompt, inspirationBase64, inspirationMimeType, templateFileId } objects.
  * Each prompt is retried up to 3 times before being skipped.
+ *
+ * Diversity features:
+ * - Template dedup: excludes previously used template IDs across runs
+ * - Variation instruction: tells GPT to create unique concepts per ad
  */
 async function generateBatchPrompts(batch, project, docs, onProgress) {
   const emit = (event) => { if (onProgress) try { onProgress(event); } catch {} };
@@ -113,36 +118,56 @@ async function generateBatchPrompts(batch, project, docs, onProgress) {
 
   const creativeDirectorPrompt = buildCreativeDirectorPrompt(project, docs);
 
+  // Use the single angle for all ads in the batch
+  const currentAngle = batch.angle || null;
+
+  // Load previously used template IDs for cross-run deduplication
+  let usedTemplateIds = [];
+  if (batch.used_template_ids) {
+    try { usedTemplateIds = JSON.parse(batch.used_template_ids); } catch {}
+  }
+  const newlyUsedTemplateIds = [];
+
   for (let i = 0; i < batch.batch_size; i++) {
     emit({
       type: 'prompt_progress',
       current: i + 1,
       total: batch.batch_size,
-      message: `Generating prompt ${i + 1} of ${batch.batch_size}...`
+      message: `Generating prompt ${i + 1} of ${batch.batch_size}${currentAngle ? ` (${currentAngle.slice(0, 40)})` : ''}...`
     });
 
     let success = false;
     for (let attempt = 1; attempt <= 3 && !success; attempt++) {
       try {
-        // Select image for this iteration (re-select on retry for a fresh random pick)
+        // Select image for this iteration
+        // Exclude templates used in this run AND previous runs
+        const allExcluded = [...usedTemplateIds, ...newlyUsedTemplateIds];
+
         let imageData;
         if (batch.generation_mode === 'mode2' && batch.template_image_id) {
-          // Mode 2: Use the same uploaded template for every ad
           imageData = await selectTemplateImage(batch.template_image_id);
         } else if (batch.inspiration_image_id) {
-          // Mode 1 with a specific Drive template: use the same one for every ad
           imageData = await selectInspirationImage(batch.project_id, batch.inspiration_image_id);
         } else {
-          // Mode 1 random: pick a different random template each time
-          imageData = await selectInspirationImage(batch.project_id, null);
+          // Random mode: exclude previously used templates
+          imageData = await selectInspirationImage(batch.project_id, null, allExcluded);
+        }
+
+        // Track which template was used
+        if (imageData.fileId) {
+          newlyUsedTemplateIds.push(imageData.fileId);
         }
 
         // GPT-5.2 Message 1: Creative director prompt
         const messages = [{ role: 'user', content: creativeDirectorPrompt }];
         const acknowledgment = await chat(messages, 'gpt-5.2');
 
-        // GPT-5.2 Message 2: Image + instructions
-        const imageRequestText = buildImageRequestText(batch.angle, batch.aspect_ratio);
+        // GPT-5.2 Message 2: Image + instructions with current angle
+        let imageRequestText = buildImageRequestText(currentAngle, batch.aspect_ratio);
+
+        // Add variation instruction for batch diversity
+        imageRequestText += `. IMPORTANT: This is ad ${i + 1} of ${batch.batch_size} in a batch — create a COMPLETELY UNIQUE creative concept. Use a different visual style, layout, color palette, and headline approach than you would for any other ad in this series. Be bold and experimental with this variation.`;
+
         const conversationSoFar = [
           { role: 'user', content: creativeDirectorPrompt },
           { role: 'assistant', content: acknowledgment }
@@ -166,6 +191,7 @@ async function generateBatchPrompts(batch, project, docs, onProgress) {
           prompt: imagePrompt,
           inspirationBase64: imageData.base64,
           inspirationMimeType: imageData.mimeType,
+          templateFileId: imageData.fileId || null,
         });
         success = true;
 
@@ -184,6 +210,13 @@ async function generateBatchPrompts(batch, project, docs, onProgress) {
     if (i < batch.batch_size - 1) {
       await new Promise(resolve => setTimeout(resolve, 1500));
     }
+  }
+
+  // Update used_template_ids on the batch record for cross-run tracking
+  if (newlyUsedTemplateIds.length > 0) {
+    const updatedUsed = [...usedTemplateIds, ...newlyUsedTemplateIds];
+    await updateBatchJob(batch.id, { used_template_ids: JSON.stringify(updatedUsed) });
+    console.log(`[BatchProcessor] Tracked ${newlyUsedTemplateIds.length} new template IDs (${updatedUsed.length} total used)`);
   }
 
   // Filter out failed prompts
@@ -323,6 +356,15 @@ async function processBatchResults(batchId, job) {
   // Get responses from the batch job
   const responses = job.dest?.inlinedResponses || [];
 
+  // Load product image for single-image retries (if configured)
+  let productImageData = null;
+  if (batch.product_image_storageId) {
+    try {
+      const imgBuffer = await downloadToBuffer(batch.product_image_storageId);
+      productImageData = { base64: imgBuffer.toString('base64'), mimeType: 'image/png' };
+    } catch {}
+  }
+
   let savedCount = 0;
   let failedCount = 0;
 
@@ -347,8 +389,23 @@ async function processBatchResults(batchId, job) {
         }
       }
 
+      // If batch response had no image, retry with direct Gemini call (1 attempt)
+      if (!imageBuffer && prompts[i]) {
+        console.log(`[BatchProcessor] Batch ${batchId.slice(0, 8)}: No image in response ${i}, retrying with direct Gemini call...`);
+        try {
+          const retryResult = await generateImage(prompts[i], batch.aspect_ratio || '1:1', productImageData);
+          if (retryResult && retryResult.buffer) {
+            imageBuffer = retryResult.buffer;
+            mimeType = retryResult.mimeType || 'image/png';
+            console.log(`[BatchProcessor] Batch ${batchId.slice(0, 8)}: Retry succeeded for response ${i}`);
+          }
+        } catch (retryErr) {
+          console.warn(`[BatchProcessor] Batch ${batchId.slice(0, 8)}: Retry failed for response ${i}: ${retryErr.message}`);
+        }
+      }
+
       if (!imageBuffer) {
-        console.warn(`[BatchProcessor] Batch ${batchId.slice(0, 8)}: No image in response ${i}`);
+        console.warn(`[BatchProcessor] Batch ${batchId.slice(0, 8)}: No image in response ${i} (after retry)`);
         failedCount++;
         continue;
       }
@@ -372,27 +429,8 @@ async function processBatchResults(batchId, job) {
         template_image_id: batch.template_image_id || undefined,
       });
 
-      // Upload to Drive
-      if (project && project.drive_folder_id) {
-        try {
-          const ext = mimeType === 'image/jpeg' ? '.jpg' : '.png';
-          const slugAngle = batch.angle
-            ? batch.angle.toLowerCase().replace(/[^a-z0-9]+/g, '-').slice(0, 30)
-            : 'batch';
-          const ts = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 16);
-          const driveName = `${project.name}_Batch_${slugAngle}_${i + 1}_${ts}${ext}`;
-          const driveResult = await uploadBufferToDrive(imageBuffer, driveName, project.drive_folder_id, mimeType);
-
-          await convexClient.mutation(api.adCreatives.update, {
-            externalId: adId,
-            drive_file_id: driveResult.fileId,
-            drive_url: driveResult.webViewLink,
-          });
-        } catch (driveErr) {
-          console.error(`[BatchProcessor] Drive upload failed for image ${i}:`, driveErr.message);
-          // Non-fatal — image is still saved in Convex storage
-        }
-      }
+      // Drive upload skipped — Service Account has no storage quota.
+      // Images are stored in Convex and viewable in the UI.
 
       savedCount++;
 
@@ -405,12 +443,15 @@ async function processBatchResults(batchId, job) {
     }
   }
 
+  // Accumulate counts across runs (don't overwrite previous runs' totals)
   await updateBatchJob(batchId, {
     status: 'completed',
     completed_at: new Date().toISOString(),
-    completed_count: savedCount
+    completed_count: (batch.completed_count || 0) + savedCount,
+    failed_count: (batch.failed_count || 0) + failedCount,
+    run_count: (batch.run_count || 0) + 1
   });
 
-  console.log(`[BatchProcessor] Batch ${batchId.slice(0, 8)} completed: ${savedCount} saved, ${failedCount} failed.`);
+  console.log(`[BatchProcessor] Batch ${batchId.slice(0, 8)} completed: ${savedCount} saved, ${failedCount} failed (run ${(batch.run_count || 0) + 1}, total: ${(batch.completed_count || 0) + savedCount} saved).`);
   return { savedCount, failedCount };
 }

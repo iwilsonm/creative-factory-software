@@ -188,7 +188,7 @@ export function buildImageRequestText(angle, aspectRatio, hasProductImage = fals
  * @param {string|null} inspirationImageId - Specific Drive file ID to use, or null for random
  * @returns {{ base64: string, mimeType: string, fileId: string }}
  */
-export async function selectInspirationImage(projectId, inspirationImageId) {
+export async function selectInspirationImage(projectId, inspirationImageId, excludeIds = []) {
   const images = await getInspirationImages(projectId);
   if (!images || images.length === 0) {
     throw new Error('No inspiration images cached. Sync your inspiration folder first.');
@@ -201,8 +201,18 @@ export async function selectInspirationImage(projectId, inspirationImageId) {
       throw new Error(`Inspiration image ${inspirationImageId} not found in cache.`);
     }
   } else {
-    // Random selection
-    selected = images[Math.floor(Math.random() * images.length)];
+    // Random selection, excluding previously used IDs
+    let pool = images;
+    if (excludeIds.length > 0) {
+      const excludeSet = new Set(excludeIds);
+      const filtered = images.filter(img => !excludeSet.has(img.drive_file_id));
+      // Only use filtered pool if it has enough images; otherwise reset
+      if (filtered.length > 0) {
+        pool = filtered;
+      }
+      // If all images are excluded, use the full pool (reset)
+    }
+    selected = pool[Math.floor(Math.random() * pool.length)];
   }
 
   if (!selected.storageId) {

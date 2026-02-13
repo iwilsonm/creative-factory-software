@@ -462,7 +462,7 @@ export default function BatchManager({ projectId, project, onBatchComplete }) {
   const buildBatchConfig = () => {
     const config = {
       batch_size: batchSize,
-      angle: batchAngle || undefined,
+      angle: batchAngle.trim() || undefined,
       aspect_ratio: batchAspectRatio,
       scheduled: isScheduled,
       schedule_cron: isScheduled ? getEffectiveCron() : undefined,
@@ -640,7 +640,7 @@ export default function BatchManager({ projectId, project, onBatchComplete }) {
     const config = {
       id: Date.now(),
       batch_size: batchSize,
-      angle: batchAngle || '',
+      angle: batchAngle.trim() || '',
       aspect_ratio: batchAspectRatio,
       scheduled: isScheduled,
       schedule_cron: isScheduled ? cronExpression : undefined,
@@ -1419,7 +1419,7 @@ function BatchRow({ batch, onRunNow, onCancel, onDelete, onEdit, onPause, onResu
     try {
       await onEdit(batch.id, {
         batch_size: editSize,
-        angle: editAngle || '',
+        angle: editAngle.trim() || '',
         aspect_ratio: editAspect,
         scheduled: editScheduled,
         schedule_cron: editScheduled ? getEditCron() : undefined,
@@ -1498,14 +1498,21 @@ function BatchRow({ batch, onRunNow, onCancel, onDelete, onEdit, onPause, onResu
             {batch.angle && (
               <>
                 <span className="text-[11px] text-gray-300">|</span>
-                <span className="text-[11px] text-gray-400">Angle:</span>
-                <span className="text-[11px] text-gray-500 truncate">{batch.angle}</span>
+                <span className="text-[11px] text-gray-500 truncate" title={batch.angle}>
+                  {batch.angle}
+                </span>
               </>
             )}
             {batch.completed_count > 0 && (
               <>
                 <span className="text-[11px] text-gray-300">|</span>
                 <span className="text-[11px] text-green-600">{batch.completed_count} saved</span>
+                {batch.failed_count > 0 && (
+                  <span className="text-[11px] text-red-400">· {batch.failed_count} failed</span>
+                )}
+                {batch.run_count > 1 && (
+                  <span className="text-[11px] text-gray-400">· {batch.run_count} runs</span>
+                )}
               </>
             )}
             {batch.error_message && (

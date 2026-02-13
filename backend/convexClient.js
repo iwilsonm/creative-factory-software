@@ -202,13 +202,14 @@ export async function getProjectStats(projectId) {
 // Batch job helpers
 // =============================================
 
-export async function createBatchJob({ id, project_id, generation_mode, batch_size, angle, aspect_ratio, template_image_id, inspiration_image_id, product_image_storageId, scheduled, schedule_cron }) {
+export async function createBatchJob({ id, project_id, generation_mode, batch_size, angle, angles, aspect_ratio, template_image_id, inspiration_image_id, product_image_storageId, scheduled, schedule_cron }) {
   await mutationWithRetry(api.batchJobs.create, {
     externalId: id,
     project_id,
     generation_mode,
     batch_size: batch_size || 1,
     angle: angle || undefined,
+    angles: angles || undefined,
     aspect_ratio: aspect_ratio || '1:1',
     template_image_id: template_image_id || undefined,
     inspiration_image_id: inspiration_image_id || undefined,
@@ -244,7 +245,7 @@ export async function getAllScheduledBatchesForCost() {
 }
 
 export async function updateBatchJob(id, fields) {
-  const allowed = ['status', 'gemini_batch_job', 'gpt_prompts', 'error_message', 'completed_at', 'completed_count', 'scheduled', 'schedule_cron', 'retry_count', 'batch_stats', 'angle', 'batch_size', 'aspect_ratio'];
+  const allowed = ['status', 'gemini_batch_job', 'gpt_prompts', 'error_message', 'completed_at', 'completed_count', 'failed_count', 'run_count', 'scheduled', 'schedule_cron', 'retry_count', 'batch_stats', 'angle', 'angles', 'batch_size', 'aspect_ratio', 'used_template_ids'];
   const updates = { externalId: id };
   for (const key of allowed) {
     if (fields[key] !== undefined) {
@@ -269,6 +270,7 @@ function convexBatchToRow(b) {
     generation_mode: b.generation_mode,
     batch_size: b.batch_size,
     angle: b.angle || null,
+    angles: b.angles || null,
     aspect_ratio: b.aspect_ratio || '1:1',
     template_image_id: b.template_image_id || null,
     inspiration_image_id: b.inspiration_image_id || null,
@@ -281,7 +283,10 @@ function convexBatchToRow(b) {
     schedule_cron: b.schedule_cron || null,
     error_message: b.error_message || null,
     completed_count: b.completed_count || 0,
+    failed_count: b.failed_count || 0,
+    run_count: b.run_count || 0,
     retry_count: b.retry_count || 0,
+    used_template_ids: b.used_template_ids || null,
     batch_stats: b.batch_stats || null,
     created_at: b.created_at,
     completed_at: b.completed_at || null,

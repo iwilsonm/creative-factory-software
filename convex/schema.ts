@@ -77,6 +77,7 @@ export default defineSchema({
     generation_mode: v.string(),
     batch_size: v.number(),
     angle: v.optional(v.string()),
+    angles: v.optional(v.string()),  // JSON array of angles for multi-angle batches
     aspect_ratio: v.optional(v.string()),
     template_image_id: v.optional(v.string()),
     inspiration_image_id: v.optional(v.string()),
@@ -88,7 +89,10 @@ export default defineSchema({
     schedule_cron: v.optional(v.string()),
     error_message: v.optional(v.nullable(v.string())),
     completed_count: v.optional(v.number()),
+    failed_count: v.optional(v.number()),
+    run_count: v.optional(v.number()),
     retry_count: v.optional(v.number()),
+    used_template_ids: v.optional(v.string()),  // JSON array of template IDs used across runs
     batch_stats: v.optional(v.nullable(v.string())),
     created_at: v.string(),
     completed_at: v.optional(v.string()),
