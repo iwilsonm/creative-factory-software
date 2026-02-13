@@ -604,6 +604,26 @@ export default function BatchManager({ projectId, project, onBatchComplete }) {
     }
   };
 
+  const handlePause = async (batchId) => {
+    try {
+      await api.updateBatch(projectId, batchId, { scheduled: false });
+      toast.success('Automation paused');
+      await loadBatches();
+    } catch (err) {
+      toast.error(err.message);
+    }
+  };
+
+  const handleResume = async (batchId) => {
+    try {
+      await api.updateBatch(projectId, batchId, { scheduled: true });
+      toast.success('Automation resumed');
+      await loadBatches();
+    } catch (err) {
+      toast.error(err.message);
+    }
+  };
+
   // Queue handlers
   const handleAddToQueue = () => {
     // Validate template selection
@@ -721,9 +741,10 @@ export default function BatchManager({ projectId, project, onBatchComplete }) {
 
   const activeBatches = batches.filter(b =>
     ['generating_prompts', 'submitting', 'processing', 'pending'].includes(b.status)
+    || !!b.schedule_cron  // Include all scheduled/paused batches in active section
   );
   const completedBatches = batches.filter(b =>
-    ['completed', 'failed'].includes(b.status)
+    ['completed', 'failed'].includes(b.status) && !b.schedule_cron
   );
 
   return (
@@ -1307,6 +1328,8 @@ export default function BatchManager({ projectId, project, onBatchComplete }) {
                         onCancel={handleCancel}
                         onDelete={handleDelete}
                         onEdit={handleEditBatch}
+                        onPause={handlePause}
+                        onResume={handleResume}
                       />
                     ))}
                   </div>
@@ -1327,6 +1350,8 @@ export default function BatchManager({ projectId, project, onBatchComplete }) {
                         onCancel={handleCancel}
                         onDelete={handleDelete}
                         onEdit={handleEditBatch}
+                        onPause={handlePause}
+                        onResume={handleResume}
                       />
                     ))}
                   </div>
@@ -1354,10 +1379,12 @@ export default function BatchManager({ projectId, project, onBatchComplete }) {
   );
 }
 
-function BatchRow({ batch, onRunNow, onCancel, onDelete, onEdit }) {
+function BatchRow({ batch, onRunNow, onCancel, onDelete, onEdit, onPause, onResume }) {
   const isActive = ['generating_prompts', 'submitting', 'processing'].includes(batch.status);
   const canRun = ['pending', 'completed', 'failed'].includes(batch.status);
   const canCancel = isActive;
+  const isPaused = !batch.scheduled && !!batch.schedule_cron;
+  const canPause = !!batch.scheduled && !!batch.schedule_cron;
   const canEdit = !isActive || batch.scheduled;
 
   const [editing, setEditing] = useState(false);
@@ -1449,10 +1476,16 @@ function BatchRow({ batch, onRunNow, onCancel, onDelete, onEdit }) {
             <span className={`badge text-[10px] ${STATUS_COLORS[batch.status] || STATUS_COLORS.pending}`}>
               {STATUS_LABELS[batch.status] || batch.status}
             </span>
-            {batch.scheduled && batch.schedule_cron ? (
-              <span className="badge bg-purple-100/80 text-purple-600 text-[10px]">
-                {cronToLabel(batch.schedule_cron)}
-              </span>
+            {batch.schedule_cron ? (
+              batch.scheduled ? (
+                <span className="badge bg-purple-100/80 text-purple-600 text-[10px]">
+                  {cronToLabel(batch.schedule_cron)}
+                </span>
+              ) : (
+                <span className="badge bg-orange-100/80 text-orange-600 text-[10px]">
+                  Paused · {cronToLabel(batch.schedule_cron)}
+                </span>
+              )
             ) : null}
             {batch.retry_count > 0 && (
               <span className="badge bg-amber-100/80 text-amber-700 text-[10px]">
@@ -1501,6 +1534,24 @@ function BatchRow({ batch, onRunNow, onCancel, onDelete, onEdit }) {
 
         {/* Actions */}
         <div className="flex items-center gap-1.5 flex-shrink-0">
+          {canPause && (
+            <button
+              onClick={() => onPause(batch.id)}
+              className="text-[11px] text-orange-500 hover:text-orange-600 font-medium transition-colors px-2 py-1 rounded-lg hover:bg-orange-50/50"
+              title="Pause automation"
+            >
+              Pause
+            </button>
+          )}
+          {isPaused && (
+            <button
+              onClick={() => onResume(batch.id)}
+              className="text-[11px] text-green-500 hover:text-green-600 font-medium transition-colors px-2 py-1 rounded-lg hover:bg-green-50/50"
+              title="Resume automation"
+            >
+              Resume
+            </button>
+          )}
           {canCancel && (
             <button
               onClick={() => onCancel(batch.id)}

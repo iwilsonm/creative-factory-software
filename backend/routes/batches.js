@@ -132,10 +132,10 @@ router.put('/:projectId/batches/:batchId', async (req, res) => {
     await updateBatchJob(req.params.batchId, updates);
   }
 
-  // Update cron registration
-  if (scheduled && schedule_cron) {
+  // Update cron registration (handles both edit and pause/resume)
+  if (scheduled === true) {
     const updated = await getBatchJob(req.params.batchId);
-    registerCronJob(updated);
+    if (updated.schedule_cron) registerCronJob(updated);
   } else if (scheduled === false) {
     unregisterCronJob(req.params.batchId);
   }
