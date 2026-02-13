@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { requireAuth } from '../auth.js';
 import { getProject, getAdsByProject, getAd, getAdImageUrl, convexClient, api } from '../convexClient.js';
-import { generateAd, generateAdMode2, regenerateImageOnly } from '../services/adGenerator.js';
+import { generateAd, generateAdMode2, regenerateImageOnly, applyPromptEdit } from '../services/adGenerator.js';
 import sharp from 'sharp';
 import fs from 'fs';
 import path from 'path';
@@ -125,6 +125,25 @@ router.post('/:projectId/regenerate-image', async (req, res) => {
     sendEvent({ type: 'error', error: err.message });
     res.write('data: [DONE]\n\n');
     res.end();
+  }
+});
+
+// Apply a natural-language edit to an existing image prompt (returns modified prompt, no image generation)
+router.post('/:projectId/edit-prompt', async (req, res) => {
+  const { original_prompt, edit_instruction } = req.body;
+
+  if (!original_prompt || !original_prompt.trim()) {
+    return res.status(400).json({ error: 'original_prompt is required.' });
+  }
+  if (!edit_instruction || !edit_instruction.trim()) {
+    return res.status(400).json({ error: 'edit_instruction is required.' });
+  }
+
+  try {
+    const revisedPrompt = await applyPromptEdit(original_prompt.trim(), edit_instruction.trim());
+    res.json({ revised_prompt: revisedPrompt });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
   }
 });
 

@@ -73,6 +73,13 @@ export default function AdStudio({ projectId, project }) {
   // Prompt editing (for iterative refinement from past ads)
   const [customPrompt, setCustomPrompt] = useState('');
   const [parentAdId, setParentAdId] = useState(null);
+  const [editMode, setEditMode] = useState('describe'); // 'describe' (AI edit) or 'direct' (raw prompt)
+  const [editInstruction, setEditInstruction] = useState('');
+  const [isApplyingEdit, setIsApplyingEdit] = useState(false);
+  const [originalPromptRef, setOriginalPromptRef] = useState(''); // stores original prompt before edits
+  const [editPanelFlash, setEditPanelFlash] = useState(false);
+  const editPanelRef = useRef(null);
+  const editTextareaRef = useRef(null);
 
   // Template source
   const [templateSource, setTemplateSource] = useState(TEMPLATE_RANDOM);
@@ -446,13 +453,47 @@ export default function AdStudio({ projectId, project }) {
       return;
     }
     setCustomPrompt(ad.image_prompt);
+    setOriginalPromptRef(ad.image_prompt);
     setParentAdId(ad.id);
     setAspectRatio(ad.aspect_ratio || '1:1');
     if (ad.angle) setAngle(ad.angle);
     if (ad.headline) setHeadline(ad.headline);
     if (ad.body_copy) setBodyCopy(ad.body_copy);
+    setEditMode('describe');
+    setEditInstruction('');
     setViewAd(null);
-    window.scrollTo({ top: 0, behavior: 'smooth' });
+    // Scroll edit panel into center of screen after React renders it, then flash + focus
+    setTimeout(() => {
+      if (editPanelRef.current) {
+        editPanelRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        setEditPanelFlash(true);
+        setTimeout(() => setEditPanelFlash(false), 1500);
+        // Focus the textarea after scroll settles
+        setTimeout(() => {
+          if (editTextareaRef.current) editTextareaRef.current.focus();
+        }, 500);
+      }
+    }, 100);
+  };
+
+  // Apply AI edit — send instruction to GPT which modifies the prompt
+  const handleApplyEdit = async () => {
+    if (!editInstruction.trim()) {
+      toast.error('Please describe the edit you want to make.');
+      return;
+    }
+    setIsApplyingEdit(true);
+    try {
+      const result = await api.editPrompt(projectId, customPrompt, editInstruction.trim());
+      setCustomPrompt(result.revised_prompt);
+      setEditInstruction('');
+      setEditMode('direct'); // Switch to direct view so user can see the modified prompt
+      toast.success('Prompt updated — review and generate when ready.');
+    } catch (err) {
+      toast.error(err.message || 'Failed to apply edit.');
+    } finally {
+      setIsApplyingEdit(false);
+    }
   };
 
   // Filtered ads based on gallery filter
@@ -913,30 +954,115 @@ export default function AdStudio({ projectId, project }) {
           )}
         </div>
 
-        {/* Image Prompt — only shown when iterating on a past ad's prompt */}
+        {/* Image Edit Panel — only shown when iterating on a past ad's prompt */}
         {isCustomPromptMode && (
-          <div className="mb-5 p-4 bg-blue-50/30 border border-blue-200/60 rounded-xl">
+          <div
+            ref={editPanelRef}
+            className={`mb-5 p-4 border rounded-xl transition-all duration-700 ${
+              editPanelFlash
+                ? 'bg-blue-100/60 border-blue-400 shadow-lg shadow-blue-200/50 ring-2 ring-blue-300/50'
+                : 'bg-blue-50/30 border-blue-200/60'
+            }`}
+          >
             <div className="flex items-center justify-between mb-2">
               <label className="block text-[13px] font-semibold text-blue-700">
-                Editing Image Prompt
+                Edit Image
               </label>
               <button
-                onClick={() => { setCustomPrompt(''); setParentAdId(null); }}
+                onClick={() => { setCustomPrompt(''); setParentAdId(null); setEditInstruction(''); setOriginalPromptRef(''); setEditMode('describe'); }}
                 className="text-[12px] text-red-500 hover:text-red-600 transition-colors"
               >
-                Exit prompt editing
+                Exit editing
               </button>
             </div>
-            <p className="text-[11px] text-blue-600/70 mb-2">
-              This prompt goes directly to image generation, skipping GPT. Edit and regenerate to iterate.
-              {parentAdId && <span className="text-gray-400 ml-1">Based on ad {parentAdId.slice(0, 8)}...</span>}
-            </p>
-            <textarea
-              value={customPrompt}
-              onChange={e => setCustomPrompt(e.target.value)}
-              rows={8}
-              className="input-apple resize-none border-blue-300/80 bg-white font-mono text-[12px]"
-            />
+            {parentAdId && (
+              <p className="text-[11px] text-gray-400 mb-3">Based on ad {parentAdId.slice(0, 8)}...</p>
+            )}
+
+            {/* Mode tabs */}
+            <div className="flex gap-1 mb-3 bg-gray-100/80 rounded-lg p-0.5">
+              <button
+                onClick={() => setEditMode('describe')}
+                className={`flex-1 text-[12px] py-1.5 px-3 rounded-md transition-all font-medium ${
+                  editMode === 'describe'
+                    ? 'bg-white text-blue-700 shadow-sm'
+                    : 'text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                Describe Edit
+              </button>
+              <button
+                onClick={() => setEditMode('direct')}
+                className={`flex-1 text-[12px] py-1.5 px-3 rounded-md transition-all font-medium ${
+                  editMode === 'direct'
+                    ? 'bg-white text-blue-700 shadow-sm'
+                    : 'text-gray-500 hover:text-gray-700'
+                }`}
+              >
+                Edit Prompt Directly
+              </button>
+            </div>
+
+            {editMode === 'describe' ? (
+              /* Describe Edit mode — natural language */
+              <div>
+                <p className="text-[11px] text-blue-600/70 mb-2">
+                  Describe the change you want (e.g., "make the background darker", "add a sunset", "remove the text overlay"). AI will update the prompt for you.
+                </p>
+                <textarea
+                  ref={editTextareaRef}
+                  value={editInstruction}
+                  onChange={e => setEditInstruction(e.target.value)}
+                  rows={3}
+                  placeholder='e.g., "Change the background from blue to warm orange sunset tones" or "Make the product larger and more centered"'
+                  className="input-apple resize-none border-blue-300/80 bg-white text-[13px] mb-2"
+                  onKeyDown={e => {
+                    if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && !isApplyingEdit) {
+                      e.preventDefault();
+                      handleApplyEdit();
+                    }
+                  }}
+                />
+                <button
+                  onClick={handleApplyEdit}
+                  disabled={isApplyingEdit || !editInstruction.trim()}
+                  className={`text-[12px] font-medium px-4 py-2 rounded-lg transition-all ${
+                    isApplyingEdit || !editInstruction.trim()
+                      ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
+                      : 'bg-blue-600 text-white hover:bg-blue-700 shadow-sm'
+                  }`}
+                >
+                  {isApplyingEdit ? (
+                    <span className="flex items-center gap-1.5">
+                      <svg className="animate-spin h-3.5 w-3.5" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
+                      Applying edit...
+                    </span>
+                  ) : 'Apply Edit'}
+                </button>
+                <span className="text-[10px] text-gray-400 ml-2">{navigator.platform?.includes('Mac') ? '⌘' : 'Ctrl'}+Enter</span>
+              </div>
+            ) : (
+              /* Direct edit mode — raw prompt textarea */
+              <div>
+                <p className="text-[11px] text-blue-600/70 mb-2">
+                  Edit the raw prompt directly. This goes straight to image generation.
+                </p>
+                <textarea
+                  value={customPrompt}
+                  onChange={e => setCustomPrompt(e.target.value)}
+                  rows={8}
+                  className="input-apple resize-none border-blue-300/80 bg-white font-mono text-[12px]"
+                />
+                {originalPromptRef && customPrompt !== originalPromptRef && (
+                  <button
+                    onClick={() => setCustomPrompt(originalPromptRef)}
+                    className="text-[11px] text-gray-400 hover:text-gray-600 mt-1.5 transition-colors"
+                  >
+                    Reset to original prompt
+                  </button>
+                )}
+              </div>
+            )}
           </div>
         )}
 
@@ -946,7 +1072,7 @@ export default function AdStudio({ projectId, project }) {
           className="btn-primary"
         >
           {isCustomPromptMode
-            ? 'Generate from Prompt'
+            ? 'Regenerate Image'
             : 'Generate Ad'}
         </button>
         {activeGenCount > 0 && (
@@ -1163,7 +1289,7 @@ export default function AdStudio({ projectId, project }) {
                         <button
                           onClick={(e) => handleEditPrompt(ad, e)}
                           className="w-7 h-7 rounded-lg bg-black/40 backdrop-blur-sm flex items-center justify-center text-white/90 hover:bg-black/60 transition-all"
-                          title="Edit prompt &amp; regenerate"
+                          title="Edit image"
                         >
                           <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" />
@@ -1264,7 +1390,7 @@ export default function AdStudio({ projectId, project }) {
                     <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" />
                     </svg>
-                    Edit & Regenerate
+                    Edit Image
                   </button>
                 )}
               </div>
@@ -1274,7 +1400,7 @@ export default function AdStudio({ projectId, project }) {
                 <div className="mb-5 p-3 bg-blue-50/50 border border-blue-200/40 rounded-xl">
                   <p className="text-[11px] font-medium text-blue-700 mb-1">How editing works</p>
                   <p className="text-[10px] text-blue-600/70 leading-relaxed">
-                    Click "Edit & Regenerate" to load this ad's prompt into the editor above. Modify the prompt to adjust colors, text, layout, or any detail — then generate a new version. The original ad stays untouched.
+                    Click "Edit" to open the editor. Describe what you want to change in plain English and AI will update the prompt — or switch to direct editing for manual control. The original ad stays untouched.
                   </p>
                 </div>
               )}

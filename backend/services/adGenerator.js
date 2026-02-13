@@ -55,6 +55,45 @@ Rules:
 }
 
 /**
+ * Apply a natural-language edit instruction to an existing image prompt.
+ * Uses GPT to interpret the user's edit description and modify the prompt accordingly.
+ * Returns the modified prompt text.
+ */
+export async function applyPromptEdit(originalPrompt, editInstruction) {
+  if (!editInstruction || !editInstruction.trim()) return originalPrompt;
+  if (!originalPrompt || !originalPrompt.trim()) throw new Error('Original prompt is required.');
+
+  const messages = [
+    {
+      role: 'system',
+      content: `You are an expert image prompt editor. You will receive an existing image generation prompt and a user's edit instruction describing what they want to change.
+
+Your job:
+- Interpret the user's edit instruction and apply it to the existing prompt.
+- Make targeted modifications to the prompt that accomplish the requested change.
+- Preserve everything else in the prompt that is NOT related to the edit instruction — keep all other creative details, style, layout, brand elements, colors, typography, and composition.
+- If the edit is about adding something, integrate it naturally into the prompt.
+- If the edit is about removing something, remove it cleanly.
+- If the edit is about changing something, swap it out while keeping the surrounding context intact.
+- Return ONLY the revised prompt text. No explanations, no commentary, no markdown formatting.
+- Keep the same level of detail and length as the original prompt.`
+    },
+    {
+      role: 'user',
+      content: `CURRENT PROMPT:\n${originalPrompt.trim()}\n\n---\n\nEDIT INSTRUCTION:\n${editInstruction.trim()}`
+    }
+  ];
+
+  try {
+    const revisedPrompt = await chat(messages, 'gpt-4.1-mini');
+    return revisedPrompt.trim();
+  } catch (err) {
+    console.error('[AdGenerator] Prompt edit failed:', err.message);
+    throw new Error('Failed to apply edit to prompt. Please try again.');
+  }
+}
+
+/**
  * Build the creative director prompt (Message 1) for GPT-5.2.
  * Includes brand context + all 4 foundational documents.
  */

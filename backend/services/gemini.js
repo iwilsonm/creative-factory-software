@@ -22,6 +22,7 @@ async function getClient() {
 export async function generateImage(prompt, aspectRatio = '1:1', productImage = null) {
   const ai = await getClient();
 
+  try {
   let contents;
   if (productImage) {
     contents = [
@@ -37,6 +38,21 @@ export async function generateImage(prompt, aspectRatio = '1:1', productImage = 
     contents = prompt;
   }
 
+  // Gemini sometimes returns 400 INVALID_ARGUMENT for transient issues (rate limits, capacity).
+  // Custom retry predicate to handle this, plus standard network/server errors.
+  const shouldRetryGemini = (err) => {
+    const status = err.status || err.statusCode || err.httpCode;
+    // Retry 400 from Gemini (transient INVALID_ARGUMENT errors)
+    if (status === 400 && err.message?.includes('INVALID_ARGUMENT')) return true;
+    // Retry 429 (rate limit) and 5xx (server errors)
+    if (status === 429 || status >= 500) return true;
+    // Retry network errors
+    const networkCodes = ['ECONNRESET', 'ETIMEDOUT', 'ENOTFOUND', 'ECONNREFUSED'];
+    if (err.code && networkCodes.includes(err.code)) return true;
+    if (err.message && /fetch|network|socket|ECONNRESET|ETIMEDOUT/i.test(err.message)) return true;
+    return false;
+  };
+
   const response = await withRetry(
     () => ai.models.generateContent({
       model: 'gemini-3-pro-image-preview',
@@ -49,7 +65,7 @@ export async function generateImage(prompt, aspectRatio = '1:1', productImage = 
         }
       }
     }),
-    { label: '[Gemini generateImage]', maxRetries: 2 }
+    { label: '[Gemini generateImage]', maxRetries: 3, shouldRetry: shouldRetryGemini, baseDelayMs: 2000 }
   );
 
   let imageBuffer = null;
@@ -73,6 +89,16 @@ export async function generateImage(prompt, aspectRatio = '1:1', productImage = 
   }
 
   return { imageBuffer, mimeType, textResponse };
+  } catch (err) {
+    // Clean up Gemini API error messages — the SDK returns raw JSON as the message string
+    if (err.message?.includes('INVALID_ARGUMENT')) {
+      throw new Error('Image generation temporarily unavailable (Gemini API capacity issue). Please try again in a moment.');
+    }
+    if (err.message?.includes('RESOURCE_EXHAUSTED') || err.status === 429) {
+      throw new Error('Image generation rate limit reached. Please wait a moment and try again.');
+    }
+    throw err;
+  }
 }
 
 export { getClient };
