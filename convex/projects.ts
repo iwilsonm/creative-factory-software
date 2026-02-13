@@ -97,3 +97,25 @@ export const getStats = query({
     return { docCount: docs.length, adCount: ads.length };
   },
 });
+
+// Combined query: get all projects with their stats in a single Convex execution
+// Eliminates N+1 round-trips from VPS → Convex Cloud
+export const getAllWithStats = query({
+  args: {},
+  handler: async (ctx) => {
+    const projects = await ctx.db.query("projects").order("desc").collect();
+    return Promise.all(
+      projects.map(async (project) => {
+        const docs = await ctx.db
+          .query("foundational_docs")
+          .withIndex("by_project", (q) => q.eq("project_id", project.externalId))
+          .collect();
+        const ads = await ctx.db
+          .query("ad_creatives")
+          .withIndex("by_project", (q) => q.eq("project_id", project.externalId))
+          .collect();
+        return { ...project, docCount: docs.length, adCount: ads.length };
+      })
+    );
+  },
+});

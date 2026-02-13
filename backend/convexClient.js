@@ -74,6 +74,15 @@ export async function getAllProjects() {
   return projects.map(convexProjectToRow);
 }
 
+export async function getAllProjectsWithStats() {
+  const projects = await queryWithRetry(api.projects.getAllWithStats, {});
+  return projects.map(p => ({
+    ...convexProjectToRow(p),
+    docCount: p.docCount,
+    adCount: p.adCount,
+  }));
+}
+
 export async function updateProject(id, fields) {
   const allowed = ['name', 'brand_name', 'niche', 'product_description', 'sales_page_content', 'drive_folder_id', 'inspiration_folder_id', 'prompt_guidelines', 'status'];
   const updates = { externalId: id };

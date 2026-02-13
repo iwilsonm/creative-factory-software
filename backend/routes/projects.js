@@ -5,6 +5,7 @@ import {
   createProject,
   getProject,
   getAllProjects,
+  getAllProjectsWithStats,
   updateProject,
   deleteProject,
   getProjectStats
@@ -13,15 +14,10 @@ import {
 const router = Router();
 router.use(requireAuth);
 
-// List all projects
+// List all projects (single Convex query with embedded stats)
 router.get('/', async (req, res) => {
-  const projects = await getAllProjects();
-  const projectsWithStats = [];
-  for (const p of projects) {
-    const stats = await getProjectStats(p.id);
-    projectsWithStats.push({ ...p, ...stats });
-  }
-  res.json(projectsWithStats);
+  const projects = await getAllProjectsWithStats();
+  res.json(projects);
 });
 
 // Get single project

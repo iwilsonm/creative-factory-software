@@ -2,6 +2,7 @@ import express from 'express';
 import session from 'express-session';
 import cors from 'cors';
 import helmet from 'helmet';
+import compression from 'compression';
 import path from 'path';
 import { fileURLToPath } from 'url';
 import crypto from 'crypto';
@@ -38,6 +39,7 @@ const PORT = process.env.PORT || 3001;
   }
 
   // Middleware
+  app.use(compression());
   app.use(helmet({ contentSecurityPolicy: false }));
   app.use(cors({
     origin: process.env.FRONTEND_URL || 'http://localhost:5173',
@@ -82,7 +84,15 @@ const PORT = process.env.PORT || 3001;
   // Serve frontend in production
   if (process.env.NODE_ENV === 'production') {
     const frontendDist = path.join(__dirname, '..', 'frontend', 'dist');
-    app.use(express.static(frontendDist));
+    // Vite hashed assets (JS/CSS) — cache for 1 year (immutable content-hash filenames)
+    app.use('/assets', express.static(path.join(frontendDist, 'assets'), {
+      maxAge: '1y',
+      immutable: true
+    }));
+    // Other static files (index.html, favicon) — short cache to pick up new deploys
+    app.use(express.static(frontendDist, {
+      maxAge: '5m'
+    }));
     app.get('*', (req, res) => {
       res.sendFile(path.join(frontendDist, 'index.html'));
     });
