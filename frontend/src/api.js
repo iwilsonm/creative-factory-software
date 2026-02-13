@@ -251,5 +251,9 @@ export const api = {
   testOpenAI: () => request('/settings/test-openai', { method: 'POST' }),
   testGemini: () => request('/settings/test-gemini', { method: 'POST' }),
   testDrive: () => request('/settings/test-drive', { method: 'POST' }),
-  refreshGeminiRates: () => request('/settings/refresh-gemini-rates', { method: 'POST' })
+  refreshGeminiRates: () => request('/settings/refresh-gemini-rates', { method: 'POST' }),
+
+  // Dashboard Todos
+  getTodos: () => request('/settings/todos'),
+  saveTodos: (todos) => request('/settings/todos', { method: 'PUT', body: JSON.stringify({ todos }) })
 };

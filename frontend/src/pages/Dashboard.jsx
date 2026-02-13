@@ -1,9 +1,155 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { api } from '../api';
 import Layout from '../components/Layout';
 import CostSummaryCards from '../components/CostSummaryCards';
 import CostBarChart from '../components/CostBarChart';
 import InfoTooltip from '../components/InfoTooltip';
+
+// ─── Roadmap / To-Do Widget ───────────────────────────────────────────────────
+function TodoWidget() {
+  const [todos, setTodos] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [newText, setNewText] = useState('');
+  const [saving, setSaving] = useState(false);
+  const inputRef = useRef(null);
+
+  useEffect(() => {
+    api.getTodos()
+      .then(data => setTodos(data.todos || []))
+      .catch(() => setTodos([]))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const persist = async (updated) => {
+    setTodos(updated);
+    setSaving(true);
+    try { await api.saveTodos(updated); } catch {}
+    setSaving(false);
+  };
+
+  const addTodo = (e) => {
+    e.preventDefault();
+    const text = newText.trim();
+    if (!text) return;
+    persist([...todos, { id: Date.now(), text, done: false }]);
+    setNewText('');
+    inputRef.current?.focus();
+  };
+
+  const toggle = (id) => {
+    persist(todos.map(t => t.id === id ? { ...t, done: !t.done } : t));
+  };
+
+  const remove = (id) => {
+    persist(todos.filter(t => t.id !== id));
+  };
+
+  const pending = todos.filter(t => !t.done);
+  const completed = todos.filter(t => t.done);
+
+  if (loading) {
+    return (
+      <div className="card p-5 mb-8 fade-in">
+        <div className="h-4 w-32 bg-gray-100 rounded animate-pulse mb-3" />
+        <div className="h-3 w-48 bg-gray-50 rounded animate-pulse" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="card p-5 mb-8 fade-in">
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          <div className="w-7 h-7 rounded-lg bg-indigo-100 flex items-center justify-center flex-shrink-0">
+            <svg className="w-3.5 h-3.5 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
+            </svg>
+          </div>
+          <h2 className="text-[15px] font-semibold text-gray-900 tracking-tight">Roadmap</h2>
+          {saving && <span className="text-[10px] text-gray-300">saving...</span>}
+        </div>
+        {todos.length > 0 && (
+          <span className="text-[11px] text-gray-400">
+            {completed.length}/{todos.length} done
+          </span>
+        )}
+      </div>
+
+      {/* Add new item */}
+      <form onSubmit={addTodo} className="flex gap-2 mb-3">
+        <input
+          ref={inputRef}
+          value={newText}
+          onChange={e => setNewText(e.target.value)}
+          placeholder="Add a task..."
+          className="input-apple text-[13px] py-1.5 flex-1"
+        />
+        <button
+          type="submit"
+          disabled={!newText.trim()}
+          className="btn-primary text-[12px] px-3 py-1.5 disabled:opacity-30"
+        >
+          Add
+        </button>
+      </form>
+
+      {/* Pending items */}
+      {pending.length > 0 && (
+        <ul className="space-y-1">
+          {pending.map(t => (
+            <li key={t.id} className="flex items-center gap-2 group py-1 px-1 -mx-1 rounded-lg hover:bg-gray-50/50 transition-colors">
+              <button
+                onClick={() => toggle(t.id)}
+                className="w-[18px] h-[18px] rounded-md border-2 border-gray-300 flex-shrink-0 hover:border-indigo-400 transition-colors"
+              />
+              <span className="text-[13px] text-gray-700 flex-1">{t.text}</span>
+              <button
+                onClick={() => remove(t.id)}
+                className="text-gray-300 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all text-[11px] px-1"
+              >
+                ✕
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {/* Completed items */}
+      {completed.length > 0 && (
+        <div className={pending.length > 0 ? 'mt-3 pt-3 border-t border-gray-100' : ''}>
+          {pending.length > 0 && (
+            <p className="text-[10px] font-medium text-gray-300 uppercase tracking-wider mb-1">Completed</p>
+          )}
+          <ul className="space-y-0.5">
+            {completed.map(t => (
+              <li key={t.id} className="flex items-center gap-2 group py-0.5 px-1 -mx-1 rounded-lg hover:bg-gray-50/50 transition-colors">
+                <button
+                  onClick={() => toggle(t.id)}
+                  className="w-[18px] h-[18px] rounded-md bg-indigo-500 flex-shrink-0 flex items-center justify-center"
+                >
+                  <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                  </svg>
+                </button>
+                <span className="text-[13px] text-gray-400 line-through flex-1">{t.text}</span>
+                <button
+                  onClick={() => remove(t.id)}
+                  className="text-gray-300 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all text-[11px] px-1"
+                >
+                  ✕
+                </button>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {todos.length === 0 && (
+        <p className="text-[12px] text-gray-300 text-center py-3">No tasks yet — add one above.</p>
+      )}
+    </div>
+  );
+}
 
 function cronToLabel(cronStr) {
   if (!cronStr) return '';
@@ -66,6 +212,9 @@ export default function Dashboard() {
         <h1 className="text-2xl font-semibold text-gray-900 tracking-tight">Dashboard</h1>
         <p className="text-[13px] text-gray-500 mt-0.5">Manage your ad creative projects</p>
       </div>
+
+      {/* Roadmap / To-Do List */}
+      <TodoWidget />
 
       {/* API Cost Summary */}
       <div className="mb-8 fade-in">

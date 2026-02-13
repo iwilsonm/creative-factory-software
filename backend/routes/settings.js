@@ -97,6 +97,27 @@ router.post('/test-drive', async (req, res) => {
   }
 });
 
+// =============================================
+// Dashboard To-Do List (stored as JSON in settings)
+// =============================================
+
+router.get('/todos', async (req, res) => {
+  try {
+    const raw = await getSetting('dashboard_todos');
+    const todos = raw ? JSON.parse(raw) : [];
+    res.json({ todos });
+  } catch {
+    res.json({ todos: [] });
+  }
+});
+
+router.put('/todos', async (req, res) => {
+  const { todos } = req.body;
+  if (!Array.isArray(todos)) return res.status(400).json({ error: 'todos must be an array' });
+  await setSetting('dashboard_todos', JSON.stringify(todos));
+  res.json({ success: true });
+});
+
 // Refresh Gemini image rates from Google pricing page
 router.post('/refresh-gemini-rates', async (req, res) => {
   try {
