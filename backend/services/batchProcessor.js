@@ -63,8 +63,8 @@ export async function runBatch(batchId, onProgress) {
 
     const prompts = await generateBatchPrompts(batch, project, docs, onProgress);
 
-    // Store prompts in DB
-    await updateBatchJob(batchId, { gpt_prompts: JSON.stringify(prompts), status: 'submitting' });
+    // Store text-only prompts in DB (exclude base64 image data to keep DB size reasonable)
+    await updateBatchJob(batchId, { gpt_prompts: JSON.stringify(prompts.map(p => p.prompt)), status: 'submitting' });
     emit({ type: 'status', status: 'submitting', message: 'Submitting to Gemini Batch API...' });
 
     // Load product image if configured (from Convex storage)
@@ -104,6 +104,8 @@ export async function runBatch(batchId, onProgress) {
 /**
  * Generate GPT-5.2 image prompts for all images in a batch.
  * Runs sequentially to respect rate limits.
+ * Returns array of { prompt, inspirationBase64, inspirationMimeType } objects.
+ * Each prompt is retried up to 3 times before being skipped.
  */
 async function generateBatchPrompts(batch, project, docs, onProgress) {
   const emit = (event) => { if (onProgress) try { onProgress(event); } catch {} };
@@ -119,50 +121,63 @@ async function generateBatchPrompts(batch, project, docs, onProgress) {
       message: `Generating prompt ${i + 1} of ${batch.batch_size}...`
     });
 
-    try {
-      // Select image for this iteration
-      let imageData;
-      if (batch.generation_mode === 'mode2' && batch.template_image_id) {
-        // Mode 2: Use the same uploaded template for every ad
-        imageData = await selectTemplateImage(batch.template_image_id);
-      } else if (batch.inspiration_image_id) {
-        // Mode 1 with a specific Drive template: use the same one for every ad
-        imageData = await selectInspirationImage(batch.project_id, batch.inspiration_image_id);
-      } else {
-        // Mode 1 random: pick a different random template each time
-        imageData = await selectInspirationImage(batch.project_id, null);
+    let success = false;
+    for (let attempt = 1; attempt <= 3 && !success; attempt++) {
+      try {
+        // Select image for this iteration (re-select on retry for a fresh random pick)
+        let imageData;
+        if (batch.generation_mode === 'mode2' && batch.template_image_id) {
+          // Mode 2: Use the same uploaded template for every ad
+          imageData = await selectTemplateImage(batch.template_image_id);
+        } else if (batch.inspiration_image_id) {
+          // Mode 1 with a specific Drive template: use the same one for every ad
+          imageData = await selectInspirationImage(batch.project_id, batch.inspiration_image_id);
+        } else {
+          // Mode 1 random: pick a different random template each time
+          imageData = await selectInspirationImage(batch.project_id, null);
+        }
+
+        // GPT-5.2 Message 1: Creative director prompt
+        const messages = [{ role: 'user', content: creativeDirectorPrompt }];
+        const acknowledgment = await chat(messages, 'gpt-5.2');
+
+        // GPT-5.2 Message 2: Image + instructions
+        const imageRequestText = buildImageRequestText(batch.angle, batch.aspect_ratio);
+        const conversationSoFar = [
+          { role: 'user', content: creativeDirectorPrompt },
+          { role: 'assistant', content: acknowledgment }
+        ];
+
+        let imagePrompt = await chatWithImage(
+          conversationSoFar,
+          imageRequestText,
+          imageData.base64,
+          imageData.mimeType,
+          'gpt-5.2'
+        );
+
+        // Apply prompt guidelines if set
+        if (project.prompt_guidelines) {
+          imagePrompt = await reviewPromptWithGuidelines(imagePrompt, project.prompt_guidelines);
+        }
+
+        // Store prompt + inspiration image data for Gemini to reference
+        prompts.push({
+          prompt: imagePrompt,
+          inspirationBase64: imageData.base64,
+          inspirationMimeType: imageData.mimeType,
+        });
+        success = true;
+
+      } catch (err) {
+        console.error(`[BatchProcessor] Prompt ${i + 1} attempt ${attempt}/3 failed:`, err.message);
+        if (attempt < 3) {
+          await new Promise(r => setTimeout(r, 2000 * attempt)); // 2s, 4s backoff
+        } else {
+          // Only give up after all 3 attempts
+          prompts.push(null);
+        }
       }
-
-      // GPT-5.2 Message 1: Creative director prompt
-      const messages = [{ role: 'user', content: creativeDirectorPrompt }];
-      const acknowledgment = await chat(messages, 'gpt-5.2');
-
-      // GPT-5.2 Message 2: Image + instructions
-      const imageRequestText = buildImageRequestText(batch.angle, batch.aspect_ratio);
-      const conversationSoFar = [
-        { role: 'user', content: creativeDirectorPrompt },
-        { role: 'assistant', content: acknowledgment }
-      ];
-
-      let imagePrompt = await chatWithImage(
-        conversationSoFar,
-        imageRequestText,
-        imageData.base64,
-        imageData.mimeType,
-        'gpt-5.2'
-      );
-
-      // Apply prompt guidelines if set
-      if (project.prompt_guidelines) {
-        imagePrompt = await reviewPromptWithGuidelines(imagePrompt, project.prompt_guidelines);
-      }
-
-      prompts.push(imagePrompt);
-
-    } catch (err) {
-      console.error(`[BatchProcessor] Failed to generate prompt ${i + 1}:`, err.message);
-      // Skip this image but continue with the rest
-      prompts.push(null);
     }
 
     // Delay between GPT calls to avoid rate limiting
@@ -183,14 +198,27 @@ async function generateBatchPrompts(batch, project, docs, onProgress) {
 
 /**
  * Submit prompts to Gemini Batch API.
+ * Each prompt is an object: { prompt, inspirationBase64?, inspirationMimeType? }
  */
 async function submitGeminiBatch(batchId, prompts, aspectRatio, projectName, productImageData = null) {
   const ai = await getClient();
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 16);
 
-  // Build inline requests (with optional product image)
-  const inlineRequests = prompts.map(prompt => {
-    const parts = [{ text: prompt }];
+  // Build inline requests (with inspiration image + optional product image)
+  const inlineRequests = prompts.map(promptObj => {
+    const parts = [{ text: promptObj.prompt }];
+
+    // Include inspiration image so Gemini can reference the visual style
+    if (promptObj.inspirationBase64) {
+      parts.push({
+        inlineData: {
+          data: promptObj.inspirationBase64,
+          mimeType: promptObj.inspirationMimeType || 'image/jpeg'
+        }
+      });
+    }
+
+    // Include product image if configured
     if (productImageData) {
       parts.push({
         inlineData: {

@@ -12,6 +12,25 @@ export const getByProject = query({
   },
 });
 
+export const getByProjectWithUrls = query({
+  args: { projectId: v.string() },
+  handler: async (ctx, args) => {
+    const ads = await ctx.db
+      .query("ad_creatives")
+      .withIndex("by_project", (q) => q.eq("project_id", args.projectId))
+      .order("desc")
+      .collect();
+    return Promise.all(
+      ads.map(async (ad) => ({
+        ...ad,
+        resolvedImageUrl: ad.storageId
+          ? await ctx.storage.getUrl(ad.storageId)
+          : null,
+      }))
+    );
+  },
+});
+
 export const getByExternalId = query({
   args: { externalId: v.string() },
   handler: async (ctx, args) => {

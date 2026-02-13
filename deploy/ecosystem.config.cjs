@@ -6,7 +6,8 @@ module.exports = {
       cwd: '/opt/ad-platform/backend',
       env: {
         NODE_ENV: 'production',
-        PORT: 3001
+        PORT: 3001,
+        CONVEX_URL: 'https://energized-hare-760.convex.cloud'
       },
       instances: 1,
       autorestart: true,

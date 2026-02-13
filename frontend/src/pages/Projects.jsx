@@ -110,13 +110,13 @@ export default function Projects() {
                   style={{ borderLeftColor: borderColor }}
                 >
                   <div className="flex items-start justify-between mb-3">
-                    <h3 className="font-semibold text-[15px] text-gray-900 tracking-tight group-hover:text-blue-600 transition-colors">{project.name}</h3>
+                    <h3 className="font-semibold text-[15px] text-gray-900 tracking-tight group-hover:text-blue-600 transition-colors">{project.brand_name || project.name}</h3>
                     <span className={`badge ${status.bg} ${status.text}`}>
                       {status.label}
                     </span>
                   </div>
                   {project.brand_name && (
-                    <p className="text-[13px] text-gray-500 mb-0.5">{project.brand_name}</p>
+                    <p className="text-[13px] text-gray-500 mb-0.5">{project.name}</p>
                   )}
                   {project.niche && (
                     <p className="text-[12px] text-gray-400 mb-4">{project.niche}</p>

@@ -5,6 +5,33 @@ import CostSummaryCards from '../components/CostSummaryCards';
 import CostBarChart from '../components/CostBarChart';
 import InfoTooltip from '../components/InfoTooltip';
 
+function cronToLabel(cronStr) {
+  if (!cronStr) return '';
+  const presets = {
+    '0 * * * *': 'Every hour',
+    '0 */6 * * *': 'Every 6 hours',
+    '0 */12 * * *': 'Every 12 hours',
+    '0 9 * * *': 'Daily at 9 AM',
+    '0 9 * * 1-5': 'Weekdays at 9 AM',
+    '0 9 * * 1': 'Weekly (Mon 9 AM)',
+  };
+  if (presets[cronStr]) return presets[cronStr];
+  const parts = cronStr.trim().split(/\s+/);
+  if (parts.length !== 5) return cronStr;
+  const [minute, hour, dom, month, dow] = parts;
+  if (minute.startsWith('*/') && hour === '*') return `Every ${minute.slice(2)} min`;
+  if (minute === '0' && hour.startsWith('*/')) return `Every ${hour.slice(2)} hours`;
+  if (minute === '0' && hour === '*') return 'Every hour';
+  if (minute === '0' && dom.startsWith('*/') && month === '*' && dow === '*') {
+    const n = parseInt(dom.slice(2));
+    if (n % 7 === 0) return n === 7 ? 'Weekly' : `Every ${n / 7} weeks`;
+    return `Every ${n} days`;
+  }
+  if (minute === '0' && dom === '1' && month.startsWith('*/')) return `Every ${month.slice(2)} months`;
+  if (minute === '0' && dom === '1' && month === '*') return 'Monthly';
+  return cronStr;
+}
+
 export default function Dashboard() {
   const [costs, setCosts] = useState(null);
   const [costHistory, setCostHistory] = useState([]);
@@ -59,6 +86,7 @@ export default function Dashboard() {
           {/* Recurring Batch Cost Estimate */}
           {recurringCosts && recurringCosts.scheduledBatchCount > 0 && (
             <div className="card p-4">
+              {/* Header row */}
               <div className="flex items-center gap-3">
                 <div className="w-8 h-8 rounded-xl bg-purple-100 flex items-center justify-center flex-shrink-0">
                   <svg className="w-4 h-4 text-purple-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -82,6 +110,57 @@ export default function Dashboard() {
                 {recurringCosts.scheduledBatchCount} scheduled batch{recurringCosts.scheduledBatchCount !== 1 ? 'es' : ''}
                 {' | '}~${(recurringCosts.estimatedDailyCost * 30).toFixed(2)}/month est.
               </p>
+
+              {/* Rate info */}
+              {recurringCosts.perImageRate > 0 && (
+                <p className="text-[11px] text-gray-400 mt-1 ml-11">
+                  Based on ${recurringCosts.perImageRate.toFixed(4)}/image Gemini rate
+                  {recurringCosts.batchDiscount ? ` with ${Math.round(recurringCosts.batchDiscount * 100)}% batch discount ($${(recurringCosts.perImageRate * recurringCosts.batchDiscount).toFixed(4)}/image effective)` : ''}
+                </p>
+              )}
+
+              {/* Breakdown table */}
+              {recurringCosts.breakdown && recurringCosts.breakdown.length > 0 && (
+                <div className="mt-4 ml-11">
+                  <table className="w-full text-[11px]">
+                    <thead>
+                      <tr className="border-b border-gray-100">
+                        <th className="text-left font-medium text-gray-400 uppercase tracking-wider pb-2 pr-3">Project</th>
+                        <th className="text-left font-medium text-gray-400 uppercase tracking-wider pb-2 pr-3">Schedule</th>
+                        <th className="text-right font-medium text-gray-400 uppercase tracking-wider pb-2 pr-3">Batch Size</th>
+                        <th className="text-right font-medium text-gray-400 uppercase tracking-wider pb-2 pr-3">Runs/Day</th>
+                        <th className="text-right font-medium text-gray-400 uppercase tracking-wider pb-2 pr-3">Cost/Run</th>
+                        <th className="text-right font-medium text-gray-400 uppercase tracking-wider pb-2">Daily Cost</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {recurringCosts.breakdown.map((row, i) => (
+                        <tr key={i} className="border-b border-gray-50 last:border-0">
+                          <td className="py-2 pr-3 text-gray-700">
+                            {row.project_name}
+                            {row.angle && (
+                              <span className="text-gray-400 ml-1">({row.angle})</span>
+                            )}
+                          </td>
+                          <td className="py-2 pr-3 text-gray-500">{cronToLabel(row.schedule_cron)}</td>
+                          <td className="py-2 pr-3 text-right text-gray-500">{row.batch_size} img</td>
+                          <td className="py-2 pr-3 text-right text-gray-500">{row.runs_per_day}×</td>
+                          <td className="py-2 pr-3 text-right text-gray-500">${row.cost_per_run.toFixed(4)}</td>
+                          <td className="py-2 text-right font-medium text-gray-700">${row.daily_cost.toFixed(4)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                    {recurringCosts.breakdown.length > 1 && (
+                      <tfoot>
+                        <tr className="border-t border-gray-200">
+                          <td colSpan={5} className="py-2 pr-3 text-right font-medium text-gray-500">Total</td>
+                          <td className="py-2 text-right font-semibold text-gray-900">${recurringCosts.estimatedDailyCost.toFixed(4)}</td>
+                        </tr>
+                      </tfoot>
+                    )}
+                  </table>
+                </div>
+              )}
             </div>
           )}
         </div>

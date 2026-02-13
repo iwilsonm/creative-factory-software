@@ -16,13 +16,246 @@ const ASPECT_RATIOS = [
 ];
 
 const CRON_PRESETS = [
-  { value: '', label: 'Custom' },
-  { value: '0 */6 * * *', label: 'Every 6 hours' },
+  { value: '0 * * * *',    label: 'Every hour' },
+  { value: '0 */6 * * *',  label: 'Every 6 hours' },
   { value: '0 */12 * * *', label: 'Every 12 hours' },
-  { value: '0 9 * * *', label: 'Daily at 9 AM' },
-  { value: '0 9 * * 1-5', label: 'Weekdays at 9 AM' },
-  { value: '0 9 * * 1', label: 'Weekly (Monday 9 AM)' }
+  { value: '0 9 * * *',    label: 'Daily at 9 AM' },
+  { value: '0 9 * * 1-5',  label: 'Weekdays at 9 AM' },
+  { value: '0 9 * * 1',    label: 'Weekly (Monday 9 AM)' },
+  { value: 'custom',       label: 'Custom interval...' },
 ];
+
+const INTERVAL_UNITS = [
+  { value: 'minutes', label: 'minutes', min: 5,  max: 59 },
+  { value: 'hours',   label: 'hours',   min: 1,  max: 23 },
+  { value: 'days',    label: 'days',    min: 1,  max: 30 },
+  { value: 'weeks',   label: 'weeks',   min: 1,  max: 4  },
+  { value: 'months',  label: 'months',  min: 1,  max: 12 },
+];
+
+function intervalToCron(amount, unit) {
+  const n = parseInt(amount);
+  if (!n || n < 1) return null;
+  switch (unit) {
+    case 'minutes': return `*/${n} * * * *`;
+    case 'hours':   return n === 1 ? '0 * * * *' : `0 */${n} * * *`;
+    case 'days':    return n === 1 ? '0 9 * * *' : `0 9 */${n} * *`;
+    case 'weeks':   return n === 1 ? '0 9 * * 1' : `0 9 */${n * 7} * *`;
+    case 'months':  return n === 1 ? '0 9 1 * *' : `0 9 1 */${n} *`;
+    default: return null;
+  }
+}
+
+function cronToLabel(cronStr) {
+  if (!cronStr) return '';
+  // Check presets first
+  const preset = CRON_PRESETS.find(p => p.value === cronStr && p.value !== 'custom');
+  if (preset) return preset.label;
+  // Parse cron fields
+  const parts = cronStr.trim().split(/\s+/);
+  if (parts.length !== 5) return cronStr;
+  const [minute, hour, dom, month, dow] = parts;
+  // */N * * * * → Every N minutes
+  if (minute.startsWith('*/') && hour === '*' && dom === '*' && month === '*' && dow === '*') {
+    const n = parseInt(minute.slice(2));
+    return n === 1 ? 'Every minute' : `Every ${n} minutes`;
+  }
+  // 0 */N * * * → Every N hours
+  if (minute === '0' && hour.startsWith('*/') && dom === '*' && month === '*' && dow === '*') {
+    const n = parseInt(hour.slice(2));
+    return n === 1 ? 'Every hour' : `Every ${n} hours`;
+  }
+  // 0 * * * * → Every hour
+  if (minute === '0' && hour === '*' && dom === '*' && month === '*' && dow === '*') {
+    return 'Every hour';
+  }
+  // 0 H */N * * → Every N days
+  if (minute === '0' && dom.startsWith('*/') && month === '*' && dow === '*') {
+    const n = parseInt(dom.slice(2));
+    if (n % 7 === 0) {
+      const weeks = n / 7;
+      return weeks === 1 ? 'Weekly' : `Every ${weeks} weeks`;
+    }
+    return n === 1 ? 'Daily' : `Every ${n} days`;
+  }
+  // 0 H 1 */N * → Every N months
+  if (minute === '0' && dom === '1' && month.startsWith('*/') && dow === '*') {
+    const n = parseInt(month.slice(2));
+    return n === 1 ? 'Monthly' : `Every ${n} months`;
+  }
+  // 0 H 1 * * → Monthly
+  if (minute === '0' && dom === '1' && month === '*' && dow === '*') {
+    return 'Monthly';
+  }
+  return cronStr;
+}
+
+function parseCronToInterval(cronStr) {
+  if (!cronStr) return null;
+  const parts = cronStr.trim().split(/\s+/);
+  if (parts.length !== 5) return null;
+  const [minute, hour, dom, month, dow] = parts;
+  // */N * * * * → minutes
+  if (minute.startsWith('*/') && hour === '*' && dom === '*') {
+    return { amount: parseInt(minute.slice(2)), unit: 'minutes' };
+  }
+  // 0 */N * * * → hours
+  if (minute === '0' && hour.startsWith('*/') && dom === '*' && month === '*') {
+    return { amount: parseInt(hour.slice(2)), unit: 'hours' };
+  }
+  // 0 * * * * → 1 hour
+  if (minute === '0' && hour === '*' && dom === '*' && month === '*' && dow === '*') {
+    return { amount: 1, unit: 'hours' };
+  }
+  // 0 H */N * * → days (or weeks if divisible by 7)
+  if (minute === '0' && dom.startsWith('*/') && month === '*' && dow === '*') {
+    const n = parseInt(dom.slice(2));
+    if (n % 7 === 0) return { amount: n / 7, unit: 'weeks' };
+    return { amount: n, unit: 'days' };
+  }
+  // 0 H * * N → weekly
+  if (minute === '0' && dom === '*' && month === '*' && dow !== '*') {
+    return { amount: 1, unit: 'weeks' };
+  }
+  // 0 H 1 */N * → months
+  if (minute === '0' && dom === '1' && month.startsWith('*/') && dow === '*') {
+    return { amount: parseInt(month.slice(2)), unit: 'months' };
+  }
+  // 0 H 1 * * → 1 month
+  if (minute === '0' && dom === '1' && month === '*' && dow === '*') {
+    return { amount: 1, unit: 'months' };
+  }
+  return null;
+}
+
+function getNextRun(cronStr) {
+  if (!cronStr) return null;
+  const parts = cronStr.trim().split(/\s+/);
+  if (parts.length !== 5) return null;
+  const [minute, hour, dom, month, dow] = parts;
+  const now = new Date();
+
+  // */N * * * * → every N minutes
+  if (minute.startsWith('*/') && hour === '*' && dom === '*' && month === '*' && dow === '*') {
+    const n = parseInt(minute.slice(2));
+    const next = new Date(now);
+    const currentMin = next.getMinutes();
+    const nextMin = Math.ceil((currentMin + 1) / n) * n;
+    if (nextMin >= 60) {
+      next.setHours(next.getHours() + 1);
+      next.setMinutes(nextMin % 60);
+    } else {
+      next.setMinutes(nextMin);
+    }
+    next.setSeconds(0, 0);
+    return next;
+  }
+
+  // 0 * * * * → every hour at :00
+  if (minute === '0' && hour === '*' && dom === '*' && month === '*' && dow === '*') {
+    const next = new Date(now);
+    next.setHours(next.getHours() + 1);
+    next.setMinutes(0, 0, 0);
+    return next;
+  }
+
+  // 0 */N * * * → every N hours at :00
+  if (minute === '0' && hour.startsWith('*/') && dom === '*' && month === '*' && dow === '*') {
+    const n = parseInt(hour.slice(2));
+    const next = new Date(now);
+    const currentHr = next.getHours();
+    const nextHr = Math.ceil((currentHr + 1) / n) * n;
+    if (nextHr >= 24) {
+      next.setDate(next.getDate() + 1);
+      next.setHours(nextHr % 24);
+    } else {
+      next.setHours(nextHr);
+    }
+    next.setMinutes(0, 0, 0);
+    return next;
+  }
+
+  // 0 H * * N or 0 H * * N-M → specific day(s) of week
+  if (minute === '0' && dom === '*' && month === '*' && dow !== '*') {
+    const targetHour = parseInt(hour) || 0;
+    let days = [];
+    if (dow.includes('-')) {
+      const [start, end] = dow.split('-').map(Number);
+      for (let d = start; d <= end; d++) days.push(d);
+    } else {
+      days = [parseInt(dow)];
+    }
+    const next = new Date(now);
+    next.setHours(targetHour, 0, 0, 0);
+    if (days.includes(next.getDay()) && next > now) return next;
+    for (let i = 1; i <= 7; i++) {
+      next.setDate(now.getDate() + i);
+      next.setHours(targetHour, 0, 0, 0);
+      if (days.includes(next.getDay())) return next;
+    }
+    return next;
+  }
+
+  // 0 H * * * → daily at specific hour
+  if (minute === '0' && !hour.startsWith('*/') && hour !== '*' && dom === '*' && month === '*' && dow === '*') {
+    const targetHour = parseInt(hour) || 0;
+    const next = new Date(now);
+    next.setHours(targetHour, 0, 0, 0);
+    if (next <= now) next.setDate(next.getDate() + 1);
+    return next;
+  }
+
+  // 0 H */N * * → every N days at specific hour
+  if (minute === '0' && dom.startsWith('*/') && month === '*' && dow === '*') {
+    const n = parseInt(dom.slice(2));
+    const targetHour = parseInt(hour) || 9;
+    const next = new Date(now);
+    const currentDom = next.getDate();
+    next.setHours(targetHour, 0, 0, 0);
+    next.setDate(currentDom + (n - ((currentDom - 1) % n)));
+    if (next <= now) next.setDate(next.getDate() + n);
+    next.setHours(targetHour, 0, 0, 0);
+    return next;
+  }
+
+  // 0 H 1 */N * → every N months on the 1st
+  if (minute === '0' && dom === '1' && month.startsWith('*/') && dow === '*') {
+    const n = parseInt(month.slice(2));
+    const targetHour = parseInt(hour) || 9;
+    const next = new Date(now);
+    next.setDate(1);
+    next.setHours(targetHour, 0, 0, 0);
+    if (next <= now) next.setMonth(next.getMonth() + n);
+    return next;
+  }
+
+  // 0 H 1 * * → monthly on the 1st
+  if (minute === '0' && dom === '1' && month === '*' && dow === '*') {
+    const targetHour = parseInt(hour) || 9;
+    const next = new Date(now);
+    next.setDate(1);
+    next.setHours(targetHour, 0, 0, 0);
+    if (next <= now) next.setMonth(next.getMonth() + 1);
+    return next;
+  }
+
+  return null;
+}
+
+function formatNextRun(date) {
+  if (!date) return '';
+  const now = new Date();
+  const timeStr = date.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+  const target = new Date(date.getFullYear(), date.getMonth(), date.getDate());
+  const diffDays = Math.round((target - today) / 86400000);
+  if (diffDays === 0) return `Today at ${timeStr}`;
+  if (diffDays === 1) return `Tomorrow at ${timeStr}`;
+  if (diffDays < 7) {
+    return `${date.toLocaleDateString([], { weekday: 'short' })} at ${timeStr}`;
+  }
+  return `${date.toLocaleDateString([], { month: 'short', day: 'numeric' })} at ${timeStr}`;
+}
 
 const STATUS_COLORS = {
   pending: 'bg-gray-100/80 text-gray-600',
@@ -69,7 +302,8 @@ export default function BatchManager({ projectId, project, onBatchComplete }) {
   const [batchAspectRatio, setBatchAspectRatio] = useState('1:1');
   const [isScheduled, setIsScheduled] = useState(false);
   const [cronPreset, setCronPreset] = useState('0 9 * * *');
-  const [customCron, setCustomCron] = useState('');
+  const [intervalAmount, setIntervalAmount] = useState(30);
+  const [intervalUnit, setIntervalUnit] = useState('minutes');
   const [creating, setCreating] = useState(false);
   const [createError, setCreateError] = useState('');
 
@@ -91,6 +325,12 @@ export default function BatchManager({ projectId, project, onBatchComplete }) {
   const [batchProductPreview, setBatchProductPreview] = useState(null);
   const [batchProductDragOver, setBatchProductDragOver] = useState(false);
   const batchProductInputRef = useRef(null);
+
+  // Derive effective cron expression from preset or custom interval
+  const getEffectiveCron = () => {
+    if (cronPreset === 'custom') return intervalToCron(intervalAmount, intervalUnit);
+    return cronPreset;
+  };
 
   // Queue state
   const [queue, setQueue] = useState([]);
@@ -225,7 +465,7 @@ export default function BatchManager({ projectId, project, onBatchComplete }) {
       angle: batchAngle || undefined,
       aspect_ratio: batchAspectRatio,
       scheduled: isScheduled,
-      schedule_cron: isScheduled ? (cronPreset || customCron) : undefined,
+      schedule_cron: isScheduled ? getEffectiveCron() : undefined,
       run_immediately: !isScheduled
     };
 
@@ -354,6 +594,16 @@ export default function BatchManager({ projectId, project, onBatchComplete }) {
     }
   };
 
+  const handleEditBatch = async (batchId, updates) => {
+    try {
+      await api.updateBatch(projectId, batchId, updates);
+      toast.success('Batch updated');
+      await loadBatches();
+    } catch (err) {
+      toast.error(err.message);
+    }
+  };
+
   // Queue handlers
   const handleAddToQueue = () => {
     // Validate template selection
@@ -366,7 +616,7 @@ export default function BatchManager({ projectId, project, onBatchComplete }) {
       return;
     }
 
-    const cronExpression = cronPreset || customCron;
+    const cronExpression = getEffectiveCron();
     const config = {
       id: Date.now(),
       batch_size: batchSize,
@@ -386,6 +636,41 @@ export default function BatchManager({ projectId, project, onBatchComplete }) {
 
   const handleRemoveFromQueue = (tempId) => {
     setQueue(prev => prev.filter(item => item.id !== tempId));
+  };
+
+  const handleEditQueueItem = (tempId) => {
+    const item = queue.find(q => q.id === tempId);
+    if (!item) return;
+
+    // Load values back into the form
+    setBatchSize(item.batch_size || 5);
+    setBatchAngle(item.angle || '');
+    setBatchAspectRatio(item.aspect_ratio || '1:1');
+    setIsScheduled(!!item.scheduled);
+
+    if (item.schedule_cron) {
+      // Check if it matches a preset
+      const matchingPreset = CRON_PRESETS.find(p => p.value === item.schedule_cron && p.value !== 'custom');
+      if (matchingPreset) {
+        setCronPreset(matchingPreset.value);
+      } else {
+        // Try to reverse-parse the cron into interval amount + unit
+        setCronPreset('custom');
+        const parsed = parseCronToInterval(item.schedule_cron);
+        if (parsed) {
+          setIntervalAmount(parsed.amount);
+          setIntervalUnit(parsed.unit);
+        }
+      }
+    } else {
+      setCronPreset('0 9 * * *');
+    }
+
+    if (item.templateSource) setTemplateSource(item.templateSource);
+    if (item.selectedTemplate) setSelectedTemplate(item.selectedTemplate);
+
+    // Remove from queue
+    setQueue(prev => prev.filter(q => q.id !== tempId));
   };
 
   const handleSubmitQueue = async () => {
@@ -776,6 +1061,9 @@ export default function BatchManager({ projectId, project, onBatchComplete }) {
                     'border-gray-200/80 hover:border-blue-300 hover:bg-gray-50/30'
                   }`}
                 >
+                  <svg className="w-5 h-5 mx-auto mb-1 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909M3.75 21h16.5a2.25 2.25 0 002.25-2.25V6.75a2.25 2.25 0 00-2.25-2.25H3.75a2.25 2.25 0 00-2.25 2.25v12a2.25 2.25 0 002.25 2.25z" />
+                  </svg>
                   <p className={`text-[11px] font-medium ${batchProductDragOver ? 'text-blue-600' : 'text-gray-500'}`}>
                     {batchProductDragOver ? 'Drop product image here' : 'Drop a product image, or click to browse'}
                   </p>
@@ -832,18 +1120,46 @@ export default function BatchManager({ projectId, project, onBatchComplete }) {
                       ))}
                     </select>
                   </div>
-                  {!cronPreset && (
+                  {cronPreset === 'custom' && (
                     <div>
                       <label className="block text-[11px] font-medium text-gray-500 mb-1">
-                        Cron Expression
+                        Run every
                       </label>
-                      <input
-                        value={customCron}
-                        onChange={e => setCustomCron(e.target.value)}
-                        disabled={creating}
-                        placeholder="*/30 * * * *"
-                        className="input-apple font-mono text-[12px]"
-                      />
+                      <div className="flex items-center gap-2">
+                        <input
+                          type="number"
+                          min={INTERVAL_UNITS.find(u => u.value === intervalUnit)?.min || 1}
+                          max={INTERVAL_UNITS.find(u => u.value === intervalUnit)?.max || 60}
+                          value={intervalAmount}
+                          onChange={e => {
+                            const unit = INTERVAL_UNITS.find(u => u.value === intervalUnit);
+                            const val = parseInt(e.target.value) || unit?.min || 1;
+                            setIntervalAmount(Math.max(unit?.min || 1, Math.min(unit?.max || 60, val)));
+                          }}
+                          disabled={creating}
+                          className="input-apple w-20 text-center"
+                        />
+                        <select
+                          value={intervalUnit}
+                          onChange={e => {
+                            setIntervalUnit(e.target.value);
+                            const unit = INTERVAL_UNITS.find(u => u.value === e.target.value);
+                            if (unit && intervalAmount < unit.min) setIntervalAmount(unit.min);
+                            if (unit && intervalAmount > unit.max) setIntervalAmount(unit.max);
+                          }}
+                          disabled={creating}
+                          className="input-apple flex-1"
+                        >
+                          {INTERVAL_UNITS.map(u => (
+                            <option key={u.value} value={u.value}>{u.label}</option>
+                          ))}
+                        </select>
+                      </div>
+                      {intervalUnit === 'weeks' && intervalAmount > 1 && (
+                        <p className="text-[10px] text-amber-500 mt-1">
+                          Approximated as every {intervalAmount * 7} days
+                        </p>
+                      )}
                     </div>
                   )}
                 </div>
@@ -864,7 +1180,7 @@ export default function BatchManager({ projectId, project, onBatchComplete }) {
             <div className="flex items-center gap-2">
               <button
                 onClick={handleCreate}
-                disabled={creating || submittingQueue || (isScheduled && !cronPreset && !customCron)}
+                disabled={creating || submittingQueue || (isScheduled && !getEffectiveCron())}
                 className="btn-primary text-[13px]"
               >
                 {creating
@@ -875,7 +1191,7 @@ export default function BatchManager({ projectId, project, onBatchComplete }) {
               </button>
               <button
                 onClick={handleAddToQueue}
-                disabled={creating || submittingQueue || (isScheduled && !cronPreset && !customCron)}
+                disabled={creating || submittingQueue || (isScheduled && !getEffectiveCron())}
                 className="btn-secondary text-[13px]"
               >
                 + Add to Queue
@@ -929,19 +1245,28 @@ export default function BatchManager({ projectId, project, onBatchComplete }) {
                             <span className="text-gray-500 truncate max-w-[120px]">{item.angle}</span>
                           </>
                         )}
-                        {item.scheduled && (
+                        {item.scheduled && item.schedule_cron && (
                           <span className="badge bg-purple-100/80 text-purple-600 text-[10px]">
-                            Scheduled
+                            {cronToLabel(item.schedule_cron)}
                           </span>
                         )}
                       </div>
-                      <button
-                        onClick={() => handleRemoveFromQueue(item.id)}
-                        disabled={submittingQueue}
-                        className="text-[11px] text-red-400 hover:text-red-500 transition-colors px-1.5"
-                      >
-                        Remove
-                      </button>
+                      <div className="flex items-center gap-1.5">
+                        <button
+                          onClick={() => handleEditQueueItem(item.id)}
+                          disabled={submittingQueue}
+                          className="text-[11px] text-blue-400 hover:text-blue-600 transition-colors px-1.5"
+                        >
+                          Edit
+                        </button>
+                        <button
+                          onClick={() => handleRemoveFromQueue(item.id)}
+                          disabled={submittingQueue}
+                          className="text-[11px] text-red-400 hover:text-red-500 transition-colors px-1.5"
+                        >
+                          Remove
+                        </button>
+                      </div>
                     </div>
                   ))}
                 </div>
@@ -981,6 +1306,7 @@ export default function BatchManager({ projectId, project, onBatchComplete }) {
                         onRunNow={handleRunNow}
                         onCancel={handleCancel}
                         onDelete={handleDelete}
+                        onEdit={handleEditBatch}
                       />
                     ))}
                   </div>
@@ -1000,6 +1326,7 @@ export default function BatchManager({ projectId, project, onBatchComplete }) {
                         onRunNow={handleRunNow}
                         onCancel={handleCancel}
                         onDelete={handleDelete}
+                        onEdit={handleEditBatch}
                       />
                     ))}
                   </div>
@@ -1027,10 +1354,54 @@ export default function BatchManager({ projectId, project, onBatchComplete }) {
   );
 }
 
-function BatchRow({ batch, onRunNow, onCancel, onDelete }) {
+function BatchRow({ batch, onRunNow, onCancel, onDelete, onEdit }) {
   const isActive = ['generating_prompts', 'submitting', 'processing'].includes(batch.status);
   const canRun = ['pending', 'completed', 'failed'].includes(batch.status);
   const canCancel = isActive;
+  const canEdit = !isActive || batch.scheduled;
+
+  const [editing, setEditing] = useState(false);
+  const [editSize, setEditSize] = useState(batch.batch_size);
+  const [editAngle, setEditAngle] = useState(batch.angle || '');
+  const [editAspect, setEditAspect] = useState(batch.aspect_ratio || '1:1');
+  const [editScheduled, setEditScheduled] = useState(!!batch.scheduled);
+  const [editCronPreset, setEditCronPreset] = useState(() => {
+    if (!batch.schedule_cron) return '0 9 * * *';
+    const match = CRON_PRESETS.find(p => p.value === batch.schedule_cron && p.value !== 'custom');
+    return match ? match.value : 'custom';
+  });
+  const [editIntervalAmount, setEditIntervalAmount] = useState(() => {
+    if (!batch.schedule_cron) return 30;
+    const parsed = parseCronToInterval(batch.schedule_cron);
+    return parsed ? parsed.amount : 30;
+  });
+  const [editIntervalUnit, setEditIntervalUnit] = useState(() => {
+    if (!batch.schedule_cron) return 'minutes';
+    const parsed = parseCronToInterval(batch.schedule_cron);
+    return parsed ? parsed.unit : 'minutes';
+  });
+  const [saving, setSaving] = useState(false);
+
+  const getEditCron = () => {
+    if (editCronPreset === 'custom') return intervalToCron(editIntervalAmount, editIntervalUnit);
+    return editCronPreset;
+  };
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      await onEdit(batch.id, {
+        batch_size: editSize,
+        angle: editAngle || '',
+        aspect_ratio: editAspect,
+        scheduled: editScheduled,
+        schedule_cron: editScheduled ? getEditCron() : undefined,
+      });
+      setEditing(false);
+    } finally {
+      setSaving(false);
+    }
+  };
 
   // Parse batch_stats for progress bar
   let batchStats = null;
@@ -1078,9 +1449,9 @@ function BatchRow({ batch, onRunNow, onCancel, onDelete }) {
             <span className={`badge text-[10px] ${STATUS_COLORS[batch.status] || STATUS_COLORS.pending}`}>
               {STATUS_LABELS[batch.status] || batch.status}
             </span>
-            {batch.scheduled ? (
+            {batch.scheduled && batch.schedule_cron ? (
               <span className="badge bg-purple-100/80 text-purple-600 text-[10px]">
-                Scheduled
+                {cronToLabel(batch.schedule_cron)}
               </span>
             ) : null}
             {batch.retry_count > 0 && (
@@ -1094,6 +1465,7 @@ function BatchRow({ batch, onRunNow, onCancel, onDelete }) {
             {batch.angle && (
               <>
                 <span className="text-[11px] text-gray-300">|</span>
+                <span className="text-[11px] text-gray-400">Angle:</span>
                 <span className="text-[11px] text-gray-500 truncate">{batch.angle}</span>
               </>
             )}
@@ -1112,7 +1484,19 @@ function BatchRow({ batch, onRunNow, onCancel, onDelete }) {
               </>
             )}
           </div>
-          <span className="text-[10px] text-gray-400">{formatDate(batch.created_at)}</span>
+          <div className="flex items-center gap-2">
+            <span className="text-[10px] text-gray-400">{formatDate(batch.created_at)}</span>
+            {batch.scheduled && batch.schedule_cron && (() => {
+              const next = getNextRun(batch.schedule_cron);
+              const label = formatNextRun(next);
+              return label ? (
+                <>
+                  <span className="text-[10px] text-gray-300">·</span>
+                  <span className="text-[10px] text-purple-400">Next: {label}</span>
+                </>
+              ) : null;
+            })()}
+          </div>
         </div>
 
         {/* Actions */}
@@ -1124,6 +1508,15 @@ function BatchRow({ batch, onRunNow, onCancel, onDelete }) {
               title="Cancel batch"
             >
               Cancel
+            </button>
+          )}
+          {canEdit && (
+            <button
+              onClick={() => setEditing(!editing)}
+              className="text-[11px] text-gray-400 hover:text-gray-600 font-medium transition-colors px-2 py-1 rounded-lg hover:bg-gray-50/50"
+              title="Edit batch"
+            >
+              {editing ? 'Close' : 'Edit'}
             </button>
           )}
           {canRun && (
@@ -1144,6 +1537,126 @@ function BatchRow({ batch, onRunNow, onCancel, onDelete }) {
           </button>
         </div>
       </div>
+
+      {/* Inline edit panel */}
+      {editing && (
+        <div className="px-3 pb-3 pt-1 border-t border-gray-100/80 fade-in">
+          <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-2">
+            <div>
+              <label className="block text-[10px] font-medium text-gray-400 mb-0.5">Batch Size</label>
+              <input
+                type="number"
+                min={1}
+                max={50}
+                value={editSize}
+                onChange={e => setEditSize(Math.max(1, Math.min(50, parseInt(e.target.value) || 1)))}
+                disabled={saving}
+                className="input-apple text-[12px] py-1.5"
+              />
+            </div>
+            <div>
+              <label className="block text-[10px] font-medium text-gray-400 mb-0.5">Aspect Ratio</label>
+              <select
+                value={editAspect}
+                onChange={e => setEditAspect(e.target.value)}
+                disabled={saving}
+                className="input-apple text-[12px] py-1.5"
+              >
+                {ASPECT_RATIOS.map(ar => (
+                  <option key={ar.value} value={ar.value}>{ar.label}</option>
+                ))}
+              </select>
+            </div>
+            <div className="col-span-2">
+              <label className="block text-[10px] font-medium text-gray-400 mb-0.5">Ad Topic / Angle</label>
+              <input
+                value={editAngle}
+                onChange={e => setEditAngle(e.target.value)}
+                disabled={saving}
+                placeholder='e.g., "before & after"'
+                className="input-apple text-[12px] py-1.5"
+              />
+            </div>
+          </div>
+
+          {/* Schedule editing */}
+          <div className="flex items-center gap-2 mb-2">
+            <label className="flex items-center gap-1.5 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={editScheduled}
+                onChange={e => setEditScheduled(e.target.checked)}
+                disabled={saving}
+                className="w-3.5 h-3.5 rounded border-gray-300 text-blue-500 focus:ring-blue-500/20"
+              />
+              <span className="text-[11px] text-gray-500 font-medium">Scheduled</span>
+            </label>
+          </div>
+          {editScheduled && (
+            <div className="grid grid-cols-2 gap-2 mb-2">
+              <select
+                value={editCronPreset}
+                onChange={e => setEditCronPreset(e.target.value)}
+                disabled={saving}
+                className="input-apple text-[12px] py-1.5"
+              >
+                {CRON_PRESETS.map(p => (
+                  <option key={p.value} value={p.value}>{p.label}</option>
+                ))}
+              </select>
+              {editCronPreset === 'custom' && (
+                <div className="flex items-center gap-1.5">
+                  <input
+                    type="number"
+                    min={INTERVAL_UNITS.find(u => u.value === editIntervalUnit)?.min || 1}
+                    max={INTERVAL_UNITS.find(u => u.value === editIntervalUnit)?.max || 60}
+                    value={editIntervalAmount}
+                    onChange={e => {
+                      const unit = INTERVAL_UNITS.find(u => u.value === editIntervalUnit);
+                      const val = parseInt(e.target.value) || unit?.min || 1;
+                      setEditIntervalAmount(Math.max(unit?.min || 1, Math.min(unit?.max || 60, val)));
+                    }}
+                    disabled={saving}
+                    className="input-apple w-16 text-center text-[12px] py-1.5"
+                  />
+                  <select
+                    value={editIntervalUnit}
+                    onChange={e => {
+                      setEditIntervalUnit(e.target.value);
+                      const unit = INTERVAL_UNITS.find(u => u.value === e.target.value);
+                      if (unit && editIntervalAmount < unit.min) setEditIntervalAmount(unit.min);
+                      if (unit && editIntervalAmount > unit.max) setEditIntervalAmount(unit.max);
+                    }}
+                    disabled={saving}
+                    className="input-apple flex-1 text-[12px] py-1.5"
+                  >
+                    {INTERVAL_UNITS.map(u => (
+                      <option key={u.value} value={u.value}>{u.label}</option>
+                    ))}
+                  </select>
+                </div>
+              )}
+            </div>
+          )}
+
+          <div className="flex items-center gap-2">
+            <button
+              onClick={handleSave}
+              disabled={saving}
+              className="btn-primary text-[11px] py-1 px-3"
+            >
+              {saving ? 'Saving...' : 'Save Changes'}
+            </button>
+            <button
+              onClick={() => setEditing(false)}
+              disabled={saving}
+              className="text-[11px] text-gray-400 hover:text-gray-600 transition-colors px-2 py-1"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
+      )}
 
       {/* Progress bar for processing batches */}
       {batch.status === 'processing' && progressTotal > 0 && (

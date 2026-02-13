@@ -7,6 +7,7 @@ import TemplateImages from '../components/TemplateImages';
 import AdStudio from '../components/AdStudio';
 import CostSummaryCards from '../components/CostSummaryCards';
 import InfoTooltip from '../components/InfoTooltip';
+import DriveFolderPicker from '../components/DriveFolderPicker';
 import { useToast } from '../components/Toast';
 
 const STATUS_CONFIG = {
@@ -25,7 +26,7 @@ export default function ProjectDetail() {
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState({});
   const [saving, setSaving] = useState(false);
-  const [tab, setTab] = useState('overview');
+  const [tab, setTab] = useState('ads');
   const [projectCosts, setProjectCosts] = useState(null);
   const [costsLoading, setCostsLoading] = useState(false);
 
@@ -140,9 +141,9 @@ export default function ProjectDetail() {
   }
 
   const tabs = [
+    { id: 'ads', label: 'Ad Studio', tooltip: 'Generate individual ads or run batch generation.' },
     { id: 'overview', label: 'Overview', tooltip: 'Project settings, cost tracking, and stats.' },
     { id: 'docs', label: 'Foundational Docs', tooltip: 'Core research documents that guide ad generation.' },
-    { id: 'ads', label: 'Ad Studio', tooltip: 'Generate individual ads or run batch generation.' },
     { id: 'templates', label: 'Template Library', tooltip: 'Reference images synced from Drive or uploaded directly.' }
   ];
 
@@ -179,6 +180,21 @@ export default function ProjectDetail() {
       </div>
 
       <div className="fade-in">
+        {/* Docs needed alert */}
+        {!project.docCount && (
+          <div className="mb-4 p-3 bg-amber-50/80 border border-amber-200/60 rounded-xl flex items-center gap-2">
+            <svg className="w-4 h-4 text-amber-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+            </svg>
+            <span className="text-[12px] text-amber-700 font-medium">
+              Foundational documents needed — add research docs to improve ad quality.
+            </span>
+            <button onClick={() => setTab('docs')} className="ml-auto text-[11px] text-amber-600 hover:text-amber-800 font-medium whitespace-nowrap">
+              Add Docs →
+            </button>
+          </div>
+        )}
+
         {/* Overview tab */}
         {tab === 'overview' && (
           <>
@@ -283,30 +299,16 @@ export default function ProjectDetail() {
                   </p>
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-[13px] font-medium text-gray-600 mb-1.5">Drive Output Folder ID</label>
-                    <input
-                      value={form.drive_folder_id}
-                      onChange={e => setForm(p => ({ ...p, drive_folder_id: e.target.value }))}
-                      className="input-apple font-mono text-[12px]"
-                      placeholder="Paste folder ID from Drive URL"
-                    />
-                    <p className="text-[11px] text-gray-400 mt-1">
-                      Where generated ads are saved. Find it in the Drive URL after <code className="text-[10px] bg-gray-100 px-1 py-0.5 rounded text-gray-500 font-mono">/folders/</code>
-                    </p>
-                  </div>
-                  <div>
-                    <label className="block text-[13px] font-medium text-gray-600 mb-1.5">Templates Folder ID</label>
-                    <input
-                      value={form.inspiration_folder_id}
-                      onChange={e => setForm(p => ({ ...p, inspiration_folder_id: e.target.value }))}
-                      className="input-apple font-mono text-[12px]"
-                      placeholder="Paste folder ID from Drive URL"
-                    />
-                    <p className="text-[11px] text-gray-400 mt-1">
-                      Reference ad images for inspiration. Find it in the Drive URL after <code className="text-[10px] bg-gray-100 px-1 py-0.5 rounded text-gray-500 font-mono">/folders/</code>
-                    </p>
-                  </div>
+                  <DriveFolderPicker
+                    label="Output Folder"
+                    value={form.drive_folder_id}
+                    onChange={(val) => setForm(p => ({ ...p, drive_folder_id: val }))}
+                  />
+                  <DriveFolderPicker
+                    label="Inspiration Folder"
+                    value={form.inspiration_folder_id}
+                    onChange={(val) => setForm(p => ({ ...p, inspiration_folder_id: val }))}
+                  />
                 </div>
               </div>
             ) : (

@@ -2,6 +2,18 @@ import { Router } from 'express';
 import { requireAuth } from '../auth.js';
 import { getProject, getAdsByProject, getAd, getAdImageUrl, convexClient, api } from '../convexClient.js';
 import { generateAd, generateAdMode2, regenerateImageOnly } from '../services/adGenerator.js';
+import sharp from 'sharp';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const THUMB_CACHE_DIR = path.join(__dirname, '..', '.thumb-cache');
+
+// Ensure thumbnail cache directory exists
+if (!fs.existsSync(THUMB_CACHE_DIR)) {
+  fs.mkdirSync(THUMB_CACHE_DIR, { recursive: true });
+}
 
 const router = Router();
 router.use(requireAuth);
@@ -123,10 +135,14 @@ router.get('/:projectId/ads', async (req, res) => {
 
   const ads = await getAdsByProject(req.params.projectId);
 
-  // Add image URLs — storageId means we use Convex redirect
+  // Full-size URL: pre-resolved Convex CDN URL (direct), with redirect fallback
+  // Thumbnail URL: resized 400px endpoint with disk cache
+  const projectId = req.params.projectId;
   const withUrls = ads.map(ad => ({
     ...ad,
-    imageUrl: ad.storageId ? `/api/projects/${req.params.projectId}/ads/${ad.id}/image` : null
+    imageUrl: ad.resolvedImageUrl
+      || (ad.storageId ? `/api/projects/${projectId}/ads/${ad.id}/image` : null),
+    thumbnailUrl: ad.storageId ? `/api/projects/${projectId}/ads/${ad.id}/thumbnail` : null
   }));
 
   res.json({ ads: withUrls, total: withUrls.length });
@@ -143,13 +159,63 @@ router.get('/:projectId/ads/:adId', async (req, res) => {
   res.json(ad);
 });
 
-// Serve ad image file (redirect to Convex storage URL)
+// Serve ad image file (redirect to Convex storage URL — fallback for direct links)
 router.get('/:projectId/ads/:adId/image', async (req, res) => {
   const url = await getAdImageUrl(req.params.adId);
   if (!url) {
     return res.status(404).json({ error: 'Image file not found' });
   }
+  res.set('Cache-Control', 'public, max-age=3600');
   res.redirect(url);
+});
+
+// Serve resized thumbnail (~400px wide, JPEG 80%) with disk cache
+router.get('/:projectId/ads/:adId/thumbnail', async (req, res) => {
+  const adId = req.params.adId;
+  const thumbPath = path.join(THUMB_CACHE_DIR, `${adId}.jpg`);
+
+  // Serve from disk cache if available
+  if (fs.existsSync(thumbPath)) {
+    res.set('Content-Type', 'image/jpeg');
+    res.set('Cache-Control', 'public, max-age=86400');
+    return fs.createReadStream(thumbPath).pipe(res);
+  }
+
+  // Generate thumbnail: download original → resize → cache → serve
+  try {
+    const url = await getAdImageUrl(adId);
+    if (!url) {
+      return res.status(404).json({ error: 'Image not found' });
+    }
+
+    const imgRes = await fetch(url);
+    if (!imgRes.ok) {
+      return res.status(502).json({ error: 'Failed to fetch original image' });
+    }
+
+    const arrayBuffer = await imgRes.arrayBuffer();
+    const buffer = Buffer.from(arrayBuffer);
+
+    const thumb = await sharp(buffer)
+      .resize({ width: 400, withoutEnlargement: true })
+      .jpeg({ quality: 80 })
+      .toBuffer();
+
+    // Write to disk cache (fire-and-forget)
+    fs.writeFile(thumbPath, thumb, () => {});
+
+    res.set('Content-Type', 'image/jpeg');
+    res.set('Cache-Control', 'public, max-age=86400');
+    res.end(thumb);
+  } catch (err) {
+    console.error(`[Thumbnail] Failed for ${adId}:`, err.message);
+    // Fallback: redirect to full image
+    try {
+      const url = await getAdImageUrl(adId);
+      if (url) return res.redirect(url);
+    } catch {}
+    res.status(500).json({ error: 'Thumbnail generation failed' });
+  }
 });
 
 // Delete an ad

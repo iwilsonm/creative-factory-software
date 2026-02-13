@@ -1,5 +1,5 @@
 import { v4 as uuidv4 } from 'uuid';
-import { getSetting, setSetting, logCost, getCostAggregates, getDailyCostHistory, deleteCostsBySource, getAllScheduledBatchesForCost } from '../convexClient.js';
+import { getSetting, setSetting, logCost, getCostAggregates, getDailyCostHistory, deleteCostsBySource, getAllScheduledBatchesForCost, getAllProjects } from '../convexClient.js';
 import { withRetry } from './retry.js';
 
 /**
@@ -275,23 +275,36 @@ export async function getCostHistoryData(days = 30, projectId = null) {
  * @returns {{ estimatedDailyCost: number, scheduledBatchCount: number, breakdown: Array }}
  */
 export async function getRecurringBatchCostEstimate() {
-  const batches = await getAllScheduledBatchesForCost();
+  const [batches, projects] = await Promise.all([
+    getAllScheduledBatchesForCost(),
+    getAllProjects()
+  ]);
   const rate2k = parseFloat((await getSetting('gemini_rate_2k')) || '0');
+  const batchDiscount = 0.5;
+
+  // Build project name lookup
+  const projectMap = {};
+  for (const p of projects) {
+    projectMap[p.id] = { name: p.name, brand_name: p.brand_name };
+  }
 
   let totalDailyCost = 0;
   const breakdown = [];
 
   for (const batch of batches) {
     const runsPerDay = estimateRunsPerDay(batch.schedule_cron);
-    const costPerRun = batch.batch_size * rate2k * 0.5; // 50% batch discount
+    const costPerRun = batch.batch_size * rate2k * batchDiscount;
     const dailyCost = runsPerDay * costPerRun;
     totalDailyCost += dailyCost;
 
+    const proj = projectMap[batch.project_id];
     breakdown.push({
       project_id: batch.project_id,
+      project_name: proj?.brand_name || proj?.name || 'Unknown',
       batch_size: batch.batch_size,
-      cron: batch.schedule_cron,
-      runs_per_day: runsPerDay,
+      angle: batch.angle || null,
+      schedule_cron: batch.schedule_cron,
+      runs_per_day: Math.round(runsPerDay * 1000) / 1000,
       cost_per_run: Math.round(costPerRun * 1000000) / 1000000,
       daily_cost: Math.round(dailyCost * 1000000) / 1000000
     });
@@ -300,6 +313,8 @@ export async function getRecurringBatchCostEstimate() {
   return {
     estimatedDailyCost: Math.round(totalDailyCost * 1000000) / 1000000,
     scheduledBatchCount: batches.length,
+    perImageRate: rate2k,
+    batchDiscount,
     breakdown
   };
 }

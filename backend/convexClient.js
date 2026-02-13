@@ -11,6 +11,7 @@
 import { ConvexHttpClient } from 'convex/browser';
 import { api } from '../convex/_generated/api.js';
 import fetch from 'node-fetch';
+import { withRetry } from './services/retry.js';
 
 // Read Convex URL from environment
 const CONVEX_URL = process.env.CONVEX_URL;
@@ -20,20 +21,29 @@ if (!CONVEX_URL) {
 
 const client = new ConvexHttpClient(CONVEX_URL);
 
+// Retry-wrapped Convex calls — handles transient ECONNRESET from VPS → Convex cloud
+async function queryWithRetry(fnRef, args) {
+  return withRetry(() => client.query(fnRef, args), { maxRetries: 3, label: 'Convex query' });
+}
+
+async function mutationWithRetry(fnRef, args) {
+  return withRetry(() => client.mutation(fnRef, args), { maxRetries: 3, label: 'Convex mutation' });
+}
+
 // =============================================
 // Settings helpers
 // =============================================
 
 export async function getSetting(key) {
-  return await client.query(api.settings.get, { key });
+  return await queryWithRetry(api.settings.get, { key });
 }
 
 export async function setSetting(key, value) {
-  await client.mutation(api.settings.set, { key, value });
+  await mutationWithRetry(api.settings.set, { key, value });
 }
 
 export async function getAllSettings() {
-  return await client.query(api.settings.getAll, {});
+  return await queryWithRetry(api.settings.getAll, {});
 }
 
 // =============================================
@@ -41,7 +51,7 @@ export async function getAllSettings() {
 // =============================================
 
 export async function createProject({ id, name, brand_name, niche, product_description, sales_page_content, drive_folder_id, inspiration_folder_id }) {
-  await client.mutation(api.projects.create, {
+  await mutationWithRetry(api.projects.create, {
     externalId: id,
     name,
     brand_name: brand_name || '',
@@ -54,13 +64,13 @@ export async function createProject({ id, name, brand_name, niche, product_descr
 }
 
 export async function getProject(id) {
-  const project = await client.query(api.projects.getByExternalId, { externalId: id });
+  const project = await queryWithRetry(api.projects.getByExternalId, { externalId: id });
   if (!project) return null;
   return convexProjectToRow(project);
 }
 
 export async function getAllProjects() {
-  const projects = await client.query(api.projects.getAll, {});
+  const projects = await queryWithRetry(api.projects.getAll, {});
   return projects.map(convexProjectToRow);
 }
 
@@ -72,11 +82,11 @@ export async function updateProject(id, fields) {
       updates[key] = fields[key];
     }
   }
-  await client.mutation(api.projects.update, updates);
+  await mutationWithRetry(api.projects.update, updates);
 }
 
 export async function deleteProject(id) {
-  await client.mutation(api.projects.remove, { externalId: id });
+  await mutationWithRetry(api.projects.remove, { externalId: id });
 }
 
 function convexProjectToRow(p) {
@@ -101,12 +111,12 @@ function convexProjectToRow(p) {
 // =============================================
 
 export async function getDocsByProject(projectId) {
-  const docs = await client.query(api.foundationalDocs.getByProject, { projectId });
+  const docs = await queryWithRetry(api.foundationalDocs.getByProject, { projectId });
   return docs.map(convexDocToRow);
 }
 
 export async function getLatestDoc(projectId, docType) {
-  const doc = await client.query(api.foundationalDocs.getLatest, { projectId, docType });
+  const doc = await queryWithRetry(api.foundationalDocs.getLatest, { projectId, docType });
   if (!doc) return null;
   return convexDocToRow(doc);
 }
@@ -130,18 +140,21 @@ function convexDocToRow(d) {
 // =============================================
 
 export async function getAdsByProject(projectId) {
-  const ads = await client.query(api.adCreatives.getByProject, { projectId });
-  return ads.map(convexAdToRow);
+  const ads = await queryWithRetry(api.adCreatives.getByProjectWithUrls, { projectId });
+  return ads.map(a => ({
+    ...convexAdToRow(a),
+    resolvedImageUrl: a.resolvedImageUrl || null,
+  }));
 }
 
 export async function getAd(id) {
-  const ad = await client.query(api.adCreatives.getByExternalId, { externalId: id });
+  const ad = await queryWithRetry(api.adCreatives.getByExternalId, { externalId: id });
   if (!ad) return null;
   return convexAdToRow(ad);
 }
 
 export async function getAdImageUrl(id) {
-  return await client.query(api.adCreatives.getImageUrl, { externalId: id });
+  return await queryWithRetry(api.adCreatives.getImageUrl, { externalId: id });
 }
 
 function convexAdToRow(a) {
@@ -173,7 +186,7 @@ function convexAdToRow(a) {
 // =============================================
 
 export async function getProjectStats(projectId) {
-  return await client.query(api.projects.getStats, { projectId });
+  return await queryWithRetry(api.projects.getStats, { projectId });
 }
 
 // =============================================
@@ -181,7 +194,7 @@ export async function getProjectStats(projectId) {
 // =============================================
 
 export async function createBatchJob({ id, project_id, generation_mode, batch_size, angle, aspect_ratio, template_image_id, inspiration_image_id, product_image_storageId, scheduled, schedule_cron }) {
-  await client.mutation(api.batchJobs.create, {
+  await mutationWithRetry(api.batchJobs.create, {
     externalId: id,
     project_id,
     generation_mode,
@@ -197,32 +210,32 @@ export async function createBatchJob({ id, project_id, generation_mode, batch_si
 }
 
 export async function getBatchJob(id) {
-  const batch = await client.query(api.batchJobs.getByExternalId, { externalId: id });
+  const batch = await queryWithRetry(api.batchJobs.getByExternalId, { externalId: id });
   if (!batch) return null;
   return convexBatchToRow(batch);
 }
 
 export async function getBatchesByProject(projectId) {
-  const batches = await client.query(api.batchJobs.getByProject, { projectId });
+  const batches = await queryWithRetry(api.batchJobs.getByProject, { projectId });
   return batches.map(convexBatchToRow);
 }
 
 export async function getActiveBatchJobs() {
-  const batches = await client.query(api.batchJobs.getActive, {});
+  const batches = await queryWithRetry(api.batchJobs.getActive, {});
   return batches.map(convexBatchToRow);
 }
 
 export async function getScheduledBatchJobs() {
-  const batches = await client.query(api.batchJobs.getScheduled, {});
+  const batches = await queryWithRetry(api.batchJobs.getScheduled, {});
   return batches.map(convexBatchToRow);
 }
 
 export async function getAllScheduledBatchesForCost() {
-  return await client.query(api.batchJobs.getAllScheduledForCost, {});
+  return await queryWithRetry(api.batchJobs.getAllScheduledForCost, {});
 }
 
 export async function updateBatchJob(id, fields) {
-  const allowed = ['status', 'gemini_batch_job', 'gpt_prompts', 'error_message', 'completed_at', 'completed_count', 'scheduled', 'schedule_cron', 'retry_count', 'batch_stats'];
+  const allowed = ['status', 'gemini_batch_job', 'gpt_prompts', 'error_message', 'completed_at', 'completed_count', 'scheduled', 'schedule_cron', 'retry_count', 'batch_stats', 'angle', 'batch_size', 'aspect_ratio'];
   const updates = { externalId: id };
   for (const key of allowed) {
     if (fields[key] !== undefined) {
@@ -233,11 +246,11 @@ export async function updateBatchJob(id, fields) {
   if (updates.scheduled !== undefined) {
     updates.scheduled = !!updates.scheduled;
   }
-  await client.mutation(api.batchJobs.update, updates);
+  await mutationWithRetry(api.batchJobs.update, updates);
 }
 
 export async function deleteBatchJob(id) {
-  await client.mutation(api.batchJobs.remove, { externalId: id });
+  await mutationWithRetry(api.batchJobs.remove, { externalId: id });
 }
 
 function convexBatchToRow(b) {
@@ -271,7 +284,7 @@ function convexBatchToRow(b) {
 // =============================================
 
 export async function logCost({ id, project_id, service, operation, cost_usd, rate_used, image_count, resolution, source, period_date }) {
-  await client.mutation(api.apiCosts.log, {
+  await mutationWithRetry(api.apiCosts.log, {
     externalId: id,
     project_id: project_id || undefined,
     service,
@@ -286,7 +299,7 @@ export async function logCost({ id, project_id, service, operation, cost_usd, ra
 }
 
 export async function getCostAggregates(startDate, endDate, projectId = null) {
-  return await client.query(api.apiCosts.getAggregates, {
+  return await queryWithRetry(api.apiCosts.getAggregates, {
     startDate,
     endDate,
     projectId: projectId || undefined,
@@ -298,14 +311,14 @@ export async function getDailyCostHistory(days = 30, projectId = null) {
   startDate.setDate(startDate.getDate() - days);
   const startStr = startDate.toISOString().split('T')[0];
 
-  return await client.query(api.apiCosts.getDailyHistory, {
+  return await queryWithRetry(api.apiCosts.getDailyHistory, {
     startDate: startStr,
     projectId: projectId || undefined,
   });
 }
 
 export async function deleteCostsBySource(source, startDate) {
-  return await client.mutation(api.apiCosts.deleteBySourceAndDate, { source, startDate });
+  return await mutationWithRetry(api.apiCosts.deleteBySourceAndDate, { source, startDate });
 }
 
 // =============================================
@@ -313,15 +326,15 @@ export async function deleteCostsBySource(source, startDate) {
 // =============================================
 
 export async function getInspirationImages(projectId) {
-  return await client.query(api.inspirationImages.getByProject, { projectId });
+  return await queryWithRetry(api.inspirationImages.getByProject, { projectId });
 }
 
 export async function getInspirationImage(projectId, driveFileId) {
-  return await client.query(api.inspirationImages.getByDriveFileId, { projectId, driveFileId });
+  return await queryWithRetry(api.inspirationImages.getByDriveFileId, { projectId, driveFileId });
 }
 
 export async function getInspirationImageUrl(projectId, driveFileId) {
-  return await client.query(api.inspirationImages.getImageUrl, { projectId, driveFileId });
+  return await queryWithRetry(api.inspirationImages.getImageUrl, { projectId, driveFileId });
 }
 
 // =============================================
@@ -329,15 +342,15 @@ export async function getInspirationImageUrl(projectId, driveFileId) {
 // =============================================
 
 export async function generateUploadUrl() {
-  return await client.mutation(api.fileStorage.generateUploadUrl, {});
+  return await mutationWithRetry(api.fileStorage.generateUploadUrl, {});
 }
 
 export async function getStorageUrl(storageId) {
-  return await client.query(api.fileStorage.getUrl, { storageId });
+  return await queryWithRetry(api.fileStorage.getUrl, { storageId });
 }
 
 export async function deleteStorageFile(storageId) {
-  await client.mutation(api.fileStorage.deleteFile, { storageId });
+  await mutationWithRetry(api.fileStorage.deleteFile, { storageId });
 }
 
 /**
@@ -345,22 +358,23 @@ export async function deleteStorageFile(storageId) {
  * Returns the storageId that can be stored in any record.
  */
 export async function uploadBuffer(buffer, contentType = 'image/png') {
-  // 1. Get an upload URL from Convex
-  const uploadUrl = await generateUploadUrl();
+  return withRetry(async () => {
+    // Fresh upload URL on each attempt (previous one may be stale after ECONNRESET)
+    const uploadUrl = await generateUploadUrl();
 
-  // 2. PUT the file to the upload URL
-  const response = await fetch(uploadUrl, {
-    method: 'POST',
-    headers: { 'Content-Type': contentType },
-    body: buffer,
-  });
+    const response = await fetch(uploadUrl, {
+      method: 'POST',
+      headers: { 'Content-Type': contentType },
+      body: buffer,
+    });
 
-  if (!response.ok) {
-    throw new Error(`Convex upload failed: ${response.status} ${response.statusText}`);
-  }
+    if (!response.ok) {
+      throw new Error(`Convex upload failed: ${response.status} ${response.statusText}`);
+    }
 
-  const result = await response.json();
-  return result.storageId;
+    const result = await response.json();
+    return result.storageId;
+  }, { maxRetries: 3, label: 'Convex upload' });
 }
 
 /**
@@ -385,7 +399,7 @@ export async function downloadToBuffer(storageId) {
 // =============================================
 
 export async function getTemplateImageUrl(externalId) {
-  return await client.query(api.templateImages.getImageUrl, { externalId });
+  return await queryWithRetry(api.templateImages.getImageUrl, { externalId });
 }
 
 // =============================================

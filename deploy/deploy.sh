@@ -31,7 +31,13 @@ rsync -avz --delete \
   --exclude 'backend/config/service-account.json' \
   --exclude 'frontend/dist' \
   --exclude '.vite' \
+  --exclude 'backend/.thumb-cache' \
   --exclude '.claude' \
+  --exclude 'convex/_generated' \
+  --exclude 'package.json' \
+  --exclude 'package-lock.json' \
+  --exclude '.env.local' \
+  --exclude 'logs' \
   "${LOCAL_DIR}/" "${VPS_USER}@${VPS_HOST}:${REMOTE_DIR}/"
 
 echo "=== Installing backend dependencies ==="

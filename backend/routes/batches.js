@@ -119,11 +119,14 @@ router.put('/:projectId/batches/:batchId', async (req, res) => {
     return res.status(404).json({ error: 'Batch job not found' });
   }
 
-  const { scheduled, schedule_cron } = req.body;
+  const { scheduled, schedule_cron, angle, batch_size, aspect_ratio } = req.body;
   const updates = {};
 
   if (scheduled !== undefined) updates.scheduled = scheduled ? 1 : 0;
   if (schedule_cron !== undefined) updates.schedule_cron = schedule_cron;
+  if (angle !== undefined) updates.angle = angle;
+  if (batch_size !== undefined) updates.batch_size = batch_size;
+  if (aspect_ratio !== undefined) updates.aspect_ratio = aspect_ratio;
 
   if (Object.keys(updates).length > 0) {
     await updateBatchJob(req.params.batchId, updates);

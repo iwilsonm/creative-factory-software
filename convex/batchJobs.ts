@@ -77,6 +77,7 @@ export const getAllScheduledForCost = query({
         schedule_cron: b.schedule_cron,
         aspect_ratio: b.aspect_ratio,
         project_id: b.project_id,
+        angle: b.angle || null,
       }));
   },
 });
@@ -85,15 +86,18 @@ export const update = mutation({
   args: {
     externalId: v.string(),
     status: v.optional(v.string()),
-    gemini_batch_job: v.optional(v.string()),
-    gpt_prompts: v.optional(v.string()),
-    error_message: v.optional(v.string()),
+    gemini_batch_job: v.optional(v.nullable(v.string())),
+    gpt_prompts: v.optional(v.nullable(v.string())),
+    error_message: v.optional(v.nullable(v.string())),
     completed_at: v.optional(v.string()),
     completed_count: v.optional(v.number()),
     scheduled: v.optional(v.boolean()),
     schedule_cron: v.optional(v.string()),
     retry_count: v.optional(v.number()),
-    batch_stats: v.optional(v.string()),
+    batch_stats: v.optional(v.nullable(v.string())),
+    angle: v.optional(v.string()),
+    batch_size: v.optional(v.number()),
+    aspect_ratio: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const batch = await ctx.db

@@ -24,7 +24,7 @@ import fetch from 'node-fetch';
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 // --- Config ---
-const DB_PATH = path.join(__dirname, '..', '..', 'data', 'ad-platform.db');
+const DB_PATH = path.join(__dirname, '..', '..', 'data', 'app.db');
 const CONVEX_URL = process.env.CONVEX_URL;
 
 if (!CONVEX_URL) {
@@ -40,8 +40,25 @@ if (!fs.existsSync(DB_PATH)) {
 const db = new Database(DB_PATH, { readonly: true });
 const convex = new ConvexHttpClient(CONVEX_URL);
 
+// Remap Mac-local paths to VPS paths (DB was created on Mac, images synced to VPS)
+const MAC_PREFIX = '/Users/ianwilson/Agentic Workflows/Static Gen/ad-platform/';
+const VPS_PREFIX = '/opt/ad-platform/';
+function remapPath(filePath) {
+  if (!filePath) return filePath;
+  if (filePath.startsWith(MAC_PREFIX)) {
+    return filePath.replace(MAC_PREFIX, VPS_PREFIX);
+  }
+  // Also handle backend-relative paths
+  const MAC_BACKEND = '/Users/ianwilson/Agentic Workflows/Static Gen/ad-platform/backend/';
+  if (filePath.startsWith(MAC_BACKEND)) {
+    return filePath.replace(MAC_BACKEND, '/opt/ad-platform/backend/');
+  }
+  return filePath;
+}
+
 // Helper: upload a local file to Convex storage
 async function uploadFileToConvex(filePath, mimeType = 'image/png') {
+  filePath = remapPath(filePath);
   if (!filePath || !fs.existsSync(filePath)) return null;
 
   const buffer = fs.readFileSync(filePath);
@@ -115,9 +132,15 @@ async function migrateProjects() {
         sales_page_content: row.sales_page_content || '',
         drive_folder_id: row.drive_folder_id || '',
         inspiration_folder_id: row.inspiration_folder_id || '',
-        prompt_guidelines: row.prompt_guidelines || undefined,
-        status: row.status || 'setup',
       });
+      // Update fields not in create mutation
+      if (row.prompt_guidelines || row.status) {
+        await convex.mutation(api.projects.update, {
+          externalId: row.id,
+          prompt_guidelines: row.prompt_guidelines || undefined,
+          status: row.status || 'setup',
+        });
+      }
       count++;
       console.log(`  Project "${row.name}" migrated.`);
     } catch (err) {
@@ -167,18 +190,18 @@ async function migrateTemplateImages() {
     }
     try {
       let storageId = undefined;
-      if (row.file_path && fs.existsSync(row.file_path)) {
-        console.log(`  Uploading template image: ${path.basename(row.file_path)}`);
-        storageId = await uploadFileToConvex(row.file_path, guessMime(row.file_path));
+      const localPath = remapPath(row.file_path);
+      if (localPath && fs.existsSync(localPath)) {
+        console.log(`  Uploading template image: ${path.basename(localPath)}`);
+        storageId = await uploadFileToConvex(localPath, guessMime(localPath));
       }
 
       await convex.mutation(api.templateImages.create, {
         externalId: row.id,
         project_id: row.project_id,
-        filename: row.filename || path.basename(row.file_path || 'unknown'),
-        mimeType: row.mimeType || guessMime(row.file_path),
+        filename: row.filename || path.basename(localPath || 'unknown'),
         storageId,
-        label: row.label || undefined,
+        description: row.description || undefined,
       });
       count++;
     } catch (err) {
@@ -201,8 +224,9 @@ async function migrateAdCreatives() {
     }
     try {
       let storageId = undefined;
-      if (row.image_path && fs.existsSync(row.image_path)) {
-        storageId = await uploadFileToConvex(row.image_path, guessMime(row.image_path));
+      const adImagePath = remapPath(row.image_path);
+      if (adImagePath && fs.existsSync(adImagePath)) {
+        storageId = await uploadFileToConvex(adImagePath, guessMime(adImagePath));
         uploadCount++;
         if (uploadCount % 10 === 0) {
           console.log(`  Uploaded ${uploadCount} images so far...`);
@@ -248,8 +272,9 @@ async function migrateBatchJobs() {
     }
     try {
       let productImageStorageId = undefined;
-      if (row.product_image_path && fs.existsSync(row.product_image_path)) {
-        productImageStorageId = await uploadFileToConvex(row.product_image_path, guessMime(row.product_image_path));
+      const batchImgPath = remapPath(row.product_image_path);
+      if (batchImgPath && fs.existsSync(batchImgPath)) {
+        productImageStorageId = await uploadFileToConvex(batchImgPath, guessMime(batchImgPath));
       }
 
       await convex.mutation(api.batchJobs.create, {
@@ -329,13 +354,13 @@ async function main() {
 
   const start = Date.now();
 
-  await migrateSettings();
-  await migrateProjects();
-  await migrateDocs();
-  await migrateTemplateImages();
-  await migrateAdCreatives();
-  await migrateBatchJobs();
-  await migrateCosts();
+  try { await migrateSettings(); } catch (e) { console.error('Settings migration error:', e.message); }
+  try { await migrateProjects(); } catch (e) { console.error('Projects migration error:', e.message); }
+  try { await migrateDocs(); } catch (e) { console.error('Docs migration error:', e.message); }
+  try { await migrateTemplateImages(); } catch (e) { console.error('Templates migration error:', e.message); }
+  try { await migrateAdCreatives(); } catch (e) { console.error('Ads migration error:', e.message); }
+  try { await migrateBatchJobs(); } catch (e) { console.error('Batches migration error:', e.message); }
+  try { await migrateCosts(); } catch (e) { console.error('Costs migration error:', e.message); }
 
   const elapsed = ((Date.now() - start) / 1000).toFixed(1);
   console.log(`\n=== Migration complete in ${elapsed}s ===`);

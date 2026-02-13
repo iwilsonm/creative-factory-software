@@ -765,33 +765,27 @@ export default function AdStudio({ projectId, project }) {
 
         {/* Product Image (optional but recommended) */}
         <div className="mb-5">
-          <label className="block text-[13px] font-medium text-gray-600 mb-1.5">
+          <label className="block text-[11px] font-medium text-gray-500 mb-1.5">
             Product Image
           </label>
-          <p className="text-[11px] text-gray-400 mb-3">
-            Upload a product image for more accurate representation in the generated ad.
-          </p>
 
           {productFile && productPreview ? (
-            <div className="flex items-start gap-4 p-3 bg-gray-50/50 border border-gray-200/60 rounded-xl">
+            <div className="flex items-center gap-3 p-3 bg-gray-50/50 border border-gray-200/60 rounded-xl">
               <img
                 src={productPreview}
                 alt="Product image"
-                className="w-20 h-20 object-cover rounded-xl border border-gray-200/60"
+                className="w-12 h-12 object-cover rounded-lg border border-gray-200/60"
               />
               <div className="flex-1 min-w-0">
-                <p className="text-[13px] font-medium text-gray-900 truncate">{productFile.name}</p>
-                <p className="text-[11px] text-gray-400 mt-0.5">
-                  {(productFile.size / 1024).toFixed(0)} KB
-                </p>
-                <button
-                  onClick={clearProductImage}
-    
-                  className="mt-2 text-[12px] text-red-500 hover:text-red-600 transition-colors disabled:opacity-50"
-                >
-                  Remove
-                </button>
+                <p className="text-[12px] font-medium text-gray-900 truncate">{productFile.name}</p>
+                <p className="text-[10px] text-gray-400">{(productFile.size / 1024).toFixed(0)} KB</p>
               </div>
+              <button
+                onClick={clearProductImage}
+                className="text-[11px] text-red-400 hover:text-red-500 transition-colors"
+              >
+                Remove
+              </button>
             </div>
           ) : (
             <div
@@ -800,20 +794,18 @@ export default function AdStudio({ projectId, project }) {
               onDragEnter={handleProductDragOver}
               onDragLeave={handleProductDragLeave}
               onDrop={handleProductDrop}
-              className={`border-2 border-dashed rounded-xl p-4 text-center cursor-pointer transition-all ${
+              className={`border-2 border-dashed rounded-xl p-3 text-center cursor-pointer transition-all ${
                 productDragOver ? 'border-blue-400 bg-blue-50/30' :
                 'border-gray-200/80 hover:border-blue-300 hover:bg-gray-50/30'
               }`}
             >
-              <div className="w-8 h-8 mx-auto mb-1.5 rounded-lg bg-gray-100 flex items-center justify-center">
-                <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M20.25 7.5l-.625 10.632a2.25 2.25 0 01-2.247 2.118H6.622a2.25 2.25 0 01-2.247-2.118L3.75 7.5M10 11.25h4M3.375 7.5h17.25c.621 0 1.125-.504 1.125-1.125v-1.5c0-.621-.504-1.125-1.125-1.125H3.375c-.621 0-1.125.504-1.125 1.125v1.5c0 .621.504 1.125 1.125 1.125z" />
-                </svg>
-              </div>
-              <p className={`text-[12px] font-medium ${productDragOver ? 'text-blue-600' : 'text-gray-500'}`}>
+              <svg className="w-5 h-5 mx-auto mb-1 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909M3.75 21h16.5a2.25 2.25 0 002.25-2.25V6.75a2.25 2.25 0 00-2.25-2.25H3.75a2.25 2.25 0 00-2.25 2.25v12a2.25 2.25 0 002.25 2.25z" />
+              </svg>
+              <p className={`text-[11px] font-medium ${productDragOver ? 'text-blue-600' : 'text-gray-500'}`}>
                 {productDragOver ? 'Drop product image here' : 'Drop a product image, or click to browse'}
               </p>
-              <p className="text-[10px] text-gray-400 mt-0.5">JPG, PNG, WebP, or GIF</p>
+              <p className="text-[10px] text-gray-400 mt-0.5">Optional — helps Gemini render your product accurately</p>
             </div>
           )}
           <input
@@ -1129,7 +1121,7 @@ export default function AdStudio({ projectId, project }) {
                 >
                   {ad.imageUrl && ad.status === 'completed' ? (
                     <img
-                      src={ad.imageUrl}
+                      src={ad.thumbnailUrl || ad.imageUrl}
                       alt={`Ad - ${ad.angle || 'No angle'}`}
                       className="w-full h-full object-cover group-hover:scale-[1.02] transition-transform duration-500"
                       loading="lazy"

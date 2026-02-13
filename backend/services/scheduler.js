@@ -19,7 +19,7 @@ export async function initScheduler() {
 
   // Poll active batch jobs every 5 minutes
   cron.schedule('*/5 * * * *', async () => {
-    await pollActiveBatches();
+    try { await pollActiveBatches(); } catch (e) { console.error('[Scheduler] Poll error:', e.message); }
   });
 
   // Sync OpenAI costs every hour
