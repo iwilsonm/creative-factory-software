@@ -613,7 +613,7 @@ export default function AdStudio({ projectId, project }) {
       setCustomPrompt(result.revised_prompt);
       setEditInstruction('');
       setEditMode('direct'); // Switch to direct view so user can see the modified prompt
-      toast.success('Prompt updated — review and generate when ready.');
+      toast.success('Prompt updated — review it below, then hit Generate Image.');
     } catch (err) {
       toast.error(err.message || 'Failed to apply edit.');
     } finally {
@@ -1138,9 +1138,12 @@ export default function AdStudio({ projectId, project }) {
             {editMode === 'describe' ? (
               /* Describe Edit mode — natural language + optional reference image */
               <div>
-                <p className="text-[11px] text-blue-600/70 mb-2">
-                  Describe the change you want (e.g., "make the background darker", "add a sunset", "remove the text overlay"). AI will update the prompt for you. You can also attach a reference image.
-                </p>
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="text-[10px] font-semibold text-blue-500 bg-blue-100/60 px-1.5 py-0.5 rounded">Step 1</span>
+                  <p className="text-[11px] text-blue-600/70">
+                    Describe what to change — AI will rewrite the prompt for you.
+                  </p>
+                </div>
                 <textarea
                   ref={editTextareaRef}
                   value={editInstruction}
@@ -1239,18 +1242,21 @@ export default function AdStudio({ projectId, project }) {
                   {isApplyingEdit ? (
                     <span className="flex items-center gap-1.5">
                       <svg className="animate-spin h-3.5 w-3.5" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
-                      Applying edit...
+                      Updating prompt...
                     </span>
-                  ) : 'Apply Edit'}
+                  ) : 'Update Prompt'}
                 </button>
                 <span className="text-[10px] text-gray-400 ml-2">{navigator.platform?.includes('Mac') ? '⌘' : 'Ctrl'}+Enter</span>
               </div>
             ) : (
               /* Direct edit mode — raw prompt textarea */
               <div>
-                <p className="text-[11px] text-blue-600/70 mb-2">
-                  Edit the raw prompt directly. This goes straight to image generation.
-                </p>
+                <div className="flex items-center gap-2 mb-2">
+                  <span className="text-[10px] font-semibold text-green-600 bg-green-100/60 px-1.5 py-0.5 rounded">Step 2</span>
+                  <p className="text-[11px] text-blue-600/70">
+                    Review the prompt below, then hit <strong>Generate Image</strong>.
+                  </p>
+                </div>
                 <textarea
                   value={customPrompt}
                   onChange={e => setCustomPrompt(e.target.value)}
@@ -1276,7 +1282,7 @@ export default function AdStudio({ projectId, project }) {
           className="btn-primary"
         >
           {isCustomPromptMode
-            ? 'Regenerate Image'
+            ? 'Generate Image'
             : 'Generate Ad'}
         </button>
         {activeGenCount > 0 && (
