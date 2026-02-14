@@ -1117,7 +1117,7 @@ export default function AdStudio({ projectId, project }) {
                 <img
                   src={editingAdImage}
                   alt="Ad being edited"
-                  className="max-h-48 rounded-lg border border-blue-200/60 shadow-sm object-contain"
+                  className="max-h-96 rounded-lg border border-blue-200/60 shadow-sm object-contain"
                 />
               </div>
             )}
