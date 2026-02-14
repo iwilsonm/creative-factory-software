@@ -560,6 +560,37 @@ export default function AdStudio({ projectId, project }) {
     }
   };
 
+  // --- Bulk delete ---
+  const [isBulkDeleting, setIsBulkDeleting] = useState(false);
+  const handleBulkDelete = async () => {
+    const count = selectedAdIds.size;
+    if (count === 0) return;
+    if (!confirm(`Delete ${count} ad${count !== 1 ? 's' : ''}? Local files will be removed. Drive copies (if any) will remain.`)) return;
+    setIsBulkDeleting(true);
+    try {
+      const ids = [...selectedAdIds];
+      const results = await Promise.allSettled(
+        ids.map(id => api.deleteAd(projectId, id))
+      );
+      const succeeded = ids.filter((_, i) => results[i].status === 'fulfilled');
+      const failed = ids.filter((_, i) => results[i].status === 'rejected');
+      if (succeeded.length > 0) {
+        setAds(prev => prev.filter(a => !succeeded.includes(a.id)));
+        setSelectedAdIds(new Set());
+        if (viewAd && succeeded.includes(viewAd.id)) setViewAd(null);
+      }
+      if (failed.length > 0) {
+        toast.error(`Deleted ${succeeded.length} ads. ${failed.length} failed.`);
+      } else {
+        toast.success(`Deleted ${succeeded.length} ad${succeeded.length !== 1 ? 's' : ''}.`);
+      }
+    } catch (err) {
+      toast.error('Bulk delete failed.');
+    } finally {
+      setIsBulkDeleting(false);
+    }
+  };
+
   // Edit prompt workflow — load ad's prompt into editor and scroll to top
   const handleEditPrompt = (ad, e) => {
     if (e) e.stopPropagation();
@@ -1828,6 +1859,26 @@ export default function AdStudio({ projectId, project }) {
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
                   </svg>
                   Download Zip
+                </>
+              )}
+            </button>
+
+            <button
+              onClick={handleBulkDelete}
+              disabled={isBulkDeleting}
+              className="flex items-center gap-1.5 px-4 py-1.5 bg-red-500 hover:bg-red-600 disabled:bg-red-400 text-white text-[13px] font-medium rounded-xl transition-colors"
+            >
+              {isBulkDeleting ? (
+                <>
+                  <div className="w-3.5 h-3.5 rounded-full border-2 border-white/30 border-t-white animate-spin" />
+                  Deleting...
+                </>
+              ) : (
+                <>
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+                  </svg>
+                  Delete
                 </>
               )}
             </button>
