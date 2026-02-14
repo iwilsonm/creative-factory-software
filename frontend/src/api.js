@@ -160,8 +160,12 @@ export const api = {
   // Copy Correction — find and fix inaccurate info in docs
   correctDocs: (projectId, correction) =>
     request(`/projects/${projectId}/correct-docs`, { method: 'POST', body: JSON.stringify({ correction }) }),
-  applyCorrections: (projectId, corrections) =>
-    request(`/projects/${projectId}/apply-corrections`, { method: 'POST', body: JSON.stringify({ corrections }) }),
+  applyCorrections: (projectId, corrections, correctionText) =>
+    request(`/projects/${projectId}/apply-corrections`, { method: 'POST', body: JSON.stringify({ corrections, correction_text: correctionText }) }),
+  getCorrectionHistory: (projectId) =>
+    request(`/projects/${projectId}/correction-history`),
+  revertCorrection: (projectId, correctionId) =>
+    request(`/projects/${projectId}/revert-correction`, { method: 'POST', body: JSON.stringify({ correction_id: correctionId }) }),
 
   // SSE streams — returns an abort controller, calls onEvent for each SSE message
   generateDocs: (projectId, onEvent) => streamSSE(`/projects/${projectId}/generate-docs`, onEvent),

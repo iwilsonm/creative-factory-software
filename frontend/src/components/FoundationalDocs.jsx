@@ -47,6 +47,21 @@ const SOURCE_LABELS = {
   manual_research: { label: 'Manual Research', color: 'bg-green-100 text-green-700' }
 };
 
+// ─── Relative time helper for correction history ─────────────────────────────
+function timeAgo(timestamp) {
+  const now = Date.now();
+  const then = new Date(timestamp).getTime();
+  const diff = now - then;
+  const mins = Math.floor(diff / 60000);
+  const hours = Math.floor(diff / 3600000);
+  const days = Math.floor(diff / 86400000);
+  if (mins < 1) return 'just now';
+  if (mins < 60) return `${mins}m ago`;
+  if (hours < 24) return `${hours}h ago`;
+  if (days < 7) return `${days}d ago`;
+  return new Date(timestamp).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+}
+
 // ─── Copy Correction Bar ──────────────────────────────────────────────────────
 function CopyCorrection({ projectId, onDocsUpdated }) {
   const [correction, setCorrection] = useState('');
@@ -55,6 +70,25 @@ function CopyCorrection({ projectId, onDocsUpdated }) {
   const [applying, setApplying] = useState(false);
   const [error, setError] = useState('');
   const inputRef = useRef(null);
+
+  // History state
+  const [history, setHistory] = useState([]);
+  const [historyOpen, setHistoryOpen] = useState(false);
+  const [reverting, setReverting] = useState(null);
+
+  // Load history on mount
+  useEffect(() => {
+    loadHistory();
+  }, [projectId]);
+
+  const loadHistory = async () => {
+    try {
+      const data = await api.getCorrectionHistory(projectId);
+      setHistory(data.history || []);
+    } catch {
+      setHistory([]);
+    }
+  };
 
   const handleSearch = async (e) => {
     e.preventDefault();
@@ -76,8 +110,9 @@ function CopyCorrection({ projectId, onDocsUpdated }) {
     if (!results?.corrections?.length) return;
     setApplying(true);
     try {
-      await api.applyCorrections(projectId, results.corrections);
+      await api.applyCorrections(projectId, results.corrections, correction.trim());
       await onDocsUpdated();
+      await loadHistory();
       setResults(null);
       setCorrection('');
       setError('');
@@ -85,6 +120,20 @@ function CopyCorrection({ projectId, onDocsUpdated }) {
       setError(err.message || 'Failed to apply corrections');
     } finally {
       setApplying(false);
+    }
+  };
+
+  const handleRevert = async (entryId) => {
+    if (!confirm('Revert all documents to their state before this correction?')) return;
+    setReverting(entryId);
+    try {
+      await api.revertCorrection(projectId, entryId);
+      await onDocsUpdated();
+      await loadHistory();
+    } catch (err) {
+      setError(err.message || 'Failed to revert correction');
+    } finally {
+      setReverting(null);
     }
   };
 
@@ -104,7 +153,49 @@ function CopyCorrection({ projectId, onDocsUpdated }) {
         </div>
         <span className="text-[13px] font-semibold text-gray-800">Fix Inaccurate Info</span>
         <InfoTooltip text="Noticed wrong claims in your ad copy? Describe the correction here and AI will scan all foundational documents to find and fix the source." position="right" />
+        <div className="flex-1" />
+        {history.length > 0 && (
+          <button
+            onClick={() => setHistoryOpen(!historyOpen)}
+            className={`text-[11px] font-medium px-2 py-1 rounded-md transition-colors ${
+              historyOpen
+                ? 'bg-amber-200/80 text-amber-800'
+                : 'bg-amber-100/60 text-amber-600 hover:bg-amber-200/60'
+            }`}
+          >
+            History ({history.length})
+          </button>
+        )}
       </div>
+
+      {/* History dropdown */}
+      {historyOpen && history.length > 0 && (
+        <div className="mb-3 bg-white border border-amber-200/60 rounded-lg overflow-hidden">
+          <div className="max-h-64 overflow-y-auto divide-y divide-gray-100">
+            {history.map((entry) => (
+              <div key={entry.id} className="flex items-center gap-3 px-3 py-2 hover:bg-gray-50/50 transition-colors">
+                <div className="flex-1 min-w-0">
+                  <p className="text-[12px] text-gray-700 truncate" title={entry.correction}>
+                    {entry.correction}
+                  </p>
+                  <p className="text-[10px] text-gray-400">
+                    {entry.changes?.length || 0} doc{(entry.changes?.length || 0) !== 1 ? 's' : ''} changed
+                    {' · '}
+                    {timeAgo(entry.timestamp)}
+                  </p>
+                </div>
+                <button
+                  onClick={() => handleRevert(entry.id)}
+                  disabled={reverting === entry.id}
+                  className="text-[11px] font-medium text-amber-600 hover:text-amber-800 bg-amber-50 hover:bg-amber-100 px-2 py-1 rounded transition-colors disabled:opacity-50 flex-shrink-0"
+                >
+                  {reverting === entry.id ? 'Reverting...' : 'Revert'}
+                </button>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <form onSubmit={handleSearch} className="flex gap-2">
         <input

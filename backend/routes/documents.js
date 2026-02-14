@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import { requireAuth } from '../auth.js';
-import { getProject, getDocsByProject, getLatestDoc, updateProject } from '../convexClient.js';
+import { getProject, getDocsByProject, getLatestDoc, updateProject, getSetting, setSetting } from '../convexClient.js';
 import { convexClient, api } from '../convexClient.js';
 import {
   generateAllDocs,
@@ -368,31 +368,122 @@ router.post('/:projectId/correct-docs', async (req, res) => {
   }
 });
 
-// Apply proposed corrections to documents
+// Apply proposed corrections to documents (with history tracking)
 router.post('/:projectId/apply-corrections', async (req, res) => {
   const project = await getProject(req.params.projectId);
   if (!project) return res.status(404).json({ error: 'Project not found' });
 
-  const { corrections } = req.body;
+  const { corrections, correction_text } = req.body;
   if (!Array.isArray(corrections) || corrections.length === 0) {
     return res.status(400).json({ error: 'Corrections array is required' });
   }
 
+  // 1. Fetch current doc content for before-snapshots
+  const changes = [];
   const updated = [];
   for (const c of corrections) {
     if (!c.doc_id || !c.full_updated_content) continue;
     try {
+      const currentDoc = await convexClient.query(api.foundationalDocs.getByExternalId, { externalId: c.doc_id });
+      const beforeContent = currentDoc?.content || '';
+
       await convexClient.mutation(api.foundationalDocs.update, {
         externalId: c.doc_id,
         content: c.full_updated_content,
       });
       updated.push(c.doc_id);
+
+      changes.push({
+        doc_type: c.doc_type,
+        doc_id: c.doc_id,
+        doc_label: c.doc_label,
+        old_text: c.old_text,
+        new_text: c.new_text,
+        before_content: beforeContent,
+        after_content: c.full_updated_content,
+      });
     } catch (err) {
       console.error(`[CopyCorrection] Failed to update doc ${c.doc_id}:`, err.message);
     }
   }
 
+  // 2. Save to correction history
+  if (changes.length > 0) {
+    try {
+      const historyKey = `correction_history_${req.params.projectId}`;
+      const raw = await getSetting(historyKey);
+      const history = raw ? JSON.parse(raw) : [];
+
+      history.unshift({
+        id: Date.now(),
+        correction: correction_text || 'Unknown correction',
+        timestamp: new Date().toISOString(),
+        changes,
+      });
+
+      // Keep last 20
+      if (history.length > 20) history.length = 20;
+      await setSetting(historyKey, JSON.stringify(history));
+    } catch (err) {
+      console.error('[CopyCorrection] Failed to save history:', err.message);
+    }
+  }
+
   res.json({ success: true, updated_count: updated.length, updated_doc_ids: updated });
+});
+
+// Get correction history for a project
+router.get('/:projectId/correction-history', async (req, res) => {
+  try {
+    const historyKey = `correction_history_${req.params.projectId}`;
+    const raw = await getSetting(historyKey);
+    const history = raw ? JSON.parse(raw) : [];
+    res.json({ history });
+  } catch {
+    res.json({ history: [] });
+  }
+});
+
+// Revert a correction (restore before-state of all docs in that correction)
+router.post('/:projectId/revert-correction', async (req, res) => {
+  const project = await getProject(req.params.projectId);
+  if (!project) return res.status(404).json({ error: 'Project not found' });
+
+  const { correction_id } = req.body;
+  if (!correction_id) return res.status(400).json({ error: 'correction_id is required' });
+
+  try {
+    const historyKey = `correction_history_${req.params.projectId}`;
+    const raw = await getSetting(historyKey);
+    const history = raw ? JSON.parse(raw) : [];
+
+    const entry = history.find(h => h.id === correction_id);
+    if (!entry) return res.status(404).json({ error: 'Correction not found in history' });
+
+    // Restore each doc to its before_content
+    const reverted = [];
+    for (const change of entry.changes) {
+      if (!change.doc_id || !change.before_content) continue;
+      try {
+        await convexClient.mutation(api.foundationalDocs.update, {
+          externalId: change.doc_id,
+          content: change.before_content,
+        });
+        reverted.push(change.doc_id);
+      } catch (err) {
+        console.error(`[CopyCorrection] Failed to revert doc ${change.doc_id}:`, err.message);
+      }
+    }
+
+    // Remove this entry from history
+    const updatedHistory = history.filter(h => h.id !== correction_id);
+    await setSetting(historyKey, JSON.stringify(updatedHistory));
+
+    res.json({ success: true, reverted_count: reverted.length });
+  } catch (err) {
+    console.error('[CopyCorrection] Revert error:', err.message);
+    res.status(500).json({ error: err.message || 'Failed to revert correction' });
+  }
 });
 
 export default router;
