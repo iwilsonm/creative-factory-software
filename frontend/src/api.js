@@ -220,6 +220,22 @@ export const api = {
   deleteTemplate: (projectId, imageId) =>
     request(`/projects/${projectId}/templates/${imageId}`, { method: 'DELETE' }),
 
+  // Project Product Image
+  uploadProductImage: async (projectId, file) => {
+    const formData = new FormData();
+    formData.append('image', file);
+    const res = await fetch(`${API_BASE}/projects/${projectId}/product-image`, {
+      method: 'POST',
+      credentials: 'include',
+      body: formData
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.error || `Upload failed with ${res.status}`);
+    return data;
+  },
+  deleteProductImage: (projectId) =>
+    request(`/projects/${projectId}/product-image`, { method: 'DELETE' }),
+
   // Ad Generation
   generateAd: (projectId, options, onEvent) =>
     streamSSEWithBody(`/projects/${projectId}/generate-ad`, options, onEvent),

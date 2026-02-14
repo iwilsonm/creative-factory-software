@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { requireAuth } from '../auth.js';
-import { getProject, getAdsByProject, getAd, getAdImageUrl, convexClient, api } from '../convexClient.js';
+import { getProject, getAdsByProject, getAd, getAdImageUrl, downloadToBuffer, convexClient, api } from '../convexClient.js';
 import { generateAd, generateAdMode2, regenerateImageOnly, applyPromptEdit } from '../services/adGenerator.js';
 import sharp from 'sharp';
 import fs from 'fs';
@@ -18,12 +18,36 @@ if (!fs.existsSync(THUMB_CACHE_DIR)) {
 const router = Router();
 router.use(requireAuth);
 
+/**
+ * Load project-level product image as base64 if available.
+ * Returns { base64, mimeType } or null.
+ */
+async function getProjectProductImage(project) {
+  if (!project.product_image_storageId) return null;
+  try {
+    const buffer = await downloadToBuffer(project.product_image_storageId);
+    return { base64: buffer.toString('base64'), mimeType: 'image/png' };
+  } catch (err) {
+    console.warn('[Ads] Could not load project product image:', err.message);
+    return null;
+  }
+}
+
 // Generate an ad creative (SSE stream)
 router.post('/:projectId/generate-ad', async (req, res) => {
   const project = await getProject(req.params.projectId);
   if (!project) return res.status(404).json({ error: 'Project not found' });
 
-  const { mode = 'mode1', aspect_ratio, angle, inspiration_image_id, uploaded_image, uploaded_image_mime, product_image, product_image_mime, headline, body_copy, template_image_id } = req.body;
+  let { mode = 'mode1', aspect_ratio, angle, inspiration_image_id, uploaded_image, uploaded_image_mime, product_image, product_image_mime, headline, body_copy, template_image_id } = req.body;
+
+  // Auto-inject project-level product image if none provided
+  if (!product_image && project.product_image_storageId) {
+    const projImg = await getProjectProductImage(project);
+    if (projImg) {
+      product_image = projImg.base64;
+      product_image_mime = projImg.mimeType;
+    }
+  }
 
   if (mode !== 'mode1' && mode !== 'mode2') {
     return res.status(400).json({ error: 'Mode must be "mode1" or "mode2".' });
@@ -88,7 +112,16 @@ router.post('/:projectId/regenerate-image', async (req, res) => {
   const project = await getProject(req.params.projectId);
   if (!project) return res.status(404).json({ error: 'Project not found' });
 
-  const { image_prompt, aspect_ratio, parent_ad_id, product_image, product_image_mime, angle, headline, body_copy } = req.body;
+  let { image_prompt, aspect_ratio, parent_ad_id, product_image, product_image_mime, angle, headline, body_copy } = req.body;
+
+  // Auto-inject project-level product image if none provided
+  if (!product_image && project.product_image_storageId) {
+    const projImg = await getProjectProductImage(project);
+    if (projImg) {
+      product_image = projImg.base64;
+      product_image_mime = projImg.mimeType;
+    }
+  }
 
   if (!image_prompt || !image_prompt.trim()) {
     return res.status(400).json({ error: 'image_prompt is required for image-only regeneration.' });

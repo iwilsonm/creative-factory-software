@@ -1,5 +1,9 @@
 import { Router } from 'express';
 import { v4 as uuidv4 } from 'uuid';
+import multer from 'multer';
+import path from 'path';
+import fs from 'fs';
+import os from 'os';
 import { requireAuth } from '../auth.js';
 import {
   createProject,
@@ -8,8 +12,26 @@ import {
   getAllProjectsWithStats,
   updateProject,
   deleteProject,
-  getProjectStats
+  getProjectStats,
+  uploadBuffer,
+  getStorageUrl,
+  setProjectProductImage
 } from '../convexClient.js';
+
+const imgUpload = multer({
+  dest: os.tmpdir(),
+  limits: { fileSize: 20 * 1024 * 1024 },
+  fileFilter: (req, file, cb) => {
+    const allowed = ['.jpg', '.jpeg', '.png', '.webp', '.gif'];
+    const ext = path.extname(file.originalname).toLowerCase();
+    cb(null, allowed.includes(ext));
+  }
+});
+
+const EXT_TO_MIME = {
+  '.jpg': 'image/jpeg', '.jpeg': 'image/jpeg',
+  '.png': 'image/png', '.webp': 'image/webp', '.gif': 'image/gif',
+};
 
 const router = Router();
 router.use(requireAuth);
@@ -25,7 +47,16 @@ router.get('/:id', async (req, res) => {
   const project = await getProject(req.params.id);
   if (!project) return res.status(404).json({ error: 'Project not found' });
   const stats = await getProjectStats(project.id);
-  res.json({ ...project, ...stats });
+
+  // Resolve product image URL if set
+  let productImageUrl = null;
+  if (project.product_image_storageId) {
+    try {
+      productImageUrl = await getStorageUrl(project.product_image_storageId);
+    } catch {}
+  }
+
+  res.json({ ...project, ...stats, productImageUrl });
 });
 
 // Create project
@@ -66,6 +97,51 @@ router.delete('/:id', async (req, res) => {
 
   await deleteProject(req.params.id);
   res.json({ success: true });
+});
+
+// Upload / replace project product image
+router.post('/:id/product-image', imgUpload.single('image'), async (req, res) => {
+  const project = await getProject(req.params.id);
+  if (!project) return res.status(404).json({ error: 'Project not found' });
+  if (!req.file) return res.status(400).json({ error: 'No image file provided' });
+
+  try {
+    const ext = path.extname(req.file.originalname).toLowerCase();
+    const mimeType = EXT_TO_MIME[ext] || 'application/octet-stream';
+
+    const buffer = fs.readFileSync(req.file.path);
+    const storageId = await uploadBuffer(buffer, mimeType);
+    fs.unlinkSync(req.file.path);
+
+    // This mutation also deletes the old image from storage
+    await setProjectProductImage(req.params.id, storageId);
+
+    const url = await getStorageUrl(storageId);
+    res.json({ success: true, productImageUrl: url });
+  } catch (err) {
+    if (req.file?.path) try { fs.unlinkSync(req.file.path); } catch {}
+    console.error('[Projects] Product image upload error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Delete project product image
+router.delete('/:id/product-image', async (req, res) => {
+  const project = await getProject(req.params.id);
+  if (!project) return res.status(404).json({ error: 'Project not found' });
+
+  if (!project.product_image_storageId) {
+    return res.json({ success: true });
+  }
+
+  try {
+    // Pass undefined to clear; mutation handles storage deletion
+    await setProjectProductImage(req.params.id, undefined);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[Projects] Product image delete error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
 });
 
 export default router;

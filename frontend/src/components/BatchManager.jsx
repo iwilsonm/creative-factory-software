@@ -1046,11 +1046,33 @@ export default function BatchManager({ projectId, project, onBatchComplete }) {
               )}
             </div>
 
-            {/* Product Image */}
+            {/* Product Image (project-level + optional per-batch override) */}
             <div className="mb-3">
               <label className="block text-[11px] font-medium text-gray-500 mb-1.5">
                 Product Image
               </label>
+
+              {/* Show project-level product image indicator */}
+              {project?.productImageUrl && !batchProductFile && (
+                <div className="flex items-center gap-3 p-2.5 bg-emerald-50/50 border border-emerald-200/60 rounded-xl mb-2">
+                  <img
+                    src={project.productImageUrl}
+                    alt="Project product"
+                    className="w-9 h-9 object-cover rounded-lg border border-emerald-200/60"
+                  />
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[11px] font-medium text-emerald-700">Project product image active</p>
+                    <p className="text-[10px] text-emerald-500">Used for all ads in batch</p>
+                  </div>
+                  <button
+                    onClick={() => !creating && batchProductInputRef.current?.click()}
+                    className="text-[10px] text-gray-400 hover:text-gray-600 transition-colors whitespace-nowrap"
+                  >
+                    Override →
+                  </button>
+                </div>
+              )}
+
               {batchProductFile && batchProductPreview ? (
                 <div className="flex items-center gap-3 p-3 bg-gray-50/50 border border-gray-200/60 rounded-xl">
                   <img
@@ -1060,7 +1082,10 @@ export default function BatchManager({ projectId, project, onBatchComplete }) {
                   />
                   <div className="flex-1 min-w-0">
                     <p className="text-[12px] font-medium text-gray-900 truncate">{batchProductFile.name}</p>
-                    <p className="text-[10px] text-gray-400">{(batchProductFile.size / 1024).toFixed(0)} KB — used for all ads in batch</p>
+                    <p className="text-[10px] text-gray-400">
+                      {(batchProductFile.size / 1024).toFixed(0)} KB
+                      {project?.productImageUrl ? ' — overrides project image' : ' — used for all ads in batch'}
+                    </p>
                   </div>
                   <button
                     onClick={clearBatchProductImage}
@@ -1070,7 +1095,7 @@ export default function BatchManager({ projectId, project, onBatchComplete }) {
                     Remove
                   </button>
                 </div>
-              ) : (
+              ) : !project?.productImageUrl ? (
                 <div
                   onClick={() => !creating && batchProductInputRef.current?.click()}
                   onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setBatchProductDragOver(true); }}
@@ -1088,9 +1113,9 @@ export default function BatchManager({ projectId, project, onBatchComplete }) {
                   <p className={`text-[11px] font-medium ${batchProductDragOver ? 'text-blue-600' : 'text-gray-500'}`}>
                     {batchProductDragOver ? 'Drop product image here' : 'Drop a product image, or click to browse'}
                   </p>
-                  <p className="text-[10px] text-gray-400 mt-0.5">Optional — helps Gemini render your product accurately</p>
+                  <p className="text-[10px] text-gray-400 mt-0.5">Or set one on the project Overview for all ads</p>
                 </div>
-              )}
+              ) : null}
               <input
                 ref={batchProductInputRef}
                 type="file"

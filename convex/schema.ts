@@ -17,6 +17,7 @@ export default defineSchema({
     drive_folder_id: v.optional(v.string()),
     inspiration_folder_id: v.optional(v.string()),
     prompt_guidelines: v.optional(v.string()),
+    product_image_storageId: v.optional(v.id("_storage")),
     status: v.optional(v.string()),
     created_at: v.string(),
     updated_at: v.string(),

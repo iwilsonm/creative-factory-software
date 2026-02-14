@@ -83,6 +83,34 @@ export const remove = mutation({
   },
 });
 
+export const setProductImage = mutation({
+  args: {
+    externalId: v.string(),
+    storageId: v.optional(v.id("_storage")),
+  },
+  handler: async (ctx, args) => {
+    const project = await ctx.db
+      .query("projects")
+      .withIndex("by_externalId", (q) => q.eq("externalId", args.externalId))
+      .first();
+    if (!project) throw new Error("Project not found");
+
+    // Delete old image from storage if replacing
+    if (project.product_image_storageId && project.product_image_storageId !== args.storageId) {
+      try {
+        await ctx.storage.delete(project.product_image_storageId);
+      } catch {
+        // Ignore if already deleted
+      }
+    }
+
+    await ctx.db.patch(project._id, {
+      product_image_storageId: args.storageId,
+      updated_at: new Date().toISOString(),
+    });
+  },
+});
+
 export const getStats = query({
   args: { projectId: v.string() },
   handler: async (ctx, args) => {

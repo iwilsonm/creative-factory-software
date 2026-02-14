@@ -43,11 +43,14 @@ router.post('/:projectId/batches', async (req, res) => {
 
   const id = uuidv4();
 
-  // Upload product image to Convex storage if provided
+  // Upload product image to Convex storage if provided, else use project-level image
   let productImageStorageId = undefined;
   if (product_image && product_image_mime) {
     const buffer = Buffer.from(product_image, 'base64');
     productImageStorageId = await uploadBuffer(buffer, product_image_mime);
+  } else if (project.product_image_storageId) {
+    // Re-use the project-level product image (no need to re-upload)
+    productImageStorageId = project.product_image_storageId;
   }
 
   try {

@@ -109,10 +109,18 @@ function convexProjectToRow(p) {
     drive_folder_id: p.drive_folder_id || null,
     inspiration_folder_id: p.inspiration_folder_id || null,
     prompt_guidelines: p.prompt_guidelines || null,
+    product_image_storageId: p.product_image_storageId || null,
     status: p.status || 'setup',
     created_at: p.created_at,
     updated_at: p.updated_at,
   };
+}
+
+export async function setProjectProductImage(projectId, storageId) {
+  await mutationWithRetry(api.projects.setProductImage, {
+    externalId: projectId,
+    storageId: storageId || undefined,
+  });
 }
 
 // =============================================

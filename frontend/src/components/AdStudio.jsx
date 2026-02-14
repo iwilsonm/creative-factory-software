@@ -971,12 +971,34 @@ export default function AdStudio({ projectId, project }) {
           </div>
         )}
 
-        {/* Product Image (optional but recommended) */}
+        {/* Product Image (project-level + optional per-ad override) */}
         <div className="mb-5">
           <label className="block text-[11px] font-medium text-gray-500 mb-1.5">
             Product Image
           </label>
 
+          {/* Show project-level product image indicator */}
+          {project?.productImageUrl && !productFile && (
+            <div className="flex items-center gap-3 p-3 bg-emerald-50/50 border border-emerald-200/60 rounded-xl mb-2">
+              <img
+                src={project.productImageUrl}
+                alt="Project product"
+                className="w-10 h-10 object-cover rounded-lg border border-emerald-200/60"
+              />
+              <div className="flex-1 min-w-0">
+                <p className="text-[11px] font-medium text-emerald-700">Project product image active</p>
+                <p className="text-[10px] text-emerald-500">Automatically used for this generation</p>
+              </div>
+              <button
+                onClick={() => productFileInputRef.current?.click()}
+                className="text-[10px] text-gray-400 hover:text-gray-600 transition-colors whitespace-nowrap"
+              >
+                Override →
+              </button>
+            </div>
+          )}
+
+          {/* Per-ad override: show when user has uploaded one OR when no project image */}
           {productFile && productPreview ? (
             <div className="flex items-center gap-3 p-3 bg-gray-50/50 border border-gray-200/60 rounded-xl">
               <img
@@ -986,7 +1008,10 @@ export default function AdStudio({ projectId, project }) {
               />
               <div className="flex-1 min-w-0">
                 <p className="text-[12px] font-medium text-gray-900 truncate">{productFile.name}</p>
-                <p className="text-[10px] text-gray-400">{(productFile.size / 1024).toFixed(0)} KB</p>
+                <p className="text-[10px] text-gray-400">
+                  {(productFile.size / 1024).toFixed(0)} KB
+                  {project?.productImageUrl ? ' — overrides project image' : ''}
+                </p>
               </div>
               <button
                 onClick={clearProductImage}
@@ -995,7 +1020,7 @@ export default function AdStudio({ projectId, project }) {
                 Remove
               </button>
             </div>
-          ) : (
+          ) : !project?.productImageUrl ? (
             <div
               onClick={() => productFileInputRef.current?.click()}
               onDragOver={handleProductDragOver}
@@ -1013,9 +1038,9 @@ export default function AdStudio({ projectId, project }) {
               <p className={`text-[11px] font-medium ${productDragOver ? 'text-blue-600' : 'text-gray-500'}`}>
                 {productDragOver ? 'Drop product image here' : 'Drop a product image, or click to browse'}
               </p>
-              <p className="text-[10px] text-gray-400 mt-0.5">Optional — helps Gemini render your product accurately</p>
+              <p className="text-[10px] text-gray-400 mt-0.5">Or set one on the project Overview for all ads</p>
             </div>
-          )}
+          ) : null}
           <input
             ref={productFileInputRef}
             type="file"

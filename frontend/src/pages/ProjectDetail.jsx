@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { api } from '../api';
 import Layout from '../components/Layout';
@@ -29,6 +29,47 @@ export default function ProjectDetail() {
   const [tab, setTab] = useState('ads');
   const [projectCosts, setProjectCosts] = useState(null);
   const [costsLoading, setCostsLoading] = useState(false);
+
+  // Product image state
+  const [productImageUploading, setProductImageUploading] = useState(false);
+  const [productImageDeleting, setProductImageDeleting] = useState(false);
+  const [productDragOver, setProductDragOver] = useState(false);
+  const productFileInputRef = useRef(null);
+
+  const handleProductUpload = useCallback(async (file) => {
+    if (!file) return;
+    setProductImageUploading(true);
+    try {
+      await api.uploadProductImage(id, file);
+      await loadProject();
+      toast.success('Product image uploaded');
+    } catch (err) {
+      toast.error(err.message || 'Failed to upload product image');
+    } finally {
+      setProductImageUploading(false);
+    }
+  }, [id]);
+
+  const handleProductDelete = useCallback(async () => {
+    setProductImageDeleting(true);
+    try {
+      await api.deleteProductImage(id);
+      await loadProject();
+      toast.success('Product image removed');
+    } catch (err) {
+      toast.error(err.message || 'Failed to remove product image');
+    } finally {
+      setProductImageDeleting(false);
+    }
+  }, [id]);
+
+  const handleProductDrop = useCallback((e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setProductDragOver(false);
+    const file = e.dataTransfer?.files?.[0];
+    if (file && file.type.startsWith('image/')) handleProductUpload(file);
+  }, [handleProductUpload]);
 
   useEffect(() => {
     loadProject();
@@ -274,6 +315,80 @@ export default function ProjectDetail() {
                     className="input-apple resize-none"
                   />
                 </div>
+
+                {/* Product Image — edit mode */}
+                <div>
+                  <label className="block text-[13px] font-medium text-gray-600 mb-1.5">
+                    Product Image
+                    <InfoTooltip text="Stored at the project level — automatically used in every ad so Gemini renders your real product. You can still override per-ad in Ad Studio." position="right" />
+                  </label>
+
+                  {project.productImageUrl ? (
+                    <div className="flex items-center gap-4 p-3 bg-gray-50/50 border border-gray-200/60 rounded-xl">
+                      <img
+                        src={project.productImageUrl}
+                        alt="Product"
+                        className="w-16 h-16 object-cover rounded-lg border border-gray-200/60"
+                      />
+                      <div className="flex-1 min-w-0">
+                        <p className="text-[12px] font-medium text-gray-700">Current product image</p>
+                        <p className="text-[10px] text-gray-400">Used in all ads unless overridden</p>
+                      </div>
+                      <div className="flex gap-2">
+                        <button
+                          type="button"
+                          onClick={() => productFileInputRef.current?.click()}
+                          disabled={productImageUploading}
+                          className="text-[11px] text-blue-500 hover:text-blue-600 transition-colors"
+                        >
+                          {productImageUploading ? 'Uploading...' : 'Replace'}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleProductDelete}
+                          disabled={productImageDeleting || productImageUploading}
+                          className="text-[11px] text-red-400 hover:text-red-500 transition-colors"
+                        >
+                          {productImageDeleting ? 'Removing...' : 'Remove'}
+                        </button>
+                      </div>
+                    </div>
+                  ) : (
+                    <div
+                      onClick={() => !productImageUploading && productFileInputRef.current?.click()}
+                      onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setProductDragOver(true); }}
+                      onDragEnter={(e) => { e.preventDefault(); e.stopPropagation(); setProductDragOver(true); }}
+                      onDragLeave={(e) => { e.preventDefault(); e.stopPropagation(); setProductDragOver(false); }}
+                      onDrop={handleProductDrop}
+                      className={`border-2 border-dashed rounded-xl p-4 text-center cursor-pointer transition-all ${
+                        productDragOver ? 'border-blue-400 bg-blue-50/30' :
+                        'border-gray-200/80 hover:border-blue-300 hover:bg-gray-50/30'
+                      }`}
+                    >
+                      <svg className="w-6 h-6 mx-auto mb-1.5 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909M3.75 21h16.5a2.25 2.25 0 002.25-2.25V6.75a2.25 2.25 0 00-2.25-2.25H3.75a2.25 2.25 0 00-2.25 2.25v12a2.25 2.25 0 002.25 2.25z" />
+                      </svg>
+                      {productImageUploading ? (
+                        <p className="text-[11px] font-medium text-blue-500">Uploading...</p>
+                      ) : (
+                        <>
+                          <p className={`text-[11px] font-medium ${productDragOver ? 'text-blue-600' : 'text-gray-500'}`}>
+                            {productDragOver ? 'Drop product image here' : 'Drop a product photo, or click to browse'}
+                          </p>
+                          <p className="text-[10px] text-gray-400 mt-0.5">Used in every ad — ensures Gemini renders your real product</p>
+                        </>
+                      )}
+                    </div>
+                  )}
+                  <input
+                    ref={productFileInputRef}
+                    type="file"
+                    accept=".jpg,.jpeg,.png,.webp,.gif"
+                    onChange={e => { if (e.target.files?.[0]) { handleProductUpload(e.target.files[0]); e.target.value = ''; } }}
+                    className="hidden"
+                  />
+                </div>
+
                 <div>
                   <label className="block text-[13px] font-medium text-gray-600 mb-1.5">Sales Page Content</label>
                   <textarea
@@ -327,6 +442,27 @@ export default function ProjectDetail() {
                   <p className="text-[12px] text-gray-400 mb-0.5">Product Description</p>
                   <p className="text-[14px] text-gray-900 whitespace-pre-wrap">{project.product_description || '—'}</p>
                 </div>
+
+                {/* Product Image — view mode */}
+                <div>
+                  <p className="text-[12px] text-gray-400 mb-1">Product Image</p>
+                  {project.productImageUrl ? (
+                    <div className="flex items-center gap-3">
+                      <img
+                        src={project.productImageUrl}
+                        alt="Product"
+                        className="w-20 h-20 object-cover rounded-xl border border-gray-200/60 shadow-sm"
+                      />
+                      <div>
+                        <p className="text-[12px] text-gray-600">Used in all generated ads</p>
+                        <p className="text-[10px] text-gray-400">Override per-ad in Ad Studio</p>
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="text-[13px] text-gray-400 italic">No product image set — click Edit to upload</p>
+                  )}
+                </div>
+
                 {project.sales_page_content && (
                   <div>
                     <p className="text-[12px] text-gray-400 mb-0.5">Sales Page Content</p>
