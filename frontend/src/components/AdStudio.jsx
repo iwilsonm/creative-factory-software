@@ -78,6 +78,7 @@ export default function AdStudio({ projectId, project }) {
   const [editInstruction, setEditInstruction] = useState('');
   const [isApplyingEdit, setIsApplyingEdit] = useState(false);
   const [originalPromptRef, setOriginalPromptRef] = useState(''); // stores original prompt before edits
+  const [promptUpdated, setPromptUpdated] = useState(false); // true after Step 1 (Update Prompt) completes
   const [editPanelFlash, setEditPanelFlash] = useState(false);
   const editPanelRef = useRef(null);
   const editTextareaRef = useRef(null);
@@ -613,6 +614,7 @@ export default function AdStudio({ projectId, project }) {
       setCustomPrompt(result.revised_prompt);
       setEditInstruction('');
       setEditMode('direct'); // Switch to direct view so user can see the modified prompt
+      setPromptUpdated(true);
       toast.success('Prompt updated — review it below, then hit Generate Image.');
     } catch (err) {
       toast.error(err.message || 'Failed to apply edit.');
@@ -1101,7 +1103,7 @@ export default function AdStudio({ projectId, project }) {
                 Edit Image
               </label>
               <button
-                onClick={() => { setCustomPrompt(''); setParentAdId(null); setEditInstruction(''); setOriginalPromptRef(''); setEditMode('describe'); setEditReferenceFile(null); if (editReferencePreview) URL.revokeObjectURL(editReferencePreview); setEditReferencePreview(null); }}
+                onClick={() => { setCustomPrompt(''); setParentAdId(null); setEditInstruction(''); setOriginalPromptRef(''); setEditMode('describe'); setPromptUpdated(false); setEditReferenceFile(null); if (editReferencePreview) URL.revokeObjectURL(editReferencePreview); setEditReferencePreview(null); }}
                 className="text-[12px] text-red-500 hover:text-red-600 transition-colors"
               >
                 Exit editing
@@ -1273,9 +1275,9 @@ export default function AdStudio({ projectId, project }) {
           </div>
         )}
 
-        {/* Step 2 hint — shown when editing an existing ad's prompt */}
-        {isCustomPromptMode && (
-          <div className="flex items-center gap-2 mb-2">
+        {/* Step 2 hint — shown after user has updated the prompt via Step 1 */}
+        {isCustomPromptMode && promptUpdated && (
+          <div className="flex items-center gap-2 mb-2 fade-in">
             <span className="text-[10px] font-semibold text-green-600 bg-green-100/60 px-1.5 py-0.5 rounded">Step 2</span>
             <p className="text-[11px] text-gray-500">
               Review the prompt above, then generate your new image.
