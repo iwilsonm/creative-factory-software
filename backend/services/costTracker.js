@@ -142,9 +142,19 @@ export async function syncOpenAICosts() {
   }
 }
 
+// Known-good fallback rates (Gemini 3 Pro Image Preview, Feb 2026).
+// These are used when the auto-scraper can't reliably parse Google's pricing page,
+// and as sanity bounds to reject obviously wrong scraped values.
+const KNOWN_RATES = { rate_1k: 0.134, rate_2k: 0.134, rate_4k: 0.24 };
+// Rates should be between $0.001 and $2.00 per image. Anything outside this
+// range is almost certainly a parsing error.
+const RATE_MIN = 0.001;
+const RATE_MAX = 2.0;
+
 /**
  * Refresh Gemini pricing rates by fetching Google's pricing page.
- * Falls back gracefully if parsing fails.
+ * Falls back gracefully if parsing fails. Includes sanity checks to
+ * prevent absurd rates (like $18/image) from being saved.
  *
  * @returns {{ refreshed: boolean, rates?: object, reason?: string }}
  */
@@ -166,18 +176,39 @@ export async function refreshGeminiRates() {
 
     const html = await response.text();
 
-    // Parse the pricing page for Imagen / image generation rates
-    // Look for dollar amounts near "image" and resolution keywords
+    // Parse the pricing page for image generation rates
     const rates = parseGeminiImageRates(html);
 
     if (rates) {
-      if (rates.rate_1k) await setSetting('gemini_rate_1k', String(rates.rate_1k));
-      if (rates.rate_2k) await setSetting('gemini_rate_2k', String(rates.rate_2k));
-      if (rates.rate_4k) await setSetting('gemini_rate_4k', String(rates.rate_4k));
-      await setSetting('gemini_rates_updated_at', new Date().toISOString());
+      // Sanity check: reject rates that are obviously wrong
+      const allValid = [rates.rate_1k, rates.rate_2k, rates.rate_4k].every(
+        r => r >= RATE_MIN && r <= RATE_MAX
+      );
 
-      console.log(`[CostTracker] Gemini rates updated: 1K=$${rates.rate_1k}, 2K=$${rates.rate_2k}, 4K=$${rates.rate_4k}`);
-      return { refreshed: true, rates };
+      if (!allValid) {
+        console.warn(`[CostTracker] Parsed rates failed sanity check (1K=$${rates.rate_1k}, 2K=$${rates.rate_2k}, 4K=$${rates.rate_4k}). Using known-good defaults.`);
+        // Fall through to use known defaults below
+      } else {
+        if (rates.rate_1k) await setSetting('gemini_rate_1k', String(rates.rate_1k));
+        if (rates.rate_2k) await setSetting('gemini_rate_2k', String(rates.rate_2k));
+        if (rates.rate_4k) await setSetting('gemini_rate_4k', String(rates.rate_4k));
+        await setSetting('gemini_rates_updated_at', new Date().toISOString());
+
+        console.log(`[CostTracker] Gemini rates updated: 1K=$${rates.rate_1k}, 2K=$${rates.rate_2k}, 4K=$${rates.rate_4k}`);
+        return { refreshed: true, rates };
+      }
+    }
+
+    // Parsing failed or sanity check failed — ensure known-good defaults are set
+    // Check if current rates are sane; if not, reset them
+    const current2k = parseFloat((await getSetting('gemini_rate_2k')) || '0');
+    if (current2k < RATE_MIN || current2k > RATE_MAX) {
+      console.warn(`[CostTracker] Current 2K rate ($${current2k}) is out of bounds. Resetting to known defaults.`);
+      await setSetting('gemini_rate_1k', String(KNOWN_RATES.rate_1k));
+      await setSetting('gemini_rate_2k', String(KNOWN_RATES.rate_2k));
+      await setSetting('gemini_rate_4k', String(KNOWN_RATES.rate_4k));
+      await setSetting('gemini_rates_updated_at', new Date().toISOString());
+      return { refreshed: true, rates: KNOWN_RATES, source: 'defaults' };
     }
 
     return { refreshed: false, reason: 'Could not parse pricing data from the page. Existing rates preserved.' };
@@ -190,34 +221,49 @@ export async function refreshGeminiRates() {
 
 /**
  * Parse Gemini image generation rates from Google's pricing page HTML.
- * This is inherently fragile — the page structure changes.
- * Returns null if parsing fails.
+ * Looks specifically for Gemini 3 Pro Image pricing. Returns null if
+ * parsing fails — the caller handles fallback to known-good defaults.
  */
 function parseGeminiImageRates(html) {
   try {
-    // Look for pricing patterns near "image" and resolution indicators
-    // Common pattern: "$X.XX per image" or token-based pricing
-    // Try multiple parsing strategies
+    // Strategy: Look for "Gemini 3 Pro Image" or similar section, then find
+    // nearby dollar amounts that look like per-image rates (typically $0.01–$1.00)
+    // Match dollar amounts that have a decimal and are less than $10
+    const sectionPatterns = [
+      /[Gg]emini.{0,5}3.{0,5}[Pp]ro.{0,10}[Ii]mage/,
+      /[Ii]magen.{0,5}[34]/,
+      /[Ii]mage.{0,10}[Gg]eneration/
+    ];
 
-    // Strategy 1: Look for table rows with resolution and dollar amounts
-    const pricePattern = /\$(\d+\.?\d*)/g;
-    const prices = [];
-    let match;
-    while ((match = pricePattern.exec(html)) !== null) {
-      prices.push(parseFloat(match[1]));
+    for (const sectionPattern of sectionPatterns) {
+      const sectionMatch = html.match(sectionPattern);
+      if (!sectionMatch) continue;
+
+      // Extract a chunk of HTML after the section header (pricing is usually nearby)
+      const startIdx = sectionMatch.index;
+      const chunk = html.slice(startIdx, startIdx + 3000);
+
+      // Find all dollar amounts in this chunk
+      const priceMatches = [...chunk.matchAll(/\$(\d+\.\d{2,6})/g)];
+      const prices = priceMatches
+        .map(m => parseFloat(m[1]))
+        .filter(p => p >= RATE_MIN && p <= RATE_MAX);
+
+      // We need at least 2 distinct prices (standard vs batch, or resolution tiers)
+      if (prices.length >= 2) {
+        // Deduplicate and sort
+        const unique = [...new Set(prices)].sort((a, b) => a - b);
+        if (unique.length >= 2) {
+          // Typical pattern: lower price = 1K/2K, higher price = 4K
+          return {
+            rate_1k: unique[0],
+            rate_2k: unique[0], // 1K and 2K are same price for Gemini 3 Pro
+            rate_4k: unique[unique.length - 1]
+          };
+        }
+      }
     }
 
-    // Strategy 2: Look for specific Imagen or image generation sections
-    const imagenSection = html.match(/[Ii]magen[^]*?(\$[\d.]+)[^]*?(\$[\d.]+)[^]*?(\$[\d.]+)/);
-    if (imagenSection) {
-      return {
-        rate_1k: parseFloat(imagenSection[1].replace('$', '')),
-        rate_2k: parseFloat(imagenSection[2].replace('$', '')),
-        rate_4k: parseFloat(imagenSection[3].replace('$', ''))
-      };
-    }
-
-    // If we can't parse reliably, return null to preserve existing rates
     return null;
 
   } catch {
