@@ -106,6 +106,80 @@ export const getDailyHistory = query({
   },
 });
 
+/**
+ * One-time migration: recalculate cost_usd for all Gemini records that used
+ * incorrect rates (e.g. $18/image instead of $0.134). For each Gemini record,
+ * recalculates cost based on image_count and the correct rate for its resolution.
+ */
+export const recalcGeminiCosts = mutation({
+  args: {
+    rate1k: v.number(),
+    rate2k: v.number(),
+    rate4k: v.number(),
+    batchDiscount: v.number(), // e.g. 0.5
+    dryRun: v.optional(v.boolean()),
+  },
+  handler: async (ctx, args) => {
+    const allCosts = await ctx.db.query("api_costs").collect();
+    const geminiCosts = allCosts.filter((c) => c.service === "gemini");
+
+    let updated = 0;
+    let skipped = 0;
+    const changes: Array<{
+      id: string;
+      date: string;
+      op: string;
+      oldCost: number;
+      newCost: number;
+      oldRate: number;
+      newRate: number;
+      images: number;
+    }> = [];
+
+    for (const c of geminiCosts) {
+      const images = c.image_count || 1;
+      const resolution = (c.resolution || "2K").toUpperCase();
+      const isBatch = c.operation === "image_generation_batch";
+
+      // Determine correct base rate
+      let baseRate = args.rate2k; // default
+      if (resolution === "1K") baseRate = args.rate1k;
+      else if (resolution === "4K") baseRate = args.rate4k;
+
+      const correctRate = isBatch ? baseRate * args.batchDiscount : baseRate;
+      const correctCost =
+        Math.round(images * correctRate * 1000000) / 1000000;
+
+      // Only update if cost differs meaningfully
+      if (Math.abs(c.cost_usd - correctCost) < 0.000001) {
+        skipped++;
+        continue;
+      }
+
+      changes.push({
+        id: c.externalId,
+        date: c.period_date,
+        op: c.operation || "unknown",
+        oldCost: c.cost_usd,
+        newCost: correctCost,
+        oldRate: c.rate_used || 0,
+        newRate: correctRate,
+        images,
+      });
+
+      if (!args.dryRun) {
+        await ctx.db.patch(c._id, {
+          cost_usd: correctCost,
+          rate_used: correctRate,
+        });
+      }
+      updated++;
+    }
+
+    return { updated, skipped, total: geminiCosts.length, changes };
+  },
+});
+
 export const deleteBySourceAndDate = mutation({
   args: { source: v.string(), startDate: v.string() },
   handler: async (ctx, args) => {
