@@ -79,6 +79,7 @@ export default function AdStudio({ projectId, project }) {
   const [isApplyingEdit, setIsApplyingEdit] = useState(false);
   const [originalPromptRef, setOriginalPromptRef] = useState(''); // stores original prompt before edits
   const [promptUpdated, setPromptUpdated] = useState(false); // true after Step 1 (Update Prompt) completes
+  const [editingAdImage, setEditingAdImage] = useState(null); // image URL of the ad being edited
   const [editPanelFlash, setEditPanelFlash] = useState(false);
   const editPanelRef = useRef(null);
   const editTextareaRef = useRef(null);
@@ -569,6 +570,7 @@ export default function AdStudio({ projectId, project }) {
     setCustomPrompt(ad.image_prompt);
     setOriginalPromptRef(ad.image_prompt);
     setParentAdId(ad.id);
+    setEditingAdImage(ad.imageUrl || ad.thumbnailUrl || null);
     setAspectRatio(ad.aspect_ratio || '1:1');
     if (ad.angle) setAngle(ad.angle);
     if (ad.headline) setHeadline(ad.headline);
@@ -1103,14 +1105,21 @@ export default function AdStudio({ projectId, project }) {
                 Edit Image
               </label>
               <button
-                onClick={() => { setCustomPrompt(''); setParentAdId(null); setEditInstruction(''); setOriginalPromptRef(''); setEditMode('describe'); setPromptUpdated(false); setEditReferenceFile(null); if (editReferencePreview) URL.revokeObjectURL(editReferencePreview); setEditReferencePreview(null); }}
+                onClick={() => { setCustomPrompt(''); setParentAdId(null); setEditingAdImage(null); setEditInstruction(''); setOriginalPromptRef(''); setEditMode('describe'); setPromptUpdated(false); setEditReferenceFile(null); if (editReferencePreview) URL.revokeObjectURL(editReferencePreview); setEditReferencePreview(null); }}
                 className="text-[12px] text-red-500 hover:text-red-600 transition-colors"
               >
                 Exit editing
               </button>
             </div>
-            {parentAdId && (
-              <p className="text-[11px] text-gray-400 mb-3">Based on ad {parentAdId.slice(0, 8)}...</p>
+            {/* Preview of the ad being edited */}
+            {editingAdImage && (
+              <div className="flex justify-center mb-3">
+                <img
+                  src={editingAdImage}
+                  alt="Ad being edited"
+                  className="max-h-48 rounded-lg border border-blue-200/60 shadow-sm object-contain"
+                />
+              </div>
             )}
 
             {/* Mode tabs */}
