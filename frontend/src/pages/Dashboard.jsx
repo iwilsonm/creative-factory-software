@@ -11,7 +11,10 @@ function TodoWidget() {
   const [loading, setLoading] = useState(true);
   const [newText, setNewText] = useState('');
   const [saving, setSaving] = useState(false);
+  const [editingId, setEditingId] = useState(null);
+  const [editText, setEditText] = useState('');
   const inputRef = useRef(null);
+  const editInputRef = useRef(null);
 
   useEffect(() => {
     api.getTodos()
@@ -42,6 +45,30 @@ function TodoWidget() {
 
   const remove = (id) => {
     persist(todos.filter(t => t.id !== id));
+  };
+
+  const startEdit = (todo) => {
+    setEditingId(todo.id);
+    setEditText(todo.text);
+    setTimeout(() => editInputRef.current?.focus(), 0);
+  };
+
+  const saveEdit = () => {
+    const trimmed = editText.trim();
+    if (!trimmed || !editingId) { cancelEdit(); return; }
+    persist(todos.map(t => t.id === editingId ? { ...t, text: trimmed } : t));
+    setEditingId(null);
+    setEditText('');
+  };
+
+  const cancelEdit = () => {
+    setEditingId(null);
+    setEditText('');
+  };
+
+  const handleEditKeyDown = (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); saveEdit(); }
+    if (e.key === 'Escape') { cancelEdit(); }
   };
 
   const pending = todos.filter(t => !t.done);
@@ -102,13 +129,40 @@ function TodoWidget() {
                 onClick={() => toggle(t.id)}
                 className="w-[18px] h-[18px] rounded-md border-2 border-gray-300 flex-shrink-0 hover:border-indigo-400 transition-colors"
               />
-              <span className="text-[13px] text-gray-700 flex-1">{t.text}</span>
-              <button
-                onClick={() => remove(t.id)}
-                className="text-gray-300 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all text-[11px] px-1"
-              >
-                ✕
-              </button>
+              {editingId === t.id ? (
+                <input
+                  ref={editInputRef}
+                  value={editText}
+                  onChange={e => setEditText(e.target.value)}
+                  onKeyDown={handleEditKeyDown}
+                  onBlur={saveEdit}
+                  className="text-[13px] text-gray-700 flex-1 bg-white border border-indigo-300 rounded-md px-1.5 py-0.5 outline-none ring-2 ring-indigo-100"
+                />
+              ) : (
+                <span
+                  className="text-[13px] text-gray-700 flex-1 cursor-text rounded px-0.5"
+                  onDoubleClick={() => startEdit(t)}
+                >
+                  {t.text}
+                </span>
+              )}
+              {editingId !== t.id && (
+                <>
+                  <button
+                    onClick={() => startEdit(t)}
+                    className="text-gray-300 hover:text-indigo-400 opacity-0 group-hover:opacity-100 transition-all text-[11px] px-1"
+                    title="Edit"
+                  >
+                    ✎
+                  </button>
+                  <button
+                    onClick={() => remove(t.id)}
+                    className="text-gray-300 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all text-[11px] px-1"
+                  >
+                    ✕
+                  </button>
+                </>
+              )}
             </li>
           ))}
         </ul>
@@ -131,13 +185,40 @@ function TodoWidget() {
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
                   </svg>
                 </button>
-                <span className="text-[13px] text-gray-400 line-through flex-1">{t.text}</span>
-                <button
-                  onClick={() => remove(t.id)}
-                  className="text-gray-300 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all text-[11px] px-1"
-                >
-                  ✕
-                </button>
+                {editingId === t.id ? (
+                  <input
+                    ref={editInputRef}
+                    value={editText}
+                    onChange={e => setEditText(e.target.value)}
+                    onKeyDown={handleEditKeyDown}
+                    onBlur={saveEdit}
+                    className="text-[13px] text-gray-500 flex-1 bg-white border border-indigo-300 rounded-md px-1.5 py-0.5 outline-none ring-2 ring-indigo-100"
+                  />
+                ) : (
+                  <span
+                    className="text-[13px] text-gray-400 line-through flex-1 cursor-text rounded px-0.5"
+                    onDoubleClick={() => startEdit(t)}
+                  >
+                    {t.text}
+                  </span>
+                )}
+                {editingId !== t.id && (
+                  <>
+                    <button
+                      onClick={() => startEdit(t)}
+                      className="text-gray-300 hover:text-indigo-400 opacity-0 group-hover:opacity-100 transition-all text-[11px] px-1"
+                      title="Edit"
+                    >
+                      ✎
+                    </button>
+                    <button
+                      onClick={() => remove(t.id)}
+                      className="text-gray-300 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all text-[11px] px-1"
+                    >
+                      ✕
+                    </button>
+                  </>
+                )}
               </li>
             ))}
           </ul>
