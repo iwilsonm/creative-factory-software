@@ -51,17 +51,24 @@ export const getAggregates = query({
     }
 
     let total = 0;
+    let imageCount = 0;
+    let batchImageCount = 0;
     const byService: Record<string, number> = {};
-    const byOperation: Record<string, number> = {};
+    const byOperation: Record<string, { cost: number; imageCount: number }> = {};
 
     for (const c of costs) {
       total += c.cost_usd;
       byService[c.service] = (byService[c.service] || 0) + c.cost_usd;
       const op = c.operation || "unknown";
-      byOperation[op] = (byOperation[op] || 0) + c.cost_usd;
+      if (!byOperation[op]) byOperation[op] = { cost: 0, imageCount: 0 };
+      byOperation[op].cost += c.cost_usd;
+      const imgs = c.image_count || 0;
+      byOperation[op].imageCount += imgs;
+      if (op === "image_generation") imageCount += imgs;
+      if (op === "image_generation_batch") batchImageCount += imgs;
     }
 
-    return { total, byService, byOperation };
+    return { total, byService, byOperation, imageCount, batchImageCount };
   },
 });
 

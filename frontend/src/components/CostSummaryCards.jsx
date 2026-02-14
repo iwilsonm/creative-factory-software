@@ -4,6 +4,15 @@ const PERIODS = [
   { key: 'month', label: 'Spent This Month' }
 ];
 
+const OPERATION_META = {
+  image_generation: { label: 'Images (manual)', color: 'bg-emerald-400', icon: '🖼' },
+  image_generation_batch: { label: 'Images (batch)', color: 'bg-purple-400', icon: '📦' },
+  ad_creative_director: { label: 'Creative direction', color: 'bg-blue-400', icon: '✍️' },
+  foundational_docs: { label: 'Docs & research', color: 'bg-amber-400', icon: '📄' },
+  other: { label: 'Other', color: 'bg-gray-300', icon: '' },
+  unknown: { label: 'Other', color: 'bg-gray-300', icon: '' },
+};
+
 function formatCost(value) {
   if (value === 0 || value === undefined || value === null) return '$0.00';
   if (value < 0.01) return `$${value.toFixed(4)}`;
@@ -40,18 +49,42 @@ export default function CostSummaryCards({ costs, loading }) {
         const openaiPct = total > 0 ? (openai / total) * 100 : 0;
         const geminiPct = total > 0 ? (gemini / total) * 100 : 0;
 
+        // Image counts
+        const manualImages = data.imageCount || 0;
+        const batchImages = data.batchImageCount || 0;
+        const totalImages = manualImages + batchImages;
+
+        // Operation breakdown — sorted by cost descending
+        const ops = data.byOperation || {};
+        const opEntries = Object.entries(ops)
+          .map(([key, val]) => {
+            // Handle both old format (number) and new format ({ cost, imageCount })
+            const cost = typeof val === 'number' ? val : (val?.cost || 0);
+            const imgCount = typeof val === 'number' ? 0 : (val?.imageCount || 0);
+            return { key, cost, imageCount: imgCount };
+          })
+          .filter(e => e.cost > 0)
+          .sort((a, b) => b.cost - a.cost);
+
         return (
           <div key={period.key} className="card p-4">
             <p className="text-[11px] font-medium text-gray-400 uppercase tracking-wider mb-1">
               {period.label}
             </p>
-            <p className="text-xl font-semibold text-gray-900 tracking-tight mb-2">
-              {formatCost(total)}
-            </p>
+            <div className="flex items-baseline gap-3 mb-2">
+              <p className="text-xl font-semibold text-gray-900 tracking-tight">
+                {formatCost(total)}
+              </p>
+              {totalImages > 0 && (
+                <span className="text-[11px] text-gray-400 font-medium">
+                  {totalImages} image{totalImages !== 1 ? 's' : ''}
+                </span>
+              )}
+            </div>
 
             {total > 0 && (
               <>
-                {/* Breakdown bar */}
+                {/* Service breakdown bar */}
                 <div className="w-full h-1.5 rounded-full bg-gray-100 overflow-hidden mb-2">
                   {openai > 0 && (
                     <div
@@ -71,8 +104,8 @@ export default function CostSummaryCards({ costs, loading }) {
                   )}
                 </div>
 
-                {/* Legend */}
-                <div className="flex items-center gap-3 text-[10px] text-gray-400">
+                {/* Service legend */}
+                <div className="flex items-center gap-3 text-[10px] text-gray-400 mb-3">
                   {openai > 0 && (
                     <span className="flex items-center gap-1">
                       <span className="w-2 h-2 rounded-full bg-blue-400" />
@@ -86,6 +119,31 @@ export default function CostSummaryCards({ costs, loading }) {
                     </span>
                   )}
                 </div>
+
+                {/* Operation breakdown */}
+                {opEntries.length > 0 && (
+                  <div className="border-t border-gray-100 pt-2 space-y-1.5">
+                    {opEntries.map(op => {
+                      const meta = OPERATION_META[op.key] || OPERATION_META.other;
+                      return (
+                        <div key={op.key} className="flex items-center justify-between text-[11px]">
+                          <div className="flex items-center gap-1.5 text-gray-500">
+                            <span className={`w-1.5 h-1.5 rounded-full ${meta.color}`} />
+                            <span>{meta.label}</span>
+                            {op.imageCount > 0 && (
+                              <span className="text-gray-300">
+                                ({op.imageCount} img{op.imageCount !== 1 ? 's' : ''})
+                              </span>
+                            )}
+                          </div>
+                          <span className="text-gray-500 font-medium tabular-nums">
+                            {formatCost(op.cost)}
+                          </span>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </>
             )}
 
