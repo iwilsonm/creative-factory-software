@@ -85,6 +85,7 @@ export default function AdStudio({ projectId, project }) {
   // Reference image for edit (attached alongside describe-edit instruction)
   const [editReferenceFile, setEditReferenceFile] = useState(null);
   const [editReferencePreview, setEditReferencePreview] = useState(null);
+  const [editRefDragOver, setEditRefDragOver] = useState(false);
   const editReferenceInputRef = useRef(null);
 
   // Template source
@@ -1179,15 +1180,32 @@ export default function AdStudio({ projectId, project }) {
                     </button>
                   </div>
                 ) : (
-                  <button
+                  <div
                     onClick={() => editReferenceInputRef.current?.click()}
-                    className="flex items-center gap-1.5 mb-2 text-[11px] text-blue-500 hover:text-blue-600 transition-colors"
+                    onDragOver={e => { e.preventDefault(); e.stopPropagation(); setEditRefDragOver(true); }}
+                    onDragEnter={e => { e.preventDefault(); e.stopPropagation(); setEditRefDragOver(true); }}
+                    onDragLeave={e => { e.preventDefault(); e.stopPropagation(); setEditRefDragOver(false); }}
+                    onDrop={e => {
+                      e.preventDefault(); e.stopPropagation(); setEditRefDragOver(false);
+                      const file = e.dataTransfer.files?.[0];
+                      if (file && file.type.startsWith('image/')) {
+                        setEditReferenceFile(file);
+                        setEditReferencePreview(URL.createObjectURL(file));
+                      }
+                    }}
+                    className={`flex items-center justify-center gap-1.5 mb-2 px-3 py-2.5 rounded-lg border-2 border-dashed cursor-pointer transition-all ${
+                      editRefDragOver
+                        ? 'border-blue-400 bg-blue-50/80 text-blue-600'
+                        : 'border-gray-200 hover:border-blue-300 hover:bg-blue-50/30 text-blue-500 hover:text-blue-600'
+                    }`}
                   >
-                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <svg className="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909M3.75 21h16.5a2.25 2.25 0 002.25-2.25V6.75a2.25 2.25 0 00-2.25-2.25H3.75a2.25 2.25 0 00-2.25 2.25v12a2.25 2.25 0 002.25 2.25z" />
                     </svg>
-                    Attach reference image
-                  </button>
+                    <span className="text-[11px]">
+                      {editRefDragOver ? 'Drop image here' : 'Attach reference image or drag & drop'}
+                    </span>
+                  </div>
                 )}
                 <input
                   ref={editReferenceInputRef}
