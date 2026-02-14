@@ -225,10 +225,14 @@ export const api = {
     streamSSEWithBody(`/projects/${projectId}/generate-ad`, options, onEvent),
   regenerateImage: (projectId, options, onEvent) =>
     streamSSEWithBody(`/projects/${projectId}/regenerate-image`, options, onEvent),
-  editPrompt: (projectId, originalPrompt, editInstruction) =>
+  editPrompt: (projectId, originalPrompt, editInstruction, referenceImage, referenceImageMime) =>
     request(`/projects/${projectId}/edit-prompt`, {
       method: 'POST',
-      body: JSON.stringify({ original_prompt: originalPrompt, edit_instruction: editInstruction })
+      body: JSON.stringify({
+        original_prompt: originalPrompt,
+        edit_instruction: editInstruction,
+        ...(referenceImage ? { reference_image: referenceImage, reference_image_mime: referenceImageMime } : {})
+      })
     }),
   getAds: (projectId) => request(`/projects/${projectId}/ads`),
   getAd: (projectId, adId) => request(`/projects/${projectId}/ads/${adId}`),

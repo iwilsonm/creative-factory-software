@@ -59,14 +59,11 @@ Rules:
  * Uses GPT to interpret the user's edit description and modify the prompt accordingly.
  * Returns the modified prompt text.
  */
-export async function applyPromptEdit(originalPrompt, editInstruction) {
+export async function applyPromptEdit(originalPrompt, editInstruction, referenceImage = null) {
   if (!editInstruction || !editInstruction.trim()) return originalPrompt;
   if (!originalPrompt || !originalPrompt.trim()) throw new Error('Original prompt is required.');
 
-  const messages = [
-    {
-      role: 'system',
-      content: `You are an expert image prompt editor. You will receive an existing image generation prompt and a user's edit instruction describing what they want to change.
+  const systemContent = `You are an expert image prompt editor. You will receive an existing image generation prompt and a user's edit instruction describing what they want to change.${referenceImage ? ' The user may also attach a reference image — use it to understand what they are describing (e.g., the correct product, a color reference, a style example). Describe what you see in the image and incorporate that into the revised prompt accurately.' : ''}
 
 Your job:
 - Interpret the user's edit instruction and apply it to the existing prompt.
@@ -76,12 +73,22 @@ Your job:
 - If the edit is about removing something, remove it cleanly.
 - If the edit is about changing something, swap it out while keeping the surrounding context intact.
 - Return ONLY the revised prompt text. No explanations, no commentary, no markdown formatting.
-- Keep the same level of detail and length as the original prompt.`
-    },
-    {
-      role: 'user',
-      content: `CURRENT PROMPT:\n${originalPrompt.trim()}\n\n---\n\nEDIT INSTRUCTION:\n${editInstruction.trim()}`
-    }
+- Keep the same level of detail and length as the original prompt.`;
+
+  // Build user message — if a reference image is attached, use multipart content format for vision
+  let userContent;
+  if (referenceImage) {
+    userContent = [
+      { type: 'text', text: `CURRENT PROMPT:\n${originalPrompt.trim()}\n\n---\n\nEDIT INSTRUCTION:\n${editInstruction.trim()}\n\n---\n\nI have attached a reference image below. Use it to understand what I'm describing in my edit instruction.` },
+      { type: 'image_url', image_url: { url: `data:${referenceImage.mimeType};base64,${referenceImage.base64}` } }
+    ];
+  } else {
+    userContent = `CURRENT PROMPT:\n${originalPrompt.trim()}\n\n---\n\nEDIT INSTRUCTION:\n${editInstruction.trim()}`;
+  }
+
+  const messages = [
+    { role: 'system', content: systemContent },
+    { role: 'user', content: userContent }
   ];
 
   try {

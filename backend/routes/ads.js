@@ -130,7 +130,7 @@ router.post('/:projectId/regenerate-image', async (req, res) => {
 
 // Apply a natural-language edit to an existing image prompt (returns modified prompt, no image generation)
 router.post('/:projectId/edit-prompt', async (req, res) => {
-  const { original_prompt, edit_instruction } = req.body;
+  const { original_prompt, edit_instruction, reference_image, reference_image_mime } = req.body;
 
   if (!original_prompt || !original_prompt.trim()) {
     return res.status(400).json({ error: 'original_prompt is required.' });
@@ -140,7 +140,8 @@ router.post('/:projectId/edit-prompt', async (req, res) => {
   }
 
   try {
-    const revisedPrompt = await applyPromptEdit(original_prompt.trim(), edit_instruction.trim());
+    const referenceImage = reference_image ? { base64: reference_image, mimeType: reference_image_mime || 'image/jpeg' } : null;
+    const revisedPrompt = await applyPromptEdit(original_prompt.trim(), edit_instruction.trim(), referenceImage);
     res.json({ revised_prompt: revisedPrompt });
   } catch (err) {
     res.status(500).json({ error: err.message });

@@ -82,6 +82,11 @@ export default function AdStudio({ projectId, project }) {
   const editPanelRef = useRef(null);
   const editTextareaRef = useRef(null);
 
+  // Reference image for edit (attached alongside describe-edit instruction)
+  const [editReferenceFile, setEditReferenceFile] = useState(null);
+  const [editReferencePreview, setEditReferencePreview] = useState(null);
+  const editReferenceInputRef = useRef(null);
+
   // Template source
   const [templateSource, setTemplateSource] = useState(TEMPLATE_RANDOM);
 
@@ -349,6 +354,15 @@ export default function AdStudio({ projectId, project }) {
 
       if (!(await attachProductImage(options))) return;
 
+      // If no product image attached but there's an edit reference image, use it as the product image for Gemini
+      if (!options.product_image && editReferenceFile) {
+        try {
+          const refBase64 = await fileToBase64(editReferenceFile);
+          options.product_image = refBase64;
+          options.product_image_mime = editReferenceFile.type || 'image/jpeg';
+        } catch { /* non-fatal */ }
+      }
+
       stream = api.regenerateImage(projectId, options, handleEvent);
     } else if (templateSource === TEMPLATE_SELECT && selectedTemplate) {
       updateGen(genId, { status: 'generating_copy', message: 'Starting template-based generation...' });
@@ -581,7 +595,19 @@ export default function AdStudio({ projectId, project }) {
     }
     setIsApplyingEdit(true);
     try {
-      const result = await api.editPrompt(projectId, customPrompt, editInstruction.trim());
+      // If a reference image is attached, convert to base64 and send along
+      let referenceImage = null;
+      let referenceImageMime = null;
+      if (editReferenceFile) {
+        try {
+          referenceImage = await fileToBase64(editReferenceFile);
+          referenceImageMime = editReferenceFile.type || 'image/jpeg';
+        } catch {
+          // Non-fatal — proceed without the image
+          console.warn('Failed to read reference image, proceeding without it.');
+        }
+      }
+      const result = await api.editPrompt(projectId, customPrompt, editInstruction.trim(), referenceImage, referenceImageMime);
       setCustomPrompt(result.revised_prompt);
       setEditInstruction('');
       setEditMode('direct'); // Switch to direct view so user can see the modified prompt
@@ -1073,7 +1099,7 @@ export default function AdStudio({ projectId, project }) {
                 Edit Image
               </label>
               <button
-                onClick={() => { setCustomPrompt(''); setParentAdId(null); setEditInstruction(''); setOriginalPromptRef(''); setEditMode('describe'); }}
+                onClick={() => { setCustomPrompt(''); setParentAdId(null); setEditInstruction(''); setOriginalPromptRef(''); setEditMode('describe'); setEditReferenceFile(null); if (editReferencePreview) URL.revokeObjectURL(editReferencePreview); setEditReferencePreview(null); }}
                 className="text-[12px] text-red-500 hover:text-red-600 transition-colors"
               >
                 Exit editing
@@ -1108,17 +1134,17 @@ export default function AdStudio({ projectId, project }) {
             </div>
 
             {editMode === 'describe' ? (
-              /* Describe Edit mode — natural language */
+              /* Describe Edit mode — natural language + optional reference image */
               <div>
                 <p className="text-[11px] text-blue-600/70 mb-2">
-                  Describe the change you want (e.g., "make the background darker", "add a sunset", "remove the text overlay"). AI will update the prompt for you.
+                  Describe the change you want (e.g., "make the background darker", "add a sunset", "remove the text overlay"). AI will update the prompt for you. You can also attach a reference image.
                 </p>
                 <textarea
                   ref={editTextareaRef}
                   value={editInstruction}
                   onChange={e => setEditInstruction(e.target.value)}
                   rows={3}
-                  placeholder='e.g., "Change the background from blue to warm orange sunset tones" or "Make the product larger and more centered"'
+                  placeholder={'e.g., "Change the background to warm orange sunset tones" or "The product shown is wrong \u2014 I\u2019ve attached the correct one"'}
                   className="input-apple resize-none border-blue-300/80 bg-white text-[13px] mb-2"
                   onKeyDown={e => {
                     if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && !isApplyingEdit) {
@@ -1127,6 +1153,56 @@ export default function AdStudio({ projectId, project }) {
                     }
                   }}
                 />
+
+                {/* Reference image upload */}
+                {editReferenceFile && editReferencePreview ? (
+                  <div className="flex items-center gap-3 mb-2 p-2 bg-blue-50/50 border border-blue-200/40 rounded-lg">
+                    <img
+                      src={editReferencePreview}
+                      alt="Reference"
+                      className="w-10 h-10 object-cover rounded-lg border border-blue-200/60"
+                    />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[11px] text-gray-700 truncate">{editReferenceFile.name}</p>
+                      <p className="text-[10px] text-gray-400">{(editReferenceFile.size / 1024).toFixed(0)} KB</p>
+                    </div>
+                    <button
+                      onClick={() => {
+                        setEditReferenceFile(null);
+                        if (editReferencePreview) URL.revokeObjectURL(editReferencePreview);
+                        setEditReferencePreview(null);
+                        if (editReferenceInputRef.current) editReferenceInputRef.current.value = '';
+                      }}
+                      className="text-[11px] text-red-400 hover:text-red-500 transition-colors flex-shrink-0"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                ) : (
+                  <button
+                    onClick={() => editReferenceInputRef.current?.click()}
+                    className="flex items-center gap-1.5 mb-2 text-[11px] text-blue-500 hover:text-blue-600 transition-colors"
+                  >
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909M3.75 21h16.5a2.25 2.25 0 002.25-2.25V6.75a2.25 2.25 0 00-2.25-2.25H3.75a2.25 2.25 0 00-2.25 2.25v12a2.25 2.25 0 002.25 2.25z" />
+                    </svg>
+                    Attach reference image
+                  </button>
+                )}
+                <input
+                  ref={editReferenceInputRef}
+                  type="file"
+                  accept=".jpg,.jpeg,.png,.webp,.gif"
+                  onChange={e => {
+                    const file = e.target.files?.[0];
+                    if (file) {
+                      setEditReferenceFile(file);
+                      setEditReferencePreview(URL.createObjectURL(file));
+                    }
+                  }}
+                  className="hidden"
+                />
+
                 <button
                   onClick={handleApplyEdit}
                   disabled={isApplyingEdit || !editInstruction.trim()}
