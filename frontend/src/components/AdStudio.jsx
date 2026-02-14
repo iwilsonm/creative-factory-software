@@ -1251,12 +1251,9 @@ export default function AdStudio({ projectId, project }) {
             ) : (
               /* Direct edit mode — raw prompt textarea */
               <div>
-                <div className="flex items-center gap-2 mb-2">
-                  <span className="text-[10px] font-semibold text-green-600 bg-green-100/60 px-1.5 py-0.5 rounded">Step 2</span>
-                  <p className="text-[11px] text-blue-600/70">
-                    Review the prompt below, then hit <strong>Generate Image</strong>.
-                  </p>
-                </div>
+                <p className="text-[11px] text-blue-600/70 mb-2">
+                  Review or tweak the prompt, then generate.
+                </p>
                 <textarea
                   value={customPrompt}
                   onChange={e => setCustomPrompt(e.target.value)}
@@ -1273,6 +1270,16 @@ export default function AdStudio({ projectId, project }) {
                 )}
               </div>
             )}
+          </div>
+        )}
+
+        {/* Step 2 hint — shown when editing an existing ad's prompt */}
+        {isCustomPromptMode && (
+          <div className="flex items-center gap-2 mb-2">
+            <span className="text-[10px] font-semibold text-green-600 bg-green-100/60 px-1.5 py-0.5 rounded">Step 2</span>
+            <p className="text-[11px] text-gray-500">
+              Review the prompt above, then generate your new image.
+            </p>
           </div>
         )}
 
