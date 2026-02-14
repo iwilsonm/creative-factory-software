@@ -1193,18 +1193,23 @@ export default function AdStudio({ projectId, project }) {
                         setEditReferencePreview(URL.createObjectURL(file));
                       }
                     }}
-                    className={`flex items-center justify-center gap-1.5 mb-2 px-3 py-2.5 rounded-lg border-2 border-dashed cursor-pointer transition-all ${
+                    className={`flex flex-col items-center justify-center gap-1 mb-2 px-3 py-4 rounded-lg border-2 border-dashed cursor-pointer transition-all ${
                       editRefDragOver
-                        ? 'border-blue-400 bg-blue-50/80 text-blue-600'
-                        : 'border-gray-200 hover:border-blue-300 hover:bg-blue-50/30 text-blue-500 hover:text-blue-600'
+                        ? 'border-blue-400 bg-blue-50 text-blue-600'
+                        : 'border-blue-300/70 bg-blue-50/40 hover:border-blue-400 hover:bg-blue-50/70 text-blue-500 hover:text-blue-600'
                     }`}
                   >
-                    <svg className="w-3.5 h-3.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909M3.75 21h16.5a2.25 2.25 0 002.25-2.25V6.75a2.25 2.25 0 00-2.25-2.25H3.75a2.25 2.25 0 00-2.25 2.25v12a2.25 2.25 0 002.25 2.25z" />
+                    <svg className="w-5 h-5 mb-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
                     </svg>
-                    <span className="text-[11px]">
-                      {editRefDragOver ? 'Drop image here' : 'Attach reference image or drag & drop'}
+                    <span className="text-[12px] font-medium">
+                      {editRefDragOver ? 'Drop image here' : 'Attach a reference image'}
                     </span>
+                    {!editRefDragOver && (
+                      <span className="text-[10px] text-blue-400">
+                        Click to browse or drag & drop
+                      </span>
+                    )}
                   </div>
                 )}
                 <input
