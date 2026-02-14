@@ -34,6 +34,14 @@ export const create = mutation({
     size: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
+    // Guard: skip if this drive_file_id already exists for this project
+    const existing = await ctx.db
+      .query("inspiration_images")
+      .withIndex("by_project_and_drive_id", (q) =>
+        q.eq("project_id", args.project_id).eq("drive_file_id", args.drive_file_id)
+      )
+      .first();
+    if (existing) return;
     await ctx.db.insert("inspiration_images", args);
   },
 });
@@ -79,6 +87,33 @@ export const removeByProject = mutation({
       }
     }
     return { removed };
+  },
+});
+
+export const dedup = mutation({
+  args: { projectId: v.string() },
+  handler: async (ctx, args) => {
+    const all = await ctx.db
+      .query("inspiration_images")
+      .withIndex("by_project", (q) => q.eq("project_id", args.projectId))
+      .collect();
+
+    // Group by drive_file_id, keep the first record, delete the rest
+    const seen = new Map<string, boolean>();
+    let removed = 0;
+    for (const img of all) {
+      if (seen.has(img.drive_file_id)) {
+        // Duplicate — delete the storage file and the record
+        if (img.storageId) {
+          try { await ctx.storage.delete(img.storageId); } catch (_) { /* already deleted */ }
+        }
+        await ctx.db.delete(img._id);
+        removed++;
+      } else {
+        seen.set(img.drive_file_id, true);
+      }
+    }
+    return { removed, remaining: all.length - removed };
   },
 });
 
