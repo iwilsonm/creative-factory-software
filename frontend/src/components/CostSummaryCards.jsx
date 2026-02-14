@@ -1,3 +1,5 @@
+import { useState } from 'react';
+
 const PERIODS = [
   { key: 'today', label: 'Spent Today' },
   { key: 'week', label: 'Spent This Week' },
@@ -21,6 +23,16 @@ function formatCost(value) {
 }
 
 export default function CostSummaryCards({ costs, loading }) {
+  const [expandedCards, setExpandedCards] = useState(new Set());
+
+  const toggleCard = (key) => {
+    setExpandedCards(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
   if (loading) {
     return (
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
@@ -120,29 +132,41 @@ export default function CostSummaryCards({ costs, loading }) {
                   )}
                 </div>
 
-                {/* Operation breakdown */}
+                {/* Operation breakdown toggle + detail */}
                 {opEntries.length > 0 && (
-                  <div className="border-t border-gray-100 pt-2 space-y-1.5">
-                    {opEntries.map(op => {
-                      const meta = OPERATION_META[op.key] || OPERATION_META.other;
-                      return (
-                        <div key={op.key} className="flex items-center justify-between text-[11px]">
-                          <div className="flex items-center gap-1.5 text-gray-500">
-                            <span className={`w-1.5 h-1.5 rounded-full ${meta.color}`} />
-                            <span>{meta.label}</span>
-                            {op.imageCount > 0 && (
-                              <span className="text-gray-300">
-                                ({op.imageCount} img{op.imageCount !== 1 ? 's' : ''})
+                  <>
+                    <button
+                      onClick={() => toggleCard(period.key)}
+                      className="flex items-center gap-1 text-[10px] text-gray-400 hover:text-gray-600 cursor-pointer mt-1 transition-colors"
+                    >
+                      <span className="text-[8px]">{expandedCards.has(period.key) ? '▾' : '▸'}</span>
+                      Details
+                    </button>
+
+                    {expandedCards.has(period.key) && (
+                      <div className="border-t border-gray-100 pt-2 mt-1.5 space-y-1.5">
+                        {opEntries.map(op => {
+                          const meta = OPERATION_META[op.key] || OPERATION_META.other;
+                          return (
+                            <div key={op.key} className="flex items-center justify-between text-[11px]">
+                              <div className="flex items-center gap-1.5 text-gray-500">
+                                <span className={`w-1.5 h-1.5 rounded-full ${meta.color}`} />
+                                <span>{meta.label}</span>
+                                {op.imageCount > 0 && (
+                                  <span className="text-gray-300">
+                                    ({op.imageCount} img{op.imageCount !== 1 ? 's' : ''})
+                                  </span>
+                                )}
+                              </div>
+                              <span className="text-gray-500 font-medium tabular-nums">
+                                {formatCost(op.cost)}
                               </span>
-                            )}
-                          </div>
-                          <span className="text-gray-500 font-medium tabular-nums">
-                            {formatCost(op.cost)}
-                          </span>
-                        </div>
-                      );
-                    })}
-                  </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+                  </>
                 )}
               </>
             )}
