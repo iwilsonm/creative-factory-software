@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import JSZip from 'jszip';
 import { api } from '../api';
 import BatchManager from './BatchManager';
 import InfoTooltip from './InfoTooltip';
@@ -116,6 +117,10 @@ export default function AdStudio({ projectId, project }) {
   const [loadingAds, setLoadingAds] = useState(true);
   const [viewAd, setViewAd] = useState(null);
   const [galleryFilter, setGalleryFilter] = useState('individual'); // 'individual' | 'batch' | 'all'
+
+  // Multi-select for bulk download
+  const [selectedAdIds, setSelectedAdIds] = useState(new Set());
+  const [isBulkDownloading, setIsBulkDownloading] = useState(false);
 
   useEffect(() => {
     loadAds();
@@ -416,6 +421,10 @@ export default function AdStudio({ projectId, project }) {
     try {
       await api.deleteAd(projectId, adId);
       setAds(prev => prev.filter(a => a.id !== adId));
+      setSelectedAdIds(prev => {
+        if (prev.has(adId)) { const next = new Set(prev); next.delete(adId); return next; }
+        return prev;
+      });
       if (viewAd?.id === adId) setViewAd(null);
     } catch (err) {
       toast.error(err.message);
@@ -442,6 +451,94 @@ export default function AdStudio({ projectId, project }) {
       URL.revokeObjectURL(url);
     } catch (err) {
       toast.error('Failed to download image');
+    }
+  };
+
+  // --- Multi-select helpers ---
+  const toggleAdSelection = (adId, e) => {
+    if (e) e.stopPropagation();
+    setSelectedAdIds(prev => {
+      const next = new Set(prev);
+      if (next.has(adId)) next.delete(adId);
+      else next.add(adId);
+      return next;
+    });
+  };
+
+  const selectAllFiltered = () => {
+    const completedIds = filteredAds
+      .filter(ad => ad.status === 'completed' && ad.imageUrl)
+      .map(ad => ad.id);
+    setSelectedAdIds(new Set(completedIds));
+  };
+
+  const clearSelection = () => setSelectedAdIds(new Set());
+
+  const selectedCount = selectedAdIds.size;
+
+  // --- Bulk download ---
+  const handleBulkDownload = async () => {
+    if (selectedAdIds.size === 0) return;
+    setIsBulkDownloading(true);
+    try {
+      const zip = new JSZip();
+      const selectedAds = ads.filter(ad => selectedAdIds.has(ad.id) && ad.imageUrl);
+
+      const results = await Promise.allSettled(
+        selectedAds.map(async (ad) => {
+          const response = await fetch(ad.imageUrl);
+          const blob = await response.blob();
+          const ext = blob.type === 'image/jpeg' ? '.jpg' : '.png';
+          const filename = `ad_${ad.angle ? ad.angle.replace(/[^a-z0-9]/gi, '-').slice(0, 30) : ad.id.slice(0, 8)}_${ad.aspect_ratio.replace(':', 'x')}${ext}`;
+          return { filename, blob };
+        })
+      );
+
+      let addedCount = 0;
+      const usedNames = new Set();
+      for (const result of results) {
+        if (result.status === 'fulfilled') {
+          let name = result.value.filename;
+          if (usedNames.has(name)) {
+            const parts = name.split('.');
+            const ext = parts.pop();
+            let counter = 2;
+            while (usedNames.has(`${parts.join('.')}_${counter}.${ext}`)) counter++;
+            name = `${parts.join('.')}_${counter}.${ext}`;
+          }
+          usedNames.add(name);
+          zip.file(name, result.value.blob);
+          addedCount++;
+        }
+      }
+
+      if (addedCount === 0) {
+        toast.error('Failed to download any images.');
+        return;
+      }
+
+      const zipBlob = await zip.generateAsync({ type: 'blob' });
+      const url = URL.createObjectURL(zipBlob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `ads_${addedCount}_images.zip`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+
+      const failedCount = results.filter(r => r.status === 'rejected').length;
+      if (failedCount > 0) {
+        toast.success(`Downloaded ${addedCount} ads. ${failedCount} failed to fetch.`);
+      } else {
+        toast.success(`Downloaded ${addedCount} ads as zip.`);
+      }
+      clearSelection();
+    } catch (err) {
+      console.error('Bulk download failed:', err);
+      toast.error('Failed to create zip file.');
+    } finally {
+      setIsBulkDownloading(false);
     }
   };
 
@@ -503,9 +600,16 @@ export default function AdStudio({ projectId, project }) {
     return true; // 'all'
   });
 
+  // Clear selection when filter changes
+  useEffect(() => {
+    setSelectedAdIds(new Set());
+  }, [galleryFilter]);
+
   // Counts for filter labels
   const individualCount = ads.filter(a => !a.auto_generated).length;
   const batchCount = ads.filter(a => !!a.auto_generated).length;
+  const completedFilteredAds = filteredAds.filter(ad => ad.status === 'completed' && ad.imageUrl);
+  const allFilteredSelected = completedFilteredAds.length > 0 && completedFilteredAds.every(ad => selectedAdIds.has(ad.id));
 
   // Find template name for modal display
   const getTemplateName = (templateId) => {
@@ -1198,6 +1302,23 @@ export default function AdStudio({ projectId, project }) {
           )}
         </div>
 
+        {/* Selection controls */}
+        {completedFilteredAds.length > 0 && !loadingAds && (
+          <div className="flex items-center gap-3 mb-3">
+            <button
+              onClick={allFilteredSelected ? clearSelection : selectAllFiltered}
+              className="text-[12px] font-medium text-blue-600 hover:text-blue-700 transition-colors"
+            >
+              {allFilteredSelected ? 'Deselect All' : 'Select All'}
+            </button>
+            {selectedCount > 0 && (
+              <span className="text-[12px] text-gray-400">
+                {selectedCount} selected
+              </span>
+            )}
+          </div>
+        )}
+
         {loadingAds ? (
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
             {[0, 1, 2, 3, 4, 5].map(i => (
@@ -1239,11 +1360,17 @@ export default function AdStudio({ projectId, project }) {
             {filteredAds.map(ad => (
               <div
                 key={ad.id}
-                className="group card overflow-hidden transition-all duration-300 hover:-translate-y-0.5"
+                className={`group card overflow-hidden transition-all duration-300 hover:-translate-y-0.5 ${
+                  selectedAdIds.has(ad.id) ? 'ring-2 ring-blue-500 ring-offset-1' : ''
+                }`}
               >
                 <div
                   className="aspect-square bg-gray-50 cursor-pointer relative overflow-hidden"
-                  onClick={() => ad.status === 'completed' && setViewAd(ad)}
+                  onClick={() => {
+                    if (ad.status !== 'completed') return;
+                    if (selectedCount > 0) toggleAdSelection(ad.id);
+                    else setViewAd(ad);
+                  }}
                 >
                   {ad.imageUrl && ad.status === 'completed' ? (
                     <img
@@ -1262,8 +1389,31 @@ export default function AdStudio({ projectId, project }) {
                     </div>
                   )}
 
+                  {/* Selection checkbox — visible on hover or when selected */}
+                  {ad.status === 'completed' && (
+                    <button
+                      onClick={(e) => toggleAdSelection(ad.id, e)}
+                      className={`absolute top-2 left-2 z-10 w-6 h-6 rounded-lg flex items-center justify-center transition-all duration-200 ${
+                        selectedAdIds.has(ad.id)
+                          ? 'bg-blue-500 text-white shadow-sm'
+                          : 'bg-black/30 backdrop-blur-sm text-white/80 opacity-0 group-hover:opacity-100 hover:bg-black/50'
+                      }`}
+                      title={selectedAdIds.has(ad.id) ? 'Deselect' : 'Select for bulk download'}
+                    >
+                      {selectedAdIds.has(ad.id) ? (
+                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
+                        </svg>
+                      ) : (
+                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                        </svg>
+                      )}
+                    </button>
+                  )}
+
                   {/* Mode badge */}
-                  <div className={`absolute top-2 left-2 badge ${
+                  <div className={`absolute top-2 ${ad.status === 'completed' ? 'left-10' : 'left-2'} badge ${
                     ad.status === 'completed' ? 'bg-white/80 backdrop-blur-sm text-gray-600' :
                     ad.status === 'failed' ? 'bg-red-100/80 text-red-600' :
                     'bg-blue-100/80 text-blue-600'
@@ -1502,6 +1652,48 @@ export default function AdStudio({ projectId, project }) {
                 </div>
               </div>
             </div>
+          </div>
+        </div>
+      )}
+      {/* Floating bulk action bar */}
+      {selectedCount > 0 && (
+        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 fade-in">
+          <div className="flex items-center gap-3 px-5 py-3 bg-gray-900/95 backdrop-blur-sm rounded-2xl shadow-lg border border-white/10">
+            <span className="text-[13px] text-white font-medium">
+              {selectedCount} ad{selectedCount !== 1 ? 's' : ''} selected
+            </span>
+
+            <div className="w-px h-5 bg-white/20" />
+
+            <button
+              onClick={handleBulkDownload}
+              disabled={isBulkDownloading}
+              className="flex items-center gap-1.5 px-4 py-1.5 bg-blue-500 hover:bg-blue-600 disabled:bg-blue-400 text-white text-[13px] font-medium rounded-xl transition-colors"
+            >
+              {isBulkDownloading ? (
+                <>
+                  <div className="w-3.5 h-3.5 rounded-full border-2 border-white/30 border-t-white animate-spin" />
+                  Zipping...
+                </>
+              ) : (
+                <>
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+                  </svg>
+                  Download Zip
+                </>
+              )}
+            </button>
+
+            <button
+              onClick={clearSelection}
+              className="text-white/60 hover:text-white/90 transition-colors"
+              title="Clear selection"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
           </div>
         </div>
       )}
