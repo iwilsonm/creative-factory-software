@@ -147,21 +147,22 @@ function TodoWidget() {
                 </span>
               )}
               {editingId !== t.id && (
-                <>
+                <div className="flex items-center gap-0.5 flex-shrink-0">
                   <button
                     onClick={() => startEdit(t)}
-                    className="text-gray-300 hover:text-indigo-400 opacity-0 group-hover:opacity-100 transition-all text-[11px] px-1"
-                    title="Edit"
+                    className="text-gray-300 hover:text-indigo-500 hover:bg-indigo-50 transition-all text-[12px] px-1.5 py-0.5 rounded-md"
+                    title="Edit task"
                   >
                     ✎
                   </button>
                   <button
                     onClick={() => remove(t.id)}
-                    className="text-gray-300 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all text-[11px] px-1"
+                    className="text-gray-300 hover:text-red-500 hover:bg-red-50 transition-all text-[12px] px-1.5 py-0.5 rounded-md"
+                    title="Delete task"
                   >
                     ✕
                   </button>
-                </>
+                </div>
               )}
             </li>
           ))}
@@ -203,21 +204,21 @@ function TodoWidget() {
                   </span>
                 )}
                 {editingId !== t.id && (
-                  <>
+                  <div className="flex items-center gap-0.5 flex-shrink-0">
                     <button
                       onClick={() => startEdit(t)}
-                      className="text-gray-300 hover:text-indigo-400 opacity-0 group-hover:opacity-100 transition-all text-[11px] px-1"
-                      title="Edit"
+                      className="text-gray-300 hover:text-indigo-500 hover:bg-indigo-50 transition-all text-[12px] px-1.5 py-0.5 rounded-md"
+                      title="Edit task"
                     >
                       ✎
                     </button>
                     <button
                       onClick={() => remove(t.id)}
-                      className="text-gray-300 hover:text-red-400 opacity-0 group-hover:opacity-100 transition-all text-[11px] px-1"
+                      className="text-gray-300 hover:text-red-500 hover:bg-red-50 transition-all text-[12px] px-1.5 py-0.5 rounded-md"
                     >
                       ✕
                     </button>
-                  </>
+                  </div>
                 )}
               </li>
             ))}
