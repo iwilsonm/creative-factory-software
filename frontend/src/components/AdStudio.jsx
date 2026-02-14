@@ -1050,38 +1050,6 @@ export default function AdStudio({ projectId, project }) {
           />
         </div>
 
-        {/* Prompt Guidelines */}
-        <div className="mb-5">
-          <div className="flex items-center justify-between mb-1.5">
-            <label className="block text-[13px] font-medium text-gray-600 flex items-center gap-1">
-              Prompt Guidelines
-              <InfoTooltip text="Rules the AI will enforce on every generated image prompt. Use this to fix recurring issues in your ads." position="right" />
-            </label>
-            {guidelinesSaving && (
-              <span className="text-[11px] text-gray-400 flex items-center gap-1">
-                <div className="w-2.5 h-2.5 rounded-full border border-gray-300 border-t-blue-400 animate-spin" />
-                Saving...
-              </span>
-            )}
-            {!guidelinesSaving && promptGuidelines.trim() && (
-              <span className="text-[11px] text-green-500">Saved</span>
-            )}
-          </div>
-          <p className="text-[11px] text-amber-500 mb-2">
-            Optional — only needed if you're noticing a recurring pattern in the output you'd like to correct.
-          </p>
-          <textarea
-            value={promptGuidelines}
-            onChange={e => handleGuidelinesChange(e.target.value)}
-            rows={2}
-            className="input-apple resize-none text-[13px]"
-            placeholder='e.g., "Only show one type of produce at a time — never mix fruits/vegetables in the same image"'
-          />
-          <p className="text-[11px] text-gray-400 mt-1">
-            These rules are automatically applied to every image prompt before generation. Changes auto-save.
-          </p>
-        </div>
-
         {/* ── OPTIONAL FIELDS (collapsible) ── */}
         <div className="my-6 -mx-6">
           <button
@@ -1090,7 +1058,7 @@ export default function AdStudio({ projectId, project }) {
           >
             <div className="text-left">
               <p className="text-[12px] font-semibold text-gray-500 uppercase tracking-wider">Optional Fields</p>
-              <p className="text-[11px] text-gray-400 mt-0.5">Topic, headline, and body copy — the AI handles these if left blank.</p>
+              <p className="text-[11px] text-gray-400 mt-0.5">Topic, headline, body copy, and prompt guidelines — the AI handles these if left blank.</p>
             </div>
             <svg
               className={`w-4 h-4 text-gray-400 transition-transform duration-200 ${optionalOpen ? 'rotate-180' : ''}`}
@@ -1141,6 +1109,38 @@ export default function AdStudio({ projectId, project }) {
                     className="input-apple"
                   />
                 </div>
+              </div>
+
+              {/* Prompt Guidelines */}
+              <div className="mb-2">
+                <div className="flex items-center justify-between mb-1.5">
+                  <label className="block text-[13px] font-medium text-gray-600 flex items-center gap-1">
+                    Prompt Guidelines
+                    <InfoTooltip text="Rules the AI will enforce on every generated image prompt. Use this to fix recurring issues in your ads." position="right" />
+                  </label>
+                  {guidelinesSaving && (
+                    <span className="text-[11px] text-gray-400 flex items-center gap-1">
+                      <div className="w-2.5 h-2.5 rounded-full border border-gray-300 border-t-blue-400 animate-spin" />
+                      Saving...
+                    </span>
+                  )}
+                  {!guidelinesSaving && promptGuidelines.trim() && (
+                    <span className="text-[11px] text-green-500">Saved</span>
+                  )}
+                </div>
+                <p className="text-[11px] text-amber-500 mb-2">
+                  Optional — only needed if you're noticing a recurring pattern in the output you'd like to correct.
+                </p>
+                <textarea
+                  value={promptGuidelines}
+                  onChange={e => handleGuidelinesChange(e.target.value)}
+                  rows={2}
+                  className="input-apple resize-none text-[13px]"
+                  placeholder='e.g., "Only show one type of produce at a time — never mix fruits/vegetables in the same image"'
+                />
+                <p className="text-[11px] text-gray-400 mt-1">
+                  These rules are automatically applied to every image prompt before generation. Changes auto-save.
+                </p>
               </div>
             </div>
           )}
