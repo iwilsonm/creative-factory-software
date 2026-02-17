@@ -8,7 +8,8 @@ import {
   selectTemplateImage,
   reviewPromptWithGuidelines,
   buildAlreadyUsedContext,
-  generateSubAngles
+  generateSubAngles,
+  COPY_FRAMEWORKS
 } from './adGenerator.js';
 import {
   getProject, getLatestDoc, getBatchJob, updateBatchJob,
@@ -157,12 +158,14 @@ async function generateBatchPrompts(batch, project, docs, onProgress) {
   for (let i = 0; i < batch.batch_size; i++) {
     // Assign this ad's sub-angle (cycles if fewer sub-angles than batch size)
     const adSubAngle = subAngles[i % subAngles.length];
+    // Assign a copy framework — round-robin through the 5 frameworks
+    const copyFramework = COPY_FRAMEWORKS[i % COPY_FRAMEWORKS.length];
 
     emit({
       type: 'prompt_progress',
       current: i + 1,
       total: batch.batch_size,
-      message: `Generating prompt ${i + 1} of ${batch.batch_size}${adSubAngle ? ` — "${adSubAngle.slice(0, 50)}"` : ''}...`
+      message: `Generating prompt ${i + 1} of ${batch.batch_size}${adSubAngle ? ` — "${adSubAngle.slice(0, 40)}"` : ''} [${copyFramework.name}]...`
     });
 
     let success = false;
@@ -213,8 +216,8 @@ async function generateBatchPrompts(batch, project, docs, onProgress) {
         // Build "already used" context — grows with each iteration
         const alreadyUsedContext = buildAlreadyUsedContext(recentAds, batchGeneratedPrompts);
 
-        // GPT-5.2 Message 2: Image + instructions with this ad's sub-angle
-        const imageRequestText = buildImageRequestText(adSubAngle, batch.aspect_ratio, false, null, null, alreadyUsedContext);
+        // GPT-5.2 Message 2: Image + instructions with this ad's sub-angle + copy framework
+        const imageRequestText = buildImageRequestText(adSubAngle, batch.aspect_ratio, false, null, null, alreadyUsedContext, copyFramework.instruction);
 
         const conversationSoFar = [
           { role: 'user', content: creativeDirectorPrompt },

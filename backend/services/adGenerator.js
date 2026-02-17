@@ -10,6 +10,33 @@ import {
 } from '../convexClient.js';
 // Drive upload removed — ads are stored in Convex only
 
+/**
+ * Rotating copy frameworks — each produces a structurally different headline style.
+ * Cycled round-robin in batches, picked randomly for single ads.
+ */
+export const COPY_FRAMEWORKS = [
+  {
+    name: 'Problem → Solution',
+    instruction: 'Use a "Problem → Solution" headline framework — lead with the pain point or frustration the audience feels, then resolve it with the product. Example style: "Tired of [problem]? Meet [solution]."'
+  },
+  {
+    name: 'Social Proof',
+    instruction: 'Use a "Social Proof" headline framework — lead with numbers, testimonials, or crowd validation to build credibility. Example style: "Join 50,000+ [audience] who [achieved result]" or "The #1 [category] recommended by [authority]."'
+  },
+  {
+    name: 'Urgency / Scarcity',
+    instruction: 'Use an "Urgency / Scarcity" headline framework — create time pressure or limited availability to drive immediate action. Example style: "Last chance: [offer] ends [timeframe]" or "Only [number] left at this price."'
+  },
+  {
+    name: 'Aspirational / Lifestyle',
+    instruction: 'Use an "Aspirational / Lifestyle" headline framework — paint the after-state or identity shift the audience desires. Focus on who they become, not what they buy. Example style: "The glow-up starts here" or "This is your [desired identity] era."'
+  },
+  {
+    name: 'Direct Benefit',
+    instruction: 'Use a "Direct Benefit" headline framework — state the core value proposition plainly and boldly with no fluff. Lead with the specific, tangible result. Example style: "Clinically proven to [result] in [timeframe]" or "[Specific benefit]. Period."'
+  }
+];
+
 const EXT_TO_MIME = {
   '.jpg': 'image/jpeg',
   '.jpeg': 'image/jpeg',
@@ -252,7 +279,7 @@ ${beliefsContent}`;
  * Per the SOP, the core instruction is exactly "make a prompt for an image like this".
  * Angle, aspect ratio, product image, headline, and body copy are appended as additional direction.
  */
-export function buildImageRequestText(angle, aspectRatio, hasProductImage = false, headline = null, bodyCopy = null, alreadyUsedContext = '') {
+export function buildImageRequestText(angle, aspectRatio, hasProductImage = false, headline = null, bodyCopy = null, alreadyUsedContext = '', copyFramework = null) {
   let text = 'make a prompt for an image like this';
 
   const extras = [];
@@ -267,6 +294,9 @@ export function buildImageRequestText(angle, aspectRatio, hasProductImage = fals
   }
   if (angle) {
     extras.push(`The ad should focus on this angle/topic: ${angle}`);
+  }
+  if (copyFramework) {
+    extras.push(copyFramework);
   }
   if (aspectRatio && aspectRatio !== '1:1') {
     extras.push(`Use ${aspectRatio} aspect ratio instead of 1:1`);
@@ -452,6 +482,9 @@ export async function generateAd(projectId, options = {}) {
       console.warn('[AdGenerator] Could not fetch recent ads for context:', err.message);
     }
 
+    // 4b. Pick a random copy framework for headline style variation
+    const framework = COPY_FRAMEWORKS[Math.floor(Math.random() * COPY_FRAMEWORKS.length)];
+
     // 5. GPT-5.2 Message 1: Creative director prompt + foundational docs
     emit({ type: 'status', status: 'generating_copy', message: 'Sending creative brief to GPT-5.2...' });
 
@@ -469,7 +502,7 @@ export async function generateAd(projectId, options = {}) {
       ? 'GPT-5.2 analyzing inspiration image + product image...'
       : 'GPT-5.2 analyzing inspiration image...' });
 
-    const imageRequestText = buildImageRequestText(angle, aspectRatio, hasProductImage, headline, bodyCopy, alreadyUsedContext);
+    const imageRequestText = buildImageRequestText(angle, aspectRatio, hasProductImage, headline, bodyCopy, alreadyUsedContext, framework.instruction);
     const conversationSoFar = [
       { role: 'user', content: creativeDirectorPrompt },
       { role: 'assistant', content: acknowledgment }
@@ -655,6 +688,9 @@ export async function generateAdMode2(projectId, options = {}) {
       console.warn('[AdGenerator] Could not fetch recent ads for context:', err.message);
     }
 
+    // 4b. Pick a random copy framework for headline style variation
+    const framework = COPY_FRAMEWORKS[Math.floor(Math.random() * COPY_FRAMEWORKS.length)];
+
     // 5. GPT-5.2 Message 1: Creative director prompt + foundational docs
     emit({ type: 'status', status: 'generating_copy', message: 'Sending creative brief to GPT-5.2...' });
 
@@ -671,7 +707,7 @@ export async function generateAdMode2(projectId, options = {}) {
       ? 'GPT-5.2 analyzing template image + product image...'
       : 'GPT-5.2 analyzing template image...' });
 
-    const imageRequestText = buildImageRequestText(angle, aspectRatio, hasProductImage, headline, bodyCopy, alreadyUsedContext);
+    const imageRequestText = buildImageRequestText(angle, aspectRatio, hasProductImage, headline, bodyCopy, alreadyUsedContext, framework.instruction);
     const conversationSoFar = [
       { role: 'user', content: creativeDirectorPrompt },
       { role: 'assistant', content: acknowledgment }
