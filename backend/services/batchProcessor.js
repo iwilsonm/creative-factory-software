@@ -242,8 +242,9 @@ async function generateBatchPrompts(batch, project, docs, onProgress) {
           templateFileId: imageData.fileId || null,
         });
 
-        // Feed this prompt into the accumulator for the next iteration's context
-        batchGeneratedPrompts.push(imagePrompt);
+        // Feed a short excerpt into the accumulator for headline dedup in next iterations
+        // (buildAlreadyUsedContext caps to last 3 and wraps in quotes)
+        batchGeneratedPrompts.push(imagePrompt.slice(0, 80));
         success = true;
 
       } catch (err) {

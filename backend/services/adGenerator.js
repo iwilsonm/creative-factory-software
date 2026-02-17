@@ -57,33 +57,31 @@ Rules:
 
 /**
  * Build "already used" context text from recent ads + batch-so-far prompts.
- * Injected into the GPT request so it avoids repeating previous concepts.
+ * Injected into the GPT request so it avoids repeating previous COPY/MESSAGING only.
+ * Visual style/layout/composition must still match the template image.
  * Returns empty string if no history exists (first-ever generation works as-is).
  *
- * @param {Array} recentAds - From getRecentAdsForContext (DB history)
- * @param {Array} batchSoFar - Prompts generated earlier in the current batch run
+ * @param {Array} recentAds - From getRecentAdsForContext (DB history — headline + angle)
+ * @param {Array} batchSoFar - Headline strings generated earlier in the current batch run (max last 3)
  * @returns {string}
  */
 export function buildAlreadyUsedContext(recentAds = [], batchSoFar = []) {
   const items = [];
 
-  // Add DB history
+  // Add DB history (lightweight — headlines + angles only)
   for (const ad of recentAds) {
-    const parts = [];
-    if (ad.headline) parts.push(`Headline: "${ad.headline}"`);
-    if (ad.image_prompt) parts.push(`Concept: ${ad.image_prompt.slice(0, 150)}`);
-    if (ad.angle) parts.push(`Angle: ${ad.angle}`);
-    if (parts.length > 0) items.push(parts.join(' | '));
+    if (ad.headline) items.push(`"${ad.headline}"`);
   }
 
-  // Add prompts from earlier in the current batch
-  for (const prompt of batchSoFar) {
-    if (prompt) items.push(`Concept: ${prompt.slice(0, 150)}`);
+  // Add headlines from the last 3 prompts in the current batch (cap to prevent bloat)
+  const recentBatch = batchSoFar.slice(-3);
+  for (const headline of recentBatch) {
+    if (headline) items.push(`"${headline}"`);
   }
 
   if (items.length === 0) return '';
 
-  return `\n\nIMPORTANT — AVOID REPEATING THESE PREVIOUS CONCEPTS (these were already generated):\n${items.map((item, i) => `${i + 1}. ${item}`).join('\n')}\n\nInstead, find a FRESH and COMPLETELY DIFFERENT visual concept, layout, color palette, headline approach, and sub-angle. Do NOT reuse similar compositions, metaphors, or visual themes from the above. Be creatively bold and explore an entirely new direction.`;
+  return `\n\nDo NOT reuse any of these previous headlines or similar messaging — they were already used:\n${items.map((item, i) => `${i + 1}. ${item}`).join('\n')}\n\nGenerate a DIFFERENT headline, tagline, and messaging angle than the above. However, you MUST still closely match the attached template/inspiration image's visual style, layout, composition, and color palette. Only the copy and messaging should differ — the visual design must remain faithful to the image.`;
 }
 
 /**

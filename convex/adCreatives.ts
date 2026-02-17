@@ -115,8 +115,8 @@ export const remove = mutation({
   },
 });
 
-// Lightweight query for "already used" context — returns only text fields, no storage URLs.
-// Uses .take() instead of .collect() to avoid loading the entire table into memory.
+// Lightweight query for headline dedup context — returns only headline + angle.
+// Uses .take() with a bounded window to avoid loading large prompt fields.
 export const getRecentByProjectAndAngle = query({
   args: {
     projectId: v.string(),
@@ -125,24 +125,20 @@ export const getRecentByProjectAndAngle = query({
   },
   handler: async (ctx, args) => {
     const limit = args.limit || 10;
-    // Fetch a generous window of recent ads (most will be completed).
-    // We fetch 5x the limit to account for non-completed/non-matching entries.
     const ads = await ctx.db
       .query("ad_creatives")
       .withIndex("by_project", (q) => q.eq("project_id", args.projectId))
       .order("desc")
-      .take(limit * 5);
+      .take(limit * 3);
 
-    const result: { image_prompt: string | null; headline: string | null; angle: string | null; body_copy: string | null }[] = [];
+    const result: { headline: string | null; angle: string | null }[] = [];
     for (const ad of ads) {
       if (result.length >= limit) break;
       if (ad.status !== "completed") continue;
       if (args.angle && ad.angle !== args.angle) continue;
       result.push({
-        image_prompt: ad.image_prompt || null,
         headline: ad.headline || null,
         angle: ad.angle || null,
-        body_copy: ad.body_copy || null,
       });
     }
     return result;
