@@ -115,6 +115,35 @@ export const remove = mutation({
   },
 });
 
+// Lightweight query for "already used" context — returns only text fields, no storage URLs
+export const getRecentByProjectAndAngle = query({
+  args: {
+    projectId: v.string(),
+    angle: v.optional(v.string()),
+    limit: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const limit = args.limit || 10;
+    const ads = await ctx.db
+      .query("ad_creatives")
+      .withIndex("by_project", (q) => q.eq("project_id", args.projectId))
+      .order("desc")
+      .collect();
+
+    let filtered = ads.filter((ad) => ad.status === "completed");
+    if (args.angle) {
+      filtered = filtered.filter((ad) => ad.angle === args.angle);
+    }
+
+    return filtered.slice(0, limit).map((ad) => ({
+      image_prompt: ad.image_prompt || null,
+      headline: ad.headline || null,
+      angle: ad.angle || null,
+      body_copy: ad.body_copy || null,
+    }));
+  },
+});
+
 export const getImageUrl = query({
   args: { externalId: v.string() },
   handler: async (ctx, args) => {

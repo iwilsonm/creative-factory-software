@@ -5,6 +5,7 @@ import { logGeminiCost } from './costTracker.js';
 import {
   getProject, getLatestDoc, uploadBuffer, downloadToBuffer,
   getInspirationImages, getInspirationImageUrl,
+  getRecentAdsForContext,
   convexClient, api
 } from '../convexClient.js';
 // Drive upload removed — ads are stored in Convex only
@@ -51,6 +52,97 @@ Rules:
   } catch (err) {
     console.warn('[AdGenerator] Prompt guidelines review failed, using original prompt:', err.message);
     return imagePrompt;
+  }
+}
+
+/**
+ * Build "already used" context text from recent ads + batch-so-far prompts.
+ * Injected into the GPT request so it avoids repeating previous concepts.
+ * Returns empty string if no history exists (first-ever generation works as-is).
+ *
+ * @param {Array} recentAds - From getRecentAdsForContext (DB history)
+ * @param {Array} batchSoFar - Prompts generated earlier in the current batch run
+ * @returns {string}
+ */
+export function buildAlreadyUsedContext(recentAds = [], batchSoFar = []) {
+  const items = [];
+
+  // Add DB history
+  for (const ad of recentAds) {
+    const parts = [];
+    if (ad.headline) parts.push(`Headline: "${ad.headline}"`);
+    if (ad.image_prompt) parts.push(`Concept: ${ad.image_prompt.slice(0, 150)}`);
+    if (ad.angle) parts.push(`Angle: ${ad.angle}`);
+    if (parts.length > 0) items.push(parts.join(' | '));
+  }
+
+  // Add prompts from earlier in the current batch
+  for (const prompt of batchSoFar) {
+    if (prompt) items.push(`Concept: ${prompt.slice(0, 150)}`);
+  }
+
+  if (items.length === 0) return '';
+
+  return `\n\nIMPORTANT — AVOID REPEATING THESE PREVIOUS CONCEPTS (these were already generated):\n${items.map((item, i) => `${i + 1}. ${item}`).join('\n')}\n\nInstead, find a FRESH and COMPLETELY DIFFERENT visual concept, layout, color palette, headline approach, and sub-angle. Do NOT reuse similar compositions, metaphors, or visual themes from the above. Be creatively bold and explore an entirely new direction.`;
+}
+
+/**
+ * Generate N distinct sub-angles from a parent angle using GPT-4.1-mini.
+ * Used by batch processor to assign each ad a unique creative direction.
+ * Falls back to repeating the original angle if parsing fails.
+ *
+ * @param {string} angle - The parent angle/topic
+ * @param {number} count - How many sub-angles to generate
+ * @param {object} project - Project object for brand context
+ * @returns {Promise<string[]>}
+ */
+export async function generateSubAngles(angle, count, project) {
+  if (!angle || count <= 1) return [angle];
+
+  try {
+    const messages = [
+      {
+        role: 'system',
+        content: `You are a creative strategist for ${project.brand_name || 'a brand'}, a ${project.niche || ''} brand. Generate distinct sub-angles for advertising.`
+      },
+      {
+        role: 'user',
+        content: `I need ${count} distinct sub-angles for the ad angle: "${angle}"
+
+Each sub-angle should be a specific, unique interpretation or facet of the main angle. They should be different enough that ads based on them would look and feel completely different from each other.
+
+For example, if the main angle is "health benefits", sub-angles might be:
+- "Morning energy boost ritual"
+- "Immune defense for busy parents"
+- "Mental clarity and focus at work"
+- "Athletic recovery and performance"
+- "Deep sleep and overnight renewal"
+
+Return ONLY a JSON array of ${count} strings. No explanations.`
+      }
+    ];
+
+    const response = await chat(messages, 'gpt-4.1-mini');
+
+    // Parse the JSON array from the response
+    const jsonMatch = response.match(/\[[\s\S]*?\]/);
+    if (jsonMatch) {
+      const subAngles = JSON.parse(jsonMatch[0]);
+      if (Array.isArray(subAngles) && subAngles.length >= count) {
+        console.log(`[AdGenerator] Generated ${subAngles.length} sub-angles for "${angle}": ${subAngles.join(', ')}`);
+        return subAngles.slice(0, count);
+      }
+    }
+
+    // Partial parse — pad with original angle
+    console.warn(`[AdGenerator] Sub-angle parsing returned fewer than ${count} results, padding with original angle`);
+    const parsed = jsonMatch ? JSON.parse(jsonMatch[0]) : [];
+    while (parsed.length < count) parsed.push(angle);
+    return parsed;
+
+  } catch (err) {
+    console.warn(`[AdGenerator] Sub-angle generation failed, using original angle for all: ${err.message}`);
+    return Array(count).fill(angle);
   }
 }
 
@@ -162,7 +254,7 @@ ${beliefsContent}`;
  * Per the SOP, the core instruction is exactly "make a prompt for an image like this".
  * Angle, aspect ratio, product image, headline, and body copy are appended as additional direction.
  */
-export function buildImageRequestText(angle, aspectRatio, hasProductImage = false, headline = null, bodyCopy = null) {
+export function buildImageRequestText(angle, aspectRatio, hasProductImage = false, headline = null, bodyCopy = null, alreadyUsedContext = '') {
   let text = 'make a prompt for an image like this';
 
   const extras = [];
@@ -184,6 +276,11 @@ export function buildImageRequestText(angle, aspectRatio, hasProductImage = fals
 
   if (extras.length > 0) {
     text += '. ' + extras.join('. ');
+  }
+
+  // Append "already used" context for diversity (empty string = no-op for first-ever generation)
+  if (alreadyUsedContext) {
+    text += alreadyUsedContext;
   }
 
   return text;
@@ -348,7 +445,16 @@ export async function generateAd(projectId, options = {}) {
       });
     }
 
-    // 4. GPT-5.2 Message 1: Creative director prompt + foundational docs
+    // 4. Fetch "already used" context for diversity (one fast DB query, no extra GPT calls)
+    let alreadyUsedContext = '';
+    try {
+      const recentAds = await getRecentAdsForContext(projectId, angle, 10);
+      alreadyUsedContext = buildAlreadyUsedContext(recentAds);
+    } catch (err) {
+      console.warn('[AdGenerator] Could not fetch recent ads for context:', err.message);
+    }
+
+    // 5. GPT-5.2 Message 1: Creative director prompt + foundational docs
     emit({ type: 'status', status: 'generating_copy', message: 'Sending creative brief to GPT-5.2...' });
 
     const creativeDirectorPrompt = buildCreativeDirectorPrompt(project, docs);
@@ -359,13 +465,13 @@ export async function generateAd(projectId, options = {}) {
     // Get GPT-5.2's acknowledgment
     const acknowledgment = await chat(messages, 'gpt-5.2');
 
-    // 5. GPT-5.2 Message 2: Inspiration image + optional product image + instructions
+    // 6. GPT-5.2 Message 2: Inspiration image + optional product image + instructions
     const hasProductImage = !!(productImageBase64 && productImageMimeType);
     emit({ type: 'status', status: 'generating_copy', message: hasProductImage
       ? 'GPT-5.2 analyzing inspiration image + product image...'
       : 'GPT-5.2 analyzing inspiration image...' });
 
-    const imageRequestText = buildImageRequestText(angle, aspectRatio, hasProductImage, headline, bodyCopy);
+    const imageRequestText = buildImageRequestText(angle, aspectRatio, hasProductImage, headline, bodyCopy, alreadyUsedContext);
     const conversationSoFar = [
       { role: 'user', content: creativeDirectorPrompt },
       { role: 'assistant', content: acknowledgment }
@@ -542,7 +648,16 @@ export async function generateAdMode2(projectId, options = {}) {
     emit({ type: 'status', status: 'generating_copy', message: 'Loading template image...' });
     const template = await selectTemplateImage(templateImageId);
 
-    // 4. GPT-5.2 Message 1: Creative director prompt + foundational docs
+    // 4. Fetch "already used" context for diversity
+    let alreadyUsedContext = '';
+    try {
+      const recentAds = await getRecentAdsForContext(projectId, angle, 10);
+      alreadyUsedContext = buildAlreadyUsedContext(recentAds);
+    } catch (err) {
+      console.warn('[AdGenerator] Could not fetch recent ads for context:', err.message);
+    }
+
+    // 5. GPT-5.2 Message 1: Creative director prompt + foundational docs
     emit({ type: 'status', status: 'generating_copy', message: 'Sending creative brief to GPT-5.2...' });
 
     const creativeDirectorPrompt = buildCreativeDirectorPrompt(project, docs);
@@ -552,13 +667,13 @@ export async function generateAdMode2(projectId, options = {}) {
 
     const acknowledgment = await chat(messages, 'gpt-5.2');
 
-    // 5. GPT-5.2 Message 2: Template image + optional product image + instructions
+    // 6. GPT-5.2 Message 2: Template image + optional product image + instructions
     const hasProductImage = !!(productImageBase64 && productImageMimeType);
     emit({ type: 'status', status: 'generating_copy', message: hasProductImage
       ? 'GPT-5.2 analyzing template image + product image...'
       : 'GPT-5.2 analyzing template image...' });
 
-    const imageRequestText = buildImageRequestText(angle, aspectRatio, hasProductImage, headline, bodyCopy);
+    const imageRequestText = buildImageRequestText(angle, aspectRatio, hasProductImage, headline, bodyCopy, alreadyUsedContext);
     const conversationSoFar = [
       { role: 'user', content: creativeDirectorPrompt },
       { role: 'assistant', content: acknowledgment }

@@ -6,11 +6,14 @@ import {
   buildImageRequestText,
   selectInspirationImage,
   selectTemplateImage,
-  reviewPromptWithGuidelines
+  reviewPromptWithGuidelines,
+  buildAlreadyUsedContext,
+  generateSubAngles
 } from './adGenerator.js';
 import {
   getProject, getLatestDoc, getBatchJob, updateBatchJob,
   uploadBuffer, downloadToBuffer,
+  getRecentAdsForContext,
   convexClient, api
 } from '../convexClient.js';
 import { logGeminiCost } from './costTracker.js';
@@ -109,8 +112,9 @@ export async function runBatch(batchId, onProgress) {
  * Each prompt is retried up to 3 times before being skipped.
  *
  * Diversity features:
+ * - Sub-angle expansion: one GPT-4.1-mini call splits the parent angle into N distinct sub-angles
+ * - Already-used context: DB history of recent completed ads + accumulating batch context
  * - Template dedup: excludes previously used template IDs across runs
- * - Variation instruction: tells GPT to create unique concepts per ad
  */
 async function generateBatchPrompts(batch, project, docs, onProgress) {
   const emit = (event) => { if (onProgress) try { onProgress(event); } catch {} };
@@ -121,6 +125,28 @@ async function generateBatchPrompts(batch, project, docs, onProgress) {
   // Use the single angle for all ads in the batch
   const currentAngle = batch.angle || null;
 
+  // ── Diversity setup (before the loop) ──────────────────────────
+
+  // 1. Generate sub-angles (one cheap GPT-4.1-mini call)
+  let subAngles = [currentAngle];
+  if (currentAngle && batch.batch_size > 1) {
+    emit({ type: 'prompt_progress', current: 0, total: batch.batch_size, message: `Expanding "${currentAngle.slice(0, 40)}" into ${batch.batch_size} sub-angles...` });
+    subAngles = await generateSubAngles(currentAngle, batch.batch_size, project);
+  }
+
+  // 2. Fetch DB history of recent completed ads (one Convex query)
+  let recentAds = [];
+  try {
+    recentAds = await getRecentAdsForContext(batch.project_id, currentAngle, 10);
+  } catch (err) {
+    console.warn('[BatchProcessor] Could not fetch recent ads for context:', err.message);
+  }
+
+  // 3. Accumulator for prompts generated so far in THIS batch run
+  const batchGeneratedPrompts = [];
+
+  // ── End diversity setup ────────────────────────────────────────
+
   // Load previously used template IDs for cross-run deduplication
   let usedTemplateIds = [];
   if (batch.used_template_ids) {
@@ -129,11 +155,14 @@ async function generateBatchPrompts(batch, project, docs, onProgress) {
   const newlyUsedTemplateIds = [];
 
   for (let i = 0; i < batch.batch_size; i++) {
+    // Assign this ad's sub-angle (cycles if fewer sub-angles than batch size)
+    const adSubAngle = subAngles[i % subAngles.length];
+
     emit({
       type: 'prompt_progress',
       current: i + 1,
       total: batch.batch_size,
-      message: `Generating prompt ${i + 1} of ${batch.batch_size}${currentAngle ? ` (${currentAngle.slice(0, 40)})` : ''}...`
+      message: `Generating prompt ${i + 1} of ${batch.batch_size}${adSubAngle ? ` — "${adSubAngle.slice(0, 50)}"` : ''}...`
     });
 
     let success = false;
@@ -181,11 +210,11 @@ async function generateBatchPrompts(batch, project, docs, onProgress) {
         const messages = [{ role: 'user', content: creativeDirectorPrompt }];
         const acknowledgment = await chat(messages, 'gpt-5.2');
 
-        // GPT-5.2 Message 2: Image + instructions with current angle
-        let imageRequestText = buildImageRequestText(currentAngle, batch.aspect_ratio);
+        // Build "already used" context — grows with each iteration
+        const alreadyUsedContext = buildAlreadyUsedContext(recentAds, batchGeneratedPrompts);
 
-        // Add variation instruction for batch diversity
-        imageRequestText += `. IMPORTANT: This is ad ${i + 1} of ${batch.batch_size} in a batch — create a COMPLETELY UNIQUE creative concept. Use a different visual style, layout, color palette, and headline approach than you would for any other ad in this series. Be bold and experimental with this variation.`;
+        // GPT-5.2 Message 2: Image + instructions with this ad's sub-angle
+        const imageRequestText = buildImageRequestText(adSubAngle, batch.aspect_ratio, false, null, null, alreadyUsedContext);
 
         const conversationSoFar = [
           { role: 'user', content: creativeDirectorPrompt },
@@ -212,6 +241,9 @@ async function generateBatchPrompts(batch, project, docs, onProgress) {
           inspirationMimeType: imageData.mimeType,
           templateFileId: imageData.fileId || null,
         });
+
+        // Feed this prompt into the accumulator for the next iteration's context
+        batchGeneratedPrompts.push(imagePrompt);
         success = true;
 
       } catch (err) {
@@ -244,7 +276,7 @@ async function generateBatchPrompts(batch, project, docs, onProgress) {
     throw new Error('All GPT prompt generations failed. Check your OpenAI API key and project configuration.');
   }
 
-  console.log(`[BatchProcessor] Generated ${validPrompts.length}/${batch.batch_size} prompts successfully.`);
+  console.log(`[BatchProcessor] Generated ${validPrompts.length}/${batch.batch_size} prompts successfully (sub-angles: ${subAngles.length}, DB history: ${recentAds.length}, batch context items: ${batchGeneratedPrompts.length}).`);
   return validPrompts;
 }
 
