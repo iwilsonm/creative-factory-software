@@ -8,7 +8,6 @@ import ProjectSetup from './pages/ProjectSetup';
 import ProjectDetail from './pages/ProjectDetail';
 import Settings from './pages/Settings';
 import Projects from './pages/Projects';
-import AdTracker from './pages/AdTracker';
 
 function ProtectedRoute({ children }) {
   const [state, setState] = useState('loading');
@@ -48,7 +47,6 @@ export default function App() {
         <Route path="/projects" element={<ProtectedRoute><Projects /></ProtectedRoute>} />
         <Route path="/projects/new" element={<ProtectedRoute><ProjectSetup /></ProtectedRoute>} />
         <Route path="/projects/:id" element={<ProtectedRoute><ProjectDetail /></ProtectedRoute>} />
-        <Route path="/ad-tracker" element={<ProtectedRoute><AdTracker /></ProtectedRoute>} />
         <Route path="/settings" element={<ProtectedRoute><Settings /></ProtectedRoute>} />
         <Route path="*" element={<Navigate to="/" replace />} />
       </Routes>

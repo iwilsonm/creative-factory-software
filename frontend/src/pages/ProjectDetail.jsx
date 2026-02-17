@@ -5,6 +5,7 @@ import Layout from '../components/Layout';
 import FoundationalDocs from '../components/FoundationalDocs';
 import TemplateImages from '../components/TemplateImages';
 import AdStudio from '../components/AdStudio';
+import AdTracker from './AdTracker';
 import CostSummaryCards from '../components/CostSummaryCards';
 import InfoTooltip from '../components/InfoTooltip';
 import DriveFolderPicker from '../components/DriveFolderPicker';
@@ -183,6 +184,7 @@ export default function ProjectDetail() {
 
   const tabs = [
     { id: 'ads', label: 'Ad Studio', tooltip: 'Generate individual ads or run batch generation.' },
+    { id: 'tracker', label: 'Ad Tracker', tooltip: 'Track ad deployments, campaigns, and performance.' },
     { id: 'overview', label: 'Overview', tooltip: 'Project settings, cost tracking, and stats.' },
     { id: 'docs', label: 'Foundational Docs', tooltip: 'Core research documents that guide ad generation.' },
     { id: 'templates', label: 'Template Library', tooltip: 'Reference images synced from Drive or uploaded directly.' }
@@ -532,6 +534,9 @@ export default function ProjectDetail() {
         )}
         {tab === 'ads' && (
           <AdStudio projectId={id} project={project} />
+        )}
+        {tab === 'tracker' && (
+          <AdTracker projectId={id} />
         )}
       </div>
     </Layout>

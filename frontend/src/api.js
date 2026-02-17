@@ -289,6 +289,7 @@ export const api = {
 
   // Ad Tracker / Deployments
   getDeployments: () => request('/deployments'),
+  getProjectDeployments: (projectId) => request(`/deployments?projectId=${projectId}`),
   createDeployments: (adIds) => request('/deployments', { method: 'POST', body: JSON.stringify({ adIds }) }),
   updateDeployment: (id, fields) => request(`/deployments/${id}`, { method: 'PUT', body: JSON.stringify(fields) }),
   updateDeploymentStatus: (id, status) => request(`/deployments/${id}/status`, { method: 'PUT', body: JSON.stringify({ status }) }),

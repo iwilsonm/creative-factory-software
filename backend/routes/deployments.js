@@ -3,6 +3,7 @@ import crypto from 'crypto';
 import { requireAuth } from '../auth.js';
 import {
   getAllDeployments,
+  getDeploymentsByProject,
   createDeployment,
   updateDeployment,
   updateDeploymentStatus,
@@ -16,11 +17,15 @@ const router = Router();
 router.use(requireAuth);
 
 /**
- * GET /deployments — List all deployments with resolved ad + project data
+ * GET /deployments — List deployments with resolved ad + project data
+ * Optional query param: ?projectId=xxx to filter by project
  */
 router.get('/deployments', async (req, res) => {
   try {
-    const deployments = await getAllDeployments();
+    const { projectId } = req.query;
+    const deployments = projectId
+      ? await getDeploymentsByProject(projectId)
+      : await getAllDeployments();
 
     // Resolve ad creative and project data for each deployment
     const enriched = await Promise.all(
@@ -92,11 +97,13 @@ router.post('/deployments', async (req, res) => {
       }
 
       const id = crypto.randomUUID();
+      const adName = [ad.angle, ad.headline].filter(Boolean).join(' — ') || `Ad ${adId.slice(0, 8)}`;
       const result = await createDeployment({
         id,
         ad_id: adId,
         project_id: ad.project_id,
         status: 'selected',
+        ad_name: adName,
       });
 
       // result is null if dedup guard caught it (already deployed)
