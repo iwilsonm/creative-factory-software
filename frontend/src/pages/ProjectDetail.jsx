@@ -133,7 +133,7 @@ export default function ProjectDetail() {
     if (!confirm('Are you sure you want to delete this project? This cannot be undone.')) return;
     try {
       await api.deleteProject(id);
-      navigate('/');
+      navigate('/projects');
     } catch (err) {
       toast.error(err.message);
     }
@@ -176,7 +176,7 @@ export default function ProjectDetail() {
       <Layout>
         <div className="text-center py-16">
           <p className="text-gray-500 text-sm mb-4">Project not found</p>
-          <Link to="/" className="text-blue-500 hover:text-blue-600 text-sm transition-colors">Back to Dashboard</Link>
+          <Link to="/projects" className="text-blue-500 hover:text-blue-600 text-sm transition-colors">Back to Projects</Link>
         </div>
       </Layout>
     );
@@ -195,7 +195,7 @@ export default function ProjectDetail() {
   return (
     <Layout>
       <div className="flex items-center gap-3 mb-6">
-        <Link to="/" className="text-gray-400 hover:text-gray-600 transition-colors">
+        <Link to="/projects" className="text-gray-400 hover:text-gray-600 transition-colors">
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
           </svg>

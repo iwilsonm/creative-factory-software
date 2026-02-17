@@ -6,13 +6,25 @@ import CostBarChart from '../components/CostBarChart';
 import InfoTooltip from '../components/InfoTooltip';
 
 // ─── Roadmap / To-Do Widget ───────────────────────────────────────────────────
+const AUTHOR_META = {
+  Ian:  { color: 'bg-blue-50 text-blue-600', dotColor: 'bg-blue-400' },
+  Luke: { color: 'bg-emerald-50 text-emerald-600', dotColor: 'bg-emerald-400' },
+};
+const AUTHORS = Object.keys(AUTHOR_META);
+
 function TodoWidget() {
   const [todos, setTodos] = useState([]);
   const [loading, setLoading] = useState(true);
   const [newText, setNewText] = useState('');
+  const [newAuthor, setNewAuthor] = useState('Ian');
+  const [showNewNotes, setShowNewNotes] = useState(false);
+  const [newNotes, setNewNotes] = useState('');
   const [saving, setSaving] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [editText, setEditText] = useState('');
+  const [editAuthor, setEditAuthor] = useState('Ian');
+  const [editNotes, setEditNotes] = useState('');
+  const [expandedNoteId, setExpandedNoteId] = useState(null);
   const inputRef = useRef(null);
   const editInputRef = useRef(null);
 
@@ -34,8 +46,10 @@ function TodoWidget() {
     e.preventDefault();
     const text = newText.trim();
     if (!text) return;
-    persist([...todos, { id: Date.now(), text, done: false }]);
+    persist([...todos, { id: Date.now(), text, done: false, author: newAuthor, notes: newNotes.trim() || '' }]);
     setNewText('');
+    setNewNotes('');
+    setShowNewNotes(false);
     inputRef.current?.focus();
   };
 
@@ -45,34 +59,176 @@ function TodoWidget() {
 
   const remove = (id) => {
     persist(todos.filter(t => t.id !== id));
+    if (expandedNoteId === id) setExpandedNoteId(null);
   };
 
   const startEdit = (todo) => {
     setEditingId(todo.id);
     setEditText(todo.text);
+    setEditAuthor(todo.author || 'Ian');
+    setEditNotes(todo.notes || '');
     setTimeout(() => editInputRef.current?.focus(), 0);
   };
 
   const saveEdit = () => {
     const trimmed = editText.trim();
     if (!trimmed || !editingId) { cancelEdit(); return; }
-    persist(todos.map(t => t.id === editingId ? { ...t, text: trimmed } : t));
+    persist(todos.map(t => t.id === editingId ? { ...t, text: trimmed, author: editAuthor, notes: editNotes.trim() } : t));
     setEditingId(null);
     setEditText('');
+    setEditNotes('');
   };
 
   const cancelEdit = () => {
     setEditingId(null);
     setEditText('');
+    setEditNotes('');
   };
 
   const handleEditKeyDown = (e) => {
-    if (e.key === 'Enter') { e.preventDefault(); saveEdit(); }
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); saveEdit(); }
     if (e.key === 'Escape') { cancelEdit(); }
+  };
+
+  const saveInlineNotes = (id, notes) => {
+    persist(todos.map(t => t.id === id ? { ...t, notes: notes.trim() } : t));
   };
 
   const pending = todos.filter(t => !t.done);
   const completed = todos.filter(t => t.done);
+
+  // Shared row renderer for pending and completed items
+  const renderItem = (t, isDone) => {
+    const isEditing = editingId === t.id;
+    const isExpanded = expandedNoteId === t.id;
+    const authorMeta = AUTHOR_META[t.author] || AUTHOR_META.Ian;
+
+    return (
+      <li key={t.id} className="px-1 -mx-1">
+        <div className={`flex items-center gap-2 group ${isDone ? 'py-0.5' : 'py-1'} rounded-lg hover:bg-gray-50/50 transition-colors`}>
+          {/* Checkbox */}
+          {isDone ? (
+            <button
+              onClick={() => toggle(t.id)}
+              className="w-[18px] h-[18px] rounded-md bg-indigo-500 flex-shrink-0 flex items-center justify-center"
+            >
+              <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+              </svg>
+            </button>
+          ) : (
+            <button
+              onClick={() => toggle(t.id)}
+              className="w-[18px] h-[18px] rounded-md border-2 border-gray-300 flex-shrink-0 hover:border-indigo-400 transition-colors"
+            />
+          )}
+
+          {/* Text + author tag */}
+          {isEditing ? (
+            <div className="flex-1 space-y-1.5">
+              <input
+                ref={editInputRef}
+                value={editText}
+                onChange={e => setEditText(e.target.value)}
+                onKeyDown={handleEditKeyDown}
+                className="text-[13px] text-gray-700 w-full bg-white border border-indigo-300 rounded-md px-1.5 py-0.5 outline-none ring-2 ring-indigo-100"
+              />
+              <div className="flex items-center gap-2">
+                <div className="flex items-center gap-0.5 bg-gray-100 rounded-md p-0.5">
+                  {AUTHORS.map(a => (
+                    <button
+                      key={a}
+                      type="button"
+                      onClick={() => setEditAuthor(a)}
+                      className={`text-[10px] px-2 py-0.5 rounded font-medium transition-colors ${
+                        editAuthor === a
+                          ? `${AUTHOR_META[a].color}`
+                          : 'text-gray-400 hover:text-gray-600'
+                      }`}
+                    >
+                      {a}
+                    </button>
+                  ))}
+                </div>
+              </div>
+              <textarea
+                value={editNotes}
+                onChange={e => setEditNotes(e.target.value)}
+                placeholder="Notes (optional)..."
+                rows={2}
+                className="text-[11px] text-gray-500 w-full bg-white border border-gray-200 rounded-md px-1.5 py-1 outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100 resize-none"
+              />
+              <div className="flex items-center gap-1.5">
+                <button onClick={saveEdit} className="btn-primary text-[10px] px-2.5 py-0.5">Save</button>
+                <button onClick={cancelEdit} className="text-[10px] text-gray-400 hover:text-gray-600 px-1.5">Cancel</button>
+              </div>
+            </div>
+          ) : (
+            <div className="flex items-center gap-1.5 flex-1 min-w-0">
+              <span
+                className={`text-[13px] ${isDone ? 'text-gray-400 line-through' : 'text-gray-700'} cursor-text rounded px-0.5 truncate`}
+                onDoubleClick={() => startEdit(t)}
+              >
+                {t.text}
+              </span>
+              {t.author && (
+                <span className={`inline-flex items-center gap-0.5 px-1.5 py-0 rounded-full text-[9px] font-medium flex-shrink-0 ${authorMeta.color}`}>
+                  {t.author}
+                </span>
+              )}
+              {t.notes && (
+                <button
+                  onClick={() => setExpandedNoteId(isExpanded ? null : t.id)}
+                  className="flex-shrink-0 text-amber-400 hover:text-amber-500 transition-colors p-0.5"
+                  title="View notes"
+                >
+                  <svg className="w-3 h-3" fill="currentColor" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M7.5 8.25h9m-9 3H12m-9.75 1.51c0 1.6 1.123 2.994 2.707 3.227 1.129.166 2.27.293 3.423.379.35.026.67.21.865.501L12 21l2.755-4.133a1.14 1.14 0 01.865-.501 48.172 48.172 0 003.423-.379c1.584-.233 2.707-1.626 2.707-3.228V6.741c0-1.602-1.123-2.995-2.707-3.228A48.394 48.394 0 0012 3c-2.392 0-4.744.175-7.043.513C3.373 3.746 2.25 5.14 2.25 6.741v6.018z" />
+                  </svg>
+                </button>
+              )}
+            </div>
+          )}
+
+          {/* Action buttons */}
+          {!isEditing && (
+            <div className="flex items-center gap-1 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+              <button
+                onClick={() => startEdit(t)}
+                className="text-[10px] font-medium text-indigo-500 bg-indigo-50 hover:bg-indigo-100 transition-colors px-2 py-0.5 rounded-md"
+              >
+                Edit
+              </button>
+              {!t.notes && (
+                <button
+                  onClick={() => startEdit(t)}
+                  className="text-[10px] font-medium text-amber-500 bg-amber-50 hover:bg-amber-100 transition-colors px-2 py-0.5 rounded-md"
+                >
+                  Add Notes
+                </button>
+              )}
+              <button
+                onClick={() => remove(t.id)}
+                className="text-gray-300 hover:text-red-500 hover:bg-red-50 transition-all p-0.5 rounded-md"
+                title="Delete"
+              >
+                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* Expanded notes */}
+        {isExpanded && !isEditing && (
+          <div className="ml-7 mt-0.5 mb-1.5 pl-2 border-l-2 border-amber-200 fade-in">
+            <p className="text-[11px] text-gray-400 whitespace-pre-wrap">{t.notes}</p>
+          </div>
+        )}
+      </li>
+    );
+  };
 
   if (loading) {
     return (
@@ -103,69 +259,67 @@ function TodoWidget() {
       </div>
 
       {/* Add new item */}
-      <form onSubmit={addTodo} className="flex gap-2 mb-3">
-        <input
-          ref={inputRef}
-          value={newText}
-          onChange={e => setNewText(e.target.value)}
-          placeholder="Add a task..."
-          className="input-apple text-[13px] py-1.5 flex-1"
-        />
-        <button
-          type="submit"
-          disabled={!newText.trim()}
-          className="btn-primary text-[12px] px-3 py-1.5 disabled:opacity-30"
-        >
-          Add
-        </button>
+      <form onSubmit={addTodo} className="mb-3">
+        <div className="flex gap-2 items-center">
+          <input
+            ref={inputRef}
+            value={newText}
+            onChange={e => setNewText(e.target.value)}
+            placeholder="Add a task..."
+            className="input-apple text-[13px] py-1.5 flex-1"
+          />
+          {/* Author toggle */}
+          <div className="flex items-center gap-1.5 flex-shrink-0">
+            <span className="text-[10px] text-gray-400">by</span>
+            <div className="flex items-center gap-0.5 bg-gray-100 rounded-md p-0.5">
+              {AUTHORS.map(a => (
+                <button
+                  key={a}
+                  type="button"
+                  onClick={() => setNewAuthor(a)}
+                  className={`text-[10px] px-2 py-0.5 rounded font-medium transition-colors ${
+                    newAuthor === a
+                      ? `${AUTHOR_META[a].color}`
+                      : 'text-gray-400 hover:text-gray-600'
+                  }`}
+                >
+                  {a}
+                </button>
+              ))}
+            </div>
+          </div>
+          <button
+            type="submit"
+            disabled={!newText.trim()}
+            className="btn-primary text-[12px] px-3 py-1.5 disabled:opacity-30"
+          >
+            Add
+          </button>
+        </div>
+        {/* Optional notes */}
+        {showNewNotes ? (
+          <textarea
+            value={newNotes}
+            onChange={e => setNewNotes(e.target.value)}
+            placeholder="Notes (optional)..."
+            rows={2}
+            className="input-apple text-[11px] w-full mt-1.5 resize-none"
+          />
+        ) : (
+          <button
+            type="button"
+            onClick={() => setShowNewNotes(true)}
+            className="text-[10px] text-gray-300 hover:text-gray-500 mt-1 transition-colors"
+          >
+            + Add notes
+          </button>
+        )}
       </form>
 
       {/* Pending items */}
       {pending.length > 0 && (
-        <ul className="space-y-1">
-          {pending.map(t => (
-            <li key={t.id} className="flex items-center gap-2 group py-1 px-1 -mx-1 rounded-lg hover:bg-gray-50/50 transition-colors">
-              <button
-                onClick={() => toggle(t.id)}
-                className="w-[18px] h-[18px] rounded-md border-2 border-gray-300 flex-shrink-0 hover:border-indigo-400 transition-colors"
-              />
-              {editingId === t.id ? (
-                <input
-                  ref={editInputRef}
-                  value={editText}
-                  onChange={e => setEditText(e.target.value)}
-                  onKeyDown={handleEditKeyDown}
-                  onBlur={saveEdit}
-                  className="text-[13px] text-gray-700 flex-1 bg-white border border-indigo-300 rounded-md px-1.5 py-0.5 outline-none ring-2 ring-indigo-100"
-                />
-              ) : (
-                <span
-                  className="text-[13px] text-gray-700 flex-1 cursor-text rounded px-0.5"
-                  onDoubleClick={() => startEdit(t)}
-                >
-                  {t.text}
-                </span>
-              )}
-              {editingId !== t.id && (
-                <div className="flex items-center gap-0.5 flex-shrink-0">
-                  <button
-                    onClick={() => startEdit(t)}
-                    className="text-gray-300 hover:text-indigo-500 hover:bg-indigo-50 transition-all text-[12px] px-1.5 py-0.5 rounded-md"
-                    title="Edit task"
-                  >
-                    ✎
-                  </button>
-                  <button
-                    onClick={() => remove(t.id)}
-                    className="text-gray-300 hover:text-red-500 hover:bg-red-50 transition-all text-[12px] px-1.5 py-0.5 rounded-md"
-                    title="Delete task"
-                  >
-                    ✕
-                  </button>
-                </div>
-              )}
-            </li>
-          ))}
+        <ul className="space-y-0.5">
+          {pending.map(t => renderItem(t, false))}
         </ul>
       )}
 
@@ -176,52 +330,7 @@ function TodoWidget() {
             <p className="text-[10px] font-medium text-gray-300 uppercase tracking-wider mb-1">Completed</p>
           )}
           <ul className="space-y-0.5">
-            {completed.map(t => (
-              <li key={t.id} className="flex items-center gap-2 group py-0.5 px-1 -mx-1 rounded-lg hover:bg-gray-50/50 transition-colors">
-                <button
-                  onClick={() => toggle(t.id)}
-                  className="w-[18px] h-[18px] rounded-md bg-indigo-500 flex-shrink-0 flex items-center justify-center"
-                >
-                  <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-                  </svg>
-                </button>
-                {editingId === t.id ? (
-                  <input
-                    ref={editInputRef}
-                    value={editText}
-                    onChange={e => setEditText(e.target.value)}
-                    onKeyDown={handleEditKeyDown}
-                    onBlur={saveEdit}
-                    className="text-[13px] text-gray-500 flex-1 bg-white border border-indigo-300 rounded-md px-1.5 py-0.5 outline-none ring-2 ring-indigo-100"
-                  />
-                ) : (
-                  <span
-                    className="text-[13px] text-gray-400 line-through flex-1 cursor-text rounded px-0.5"
-                    onDoubleClick={() => startEdit(t)}
-                  >
-                    {t.text}
-                  </span>
-                )}
-                {editingId !== t.id && (
-                  <div className="flex items-center gap-0.5 flex-shrink-0">
-                    <button
-                      onClick={() => startEdit(t)}
-                      className="text-gray-300 hover:text-indigo-500 hover:bg-indigo-50 transition-all text-[12px] px-1.5 py-0.5 rounded-md"
-                      title="Edit task"
-                    >
-                      ✎
-                    </button>
-                    <button
-                      onClick={() => remove(t.id)}
-                      className="text-gray-300 hover:text-red-500 hover:bg-red-50 transition-all text-[12px] px-1.5 py-0.5 rounded-md"
-                    >
-                      ✕
-                    </button>
-                  </div>
-                )}
-              </li>
-            ))}
+            {completed.map(t => renderItem(t, true))}
           </ul>
         </div>
       )}

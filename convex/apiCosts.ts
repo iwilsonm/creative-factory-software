@@ -36,18 +36,16 @@ export const getAggregates = query({
       costs = await ctx.db
         .query("api_costs")
         .withIndex("by_project_and_period", (q) =>
-          q.eq("project_id", args.projectId)
+          q.eq("project_id", args.projectId).gte("period_date", args.startDate).lte("period_date", args.endDate)
         )
         .collect();
-      // Filter by date range in JS since compound index doesn't support range on second field
-      costs = costs.filter(
-        (c) => c.period_date >= args.startDate && c.period_date <= args.endDate
-      );
     } else {
-      costs = await ctx.db.query("api_costs").collect();
-      costs = costs.filter(
-        (c) => c.period_date >= args.startDate && c.period_date <= args.endDate
-      );
+      costs = await ctx.db
+        .query("api_costs")
+        .withIndex("by_period", (q) =>
+          q.gte("period_date", args.startDate).lte("period_date", args.endDate)
+        )
+        .collect();
     }
 
     let total = 0;
@@ -80,14 +78,17 @@ export const getDailyHistory = query({
       costs = await ctx.db
         .query("api_costs")
         .withIndex("by_project_and_period", (q) =>
-          q.eq("project_id", args.projectId)
+          q.eq("project_id", args.projectId).gte("period_date", args.startDate)
         )
         .collect();
     } else {
-      costs = await ctx.db.query("api_costs").collect();
+      costs = await ctx.db
+        .query("api_costs")
+        .withIndex("by_period", (q) =>
+          q.gte("period_date", args.startDate)
+        )
+        .collect();
     }
-
-    costs = costs.filter((c) => c.period_date >= args.startDate);
 
     // Group by date
     const byDate: Record<string, { openai: number; gemini: number; total: number }> = {};

@@ -143,13 +143,32 @@ async function generateBatchPrompts(batch, project, docs, onProgress) {
         // Exclude templates used in this run AND previous runs
         const allExcluded = [...usedTemplateIds, ...newlyUsedTemplateIds];
 
+        // Parse multi-template arrays (if present)
+        let templatePool = [];
+        if (batch.template_image_ids) {
+          try { templatePool.push(...JSON.parse(batch.template_image_ids).map(id => ({ type: 'uploaded', id }))); } catch {}
+        }
+        if (batch.inspiration_image_ids) {
+          try { templatePool.push(...JSON.parse(batch.inspiration_image_ids).map(id => ({ type: 'drive', id }))); } catch {}
+        }
+
         let imageData;
-        if (batch.generation_mode === 'mode2' && batch.template_image_id) {
+        if (templatePool.length > 0) {
+          // Multi-template mode: randomly pick from the pool for this ad
+          const pick = templatePool[Math.floor(Math.random() * templatePool.length)];
+          if (pick.type === 'uploaded') {
+            imageData = await selectTemplateImage(pick.id);
+          } else {
+            imageData = await selectInspirationImage(batch.project_id, pick.id);
+          }
+        } else if (batch.generation_mode === 'mode2' && batch.template_image_id) {
+          // Legacy single uploaded template (backward compatible)
           imageData = await selectTemplateImage(batch.template_image_id);
         } else if (batch.inspiration_image_id) {
+          // Legacy single drive inspiration (backward compatible)
           imageData = await selectInspirationImage(batch.project_id, batch.inspiration_image_id);
         } else {
-          // Random mode: exclude previously used templates
+          // Full random mode: exclude previously used templates
           imageData = await selectInspirationImage(batch.project_id, null, allExcluded);
         }
 

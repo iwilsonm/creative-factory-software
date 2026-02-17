@@ -1,9 +1,11 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useContext } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api';
+import { AuthContext } from '../App';
 
 export default function Login() {
   const navigate = useNavigate();
+  const { setAuthenticated } = useContext(AuthContext);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -33,6 +35,7 @@ export default function Login() {
       } else {
         await api.login(username, password);
       }
+      setAuthenticated(true);
       navigate('/');
     } catch (err) {
       setError(err.message);

@@ -24,7 +24,9 @@ router.post('/:projectId/batches', async (req, res) => {
     angle,
     aspect_ratio = '1:1',
     template_image_id,
+    template_image_ids,        // JSON string array of uploaded template IDs (multi-select)
     inspiration_image_id,
+    inspiration_image_ids,     // JSON string array of drive template IDs (multi-select)
     product_image,
     product_image_mime,
     scheduled = false,
@@ -36,8 +38,9 @@ router.post('/:projectId/batches', async (req, res) => {
   if (!['mode1', 'mode2'].includes(generation_mode)) {
     return res.status(400).json({ error: 'generation_mode must be "mode1" or "mode2".' });
   }
-  if (generation_mode === 'mode2' && !template_image_id) {
-    return res.status(400).json({ error: 'template_image_id is required for mode2.' });
+  // mode2 requires either single template_image_id or multi template_image_ids
+  if (generation_mode === 'mode2' && !template_image_id && !template_image_ids) {
+    return res.status(400).json({ error: 'template_image_id or template_image_ids is required for mode2.' });
   }
   const size = Math.max(1, Math.min(50, parseInt(batch_size) || 5));
 
@@ -62,7 +65,9 @@ router.post('/:projectId/batches', async (req, res) => {
       angle: angle || null,
       aspect_ratio,
       template_image_id: template_image_id || null,
+      template_image_ids: template_image_ids || null,
       inspiration_image_id: inspiration_image_id || null,
+      inspiration_image_ids: inspiration_image_ids || null,
       product_image_storageId: productImageStorageId,
       scheduled: !!scheduled,
       schedule_cron: schedule_cron || null

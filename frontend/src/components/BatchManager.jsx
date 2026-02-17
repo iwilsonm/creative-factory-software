@@ -312,7 +312,7 @@ export default function BatchManager({ projectId, project, onBatchComplete }) {
   const [driveImages, setDriveImages] = useState([]);
   const [uploadedTemplates, setUploadedTemplates] = useState([]);
   const [loadingTemplates, setLoadingTemplates] = useState(false);
-  const [selectedTemplate, setSelectedTemplate] = useState(null); // { id, source }
+  const [selectedTemplates, setSelectedTemplates] = useState([]); // [{ id, source }, ...]
 
   // Upload one-off template
   const [uploadedFile, setUploadedFile] = useState(null);
@@ -469,14 +469,24 @@ export default function BatchManager({ projectId, project, onBatchComplete }) {
       run_immediately: !isScheduled
     };
 
-    if (templateSource === TEMPLATE_SELECT && selectedTemplate) {
-      if (selectedTemplate.source === 'uploaded') {
-        config.generation_mode = 'mode2';
-        config.template_image_id = selectedTemplate.id;
+    if (templateSource === TEMPLATE_SELECT && selectedTemplates.length > 0) {
+      const driveIds = selectedTemplates.filter(t => t.source === 'drive').map(t => t.id);
+      const uploadedIds = selectedTemplates.filter(t => t.source === 'uploaded').map(t => t.id);
+
+      // Single template — backward compatible, use original fields
+      if (selectedTemplates.length === 1) {
+        if (uploadedIds.length === 1) {
+          config.generation_mode = 'mode2';
+          config.template_image_id = uploadedIds[0];
+        } else {
+          config.generation_mode = 'mode1';
+          config.inspiration_image_id = driveIds[0];
+        }
       } else {
-        // Drive template — still mode1 but with specific inspiration_image_id
-        config.generation_mode = 'mode1';
-        config.inspiration_image_id = selectedTemplate.id;
+        // Multi-template — pass arrays
+        config.generation_mode = uploadedIds.length > 0 && driveIds.length === 0 ? 'mode2' : 'mode1';
+        if (driveIds.length > 0) config.inspiration_image_ids = JSON.stringify(driveIds);
+        if (uploadedIds.length > 0) config.template_image_ids = JSON.stringify(uploadedIds);
       }
     } else {
       config.generation_mode = 'mode1';
@@ -487,14 +497,23 @@ export default function BatchManager({ projectId, project, onBatchComplete }) {
 
   // Template source display label for queue items
   const getTemplateLabel = () => {
-    if (templateSource === TEMPLATE_SELECT && selectedTemplate) {
-      const source = selectedTemplate.source === 'drive' ? 'Drive' : 'Uploaded';
-      return `${source} template`;
+    if (templateSource === TEMPLATE_SELECT && selectedTemplates.length > 0) {
+      return `${selectedTemplates.length} template${selectedTemplates.length !== 1 ? 's' : ''} selected`;
     }
     if (templateSource === TEMPLATE_UPLOAD && uploadedFile) {
       return `Upload: ${uploadedFile.name.slice(0, 15)}`;
     }
     return 'Random';
+  };
+
+  // Toggle a template in/out of the selectedTemplates array
+  const toggleTemplate = (id, source) => {
+    setSelectedTemplates(prev => {
+      const exists = prev.find(t => t.id === id && t.source === source);
+      if (exists) return prev.filter(t => !(t.id === id && t.source === source));
+      if (prev.length >= batchSize) return prev; // cap at batch size
+      return [...prev, { id, source }];
+    });
   };
 
   const loadBatches = async (silent = false) => {
@@ -524,8 +543,8 @@ export default function BatchManager({ projectId, project, onBatchComplete }) {
       setCreateError('Please upload a template image or switch to "Random Template".');
       return;
     }
-    if (templateSource === TEMPLATE_SELECT && !selectedTemplate) {
-      setCreateError('Please select a template image.');
+    if (templateSource === TEMPLATE_SELECT && selectedTemplates.length === 0) {
+      setCreateError('Please select at least one template image.');
       return;
     }
 
@@ -631,8 +650,8 @@ export default function BatchManager({ projectId, project, onBatchComplete }) {
       setCreateError('Please upload a template image or switch to "Random Template".');
       return;
     }
-    if (templateSource === TEMPLATE_SELECT && !selectedTemplate) {
-      setCreateError('Please select a template image.');
+    if (templateSource === TEMPLATE_SELECT && selectedTemplates.length === 0) {
+      setCreateError('Please select at least one template image.');
       return;
     }
 
@@ -646,7 +665,7 @@ export default function BatchManager({ projectId, project, onBatchComplete }) {
       schedule_cron: isScheduled ? cronExpression : undefined,
       templateSource,
       templateLabel: getTemplateLabel(),
-      selectedTemplate: selectedTemplate ? { ...selectedTemplate } : null,
+      selectedTemplates: selectedTemplates.length > 0 ? [...selectedTemplates] : [],
       uploadedFile: templateSource === TEMPLATE_UPLOAD ? uploadedFile : null
     };
     setQueue(prev => [...prev, config]);
@@ -952,18 +971,20 @@ export default function BatchManager({ projectId, project, onBatchComplete }) {
                           </p>
                           <div className="grid grid-cols-5 sm:grid-cols-6 md:grid-cols-8 gap-1.5 max-h-[200px] overflow-y-auto rounded-lg pr-1 scrollbar-thin">
                             {driveImages.map(img => {
-                              const isSelected = selectedTemplate?.id === img.id && selectedTemplate?.source === 'drive';
+                              const selIdx = selectedTemplates.findIndex(t => t.id === img.id && t.source === 'drive');
+                              const isSelected = selIdx >= 0;
+                              const atMax = selectedTemplates.length >= batchSize && !isSelected;
                               return (
                                 <button
                                   key={`drive-${img.id}`}
-                                  onClick={() => setSelectedTemplate(
-                                    isSelected ? null : { id: img.id, source: 'drive' }
-                                  )}
-                                  disabled={creating}
+                                  onClick={() => toggleTemplate(img.id, 'drive')}
+                                  disabled={creating || atMax}
                                   className={`group relative rounded-lg overflow-hidden border-2 transition-all aspect-square ${
                                     isSelected
                                       ? 'border-blue-500 ring-2 ring-blue-200 shadow-md'
-                                      : 'border-gray-200/60 hover:border-gray-300'
+                                      : atMax
+                                        ? 'border-gray-200/60 opacity-40 cursor-not-allowed'
+                                        : 'border-gray-200/60 hover:border-gray-300'
                                   } cursor-pointer`}
                                 >
                                   <img
@@ -973,10 +994,8 @@ export default function BatchManager({ projectId, project, onBatchComplete }) {
                                     loading="lazy"
                                   />
                                   {isSelected && (
-                                    <div className="absolute top-1 right-1 w-4 h-4 rounded-full bg-blue-500 flex items-center justify-center shadow-sm">
-                                      <svg className="w-2.5 h-2.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
-                                      </svg>
+                                    <div className="absolute top-1 right-1 w-4 h-4 rounded-full bg-blue-500 flex items-center justify-center shadow-sm text-[8px] font-bold text-white leading-none">
+                                      {selIdx + 1}
                                     </div>
                                   )}
                                 </button>
@@ -992,18 +1011,20 @@ export default function BatchManager({ projectId, project, onBatchComplete }) {
                           </p>
                           <div className="grid grid-cols-5 sm:grid-cols-6 md:grid-cols-8 gap-1.5">
                             {uploadedTemplates.map(t => {
-                              const isSelected = selectedTemplate?.id === t.id && selectedTemplate?.source === 'uploaded';
+                              const selIdx = selectedTemplates.findIndex(st => st.id === t.id && st.source === 'uploaded');
+                              const isSelected = selIdx >= 0;
+                              const atMax = selectedTemplates.length >= batchSize && !isSelected;
                               return (
                                 <button
                                   key={`uploaded-${t.id}`}
-                                  onClick={() => setSelectedTemplate(
-                                    isSelected ? null : { id: t.id, source: 'uploaded' }
-                                  )}
-                                  disabled={creating}
+                                  onClick={() => toggleTemplate(t.id, 'uploaded')}
+                                  disabled={creating || atMax}
                                   className={`group relative rounded-lg overflow-hidden border-2 transition-all aspect-square ${
                                     isSelected
                                       ? 'border-blue-500 ring-2 ring-blue-200 shadow-md'
-                                      : 'border-gray-200/60 hover:border-gray-300'
+                                      : atMax
+                                        ? 'border-gray-200/60 opacity-40 cursor-not-allowed'
+                                        : 'border-gray-200/60 hover:border-gray-300'
                                   } cursor-pointer`}
                                 >
                                   <img
@@ -1013,10 +1034,8 @@ export default function BatchManager({ projectId, project, onBatchComplete }) {
                                     loading="lazy"
                                   />
                                   {isSelected && (
-                                    <div className="absolute top-1 right-1 w-4 h-4 rounded-full bg-blue-500 flex items-center justify-center shadow-sm">
-                                      <svg className="w-2.5 h-2.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
-                                      </svg>
+                                    <div className="absolute top-1 right-1 w-4 h-4 rounded-full bg-blue-500 flex items-center justify-center shadow-sm text-[8px] font-bold text-white leading-none">
+                                      {selIdx + 1}
                                     </div>
                                   )}
                                 </button>
@@ -1027,20 +1046,31 @@ export default function BatchManager({ projectId, project, onBatchComplete }) {
                       )}
                     </div>
                   )}
-                  {selectedTemplate && (
+                  {selectedTemplates.length > 0 && (
                     <div className="mt-2 flex items-center gap-2">
                       <span className="text-[11px] text-blue-600 font-medium">
-                        Selected: {selectedTemplate.source === 'drive' ? 'Drive' : 'Uploaded'} template
+                        {selectedTemplates.length} template{selectedTemplates.length !== 1 ? 's' : ''} selected
                       </span>
-                      <span className="text-[10px] text-gray-400">— all ads in batch use this template</span>
+                      <span className="text-[10px] text-gray-400">
+                        {selectedTemplates.length === 1
+                          ? '— all ads use this template'
+                          : selectedTemplates.length >= batchSize
+                            ? '— each ad uses a unique template'
+                            : `— randomly distributed across ${batchSize} ads`}
+                      </span>
                       <button
-                        onClick={() => setSelectedTemplate(null)}
+                        onClick={() => setSelectedTemplates([])}
                         disabled={creating}
                         className="text-[11px] text-gray-400 hover:text-gray-600 transition-colors"
                       >
-                        Clear
+                        Clear all
                       </button>
                     </div>
+                  )}
+                  {selectedTemplates.length === 0 && (driveImages.length > 0 || uploadedTemplates.length > 0) && (
+                    <p className="mt-2 text-[10px] text-gray-400">
+                      Select templates to use in this batch (up to {batchSize}), or leave empty for fully random.
+                    </p>
                   )}
                 </div>
               )}
@@ -1752,7 +1782,7 @@ function BatchRow({ batch, onRunNow, onCancel, onDelete, onEdit, onPause, onResu
               />
             </div>
             <span className="text-[10px] text-gray-400 flex-shrink-0">
-              {progressDone}/{progressTotal}
+              {progressDone}/{progressTotal} generated
             </span>
           </div>
         </div>

@@ -1394,6 +1394,101 @@ export default function AdStudio({ projectId, project }) {
         onBatchComplete={loadAds}
       />
 
+      {/* Ad Queue — inline between batch generation and gallery */}
+      {activeGens.length > 0 && (
+        <div className="card p-4 mb-6 fade-in">
+          <div className="flex items-center justify-between mb-3">
+            <div className="flex items-center gap-2">
+              <div className="w-6 h-6 rounded-lg bg-blue-100 flex items-center justify-center flex-shrink-0">
+                {activeGenCount > 0 ? (
+                  <div className="w-3 h-3 rounded-full border-2 border-blue-200 border-t-blue-500 animate-spin" />
+                ) : (
+                  <svg className="w-3 h-3 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" /></svg>
+                )}
+              </div>
+              <h3 className="text-[14px] font-semibold text-gray-900 tracking-tight">Ad Queue</h3>
+              <span className="text-[11px] text-gray-400">
+                {activeGenCount > 0
+                  ? `${activeGenCount} generating...`
+                  : 'All complete'}
+              </span>
+            </div>
+            <button
+              onClick={() => setGenQueueExpanded(!genQueueExpanded)}
+              className="text-gray-400 hover:text-gray-600 transition-colors p-1"
+            >
+              <svg className={`w-4 h-4 transition-transform ${genQueueExpanded ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+              </svg>
+            </button>
+          </div>
+
+          {genQueueExpanded && (
+            <div className="space-y-1.5">
+              {activeGens.map(gen => {
+                const steps = gen.status === 'generating_image' && !gen.message?.includes('copy')
+                  ? STATUS_STEPS.filter(s => s.status !== 'generating_copy')
+                  : STATUS_STEPS;
+                const stepIndex = steps.findIndex(s => s.status === gen.status);
+
+                return (
+                  <div key={gen.id} className="flex items-center gap-3 px-3 py-2 rounded-lg bg-gray-50/80">
+                    {/* Status icon */}
+                    {gen.error ? (
+                      <svg className="w-3.5 h-3.5 text-red-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" /></svg>
+                    ) : gen.status === 'completed' ? (
+                      <svg className="w-3.5 h-3.5 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
+                    ) : (
+                      <div className="w-3.5 h-3.5 rounded-full border-2 border-gray-300 border-t-blue-500 animate-spin flex-shrink-0" />
+                    )}
+
+                    {/* Label + message */}
+                    <div className="flex-1 min-w-0">
+                      <p className={`text-[12px] font-medium truncate ${
+                        gen.error ? 'text-red-600' : gen.status === 'completed' ? 'text-green-600' : 'text-gray-700'
+                      }`}>
+                        {gen.label && <span className="text-gray-400 mr-1.5">{gen.label}</span>}
+                        {gen.error || gen.message || 'Starting...'}
+                      </p>
+                      {gen.warning && (
+                        <p className="text-[10px] text-amber-500 truncate">{gen.warning}</p>
+                      )}
+                    </div>
+
+                    {/* Step pills */}
+                    {!gen.error && gen.status !== 'completed' && (
+                      <div className="hidden sm:flex items-center gap-1 flex-shrink-0">
+                        {steps.map((step, i) => (
+                          <div
+                            key={step.status}
+                            className={`w-1.5 h-1.5 rounded-full transition-all ${
+                              i === stepIndex ? 'bg-blue-500 scale-125' :
+                              i < stepIndex ? 'bg-blue-300' :
+                              'bg-gray-200'
+                            }`}
+                            title={step.label}
+                          />
+                        ))}
+                      </div>
+                    )}
+
+                    {/* Dismiss */}
+                    {(gen.error || gen.status === 'completed') && (
+                      <button
+                        onClick={() => dismissGen(gen.id)}
+                        className="text-gray-300 hover:text-gray-500 flex-shrink-0 transition-colors"
+                      >
+                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                      </button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
       {/* Ad Gallery */}
       <div>
         <div className="flex items-center justify-between mb-4">
@@ -1783,101 +1878,7 @@ export default function AdStudio({ projectId, project }) {
           </div>
         </div>
       )}
-      {/* Floating generation queue */}
-      {activeGens.length > 0 && (
-        <div className={`fixed left-1/2 -translate-x-1/2 z-40 fade-in w-full max-w-xl px-4 ${selectedCount > 0 ? 'bottom-[4.5rem]' : 'bottom-6'}`}>
-          <div className="bg-gray-900/95 backdrop-blur-sm rounded-2xl shadow-lg border border-white/10 overflow-hidden">
-            {/* Summary header — always visible, click to toggle */}
-            <button
-              onClick={() => setGenQueueExpanded(!genQueueExpanded)}
-              className="w-full flex items-center gap-3 px-4 py-3 hover:bg-white/5 transition-colors"
-            >
-              {/* Spinner or checkmark */}
-              {activeGenCount > 0 ? (
-                <div className="w-4 h-4 rounded-full border-2 border-white/20 border-t-blue-400 animate-spin flex-shrink-0" />
-              ) : (
-                <svg className="w-4 h-4 text-green-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
-              )}
-
-              <span className="text-[13px] text-white font-medium flex-1 text-left">
-                {activeGenCount > 0
-                  ? `${activeGenCount} generation${activeGenCount !== 1 ? 's' : ''} in progress`
-                  : 'Generation complete'}
-              </span>
-
-              {/* Expand/collapse chevron */}
-              <svg className={`w-4 h-4 text-white/50 transition-transform ${genQueueExpanded ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-              </svg>
-            </button>
-
-            {/* Expanded: individual generation rows */}
-            {genQueueExpanded && (
-              <div className="border-t border-white/10 max-h-48 overflow-y-auto">
-                {activeGens.map(gen => {
-                  const steps = gen.status === 'generating_image' && !gen.message?.includes('copy')
-                    ? STATUS_STEPS.filter(s => s.status !== 'generating_copy')
-                    : STATUS_STEPS;
-                  const stepIndex = steps.findIndex(s => s.status === gen.status);
-
-                  return (
-                    <div key={gen.id} className="flex items-center gap-3 px-4 py-2.5 border-b border-white/5 last:border-b-0">
-                      {/* Status icon */}
-                      {gen.error ? (
-                        <svg className="w-3.5 h-3.5 text-red-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" /></svg>
-                      ) : gen.status === 'completed' ? (
-                        <svg className="w-3.5 h-3.5 text-green-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
-                      ) : (
-                        <div className="w-3.5 h-3.5 rounded-full border-2 border-white/20 border-t-blue-400 animate-spin flex-shrink-0" />
-                      )}
-
-                      {/* Label + message */}
-                      <div className="flex-1 min-w-0">
-                        <p className={`text-[12px] font-medium truncate ${
-                          gen.error ? 'text-red-400' : gen.status === 'completed' ? 'text-green-400' : 'text-white/90'
-                        }`}>
-                          {gen.label && <span className="text-white/40 mr-1.5">{gen.label}</span>}
-                          {gen.error || gen.message}
-                        </p>
-                        {gen.warning && (
-                          <p className="text-[10px] text-amber-400 truncate">{gen.warning}</p>
-                        )}
-                      </div>
-
-                      {/* Step pills */}
-                      {!gen.error && gen.status !== 'completed' && (
-                        <div className="hidden sm:flex items-center gap-0.5 flex-shrink-0">
-                          {steps.map((step, i) => (
-                            <div
-                              key={step.status}
-                              className={`w-1.5 h-1.5 rounded-full transition-all ${
-                                i === stepIndex ? 'bg-blue-400 scale-125' :
-                                i < stepIndex ? 'bg-blue-500/50' :
-                                'bg-white/15'
-                              }`}
-                              title={step.label}
-                            />
-                          ))}
-                        </div>
-                      )}
-
-                      {/* Dismiss */}
-                      {(gen.error || gen.status === 'completed') && (
-                        <button
-                          onClick={(e) => { e.stopPropagation(); dismissGen(gen.id); }}
-                          className="text-white/30 hover:text-white/60 flex-shrink-0 transition-colors"
-                        >
-                          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-                        </button>
-                      )}
-                    </div>
-                  );
-                })}
-              </div>
-            )}
-          </div>
-        </div>
-      )}
+      {/* (Queue is now inline above the Ad Gallery) */}
       {/* Floating bulk action bar */}
       {selectedCount > 0 && (
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 fade-in">

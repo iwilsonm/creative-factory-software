@@ -210,7 +210,7 @@ export async function getProjectStats(projectId) {
 // Batch job helpers
 // =============================================
 
-export async function createBatchJob({ id, project_id, generation_mode, batch_size, angle, angles, aspect_ratio, template_image_id, inspiration_image_id, product_image_storageId, scheduled, schedule_cron }) {
+export async function createBatchJob({ id, project_id, generation_mode, batch_size, angle, angles, aspect_ratio, template_image_id, template_image_ids, inspiration_image_id, inspiration_image_ids, product_image_storageId, scheduled, schedule_cron }) {
   await mutationWithRetry(api.batchJobs.create, {
     externalId: id,
     project_id,
@@ -220,7 +220,9 @@ export async function createBatchJob({ id, project_id, generation_mode, batch_si
     angles: angles || undefined,
     aspect_ratio: aspect_ratio || '1:1',
     template_image_id: template_image_id || undefined,
+    template_image_ids: template_image_ids || undefined,
     inspiration_image_id: inspiration_image_id || undefined,
+    inspiration_image_ids: inspiration_image_ids || undefined,
     product_image_storageId: product_image_storageId || undefined,
     scheduled: !!scheduled,
     schedule_cron: schedule_cron || undefined,

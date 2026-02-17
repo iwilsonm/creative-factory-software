@@ -81,7 +81,9 @@ export default defineSchema({
     angles: v.optional(v.string()),  // JSON array of angles for multi-angle batches
     aspect_ratio: v.optional(v.string()),
     template_image_id: v.optional(v.string()),
+    template_image_ids: v.optional(v.string()),      // JSON array of uploaded template IDs (multi-select)
     inspiration_image_id: v.optional(v.string()),
+    inspiration_image_ids: v.optional(v.string()),    // JSON array of drive template IDs (multi-select)
     product_image_storageId: v.optional(v.id("_storage")),
     gemini_batch_job: v.optional(v.nullable(v.string())),
     gpt_prompts: v.optional(v.nullable(v.string())),
@@ -100,7 +102,8 @@ export default defineSchema({
   })
     .index("by_externalId", ["externalId"])
     .index("by_project", ["project_id"])
-    .index("by_status", ["status"]),
+    .index("by_status", ["status"])
+    .index("by_scheduled", ["scheduled"]),
 
   api_costs: defineTable({
     externalId: v.string(),

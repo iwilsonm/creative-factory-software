@@ -126,12 +126,13 @@ async function pollActiveBatches() {
         if (retryCount < 3 && current?.error_message !== 'Cancelled by user') {
           const delay = Math.pow(2, retryCount) * 60000; // 1m, 2m, 4m
           console.log(`[Scheduler] Batch ${batch.id.slice(0, 8)}: auto-retry ${retryCount + 1}/3 in ${delay / 1000}s`);
+          // Immediately mark as pending so next poll doesn't pick it up again
+          await updateBatchJob(batch.id, {
+            status: 'pending',
+            error_message: null,
+            retry_count: retryCount + 1
+          });
           setTimeout(async () => {
-            await updateBatchJob(batch.id, {
-              status: 'pending',
-              error_message: null,
-              retry_count: retryCount + 1
-            });
             try {
               await runBatch(batch.id);
             } catch (err) {
@@ -139,6 +140,8 @@ async function pollActiveBatches() {
             }
           }, delay);
         } else {
+          // Mark as failed so it stops appearing in active queries
+          await updateBatchJob(batch.id, { status: 'failed' });
           console.log(`[Scheduler] Batch ${batch.id.slice(0, 8)}: failed permanently (${retryCount}/3 retries exhausted)`);
         }
       } else if (result !== 'processing') {
