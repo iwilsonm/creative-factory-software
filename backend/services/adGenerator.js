@@ -7,7 +7,7 @@ import {
   getInspirationImages, getInspirationImageUrl,
   convexClient, api
 } from '../convexClient.js';
-import { uploadBufferToDrive } from '../routes/drive.js';
+// Drive upload removed — ads are stored in Convex only
 
 const EXT_TO_MIME = {
   '.jpg': 'image/jpeg',
@@ -448,41 +448,10 @@ async function generateAndSaveImage({ adId, projectId, project, imagePrompt, asp
   // Upload image to Convex storage
   const storageId = await uploadBuffer(imageBuffer, imgMime);
 
-  await convexClient.mutation(api.adCreatives.update, {
-    externalId: adId,
-    storageId,
-    status: 'uploading_drive',
-  });
-
-  // Upload to Google Drive (if configured)
-  let driveFileId = null;
-  let driveUrl = null;
-
-  if (project.drive_folder_id) {
-    emit({ type: 'status', status: 'uploading_drive', message: 'Uploading to Google Drive...' });
-
-    try {
-      const ext = imgMime === 'image/jpeg' ? '.jpg' : '.png';
-      const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 16);
-      const angleSlug = slugify(angle);
-      const driveName = `${project.name}_${modeLabel}_${angleSlug}_${timestamp}${ext}`;
-      const driveResult = await uploadBufferToDrive(imageBuffer, driveName, project.drive_folder_id, imgMime);
-      driveFileId = driveResult.fileId;
-      driveUrl = driveResult.webViewLink;
-    } catch (driveErr) {
-      console.error('Drive upload failed:', driveErr.message);
-      const hint = driveErr.message.includes('storage quota') || driveErr.message.includes('storageQuotaExceeded')
-        ? 'Service accounts need a Shared Drive to upload files. Create a Shared Drive, add the service account as a member, and use a folder inside it as your output folder.'
-        : driveErr.message;
-      emit({ type: 'warning', message: `Drive upload failed: ${hint}` });
-    }
-  }
-
   // Update final record
   await convexClient.mutation(api.adCreatives.update, {
     externalId: adId,
-    drive_file_id: driveFileId || undefined,
-    drive_url: driveUrl || undefined,
+    storageId,
     status: 'completed',
   });
 
@@ -498,8 +467,6 @@ async function generateAndSaveImage({ adId, projectId, project, imagePrompt, asp
     image_prompt: ad.image_prompt || null,
     gpt_creative_output: ad.gpt_creative_output || null,
     storageId: ad.storageId || null,
-    drive_file_id: ad.drive_file_id || null,
-    drive_url: ad.drive_url || null,
     aspect_ratio: ad.aspect_ratio || '1:1',
     status: ad.status,
     imageUrl: `/api/projects/${projectId}/ads/${adId}/image`,

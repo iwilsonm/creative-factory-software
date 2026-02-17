@@ -187,9 +187,6 @@ function convexAdToRow(a) {
     template_image_id: a.template_image_id || null,
     inspiration_image_id: a.inspiration_image_id || null,
     storageId: a.storageId || null,
-    image_path: null, // no longer used — use storageId
-    drive_file_id: a.drive_file_id || null,
-    drive_url: a.drive_url || null,
     aspect_ratio: a.aspect_ratio || '1:1',
     status: a.status || 'generating_copy',
     auto_generated: a.auto_generated ? 1 : 0,

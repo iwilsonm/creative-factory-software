@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect } from 'react';
 import { api } from '../api';
 import Layout from '../components/Layout';
 import InfoTooltip from '../components/InfoTooltip';
@@ -11,7 +11,6 @@ export default function Settings() {
     openai_api_key: '',
     openai_admin_key: '',
     gemini_api_key: '',
-    default_drive_folder_id: '',
     gemini_rate_1k: '',
     gemini_rate_2k: '',
     gemini_rate_4k: ''
@@ -20,12 +19,6 @@ export default function Settings() {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
   const [testResults, setTestResults] = useState({});
-
-  // Drive state
-  const [driveStatus, setDriveStatus] = useState(null);
-  const [driveUploading, setDriveUploading] = useState(false);
-  const [driveMsg, setDriveMsg] = useState('');
-  const driveFileRef = useRef(null);
 
   // Gemini rate refresh
   const [refreshingRates, setRefreshingRates] = useState(false);
@@ -37,7 +30,6 @@ export default function Settings() {
 
   useEffect(() => {
     loadSettings();
-    loadDriveStatus();
   }, []);
 
   const loadSettings = async () => {
@@ -46,7 +38,6 @@ export default function Settings() {
       setSettings(data);
       setForm(prev => ({
         ...prev,
-        default_drive_folder_id: data.default_drive_folder_id || '',
         gemini_rate_1k: data.gemini_rate_1k || '',
         gemini_rate_2k: data.gemini_rate_2k || '',
         gemini_rate_4k: data.gemini_rate_4k || ''
@@ -66,7 +57,6 @@ export default function Settings() {
       if (form.openai_api_key) payload.openai_api_key = form.openai_api_key;
       if (form.openai_admin_key) payload.openai_admin_key = form.openai_admin_key;
       if (form.gemini_api_key) payload.gemini_api_key = form.gemini_api_key;
-      payload.default_drive_folder_id = form.default_drive_folder_id;
       if (form.gemini_rate_1k) payload.gemini_rate_1k = form.gemini_rate_1k;
       if (form.gemini_rate_2k) payload.gemini_rate_2k = form.gemini_rate_2k;
       if (form.gemini_rate_4k) payload.gemini_rate_4k = form.gemini_rate_4k;
@@ -89,7 +79,6 @@ export default function Settings() {
       let result;
       if (service === 'openai') result = await api.testOpenAI();
       else if (service === 'gemini') result = await api.testGemini();
-      else result = await api.testDrive();
       setTestResults(prev => ({ ...prev, [service]: result.message || 'Connected!' }));
     } catch (err) {
       setTestResults(prev => ({ ...prev, [service]: `Failed: ${err.message}` }));
@@ -105,33 +94,6 @@ export default function Settings() {
       setPasswordForm({ currentPassword: '', newPassword: '' });
     } catch (err) {
       setPasswordMsg(`Error: ${err.message}`);
-    }
-  };
-
-  const loadDriveStatus = async () => {
-    try {
-      const data = await api.driveStatus();
-      setDriveStatus(data);
-    } catch (err) {
-      console.error('Failed to load drive status:', err);
-    }
-  };
-
-  const handleDriveFileUpload = async (e) => {
-    const file = e.target.files?.[0];
-    if (!file) return;
-
-    setDriveUploading(true);
-    setDriveMsg('');
-    try {
-      const text = await file.text();
-      const result = await api.driveUploadServiceAccount(text);
-      setDriveMsg(`Connected! Service account: ${result.serviceAccountEmail}`);
-      loadDriveStatus();
-    } catch (err) {
-      setDriveMsg(`Error: ${err.message}`);
-    } finally {
-      setDriveUploading(false);
     }
   };
 
@@ -164,16 +126,6 @@ export default function Settings() {
       }
     } catch (err) {
       setRateRefreshMsg(`Error: ${err.message}`);
-    }
-  };
-
-  const handleDriveTest = async () => {
-    setDriveMsg('Testing...');
-    try {
-      const result = await api.driveTest();
-      setDriveMsg(result.message);
-    } catch (err) {
-      setDriveMsg(`Error: ${err.message}`);
     }
   };
 
@@ -277,109 +229,6 @@ export default function Settings() {
                 </button>
               </div>
               {testResults.gemini && <p className="text-[12px] text-gray-400 mt-1">{testResults.gemini}</p>}
-            </div>
-          </div>
-        </div>
-
-        {/* Google Drive */}
-        <div className="card p-6">
-          <h2 className="text-[15px] font-semibold text-gray-900 tracking-tight mb-4 flex items-center gap-1">Google Drive <InfoTooltip text="Connect Google Drive to automatically upload generated ad images. Requires a service account with access to your Drive folder." position="right" /></h2>
-
-          {driveMsg && (
-            <div className={`text-[13px] rounded-xl p-3 mb-4 ${
-              driveMsg.startsWith('Error')
-                ? 'bg-red-50/80 border border-red-200/60 text-red-600'
-                : 'bg-green-50/80 border border-green-200/60 text-green-700'
-            }`}>
-              {driveMsg}
-            </div>
-          )}
-
-          {/* Service Account Status */}
-          <div className="mb-4">
-            <div className="flex items-center gap-2 mb-2">
-              <span className={`w-2 h-2 rounded-full ${driveStatus?.configured ? 'bg-green-500' : 'bg-gray-300'}`} />
-              <span className="text-[13px] font-medium text-gray-700">
-                Service Account: {driveStatus?.configured ? 'Connected' : 'Not configured'}
-              </span>
-            </div>
-
-            {driveStatus?.configured && driveStatus?.serviceAccountEmail && (
-              <p className="text-[12px] text-gray-400 ml-4 mb-3">
-                {driveStatus.serviceAccountEmail}
-              </p>
-            )}
-
-            {!driveStatus?.configured && (
-              <div className="bg-gray-50/50 border border-gray-200/60 rounded-xl p-4 mb-3">
-                <p className="text-[13px] font-medium text-gray-700 mb-2">Setup Instructions:</p>
-                <ol className="text-[12px] text-gray-500 space-y-1.5 list-decimal list-inside">
-                  <li>Go to <a href="https://console.cloud.google.com/iam-admin/serviceaccounts" target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:text-blue-600 transition-colors">Google Cloud Console</a></li>
-                  <li>Create a service account (or use an existing one)</li>
-                  <li>Click the service account, then Keys, then Add Key, then Create new key as JSON</li>
-                  <li>Upload the downloaded JSON file below</li>
-                  <li>Enable the <a href="https://console.cloud.google.com/apis/library/drive.googleapis.com" target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:text-blue-600 transition-colors">Google Drive API</a></li>
-                  <li>Share your Drive folders with the service account email</li>
-                </ol>
-              </div>
-            )}
-
-            <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={() => driveFileRef.current?.click()}
-                disabled={driveUploading}
-                className="btn-secondary text-[13px]"
-              >
-                {driveUploading ? 'Uploading...' : driveStatus?.configured ? 'Replace Service Account' : 'Upload service-account.json'}
-              </button>
-              {driveStatus?.configured && (
-                <button
-                  type="button"
-                  onClick={handleDriveTest}
-                  className="btn-secondary text-[13px]"
-                >
-                  Test Connection
-                </button>
-              )}
-              <input
-                ref={driveFileRef}
-                type="file"
-                accept=".json"
-                onChange={handleDriveFileUpload}
-                className="hidden"
-              />
-            </div>
-          </div>
-
-          {/* Default folder */}
-          <div className="border-t border-gray-200/60 pt-4">
-            <label className="block text-[13px] font-medium text-gray-600 mb-1.5">Default Output Folder ID</label>
-            <input
-              value={form.default_drive_folder_id}
-              onChange={e => setForm(p => ({ ...p, default_drive_folder_id: e.target.value }))}
-              className="input-apple"
-              placeholder="Default Google Drive folder ID for generated images"
-            />
-            <p className="text-[11px] text-gray-400 mt-1.5">
-              {driveStatus?.configured
-                ? 'Make sure this folder is shared with the service account email above.'
-                : 'Configure service account above first.'}
-            </p>
-            <div className="mt-3 bg-gray-50/50 border border-gray-200/60 rounded-xl p-4">
-              <p className="text-[13px] font-medium text-gray-700 mb-2 flex items-center gap-1.5">
-                <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.879 7.519c1.171-1.025 3.071-1.025 4.242 0 1.172 1.025 1.172 2.687 0 3.712-.203.179-.43.326-.67.442-.745.361-1.45.999-1.45 1.827v.75M21 12a9 9 0 11-18 0 9 9 0 0118 0zm-9 5.25h.008v.008H12v-.008z" />
-                </svg>
-                How to find a folder ID
-              </p>
-              <ol className="text-[12px] text-gray-500 space-y-1.5 list-decimal list-inside">
-                <li>Open the folder in <a href="https://drive.google.com" target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:text-blue-600 transition-colors">Google Drive</a></li>
-                <li>Look at the URL in your browser's address bar</li>
-                <li>The folder ID is the long string after <code className="text-[11px] bg-gray-100 px-1.5 py-0.5 rounded text-gray-600 font-mono">/folders/</code></li>
-                <li>Example: drive.google.com/drive/folders/<code className="text-[11px] bg-gray-100 px-1.5 py-0.5 rounded text-gray-600 font-mono break-all">1aBcDeFgHiJkLmNoPqRsTuVwXyZ</code></li>
-                <li>Copy that ID and paste it here</li>
-              </ol>
             </div>
           </div>
         </div>

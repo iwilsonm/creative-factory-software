@@ -15,8 +15,7 @@ const ASPECT_RATIOS = [
 const STATUS_STEPS = [
   { status: 'generating_copy', label: 'Creative Direction', icon: '1' },
   { status: 'generating_image', label: 'Image Generation', icon: '2' },
-  { status: 'uploading_drive', label: 'Drive Upload', icon: '3' },
-  { status: 'completed', label: 'Complete', icon: '4' }
+  { status: 'completed', label: 'Complete', icon: '3' }
 ];
 
 // Template source options
@@ -53,9 +52,6 @@ function fileToBase64(file) {
 
 export default function AdStudio({ projectId, project }) {
   const toast = useToast();
-
-  // Output folder info
-  const [outputFolderName, setOutputFolderName] = useState(null);
 
   // Prompt guidelines (editable on Ad Studio, synced to project)
   const [promptGuidelines, setPromptGuidelines] = useState(project?.prompt_guidelines || '');
@@ -134,12 +130,6 @@ export default function AdStudio({ projectId, project }) {
 
   useEffect(() => {
     loadAds();
-    // Load output folder name
-    if (project?.drive_folder_id) {
-      api.driveFolderInfo(project.drive_folder_id)
-        .then(data => setOutputFolderName(data.folder?.name || null))
-        .catch(() => setOutputFolderName(null));
-    }
   }, [projectId]);
 
   // Sync prompt guidelines when project prop changes
@@ -720,31 +710,6 @@ export default function AdStudio({ projectId, project }) {
 
   return (
     <div className="space-y-6">
-      {/* Output Folder Indicator */}
-      {project?.drive_folder_id ? (
-        <div className="flex items-center gap-2.5 px-4 py-3 bg-blue-50/60 border border-blue-200/60 rounded-xl">
-          <svg className="w-4 h-4 text-blue-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.25 15a4.5 4.5 0 004.5 4.5H18a3.75 3.75 0 001.332-7.257 3 3 0 00-3.758-3.848 5.25 5.25 0 00-10.233 2.33A4.502 4.502 0 002.25 15z" />
-          </svg>
-          <p className="text-[13px] text-blue-700">
-            {outputFolderName ? (
-              <>Saving to Google Drive folder: <a href={`https://drive.google.com/drive/folders/${project.drive_folder_id}`} target="_blank" rel="noopener noreferrer" className="font-semibold hover:underline">"{outputFolderName}"</a></>
-            ) : (
-              <>Saving to Google Drive folder <code className="text-[11px] bg-blue-100/60 px-1.5 py-0.5 rounded text-blue-600 font-mono">{project.drive_folder_id.slice(0, 12)}...</code></>
-            )}
-          </p>
-        </div>
-      ) : (
-        <div className="flex items-center gap-2.5 px-4 py-3 bg-amber-50/60 border border-amber-200/60 rounded-xl">
-          <svg className="w-4 h-4 text-amber-400 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126z" />
-          </svg>
-          <p className="text-[13px] text-amber-700">
-            No output folder configured — generated ads will only be saved locally. <a href={`/projects/${projectId}`} className="font-semibold hover:underline">Set a Drive Output Folder</a> in the Overview tab to enable cloud upload.
-          </p>
-        </div>
-      )}
-
       {/* Generation Controls */}
       <div className="card p-6">
         <div className="mb-4">

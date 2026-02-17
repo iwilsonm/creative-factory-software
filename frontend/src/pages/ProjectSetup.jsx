@@ -2,7 +2,6 @@ import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api';
 import Layout from '../components/Layout';
-import DriveFolderPicker from '../components/DriveFolderPicker';
 import DragDropUpload from '../components/DragDropUpload';
 
 export default function ProjectSetup() {
@@ -13,8 +12,6 @@ export default function ProjectSetup() {
     niche: '',
     product_description: '',
     sales_page_content: '',
-    drive_folder_id: '',
-    inspiration_folder_id: ''
   });
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
@@ -233,25 +230,6 @@ export default function ProjectSetup() {
             )}
           </div>
 
-          {/* Google Drive Configuration */}
-          <div className="border-t border-gray-200/60 pt-5">
-            <h3 className="text-[13px] font-medium text-gray-600 mb-3">Google Drive</h3>
-            <div className="grid grid-cols-2 gap-4">
-              <DriveFolderPicker
-                label="Output Folder"
-                value={form.drive_folder_id}
-                onChange={(val) => setForm(prev => ({ ...prev, drive_folder_id: val }))}
-              />
-              <DriveFolderPicker
-                label="Inspiration Folder"
-                value={form.inspiration_folder_id}
-                onChange={(val) => setForm(prev => ({ ...prev, inspiration_folder_id: val }))}
-              />
-            </div>
-            <p className="text-[11px] text-gray-400 mt-2">
-              Paste a folder ID directly, or click Browse to navigate your Google Drive.
-            </p>
-          </div>
 
           <div className="flex gap-3 pt-2">
             <button

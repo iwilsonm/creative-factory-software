@@ -8,7 +8,6 @@ import AdStudio from '../components/AdStudio';
 import AdTracker from './AdTracker';
 import CostSummaryCards from '../components/CostSummaryCards';
 import InfoTooltip from '../components/InfoTooltip';
-import DriveFolderPicker from '../components/DriveFolderPicker';
 import { useToast } from '../components/Toast';
 
 const STATUS_CONFIG = {
@@ -415,18 +414,6 @@ export default function ProjectDetail() {
                     Rules that AI will enforce on every generated image prompt. Use this to fix recurring issues in your ads.
                   </p>
                 </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <DriveFolderPicker
-                    label="Output Folder"
-                    value={form.drive_folder_id}
-                    onChange={(val) => setForm(p => ({ ...p, drive_folder_id: val }))}
-                  />
-                  <DriveFolderPicker
-                    label="Inspiration Folder"
-                    value={form.inspiration_folder_id}
-                    onChange={(val) => setForm(p => ({ ...p, inspiration_folder_id: val }))}
-                  />
-                </div>
               </div>
             ) : (
               <div className="space-y-4">
@@ -482,16 +469,6 @@ export default function ProjectDetail() {
                     </p>
                   </div>
                 )}
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <p className="text-[12px] text-gray-400 mb-0.5">Drive Output Folder</p>
-                    <p className="text-[13px] text-gray-900 font-mono">{project.drive_folder_id || '—'}</p>
-                  </div>
-                  <div>
-                    <p className="text-[12px] text-gray-400 mb-0.5">Templates Folder</p>
-                    <p className="text-[13px] text-gray-900 font-mono">{project.inspiration_folder_id || '—'}</p>
-                  </div>
-                </div>
                 <div className="flex gap-8 pt-3 border-t border-gray-100/80">
                   <div>
                     <p className="text-[12px] text-gray-400 mb-0.5">Documents</p>
