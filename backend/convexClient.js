@@ -425,6 +425,48 @@ export async function getTemplateImageUrl(externalId) {
 }
 
 // =============================================
+// Ad Deployment helpers (Ad Tracker feature)
+// =============================================
+
+export async function getAllDeployments() {
+  return await queryWithRetry(api.ad_deployments.getAll, {});
+}
+
+export async function getDeploymentsByProject(projectId) {
+  return await queryWithRetry(api.ad_deployments.getByProject, { projectId });
+}
+
+export async function getDeploymentsByStatus(status) {
+  return await queryWithRetry(api.ad_deployments.getByStatus, { status });
+}
+
+export async function getDeploymentByAdId(adId) {
+  return await queryWithRetry(api.ad_deployments.getByAdId, { adId });
+}
+
+export async function createDeployment({ id, ad_id, project_id, status }) {
+  return await mutationWithRetry(api.ad_deployments.create, {
+    externalId: id,
+    ad_id,
+    project_id,
+    status,
+    created_at: new Date().toISOString(),
+  });
+}
+
+export async function updateDeployment(id, fields) {
+  return await mutationWithRetry(api.ad_deployments.update, { externalId: id, fields });
+}
+
+export async function updateDeploymentStatus(id, status) {
+  return await mutationWithRetry(api.ad_deployments.updateStatus, { externalId: id, status });
+}
+
+export async function deleteDeployment(id) {
+  return await mutationWithRetry(api.ad_deployments.remove, { externalId: id });
+}
+
+// =============================================
 // Direct Convex client access (for advanced use cases)
 // =============================================
 

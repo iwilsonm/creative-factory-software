@@ -285,5 +285,12 @@ export const api = {
 
   // Dashboard Todos
   getTodos: () => request('/settings/todos'),
-  saveTodos: (todos) => request('/settings/todos', { method: 'PUT', body: JSON.stringify({ todos }) })
+  saveTodos: (todos) => request('/settings/todos', { method: 'PUT', body: JSON.stringify({ todos }) }),
+
+  // Ad Tracker / Deployments
+  getDeployments: () => request('/deployments'),
+  createDeployments: (adIds) => request('/deployments', { method: 'POST', body: JSON.stringify({ adIds }) }),
+  updateDeployment: (id, fields) => request(`/deployments/${id}`, { method: 'PUT', body: JSON.stringify(fields) }),
+  updateDeploymentStatus: (id, status) => request(`/deployments/${id}/status`, { method: 'PUT', body: JSON.stringify({ status }) }),
+  deleteDeployment: (id) => request(`/deployments/${id}`, { method: 'DELETE' }),
 };

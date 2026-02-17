@@ -120,6 +120,28 @@ export default defineSchema({
     .index("by_project_and_period", ["project_id", "period_date"])
     .index("by_source_and_period", ["source", "period_date"]),
 
+  ad_deployments: defineTable({
+    externalId: v.string(),
+    ad_id: v.string(),           // → ad_creatives.externalId
+    project_id: v.string(),      // → projects.externalId
+    status: v.string(),          // selected | scheduled | posted | analyzing
+    campaign_name: v.optional(v.string()),
+    ad_set_name: v.optional(v.string()),
+    ad_name: v.optional(v.string()),
+    landing_page_url: v.optional(v.string()),
+    notes: v.optional(v.string()),
+    planned_date: v.optional(v.string()),
+    posted_date: v.optional(v.string()),
+    meta_campaign_id: v.optional(v.string()),
+    meta_adset_id: v.optional(v.string()),
+    meta_ad_id: v.optional(v.string()),
+    created_at: v.string(),
+  })
+    .index("by_externalId", ["externalId"])
+    .index("by_ad_id", ["ad_id"])
+    .index("by_status", ["status"])
+    .index("by_project", ["project_id"]),
+
   inspiration_images: defineTable({
     project_id: v.string(),
     drive_file_id: v.string(),
