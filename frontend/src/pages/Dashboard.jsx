@@ -1,9 +1,237 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { api } from '../api';
 import Layout from '../components/Layout';
 import CostSummaryCards from '../components/CostSummaryCards';
 import CostBarChart from '../components/CostBarChart';
 import InfoTooltip from '../components/InfoTooltip';
+
+// ─── Roadmap / To-Do Widget ───────────────────────────────────────────────────
+function TodoWidget() {
+  const [todos, setTodos] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [newText, setNewText] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [editingId, setEditingId] = useState(null);
+  const [editText, setEditText] = useState('');
+  const inputRef = useRef(null);
+  const editInputRef = useRef(null);
+
+  useEffect(() => {
+    api.getTodos()
+      .then(data => setTodos(data.todos || []))
+      .catch(() => setTodos([]))
+      .finally(() => setLoading(false));
+  }, []);
+
+  const persist = async (updated) => {
+    setTodos(updated);
+    setSaving(true);
+    try { await api.saveTodos(updated); } catch {}
+    setSaving(false);
+  };
+
+  const addTodo = (e) => {
+    e.preventDefault();
+    const text = newText.trim();
+    if (!text) return;
+    persist([...todos, { id: Date.now(), text, done: false }]);
+    setNewText('');
+    inputRef.current?.focus();
+  };
+
+  const toggle = (id) => {
+    persist(todos.map(t => t.id === id ? { ...t, done: !t.done } : t));
+  };
+
+  const remove = (id) => {
+    persist(todos.filter(t => t.id !== id));
+  };
+
+  const startEdit = (todo) => {
+    setEditingId(todo.id);
+    setEditText(todo.text);
+    setTimeout(() => editInputRef.current?.focus(), 0);
+  };
+
+  const saveEdit = () => {
+    const trimmed = editText.trim();
+    if (!trimmed || !editingId) { cancelEdit(); return; }
+    persist(todos.map(t => t.id === editingId ? { ...t, text: trimmed } : t));
+    setEditingId(null);
+    setEditText('');
+  };
+
+  const cancelEdit = () => {
+    setEditingId(null);
+    setEditText('');
+  };
+
+  const handleEditKeyDown = (e) => {
+    if (e.key === 'Enter') { e.preventDefault(); saveEdit(); }
+    if (e.key === 'Escape') { cancelEdit(); }
+  };
+
+  const pending = todos.filter(t => !t.done);
+  const completed = todos.filter(t => t.done);
+
+  if (loading) {
+    return (
+      <div className="card p-5 mb-8 fade-in">
+        <div className="h-4 w-32 bg-gray-100 rounded animate-pulse mb-3" />
+        <div className="h-3 w-48 bg-gray-50 rounded animate-pulse" />
+      </div>
+    );
+  }
+
+  return (
+    <div className="card p-5 mb-8 fade-in">
+      <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center gap-2">
+          <div className="w-7 h-7 rounded-lg bg-indigo-100 flex items-center justify-center flex-shrink-0">
+            <svg className="w-3.5 h-3.5 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
+            </svg>
+          </div>
+          <h2 className="text-[15px] font-semibold text-gray-900 tracking-tight">Roadmap</h2>
+          {saving && <span className="text-[10px] text-gray-300">saving...</span>}
+        </div>
+        {todos.length > 0 && (
+          <span className="text-[11px] text-gray-400">
+            {completed.length}/{todos.length} done
+          </span>
+        )}
+      </div>
+
+      {/* Add new item */}
+      <form onSubmit={addTodo} className="flex gap-2 mb-3">
+        <input
+          ref={inputRef}
+          value={newText}
+          onChange={e => setNewText(e.target.value)}
+          placeholder="Add a task..."
+          className="input-apple text-[13px] py-1.5 flex-1"
+        />
+        <button
+          type="submit"
+          disabled={!newText.trim()}
+          className="btn-primary text-[12px] px-3 py-1.5 disabled:opacity-30"
+        >
+          Add
+        </button>
+      </form>
+
+      {/* Pending items */}
+      {pending.length > 0 && (
+        <ul className="space-y-1">
+          {pending.map(t => (
+            <li key={t.id} className="flex items-center gap-2 group py-1 px-1 -mx-1 rounded-lg hover:bg-gray-50/50 transition-colors">
+              <button
+                onClick={() => toggle(t.id)}
+                className="w-[18px] h-[18px] rounded-md border-2 border-gray-300 flex-shrink-0 hover:border-indigo-400 transition-colors"
+              />
+              {editingId === t.id ? (
+                <input
+                  ref={editInputRef}
+                  value={editText}
+                  onChange={e => setEditText(e.target.value)}
+                  onKeyDown={handleEditKeyDown}
+                  onBlur={saveEdit}
+                  className="text-[13px] text-gray-700 flex-1 bg-white border border-indigo-300 rounded-md px-1.5 py-0.5 outline-none ring-2 ring-indigo-100"
+                />
+              ) : (
+                <span
+                  className="text-[13px] text-gray-700 flex-1 cursor-text rounded px-0.5"
+                  onDoubleClick={() => startEdit(t)}
+                >
+                  {t.text}
+                </span>
+              )}
+              {editingId !== t.id && (
+                <div className="flex items-center gap-0.5 flex-shrink-0">
+                  <button
+                    onClick={() => startEdit(t)}
+                    className="text-gray-300 hover:text-indigo-500 hover:bg-indigo-50 transition-all text-[12px] px-1.5 py-0.5 rounded-md"
+                    title="Edit task"
+                  >
+                    ✎
+                  </button>
+                  <button
+                    onClick={() => remove(t.id)}
+                    className="text-gray-300 hover:text-red-500 hover:bg-red-50 transition-all text-[12px] px-1.5 py-0.5 rounded-md"
+                    title="Delete task"
+                  >
+                    ✕
+                  </button>
+                </div>
+              )}
+            </li>
+          ))}
+        </ul>
+      )}
+
+      {/* Completed items */}
+      {completed.length > 0 && (
+        <div className={pending.length > 0 ? 'mt-3 pt-3 border-t border-gray-100' : ''}>
+          {pending.length > 0 && (
+            <p className="text-[10px] font-medium text-gray-300 uppercase tracking-wider mb-1">Completed</p>
+          )}
+          <ul className="space-y-0.5">
+            {completed.map(t => (
+              <li key={t.id} className="flex items-center gap-2 group py-0.5 px-1 -mx-1 rounded-lg hover:bg-gray-50/50 transition-colors">
+                <button
+                  onClick={() => toggle(t.id)}
+                  className="w-[18px] h-[18px] rounded-md bg-indigo-500 flex-shrink-0 flex items-center justify-center"
+                >
+                  <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                  </svg>
+                </button>
+                {editingId === t.id ? (
+                  <input
+                    ref={editInputRef}
+                    value={editText}
+                    onChange={e => setEditText(e.target.value)}
+                    onKeyDown={handleEditKeyDown}
+                    onBlur={saveEdit}
+                    className="text-[13px] text-gray-500 flex-1 bg-white border border-indigo-300 rounded-md px-1.5 py-0.5 outline-none ring-2 ring-indigo-100"
+                  />
+                ) : (
+                  <span
+                    className="text-[13px] text-gray-400 line-through flex-1 cursor-text rounded px-0.5"
+                    onDoubleClick={() => startEdit(t)}
+                  >
+                    {t.text}
+                  </span>
+                )}
+                {editingId !== t.id && (
+                  <div className="flex items-center gap-0.5 flex-shrink-0">
+                    <button
+                      onClick={() => startEdit(t)}
+                      className="text-gray-300 hover:text-indigo-500 hover:bg-indigo-50 transition-all text-[12px] px-1.5 py-0.5 rounded-md"
+                      title="Edit task"
+                    >
+                      ✎
+                    </button>
+                    <button
+                      onClick={() => remove(t.id)}
+                      className="text-gray-300 hover:text-red-500 hover:bg-red-50 transition-all text-[12px] px-1.5 py-0.5 rounded-md"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                )}
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+
+      {todos.length === 0 && (
+        <p className="text-[12px] text-gray-300 text-center py-3">No tasks yet — add one above.</p>
+      )}
+    </div>
+  );
+}
 
 function cronToLabel(cronStr) {
   if (!cronStr) return '';
@@ -177,6 +405,9 @@ export default function Dashboard() {
           )}
         </div>
       </div>
+
+      {/* 3. Roadmap / To-Do List */}
+      <TodoWidget />
 
     </Layout>
   );

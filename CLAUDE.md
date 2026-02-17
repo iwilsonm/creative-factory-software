@@ -50,7 +50,7 @@ ad-platform/
 │   │   ├── drive.js                 # Google Drive sync + folder browsing
 │   │   ├── templates.js             # Template image management
 │   │   ├── upload.js                # File upload + text extraction
-│   │   └── settings.js              # API keys, rates, todos
+│   │   └── settings.js              # API keys, rates, app config
 │   └── services/
 │       ├── openai.js                # GPT-5.2, GPT-4.1, o3-deep-research wrappers
 │       ├── gemini.js                # Nano Banana Pro image generation
@@ -69,7 +69,7 @@ ad-platform/
 │   │   ├── index.css                # Tailwind layers + custom component classes
 │   │   ├── pages/
 │   │   │   ├── Login.jsx            # Auth + first-run setup
-│   │   │   ├── Dashboard.jsx        # Cost cards + bar chart + roadmap todos
+│   │   │   ├── Dashboard.jsx        # Cost cards + bar chart + recurring cost estimates + roadmap
 │   │   │   ├── Projects.jsx         # Project grid with stats
 │   │   │   ├── ProjectSetup.jsx     # New project wizard
 │   │   │   ├── ProjectDetail.jsx    # Tabbed project hub (Overview, Docs, Templates, Ad Studio)
@@ -81,7 +81,7 @@ ad-platform/
 │   │       ├── FoundationalDocs.jsx # Doc generation with SSE progress
 │   │       ├── TemplateImages.jsx   # Template upload/management + Drive sync
 │   │       ├── InspirationFolder.jsx # Drive inspiration image sync
-│   │       ├── CostSummaryCards.jsx # Dashboard cost widgets (expandable details)
+│   │       ├── CostSummaryCards.jsx # Dashboard cost widgets (chevron-expandable details)
 │   │       ├── CostBarChart.jsx     # 30-day stacked bar chart (SVG)
 │   │       ├── DragDropUpload.jsx   # Reusable file upload component
 │   │       ├── DriveFolderPicker.jsx # Drive folder browser modal
@@ -100,7 +100,7 @@ ad-platform/
 │   ├── batch_jobs.ts                # Batch job state machine
 │   ├── api_costs.ts                 # Cost logging + aggregation
 │   ├── template_images.ts           # Template storage management
-│   ├── inspiration_images.ts        # Drive-synced inspiration images
+│   ├── inspiration_images.ts        # Drive-synced inspiration images (dedup guard on create)
 │   └── fileStorage.ts               # Storage URL generation helpers
 │
 ├── deploy/
@@ -316,6 +316,7 @@ ssh root@76.13.183.219 "cd /opt/ad-platform && npx convex deploy -y"
 - **Template rotation**: Batch jobs track `used_template_ids` (JSON array) to avoid reusing the same template across consecutive runs. When all templates have been used, the list resets.
 - **Deep research timeout**: o3-deep-research runs in the background with a 30-minute timeout. The frontend polls for status via SSE events. If it times out, the doc generation falls back gracefully.
 - **50MB JSON body limit**: Express is configured with `express.json({ limit: '50mb' })` for large sales page content and research outputs.
+- **Inspiration image dedup**: The `create` mutation in `inspirationImages.ts` checks for existing `drive_file_id` before inserting. Prevents duplicates from concurrent syncs (auto-sync on page load + manual "Sync Now"). A `dedup` mutation also exists for cleaning up historical duplicates.
 
 ---
 
@@ -403,7 +404,7 @@ ssh root@76.13.183.219 "cd /opt/ad-platform && npx convex deploy -y"
 | Path | Page | Description |
 |------|------|-------------|
 | `/login` | Login | Auth + first-run setup |
-| `/` | Dashboard | Cost cards, bar chart, roadmap |
+| `/` | Dashboard | Cost cards, bar chart, recurring cost estimates, roadmap |
 | `/projects` | Projects | Project grid |
 | `/projects/new` | ProjectSetup | New project wizard |
 | `/projects/:id` | ProjectDetail | Tabbed project hub |
@@ -426,12 +427,10 @@ ssh root@76.13.183.219 "cd /opt/ad-platform && npx convex deploy -y"
 - Cost tracking dashboard (per-service, per-operation breakdown)
 - 30-day cost history bar chart
 - Recurring automation cost estimates
+- Inspiration image dedup guard (prevents duplicates from concurrent Drive syncs)
 - Dashboard roadmap with inline edit
 - Project-level product image (auto-injected, per-ad override)
 - Multi-select bulk download/delete in ad gallery
 - Copy correction feature for foundational docs
 - Deep research mode (o3-deep-research with web browsing)
 - Manual research workflow (paste your own research)
-
-### Track via Roadmap
-Check the dashboard roadmap widget for current priorities and planned features.
