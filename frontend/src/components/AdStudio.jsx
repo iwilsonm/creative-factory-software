@@ -116,10 +116,24 @@ export default function AdStudio({ projectId, project }) {
   // Each entry: { id, status, message, error, warning, stream }
   const [activeGens, setActiveGens] = useState([]);
   const [genQueueExpanded, setGenQueueExpanded] = useState(true);
+  const [queueIsFloating, setQueueIsFloating] = useState(true);
+  const queueSentinelRef = useRef(null);
   const genIdCounter = useRef(0);
 
   // Derived count of in-progress generations
   const activeGenCount = activeGens.filter(g => g.status && g.status !== 'completed' && !g.error).length;
+
+  // IntersectionObserver: float the queue at the bottom when its natural position is scrolled out of view
+  useEffect(() => {
+    const sentinel = queueSentinelRef.current;
+    if (!sentinel) return;
+    const observer = new IntersectionObserver(
+      ([entry]) => setQueueIsFloating(!entry.isIntersecting),
+      { threshold: 0.1 }
+    );
+    observer.observe(sentinel);
+    return () => observer.disconnect();
+  }, [activeGens.length > 0]); // re-attach when queue appears/disappears
 
   // Gallery
   const [ads, setAds] = useState([]);
@@ -1394,9 +1408,86 @@ export default function AdStudio({ projectId, project }) {
         onBatchComplete={loadAds}
       />
 
-      {/* Ad Queue — inline between batch generation and gallery */}
-      {activeGens.length > 0 && (
-        <div className="card p-4 mb-6 fade-in">
+      {/* Ad Queue — sentinel marks the inline position; queue floats when above, sticks when scrolled into view */}
+      {activeGens.length > 0 && <div ref={queueSentinelRef} className="mb-6" />}
+
+      {/* Floating Ad Queue (when scrolled above the sentinel) */}
+      {activeGens.length > 0 && queueIsFloating && (
+        <div className="fixed bottom-4 left-1/2 -translate-x-1/2 z-40 w-[90vw] max-w-2xl animate-slide-up">
+          <div className="bg-white/95 backdrop-blur-xl rounded-2xl shadow-lg border border-gray-200/60 p-3">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-2">
+                <div className="w-6 h-6 rounded-lg bg-blue-100 flex items-center justify-center flex-shrink-0">
+                  {activeGenCount > 0 ? (
+                    <div className="w-3 h-3 rounded-full border-2 border-blue-200 border-t-blue-500 animate-spin" />
+                  ) : (
+                    <svg className="w-3 h-3 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" /></svg>
+                  )}
+                </div>
+                <h3 className="text-[13px] font-semibold text-gray-900 tracking-tight">Ad Queue</h3>
+                <span className="text-[11px] text-gray-400">
+                  {activeGenCount > 0
+                    ? `${activeGenCount} generating...`
+                    : 'All complete'}
+                </span>
+              </div>
+              <button
+                onClick={() => setGenQueueExpanded(!genQueueExpanded)}
+                className="text-gray-400 hover:text-gray-600 transition-colors p-1"
+              >
+                <svg className={`w-4 h-4 transition-transform ${genQueueExpanded ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                </svg>
+              </button>
+            </div>
+
+            {genQueueExpanded && (
+              <div className="space-y-1.5 mt-2 max-h-48 overflow-y-auto">
+                {activeGens.map(gen => {
+                  const steps = gen.status === 'generating_image' && !gen.message?.includes('copy')
+                    ? STATUS_STEPS.filter(s => s.status !== 'generating_copy')
+                    : STATUS_STEPS;
+                  const stepIndex = steps.findIndex(s => s.status === gen.status);
+
+                  return (
+                    <div key={gen.id} className="flex items-center gap-3 px-3 py-1.5 rounded-lg bg-gray-50/80">
+                      {gen.error ? (
+                        <svg className="w-3.5 h-3.5 text-red-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" /></svg>
+                      ) : gen.status === 'completed' ? (
+                        <svg className="w-3.5 h-3.5 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
+                      ) : (
+                        <div className="w-3.5 h-3.5 rounded-full border-2 border-gray-300 border-t-blue-500 animate-spin flex-shrink-0" />
+                      )}
+                      <div className="flex-1 min-w-0">
+                        <p className={`text-[12px] font-medium truncate ${gen.error ? 'text-red-600' : gen.status === 'completed' ? 'text-green-600' : 'text-gray-700'}`}>
+                          {gen.label && <span className="text-gray-400 mr-1.5">{gen.label}</span>}
+                          {gen.error || gen.message || 'Starting...'}
+                        </p>
+                      </div>
+                      {!gen.error && gen.status !== 'completed' && (
+                        <div className="hidden sm:flex items-center gap-1 flex-shrink-0">
+                          {steps.map((step, i) => (
+                            <div key={step.status} className={`w-1.5 h-1.5 rounded-full transition-all ${i === stepIndex ? 'bg-blue-500 scale-125' : i < stepIndex ? 'bg-blue-300' : 'bg-gray-200'}`} title={step.label} />
+                          ))}
+                        </div>
+                      )}
+                      {(gen.error || gen.status === 'completed') && (
+                        <button onClick={() => dismissGen(gen.id)} className="text-gray-300 hover:text-gray-500 flex-shrink-0 transition-colors">
+                          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                        </button>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Inline Ad Queue (when scrolled down to its natural position) */}
+      {activeGens.length > 0 && !queueIsFloating && (
+        <div className="card p-4 -mt-6 mb-6 fade-in">
           <div className="flex items-center justify-between mb-3">
             <div className="flex items-center gap-2">
               <div className="w-6 h-6 rounded-lg bg-blue-100 flex items-center justify-center flex-shrink-0">
@@ -1433,7 +1524,6 @@ export default function AdStudio({ projectId, project }) {
 
                 return (
                   <div key={gen.id} className="flex items-center gap-3 px-3 py-2 rounded-lg bg-gray-50/80">
-                    {/* Status icon */}
                     {gen.error ? (
                       <svg className="w-3.5 h-3.5 text-red-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" /></svg>
                     ) : gen.status === 'completed' ? (
@@ -1441,12 +1531,8 @@ export default function AdStudio({ projectId, project }) {
                     ) : (
                       <div className="w-3.5 h-3.5 rounded-full border-2 border-gray-300 border-t-blue-500 animate-spin flex-shrink-0" />
                     )}
-
-                    {/* Label + message */}
                     <div className="flex-1 min-w-0">
-                      <p className={`text-[12px] font-medium truncate ${
-                        gen.error ? 'text-red-600' : gen.status === 'completed' ? 'text-green-600' : 'text-gray-700'
-                      }`}>
+                      <p className={`text-[12px] font-medium truncate ${gen.error ? 'text-red-600' : gen.status === 'completed' ? 'text-green-600' : 'text-gray-700'}`}>
                         {gen.label && <span className="text-gray-400 mr-1.5">{gen.label}</span>}
                         {gen.error || gen.message || 'Starting...'}
                       </p>
@@ -1454,30 +1540,15 @@ export default function AdStudio({ projectId, project }) {
                         <p className="text-[10px] text-amber-500 truncate">{gen.warning}</p>
                       )}
                     </div>
-
-                    {/* Step pills */}
                     {!gen.error && gen.status !== 'completed' && (
                       <div className="hidden sm:flex items-center gap-1 flex-shrink-0">
                         {steps.map((step, i) => (
-                          <div
-                            key={step.status}
-                            className={`w-1.5 h-1.5 rounded-full transition-all ${
-                              i === stepIndex ? 'bg-blue-500 scale-125' :
-                              i < stepIndex ? 'bg-blue-300' :
-                              'bg-gray-200'
-                            }`}
-                            title={step.label}
-                          />
+                          <div key={step.status} className={`w-1.5 h-1.5 rounded-full transition-all ${i === stepIndex ? 'bg-blue-500 scale-125' : i < stepIndex ? 'bg-blue-300' : 'bg-gray-200'}`} title={step.label} />
                         ))}
                       </div>
                     )}
-
-                    {/* Dismiss */}
                     {(gen.error || gen.status === 'completed') && (
-                      <button
-                        onClick={() => dismissGen(gen.id)}
-                        className="text-gray-300 hover:text-gray-500 flex-shrink-0 transition-colors"
-                      >
+                      <button onClick={() => dismissGen(gen.id)} className="text-gray-300 hover:text-gray-500 flex-shrink-0 transition-colors">
                         <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
                       </button>
                     )}
