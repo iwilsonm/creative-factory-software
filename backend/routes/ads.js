@@ -65,6 +65,13 @@ router.post('/:projectId/generate-ad', async (req, res) => {
     'X-Accel-Buffering': 'no'
   });
 
+  // Send keepalive comments every 15s so nginx doesn't close the connection
+  // during long Claude API calls / rate-limit retries
+  const heartbeat = setInterval(() => {
+    try { res.write(': keepalive\n\n'); } catch {}
+  }, 15000);
+  req.on('close', () => clearInterval(heartbeat));
+
   const sendEvent = (data) => {
     res.write(`data: ${JSON.stringify(data)}\n\n`);
   };
@@ -98,9 +105,11 @@ router.post('/:projectId/generate-ad', async (req, res) => {
       });
     }
 
+    clearInterval(heartbeat);
     res.write('data: [DONE]\n\n');
     res.end();
   } catch (err) {
+    clearInterval(heartbeat);
     sendEvent({ type: 'error', error: err.message });
     res.write('data: [DONE]\n\n');
     res.end();
@@ -135,6 +144,11 @@ router.post('/:projectId/regenerate-image', async (req, res) => {
     'X-Accel-Buffering': 'no'
   });
 
+  const heartbeat = setInterval(() => {
+    try { res.write(': keepalive\n\n'); } catch {}
+  }, 15000);
+  req.on('close', () => clearInterval(heartbeat));
+
   const sendEvent = (data) => {
     res.write(`data: ${JSON.stringify(data)}\n\n`);
   };
@@ -152,9 +166,11 @@ router.post('/:projectId/regenerate-image', async (req, res) => {
       onEvent: sendEvent
     });
 
+    clearInterval(heartbeat);
     res.write('data: [DONE]\n\n');
     res.end();
   } catch (err) {
+    clearInterval(heartbeat);
     sendEvent({ type: 'error', error: err.message });
     res.write('data: [DONE]\n\n');
     res.end();
