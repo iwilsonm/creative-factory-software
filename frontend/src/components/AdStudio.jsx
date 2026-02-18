@@ -492,10 +492,10 @@ export default function AdStudio({ projectId, project }) {
   };
 
   const selectAllFiltered = () => {
-    const completedIds = filteredAds
-      .filter(ad => ad.status === 'completed' && ad.imageUrl)
+    const selectableIds = filteredAds
+      .filter(ad => ad.status === 'completed' || ad.status === 'failed')
       .map(ad => ad.id);
-    setSelectedAdIds(new Set(completedIds));
+    setSelectedAdIds(new Set(selectableIds));
   };
 
   const clearSelection = () => setSelectedAdIds(new Set());
@@ -700,7 +700,8 @@ export default function AdStudio({ projectId, project }) {
   const individualCount = ads.filter(a => !a.auto_generated).length;
   const batchCount = ads.filter(a => !!a.auto_generated).length;
   const completedFilteredAds = filteredAds.filter(ad => ad.status === 'completed' && ad.imageUrl);
-  const allFilteredSelected = completedFilteredAds.length > 0 && completedFilteredAds.every(ad => selectedAdIds.has(ad.id));
+  const selectableFilteredAds = filteredAds.filter(ad => ad.status === 'completed' || ad.status === 'failed');
+  const allFilteredSelected = selectableFilteredAds.length > 0 && selectableFilteredAds.every(ad => selectedAdIds.has(ad.id));
 
   // Find template name for modal display
   const getTemplateName = (templateId) => {
@@ -1489,7 +1490,7 @@ export default function AdStudio({ projectId, project }) {
         </div>
 
         {/* Selection controls */}
-        {completedFilteredAds.length > 0 && !loadingAds && (
+        {selectableFilteredAds.length > 0 && !loadingAds && (
           <div className="flex items-center gap-3 mb-3">
             <button
               onClick={allFilteredSelected ? clearSelection : selectAllFiltered}
@@ -1553,9 +1554,11 @@ export default function AdStudio({ projectId, project }) {
                 <div
                   className="aspect-square bg-gray-50 cursor-pointer relative overflow-hidden"
                   onClick={() => {
-                    if (ad.status !== 'completed') return;
-                    if (selectedCount > 0) toggleAdSelection(ad.id);
-                    else setViewAd(ad);
+                    if (selectedCount > 0 && (ad.status === 'completed' || ad.status === 'failed')) {
+                      toggleAdSelection(ad.id);
+                    } else if (ad.status === 'completed') {
+                      setViewAd(ad);
+                    }
                   }}
                 >
                   {ad.imageUrl && ad.status === 'completed' ? (
@@ -1576,7 +1579,7 @@ export default function AdStudio({ projectId, project }) {
                   )}
 
                   {/* Selection checkbox — visible on hover or when selected */}
-                  {ad.status === 'completed' && (
+                  {(ad.status === 'completed' || ad.status === 'failed') && (
                     <button
                       onClick={(e) => toggleAdSelection(ad.id, e)}
                       className={`absolute top-2 left-2 z-10 w-6 h-6 rounded-lg flex items-center justify-center transition-all duration-200 ${
@@ -1584,7 +1587,7 @@ export default function AdStudio({ projectId, project }) {
                           ? 'bg-blue-500 text-white shadow-sm'
                           : 'bg-black/30 backdrop-blur-sm text-white/80 opacity-0 group-hover:opacity-100 hover:bg-black/50'
                       }`}
-                      title={selectedAdIds.has(ad.id) ? 'Deselect' : 'Select for bulk download'}
+                      title={selectedAdIds.has(ad.id) ? 'Deselect' : 'Select'}
                     >
                       {selectedAdIds.has(ad.id) ? (
                         <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1599,7 +1602,7 @@ export default function AdStudio({ projectId, project }) {
                   )}
 
                   {/* Mode badge */}
-                  <div className={`absolute top-2 ${ad.status === 'completed' ? 'left-10' : 'left-2'} badge ${
+                  <div className={`absolute top-2 ${(ad.status === 'completed' || ad.status === 'failed') ? 'left-10' : 'left-2'} badge ${
                     ad.status === 'completed' ? 'bg-white/80 backdrop-blur-sm text-gray-600' :
                     ad.status === 'failed' ? 'bg-red-100/80 text-red-600' :
                     'bg-blue-100/80 text-blue-600'

@@ -225,8 +225,10 @@ async function generateBatchPrompts(batch, project, docs, onProgress) {
     }
 
     // Delay between Claude calls to avoid rate limiting
+    // Anthropic's free/low tier has 30k input tokens/min — each ad uses ~10-15k tokens
+    // across 2 calls (creative director + image request), so we space them out
     if (i < batch.batch_size - 1) {
-      await new Promise(resolve => setTimeout(resolve, 1500));
+      await new Promise(resolve => setTimeout(resolve, 30000));
     }
   }
 

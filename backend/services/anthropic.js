@@ -2,6 +2,15 @@ import Anthropic from '@anthropic-ai/sdk';
 import { getSetting } from '../convexClient.js';
 import { withRetry } from './retry.js';
 
+// Anthropic's free/low tier has 30k input tokens per minute.
+// The creative director prompt + foundational docs + images can easily
+// hit 10-15k tokens, so we need aggressive retry for 429s.
+const ANTHROPIC_RETRY = {
+  maxRetries: 5,
+  baseDelayMs: 30000,   // Start at 30s (half the rate limit window)
+  maxDelayMs: 120000,   // Cap at 2 minutes
+};
+
 let client = null;
 let lastApiKey = null;
 
@@ -85,7 +94,7 @@ export async function chat(messages, model = 'claude-sonnet-4-5-20250929', optio
 
   const response = await withRetry(
     () => anthropic.messages.create(params),
-    { label: '[Anthropic chat]' }
+    { label: '[Anthropic chat]', ...ANTHROPIC_RETRY }
   );
   return response.content[0].text;
 }
@@ -124,7 +133,7 @@ export async function chatWithImage(messages, text, base64Image, mimeType, model
 
   const response = await withRetry(
     () => anthropic.messages.create(params),
-    { label: '[Anthropic chatWithImage]' }
+    { label: '[Anthropic chatWithImage]', ...ANTHROPIC_RETRY }
   );
   return response.content[0].text;
 }
@@ -165,7 +174,7 @@ export async function chatWithImages(messages, text, images, model = 'claude-son
 
   const response = await withRetry(
     () => anthropic.messages.create(params),
-    { label: '[Anthropic chatWithImages]' }
+    { label: '[Anthropic chatWithImages]', ...ANTHROPIC_RETRY }
   );
   return response.content[0].text;
 }
