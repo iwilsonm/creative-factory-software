@@ -9,7 +9,7 @@ router.use(requireAuth);
 
 // Sensitive keys that should be masked when returning
 const SENSITIVE_KEYS = ['auth_password_hash', 'session_secret'];
-const API_KEY_KEYS = ['openai_api_key', 'openai_admin_key', 'gemini_api_key'];
+const API_KEY_KEYS = ['openai_api_key', 'openai_admin_key', 'gemini_api_key', 'anthropic_api_key'];
 
 // Get all settings (mask sensitive values)
 router.get('/', async (req, res) => {
@@ -34,6 +34,7 @@ router.put('/', async (req, res) => {
     'openai_api_key',
     'openai_admin_key',
     'gemini_api_key',
+    'anthropic_api_key',
     'default_drive_folder_id',
     'gemini_rate_1k',
     'gemini_rate_2k',
@@ -62,6 +63,35 @@ router.post('/test-openai', async (req, res) => {
       return res.status(400).json({ error: `OpenAI API returned ${response.status}` });
     }
     res.json({ success: true, message: 'OpenAI API key is valid' });
+  } catch (err) {
+    res.status(500).json({ error: `Connection failed: ${err.message}` });
+  }
+});
+
+// Test Anthropic connection
+router.post('/test-anthropic', async (req, res) => {
+  const apiKey = await getSetting('anthropic_api_key');
+  if (!apiKey) return res.status(400).json({ error: 'Anthropic API key not configured' });
+
+  try {
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        model: 'claude-sonnet-4-5-20250514',
+        max_tokens: 16,
+        messages: [{ role: 'user', content: 'Say "ok"' }]
+      })
+    });
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      return res.status(400).json({ error: `Anthropic API returned ${response.status}: ${err.error?.message || ''}` });
+    }
+    res.json({ success: true, message: 'Anthropic API key is valid' });
   } catch (err) {
     res.status(500).json({ error: `Connection failed: ${err.message}` });
   }

@@ -1,5 +1,6 @@
 import { v4 as uuidv4 } from 'uuid';
 import { chat, chatWithImage, chatWithImages } from './openai.js';
+import { chat as claudeChat, chatWithImage as claudeChatWithImage, chatWithImages as claudeChatWithImages } from './anthropic.js';
 import { generateImage } from './gemini.js';
 import { logGeminiCost } from './costTracker.js';
 import {
@@ -349,21 +350,21 @@ export async function generateAd(projectId, options = {}) {
     }
 
     // 4. GPT-5.2 Message 1: Creative director prompt + foundational docs
-    emit({ type: 'status', status: 'generating_copy', message: 'Sending creative brief to GPT-5.2...' });
+    emit({ type: 'status', status: 'generating_copy', message: 'Sending creative brief to Claude...' });
 
     const creativeDirectorPrompt = buildCreativeDirectorPrompt(project, docs);
     const messages = [
       { role: 'user', content: creativeDirectorPrompt }
     ];
 
-    // Get GPT-5.2's acknowledgment
-    const acknowledgment = await chat(messages, 'gpt-5.2');
+    // Get Claude's acknowledgment
+    const acknowledgment = await claudeChat(messages);
 
-    // 5. GPT-5.2 Message 2: Inspiration image + optional product image + instructions
+    // 5. Claude Message 2: Inspiration image + optional product image + instructions
     const hasProductImage = !!(productImageBase64 && productImageMimeType);
     emit({ type: 'status', status: 'generating_copy', message: hasProductImage
-      ? 'GPT-5.2 analyzing inspiration image + product image...'
-      : 'GPT-5.2 analyzing inspiration image...' });
+      ? 'Claude analyzing inspiration image + product image...'
+      : 'Claude analyzing inspiration image...' });
 
     const imageRequestText = buildImageRequestText(angle, aspectRatio, hasProductImage, headline, bodyCopy);
     const conversationSoFar = [
@@ -374,23 +375,21 @@ export async function generateAd(projectId, options = {}) {
     let imagePrompt;
     if (hasProductImage) {
       // Send both inspiration and product images using multi-image function
-      imagePrompt = await chatWithImages(
+      imagePrompt = await claudeChatWithImages(
         conversationSoFar,
         imageRequestText,
         [
           { base64: inspiration.base64, mimeType: inspiration.mimeType },
           { base64: productImageBase64, mimeType: productImageMimeType }
-        ],
-        'gpt-5.2'
+        ]
       );
     } else {
       // Send only the inspiration image
-      imagePrompt = await chatWithImage(
+      imagePrompt = await claudeChatWithImage(
         conversationSoFar,
         imageRequestText,
         inspiration.base64,
-        inspiration.mimeType,
-        'gpt-5.2'
+        inspiration.mimeType
       );
     }
 
@@ -543,20 +542,20 @@ export async function generateAdMode2(projectId, options = {}) {
     const template = await selectTemplateImage(templateImageId);
 
     // 4. GPT-5.2 Message 1: Creative director prompt + foundational docs
-    emit({ type: 'status', status: 'generating_copy', message: 'Sending creative brief to GPT-5.2...' });
+    emit({ type: 'status', status: 'generating_copy', message: 'Sending creative brief to Claude...' });
 
     const creativeDirectorPrompt = buildCreativeDirectorPrompt(project, docs);
     const messages = [
       { role: 'user', content: creativeDirectorPrompt }
     ];
 
-    const acknowledgment = await chat(messages, 'gpt-5.2');
+    const acknowledgment = await claudeChat(messages);
 
-    // 5. GPT-5.2 Message 2: Template image + optional product image + instructions
+    // 5. Claude Message 2: Template image + optional product image + instructions
     const hasProductImage = !!(productImageBase64 && productImageMimeType);
     emit({ type: 'status', status: 'generating_copy', message: hasProductImage
-      ? 'GPT-5.2 analyzing template image + product image...'
-      : 'GPT-5.2 analyzing template image...' });
+      ? 'Claude analyzing template image + product image...'
+      : 'Claude analyzing template image...' });
 
     const imageRequestText = buildImageRequestText(angle, aspectRatio, hasProductImage, headline, bodyCopy);
     const conversationSoFar = [
@@ -566,22 +565,20 @@ export async function generateAdMode2(projectId, options = {}) {
 
     let imagePrompt;
     if (hasProductImage) {
-      imagePrompt = await chatWithImages(
+      imagePrompt = await claudeChatWithImages(
         conversationSoFar,
         imageRequestText,
         [
           { base64: template.base64, mimeType: template.mimeType },
           { base64: productImageBase64, mimeType: productImageMimeType }
-        ],
-        'gpt-5.2'
+        ]
       );
     } else {
-      imagePrompt = await chatWithImage(
+      imagePrompt = await claudeChatWithImage(
         conversationSoFar,
         imageRequestText,
         template.base64,
-        template.mimeType,
-        'gpt-5.2'
+        template.mimeType
       );
     }
 

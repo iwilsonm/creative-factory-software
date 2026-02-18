@@ -279,6 +279,7 @@ export const api = {
   getSettings: () => request('/settings'),
   updateSettings: (data) => request('/settings', { method: 'PUT', body: JSON.stringify(data) }),
   testOpenAI: () => request('/settings/test-openai', { method: 'POST' }),
+  testAnthropic: () => request('/settings/test-anthropic', { method: 'POST' }),
   testGemini: () => request('/settings/test-gemini', { method: 'POST' }),
   testDrive: () => request('/settings/test-drive', { method: 'POST' }),
   refreshGeminiRates: () => request('/settings/refresh-gemini-rates', { method: 'POST' }),

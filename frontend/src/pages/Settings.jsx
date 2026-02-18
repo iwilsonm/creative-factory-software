@@ -10,6 +10,7 @@ export default function Settings() {
   const [form, setForm] = useState({
     openai_api_key: '',
     openai_admin_key: '',
+    anthropic_api_key: '',
     gemini_api_key: '',
     gemini_rate_1k: '',
     gemini_rate_2k: '',
@@ -56,6 +57,7 @@ export default function Settings() {
       const payload = {};
       if (form.openai_api_key) payload.openai_api_key = form.openai_api_key;
       if (form.openai_admin_key) payload.openai_admin_key = form.openai_admin_key;
+      if (form.anthropic_api_key) payload.anthropic_api_key = form.anthropic_api_key;
       if (form.gemini_api_key) payload.gemini_api_key = form.gemini_api_key;
       if (form.gemini_rate_1k) payload.gemini_rate_1k = form.gemini_rate_1k;
       if (form.gemini_rate_2k) payload.gemini_rate_2k = form.gemini_rate_2k;
@@ -64,7 +66,7 @@ export default function Settings() {
       await api.updateSettings(payload);
       toast.success('Settings saved');
       setMessage('');
-      setForm(prev => ({ ...prev, openai_api_key: '', openai_admin_key: '', gemini_api_key: '' }));
+      setForm(prev => ({ ...prev, openai_api_key: '', openai_admin_key: '', anthropic_api_key: '', gemini_api_key: '' }));
       await loadSettings();
     } catch (err) {
       toast.error(err.message);
@@ -78,6 +80,7 @@ export default function Settings() {
     try {
       let result;
       if (service === 'openai') result = await api.testOpenAI();
+      else if (service === 'anthropic') result = await api.testAnthropic();
       else if (service === 'gemini') result = await api.testGemini();
       setTestResults(prev => ({ ...prev, [service]: result.message || 'Connected!' }));
     } catch (err) {
@@ -167,7 +170,7 @@ export default function Settings() {
       <div className="space-y-5 max-w-2xl fade-in">
         {/* API Keys */}
         <div className="card p-6">
-          <h2 className="text-[15px] font-semibold text-gray-900 tracking-tight mb-4 flex items-center gap-1">API Keys <InfoTooltip text="API keys for OpenAI (document generation, creative direction) and Gemini (image generation). Required for the platform to function." position="right" /></h2>
+          <h2 className="text-[15px] font-semibold text-gray-900 tracking-tight mb-4 flex items-center gap-1">API Keys <InfoTooltip text="API keys for OpenAI (document generation), Anthropic (ad copy / creative direction), and Gemini (image generation). Required for the platform to function." position="right" /></h2>
 
           {message && (
             <div className={`text-[13px] rounded-xl p-3 mb-4 ${
@@ -209,6 +212,26 @@ export default function Settings() {
                 className="input-apple"
                 placeholder={settings.openai_admin_key || 'Enter OpenAI Admin key'}
               />
+            </div>
+
+            <div>
+              <label className="block text-[13px] font-medium text-gray-600 mb-1.5">Anthropic API Key</label>
+              <div className="flex gap-2">
+                <input
+                  type="password"
+                  value={form.anthropic_api_key}
+                  onChange={e => setForm(p => ({ ...p, anthropic_api_key: e.target.value }))}
+                  className="input-apple flex-1"
+                  placeholder={settings.anthropic_api_key || 'Enter Anthropic API key'}
+                />
+                <button
+                  onClick={() => testConnection('anthropic')}
+                  className="btn-secondary text-[13px] whitespace-nowrap"
+                >
+                  Test
+                </button>
+              </div>
+              {testResults.anthropic && <p className="text-[12px] text-gray-400 mt-1">{testResults.anthropic}</p>}
             </div>
 
             <div>
