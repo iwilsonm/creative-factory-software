@@ -67,6 +67,8 @@ export default defineSchema({
     status: v.optional(v.string()),
     auto_generated: v.optional(v.boolean()),
     parent_ad_id: v.optional(v.string()),
+    copy_framework: v.optional(v.string()),  // Legacy: from removed diversity features
+    sub_angle: v.optional(v.string()),       // Legacy: from removed diversity features
     created_at: v.string(),
   })
     .index("by_externalId", ["externalId"])

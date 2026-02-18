@@ -1,5 +1,5 @@
 import { v4 as uuidv4 } from 'uuid';
-import { chat as claudeChat, chatWithImage as claudeChatWithImage } from './anthropic.js';
+import { chat, chatWithImage } from './openai.js';
 import { getClient, generateImage } from './gemini.js';
 import {
   buildCreativeDirectorPrompt,
@@ -20,7 +20,7 @@ import { withRetry } from './retry.js';
 
 /**
  * Run a batch job end-to-end.
- * Phase 1: Generate Claude prompts (sequential, one per image)
+ * Phase 1: Generate GPT-5.2 prompts (sequential, one per image)
  * Phase 2: Submit to Gemini Batch API
  *
  * Polling for completion is handled by the scheduler.
@@ -60,7 +60,7 @@ export async function runBatch(batchId, onProgress) {
   try {
     // Phase 1: Generate GPT prompts
     await updateBatchJob(batchId, { status: 'generating_prompts' });
-    emit({ type: 'status', status: 'generating_prompts', message: `Generating ${batch.batch_size} prompts via Claude...` });
+    emit({ type: 'status', status: 'generating_prompts', message: `Generating ${batch.batch_size} prompts via GPT-5.2...` });
 
     const prompts = await generateBatchPrompts(batch, project, docs, onProgress);
 
@@ -103,7 +103,7 @@ export async function runBatch(batchId, onProgress) {
 }
 
 /**
- * Generate Claude image prompts for all images in a batch.
+ * Generate GPT-5.2 image prompts for all images in a batch.
  * Runs sequentially to respect rate limits.
  * Returns array of { prompt, inspirationBase64, inspirationMimeType, templateFileId } objects.
  * Each prompt is retried up to 3 times before being skipped.
@@ -177,11 +177,11 @@ async function generateBatchPrompts(batch, project, docs, onProgress) {
           newlyUsedTemplateIds.push(imageData.fileId);
         }
 
-        // Claude Message 1: Creative director prompt
+        // GPT-5.2 Message 1: Creative director prompt
         const messages = [{ role: 'user', content: creativeDirectorPrompt }];
-        const acknowledgment = await claudeChat(messages);
+        const acknowledgment = await chat(messages, 'gpt-5.2');
 
-        // Claude Message 2: Image + instructions with current angle
+        // GPT-5.2 Message 2: Image + instructions with current angle
         let imageRequestText = buildImageRequestText(currentAngle, batch.aspect_ratio);
 
         // Add variation instruction for batch diversity
@@ -192,11 +192,12 @@ async function generateBatchPrompts(batch, project, docs, onProgress) {
           { role: 'assistant', content: acknowledgment }
         ];
 
-        let imagePrompt = await claudeChatWithImage(
+        let imagePrompt = await chatWithImage(
           conversationSoFar,
           imageRequestText,
           imageData.base64,
-          imageData.mimeType
+          imageData.mimeType,
+          'gpt-5.2'
         );
 
         // Apply prompt guidelines if set
@@ -224,11 +225,9 @@ async function generateBatchPrompts(batch, project, docs, onProgress) {
       }
     }
 
-    // Delay between Claude calls to avoid rate limiting
-    // Anthropic's free/low tier has 30k input tokens/min — each ad uses ~10-15k tokens
-    // across 2 calls (creative director + image request), so we space them out
+    // Delay between GPT calls to avoid rate limiting
     if (i < batch.batch_size - 1) {
-      await new Promise(resolve => setTimeout(resolve, 30000));
+      await new Promise(resolve => setTimeout(resolve, 1500));
     }
   }
 
@@ -242,7 +241,7 @@ async function generateBatchPrompts(batch, project, docs, onProgress) {
   // Filter out failed prompts
   const validPrompts = prompts.filter(p => p !== null);
   if (validPrompts.length === 0) {
-    throw new Error('All prompt generations failed. Check your Anthropic API key and project configuration.');
+    throw new Error('All GPT prompt generations failed. Check your OpenAI API key and project configuration.');
   }
 
   console.log(`[BatchProcessor] Generated ${validPrompts.length}/${batch.batch_size} prompts successfully.`);

@@ -18,6 +18,16 @@ const STATUS_STEPS = [
   { status: 'completed', label: 'Complete', icon: '3' }
 ];
 
+// Estimate time remaining based on elapsed time and current progress
+function estimateRemaining(startTime, progress) {
+  if (!startTime || !progress || progress <= 5) return null;
+  const elapsed = (Date.now() - startTime) / 1000;
+  const total = elapsed / (progress / 100);
+  const remaining = Math.max(0, Math.round(total - elapsed));
+  if (remaining <= 0) return null;
+  return remaining < 60 ? `~${remaining}s left` : `~${Math.ceil(remaining / 60)}m left`;
+}
+
 // Template source options
 const TEMPLATE_RANDOM = 'random';      // Random from Drive folder
 const TEMPLATE_UPLOAD = 'upload';      // Upload one-off image
@@ -305,7 +315,7 @@ export default function AdStudio({ projectId, project }) {
     }
 
     // Add this generation to active list
-    const newGen = { id: genId, label: genLabel, status: null, message: 'Preparing...', error: '', warning: '' };
+    const newGen = { id: genId, label: genLabel, status: null, message: 'Preparing...', error: '', warning: '', progress: 0, startTime: Date.now() };
     setActiveGens(prev => [...prev, newGen]);
 
     // Notify with toast + scroll link
@@ -339,11 +349,11 @@ export default function AdStudio({ projectId, project }) {
     // SSE event handler scoped to this generation
     const handleEvent = (event) => {
       if (event.type === 'status') {
-        updateGen(genId, { status: event.status, message: event.message });
+        updateGen(genId, { status: event.status, message: event.message, progress: event.progress || 0 });
       } else if (event.type === 'warning') {
         updateGen(genId, { warning: event.message });
       } else if (event.type === 'complete') {
-        updateGen(genId, { status: 'completed', message: 'Ad generated successfully!' });
+        updateGen(genId, { status: 'completed', message: 'Ad generated successfully!', progress: 100 });
         setAds(prev => [event.ad, ...prev]);
       } else if (event.type === 'error') {
         updateGen(genId, { error: event.error, status: null });
@@ -353,7 +363,7 @@ export default function AdStudio({ projectId, project }) {
     let stream;
 
     if (isCustomPromptMode) {
-      updateGen(genId, { status: 'generating_image', message: 'Generating image with custom prompt...' });
+      updateGen(genId, { status: 'generating_image', message: 'Generating image with custom prompt...', progress: 10 });
 
       const options = {
         image_prompt: customPrompt.trim(),
@@ -492,10 +502,10 @@ export default function AdStudio({ projectId, project }) {
   };
 
   const selectAllFiltered = () => {
-    const selectableIds = filteredAds
-      .filter(ad => ad.status === 'completed' || ad.status === 'failed')
+    const completedIds = filteredAds
+      .filter(ad => ad.status === 'completed' && ad.imageUrl)
       .map(ad => ad.id);
-    setSelectedAdIds(new Set(selectableIds));
+    setSelectedAdIds(new Set(completedIds));
   };
 
   const clearSelection = () => setSelectedAdIds(new Set());
@@ -700,8 +710,7 @@ export default function AdStudio({ projectId, project }) {
   const individualCount = ads.filter(a => !a.auto_generated).length;
   const batchCount = ads.filter(a => !!a.auto_generated).length;
   const completedFilteredAds = filteredAds.filter(ad => ad.status === 'completed' && ad.imageUrl);
-  const selectableFilteredAds = filteredAds.filter(ad => ad.status === 'completed' || ad.status === 'failed');
-  const allFilteredSelected = selectableFilteredAds.length > 0 && selectableFilteredAds.every(ad => selectedAdIds.has(ad.id));
+  const allFilteredSelected = completedFilteredAds.length > 0 && completedFilteredAds.every(ad => selectedAdIds.has(ad.id));
 
   // Find template name for modal display
   const getTemplateName = (templateId) => {
@@ -1410,11 +1419,6 @@ export default function AdStudio({ projectId, project }) {
           {genQueueExpanded && (
             <div className="space-y-1.5">
               {activeGens.map(gen => {
-                const steps = gen.status === 'generating_image' && !gen.message?.includes('copy')
-                  ? STATUS_STEPS.filter(s => s.status !== 'generating_copy')
-                  : STATUS_STEPS;
-                const stepIndex = steps.findIndex(s => s.status === gen.status);
-
                 return (
                   <div key={gen.id} className="flex items-center gap-3 px-3 py-2 rounded-lg bg-gray-50/80">
                     {gen.error ? (
@@ -1434,10 +1438,19 @@ export default function AdStudio({ projectId, project }) {
                       )}
                     </div>
                     {!gen.error && gen.status !== 'completed' && (
-                      <div className="hidden sm:flex items-center gap-1 flex-shrink-0">
-                        {steps.map((step, i) => (
-                          <div key={step.status} className={`w-1.5 h-1.5 rounded-full transition-all ${i === stepIndex ? 'bg-blue-500 scale-125' : i < stepIndex ? 'bg-blue-300' : 'bg-gray-200'}`} title={step.label} />
-                        ))}
+                      <div className="hidden sm:flex items-center gap-2 flex-shrink-0 min-w-[130px]">
+                        <span className="text-[10px] text-gray-400 whitespace-nowrap">
+                          {estimateRemaining(gen.startTime, gen.progress) || ''}
+                        </span>
+                        <div className="w-16 h-1.5 bg-gray-200 rounded-full overflow-hidden">
+                          <div
+                            className="h-full bg-blue-500 rounded-full transition-all duration-700 ease-out"
+                            style={{ width: `${gen.progress || 2}%` }}
+                          />
+                        </div>
+                        <span className="text-[10px] text-gray-400 tabular-nums w-7 text-right">
+                          {gen.progress || 0}%
+                        </span>
                       </div>
                     )}
                     {(gen.error || gen.status === 'completed') && (
@@ -1490,7 +1503,7 @@ export default function AdStudio({ projectId, project }) {
         </div>
 
         {/* Selection controls */}
-        {selectableFilteredAds.length > 0 && !loadingAds && (
+        {completedFilteredAds.length > 0 && !loadingAds && (
           <div className="flex items-center gap-3 mb-3">
             <button
               onClick={allFilteredSelected ? clearSelection : selectAllFiltered}
@@ -1554,11 +1567,9 @@ export default function AdStudio({ projectId, project }) {
                 <div
                   className="aspect-square bg-gray-50 cursor-pointer relative overflow-hidden"
                   onClick={() => {
-                    if (selectedCount > 0 && (ad.status === 'completed' || ad.status === 'failed')) {
-                      toggleAdSelection(ad.id);
-                    } else if (ad.status === 'completed') {
-                      setViewAd(ad);
-                    }
+                    if (ad.status !== 'completed') return;
+                    if (selectedCount > 0) toggleAdSelection(ad.id);
+                    else setViewAd(ad);
                   }}
                 >
                   {ad.imageUrl && ad.status === 'completed' ? (
@@ -1579,7 +1590,7 @@ export default function AdStudio({ projectId, project }) {
                   )}
 
                   {/* Selection checkbox — visible on hover or when selected */}
-                  {(ad.status === 'completed' || ad.status === 'failed') && (
+                  {ad.status === 'completed' && (
                     <button
                       onClick={(e) => toggleAdSelection(ad.id, e)}
                       className={`absolute top-2 left-2 z-10 w-6 h-6 rounded-lg flex items-center justify-center transition-all duration-200 ${
@@ -1587,7 +1598,7 @@ export default function AdStudio({ projectId, project }) {
                           ? 'bg-blue-500 text-white shadow-sm'
                           : 'bg-black/30 backdrop-blur-sm text-white/80 opacity-0 group-hover:opacity-100 hover:bg-black/50'
                       }`}
-                      title={selectedAdIds.has(ad.id) ? 'Deselect' : 'Select'}
+                      title={selectedAdIds.has(ad.id) ? 'Deselect' : 'Select for bulk download'}
                     >
                       {selectedAdIds.has(ad.id) ? (
                         <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1602,7 +1613,7 @@ export default function AdStudio({ projectId, project }) {
                   )}
 
                   {/* Mode badge */}
-                  <div className={`absolute top-2 ${(ad.status === 'completed' || ad.status === 'failed') ? 'left-10' : 'left-2'} badge ${
+                  <div className={`absolute top-2 ${ad.status === 'completed' ? 'left-10' : 'left-2'} badge ${
                     ad.status === 'completed' ? 'bg-white/80 backdrop-blur-sm text-gray-600' :
                     ad.status === 'failed' ? 'bg-red-100/80 text-red-600' :
                     'bg-blue-100/80 text-blue-600'

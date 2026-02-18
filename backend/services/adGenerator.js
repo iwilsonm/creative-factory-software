@@ -1,6 +1,5 @@
 import { v4 as uuidv4 } from 'uuid';
 import { chat, chatWithImage, chatWithImages } from './openai.js';
-import { chat as claudeChat, chatWithImage as claudeChatWithImage, chatWithImages as claudeChatWithImages } from './anthropic.js';
 import { generateImage } from './gemini.js';
 import { logGeminiCost } from './costTracker.js';
 import {
@@ -329,7 +328,7 @@ export async function generateAd(projectId, options = {}) {
     }
 
     // 3. Select inspiration image (uploaded image takes priority, then specific ID, then random from folder)
-    emit({ type: 'status', status: 'generating_copy', message: 'Selecting inspiration image...' });
+    emit({ type: 'status', status: 'generating_copy', message: 'Selecting inspiration image...', progress: 5 });
 
     let inspiration;
     if (uploadedImageBase64 && uploadedImageMimeType) {
@@ -350,21 +349,21 @@ export async function generateAd(projectId, options = {}) {
     }
 
     // 4. GPT-5.2 Message 1: Creative director prompt + foundational docs
-    emit({ type: 'status', status: 'generating_copy', message: 'Sending creative brief to Claude...' });
+    emit({ type: 'status', status: 'generating_copy', message: 'Sending creative brief to GPT-5.2...', progress: 15 });
 
     const creativeDirectorPrompt = buildCreativeDirectorPrompt(project, docs);
     const messages = [
       { role: 'user', content: creativeDirectorPrompt }
     ];
 
-    // Get Claude's acknowledgment
-    const acknowledgment = await claudeChat(messages);
+    // Get GPT-5.2's acknowledgment
+    const acknowledgment = await chat(messages, 'gpt-5.2');
 
-    // 5. Claude Message 2: Inspiration image + optional product image + instructions
+    // 5. GPT-5.2 Message 2: Inspiration image + optional product image + instructions
     const hasProductImage = !!(productImageBase64 && productImageMimeType);
     emit({ type: 'status', status: 'generating_copy', message: hasProductImage
-      ? 'Claude analyzing inspiration image + product image...'
-      : 'Claude analyzing inspiration image...' });
+      ? 'GPT-5.2 analyzing inspiration image + product image...'
+      : 'GPT-5.2 analyzing inspiration image...', progress: 35 });
 
     const imageRequestText = buildImageRequestText(angle, aspectRatio, hasProductImage, headline, bodyCopy);
     const conversationSoFar = [
@@ -375,27 +374,29 @@ export async function generateAd(projectId, options = {}) {
     let imagePrompt;
     if (hasProductImage) {
       // Send both inspiration and product images using multi-image function
-      imagePrompt = await claudeChatWithImages(
+      imagePrompt = await chatWithImages(
         conversationSoFar,
         imageRequestText,
         [
           { base64: inspiration.base64, mimeType: inspiration.mimeType },
           { base64: productImageBase64, mimeType: productImageMimeType }
-        ]
+        ],
+        'gpt-5.2'
       );
     } else {
       // Send only the inspiration image
-      imagePrompt = await claudeChatWithImage(
+      imagePrompt = await chatWithImage(
         conversationSoFar,
         imageRequestText,
         inspiration.base64,
-        inspiration.mimeType
+        inspiration.mimeType,
+        'gpt-5.2'
       );
     }
 
     // Apply prompt guidelines if set
     if (project.prompt_guidelines) {
-      emit({ type: 'status', status: 'generating_copy', message: 'Reviewing prompt against guidelines...' });
+      emit({ type: 'status', status: 'generating_copy', message: 'Reviewing prompt against guidelines...', progress: 55 });
       imagePrompt = await reviewPromptWithGuidelines(imagePrompt, project.prompt_guidelines);
     }
 
@@ -437,9 +438,11 @@ async function generateAndSaveImage({ adId, projectId, project, imagePrompt, asp
   // Nano Banana Pro: Generate image
   emit({ type: 'status', status: 'generating_image', message: productImage
     ? 'Generating image with Nano Banana Pro (with product reference)...'
-    : 'Generating image with Nano Banana Pro...' });
+    : 'Generating image with Nano Banana Pro...', progress: 70 });
 
   const { imageBuffer, mimeType: imgMime } = await generateImage(imagePrompt, aspectRatio, productImage);
+
+  emit({ type: 'status', status: 'generating_image', message: 'Uploading image...', progress: 90 });
 
   // Log Gemini cost (fire-and-forget)
   try { await logGeminiCost(projectId, 1, '2K', false); } catch {}
@@ -538,24 +541,24 @@ export async function generateAdMode2(projectId, options = {}) {
     }
 
     // 3. Select template image
-    emit({ type: 'status', status: 'generating_copy', message: 'Loading template image...' });
+    emit({ type: 'status', status: 'generating_copy', message: 'Loading template image...', progress: 5 });
     const template = await selectTemplateImage(templateImageId);
 
     // 4. GPT-5.2 Message 1: Creative director prompt + foundational docs
-    emit({ type: 'status', status: 'generating_copy', message: 'Sending creative brief to Claude...' });
+    emit({ type: 'status', status: 'generating_copy', message: 'Sending creative brief to GPT-5.2...', progress: 15 });
 
     const creativeDirectorPrompt = buildCreativeDirectorPrompt(project, docs);
     const messages = [
       { role: 'user', content: creativeDirectorPrompt }
     ];
 
-    const acknowledgment = await claudeChat(messages);
+    const acknowledgment = await chat(messages, 'gpt-5.2');
 
-    // 5. Claude Message 2: Template image + optional product image + instructions
+    // 5. GPT-5.2 Message 2: Template image + optional product image + instructions
     const hasProductImage = !!(productImageBase64 && productImageMimeType);
     emit({ type: 'status', status: 'generating_copy', message: hasProductImage
-      ? 'Claude analyzing template image + product image...'
-      : 'Claude analyzing template image...' });
+      ? 'GPT-5.2 analyzing template image + product image...'
+      : 'GPT-5.2 analyzing template image...', progress: 35 });
 
     const imageRequestText = buildImageRequestText(angle, aspectRatio, hasProductImage, headline, bodyCopy);
     const conversationSoFar = [
@@ -565,26 +568,28 @@ export async function generateAdMode2(projectId, options = {}) {
 
     let imagePrompt;
     if (hasProductImage) {
-      imagePrompt = await claudeChatWithImages(
+      imagePrompt = await chatWithImages(
         conversationSoFar,
         imageRequestText,
         [
           { base64: template.base64, mimeType: template.mimeType },
           { base64: productImageBase64, mimeType: productImageMimeType }
-        ]
+        ],
+        'gpt-5.2'
       );
     } else {
-      imagePrompt = await claudeChatWithImage(
+      imagePrompt = await chatWithImage(
         conversationSoFar,
         imageRequestText,
         template.base64,
-        template.mimeType
+        template.mimeType,
+        'gpt-5.2'
       );
     }
 
     // Apply prompt guidelines if set
     if (project.prompt_guidelines) {
-      emit({ type: 'status', status: 'generating_copy', message: 'Reviewing prompt against guidelines...' });
+      emit({ type: 'status', status: 'generating_copy', message: 'Reviewing prompt against guidelines...', progress: 55 });
       imagePrompt = await reviewPromptWithGuidelines(imagePrompt, project.prompt_guidelines);
     }
 
@@ -657,7 +662,7 @@ export async function regenerateImageOnly(projectId, options = {}) {
     // Apply prompt guidelines if set
     let finalPrompt = imagePrompt.trim();
     if (project.prompt_guidelines) {
-      emit({ type: 'status', status: 'generating_image', message: 'Reviewing prompt against guidelines...' });
+      emit({ type: 'status', status: 'generating_image', message: 'Reviewing prompt against guidelines...', progress: 20 });
       finalPrompt = await reviewPromptWithGuidelines(finalPrompt, project.prompt_guidelines);
       // Update the stored prompt if it changed
       if (finalPrompt !== imagePrompt.trim()) {
