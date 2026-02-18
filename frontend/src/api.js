@@ -256,6 +256,7 @@ export const api = {
       })
     }),
   getAds: (projectId) => request(`/projects/${projectId}/ads`),
+  getInProgressAds: (projectId) => request(`/projects/${projectId}/ads/in-progress`),
   getAd: (projectId, adId) => request(`/projects/${projectId}/ads/${adId}`),
   deleteAd: (projectId, adId) =>
     request(`/projects/${projectId}/ads/${adId}`, { method: 'DELETE' }),

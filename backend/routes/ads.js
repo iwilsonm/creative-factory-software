@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { requireAuth } from '../auth.js';
-import { getProject, getAdsByProject, getAd, getAdImageUrl, downloadToBuffer, convexClient, api } from '../convexClient.js';
+import { getProject, getAdsByProject, getInProgressAdsByProject, getAd, getAdImageUrl, downloadToBuffer, convexClient, api } from '../convexClient.js';
 import { generateAd, generateAdMode2, regenerateImageOnly, applyPromptEdit } from '../services/adGenerator.js';
 import sharp from 'sharp';
 import fs from 'fs';
@@ -199,6 +199,16 @@ router.get('/:projectId/ads', async (req, res) => {
   }));
 
   res.json({ ads: withUrls, total: withUrls.length });
+});
+
+// Get in-progress ads for queue restoration
+router.get('/:projectId/ads/in-progress', async (req, res) => {
+  try {
+    const ads = await getInProgressAdsByProject(req.params.projectId);
+    res.json({ ads });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // Get single ad

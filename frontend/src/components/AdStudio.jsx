@@ -138,6 +138,127 @@ export default function AdStudio({ projectId, project }) {
     loadAds();
   }, [projectId]);
 
+  // Restore in-progress ads to the queue on mount
+  useEffect(() => {
+    let cancelled = false;
+
+    const restoreQueue = async () => {
+      try {
+        const data = await api.getInProgressAds(projectId);
+        if (cancelled || !data.ads || data.ads.length === 0) return;
+
+        const STALE_MS = 10 * 60 * 1000; // 10 minutes — treat older items as stale/failed
+        const now = Date.now();
+
+        const restoredGens = data.ads
+          .filter(ad => {
+            const age = now - new Date(ad.created_at).getTime();
+            return age < STALE_MS; // Skip stale items
+          })
+          .map(ad => ({
+            id: `restored-${ad.id}`,
+            adExternalId: ad.id,
+            label: ad.angle || ad.aspect_ratio || '',
+            status: ad.status,
+            message: ad.status === 'generating_copy'
+              ? 'Creative direction in progress...'
+              : 'Image generation in progress...',
+            error: '',
+            warning: '',
+            progress: ad.status === 'generating_copy' ? 25 : 65,
+            startTime: new Date(ad.created_at).getTime(),
+            source: 'restored',
+          }));
+
+        if (restoredGens.length === 0) return;
+
+        setActiveGens(prev => {
+          const existingAdIds = new Set(prev.filter(g => g.adExternalId).map(g => g.adExternalId));
+          const newGens = restoredGens.filter(g => !existingAdIds.has(g.adExternalId));
+          if (newGens.length === 0) return prev;
+          return [...prev, ...newGens];
+        });
+      } catch (err) {
+        console.error('Failed to restore generation queue:', err);
+      }
+    };
+
+    restoreQueue();
+    return () => { cancelled = true; };
+  }, [projectId]);
+
+  // Poll for status updates on restored (non-SSE) queue items
+  const restoredCount = activeGens.filter(g => g.source === 'restored' && g.status !== 'completed' && !g.error).length;
+
+  useEffect(() => {
+    if (restoredCount === 0) return;
+
+    const pollInterval = setInterval(async () => {
+      try {
+        const data = await api.getInProgressAds(projectId);
+        const inProgressMap = new Map((data.ads || []).map(a => [a.id, a]));
+
+        // Find restored items that are no longer in-progress → they completed or failed
+        const currentRestored = activeGens.filter(g => g.source === 'restored' && g.status !== 'completed' && !g.error);
+        const disappeared = currentRestored.filter(g => !inProgressMap.has(g.adExternalId));
+
+        // Fetch final status for disappeared items
+        const finalStatuses = {};
+        await Promise.all(disappeared.map(async (g) => {
+          try {
+            const ad = await api.getAd(projectId, g.adExternalId);
+            finalStatuses[g.adExternalId] = ad.status;
+          } catch {
+            finalStatuses[g.adExternalId] = 'completed';
+          }
+        }));
+
+        setActiveGens(prev => prev.map(g => {
+          if (g.source !== 'restored') return g;
+          if (g.status === 'completed' || g.error) return g;
+
+          // Disappeared from in-progress → completed or failed
+          if (!inProgressMap.has(g.adExternalId)) {
+            const finalStatus = finalStatuses[g.adExternalId];
+            if (finalStatus === 'failed') {
+              return { ...g, status: null, error: 'Generation failed on server', progress: 0 };
+            }
+            return { ...g, status: 'completed', message: 'Ad generated successfully!', progress: 100 };
+          }
+
+          // Status changed (e.g., generating_copy → generating_image)
+          const currentAd = inProgressMap.get(g.adExternalId);
+          if (currentAd && currentAd.status !== g.status) {
+            return {
+              ...g,
+              status: currentAd.status,
+              message: currentAd.status === 'generating_image'
+                ? 'Image generation in progress...'
+                : 'Creative direction in progress...',
+              progress: currentAd.status === 'generating_image' ? 65 : 25,
+            };
+          }
+
+          return g;
+        }));
+
+        // If any items just completed, refresh the gallery
+        if (Object.values(finalStatuses).some(s => s === 'completed')) {
+          loadAds();
+          // Auto-dismiss completed restored items after 5 seconds
+          const completedIds = Object.entries(finalStatuses).filter(([, s]) => s === 'completed').map(([id]) => `restored-${id}`);
+          setTimeout(() => {
+            setActiveGens(prev => prev.filter(g => !completedIds.includes(g.id)));
+          }, 5000);
+        }
+      } catch (err) {
+        console.error('Queue poll error:', err);
+      }
+    }, 5000);
+
+    return () => clearInterval(pollInterval);
+  }, [restoredCount, projectId]);
+
   // Sync prompt guidelines when project prop changes
   useEffect(() => {
     setPromptGuidelines(project?.prompt_guidelines || '');
@@ -345,7 +466,18 @@ export default function AdStudio({ projectId, project }) {
     // SSE event handler scoped to this generation
     const handleEvent = (event) => {
       if (event.type === 'status') {
-        updateGen(genId, { status: event.status, message: event.message, progress: event.progress || 0 });
+        if (event.adId) {
+          // First event with adId: link this gen to its DB record + remove any restored duplicate
+          setActiveGens(prev => prev
+            .filter(g => !(g.source === 'restored' && g.adExternalId === event.adId))
+            .map(g => g.id === genId
+              ? { ...g, status: event.status, message: event.message, progress: event.progress || 0, adExternalId: event.adId, source: 'sse' }
+              : g
+            )
+          );
+        } else {
+          updateGen(genId, { status: event.status, message: event.message, progress: event.progress || 0 });
+        }
       } else if (event.type === 'warning') {
         updateGen(genId, { warning: event.message });
       } else if (event.type === 'complete') {
@@ -692,6 +824,8 @@ export default function AdStudio({ projectId, project }) {
 
   // Filtered ads based on gallery filter
   const filteredAds = ads.filter(ad => {
+    // Hide in-progress ads from gallery (they show in the queue instead)
+    if (ad.status === 'generating_copy' || ad.status === 'generating_image') return false;
     if (galleryFilter === 'individual') return !ad.auto_generated;
     if (galleryFilter === 'batch') return !!ad.auto_generated;
     return true; // 'all'

@@ -307,7 +307,7 @@ export async function generateAd(projectId, options = {}) {
 
   // Create ad record at the start
   const adId = uuidv4();
-  emit({ type: 'status', status: 'generating_copy', message: 'Loading project data...', progress: 2 });
+  emit({ type: 'status', status: 'generating_copy', message: 'Loading project data...', progress: 2, adId });
   await convexClient.mutation(api.adCreatives.create, {
     externalId: adId,
     project_id: projectId,
@@ -541,7 +541,7 @@ export async function generateAdMode2(projectId, options = {}) {
 
   // Create ad record
   const adId = uuidv4();
-  emit({ type: 'status', status: 'generating_copy', message: 'Loading project data...', progress: 2 });
+  emit({ type: 'status', status: 'generating_copy', message: 'Loading project data...', progress: 2, adId });
   await convexClient.mutation(api.adCreatives.create, {
     externalId: adId,
     project_id: projectId,
@@ -711,6 +711,8 @@ export async function regenerateImageOnly(projectId, options = {}) {
     gpt_creative_output: imagePrompt.trim(),
     parent_ad_id: parentAdId || undefined,
   });
+
+  emit({ type: 'status', status: 'generating_image', message: 'Preparing image generation...', progress: 5, adId });
 
   try {
     const project = await getProject(projectId);

@@ -31,6 +31,19 @@ export const getByProjectWithUrls = query({
   },
 });
 
+export const getInProgressByProject = query({
+  args: { projectId: v.string() },
+  handler: async (ctx, args) => {
+    const ads = await ctx.db
+      .query("ad_creatives")
+      .withIndex("by_project", (q) => q.eq("project_id", args.projectId))
+      .collect();
+    return ads.filter(
+      (ad) => ad.status === "generating_copy" || ad.status === "generating_image"
+    );
+  },
+});
+
 export const getByExternalId = query({
   args: { externalId: v.string() },
   handler: async (ctx, args) => {
