@@ -9,7 +9,7 @@ import {
   reviewPromptWithGuidelines
 } from './adGenerator.js';
 import {
-  getProject, getLatestDoc, getBatchJob, updateBatchJob,
+  getProject, getLatestDoc, getAdditionalDocs, getBatchJob, updateBatchJob,
   uploadBuffer, downloadToBuffer,
   convexClient, api
 } from '../convexClient.js';
@@ -43,13 +43,15 @@ export async function runBatch(batchId, onProgress) {
     throw new Error('Project not found');
   }
 
-  // Load foundational docs
-  const docs = {
-    research: await getLatestDoc(batch.project_id, 'research'),
-    avatar: await getLatestDoc(batch.project_id, 'avatar'),
-    offer_brief: await getLatestDoc(batch.project_id, 'offer_brief'),
-    necessary_beliefs: await getLatestDoc(batch.project_id, 'necessary_beliefs')
-  };
+  // Load foundational docs + additional docs in parallel
+  const [research, avatar, offer_brief, necessary_beliefs, additionalDocs] = await Promise.all([
+    getLatestDoc(batch.project_id, 'research'),
+    getLatestDoc(batch.project_id, 'avatar'),
+    getLatestDoc(batch.project_id, 'offer_brief'),
+    getLatestDoc(batch.project_id, 'necessary_beliefs'),
+    getAdditionalDocs(batch.project_id),
+  ]);
+  const docs = { research, avatar, offer_brief, necessary_beliefs };
 
   const docCount = Object.values(docs).filter(d => d && d.content).length;
   if (docCount === 0) {
@@ -62,7 +64,7 @@ export async function runBatch(batchId, onProgress) {
     await updateBatchJob(batchId, { status: 'generating_prompts' });
     emit({ type: 'status', status: 'generating_prompts', message: `Generating ${batch.batch_size} prompts via GPT-5.2...` });
 
-    const prompts = await generateBatchPrompts(batch, project, docs, onProgress);
+    const prompts = await generateBatchPrompts(batch, project, docs, onProgress, additionalDocs);
 
     // Store text-only prompts in DB (exclude base64 image data to keep DB size reasonable)
     await updateBatchJob(batchId, { gpt_prompts: JSON.stringify(prompts.map(p => p.prompt)), status: 'submitting' });
@@ -112,11 +114,11 @@ export async function runBatch(batchId, onProgress) {
  * - Template dedup: excludes previously used template IDs across runs
  * - Variation instruction: tells GPT to create unique concepts per ad
  */
-async function generateBatchPrompts(batch, project, docs, onProgress) {
+async function generateBatchPrompts(batch, project, docs, onProgress, additionalDocs = []) {
   const emit = (event) => { if (onProgress) try { onProgress(event); } catch {} };
   const prompts = [];
 
-  const creativeDirectorPrompt = buildCreativeDirectorPrompt(project, docs);
+  const creativeDirectorPrompt = buildCreativeDirectorPrompt(project, docs, additionalDocs);
 
   // Use the single angle for all ads in the batch
   const currentAngle = batch.angle || null;

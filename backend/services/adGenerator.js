@@ -3,7 +3,7 @@ import { chat, chatWithImage, chatWithImages } from './openai.js';
 import { generateImage } from './gemini.js';
 import { logGeminiCost } from './costTracker.js';
 import {
-  getProject, getLatestDoc, uploadBuffer, downloadToBuffer,
+  getProject, getLatestDoc, getAdditionalDocs, uploadBuffer, downloadToBuffer,
   getInspirationImages, getInspirationImageUrl,
   convexClient, api
 } from '../convexClient.js';
@@ -104,11 +104,22 @@ Your job:
  * Build the creative director prompt (Message 1) for GPT-5.2.
  * Includes brand context + all 4 foundational documents.
  */
-export function buildCreativeDirectorPrompt(project, docs) {
+export function buildCreativeDirectorPrompt(project, docs, additionalDocs = []) {
   const researchContent = docs.research?.content || '[No research document available]';
   const avatarContent = docs.avatar?.content || '[No avatar sheet available]';
   const offerContent = docs.offer_brief?.content || '[No offer brief available]';
   const beliefsContent = docs.necessary_beliefs?.content || '[No necessary beliefs document available]';
+
+  // Build additional docs section if any exist
+  let additionalSection = '';
+  if (additionalDocs.length > 0) {
+    const docEntries = additionalDocs.map(d => `${d.name.toUpperCase()}:\n${d.content}`).join('\n\n');
+    additionalSection = `\n\nADDITIONAL SUPPORTING DOCUMENTS:\n\n${docEntries}`;
+  }
+
+  const workflowText = additionalDocs.length > 0
+    ? 'I will upload foundational documents and additional supporting materials containing important brand strategy, copywriting, audience insights, and creative direction.'
+    : 'I will upload four foundational documents containing important brand strategy, copywriting, audience insights, and creative direction.';
 
   return `You are a world-class creative director and image generation expert working exclusively for ${project.brand_name}, a ${project.niche} brand that ${project.product_description}.
 
@@ -122,7 +133,7 @@ Lifestyle or user-experience visuals
 And more
 
 📄 Workflow:
-I will upload four foundational documents containing important brand strategy, copywriting, audience insights, and creative direction.
+${workflowText}
 I will then upload example image ads (from competitors or previous tests).
 You must:
 Analyze the documents and image examples carefully.
@@ -154,7 +165,7 @@ OFFER BRIEF:
 ${offerContent}
 
 NECESSARY BELIEFS:
-${beliefsContent}`;
+${beliefsContent}${additionalSection}`;
 }
 
 /**
@@ -310,14 +321,15 @@ export async function generateAd(projectId, options = {}) {
   });
 
   try {
-    // 1. Load project + foundational docs + inspiration image in parallel
+    // 1. Load project + foundational docs + additional docs + inspiration image in parallel
     const useUploadedImage = !!(uploadedImageBase64 && uploadedImageMimeType);
-    const [project, research, avatar, offer_brief, necessary_beliefs, inspiration] = await Promise.all([
+    const [project, research, avatar, offer_brief, necessary_beliefs, additionalDocs, inspiration] = await Promise.all([
       getProject(projectId),
       getLatestDoc(projectId, 'research'),
       getLatestDoc(projectId, 'avatar'),
       getLatestDoc(projectId, 'offer_brief'),
       getLatestDoc(projectId, 'necessary_beliefs'),
+      getAdditionalDocs(projectId),
       useUploadedImage
         ? Promise.resolve({ base64: uploadedImageBase64, mimeType: uploadedImageMimeType, fileId: 'uploaded' })
         : selectInspirationImage(projectId, inspirationImageId),
@@ -343,7 +355,7 @@ export async function generateAd(projectId, options = {}) {
     // 4. GPT-5.2 Message 1: Creative director prompt + foundational docs
     emit({ type: 'status', status: 'generating_copy', message: 'Sending creative brief to GPT-5.2...', progress: 15 });
 
-    const creativeDirectorPrompt = buildCreativeDirectorPrompt(project, docs);
+    const creativeDirectorPrompt = buildCreativeDirectorPrompt(project, docs, additionalDocs);
     const messages = [
       { role: 'user', content: creativeDirectorPrompt }
     ];
@@ -516,13 +528,14 @@ export async function generateAdMode2(projectId, options = {}) {
   });
 
   try {
-    // 1. Load project + foundational docs + template image in parallel
-    const [project, research, avatar, offer_brief, necessary_beliefs, template] = await Promise.all([
+    // 1. Load project + foundational docs + additional docs + template image in parallel
+    const [project, research, avatar, offer_brief, necessary_beliefs, additionalDocs, template] = await Promise.all([
       getProject(projectId),
       getLatestDoc(projectId, 'research'),
       getLatestDoc(projectId, 'avatar'),
       getLatestDoc(projectId, 'offer_brief'),
       getLatestDoc(projectId, 'necessary_beliefs'),
+      getAdditionalDocs(projectId),
       selectTemplateImage(templateImageId),
     ]);
     if (!project) throw new Error('Project not found');
@@ -537,7 +550,7 @@ export async function generateAdMode2(projectId, options = {}) {
     // 4. GPT-5.2 Message 1: Creative director prompt + foundational docs
     emit({ type: 'status', status: 'generating_copy', message: 'Sending creative brief to GPT-5.2...', progress: 15 });
 
-    const creativeDirectorPrompt = buildCreativeDirectorPrompt(project, docs);
+    const creativeDirectorPrompt = buildCreativeDirectorPrompt(project, docs, additionalDocs);
     const messages = [
       { role: 'user', content: creativeDirectorPrompt }
     ];

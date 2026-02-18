@@ -7,6 +7,7 @@ import os from 'os';
 import { createRequire } from 'module';
 const require = createRequire(import.meta.url);
 const pdf = require('pdf-parse');
+import mammoth from 'mammoth';
 import { requireAuth } from '../auth.js';
 import { getSetting } from '../convexClient.js';
 
@@ -16,12 +17,12 @@ const upload = multer({
   dest: uploadDir,
   limits: { fileSize: 20 * 1024 * 1024 }, // 20MB
   fileFilter: (req, file, cb) => {
-    const allowed = ['.pdf', '.txt', '.html', '.htm'];
+    const allowed = ['.pdf', '.txt', '.html', '.htm', '.docx'];
     const ext = path.extname(file.originalname).toLowerCase();
     if (allowed.includes(ext)) {
       cb(null, true);
     } else {
-      cb(new Error(`File type ${ext} not supported. Use PDF, TXT, or HTML.`));
+      cb(new Error(`File type ${ext} not supported. Use PDF, DOCX, TXT, or HTML.`));
     }
   }
 });
@@ -41,6 +42,10 @@ router.post('/extract-text', upload.single('file'), async (req, res) => {
       const buffer = fs.readFileSync(req.file.path);
       const data = await pdf(buffer);
       text = data.text;
+    } else if (ext === '.docx') {
+      const buffer = fs.readFileSync(req.file.path);
+      const result = await mammoth.extractRawText({ buffer });
+      text = result.value;
     } else {
       // TXT or HTML — read as text
       text = fs.readFileSync(req.file.path, 'utf-8');

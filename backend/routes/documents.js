@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import { requireAuth } from '../auth.js';
-import { getProject, getDocsByProject, getLatestDoc, updateProject, getSetting, setSetting } from '../convexClient.js';
+import { getProject, getDocsByProject, getLatestDoc, getAdditionalDocs, updateProject, getSetting, setSetting } from '../convexClient.js';
 import { convexClient, api } from '../convexClient.js';
 import {
   generateAllDocs,
@@ -483,6 +483,56 @@ router.post('/:projectId/revert-correction', async (req, res) => {
   } catch (err) {
     console.error('[CopyCorrection] Revert error:', err.message);
     res.status(500).json({ error: err.message || 'Failed to revert correction' });
+  }
+});
+
+// =============================================
+// Additional Supporting Documents
+// =============================================
+
+// List additional docs for a project
+router.get('/:projectId/additional-docs', async (req, res) => {
+  try {
+    const docs = await getAdditionalDocs(req.params.projectId);
+    res.json(docs);
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Failed to load additional documents' });
+  }
+});
+
+// Upload a new additional document
+router.post('/:projectId/additional-docs', async (req, res) => {
+  const { name, content, filename } = req.body;
+  if (!name || !content) {
+    return res.status(400).json({ error: 'name and content are required' });
+  }
+
+  try {
+    const id = uuidv4();
+    await convexClient.mutation(api.additionalDocs.create, {
+      externalId: id,
+      project_id: req.params.projectId,
+      name: name.trim(),
+      content: content.trim(),
+      filename: filename || undefined,
+      char_count: content.trim().length,
+    });
+
+    res.json({ id, name: name.trim(), filename, char_count: content.trim().length });
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Failed to save additional document' });
+  }
+});
+
+// Delete an additional document
+router.delete('/:projectId/additional-docs/:docId', async (req, res) => {
+  try {
+    await convexClient.mutation(api.additionalDocs.remove, {
+      externalId: req.params.docId,
+    });
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message || 'Failed to delete additional document' });
   }
 });
 

@@ -147,6 +147,18 @@ export default defineSchema({
     .index("by_status", ["status"])
     .index("by_project", ["project_id"]),
 
+  additional_docs: defineTable({
+    externalId: v.string(),
+    project_id: v.string(),
+    name: v.string(),
+    content: v.string(),
+    filename: v.optional(v.string()),
+    char_count: v.number(),
+    created_at: v.string(),
+  })
+    .index("by_externalId", ["externalId"])
+    .index("by_project", ["project_id"]),
+
   inspiration_images: defineTable({
     project_id: v.string(),
     drive_file_id: v.string(),
