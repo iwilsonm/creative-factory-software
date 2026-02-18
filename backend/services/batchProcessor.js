@@ -202,6 +202,31 @@ async function generateBatchPrompts(batch, project, docs, onProgress, additional
           'gpt-5.2'
         );
 
+        // GPT-5.2 Message 3: Refinement round — review and improve the prompt using foundational docs
+        const refinementConversation = [
+          { role: 'user', content: creativeDirectorPrompt },
+          { role: 'assistant', content: acknowledgment },
+          { role: 'user', content: imageRequestText },
+          { role: 'assistant', content: imagePrompt }
+        ];
+
+        imagePrompt = await chat([
+          ...refinementConversation,
+          {
+            role: 'user',
+            content: `Now review and improve the image prompt you just wrote. Re-read the foundational documents and additional supporting materials above carefully. Make sure the prompt:
+
+1. Accurately reflects the brand voice, tone, and visual identity from the research document
+2. Speaks directly to the avatar's pain points, desires, and emotional triggers
+3. Incorporates the offer's key value propositions from the offer brief
+4. Aligns with the necessary beliefs the audience needs to hold
+5. Uses specific, vivid details rather than generic descriptions
+6. Maximizes scroll-stopping potential and conversion-focused design
+
+Return ONLY the improved image prompt — no commentary, no explanations, no markdown formatting. If the prompt is already excellent, return it as-is.`
+          }
+        ], 'gpt-5.2');
+
         // Apply prompt guidelines if set
         if (project.prompt_guidelines) {
           imagePrompt = await reviewPromptWithGuidelines(imagePrompt, project.prompt_guidelines);

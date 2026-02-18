@@ -18,14 +18,10 @@ const STATUS_STEPS = [
   { status: 'completed', label: 'Complete', icon: '3' }
 ];
 
-// Estimate time remaining based on elapsed time and current progress
-function estimateRemaining(startTime, progress) {
-  if (!startTime || !progress || progress <= 5) return null;
-  const elapsed = (Date.now() - startTime) / 1000;
-  const total = elapsed / (progress / 100);
-  const remaining = Math.max(0, Math.round(total - elapsed));
-  if (remaining <= 0) return null;
-  return remaining < 60 ? `~${remaining}s left` : `~${Math.ceil(remaining / 60)}m left`;
+// Format start time for display (e.g. "9:04 PM")
+function formatStartTime(timestamp) {
+  if (!timestamp) return '';
+  return new Date(timestamp).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
 }
 
 // Template source options
@@ -1437,21 +1433,10 @@ export default function AdStudio({ projectId, project }) {
                         <p className="text-[10px] text-amber-500 truncate">{gen.warning}</p>
                       )}
                     </div>
-                    {!gen.error && gen.status !== 'completed' && (
-                      <div className="hidden sm:flex items-center gap-2 flex-shrink-0 min-w-[130px]">
-                        <span className="text-[10px] text-gray-400 whitespace-nowrap">
-                          {estimateRemaining(gen.startTime, gen.progress) || ''}
-                        </span>
-                        <div className="w-16 h-1.5 bg-gray-200 rounded-full overflow-hidden">
-                          <div
-                            className="h-full bg-blue-500 rounded-full transition-all duration-700 ease-out"
-                            style={{ width: `${gen.progress || 2}%` }}
-                          />
-                        </div>
-                        <span className="text-[10px] text-gray-400 tabular-nums w-7 text-right">
-                          {gen.progress || 0}%
-                        </span>
-                      </div>
+                    {!gen.error && gen.status !== 'completed' && gen.startTime && (
+                      <span className="hidden sm:inline text-[10px] text-gray-400 whitespace-nowrap flex-shrink-0">
+                        Started {formatStartTime(gen.startTime)} · ~75s
+                      </span>
                     )}
                     {(gen.error || gen.status === 'completed') && (
                       <button onClick={() => dismissGen(gen.id)} className="text-gray-300 hover:text-gray-500 flex-shrink-0 transition-colors">
