@@ -8,6 +8,7 @@ import { createRequire } from 'module';
 const require = createRequire(import.meta.url);
 const pdf = require('pdf-parse');
 import mammoth from 'mammoth';
+import EPub from 'epub';
 import { requireAuth } from '../auth.js';
 import { getSetting } from '../convexClient.js';
 
@@ -17,12 +18,12 @@ const upload = multer({
   dest: uploadDir,
   limits: { fileSize: 20 * 1024 * 1024 }, // 20MB
   fileFilter: (req, file, cb) => {
-    const allowed = ['.pdf', '.txt', '.html', '.htm', '.docx'];
+    const allowed = ['.pdf', '.txt', '.html', '.htm', '.docx', '.epub', '.mobi', '.md'];
     const ext = path.extname(file.originalname).toLowerCase();
     if (allowed.includes(ext)) {
       cb(null, true);
     } else {
-      cb(new Error(`File type ${ext} not supported. Use PDF, DOCX, TXT, or HTML.`));
+      cb(new Error(`File type ${ext} not supported. Supported: PDF, DOCX, EPUB, MOBI, TXT, HTML, Markdown.`));
     }
   }
 });
@@ -46,13 +47,46 @@ router.post('/extract-text', upload.single('file'), async (req, res) => {
       const buffer = fs.readFileSync(req.file.path);
       const result = await mammoth.extractRawText({ buffer });
       text = result.value;
+    } else if (ext === '.epub') {
+      // Parse EPUB and extract text from all chapters
+      text = await new Promise((resolve, reject) => {
+        const epub = new EPub(req.file.path);
+        epub.on('end', () => {
+          const chapterIds = epub.flow.map(ch => ch.id);
+          const chapters = [];
+          let processed = 0;
+          if (chapterIds.length === 0) return resolve('');
+          chapterIds.forEach((id, idx) => {
+            epub.getChapter(id, (err, chapterText) => {
+              if (!err && chapterText) {
+                // Strip HTML tags from chapter content
+                chapters[idx] = chapterText.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
+              }
+              processed++;
+              if (processed === chapterIds.length) {
+                resolve(chapters.filter(Boolean).join('\n\n'));
+              }
+            });
+          });
+        });
+        epub.on('error', reject);
+        epub.parse();
+      });
+    } else if (ext === '.mobi') {
+      // MOBI files: read as binary and try to extract readable text
+      const buffer = fs.readFileSync(req.file.path);
+      // Extract printable ASCII/UTF-8 text runs from the binary
+      const raw = buffer.toString('utf-8');
+      // Strip non-printable characters, keep readable text
+      text = raw.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, ' ').replace(/\s+/g, ' ').trim();
     } else {
-      // TXT or HTML — read as text
+      // TXT, HTML, or Markdown — read as text
       text = fs.readFileSync(req.file.path, 'utf-8');
       if (ext === '.html' || ext === '.htm') {
         // Strip HTML tags for plain text
         text = text.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
       }
+      // Markdown (.md) is kept as-is — plain text with formatting markers
     }
 
     // Clean up uploaded file

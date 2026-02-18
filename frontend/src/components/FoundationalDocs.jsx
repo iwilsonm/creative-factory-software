@@ -1480,8 +1480,8 @@ export default function FoundationalDocs({ projectId, projectStatus }) {
                       }
                     }}
                     label="Drop your file here, or click to browse"
-                    sublabel="PDF, DOCX, TXT, or HTML"
-                    accept=".pdf,.docx,.txt,.html,.htm"
+                    sublabel="PDF, DOCX, EPUB, MOBI, TXT, HTML, or Markdown"
+                    accept=".pdf,.docx,.epub,.mobi,.txt,.html,.htm,.md"
                     compact
                     status={addDocText ? 'success' : 'default'}
                     successMessage={addDocFilename ? `${addDocFilename} — ${addDocText.length.toLocaleString()} chars extracted` : 'Text loaded'}
