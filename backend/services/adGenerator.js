@@ -5,37 +5,9 @@ import { logGeminiCost } from './costTracker.js';
 import {
   getProject, getLatestDoc, uploadBuffer, downloadToBuffer,
   getInspirationImages, getInspirationImageUrl,
-  getRecentAdsForContext,
   convexClient, api
 } from '../convexClient.js';
 // Drive upload removed — ads are stored in Convex only
-
-/**
- * Rotating copy frameworks — each produces a structurally different headline style.
- * Cycled round-robin in batches, picked randomly for single ads.
- */
-export const COPY_FRAMEWORKS = [
-  {
-    name: 'Problem → Solution',
-    instruction: 'Use a "Problem → Solution" headline framework — lead with the pain point or frustration the audience feels, then resolve it with the product. Example style: "Tired of [problem]? Meet [solution]."'
-  },
-  {
-    name: 'Social Proof',
-    instruction: 'Use a "Social Proof" headline framework — lead with numbers, testimonials, or crowd validation to build credibility. Example style: "Join 50,000+ [audience] who [achieved result]" or "The #1 [category] recommended by [authority]."'
-  },
-  {
-    name: 'Urgency / Scarcity',
-    instruction: 'Use an "Urgency / Scarcity" headline framework — create time pressure or limited availability to drive immediate action. Example style: "Last chance: [offer] ends [timeframe]" or "Only [number] left at this price."'
-  },
-  {
-    name: 'Aspirational / Lifestyle',
-    instruction: 'Use an "Aspirational / Lifestyle" headline framework — paint the after-state or identity shift the audience desires. Focus on who they become, not what they buy. Example style: "The glow-up starts here" or "This is your [desired identity] era."'
-  },
-  {
-    name: 'Direct Benefit',
-    instruction: 'Use a "Direct Benefit" headline framework — state the core value proposition plainly and boldly with no fluff. Lead with the specific, tangible result. Example style: "Clinically proven to [result] in [timeframe]" or "[Specific benefit]. Period."'
-  }
-];
 
 const EXT_TO_MIME = {
   '.jpg': 'image/jpeg',
@@ -79,95 +51,6 @@ Rules:
   } catch (err) {
     console.warn('[AdGenerator] Prompt guidelines review failed, using original prompt:', err.message);
     return imagePrompt;
-  }
-}
-
-/**
- * Build "already used" context text from recent ads + batch-so-far prompts.
- * Injected into the GPT request so it avoids repeating previous COPY/MESSAGING only.
- * Visual style/layout/composition must still match the template image.
- * Returns empty string if no history exists (first-ever generation works as-is).
- *
- * @param {Array} recentAds - From getRecentAdsForContext (DB history — headline + angle)
- * @param {Array} batchSoFar - Headline strings generated earlier in the current batch run (max last 3)
- * @returns {string}
- */
-export function buildAlreadyUsedContext(recentAds = [], batchSoFar = []) {
-  const items = [];
-
-  // Add DB history (lightweight — headlines + angles only)
-  for (const ad of recentAds) {
-    if (ad.headline) items.push(`"${ad.headline}"`);
-  }
-
-  // Add headlines from the last 3 prompts in the current batch (cap to prevent bloat)
-  const recentBatch = batchSoFar.slice(-3);
-  for (const headline of recentBatch) {
-    if (headline) items.push(`"${headline}"`);
-  }
-
-  if (items.length === 0) return '';
-
-  return `\n\nDo NOT reuse any of these previous headlines or similar messaging — they were already used:\n${items.map((item, i) => `${i + 1}. ${item}`).join('\n')}\n\nGenerate a DIFFERENT headline, tagline, and messaging angle than the above. However, you MUST still closely match the attached template/inspiration image's visual style, layout, composition, and color palette. Only the copy and messaging should differ — the visual design must remain faithful to the image.`;
-}
-
-/**
- * Generate N distinct sub-angles from a parent angle using GPT-4.1-mini.
- * Used by batch processor to assign each ad a unique creative direction.
- * Falls back to repeating the original angle if parsing fails.
- *
- * @param {string} angle - The parent angle/topic
- * @param {number} count - How many sub-angles to generate
- * @param {object} project - Project object for brand context
- * @returns {Promise<string[]>}
- */
-export async function generateSubAngles(angle, count, project) {
-  if (!angle || count <= 1) return [angle];
-
-  try {
-    const messages = [
-      {
-        role: 'system',
-        content: `You are a creative strategist for ${project.brand_name || 'a brand'}, a ${project.niche || ''} brand. Generate distinct sub-angles for advertising.`
-      },
-      {
-        role: 'user',
-        content: `I need ${count} distinct sub-angles for the ad angle: "${angle}"
-
-Each sub-angle should be a specific, unique interpretation or facet of the main angle. They should be different enough that ads based on them would look and feel completely different from each other.
-
-For example, if the main angle is "health benefits", sub-angles might be:
-- "Morning energy boost ritual"
-- "Immune defense for busy parents"
-- "Mental clarity and focus at work"
-- "Athletic recovery and performance"
-- "Deep sleep and overnight renewal"
-
-Return ONLY a JSON array of ${count} strings. No explanations.`
-      }
-    ];
-
-    const response = await chat(messages, 'gpt-4.1-mini');
-
-    // Parse the JSON array from the response
-    const jsonMatch = response.match(/\[[\s\S]*?\]/);
-    if (jsonMatch) {
-      const subAngles = JSON.parse(jsonMatch[0]);
-      if (Array.isArray(subAngles) && subAngles.length >= count) {
-        console.log(`[AdGenerator] Generated ${subAngles.length} sub-angles for "${angle}": ${subAngles.join(', ')}`);
-        return subAngles.slice(0, count);
-      }
-    }
-
-    // Partial parse — pad with original angle
-    console.warn(`[AdGenerator] Sub-angle parsing returned fewer than ${count} results, padding with original angle`);
-    const parsed = jsonMatch ? JSON.parse(jsonMatch[0]) : [];
-    while (parsed.length < count) parsed.push(angle);
-    return parsed;
-
-  } catch (err) {
-    console.warn(`[AdGenerator] Sub-angle generation failed, using original angle for all: ${err.message}`);
-    return Array(count).fill(angle);
   }
 }
 
@@ -279,7 +162,7 @@ ${beliefsContent}`;
  * Per the SOP, the core instruction is exactly "make a prompt for an image like this".
  * Angle, aspect ratio, product image, headline, and body copy are appended as additional direction.
  */
-export function buildImageRequestText(angle, aspectRatio, hasProductImage = false, headline = null, bodyCopy = null, alreadyUsedContext = '', copyFramework = null) {
+export function buildImageRequestText(angle, aspectRatio, hasProductImage = false, headline = null, bodyCopy = null) {
   let text = 'make a prompt for an image like this';
 
   const extras = [];
@@ -295,20 +178,12 @@ export function buildImageRequestText(angle, aspectRatio, hasProductImage = fals
   if (angle) {
     extras.push(`The ad should focus on this angle/topic: ${angle}`);
   }
-  if (copyFramework) {
-    extras.push(copyFramework);
-  }
   if (aspectRatio && aspectRatio !== '1:1') {
     extras.push(`Use ${aspectRatio} aspect ratio instead of 1:1`);
   }
 
   if (extras.length > 0) {
     text += '. ' + extras.join('. ');
-  }
-
-  // Append "already used" context for diversity (empty string = no-op for first-ever generation)
-  if (alreadyUsedContext) {
-    text += alreadyUsedContext;
   }
 
   return text;
@@ -473,19 +348,7 @@ export async function generateAd(projectId, options = {}) {
       });
     }
 
-    // 4. Fetch "already used" context for diversity (one fast DB query, no extra GPT calls)
-    let alreadyUsedContext = '';
-    try {
-      const recentAds = await getRecentAdsForContext(projectId, angle, 10);
-      alreadyUsedContext = buildAlreadyUsedContext(recentAds);
-    } catch (err) {
-      console.warn('[AdGenerator] Could not fetch recent ads for context:', err.message);
-    }
-
-    // 4b. Pick a random copy framework for headline style variation
-    const framework = COPY_FRAMEWORKS[Math.floor(Math.random() * COPY_FRAMEWORKS.length)];
-
-    // 5. GPT-5.2 Message 1: Creative director prompt + foundational docs
+    // 4. GPT-5.2 Message 1: Creative director prompt + foundational docs
     emit({ type: 'status', status: 'generating_copy', message: 'Sending creative brief to GPT-5.2...' });
 
     const creativeDirectorPrompt = buildCreativeDirectorPrompt(project, docs);
@@ -496,13 +359,13 @@ export async function generateAd(projectId, options = {}) {
     // Get GPT-5.2's acknowledgment
     const acknowledgment = await chat(messages, 'gpt-5.2');
 
-    // 6. GPT-5.2 Message 2: Inspiration image + optional product image + instructions
+    // 5. GPT-5.2 Message 2: Inspiration image + optional product image + instructions
     const hasProductImage = !!(productImageBase64 && productImageMimeType);
     emit({ type: 'status', status: 'generating_copy', message: hasProductImage
       ? 'GPT-5.2 analyzing inspiration image + product image...'
       : 'GPT-5.2 analyzing inspiration image...' });
 
-    const imageRequestText = buildImageRequestText(angle, aspectRatio, hasProductImage, headline, bodyCopy, alreadyUsedContext, framework.instruction);
+    const imageRequestText = buildImageRequestText(angle, aspectRatio, hasProductImage, headline, bodyCopy);
     const conversationSoFar = [
       { role: 'user', content: creativeDirectorPrompt },
       { role: 'assistant', content: acknowledgment }
@@ -679,19 +542,7 @@ export async function generateAdMode2(projectId, options = {}) {
     emit({ type: 'status', status: 'generating_copy', message: 'Loading template image...' });
     const template = await selectTemplateImage(templateImageId);
 
-    // 4. Fetch "already used" context for diversity
-    let alreadyUsedContext = '';
-    try {
-      const recentAds = await getRecentAdsForContext(projectId, angle, 10);
-      alreadyUsedContext = buildAlreadyUsedContext(recentAds);
-    } catch (err) {
-      console.warn('[AdGenerator] Could not fetch recent ads for context:', err.message);
-    }
-
-    // 4b. Pick a random copy framework for headline style variation
-    const framework = COPY_FRAMEWORKS[Math.floor(Math.random() * COPY_FRAMEWORKS.length)];
-
-    // 5. GPT-5.2 Message 1: Creative director prompt + foundational docs
+    // 4. GPT-5.2 Message 1: Creative director prompt + foundational docs
     emit({ type: 'status', status: 'generating_copy', message: 'Sending creative brief to GPT-5.2...' });
 
     const creativeDirectorPrompt = buildCreativeDirectorPrompt(project, docs);
@@ -701,13 +552,13 @@ export async function generateAdMode2(projectId, options = {}) {
 
     const acknowledgment = await chat(messages, 'gpt-5.2');
 
-    // 6. GPT-5.2 Message 2: Template image + optional product image + instructions
+    // 5. GPT-5.2 Message 2: Template image + optional product image + instructions
     const hasProductImage = !!(productImageBase64 && productImageMimeType);
     emit({ type: 'status', status: 'generating_copy', message: hasProductImage
       ? 'GPT-5.2 analyzing template image + product image...'
       : 'GPT-5.2 analyzing template image...' });
 
-    const imageRequestText = buildImageRequestText(angle, aspectRatio, hasProductImage, headline, bodyCopy, alreadyUsedContext, framework.instruction);
+    const imageRequestText = buildImageRequestText(angle, aspectRatio, hasProductImage, headline, bodyCopy);
     const conversationSoFar = [
       { role: 'user', content: creativeDirectorPrompt },
       { role: 'assistant', content: acknowledgment }

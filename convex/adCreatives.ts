@@ -115,36 +115,6 @@ export const remove = mutation({
   },
 });
 
-// Lightweight query for headline dedup context — returns only headline + angle.
-// Uses .take() with a bounded window to avoid loading large prompt fields.
-export const getRecentByProjectAndAngle = query({
-  args: {
-    projectId: v.string(),
-    angle: v.optional(v.string()),
-    limit: v.optional(v.number()),
-  },
-  handler: async (ctx, args) => {
-    const limit = args.limit || 10;
-    const ads = await ctx.db
-      .query("ad_creatives")
-      .withIndex("by_project", (q) => q.eq("project_id", args.projectId))
-      .order("desc")
-      .take(limit * 3);
-
-    const result: { headline: string | null; angle: string | null }[] = [];
-    for (const ad of ads) {
-      if (result.length >= limit) break;
-      if (ad.status !== "completed") continue;
-      if (args.angle && ad.angle !== args.angle) continue;
-      result.push({
-        headline: ad.headline || null,
-        angle: ad.angle || null,
-      });
-    }
-    return result;
-  },
-});
-
 export const getImageUrl = query({
   args: { externalId: v.string() },
   handler: async (ctx, args) => {

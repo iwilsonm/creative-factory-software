@@ -195,18 +195,6 @@ function convexAdToRow(a) {
   };
 }
 
-/**
- * Get recent completed ads for "already used" context (diversity feature).
- * Returns lightweight text-only fields — no storage URLs.
- */
-export async function getRecentAdsForContext(projectId, angle = null, limit = 10) {
-  return await queryWithRetry(api.adCreatives.getRecentByProjectAndAngle, {
-    projectId,
-    angle: angle || undefined,
-    limit,
-  });
-}
-
 // =============================================
 // Stats helpers
 // =============================================
