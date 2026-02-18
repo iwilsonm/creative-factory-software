@@ -44,6 +44,15 @@ function formatDate(dateStr) {
   return d.toLocaleDateString();
 }
 
+// Full date+time for gallery cards (e.g. "Feb 18 · 9:04 PM")
+function formatDateTime(dateStr) {
+  if (!dateStr) return '';
+  const d = new Date(dateStr);
+  return d.toLocaleDateString([], { month: 'short', day: 'numeric' }) +
+    ' · ' +
+    d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
+}
+
 function fileToBase64(file) {
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
@@ -129,6 +138,11 @@ export default function AdStudio({ projectId, project }) {
   const [loadingAds, setLoadingAds] = useState(true);
   const [viewAd, setViewAd] = useState(null);
   const [galleryFilter, setGalleryFilter] = useState('individual'); // 'individual' | 'batch' | 'all'
+  const [galleryView, setGalleryView] = useState('grid'); // 'grid' | 'list'
+
+  // Tags
+  const [tagEditAd, setTagEditAd] = useState(null); // ad being tag-edited
+  const [tagInput, setTagInput] = useState('');
 
   // Multi-select for bulk download
   const [selectedAdIds, setSelectedAdIds] = useState(new Set());
@@ -408,6 +422,43 @@ export default function AdStudio({ projectId, project }) {
   // Remove a completed/errored generation from the list
   const dismissGen = (genId) => {
     setActiveGens(prev => prev.filter(g => g.id !== genId));
+  };
+
+  // --- Tag management ---
+  const QUICK_TAGS = ['Winner', 'Test', 'Control', 'V2', 'Review'];
+
+  const handleAddTag = async (ad, tag) => {
+    const trimmed = tag.trim();
+    if (!trimmed) return;
+    const current = ad.tags || [];
+    if (current.includes(trimmed)) return;
+    const newTags = [...current, trimmed];
+    // Optimistic update
+    setAds(prev => prev.map(a => a.id === ad.id ? { ...a, tags: newTags } : a));
+    if (tagEditAd?.id === ad.id) setTagEditAd(prev => prev ? { ...prev, tags: newTags } : null);
+    if (viewAd?.id === ad.id) setViewAd(prev => prev ? { ...prev, tags: newTags } : null);
+    try {
+      await api.updateAdTags(projectId, ad.id, newTags);
+    } catch (err) {
+      console.error('Failed to save tag:', err);
+      // Revert on failure
+      setAds(prev => prev.map(a => a.id === ad.id ? { ...a, tags: current } : a));
+    }
+  };
+
+  const handleRemoveTag = async (ad, tag) => {
+    const current = ad.tags || [];
+    const newTags = current.filter(t => t !== tag);
+    // Optimistic update
+    setAds(prev => prev.map(a => a.id === ad.id ? { ...a, tags: newTags } : a));
+    if (tagEditAd?.id === ad.id) setTagEditAd(prev => prev ? { ...prev, tags: newTags } : null);
+    if (viewAd?.id === ad.id) setViewAd(prev => prev ? { ...prev, tags: newTags } : null);
+    try {
+      await api.updateAdTags(projectId, ad.id, newTags);
+    } catch (err) {
+      console.error('Failed to remove tag:', err);
+      setAds(prev => prev.map(a => a.id === ad.id ? { ...a, tags: current } : a));
+    }
   };
 
   const scrollToQueue = () => {
@@ -1619,6 +1670,24 @@ export default function AdStudio({ projectId, project }) {
               </button>
             </div>
           )}
+          {ads.length > 0 && (
+            <div className="flex items-center gap-1 ml-2">
+              <button
+                onClick={() => setGalleryView('grid')}
+                className={`p-1.5 rounded-md transition-colors ${galleryView === 'grid' ? 'bg-gray-100 text-gray-700' : 'text-gray-300 hover:text-gray-500'}`}
+                title="Grid view"
+              >
+                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 16 16"><rect x="1" y="1" width="6" height="6" rx="1"/><rect x="9" y="1" width="6" height="6" rx="1"/><rect x="1" y="9" width="6" height="6" rx="1"/><rect x="9" y="9" width="6" height="6" rx="1"/></svg>
+              </button>
+              <button
+                onClick={() => setGalleryView('list')}
+                className={`p-1.5 rounded-md transition-colors ${galleryView === 'list' ? 'bg-gray-100 text-gray-700' : 'text-gray-300 hover:text-gray-500'}`}
+                title="List view"
+              >
+                <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 16 16"><rect x="1" y="1.5" width="14" height="3" rx="0.75"/><rect x="1" y="6.5" width="14" height="3" rx="0.75"/><rect x="1" y="11.5" width="14" height="3" rx="0.75"/></svg>
+              </button>
+            </div>
+          )}
         </div>
 
         {/* Selection controls */}
@@ -1674,7 +1743,7 @@ export default function AdStudio({ projectId, project }) {
                 : 'Generate an ad above to see it here.'}
             </p>
           </div>
-        ) : (
+        ) : galleryView === 'grid' ? (
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
             {filteredAds.map(ad => (
               <div
@@ -1778,14 +1847,30 @@ export default function AdStudio({ projectId, project }) {
                 <div className="p-3">
                   <div className="flex items-center justify-between mb-0.5">
                     <span className="text-[11px] text-gray-400">{ad.aspect_ratio}</span>
-                    <span className="text-[11px] text-gray-400">{formatDate(ad.created_at)}</span>
+                    <span className="text-[11px] text-gray-400">{formatDateTime(ad.created_at)}</span>
                   </div>
                   {ad.angle && (
                     <p className="text-[12px] text-gray-700 font-medium truncate" title={ad.angle}>
                       {ad.angle}
                     </p>
                   )}
-                  <div className="flex gap-2 mt-2">
+                  {/* Tags */}
+                  <div className="flex items-center gap-1 mt-1 flex-wrap">
+                    {(ad.tags || []).slice(0, 3).map(tag => (
+                      <span key={tag} className="text-[10px] px-1.5 py-0.5 bg-blue-50 text-blue-600 rounded-full">{tag}</span>
+                    ))}
+                    {(ad.tags || []).length > 3 && (
+                      <span className="text-[10px] text-gray-400">+{ad.tags.length - 3}</span>
+                    )}
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setTagEditAd(ad); }}
+                      className="text-[10px] w-4 h-4 flex items-center justify-center rounded-full text-gray-300 hover:text-blue-500 hover:bg-blue-50 transition-colors"
+                      title="Add tag"
+                    >
+                      +
+                    </button>
+                  </div>
+                  <div className="flex gap-2 mt-1.5">
                     {ad.drive_url && (
                       <a
                         href={ad.drive_url}
@@ -1808,8 +1893,158 @@ export default function AdStudio({ projectId, project }) {
               </div>
             ))}
           </div>
-        )}
+        ) : galleryView === 'list' ? (
+          /* ---- LIST VIEW ---- */
+          <div className="space-y-1">
+            {filteredAds.map(ad => (
+              <div
+                key={ad.id}
+                className={`flex items-center gap-3 p-2.5 rounded-xl hover:bg-gray-50 cursor-pointer transition-colors ${
+                  selectedAdIds.has(ad.id) ? 'bg-blue-50/50 ring-1 ring-blue-200' : ''
+                }`}
+                onClick={() => {
+                  if (ad.status !== 'completed') return;
+                  if (selectedAdIds.size > 0) toggleAdSelection(ad.id);
+                  else setViewAd(ad);
+                }}
+              >
+                {/* Selection checkbox */}
+                {ad.status === 'completed' && (
+                  <button
+                    onClick={(e) => toggleAdSelection(ad.id, e)}
+                    className={`w-5 h-5 rounded-md flex items-center justify-center flex-shrink-0 transition-colors ${
+                      selectedAdIds.has(ad.id)
+                        ? 'bg-blue-500 text-white'
+                        : 'border border-gray-200 hover:border-gray-300'
+                    }`}
+                  >
+                    {selectedAdIds.has(ad.id) && (
+                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" /></svg>
+                    )}
+                  </button>
+                )}
+
+                {/* Thumbnail */}
+                <div className="w-12 h-12 rounded-lg overflow-hidden bg-gray-100 flex-shrink-0">
+                  {ad.thumbnailUrl && ad.status === 'completed' ? (
+                    <img src={ad.thumbnailUrl} alt="" className="w-full h-full object-cover" loading="lazy" />
+                  ) : ad.status === 'failed' ? (
+                    <div className="w-full h-full flex items-center justify-center">
+                      <svg className="w-4 h-4 text-red-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" /></svg>
+                    </div>
+                  ) : (
+                    <div className="w-full h-full flex items-center justify-center">
+                      <div className="w-4 h-4 rounded-full border-2 border-gray-200 border-t-blue-400 animate-spin" />
+                    </div>
+                  )}
+                </div>
+
+                {/* Info */}
+                <div className="flex-1 min-w-0">
+                  <p className="text-[13px] font-medium text-gray-900 truncate">{ad.angle || 'No angle'}</p>
+                  <div className="flex items-center gap-1 mt-0.5 flex-wrap">
+                    {(ad.tags || []).slice(0, 4).map(tag => (
+                      <span key={tag} className="text-[10px] px-1.5 py-0.5 bg-blue-50 text-blue-600 rounded-full">{tag}</span>
+                    ))}
+                    {(ad.tags || []).length > 4 && (
+                      <span className="text-[10px] text-gray-400">+{ad.tags.length - 4}</span>
+                    )}
+                    <button
+                      onClick={(e) => { e.stopPropagation(); setTagEditAd(ad); }}
+                      className="text-[10px] w-4 h-4 flex items-center justify-center rounded-full text-gray-300 hover:text-blue-500 hover:bg-blue-50 transition-colors"
+                      title="Add tag"
+                    >
+                      +
+                    </button>
+                  </div>
+                </div>
+
+                {/* Metadata */}
+                <span className="text-[11px] text-gray-400 flex-shrink-0 hidden sm:inline">{ad.aspect_ratio}</span>
+                <span className="text-[11px] text-gray-400 flex-shrink-0 w-32 text-right hidden md:inline">{formatDateTime(ad.created_at)}</span>
+                <span className="text-[10px] px-2 py-0.5 bg-gray-100 text-gray-500 rounded-full flex-shrink-0 hidden sm:inline">
+                  {ad.auto_generated ? 'Batch' : ad.generation_mode === 'image_only' ? 'Edit' : ad.generation_mode === 'mode2' ? 'Template' : 'Individual'}
+                </span>
+
+                {/* Actions */}
+                <button
+                  onClick={(e) => { e.stopPropagation(); handleDelete(ad.id); }}
+                  className="text-[11px] text-gray-300 hover:text-red-500 transition-colors flex-shrink-0"
+                  title="Delete"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" /></svg>
+                </button>
+              </div>
+            ))}
+          </div>
+        ) : null}
       </div>
+
+      {/* Tag editor popover */}
+      {tagEditAd && (
+        <div className="fixed inset-0 z-50" onClick={() => { setTagEditAd(null); setTagInput(''); }}>
+          <div
+            className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-white rounded-2xl shadow-xl border border-gray-200/60 p-4 w-80"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-3">
+              <h4 className="text-[13px] font-semibold text-gray-900">Tags</h4>
+              <button onClick={() => { setTagEditAd(null); setTagInput(''); }} className="text-gray-400 hover:text-gray-600">
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+              </button>
+            </div>
+
+            {/* Current tags */}
+            <div className="flex flex-wrap gap-1.5 mb-3 min-h-[28px]">
+              {(tagEditAd.tags || []).map(tag => (
+                <span key={tag} className="inline-flex items-center gap-1 text-[11px] px-2 py-1 bg-blue-50 text-blue-600 rounded-full">
+                  {tag}
+                  <button
+                    onClick={() => handleRemoveTag(tagEditAd, tag)}
+                    className="text-blue-400 hover:text-blue-600"
+                  >
+                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                  </button>
+                </span>
+              ))}
+              {(!tagEditAd.tags || tagEditAd.tags.length === 0) && (
+                <span className="text-[11px] text-gray-400">No tags yet</span>
+              )}
+            </div>
+
+            {/* Add tag input */}
+            <form onSubmit={(e) => {
+              e.preventDefault();
+              if (tagInput.trim()) {
+                handleAddTag(tagEditAd, tagInput);
+                setTagInput('');
+              }
+            }}>
+              <input
+                type="text"
+                value={tagInput}
+                onChange={e => setTagInput(e.target.value)}
+                placeholder="Add a tag..."
+                className="w-full text-[12px] px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-300"
+                autoFocus
+              />
+            </form>
+
+            {/* Quick-add suggestions */}
+            <div className="flex flex-wrap gap-1.5 mt-2">
+              {QUICK_TAGS.filter(t => !(tagEditAd.tags || []).includes(t)).map(tag => (
+                <button
+                  key={tag}
+                  onClick={() => handleAddTag(tagEditAd, tag)}
+                  className="text-[10px] px-2 py-1 bg-gray-50 text-gray-500 rounded-full hover:bg-blue-50 hover:text-blue-600 transition-colors"
+                >
+                  {tag}
+                </button>
+              ))}
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Full-size ad view modal */}
       {viewAd && (
@@ -1952,6 +2187,29 @@ export default function AdStudio({ projectId, project }) {
                       </a>
                     </div>
                   )}
+                </div>
+                {/* Tags */}
+                <div>
+                  <p className="text-[11px] text-gray-400 mb-1.5">Tags</p>
+                  <div className="flex flex-wrap gap-1.5">
+                    {(viewAd.tags || []).map(tag => (
+                      <span key={tag} className="inline-flex items-center gap-1 text-[11px] px-2 py-1 bg-blue-50 text-blue-600 rounded-full">
+                        {tag}
+                        <button
+                          onClick={() => handleRemoveTag(viewAd, tag)}
+                          className="text-blue-400 hover:text-blue-600"
+                        >
+                          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                        </button>
+                      </span>
+                    ))}
+                    <button
+                      onClick={() => setTagEditAd(viewAd)}
+                      className="text-[11px] px-2 py-1 border border-dashed border-gray-200 text-gray-400 rounded-full hover:border-blue-300 hover:text-blue-500 transition-colors"
+                    >
+                      + Add tag
+                    </button>
+                  </div>
                 </div>
                 {viewAd.image_prompt && (
                   <div>

@@ -222,6 +222,21 @@ router.get('/:projectId/ads/:adId', async (req, res) => {
   res.json(ad);
 });
 
+// Update tags on an ad
+router.patch('/:projectId/ads/:adId/tags', async (req, res) => {
+  try {
+    const { tags } = req.body;
+    if (!Array.isArray(tags)) return res.status(400).json({ error: 'tags must be an array of strings' });
+    await convexClient.mutation(api.adCreatives.update, {
+      externalId: req.params.adId,
+      tags: tags.map(t => String(t).trim()).filter(Boolean),
+    });
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Serve ad image file (redirect to Convex storage URL — fallback for direct links)
 router.get('/:projectId/ads/:adId/image', async (req, res) => {
   const url = await getAdImageUrl(req.params.adId);

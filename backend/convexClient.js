@@ -213,6 +213,7 @@ function convexAdToRow(a) {
     status: a.status || 'generating_copy',
     auto_generated: a.auto_generated ? 1 : 0,
     parent_ad_id: a.parent_ad_id || null,
+    tags: a.tags || [],
     created_at: a.created_at,
   };
 }

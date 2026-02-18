@@ -73,6 +73,7 @@ export const create = mutation({
     status: v.optional(v.string()),
     auto_generated: v.optional(v.boolean()),
     parent_ad_id: v.optional(v.string()),
+    tags: v.optional(v.array(v.string())),
   },
   handler: async (ctx, args) => {
     const now = new Date().toISOString();
@@ -95,6 +96,7 @@ export const update = mutation({
     drive_file_id: v.optional(v.string()),
     drive_url: v.optional(v.string()),
     inspiration_image_id: v.optional(v.string()),
+    tags: v.optional(v.array(v.string())),
   },
   handler: async (ctx, args) => {
     const ad = await ctx.db

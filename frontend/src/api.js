@@ -260,6 +260,8 @@ export const api = {
   getAd: (projectId, adId) => request(`/projects/${projectId}/ads/${adId}`),
   deleteAd: (projectId, adId) =>
     request(`/projects/${projectId}/ads/${adId}`, { method: 'DELETE' }),
+  updateAdTags: (projectId, adId, tags) =>
+    request(`/projects/${projectId}/ads/${adId}/tags`, { method: 'PATCH', body: JSON.stringify({ tags }) }),
 
   // Batch Jobs
   getBatches: (projectId) => request(`/projects/${projectId}/batches`),
