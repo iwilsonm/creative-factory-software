@@ -68,7 +68,7 @@ function convertMessages(messages) {
  * Send a multi-turn conversation to Claude and get the full response (no streaming).
  * Same signature as openai.js chat() for easy swapping.
  */
-export async function chat(messages, model = 'claude-sonnet-4-5-20250514', options = {}) {
+export async function chat(messages, model = 'claude-sonnet-4-5-20250929', options = {}) {
   const anthropic = await getClient();
   const { system, messages: converted } = convertMessages(messages);
 
@@ -94,7 +94,7 @@ export async function chat(messages, model = 'claude-sonnet-4-5-20250514', optio
  * Send a message with an image (base64) to Claude.
  * Same signature as openai.js chatWithImage() for easy swapping.
  */
-export async function chatWithImage(messages, text, base64Image, mimeType, model = 'claude-sonnet-4-5-20250514') {
+export async function chatWithImage(messages, text, base64Image, mimeType, model = 'claude-sonnet-4-5-20250929') {
   const anthropic = await getClient();
 
   const newMessage = {
@@ -133,7 +133,7 @@ export async function chatWithImage(messages, text, base64Image, mimeType, model
  * Send a message with multiple images (base64) to Claude.
  * Same signature as openai.js chatWithImages() for easy swapping.
  */
-export async function chatWithImages(messages, text, images, model = 'claude-sonnet-4-5-20250514') {
+export async function chatWithImages(messages, text, images, model = 'claude-sonnet-4-5-20250929') {
   const anthropic = await getClient();
 
   const content = [
