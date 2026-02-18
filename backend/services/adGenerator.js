@@ -296,6 +296,7 @@ export async function generateAd(projectId, options = {}) {
 
   // Create ad record at the start
   const adId = uuidv4();
+  emit({ type: 'status', status: 'generating_copy', message: 'Loading project data...', progress: 2 });
   await convexClient.mutation(api.adCreatives.create, {
     externalId: adId,
     project_id: projectId,
@@ -309,17 +310,21 @@ export async function generateAd(projectId, options = {}) {
   });
 
   try {
-    // 1. Load project
-    const project = await getProject(projectId);
+    // 1. Load project + foundational docs + inspiration image in parallel
+    const useUploadedImage = !!(uploadedImageBase64 && uploadedImageMimeType);
+    const [project, research, avatar, offer_brief, necessary_beliefs, inspiration] = await Promise.all([
+      getProject(projectId),
+      getLatestDoc(projectId, 'research'),
+      getLatestDoc(projectId, 'avatar'),
+      getLatestDoc(projectId, 'offer_brief'),
+      getLatestDoc(projectId, 'necessary_beliefs'),
+      useUploadedImage
+        ? Promise.resolve({ base64: uploadedImageBase64, mimeType: uploadedImageMimeType, fileId: 'uploaded' })
+        : selectInspirationImage(projectId, inspirationImageId),
+    ]);
     if (!project) throw new Error('Project not found');
 
-    // 2. Load foundational docs
-    const docs = {
-      research: await getLatestDoc(projectId, 'research'),
-      avatar: await getLatestDoc(projectId, 'avatar'),
-      offer_brief: await getLatestDoc(projectId, 'offer_brief'),
-      necessary_beliefs: await getLatestDoc(projectId, 'necessary_beliefs')
-    };
+    const docs = { research, avatar, offer_brief, necessary_beliefs };
 
     // Ensure at least some docs exist
     const docCount = Object.values(docs).filter(d => d && d.content).length;
@@ -327,25 +332,12 @@ export async function generateAd(projectId, options = {}) {
       throw new Error('No foundational documents found. Generate or upload documents first.');
     }
 
-    // 3. Select inspiration image (uploaded image takes priority, then specific ID, then random from folder)
-    emit({ type: 'status', status: 'generating_copy', message: 'Selecting inspiration image...', progress: 5 });
-
-    let inspiration;
-    if (uploadedImageBase64 && uploadedImageMimeType) {
-      // Use the directly uploaded image
-      inspiration = {
-        base64: uploadedImageBase64,
-        mimeType: uploadedImageMimeType,
-        fileId: 'uploaded'
-      };
-    } else {
-      // Select from inspiration folder (specific ID or random)
-      inspiration = await selectInspirationImage(projectId, inspirationImageId);
-      // Update the inspiration_image_id in the record
-      await convexClient.mutation(api.adCreatives.update, {
+    // Update the inspiration_image_id in the record (fire-and-forget, don't block)
+    if (!useUploadedImage && inspiration.fileId) {
+      convexClient.mutation(api.adCreatives.update, {
         externalId: adId,
         inspiration_image_id: inspiration.fileId,
-      });
+      }).catch(() => {});
     }
 
     // 4. GPT-5.2 Message 1: Creative director prompt + foundational docs
@@ -510,6 +502,7 @@ export async function generateAdMode2(projectId, options = {}) {
 
   // Create ad record
   const adId = uuidv4();
+  emit({ type: 'status', status: 'generating_copy', message: 'Loading project data...', progress: 2 });
   await convexClient.mutation(api.adCreatives.create, {
     externalId: adId,
     project_id: projectId,
@@ -523,26 +516,23 @@ export async function generateAdMode2(projectId, options = {}) {
   });
 
   try {
-    // 1. Load project
-    const project = await getProject(projectId);
+    // 1. Load project + foundational docs + template image in parallel
+    const [project, research, avatar, offer_brief, necessary_beliefs, template] = await Promise.all([
+      getProject(projectId),
+      getLatestDoc(projectId, 'research'),
+      getLatestDoc(projectId, 'avatar'),
+      getLatestDoc(projectId, 'offer_brief'),
+      getLatestDoc(projectId, 'necessary_beliefs'),
+      selectTemplateImage(templateImageId),
+    ]);
     if (!project) throw new Error('Project not found');
 
-    // 2. Load foundational docs
-    const docs = {
-      research: await getLatestDoc(projectId, 'research'),
-      avatar: await getLatestDoc(projectId, 'avatar'),
-      offer_brief: await getLatestDoc(projectId, 'offer_brief'),
-      necessary_beliefs: await getLatestDoc(projectId, 'necessary_beliefs')
-    };
+    const docs = { research, avatar, offer_brief, necessary_beliefs };
 
     const docCount = Object.values(docs).filter(d => d && d.content).length;
     if (docCount === 0) {
       throw new Error('No foundational documents found. Generate or upload documents first.');
     }
-
-    // 3. Select template image
-    emit({ type: 'status', status: 'generating_copy', message: 'Loading template image...', progress: 5 });
-    const template = await selectTemplateImage(templateImageId);
 
     // 4. GPT-5.2 Message 1: Creative director prompt + foundational docs
     emit({ type: 'status', status: 'generating_copy', message: 'Sending creative brief to GPT-5.2...', progress: 15 });
