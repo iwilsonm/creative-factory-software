@@ -525,9 +525,62 @@ export async function getQuoteMiningRun(externalId) {
     sources_used: r.sources_used || null,
     error_message: r.error_message || null,
     duration_ms: r.duration_ms || null,
+    headlines: r.headlines || null,
+    headlines_generated_at: r.headlines_generated_at || null,
     created_at: r.created_at,
     completed_at: r.completed_at || null,
   };
+}
+
+// =============================================
+// Quote Bank helpers
+// =============================================
+
+export async function getQuoteBankByProject(projectId) {
+  const quotes = await queryWithRetry(api.quote_bank.getByProject, { projectId });
+  return quotes.map(q => ({
+    id: q.externalId,
+    project_id: q.project_id,
+    quote: q.quote,
+    source: q.source || null,
+    source_url: q.source_url || null,
+    emotion: q.emotion || null,
+    emotional_intensity: q.emotional_intensity || null,
+    context: q.context || null,
+    run_id: q.run_id,
+    is_favorite: q.is_favorite || false,
+    headlines: q.headlines || null,
+    headlines_generated_at: q.headlines_generated_at || null,
+    created_at: q.created_at,
+  }));
+}
+
+export async function getQuoteBankQuote(externalId) {
+  const q = await queryWithRetry(api.quote_bank.getByExternalId, { externalId });
+  if (!q) return null;
+  return {
+    id: q.externalId,
+    project_id: q.project_id,
+    quote: q.quote,
+    source: q.source || null,
+    source_url: q.source_url || null,
+    emotion: q.emotion || null,
+    emotional_intensity: q.emotional_intensity || null,
+    context: q.context || null,
+    run_id: q.run_id,
+    is_favorite: q.is_favorite || false,
+    headlines: q.headlines || null,
+    headlines_generated_at: q.headlines_generated_at || null,
+    created_at: q.created_at,
+  };
+}
+
+export async function updateQuoteBankQuote(externalId, updates) {
+  await mutationWithRetry(api.quote_bank.update, { externalId, ...updates });
+}
+
+export async function deleteQuoteBankQuote(externalId) {
+  await mutationWithRetry(api.quote_bank.remove, { externalId });
 }
 
 // =============================================

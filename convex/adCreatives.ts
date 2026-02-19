@@ -80,6 +80,7 @@ export const create = mutation({
     status: v.optional(v.string()),
     auto_generated: v.optional(v.boolean()),
     parent_ad_id: v.optional(v.string()),
+    source_quote_id: v.optional(v.string()),
     tags: v.optional(v.array(v.string())),
   },
   handler: async (ctx, args) => {

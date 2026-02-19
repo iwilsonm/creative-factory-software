@@ -38,7 +38,7 @@ router.post('/:projectId/generate-ad', async (req, res) => {
   const project = await getProject(req.params.projectId);
   if (!project) return res.status(404).json({ error: 'Project not found' });
 
-  let { mode = 'mode1', aspect_ratio, angle, inspiration_image_id, uploaded_image, uploaded_image_mime, product_image, product_image_mime, headline, body_copy, template_image_id, headline_juicer } = req.body;
+  let { mode = 'mode1', aspect_ratio, angle, inspiration_image_id, uploaded_image, uploaded_image_mime, product_image, product_image_mime, headline, body_copy, template_image_id, headline_juicer, source_quote_id } = req.body;
 
   // Auto-inject project-level product image if none provided
   if (!product_image && project.product_image_storageId) {
@@ -82,6 +82,7 @@ router.post('/:projectId/generate-ad', async (req, res) => {
         headline: headline || undefined,
         bodyCopy: body_copy || undefined,
         headlineJuicer: !!headline_juicer,
+        sourceQuoteId: source_quote_id || undefined,
         onEvent: sendEvent
       });
     } else {
@@ -96,6 +97,7 @@ router.post('/:projectId/generate-ad', async (req, res) => {
         headline: headline || undefined,
         bodyCopy: body_copy || undefined,
         headlineJuicer: !!headline_juicer,
+        sourceQuoteId: source_quote_id || undefined,
         onEvent: sendEvent
       });
     }

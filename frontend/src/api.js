@@ -326,6 +326,20 @@ export const api = {
   generateHeadlines: (projectId, runId, onEvent) =>
     streamSSEWithBody(`/projects/${projectId}/quote-mining/${runId}/headlines`, {}, onEvent),
 
+  // Quote Bank
+  getQuoteBank: (projectId) => request(`/projects/${projectId}/quote-bank`),
+  toggleQuoteFavorite: (projectId, quoteId) =>
+    request(`/projects/${projectId}/quote-bank/${quoteId}/favorite`, { method: 'PATCH' }),
+  deleteQuoteBankQuote: (projectId, quoteId) =>
+    request(`/projects/${projectId}/quote-bank/${quoteId}`, { method: 'DELETE' }),
+  generateBankHeadlines: (projectId, body, onEvent) =>
+    streamSSEWithBody(`/projects/${projectId}/quote-bank/headlines`, body, onEvent),
+  generateBodyCopy: (projectId, quoteId, headline, targetDemographic, problem) =>
+    request(`/projects/${projectId}/quote-bank/${quoteId}/body-copy`, {
+      method: 'POST',
+      body: JSON.stringify({ headline, target_demographic: targetDemographic, problem })
+    }),
+
   // Headline Generator Reference Docs (3 separate documents)
   getHeadlineReferences: () => request('/settings/headline-references'),
   uploadHeadlineRef: (docKey, content) =>

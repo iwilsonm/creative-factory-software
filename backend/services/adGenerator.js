@@ -440,7 +440,7 @@ export async function selectTemplateImage(templateImageId) {
  * @returns {Promise<object>} The completed ad creative record
  */
 export async function generateAd(projectId, options = {}) {
-  const { angle, aspectRatio = '1:1', inspirationImageId, uploadedImageBase64, uploadedImageMimeType, productImageBase64, productImageMimeType, headline, bodyCopy, headlineJuicer, onEvent } = options;
+  const { angle, aspectRatio = '1:1', inspirationImageId, uploadedImageBase64, uploadedImageMimeType, productImageBase64, productImageMimeType, headline, bodyCopy, headlineJuicer, sourceQuoteId, onEvent } = options;
 
   const emit = (event) => {
     if (onEvent) {
@@ -461,6 +461,7 @@ export async function generateAd(projectId, options = {}) {
     aspect_ratio: aspectRatio,
     status: 'generating_copy',
     inspiration_image_id: inspirationImageId || undefined,
+    source_quote_id: sourceQuoteId || undefined,
   });
 
   try {
@@ -682,7 +683,7 @@ async function generateAndSaveImage({ adId, projectId, project, imagePrompt, asp
  * @returns {Promise<object>} The completed ad creative record
  */
 export async function generateAdMode2(projectId, options = {}) {
-  const { templateImageId, angle, aspectRatio = '1:1', productImageBase64, productImageMimeType, headline, bodyCopy, headlineJuicer, onEvent } = options;
+  const { templateImageId, angle, aspectRatio = '1:1', productImageBase64, productImageMimeType, headline, bodyCopy, headlineJuicer, sourceQuoteId, onEvent } = options;
 
   const emit = (event) => {
     if (onEvent) {
@@ -707,6 +708,7 @@ export async function generateAdMode2(projectId, options = {}) {
     aspect_ratio: aspectRatio,
     status: 'generating_copy',
     template_image_id: templateImageId,
+    source_quote_id: sourceQuoteId || undefined,
   });
 
   try {

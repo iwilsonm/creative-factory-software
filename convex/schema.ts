@@ -68,6 +68,7 @@ export default defineSchema({
     auto_generated: v.optional(v.boolean()),
     parent_ad_id: v.optional(v.string()),
     tags: v.optional(v.array(v.string())),
+    source_quote_id: v.optional(v.string()), // → quote_bank.externalId (ad created from quote)
     copy_framework: v.optional(v.string()),  // Legacy: from removed diversity features
     sub_angle: v.optional(v.string()),       // Legacy: from removed diversity features
     created_at: v.string(),
@@ -183,6 +184,24 @@ export default defineSchema({
     headlines_generated_at: v.optional(v.string()), // ISO timestamp
     created_at: v.string(),
     completed_at: v.optional(v.string()),
+  })
+    .index("by_externalId", ["externalId"])
+    .index("by_project", ["project_id"]),
+
+  quote_bank: defineTable({
+    externalId: v.string(),
+    project_id: v.string(),                        // → projects.externalId
+    quote: v.string(),                             // Verbatim quote text
+    source: v.optional(v.string()),                // e.g., "Reddit r/health"
+    source_url: v.optional(v.string()),
+    emotion: v.optional(v.string()),               // frustration, desperation, anger, etc.
+    emotional_intensity: v.optional(v.string()),    // "high" or "medium"
+    context: v.optional(v.string()),               // 1-sentence context
+    run_id: v.string(),                            // → quote_mining_runs.externalId
+    is_favorite: v.optional(v.boolean()),
+    headlines: v.optional(v.string()),             // JSON array of headline strings
+    headlines_generated_at: v.optional(v.string()), // ISO timestamp
+    created_at: v.string(),
   })
     .index("by_externalId", ["externalId"])
     .index("by_project", ["project_id"]),

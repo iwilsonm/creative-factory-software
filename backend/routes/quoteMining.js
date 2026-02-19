@@ -1,10 +1,12 @@
 import { Router } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import { requireAuth } from '../auth.js';
-import { getProject, getQuoteMiningRunsByProject, getQuoteMiningRun } from '../convexClient.js';
+import { getProject, getQuoteMiningRunsByProject, getQuoteMiningRun, getQuoteBankByProject, getQuoteBankQuote, updateQuoteBankQuote, deleteQuoteBankQuote } from '../convexClient.js';
 import { convexClient, api } from '../convexClient.js';
 import { runQuoteMining, generateSuggestions } from '../services/quoteMiner.js';
-import { generateHeadlines } from '../services/headlineGenerator.js';
+import { generateHeadlines, generateHeadlinesPerQuote } from '../services/headlineGenerator.js';
+import { deduplicateAndAddToBank } from '../services/quoteDedup.js';
+import { generateBodyCopy } from '../services/bodyCopyGenerator.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -139,9 +141,27 @@ router.post('/:projectId/quote-mining', async (req, res) => {
         completed_at: new Date().toISOString(),
       });
 
+      sendEvent({ type: 'saved', runId, quoteCount: result.quotes.length });
+
+      // Auto-add unique quotes to the quote bank (non-fatal)
+      try {
+        sendEvent({ type: 'bank_dedup_start', message: 'Cross-referencing with quote bank...' });
+        const bankResult = await deduplicateAndAddToBank(
+          req.params.projectId, runId, result.quotes
+        );
+        sendEvent({
+          type: 'bank_updated',
+          message: `Added ${bankResult.added} new quotes to bank (${bankResult.duplicates} duplicates skipped).`,
+          added: bankResult.added,
+          duplicates: bankResult.duplicates,
+        });
+      } catch (bankErr) {
+        console.warn('[QuoteMining] Bank dedup failed:', bankErr.message);
+        sendEvent({ type: 'bank_error', message: `Bank update failed: ${bankErr.message}` });
+      }
+
       clearInterval(keepalive);
       if (!closed) {
-        sendEvent({ type: 'saved', runId, quoteCount: result.quotes.length });
         res.write('data: [DONE]\n\n');
         res.end();
       }
@@ -188,7 +208,7 @@ router.delete('/:projectId/quote-mining/:runId', async (req, res) => {
   }
 });
 
-// ── Generate headlines from a run's quotes (SSE stream) ─────────────────────
+// ── Generate headlines from a run's quotes — Legacy (SSE stream) ─────────────
 router.post('/:projectId/quote-mining/:runId/headlines', async (req, res) => {
   try {
     const run = await getQuoteMiningRun(req.params.runId);
@@ -265,6 +285,178 @@ router.post('/:projectId/quote-mining/:runId/headlines', async (req, res) => {
     if (!res.headersSent) {
       res.status(500).json({ error: err.message });
     }
+  }
+});
+
+// ════════════════════════════════════════════════════════════════════════════════
+// QUOTE BANK ENDPOINTS
+// ════════════════════════════════════════════════════════════════════════════════
+
+// ── List all bank quotes for a project ───────────────────────────────────────
+router.get('/:projectId/quote-bank', async (req, res) => {
+  try {
+    const quotes = await getQuoteBankByProject(req.params.projectId);
+    // Sort newest first
+    quotes.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
+    res.json({ quotes });
+  } catch (err) {
+    console.error('Failed to list quote bank:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Toggle favorite ──────────────────────────────────────────────────────────
+router.patch('/:projectId/quote-bank/:quoteId/favorite', async (req, res) => {
+  try {
+    const quote = await getQuoteBankQuote(req.params.quoteId);
+    if (!quote || quote.project_id !== req.params.projectId) {
+      return res.status(404).json({ error: 'Quote not found in bank' });
+    }
+    await updateQuoteBankQuote(req.params.quoteId, {
+      is_favorite: !quote.is_favorite,
+    });
+    res.json({ success: true, is_favorite: !quote.is_favorite });
+  } catch (err) {
+    console.error('Failed to toggle favorite:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Delete a bank quote ──────────────────────────────────────────────────────
+router.delete('/:projectId/quote-bank/:quoteId', async (req, res) => {
+  try {
+    const quote = await getQuoteBankQuote(req.params.quoteId);
+    if (!quote || quote.project_id !== req.params.projectId) {
+      return res.status(404).json({ error: 'Quote not found in bank' });
+    }
+    await deleteQuoteBankQuote(req.params.quoteId);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Failed to delete bank quote:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Generate headlines for bank quotes (SSE stream) ──────────────────────────
+router.post('/:projectId/quote-bank/headlines', async (req, res) => {
+  try {
+    const { quote_ids, target_demographic, problem } = req.body;
+    if (!target_demographic || !problem) {
+      return res.status(400).json({ error: 'target_demographic and problem are required' });
+    }
+
+    // Load bank quotes
+    let bankQuotes = await getQuoteBankByProject(req.params.projectId);
+    if (quote_ids && Array.isArray(quote_ids) && quote_ids.length > 0) {
+      bankQuotes = bankQuotes.filter(q => quote_ids.includes(q.id));
+    } else {
+      // Default: only generate for quotes that don't have headlines yet
+      const withoutHeadlines = bankQuotes.filter(q => !q.headlines);
+      if (withoutHeadlines.length > 0) {
+        bankQuotes = withoutHeadlines;
+      }
+      // If all have headlines, regenerate all (user clicked "Regenerate All")
+    }
+
+    if (bankQuotes.length === 0) {
+      return res.status(400).json({ error: 'No quotes in bank to generate headlines for.' });
+    }
+
+    // Disable timeout
+    req.setTimeout(0);
+    res.setTimeout(0);
+
+    // Set up SSE
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+      'X-Accel-Buffering': 'no'
+    });
+
+    const keepalive = setInterval(() => {
+      if (!closed) res.write(': keepalive\n\n');
+    }, 30000);
+
+    const sendEvent = (event) => {
+      if (!closed) res.write(`data: ${JSON.stringify(event)}\n\n`);
+    };
+
+    let closed = false;
+    req.on('close', () => {
+      closed = true;
+      clearInterval(keepalive);
+    });
+
+    generateHeadlinesPerQuote(bankQuotes, {
+      target_demographic,
+      problem,
+    }, (event) => {
+      sendEvent(event);
+    }).then(async (result) => {
+      // Save headlines to each bank quote record
+      let savedCount = 0;
+      for (const item of result.results) {
+        if (item.quote_index >= 0 && item.quote_index < bankQuotes.length && item.headlines.length > 0) {
+          try {
+            await updateQuoteBankQuote(bankQuotes[item.quote_index].id, {
+              headlines: JSON.stringify(item.headlines),
+              headlines_generated_at: new Date().toISOString(),
+            });
+            savedCount++;
+          } catch (saveErr) {
+            console.warn(`[BankHeadlines] Failed to save headlines for quote ${bankQuotes[item.quote_index].id}:`, saveErr.message);
+          }
+        }
+      }
+
+      clearInterval(keepalive);
+      if (!closed) {
+        sendEvent({
+          type: 'headlines_saved',
+          message: `Saved headlines for ${savedCount} quotes.`,
+          savedCount,
+          results: result.results,
+        });
+        res.write('data: [DONE]\n\n');
+        res.end();
+      }
+    }).catch(async (err) => {
+      console.error('[BankHeadlines] Generation failed:', err);
+
+      clearInterval(keepalive);
+      if (!closed) {
+        sendEvent({ type: 'error', message: err.message });
+        res.write('data: [DONE]\n\n');
+        res.end();
+      }
+    });
+  } catch (err) {
+    console.error('Failed to start bank headline generation:', err);
+    if (!res.headersSent) {
+      res.status(500).json({ error: err.message });
+    }
+  }
+});
+
+// ── Generate body copy for a headline + quote ────────────────────────────────
+router.post('/:projectId/quote-bank/:quoteId/body-copy', async (req, res) => {
+  try {
+    const { headline, target_demographic, problem } = req.body;
+    if (!headline) {
+      return res.status(400).json({ error: 'headline is required' });
+    }
+
+    const quote = await getQuoteBankQuote(req.params.quoteId);
+    if (!quote || quote.project_id !== req.params.projectId) {
+      return res.status(404).json({ error: 'Quote not found in bank' });
+    }
+
+    const bodyCopy = await generateBodyCopy(headline, quote, target_demographic || '', problem || '');
+    res.json({ body_copy: bodyCopy });
+  } catch (err) {
+    console.error('Failed to generate body copy:', err);
+    res.status(500).json({ error: err.message });
   }
 });
 
