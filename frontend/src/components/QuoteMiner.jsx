@@ -128,7 +128,21 @@ export default function QuoteMiner({ projectId, project }) {
   const loadHistory = async () => {
     try {
       const data = await api.getQuoteMiningRuns(projectId);
-      setRuns(data.runs || []);
+      const allRuns = data.runs || [];
+      setRuns(allRuns);
+
+      // Detect in-progress runs (restored from navigation away)
+      const runningRun = allRuns.find(r => r.status === 'running');
+      if (runningRun && !mining) {
+        // Stale run protection — if running for >10 min, treat as failed
+        const runAge = Date.now() - new Date(runningRun.created_at).getTime();
+        if (runAge > 10 * 60 * 1000) return;
+
+        // Restore the in-progress run — show polling UI
+        setCurrentRunId(runningRun.id);
+        setMining(true);
+        setProgress([{ type: 'restored', message: `Reconnected to mining run: ${runningRun.target_demographic} × ${runningRun.problem}` }]);
+      }
     } catch (err) {
       console.error('Failed to load quote mining history:', err);
     } finally {
@@ -230,6 +244,34 @@ export default function QuoteMiner({ projectId, project }) {
     if (!mining && currentRunId) {
       loadRunResults(currentRunId);
     }
+  }, [mining, currentRunId]);
+
+  // ─── Poll for completion of restored in-progress runs ──────────────────────
+  useEffect(() => {
+    // Only poll when mining is true but there's no active SSE connection (restored run)
+    if (!mining || !currentRunId || abortRef.current) return;
+
+    const pollInterval = setInterval(async () => {
+      try {
+        const run = await api.getQuoteMiningRun(projectId, currentRunId);
+        if (run.status === 'completed') {
+          clearInterval(pollInterval);
+          setMining(false);
+          loadRunResults(currentRunId);
+          loadHistory();
+          toast.success(`Mining complete — ${run.quote_count} quotes found`);
+        } else if (run.status === 'failed') {
+          clearInterval(pollInterval);
+          setMining(false);
+          setProgress(prev => [...prev, { type: 'error', message: run.error_message || 'Mining failed' }]);
+          loadHistory();
+        }
+      } catch (err) {
+        console.warn('Poll failed:', err.message);
+      }
+    }, 5000);
+
+    return () => clearInterval(pollInterval);
   }, [mining, currentRunId]);
 
   const handleCancel = () => {
@@ -648,8 +690,30 @@ export default function QuoteMiner({ projectId, project }) {
         </div>
       )}
 
-      {/* Progress panel */}
-      {mining && (
+      {/* Progress panel — restored run (polling mode) */}
+      {mining && !abortRef.current && (
+        <div className="card p-6 space-y-3">
+          <div className="flex items-center gap-2">
+            <svg className="w-4 h-4 animate-spin text-purple-500" viewBox="0 0 24 24" fill="none">
+              <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" strokeDasharray="31.4 31.4" strokeLinecap="round" />
+            </svg>
+            <h3 className="text-[14px] font-semibold text-gray-800">Mining in Progress...</h3>
+          </div>
+          <p className="text-[12px] text-gray-500">
+            A mining run is still processing in the background. Results will appear automatically when complete.
+          </p>
+          <div className="bg-gray-50 rounded-xl p-3 text-[11px] font-mono text-gray-500 space-y-1">
+            {progress.map((event, i) => (
+              <div key={i} className={event.type === 'error' ? 'text-red-500' : ''}>
+                {event.message || JSON.stringify(event)}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* Progress panel — live SSE */}
+      {mining && abortRef.current && (
         <div className="card p-6 space-y-4">
           <div className="flex items-center justify-between">
             <h3 className="text-[14px] font-semibold text-gray-800">Mining in Progress...</h3>
