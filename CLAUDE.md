@@ -7,10 +7,11 @@
 A single-tenant web application for direct response copywriters and e-commerce brands. It automates two core workflows:
 
 1. **Foundational Document Generation** — An 8-step research pipeline (based on the Mark Builds Brands SOP) that uses GPT-4.1 and o3-deep-research to produce customer avatars, offer briefs, and belief documents from a product's sales page.
-2. **Static Image Ad Generation** — Uses GPT-5.2 as a creative director and Google Gemini 3 Pro Image ("Nano Banana Pro") to generate ad creatives, either one at a time or in automated batches on a cron schedule.
+2. **Static Image Ad Generation** — Uses GPT-5.2 as a creative director (2-message conversation flow) and Google Gemini 3 Pro Image ("Nano Banana Pro") to generate ad creatives, either one at a time or in automated batches on a cron schedule.
 
 **Live at**: `daciaautomation.com` (VPS: `76.13.183.219`)
 **Convex deployment**: `prod:strong-civet-577` at `https://energized-hare-760.convex.cloud`
+**GitHub**: `daciaventures/ad-platform`
 
 ---
 
@@ -22,7 +23,7 @@ A single-tenant web application for direct response copywriters and e-commerce b
 | Backend | Node.js + Express 4.21 |
 | Database | Convex (cloud-hosted, schema-enforced) |
 | File Storage | Convex blob storage (images, templates, product photos) |
-| LLM (text) | OpenAI — GPT-5.2 (creative direction), GPT-4.1 (research/synthesis), o3-deep-research (web research) |
+| LLM (text) | OpenAI — GPT-5.2 (creative direction), GPT-4.1 (research/synthesis), GPT-4.1-mini (prompt review/editing), o3-deep-research (web research) |
 | LLM (images) | Google Gemini 3 Pro Image Preview via `@google/genai` SDK |
 | External | Google Drive API v3 (service account auth) for inspiration sync + ad upload |
 | Auth | bcrypt + express-session (single shared account, not multi-user) |
@@ -44,22 +45,24 @@ ad-platform/
 │   │   ├── auth.js                  # Login/setup/session (rate-limited)
 │   │   ├── projects.js              # CRUD + product image upload (multer)
 │   │   ├── documents.js             # Foundational doc generation (SSE streaming)
-│   │   ├── ads.js                   # Ad generation + prompt editing (SSE streaming)
+│   │   ├── ads.js                   # Ad generation + prompt editing + tagging (SSE streaming)
 │   │   ├── batches.js               # Batch job CRUD + scheduling
 │   │   ├── costs.js                 # Cost aggregation (today/week/month)
 │   │   ├── drive.js                 # Google Drive sync + folder browsing
 │   │   ├── templates.js             # Template image management
-│   │   ├── upload.js                # File upload + text extraction
-│   │   └── settings.js              # API keys, rates, app config
+│   │   ├── upload.js                # File upload + text extraction (PDF, DOCX, EPUB, MOBI, Markdown, HTML)
+│   │   ├── settings.js              # API keys, rates, app config
+│   │   └── deployments.js           # Ad deployment tracking (Meta/Facebook pipeline)
 │   └── services/
-│       ├── openai.js                # GPT-5.2, GPT-4.1, o3-deep-research wrappers
+│       ├── openai.js                # GPT-5.2, GPT-4.1, GPT-4.1-mini, o3-deep-research wrappers
 │       ├── gemini.js                # Nano Banana Pro image generation
 │       ├── docGenerator.js          # 8-step foundational doc pipeline
 │       ├── adGenerator.js           # Ad generation orchestrator (Mode 1 + Mode 2)
 │       ├── batchProcessor.js        # Two-phase batch execution (GPT prompts → Gemini batch API)
 │       ├── costTracker.js           # Gemini cost logging + OpenAI billing sync
 │       ├── scheduler.js             # Cron registration, batch polling, rate refresh
-│       └── retry.js                 # Exponential backoff utility
+│       ├── retry.js                 # Exponential backoff utility (5 retries, 429-aware)
+│       └── rateLimiter.js           # GPT rate limiter (AsyncSemaphore, concurrency=2, 2s gap)
 │
 ├── frontend/
 │   ├── src/
@@ -73,10 +76,11 @@ ad-platform/
 │   │   │   ├── Projects.jsx         # Project grid with stats
 │   │   │   ├── ProjectSetup.jsx     # New project wizard
 │   │   │   ├── ProjectDetail.jsx    # Tabbed project hub (Overview, Docs, Templates, Ad Studio)
-│   │   │   └── Settings.jsx         # API keys, Drive, rates, password
+│   │   │   ├── Settings.jsx         # API keys, Drive, rates, password
+│   │   │   └── AdTracker.jsx        # Ad deployment tracking (Meta/Facebook pipeline)
 │   │   └── components/
 │   │       ├── Layout.jsx           # Glass navbar + segmented control navigation
-│   │       ├── AdStudio.jsx         # Full ad generation UI (~1000 lines)
+│   │       ├── AdStudio.jsx         # Full ad generation UI + gallery with tags, bulk actions, list view
 │   │       ├── BatchManager.jsx     # Batch job management (~1700 lines)
 │   │       ├── FoundationalDocs.jsx # Doc generation with SSE progress
 │   │       ├── TemplateImages.jsx   # Template upload/management + Drive sync
@@ -99,6 +103,7 @@ ad-platform/
 │   ├── ad_creatives.ts              # Ad CRUD with storage URL resolution
 │   ├── batch_jobs.ts                # Batch job state machine
 │   ├── api_costs.ts                 # Cost logging + aggregation
+│   ├── ad_deployments.ts            # Deployment tracking (Meta/Facebook pipeline)
 │   ├── template_images.ts           # Template storage management
 │   ├── inspiration_images.ts        # Drive-synced inspiration images (dedup guard on create)
 │   └── fileStorage.ts               # Storage URL generation helpers
@@ -109,9 +114,6 @@ ad-platform/
 │   ├── ecosystem.config.cjs         # PM2 config (production env vars)
 │   └── nginx.conf                   # Reverse proxy + SSL + caching + gzip
 │
-├── tools/                           # Python scripts for WAT framework automation
-├── workflows/                       # Markdown SOPs for WAT framework
-├── .tmp/                            # Temporary processing files (disposable)
 └── .gitignore
 ```
 
@@ -126,11 +128,12 @@ All tables live in Convex cloud. Schema is enforced via `convex/schema.ts`.
 | `settings` | App config (key-value) | `key`, `value` |
 | `projects` | Products/brands being advertised | `externalId`, `name`, `brand_name`, `niche`, `product_description`, `sales_page_content`, `drive_folder_id`, `inspiration_folder_id`, `prompt_guidelines`, `product_image_storageId` |
 | `foundational_docs` | Generated research docs | `project_id` → projects.externalId, `doc_type` (research/avatar/offer_brief/necessary_beliefs), `content`, `version`, `approved`, `source` |
-| `ad_creatives` | Generated ads | `project_id`, `generation_mode`, `angle`, `headline`, `body_copy`, `image_prompt`, `gpt_creative_output`, `storageId`, `drive_file_id`, `drive_url`, `status`, `auto_generated`, `parent_ad_id` |
-| `batch_jobs` | Scheduled + on-demand batches | `project_id`, `batch_size`, `angles` (JSON), `aspect_ratio`, `template_image_id`, `product_image_storageId`, `gemini_batch_job`, `gpt_prompts` (JSON), `status`, `scheduled`, `schedule_cron`, `completed_count`, `failed_count`, `run_count` |
+| `ad_creatives` | Generated ads | `project_id`, `generation_mode`, `angle`, `headline`, `body_copy`, `image_prompt`, `gpt_creative_output`, `storageId`, `drive_file_id`, `drive_url`, `status`, `auto_generated`, `parent_ad_id`, `tags` (optional string array) |
+| `batch_jobs` | Scheduled + on-demand batches | `project_id`, `batch_size`, `angle`, `angles` (JSON), `aspect_ratio`, `template_image_id`, `template_image_ids`, `inspiration_image_ids`, `product_image_storageId`, `gemini_batch_job`, `gpt_prompts` (JSON), `status`, `scheduled`, `schedule_cron`, `completed_count`, `failed_count`, `run_count`, `used_template_ids` |
 | `api_costs` | Cost tracking per operation | `service` (gemini/openai), `operation`, `cost_usd`, `image_count`, `source` (calculated/billing_api), `period_date` |
 | `template_images` | Uploaded ad templates | `project_id`, `filename`, `storageId`, `description` |
 | `inspiration_images` | Drive-synced reference images | `project_id`, `drive_file_id`, `filename`, `storageId` |
+| `ad_deployments` | Ad deployment tracking | `ad_id` → ad_creatives.externalId, `project_id`, `status` (selected/scheduled/posted/analyzing), `campaign_name`, `ad_set_name`, `ad_name`, `landing_page_url`, `notes`, `planned_date`, `posted_date` |
 
 **Important**: Foreign keys use `externalId` (UUID strings), not Convex `_id`. The `externalId` pattern was carried over from the SQLite-to-Convex migration. All cross-table references use `project_id` → `projects.externalId`.
 
@@ -145,7 +148,8 @@ All tables live in Convex cloud. Schema is enforced via `convex/schema.ts`.
 - **Convex client**: `convexClient.js` wraps `ConvexHttpClient` with auto-retry (3 retries, exponential backoff). Provides 40+ helper functions matching the old SQLite API for drop-in replacement.
 - **SSE streaming**: Doc generation and ad generation stream progress events to the frontend via Server-Sent Events. Pattern: `res.writeHead(200, { 'Content-Type': 'text/event-stream' })` then `res.write(`data: ${JSON.stringify(event)}\n\n`)`.
 - **File uploads**: Multer saves to temp dir → uploaded to Convex storage → temp file deleted. Product images, templates, and inspiration images all stored in Convex.
-- **Retry utility**: `withRetry(fn, options)` in `services/retry.js` — exponential backoff with jitter, custom retry predicates for transient errors, Retry-After header support.
+- **Retry utility**: `withRetry(fn, options)` in `services/retry.js` — 5 retries, exponential backoff with jitter, rate-limit-aware (15s base delay for 429 errors), Retry-After header support, 120s max delay.
+- **Rate limiter**: `withGptRateLimit(fn, label)` in `services/rateLimiter.js` — AsyncSemaphore-based concurrency limiter (concurrency=2, 2s minimum gap between calls). Wraps all GPT-5.2 calls to prevent 429 errors from concurrent ad generations.
 
 ### Frontend
 
@@ -189,21 +193,24 @@ Sales page → GPT-4.1 analysis → Research methodology → o3-deep-research (w
 
 ### Single Ad Generation (Mode 1 — Direct)
 ```
-User picks angle + aspect ratio → GPT-5.2 creative director (with all foundational docs)
-→ Generates detailed image prompt → Optional: review against prompt guidelines
+User picks angle + aspect ratio
+→ Message 1: GPT-5.2 creative director receives all 4 foundational docs + brand context
+→ Message 2: GPT-5.2 receives inspiration image (+ optional product image) via vision API
+→ Returns detailed image prompt
+→ Optional: review against prompt guidelines (GPT-4.1-mini)
 → Gemini 3 Pro generates image (+ optional product image input)
 → Upload to Convex storage → Create ad_creative record → Log Gemini cost
 ```
 
 ### Single Ad Generation (Mode 2 — Template)
 ```
-Same as Mode 1, but GPT-5.2 also receives a reference template image via vision API
+Same as Mode 1, but GPT-5.2 receives a template image instead of a random inspiration image
 → Prompt is tailored to match the template's visual style
 ```
 
 ### Batch Job Execution
 ```
-Phase 1: Generate N GPT-5.2 prompts (sequential)
+Phase 1: Generate N GPT-5.2 prompts (sequential, rate-limited via AsyncSemaphore)
 Phase 2: Submit all to Gemini Batch API (async, returns batch job name)
 Scheduler polls every 5 min → On completion: create ad_creatives, log costs
 Status: pending → generating_prompts → submitting → processing → completed/failed
@@ -224,6 +231,13 @@ Upload on project Overview → stored as product_image_storageId in Convex
 → Green indicator in AdStudio/BatchManager shows "Project product image active"
 ```
 
+### Ad Deployment Tracking
+```
+Select ads in gallery → "Deploy" button creates ad_deployment records
+→ AdTracker page shows pipeline: Selected → Scheduled → Posted → Analyzing
+→ Track campaign names, ad set names, landing pages, dates, notes
+```
+
 ---
 
 ## Deployment
@@ -240,6 +254,8 @@ This rsyncs the project → runs `npm install` → builds frontend with Vite →
 ```bash
 ssh root@76.13.183.219 "cd /opt/ad-platform && npx convex deploy -y"
 ```
+
+**Important**: `deploy.sh` does NOT deploy Convex. Any schema or function changes require the separate Convex deploy command above. This is a common gotcha — if you add a new field to the schema, you must deploy Convex separately.
 
 **Important**: `package.json` is excluded from rsync. If you add a new dependency, SSH in and run `npm install` manually, or temporarily adjust the deploy script.
 
@@ -302,11 +318,17 @@ ssh root@76.13.183.219 "cd /opt/ad-platform && npx convex deploy -y"
 
 8. **Product image hierarchy**: Project-level product image auto-injects into all generations. Per-ad or per-batch uploads override it. This avoids re-uploading the same product photo for every ad.
 
+9. **2-message GPT flow**: Ad generation uses exactly 2 GPT-5.2 messages — Message 1 sends foundational docs + brand context, Message 2 sends the image via vision API. This is the minimal token-efficient flow. No 3rd refinement message.
+
+10. **Rate limiter for GPT-5.2**: An AsyncSemaphore-based concurrency limiter (`rateLimiter.js`) prevents 429 errors by limiting concurrent GPT-5.2 calls to 2 at a time with a 2-second minimum gap between calls. All heavy GPT calls go through `withGptRateLimit()`.
+
 ---
 
 ## Gotchas & Edge Cases
 
 - **Convex client retry**: All Convex operations retry up to 3 times with exponential backoff. If you see transient errors in logs, they're likely self-healing.
+- **Convex deploy is separate**: `deploy.sh` only deploys backend + frontend. Schema/function changes require `ssh root@76.13.183.219 "cd /opt/ad-platform && npx convex deploy -y"` separately. Forgetting this is the #1 cause of "field not saving" bugs.
+- **OpenAI 429 "quota exceeded"**: The current OpenAI account hits 429 errors on nearly every first attempt. The retry system handles this (retries after 15s+ backoff), but generation takes longer than expected (~50s per ad). Check OpenAI billing dashboard if this worsens.
 - **Gemini 400 INVALID_ARGUMENT**: Sometimes transient (capacity issues). The retry predicate treats these as retryable.
 - **Gemini rate scraping**: Rates are scraped from Google's pricing page daily at midnight. If the page format changes, rates will stale but won't break — they fall back to the last known value in settings.
 - **Drive upload disabled in batches**: Service account Drive uploads hit quota limits during batch jobs. Batch-generated ads are stored in Convex only (not auto-uploaded to Drive).
@@ -368,8 +390,9 @@ ssh root@76.13.183.219 "cd /opt/ad-platform && npx convex deploy -y"
 | GET | `/api/projects/:id/ads` | List ads with image URLs |
 | POST | `/api/projects/:id/generate-ad` | Generate ad (SSE stream) |
 | POST | `/api/projects/:id/regenerate-image` | Regenerate image only |
-| POST | `/api/projects/:id/edit-prompt` | NLP edit to image prompt |
+| POST | `/api/projects/:id/edit-prompt` | NLP edit to image prompt (with optional reference image) |
 | DELETE | `/api/projects/:id/ads/:adId` | Delete ad |
+| PATCH | `/api/projects/:id/ads/:adId/tags` | Update ad tags |
 
 ### Batches
 | Method | Path | Purpose |
@@ -380,6 +403,15 @@ ssh root@76.13.183.219 "cd /opt/ad-platform && npx convex deploy -y"
 | DELETE | `/api/projects/:id/batches/:batchId` | Delete/cancel batch |
 | POST | `/api/projects/:id/batches/:batchId/run` | Manually trigger batch |
 | POST | `/api/projects/:id/batches/:batchId/cancel` | Cancel active batch |
+
+### Deployments
+| Method | Path | Purpose |
+|--------|------|---------|
+| GET | `/api/deployments` | List deployments (optional `?projectId=` filter) |
+| POST | `/api/deployments` | Bulk create deployments from ad IDs |
+| PUT | `/api/deployments/:id` | Update deployment fields |
+| PUT | `/api/deployments/:id/status` | Update deployment status |
+| DELETE | `/api/deployments/:id` | Remove deployment |
 
 ### Costs
 | Method | Path | Purpose |
@@ -408,18 +440,20 @@ ssh root@76.13.183.219 "cd /opt/ad-platform && npx convex deploy -y"
 | `/projects` | Projects | Project grid |
 | `/projects/new` | ProjectSetup | New project wizard |
 | `/projects/:id` | ProjectDetail | Tabbed project hub |
+| `/projects/:id/tracker` | AdTracker | Ad deployment tracking pipeline |
 | `/settings` | Settings | API keys, Drive, rates |
 
 ---
 
-## What's Built vs Planned
+## What's Built & Production
 
-### Built & Production
 - Full auth system (login, setup, session management)
 - Project CRUD with product image management
 - 8-step foundational document generation pipeline
 - Single ad generation (Mode 1: Direct, Mode 2: Template)
+- 2-message GPT-5.2 creative director flow (foundational docs → image analysis)
 - Prompt editing (NLP-based + direct edit + vision-guided with reference images)
+- Prompt guidelines review (GPT-4.1-mini auto-check)
 - Batch job system with Gemini Batch API
 - Cron-scheduled recurring batches
 - Google Drive integration (inspiration sync, folder browsing)
@@ -430,7 +464,12 @@ ssh root@76.13.183.219 "cd /opt/ad-platform && npx convex deploy -y"
 - Inspiration image dedup guard (prevents duplicates from concurrent Drive syncs)
 - Dashboard roadmap with inline edit
 - Project-level product image (auto-injected, per-ad override)
-- Multi-select bulk download/delete in ad gallery
+- Ad gallery with grid + list view, timestamps, tag management
+- Multi-select bulk actions: download ZIP, delete, deploy, bulk tag
 - Copy correction feature for foundational docs
 - Deep research mode (o3-deep-research with web browsing)
 - Manual research workflow (paste your own research)
+- File upload with text extraction (PDF, DOCX, EPUB, MOBI, Markdown, HTML)
+- Ad deployment tracking pipeline (selected → scheduled → posted → analyzing)
+- GPT rate limiter (AsyncSemaphore concurrency control for 429 prevention)
+- Dynamic time estimates in generation queue based on queue position
