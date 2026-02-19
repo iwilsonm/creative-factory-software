@@ -157,6 +157,13 @@ export const api = {
   // Direct upload of foundational documents (bypass generation entirely)
   uploadDocs: (projectId, docs) => request(`/projects/${projectId}/upload-docs`, { method: 'POST', body: JSON.stringify({ docs }) }),
 
+  // Headline Reference Document
+  getHeadlineReference: (projectId) => request(`/projects/${projectId}/headline-reference`),
+  uploadHeadlineReference: (projectId, content) =>
+    request(`/projects/${projectId}/headline-reference`, { method: 'POST', body: JSON.stringify({ content }) }),
+  deleteHeadlineReference: (projectId) =>
+    request(`/projects/${projectId}/headline-reference`, { method: 'DELETE' }),
+
   // Copy Correction — find and fix inaccurate info in docs
   correctDocs: (projectId, correction) =>
     request(`/projects/${projectId}/correct-docs`, { method: 'POST', body: JSON.stringify({ correction }) }),

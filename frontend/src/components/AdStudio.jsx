@@ -104,6 +104,10 @@ export default function AdStudio({ projectId, project }) {
   // Template source
   const [templateSource, setTemplateSource] = useState(TEMPLATE_RANDOM);
 
+  // Headline Juicer
+  const [headlineJuicerOn, setHeadlineJuicerOn] = useState(false);
+  const [hasHeadlineDoc, setHasHeadlineDoc] = useState(false);
+
   // Upload one-off image
   const [uploadedFile, setUploadedFile] = useState(null);
   const [uploadedPreview, setUploadedPreview] = useState(null);
@@ -152,6 +156,13 @@ export default function AdStudio({ projectId, project }) {
 
   useEffect(() => {
     loadAds();
+  }, [projectId]);
+
+  // Check if headline reference doc exists (for Headline Juicer toggle)
+  useEffect(() => {
+    api.getHeadlineReference(projectId).then(doc => {
+      setHasHeadlineDoc(!!(doc && doc.content));
+    }).catch(() => setHasHeadlineDoc(false));
   }, [projectId]);
 
   // Restore in-progress ads to the queue on mount
@@ -626,7 +637,8 @@ export default function AdStudio({ projectId, project }) {
         aspect_ratio: aspectRatio,
         angle: angle || undefined,
         headline: headline || undefined,
-        body_copy: bodyCopy || undefined
+        body_copy: bodyCopy || undefined,
+        headline_juicer: headlineJuicerOn || undefined
       };
 
       if (selectedTemplate.source === 'drive') {
@@ -648,7 +660,8 @@ export default function AdStudio({ projectId, project }) {
         aspect_ratio: aspectRatio,
         angle: angle || undefined,
         headline: headline || undefined,
-        body_copy: bodyCopy || undefined
+        body_copy: bodyCopy || undefined,
+        headline_juicer: headlineJuicerOn || undefined
       };
 
       if (templateSource === TEMPLATE_UPLOAD && uploadedFile) {
@@ -1297,6 +1310,43 @@ export default function AdStudio({ projectId, project }) {
             className="hidden"
           />
         </div>
+
+        {/* ── HEADLINE JUICER TOGGLE ── */}
+        {!isCustomPromptMode && (
+          <div className={`my-4 flex items-center gap-3 p-3 rounded-xl ${
+            hasHeadlineDoc
+              ? 'bg-orange-50/50 border border-orange-200/60'
+              : 'bg-gray-50/50 border border-gray-200/40 opacity-60'
+          }`}>
+            <button
+              onClick={() => hasHeadlineDoc && setHeadlineJuicerOn(prev => !prev)}
+              disabled={!hasHeadlineDoc}
+              className={`relative w-10 h-[22px] rounded-full transition-colors flex-shrink-0 ${
+                headlineJuicerOn && hasHeadlineDoc ? 'bg-orange-500' : 'bg-gray-300'
+              } ${!hasHeadlineDoc ? 'cursor-not-allowed' : 'cursor-pointer'}`}
+            >
+              <span className={`absolute top-[3px] left-[3px] w-4 h-4 bg-white rounded-full shadow transition-transform ${
+                headlineJuicerOn && hasHeadlineDoc ? 'translate-x-[18px]' : ''
+              }`} />
+            </button>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2">
+                <p className={`text-[13px] font-semibold ${hasHeadlineDoc ? 'text-gray-800' : 'text-gray-500'}`}>
+                  Headline Juicer
+                </p>
+                {headlineJuicerOn && hasHeadlineDoc && (
+                  <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-orange-100 text-orange-700">Active</span>
+                )}
+                <InfoTooltip text="When enabled, your uploaded headline reference document is sent to the AI as creative inspiration. Headlines will be more varied and punchy. Upload a headline doc in the Foundational Docs tab." />
+              </div>
+              <p className={`text-[11px] ${hasHeadlineDoc ? 'text-gray-500' : 'text-gray-400'}`}>
+                {hasHeadlineDoc
+                  ? 'Use your headline reference document as creative fuel for more diverse headlines'
+                  : 'Upload a headline reference document in the Foundational Docs tab to enable this'}
+              </p>
+            </div>
+          </div>
+        )}
 
         {/* ── OPTIONAL FIELDS (collapsible) ── */}
         <div className="my-6 -mx-6">

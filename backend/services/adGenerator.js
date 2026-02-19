@@ -104,14 +104,17 @@ Your job:
 /**
  * Build the creative director prompt (Message 1) for GPT-5.2.
  * Includes brand context + all 4 foundational documents.
+ * @param {object} project - The project record
+ * @param {object} docs - { research, avatar, offer_brief, necessary_beliefs }
+ * @param {object|null} headlineRef - Optional headline reference document for Headline Juicer
  */
-export function buildCreativeDirectorPrompt(project, docs) {
+export function buildCreativeDirectorPrompt(project, docs, headlineRef = null) {
   const researchContent = docs.research?.content || '[No research document available]';
   const avatarContent = docs.avatar?.content || '[No avatar sheet available]';
   const offerContent = docs.offer_brief?.content || '[No offer brief available]';
   const beliefsContent = docs.necessary_beliefs?.content || '[No necessary beliefs document available]';
 
-  return `You are a world-class creative director and image generation expert working exclusively for ${project.brand_name}, a ${project.niche} brand that ${project.product_description}.
+  let prompt = `You are a world-class creative director and image generation expert working exclusively for ${project.brand_name}, a ${project.niche} brand that ${project.product_description}.
 
 🎯 Your Role:
 Your sole job is to analyze creative inputs and generate prompts for text-to-image softwares for the brand, including:
@@ -156,6 +159,20 @@ ${offerContent}
 
 NECESSARY BELIEFS:
 ${beliefsContent}`;
+
+  // Headline Juicer: inject headline reference document as creative inspiration
+  if (headlineRef && headlineRef.content) {
+    prompt += `
+
+---
+
+HEADLINE INSPIRATION DOCUMENT:
+The following document contains headline examples and copywriting patterns. Use these as CREATIVE FUEL to inspire diverse, varied, and scroll-stopping headlines for the ad you create. DO NOT copy headlines directly from this document. Instead, use the styles, rhythms, emotional hooks, and structural patterns you observe to generate fresh, original headlines that are tailored to this brand's voice and audience. The body copy you write should naturally support and align with whatever headline you create.
+
+${headlineRef.content}`;
+  }
+
+  return prompt;
 }
 
 /**
@@ -287,7 +304,7 @@ export async function selectTemplateImage(templateImageId) {
  * @returns {Promise<object>} The completed ad creative record
  */
 export async function generateAd(projectId, options = {}) {
-  const { angle, aspectRatio = '1:1', inspirationImageId, uploadedImageBase64, uploadedImageMimeType, productImageBase64, productImageMimeType, headline, bodyCopy, onEvent } = options;
+  const { angle, aspectRatio = '1:1', inspirationImageId, uploadedImageBase64, uploadedImageMimeType, productImageBase64, productImageMimeType, headline, bodyCopy, headlineJuicer, onEvent } = options;
 
   const emit = (event) => {
     if (onEvent) {
@@ -313,7 +330,7 @@ export async function generateAd(projectId, options = {}) {
   try {
     // 1. Load project + foundational docs + inspiration image in parallel
     const useUploadedImage = !!(uploadedImageBase64 && uploadedImageMimeType);
-    const [project, research, avatar, offer_brief, necessary_beliefs, inspiration] = await Promise.all([
+    const [project, research, avatar, offer_brief, necessary_beliefs, inspiration, headlineRef] = await Promise.all([
       getProject(projectId),
       getLatestDoc(projectId, 'research'),
       getLatestDoc(projectId, 'avatar'),
@@ -322,6 +339,7 @@ export async function generateAd(projectId, options = {}) {
       useUploadedImage
         ? Promise.resolve({ base64: uploadedImageBase64, mimeType: uploadedImageMimeType, fileId: 'uploaded' })
         : selectInspirationImage(projectId, inspirationImageId),
+      headlineJuicer ? getLatestDoc(projectId, 'headline_reference') : Promise.resolve(null),
     ]);
     if (!project) throw new Error('Project not found');
 
@@ -345,10 +363,10 @@ export async function generateAd(projectId, options = {}) {
     const hasProductImage = !!(productImageBase64 && productImageMimeType);
 
     let imagePrompt = await withGptRateLimit(async () => {
-      // Message 1: Creative director prompt + foundational docs (no additional docs)
-      emit({ type: 'status', status: 'generating_copy', message: 'Sending creative brief to GPT-5.2...', progress: 15 });
+      // Message 1: Creative director prompt + foundational docs (+ optional headline reference)
+      emit({ type: 'status', status: 'generating_copy', message: headlineRef ? 'Sending creative brief + headline inspiration to GPT-5.2...' : 'Sending creative brief to GPT-5.2...', progress: 15 });
 
-      const creativeDirectorPrompt_inner = buildCreativeDirectorPrompt(project, docs);
+      const creativeDirectorPrompt_inner = buildCreativeDirectorPrompt(project, docs, headlineRef);
       const acknowledgment = await chat(
         [{ role: 'user', content: creativeDirectorPrompt_inner }],
         'gpt-5.2'
@@ -491,7 +509,7 @@ async function generateAndSaveImage({ adId, projectId, project, imagePrompt, asp
  * @returns {Promise<object>} The completed ad creative record
  */
 export async function generateAdMode2(projectId, options = {}) {
-  const { templateImageId, angle, aspectRatio = '1:1', productImageBase64, productImageMimeType, headline, bodyCopy, onEvent } = options;
+  const { templateImageId, angle, aspectRatio = '1:1', productImageBase64, productImageMimeType, headline, bodyCopy, headlineJuicer, onEvent } = options;
 
   const emit = (event) => {
     if (onEvent) {
@@ -519,14 +537,15 @@ export async function generateAdMode2(projectId, options = {}) {
   });
 
   try {
-    // 1. Load project + foundational docs + template image in parallel
-    const [project, research, avatar, offer_brief, necessary_beliefs, template] = await Promise.all([
+    // 1. Load project + foundational docs + template image (+ optional headline ref) in parallel
+    const [project, research, avatar, offer_brief, necessary_beliefs, template, headlineRef] = await Promise.all([
       getProject(projectId),
       getLatestDoc(projectId, 'research'),
       getLatestDoc(projectId, 'avatar'),
       getLatestDoc(projectId, 'offer_brief'),
       getLatestDoc(projectId, 'necessary_beliefs'),
       selectTemplateImage(templateImageId),
+      headlineJuicer ? getLatestDoc(projectId, 'headline_reference') : Promise.resolve(null),
     ]);
     if (!project) throw new Error('Project not found');
 
@@ -541,10 +560,10 @@ export async function generateAdMode2(projectId, options = {}) {
     const hasProductImage = !!(productImageBase64 && productImageMimeType);
 
     let imagePrompt = await withGptRateLimit(async () => {
-      // Message 1: Creative director prompt + foundational docs (no additional docs)
-      emit({ type: 'status', status: 'generating_copy', message: 'Sending creative brief to GPT-5.2...', progress: 15 });
+      // Message 1: Creative director prompt + foundational docs (+ optional headline reference)
+      emit({ type: 'status', status: 'generating_copy', message: headlineRef ? 'Sending creative brief + headline inspiration to GPT-5.2...' : 'Sending creative brief to GPT-5.2...', progress: 15 });
 
-      const creativeDirectorPrompt_inner = buildCreativeDirectorPrompt(project, docs);
+      const creativeDirectorPrompt_inner = buildCreativeDirectorPrompt(project, docs, headlineRef);
       const acknowledgment = await chat(
         [{ role: 'user', content: creativeDirectorPrompt_inner }],
         'gpt-5.2'
