@@ -780,6 +780,12 @@ export default function AdStudio({ projectId, project }) {
         ? `${result.created} ad${result.created !== 1 ? 's' : ''} added to Ad Tracker`
         : 'All selected ads are already in Ad Tracker';
       toast.addToast(msg, result.created > 0 ? 'success' : 'info');
+      // Refresh deployed IDs so badges appear immediately
+      setDeployedAdIds(prev => {
+        const next = new Set(prev);
+        adIds.forEach(id => next.add(id));
+        return next;
+      });
       clearSelection();
     } catch (err) {
       toast.addToast('Failed to deploy ads', 'error');
@@ -853,6 +859,15 @@ export default function AdStudio({ projectId, project }) {
       setIsBulkDownloading(false);
     }
   };
+
+  // --- Deployed ad tracking ---
+  const [deployedAdIds, setDeployedAdIds] = useState(new Set());
+  useEffect(() => {
+    api.getProjectDeployments(projectId).then(data => {
+      const ids = new Set((data.deployments || []).map(d => d.ad_id));
+      setDeployedAdIds(ids);
+    }).catch(() => {});
+  }, [projectId]);
 
   // --- Bulk delete ---
   const [isBulkDeleting, setIsBulkDeleting] = useState(false);
@@ -2079,6 +2094,14 @@ export default function AdStudio({ projectId, project }) {
                       <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.25 15a4.5 4.5 0 004.5 4.5H18a3.75 3.75 0 001.332-7.257 3 3 0 00-3.758-3.848 5.25 5.25 0 00-10.233 2.33A4.502 4.502 0 002.25 15z" /></svg>
                     </div>
                   )}
+
+                  {/* Deployed badge */}
+                  {deployedAdIds.has(ad.id) && (
+                    <div className="absolute bottom-2 left-2 flex items-center gap-1 px-2 py-1 rounded-lg bg-emerald-500/90 backdrop-blur-sm text-white text-[10px] font-semibold shadow-sm">
+                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                      Deployed
+                    </div>
+                  )}
                 </div>
 
                 <div className="p-3">
@@ -2202,6 +2225,11 @@ export default function AdStudio({ projectId, project }) {
                 <span className="text-[10px] px-2 py-0.5 bg-gray-100 text-gray-500 rounded-full flex-shrink-0 hidden sm:inline">
                   {ad.auto_generated ? 'Batch' : ad.generation_mode === 'image_only' ? 'Edit' : ad.generation_mode === 'mode2' ? 'Template' : 'Individual'}
                 </span>
+                {deployedAdIds.has(ad.id) && (
+                  <span className="text-[10px] px-2 py-0.5 bg-emerald-100 text-emerald-700 rounded-full flex-shrink-0 font-medium hidden sm:inline">
+                    Deployed
+                  </span>
+                )}
 
                 {/* Actions */}
                 {ad.status === 'completed' && (

@@ -45,6 +45,17 @@ export default function AdTracker({ projectId }) {
     loadDeployments();
   }, [projectId]);
 
+  // One-time migration: rename all deployments to headline-based naming
+  useEffect(() => {
+    const key = 'deployment_rename_v1';
+    if (!localStorage.getItem(key)) {
+      api.renameAllDeployments().then(() => {
+        localStorage.setItem(key, Date.now().toString());
+        loadDeployments();
+      }).catch(() => {});
+    }
+  }, []);
+
   // Focus input when editing cell changes
   useEffect(() => {
     if (editingCell && editRef.current) {

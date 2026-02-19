@@ -98,7 +98,12 @@ router.post('/deployments', async (req, res) => {
       }
 
       const id = crypto.randomUUID();
-      const adName = [ad.angle, ad.headline].filter(Boolean).join(' — ') || `Ad ${adId.slice(0, 8)}`;
+      const shortCode = adId.slice(0, 4).toUpperCase();
+      const adName = ad.headline
+        ? `${ad.headline} — ${shortCode}`
+        : ad.angle
+          ? `${ad.angle} — ${shortCode}`
+          : `Ad ${shortCode}`;
       const result = await createDeployment({
         id,
         ad_id: adId,
@@ -187,6 +192,36 @@ router.delete('/deployments/:id', async (req, res) => {
   } catch (err) {
     console.error('Failed to delete deployment:', err);
     res.status(500).json({ error: 'Failed to delete deployment' });
+  }
+});
+
+/**
+ * POST /deployments/rename-all — Rename all deployments to headline-based naming
+ */
+router.post('/deployments/rename-all', async (req, res) => {
+  try {
+    const deployments = await getAllDeployments();
+    let renamed = 0;
+    for (const dep of deployments) {
+      try {
+        const ad = await getAd(dep.ad_id);
+        if (!ad) continue;
+        const shortCode = dep.ad_id.slice(0, 4).toUpperCase();
+        const newName = ad.headline
+          ? `${ad.headline} — ${shortCode}`
+          : ad.angle
+            ? `${ad.angle} — ${shortCode}`
+            : `Ad ${shortCode}`;
+        if (dep.ad_name !== newName) {
+          await updateDeployment(dep.externalId, { ad_name: newName });
+          renamed++;
+        }
+      } catch {}
+    }
+    res.json({ success: true, renamed, total: deployments.length });
+  } catch (err) {
+    console.error('Failed to rename deployments:', err);
+    res.status(500).json({ error: 'Failed to rename deployments' });
   }
 });
 

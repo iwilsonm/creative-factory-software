@@ -304,4 +304,5 @@ export const api = {
   updateDeployment: (id, fields) => request(`/deployments/${id}`, { method: 'PUT', body: JSON.stringify(fields) }),
   updateDeploymentStatus: (id, status) => request(`/deployments/${id}/status`, { method: 'PUT', body: JSON.stringify({ status }) }),
   deleteDeployment: (id) => request(`/deployments/${id}`, { method: 'DELETE' }),
+  renameAllDeployments: () => request('/deployments/rename-all', { method: 'POST' }),
 };
