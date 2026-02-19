@@ -21,6 +21,79 @@ const EXT_TO_MIME = {
 };
 
 /**
+ * Parse a headline reference document into individual headline types.
+ * Expected format: numbered entries like "1. Technique name:\nA: EXAMPLE\nB: EXAMPLE"
+ * Returns an array of { number, technique, examples: [string] } objects.
+ */
+export function parseHeadlineTypes(content) {
+  if (!content) return [];
+
+  // Split on numbered entries (e.g., "1.", "2.", ... "38.")
+  // Match lines that start with a number followed by a period
+  const chunks = content.split(/\n(?=\d{1,2}\.\s)/);
+
+  const types = [];
+  for (const chunk of chunks) {
+    const trimmed = chunk.trim();
+    if (!trimmed) continue;
+
+    // Match the number and technique description
+    const headerMatch = trimmed.match(/^(\d{1,2})\.\s+(.+?):\s*\n/);
+    if (!headerMatch) continue;
+
+    const number = parseInt(headerMatch[1], 10);
+    const technique = headerMatch[2].trim();
+
+    // Extract examples (lines starting with A:, B:, or similar letter patterns)
+    const examples = [];
+    const exampleMatches = trimmed.matchAll(/^([A-Z]):\s*(.+)/gm);
+    for (const m of exampleMatches) {
+      examples.push(m[2].trim());
+    }
+
+    if (examples.length > 0) {
+      types.push({ number, technique, examples });
+    }
+  }
+
+  return types;
+}
+
+/**
+ * Build the Headline Juicer Message 3 content.
+ * Randomly selects one headline type and one example from that type.
+ * Returns the message string, or null if parsing fails.
+ */
+export function buildHeadlineJuicerMessage(headlineContent) {
+  const types = parseHeadlineTypes(headlineContent);
+  if (types.length === 0) {
+    // Fallback: send the full document if we can't parse it
+    return `Here is a headline reference document. Choose one of the headline techniques from this document and revise the image prompt you just created to use a headline that follows that technique. Adjust the body copy so it aligns with and supports the new headline. Keep everything else about the prompt the same — the visual style, layout, and creative direction — just swap in the new headline and adjust the copy to match.
+
+HEADLINE REFERENCE DOCUMENT:
+${headlineContent}
+
+Now output ONLY the revised image prompt with the new headline and aligned body copy. No explanation, just the prompt.`;
+  }
+
+  // Randomly pick a headline type
+  const selectedType = types[Math.floor(Math.random() * types.length)];
+
+  // Randomly pick one example from that type
+  const selectedExample = selectedType.examples[Math.floor(Math.random() * selectedType.examples.length)];
+
+  return `Apply this specific headline technique to revise the image prompt you just created. Use this technique and example as your guide to craft a new headline for the ad.
+
+HEADLINE TECHNIQUE #${selectedType.number}: ${selectedType.technique}
+
+EXAMPLE: ${selectedExample}
+
+Revise the image prompt to use a headline that follows this exact technique and style. The headline should be original and tailored to this brand — do not copy the example verbatim, but follow the same pattern and approach. Adjust the body copy so it naturally supports and reinforces the new headline. Keep everything else about the prompt the same — the visual style, layout, and creative direction.
+
+Output ONLY the revised image prompt with the new headline and aligned body copy. No explanation, just the prompt.`;
+}
+
+/**
  * Review and revise an image prompt against project-level prompt guidelines.
  * Uses a fast GPT model to check the prompt for violations and fix them.
  * Returns the original prompt unchanged if no guidelines are set or no changes needed.
@@ -391,17 +464,12 @@ export async function generateAd(projectId, options = {}) {
         );
       }
 
-      // Message 3 (Headline Juicer): Send the full headline reference document
-      // and ask GPT to revise the prompt with a headline from that document
+      // Message 3 (Headline Juicer): Randomly select one headline type + example,
+      // then ask GPT to revise the prompt using that specific technique
       if (headlineRef && headlineRef.content) {
-        emit({ type: 'status', status: 'generating_copy', message: 'Applying Headline Juicer — revising with headline reference...', progress: 50 });
+        emit({ type: 'status', status: 'generating_copy', message: 'Applying Headline Juicer — selecting headline technique...', progress: 50 });
 
-        const msg3 = `Here is a headline reference document. I want you to choose one of the headlines from this document and revise the image prompt you just created to use that headline instead. Adjust the body copy so it aligns with and supports the new headline. Keep everything else about the prompt the same — the visual style, layout, and creative direction — just swap in the new headline and adjust the copy to match.
-
-HEADLINE REFERENCE DOCUMENT:
-${headlineRef.content}
-
-Now output ONLY the revised image prompt with the new headline and aligned body copy. No explanation, just the prompt.`;
+        const msg3 = buildHeadlineJuicerMessage(headlineRef.content);
 
         const conversationWithMsg2 = [
           { role: 'user', content: creativeDirectorPrompt_inner },
@@ -613,17 +681,12 @@ export async function generateAdMode2(projectId, options = {}) {
         );
       }
 
-      // Message 3 (Headline Juicer): Send the full headline reference document
-      // and ask GPT to revise the prompt with a headline from that document
+      // Message 3 (Headline Juicer): Randomly select one headline type + example,
+      // then ask GPT to revise the prompt using that specific technique
       if (headlineRef && headlineRef.content) {
-        emit({ type: 'status', status: 'generating_copy', message: 'Applying Headline Juicer — revising with headline reference...', progress: 50 });
+        emit({ type: 'status', status: 'generating_copy', message: 'Applying Headline Juicer — selecting headline technique...', progress: 50 });
 
-        const msg3 = `Here is a headline reference document. I want you to choose one of the headlines from this document and revise the image prompt you just created to use that headline instead. Adjust the body copy so it aligns with and supports the new headline. Keep everything else about the prompt the same — the visual style, layout, and creative direction — just swap in the new headline and adjust the copy to match.
-
-HEADLINE REFERENCE DOCUMENT:
-${headlineRef.content}
-
-Now output ONLY the revised image prompt with the new headline and aligned body copy. No explanation, just the prompt.`;
+        const msg3 = buildHeadlineJuicerMessage(headlineRef.content);
 
         const conversationWithMsg2 = [
           { role: 'user', content: creativeDirectorPrompt_inner },
