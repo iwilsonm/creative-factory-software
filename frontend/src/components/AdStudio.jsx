@@ -871,7 +871,7 @@ export default function AdStudio({ projectId, project }) {
       const failed = ids.filter((_, i) => results[i].status === 'rejected');
       if (succeeded.length > 0) {
         setAds(prev => prev.filter(a => !succeeded.includes(a.id)));
-        setSelectedAdIds(new Set());
+        clearSelection();
         if (viewAd && succeeded.includes(viewAd.id)) setViewAd(null);
       }
       if (failed.length > 0) {
@@ -2472,7 +2472,7 @@ export default function AdStudio({ projectId, project }) {
             </button>
 
             <button
-              onClick={() => { setBulkTagOpen(prev => !prev); setBulkTagInput(''); }}
+              onClick={() => { if (bulkTagOpen) { clearSelection(); } else { setBulkTagOpen(true); setBulkTagInput(''); } }}
               className={`flex items-center gap-1.5 px-4 py-1.5 text-white text-[13px] font-medium rounded-xl transition-colors ${bulkTagOpen ? 'bg-violet-600 hover:bg-violet-700' : 'bg-violet-500 hover:bg-violet-600'}`}
             >
               <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
