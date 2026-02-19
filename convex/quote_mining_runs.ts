@@ -51,6 +51,8 @@ export const update = mutation({
     quote_count: v.optional(v.number()),
     error_message: v.optional(v.string()),
     duration_ms: v.optional(v.number()),
+    headlines: v.optional(v.string()),
+    headlines_generated_at: v.optional(v.string()),
     completed_at: v.optional(v.string()),
   },
   handler: async (ctx, args) => {

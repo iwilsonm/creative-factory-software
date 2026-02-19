@@ -136,6 +136,189 @@ function HeadlineReferenceSection() {
   );
 }
 
+// ─── Single reference doc upload slot (reusable) ─────────────────────────
+function ReferenceDocSlot({ docKey, label, description, content, onSave, onDelete }) {
+  const toast = useToast();
+  const [pasteContent, setPasteContent] = useState('');
+  const [saving, setSaving] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+  const [deleting, setDeleting] = useState(false);
+
+  const handleSave = async () => {
+    if (!pasteContent.trim()) { toast.error('Please enter or upload content'); return; }
+    setSaving(true);
+    try {
+      await onSave(docKey, pasteContent.trim());
+      toast.success(`${label} saved`);
+      setPasteContent('');
+      setEditing(false);
+    } catch (err) {
+      toast.error('Failed to save: ' + (err.message || 'Unknown error'));
+    } finally { setSaving(false); }
+  };
+
+  const handleDelete = async () => {
+    if (!confirm(`Remove ${label}?`)) return;
+    setDeleting(true);
+    try {
+      await onDelete(docKey);
+      toast.success(`${label} removed`);
+    } catch (err) {
+      toast.error('Failed to delete: ' + (err.message || 'Unknown error'));
+    } finally { setDeleting(false); }
+  };
+
+  const handleFileExtracted = (result) => {
+    setPasteContent(result.text);
+    toast.success(`Extracted ${result.charCount.toLocaleString()} characters from ${result.filename}`);
+  };
+
+  if (content && !editing) {
+    return (
+      <div className="bg-white rounded-lg shadow-sm border border-purple-200/60 p-3">
+        <div className="flex items-start justify-between mb-1">
+          <div className="flex items-center gap-2">
+            <h4 className="text-[12px] font-medium text-gray-800">{label}</h4>
+            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-green-100 text-green-700">Uploaded</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <button onClick={() => { setEditing(true); setPasteContent(content); }} className="text-[11px] text-blue-600 hover:underline">Replace</button>
+            <button onClick={handleDelete} disabled={deleting} className="text-[11px] text-red-500 hover:underline disabled:opacity-50">
+              {deleting ? '...' : 'Remove'}
+            </button>
+          </div>
+        </div>
+        <div className="flex items-center gap-3 mb-1 text-[10px] text-gray-400">
+          <span>{content.length.toLocaleString()} characters</span>
+        </div>
+        <button onClick={() => setExpanded(prev => !prev)} className="text-[10px] text-gray-500 hover:text-gray-700 flex items-center gap-1">
+          <svg className={`w-2.5 h-2.5 transition-transform ${expanded ? 'rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+          </svg>
+          {expanded ? 'Hide' : 'Preview'}
+        </button>
+        {expanded && (
+          <div className="mt-2 max-h-[200px] overflow-y-auto text-[11px] text-gray-600 whitespace-pre-wrap bg-gray-50 rounded-lg p-2.5 border border-gray-100">
+            {content.slice(0, 2000)}{content.length > 2000 ? '...' : ''}
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="border border-dashed border-gray-200 rounded-lg p-3 space-y-2">
+      <p className="text-[12px] font-medium text-gray-700">{label}</p>
+      {description && <p className="text-[10px] text-gray-400">{description}</p>}
+      <DragDropUpload
+        onTextExtracted={handleFileExtracted}
+        accept=".pdf,.docx,.epub,.mobi,.txt,.html,.htm,.md,.markdown"
+        label="Drop file (PDF, DOCX, TXT, etc.)"
+        compact
+      />
+      <textarea
+        value={pasteContent}
+        onChange={(e) => setPasteContent(e.target.value)}
+        placeholder="Or paste content here..."
+        rows={3}
+        className="input-apple w-full text-[12px] resize-y"
+      />
+      {pasteContent && <p className="text-[10px] text-gray-400">{pasteContent.length.toLocaleString()} characters</p>}
+      <div className="flex items-center gap-2">
+        <button onClick={handleSave} disabled={saving || !pasteContent.trim()} className="btn-primary text-[11px] px-3 py-1 disabled:opacity-50">
+          {saving ? 'Saving...' : 'Save'}
+        </button>
+        {editing && (
+          <button onClick={() => { setEditing(false); setPasteContent(''); }} className="btn-secondary text-[11px] px-3 py-1">Cancel</button>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ─── Headline Generator Reference Docs (3 documents for Quote Miner) ─────
+function HeadlineGeneratorRefsSection() {
+  const [docs, setDocs] = useState({ engine: null, greatest: null, swipe: null });
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => { loadDocs(); }, []);
+
+  const loadDocs = async () => {
+    try {
+      const data = await api.getHeadlineReferences();
+      setDocs({
+        engine: data.engine || null,
+        greatest: data.greatest || null,
+        swipe: data.swipe || null,
+      });
+    } catch (err) {
+      console.error('Failed to load headline references:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleSave = async (docKey, content) => {
+    await api.uploadHeadlineRef(docKey, content);
+    await loadDocs();
+  };
+
+  const handleDelete = async (docKey) => {
+    await api.deleteHeadlineRef(docKey);
+    await loadDocs();
+  };
+
+  if (loading) return null;
+
+  const uploadedCount = [docs.engine, docs.greatest, docs.swipe].filter(Boolean).length;
+
+  return (
+    <div className="card p-6">
+      <div className="flex items-center gap-2 mb-1">
+        <div className="w-6 h-6 rounded-lg bg-purple-100 flex items-center justify-center">
+          <svg className="w-3.5 h-3.5 text-purple-600" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z" />
+          </svg>
+        </div>
+        <h2 className="text-[15px] font-semibold text-gray-900 tracking-tight">Headline Generator Reference Docs</h2>
+        <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-purple-100 text-purple-700">Quote Miner</span>
+        <InfoTooltip text="Upload 3 reference documents used by the Quote Miner's headline generation step. Claude uses these as frameworks when creating direct response headlines from mined quotes." />
+      </div>
+      <p className="text-[12px] text-gray-500 mb-4">
+        {uploadedCount}/3 documents uploaded. These power the "Generate Headlines" button in the Quote Miner.
+      </p>
+
+      <div className="space-y-3">
+        <ReferenceDocSlot
+          docKey="engine"
+          label="1. Headline Engine (Methodology)"
+          description="THE DIRECT RESPONSE HEADLINE ENGINE — headline writing methodology and rules"
+          content={docs.engine}
+          onSave={handleSave}
+          onDelete={handleDelete}
+        />
+        <ReferenceDocSlot
+          docKey="greatest"
+          label="2. 100 Greatest Headlines"
+          description="100 Greatest Headlines Ever Used — classic headline examples"
+          content={docs.greatest}
+          onSave={handleSave}
+          onDelete={handleDelete}
+        />
+        <ReferenceDocSlot
+          docKey="swipe"
+          label="3. 349 Headlines Swipe File"
+          description="349 Great Headlines / Halbert Swipe File — direct response templates"
+          content={docs.swipe}
+          onSave={handleSave}
+          onDelete={handleDelete}
+        />
+      </div>
+    </div>
+  );
+}
+
 export default function Settings() {
   const toast = useToast();
   const [settings, setSettings] = useState({});
@@ -503,8 +686,11 @@ export default function Settings() {
           </button>
         </div>
 
-        {/* Headline Reference Document */}
+        {/* Headline Reference Document (Ad Studio Juicer) */}
         <HeadlineReferenceSection />
+
+        {/* Headline Generator Reference Docs (Quote Miner) */}
+        <HeadlineGeneratorRefsSection />
 
         {/* Save button */}
         <button

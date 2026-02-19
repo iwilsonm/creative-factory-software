@@ -178,6 +178,8 @@ export default defineSchema({
     quote_count: v.optional(v.number()),
     error_message: v.optional(v.string()),
     duration_ms: v.optional(v.number()),
+    headlines: v.optional(v.string()),              // JSON array of headline strings
+    headlines_generated_at: v.optional(v.string()), // ISO timestamp
     created_at: v.string(),
     completed_at: v.optional(v.string()),
   })

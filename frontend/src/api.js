@@ -315,6 +315,17 @@ export const api = {
   deleteQuoteMiningRun: (projectId, runId) =>
     request(`/projects/${projectId}/quote-mining/${runId}`, { method: 'DELETE' }),
 
+  // Headline Generation (from quote mining results)
+  generateHeadlines: (projectId, runId, onEvent) =>
+    streamSSEWithBody(`/projects/${projectId}/quote-mining/${runId}/headlines`, {}, onEvent),
+
+  // Headline Generator Reference Docs (3 separate documents)
+  getHeadlineReferences: () => request('/settings/headline-references'),
+  uploadHeadlineRef: (docKey, content) =>
+    request(`/settings/headline-references/${docKey}`, { method: 'PUT', body: JSON.stringify({ content }) }),
+  deleteHeadlineRef: (docKey) =>
+    request(`/settings/headline-references/${docKey}`, { method: 'DELETE' }),
+
   // Settings test — Quote Miner
   testPerplexity: () => request('/settings/test-perplexity', { method: 'POST' }),
   testAnthropic: () => request('/settings/test-anthropic', { method: 'POST' }),

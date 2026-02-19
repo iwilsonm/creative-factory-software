@@ -4,6 +4,7 @@ import { requireAuth } from '../auth.js';
 import { getProject, getQuoteMiningRunsByProject, getQuoteMiningRun } from '../convexClient.js';
 import { convexClient, api } from '../convexClient.js';
 import { runQuoteMining } from '../services/quoteMiner.js';
+import { generateHeadlines } from '../services/headlineGenerator.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -167,6 +168,86 @@ router.delete('/:projectId/quote-mining/:runId', async (req, res) => {
   } catch (err) {
     console.error('Failed to delete quote mining run:', err);
     res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Generate headlines from a run's quotes (SSE stream) ─────────────────────
+router.post('/:projectId/quote-mining/:runId/headlines', async (req, res) => {
+  try {
+    const run = await getQuoteMiningRun(req.params.runId);
+    if (!run || run.project_id !== req.params.projectId) {
+      return res.status(404).json({ error: 'Quote mining run not found' });
+    }
+
+    if (!run.quotes) {
+      return res.status(400).json({ error: 'This run has no quotes. Mine quotes first.' });
+    }
+
+    const quotes = typeof run.quotes === 'string' ? JSON.parse(run.quotes) : run.quotes;
+    if (!Array.isArray(quotes) || quotes.length === 0) {
+      return res.status(400).json({ error: 'No quotes found in this run.' });
+    }
+
+    // Disable timeout (headline generation can take 30-60s)
+    req.setTimeout(0);
+    res.setTimeout(0);
+
+    // Set up SSE
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+      'X-Accel-Buffering': 'no'
+    });
+
+    const keepalive = setInterval(() => {
+      if (!closed) res.write(': keepalive\n\n');
+    }, 30000);
+
+    const sendEvent = (event) => {
+      if (!closed) res.write(`data: ${JSON.stringify(event)}\n\n`);
+    };
+
+    let closed = false;
+    req.on('close', () => {
+      closed = true;
+      clearInterval(keepalive);
+    });
+
+    generateHeadlines(quotes, {
+      target_demographic: run.target_demographic,
+      problem: run.problem,
+    }, (event) => {
+      sendEvent(event);
+    }).then(async (result) => {
+      // Save headlines to the run record
+      await convexClient.mutation(api.quote_mining_runs.update, {
+        externalId: req.params.runId,
+        headlines: JSON.stringify(result.headlines),
+        headlines_generated_at: new Date().toISOString(),
+      });
+
+      clearInterval(keepalive);
+      if (!closed) {
+        sendEvent({ type: 'headlines_saved', headlineCount: result.headlines.length });
+        res.write('data: [DONE]\n\n');
+        res.end();
+      }
+    }).catch(async (err) => {
+      console.error('[Headlines] Generation failed:', err);
+
+      clearInterval(keepalive);
+      if (!closed) {
+        sendEvent({ type: 'error', message: err.message });
+        res.write('data: [DONE]\n\n');
+        res.end();
+      }
+    });
+  } catch (err) {
+    console.error('Failed to start headline generation:', err);
+    if (!res.headersSent) {
+      res.status(500).json({ error: err.message });
+    }
   }
 });
 

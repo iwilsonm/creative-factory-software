@@ -30,7 +30,7 @@ async function getPerplexityClient() {
 let anthropicClient = null;
 let lastAnthropicKey = null;
 
-async function getAnthropicClient() {
+export async function getAnthropicClient() {
   const apiKey = await getSetting('anthropic_api_key');
   if (!apiKey) throw new Error('Anthropic API key not configured. Set it in Settings.');
   if (!anthropicClient || lastAnthropicKey !== apiKey) {

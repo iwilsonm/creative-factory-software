@@ -226,4 +226,62 @@ router.delete('/headline-reference', async (req, res) => {
   }
 });
 
+// =============================================
+// Headline Generator Reference Docs (3 separate documents for Quote Miner)
+// =============================================
+
+const HEADLINE_REF_KEYS = {
+  engine: 'headline_ref_engine',
+  greatest: 'headline_ref_greatest',
+  swipe: 'headline_ref_swipe',
+};
+
+// Get all 3 reference docs
+router.get('/headline-references', async (req, res) => {
+  try {
+    const [engine, greatest, swipe] = await Promise.all([
+      getSetting('headline_ref_engine'),
+      getSetting('headline_ref_greatest'),
+      getSetting('headline_ref_swipe'),
+    ]);
+    res.json({
+      engine: engine || null,
+      greatest: greatest || null,
+      swipe: swipe || null,
+    });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to fetch headline references' });
+  }
+});
+
+// Save one reference doc
+router.put('/headline-references/:docKey', async (req, res) => {
+  try {
+    const settingsKey = HEADLINE_REF_KEYS[req.params.docKey];
+    if (!settingsKey) return res.status(400).json({ error: 'Invalid docKey. Must be: engine, greatest, or swipe' });
+
+    const { content } = req.body;
+    if (!content || !content.trim()) {
+      return res.status(400).json({ error: 'Content is required' });
+    }
+    await setSetting(settingsKey, content.trim());
+    res.json({ success: true, charCount: content.trim().length });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to save headline reference' });
+  }
+});
+
+// Delete one reference doc
+router.delete('/headline-references/:docKey', async (req, res) => {
+  try {
+    const settingsKey = HEADLINE_REF_KEYS[req.params.docKey];
+    if (!settingsKey) return res.status(400).json({ error: 'Invalid docKey. Must be: engine, greatest, or swipe' });
+
+    await setSetting(settingsKey, '');
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: 'Failed to delete headline reference' });
+  }
+});
+
 export default router;

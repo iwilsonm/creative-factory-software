@@ -100,6 +100,12 @@ export default function QuoteMiner({ projectId, project }) {
   const [currentQuotes, setCurrentQuotes] = useState(null);
   const [currentRunMeta, setCurrentRunMeta] = useState(null);
 
+  // Headline generation state
+  const [generatingHeadlines, setGeneratingHeadlines] = useState(false);
+  const [headlineProgress, setHeadlineProgress] = useState([]);
+  const [currentHeadlines, setCurrentHeadlines] = useState(null);
+  const headlineAbortRef = useRef(null);
+
   // History state
   const [runs, setRuns] = useState([]);
   const [historyOpen, setHistoryOpen] = useState(false);
@@ -144,6 +150,8 @@ export default function QuoteMiner({ projectId, project }) {
     setCurrentQuotes(null);
     setCurrentRunMeta(null);
     setViewingRunId(null);
+    setCurrentHeadlines(null);
+    setHeadlineProgress([]);
 
     const { abort, done } = api.startQuoteMining(projectId, {
       target_demographic: config.target_demographic.trim(),
@@ -201,6 +209,15 @@ export default function QuoteMiner({ projectId, project }) {
         setCurrentQuotes(quotes);
         setCurrentRunMeta(run);
         setViewingRunId(runId);
+        // Load headlines if they exist
+        if (run.headlines) {
+          try {
+            const headlines = typeof run.headlines === 'string' ? JSON.parse(run.headlines) : run.headlines;
+            setCurrentHeadlines(headlines);
+          } catch { setCurrentHeadlines(null); }
+        } else {
+          setCurrentHeadlines(null);
+        }
       }
     } catch (err) {
       console.error('Failed to load run results:', err);
@@ -246,6 +263,81 @@ export default function QuoteMiner({ projectId, project }) {
     a.click();
     URL.revokeObjectURL(url);
     toast.success('Exported as text file');
+  };
+
+  // ─── Headline generation ───────────────────────────────────────────────────
+  const handleGenerateHeadlines = () => {
+    if (!viewingRunId) {
+      toast.error('No mining run selected');
+      return;
+    }
+
+    setGeneratingHeadlines(true);
+    setHeadlineProgress([]);
+    setCurrentHeadlines(null);
+
+    const { abort, done } = api.generateHeadlines(projectId, viewingRunId, (event) => {
+      setHeadlineProgress(prev => [...prev, event]);
+      if (event.type === 'headline_complete' && event.headlines) {
+        setCurrentHeadlines(event.headlines);
+      }
+    });
+
+    headlineAbortRef.current = abort;
+
+    done.then(() => {
+      setGeneratingHeadlines(false);
+      headlineAbortRef.current = null;
+      // Refresh the run to get saved headlines
+      loadRunResults(viewingRunId);
+    }).catch(() => {
+      setGeneratingHeadlines(false);
+      headlineAbortRef.current = null;
+    });
+  };
+
+  const handleCancelHeadlines = () => {
+    if (headlineAbortRef.current) {
+      headlineAbortRef.current();
+      setGeneratingHeadlines(false);
+      toast.info('Headline generation cancelled');
+    }
+  };
+
+  const copyHeadline = (headline) => {
+    navigator.clipboard.writeText(headline);
+    toast.success('Headline copied');
+  };
+
+  const copyAllHeadlines = () => {
+    if (!currentHeadlines) return;
+    const text = currentHeadlines.map((h, i) => `${i + 1}. ${h}`).join('\n');
+    navigator.clipboard.writeText(text);
+    toast.success(`${currentHeadlines.length} headlines copied`);
+  };
+
+  const exportHeadlines = () => {
+    if (!currentHeadlines) return;
+    const lines = [
+      `Headlines — ${currentRunMeta?.target_demographic || 'Unknown'} × ${currentRunMeta?.problem || 'Unknown'}`,
+      `Generated: ${new Date().toLocaleString()}`,
+      `Total headlines: ${currentHeadlines.length}`,
+      '',
+      '═══════════════════════════════════════════',
+      '',
+    ];
+    currentHeadlines.forEach((h, i) => {
+      lines.push(`${i + 1}. ${h}`);
+    });
+
+    const blob = new Blob([lines.join('\n')], { type: 'text/plain' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `headlines-${(currentRunMeta?.target_demographic || 'unknown').replace(/\s+/g, '-').toLowerCase()}-${Date.now()}.txt`;
+    a.click();
+    URL.revokeObjectURL(url);
+    toast.success('Exported headlines as text file');
   };
 
   // ─── Delete run ────────────────────────────────────────────────────────────
@@ -621,7 +713,18 @@ export default function QuoteMiner({ projectId, project }) {
                   </p>
                 )}
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
+                {!generatingHeadlines && (
+                  <button
+                    onClick={handleGenerateHeadlines}
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-medium rounded-lg bg-purple-600 text-white hover:bg-purple-700 shadow-sm transition-all"
+                  >
+                    <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z" />
+                    </svg>
+                    {currentHeadlines ? 'Regenerate Headlines' : 'Generate Headlines'}
+                  </button>
+                )}
                 <button onClick={copyAllQuotes} className="btn-secondary text-[11px] flex items-center gap-1">
                   <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" d="M15.666 3.888A2.25 2.25 0 0013.5 2.25H10.5a2.25 2.25 0 00-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 01-.75.75H9.75a.75.75 0 01-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 01-2.25 2.25H6.75A2.25 2.25 0 014.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 011.927-.184" />
@@ -635,7 +738,7 @@ export default function QuoteMiner({ projectId, project }) {
                   Export
                 </button>
                 <button
-                  onClick={() => { setCurrentQuotes(null); setCurrentRunMeta(null); setViewingRunId(null); }}
+                  onClick={() => { setCurrentQuotes(null); setCurrentRunMeta(null); setViewingRunId(null); setCurrentHeadlines(null); setHeadlineProgress([]); }}
                   className="btn-secondary text-[11px]"
                 >
                   New Search
@@ -709,6 +812,89 @@ export default function QuoteMiner({ projectId, project }) {
               </div>
             ))}
           </div>
+
+          {/* Headline generation progress */}
+          {generatingHeadlines && (
+            <div className="card p-5 space-y-3 border-l-4 border-l-purple-400">
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <svg className="w-4 h-4 animate-spin text-purple-500" viewBox="0 0 24 24" fill="none">
+                    <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" strokeDasharray="31.4 31.4" strokeLinecap="round" />
+                  </svg>
+                  <h3 className="text-[13px] font-semibold text-gray-800">Generating Headlines...</h3>
+                </div>
+                <button onClick={handleCancelHeadlines} className="text-[11px] text-red-500 hover:text-red-700 font-medium">
+                  Cancel
+                </button>
+              </div>
+              <div className="bg-gray-50 rounded-xl p-3 max-h-[120px] overflow-y-auto text-[11px] font-mono text-gray-500 space-y-1">
+                {headlineProgress.map((event, i) => (
+                  <div key={i} className={`${
+                    event.type === 'error' ? 'text-red-500' :
+                    event.type === 'headline_complete' || event.type === 'headlines_saved' ? 'text-green-600' :
+                    ''
+                  }`}>
+                    {event.message || JSON.stringify(event)}
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Headlines display */}
+          {currentHeadlines && currentHeadlines.length > 0 && !generatingHeadlines && (
+            <div className="card p-5 border-l-4 border-l-purple-400">
+              <div className="flex items-center justify-between mb-4">
+                <div className="flex items-center gap-2">
+                  <svg className="w-4 h-4 text-purple-500" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z" />
+                  </svg>
+                  <h3 className="text-[14px] font-semibold text-gray-800">
+                    <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-purple-100 text-purple-700 text-[11px] font-bold mr-1.5">
+                      {currentHeadlines.length}
+                    </span>
+                    Headlines Generated
+                  </h3>
+                </div>
+                <div className="flex items-center gap-2">
+                  <button onClick={copyAllHeadlines} className="btn-secondary text-[11px] flex items-center gap-1">
+                    <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M15.666 3.888A2.25 2.25 0 0013.5 2.25H10.5a2.25 2.25 0 00-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 01-.75.75H9.75a.75.75 0 01-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 01-2.25 2.25H6.75A2.25 2.25 0 014.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 011.927-.184" />
+                    </svg>
+                    Copy All
+                  </button>
+                  <button onClick={exportHeadlines} className="btn-secondary text-[11px] flex items-center gap-1">
+                    <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
+                    </svg>
+                    Export
+                  </button>
+                </div>
+              </div>
+
+              <div className="space-y-2">
+                {currentHeadlines.map((headline, index) => (
+                  <div key={index} className="flex items-start gap-3 p-2.5 rounded-lg bg-gray-50/80 hover:bg-purple-50/50 transition-colors group">
+                    <span className="flex-shrink-0 w-6 h-6 rounded-full bg-purple-100 flex items-center justify-center text-[10px] font-bold text-purple-700 mt-0.5">
+                      {index + 1}
+                    </span>
+                    <p className="flex-1 text-[13px] font-medium text-gray-800 leading-relaxed">
+                      {headline}
+                    </p>
+                    <button
+                      onClick={() => copyHeadline(headline)}
+                      className="flex-shrink-0 text-gray-300 group-hover:text-gray-500 hover:text-purple-600 transition-colors mt-0.5"
+                      title="Copy headline"
+                    >
+                      <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M15.666 3.888A2.25 2.25 0 0013.5 2.25H10.5a2.25 2.25 0 00-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 01-.75.75H9.75a.75.75 0 01-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 01-2.25 2.25H6.75A2.25 2.25 0 014.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 011.927-.184" />
+                      </svg>
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       )}
 
