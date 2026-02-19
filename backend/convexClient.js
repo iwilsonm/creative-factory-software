@@ -153,23 +153,6 @@ function convexDocToRow(d) {
 }
 
 // =============================================
-// Additional doc helpers
-// =============================================
-
-export async function getAdditionalDocs(projectId) {
-  const docs = await queryWithRetry(api.additionalDocs.getByProject, { projectId });
-  return docs.map(d => ({
-    id: d.externalId,
-    project_id: d.project_id,
-    name: d.name,
-    content: d.content,
-    filename: d.filename || null,
-    char_count: d.char_count,
-    created_at: d.created_at,
-  }));
-}
-
-// =============================================
 // Ad creative helpers
 // =============================================
 

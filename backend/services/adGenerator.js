@@ -2,8 +2,9 @@ import { v4 as uuidv4 } from 'uuid';
 import { chat, chatWithImage, chatWithImages } from './openai.js';
 import { generateImage } from './gemini.js';
 import { logGeminiCost } from './costTracker.js';
+import { withGptRateLimit } from './rateLimiter.js';
 import {
-  getProject, getLatestDoc, getAdditionalDocs, uploadBuffer, downloadToBuffer,
+  getProject, getLatestDoc, uploadBuffer, downloadToBuffer,
   getInspirationImages, getInspirationImageUrl,
   convexClient, api
 } from '../convexClient.js';
@@ -104,22 +105,11 @@ Your job:
  * Build the creative director prompt (Message 1) for GPT-5.2.
  * Includes brand context + all 4 foundational documents.
  */
-export function buildCreativeDirectorPrompt(project, docs, additionalDocs = []) {
+export function buildCreativeDirectorPrompt(project, docs) {
   const researchContent = docs.research?.content || '[No research document available]';
   const avatarContent = docs.avatar?.content || '[No avatar sheet available]';
   const offerContent = docs.offer_brief?.content || '[No offer brief available]';
   const beliefsContent = docs.necessary_beliefs?.content || '[No necessary beliefs document available]';
-
-  // Build additional docs section if any exist
-  let additionalSection = '';
-  if (additionalDocs.length > 0) {
-    const docEntries = additionalDocs.map(d => `${d.name.toUpperCase()}:\n${d.content}`).join('\n\n');
-    additionalSection = `\n\nADDITIONAL SUPPORTING DOCUMENTS:\n\n${docEntries}`;
-  }
-
-  const workflowText = additionalDocs.length > 0
-    ? 'I will upload foundational documents and additional supporting materials containing important brand strategy, copywriting, audience insights, and creative direction.'
-    : 'I will upload four foundational documents containing important brand strategy, copywriting, audience insights, and creative direction.';
 
   return `You are a world-class creative director and image generation expert working exclusively for ${project.brand_name}, a ${project.niche} brand that ${project.product_description}.
 
@@ -133,7 +123,7 @@ Lifestyle or user-experience visuals
 And more
 
 📄 Workflow:
-${workflowText}
+I will upload four foundational documents containing important brand strategy, copywriting, audience insights, and creative direction.
 I will then upload example image ads (from competitors or previous tests).
 You must:
 Analyze the documents and image examples carefully.
@@ -165,7 +155,7 @@ OFFER BRIEF:
 ${offerContent}
 
 NECESSARY BELIEFS:
-${beliefsContent}${additionalSection}`;
+${beliefsContent}`;
 }
 
 /**
@@ -321,15 +311,14 @@ export async function generateAd(projectId, options = {}) {
   });
 
   try {
-    // 1. Load project + foundational docs + additional docs + inspiration image in parallel
+    // 1. Load project + foundational docs + inspiration image in parallel
     const useUploadedImage = !!(uploadedImageBase64 && uploadedImageMimeType);
-    const [project, research, avatar, offer_brief, necessary_beliefs, additionalDocs, inspiration] = await Promise.all([
+    const [project, research, avatar, offer_brief, necessary_beliefs, inspiration] = await Promise.all([
       getProject(projectId),
       getLatestDoc(projectId, 'research'),
       getLatestDoc(projectId, 'avatar'),
       getLatestDoc(projectId, 'offer_brief'),
       getLatestDoc(projectId, 'necessary_beliefs'),
-      getAdditionalDocs(projectId),
       useUploadedImage
         ? Promise.resolve({ base64: uploadedImageBase64, mimeType: uploadedImageMimeType, fileId: 'uploaded' })
         : selectInspirationImage(projectId, inspirationImageId),
@@ -352,80 +341,55 @@ export async function generateAd(projectId, options = {}) {
       }).catch(() => {});
     }
 
-    // 4. GPT-5.2 Message 1: Creative director prompt + foundational docs
-    emit({ type: 'status', status: 'generating_copy', message: 'Sending creative brief to GPT-5.2...', progress: 15 });
-
-    const creativeDirectorPrompt = buildCreativeDirectorPrompt(project, docs, additionalDocs);
-    const messages = [
-      { role: 'user', content: creativeDirectorPrompt }
-    ];
-
-    // Get GPT-5.2's acknowledgment
-    const acknowledgment = await chat(messages, 'gpt-5.2');
-
-    // 5. GPT-5.2 Message 2: Inspiration image + optional product image + instructions
+    // GPT-5.2 Messages 1-2: Rate-limited to prevent TPM overload
     const hasProductImage = !!(productImageBase64 && productImageMimeType);
-    emit({ type: 'status', status: 'generating_copy', message: hasProductImage
-      ? 'GPT-5.2 analyzing inspiration image + product image...'
-      : 'GPT-5.2 analyzing inspiration image...', progress: 35 });
 
-    const imageRequestText = buildImageRequestText(angle, aspectRatio, hasProductImage, headline, bodyCopy);
-    const conversationSoFar = [
-      { role: 'user', content: creativeDirectorPrompt },
-      { role: 'assistant', content: acknowledgment }
-    ];
+    let imagePrompt = await withGptRateLimit(async () => {
+      // Message 1: Creative director prompt + foundational docs (no additional docs)
+      emit({ type: 'status', status: 'generating_copy', message: 'Sending creative brief to GPT-5.2...', progress: 15 });
 
-    let imagePrompt;
-    if (hasProductImage) {
-      // Send both inspiration and product images using multi-image function
-      imagePrompt = await chatWithImages(
-        conversationSoFar,
-        imageRequestText,
-        [
-          { base64: inspiration.base64, mimeType: inspiration.mimeType },
-          { base64: productImageBase64, mimeType: productImageMimeType }
-        ],
+      const creativeDirectorPrompt_inner = buildCreativeDirectorPrompt(project, docs);
+      const acknowledgment = await chat(
+        [{ role: 'user', content: creativeDirectorPrompt_inner }],
         'gpt-5.2'
       );
-    } else {
-      // Send only the inspiration image
-      imagePrompt = await chatWithImage(
-        conversationSoFar,
-        imageRequestText,
-        inspiration.base64,
-        inspiration.mimeType,
-        'gpt-5.2'
-      );
-    }
 
-    // 6. GPT-5.2 Message 3: Refinement round — review and improve the prompt using foundational docs
-    emit({ type: 'status', status: 'generating_copy', message: 'GPT-5.2 refining image prompt...', progress: 45 });
+      // Message 2: Inspiration image + optional product image + instructions
+      emit({ type: 'status', status: 'generating_copy', message: hasProductImage
+        ? 'GPT-5.2 analyzing inspiration image + product image...'
+        : 'GPT-5.2 analyzing inspiration image...', progress: 35 });
 
-    const refinementConversation = [
-      { role: 'user', content: creativeDirectorPrompt },
-      { role: 'assistant', content: acknowledgment },
-      { role: 'user', content: imageRequestText },
-      { role: 'assistant', content: imagePrompt }
-    ];
+      const imageRequestText_inner = buildImageRequestText(angle, aspectRatio, hasProductImage, headline, bodyCopy);
+      const conversationSoFar = [
+        { role: 'user', content: creativeDirectorPrompt_inner },
+        { role: 'assistant', content: acknowledgment }
+      ];
 
-    imagePrompt = await chat([
-      ...refinementConversation,
-      {
-        role: 'user',
-        content: `Now review and improve the image prompt you just wrote. Re-read the foundational documents and additional supporting materials above carefully. Make sure the prompt:
-
-1. Accurately reflects the brand voice, tone, and visual identity from the research document
-2. Speaks directly to the avatar's pain points, desires, and emotional triggers
-3. Incorporates the offer's key value propositions from the offer brief
-4. Aligns with the necessary beliefs the audience needs to hold
-5. Uses specific, vivid details rather than generic descriptions
-6. Maximizes scroll-stopping potential and conversion-focused design
-
-Return ONLY the improved image prompt — no commentary, no explanations, no markdown formatting. If the prompt is already excellent, return it as-is.`
+      let prompt;
+      if (hasProductImage) {
+        prompt = await chatWithImages(
+          conversationSoFar,
+          imageRequestText_inner,
+          [
+            { base64: inspiration.base64, mimeType: inspiration.mimeType },
+            { base64: productImageBase64, mimeType: productImageMimeType }
+          ],
+          'gpt-5.2'
+        );
+      } else {
+        prompt = await chatWithImage(
+          conversationSoFar,
+          imageRequestText_inner,
+          inspiration.base64,
+          inspiration.mimeType,
+          'gpt-5.2'
+        );
       }
-    ], 'gpt-5.2');
 
-    // Apply prompt guidelines if set
+      return prompt;
+    }, `[Mode1 Ad ${adId.slice(0, 8)}]`);
+
+    // Apply prompt guidelines if set (uses gpt-4.1-mini, not rate-limited)
     if (project.prompt_guidelines) {
       emit({ type: 'status', status: 'generating_copy', message: 'Reviewing prompt against guidelines...', progress: 55 });
       imagePrompt = await reviewPromptWithGuidelines(imagePrompt, project.prompt_guidelines);
@@ -555,14 +519,13 @@ export async function generateAdMode2(projectId, options = {}) {
   });
 
   try {
-    // 1. Load project + foundational docs + additional docs + template image in parallel
-    const [project, research, avatar, offer_brief, necessary_beliefs, additionalDocs, template] = await Promise.all([
+    // 1. Load project + foundational docs + template image in parallel
+    const [project, research, avatar, offer_brief, necessary_beliefs, template] = await Promise.all([
       getProject(projectId),
       getLatestDoc(projectId, 'research'),
       getLatestDoc(projectId, 'avatar'),
       getLatestDoc(projectId, 'offer_brief'),
       getLatestDoc(projectId, 'necessary_beliefs'),
-      getAdditionalDocs(projectId),
       selectTemplateImage(templateImageId),
     ]);
     if (!project) throw new Error('Project not found');
@@ -574,77 +537,55 @@ export async function generateAdMode2(projectId, options = {}) {
       throw new Error('No foundational documents found. Generate or upload documents first.');
     }
 
-    // 4. GPT-5.2 Message 1: Creative director prompt + foundational docs
-    emit({ type: 'status', status: 'generating_copy', message: 'Sending creative brief to GPT-5.2...', progress: 15 });
-
-    const creativeDirectorPrompt = buildCreativeDirectorPrompt(project, docs, additionalDocs);
-    const messages = [
-      { role: 'user', content: creativeDirectorPrompt }
-    ];
-
-    const acknowledgment = await chat(messages, 'gpt-5.2');
-
-    // 5. GPT-5.2 Message 2: Template image + optional product image + instructions
+    // GPT-5.2 Messages 1-2: Rate-limited to prevent TPM overload
     const hasProductImage = !!(productImageBase64 && productImageMimeType);
-    emit({ type: 'status', status: 'generating_copy', message: hasProductImage
-      ? 'GPT-5.2 analyzing template image + product image...'
-      : 'GPT-5.2 analyzing template image...', progress: 35 });
 
-    const imageRequestText = buildImageRequestText(angle, aspectRatio, hasProductImage, headline, bodyCopy);
-    const conversationSoFar = [
-      { role: 'user', content: creativeDirectorPrompt },
-      { role: 'assistant', content: acknowledgment }
-    ];
+    let imagePrompt = await withGptRateLimit(async () => {
+      // Message 1: Creative director prompt + foundational docs (no additional docs)
+      emit({ type: 'status', status: 'generating_copy', message: 'Sending creative brief to GPT-5.2...', progress: 15 });
 
-    let imagePrompt;
-    if (hasProductImage) {
-      imagePrompt = await chatWithImages(
-        conversationSoFar,
-        imageRequestText,
-        [
-          { base64: template.base64, mimeType: template.mimeType },
-          { base64: productImageBase64, mimeType: productImageMimeType }
-        ],
+      const creativeDirectorPrompt_inner = buildCreativeDirectorPrompt(project, docs);
+      const acknowledgment = await chat(
+        [{ role: 'user', content: creativeDirectorPrompt_inner }],
         'gpt-5.2'
       );
-    } else {
-      imagePrompt = await chatWithImage(
-        conversationSoFar,
-        imageRequestText,
-        template.base64,
-        template.mimeType,
-        'gpt-5.2'
-      );
-    }
 
-    // 6. GPT-5.2 Message 3: Refinement round — review and improve the prompt using foundational docs
-    emit({ type: 'status', status: 'generating_copy', message: 'GPT-5.2 refining image prompt...', progress: 45 });
+      // Message 2: Template image + optional product image + instructions
+      emit({ type: 'status', status: 'generating_copy', message: hasProductImage
+        ? 'GPT-5.2 analyzing template image + product image...'
+        : 'GPT-5.2 analyzing template image...', progress: 35 });
 
-    const refinementConversation = [
-      { role: 'user', content: creativeDirectorPrompt },
-      { role: 'assistant', content: acknowledgment },
-      { role: 'user', content: imageRequestText },
-      { role: 'assistant', content: imagePrompt }
-    ];
+      const imageRequestText_inner = buildImageRequestText(angle, aspectRatio, hasProductImage, headline, bodyCopy);
+      const conversationSoFar = [
+        { role: 'user', content: creativeDirectorPrompt_inner },
+        { role: 'assistant', content: acknowledgment }
+      ];
 
-    imagePrompt = await chat([
-      ...refinementConversation,
-      {
-        role: 'user',
-        content: `Now review and improve the image prompt you just wrote. Re-read the foundational documents and additional supporting materials above carefully. Make sure the prompt:
-
-1. Accurately reflects the brand voice, tone, and visual identity from the research document
-2. Speaks directly to the avatar's pain points, desires, and emotional triggers
-3. Incorporates the offer's key value propositions from the offer brief
-4. Aligns with the necessary beliefs the audience needs to hold
-5. Uses specific, vivid details rather than generic descriptions
-6. Maximizes scroll-stopping potential and conversion-focused design
-
-Return ONLY the improved image prompt — no commentary, no explanations, no markdown formatting. If the prompt is already excellent, return it as-is.`
+      let prompt;
+      if (hasProductImage) {
+        prompt = await chatWithImages(
+          conversationSoFar,
+          imageRequestText_inner,
+          [
+            { base64: template.base64, mimeType: template.mimeType },
+            { base64: productImageBase64, mimeType: productImageMimeType }
+          ],
+          'gpt-5.2'
+        );
+      } else {
+        prompt = await chatWithImage(
+          conversationSoFar,
+          imageRequestText_inner,
+          template.base64,
+          template.mimeType,
+          'gpt-5.2'
+        );
       }
-    ], 'gpt-5.2');
 
-    // Apply prompt guidelines if set
+      return prompt;
+    }, `[Mode2 Ad ${adId.slice(0, 8)}]`);
+
+    // Apply prompt guidelines if set (uses gpt-4.1-mini, not rate-limited)
     if (project.prompt_guidelines) {
       emit({ type: 'status', status: 'generating_copy', message: 'Reviewing prompt against guidelines...', progress: 55 });
       imagePrompt = await reviewPromptWithGuidelines(imagePrompt, project.prompt_guidelines);

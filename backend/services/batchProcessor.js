@@ -9,12 +9,13 @@ import {
   reviewPromptWithGuidelines
 } from './adGenerator.js';
 import {
-  getProject, getLatestDoc, getAdditionalDocs, getBatchJob, updateBatchJob,
+  getProject, getLatestDoc, getBatchJob, updateBatchJob,
   uploadBuffer, downloadToBuffer,
   convexClient, api
 } from '../convexClient.js';
 import { logGeminiCost } from './costTracker.js';
 import { withRetry } from './retry.js';
+import { withGptRateLimit } from './rateLimiter.js';
 // Drive upload skipped for batch images — Service Account has no storage quota.
 // Images are stored in Convex storage and viewable in the UI.
 
@@ -43,13 +44,12 @@ export async function runBatch(batchId, onProgress) {
     throw new Error('Project not found');
   }
 
-  // Load foundational docs + additional docs in parallel
-  const [research, avatar, offer_brief, necessary_beliefs, additionalDocs] = await Promise.all([
+  // Load foundational docs in parallel
+  const [research, avatar, offer_brief, necessary_beliefs] = await Promise.all([
     getLatestDoc(batch.project_id, 'research'),
     getLatestDoc(batch.project_id, 'avatar'),
     getLatestDoc(batch.project_id, 'offer_brief'),
     getLatestDoc(batch.project_id, 'necessary_beliefs'),
-    getAdditionalDocs(batch.project_id),
   ]);
   const docs = { research, avatar, offer_brief, necessary_beliefs };
 
@@ -64,7 +64,7 @@ export async function runBatch(batchId, onProgress) {
     await updateBatchJob(batchId, { status: 'generating_prompts' });
     emit({ type: 'status', status: 'generating_prompts', message: `Generating ${batch.batch_size} prompts via GPT-5.2...` });
 
-    const prompts = await generateBatchPrompts(batch, project, docs, onProgress, additionalDocs);
+    const prompts = await generateBatchPrompts(batch, project, docs, onProgress);
 
     // Store text-only prompts in DB (exclude base64 image data to keep DB size reasonable)
     await updateBatchJob(batchId, { gpt_prompts: JSON.stringify(prompts.map(p => p.prompt)), status: 'submitting' });
@@ -114,11 +114,11 @@ export async function runBatch(batchId, onProgress) {
  * - Template dedup: excludes previously used template IDs across runs
  * - Variation instruction: tells GPT to create unique concepts per ad
  */
-async function generateBatchPrompts(batch, project, docs, onProgress, additionalDocs = []) {
+async function generateBatchPrompts(batch, project, docs, onProgress) {
   const emit = (event) => { if (onProgress) try { onProgress(event); } catch {} };
   const prompts = [];
 
-  const creativeDirectorPrompt = buildCreativeDirectorPrompt(project, docs, additionalDocs);
+  const creativeDirectorPrompt = buildCreativeDirectorPrompt(project, docs);
 
   // Use the single angle for all ads in the batch
   const currentAngle = batch.angle || null;
@@ -179,55 +179,35 @@ async function generateBatchPrompts(batch, project, docs, onProgress, additional
           newlyUsedTemplateIds.push(imageData.fileId);
         }
 
-        // GPT-5.2 Message 1: Creative director prompt
-        const messages = [{ role: 'user', content: creativeDirectorPrompt }];
-        const acknowledgment = await chat(messages, 'gpt-5.2');
+        // GPT-5.2 Messages 1-2: Rate-limited to prevent TPM overload
+        let imagePrompt = await withGptRateLimit(async () => {
+          // Message 1: Creative director prompt
+          const acknowledgment = await chat(
+            [{ role: 'user', content: creativeDirectorPrompt }],
+            'gpt-5.2'
+          );
 
-        // GPT-5.2 Message 2: Image + instructions with current angle
-        let imageRequestText = buildImageRequestText(currentAngle, batch.aspect_ratio);
+          // Message 2: Image + instructions with current angle
+          let imageRequestText = buildImageRequestText(currentAngle, batch.aspect_ratio);
+          imageRequestText += `. IMPORTANT: This is ad ${i + 1} of ${batch.batch_size} in a batch — create a COMPLETELY UNIQUE creative concept. Use a different visual style, layout, color palette, and headline approach than you would for any other ad in this series. Be bold and experimental with this variation.`;
 
-        // Add variation instruction for batch diversity
-        imageRequestText += `. IMPORTANT: This is ad ${i + 1} of ${batch.batch_size} in a batch — create a COMPLETELY UNIQUE creative concept. Use a different visual style, layout, color palette, and headline approach than you would for any other ad in this series. Be bold and experimental with this variation.`;
+          const conversationSoFar = [
+            { role: 'user', content: creativeDirectorPrompt },
+            { role: 'assistant', content: acknowledgment }
+          ];
 
-        const conversationSoFar = [
-          { role: 'user', content: creativeDirectorPrompt },
-          { role: 'assistant', content: acknowledgment }
-        ];
+          let prompt = await chatWithImage(
+            conversationSoFar,
+            imageRequestText,
+            imageData.base64,
+            imageData.mimeType,
+            'gpt-5.2'
+          );
 
-        let imagePrompt = await chatWithImage(
-          conversationSoFar,
-          imageRequestText,
-          imageData.base64,
-          imageData.mimeType,
-          'gpt-5.2'
-        );
+          return prompt;
+        }, `[Batch ${batch.id?.slice(0, 8)} prompt ${i + 1}/${batch.batch_size}]`);
 
-        // GPT-5.2 Message 3: Refinement round — review and improve the prompt using foundational docs
-        const refinementConversation = [
-          { role: 'user', content: creativeDirectorPrompt },
-          { role: 'assistant', content: acknowledgment },
-          { role: 'user', content: imageRequestText },
-          { role: 'assistant', content: imagePrompt }
-        ];
-
-        imagePrompt = await chat([
-          ...refinementConversation,
-          {
-            role: 'user',
-            content: `Now review and improve the image prompt you just wrote. Re-read the foundational documents and additional supporting materials above carefully. Make sure the prompt:
-
-1. Accurately reflects the brand voice, tone, and visual identity from the research document
-2. Speaks directly to the avatar's pain points, desires, and emotional triggers
-3. Incorporates the offer's key value propositions from the offer brief
-4. Aligns with the necessary beliefs the audience needs to hold
-5. Uses specific, vivid details rather than generic descriptions
-6. Maximizes scroll-stopping potential and conversion-focused design
-
-Return ONLY the improved image prompt — no commentary, no explanations, no markdown formatting. If the prompt is already excellent, return it as-is.`
-          }
-        ], 'gpt-5.2');
-
-        // Apply prompt guidelines if set
+        // Apply prompt guidelines if set (uses gpt-4.1-mini, not rate-limited)
         if (project.prompt_guidelines) {
           imagePrompt = await reviewPromptWithGuidelines(imagePrompt, project.prompt_guidelines);
         }

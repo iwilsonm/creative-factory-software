@@ -173,11 +173,6 @@ export const api = {
   generateDocsManual: (projectId, researchContent, onEvent) =>
     streamSSEWithBody(`/projects/${projectId}/generate-docs-manual`, { researchContent }, onEvent),
 
-  // Additional supporting documents
-  getAdditionalDocs: (projectId) => request(`/projects/${projectId}/additional-docs`),
-  uploadAdditionalDoc: (projectId, data) => request(`/projects/${projectId}/additional-docs`, { method: 'POST', body: JSON.stringify(data) }),
-  deleteAdditionalDoc: (projectId, docId) => request(`/projects/${projectId}/additional-docs/${docId}`, { method: 'DELETE' }),
-
   // Upload & extraction
   extractText: async (file) => {
     const formData = new FormData();

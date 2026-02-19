@@ -327,21 +327,10 @@ export default function FoundationalDocs({ projectId, projectStatus }) {
   // Regeneration state
   const [regenerating, setRegenerating] = useState(null);
 
-  // Additional supporting documents state
-  const [additionalDocs, setAdditionalDocs] = useState([]);
-  const [showAddDoc, setShowAddDoc] = useState(false);
-  const [addDocName, setAddDocName] = useState('');
-  const [addDocText, setAddDocText] = useState('');
-  const [addDocFilename, setAddDocFilename] = useState('');
-  const [addDocSaving, setAddDocSaving] = useState(false);
-  const [additionalExpanded, setAdditionalExpanded] = useState(true);
-  const [viewAdditionalDoc, setViewAdditionalDoc] = useState(null);
-
   const streamRef = useRef(null);
 
   useEffect(() => {
     loadDocs();
-    loadAdditionalDocs();
   }, [projectId]);
 
   // Auto-scroll stream content
@@ -360,51 +349,6 @@ export default function FoundationalDocs({ projectId, projectStatus }) {
       console.error('Failed to load docs:', err);
     } finally {
       setLoading(false);
-    }
-  };
-
-  const loadAdditionalDocs = async () => {
-    try {
-      const data = await api.getAdditionalDocs(projectId);
-      setAdditionalDocs(data);
-    } catch (err) {
-      console.error('Failed to load additional docs:', err);
-    }
-  };
-
-  const handleAddDoc = async () => {
-    if (!addDocName.trim() || !addDocText.trim()) {
-      toast.error('Please provide a document name and content.');
-      return;
-    }
-    setAddDocSaving(true);
-    try {
-      await api.uploadAdditionalDoc(projectId, {
-        name: addDocName.trim(),
-        content: addDocText.trim(),
-        filename: addDocFilename || undefined,
-      });
-      toast.success(`"${addDocName.trim()}" added successfully`);
-      setShowAddDoc(false);
-      setAddDocName('');
-      setAddDocText('');
-      setAddDocFilename('');
-      loadAdditionalDocs();
-    } catch (err) {
-      toast.error(err.message || 'Failed to save document');
-    } finally {
-      setAddDocSaving(false);
-    }
-  };
-
-  const handleDeleteAdditionalDoc = async (doc) => {
-    if (!confirm(`Delete "${doc.name}"? This cannot be undone.`)) return;
-    try {
-      await api.deleteAdditionalDoc(projectId, doc.id);
-      toast.success(`"${doc.name}" deleted`);
-      loadAdditionalDocs();
-    } catch (err) {
-      toast.error(err.message || 'Failed to delete document');
     }
   };
 
@@ -1426,152 +1370,6 @@ export default function FoundationalDocs({ projectId, projectStatus }) {
         </div>
       )}
 
-      {/* Additional Supporting Documents */}
-      {!editingDoc && !viewDoc && (
-        <div className="border border-gray-200/60 rounded-xl overflow-hidden">
-          <button
-            onClick={() => setAdditionalExpanded(!additionalExpanded)}
-            className="w-full flex items-center justify-between p-4 bg-gray-50/80 hover:bg-gray-100/80 transition-colors"
-          >
-            <div className="flex items-center gap-2">
-              <h3 className="text-[14px] font-semibold text-gray-900">Additional Supporting Documents</h3>
-              {additionalDocs.length > 0 && (
-                <span className="text-[11px] bg-blue-100 text-blue-700 px-2 py-0.5 rounded-full">{additionalDocs.length}</span>
-              )}
-              <InfoTooltip text="Upload extra documents (FAQs, competitor analysis, email swipes, testimonials, etc.) to give the AI more context when writing ad copy." position="right" />
-            </div>
-            <svg className={`w-4 h-4 text-gray-400 transition-transform ${additionalExpanded ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-            </svg>
-          </button>
-
-          {additionalExpanded && (
-            <div className="p-4 space-y-3">
-              {/* View additional doc modal */}
-              {viewAdditionalDoc && (
-                <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-5">
-                  <div className="flex items-center justify-between mb-3">
-                    <div className="flex items-center gap-2">
-                      <h4 className="font-medium text-gray-900">{viewAdditionalDoc.name}</h4>
-                      {viewAdditionalDoc.filename && (
-                        <span className="text-xs text-gray-400">{viewAdditionalDoc.filename}</span>
-                      )}
-                    </div>
-                    <button onClick={() => setViewAdditionalDoc(null)} className="border border-gray-300 text-gray-700 px-3 py-1.5 rounded text-sm hover:bg-gray-50">Close</button>
-                  </div>
-                  <div className="bg-gray-50 rounded-lg p-4 max-h-[400px] overflow-y-auto">
-                    <pre className="text-xs text-gray-600 whitespace-pre-wrap font-mono">{viewAdditionalDoc.content}</pre>
-                  </div>
-                </div>
-              )}
-
-              {/* Add document form */}
-              {showAddDoc && !viewAdditionalDoc && (
-                <div className="bg-white rounded-lg border border-blue-200 p-4 space-y-3">
-                  <h4 className="text-sm font-medium text-gray-900">Add Supporting Document</h4>
-                  <DragDropUpload
-                    onTextExtracted={({ text, filename }) => {
-                      setAddDocText(text);
-                      setAddDocFilename(filename);
-                      if (!addDocName) {
-                        // Auto-fill name from filename (remove extension)
-                        const nameWithoutExt = filename.replace(/\.[^.]+$/, '').replace(/[-_]/g, ' ');
-                        setAddDocName(nameWithoutExt);
-                      }
-                    }}
-                    label="Drop your file here, or click to browse"
-                    sublabel="PDF, DOCX, EPUB, MOBI, TXT, HTML, or Markdown"
-                    accept=".pdf,.docx,.epub,.mobi,.txt,.html,.htm,.md"
-                    compact
-                    status={addDocText ? 'success' : 'default'}
-                    successMessage={addDocFilename ? `${addDocFilename} — ${addDocText.length.toLocaleString()} chars extracted` : 'Text loaded'}
-                  />
-                  <input
-                    type="text"
-                    value={addDocName}
-                    onChange={e => setAddDocName(e.target.value)}
-                    placeholder="Document name (e.g., FAQ, Competitor Analysis, Email Swipes)"
-                    className="w-full border border-gray-300 rounded-md px-3 py-2 text-sm focus:outline-none focus:ring-2 focus:ring-blue-500"
-                  />
-                  {!addDocText && (
-                    <textarea
-                      value={addDocText}
-                      onChange={e => setAddDocText(e.target.value)}
-                      placeholder="Or paste your document text here..."
-                      className="w-full h-32 border border-gray-300 rounded-md px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500"
-                    />
-                  )}
-                  {addDocText && (
-                    <p className="text-xs text-gray-500">{addDocText.length.toLocaleString()} characters</p>
-                  )}
-                  <div className="flex gap-2">
-                    <button
-                      onClick={handleAddDoc}
-                      disabled={addDocSaving || !addDocName.trim() || !addDocText.trim()}
-                      className="bg-blue-600 text-white px-4 py-2 rounded-md text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
-                    >
-                      {addDocSaving ? 'Saving...' : 'Save Document'}
-                    </button>
-                    <button
-                      onClick={() => { setShowAddDoc(false); setAddDocName(''); setAddDocText(''); setAddDocFilename(''); }}
-                      className="border border-gray-300 text-gray-700 px-4 py-2 rounded-md text-sm hover:bg-gray-50"
-                    >
-                      Cancel
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {/* Document list */}
-              {!showAddDoc && !viewAdditionalDoc && (
-                <>
-                  {additionalDocs.length === 0 ? (
-                    <p className="text-xs text-gray-400 text-center py-3">
-                      No additional documents yet. Add FAQs, competitor analysis, email swipes, or any other supporting material.
-                    </p>
-                  ) : (
-                    <div className="space-y-2">
-                      {additionalDocs.map(doc => (
-                        <div
-                          key={doc.id}
-                          className="flex items-center gap-3 px-4 py-3 rounded-lg bg-white border border-gray-200 hover:shadow-sm transition-shadow cursor-pointer"
-                          onClick={() => setViewAdditionalDoc(doc)}
-                        >
-                          <div className="w-8 h-8 rounded-lg bg-blue-50 flex items-center justify-center flex-shrink-0">
-                            <svg className="w-4 h-4 text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" /></svg>
-                          </div>
-                          <div className="flex-1 min-w-0">
-                            <p className="text-sm font-medium text-gray-900 truncate">{doc.name}</p>
-                            <p className="text-xs text-gray-400">
-                              {doc.char_count?.toLocaleString()} chars
-                              {doc.filename && <span className="ml-2">{doc.filename}</span>}
-                            </p>
-                          </div>
-                          <button
-                            onClick={(e) => { e.stopPropagation(); handleDeleteAdditionalDoc(doc); }}
-                            className="text-gray-300 hover:text-red-500 transition-colors flex-shrink-0"
-                            title="Delete document"
-                          >
-                            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" /></svg>
-                          </button>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-
-                  <button
-                    onClick={() => setShowAddDoc(true)}
-                    className="w-full border border-dashed border-gray-300 text-gray-500 px-4 py-2.5 rounded-lg text-sm hover:border-blue-400 hover:text-blue-600 hover:bg-blue-50/50 transition-colors flex items-center justify-center gap-1.5"
-                  >
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" /></svg>
-                    Add Document
-                  </button>
-                </>
-              )}
-            </div>
-          )}
-        </div>
-      )}
     </div>
   );
 }

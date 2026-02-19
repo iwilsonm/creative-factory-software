@@ -143,6 +143,8 @@ export default function AdStudio({ projectId, project }) {
   // Tags
   const [tagEditAd, setTagEditAd] = useState(null); // ad being tag-edited
   const [tagInput, setTagInput] = useState('');
+  const [bulkTagOpen, setBulkTagOpen] = useState(false);
+  const [bulkTagInput, setBulkTagInput] = useState('');
 
   // Multi-select for bulk download
   const [selectedAdIds, setSelectedAdIds] = useState(new Set());
@@ -461,6 +463,58 @@ export default function AdStudio({ projectId, project }) {
     }
   };
 
+  // Bulk tag functions for multi-select action bar
+  const handleBulkAddTag = async (tag) => {
+    const trimmed = tag.trim();
+    if (!trimmed) return;
+    const selectedAdsArr = ads.filter(a => selectedAdIds.has(a.id));
+    // Only update ads that don't already have this tag
+    const adsToUpdate = selectedAdsArr.filter(a => !(a.tags || []).includes(trimmed));
+    if (adsToUpdate.length === 0) return;
+
+    // Optimistic update
+    setAds(prev => prev.map(a => {
+      if (!selectedAdIds.has(a.id)) return a;
+      const current = a.tags || [];
+      if (current.includes(trimmed)) return a;
+      return { ...a, tags: [...current, trimmed] };
+    }));
+
+    // API calls in parallel
+    await Promise.allSettled(
+      adsToUpdate.map(ad => {
+        const newTags = [...(ad.tags || []), trimmed];
+        return api.updateAdTags(projectId, ad.id, newTags).catch(err => {
+          console.error(`Failed to add tag to ad ${ad.id}:`, err);
+        });
+      })
+    );
+  };
+
+  const handleBulkRemoveTag = async (tag) => {
+    const selectedAdsArr = ads.filter(a => selectedAdIds.has(a.id));
+    const adsToUpdate = selectedAdsArr.filter(a => (a.tags || []).includes(tag));
+    if (adsToUpdate.length === 0) return;
+
+    // Optimistic update
+    setAds(prev => prev.map(a => {
+      if (!selectedAdIds.has(a.id)) return a;
+      const current = a.tags || [];
+      if (!current.includes(tag)) return a;
+      return { ...a, tags: current.filter(t => t !== tag) };
+    }));
+
+    // API calls in parallel
+    await Promise.allSettled(
+      adsToUpdate.map(ad => {
+        const newTags = (ad.tags || []).filter(t => t !== tag);
+        return api.updateAdTags(projectId, ad.id, newTags).catch(err => {
+          console.error(`Failed to remove tag from ad ${ad.id}:`, err);
+        });
+      })
+    );
+  };
+
   const scrollToQueue = () => {
     queueRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
   };
@@ -687,7 +741,7 @@ export default function AdStudio({ projectId, project }) {
     setSelectedAdIds(new Set(completedIds));
   };
 
-  const clearSelection = () => setSelectedAdIds(new Set());
+  const clearSelection = () => { setSelectedAdIds(new Set()); setBulkTagOpen(false); setBulkTagInput(''); };
 
   const selectedCount = selectedAdIds.size;
 
@@ -1599,38 +1653,54 @@ export default function AdStudio({ projectId, project }) {
 
           {genQueueExpanded && (
             <div className="space-y-1.5">
-              {activeGens.map(gen => {
-                return (
-                  <div key={gen.id} className="flex items-center gap-3 px-3 py-2 rounded-lg bg-gray-50/80">
-                    {gen.error ? (
-                      <svg className="w-3.5 h-3.5 text-red-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" /></svg>
-                    ) : gen.status === 'completed' ? (
-                      <svg className="w-3.5 h-3.5 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
-                    ) : (
-                      <div className="w-3.5 h-3.5 rounded-full border-2 border-gray-300 border-t-blue-500 animate-spin flex-shrink-0" />
-                    )}
-                    <div className="flex-1 min-w-0">
-                      <p className={`text-[12px] font-medium truncate ${gen.error ? 'text-red-600' : gen.status === 'completed' ? 'text-green-600' : 'text-gray-700'}`}>
-                        {gen.label && <span className="text-gray-400 mr-1.5">{gen.label}</span>}
-                        {gen.error || gen.message || 'Starting...'}
-                      </p>
-                      {gen.warning && (
-                        <p className="text-[10px] text-amber-500 truncate">{gen.warning}</p>
+              {(() => {
+                // Compute queue positions for dynamic time estimates
+                // With concurrency=2, ads are processed 2 at a time
+                // Base time: ~50s for 2-message flow (foundational docs only), ~75s with additional docs (3 messages)
+                const pending = activeGens.filter(g => g.status && g.status !== 'completed' && !g.error);
+                const pendingIds = new Set(pending.map(g => g.id));
+
+                return activeGens.map((gen, idx) => {
+                  // Queue position: 0-indexed among pending items
+                  const queuePos = pending.findIndex(g => g.id === gen.id);
+                  // With concurrency=2: items at pos 0-1 run now, 2-3 wait for batch 1, etc.
+                  const batchNum = queuePos >= 0 ? Math.floor(queuePos / 2) : 0;
+                  const baseSeconds = 50; // 2-message flow baseline
+                  const estSeconds = baseSeconds + batchNum * 60; // 60s per batch queue wait
+                  const estLabel = estSeconds < 120 ? `~${estSeconds}s` : `~${(estSeconds / 60).toFixed(1)} min`;
+
+                  return (
+                    <div key={gen.id} className="flex items-center gap-3 px-3 py-2 rounded-lg bg-gray-50/80">
+                      {gen.error ? (
+                        <svg className="w-3.5 h-3.5 text-red-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" /></svg>
+                      ) : gen.status === 'completed' ? (
+                        <svg className="w-3.5 h-3.5 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
+                      ) : (
+                        <div className="w-3.5 h-3.5 rounded-full border-2 border-gray-300 border-t-blue-500 animate-spin flex-shrink-0" />
+                      )}
+                      <div className="flex-1 min-w-0">
+                        <p className={`text-[12px] font-medium truncate ${gen.error ? 'text-red-600' : gen.status === 'completed' ? 'text-green-600' : 'text-gray-700'}`}>
+                          {gen.label && <span className="text-gray-400 mr-1.5">{gen.label}</span>}
+                          {gen.error || gen.message || 'Starting...'}
+                        </p>
+                        {gen.warning && (
+                          <p className="text-[10px] text-amber-500 truncate">{gen.warning}</p>
+                        )}
+                      </div>
+                      {!gen.error && gen.status !== 'completed' && gen.startTime && (
+                        <span className="hidden sm:inline text-[10px] text-gray-400 whitespace-nowrap flex-shrink-0">
+                          Started {formatStartTime(gen.startTime)} · {estLabel}
+                        </span>
+                      )}
+                      {(gen.error || gen.status === 'completed') && (
+                        <button onClick={() => dismissGen(gen.id)} className="text-gray-300 hover:text-gray-500 flex-shrink-0 transition-colors">
+                          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                        </button>
                       )}
                     </div>
-                    {!gen.error && gen.status !== 'completed' && gen.startTime && (
-                      <span className="hidden sm:inline text-[10px] text-gray-400 whitespace-nowrap flex-shrink-0">
-                        Started {formatStartTime(gen.startTime)} · ~75s
-                      </span>
-                    )}
-                    {(gen.error || gen.status === 'completed') && (
-                      <button onClick={() => dismissGen(gen.id)} className="text-gray-300 hover:text-gray-500 flex-shrink-0 transition-colors">
-                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-                      </button>
-                    )}
-                  </div>
-                );
-              })}
+                  );
+                });
+              })()}
             </div>
           )}
         </div>
@@ -1864,10 +1934,10 @@ export default function AdStudio({ projectId, project }) {
                     )}
                     <button
                       onClick={(e) => { e.stopPropagation(); setTagEditAd(ad); }}
-                      className="text-[10px] w-4 h-4 flex items-center justify-center rounded-full text-gray-300 hover:text-blue-500 hover:bg-blue-50 transition-colors"
+                      className="text-[10px] px-1.5 py-0.5 rounded-full text-gray-300 hover:text-blue-500 hover:bg-blue-50 transition-colors"
                       title="Add tag"
                     >
-                      +
+                      + tag
                     </button>
                   </div>
                   <div className="flex gap-2 mt-1.5">
@@ -1951,10 +2021,10 @@ export default function AdStudio({ projectId, project }) {
                     )}
                     <button
                       onClick={(e) => { e.stopPropagation(); setTagEditAd(ad); }}
-                      className="text-[10px] w-4 h-4 flex items-center justify-center rounded-full text-gray-300 hover:text-blue-500 hover:bg-blue-50 transition-colors"
+                      className="text-[10px] px-1.5 py-0.5 rounded-full text-gray-300 hover:text-blue-500 hover:bg-blue-50 transition-colors"
                       title="Add tag"
                     >
-                      +
+                      + tag
                     </button>
                   </div>
                 </div>
@@ -2236,6 +2306,83 @@ export default function AdStudio({ projectId, project }) {
       {/* Floating bulk action bar */}
       {selectedCount > 0 && (
         <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 fade-in">
+          {/* Bulk tag popover — floats above the action bar */}
+          {bulkTagOpen && (() => {
+            // Compute union of tags across all selected ads with counts
+            const selectedAdsArr = ads.filter(a => selectedAdIds.has(a.id));
+            const tagCounts = {};
+            selectedAdsArr.forEach(a => {
+              (a.tags || []).forEach(t => {
+                tagCounts[t] = (tagCounts[t] || 0) + 1;
+              });
+            });
+            const allTags = Object.entries(tagCounts).sort((a, b) => b[1] - a[1]);
+            const usedTagNames = allTags.map(([t]) => t);
+
+            return (
+              <div
+                className="absolute bottom-full left-1/2 -translate-x-1/2 mb-3 bg-white rounded-2xl shadow-xl border border-gray-200/60 p-4 w-80"
+                onClick={e => e.stopPropagation()}
+              >
+                <div className="flex items-center justify-between mb-3">
+                  <h4 className="text-[13px] font-semibold text-gray-900">Tag {selectedCount} ad{selectedCount !== 1 ? 's' : ''}</h4>
+                  <button onClick={() => { setBulkTagOpen(false); setBulkTagInput(''); }} className="text-gray-400 hover:text-gray-600">
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                  </button>
+                </div>
+
+                {/* Current tags across selected ads */}
+                <div className="flex flex-wrap gap-1.5 mb-3 min-h-[28px]">
+                  {allTags.map(([tag, count]) => (
+                    <span key={tag} className="inline-flex items-center gap-1 text-[11px] px-2 py-1 bg-blue-50 text-blue-600 rounded-full">
+                      {tag}{count < selectedCount && ` (${count})`}
+                      <button
+                        onClick={() => handleBulkRemoveTag(tag)}
+                        className="text-blue-400 hover:text-blue-600"
+                      >
+                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                      </button>
+                    </span>
+                  ))}
+                  {allTags.length === 0 && (
+                    <span className="text-[11px] text-gray-400">No tags yet</span>
+                  )}
+                </div>
+
+                {/* Add tag input */}
+                <form onSubmit={(e) => {
+                  e.preventDefault();
+                  if (bulkTagInput.trim()) {
+                    handleBulkAddTag(bulkTagInput);
+                    setBulkTagInput('');
+                  }
+                }}>
+                  <input
+                    type="text"
+                    value={bulkTagInput}
+                    onChange={e => setBulkTagInput(e.target.value)}
+                    placeholder="Add a tag..."
+                    className="w-full text-[12px] px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-300"
+                    autoFocus
+                  />
+                </form>
+
+                {/* Quick-add suggestions */}
+                <div className="flex flex-wrap gap-1.5 mt-2">
+                  {QUICK_TAGS.filter(t => !usedTagNames.includes(t)).map(tag => (
+                    <button
+                      key={tag}
+                      onClick={() => handleBulkAddTag(tag)}
+                      className="text-[10px] px-2 py-1 bg-gray-50 text-gray-500 rounded-full hover:bg-blue-50 hover:text-blue-600 transition-colors"
+                    >
+                      {tag}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            );
+          })()}
+
           <div className="flex items-center gap-3 px-5 py-3 bg-gray-900/95 backdrop-blur-sm rounded-2xl shadow-lg border border-white/10">
             <span className="text-[13px] text-white font-medium">
               {selectedCount} ad{selectedCount !== 1 ? 's' : ''} selected
@@ -2261,6 +2408,16 @@ export default function AdStudio({ projectId, project }) {
                   Deploy
                 </>
               )}
+            </button>
+
+            <button
+              onClick={() => { setBulkTagOpen(prev => !prev); setBulkTagInput(''); }}
+              className={`flex items-center gap-1.5 px-4 py-1.5 text-white text-[13px] font-medium rounded-xl transition-colors ${bulkTagOpen ? 'bg-violet-600 hover:bg-violet-700' : 'bg-violet-500 hover:bg-violet-600'}`}
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
+              </svg>
+              Tag
             </button>
 
             <button
