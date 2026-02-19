@@ -6,7 +6,7 @@ import { withGptRateLimit } from './rateLimiter.js';
 import {
   getProject, getLatestDoc, uploadBuffer, downloadToBuffer,
   getInspirationImages, getInspirationImageUrl,
-  convexClient, api
+  getSetting, convexClient, api
 } from '../convexClient.js';
 // Drive upload removed — ads are stored in Convex only
 
@@ -430,7 +430,7 @@ export async function generateAd(projectId, options = {}) {
   try {
     // 1. Load project + foundational docs + inspiration image in parallel
     const useUploadedImage = !!(uploadedImageBase64 && uploadedImageMimeType);
-    const [project, research, avatar, offer_brief, necessary_beliefs, inspiration, headlineRef] = await Promise.all([
+    const [project, research, avatar, offer_brief, necessary_beliefs, inspiration, headlineRefRaw] = await Promise.all([
       getProject(projectId),
       getLatestDoc(projectId, 'research'),
       getLatestDoc(projectId, 'avatar'),
@@ -439,8 +439,10 @@ export async function generateAd(projectId, options = {}) {
       useUploadedImage
         ? Promise.resolve({ base64: uploadedImageBase64, mimeType: uploadedImageMimeType, fileId: 'uploaded' })
         : selectInspirationImage(projectId, inspirationImageId),
-      headlineJuicer ? getLatestDoc(projectId, 'headline_reference') : Promise.resolve(null),
+      headlineJuicer ? getSetting('headline_reference_content') : Promise.resolve(null),
     ]);
+    // Wrap headline ref string into expected { content } shape
+    const headlineRef = headlineRefRaw ? { content: headlineRefRaw } : null;
     if (!project) throw new Error('Project not found');
 
     const docs = { research, avatar, offer_brief, necessary_beliefs };
@@ -658,15 +660,17 @@ export async function generateAdMode2(projectId, options = {}) {
 
   try {
     // 1. Load project + foundational docs + template image (+ optional headline ref) in parallel
-    const [project, research, avatar, offer_brief, necessary_beliefs, template, headlineRef] = await Promise.all([
+    const [project, research, avatar, offer_brief, necessary_beliefs, template, headlineRefRaw] = await Promise.all([
       getProject(projectId),
       getLatestDoc(projectId, 'research'),
       getLatestDoc(projectId, 'avatar'),
       getLatestDoc(projectId, 'offer_brief'),
       getLatestDoc(projectId, 'necessary_beliefs'),
       selectTemplateImage(templateImageId),
-      headlineJuicer ? getLatestDoc(projectId, 'headline_reference') : Promise.resolve(null),
+      headlineJuicer ? getSetting('headline_reference_content') : Promise.resolve(null),
     ]);
+    // Wrap headline ref string into expected { content } shape
+    const headlineRef = headlineRefRaw ? { content: headlineRefRaw } : null;
     if (!project) throw new Error('Project not found');
 
     const docs = { research, avatar, offer_brief, necessary_beliefs };

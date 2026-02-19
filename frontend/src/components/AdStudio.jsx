@@ -171,10 +171,10 @@ export default function AdStudio({ projectId, project }) {
 
   // Check if headline reference doc exists (for Headline Juicer toggle)
   useEffect(() => {
-    api.getHeadlineReference(projectId).then(doc => {
+    api.getHeadlineReference().then(doc => {
       setHasHeadlineDoc(!!(doc && doc.content));
     }).catch(() => setHasHeadlineDoc(false));
-  }, [projectId]);
+  }, []);
 
   // Restore in-progress ads to the queue on mount
   useEffect(() => {
@@ -1444,12 +1444,12 @@ export default function AdStudio({ projectId, project }) {
                 {headlineJuicerOn && hasHeadlineDoc && (
                   <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-orange-100 text-orange-700">Active</span>
                 )}
-                <InfoTooltip text="When enabled, your uploaded headline reference document is sent to the AI as creative inspiration. Headlines will be more varied and punchy. Upload a headline doc in the Foundational Docs tab." />
+                <InfoTooltip text="When enabled, your uploaded headline reference document is sent to the AI as creative inspiration. Headlines will be more varied and punchy. Upload a headline doc in Settings." />
               </div>
               <p className={`text-[11px] ${hasHeadlineDoc ? 'text-gray-500' : 'text-gray-400'}`}>
                 {hasHeadlineDoc
                   ? 'Use your headline reference document as creative fuel for more diverse headlines'
-                  : 'Upload a headline reference document in the Foundational Docs tab to enable this'}
+                  : 'Upload a headline reference document in Settings to enable this'}
               </p>
             </div>
           </div>
