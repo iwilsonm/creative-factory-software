@@ -22,15 +22,23 @@ const EXT_TO_MIME = {
 
 /**
  * Parse a headline reference document into individual headline types.
+ * Handles both plain text and markdown-formatted documents.
  * Expected format: numbered entries like "1. Technique name:\nA: EXAMPLE\nB: EXAMPLE"
+ * Also handles: "**1. Technique name:**", horizontal rules (---), extra blank lines.
  * Returns an array of { number, technique, examples: [string] } objects.
  */
 export function parseHeadlineTypes(content) {
   if (!content) return [];
 
+  // Strip markdown formatting to normalize the content
+  let normalized = content
+    .replace(/\*\*/g, '')        // Remove ** bold markers
+    .replace(/^---+$/gm, '')     // Remove horizontal rules
+    .replace(/\n{3,}/g, '\n\n'); // Collapse excessive blank lines
+
   // Split on numbered entries (e.g., "1.", "2.", ... "38.")
-  // Match lines that start with a number followed by a period
-  const chunks = content.split(/\n(?=\d{1,2}\.\s)/);
+  // Match lines that start with a number followed by a period (with optional leading whitespace)
+  const chunks = normalized.split(/\n(?=\s*\d{1,2}\.\s)/);
 
   const types = [];
   for (const chunk of chunks) {
@@ -38,7 +46,8 @@ export function parseHeadlineTypes(content) {
     if (!trimmed) continue;
 
     // Match the number and technique description
-    const headerMatch = trimmed.match(/^(\d{1,2})\.\s+(.+?):\s*\n/);
+    // Handles "1. Technique name:" at end of line ($ with multiline flag via /m)
+    const headerMatch = trimmed.match(/^(\d{1,2})\.\s+(.+?):\s*$/m);
     if (!headerMatch) continue;
 
     const number = parseInt(headerMatch[1], 10);
@@ -77,7 +86,9 @@ const usedHeadlineTypes = new Map();
  */
 export function buildHeadlineJuicerMessage(headlineContent, projectId) {
   const types = parseHeadlineTypes(headlineContent);
+  console.log(`[HeadlineJuicer] Parsed ${types.length} headline types from document (${headlineContent?.length || 0} chars)`);
   if (types.length === 0) {
+    console.log('[HeadlineJuicer] WARNING: No types parsed — falling back to full document');
     // Fallback: send the full document if we can't parse it
     return `Here is a headline reference document. Choose one of the headline techniques from this document and revise the image prompt you just created to use a headline that follows that technique. Adjust the body copy so it aligns with and supports the new headline. Keep everything else about the prompt the same — the visual style, layout, and creative direction — just swap in the new headline and adjust the copy to match.
 
@@ -106,6 +117,7 @@ Now output ONLY the revised image prompt with the new headline and aligned body 
   // Track this type as used
   used.push(selectedType.number);
   usedHeadlineTypes.set(projectId, used);
+  console.log(`[HeadlineJuicer] Selected type #${selectedType.number}: "${selectedType.technique}" (${available.length} available, ${used.length} used)`);
 
   // Randomly pick one example from that type
   const selectedExample = selectedType.examples[Math.floor(Math.random() * selectedType.examples.length)];
