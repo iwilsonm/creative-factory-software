@@ -60,11 +60,22 @@ export function parseHeadlineTypes(content) {
 }
 
 /**
- * Build the Headline Juicer Message 3 content.
- * Randomly selects one headline type and one example from that type.
- * Returns the message string, or null if parsing fails.
+ * In-memory tracker of recently used headline types per project.
+ * Prevents consecutive ads from getting the same headline technique.
+ * Resets automatically when all types have been used, or on server restart.
+ * Map<projectId, number[]> — stores the headline type numbers that have been used.
  */
-export function buildHeadlineJuicerMessage(headlineContent) {
+const usedHeadlineTypes = new Map();
+
+/**
+ * Build the Headline Juicer Message 3 content.
+ * Randomly selects one headline type (excluding recently used ones for this project)
+ * and one example from that type.
+ * @param {string} headlineContent - The full headline reference document content
+ * @param {string} projectId - The project ID for tracking used types
+ * Returns the message string.
+ */
+export function buildHeadlineJuicerMessage(headlineContent, projectId) {
   const types = parseHeadlineTypes(headlineContent);
   if (types.length === 0) {
     // Fallback: send the full document if we can't parse it
@@ -76,8 +87,25 @@ ${headlineContent}
 Now output ONLY the revised image prompt with the new headline and aligned body copy. No explanation, just the prompt.`;
   }
 
-  // Randomly pick a headline type
-  const selectedType = types[Math.floor(Math.random() * types.length)];
+  // Get the used types for this project, or initialize empty
+  let used = usedHeadlineTypes.get(projectId) || [];
+
+  // Filter to types that haven't been used yet
+  let available = types.filter(t => !used.includes(t.number));
+
+  // If all types have been used, reset the tracker
+  if (available.length === 0) {
+    used = [];
+    available = types;
+    usedHeadlineTypes.set(projectId, []);
+  }
+
+  // Randomly pick from available types
+  const selectedType = available[Math.floor(Math.random() * available.length)];
+
+  // Track this type as used
+  used.push(selectedType.number);
+  usedHeadlineTypes.set(projectId, used);
 
   // Randomly pick one example from that type
   const selectedExample = selectedType.examples[Math.floor(Math.random() * selectedType.examples.length)];
@@ -469,7 +497,7 @@ export async function generateAd(projectId, options = {}) {
       if (headlineRef && headlineRef.content) {
         emit({ type: 'status', status: 'generating_copy', message: 'Applying Headline Juicer — selecting headline technique...', progress: 50 });
 
-        const msg3 = buildHeadlineJuicerMessage(headlineRef.content);
+        const msg3 = buildHeadlineJuicerMessage(headlineRef.content, projectId);
 
         const conversationWithMsg2 = [
           { role: 'user', content: creativeDirectorPrompt_inner },
@@ -686,7 +714,7 @@ export async function generateAdMode2(projectId, options = {}) {
       if (headlineRef && headlineRef.content) {
         emit({ type: 'status', status: 'generating_copy', message: 'Applying Headline Juicer — selecting headline technique...', progress: 50 });
 
-        const msg3 = buildHeadlineJuicerMessage(headlineRef.content);
+        const msg3 = buildHeadlineJuicerMessage(headlineRef.content, projectId);
 
         const conversationWithMsg2 = [
           { role: 'user', content: creativeDirectorPrompt_inner },
