@@ -85,7 +85,7 @@ export async function generateHeadlines(quotes, config, onProgress) {
 
   const response = await withRetry(
     () => client.messages.create({
-      model: 'claude-sonnet-4-5-20250514',
+      model: 'claude-sonnet-4-6',
       max_tokens: 4096,
       system: 'You are an expert direct response copywriter. You generate powerful, scroll-stopping headlines that leverage emotional pain points and proven headline formulas. Always return output as a valid JSON array of strings.',
       messages: [
