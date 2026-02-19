@@ -886,6 +886,102 @@ export default function AdStudio({ projectId, project }) {
     }
   };
 
+  // Regenerate an ad with the same parameters
+  const handleRegenerate = async (ad, e) => {
+    if (e) e.stopPropagation();
+    if (viewAd) setViewAd(null);
+
+    const genId = ++genIdCounter.current;
+    const genLabel = ad.angle || ad.aspect_ratio || 'Regeneration';
+
+    const newGen = { id: genId, label: genLabel, status: null, message: 'Preparing regeneration...', error: '', warning: '', progress: 0, startTime: Date.now() };
+    setActiveGens(prev => [...prev, newGen]);
+
+    toast.info(
+      <span>
+        Regenerating ad{' '}
+        <button onClick={scrollToQueue} className="underline font-semibold hover:text-blue-900 transition-colors">View Queue ↓</button>
+      </span>
+    );
+
+    const handleEvent = (event) => {
+      if (event.type === 'status') {
+        if (event.adId) {
+          setActiveGens(prev => prev
+            .filter(g => !(g.source === 'restored' && g.adExternalId === event.adId))
+            .map(g => g.id === genId
+              ? { ...g, status: event.status, message: event.message, progress: event.progress || 0, adExternalId: event.adId, source: 'sse' }
+              : g
+            )
+          );
+        } else {
+          updateGen(genId, { status: event.status, message: event.message, progress: event.progress || 0 });
+        }
+      } else if (event.type === 'warning') {
+        updateGen(genId, { warning: event.message });
+      } else if (event.type === 'complete') {
+        updateGen(genId, { status: 'completed', message: 'Ad regenerated successfully!', progress: 100 });
+        setAds(prev => [event.ad, ...prev]);
+      } else if (event.type === 'error') {
+        updateGen(genId, { error: event.error, status: null });
+      }
+    };
+
+    let stream;
+
+    if (ad.generation_mode === 'image_only' && ad.image_prompt) {
+      // Prompt-edit ads: regenerate image with the same prompt
+      updateGen(genId, { status: 'generating_image', message: 'Regenerating image...', progress: 10 });
+      stream = api.regenerateImage(projectId, {
+        image_prompt: ad.image_prompt,
+        aspect_ratio: ad.aspect_ratio || '1:1',
+        parent_ad_id: ad.id,
+        angle: ad.angle || undefined,
+        headline: ad.headline || undefined,
+        body_copy: ad.body_copy || undefined,
+      }, handleEvent);
+    } else if (ad.generation_mode === 'mode2' && ad.template_image_id) {
+      // Template-based ads: regenerate with same template
+      updateGen(genId, { status: 'generating_copy', message: 'Regenerating template-based ad...', progress: 5 });
+      stream = api.generateAd(projectId, {
+        mode: 'mode2',
+        template_image_id: ad.template_image_id,
+        aspect_ratio: ad.aspect_ratio || '1:1',
+        angle: ad.angle || undefined,
+        headline: ad.headline || undefined,
+        body_copy: ad.body_copy || undefined,
+        headline_juicer: headlineJuicerOn || undefined,
+      }, handleEvent);
+    } else {
+      // Standard mode1 ads: regenerate with random inspiration
+      updateGen(genId, { status: 'generating_copy', message: 'Regenerating ad...', progress: 5 });
+      stream = api.generateAd(projectId, {
+        mode: 'mode1',
+        aspect_ratio: ad.aspect_ratio || '1:1',
+        angle: ad.angle || undefined,
+        headline: ad.headline || undefined,
+        body_copy: ad.body_copy || undefined,
+        headline_juicer: headlineJuicerOn || undefined,
+      }, handleEvent);
+    }
+
+    stream.done
+      .then(() => {
+        setTimeout(() => {
+          setActiveGens(prev => {
+            const gen = prev.find(g => g.id === genId);
+            if (gen && gen.status === 'completed' && !gen.error) {
+              return prev.filter(g => g.id !== genId);
+            }
+            return prev;
+          });
+        }, 5000);
+      })
+      .catch(err => {
+        updateGen(genId, { error: err.message, status: null });
+      });
+  };
+
   // Edit prompt workflow — load ad's prompt into editor and scroll to top
   const handleEditPrompt = (ad, e) => {
     if (e) e.stopPropagation();
@@ -1953,6 +2049,16 @@ export default function AdStudio({ projectId, project }) {
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
                         </svg>
                       </button>
+                      {/* Regenerate */}
+                      <button
+                        onClick={(e) => handleRegenerate(ad, e)}
+                        className="w-7 h-7 rounded-lg bg-black/40 backdrop-blur-sm flex items-center justify-center text-white/90 hover:bg-black/60 transition-all"
+                        title="Regenerate ad"
+                      >
+                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182M20.015 4.356v4.992" />
+                        </svg>
+                      </button>
                       {/* Edit prompt */}
                       {ad.image_prompt && (
                         <button
@@ -2098,6 +2204,15 @@ export default function AdStudio({ projectId, project }) {
                 </span>
 
                 {/* Actions */}
+                {ad.status === 'completed' && (
+                  <button
+                    onClick={(e) => { e.stopPropagation(); handleRegenerate(ad, e); }}
+                    className="text-[11px] text-gray-300 hover:text-blue-500 transition-colors flex-shrink-0"
+                    title="Regenerate"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182M20.015 4.356v4.992" /></svg>
+                  </button>
+                )}
                 <button
                   onClick={(e) => { e.stopPropagation(); handleDelete(ad.id); }}
                   className="text-[11px] text-gray-300 hover:text-red-500 transition-colors flex-shrink-0"
@@ -2216,6 +2331,15 @@ export default function AdStudio({ projectId, project }) {
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
                   </svg>
                   Download
+                </button>
+                <button
+                  onClick={(e) => handleRegenerate(viewAd, e)}
+                  className="flex-1 flex items-center justify-center gap-1.5 py-2 px-3 bg-orange-500 text-white rounded-xl text-[12px] font-medium hover:bg-orange-600 transition-colors"
+                >
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182M20.015 4.356v4.992" />
+                  </svg>
+                  Regenerate
                 </button>
                 {viewAd.image_prompt && (
                   <button
