@@ -31,7 +31,7 @@ export default function AdTracker({ projectId }) {
   const [saving, setSaving] = useState(false);
   const [notesPopover, setNotesPopover] = useState(null); // { id, notes }
   const [statusDropdown, setStatusDropdown] = useState(null); // deployment id or null
-  const [previewImage, setPreviewImage] = useState(null); // { url, name } or null
+  const [previewDepId, setPreviewDepId] = useState(null); // deployment id or null
   const [tagPopover, setTagPopover] = useState(null); // { depId, adId, projectId, tags } or null
   const [tagInput, setTagInput] = useState('');
   const [isBulkDownloading, setIsBulkDownloading] = useState(false);
@@ -346,6 +346,33 @@ export default function AdTracker({ projectId }) {
       addToast('Failed to remove tag', 'error');
     }
   };
+
+  // ─── Image preview navigation ────────────────────────────────────────────
+  const previewableList = sorted.filter(d => d.imageUrl);
+  const previewIndex = previewDepId ? previewableList.findIndex(d => d.id === previewDepId) : -1;
+  const previewDep = previewIndex >= 0 ? previewableList[previewIndex] : null;
+  const canGoPrev = previewIndex > 0;
+  const canGoNext = previewIndex >= 0 && previewIndex < previewableList.length - 1;
+
+  const goPreviewPrev = useCallback(() => {
+    if (canGoPrev) setPreviewDepId(previewableList[previewIndex - 1].id);
+  }, [canGoPrev, previewableList, previewIndex]);
+
+  const goPreviewNext = useCallback(() => {
+    if (canGoNext) setPreviewDepId(previewableList[previewIndex + 1].id);
+  }, [canGoNext, previewableList, previewIndex]);
+
+  // Keyboard navigation for preview modal
+  useEffect(() => {
+    if (!previewDepId) return;
+    const handleKey = (e) => {
+      if (e.key === 'ArrowLeft') { e.preventDefault(); goPreviewPrev(); }
+      else if (e.key === 'ArrowRight') { e.preventDefault(); goPreviewNext(); }
+      else if (e.key === 'Escape') { e.preventDefault(); setPreviewDepId(null); }
+    };
+    document.addEventListener('keydown', handleKey);
+    return () => document.removeEventListener('keydown', handleKey);
+  }, [previewDepId, goPreviewPrev, goPreviewNext]);
 
   // ─── Download ────────────────────────────────────────────────────────────
   const handleDownload = async (dep) => {
@@ -766,7 +793,7 @@ export default function AdTracker({ projectId }) {
                             src={dep.imageUrl}
                             alt=""
                             className="w-12 h-12 rounded-md object-cover cursor-pointer hover:ring-2 hover:ring-blue-300 transition-all"
-                            onClick={(e) => { e.stopPropagation(); setPreviewImage({ url: dep.imageUrl, name: displayName(dep) }); }}
+                            onClick={(e) => { e.stopPropagation(); setPreviewDepId(dep.id); }}
                           />
                         ) : (
                           <div className="w-12 h-12 rounded-md bg-gray-100 flex items-center justify-center">
@@ -1049,28 +1076,65 @@ export default function AdTracker({ projectId }) {
       </div>
 
       {/* Image preview modal */}
-      {previewImage && (
+      {previewDep && (
         <div
           className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-6 fade-in"
-          onClick={() => setPreviewImage(null)}
+          onClick={() => setPreviewDepId(null)}
         >
-          <div className="relative max-w-3xl w-full" onClick={(e) => e.stopPropagation()}>
+          {/* Left arrow */}
+          {canGoPrev && (
             <button
-              onClick={() => setPreviewImage(null)}
-              className="absolute -top-3 -right-3 w-8 h-8 rounded-full bg-white shadow-apple-md flex items-center justify-center text-gray-400 hover:text-gray-600 transition-colors z-10"
+              onClick={(e) => { e.stopPropagation(); goPreviewPrev(); }}
+              className="absolute left-4 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-white/90 shadow-apple-md flex items-center justify-center text-gray-500 hover:text-gray-800 hover:bg-white transition-all z-20"
             >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
               </svg>
             </button>
+          )}
+          {/* Right arrow */}
+          {canGoNext && (
+            <button
+              onClick={(e) => { e.stopPropagation(); goPreviewNext(); }}
+              className="absolute right-4 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-white/90 shadow-apple-md flex items-center justify-center text-gray-500 hover:text-gray-800 hover:bg-white transition-all z-20"
+            >
+              <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+              </svg>
+            </button>
+          )}
+          <div className="relative max-w-3xl w-full" onClick={(e) => e.stopPropagation()}>
+            {/* Close + Download buttons */}
+            <div className="absolute -top-3 -right-3 flex items-center gap-2 z-10">
+              <button
+                onClick={() => handleDownload(previewDep)}
+                className="w-8 h-8 rounded-full bg-white shadow-apple-md flex items-center justify-center text-gray-400 hover:text-blue-500 transition-colors"
+                title="Download image"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                </svg>
+              </button>
+              <button
+                onClick={() => setPreviewDepId(null)}
+                className="w-8 h-8 rounded-full bg-white shadow-apple-md flex items-center justify-center text-gray-400 hover:text-gray-600 transition-colors"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
             <img
-              src={previewImage.url}
-              alt={previewImage.name}
+              src={previewDep.imageUrl}
+              alt={displayName(previewDep)}
               className="max-w-full max-h-[85vh] object-contain rounded-2xl shadow-apple-xl mx-auto"
             />
-            {previewImage.name && (
-              <p className="text-center text-white/70 text-[12px] mt-3">{previewImage.name}</p>
-            )}
+            <div className="flex items-center justify-center gap-3 mt-3">
+              <p className="text-white/70 text-[12px]">{displayName(previewDep)}</p>
+              <span className="text-white/30 text-[11px]">
+                {previewIndex + 1} / {previewableList.length}
+              </span>
+            </div>
           </div>
         </div>
       )}
