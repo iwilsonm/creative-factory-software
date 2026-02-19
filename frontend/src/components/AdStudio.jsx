@@ -29,9 +29,20 @@ const TEMPLATE_RANDOM = 'random';      // Random from Drive folder
 const TEMPLATE_UPLOAD = 'upload';      // Upload one-off image
 const TEMPLATE_SELECT = 'select';      // Pick from uploaded templates
 
+// Normalize date strings — handles ISO with/without Z, Convex _creationTime numbers, etc.
+function parseDate(dateStr) {
+  if (!dateStr) return null;
+  // If it's a number (Convex _creationTime is ms since epoch)
+  if (typeof dateStr === 'number') return new Date(dateStr);
+  // If ISO string missing timezone suffix, append Z to treat as UTC
+  const str = String(dateStr);
+  const d = new Date(str.match(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/) && !str.match(/[Zz+\-]\d{0,4}$/) ? str + 'Z' : str);
+  return isNaN(d.getTime()) ? null : d;
+}
+
 function formatDate(dateStr) {
-  if (!dateStr) return '';
-  const d = new Date(dateStr);
+  const d = parseDate(dateStr);
+  if (!d) return '';
   const now = new Date();
   const diffMs = now - d;
   const diffMin = Math.floor(diffMs / 60000);
@@ -46,8 +57,8 @@ function formatDate(dateStr) {
 
 // Full date+time for gallery cards (e.g. "Feb 18 · 9:04 PM")
 function formatDateTime(dateStr) {
-  if (!dateStr) return '';
-  const d = new Date(dateStr);
+  const d = parseDate(dateStr);
+  if (!d) return '';
   return d.toLocaleDateString([], { month: 'short', day: 'numeric' }) +
     ' · ' +
     d.toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
@@ -2292,7 +2303,7 @@ export default function AdStudio({ projectId, project }) {
                 <div className="grid grid-cols-2 gap-3">
                   <div>
                     <p className="text-[11px] text-gray-400 mb-0.5">Created</p>
-                    <p className="text-gray-900 text-[12px]">{new Date(viewAd.created_at).toLocaleString()}</p>
+                    <p className="text-gray-900 text-[12px]">{parseDate(viewAd.created_at)?.toLocaleString() || 'Unknown'}</p>
                   </div>
                   {viewAd.drive_url && (
                     <div>
