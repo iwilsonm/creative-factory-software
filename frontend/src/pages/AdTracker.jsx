@@ -31,9 +31,12 @@ export default function AdTracker({ projectId }) {
   const [notesPopover, setNotesPopover] = useState(null); // { id, notes }
   const [statusDropdown, setStatusDropdown] = useState(null); // deployment id or null
   const [previewImage, setPreviewImage] = useState(null); // { url, name } or null
+  const [tagPopover, setTagPopover] = useState(null); // { depId, adId, projectId, tags } or null
+  const [tagInput, setTagInput] = useState('');
   const editRef = useRef(null);
   const notesRef = useRef(null);
   const statusDropdownRef = useRef(null);
+  const tagPopoverRef = useRef(null);
   const { addToast } = useToast();
 
   useEffect(() => {
@@ -75,6 +78,20 @@ export default function AdTracker({ projectId }) {
       return () => document.removeEventListener('mousedown', handleClickOutside);
     }
   }, [statusDropdown]);
+
+  // Close tag popover on outside click
+  useEffect(() => {
+    function handleClickOutside(e) {
+      if (tagPopoverRef.current && !tagPopoverRef.current.contains(e.target)) {
+        setTagPopover(null);
+        setTagInput('');
+      }
+    }
+    if (tagPopover) {
+      document.addEventListener('mousedown', handleClickOutside);
+      return () => document.removeEventListener('mousedown', handleClickOutside);
+    }
+  }, [tagPopover]);
 
   const loadDeployments = async () => {
     setLoading(true);
@@ -255,6 +272,56 @@ export default function AdTracker({ projectId }) {
       addToast(`${ids.length} ad${ids.length !== 1 ? 's' : ''} updated`, 'success');
     } catch (err) {
       addToast('Failed to update some deployments', 'error');
+    }
+  };
+
+  // ─── Tag management ─────────────────────────────────────────────────────
+  const QUICK_TAGS = ['Winner', 'Test', 'Control', 'V2', 'Review'];
+
+  const openTagPopover = (dep) => {
+    setTagPopover({
+      depId: dep.id,
+      adId: dep.ad_id,
+      projectId: dep.project_id,
+      tags: dep.ad?.tags || [],
+    });
+    setTagInput('');
+  };
+
+  const handleAddTag = async (tag) => {
+    const trimmed = tag.trim();
+    if (!trimmed || !tagPopover) return;
+    if (tagPopover.tags.includes(trimmed)) return;
+
+    const newTags = [...tagPopover.tags, trimmed];
+    // Optimistic update
+    setTagPopover(prev => prev ? { ...prev, tags: newTags } : null);
+    setDeployments(prev => prev.map(d =>
+      d.id === tagPopover.depId ? { ...d, ad: { ...d.ad, tags: newTags } } : d
+    ));
+
+    try {
+      await api.updateAdTags(tagPopover.projectId, tagPopover.adId, newTags);
+    } catch (err) {
+      console.error('Failed to add tag:', err);
+      addToast('Failed to add tag', 'error');
+    }
+  };
+
+  const handleRemoveTag = async (tag) => {
+    if (!tagPopover) return;
+    const newTags = tagPopover.tags.filter(t => t !== tag);
+    // Optimistic update
+    setTagPopover(prev => prev ? { ...prev, tags: newTags } : null);
+    setDeployments(prev => prev.map(d =>
+      d.id === tagPopover.depId ? { ...d, ad: { ...d.ad, tags: newTags } } : d
+    ));
+
+    try {
+      await api.updateAdTags(tagPopover.projectId, tagPopover.adId, newTags);
+    } catch (err) {
+      console.error('Failed to remove tag:', err);
+      addToast('Failed to remove tag', 'error');
     }
   };
 
@@ -554,8 +621,8 @@ export default function AdTracker({ projectId }) {
                         )}
                       </td>
 
-                      {/* Ad Name */}
-                      <td className="px-3 py-2.5 max-w-[200px] relative">
+                      {/* Ad Name + Tags */}
+                      <td className="px-3 py-2.5 max-w-[240px] relative">
                         <div className="flex items-center gap-1.5">
                           <EditableCell
                             dep={dep}
@@ -577,6 +644,75 @@ export default function AdTracker({ projectId }) {
                             </svg>
                           </button>
                         </div>
+
+                        {/* Tags inline */}
+                        <div className="flex items-center gap-1 mt-1 flex-wrap">
+                          {(dep.ad?.tags || []).slice(0, 3).map(tag => (
+                            <span key={tag} className="text-[9px] px-1.5 py-0.5 bg-blue-50 text-blue-600 rounded-full">{tag}</span>
+                          ))}
+                          {(dep.ad?.tags || []).length > 3 && (
+                            <span className="text-[9px] text-gray-400">+{dep.ad.tags.length - 3}</span>
+                          )}
+                          <button
+                            onClick={(e) => { e.stopPropagation(); openTagPopover(dep); }}
+                            className="text-[9px] px-1.5 py-0.5 rounded-full text-gray-300 hover:text-blue-500 hover:bg-blue-50 transition-colors"
+                            title="Manage tags"
+                          >
+                            + tag
+                          </button>
+                        </div>
+
+                        {/* Tag popover */}
+                        {tagPopover?.depId === dep.id && (
+                          <div
+                            ref={tagPopoverRef}
+                            className="absolute z-50 mt-1 left-0 w-72 bg-white rounded-xl shadow-apple-md border border-gray-200 p-3 fade-in"
+                          >
+                            <label className="block text-[10px] font-medium text-gray-400 uppercase tracking-wider mb-1.5">
+                              Tags
+                            </label>
+                            {/* Existing tags */}
+                            <div className="flex flex-wrap gap-1 mb-2">
+                              {(tagPopover.tags || []).map(tag => (
+                                <span key={tag} className="inline-flex items-center gap-0.5 text-[10px] px-2 py-0.5 bg-blue-50 text-blue-600 rounded-full">
+                                  {tag}
+                                  <button onClick={() => handleRemoveTag(tag)} className="text-blue-400 hover:text-blue-600 ml-0.5">
+                                    <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" /></svg>
+                                  </button>
+                                </span>
+                              ))}
+                              {(tagPopover.tags || []).length === 0 && (
+                                <span className="text-[10px] text-gray-300">No tags yet</span>
+                              )}
+                            </div>
+                            {/* Add tag input */}
+                            <form onSubmit={(e) => { e.preventDefault(); handleAddTag(tagInput); setTagInput(''); }} className="flex gap-1.5 mb-2">
+                              <input
+                                type="text"
+                                value={tagInput}
+                                onChange={(e) => setTagInput(e.target.value)}
+                                placeholder="Add a tag..."
+                                className="input-apple text-[11px] flex-1 py-1"
+                                autoFocus
+                              />
+                              <button type="submit" disabled={!tagInput.trim()} className="btn-primary text-[10px] px-2.5 py-1 disabled:opacity-50">
+                                Add
+                              </button>
+                            </form>
+                            {/* Quick tags */}
+                            <div className="flex flex-wrap gap-1">
+                              {QUICK_TAGS.filter(t => !(tagPopover.tags || []).includes(t)).map(tag => (
+                                <button
+                                  key={tag}
+                                  onClick={() => handleAddTag(tag)}
+                                  className="text-[9px] px-2 py-0.5 rounded-full border border-dashed border-gray-200 text-gray-400 hover:border-blue-300 hover:text-blue-500 transition-colors"
+                                >
+                                  {tag}
+                                </button>
+                              ))}
+                            </div>
+                          </div>
+                        )}
 
                         {/* Notes popover */}
                         {notesPopover?.id === dep.id && (

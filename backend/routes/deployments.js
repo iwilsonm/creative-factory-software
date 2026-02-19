@@ -55,6 +55,7 @@ router.get('/deployments', async (req, res) => {
             body_copy: ad.body_copy,
             aspect_ratio: ad.aspect_ratio,
             generation_mode: ad.generation_mode,
+            tags: ad.tags || [],
           } : null,
           imageUrl,
           projectName,
