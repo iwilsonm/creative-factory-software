@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import JSZip from 'jszip';
 import { api } from '../api';
 import { useToast } from '../components/Toast';
 
@@ -24,7 +25,7 @@ export default function AdTracker({ projectId }) {
   const [statusFilter, setStatusFilter] = useState('all');
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [bulkEditOpen, setBulkEditOpen] = useState(false);
-  const [bulkFields, setBulkFields] = useState({ campaign_name: '', ad_set_name: '' });
+  const [bulkFields, setBulkFields] = useState({ campaign_name: '', ad_set_name: '', ad_name: '', status: '', planned_date: '', landing_page_url: '' });
   const [editingCell, setEditingCell] = useState(null); // { id, field }
   const [editValue, setEditValue] = useState('');
   const [saving, setSaving] = useState(false);
@@ -33,6 +34,7 @@ export default function AdTracker({ projectId }) {
   const [previewImage, setPreviewImage] = useState(null); // { url, name } or null
   const [tagPopover, setTagPopover] = useState(null); // { depId, adId, projectId, tags } or null
   const [tagInput, setTagInput] = useState('');
+  const [isBulkDownloading, setIsBulkDownloading] = useState(false);
   const editRef = useRef(null);
   const notesRef = useRef(null);
   const statusDropdownRef = useRef(null);
@@ -257,18 +259,38 @@ export default function AdTracker({ projectId }) {
     const fields = {};
     if (bulkFields.campaign_name) fields.campaign_name = bulkFields.campaign_name;
     if (bulkFields.ad_set_name) fields.ad_set_name = bulkFields.ad_set_name;
-    if (Object.keys(fields).length === 0) {
+    if (bulkFields.ad_name) fields.ad_name = bulkFields.ad_name;
+    if (bulkFields.landing_page_url) fields.landing_page_url = bulkFields.landing_page_url;
+    if (bulkFields.planned_date) fields.planned_date = new Date(bulkFields.planned_date).toISOString();
+    const newStatus = bulkFields.status || null;
+
+    if (Object.keys(fields).length === 0 && !newStatus) {
       addToast('Enter at least one field to apply', 'error');
       return;
     }
     try {
-      await Promise.all(ids.map(id => api.updateDeployment(id, fields)));
-      setDeployments(prev => prev.map(d =>
-        ids.includes(d.id) ? { ...d, ...fields } : d
-      ));
+      const promises = [];
+      // Status uses a separate endpoint
+      if (newStatus) {
+        promises.push(...ids.map(id => api.updateDeploymentStatus(id, newStatus)));
+      }
+      // Other fields use updateDeployment
+      if (Object.keys(fields).length > 0) {
+        promises.push(...ids.map(id => api.updateDeployment(id, fields)));
+      }
+      await Promise.all(promises);
+      setDeployments(prev => prev.map(d => {
+        if (!ids.includes(d.id)) return d;
+        const updates = { ...fields };
+        if (newStatus) {
+          updates.status = newStatus;
+          if (newStatus === 'posted') updates.posted_date = new Date().toISOString();
+        }
+        return { ...d, ...updates };
+      }));
       setSelectedIds(new Set());
       setBulkEditOpen(false);
-      setBulkFields({ campaign_name: '', ad_set_name: '' });
+      setBulkFields({ campaign_name: '', ad_set_name: '', ad_name: '', status: '', planned_date: '', landing_page_url: '' });
       addToast(`${ids.length} ad${ids.length !== 1 ? 's' : ''} updated`, 'success');
     } catch (err) {
       addToast('Failed to update some deployments', 'error');
@@ -322,6 +344,80 @@ export default function AdTracker({ projectId }) {
     } catch (err) {
       console.error('Failed to remove tag:', err);
       addToast('Failed to remove tag', 'error');
+    }
+  };
+
+  // ─── Download ────────────────────────────────────────────────────────────
+  const handleDownload = async (dep) => {
+    if (!dep.imageUrl) return;
+    try {
+      const response = await fetch(dep.imageUrl);
+      const blob = await response.blob();
+      const ext = blob.type === 'image/jpeg' ? '.jpg' : '.png';
+      const name = displayName(dep).replace(/[^a-z0-9]/gi, '-').slice(0, 40);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${name}${ext}`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch {
+      addToast('Failed to download image', 'error');
+    }
+  };
+
+  const handleBulkDownload = async () => {
+    const selected = sorted.filter(d => selectedIds.has(d.id) && d.imageUrl);
+    if (selected.length === 0) {
+      addToast('No images to download', 'error');
+      return;
+    }
+    setIsBulkDownloading(true);
+    try {
+      const results = await Promise.allSettled(
+        selected.map(async (dep) => {
+          const res = await fetch(dep.imageUrl);
+          const blob = await res.blob();
+          const ext = blob.type === 'image/jpeg' ? '.jpg' : '.png';
+          return { dep, blob, ext };
+        })
+      );
+      const fulfilled = results.filter(r => r.status === 'fulfilled').map(r => r.value);
+      if (fulfilled.length === 0) {
+        addToast('Failed to download any images', 'error');
+        return;
+      }
+      const zip = new JSZip();
+      const usedNames = new Set();
+      for (const { dep, blob, ext } of fulfilled) {
+        let baseName = displayName(dep).replace(/[^a-z0-9]/gi, '-').slice(0, 40);
+        let fileName = `${baseName}${ext}`;
+        let counter = 1;
+        while (usedNames.has(fileName)) {
+          fileName = `${baseName}-${counter}${ext}`;
+          counter++;
+        }
+        usedNames.add(fileName);
+        zip.file(fileName, blob);
+      }
+      const content = await zip.generateAsync({ type: 'blob' });
+      const url = URL.createObjectURL(content);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `tracker_ads_${fulfilled.length}_images.zip`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      setSelectedIds(new Set());
+      setBulkEditOpen(false);
+      addToast(`Downloaded ${fulfilled.length} image${fulfilled.length !== 1 ? 's' : ''} as ZIP`, 'success');
+    } catch (err) {
+      addToast('Failed to create ZIP', 'error');
+    } finally {
+      setIsBulkDownloading(false);
     }
   };
 
@@ -416,6 +512,16 @@ export default function AdTracker({ projectId }) {
               </button>
             ))}
             <button
+              onClick={handleBulkDownload}
+              disabled={isBulkDownloading}
+              className="text-[11px] px-2.5 py-1 rounded-lg bg-white border border-gray-200 text-blue-600 hover:bg-blue-50 transition-colors disabled:opacity-50 inline-flex items-center gap-1"
+            >
+              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+              </svg>
+              {isBulkDownloading ? 'Zipping...' : 'Download'}
+            </button>
+            <button
               onClick={() => setBulkEditOpen(!bulkEditOpen)}
               className={`text-[11px] px-2.5 py-1 rounded-lg border transition-colors ${
                 bulkEditOpen
@@ -432,7 +538,7 @@ export default function AdTracker({ projectId }) {
               Delete
             </button>
             <button
-              onClick={() => { setSelectedIds(new Set()); setBulkEditOpen(false); setBulkFields({ campaign_name: '', ad_set_name: '' }); }}
+              onClick={() => { setSelectedIds(new Set()); setBulkEditOpen(false); setBulkFields({ campaign_name: '', ad_set_name: '', ad_name: '', status: '', planned_date: '', landing_page_url: '' }); }}
               className="text-[11px] px-2.5 py-1 rounded-lg text-gray-400 hover:text-gray-600 transition-colors"
             >
               Clear
@@ -447,7 +553,45 @@ export default function AdTracker({ projectId }) {
           <p className="text-[11px] font-medium text-blue-700 mb-3">
             Apply to {selectedIds.size} selected ad{selectedIds.size !== 1 ? 's' : ''}
           </p>
-          <div className="flex items-end gap-3 flex-wrap">
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-3">
+            <div>
+              <label className="block text-[10px] font-medium text-gray-400 uppercase tracking-wider mb-1">
+                Ad Name
+              </label>
+              <input
+                type="text"
+                value={bulkFields.ad_name}
+                onChange={(e) => setBulkFields(prev => ({ ...prev, ad_name: e.target.value }))}
+                placeholder="e.g. Flash Sale — V3"
+                className="input-apple text-[12px] w-full"
+              />
+            </div>
+            <div>
+              <label className="block text-[10px] font-medium text-gray-400 uppercase tracking-wider mb-1">
+                Status
+              </label>
+              <select
+                value={bulkFields.status}
+                onChange={(e) => setBulkFields(prev => ({ ...prev, status: e.target.value }))}
+                className="input-apple text-[12px] w-full"
+              >
+                <option value="">— Keep current —</option>
+                {STATUS_ORDER.map(s => (
+                  <option key={s} value={s}>{STATUS_META[s].label}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-[10px] font-medium text-gray-400 uppercase tracking-wider mb-1">
+                Planned Date
+              </label>
+              <input
+                type="datetime-local"
+                value={bulkFields.planned_date}
+                onChange={(e) => setBulkFields(prev => ({ ...prev, planned_date: e.target.value }))}
+                className="input-apple text-[12px] w-full"
+              />
+            </div>
             <div>
               <label className="block text-[10px] font-medium text-gray-400 uppercase tracking-wider mb-1">
                 Campaign Name
@@ -457,7 +601,7 @@ export default function AdTracker({ projectId }) {
                 value={bulkFields.campaign_name}
                 onChange={(e) => setBulkFields(prev => ({ ...prev, campaign_name: e.target.value }))}
                 placeholder="e.g. Spring 2025 DTC"
-                className="input-apple text-[12px] w-48"
+                className="input-apple text-[12px] w-full"
               />
             </div>
             <div>
@@ -469,16 +613,28 @@ export default function AdTracker({ projectId }) {
                 value={bulkFields.ad_set_name}
                 onChange={(e) => setBulkFields(prev => ({ ...prev, ad_set_name: e.target.value }))}
                 placeholder="e.g. LAL - Purchasers"
-                className="input-apple text-[12px] w-48"
+                className="input-apple text-[12px] w-full"
               />
             </div>
-            <button
-              onClick={handleBulkEdit}
-              className="btn-primary text-[11px] px-4 py-2"
-            >
-              Apply
-            </button>
+            <div>
+              <label className="block text-[10px] font-medium text-gray-400 uppercase tracking-wider mb-1">
+                Landing Page
+              </label>
+              <input
+                type="url"
+                value={bulkFields.landing_page_url}
+                onChange={(e) => setBulkFields(prev => ({ ...prev, landing_page_url: e.target.value }))}
+                placeholder="e.g. https://..."
+                className="input-apple text-[12px] w-full"
+              />
+            </div>
           </div>
+          <button
+            onClick={handleBulkEdit}
+            className="btn-primary text-[11px] px-4 py-2"
+          >
+            Apply Changes
+          </button>
         </div>
       )}
 
@@ -843,6 +999,17 @@ export default function AdTracker({ projectId }) {
                       {/* Actions */}
                       <td className="px-3 py-2.5">
                         <div className="flex items-center gap-1 justify-end">
+                          {dep.imageUrl && (
+                            <button
+                              onClick={() => handleDownload(dep)}
+                              className="text-gray-300 hover:text-blue-500 hover:bg-blue-50 transition-all p-1 rounded-md"
+                              title="Download image"
+                            >
+                              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                              </svg>
+                            </button>
+                          )}
                           <button
                             onClick={() => handleDelete(dep.id)}
                             className="text-gray-300 hover:text-red-500 hover:bg-red-50 transition-all p-1 rounded-md"
