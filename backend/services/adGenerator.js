@@ -180,7 +180,7 @@ ${headlineRef.content}`;
  * Per the SOP, the core instruction is exactly "make a prompt for an image like this".
  * Angle, aspect ratio, product image, headline, and body copy are appended as additional direction.
  */
-export function buildImageRequestText(angle, aspectRatio, hasProductImage = false, headline = null, bodyCopy = null) {
+export function buildImageRequestText(angle, aspectRatio, hasProductImage = false, headline = null, bodyCopy = null, headlineJuicer = false) {
   let text = 'make a prompt for an image like this';
 
   const extras = [];
@@ -198,6 +198,9 @@ export function buildImageRequestText(angle, aspectRatio, hasProductImage = fals
   }
   if (aspectRatio && aspectRatio !== '1:1') {
     extras.push(`Use ${aspectRatio} aspect ratio instead of 1:1`);
+  }
+  if (headlineJuicer) {
+    extras.push('IMPORTANT — HEADLINE JUICER IS ACTIVE: You MUST draw direct creative inspiration from the HEADLINE INSPIRATION DOCUMENT I provided earlier. Generate a unique, scroll-stopping headline that is clearly influenced by the styles, patterns, and emotional hooks from that document. The headline should feel fresh and original but unmistakably inspired by those examples. Write body copy that naturally supports and reinforces the headline you create. Do NOT reuse a generic or default headline — make it punchy, specific, and varied');
   }
 
   if (extras.length > 0) {
@@ -377,7 +380,7 @@ export async function generateAd(projectId, options = {}) {
         ? 'GPT-5.2 analyzing inspiration image + product image...'
         : 'GPT-5.2 analyzing inspiration image...', progress: 35 });
 
-      const imageRequestText_inner = buildImageRequestText(angle, aspectRatio, hasProductImage, headline, bodyCopy);
+      const imageRequestText_inner = buildImageRequestText(angle, aspectRatio, hasProductImage, headline, bodyCopy, !!headlineRef);
       const conversationSoFar = [
         { role: 'user', content: creativeDirectorPrompt_inner },
         { role: 'assistant', content: acknowledgment }
@@ -574,7 +577,7 @@ export async function generateAdMode2(projectId, options = {}) {
         ? 'GPT-5.2 analyzing template image + product image...'
         : 'GPT-5.2 analyzing template image...', progress: 35 });
 
-      const imageRequestText_inner = buildImageRequestText(angle, aspectRatio, hasProductImage, headline, bodyCopy);
+      const imageRequestText_inner = buildImageRequestText(angle, aspectRatio, hasProductImage, headline, bodyCopy, !!headlineRef);
       const conversationSoFar = [
         { role: 'user', content: creativeDirectorPrompt_inner },
         { role: 'assistant', content: acknowledgment }
