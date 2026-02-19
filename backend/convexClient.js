@@ -478,6 +478,59 @@ export async function deleteDeployment(id) {
 }
 
 // =============================================
+// Quote Mining Run helpers
+// =============================================
+
+export async function getQuoteMiningRunsByProject(projectId) {
+  const runs = await queryWithRetry(api.quote_mining_runs.getByProject, { projectId });
+  return runs.map(r => ({
+    id: r.externalId,
+    project_id: r.project_id,
+    status: r.status,
+    target_demographic: r.target_demographic,
+    problem: r.problem,
+    root_cause: r.root_cause || null,
+    keywords: r.keywords,
+    subreddits: r.subreddits || null,
+    forums: r.forums || null,
+    num_quotes: r.num_quotes || 20,
+    quotes: r.quotes || null,
+    quote_count: r.quote_count || 0,
+    sources_used: r.sources_used || null,
+    error_message: r.error_message || null,
+    duration_ms: r.duration_ms || null,
+    created_at: r.created_at,
+    completed_at: r.completed_at || null,
+  }));
+}
+
+export async function getQuoteMiningRun(externalId) {
+  const r = await queryWithRetry(api.quote_mining_runs.getByExternalId, { externalId });
+  if (!r) return null;
+  return {
+    id: r.externalId,
+    project_id: r.project_id,
+    status: r.status,
+    target_demographic: r.target_demographic,
+    problem: r.problem,
+    root_cause: r.root_cause || null,
+    keywords: r.keywords,
+    subreddits: r.subreddits || null,
+    forums: r.forums || null,
+    num_quotes: r.num_quotes || 20,
+    quotes: r.quotes || null,
+    perplexity_raw: r.perplexity_raw || null,
+    claude_raw: r.claude_raw || null,
+    quote_count: r.quote_count || 0,
+    sources_used: r.sources_used || null,
+    error_message: r.error_message || null,
+    duration_ms: r.duration_ms || null,
+    created_at: r.created_at,
+    completed_at: r.completed_at || null,
+  };
+}
+
+// =============================================
 // Direct Convex client access (for advanced use cases)
 // =============================================
 

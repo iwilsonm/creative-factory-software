@@ -19,6 +19,7 @@ import adRoutes from './routes/ads.js';
 import batchRoutes from './routes/batches.js';
 import costsRoutes from './routes/costs.js';
 import deploymentRoutes from './routes/deployments.js';
+import quoteMiningRoutes from './routes/quoteMining.js';
 import { initScheduler } from './services/scheduler.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -77,6 +78,7 @@ const PORT = process.env.PORT || 3001;
   app.use('/api/projects', batchRoutes);
   app.use('/api', costsRoutes);
   app.use('/api', deploymentRoutes);
+  app.use('/api/projects', quoteMiningRoutes);
 
   // Health check
   app.get('/api/health', (req, res) => {

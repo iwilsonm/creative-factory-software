@@ -143,6 +143,8 @@ export default function Settings() {
     openai_api_key: '',
     openai_admin_key: '',
     gemini_api_key: '',
+    perplexity_api_key: '',
+    anthropic_api_key: '',
     gemini_rate_1k: '',
     gemini_rate_2k: '',
     gemini_rate_4k: ''
@@ -189,6 +191,8 @@ export default function Settings() {
       if (form.openai_api_key) payload.openai_api_key = form.openai_api_key;
       if (form.openai_admin_key) payload.openai_admin_key = form.openai_admin_key;
       if (form.gemini_api_key) payload.gemini_api_key = form.gemini_api_key;
+      if (form.perplexity_api_key) payload.perplexity_api_key = form.perplexity_api_key;
+      if (form.anthropic_api_key) payload.anthropic_api_key = form.anthropic_api_key;
       if (form.gemini_rate_1k) payload.gemini_rate_1k = form.gemini_rate_1k;
       if (form.gemini_rate_2k) payload.gemini_rate_2k = form.gemini_rate_2k;
       if (form.gemini_rate_4k) payload.gemini_rate_4k = form.gemini_rate_4k;
@@ -196,7 +200,7 @@ export default function Settings() {
       await api.updateSettings(payload);
       toast.success('Settings saved');
       setMessage('');
-      setForm(prev => ({ ...prev, openai_api_key: '', openai_admin_key: '', gemini_api_key: '' }));
+      setForm(prev => ({ ...prev, openai_api_key: '', openai_admin_key: '', gemini_api_key: '', perplexity_api_key: '', anthropic_api_key: '' }));
       await loadSettings();
     } catch (err) {
       toast.error(err.message);
@@ -211,6 +215,8 @@ export default function Settings() {
       let result;
       if (service === 'openai') result = await api.testOpenAI();
       else if (service === 'gemini') result = await api.testGemini();
+      else if (service === 'perplexity') result = await api.testPerplexity();
+      else if (service === 'anthropic') result = await api.testAnthropic();
       setTestResults(prev => ({ ...prev, [service]: result.message || 'Connected!' }));
     } catch (err) {
       setTestResults(prev => ({ ...prev, [service]: `Failed: ${err.message}` }));
@@ -361,6 +367,57 @@ export default function Settings() {
                 </button>
               </div>
               {testResults.gemini && <p className="text-[12px] text-gray-400 mt-1">{testResults.gemini}</p>}
+            </div>
+
+            <div className="border-t border-gray-100 pt-4 mt-4">
+              <p className="text-[11px] text-gray-400 mb-3 flex items-center gap-1.5">
+                <span className="inline-flex items-center px-1.5 py-0.5 rounded-md bg-purple-50 text-purple-600 font-medium">Quote Miner</span>
+                Required for the Quote Miner feature
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-[13px] font-medium text-gray-600 mb-1.5">
+                Perplexity API Key
+              </label>
+              <div className="flex gap-2">
+                <input
+                  type="password"
+                  value={form.perplexity_api_key}
+                  onChange={e => setForm(p => ({ ...p, perplexity_api_key: e.target.value }))}
+                  className="input-apple flex-1"
+                  placeholder={settings.perplexity_api_key || 'Enter Perplexity API key'}
+                />
+                <button
+                  onClick={() => testConnection('perplexity')}
+                  className="btn-secondary text-[13px] whitespace-nowrap"
+                >
+                  Test
+                </button>
+              </div>
+              {testResults.perplexity && <p className="text-[12px] text-gray-400 mt-1">{testResults.perplexity}</p>}
+            </div>
+
+            <div>
+              <label className="block text-[13px] font-medium text-gray-600 mb-1.5">
+                Anthropic API Key
+              </label>
+              <div className="flex gap-2">
+                <input
+                  type="password"
+                  value={form.anthropic_api_key}
+                  onChange={e => setForm(p => ({ ...p, anthropic_api_key: e.target.value }))}
+                  className="input-apple flex-1"
+                  placeholder={settings.anthropic_api_key || 'Enter Anthropic API key'}
+                />
+                <button
+                  onClick={() => testConnection('anthropic')}
+                  className="btn-secondary text-[13px] whitespace-nowrap"
+                >
+                  Test
+                </button>
+              </div>
+              {testResults.anthropic && <p className="text-[12px] text-gray-400 mt-1">{testResults.anthropic}</p>}
             </div>
           </div>
         </div>

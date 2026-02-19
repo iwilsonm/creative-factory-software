@@ -159,4 +159,28 @@ export default defineSchema({
   })
     .index("by_project", ["project_id"])
     .index("by_project_and_drive_id", ["project_id", "drive_file_id"]),
+
+  quote_mining_runs: defineTable({
+    externalId: v.string(),
+    project_id: v.string(),              // → projects.externalId
+    status: v.string(),                  // running | completed | failed
+    target_demographic: v.string(),
+    problem: v.string(),
+    root_cause: v.optional(v.string()),
+    keywords: v.string(),               // JSON array of keyword strings
+    subreddits: v.optional(v.string()), // JSON array of subreddit names
+    forums: v.optional(v.string()),     // JSON array of forum URLs/names
+    num_quotes: v.optional(v.number()), // Target number of quotes (default 20)
+    quotes: v.optional(v.string()),     // JSON array of quote objects
+    perplexity_raw: v.optional(v.string()),
+    claude_raw: v.optional(v.string()),
+    sources_used: v.optional(v.string()),
+    quote_count: v.optional(v.number()),
+    error_message: v.optional(v.string()),
+    duration_ms: v.optional(v.number()),
+    created_at: v.string(),
+    completed_at: v.optional(v.string()),
+  })
+    .index("by_externalId", ["externalId"])
+    .index("by_project", ["project_id"]),
 });

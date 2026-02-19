@@ -6,6 +6,7 @@ import FoundationalDocs from '../components/FoundationalDocs';
 import TemplateImages from '../components/TemplateImages';
 import AdStudio from '../components/AdStudio';
 import AdTracker from './AdTracker';
+import QuoteMiner from '../components/QuoteMiner';
 import CostSummaryCards from '../components/CostSummaryCards';
 import InfoTooltip from '../components/InfoTooltip';
 import { useToast } from '../components/Toast';
@@ -184,6 +185,7 @@ export default function ProjectDetail() {
   const tabs = [
     { id: 'ads', label: 'Ad Studio', tooltip: 'Generate individual ads or run batch generation.' },
     { id: 'tracker', label: 'Ad Tracker', tooltip: 'Track ad deployments, campaigns, and performance.' },
+    { id: 'quotes', label: 'Quote Miner', tooltip: 'Find authentic first-person quotes from your target demographic online.' },
     { id: 'overview', label: 'Overview', tooltip: 'Project settings, cost tracking, and stats.' },
     { id: 'docs', label: 'Foundational Docs', tooltip: 'Core research documents that guide ad generation.' },
     { id: 'templates', label: 'Template Library', tooltip: 'Reference images synced from Drive or uploaded directly.' }
@@ -514,6 +516,9 @@ export default function ProjectDetail() {
         )}
         {tab === 'tracker' && (
           <AdTracker projectId={id} />
+        )}
+        {tab === 'quotes' && (
+          <QuoteMiner projectId={id} project={project} />
         )}
       </div>
     </Layout>

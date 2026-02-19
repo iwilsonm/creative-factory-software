@@ -306,4 +306,16 @@ export const api = {
   deleteDeployment: (id) => request(`/deployments/${id}`, { method: 'DELETE' }),
   renameAllDeployments: () => request('/deployments/rename-all', { method: 'POST' }),
   backfillHeadlines: () => request('/deployments/backfill-headlines', { method: 'POST' }),
+
+  // Quote Mining
+  getQuoteMiningRuns: (projectId) => request(`/projects/${projectId}/quote-mining`),
+  getQuoteMiningRun: (projectId, runId) => request(`/projects/${projectId}/quote-mining/${runId}`),
+  startQuoteMining: (projectId, config, onEvent) =>
+    streamSSEWithBody(`/projects/${projectId}/quote-mining`, config, onEvent),
+  deleteQuoteMiningRun: (projectId, runId) =>
+    request(`/projects/${projectId}/quote-mining/${runId}`, { method: 'DELETE' }),
+
+  // Settings test — Quote Miner
+  testPerplexity: () => request('/settings/test-perplexity', { method: 'POST' }),
+  testAnthropic: () => request('/settings/test-anthropic', { method: 'POST' }),
 };

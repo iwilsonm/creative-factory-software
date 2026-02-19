@@ -9,7 +9,7 @@ router.use(requireAuth);
 
 // Sensitive keys that should be masked when returning
 const SENSITIVE_KEYS = ['auth_password_hash', 'session_secret'];
-const API_KEY_KEYS = ['openai_api_key', 'openai_admin_key', 'gemini_api_key'];
+const API_KEY_KEYS = ['openai_api_key', 'openai_admin_key', 'gemini_api_key', 'perplexity_api_key', 'anthropic_api_key'];
 
 // Get all settings (mask sensitive values)
 router.get('/', async (req, res) => {
@@ -34,6 +34,8 @@ router.put('/', async (req, res) => {
     'openai_api_key',
     'openai_admin_key',
     'gemini_api_key',
+    'perplexity_api_key',
+    'anthropic_api_key',
     'default_drive_folder_id',
     'gemini_rate_1k',
     'gemini_rate_2k',
@@ -94,6 +96,63 @@ router.post('/test-drive', async (req, res) => {
     });
   } catch (err) {
     res.status(500).json({ error: `Drive connection failed: ${err.message}` });
+  }
+});
+
+// Test Perplexity connection
+router.post('/test-perplexity', async (req, res) => {
+  const apiKey = await getSetting('perplexity_api_key');
+  if (!apiKey) return res.status(400).json({ error: 'Perplexity API key not configured' });
+
+  try {
+    const response = await fetch('https://api.perplexity.ai/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        model: 'sonar',
+        messages: [{ role: 'user', content: 'Hello' }],
+        max_tokens: 5
+      })
+    });
+    if (!response.ok) {
+      const body = await response.text();
+      return res.status(400).json({ error: `Perplexity API returned ${response.status}: ${body.slice(0, 200)}` });
+    }
+    res.json({ success: true, message: 'Perplexity API key is valid' });
+  } catch (err) {
+    res.status(500).json({ error: `Connection failed: ${err.message}` });
+  }
+});
+
+// Test Anthropic connection
+router.post('/test-anthropic', async (req, res) => {
+  const apiKey = await getSetting('anthropic_api_key');
+  if (!apiKey) return res.status(400).json({ error: 'Anthropic API key not configured' });
+
+  try {
+    const response = await fetch('https://api.anthropic.com/v1/messages', {
+      method: 'POST',
+      headers: {
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+        'content-type': 'application/json'
+      },
+      body: JSON.stringify({
+        model: 'claude-haiku-4-5-20251001',
+        max_tokens: 5,
+        messages: [{ role: 'user', content: 'Hello' }]
+      })
+    });
+    if (!response.ok) {
+      const body = await response.text();
+      return res.status(400).json({ error: `Anthropic API returned ${response.status}: ${body.slice(0, 200)}` });
+    }
+    res.json({ success: true, message: 'Anthropic API key is valid' });
+  } catch (err) {
+    res.status(500).json({ error: `Connection failed: ${err.message}` });
   }
 });
 
