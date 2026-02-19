@@ -170,6 +170,11 @@ export async function getAd(id) {
   return convexAdToRow(ad);
 }
 
+export async function getAllAds() {
+  const ads = await queryWithRetry(api.adCreatives.getAll, {});
+  return ads.map(a => convexAdToRow(a));
+}
+
 export async function getInProgressAdsByProject(projectId) {
   const ads = await queryWithRetry(api.adCreatives.getInProgressByProject, { projectId });
   return ads.map(a => convexAdToRow(a));

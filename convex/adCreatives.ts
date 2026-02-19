@@ -1,6 +1,13 @@
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
 
+export const getAll = query({
+  args: {},
+  handler: async (ctx) => {
+    return await ctx.db.query("ad_creatives").collect();
+  },
+});
+
 export const getByProject = query({
   args: { projectId: v.string() },
   handler: async (ctx, args) => {

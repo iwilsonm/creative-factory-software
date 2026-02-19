@@ -45,12 +45,24 @@ export default function AdTracker({ projectId }) {
     loadDeployments();
   }, [projectId]);
 
-  // One-time migration: rename all deployments to headline-based naming
+  // One-time migration: backfill headlines on existing ads, then rename deployments
   useEffect(() => {
-    const key = 'deployment_rename_v1';
-    if (!localStorage.getItem(key)) {
+    const backfillKey = 'headline_backfill_v1';
+    const renameKey = 'deployment_rename_v2';
+    const needsBackfill = !localStorage.getItem(backfillKey);
+    const needsRename = !localStorage.getItem(renameKey);
+    if (needsBackfill) {
+      api.backfillHeadlines().then(() => {
+        localStorage.setItem(backfillKey, Date.now().toString());
+        // After backfill, always run rename to pick up new headlines
+        return api.renameAllDeployments();
+      }).then(() => {
+        localStorage.setItem(renameKey, Date.now().toString());
+        loadDeployments();
+      }).catch(() => {});
+    } else if (needsRename) {
       api.renameAllDeployments().then(() => {
-        localStorage.setItem(key, Date.now().toString());
+        localStorage.setItem(renameKey, Date.now().toString());
         loadDeployments();
       }).catch(() => {});
     }

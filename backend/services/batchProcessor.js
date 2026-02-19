@@ -6,7 +6,8 @@ import {
   buildImageRequestText,
   selectInspirationImage,
   selectTemplateImage,
-  reviewPromptWithGuidelines
+  reviewPromptWithGuidelines,
+  extractHeadlineAndBody
 } from './adGenerator.js';
 import {
   getProject, getLatestDoc, getBatchJob, updateBatchJob,
@@ -455,8 +456,17 @@ async function processBatchResults(batchId, job) {
         template_image_id: batch.template_image_id || undefined,
       });
 
-      // Drive upload skipped — Service Account has no storage quota.
-      // Images are stored in Convex and viewable in the UI.
+      // Extract headline from the GPT prompt (fire-and-forget)
+      if (prompts[i]) {
+        extractHeadlineAndBody(prompts[i]).then(({ headline, body_copy }) => {
+          if (headline || body_copy) {
+            const updates = { externalId: adId };
+            if (headline) updates.headline = headline;
+            if (body_copy) updates.body_copy = body_copy;
+            convexClient.mutation(api.adCreatives.update, updates).catch(() => {});
+          }
+        }).catch(() => {});
+      }
 
       savedCount++;
 

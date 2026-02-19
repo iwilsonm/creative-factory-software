@@ -305,4 +305,5 @@ export const api = {
   updateDeploymentStatus: (id, status) => request(`/deployments/${id}/status`, { method: 'PUT', body: JSON.stringify({ status }) }),
   deleteDeployment: (id) => request(`/deployments/${id}`, { method: 'DELETE' }),
   renameAllDeployments: () => request('/deployments/rename-all', { method: 'POST' }),
+  backfillHeadlines: () => request('/deployments/backfill-headlines', { method: 'POST' }),
 };

@@ -134,6 +134,42 @@ Output ONLY the revised image prompt with the new headline and aligned body copy
 }
 
 /**
+ * Extract headline and body copy from a freeform image generation prompt.
+ * Uses GPT-4.1-mini with JSON response format for reliable parsing.
+ * Non-blocking — returns nulls if extraction fails.
+ */
+export async function extractHeadlineAndBody(imagePrompt) {
+  if (!imagePrompt || !imagePrompt.trim()) return { headline: null, body_copy: null };
+  try {
+    const result = await chat([
+      {
+        role: 'system',
+        content: `You extract the headline and body copy from image generation prompts. Return JSON with exactly two fields:
+- "headline": The main headline text that appears on the ad (the large, prominent text). Extract ONLY the text itself, not formatting instructions.
+- "body_copy": The supporting body copy / subheadline text (smaller text below the headline). Extract ONLY the text itself.
+
+If the prompt doesn't contain a clear headline, set headline to null.
+If the prompt doesn't contain body copy, set body_copy to null.
+Return ONLY valid JSON, no markdown.`
+      },
+      {
+        role: 'user',
+        content: imagePrompt
+      }
+    ], 'gpt-4.1-mini', { response_format: { type: 'json_object' } });
+
+    const parsed = JSON.parse(result);
+    return {
+      headline: parsed.headline || null,
+      body_copy: parsed.body_copy || null,
+    };
+  } catch (err) {
+    console.warn('[AdGenerator] Headline extraction failed:', err.message);
+    return { headline: null, body_copy: null };
+  }
+}
+
+/**
  * Review and revise an image prompt against project-level prompt guidelines.
  * Uses a fast GPT model to check the prompt for violations and fix them.
  * Returns the original prompt unchanged if no guidelines are set or no changes needed.
@@ -535,6 +571,9 @@ export async function generateAd(projectId, options = {}) {
       imagePrompt = await reviewPromptWithGuidelines(imagePrompt, project.prompt_guidelines);
     }
 
+    // Extract headline & body copy from GPT output (non-blocking, runs in parallel)
+    const extractionPromise = extractHeadlineAndBody(imagePrompt);
+
     // Update record with GPT output
     await convexClient.mutation(api.adCreatives.update, {
       externalId: adId,
@@ -542,6 +581,18 @@ export async function generateAd(projectId, options = {}) {
       image_prompt: imagePrompt,
       status: 'generating_image',
     });
+
+    // Save extracted headline/body (don't block image generation)
+    extractionPromise.then(({ headline: extractedHeadline, body_copy: extractedBody }) => {
+      if (extractedHeadline || extractedBody) {
+        const updates = { externalId: adId };
+        if (extractedHeadline && !headline) updates.headline = extractedHeadline;
+        if (extractedBody && !bodyCopy) updates.body_copy = extractedBody;
+        if (updates.headline || updates.body_copy) {
+          convexClient.mutation(api.adCreatives.update, updates).catch(() => {});
+        }
+      }
+    }).catch(() => {});
 
     // Generate image, save, upload to Drive (shared helper)
     const productImage = hasProductImage
@@ -754,6 +805,9 @@ export async function generateAdMode2(projectId, options = {}) {
       imagePrompt = await reviewPromptWithGuidelines(imagePrompt, project.prompt_guidelines);
     }
 
+    // Extract headline & body copy from GPT output (non-blocking, runs in parallel)
+    const extractionPromise = extractHeadlineAndBody(imagePrompt);
+
     // Update record with GPT output
     await convexClient.mutation(api.adCreatives.update, {
       externalId: adId,
@@ -761,6 +815,18 @@ export async function generateAdMode2(projectId, options = {}) {
       image_prompt: imagePrompt,
       status: 'generating_image',
     });
+
+    // Save extracted headline/body (don't block image generation)
+    extractionPromise.then(({ headline: extractedHeadline, body_copy: extractedBody }) => {
+      if (extractedHeadline || extractedBody) {
+        const updates = { externalId: adId };
+        if (extractedHeadline && !headline) updates.headline = extractedHeadline;
+        if (extractedBody && !bodyCopy) updates.body_copy = extractedBody;
+        if (updates.headline || updates.body_copy) {
+          convexClient.mutation(api.adCreatives.update, updates).catch(() => {});
+        }
+      }
+    }).catch(() => {});
 
     // Generate image, save, upload to Drive (shared helper)
     const productImage = hasProductImage

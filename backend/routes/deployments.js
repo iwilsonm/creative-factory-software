@@ -9,8 +9,11 @@ import {
   updateDeploymentStatus,
   deleteDeployment,
   getAd,
+  getAllAds,
   getAdImageUrl,
   getProject,
+  convexClient,
+  api,
 } from '../convexClient.js';
 
 const router = Router();
@@ -222,6 +225,34 @@ router.post('/deployments/rename-all', async (req, res) => {
   } catch (err) {
     console.error('Failed to rename deployments:', err);
     res.status(500).json({ error: 'Failed to rename deployments' });
+  }
+});
+
+/**
+ * POST /deployments/backfill-headlines — Extract headlines from existing ads that don't have one
+ */
+router.post('/deployments/backfill-headlines', async (req, res) => {
+  try {
+    const { extractHeadlineAndBody } = await import('../services/adGenerator.js');
+    const ads = await getAllAds();
+    let updated = 0;
+    for (const ad of ads) {
+      if (ad.headline || !ad.gpt_creative_output) continue;
+      try {
+        const { headline, body_copy } = await extractHeadlineAndBody(ad.gpt_creative_output);
+        if (headline || body_copy) {
+          const updates = { externalId: ad.externalId };
+          if (headline) updates.headline = headline;
+          if (body_copy) updates.body_copy = body_copy;
+          await convexClient.mutation(api.adCreatives.update, updates);
+          updated++;
+        }
+      } catch {}
+    }
+    res.json({ success: true, updated, total: ads.length });
+  } catch (err) {
+    console.error('Failed to backfill headlines:', err);
+    res.status(500).json({ error: 'Failed to backfill headlines' });
   }
 });
 
