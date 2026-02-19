@@ -89,6 +89,11 @@ export default function QuoteMiner({ projectId, project }) {
   const [keywords, setKeywords] = useState([]);
   const [subreddits, setSubreddits] = useState([]);
   const [forums, setForums] = useState([]);
+  const [facebookGroups, setFacebookGroups] = useState([]);
+
+  // Auto-suggest state
+  const [suggesting, setSuggesting] = useState(false);
+  const suggestTimeoutRef = useRef(null);
 
   // Mining state
   const [mining, setMining] = useState(false);
@@ -138,6 +143,40 @@ export default function QuoteMiner({ projectId, project }) {
     }
   }, [progress, mining]);
 
+  // ─── Auto-suggest keywords, subreddits, forums, facebook groups ───────────
+  useEffect(() => {
+    const demo = config.target_demographic.trim();
+    const prob = config.problem.trim();
+
+    // Only auto-suggest if both fields are filled and no manual entries exist yet
+    if (demo.length > 3 && prob.length > 3 &&
+        keywords.length === 0 && subreddits.length === 0 &&
+        forums.length === 0 && facebookGroups.length === 0) {
+      clearTimeout(suggestTimeoutRef.current);
+      suggestTimeoutRef.current = setTimeout(() => {
+        fetchSuggestions(demo, prob);
+      }, 1500);
+    }
+
+    return () => clearTimeout(suggestTimeoutRef.current);
+  }, [config.target_demographic, config.problem]);
+
+  const fetchSuggestions = async (demographic, problem) => {
+    setSuggesting(true);
+    try {
+      const data = await api.getQuoteMinerSuggestions(projectId, demographic || config.target_demographic.trim(), problem || config.problem.trim());
+      if (data.keywords?.length) setKeywords(prev => [...new Set([...prev, ...data.keywords])]);
+      if (data.subreddits?.length) setSubreddits(prev => [...new Set([...prev, ...data.subreddits])]);
+      if (data.forums?.length) setForums(prev => [...new Set([...prev, ...data.forums])]);
+      if (data.facebook_groups?.length) setFacebookGroups(prev => [...new Set([...prev, ...data.facebook_groups])]);
+      toast.success('Search suggestions loaded');
+    } catch (err) {
+      console.warn('Auto-suggest failed:', err.message);
+    } finally {
+      setSuggesting(false);
+    }
+  };
+
   // ─── Start mining ──────────────────────────────────────────────────────────
   const handleStartMining = () => {
     if (!config.target_demographic.trim() || !config.problem.trim() || keywords.length === 0) {
@@ -160,6 +199,7 @@ export default function QuoteMiner({ projectId, project }) {
       keywords,
       subreddits: subreddits.length > 0 ? subreddits : undefined,
       forums: forums.length > 0 ? forums : undefined,
+      facebook_groups: facebookGroups.length > 0 ? facebookGroups : undefined,
       num_quotes: config.num_quotes,
     }, (event) => {
       if (event.type === 'run_created') {
@@ -511,41 +551,65 @@ export default function QuoteMiner({ projectId, project }) {
             </div>
           </div>
 
-          <div>
-            <label className="block text-[13px] font-medium text-gray-600 mb-1.5">
-              Search Keywords <span className="text-red-400">*</span>
-              <span className="text-[11px] text-gray-400 font-normal ml-1">Type and press Enter</span>
-            </label>
-            <MultiInput
-              items={keywords}
-              onAdd={(item) => setKeywords(prev => [...prev, item])}
-              onRemove={(idx) => setKeywords(prev => prev.filter((_, i) => i !== idx))}
-              placeholder='e.g., "chronic foot pain", "plantar fasciitis"'
-            />
-          </div>
+          {/* Suggesting indicator */}
+          {suggesting && (
+            <div className="flex items-center gap-2 px-3 py-2 bg-blue-50/80 rounded-xl border border-blue-100">
+              <svg className="w-3.5 h-3.5 animate-spin text-blue-500" viewBox="0 0 24 24" fill="none">
+                <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" strokeDasharray="31.4 31.4" strokeLinecap="round" />
+              </svg>
+              <span className="text-[12px] text-blue-600 font-medium">Generating search suggestions...</span>
+            </div>
+          )}
 
-          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+          <div className={suggesting ? 'opacity-60 pointer-events-none transition-opacity' : 'transition-opacity'}>
             <div>
               <label className="block text-[13px] font-medium text-gray-600 mb-1.5">
-                Subreddits <span className="text-[11px] text-gray-400 font-normal">(optional)</span>
+                Search Keywords <span className="text-red-400">*</span>
+                <span className="text-[11px] text-gray-400 font-normal ml-1">Type and press Enter</span>
               </label>
               <MultiInput
-                items={subreddits}
-                onAdd={(item) => setSubreddits(prev => [...prev, item.replace(/^r\//, '')])}
-                onRemove={(idx) => setSubreddits(prev => prev.filter((_, i) => i !== idx))}
-                placeholder="e.g., health, ChronicPain, Fitness"
-                prefix="r/"
+                items={keywords}
+                onAdd={(item) => setKeywords(prev => [...prev, item])}
+                onRemove={(idx) => setKeywords(prev => prev.filter((_, i) => i !== idx))}
+                placeholder='e.g., "chronic foot pain", "plantar fasciitis"'
               />
             </div>
-            <div>
+
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
+              <div>
+                <label className="block text-[13px] font-medium text-gray-600 mb-1.5">
+                  Subreddits <span className="text-[11px] text-gray-400 font-normal">(optional)</span>
+                </label>
+                <MultiInput
+                  items={subreddits}
+                  onAdd={(item) => setSubreddits(prev => [...prev, item.replace(/^r\//, '')])}
+                  onRemove={(idx) => setSubreddits(prev => prev.filter((_, i) => i !== idx))}
+                  placeholder="e.g., health, ChronicPain, Fitness"
+                  prefix="r/"
+                />
+              </div>
+              <div>
+                <label className="block text-[13px] font-medium text-gray-600 mb-1.5">
+                  Other Forums <span className="text-[11px] text-gray-400 font-normal">(optional)</span>
+                </label>
+                <MultiInput
+                  items={forums}
+                  onAdd={(item) => setForums(prev => [...prev, item])}
+                  onRemove={(idx) => setForums(prev => prev.filter((_, i) => i !== idx))}
+                  placeholder="e.g., healthunlocked.com, patient.info"
+                />
+              </div>
+            </div>
+
+            <div className="mt-4">
               <label className="block text-[13px] font-medium text-gray-600 mb-1.5">
-                Other Forums <span className="text-[11px] text-gray-400 font-normal">(optional)</span>
+                Facebook Groups <span className="text-[11px] text-gray-400 font-normal">(optional)</span>
               </label>
               <MultiInput
-                items={forums}
-                onAdd={(item) => setForums(prev => [...prev, item])}
-                onRemove={(idx) => setForums(prev => prev.filter((_, i) => i !== idx))}
-                placeholder="e.g., healthunlocked.com, patient.info"
+                items={facebookGroups}
+                onAdd={(item) => setFacebookGroups(prev => [...prev, item])}
+                onRemove={(idx) => setFacebookGroups(prev => prev.filter((_, i) => i !== idx))}
+                placeholder="e.g., Chronic Pain Warriors, Plantar Fasciitis Support"
               />
             </div>
           </div>
@@ -560,6 +624,22 @@ export default function QuoteMiner({ projectId, project }) {
                 <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
               </svg>
               Mine Quotes
+            </button>
+            <button
+              onClick={() => fetchSuggestions()}
+              disabled={suggesting || !config.target_demographic.trim() || !config.problem.trim()}
+              className="btn-secondary flex items-center gap-1.5 text-[12px] disabled:opacity-50"
+            >
+              {suggesting ? (
+                <svg className="w-3.5 h-3.5 animate-spin" viewBox="0 0 24 24" fill="none">
+                  <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" strokeDasharray="31.4 31.4" strokeLinecap="round" />
+                </svg>
+              ) : (
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.455 2.456L21.75 6l-1.036.259a3.375 3.375 0 00-2.455 2.456z" />
+                </svg>
+              )}
+              Suggest
             </button>
             <p className="text-[11px] text-gray-400">
               Searches with Perplexity + Claude, merges with GPT-4.1. Takes 1-3 minutes.
@@ -738,7 +818,7 @@ export default function QuoteMiner({ projectId, project }) {
                   Export
                 </button>
                 <button
-                  onClick={() => { setCurrentQuotes(null); setCurrentRunMeta(null); setViewingRunId(null); setCurrentHeadlines(null); setHeadlineProgress([]); }}
+                  onClick={() => { setCurrentQuotes(null); setCurrentRunMeta(null); setViewingRunId(null); setCurrentHeadlines(null); setHeadlineProgress([]); setKeywords([]); setSubreddits([]); setForums([]); setFacebookGroups([]); }}
                   className="btn-secondary text-[11px]"
                 >
                   New Search

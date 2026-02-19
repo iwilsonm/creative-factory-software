@@ -315,6 +315,13 @@ export const api = {
   deleteQuoteMiningRun: (projectId, runId) =>
     request(`/projects/${projectId}/quote-mining/${runId}`, { method: 'DELETE' }),
 
+  // Quote Miner — auto-suggest keywords/subreddits/forums/facebook groups
+  getQuoteMinerSuggestions: (projectId, targetDemographic, problem) =>
+    request(`/projects/${projectId}/quote-mining/suggestions`, {
+      method: 'POST',
+      body: JSON.stringify({ target_demographic: targetDemographic, problem })
+    }),
+
   // Headline Generation (from quote mining results)
   generateHeadlines: (projectId, runId, onEvent) =>
     streamSSEWithBody(`/projects/${projectId}/quote-mining/${runId}/headlines`, {}, onEvent),

@@ -3,7 +3,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { requireAuth } from '../auth.js';
 import { getProject, getQuoteMiningRunsByProject, getQuoteMiningRun } from '../convexClient.js';
 import { convexClient, api } from '../convexClient.js';
-import { runQuoteMining } from '../services/quoteMiner.js';
+import { runQuoteMining, generateSuggestions } from '../services/quoteMiner.js';
 import { generateHeadlines } from '../services/headlineGenerator.js';
 
 const router = Router();
@@ -39,13 +39,28 @@ router.get('/:projectId/quote-mining/:runId', async (req, res) => {
   }
 });
 
+// ── Auto-suggest keywords, subreddits, forums, facebook groups ───────────────
+router.post('/:projectId/quote-mining/suggestions', async (req, res) => {
+  try {
+    const { target_demographic, problem } = req.body;
+    if (!target_demographic || !problem) {
+      return res.status(400).json({ error: 'target_demographic and problem are required' });
+    }
+    const suggestions = await generateSuggestions(target_demographic, problem);
+    res.json(suggestions);
+  } catch (err) {
+    console.error('Failed to generate suggestions:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── Start a new mining run (SSE stream) ───────────────────────────────────────
 router.post('/:projectId/quote-mining', async (req, res) => {
   try {
     const project = await getProject(req.params.projectId);
     if (!project) return res.status(404).json({ error: 'Project not found' });
 
-    const { target_demographic, problem, root_cause, keywords, subreddits, forums, num_quotes } = req.body;
+    const { target_demographic, problem, root_cause, keywords, subreddits, forums, facebook_groups, num_quotes } = req.body;
 
     if (!target_demographic || !problem || !keywords || !Array.isArray(keywords) || keywords.length === 0) {
       return res.status(400).json({ error: 'target_demographic, problem, and keywords (array) are required' });
@@ -63,6 +78,7 @@ router.post('/:projectId/quote-mining', async (req, res) => {
       keywords: JSON.stringify(keywords),
       subreddits: subreddits?.length ? JSON.stringify(subreddits) : undefined,
       forums: forums?.length ? JSON.stringify(forums) : undefined,
+      facebook_groups: facebook_groups?.length ? JSON.stringify(facebook_groups) : undefined,
       num_quotes: num_quotes || 20,
       created_at: new Date().toISOString(),
     });
@@ -103,6 +119,7 @@ router.post('/:projectId/quote-mining', async (req, res) => {
       keywords: JSON.stringify(keywords),
       subreddits: subreddits?.length ? JSON.stringify(subreddits) : null,
       forums: forums?.length ? JSON.stringify(forums) : null,
+      facebook_groups: facebook_groups?.length ? JSON.stringify(facebook_groups) : null,
       num_quotes: num_quotes || 20,
     };
 

@@ -32,6 +32,7 @@ export const create = mutation({
     keywords: v.string(),
     subreddits: v.optional(v.string()),
     forums: v.optional(v.string()),
+    facebook_groups: v.optional(v.string()),
     num_quotes: v.optional(v.number()),
     created_at: v.string(),
   },

@@ -40,13 +40,39 @@ export async function getAnthropicClient() {
   return anthropicClient;
 }
 
+// ── Generate search suggestions using GPT-4.1-mini ──────────────────────────
+export async function generateSuggestions(targetDemographic, problem) {
+  const result = await chat([
+    {
+      role: 'system',
+      content: 'You suggest search terms and online communities for researching a target audience. Return ONLY valid JSON, no markdown.'
+    },
+    {
+      role: 'user',
+      content: `Target Demographic: ${targetDemographic}
+Problem: ${problem}
+
+Suggest:
+- 8-12 specific search keywords/phrases this demographic would type when discussing this problem online (include emotional language, slang, and common misspellings)
+- 5-8 relevant subreddit names (no "r/" prefix, just the name)
+- 3-5 niche forum domains or health communities (e.g., healthunlocked.com, patient.info)
+- 3-5 Facebook group names where this demographic congregates
+
+Return JSON: { "keywords": [...], "subreddits": [...], "forums": [...], "facebook_groups": [...] }`
+    }
+  ], 'gpt-4.1-mini', { response_format: { type: 'json_object' } });
+
+  return JSON.parse(result);
+}
+
 // ── Build the mining prompt ───────────────────────────────────────────────────
 function buildMiningPrompt(config) {
-  const { target_demographic, problem, root_cause, keywords, subreddits, forums, num_quotes } = config;
+  const { target_demographic, problem, root_cause, keywords, subreddits, forums, facebook_groups, num_quotes } = config;
 
   const keywordList = JSON.parse(keywords);
   const subredditList = subreddits ? JSON.parse(subreddits) : [];
   const forumList = forums ? JSON.parse(forums) : [];
+  const fbGroupList = facebook_groups ? JSON.parse(facebook_groups) : [];
 
   let sourcesSection = '';
   if (subredditList.length > 0) {
@@ -54,6 +80,9 @@ function buildMiningPrompt(config) {
   }
   if (forumList.length > 0) {
     sourcesSection += `\nOther forums/communities to search: ${forumList.join(', ')}`;
+  }
+  if (fbGroupList.length > 0) {
+    sourcesSection += `\nFacebook groups to search: ${fbGroupList.join(', ')}`;
   }
 
   return `You are an expert copywriting researcher. Your task is to scrape online discussions and extract authentic, emotional, first-person quotes from ${target_demographic} describing their experiences with ${problem}${root_cause ? `, especially related to ${root_cause}` : ''}.

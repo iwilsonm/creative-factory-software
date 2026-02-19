@@ -170,6 +170,7 @@ export default defineSchema({
     keywords: v.string(),               // JSON array of keyword strings
     subreddits: v.optional(v.string()), // JSON array of subreddit names
     forums: v.optional(v.string()),     // JSON array of forum URLs/names
+    facebook_groups: v.optional(v.string()), // JSON array of Facebook group names
     num_quotes: v.optional(v.number()), // Target number of quotes (default 20)
     quotes: v.optional(v.string()),     // JSON array of quote objects
     perplexity_raw: v.optional(v.string()),
