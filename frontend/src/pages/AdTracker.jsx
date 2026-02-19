@@ -30,6 +30,7 @@ export default function AdTracker({ projectId }) {
   const [saving, setSaving] = useState(false);
   const [notesPopover, setNotesPopover] = useState(null); // { id, notes }
   const [statusDropdown, setStatusDropdown] = useState(null); // deployment id or null
+  const [previewImage, setPreviewImage] = useState(null); // { url, name } or null
   const editRef = useRef(null);
   const notesRef = useRef(null);
   const statusDropdownRef = useRef(null);
@@ -479,7 +480,7 @@ export default function AdTracker({ projectId }) {
                       )}
                     </button>
                   </th>
-                  <th className="px-2 py-2.5 w-12" />
+                  <th className="px-2 py-2.5 w-16" />
                   <th className="px-3 py-2.5 text-[10px] uppercase tracking-wider font-medium text-gray-400">
                     Ad Name
                   </th>
@@ -538,10 +539,15 @@ export default function AdTracker({ projectId }) {
                       {/* Thumbnail */}
                       <td className="px-2 py-2.5">
                         {dep.imageUrl ? (
-                          <img src={dep.imageUrl} alt="" className="w-8 h-8 rounded-md object-cover" />
+                          <img
+                            src={dep.imageUrl}
+                            alt=""
+                            className="w-12 h-12 rounded-md object-cover cursor-pointer hover:ring-2 hover:ring-blue-300 transition-all"
+                            onClick={(e) => { e.stopPropagation(); setPreviewImage({ url: dep.imageUrl, name: displayName(dep) }); }}
+                          />
                         ) : (
-                          <div className="w-8 h-8 rounded-md bg-gray-100 flex items-center justify-center">
-                            <svg className="w-3.5 h-3.5 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <div className="w-12 h-12 rounded-md bg-gray-100 flex items-center justify-center">
+                            <svg className="w-4 h-4 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909M3.75 21h16.5" />
                             </svg>
                           </div>
@@ -738,6 +744,33 @@ export default function AdTracker({ projectId }) {
           </p>
         </div>
       </div>
+
+      {/* Image preview modal */}
+      {previewImage && (
+        <div
+          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-6 fade-in"
+          onClick={() => setPreviewImage(null)}
+        >
+          <div className="relative max-w-3xl w-full" onClick={(e) => e.stopPropagation()}>
+            <button
+              onClick={() => setPreviewImage(null)}
+              className="absolute -top-3 -right-3 w-8 h-8 rounded-full bg-white shadow-apple-md flex items-center justify-center text-gray-400 hover:text-gray-600 transition-colors z-10"
+            >
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+            <img
+              src={previewImage.url}
+              alt={previewImage.name}
+              className="max-w-full max-h-[85vh] object-contain rounded-2xl shadow-apple-xl mx-auto"
+            />
+            {previewImage.name && (
+              <p className="text-center text-white/70 text-[12px] mt-3">{previewImage.name}</p>
+            )}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
