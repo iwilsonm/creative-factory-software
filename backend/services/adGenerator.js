@@ -106,9 +106,8 @@ Your job:
  * Includes brand context + all 4 foundational documents.
  * @param {object} project - The project record
  * @param {object} docs - { research, avatar, offer_brief, necessary_beliefs }
- * @param {object|null} headlineRef - Optional headline reference document for Headline Juicer
  */
-export function buildCreativeDirectorPrompt(project, docs, headlineRef = null) {
+export function buildCreativeDirectorPrompt(project, docs) {
   const researchContent = docs.research?.content || '[No research document available]';
   const avatarContent = docs.avatar?.content || '[No avatar sheet available]';
   const offerContent = docs.offer_brief?.content || '[No offer brief available]';
@@ -160,18 +159,6 @@ ${offerContent}
 NECESSARY BELIEFS:
 ${beliefsContent}`;
 
-  // Headline Juicer: inject headline reference document as creative inspiration
-  if (headlineRef && headlineRef.content) {
-    prompt += `
-
----
-
-HEADLINE INSPIRATION DOCUMENT:
-The following document contains headline examples and copywriting patterns. Use these as CREATIVE FUEL to inspire diverse, varied, and scroll-stopping headlines for the ad you create. DO NOT copy headlines directly from this document. Instead, use the styles, rhythms, emotional hooks, and structural patterns you observe to generate fresh, original headlines that are tailored to this brand's voice and audience. The body copy you write should naturally support and align with whatever headline you create.
-
-${headlineRef.content}`;
-  }
-
   return prompt;
 }
 
@@ -180,7 +167,7 @@ ${headlineRef.content}`;
  * Per the SOP, the core instruction is exactly "make a prompt for an image like this".
  * Angle, aspect ratio, product image, headline, and body copy are appended as additional direction.
  */
-export function buildImageRequestText(angle, aspectRatio, hasProductImage = false, headline = null, bodyCopy = null, headlineJuicer = false) {
+export function buildImageRequestText(angle, aspectRatio, hasProductImage = false, headline = null, bodyCopy = null) {
   let text = 'make a prompt for an image like this';
 
   const extras = [];
@@ -198,9 +185,6 @@ export function buildImageRequestText(angle, aspectRatio, hasProductImage = fals
   }
   if (aspectRatio && aspectRatio !== '1:1') {
     extras.push(`Use ${aspectRatio} aspect ratio instead of 1:1`);
-  }
-  if (headlineJuicer) {
-    extras.push('IMPORTANT — HEADLINE JUICER IS ACTIVE: You MUST draw direct creative inspiration from the HEADLINE INSPIRATION DOCUMENT I provided earlier. Generate a unique, scroll-stopping headline that is clearly influenced by the styles, patterns, and emotional hooks from that document. The headline should feel fresh and original but unmistakably inspired by those examples. Write body copy that naturally supports and reinforces the headline you create. Do NOT reuse a generic or default headline — make it punchy, specific, and varied');
   }
 
   if (extras.length > 0) {
@@ -366,10 +350,10 @@ export async function generateAd(projectId, options = {}) {
     const hasProductImage = !!(productImageBase64 && productImageMimeType);
 
     let imagePrompt = await withGptRateLimit(async () => {
-      // Message 1: Creative director prompt + foundational docs (+ optional headline reference)
-      emit({ type: 'status', status: 'generating_copy', message: headlineRef ? 'Sending creative brief + headline inspiration to GPT-5.2...' : 'Sending creative brief to GPT-5.2...', progress: 15 });
+      // Message 1: Creative director prompt + foundational docs
+      emit({ type: 'status', status: 'generating_copy', message: 'Sending creative brief to GPT-5.2...', progress: 15 });
 
-      const creativeDirectorPrompt_inner = buildCreativeDirectorPrompt(project, docs, headlineRef);
+      const creativeDirectorPrompt_inner = buildCreativeDirectorPrompt(project, docs);
       const acknowledgment = await chat(
         [{ role: 'user', content: creativeDirectorPrompt_inner }],
         'gpt-5.2'
@@ -380,7 +364,7 @@ export async function generateAd(projectId, options = {}) {
         ? 'GPT-5.2 analyzing inspiration image + product image...'
         : 'GPT-5.2 analyzing inspiration image...', progress: 35 });
 
-      const imageRequestText_inner = buildImageRequestText(angle, aspectRatio, hasProductImage, headline, bodyCopy, !!headlineRef);
+      const imageRequestText_inner = buildImageRequestText(angle, aspectRatio, hasProductImage, headline, bodyCopy);
       const conversationSoFar = [
         { role: 'user', content: creativeDirectorPrompt_inner },
         { role: 'assistant', content: acknowledgment }
@@ -403,6 +387,31 @@ export async function generateAd(projectId, options = {}) {
           imageRequestText_inner,
           inspiration.base64,
           inspiration.mimeType,
+          'gpt-5.2'
+        );
+      }
+
+      // Message 3 (Headline Juicer): Send the full headline reference document
+      // and ask GPT to revise the prompt with a headline from that document
+      if (headlineRef && headlineRef.content) {
+        emit({ type: 'status', status: 'generating_copy', message: 'Applying Headline Juicer — revising with headline reference...', progress: 50 });
+
+        const msg3 = `Here is a headline reference document. I want you to choose one of the headlines from this document and revise the image prompt you just created to use that headline instead. Adjust the body copy so it aligns with and supports the new headline. Keep everything else about the prompt the same — the visual style, layout, and creative direction — just swap in the new headline and adjust the copy to match.
+
+HEADLINE REFERENCE DOCUMENT:
+${headlineRef.content}
+
+Now output ONLY the revised image prompt with the new headline and aligned body copy. No explanation, just the prompt.`;
+
+        const conversationWithMsg2 = [
+          { role: 'user', content: creativeDirectorPrompt_inner },
+          { role: 'assistant', content: acknowledgment },
+          { role: 'user', content: imageRequestText_inner },
+          { role: 'assistant', content: prompt }
+        ];
+
+        prompt = await chat(
+          [...conversationWithMsg2, { role: 'user', content: msg3 }],
           'gpt-5.2'
         );
       }
@@ -563,10 +572,10 @@ export async function generateAdMode2(projectId, options = {}) {
     const hasProductImage = !!(productImageBase64 && productImageMimeType);
 
     let imagePrompt = await withGptRateLimit(async () => {
-      // Message 1: Creative director prompt + foundational docs (+ optional headline reference)
-      emit({ type: 'status', status: 'generating_copy', message: headlineRef ? 'Sending creative brief + headline inspiration to GPT-5.2...' : 'Sending creative brief to GPT-5.2...', progress: 15 });
+      // Message 1: Creative director prompt + foundational docs
+      emit({ type: 'status', status: 'generating_copy', message: 'Sending creative brief to GPT-5.2...', progress: 15 });
 
-      const creativeDirectorPrompt_inner = buildCreativeDirectorPrompt(project, docs, headlineRef);
+      const creativeDirectorPrompt_inner = buildCreativeDirectorPrompt(project, docs);
       const acknowledgment = await chat(
         [{ role: 'user', content: creativeDirectorPrompt_inner }],
         'gpt-5.2'
@@ -577,7 +586,7 @@ export async function generateAdMode2(projectId, options = {}) {
         ? 'GPT-5.2 analyzing template image + product image...'
         : 'GPT-5.2 analyzing template image...', progress: 35 });
 
-      const imageRequestText_inner = buildImageRequestText(angle, aspectRatio, hasProductImage, headline, bodyCopy, !!headlineRef);
+      const imageRequestText_inner = buildImageRequestText(angle, aspectRatio, hasProductImage, headline, bodyCopy);
       const conversationSoFar = [
         { role: 'user', content: creativeDirectorPrompt_inner },
         { role: 'assistant', content: acknowledgment }
@@ -600,6 +609,31 @@ export async function generateAdMode2(projectId, options = {}) {
           imageRequestText_inner,
           template.base64,
           template.mimeType,
+          'gpt-5.2'
+        );
+      }
+
+      // Message 3 (Headline Juicer): Send the full headline reference document
+      // and ask GPT to revise the prompt with a headline from that document
+      if (headlineRef && headlineRef.content) {
+        emit({ type: 'status', status: 'generating_copy', message: 'Applying Headline Juicer — revising with headline reference...', progress: 50 });
+
+        const msg3 = `Here is a headline reference document. I want you to choose one of the headlines from this document and revise the image prompt you just created to use that headline instead. Adjust the body copy so it aligns with and supports the new headline. Keep everything else about the prompt the same — the visual style, layout, and creative direction — just swap in the new headline and adjust the copy to match.
+
+HEADLINE REFERENCE DOCUMENT:
+${headlineRef.content}
+
+Now output ONLY the revised image prompt with the new headline and aligned body copy. No explanation, just the prompt.`;
+
+        const conversationWithMsg2 = [
+          { role: 'user', content: creativeDirectorPrompt_inner },
+          { role: 'assistant', content: acknowledgment },
+          { role: 'user', content: imageRequestText_inner },
+          { role: 'assistant', content: prompt }
+        ];
+
+        prompt = await chat(
+          [...conversationWithMsg2, { role: 'user', content: msg3 }],
           'gpt-5.2'
         );
       }
