@@ -29,7 +29,7 @@ export default function ProjectDetail() {
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState({});
   const [saving, setSaving] = useState(false);
-  const [tab, setTab] = useState('quotes');
+  const [tab, setTab] = useState('ads');
   const [projectCosts, setProjectCosts] = useState(null);
   const [costsLoading, setCostsLoading] = useState(false);
 

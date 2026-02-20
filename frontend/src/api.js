@@ -341,6 +341,13 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ headline, target_demographic: targetDemographic, problem, style: style || 'short' })
     }),
+  generateAdAngle: (projectId) =>
+    request(`/projects/${projectId}/generate-angle`, { method: 'POST' }),
+  generateAdHeadline: (projectId, { angle }) =>
+    request(`/projects/${projectId}/generate-headline`, {
+      method: 'POST',
+      body: JSON.stringify({ angle: angle || undefined })
+    }),
   generateAdBodyCopy: (projectId, { headline, angle, style, sourceQuoteId }) =>
     request(`/projects/${projectId}/generate-body-copy`, {
       method: 'POST',

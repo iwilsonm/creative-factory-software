@@ -98,6 +98,10 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
   const [generatingBody, setGeneratingBody] = useState(false);
   const [sourceQuoteId, setSourceQuoteId] = useState(null);
 
+  // Auto-generate states for optional fields
+  const [generatingAngle, setGeneratingAngle] = useState(false);
+  const [generatingHeadline, setGeneratingHeadline] = useState(false);
+
   // Prompt editing (for iterative refinement from past ads)
   const [customPrompt, setCustomPrompt] = useState('');
   const [parentAdId, setParentAdId] = useState(null);
@@ -471,6 +475,70 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
       console.error('Failed to load ads:', err);
     } finally {
       setLoadingAds(false);
+    }
+  };
+
+  // Auto-generate an angle from foundational docs
+  const handleGenerateAngle = async () => {
+    setGeneratingAngle(true);
+    try {
+      const data = await api.generateAdAngle(projectId);
+      if (data.angle) {
+        setAngle(data.angle);
+      }
+    } catch (err) {
+      console.error('Failed to generate angle:', err);
+      toast.error(err.message || 'Angle generation failed');
+    } finally {
+      setGeneratingAngle(false);
+    }
+  };
+
+  // Auto-generate a headline from foundational docs + current angle
+  const handleGenerateHeadline = async () => {
+    setGeneratingHeadline(true);
+    try {
+      const data = await api.generateAdHeadline(projectId, { angle: angle || '' });
+      if (data.headline) {
+        setHeadline(data.headline);
+      }
+    } catch (err) {
+      console.error('Failed to generate headline:', err);
+      toast.error(err.message || 'Headline generation failed');
+    } finally {
+      setGeneratingHeadline(false);
+    }
+  };
+
+  // Auto-generate headline + body copy from current angle
+  const handleGenerateFromAngle = async () => {
+    setGeneratingHeadline(true);
+    try {
+      const headlineData = await api.generateAdHeadline(projectId, { angle: angle || '' });
+      if (headlineData.headline) {
+        setHeadline(headlineData.headline);
+        // Now generate body copy with the new headline
+        setGeneratingBody(true);
+        setGeneratingHeadline(false);
+        try {
+          const bodyData = await api.generateAdBodyCopy(projectId, {
+            headline: headlineData.headline,
+            angle: angle || '',
+            style: bodyCopyStyle,
+            sourceQuoteId: sourceQuoteId || undefined,
+          });
+          setBodyCopy(bodyData.body_copy || '');
+        } catch (bodyErr) {
+          console.error('Failed to generate body copy:', bodyErr);
+          toast.error('Body copy generation failed');
+        } finally {
+          setGeneratingBody(false);
+        }
+      }
+    } catch (err) {
+      console.error('Failed to generate headline:', err);
+      toast.error(err.message || 'Headline generation failed');
+      setGeneratingHeadline(false);
     }
   };
 
@@ -1878,29 +1946,90 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-5">
                 {/* Ad Topic / Angle */}
                 <div>
-                  <label className="block text-[13px] font-medium text-gray-600 mb-1.5">
-                    Ad Topic / Angle
-                  </label>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="block text-[13px] font-medium text-gray-600">
+                      Ad Topic / Angle
+                    </label>
+                    <button
+                      onClick={handleGenerateAngle}
+                      disabled={generatingAngle}
+                      className="inline-flex items-center gap-1 text-[11px] font-semibold text-blue-600 hover:text-blue-700 disabled:opacity-50 transition-colors"
+                    >
+                      {generatingAngle ? (
+                        <>
+                          <div className="w-3 h-3 rounded-full border-2 border-blue-300 border-t-blue-600 animate-spin" />
+                          Generating...
+                        </>
+                      ) : (
+                        <>
+                          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.455 2.456L21.75 6l-1.036.259a3.375 3.375 0 00-2.455 2.456z" />
+                          </svg>
+                          Generate
+                        </>
+                      )}
+                    </button>
+                  </div>
                   <input
                     value={angle}
                     onChange={e => setAngle(e.target.value)}
-                    placeholder='e.g., "customer transformation story"'
+                    placeholder={generatingAngle ? 'Generating angle...' : 'e.g., "customer transformation story"'}
                     className="input-apple"
+                    disabled={generatingAngle}
                   />
                 </div>
 
                 {/* Headline */}
                 <div>
-                  <label className="block text-[13px] font-medium text-gray-600 mb-1.5">
-                    Headline
-                  </label>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="block text-[13px] font-medium text-gray-600">
+                      Headline
+                    </label>
+                    <button
+                      onClick={handleGenerateHeadline}
+                      disabled={generatingHeadline}
+                      className="inline-flex items-center gap-1 text-[11px] font-semibold text-blue-600 hover:text-blue-700 disabled:opacity-50 transition-colors"
+                    >
+                      {generatingHeadline ? (
+                        <>
+                          <div className="w-3 h-3 rounded-full border-2 border-blue-300 border-t-blue-600 animate-spin" />
+                          Generating...
+                        </>
+                      ) : (
+                        <>
+                          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.455 2.456L21.75 6l-1.036.259a3.375 3.375 0 00-2.455 2.456z" />
+                          </svg>
+                          Generate
+                        </>
+                      )}
+                    </button>
+                  </div>
                   <input
                     value={headline}
                     onChange={e => setHeadline(e.target.value)}
-                    placeholder='e.g., "Transform Your Skin in 30 Days"'
+                    placeholder={generatingHeadline ? 'Generating headline...' : 'e.g., "Transform Your Skin in 30 Days"'}
                     className="input-apple"
+                    disabled={generatingHeadline}
                   />
                 </div>
+
+                {/* Smart generate prompt — appears when angle is set but headline/body are empty */}
+                {angle.trim() && !headline.trim() && !bodyCopy.trim() && !generatingHeadline && !generatingBody && (
+                  <div className="md:col-span-2">
+                    <button
+                      onClick={handleGenerateFromAngle}
+                      className="w-full py-2.5 px-4 rounded-xl bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200/60 hover:border-blue-300 hover:from-blue-100 hover:to-indigo-100 transition-all flex items-center justify-center gap-2 group"
+                    >
+                      <svg className="w-4 h-4 text-blue-500 group-hover:text-blue-600 transition-colors" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.455 2.456L21.75 6l-1.036.259a3.375 3.375 0 00-2.455 2.456z" />
+                      </svg>
+                      <span className="text-[12px] font-semibold text-blue-600 group-hover:text-blue-700 transition-colors">
+                        Generate headline & body copy for this angle
+                      </span>
+                    </button>
+                  </div>
+                )}
 
                 {/* Body Copy — full width, with style selector + regenerate */}
                 <div className="md:col-span-2">

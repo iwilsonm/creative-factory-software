@@ -1,8 +1,9 @@
 import { Router } from 'express';
 import { requireAuth } from '../auth.js';
-import { getProject, getAdsByProject, getInProgressAdsByProject, getAd, getAdImageUrl, downloadToBuffer, getQuoteBankQuote, convexClient, api } from '../convexClient.js';
+import { getProject, getLatestDoc, getAdsByProject, getInProgressAdsByProject, getAd, getAdImageUrl, downloadToBuffer, getQuoteBankQuote, convexClient, api } from '../convexClient.js';
 import { generateAd, generateAdMode2, regenerateImageOnly, applyPromptEdit } from '../services/adGenerator.js';
 import { generateBodyCopy } from '../services/bodyCopyGenerator.js';
+import { chat as claudeChat } from '../services/anthropic.js';
 import { withRetry } from '../services/retry.js';
 import sharp from 'sharp';
 import fs from 'fs';
@@ -183,6 +184,103 @@ router.post('/:projectId/edit-prompt', async (req, res) => {
     const revisedPrompt = await applyPromptEdit(original_prompt.trim(), edit_instruction.trim(), referenceImage);
     res.json({ revised_prompt: revisedPrompt });
   } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Generate a random angle/topic from foundational docs
+router.post('/:projectId/generate-angle', async (req, res) => {
+  try {
+    const project = await getProject(req.params.projectId);
+    if (!project) return res.status(404).json({ error: 'Project not found' });
+
+    const [avatar, offer_brief] = await Promise.all([
+      getLatestDoc(req.params.projectId, 'avatar'),
+      getLatestDoc(req.params.projectId, 'offer_brief'),
+    ]);
+
+    const avatarSnippet = (avatar?.content || '').slice(0, 2000);
+    const offerSnippet = (offer_brief?.content || '').slice(0, 2000);
+
+    if (!avatarSnippet && !offerSnippet) {
+      return res.status(400).json({ error: 'Generate foundational docs first.' });
+    }
+
+    const result = await claudeChat([{
+      role: 'user',
+      content: `You are a direct response ad strategist. Based on the brand and audience docs below, suggest ONE specific, unexpected ad angle/topic.
+
+BRAND: ${project.brand_name || project.name}
+PRODUCT: ${project.product_description || ''}
+
+AVATAR (excerpt):
+${avatarSnippet}
+
+OFFER BRIEF (excerpt):
+${offerSnippet}
+
+Return ONLY a short angle phrase (3-10 words). No explanation, no quotes, no numbering. Just the angle.
+Examples of good angles: "the 3am bathroom trip nobody talks about", "why your doctor never mentioned this", "what grandma knew that science just proved"`,
+    }], 'claude-sonnet-4-6', { max_tokens: 100 });
+
+    const angle = result.trim().replace(/^["'"]+|["'"]+$/g, '');
+    res.json({ angle });
+  } catch (err) {
+    console.error('Failed to generate angle:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Generate a headline from foundational docs + angle
+router.post('/:projectId/generate-headline', async (req, res) => {
+  try {
+    const { angle } = req.body;
+    const project = await getProject(req.params.projectId);
+    if (!project) return res.status(404).json({ error: 'Project not found' });
+
+    const [avatar, offer_brief, research] = await Promise.all([
+      getLatestDoc(req.params.projectId, 'avatar'),
+      getLatestDoc(req.params.projectId, 'offer_brief'),
+      getLatestDoc(req.params.projectId, 'research'),
+    ]);
+
+    const avatarSnippet = (avatar?.content || '').slice(0, 2000);
+    const offerSnippet = (offer_brief?.content || '').slice(0, 1500);
+    const researchSnippet = (research?.content || '').slice(0, 1500);
+
+    if (!avatarSnippet && !offerSnippet) {
+      return res.status(400).json({ error: 'Generate foundational docs first.' });
+    }
+
+    const result = await claudeChat([{
+      role: 'user',
+      content: `You are a world-class direct response copywriter who writes scroll-stopping Facebook ad headlines for health/wellness products targeting women 55-75.
+
+BRAND: ${project.brand_name || project.name}
+PRODUCT: ${project.product_description || ''}
+${angle ? `AD ANGLE: "${angle}"` : ''}
+
+AVATAR (excerpt):
+${avatarSnippet}
+
+OFFER BRIEF (excerpt):
+${offerSnippet}
+
+${researchSnippet ? `RESEARCH (excerpt):\n${researchSnippet}` : ''}
+
+Write ONE scroll-stopping headline that:
+- Sounds like something a real person would say, not marketing copy
+- Is specific and emotional
+- Speaks directly to the target audience
+- ${angle ? `Focuses on the angle: "${angle}"` : 'Picks a compelling angle from the docs'}
+
+Return ONLY the headline text. No quotes, no labels, no explanation. Under 15 words.`,
+    }], 'claude-sonnet-4-6', { max_tokens: 150 });
+
+    const headline = result.trim().replace(/^["'"]+|["'"]+$/g, '');
+    res.json({ headline });
+  } catch (err) {
+    console.error('Failed to generate headline:', err.message);
     res.status(500).json({ error: err.message });
   }
 });
