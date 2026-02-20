@@ -63,33 +63,13 @@ function timeAgo(timestamp) {
 }
 
 // ─── Copy Correction Bar ──────────────────────────────────────────────────────
-function CopyCorrection({ projectId, onDocsUpdated }) {
+function CopyCorrection({ projectId, onDocsUpdated, onCorrectionApplied }) {
   const [correction, setCorrection] = useState('');
   const [searching, setSearching] = useState(false);
   const [results, setResults] = useState(null);
   const [applying, setApplying] = useState(false);
   const [error, setError] = useState('');
   const inputRef = useRef(null);
-
-  // History state
-  const [history, setHistory] = useState([]);
-  const [historyOpen, setHistoryOpen] = useState(false);
-  const [reverting, setReverting] = useState(null);
-  const [expandedHistoryId, setExpandedHistoryId] = useState(null);
-
-  // Load history on mount
-  useEffect(() => {
-    loadHistory();
-  }, [projectId]);
-
-  const loadHistory = async () => {
-    try {
-      const data = await api.getCorrectionHistory(projectId);
-      setHistory(data.history || []);
-    } catch {
-      setHistory([]);
-    }
-  };
 
   const handleSearch = async (e) => {
     e.preventDefault();
@@ -113,7 +93,7 @@ function CopyCorrection({ projectId, onDocsUpdated }) {
     try {
       await api.applyCorrections(projectId, results.corrections, correction.trim());
       await onDocsUpdated();
-      await loadHistory();
+      onCorrectionApplied?.();
       setResults(null);
       setCorrection('');
       setError('');
@@ -121,20 +101,6 @@ function CopyCorrection({ projectId, onDocsUpdated }) {
       setError(err.message || 'Failed to apply corrections');
     } finally {
       setApplying(false);
-    }
-  };
-
-  const handleRevert = async (entryId) => {
-    if (!confirm('Revert all documents to their state before this correction?')) return;
-    setReverting(entryId);
-    try {
-      await api.revertCorrection(projectId, entryId);
-      await onDocsUpdated();
-      await loadHistory();
-    } catch (err) {
-      setError(err.message || 'Failed to revert correction');
-    } finally {
-      setReverting(null);
     }
   };
 
@@ -154,93 +120,7 @@ function CopyCorrection({ projectId, onDocsUpdated }) {
         </div>
         <span className="text-[13px] font-semibold text-gray-800">Fix Inaccurate Info</span>
         <InfoTooltip text="Noticed wrong claims in your ad copy? Describe the correction here and AI will scan all foundational documents to find and fix the source." position="right" />
-        <div className="flex-1" />
-        {history.length > 0 && (
-          <button
-            onClick={() => setHistoryOpen(!historyOpen)}
-            className={`text-[11px] font-medium px-2 py-1 rounded-md transition-colors ${
-              historyOpen
-                ? 'bg-amber-200/80 text-amber-800'
-                : 'bg-amber-100/60 text-amber-600 hover:bg-amber-200/60'
-            }`}
-          >
-            Correction History ({history.length})
-          </button>
-        )}
       </div>
-
-      {/* Correction history archive */}
-      {historyOpen && history.length > 0 && (
-        <div className="mb-3 bg-white border border-amber-200/60 rounded-lg overflow-hidden">
-          <div className="max-h-96 overflow-y-auto divide-y divide-gray-100">
-            {history.map((entry) => {
-              const isExpanded = expandedHistoryId === entry.id;
-              const changeCount = entry.changes?.length || 0;
-              return (
-                <div key={entry.id} className="px-3 py-2.5">
-                  {/* Clickable header row */}
-                  <div
-                    className="flex items-center gap-2 cursor-pointer group"
-                    onClick={() => setExpandedHistoryId(isExpanded ? null : entry.id)}
-                  >
-                    <svg
-                      className={`w-3 h-3 text-gray-400 flex-shrink-0 transition-transform duration-200 ${isExpanded ? 'rotate-90' : ''}`}
-                      fill="none" stroke="currentColor" viewBox="0 0 24 24"
-                    >
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                    </svg>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-[12px] text-gray-700 group-hover:text-gray-900 transition-colors">
-                        {entry.correction}
-                      </p>
-                      <p className="text-[10px] text-gray-400">
-                        {changeCount} doc{changeCount !== 1 ? 's' : ''} changed
-                        {' · '}
-                        {new Date(entry.timestamp).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
-                        {' at '}
-                        {new Date(entry.timestamp).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
-                        {' ('}
-                        {timeAgo(entry.timestamp)}
-                        {')'}
-                      </p>
-                    </div>
-                    <button
-                      onClick={(e) => { e.stopPropagation(); handleRevert(entry.id); }}
-                      disabled={reverting === entry.id}
-                      className="text-[11px] font-medium text-amber-600 hover:text-amber-800 bg-amber-50 hover:bg-amber-100 px-2 py-1 rounded transition-colors disabled:opacity-50 flex-shrink-0"
-                    >
-                      {reverting === entry.id ? 'Reverting...' : 'Revert'}
-                    </button>
-                  </div>
-
-                  {/* Expanded diff view */}
-                  {isExpanded && entry.changes?.length > 0 && (
-                    <div className="mt-2 ml-5 space-y-2 fade-in">
-                      {entry.changes.map((change, i) => (
-                        <div key={i} className="bg-gray-50/80 rounded-lg border border-gray-200/60 p-3">
-                          <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider mb-1.5">
-                            {change.doc_label || change.doc_type}
-                          </p>
-                          <div className="space-y-1">
-                            <div className="flex items-start gap-2">
-                              <span className="text-[10px] font-medium text-red-400 mt-0.5 flex-shrink-0">OLD</span>
-                              <p className="text-[12px] text-red-700 bg-red-50 rounded px-2 py-1 line-through">{change.old_text}</p>
-                            </div>
-                            <div className="flex items-start gap-2">
-                              <span className="text-[10px] font-medium text-green-500 mt-0.5 flex-shrink-0">NEW</span>
-                              <p className="text-[12px] text-green-700 bg-green-50 rounded px-2 py-1">{change.new_text}</p>
-                            </div>
-                          </div>
-                        </div>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
 
       <form onSubmit={handleSearch} className="flex gap-2">
         <input
@@ -324,11 +204,147 @@ function CopyCorrection({ projectId, onDocsUpdated }) {
   );
 }
 
+// ─── Changelog — Standalone correction history below doc cards ────────────────
+function Changelog({ projectId, onDocsUpdated, refreshKey }) {
+  const [history, setHistory] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [open, setOpen] = useState(false);
+  const [expandedId, setExpandedId] = useState(null);
+  const [reverting, setReverting] = useState(null);
+
+  const loadHistory = async () => {
+    try {
+      const data = await api.getCorrectionHistory(projectId);
+      setHistory(data.history || []);
+    } catch {
+      setHistory([]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadHistory();
+  }, [projectId, refreshKey]);
+
+  const handleRevert = async (entryId) => {
+    if (!confirm('Revert all documents to their state before this correction?')) return;
+    setReverting(entryId);
+    try {
+      await api.revertCorrection(projectId, entryId);
+      await onDocsUpdated();
+      await loadHistory();
+    } catch {
+      // silently fail — the revert button stays enabled
+    } finally {
+      setReverting(null);
+    }
+  };
+
+  if (loading || history.length === 0) return null;
+
+  return (
+    <div className="card p-5">
+      <div
+        className="flex items-center gap-2 cursor-pointer"
+        onClick={() => setOpen(!open)}
+      >
+        <svg
+          className={`w-4 h-4 text-gray-400 transition-transform duration-200 ${open ? 'rotate-90' : ''}`}
+          fill="none" stroke="currentColor" viewBox="0 0 24 24"
+        >
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+        </svg>
+        <div className="w-7 h-7 rounded-lg bg-gray-100 flex items-center justify-center flex-shrink-0">
+          <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+        </div>
+        <div>
+          <h3 className="text-[14px] font-semibold text-gray-900 tracking-tight">Changelog</h3>
+          <p className="text-[11px] text-gray-400">{history.length} correction{history.length !== 1 ? 's' : ''} recorded</p>
+        </div>
+      </div>
+
+      {open && (
+        <div className="mt-4 border border-gray-200/60 rounded-xl overflow-hidden fade-in">
+          <div className="max-h-[500px] overflow-y-auto divide-y divide-gray-100">
+            {history.map((entry) => {
+              const isExpanded = expandedId === entry.id;
+              const changeCount = entry.changes?.length || 0;
+              return (
+                <div key={entry.id} className="px-4 py-3 hover:bg-gray-50/50 transition-colors">
+                  {/* Entry header */}
+                  <div
+                    className="flex items-center gap-2.5 cursor-pointer group"
+                    onClick={() => setExpandedId(isExpanded ? null : entry.id)}
+                  >
+                    <svg
+                      className={`w-3.5 h-3.5 text-gray-400 flex-shrink-0 transition-transform duration-200 ${isExpanded ? 'rotate-90' : ''}`}
+                      fill="none" stroke="currentColor" viewBox="0 0 24 24"
+                    >
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                    </svg>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[13px] text-gray-800 group-hover:text-gray-900 font-medium transition-colors">
+                        {entry.correction}
+                      </p>
+                      <p className="text-[11px] text-gray-400 mt-0.5">
+                        {changeCount} doc{changeCount !== 1 ? 's' : ''} changed
+                        {' · '}
+                        {new Date(entry.timestamp).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                        {' at '}
+                        {new Date(entry.timestamp).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
+                        <span className="text-gray-300 ml-1">({timeAgo(entry.timestamp)})</span>
+                      </p>
+                    </div>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); handleRevert(entry.id); }}
+                      disabled={reverting === entry.id}
+                      className="text-[11px] font-medium text-amber-600 hover:text-amber-800 bg-amber-50 hover:bg-amber-100 px-2.5 py-1 rounded-md transition-colors disabled:opacity-50 flex-shrink-0"
+                    >
+                      {reverting === entry.id ? 'Reverting...' : 'Revert'}
+                    </button>
+                  </div>
+
+                  {/* Expanded diff */}
+                  {isExpanded && entry.changes?.length > 0 && (
+                    <div className="mt-3 ml-6 space-y-2 fade-in">
+                      {entry.changes.map((change, i) => (
+                        <div key={i} className="bg-white rounded-lg border border-gray-200/60 p-3">
+                          <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider mb-1.5">
+                            {change.doc_label || change.doc_type}
+                          </p>
+                          <div className="space-y-1">
+                            <div className="flex items-start gap-2">
+                              <span className="text-[10px] font-medium text-red-400 mt-0.5 flex-shrink-0">OLD</span>
+                              <p className="text-[12px] text-red-700 bg-red-50 rounded px-2 py-1 line-through">{change.old_text}</p>
+                            </div>
+                            <div className="flex items-start gap-2">
+                              <span className="text-[10px] font-medium text-green-500 mt-0.5 flex-shrink-0">NEW</span>
+                              <p className="text-[12px] text-green-700 bg-green-50 rounded px-2 py-1">{change.new_text}</p>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function FoundationalDocs({ projectId, projectStatus }) {
   const toast = useToast();
   const [docs, setDocs] = useState([]);
   const [steps, setSteps] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [changelogRefreshKey, setChangelogRefreshKey] = useState(0);
 
   // Generation mode: null | 'choosing' | 'auto' | 'manual' | 'upload'
   const [generationMode, setGenerationMode] = useState(null);
@@ -1239,7 +1255,7 @@ export default function FoundationalDocs({ projectId, projectStatus }) {
 
       {/* Copy Correction Bar — fix inaccurate info across all docs */}
       {!editingDoc && !viewDoc && hasDocs && (
-        <CopyCorrection projectId={projectId} onDocsUpdated={loadDocs} />
+        <CopyCorrection projectId={projectId} onDocsUpdated={loadDocs} onCorrectionApplied={() => setChangelogRefreshKey(k => k + 1)} />
       )}
 
       {/* Editing mode */}
@@ -1413,6 +1429,11 @@ export default function FoundationalDocs({ projectId, projectStatus }) {
             );
           })}
         </div>
+      )}
+
+      {/* Changelog — visible below doc cards */}
+      {!editingDoc && !viewDoc && hasDocs && (
+        <Changelog projectId={projectId} onDocsUpdated={loadDocs} refreshKey={changelogRefreshKey} />
       )}
 
     </div>
