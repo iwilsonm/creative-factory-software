@@ -209,4 +209,29 @@ export default defineSchema({
   })
     .index("by_externalId", ["externalId"])
     .index("by_project", ["project_id"]),
+
+  chat_threads: defineTable({
+    externalId: v.string(),
+    project_id: v.string(),              // → projects.externalId
+    title: v.optional(v.string()),
+    status: v.string(),                  // active | archived
+    created_at: v.string(),
+    updated_at: v.string(),
+  })
+    .index("by_externalId", ["externalId"])
+    .index("by_project", ["project_id"])
+    .index("by_project_and_status", ["project_id", "status"]),
+
+  chat_messages: defineTable({
+    externalId: v.string(),
+    thread_id: v.string(),               // → chat_threads.externalId
+    project_id: v.string(),              // denormalized for easy querying
+    role: v.string(),                    // user | assistant
+    content: v.string(),
+    is_context_message: v.optional(v.boolean()), // hides priming message in UI
+    created_at: v.string(),
+  })
+    .index("by_externalId", ["externalId"])
+    .index("by_thread", ["thread_id"])
+    .index("by_project", ["project_id"]),
 });

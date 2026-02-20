@@ -377,4 +377,10 @@ export const api = {
   // Settings test — Quote Miner
   testPerplexity: () => request('/settings/test-perplexity', { method: 'POST' }),
   testAnthropic: () => request('/settings/test-anthropic', { method: 'POST' }),
+
+  // Chat (Copywriter Chat Widget)
+  getChatThread: (projectId) => request(`/projects/${projectId}/chat/thread`),
+  sendChatMessage: (projectId, message, onEvent) =>
+    streamSSEWithBody(`/projects/${projectId}/chat/send`, { message }, onEvent),
+  clearChat: (projectId) => request(`/projects/${projectId}/chat/clear`, { method: 'POST' }),
 };

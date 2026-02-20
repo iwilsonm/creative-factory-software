@@ -608,6 +608,41 @@ export async function backfillQuoteBankProblems(updates) {
 }
 
 // =============================================
+// Chat Thread helpers
+// =============================================
+
+export async function getActiveChatThread(projectId) {
+  return await queryWithRetry(api.chatThreads.getActiveByProject, { projectId });
+}
+
+export async function createChatThread({ id, project_id, title }) {
+  await mutationWithRetry(api.chatThreads.create, {
+    externalId: id,
+    project_id,
+    title: title || undefined,
+  });
+}
+
+export async function archiveChatThread(threadId) {
+  await mutationWithRetry(api.chatThreads.archive, { externalId: threadId });
+}
+
+export async function getChatMessages(threadId) {
+  return await queryWithRetry(api.chatThreads.getMessagesByThread, { threadId });
+}
+
+export async function createChatMessage({ id, thread_id, project_id, role, content, is_context_message }) {
+  await mutationWithRetry(api.chatThreads.createMessage, {
+    externalId: id,
+    thread_id,
+    project_id,
+    role,
+    content,
+    is_context_message: is_context_message || undefined,
+  });
+}
+
+// =============================================
 // Direct Convex client access (for advanced use cases)
 // =============================================
 

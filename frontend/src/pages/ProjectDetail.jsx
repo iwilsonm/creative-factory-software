@@ -8,6 +8,7 @@ import AdStudio from '../components/AdStudio';
 import AdTracker from './AdTracker';
 import QuoteMiner from '../components/QuoteMiner';
 import CostSummaryCards from '../components/CostSummaryCards';
+import CopywriterChat from '../components/CopywriterChat';
 import InfoTooltip from '../components/InfoTooltip';
 import { useToast } from '../components/Toast';
 
@@ -534,6 +535,9 @@ export default function ProjectDetail() {
           />
         )}
       </div>
+
+      {/* Floating Copywriter Chat Widget */}
+      <CopywriterChat projectId={id} />
     </Layout>
   );
 }
