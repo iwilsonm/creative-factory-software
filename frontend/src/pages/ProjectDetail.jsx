@@ -518,7 +518,7 @@ export default function ProjectDetail() {
           <AdTracker projectId={id} />
         )}
         {tab === 'quotes' && (
-          <QuoteMiner projectId={id} project={project} />
+          <QuoteMiner projectId={id} project={project} onNavigateToTracker={() => setTab('tracker')} />
         )}
       </div>
     </Layout>

@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import { requireAuth } from '../auth.js';
-import { getProject, getQuoteMiningRunsByProject, getQuoteMiningRun, getQuoteBankByProject, getQuoteBankQuote, updateQuoteBankQuote, deleteQuoteBankQuote } from '../convexClient.js';
+import { getProject, getQuoteMiningRunsByProject, getQuoteMiningRun, getQuoteBankByProject, getQuoteBankQuote, updateQuoteBankQuote, deleteQuoteBankQuote, getAdsWithSourceQuote } from '../convexClient.js';
 import { convexClient, api } from '../convexClient.js';
 import { runQuoteMining, generateSuggestions } from '../services/quoteMiner.js';
 import { generateHeadlines, generateHeadlinesPerQuote } from '../services/headlineGenerator.js';
@@ -456,6 +456,29 @@ router.post('/:projectId/quote-bank/:quoteId/body-copy', async (req, res) => {
     res.json({ body_copy: bodyCopy });
   } catch (err) {
     console.error('Failed to generate body copy:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Quote Bank usage — which headlines have been turned into ads
+router.get('/:projectId/quote-bank/usage', async (req, res) => {
+  try {
+    const ads = await getAdsWithSourceQuote(req.params.projectId);
+    // Build a map: quoteId → [headline1, headline2, ...]
+    const usedHeadlines = {};
+    for (const ad of ads) {
+      if (ad.source_quote_id && ad.headline) {
+        if (!usedHeadlines[ad.source_quote_id]) {
+          usedHeadlines[ad.source_quote_id] = [];
+        }
+        if (!usedHeadlines[ad.source_quote_id].includes(ad.headline)) {
+          usedHeadlines[ad.source_quote_id].push(ad.headline);
+        }
+      }
+    }
+    res.json({ usedHeadlines, totalAds: ads.length });
+  } catch (err) {
+    console.error('Failed to get quote bank usage:', err);
     res.status(500).json({ error: err.message });
   }
 });

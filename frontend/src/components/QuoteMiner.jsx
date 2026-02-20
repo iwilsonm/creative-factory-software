@@ -81,7 +81,7 @@ function formatTimeAgo(dateStr) {
 }
 
 // ─── Ad Creation Modal ──────────────────────────────────────────────────────
-function AdCreationModal({ open, onClose, quote, headline: initialHeadline, projectId, project, toast }) {
+function AdCreationModal({ open, onClose, quote, headline: initialHeadline, projectId, project, toast, onNavigateToTracker, onAdCreated }) {
   const [headline, setHeadline] = useState(initialHeadline || '');
   const [bodyCopy, setBodyCopy] = useState('');
   const [loadingBody, setLoadingBody] = useState(false);
@@ -299,8 +299,30 @@ function AdCreationModal({ open, onClose, quote, headline: initialHeadline, proj
               {generatedAd.imageUrl && (
                 <img src={generatedAd.imageUrl} alt="Generated ad" className="w-64 h-64 object-cover mx-auto rounded-xl border border-gray-200/60 shadow-sm" />
               )}
-              <p className="text-[11px] text-gray-500">The ad is now available in your Ad Studio gallery.</p>
-              <button onClick={onClose} className="btn-primary text-[12px]">Close</button>
+              <div className="flex items-center justify-center gap-3">
+                {onNavigateToTracker && (
+                  <button
+                    onClick={async () => {
+                      try {
+                        await api.createDeployments([generatedAd.id]);
+                        toast.success('Added to Ad Tracker');
+                        onClose();
+                        if (onAdCreated) onAdCreated();
+                        setTimeout(() => onNavigateToTracker(), 300);
+                      } catch (err) {
+                        toast.error('Failed to add to tracker: ' + err.message);
+                      }
+                    }}
+                    className="btn-primary text-[12px] flex items-center gap-1.5"
+                  >
+                    View in Ad Tracker
+                    <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" />
+                    </svg>
+                  </button>
+                )}
+                <button onClick={() => { onClose(); if (onAdCreated) onAdCreated(); }} className="btn-secondary text-[12px]">Close</button>
+              </div>
             </div>
           )}
 
@@ -537,8 +559,13 @@ function AdCreationModal({ open, onClose, quote, headline: initialHeadline, proj
 }
 
 // ─── Main component ──────────────────────────────────────────────────────────
-export default function QuoteMiner({ projectId, project }) {
+export default function QuoteMiner({ projectId, project, onNavigateToTracker }) {
   const toast = useToast();
+
+  // Sub-tab state: 'bank' | 'headlines' | 'mine'
+  const [subTab, setSubTab] = useState('mine');
+  const [usageData, setUsageData] = useState({ usedHeadlines: {}, totalAds: 0 });
+  const [loadingUsage, setLoadingUsage] = useState(false);
 
   // Config form state
   const [config, setConfig] = useState({
@@ -581,6 +608,7 @@ export default function QuoteMiner({ projectId, project }) {
   // ─── Quote Bank state ──────────────────────────────────────────────────────
   const [bankQuotes, setBankQuotes] = useState([]);
   const [bankFilter, setBankFilter] = useState('all'); // 'all' | 'favorites'
+  const [headlineFilter, setHeadlineFilter] = useState('all'); // 'all' | 'used' | 'unused'
   const [bankOpen, setBankOpen] = useState(true);
   const [loadingBank, setLoadingBank] = useState(true);
   const [expandedQuoteIds, setExpandedQuoteIds] = useState(new Set());
@@ -594,10 +622,11 @@ export default function QuoteMiner({ projectId, project }) {
   // Progress ref for auto-scroll
   const progressEndRef = useRef(null);
 
-  // Load history + bank on mount
+  // Load history + bank + usage on mount
   useEffect(() => {
     loadHistory();
     loadBank();
+    loadUsage();
   }, [projectId]);
 
   const loadHistory = async () => {
@@ -625,11 +654,26 @@ export default function QuoteMiner({ projectId, project }) {
   const loadBank = async () => {
     try {
       const data = await api.getQuoteBank(projectId);
-      setBankQuotes(data.quotes || []);
+      const quotes = data.quotes || [];
+      setBankQuotes(quotes);
+      // Default to bank tab when quotes exist
+      if (quotes.length > 0) setSubTab(prev => prev === 'mine' ? 'bank' : prev);
     } catch (err) {
       console.error('Failed to load quote bank:', err);
     } finally {
       setLoadingBank(false);
+    }
+  };
+
+  const loadUsage = async () => {
+    setLoadingUsage(true);
+    try {
+      const data = await api.getQuoteBankUsage(projectId);
+      setUsageData(data || { usedHeadlines: {}, totalAds: 0 });
+    } catch (err) {
+      console.error('Failed to load usage data:', err);
+    } finally {
+      setLoadingUsage(false);
     }
   };
 
@@ -1030,6 +1074,26 @@ export default function QuoteMiner({ projectId, project }) {
     }
   };
 
+  // ─── Headline Bank computed data ──────────────────────────────────────────
+  const allHeadlinesFlat = bankQuotes.flatMap(q => {
+    const hls = parseHeadlines(q.headlines);
+    return hls.map(hl => ({
+      headline: hl,
+      quoteId: q.id,
+      quoteText: q.quote,
+      emotion: q.emotion,
+      emotional_intensity: q.emotional_intensity,
+      source: q.source,
+      isUsed: (usageData.usedHeadlines[q.id] || []).includes(hl),
+    }));
+  });
+  const totalHeadlines = allHeadlinesFlat.length;
+  const usedHeadlineCount = allHeadlinesFlat.filter(h => h.isUsed).length;
+  const unusedHeadlineCount = totalHeadlines - usedHeadlineCount;
+
+  // Bank stats
+  const quotesWithHeadlinesCount = bankQuotes.filter(q => q.headlines && q.headlines !== '[]').length;
+
   // ─── Render ────────────────────────────────────────────────────────────────
   return (
     <div className="space-y-6 fade-in">
@@ -1046,7 +1110,22 @@ export default function QuoteMiner({ projectId, project }) {
             Find authentic, emotional first-person quotes from Reddit, forums, and online communities.
           </p>
         </div>
-        {runs.length > 0 && (
+      </div>
+
+      {/* Sub-tab navigation */}
+      <div className="flex items-center justify-between">
+        <div className="segmented-control">
+          <button onClick={() => setSubTab('bank')} className={subTab === 'bank' ? 'active' : ''}>
+            Quote Bank{bankQuotes.length > 0 ? ` (${bankQuotes.length})` : ''}
+          </button>
+          <button onClick={() => setSubTab('headlines')} className={subTab === 'headlines' ? 'active' : ''}>
+            Headline Bank{totalHeadlines > 0 ? ` (${totalHeadlines})` : ''}
+          </button>
+          <button onClick={() => setSubTab('mine')} className={subTab === 'mine' ? 'active' : ''}>
+            Mine Quotes
+          </button>
+        </div>
+        {runs.length > 0 && subTab === 'mine' && (
           <button
             onClick={() => setHistoryOpen(prev => !prev)}
             className="btn-secondary text-[12px] flex items-center gap-1.5"
@@ -1059,84 +1138,138 @@ export default function QuoteMiner({ projectId, project }) {
         )}
       </div>
 
-      {/* History panel */}
-      {historyOpen && (
-        <div className="card p-4 space-y-2">
-          <h3 className="text-[13px] font-semibold text-gray-700 mb-2">Past Runs</h3>
-          {runs.length === 0 ? (
-            <p className="text-[12px] text-gray-400">No mining runs yet.</p>
+      {/* ═══════════════════════════════════════════════════════════════════════════
+          HEADLINE BANK TAB — flat list of all headlines with usage tracking
+          ═══════════════════════════════════════════════════════════════════════════ */}
+      {subTab === 'headlines' && (
+        <div className="space-y-4">
+          {/* Stats bar */}
+          <div className="card p-4">
+            <div className="flex items-center justify-between">
+              <div className="flex items-center gap-4">
+                <span className="text-[13px] font-semibold text-gray-800">{totalHeadlines} headlines</span>
+                <span className="text-[12px] text-green-600 font-medium">{usedHeadlineCount} used</span>
+                <span className="text-[12px] text-gray-400">{unusedHeadlineCount} unused</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <button onClick={loadUsage} className="btn-secondary text-[11px] flex items-center gap-1">
+                  <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182" />
+                  </svg>
+                  Refresh
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Headline filter */}
+          {totalHeadlines > 0 && (
+            <div className="flex items-center gap-2">
+              <div className="segmented-control text-[11px]">
+                <button onClick={() => setHeadlineFilter('all')} className={headlineFilter === 'all' ? 'active' : ''}>
+                  All ({totalHeadlines})
+                </button>
+                <button onClick={() => setHeadlineFilter('used')} className={headlineFilter === 'used' ? 'active' : ''}>
+                  Used ({usedHeadlineCount})
+                </button>
+                <button onClick={() => setHeadlineFilter('unused')} className={headlineFilter === 'unused' ? 'active' : ''}>
+                  Unused ({unusedHeadlineCount})
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Headline list */}
+          {totalHeadlines === 0 ? (
+            <div className="text-center py-8 text-gray-400">
+              <p className="text-[13px]">No headlines yet. Generate headlines from your Quote Bank first.</p>
+              <button onClick={() => setSubTab('bank')} className="text-[12px] text-purple-600 hover:text-purple-700 mt-2 font-medium">
+                Go to Quote Bank →
+              </button>
+            </div>
           ) : (
-            <div className="space-y-1.5 max-h-[300px] overflow-y-auto">
-              {runs.map(run => (
-                <div
-                  key={run.id}
-                  className={`flex items-center justify-between p-2.5 rounded-lg border transition-all cursor-pointer hover:bg-gray-50 ${
-                    viewingRunId === run.id ? 'border-purple-300 bg-purple-50/50' : 'border-gray-100'
-                  }`}
-                  onClick={() => loadRunResults(run.id)}
-                >
-                  <div className="flex-1 min-w-0">
-                    <div className="flex items-center gap-2">
-                      <span className="text-[12px] font-medium text-gray-800 truncate">
-                        {run.target_demographic} × {run.problem}
-                      </span>
-                      <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full ${
-                        run.status === 'completed' ? 'bg-green-100 text-green-700' :
-                        run.status === 'failed' ? 'bg-red-100 text-red-700' :
-                        'bg-yellow-100 text-yellow-700'
-                      }`}>
-                        {run.status}
-                      </span>
+            <div className="space-y-1.5">
+              {allHeadlinesFlat
+                .filter(h => headlineFilter === 'all' ? true : headlineFilter === 'used' ? h.isUsed : !h.isUsed)
+                .map((h, idx) => (
+                  <div key={`${h.quoteId}-${idx}`} className="flex items-start gap-3 p-3 rounded-xl bg-white border border-gray-100 hover:border-gray-200 transition-all">
+                    <span className={`flex-shrink-0 mt-0.5 text-[9px] font-bold px-2 py-0.5 rounded-full ${
+                      h.isUsed ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'
+                    }`}>
+                      {h.isUsed ? 'Used' : 'Unused'}
+                    </span>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[13px] font-medium text-gray-800 leading-relaxed">{h.headline}</p>
+                      <div className="flex items-center gap-2 mt-1">
+                        <p className="text-[10px] text-gray-400 truncate max-w-[300px]" title={h.quoteText}>
+                          from: &ldquo;{h.quoteText.length > 60 ? h.quoteText.slice(0, 60) + '...' : h.quoteText}&rdquo;
+                        </p>
+                        {h.emotion && (
+                          <span className={`text-[9px] font-semibold px-1.5 py-0.5 rounded-full ${EMOTION_COLORS[h.emotion] || 'bg-gray-100 text-gray-600'}`}>
+                            {h.emotion}
+                          </span>
+                        )}
+                      </div>
                     </div>
-                    <div className="flex items-center gap-3 text-[10px] text-gray-400 mt-0.5">
-                      <span>{formatTimeAgo(run.created_at)}</span>
-                      {run.quote_count > 0 && <span>{run.quote_count} quotes</span>}
-                      {run.duration_ms && <span>{formatDuration(run.duration_ms)}</span>}
+                    <div className="flex items-center gap-1.5 flex-shrink-0">
+                      <button
+                        onClick={() => copyHeadline(h.headline)}
+                        className="text-gray-400 hover:text-purple-600 transition-colors p-1"
+                        title="Copy headline"
+                      >
+                        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M15.666 3.888A2.25 2.25 0 0013.5 2.25H10.5a2.25 2.25 0 00-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 01-.75.75H9.75a.75.75 0 01-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 01-2.25 2.25H6.75A2.25 2.25 0 014.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 011.927-.184" />
+                        </svg>
+                      </button>
+                      <button
+                        onClick={() => {
+                          const srcQuote = bankQuotes.find(q => q.id === h.quoteId);
+                          if (srcQuote) setAdModal({ open: true, quote: srcQuote, headline: h.headline });
+                        }}
+                        className="inline-flex items-center gap-1 text-[10px] font-semibold text-purple-600 hover:text-white bg-purple-50 hover:bg-purple-600 px-2.5 py-1 rounded-lg transition-all"
+                        title="Turn this headline into an ad"
+                      >
+                        Turn into Ad
+                        <svg className="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" />
+                        </svg>
+                      </button>
                     </div>
                   </div>
-                  <button
-                    onClick={(e) => { e.stopPropagation(); handleDeleteRun(run.id); }}
-                    className="text-gray-300 hover:text-red-500 transition-colors ml-2 p-1"
-                  >
-                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
-                    </svg>
-                  </button>
-                </div>
-              ))}
+                ))}
             </div>
           )}
         </div>
       )}
 
       {/* ═══════════════════════════════════════════════════════════════════════════
-          QUOTE BANK — persistent quotes across runs
+          QUOTE BANK TAB — persistent quotes across runs
           ═══════════════════════════════════════════════════════════════════════════ */}
-      {bankQuotes.length > 0 && (
-        <div className="card overflow-hidden">
-          {/* Bank header */}
-          <button
-            onClick={() => setBankOpen(prev => !prev)}
-            className="w-full flex items-center justify-between p-4 hover:bg-gray-50/50 transition-colors"
-          >
-            <div className="flex items-center gap-2">
-              <svg className="w-5 h-5 text-amber-500" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375m16.5 0v3.75m-16.5-3.75v3.75m16.5 0v3.75C20.25 16.153 16.556 18 12 18s-8.25-1.847-8.25-4.125v-3.75m16.5 0c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125" />
-              </svg>
-              <h3 className="text-[14px] font-semibold text-gray-800">
-                Quote Bank
-                <span className="ml-2 inline-flex items-center justify-center w-6 h-6 rounded-full bg-amber-100 text-amber-700 text-[11px] font-bold">
-                  {bankQuotes.length}
-                </span>
-              </h3>
+      {subTab === 'bank' && (
+        <div className="space-y-4">
+          {/* Stats bar */}
+          <div className="card p-4">
+            <div className="flex items-center gap-4 text-[13px]">
+              <span className="font-semibold text-gray-800">{bankQuotes.length} quotes</span>
+              <span className="text-gray-400">·</span>
+              <span className="text-gray-500">{quotesWithHeadlinesCount} with headlines</span>
+              <span className="text-gray-400">·</span>
+              <span className="text-gray-500">{totalHeadlines} total headlines</span>
             </div>
-            <svg className={`w-4 h-4 text-gray-400 transition-transform ${bankOpen ? 'rotate-180' : ''}`} fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
-            </svg>
-          </button>
+          </div>
 
-          {bankOpen && (
-            <div className="px-4 pb-4 space-y-3">
+          {bankQuotes.length === 0 ? (
+            <div className="text-center py-8 text-gray-400">
+              <svg className="w-12 h-12 mx-auto mb-3 text-gray-200" fill="none" viewBox="0 0 24 24" strokeWidth={1} stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375" />
+              </svg>
+              <p className="text-[13px]">No quotes in the bank yet.</p>
+              <button onClick={() => setSubTab('mine')} className="text-[12px] text-purple-600 hover:text-purple-700 mt-2 font-medium">
+                Mine Quotes to get started →
+              </button>
+            </div>
+          ) : (
+            <>
               {/* Bank controls */}
               <div className="flex items-center justify-between">
                 <div className="segmented-control text-[11px]">
@@ -1198,6 +1331,7 @@ export default function QuoteMiner({ projectId, project }) {
                 {filteredBankQuotes.map((quote) => {
                   const headlines = parseHeadlines(quote.headlines);
                   const isExpanded = expandedQuoteIds.has(quote.id);
+                  const quoteUsedHeadlines = usageData.usedHeadlines[quote.id] || [];
 
                   return (
                     <div key={quote.id} className="rounded-xl border border-gray-100 overflow-hidden hover:border-gray-200 transition-all">
@@ -1214,59 +1348,43 @@ export default function QuoteMiner({ projectId, project }) {
                         {/* Quote text */}
                         <div className="flex-1 min-w-0">
                           <p className="text-[13px] text-gray-800 leading-relaxed italic">
-                            &ldquo;{quote.quote}&rdquo;
+                            &ldquo;{quote.quote.length > 150 && !isExpanded ? quote.quote.slice(0, 150) + '...' : quote.quote}&rdquo;
                           </p>
-                          <div className="flex items-center flex-wrap gap-2 mt-1.5">
+                          <div className="flex items-center flex-wrap gap-1.5 mt-1.5">
                             {quote.emotion && (
-                              <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${EMOTION_COLORS[quote.emotion] || 'bg-gray-100 text-gray-600'}`}>
+                              <span className={`text-[9px] font-semibold px-1.5 py-0.5 rounded-full ${EMOTION_COLORS[quote.emotion] || 'bg-gray-100 text-gray-600'}`}>
                                 {quote.emotion}
                               </span>
                             )}
-                            {quote.emotional_intensity && (
-                              <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full ${
-                                quote.emotional_intensity === 'high' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-500'
-                              }`}>
-                                {quote.emotional_intensity === 'high' ? '🔥 High' : '○ Medium'}
+                            {quote.emotional_intensity === 'high' && (
+                              <span className="text-[9px] font-medium px-1.5 py-0.5 rounded-full bg-red-50 text-red-600">🔥 High</span>
+                            )}
+                            {headlines.length > 0 && (
+                              <span className="text-[9px] font-medium px-1.5 py-0.5 rounded-full bg-purple-50 text-purple-600">
+                                {headlines.length} headlines
                               </span>
                             )}
                             {quote.source && (
-                              <span className="text-[10px] text-gray-400">{quote.source}</span>
-                            )}
-                            {headlines.length > 0 && (
-                              <span className="text-[10px] text-purple-500 font-medium">
-                                {headlines.length} headline{headlines.length !== 1 ? 's' : ''}
-                              </span>
+                              <span className="text-[9px] text-gray-400">{quote.source}</span>
                             )}
                           </div>
                         </div>
 
-                        {/* Action buttons */}
-                        <div className="flex items-center gap-1.5 flex-shrink-0" onClick={e => e.stopPropagation()}>
-                          {/* Favorite star */}
+                        {/* Actions */}
+                        <div className="flex items-center gap-1 flex-shrink-0" onClick={e => e.stopPropagation()}>
                           <button
                             onClick={() => toggleFavorite(quote.id)}
-                            className={`transition-colors p-1 ${quote.is_favorite ? 'text-amber-400 hover:text-amber-500' : 'text-gray-300 hover:text-amber-400'}`}
+                            className={`p-1 transition-colors ${quote.is_favorite ? 'text-amber-400' : 'text-gray-300 hover:text-amber-400'}`}
                             title={quote.is_favorite ? 'Remove from favorites' : 'Add to favorites'}
                           >
                             <svg className="w-4 h-4" fill={quote.is_favorite ? 'currentColor' : 'none'} viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
                               <path strokeLinecap="round" strokeLinejoin="round" d="M11.48 3.499a.562.562 0 011.04 0l2.125 5.111a.563.563 0 00.475.345l5.518.442c.499.04.701.663.321.988l-4.204 3.602a.563.563 0 00-.182.557l1.285 5.385a.562.562 0 01-.84.61l-4.725-2.885a.563.563 0 00-.586 0L6.982 20.54a.562.562 0 01-.84-.61l1.285-5.386a.562.562 0 00-.182-.557l-4.204-3.602a.563.563 0 01.321-.988l5.518-.442a.563.563 0 00.475-.345L11.48 3.5z" />
                             </svg>
                           </button>
-                          {/* Copy */}
-                          <button
-                            onClick={() => copyQuote(quote)}
-                            className="text-gray-300 hover:text-gray-600 transition-colors p-1"
-                            title="Copy quote"
-                          >
-                            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-                              <path strokeLinecap="round" strokeLinejoin="round" d="M15.666 3.888A2.25 2.25 0 0013.5 2.25H10.5a2.25 2.25 0 00-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 01-.75.75H9.75a.75.75 0 01-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 01-2.25 2.25H6.75A2.25 2.25 0 014.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 011.927-.184" />
-                            </svg>
-                          </button>
-                          {/* Delete */}
                           <button
                             onClick={() => deleteBankQuote(quote.id)}
                             className="text-gray-300 hover:text-red-500 transition-colors p-1"
-                            title="Remove from bank"
+                            title="Delete quote"
                           >
                             <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
                               <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
@@ -1287,37 +1405,42 @@ export default function QuoteMiner({ projectId, project }) {
                               <p className="text-[10px] text-purple-500 font-semibold uppercase tracking-wider mb-2">
                                 Headlines ({headlines.length})
                               </p>
-                              {headlines.map((hl, hlIdx) => (
-                                <div key={hlIdx} className="flex items-start gap-2 p-2 rounded-lg bg-white/80 hover:bg-purple-50/50 transition-colors group">
-                                  <span className="flex-shrink-0 w-5 h-5 rounded-full bg-purple-100 flex items-center justify-center text-[9px] font-bold text-purple-700 mt-0.5">
-                                    {hlIdx + 1}
-                                  </span>
-                                  <p className="flex-1 text-[12px] font-medium text-gray-800 leading-relaxed">
-                                    {hl}
-                                  </p>
-                                  <div className="flex items-center gap-1 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
-                                    <button
-                                      onClick={() => copyHeadline(hl)}
-                                      className="text-gray-400 hover:text-purple-600 transition-colors p-0.5"
-                                      title="Copy headline"
-                                    >
-                                      <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-                                        <path strokeLinecap="round" strokeLinejoin="round" d="M15.666 3.888A2.25 2.25 0 0013.5 2.25H10.5a2.25 2.25 0 00-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 01-.75.75H9.75a.75.75 0 01-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 01-2.25 2.25H6.75A2.25 2.25 0 014.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 011.927-.184" />
-                                      </svg>
-                                    </button>
-                                    <button
-                                      onClick={() => setAdModal({ open: true, quote, headline: hl })}
-                                      className="inline-flex items-center gap-1 text-[10px] font-medium text-purple-600 hover:text-purple-700 bg-purple-50 hover:bg-purple-100 px-2 py-0.5 rounded-md transition-all"
-                                      title="Create an ad from this headline"
-                                    >
-                                      Create Ad
-                                      <svg className="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-                                        <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" />
-                                      </svg>
-                                    </button>
+                              {headlines.map((hl, hlIdx) => {
+                                const hlUsed = quoteUsedHeadlines.includes(hl);
+                                return (
+                                  <div key={hlIdx} className="flex items-start gap-2 p-2 rounded-lg bg-white/80 hover:bg-purple-50/50 transition-colors">
+                                    <span className={`flex-shrink-0 mt-0.5 text-[8px] font-bold px-1.5 py-0.5 rounded-full ${
+                                      hlUsed ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-400'
+                                    }`}>
+                                      {hlUsed ? 'Used' : hlIdx + 1}
+                                    </span>
+                                    <p className="flex-1 text-[12px] font-medium text-gray-800 leading-relaxed">
+                                      {hl}
+                                    </p>
+                                    <div className="flex items-center gap-1.5 flex-shrink-0">
+                                      <button
+                                        onClick={() => copyHeadline(hl)}
+                                        className="text-gray-400 hover:text-purple-600 transition-colors p-0.5"
+                                        title="Copy headline"
+                                      >
+                                        <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                                          <path strokeLinecap="round" strokeLinejoin="round" d="M15.666 3.888A2.25 2.25 0 0013.5 2.25H10.5a2.25 2.25 0 00-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 01-.75.75H9.75a.75.75 0 01-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 01-2.25 2.25H6.75A2.25 2.25 0 014.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 011.927-.184" />
+                                        </svg>
+                                      </button>
+                                      <button
+                                        onClick={() => setAdModal({ open: true, quote, headline: hl })}
+                                        className="inline-flex items-center gap-1 text-[10px] font-semibold text-purple-600 hover:text-white bg-purple-50 hover:bg-purple-600 px-2.5 py-1 rounded-lg transition-all"
+                                        title="Turn this headline into an ad"
+                                      >
+                                        Turn into Ad
+                                        <svg className="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                                          <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" />
+                                        </svg>
+                                      </button>
+                                    </div>
                                   </div>
-                                </div>
-                              ))}
+                                );
+                              })}
                             </div>
                           )}
                         </div>
@@ -1326,13 +1449,65 @@ export default function QuoteMiner({ projectId, project }) {
                   );
                 })}
               </div>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* ═══════════════════════════════════════════════════════════════════════════
+          MINE QUOTES TAB — config form + run history + results
+          ═══════════════════════════════════════════════════════════════════════════ */}
+      {subTab === 'mine' && historyOpen && (
+        <div className="card p-4 space-y-2">
+          <h3 className="text-[13px] font-semibold text-gray-700 mb-2">Past Runs</h3>
+          {runs.length === 0 ? (
+            <p className="text-[12px] text-gray-400">No mining runs yet.</p>
+          ) : (
+            <div className="space-y-1.5 max-h-[300px] overflow-y-auto">
+              {runs.map(run => (
+                <div
+                  key={run.id}
+                  className={`flex items-center justify-between p-2.5 rounded-lg border transition-all cursor-pointer hover:bg-gray-50 ${
+                    viewingRunId === run.id ? 'border-purple-300 bg-purple-50/50' : 'border-gray-100'
+                  }`}
+                  onClick={() => loadRunResults(run.id)}
+                >
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[12px] font-medium text-gray-800 truncate">
+                        {run.target_demographic} × {run.problem}
+                      </span>
+                      <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full ${
+                        run.status === 'completed' ? 'bg-green-100 text-green-700' :
+                        run.status === 'failed' ? 'bg-red-100 text-red-700' :
+                        'bg-yellow-100 text-yellow-700'
+                      }`}>
+                        {run.status}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-3 text-[10px] text-gray-400 mt-0.5">
+                      <span>{formatTimeAgo(run.created_at)}</span>
+                      {run.quote_count > 0 && <span>{run.quote_count} quotes</span>}
+                      {run.duration_ms && <span>{formatDuration(run.duration_ms)}</span>}
+                    </div>
+                  </div>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); handleDeleteRun(run.id); }}
+                    className="text-gray-300 hover:text-red-500 transition-colors ml-2 p-1"
+                  >
+                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+                    </svg>
+                  </button>
+                </div>
+              ))}
             </div>
           )}
         </div>
       )}
 
       {/* Configuration form */}
-      {!mining && !currentQuotes && (
+      {subTab === 'mine' && !mining && !currentQuotes && (
         <div className="card p-6 space-y-5">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
@@ -1484,7 +1659,7 @@ export default function QuoteMiner({ projectId, project }) {
       )}
 
       {/* Progress panel — restored run (polling mode) */}
-      {mining && !abortRef.current && (
+      {subTab === 'mine' && mining && !abortRef.current && (
         <div className="card p-6 space-y-3">
           <div className="flex items-center gap-2">
             <svg className="w-4 h-4 animate-spin text-purple-500" viewBox="0 0 24 24" fill="none">
@@ -1506,7 +1681,7 @@ export default function QuoteMiner({ projectId, project }) {
       )}
 
       {/* Progress panel — live SSE */}
-      {mining && abortRef.current && (
+      {subTab === 'mine' && mining && abortRef.current && (
         <div className="card p-6 space-y-4">
           <div className="flex items-center justify-between">
             <h3 className="text-[14px] font-semibold text-gray-800">Mining in Progress...</h3>
@@ -1627,7 +1802,7 @@ export default function QuoteMiner({ projectId, project }) {
       )}
 
       {/* Results display (legacy run view) */}
-      {currentQuotes && (
+      {subTab === 'mine' && currentQuotes && (
         <div className="space-y-4">
           {/* Results header */}
           <div className="card p-4">
@@ -1823,7 +1998,7 @@ export default function QuoteMiner({ projectId, project }) {
       )}
 
       {/* Empty state */}
-      {!mining && !currentQuotes && bankQuotes.length === 0 && runs.length === 0 && (
+      {subTab === 'mine' && !mining && !currentQuotes && bankQuotes.length === 0 && runs.length === 0 && (
         <div className="text-center py-8 text-gray-400">
           <svg className="w-12 h-12 mx-auto mb-3 text-gray-200" fill="none" viewBox="0 0 24 24" strokeWidth={1} stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
@@ -1842,6 +2017,8 @@ export default function QuoteMiner({ projectId, project }) {
         projectId={projectId}
         project={project}
         toast={toast}
+        onNavigateToTracker={onNavigateToTracker}
+        onAdCreated={() => { loadUsage(); loadBank(); }}
       />
     </div>
   );

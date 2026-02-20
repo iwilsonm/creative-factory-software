@@ -138,6 +138,18 @@ export const remove = mutation({
   },
 });
 
+// Get ads that have a source_quote_id (linked to quote bank)
+export const getByProjectWithSourceQuote = query({
+  args: { projectId: v.string() },
+  handler: async (ctx, args) => {
+    const ads = await ctx.db
+      .query("ad_creatives")
+      .withIndex("by_project", (q) => q.eq("project_id", args.projectId))
+      .collect();
+    return ads.filter((ad) => ad.source_quote_id);
+  },
+});
+
 export const getImageUrl = query({
   args: { externalId: v.string() },
   handler: async (ctx, args) => {

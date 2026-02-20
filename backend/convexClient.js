@@ -583,6 +583,18 @@ export async function deleteQuoteBankQuote(externalId) {
   await mutationWithRetry(api.quote_bank.remove, { externalId });
 }
 
+export async function getAdsWithSourceQuote(projectId) {
+  const ads = await queryWithRetry(api.adCreatives.getByProjectWithSourceQuote, { projectId });
+  return ads.map(ad => ({
+    id: ad.externalId,
+    source_quote_id: ad.source_quote_id,
+    headline: ad.headline || null,
+    body_copy: ad.body_copy || null,
+    status: ad.status || null,
+    created_at: ad.created_at,
+  }));
+}
+
 // =============================================
 // Direct Convex client access (for advanced use cases)
 // =============================================
