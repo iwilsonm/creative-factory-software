@@ -340,6 +340,10 @@ export const api = {
       body: JSON.stringify({ headline, target_demographic: targetDemographic, problem })
     }),
   getQuoteBankUsage: (projectId) => request(`/projects/${projectId}/quote-bank/usage`),
+  addRunToBank: (projectId, runId) =>
+    request(`/projects/${projectId}/quote-mining/${runId}/add-to-bank`, { method: 'POST' }),
+  importAllRunsToBank: (projectId) =>
+    request(`/projects/${projectId}/quote-mining/import-all`, { method: 'POST' }),
 
   // Headline Generator Reference Docs (3 separate documents)
   getHeadlineReferences: () => request('/settings/headline-references'),

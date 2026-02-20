@@ -616,6 +616,9 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker }) 
   const [bankHeadlineProgress, setBankHeadlineProgress] = useState([]);
   const bankHeadlineAbortRef = useRef(null);
 
+  // Import state
+  const [importing, setImporting] = useState(false);
+
   // Ad creation modal
   const [adModal, setAdModal] = useState({ open: false, quote: null, headline: '' });
 
@@ -674,6 +677,36 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker }) 
       console.error('Failed to load usage data:', err);
     } finally {
       setLoadingUsage(false);
+    }
+  };
+
+  // Import all past runs into the quote bank
+  const handleImportAllRuns = async () => {
+    setImporting(true);
+    try {
+      const data = await api.importAllRunsToBank(projectId);
+      toast.success(`Imported ${data.total_added} quotes from ${data.runs_processed} runs (${data.total_duplicates} duplicates skipped)`);
+      await loadBank();
+      await loadUsage();
+    } catch (err) {
+      toast.error('Import failed: ' + err.message);
+    } finally {
+      setImporting(false);
+    }
+  };
+
+  // Import a single run's quotes into the bank
+  const handleAddRunToBank = async (runId) => {
+    setImporting(true);
+    try {
+      const data = await api.addRunToBank(projectId, runId);
+      toast.success(`Added ${data.added} quotes to bank (${data.duplicates} duplicates skipped)`);
+      await loadBank();
+      await loadUsage();
+    } catch (err) {
+      toast.error('Import failed: ' + err.message);
+    } finally {
+      setImporting(false);
     }
   };
 
@@ -1264,9 +1297,38 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker }) 
                 <path strokeLinecap="round" strokeLinejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375" />
               </svg>
               <p className="text-[13px]">No quotes in the bank yet.</p>
-              <button onClick={() => setSubTab('mine')} className="text-[12px] text-purple-600 hover:text-purple-700 mt-2 font-medium">
-                Mine Quotes to get started →
-              </button>
+              {runs.filter(r => r.status === 'completed' && r.quote_count > 0).length > 0 ? (
+                <div className="mt-3 space-y-2">
+                  <p className="text-[12px] text-gray-500">
+                    You have {runs.filter(r => r.status === 'completed' && r.quote_count > 0).length} past run{runs.filter(r => r.status === 'completed' && r.quote_count > 0).length !== 1 ? 's' : ''} with quotes that can be imported.
+                  </p>
+                  <button
+                    onClick={handleImportAllRuns}
+                    disabled={importing}
+                    className="btn-primary text-[12px] inline-flex items-center gap-1.5 disabled:opacity-50"
+                  >
+                    {importing ? (
+                      <>
+                        <svg className="w-3.5 h-3.5 animate-spin" viewBox="0 0 24 24" fill="none">
+                          <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" strokeDasharray="31.4 31.4" strokeLinecap="round" />
+                        </svg>
+                        Importing...
+                      </>
+                    ) : (
+                      <>
+                        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
+                        </svg>
+                        Import All Past Runs to Quote Bank
+                      </>
+                    )}
+                  </button>
+                </div>
+              ) : (
+                <button onClick={() => setSubTab('mine')} className="text-[12px] text-purple-600 hover:text-purple-700 mt-2 font-medium">
+                  Mine Quotes to get started →
+                </button>
+              )}
             </div>
           ) : (
             <>
@@ -1849,6 +1911,27 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker }) 
                   </svg>
                   Export
                 </button>
+                {viewingRunId && (
+                  <button
+                    onClick={() => handleAddRunToBank(viewingRunId)}
+                    disabled={importing}
+                    className="inline-flex items-center gap-1 px-3 py-1.5 text-[11px] font-medium rounded-lg bg-green-50 text-green-700 hover:bg-green-100 border border-green-200 transition-all disabled:opacity-50"
+                  >
+                    {importing ? (
+                      <>
+                        <svg className="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
+                        Importing…
+                      </>
+                    ) : (
+                      <>
+                        <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+                        </svg>
+                        Add to Quote Bank
+                      </>
+                    )}
+                  </button>
+                )}
                 <button
                   onClick={() => { setCurrentQuotes(null); setCurrentRunMeta(null); setViewingRunId(null); setCurrentHeadlines(null); setHeadlineProgress([]); setKeywords([]); setSubreddits([]); setForums([]); setFacebookGroups([]); }}
                   className="btn-secondary text-[11px]"

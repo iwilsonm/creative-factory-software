@@ -208,6 +208,83 @@ router.delete('/:projectId/quote-mining/:runId', async (req, res) => {
   }
 });
 
+// ── Import quotes from a past run into the quote bank ─────────────────────────
+router.post('/:projectId/quote-mining/:runId/add-to-bank', async (req, res) => {
+  try {
+    const run = await getQuoteMiningRun(req.params.runId);
+    if (!run || run.project_id !== req.params.projectId) {
+      return res.status(404).json({ error: 'Quote mining run not found' });
+    }
+
+    if (!run.quotes) {
+      return res.status(400).json({ error: 'This run has no quotes.' });
+    }
+
+    const quotes = typeof run.quotes === 'string' ? JSON.parse(run.quotes) : run.quotes;
+    if (!Array.isArray(quotes) || quotes.length === 0) {
+      return res.status(400).json({ error: 'No quotes found in this run.' });
+    }
+
+    const bankResult = await deduplicateAndAddToBank(
+      req.params.projectId, req.params.runId, quotes
+    );
+
+    res.json({
+      success: true,
+      added: bankResult.added,
+      duplicates: bankResult.duplicates,
+      total: bankResult.total,
+    });
+  } catch (err) {
+    console.error('Failed to add run quotes to bank:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Bulk import all past runs into the quote bank ─────────────────────────────
+router.post('/:projectId/quote-mining/import-all', async (req, res) => {
+  try {
+    const runs = await getQuoteMiningRunsByProject(req.params.projectId);
+    const completedRuns = runs.filter(r => r.status === 'completed' && r.quotes);
+
+    if (completedRuns.length === 0) {
+      return res.status(400).json({ error: 'No completed runs with quotes to import.' });
+    }
+
+    let totalAdded = 0;
+    let totalDuplicates = 0;
+    const results = [];
+
+    for (const run of completedRuns) {
+      try {
+        const quotes = typeof run.quotes === 'string' ? JSON.parse(run.quotes) : run.quotes;
+        if (!Array.isArray(quotes) || quotes.length === 0) continue;
+
+        const bankResult = await deduplicateAndAddToBank(
+          req.params.projectId, run.id, quotes
+        );
+        totalAdded += bankResult.added;
+        totalDuplicates += bankResult.duplicates;
+        results.push({ runId: run.id, added: bankResult.added, duplicates: bankResult.duplicates });
+      } catch (runErr) {
+        console.warn(`[QuoteMining] Failed to import run ${run.id}:`, runErr.message);
+        results.push({ runId: run.id, error: runErr.message });
+      }
+    }
+
+    res.json({
+      success: true,
+      runs_processed: results.length,
+      total_added: totalAdded,
+      total_duplicates: totalDuplicates,
+      details: results,
+    });
+  } catch (err) {
+    console.error('Failed to bulk import runs to bank:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ── Generate headlines from a run's quotes — Legacy (SSE stream) ─────────────
 router.post('/:projectId/quote-mining/:runId/headlines', async (req, res) => {
   try {
