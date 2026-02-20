@@ -52,6 +52,239 @@ const EMOTION_COLORS = {
   confusion: 'bg-yellow-100 text-yellow-700',
 };
 
+// ─── Property colors for Notion-style filters ────────────────────────────────
+const PROPERTY_COLORS = {
+  problem:   { bg: 'bg-blue-50',   text: 'text-blue-700',   border: 'border-blue-200',   dot: 'bg-blue-400',   hoverBg: 'hover:bg-blue-50'   },
+  emotion:   { bg: 'bg-purple-50', text: 'text-purple-700', border: 'border-purple-200', dot: 'bg-purple-400', hoverBg: 'hover:bg-purple-50' },
+  tag:       { bg: 'bg-teal-50',   text: 'text-teal-700',   border: 'border-teal-200',   dot: 'bg-teal-400',   hoverBg: 'hover:bg-teal-50'   },
+  technique: { bg: 'bg-amber-50',  text: 'text-amber-700',  border: 'border-amber-200',  dot: 'bg-amber-400',  hoverBg: 'hover:bg-amber-50'  },
+  status:    { bg: 'bg-gray-50',   text: 'text-gray-700',   border: 'border-gray-200',   dot: 'bg-gray-400',   hoverBg: 'hover:bg-gray-50'   },
+};
+
+// ─── Notion-style filter component ───────────────────────────────────────────
+// properties: [{ key: 'problem', label: 'Problem', values: ['...'] }, ...]
+// filters: Map<propertyKey, Set<selectedValues>>
+// onToggle: (propertyKey, value) => void
+// onClear: (propertyKey?) => void  — no arg = clear all
+function NotionFilter({ properties, filters, onToggle, onClear }) {
+  const [addingFilter, setAddingFilter] = useState(false);
+  const [openDropdown, setOpenDropdown] = useState(null); // propertyKey or null
+  const [searchText, setSearchText] = useState('');
+  const dropdownRef = useRef(null);
+  const addBtnRef = useRef(null);
+
+  // Close dropdown on outside click
+  useEffect(() => {
+    const handler = (e) => {
+      if (dropdownRef.current && !dropdownRef.current.contains(e.target) &&
+          addBtnRef.current && !addBtnRef.current.contains(e.target)) {
+        setOpenDropdown(null);
+        setAddingFilter(false);
+        setSearchText('');
+      }
+    };
+    document.addEventListener('mousedown', handler);
+    return () => document.removeEventListener('mousedown', handler);
+  }, []);
+
+  // Get active filter entries: [{ key, label, values: Set, colors }]
+  const activeFilters = properties
+    .filter(p => filters.get(p.key)?.size > 0)
+    .map(p => ({ ...p, selected: filters.get(p.key), colors: PROPERTY_COLORS[p.key] || PROPERTY_COLORS.status }));
+
+  const hasAnyFilter = activeFilters.length > 0;
+
+  // Properties that have values to filter by
+  const availableProps = properties.filter(p => p.values.length > 0);
+
+  return (
+    <div className="flex items-center gap-1.5 flex-wrap min-h-[28px]">
+      {/* Active filter pills */}
+      {activeFilters.map(af => (
+        <div key={af.key} className="relative inline-flex">
+          <button
+            onClick={() => { setOpenDropdown(openDropdown === af.key ? null : af.key); setAddingFilter(false); setSearchText(''); }}
+            className={`inline-flex items-center gap-1 text-[11px] pl-2 pr-1.5 py-1 rounded-lg border transition-all ${af.colors.bg} ${af.colors.text} ${af.colors.border}`}
+          >
+            <span className={`w-1.5 h-1.5 rounded-full ${af.colors.dot}`} />
+            <span className="font-medium">{af.label}</span>
+            <span className="text-[10px] opacity-60">is</span>
+            <span className="font-semibold max-w-[180px] truncate">
+              {[...af.selected].join(', ')}
+            </span>
+            <button
+              onClick={(e) => { e.stopPropagation(); onClear(af.key); }}
+              className="ml-0.5 opacity-50 hover:opacity-100 transition-opacity"
+            >
+              <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </button>
+
+          {/* Value dropdown for existing filter */}
+          {openDropdown === af.key && (
+            <div ref={dropdownRef} className="absolute top-full left-0 mt-1 z-50 w-56 bg-white rounded-xl border border-gray-200 shadow-lg shadow-gray-200/50 overflow-hidden">
+              <div className="p-1.5">
+                <input
+                  autoFocus
+                  value={searchText}
+                  onChange={e => setSearchText(e.target.value)}
+                  placeholder={`Filter ${af.label.toLowerCase()}...`}
+                  className="w-full text-[12px] px-2.5 py-1.5 rounded-lg border border-gray-200 outline-none focus:border-blue-300 focus:ring-1 focus:ring-blue-200 bg-gray-50/50"
+                />
+              </div>
+              <div className="max-h-48 overflow-y-auto">
+                {af.values
+                  .filter(v => !searchText || v.toLowerCase().includes(searchText.toLowerCase()))
+                  .map(v => {
+                    const isSelected = af.selected.has(v);
+                    return (
+                      <button
+                        key={v}
+                        onClick={() => onToggle(af.key, v)}
+                        className={`w-full flex items-center gap-2.5 px-3 py-1.5 text-[12px] text-left transition-colors ${
+                          isSelected ? `${af.colors.bg} font-medium` : 'hover:bg-gray-50'
+                        }`}
+                      >
+                        <span className={`flex-shrink-0 w-3.5 h-3.5 rounded border flex items-center justify-center ${
+                          isSelected ? `${af.colors.border} ${af.colors.bg}` : 'border-gray-300'
+                        }`}>
+                          {isSelected && (
+                            <svg className="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" strokeWidth={3} stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                            </svg>
+                          )}
+                        </span>
+                        <span className={`truncate ${isSelected ? af.colors.text : 'text-gray-700'}`}>{v}</span>
+                      </button>
+                    );
+                  })}
+              </div>
+              <div className="border-t border-gray-100 px-3 py-1.5 flex items-center justify-between">
+                <span className="text-[10px] text-gray-400">{af.selected.size} selected</span>
+                <button onClick={() => onClear(af.key)} className="text-[10px] text-gray-400 hover:text-gray-600">Clear</button>
+              </div>
+            </div>
+          )}
+        </div>
+      ))}
+
+      {/* "+ Add a filter" button */}
+      {availableProps.length > 0 && (
+        <div className="relative inline-flex">
+          <button
+            ref={addBtnRef}
+            onClick={() => { setAddingFilter(!addingFilter); setOpenDropdown(null); setSearchText(''); }}
+            className={`inline-flex items-center gap-1 text-[11px] px-2 py-1 rounded-lg border border-dashed transition-all ${
+              hasAnyFilter
+                ? 'border-gray-200 text-gray-400 hover:border-gray-300 hover:text-gray-600'
+                : 'border-gray-300 text-gray-500 hover:border-blue-300 hover:text-blue-600'
+            }`}
+          >
+            <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 6v12m6-6H6" />
+            </svg>
+            {hasAnyFilter ? 'Add filter' : 'Filter'}
+          </button>
+
+          {/* Property picker dropdown */}
+          {addingFilter && (
+            <div ref={dropdownRef} className="absolute top-full left-0 mt-1 z-50 w-48 bg-white rounded-xl border border-gray-200 shadow-lg shadow-gray-200/50 overflow-hidden">
+              <div className="px-3 py-2 border-b border-gray-100">
+                <p className="text-[10px] font-medium text-gray-400 uppercase tracking-wider">Filter by property</p>
+              </div>
+              {availableProps.map(prop => {
+                const colors = PROPERTY_COLORS[prop.key] || PROPERTY_COLORS.status;
+                const isActive = filters.get(prop.key)?.size > 0;
+                return (
+                  <button
+                    key={prop.key}
+                    onClick={() => { setAddingFilter(false); setOpenDropdown(prop.key); setSearchText(''); }}
+                    className={`w-full flex items-center gap-2.5 px-3 py-2 text-[12px] text-left transition-colors hover:bg-gray-50 ${isActive ? 'opacity-50' : ''}`}
+                  >
+                    <span className={`w-2 h-2 rounded-full ${colors.dot}`} />
+                    <span className="text-gray-700">{prop.label}</span>
+                    <span className="text-[10px] text-gray-300 ml-auto">{prop.values.length}</span>
+                  </button>
+                );
+              })}
+            </div>
+          )}
+
+          {/* Value dropdown for newly picked property (not yet in activeFilters) */}
+          {openDropdown && !activeFilters.find(af => af.key === openDropdown) && (() => {
+            const prop = properties.find(p => p.key === openDropdown);
+            if (!prop) return null;
+            const colors = PROPERTY_COLORS[prop.key] || PROPERTY_COLORS.status;
+            const selected = filters.get(prop.key) || new Set();
+            return (
+              <div ref={dropdownRef} className="absolute top-full left-0 mt-1 z-50 w-56 bg-white rounded-xl border border-gray-200 shadow-lg shadow-gray-200/50 overflow-hidden">
+                <div className="px-3 py-2 border-b border-gray-100 flex items-center gap-2">
+                  <span className={`w-2 h-2 rounded-full ${colors.dot}`} />
+                  <span className="text-[11px] font-medium text-gray-600">{prop.label}</span>
+                </div>
+                <div className="p-1.5">
+                  <input
+                    autoFocus
+                    value={searchText}
+                    onChange={e => setSearchText(e.target.value)}
+                    placeholder={`Search ${prop.label.toLowerCase()}...`}
+                    className="w-full text-[12px] px-2.5 py-1.5 rounded-lg border border-gray-200 outline-none focus:border-blue-300 focus:ring-1 focus:ring-blue-200 bg-gray-50/50"
+                  />
+                </div>
+                <div className="max-h-48 overflow-y-auto">
+                  {prop.values
+                    .filter(v => !searchText || v.toLowerCase().includes(searchText.toLowerCase()))
+                    .map(v => {
+                      const isSelected = selected.has(v);
+                      return (
+                        <button
+                          key={v}
+                          onClick={() => onToggle(prop.key, v)}
+                          className={`w-full flex items-center gap-2.5 px-3 py-1.5 text-[12px] text-left transition-colors ${
+                            isSelected ? `${colors.bg} font-medium` : 'hover:bg-gray-50'
+                          }`}
+                        >
+                          <span className={`flex-shrink-0 w-3.5 h-3.5 rounded border flex items-center justify-center ${
+                            isSelected ? `${colors.border} ${colors.bg}` : 'border-gray-300'
+                          }`}>
+                            {isSelected && (
+                              <svg className="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" strokeWidth={3} stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                              </svg>
+                            )}
+                          </span>
+                          <span className={`truncate ${isSelected ? colors.text : 'text-gray-700'}`}>{v}</span>
+                        </button>
+                      );
+                    })}
+                </div>
+                {selected.size > 0 && (
+                  <div className="border-t border-gray-100 px-3 py-1.5 flex items-center justify-between">
+                    <span className="text-[10px] text-gray-400">{selected.size} selected</span>
+                    <button onClick={() => onClear(prop.key)} className="text-[10px] text-gray-400 hover:text-gray-600">Clear</button>
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+        </div>
+      )}
+
+      {/* Clear all */}
+      {hasAnyFilter && (
+        <button
+          onClick={() => onClear()}
+          className="text-[10px] text-gray-400 hover:text-gray-600 transition-colors ml-1"
+        >
+          Clear all
+        </button>
+      )}
+    </div>
+  );
+}
+
 // ─── Format helpers ──────────────────────────────────────────────────────────
 function formatDuration(ms) {
   if (!ms) return '';
@@ -125,15 +358,9 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
   const [bankQuotes, setBankQuotes] = useState([]);
   const [bankFilter, setBankFilter] = useState('all'); // 'all' | 'favorites'
   const [headlineFilter, setHeadlineFilter] = useState('all'); // 'all' | 'used' | 'unused'
-  // Multi-select filters (Set of selected values — empty set = all)
-  const [headlineProblemFilter, setHeadlineProblemFilter] = useState(new Set());
-  const [headlineEmotionFilter, setHeadlineEmotionFilter] = useState(new Set());
-  const [headlineTagFilter, setHeadlineTagFilter] = useState(new Set());
-  const [headlineTechniqueFilter, setHeadlineTechniqueFilter] = useState(new Set());
-  // Quote Bank multi-select filters (same pattern)
-  const [bankProblemFilter, setBankProblemFilter] = useState(new Set());
-  const [bankEmotionFilter, setBankEmotionFilter] = useState(new Set());
-  const [bankTagFilter, setBankTagFilter] = useState(new Set());
+  // Notion-style filters (Map<propertyKey, Set<selectedValues>>)
+  const [headlineFilters, setHeadlineFilters] = useState(new Map());
+  const [bankFilters, setBankFilters] = useState(new Map());
   const [generatingMoreForQuote, setGeneratingMoreForQuote] = useState(null); // quoteId or null
 
   // Mining elapsed time
@@ -171,12 +398,24 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
   // Progress ref for auto-scroll
   const progressEndRef = useRef(null);
 
-  // Helper: toggle a value in a Set-based filter (multi-select)
-  const toggleFilter = useCallback((setter, value) => {
+  // Notion-style filter helpers: toggle value in a Map<key, Set<values>>
+  const toggleMapFilter = useCallback((setter, propertyKey, value) => {
     setter(prev => {
-      const next = new Set(prev);
-      if (next.has(value)) next.delete(value);
-      else next.add(value);
+      const next = new Map(prev);
+      const existing = new Set(next.get(propertyKey) || []);
+      if (existing.has(value)) existing.delete(value);
+      else existing.add(value);
+      if (existing.size === 0) next.delete(propertyKey);
+      else next.set(propertyKey, existing);
+      return next;
+    });
+  }, []);
+
+  const clearMapFilter = useCallback((setter, propertyKey) => {
+    setter(prev => {
+      if (!propertyKey) return new Map(); // clear all
+      const next = new Map(prev);
+      next.delete(propertyKey);
       return next;
     });
   }, []);
@@ -891,18 +1130,28 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
     return 'pending';
   };
 
-  // ─── Filtered bank quotes (with multi-select filters) ──────────────────────
+  // ─── Filtered bank quotes (with Notion-style filters) ──────────────────────
+  const bankProblemF = bankFilters.get('problem');
+  const bankEmotionF = bankFilters.get('emotion');
+  const bankTagF = bankFilters.get('tag');
   const filteredBankQuotes = bankQuotes
     .filter(q => bankFilter === 'favorites' ? q.is_favorite : true)
-    .filter(q => bankProblemFilter.size === 0 ? true : bankProblemFilter.has(q.problem))
-    .filter(q => bankEmotionFilter.size === 0 ? true : bankEmotionFilter.has(q.emotion))
-    .filter(q => bankTagFilter.size === 0 ? true : (q.tags || []).some(t => bankTagFilter.has(t)));
+    .filter(q => !bankProblemF || bankProblemF.size === 0 ? true : bankProblemF.has(q.problem))
+    .filter(q => !bankEmotionF || bankEmotionF.size === 0 ? true : bankEmotionF.has(q.emotion))
+    .filter(q => !bankTagF || bankTagF.size === 0 ? true : (q.tags || []).some(t => bankTagF.has(t)));
 
   // Unique filter options for Quote Bank
   const bankUniqueProblems = [...new Set(bankQuotes.map(q => q.problem).filter(Boolean))].sort();
   const bankUniqueEmotions = [...new Set(bankQuotes.map(q => q.emotion).filter(Boolean))].sort();
   const bankUniqueTags = [...new Set(bankQuotes.flatMap(q => q.tags || []))].sort();
-  const hasBankFilters = bankProblemFilter.size > 0 || bankEmotionFilter.size > 0 || bankTagFilter.size > 0;
+  const hasBankFilters = bankFilters.size > 0;
+
+  // Bank filter properties for NotionFilter component
+  const bankFilterProperties = [
+    { key: 'problem', label: 'Problem', values: bankUniqueProblems },
+    { key: 'emotion', label: 'Emotion', values: bankUniqueEmotions },
+    { key: 'tag', label: 'Tag', values: bankUniqueTags },
+  ];
 
   const quotesWithHeadlines = filteredBankQuotes.filter(q => q.headlines && q.headlines !== '[]');
   const quotesWithoutHeadlines = filteredBankQuotes.filter(q => !q.headlines || q.headlines === '[]');
@@ -950,6 +1199,14 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
   const uniqueEmotions = [...new Set(allHeadlinesFlat.map(h => h.emotion).filter(Boolean))].sort();
   const uniqueTags = [...new Set(allHeadlinesFlat.flatMap(h => h.tags))].sort();
   const uniqueTechniques = [...new Set(allHeadlinesFlat.map(h => h.technique).filter(Boolean))].sort();
+
+  // Headline filter properties for NotionFilter component
+  const headlineFilterProperties = [
+    { key: 'problem', label: 'Problem', values: uniqueProblems },
+    { key: 'emotion', label: 'Emotion', values: uniqueEmotions },
+    { key: 'tag', label: 'Tag', values: uniqueTags },
+    { key: 'technique', label: 'Technique', values: uniqueTechniques },
+  ];
 
   // Detect quotes needing backfill
   const quotesNeedingBackfill = bankQuotes.filter(q => !q.problem).length;
@@ -1064,120 +1321,16 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
                     Unused ({unusedHeadlineCount})
                   </button>
                 </div>
+
+                {/* Notion-style property filters */}
+                <span className="text-gray-200">|</span>
+                <NotionFilter
+                  properties={headlineFilterProperties}
+                  filters={headlineFilters}
+                  onToggle={(key, val) => toggleMapFilter(setHeadlineFilters, key, val)}
+                  onClear={(key) => clearMapFilter(setHeadlineFilters, key)}
+                />
               </div>
-
-              {/* Problem / Emotion / Tag / Technique multi-select filters */}
-              <div className="flex items-center gap-2 flex-wrap">
-                {/* Problem chips */}
-                {uniqueProblems.length > 1 && (
-                  <>
-                    <span className="text-[10px] text-gray-400 font-medium uppercase tracking-wider">Problem:</span>
-                    {uniqueProblems.map(p => (
-                      <button
-                        key={p}
-                        onClick={() => toggleFilter(setHeadlineProblemFilter, p)}
-                        className={`text-[10px] px-2 py-0.5 rounded-full border transition-all ${
-                          headlineProblemFilter.has(p)
-                            ? 'bg-blue-50 text-blue-700 border-blue-200 font-semibold'
-                            : 'text-gray-500 border-gray-200 hover:border-blue-200 hover:text-blue-600'
-                        }`}
-                      >{headlineProblemFilter.has(p) ? '✓ ' : ''}{p}</button>
-                    ))}
-                    <span className="text-gray-200">|</span>
-                  </>
-                )}
-
-                {/* Emotion chips */}
-                {uniqueEmotions.length > 1 && (
-                  <>
-                    <span className="text-[10px] text-gray-400 font-medium uppercase tracking-wider">Emotion:</span>
-                    {uniqueEmotions.map(e => (
-                      <button
-                        key={e}
-                        onClick={() => toggleFilter(setHeadlineEmotionFilter, e)}
-                        className={`text-[10px] px-2 py-0.5 rounded-full border transition-all ${
-                          headlineEmotionFilter.has(e)
-                            ? `${EMOTION_COLORS[e] || 'bg-gray-100 text-gray-600'} border-current font-semibold`
-                            : 'text-gray-500 border-gray-200 hover:border-purple-200 hover:text-purple-600'
-                        }`}
-                      >{headlineEmotionFilter.has(e) ? '✓ ' : ''}{e}</button>
-                    ))}
-                  </>
-                )}
-
-                {/* Tag chips */}
-                {uniqueTags.length > 0 && (
-                  <>
-                    {(uniqueProblems.length > 1 || uniqueEmotions.length > 1) && <span className="text-gray-200">|</span>}
-                    <span className="text-[10px] text-gray-400 font-medium uppercase tracking-wider">Tag:</span>
-                    {uniqueTags.map(t => (
-                      <button
-                        key={t}
-                        onClick={() => toggleFilter(setHeadlineTagFilter, t)}
-                        className={`text-[10px] px-2 py-0.5 rounded-full border transition-all ${
-                          headlineTagFilter.has(t)
-                            ? 'bg-teal-50 text-teal-700 border-teal-200 font-semibold'
-                            : 'text-gray-500 border-gray-200 hover:border-teal-200 hover:text-teal-600'
-                        }`}
-                      >{headlineTagFilter.has(t) ? '✓ ' : ''}{t}</button>
-                    ))}
-                  </>
-                )}
-
-                {/* Technique chips */}
-                {uniqueTechniques.length > 0 && (
-                  <>
-                    {(uniqueProblems.length > 1 || uniqueEmotions.length > 1 || uniqueTags.length > 0) && <span className="text-gray-200">|</span>}
-                    <span className="text-[10px] text-gray-400 font-medium uppercase tracking-wider">Technique:</span>
-                    {uniqueTechniques.map(t => (
-                      <button
-                        key={t}
-                        onClick={() => toggleFilter(setHeadlineTechniqueFilter, t)}
-                        className={`text-[10px] px-2 py-0.5 rounded-full border transition-all ${
-                          headlineTechniqueFilter.has(t)
-                            ? 'bg-amber-50 text-amber-700 border-amber-200 font-semibold'
-                            : 'text-gray-500 border-gray-200 hover:border-amber-200 hover:text-amber-600'
-                        }`}
-                      >{headlineTechniqueFilter.has(t) ? '✓ ' : ''}{t}</button>
-                    ))}
-                  </>
-                )}
-              </div>
-
-              {/* Active filters summary */}
-              {(headlineProblemFilter.size > 0 || headlineEmotionFilter.size > 0 || headlineTagFilter.size > 0 || headlineTechniqueFilter.size > 0) && (
-                <div className="flex items-center gap-1.5 flex-wrap">
-                  <span className="text-[10px] text-gray-400">Active filters:</span>
-                  {[...headlineProblemFilter].map(v => (
-                    <span key={`p-${v}`} className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-blue-50 text-blue-700">
-                      {v}
-                      <button onClick={() => toggleFilter(setHeadlineProblemFilter, v)} className="text-blue-400 hover:text-blue-600">×</button>
-                    </span>
-                  ))}
-                  {[...headlineEmotionFilter].map(v => (
-                    <span key={`e-${v}`} className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-purple-50 text-purple-700">
-                      {v}
-                      <button onClick={() => toggleFilter(setHeadlineEmotionFilter, v)} className="text-purple-400 hover:text-purple-600">×</button>
-                    </span>
-                  ))}
-                  {[...headlineTagFilter].map(v => (
-                    <span key={`t-${v}`} className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-teal-50 text-teal-700">
-                      {v}
-                      <button onClick={() => toggleFilter(setHeadlineTagFilter, v)} className="text-teal-400 hover:text-teal-600">×</button>
-                    </span>
-                  ))}
-                  {[...headlineTechniqueFilter].map(v => (
-                    <span key={`tc-${v}`} className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-amber-50 text-amber-700">
-                      {v}
-                      <button onClick={() => toggleFilter(setHeadlineTechniqueFilter, v)} className="text-amber-400 hover:text-amber-600">×</button>
-                    </span>
-                  ))}
-                  <button
-                    onClick={() => { setHeadlineProblemFilter(new Set()); setHeadlineEmotionFilter(new Set()); setHeadlineTagFilter(new Set()); setHeadlineTechniqueFilter(new Set()); }}
-                    className="text-[10px] text-gray-400 hover:text-gray-600 underline ml-1"
-                  >Clear all</button>
-                </div>
-              )}
             </div>
           )}
 
@@ -1190,12 +1343,16 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
               </button>
             </div>
           ) : (() => {
+            const hlProbF = headlineFilters.get('problem');
+            const hlEmotF = headlineFilters.get('emotion');
+            const hlTagF = headlineFilters.get('tag');
+            const hlTechF = headlineFilters.get('technique');
             const filtered = allHeadlinesFlat
               .filter(h => headlineFilter === 'all' ? true : headlineFilter === 'used' ? h.isUsed : !h.isUsed)
-              .filter(h => headlineProblemFilter.size === 0 ? true : headlineProblemFilter.has(h.problem))
-              .filter(h => headlineEmotionFilter.size === 0 ? true : headlineEmotionFilter.has(h.emotion))
-              .filter(h => headlineTagFilter.size === 0 ? true : h.tags.some(t => headlineTagFilter.has(t)))
-              .filter(h => headlineTechniqueFilter.size === 0 ? true : headlineTechniqueFilter.has(h.technique));
+              .filter(h => !hlProbF || hlProbF.size === 0 ? true : hlProbF.has(h.problem))
+              .filter(h => !hlEmotF || hlEmotF.size === 0 ? true : hlEmotF.has(h.emotion))
+              .filter(h => !hlTagF || hlTagF.size === 0 ? true : h.tags.some(t => hlTagF.has(t)))
+              .filter(h => !hlTechF || hlTechF.size === 0 ? true : hlTechF.has(h.technique));
             const allFilteredSelected = filtered.length > 0 && filtered.every(h => selectedHeadlineKeys.has(h.key));
             return (
               <>
@@ -1355,7 +1512,7 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
                                 {h.problem && (
                                   <span
                                     className="text-[9px] font-semibold px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 cursor-pointer hover:bg-blue-100 transition-colors"
-                                    onClick={() => toggleFilter(setHeadlineProblemFilter, h.problem)}
+                                    onClick={() => toggleMapFilter(setHeadlineFilters, 'problem', h.problem)}
                                     title={`Filter by: ${h.problem}`}
                                   >
                                     {h.problem}
@@ -1364,7 +1521,7 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
                                 {h.emotion && (
                                   <span
                                     className={`text-[9px] font-semibold px-1.5 py-0.5 rounded-full cursor-pointer hover:opacity-80 transition-opacity ${EMOTION_COLORS[h.emotion] || 'bg-gray-100 text-gray-600'}`}
-                                    onClick={() => toggleFilter(setHeadlineEmotionFilter, h.emotion)}
+                                    onClick={() => toggleMapFilter(setHeadlineFilters, 'emotion', h.emotion)}
                                     title={`Filter by: ${h.emotion}`}
                                   >
                                     {h.emotion}
@@ -1374,7 +1531,7 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
                                   <span
                                     key={t}
                                     className="text-[9px] font-medium px-1.5 py-0.5 rounded-full bg-teal-50 text-teal-600 cursor-pointer hover:bg-teal-100 transition-colors"
-                                    onClick={() => toggleFilter(setHeadlineTagFilter, t)}
+                                    onClick={() => toggleMapFilter(setHeadlineFilters, 'tag', t)}
                                     title={`Filter by tag: ${t}`}
                                   >
                                     {t}
@@ -1383,7 +1540,7 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
                                 {h.technique && (
                                   <span
                                     className="text-[9px] font-medium px-1.5 py-0.5 rounded-full bg-amber-50 text-amber-700 cursor-pointer hover:bg-amber-100 transition-colors"
-                                    onClick={() => toggleFilter(setHeadlineTechniqueFilter, h.technique)}
+                                    onClick={() => toggleMapFilter(setHeadlineFilters, 'technique', h.technique)}
                                     title={`Filter by technique: ${h.technique}`}
                                   >
                                     {h.technique}
@@ -1595,93 +1752,14 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
                 </div>
               </div>
 
-              {/* Quote Bank multi-select filters */}
-              {(bankUniqueProblems.length > 1 || bankUniqueEmotions.length > 1 || bankUniqueTags.length > 0) && (
-                <div className="space-y-2">
-                  <div className="flex items-center gap-2 flex-wrap">
-                    {bankUniqueProblems.length > 1 && (
-                      <>
-                        <span className="text-[10px] text-gray-400 font-medium uppercase tracking-wider">Problem:</span>
-                        {bankUniqueProblems.map(p => (
-                          <button
-                            key={p}
-                            onClick={() => toggleFilter(setBankProblemFilter, p)}
-                            className={`text-[10px] px-2 py-0.5 rounded-full border transition-all ${
-                              bankProblemFilter.has(p)
-                                ? 'bg-blue-50 text-blue-700 border-blue-200 font-semibold'
-                                : 'text-gray-500 border-gray-200 hover:border-blue-200 hover:text-blue-600'
-                            }`}
-                          >{bankProblemFilter.has(p) ? '✓ ' : ''}{p}</button>
-                        ))}
-                        {(bankUniqueEmotions.length > 1 || bankUniqueTags.length > 0) && <span className="text-gray-200">|</span>}
-                      </>
-                    )}
-
-                    {bankUniqueEmotions.length > 1 && (
-                      <>
-                        <span className="text-[10px] text-gray-400 font-medium uppercase tracking-wider">Emotion:</span>
-                        {bankUniqueEmotions.map(e => (
-                          <button
-                            key={e}
-                            onClick={() => toggleFilter(setBankEmotionFilter, e)}
-                            className={`text-[10px] px-2 py-0.5 rounded-full border transition-all ${
-                              bankEmotionFilter.has(e)
-                                ? `${EMOTION_COLORS[e] || 'bg-gray-100 text-gray-600'} border-current font-semibold`
-                                : 'text-gray-500 border-gray-200 hover:border-purple-200 hover:text-purple-600'
-                            }`}
-                          >{bankEmotionFilter.has(e) ? '✓ ' : ''}{e}</button>
-                        ))}
-                      </>
-                    )}
-
-                    {bankUniqueTags.length > 0 && (
-                      <>
-                        {(bankUniqueProblems.length > 1 || bankUniqueEmotions.length > 1) && <span className="text-gray-200">|</span>}
-                        <span className="text-[10px] text-gray-400 font-medium uppercase tracking-wider">Tag:</span>
-                        {bankUniqueTags.map(t => (
-                          <button
-                            key={t}
-                            onClick={() => toggleFilter(setBankTagFilter, t)}
-                            className={`text-[10px] px-2 py-0.5 rounded-full border transition-all ${
-                              bankTagFilter.has(t)
-                                ? 'bg-teal-50 text-teal-700 border-teal-200 font-semibold'
-                                : 'text-gray-500 border-gray-200 hover:border-teal-200 hover:text-teal-600'
-                            }`}
-                          >{bankTagFilter.has(t) ? '✓ ' : ''}{t}</button>
-                        ))}
-                      </>
-                    )}
-                  </div>
-
-                  {/* Active Quote Bank filters summary */}
-                  {hasBankFilters && (
-                    <div className="flex items-center gap-1.5 flex-wrap">
-                      <span className="text-[10px] text-gray-400">Active filters:</span>
-                      {[...bankProblemFilter].map(v => (
-                        <span key={`bp-${v}`} className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-blue-50 text-blue-700">
-                          {v}
-                          <button onClick={() => toggleFilter(setBankProblemFilter, v)} className="text-blue-400 hover:text-blue-600">×</button>
-                        </span>
-                      ))}
-                      {[...bankEmotionFilter].map(v => (
-                        <span key={`be-${v}`} className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-purple-50 text-purple-700">
-                          {v}
-                          <button onClick={() => toggleFilter(setBankEmotionFilter, v)} className="text-purple-400 hover:text-purple-600">×</button>
-                        </span>
-                      ))}
-                      {[...bankTagFilter].map(v => (
-                        <span key={`bt-${v}`} className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-teal-50 text-teal-700">
-                          {v}
-                          <button onClick={() => toggleFilter(setBankTagFilter, v)} className="text-teal-400 hover:text-teal-600">×</button>
-                        </span>
-                      ))}
-                      <button
-                        onClick={() => { setBankProblemFilter(new Set()); setBankEmotionFilter(new Set()); setBankTagFilter(new Set()); }}
-                        className="text-[10px] text-gray-400 hover:text-gray-600 underline ml-1"
-                      >Clear all</button>
-                    </div>
-                  )}
-                </div>
+              {/* Quote Bank Notion-style filters */}
+              {(bankUniqueProblems.length > 0 || bankUniqueEmotions.length > 0 || bankUniqueTags.length > 0) && (
+                <NotionFilter
+                  properties={bankFilterProperties}
+                  filters={bankFilters}
+                  onToggle={(key, val) => toggleMapFilter(setBankFilters, key, val)}
+                  onClear={(key) => clearMapFilter(setBankFilters, key)}
+                />
               )}
 
               {/* Bulk action bar for Quote Bank */}
