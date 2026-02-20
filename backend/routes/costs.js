@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { requireAuth } from '../auth.js';
-import { getProject, getProjectStats } from '../convexClient.js';
+import { getProject, getProjectStats, getSetting } from '../convexClient.js';
 import { getCostSummary, getCostHistoryData, syncOpenAICosts, getRecurringBatchCostEstimate } from '../services/costTracker.js';
 
 const router = Router();
@@ -70,6 +70,28 @@ router.get('/projects/:id/costs', async (req, res) => {
     });
   } catch (err) {
     console.error('[Costs API] Project costs error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * GET /costs/rates — Current per-image Gemini rates + last updated timestamp
+ */
+router.get('/costs/rates', async (req, res) => {
+  try {
+    const [rate2k, updatedAt] = await Promise.all([
+      getSetting('gemini_rate_2k'),
+      getSetting('gemini_rates_updated_at'),
+    ]);
+    const manualRate = rate2k ? parseFloat(rate2k) : null;
+    const batchRate = manualRate ? manualRate * 0.5 : null;
+    res.json({
+      manualRate,
+      batchRate,
+      updatedAt: updatedAt || null,
+    });
+  } catch (err) {
+    console.error('[Costs API] Rates error:', err.message);
     res.status(500).json({ error: err.message });
   }
 });

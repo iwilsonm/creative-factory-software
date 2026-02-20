@@ -283,6 +283,7 @@ export const api = {
     return request(url);
   },
   getRecurringCosts: () => request('/costs/recurring'),
+  getCostRates: () => request('/costs/rates'),
   syncCosts: () => request('/costs/sync', { method: 'POST' }),
 
   // Settings

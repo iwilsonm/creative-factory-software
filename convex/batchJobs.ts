@@ -101,6 +101,7 @@ export const update = mutation({
     gemini_batch_job: v.optional(v.nullable(v.string())),
     gpt_prompts: v.optional(v.nullable(v.string())),
     error_message: v.optional(v.nullable(v.string())),
+    started_at: v.optional(v.string()),
     completed_at: v.optional(v.string()),
     completed_count: v.optional(v.number()),
     scheduled: v.optional(v.boolean()),

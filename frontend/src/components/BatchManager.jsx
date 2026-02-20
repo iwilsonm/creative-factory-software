@@ -290,6 +290,20 @@ function formatDate(dateStr) {
   return d.toLocaleDateString();
 }
 
+function formatDuration(startedAt, completedAt) {
+  if (!startedAt || !completedAt) return null;
+  const ms = new Date(completedAt) - new Date(startedAt);
+  if (ms < 0) return null;
+  const totalSec = Math.floor(ms / 1000);
+  if (totalSec < 60) return `${totalSec}s`;
+  const min = Math.floor(totalSec / 60);
+  const sec = totalSec % 60;
+  if (min < 60) return sec > 0 ? `${min}m ${sec}s` : `${min}m`;
+  const hr = Math.floor(min / 60);
+  const remMin = min % 60;
+  return remMin > 0 ? `${hr}h ${remMin}m` : `${hr}h`;
+}
+
 export default function BatchManager({ projectId, project, onBatchComplete }) {
   const toast = useToast();
   const [expanded, setExpanded] = useState(false);
@@ -1632,6 +1646,12 @@ function BatchRow({ batch, onRunNow, onCancel, onDelete, onEdit, onPause, onResu
           </div>
           <div className="flex items-center gap-2">
             <span className="text-[10px] text-gray-400">{formatDate(batch.created_at)}</span>
+            {batch.status === 'completed' && formatDuration(batch.started_at, batch.completed_at) && (
+              <>
+                <span className="text-[10px] text-gray-300">·</span>
+                <span className="text-[10px] text-emerald-500">Completed in {formatDuration(batch.started_at, batch.completed_at)}</span>
+              </>
+            )}
             {batch.scheduled && batch.schedule_cron && (() => {
               const next = getNextRun(batch.schedule_cron);
               const label = formatNextRun(next);

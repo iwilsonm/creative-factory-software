@@ -1265,6 +1265,13 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
         )}
       </div>
 
+      {/* Sub-tab description */}
+      <p className="text-[12px] text-gray-400 italic -mt-1 mb-3">
+        {subTab === 'mine' && 'Search Reddit, forums, and online communities for real first-person quotes from your target audience. These authentic words capture the exact language, pain points, and emotions your customers use — the raw material for scroll-stopping ad copy.'}
+        {subTab === 'bank' && 'Your permanent library of the best quotes across all mining runs. Favorite the strongest ones, tag them by theme, and generate headlines directly from any quote. Quotes persist here even when you re-run mining with different settings.'}
+        {subTab === 'headlines' && 'Every headline generated from your quotes, organized in one place. Track which headlines have been used in ads, generate more variations from any quote, and find your strongest hooks at a glance.'}
+      </p>
+
       {/* ═══════════════════════════════════════════════════════════════════════════
           HEADLINE BANK TAB — flat list of all headlines with usage tracking
           ═══════════════════════════════════════════════════════════════════════════ */}

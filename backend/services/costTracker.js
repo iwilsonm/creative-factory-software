@@ -5,7 +5,7 @@ import { withRetry } from './retry.js';
 // ── Anthropic Claude pricing (per million tokens) ──────────────────────────────
 // Source: https://docs.anthropic.com/en/docs/about-claude/pricing
 const ANTHROPIC_RATES = {
-  'claude-opus-4-6':   { input: 15.00, output: 75.00 },  // $15/M in, $75/M out
+  'claude-opus-4-6':   { input: 5.00, output: 25.00 },    // $5/M in, $25/M out (same as Opus 4.5)
   'claude-sonnet-4-6': { input: 3.00, output: 15.00 },    // $3/M in, $15/M out
   'claude-haiku-3-5':  { input: 0.80, output: 4.00 },     // $0.80/M in, $4/M out
 };

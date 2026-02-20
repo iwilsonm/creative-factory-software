@@ -374,6 +374,7 @@ export default function Dashboard() {
   const [costHistory, setCostHistory] = useState([]);
   const [costsLoading, setCostsLoading] = useState(true);
   const [recurringCosts, setRecurringCosts] = useState(null);
+  const [imageRates, setImageRates] = useState(null);
 
   useEffect(() => {
     loadCosts();
@@ -381,14 +382,16 @@ export default function Dashboard() {
 
   const loadCosts = async () => {
     try {
-      const [costsData, historyData, recurringData] = await Promise.all([
+      const [costsData, historyData, recurringData, ratesData] = await Promise.all([
         api.getCosts().catch(() => null),
         api.getCostHistory(30).catch(() => ({ history: [] })),
-        api.getRecurringCosts().catch(() => null)
+        api.getRecurringCosts().catch(() => null),
+        api.getCostRates().catch(() => null)
       ]);
       setCosts(costsData);
       setCostHistory(historyData?.history || []);
       setRecurringCosts(recurringData);
+      setImageRates(ratesData);
     } catch (err) {
       console.error('Failed to load costs:', err);
     } finally {
@@ -415,9 +418,21 @@ export default function Dashboard() {
             position="right"
           />
         </div>
-        <p className="text-[12px] text-gray-400 mb-4">
+        <p className="text-[12px] text-gray-400 mb-1">
           Real-time cost tracking. Today resets at midnight UTC.
         </p>
+        {imageRates && imageRates.manualRate && (
+          <p className="text-[11px] text-gray-400 mb-4">
+            Image rates: <span className="text-gray-500 font-medium">${imageRates.manualRate.toFixed(4)}/image</span> (manual)
+            {' · '}
+            <span className="text-gray-500 font-medium">${imageRates.batchRate.toFixed(4)}/image</span> (batch 50% off)
+            {imageRates.updatedAt && (
+              <span className="text-gray-300 ml-1">
+                · Updated {new Date(imageRates.updatedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
+              </span>
+            )}
+          </p>
+        )}
         <div className="space-y-4">
           <CostSummaryCards costs={costs} loading={costsLoading} />
           <CostBarChart data={costHistory} loading={costsLoading} />

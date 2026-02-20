@@ -114,6 +114,7 @@ export default defineSchema({
     batch_stats: v.optional(v.nullable(v.string())),
     pipeline_state: v.optional(v.string()),  // JSON: { stage, brief_packet, headlines, body_copies }
     created_at: v.string(),
+    started_at: v.optional(v.string()),
     completed_at: v.optional(v.string()),
   })
     .index("by_externalId", ["externalId"])

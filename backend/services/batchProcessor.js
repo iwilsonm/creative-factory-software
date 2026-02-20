@@ -61,7 +61,7 @@ export async function runBatch(batchId, onProgress) {
 
   try {
     // Phase 1: Generate GPT prompts
-    await updateBatchJob(batchId, { status: 'generating_prompts' });
+    await updateBatchJob(batchId, { status: 'generating_prompts', started_at: new Date().toISOString() });
     emit({ type: 'status', status: 'generating_prompts', message: `Generating ${batch.batch_size} prompts via GPT-5.2...` });
 
     const prompts = await generateBatchPrompts(batch, project, docs, onProgress);
