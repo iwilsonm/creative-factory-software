@@ -31,6 +31,9 @@ export default function ProjectDetail() {
   const [projectCosts, setProjectCosts] = useState(null);
   const [costsLoading, setCostsLoading] = useState(false);
 
+  // Cross-tab prefill: Copywriter → Ad Studio
+  const [adStudioPrefill, setAdStudioPrefill] = useState(null);
+
   // Product image state
   const [productImageUploading, setProductImageUploading] = useState(false);
   const [productImageDeleting, setProductImageDeleting] = useState(false);
@@ -512,13 +515,21 @@ export default function ProjectDetail() {
           <TemplateImages projectId={id} inspirationFolderId={project.inspiration_folder_id} />
         )}
         {tab === 'ads' && (
-          <AdStudio projectId={id} project={project} />
+          <AdStudio projectId={id} project={project} prefill={adStudioPrefill} onPrefillConsumed={() => setAdStudioPrefill(null)} />
         )}
         {tab === 'tracker' && (
           <AdTracker projectId={id} />
         )}
         {tab === 'quotes' && (
-          <QuoteMiner projectId={id} project={project} onNavigateToTracker={() => setTab('tracker')} />
+          <QuoteMiner
+            projectId={id}
+            project={project}
+            onNavigateToTracker={() => setTab('tracker')}
+            onSendToAdStudio={(data) => {
+              setAdStudioPrefill(data);
+              setTab('ads');
+            }}
+          />
         )}
       </div>
     </Layout>

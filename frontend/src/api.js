@@ -334,10 +334,15 @@ export const api = {
     request(`/projects/${projectId}/quote-bank/${quoteId}`, { method: 'DELETE' }),
   generateBankHeadlines: (projectId, body, onEvent) =>
     streamSSEWithBody(`/projects/${projectId}/quote-bank/headlines`, body, onEvent),
-  generateBodyCopy: (projectId, quoteId, headline, targetDemographic, problem) =>
+  generateBodyCopy: (projectId, quoteId, headline, targetDemographic, problem, style) =>
     request(`/projects/${projectId}/quote-bank/${quoteId}/body-copy`, {
       method: 'POST',
-      body: JSON.stringify({ headline, target_demographic: targetDemographic, problem })
+      body: JSON.stringify({ headline, target_demographic: targetDemographic, problem, style: style || 'short' })
+    }),
+  generateAdBodyCopy: (projectId, { headline, angle, style, sourceQuoteId }) =>
+    request(`/projects/${projectId}/generate-body-copy`, {
+      method: 'POST',
+      body: JSON.stringify({ headline, angle, style: style || 'short', source_quote_id: sourceQuoteId || undefined })
     }),
   getQuoteBankUsage: (projectId) => request(`/projects/${projectId}/quote-bank/usage`),
   addRunToBank: (projectId, runId) =>

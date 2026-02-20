@@ -519,7 +519,7 @@ router.post('/:projectId/quote-bank/headlines', async (req, res) => {
 // ── Generate body copy for a headline + quote ────────────────────────────────
 router.post('/:projectId/quote-bank/:quoteId/body-copy', async (req, res) => {
   try {
-    const { headline, target_demographic, problem } = req.body;
+    const { headline, target_demographic, problem, style } = req.body;
     if (!headline) {
       return res.status(400).json({ error: 'headline is required' });
     }
@@ -529,7 +529,7 @@ router.post('/:projectId/quote-bank/:quoteId/body-copy', async (req, res) => {
       return res.status(404).json({ error: 'Quote not found in bank' });
     }
 
-    const bodyCopy = await generateBodyCopy(headline, quote, target_demographic || '', problem || '');
+    const bodyCopy = await generateBodyCopy(headline, quote, target_demographic || '', problem || '', style || 'short');
     res.json({ body_copy: bodyCopy });
   } catch (err) {
     console.error('Failed to generate body copy:', err);

@@ -52,11 +52,6 @@ const EMOTION_COLORS = {
   confusion: 'bg-yellow-100 text-yellow-700',
 };
 
-// Template source modes
-const TEMPLATE_RANDOM = 'random';
-const TEMPLATE_UPLOAD = 'upload';
-const TEMPLATE_SELECT = 'select';
-
 // ─── Format helpers ──────────────────────────────────────────────────────────
 function formatDuration(ms) {
   if (!ms) return '';
@@ -80,488 +75,9 @@ function formatTimeAgo(dateStr) {
   return new Date(dateStr).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
-// ─── Ad Creation Modal ──────────────────────────────────────────────────────
-function AdCreationModal({ open, onClose, quote, headline: initialHeadline, projectId, project, toast, onNavigateToTracker, onAdCreated }) {
-  const [headline, setHeadline] = useState(initialHeadline || '');
-  const [bodyCopy, setBodyCopy] = useState('');
-  const [loadingBody, setLoadingBody] = useState(false);
-  const [aspectRatio, setAspectRatio] = useState('1:1');
-  const [templateSource, setTemplateSource] = useState(TEMPLATE_RANDOM);
-  const [selectedTemplate, setSelectedTemplate] = useState(null);
-  const [uploadedFile, setUploadedFile] = useState(null);
-  const [uploadedPreview, setUploadedPreview] = useState(null);
-  const [dragOver, setDragOver] = useState(false);
-  const [generating, setGenerating] = useState(false);
-  const [genProgress, setGenProgress] = useState([]);
-  const [generatedAd, setGeneratedAd] = useState(null);
-  const [driveImages, setDriveImages] = useState([]);
-  const [uploadedTemplates, setUploadedTemplates] = useState([]);
-  const [loadingTemplates, setLoadingTemplates] = useState(false);
-  const fileInputRef = useRef(null);
-  const genAbortRef = useRef(null);
-
-  // Load body copy on open
-  useEffect(() => {
-    if (open && quote && initialHeadline) {
-      setHeadline(initialHeadline);
-      setBodyCopy('');
-      setGeneratedAd(null);
-      setGenProgress([]);
-      generateBodyCopy(initialHeadline);
-    }
-  }, [open, quote?.id, initialHeadline]);
-
-  // Load templates when "Pick Template" selected
-  useEffect(() => {
-    if (templateSource === TEMPLATE_SELECT && driveImages.length === 0 && uploadedTemplates.length === 0) {
-      loadTemplates();
-    }
-  }, [templateSource]);
-
-  const loadTemplates = async () => {
-    setLoadingTemplates(true);
-    try {
-      const [inspRes, tmplRes] = await Promise.all([
-        api.getInspirationImages(projectId),
-        api.getTemplates(projectId),
-      ]);
-      const driveImgs = (inspRes.images || []).map(img => ({
-        id: img.drive_file_id,
-        name: img.filename,
-        thumbnailUrl: img.imageUrl || `/api/projects/${projectId}/ads/${img.id}/thumbnail`,
-        storageId: img.storageId,
-      }));
-      const tmplImgs = (tmplRes.templates || []).map(t => ({
-        id: t.id,
-        filename: t.filename,
-        description: t.description,
-        thumbnailUrl: t.imageUrl,
-      }));
-      setDriveImages(driveImgs);
-      setUploadedTemplates(tmplImgs);
-    } catch (err) {
-      console.error('Failed to load templates:', err);
-    } finally {
-      setLoadingTemplates(false);
-    }
-  };
-
-  const generateBodyCopy = async (hl) => {
-    if (!quote) return;
-    setLoadingBody(true);
-    try {
-      const data = await api.generateBodyCopy(
-        projectId,
-        quote.id,
-        hl || headline,
-        project?.target_demographic || quote.emotion || '',
-        project?.niche || ''
-      );
-      setBodyCopy(data.body_copy || '');
-    } catch (err) {
-      console.warn('Body copy generation failed:', err.message);
-    } finally {
-      setLoadingBody(false);
-    }
-  };
-
-  const handleFileSelected = (file) => {
-    setUploadedFile(file);
-    const reader = new FileReader();
-    reader.onload = (e) => setUploadedPreview(e.target.result);
-    reader.readAsDataURL(file);
-  };
-
-  const clearUploadedImage = () => {
-    setUploadedFile(null);
-    setUploadedPreview(null);
-  };
-
-  const handleDragOver = (e) => { e.preventDefault(); setDragOver(true); };
-  const handleDragLeave = () => setDragOver(false);
-  const handleDrop = (e) => {
-    e.preventDefault();
-    setDragOver(false);
-    const file = e.dataTransfer?.files?.[0];
-    if (file && file.type.startsWith('image/')) handleFileSelected(file);
-  };
-
-  const handleGenerate = async () => {
-    setGenerating(true);
-    setGenProgress([]);
-    setGeneratedAd(null);
-
-    const options = {
-      headline: headline.trim() || undefined,
-      body_copy: bodyCopy.trim() || undefined,
-      aspect_ratio: aspectRatio,
-      source_quote_id: quote?.id || undefined,
-    };
-
-    // Template mode handling
-    if (templateSource === TEMPLATE_UPLOAD && uploadedFile && uploadedPreview) {
-      // Mode 1 with uploaded image
-      options.mode = 'mode1';
-      options.uploaded_image = uploadedPreview.split(',')[1]; // strip data URL prefix
-      options.uploaded_image_mime = uploadedFile.type;
-    } else if (templateSource === TEMPLATE_SELECT && selectedTemplate) {
-      if (selectedTemplate.source === 'drive') {
-        // Mode 1 with specific drive/inspiration image
-        options.mode = 'mode1';
-        options.inspiration_image_id = selectedTemplate.id;
-      } else {
-        // Mode 2 with uploaded template
-        options.mode = 'mode2';
-        options.template_image_id = selectedTemplate.id;
-      }
-    } else {
-      // Random — mode 1, no specific image
-      options.mode = 'mode1';
-    }
-
-    const { abort, done } = api.generateAd(projectId, options, (event) => {
-      setGenProgress(prev => [...prev, event]);
-      if (event.type === 'complete' && event.ad) {
-        setGeneratedAd(event.ad);
-      }
-    });
-
-    genAbortRef.current = abort;
-
-    try {
-      await done;
-    } catch (err) {
-      if (err.name !== 'AbortError') {
-        toast.error('Ad generation failed: ' + err.message);
-      }
-    } finally {
-      setGenerating(false);
-      genAbortRef.current = null;
-    }
-  };
-
-  const handleCancel = () => {
-    if (genAbortRef.current) {
-      genAbortRef.current();
-      setGenerating(false);
-    }
-  };
-
-  if (!open) return null;
-
-  const latestStatus = [...genProgress].reverse().find(e => e.type === 'status');
-  const progressPct = latestStatus?.progress || 0;
-
-  return (
-    <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4" onClick={onClose}>
-      <div className="bg-white rounded-2xl shadow-2xl w-full max-w-2xl max-h-[90vh] overflow-y-auto" onClick={e => e.stopPropagation()}>
-        <div className="p-6 space-y-5">
-          {/* Header */}
-          <div className="flex items-center justify-between">
-            <h3 className="text-[16px] font-bold text-gray-900 flex items-center gap-2">
-              <svg className="w-5 h-5 text-purple-500" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" />
-              </svg>
-              Create Ad from Quote
-            </h3>
-            <button onClick={onClose} className="text-gray-400 hover:text-gray-600 transition-colors">
-              <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
-          </div>
-
-          {/* Source quote */}
-          {quote && (
-            <div className="p-3 rounded-xl bg-purple-50/60 border border-purple-100">
-              <p className="text-[10px] text-purple-500 font-semibold uppercase tracking-wider mb-1">Source Quote</p>
-              <p className="text-[13px] text-gray-700 italic leading-relaxed">&ldquo;{quote.quote}&rdquo;</p>
-              <div className="flex items-center gap-2 mt-1.5">
-                {quote.emotion && (
-                  <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${EMOTION_COLORS[quote.emotion] || 'bg-gray-100 text-gray-600'}`}>
-                    {quote.emotion}
-                  </span>
-                )}
-                {quote.source && <span className="text-[10px] text-gray-400">{quote.source}</span>}
-              </div>
-            </div>
-          )}
-
-          {/* Generated ad result */}
-          {generatedAd && (
-            <div className="p-4 rounded-xl bg-green-50/60 border border-green-200 text-center space-y-3">
-              <div className="flex items-center justify-center gap-2">
-                <svg className="w-5 h-5 text-green-500" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                </svg>
-                <p className="text-[14px] font-semibold text-green-700">Ad Generated Successfully!</p>
-              </div>
-              {generatedAd.imageUrl && (
-                <img src={generatedAd.imageUrl} alt="Generated ad" className="w-64 h-64 object-cover mx-auto rounded-xl border border-gray-200/60 shadow-sm" />
-              )}
-              <div className="flex items-center justify-center gap-3">
-                {onNavigateToTracker && (
-                  <button
-                    onClick={async () => {
-                      try {
-                        await api.createDeployments([generatedAd.id]);
-                        toast.success('Added to Ad Tracker');
-                        onClose();
-                        if (onAdCreated) onAdCreated();
-                        setTimeout(() => onNavigateToTracker(), 300);
-                      } catch (err) {
-                        toast.error('Failed to add to tracker: ' + err.message);
-                      }
-                    }}
-                    className="btn-primary text-[12px] flex items-center gap-1.5"
-                  >
-                    View in Ad Tracker
-                    <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" />
-                    </svg>
-                  </button>
-                )}
-                <button onClick={() => { onClose(); if (onAdCreated) onAdCreated(); }} className="btn-secondary text-[12px]">Close</button>
-              </div>
-            </div>
-          )}
-
-          {/* Generation progress */}
-          {generating && !generatedAd && (
-            <div className="space-y-3">
-              <div className="flex items-center justify-between">
-                <div className="flex items-center gap-2">
-                  <svg className="w-4 h-4 animate-spin text-purple-500" viewBox="0 0 24 24" fill="none">
-                    <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" strokeDasharray="31.4 31.4" strokeLinecap="round" />
-                  </svg>
-                  <p className="text-[13px] font-semibold text-gray-800">Generating Ad...</p>
-                </div>
-                <button onClick={handleCancel} className="text-[11px] text-red-500 hover:text-red-700 font-medium">Cancel</button>
-              </div>
-              {/* Progress bar */}
-              <div className="w-full bg-gray-100 rounded-full h-2">
-                <div className="bg-purple-500 h-2 rounded-full transition-all duration-500" style={{ width: `${progressPct}%` }} />
-              </div>
-              <p className="text-[11px] text-gray-500">{latestStatus?.message || 'Starting...'}</p>
-            </div>
-          )}
-
-          {/* Form (hide when generating or completed) */}
-          {!generating && !generatedAd && (
-            <>
-              {/* Headline */}
-              <div>
-                <label className="block text-[12px] font-medium text-gray-600 mb-1">Headline</label>
-                <input
-                  value={headline}
-                  onChange={e => setHeadline(e.target.value)}
-                  className="input-apple text-[13px]"
-                  placeholder="Enter headline..."
-                />
-              </div>
-
-              {/* Body copy */}
-              <div>
-                <label className="block text-[12px] font-medium text-gray-600 mb-1 flex items-center gap-2">
-                  Body Copy
-                  {loadingBody && (
-                    <span className="flex items-center gap-1 text-[10px] text-blue-500 font-normal">
-                      <svg className="w-3 h-3 animate-spin" viewBox="0 0 24 24" fill="none">
-                        <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" strokeDasharray="31.4 31.4" strokeLinecap="round" />
-                      </svg>
-                      Generating...
-                    </span>
-                  )}
-                </label>
-                <textarea
-                  value={bodyCopy}
-                  onChange={e => setBodyCopy(e.target.value)}
-                  rows={3}
-                  className="input-apple text-[13px] resize-none"
-                  placeholder="Auto-generated body copy..."
-                />
-              </div>
-
-              {/* Aspect ratio */}
-              <div>
-                <label className="block text-[12px] font-medium text-gray-600 mb-1">Aspect Ratio</label>
-                <div className="segmented-control">
-                  {['1:1', '4:5', '9:16'].map(ar => (
-                    <button key={ar} onClick={() => setAspectRatio(ar)} className={aspectRatio === ar ? 'active' : ''}>
-                      {ar}
-                    </button>
-                  ))}
-                </div>
-              </div>
-
-              {/* Template selection */}
-              <div>
-                <label className="block text-[12px] font-medium text-gray-600 mb-1">Template</label>
-                <div className="segmented-control mb-3">
-                  <button onClick={() => setTemplateSource(TEMPLATE_RANDOM)} className={templateSource === TEMPLATE_RANDOM ? 'active' : ''}>
-                    Random
-                  </button>
-                  <button onClick={() => setTemplateSource(TEMPLATE_UPLOAD)} className={templateSource === TEMPLATE_UPLOAD ? 'active' : ''}>
-                    Upload
-                  </button>
-                  <button onClick={() => setTemplateSource(TEMPLATE_SELECT)} className={templateSource === TEMPLATE_SELECT ? 'active' : ''}>
-                    Pick Template
-                  </button>
-                </div>
-
-                {templateSource === TEMPLATE_RANDOM && (
-                  <div className="p-3 bg-gray-50/50 border border-gray-200/60 rounded-xl">
-                    <p className="text-[12px] text-gray-500">A random template will be selected from your Drive templates folder.</p>
-                  </div>
-                )}
-
-                {templateSource === TEMPLATE_UPLOAD && (
-                  <div>
-                    {uploadedFile && uploadedPreview ? (
-                      <div className="flex items-start gap-3 p-3 bg-gray-50/50 border border-gray-200/60 rounded-xl">
-                        <img src={uploadedPreview} alt="Upload" className="w-16 h-16 object-cover rounded-lg border border-gray-200/60" />
-                        <div className="flex-1 min-w-0">
-                          <p className="text-[12px] font-medium text-gray-800 truncate">{uploadedFile.name}</p>
-                          <p className="text-[10px] text-gray-400">{(uploadedFile.size / 1024).toFixed(0)} KB</p>
-                          <button onClick={clearUploadedImage} className="text-[11px] text-red-500 hover:text-red-600 mt-1">Remove</button>
-                        </div>
-                      </div>
-                    ) : (
-                      <div
-                        onClick={() => fileInputRef.current?.click()}
-                        onDragOver={handleDragOver}
-                        onDragEnter={handleDragOver}
-                        onDragLeave={handleDragLeave}
-                        onDrop={handleDrop}
-                        className={`border-2 border-dashed rounded-xl p-5 text-center cursor-pointer transition-all ${
-                          dragOver ? 'border-blue-400 bg-blue-50/30' : 'border-gray-200/80 hover:border-blue-300 hover:bg-gray-50/30'
-                        }`}
-                      >
-                        <p className="text-[12px] text-gray-500">Drop a reference ad image here, or click to browse</p>
-                        <p className="text-[10px] text-gray-400 mt-1">JPG, PNG, WebP</p>
-                      </div>
-                    )}
-                    <input
-                      ref={fileInputRef}
-                      type="file"
-                      accept=".jpg,.jpeg,.png,.webp,.gif"
-                      onChange={e => { if (e.target.files?.[0]) handleFileSelected(e.target.files[0]); }}
-                      className="hidden"
-                    />
-                  </div>
-                )}
-
-                {templateSource === TEMPLATE_SELECT && (
-                  <div>
-                    {loadingTemplates ? (
-                      <div className="text-gray-400 text-center py-6 text-[12px]">Loading templates...</div>
-                    ) : driveImages.length === 0 && uploadedTemplates.length === 0 ? (
-                      <div className="p-4 bg-gray-50/50 border border-gray-200/60 rounded-xl text-center">
-                        <p className="text-[12px] text-gray-500">No templates available. Sync your Drive folder or upload templates first.</p>
-                      </div>
-                    ) : (
-                      <div className="space-y-3">
-                        {driveImages.length > 0 && (
-                          <div>
-                            <p className="text-[10px] text-gray-400 font-medium mb-1.5">Drive Templates ({driveImages.length})</p>
-                            <div className="grid grid-cols-5 sm:grid-cols-6 gap-1.5 max-h-[180px] overflow-y-auto rounded-lg pr-1 scrollbar-thin">
-                              {driveImages.map(img => {
-                                const isSelected = selectedTemplate?.id === img.id && selectedTemplate?.source === 'drive';
-                                return (
-                                  <button
-                                    key={`drive-${img.id}`}
-                                    onClick={() => setSelectedTemplate(isSelected ? null : { id: img.id, source: 'drive' })}
-                                    className={`relative rounded-lg overflow-hidden border-2 transition-all aspect-square ${
-                                      isSelected ? 'border-blue-500 ring-2 ring-blue-200 shadow-md' : 'border-gray-200/60 hover:border-gray-300'
-                                    } cursor-pointer`}
-                                  >
-                                    <img src={img.thumbnailUrl} alt={img.name} className="w-full h-full object-cover" loading="lazy" />
-                                    {isSelected && (
-                                      <div className="absolute top-1 right-1 w-4 h-4 rounded-full bg-blue-500 flex items-center justify-center">
-                                        <svg className="w-2.5 h-2.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
-                                        </svg>
-                                      </div>
-                                    )}
-                                  </button>
-                                );
-                              })}
-                            </div>
-                          </div>
-                        )}
-                        {uploadedTemplates.length > 0 && (
-                          <div>
-                            <p className="text-[10px] text-gray-400 font-medium mb-1.5">Uploaded Templates ({uploadedTemplates.length})</p>
-                            <div className="grid grid-cols-5 sm:grid-cols-6 gap-1.5 max-h-[180px] overflow-y-auto rounded-lg pr-1 scrollbar-thin">
-                              {uploadedTemplates.map(t => {
-                                const isSelected = selectedTemplate?.id === t.id && selectedTemplate?.source === 'uploaded';
-                                return (
-                                  <button
-                                    key={`upl-${t.id}`}
-                                    onClick={() => setSelectedTemplate(isSelected ? null : { id: t.id, source: 'uploaded' })}
-                                    className={`relative rounded-lg overflow-hidden border-2 transition-all aspect-square ${
-                                      isSelected ? 'border-blue-500 ring-2 ring-blue-200 shadow-md' : 'border-gray-200/60 hover:border-gray-300'
-                                    } cursor-pointer`}
-                                  >
-                                    <img src={t.thumbnailUrl} alt={t.description || t.filename} className="w-full h-full object-cover" loading="lazy" />
-                                    {isSelected && (
-                                      <div className="absolute top-1 right-1 w-4 h-4 rounded-full bg-blue-500 flex items-center justify-center">
-                                        <svg className="w-2.5 h-2.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
-                                        </svg>
-                                      </div>
-                                    )}
-                                  </button>
-                                );
-                              })}
-                            </div>
-                          </div>
-                        )}
-                        {selectedTemplate && (
-                          <div className="flex items-center gap-2 text-[11px]">
-                            <span className="text-blue-600 font-medium">Template selected</span>
-                            <button onClick={() => setSelectedTemplate(null)} className="text-gray-400 hover:text-gray-600">Clear</button>
-                          </div>
-                        )}
-                      </div>
-                    )}
-                  </div>
-                )}
-              </div>
-
-              {/* Product image indicator */}
-              {project?.product_image_storageId && (
-                <div className="flex items-center gap-2 p-2.5 bg-green-50/60 rounded-xl border border-green-100">
-                  <svg className="w-4 h-4 text-green-500" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                  <span className="text-[11px] text-green-700 font-medium">Project product image will be included</span>
-                </div>
-              )}
-
-              {/* Generate button */}
-              <button
-                onClick={handleGenerate}
-                disabled={!headline.trim()}
-                className="btn-primary w-full flex items-center justify-center gap-2 disabled:opacity-50"
-              >
-                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09z" />
-                </svg>
-                Generate Ad
-              </button>
-            </>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
-
 // ─── Main component ──────────────────────────────────────────────────────────
-export default function QuoteMiner({ projectId, project, onNavigateToTracker }) {
+export default function QuoteMiner({ projectId, project, onNavigateToTracker, onSendToAdStudio }) {
   const toast = useToast();
-
   // Sub-tab state: 'bank' | 'headlines' | 'mine'
   const [subTab, setSubTab] = useState('mine');
   const [usageData, setUsageData] = useState({ usedHeadlines: {}, totalAds: 0 });
@@ -639,8 +155,7 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker }) 
   const [editingField, setEditingField] = useState(null); // { quoteId, field, value } or { quoteId, hlIdx, value } for headlines
   const [savingEdit, setSavingEdit] = useState(false);
 
-  // Ad creation modal
-  const [adModal, setAdModal] = useState({ open: false, quote: null, headline: '' });
+  // (AdCreationModal removed — now routes to Ad Studio via onSendToAdStudio)
 
   // Progress ref for auto-scroll
   const progressEndRef = useRef(null);
@@ -1775,7 +1290,15 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker }) 
                             <button
                               onClick={() => {
                                 const srcQuote = bankQuotes.find(q => q.id === h.quoteId);
-                                if (srcQuote) setAdModal({ open: true, quote: srcQuote, headline: h.headline });
+                                if (srcQuote && onSendToAdStudio) {
+                                  onSendToAdStudio({
+                                    headline: h.headline,
+                                    sourceQuoteId: srcQuote.id,
+                                    quoteText: srcQuote.quote,
+                                    emotion: srcQuote.emotion,
+                                    problem: srcQuote.problem || config.problem,
+                                  });
+                                }
                               }}
                               className="inline-flex items-center gap-1 text-[10px] font-semibold text-purple-600 hover:text-white bg-purple-50 hover:bg-purple-600 px-2.5 py-1 rounded-lg transition-all"
                               title="Turn this headline into an ad"
@@ -2289,7 +1812,13 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker }) 
                                         </svg>
                                       </button>
                                       <button
-                                        onClick={() => setAdModal({ open: true, quote, headline: hl })}
+                                        onClick={() => onSendToAdStudio && onSendToAdStudio({
+                                          headline: hl,
+                                          sourceQuoteId: quote.id,
+                                          quoteText: quote.quote,
+                                          emotion: quote.emotion,
+                                          problem: quote.problem || config.problem,
+                                        })}
                                         className="inline-flex items-center gap-1 text-[10px] font-semibold text-purple-600 hover:text-white bg-purple-50 hover:bg-purple-600 px-2.5 py-1 rounded-lg transition-all"
                                         title="Turn this headline into an ad"
                                       >
@@ -2890,18 +2419,6 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker }) 
         </div>
       )}
 
-      {/* Ad Creation Modal */}
-      <AdCreationModal
-        open={adModal.open}
-        onClose={() => setAdModal({ open: false, quote: null, headline: '' })}
-        quote={adModal.quote}
-        headline={adModal.headline}
-        projectId={projectId}
-        project={project}
-        toast={toast}
-        onNavigateToTracker={onNavigateToTracker}
-        onAdCreated={() => { loadUsage(); loadBank(); }}
-      />
     </div>
   );
 }

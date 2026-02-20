@@ -76,7 +76,7 @@ function fileToBase64(file) {
   });
 }
 
-export default function AdStudio({ projectId, project }) {
+export default function AdStudio({ projectId, project, prefill, onPrefillConsumed }) {
   const toast = useToast();
 
   // Prompt guidelines (editable on Ad Studio, synced to project)
@@ -92,6 +92,11 @@ export default function AdStudio({ projectId, project }) {
   const [angle, setAngle] = useState('');
   const [headline, setHeadline] = useState('');
   const [bodyCopy, setBodyCopy] = useState('');
+
+  // Body copy generation
+  const [bodyCopyStyle, setBodyCopyStyle] = useState('short');
+  const [generatingBody, setGeneratingBody] = useState(false);
+  const [sourceQuoteId, setSourceQuoteId] = useState(null);
 
   // Prompt editing (for iterative refinement from past ads)
   const [customPrompt, setCustomPrompt] = useState('');
@@ -318,6 +323,47 @@ export default function AdStudio({ projectId, project }) {
     }, 1500);
   };
 
+  // ── Prefill from Copywriter tab (headline → Ad Studio) ──
+  useEffect(() => {
+    if (!prefill) return;
+
+    // Pre-fill the form
+    if (prefill.headline) setHeadline(prefill.headline);
+    if (prefill.problem) setAngle(prefill.problem);
+    if (prefill.sourceQuoteId) setSourceQuoteId(prefill.sourceQuoteId);
+
+    // Open optional fields to show the pre-filled data
+    setOptionalOpen(true);
+
+    // Clear the custom prompt mode if active
+    setCustomPrompt('');
+    setParentAdId(null);
+
+    // Auto-generate body copy
+    if (prefill.headline) {
+      setGeneratingBody(true);
+      api.generateAdBodyCopy(projectId, {
+        headline: prefill.headline,
+        angle: prefill.problem || '',
+        style: bodyCopyStyle,
+        sourceQuoteId: prefill.sourceQuoteId || undefined,
+      }).then(data => {
+        setBodyCopy(data.body_copy || '');
+      }).catch(err => {
+        console.error('Failed to auto-generate body copy:', err);
+        toast.error('Body copy generation failed');
+      }).finally(() => {
+        setGeneratingBody(false);
+      });
+    }
+
+    // Notify parent that prefill was consumed
+    if (onPrefillConsumed) onPrefillConsumed();
+
+    // Scroll to top
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  }, [prefill]);
+
   // Load all templates when selecting "Pick a Template"
   useEffect(() => {
     if (templateSource === TEMPLATE_SELECT && driveImages.length === 0 && uploadedTemplates.length === 0) {
@@ -333,6 +379,30 @@ export default function AdStudio({ projectId, project }) {
       console.error('Failed to load ads:', err);
     } finally {
       setLoadingAds(false);
+    }
+  };
+
+  // Generate / regenerate body copy from current headline + style
+  const handleRegenerateBody = async (styleOverride) => {
+    const useStyle = styleOverride || bodyCopyStyle;
+    if (!headline.trim()) {
+      toast.error('Enter a headline first to generate body copy.');
+      return;
+    }
+    setGeneratingBody(true);
+    try {
+      const data = await api.generateAdBodyCopy(projectId, {
+        headline: headline.trim(),
+        angle: angle || '',
+        style: useStyle,
+        sourceQuoteId: sourceQuoteId || undefined,
+      });
+      setBodyCopy(data.body_copy || '');
+    } catch (err) {
+      console.error('Failed to generate body copy:', err);
+      toast.error('Body copy generation failed');
+    } finally {
+      setGeneratingBody(false);
     }
   };
 
@@ -649,7 +719,8 @@ export default function AdStudio({ projectId, project }) {
         angle: angle || undefined,
         headline: headline || undefined,
         body_copy: bodyCopy || undefined,
-        headline_juicer: headlineJuicerOn || undefined
+        headline_juicer: headlineJuicerOn || undefined,
+        source_quote_id: sourceQuoteId || undefined
       };
 
       if (selectedTemplate.source === 'drive') {
@@ -672,7 +743,8 @@ export default function AdStudio({ projectId, project }) {
         angle: angle || undefined,
         headline: headline || undefined,
         body_copy: bodyCopy || undefined,
-        headline_juicer: headlineJuicerOn || undefined
+        headline_juicer: headlineJuicerOn || undefined,
+        source_quote_id: sourceQuoteId || undefined
       };
 
       if (templateSource === TEMPLATE_UPLOAD && uploadedFile) {
@@ -1517,17 +1589,80 @@ export default function AdStudio({ projectId, project }) {
                   />
                 </div>
 
-                {/* Body Copy — full width */}
+                {/* Body Copy — full width, with style selector + regenerate */}
                 <div className="md:col-span-2">
-                  <label className="block text-[13px] font-medium text-gray-600 mb-1.5">
-                    Body Copy
-                  </label>
-                  <input
+                  <div className="flex items-center justify-between mb-1.5">
+                    <label className="block text-[13px] font-medium text-gray-600">
+                      Body Copy
+                    </label>
+                    {headline.trim() && (
+                      <button
+                        onClick={() => handleRegenerateBody()}
+                        disabled={generatingBody}
+                        className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-blue-600 hover:text-blue-700 disabled:opacity-50 transition-colors"
+                      >
+                        {generatingBody ? (
+                          <>
+                            <div className="w-3 h-3 rounded-full border-2 border-blue-300 border-t-blue-600 animate-spin" />
+                            Generating...
+                          </>
+                        ) : (
+                          <>
+                            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182" />
+                            </svg>
+                            {bodyCopy ? 'Regenerate' : 'Generate'}
+                          </>
+                        )}
+                      </button>
+                    )}
+                  </div>
+
+                  {/* Style selector */}
+                  <div className="flex gap-1 mb-2">
+                    {[
+                      { value: 'short', label: 'Short', desc: '1-2 sentences' },
+                      { value: 'bullets', label: 'Bullets', desc: '3-5 points' },
+                      { value: 'paragraph', label: 'Paragraph', desc: '2-3 sentences' },
+                      { value: 'story', label: 'Story', desc: 'Narrative hook' },
+                    ].map(s => (
+                      <button
+                        key={s.value}
+                        onClick={() => {
+                          setBodyCopyStyle(s.value);
+                          // Auto-regenerate if there's already body copy and a headline
+                          if (bodyCopy && headline.trim()) {
+                            handleRegenerateBody(s.value);
+                          }
+                        }}
+                        className={`flex-1 px-2 py-1.5 rounded-lg text-center transition-all ${
+                          bodyCopyStyle === s.value
+                            ? 'bg-blue-50 border border-blue-200 text-blue-700 shadow-sm'
+                            : 'bg-gray-50 border border-gray-200/60 text-gray-500 hover:bg-gray-100'
+                        }`}
+                      >
+                        <p className="text-[11px] font-semibold">{s.label}</p>
+                        <p className="text-[9px] opacity-60">{s.desc}</p>
+                      </button>
+                    ))}
+                  </div>
+
+                  <textarea
                     value={bodyCopy}
                     onChange={e => setBodyCopy(e.target.value)}
-                    placeholder='e.g., "Clinically proven formula. Shop now."'
-                    className="input-apple"
+                    placeholder={generatingBody ? 'Generating body copy...' : 'Type body copy or click Generate to auto-create...'}
+                    rows={3}
+                    className="input-apple resize-none text-[13px]"
+                    disabled={generatingBody}
                   />
+                  {sourceQuoteId && (
+                    <p className="text-[10px] text-purple-500 mt-1 flex items-center gap-1">
+                      <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m9.86-3.07a4.5 4.5 0 00-1.242-7.244l4.5-4.5a4.5 4.5 0 016.364 6.364l-1.757 1.757" />
+                      </svg>
+                      Linked to source quote for emotional context
+                    </p>
+                  )}
                 </div>
               </div>
 

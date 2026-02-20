@@ -1,7 +1,8 @@
 import { Router } from 'express';
 import { requireAuth } from '../auth.js';
-import { getProject, getAdsByProject, getInProgressAdsByProject, getAd, getAdImageUrl, downloadToBuffer, convexClient, api } from '../convexClient.js';
+import { getProject, getAdsByProject, getInProgressAdsByProject, getAd, getAdImageUrl, downloadToBuffer, getQuoteBankQuote, convexClient, api } from '../convexClient.js';
 import { generateAd, generateAdMode2, regenerateImageOnly, applyPromptEdit } from '../services/adGenerator.js';
+import { generateBodyCopy } from '../services/bodyCopyGenerator.js';
 import sharp from 'sharp';
 import fs from 'fs';
 import path from 'path';
@@ -181,6 +182,41 @@ router.post('/:projectId/edit-prompt', async (req, res) => {
     const revisedPrompt = await applyPromptEdit(original_prompt.trim(), edit_instruction.trim(), referenceImage);
     res.json({ revised_prompt: revisedPrompt });
   } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Generate body copy for Ad Studio (standalone, without a specific quote bank entry)
+router.post('/:projectId/generate-body-copy', async (req, res) => {
+  try {
+    const { headline, angle, style, source_quote_id } = req.body;
+    if (!headline) {
+      return res.status(400).json({ error: 'headline is required' });
+    }
+
+    let quote;
+    if (source_quote_id) {
+      // Load the source quote for emotional context
+      quote = await getQuoteBankQuote(source_quote_id);
+    }
+
+    // If no source quote, construct a minimal quote-like object
+    if (!quote) {
+      quote = {
+        quote: headline,
+        emotion: 'persuasive',
+        emotional_intensity: 'medium',
+      };
+    }
+
+    const project = await getProject(req.params.projectId);
+    const targetDemographic = project?.niche || '';
+    const problem = angle || '';
+
+    const bodyCopy = await generateBodyCopy(headline, quote, targetDemographic, problem, style || 'short');
+    res.json({ body_copy: bodyCopy });
+  } catch (err) {
+    console.error('Failed to generate body copy:', err);
     res.status(500).json({ error: err.message });
   }
 });
