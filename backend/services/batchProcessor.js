@@ -105,10 +105,19 @@ export async function runBatch(batchId, onProgress) {
 
   } catch (err) {
     const errorMsg = `Pipeline failed: ${err.message}`;
-    await updateBatchJob(batchId, { status: 'failed', error_message: errorMsg });
     emit({ type: 'error', error: errorMsg });
     console.error(`[BatchProcessor] Batch ${batchId.slice(0, 8)} pipeline failed:`, err.message);
     console.error(`[BatchProcessor] Stack:`, err.stack?.split('\n').slice(0, 3).join('\n'));
+    // Mark batch as failed — retry the status update in case Convex is also having issues
+    for (let attempt = 0; attempt < 3; attempt++) {
+      try {
+        await updateBatchJob(batchId, { status: 'failed', error_message: errorMsg.slice(0, 500) });
+        break;
+      } catch (updateErr) {
+        console.error(`[BatchProcessor] Failed to mark batch as failed (attempt ${attempt + 1}/3):`, updateErr.message);
+        if (attempt < 2) await new Promise(r => setTimeout(r, 3000 * (attempt + 1)));
+      }
+    }
     throw err;
   }
 }

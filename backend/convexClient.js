@@ -21,13 +21,29 @@ if (!CONVEX_URL) {
 
 const client = new ConvexHttpClient(CONVEX_URL);
 
-// Retry-wrapped Convex calls — handles transient ECONNRESET from VPS → Convex cloud
+// Custom retry predicate for Convex calls.
+// Convex errors are plain Error objects with no status/code properties, so the
+// default retry predicate (which checks status codes) would never retry them.
+// We retry on: Server Error (transient Convex platform issues), fetch failed,
+// ECONNRESET, and other network errors.
+function convexShouldRetry(err) {
+  const msg = err.message || '';
+  // Convex "Server Error" — can be transient platform issues (502/503 from Cloudflare)
+  if (/Server Error/i.test(msg)) return true;
+  // Network / connection errors
+  if (/fetch failed|ECONNRESET|ETIMEDOUT|ENOTFOUND|ECONNREFUSED|socket|network/i.test(msg)) return true;
+  // Convex overloaded
+  if (/overloaded|too many requests|rate.?limit/i.test(msg)) return true;
+  return false;
+}
+
+// Retry-wrapped Convex calls — handles transient ECONNRESET + Server Error from VPS → Convex cloud
 async function queryWithRetry(fnRef, args) {
-  return withRetry(() => client.query(fnRef, args), { maxRetries: 3, label: 'Convex query' });
+  return withRetry(() => client.query(fnRef, args), { maxRetries: 3, baseDelayMs: 2000, shouldRetry: convexShouldRetry, label: 'Convex query' });
 }
 
 async function mutationWithRetry(fnRef, args) {
-  return withRetry(() => client.mutation(fnRef, args), { maxRetries: 3, label: 'Convex mutation' });
+  return withRetry(() => client.mutation(fnRef, args), { maxRetries: 3, baseDelayMs: 2000, shouldRetry: convexShouldRetry, label: 'Convex mutation' });
 }
 
 // =============================================
