@@ -850,7 +850,7 @@ async function findAndCorrectDocs(projectId, correctionInstruction) {
   for (const docType of DOC_TYPES) {
     const doc = await getLatestDoc(projectId, docType);
     if (doc && doc.content) {
-      docEntries.push({ doc_type: docType, id: doc.externalId, content: doc.content });
+      docEntries.push({ doc_type: docType, id: doc.id, content: doc.content });
     }
   }
 

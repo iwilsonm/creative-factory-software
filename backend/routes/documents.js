@@ -423,6 +423,10 @@ router.post('/:projectId/correct-docs', async (req, res) => {
   try {
     const result = await findAndCorrectDocs(req.params.projectId, correction.trim());
     console.log(`[CopyCorrection] Done in ${((Date.now() - startTime) / 1000).toFixed(1)}s — ${result.corrections?.length || 0} corrections found`);
+    // Debug: log correction fields to verify doc_id is present
+    for (const c of (result.corrections || [])) {
+      console.log(`[CopyCorrection]   → ${c.doc_type}: doc_id=${c.doc_id}, old_text="${(c.old_text || '').slice(0, 40)}..."`);
+    }
     res.json(result);
   } catch (err) {
     console.error(`[CopyCorrection] Error after ${((Date.now() - startTime) / 1000).toFixed(1)}s:`, err.message);
@@ -447,7 +451,7 @@ router.post('/:projectId/apply-corrections', async (req, res) => {
   const updated = [];
   for (const c of corrections) {
     if (!c.doc_id || !c.full_updated_content) {
-      console.log(`[Changelog] Skipping correction: doc_id=${!!c.doc_id}, full_updated_content=${!!c.full_updated_content}, doc_type=${c.doc_type}`);
+      console.log(`[Changelog] Skipping correction: doc_id=${JSON.stringify(c.doc_id)}, full_updated_content=${!!c.full_updated_content}, doc_type=${c.doc_type}, keys=${Object.keys(c).join(',')}`);
       continue;
     }
     try {
