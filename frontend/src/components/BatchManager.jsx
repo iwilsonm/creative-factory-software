@@ -1652,7 +1652,7 @@ function BatchRow({ batch, onRunNow, onCancel, onDelete, onEdit, onPause, onResu
                 <span className="text-[10px] text-emerald-500">Completed in {formatDuration(batch.started_at, batch.completed_at)}</span>
               </>
             )}
-            {batch.scheduled && batch.schedule_cron && (() => {
+            {!!batch.scheduled && batch.schedule_cron && (() => {
               const next = getNextRun(batch.schedule_cron);
               const label = formatNextRun(next);
               return label ? (
