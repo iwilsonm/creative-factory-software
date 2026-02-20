@@ -1195,6 +1195,53 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
     }, 100);
   };
 
+  // Redo — load an ad's settings back into the generation form for iteration
+  const handleRedo = (ad, e) => {
+    if (e) e.stopPropagation();
+
+    // Load core settings
+    if (ad.angle) setAngle(ad.angle);
+    if (ad.headline) setHeadline(ad.headline);
+    if (ad.body_copy) setBodyCopy(ad.body_copy);
+    if (ad.aspect_ratio) setAspectRatio(ad.aspect_ratio);
+
+    // If template-based, try to re-select the template
+    if (ad.generation_mode === 'mode2' && ad.template_image_id) {
+      // Check if template exists in drive images or uploaded templates
+      const driveMatch = driveImages.find(img => img.id === ad.template_image_id);
+      const uploadMatch = uploadedTemplates.find(img => img.id === ad.template_image_id);
+      if (driveMatch) {
+        setTemplateSource(TEMPLATE_SELECT);
+        setSelectedTemplate({ id: driveMatch.id, source: 'drive' });
+      } else if (uploadMatch) {
+        setTemplateSource(TEMPLATE_SELECT);
+        setSelectedTemplate({ id: uploadMatch.id, source: 'uploaded' });
+      } else {
+        setTemplateSource(TEMPLATE_RANDOM);
+      }
+    }
+
+    // Clear custom prompt mode so we're in fresh generation mode
+    setCustomPrompt('');
+    setParentAdId(null);
+    setEditingAdImage(null);
+    setOriginalPromptRef('');
+    setPromptUpdated(false);
+
+    // Close modal if open
+    if (viewAd) setViewAd(null);
+
+    // Scroll to top of the form
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+
+    toast.success(
+      <span>
+        Settings loaded from ad
+        {ad.angle ? <span className="text-green-600/70"> · {ad.angle}</span> : ''}
+      </span>
+    );
+  };
+
   // Apply AI edit — send instruction to GPT which modifies the prompt
   const handleApplyEdit = async () => {
     if (!editInstruction.trim()) {
@@ -1568,8 +1615,8 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
             Product Image
           </label>
 
-          {/* Skip product image toggle — shown when template analysis says not needed OR user can override */}
-          {(templateAnalysis || skipProductImage) && project?.productImageUrl && (
+          {/* Product image toggle + indicator — always shown when project has a product image */}
+          {project?.productImageUrl && !productFile && (
             <div className={`flex items-center gap-3 p-2.5 rounded-xl mb-2 ${
               skipProductImage
                 ? 'bg-amber-50/50 border border-amber-200/50'
@@ -1585,38 +1632,32 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
                   !skipProductImage ? 'translate-x-[16px]' : ''
                 }`} />
               </button>
+              {!skipProductImage && (
+                <img
+                  src={project.productImageUrl}
+                  alt="Project product"
+                  className="w-8 h-8 object-cover rounded-lg border border-emerald-200/60 flex-shrink-0"
+                />
+              )}
               <div className="flex-1 min-w-0">
                 <p className={`text-[11px] font-medium ${skipProductImage ? 'text-amber-700' : 'text-emerald-700'}`}>
-                  {skipProductImage ? 'Product image excluded' : 'Product image included'}
+                  {skipProductImage ? 'Product image off for this ad' : 'Product image included'}
                 </p>
                 <p className={`text-[10px] ${skipProductImage ? 'text-amber-500' : 'text-emerald-500'}`}>
                   {skipProductImage
-                    ? (templateAnalysis ? 'Template analysis: not needed for this layout' : 'Product image will not be sent to generation')
-                    : 'Product image will be included in generation'
+                    ? (templateAnalysis ? 'Template analysis: not needed for this layout' : 'Toggle on to include product image')
+                    : 'Toggle off to exclude for this ad'
                   }
                 </p>
               </div>
-            </div>
-          )}
-
-          {/* Show project-level product image indicator */}
-          {project?.productImageUrl && !productFile && !skipProductImage && (
-            <div className="flex items-center gap-3 p-3 bg-emerald-50/50 border border-emerald-200/60 rounded-xl mb-2">
-              <img
-                src={project.productImageUrl}
-                alt="Project product"
-                className="w-10 h-10 object-cover rounded-lg border border-emerald-200/60"
-              />
-              <div className="flex-1 min-w-0">
-                <p className="text-[11px] font-medium text-emerald-700">Project product image active</p>
-                <p className="text-[10px] text-emerald-500">Automatically used for this generation</p>
-              </div>
-              <button
-                onClick={() => productFileInputRef.current?.click()}
-                className="text-[10px] text-gray-400 hover:text-gray-600 transition-colors whitespace-nowrap"
-              >
-                Override →
-              </button>
+              {!skipProductImage && (
+                <button
+                  onClick={() => productFileInputRef.current?.click()}
+                  className="text-[10px] text-gray-400 hover:text-gray-600 transition-colors whitespace-nowrap"
+                >
+                  Override →
+                </button>
+              )}
             </div>
           )}
 
@@ -2388,6 +2429,16 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
                           </svg>
                         </button>
                       )}
+                      {/* Redo — load settings */}
+                      <button
+                        onClick={(e) => handleRedo(ad, e)}
+                        className="w-7 h-7 rounded-lg bg-black/40 backdrop-blur-sm flex items-center justify-center text-white/90 hover:bg-black/60 transition-all"
+                        title="Load settings into form"
+                      >
+                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 8.25H7.5a2.25 2.25 0 00-2.25 2.25v9a2.25 2.25 0 002.25 2.25h9a2.25 2.25 0 002.25-2.25v-9a2.25 2.25 0 00-2.25-2.25H15m0-3l-3-3m0 0l-3 3m3-3v11.25" />
+                        </svg>
+                      </button>
                     </div>
                   )}
 
@@ -2535,13 +2586,22 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
 
                 {/* Actions */}
                 {ad.status === 'completed' && (
-                  <button
-                    onClick={(e) => { e.stopPropagation(); handleRegenerate(ad, e); }}
-                    className="text-[11px] text-gray-300 hover:text-blue-500 transition-colors flex-shrink-0"
-                    title="Regenerate"
-                  >
-                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182M20.015 4.356v4.992" /></svg>
-                  </button>
+                  <>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); handleRedo(ad, e); }}
+                      className="text-[11px] text-gray-300 hover:text-purple-500 transition-colors flex-shrink-0"
+                      title="Load settings into form"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 8.25H7.5a2.25 2.25 0 00-2.25 2.25v9a2.25 2.25 0 002.25 2.25h9a2.25 2.25 0 002.25-2.25v-9a2.25 2.25 0 00-2.25-2.25H15m0-3l-3-3m0 0l-3 3m3-3v11.25" /></svg>
+                    </button>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); handleRegenerate(ad, e); }}
+                      className="text-[11px] text-gray-300 hover:text-blue-500 transition-colors flex-shrink-0"
+                      title="Regenerate"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182M20.015 4.356v4.992" /></svg>
+                    </button>
+                  </>
                 )}
                 <button
                   onClick={(e) => { e.stopPropagation(); handleDelete(ad.id); }}
@@ -2682,6 +2742,21 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
                     Edit Image
                   </button>
                 )}
+              </div>
+              {/* Redo — load settings into form */}
+              <div className="mb-5">
+                <button
+                  onClick={(e) => handleRedo(viewAd, e)}
+                  className="w-full flex items-center justify-center gap-1.5 py-2 px-3 bg-purple-50 text-purple-700 border border-purple-200 rounded-xl text-[12px] font-medium hover:bg-purple-100 transition-colors"
+                >
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 8.25H7.5a2.25 2.25 0 00-2.25 2.25v9a2.25 2.25 0 002.25 2.25h9a2.25 2.25 0 002.25-2.25v-9a2.25 2.25 0 00-2.25-2.25H15m0-3l-3-3m0 0l-3 3m3-3v11.25" />
+                  </svg>
+                  Load Settings into Form
+                </button>
+                <p className="text-[10px] text-gray-400 mt-1 text-center">
+                  Copies this ad's angle, headline, body copy, and aspect ratio into the generation form so you can iterate on it.
+                </p>
               </div>
 
               {/* Edit workflow explanation */}
