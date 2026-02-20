@@ -52,6 +52,13 @@ export const update = mutation({
     inspiration_folder_id: v.optional(v.string()),
     prompt_guidelines: v.optional(v.string()),
     status: v.optional(v.string()),
+    // Meta Ads (per-project)
+    meta_access_token: v.optional(v.string()),
+    meta_token_expires_at: v.optional(v.string()),
+    meta_ad_account_id: v.optional(v.string()),
+    meta_user_name: v.optional(v.string()),
+    meta_user_id: v.optional(v.string()),
+    meta_last_sync_at: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const project = await ctx.db

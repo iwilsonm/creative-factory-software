@@ -84,7 +84,7 @@ export async function getAllProjectsWithStats() {
 }
 
 export async function updateProject(id, fields) {
-  const allowed = ['name', 'brand_name', 'niche', 'product_description', 'sales_page_content', 'drive_folder_id', 'inspiration_folder_id', 'prompt_guidelines', 'status'];
+  const allowed = ['name', 'brand_name', 'niche', 'product_description', 'sales_page_content', 'drive_folder_id', 'inspiration_folder_id', 'prompt_guidelines', 'status', 'meta_access_token', 'meta_token_expires_at', 'meta_ad_account_id', 'meta_user_name', 'meta_user_id', 'meta_last_sync_at'];
   const updates = { externalId: id };
   for (const key of allowed) {
     if (fields[key] !== undefined) {
@@ -111,6 +111,12 @@ function convexProjectToRow(p) {
     prompt_guidelines: p.prompt_guidelines || null,
     product_image_storageId: p.product_image_storageId || null,
     status: p.status || 'setup',
+    meta_access_token: p.meta_access_token || null,
+    meta_token_expires_at: p.meta_token_expires_at || null,
+    meta_ad_account_id: p.meta_ad_account_id || null,
+    meta_user_name: p.meta_user_name || null,
+    meta_user_id: p.meta_user_id || null,
+    meta_last_sync_at: p.meta_last_sync_at || null,
     created_at: p.created_at,
     updated_at: p.updated_at,
   };
@@ -625,6 +631,14 @@ export async function upsertMetaPerformance(record) {
 
 export async function deleteMetaPerformanceByDeployment(deploymentId) {
   return await mutationWithRetry(api.metaPerformance.removeByDeployment, { deploymentId });
+}
+
+/**
+ * Get all projects that have a Meta access token set (for scheduler sync).
+ */
+export async function getMetaEnabledProjects() {
+  const all = await getAllProjects();
+  return all.filter(p => p.meta_access_token);
 }
 
 // =============================================

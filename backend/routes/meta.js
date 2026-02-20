@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { requireAuth } from '../auth.js';
-import { getSetting, setSetting, updateDeployment, getMetaPerformanceByDeployment, getMetaPerformanceByMetaAdId, deleteMetaPerformanceByDeployment, getAllDeployments } from '../convexClient.js';
+import { getSetting, setSetting, updateProject, updateDeployment, getMetaPerformanceByDeployment, getMetaPerformanceByMetaAdId, deleteMetaPerformanceByDeployment, getAllDeployments } from '../convexClient.js';
 import * as metaAds from '../services/metaAds.js';
 
 const router = Router();
@@ -13,16 +13,68 @@ function getRedirectUri(req) {
   return `${proto}://${host}/api/meta/callback`;
 }
 
-// ── OAuth Flow ──────────────────────────────────────────────────────────────
+// ══════════════════════════════════════════════════════════════════════════════
+// OAuth Callback — GLOBAL (Meta always redirects here, projectId is in state)
+// ══════════════════════════════════════════════════════════════════════════════
 
 /**
- * GET /api/meta/auth-url
+ * GET /api/meta/callback
+ * OAuth callback — exchanges code for token, redirects to project page.
+ */
+router.get('/meta/callback', async (req, res) => {
+  try {
+    const { code, state, error: oauthError } = req.query;
+
+    // Decode projectId from state
+    let projectId = null;
+    if (state) {
+      try {
+        const stateObj = JSON.parse(Buffer.from(state, 'base64url').toString());
+        projectId = stateObj.projectId;
+      } catch {
+        // Legacy state format or corrupted — fallback
+      }
+    }
+
+    const redirectBase = projectId ? `/projects/${projectId}` : '/settings';
+
+    if (oauthError) {
+      return res.redirect(`${redirectBase}?meta=error&message=${encodeURIComponent(oauthError)}`);
+    }
+
+    // Verify CSRF state
+    const savedState = await getSetting('meta_oauth_state');
+    if (state && savedState && state !== savedState) {
+      return res.redirect(`${redirectBase}?meta=error&message=Invalid+state+parameter`);
+    }
+
+    if (!projectId) {
+      return res.redirect('/settings?meta=error&message=Missing+project+context');
+    }
+
+    const redirectUri = getRedirectUri(req);
+    await metaAds.handleOAuthCallback(code, redirectUri, projectId);
+
+    res.redirect(`${redirectBase}?meta=connected`);
+  } catch (err) {
+    console.error('[Meta] OAuth callback error:', err);
+    res.redirect('/settings?meta=error&message=' + encodeURIComponent(err.message));
+  }
+});
+
+// ══════════════════════════════════════════════════════════════════════════════
+// Project-scoped Meta routes: /api/projects/:projectId/meta/*
+// ══════════════════════════════════════════════════════════════════════════════
+
+/**
+ * GET /api/projects/:projectId/meta/auth-url
  * Returns the Meta OAuth URL for the frontend to redirect to.
  */
-router.get('/meta/auth-url', async (req, res) => {
+router.get('/projects/:projectId/meta/auth-url', async (req, res) => {
   try {
+    const { projectId } = req.params;
     const redirectUri = getRedirectUri(req);
-    const url = await metaAds.getOAuthUrl(redirectUri);
+    const url = await metaAds.getOAuthUrl(projectId, redirectUri);
     res.json({ url });
   } catch (err) {
     res.status(400).json({ error: err.message });
@@ -30,40 +82,12 @@ router.get('/meta/auth-url', async (req, res) => {
 });
 
 /**
- * GET /api/meta/callback
- * OAuth callback — exchanges code for token, redirects to Settings.
+ * POST /api/projects/:projectId/meta/disconnect
+ * Clears Meta fields on this project.
  */
-router.get('/meta/callback', async (req, res) => {
+router.post('/projects/:projectId/meta/disconnect', async (req, res) => {
   try {
-    const { code, state, error: oauthError } = req.query;
-
-    if (oauthError) {
-      return res.redirect('/settings?meta=error&message=' + encodeURIComponent(oauthError));
-    }
-
-    // Verify CSRF state
-    const savedState = await getSetting('meta_oauth_state');
-    if (state && savedState && state !== savedState) {
-      return res.redirect('/settings?meta=error&message=Invalid+state+parameter');
-    }
-
-    const redirectUri = getRedirectUri(req);
-    await metaAds.handleOAuthCallback(code, redirectUri);
-
-    res.redirect('/settings?meta=connected');
-  } catch (err) {
-    console.error('[Meta] OAuth callback error:', err);
-    res.redirect('/settings?meta=error&message=' + encodeURIComponent(err.message));
-  }
-});
-
-/**
- * POST /api/meta/disconnect
- * Clears all Meta settings.
- */
-router.post('/meta/disconnect', async (req, res) => {
-  try {
-    await metaAds.disconnectMeta();
+    await metaAds.disconnectMeta(req.params.projectId);
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -71,12 +95,12 @@ router.post('/meta/disconnect', async (req, res) => {
 });
 
 /**
- * GET /api/meta/status
- * Returns connection status.
+ * GET /api/projects/:projectId/meta/status
+ * Returns connection status for this project.
  */
-router.get('/meta/status', async (req, res) => {
+router.get('/projects/:projectId/meta/status', async (req, res) => {
   try {
-    const status = await metaAds.isMetaConnected();
+    const status = await metaAds.isMetaConnected(req.params.projectId);
     res.json(status);
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -86,12 +110,12 @@ router.get('/meta/status', async (req, res) => {
 // ── Ad Account Selection ────────────────────────────────────────────────────
 
 /**
- * GET /api/meta/ad-accounts
- * Lists ad accounts for the connected user.
+ * GET /api/projects/:projectId/meta/ad-accounts
+ * Lists ad accounts for this project's connected Meta user.
  */
-router.get('/meta/ad-accounts', async (req, res) => {
+router.get('/projects/:projectId/meta/ad-accounts', async (req, res) => {
   try {
-    const accounts = await metaAds.getAdAccounts();
+    const accounts = await metaAds.getAdAccounts(req.params.projectId);
     res.json({ accounts });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -99,14 +123,14 @@ router.get('/meta/ad-accounts', async (req, res) => {
 });
 
 /**
- * POST /api/meta/ad-account
- * Saves the selected ad account ID.
+ * POST /api/projects/:projectId/meta/ad-account
+ * Saves the selected ad account ID on the project.
  */
-router.post('/meta/ad-account', async (req, res) => {
+router.post('/projects/:projectId/meta/ad-account', async (req, res) => {
   try {
     const { adAccountId } = req.body;
     if (!adAccountId) return res.status(400).json({ error: 'adAccountId required' });
-    await setSetting('meta_ad_account_id', adAccountId);
+    await updateProject(req.params.projectId, { meta_ad_account_id: adAccountId });
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -115,39 +139,27 @@ router.post('/meta/ad-account', async (req, res) => {
 
 // ── Campaign Browser ────────────────────────────────────────────────────────
 
-/**
- * GET /api/meta/campaigns
- * Lists campaigns for the selected ad account.
- */
-router.get('/meta/campaigns', async (req, res) => {
+router.get('/projects/:projectId/meta/campaigns', async (req, res) => {
   try {
-    const campaigns = await metaAds.getCampaigns();
+    const campaigns = await metaAds.getCampaigns(req.params.projectId);
     res.json({ campaigns });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-/**
- * GET /api/meta/campaigns/:campaignId/adsets
- * Lists ad sets within a campaign.
- */
-router.get('/meta/campaigns/:campaignId/adsets', async (req, res) => {
+router.get('/projects/:projectId/meta/campaigns/:campaignId/adsets', async (req, res) => {
   try {
-    const adsets = await metaAds.getAdSets(req.params.campaignId);
+    const adsets = await metaAds.getAdSets(req.params.projectId, req.params.campaignId);
     res.json({ adsets });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-/**
- * GET /api/meta/adsets/:adsetId/ads
- * Lists ads within an ad set.
- */
-router.get('/meta/adsets/:adsetId/ads', async (req, res) => {
+router.get('/projects/:projectId/meta/adsets/:adsetId/ads', async (req, res) => {
   try {
-    const ads = await metaAds.getAds(req.params.adsetId);
+    const ads = await metaAds.getAds(req.params.projectId, req.params.adsetId);
     res.json({ ads });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -156,16 +168,12 @@ router.get('/meta/adsets/:adsetId/ads', async (req, res) => {
 
 // ── Linking ─────────────────────────────────────────────────────────────────
 
-/**
- * POST /api/meta/link
- * Links a deployment to a Meta Ad.
- */
-router.post('/meta/link', async (req, res) => {
+router.post('/projects/:projectId/meta/link', async (req, res) => {
   try {
+    const { projectId } = req.params;
     const { deploymentId, metaAdId, metaCampaignId, metaAdsetId } = req.body;
     if (!deploymentId || !metaAdId) return res.status(400).json({ error: 'deploymentId and metaAdId required' });
 
-    // Update deployment with Meta IDs
     await updateDeployment(deploymentId, {
       meta_ad_id: metaAdId,
       meta_campaign_id: metaCampaignId || undefined,
@@ -175,9 +183,8 @@ router.post('/meta/link', async (req, res) => {
     // Fetch initial metrics
     let metrics = null;
     try {
-      const dailyMetrics = await metaAds.getAdInsights(metaAdId, 30);
-      // Upsert all daily rows
       const { v4: uuidv4 } = await import('uuid');
+      const dailyMetrics = await metaAds.getAdInsights(projectId, metaAdId, 30);
       for (const day of dailyMetrics) {
         await (await import('../convexClient.js')).upsertMetaPerformance({
           externalId: uuidv4(),
@@ -196,7 +203,6 @@ router.post('/meta/link', async (req, res) => {
           frequency: day.frequency,
         });
       }
-      // Return totals
       if (dailyMetrics.length > 0) {
         metrics = {
           impressions: dailyMetrics.reduce((s, d) => s + d.impressions, 0),
@@ -214,11 +220,7 @@ router.post('/meta/link', async (req, res) => {
   }
 });
 
-/**
- * POST /api/meta/unlink
- * Unlinks a deployment from Meta.
- */
-router.post('/meta/unlink', async (req, res) => {
+router.post('/projects/:projectId/meta/unlink', async (req, res) => {
   try {
     const { deploymentId } = req.body;
     if (!deploymentId) return res.status(400).json({ error: 'deploymentId required' });
@@ -230,7 +232,6 @@ router.post('/meta/unlink', async (req, res) => {
     });
 
     await deleteMetaPerformanceByDeployment(deploymentId);
-
     res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -239,19 +240,11 @@ router.post('/meta/unlink', async (req, res) => {
 
 // ── Performance Data ────────────────────────────────────────────────────────
 
-/**
- * GET /api/meta/performance/:deploymentId
- * Returns cached metrics for a deployment.
- */
-router.get('/meta/performance/:deploymentId', async (req, res) => {
+router.get('/projects/:projectId/meta/performance/:deploymentId', async (req, res) => {
   try {
     const rows = await getMetaPerformanceByDeployment(req.params.deploymentId);
 
-    // Aggregate totals
-    const totals = {
-      impressions: 0, clicks: 0, spend: 0, reach: 0,
-      conversions: 0, conversionValue: 0,
-    };
+    const totals = { impressions: 0, clicks: 0, spend: 0, reach: 0, conversions: 0, conversionValue: 0 };
     for (const r of rows) {
       totals.impressions += r.impressions;
       totals.clicks += r.clicks;
@@ -271,21 +264,16 @@ router.get('/meta/performance/:deploymentId', async (req, res) => {
   }
 });
 
-/**
- * GET /api/meta/performance/summary?projectId=XXX
- * Aggregated metrics for all linked deployments in a project.
- */
-router.get('/meta/performance/summary', async (req, res) => {
+router.get('/projects/:projectId/meta/performance/summary', async (req, res) => {
   try {
-    const { projectId } = req.query;
+    const { projectId } = req.params;
     const allDeps = await getAllDeployments();
-    const linkedDeps = allDeps.filter(d => d.meta_ad_id && (!projectId || d.project_id === projectId));
+    const linkedDeps = allDeps.filter(d => d.meta_ad_id && d.project_id === projectId);
 
     if (linkedDeps.length === 0) {
       return res.json({ totalSpend: 0, totalImpressions: 0, totalClicks: 0, avgCTR: 0, avgCPC: 0, ads: [] });
     }
 
-    // Deduplicate by meta_ad_id for aggregate
     const seenMetaAds = new Set();
     const adSummaries = [];
 
@@ -332,13 +320,9 @@ router.get('/meta/performance/summary', async (req, res) => {
   }
 });
 
-/**
- * POST /api/meta/sync
- * Manual sync trigger.
- */
-router.post('/meta/sync', async (req, res) => {
+router.post('/projects/:projectId/meta/sync', async (req, res) => {
   try {
-    const result = await metaAds.syncMetaPerformance();
+    const result = await metaAds.syncMetaPerformance(req.params.projectId);
     res.json(result || { synced: 0, failed: 0, total: 0 });
   } catch (err) {
     res.status(500).json({ error: err.message });

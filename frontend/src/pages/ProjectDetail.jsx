@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { useParams, useNavigate, Link } from 'react-router-dom';
+import { useParams, useNavigate, Link, useSearchParams } from 'react-router-dom';
 import { api } from '../api';
 import Layout from '../components/Layout';
 import FoundationalDocs from '../components/FoundationalDocs';
@@ -22,6 +22,7 @@ const STATUS_CONFIG = {
 export default function ProjectDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
+  const [searchParams, setSearchParams] = useSearchParams();
   const toast = useToast();
   const [project, setProject] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -34,6 +35,14 @@ export default function ProjectDetail() {
 
   // Cross-tab prefill: Copywriter → Ad Studio
   const [adStudioPrefill, setAdStudioPrefill] = useState(null);
+
+  // Meta Ads per-project state
+  const [metaStatus, setMetaStatus] = useState(null);
+  const [metaAdAccounts, setMetaAdAccounts] = useState([]);
+  const [metaAccountsLoading, setMetaAccountsLoading] = useState(false);
+  const [metaSyncing, setMetaSyncing] = useState(false);
+  const [metaDisconnecting, setMetaDisconnecting] = useState(false);
+  const [metaConnecting, setMetaConnecting] = useState(false);
 
   // Product image state
   const [productImageUploading, setProductImageUploading] = useState(false);
@@ -78,8 +87,22 @@ export default function ProjectDetail() {
 
   useEffect(() => {
     loadProject();
+    loadMetaStatus();
     // Clear cross-tab prefill on project switch to avoid stale data
     setAdStudioPrefill(null);
+
+    // Check if returning from OAuth callback
+    const metaParam = searchParams.get('meta');
+    if (metaParam === 'connected') {
+      toast.success('Meta account connected successfully!');
+      setSearchParams({}, { replace: true });
+      loadMetaStatus();
+      setTab('overview');
+    } else if (metaParam === 'error') {
+      toast.error('Meta connection failed: ' + (searchParams.get('message') || 'Unknown error'));
+      setSearchParams({}, { replace: true });
+      setTab('overview');
+    }
   }, [id]);
 
   useEffect(() => {
@@ -87,6 +110,77 @@ export default function ProjectDetail() {
       loadProjectCosts();
     }
   }, [tab, id]);
+
+  // ─── Meta Ads helpers ───────────────────────────────────────────────────
+  const loadMetaStatus = async () => {
+    try {
+      const status = await api.getMetaStatus(id);
+      setMetaStatus(status);
+    } catch {
+      setMetaStatus({ connected: false, appConfigured: false });
+    }
+  };
+
+  const handleMetaConnect = async () => {
+    setMetaConnecting(true);
+    try {
+      const { url } = await api.getMetaAuthUrl(id);
+      window.location.href = url;
+    } catch (err) {
+      toast.error('Failed to start Meta connection: ' + err.message);
+      setMetaConnecting(false);
+    }
+  };
+
+  const handleMetaDisconnect = async () => {
+    if (!confirm('Disconnect Meta from this project? This will remove the stored credentials for this project.')) return;
+    setMetaDisconnecting(true);
+    try {
+      await api.disconnectMeta(id);
+      setMetaStatus({ connected: false, appConfigured: true });
+      setMetaAdAccounts([]);
+      toast.success('Meta account disconnected');
+    } catch (err) {
+      toast.error('Failed to disconnect: ' + err.message);
+    } finally {
+      setMetaDisconnecting(false);
+    }
+  };
+
+  const handleMetaSync = async () => {
+    setMetaSyncing(true);
+    try {
+      const result = await api.syncMetaPerformance(id);
+      toast.success(`Meta sync complete: ${result.synced || 0} ads synced`);
+      await loadMetaStatus();
+    } catch (err) {
+      toast.error('Meta sync failed: ' + err.message);
+    } finally {
+      setMetaSyncing(false);
+    }
+  };
+
+  const loadMetaAdAccounts = async () => {
+    setMetaAccountsLoading(true);
+    try {
+      const { accounts } = await api.getMetaAdAccounts(id);
+      setMetaAdAccounts(accounts || []);
+    } catch (err) {
+      toast.error('Failed to load ad accounts: ' + err.message);
+    } finally {
+      setMetaAccountsLoading(false);
+    }
+  };
+
+  const handleSelectAdAccount = async (accountId) => {
+    try {
+      await api.selectMetaAdAccount(id, accountId);
+      toast.success('Ad account selected');
+      await loadMetaStatus();
+    } catch (err) {
+      toast.error('Failed to select account: ' + err.message);
+    }
+  };
 
   const loadProjectCosts = async () => {
     setCostsLoading(true);
@@ -507,6 +601,195 @@ export default function ProjectDetail() {
           <div className="mt-6">
             <h3 className="text-[15px] font-semibold text-gray-900 tracking-tight mb-4">Project Costs</h3>
             <CostSummaryCards costs={projectCosts} loading={costsLoading} />
+          </div>
+
+          {/* Meta Ads Connection (per-project) */}
+          <div className="mt-6 card p-6">
+            <div className="flex items-center gap-2 mb-1">
+              <div className="w-6 h-6 rounded-lg bg-blue-100 flex items-center justify-center">
+                <svg className="w-3.5 h-3.5 text-blue-600" viewBox="0 0 24 24" fill="currentColor">
+                  <path d="M12 2.04C6.5 2.04 2 6.53 2 12.06C2 17.06 5.66 21.21 10.44 21.96V14.96H7.9V12.06H10.44V9.85C10.44 7.34 11.93 5.96 14.22 5.96C15.31 5.96 16.45 6.15 16.45 6.15V8.62H15.19C13.95 8.62 13.56 9.39 13.56 10.18V12.06H16.34L15.89 14.96H13.56V21.96A10 10 0 0022 12.06C22 6.53 17.5 2.04 12 2.04Z" />
+                </svg>
+              </div>
+              <h2 className="text-[15px] font-semibold text-gray-900 tracking-tight">Meta Ads</h2>
+              {metaStatus?.connected ? (
+                <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-green-100 text-green-700">Connected</span>
+              ) : (
+                <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-gray-100 text-gray-500">Not Connected</span>
+              )}
+              <InfoTooltip text="Connect this project's Meta (Facebook) Ads account to pull live performance data. Each project can have its own Meta login and ad account." />
+            </div>
+            <p className="text-[12px] text-gray-500 mb-4">
+              Pull live ad performance data (impressions, clicks, spend, CTR, CPC, ROAS) from Meta Ads for this project.
+            </p>
+
+            {metaStatus?.connected ? (
+              /* ── Connected State ── */
+              <div className="space-y-4">
+                <div className="bg-green-50/50 border border-green-100 rounded-xl p-4 space-y-2">
+                  <div className="flex items-center gap-2">
+                    <div className="w-2 h-2 rounded-full bg-green-500" />
+                    <span className="text-[13px] font-medium text-green-800">
+                      {metaStatus.userName || 'Meta Account'}
+                    </span>
+                  </div>
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-[11px] text-gray-500">
+                    {metaStatus.adAccountId && (
+                      <div>
+                        <span className="text-gray-400">Ad Account:</span>{' '}
+                        <span className="text-gray-600 font-medium">{metaStatus.adAccountId}</span>
+                      </div>
+                    )}
+                    {metaStatus.tokenExpiresAt && (
+                      <div>
+                        <span className="text-gray-400">Token Expires:</span>{' '}
+                        <span className="text-gray-600 font-medium">
+                          {new Date(metaStatus.tokenExpiresAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
+                        </span>
+                      </div>
+                    )}
+                    {metaStatus.lastSyncAt && (
+                      <div>
+                        <span className="text-gray-400">Last Sync:</span>{' '}
+                        <span className="text-gray-600 font-medium">
+                          {new Date(metaStatus.lastSyncAt).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Ad Account Selector (if connected but no account chosen) */}
+                {!metaStatus.adAccountId && (
+                  <div className="bg-amber-50/50 border border-amber-100 rounded-xl p-4">
+                    <p className="text-[12px] text-amber-700 font-medium mb-2">Select an Ad Account</p>
+                    <p className="text-[11px] text-amber-600 mb-3">Choose which ad account to pull data from.</p>
+                    {metaAdAccounts.length === 0 ? (
+                      <button
+                        onClick={loadMetaAdAccounts}
+                        disabled={metaAccountsLoading}
+                        className="btn-primary text-[12px] px-4 py-1.5"
+                      >
+                        {metaAccountsLoading ? 'Loading...' : 'Load Ad Accounts'}
+                      </button>
+                    ) : (
+                      <div className="space-y-1.5">
+                        {metaAdAccounts.map(acct => (
+                          <button
+                            key={acct.id}
+                            onClick={() => handleSelectAdAccount(acct.id)}
+                            className="w-full text-left px-3 py-2 rounded-lg border border-gray-200 hover:border-blue-300 hover:bg-blue-50/50 transition-colors"
+                          >
+                            <span className="text-[12px] font-medium text-gray-800">{acct.name}</span>
+                            <span className="text-[10px] text-gray-400 ml-2">{acct.id}</span>
+                          </button>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+                )}
+
+                {/* Action buttons */}
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={handleMetaSync}
+                    disabled={metaSyncing}
+                    className="btn-secondary text-[13px] inline-flex items-center gap-1.5"
+                  >
+                    {metaSyncing ? (
+                      <>
+                        <svg className="w-3.5 h-3.5 animate-spin" viewBox="0 0 24 24" fill="none">
+                          <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" strokeDasharray="31.4 31.4" strokeLinecap="round" />
+                        </svg>
+                        Syncing...
+                      </>
+                    ) : 'Sync Now'}
+                  </button>
+                  {metaStatus.adAccountId && (
+                    <button
+                      onClick={async () => {
+                        setMetaAdAccounts([]);
+                        await loadMetaAdAccounts();
+                      }}
+                      disabled={metaAccountsLoading}
+                      className="btn-secondary text-[13px]"
+                    >
+                      {metaAccountsLoading ? 'Loading...' : 'Change Ad Account'}
+                    </button>
+                  )}
+                  <button
+                    onClick={handleMetaDisconnect}
+                    disabled={metaDisconnecting}
+                    className="text-[12px] text-red-500 hover:text-red-600 hover:underline ml-auto"
+                  >
+                    {metaDisconnecting ? 'Disconnecting...' : 'Disconnect'}
+                  </button>
+                </div>
+
+                {/* Show ad account picker if Change Ad Account was clicked */}
+                {metaStatus.adAccountId && metaAdAccounts.length > 0 && (
+                  <div className="border border-gray-200 rounded-xl p-3 space-y-1.5">
+                    <p className="text-[11px] font-medium text-gray-500 mb-2">Select Ad Account</p>
+                    {metaAdAccounts.map(acct => (
+                      <button
+                        key={acct.id}
+                        onClick={() => { handleSelectAdAccount(acct.id); setMetaAdAccounts([]); }}
+                        className={`w-full text-left px-3 py-2 rounded-lg border transition-colors ${
+                          acct.id === metaStatus.adAccountId
+                            ? 'border-blue-300 bg-blue-50'
+                            : 'border-gray-200 hover:border-blue-300 hover:bg-blue-50/50'
+                        }`}
+                      >
+                        <span className="text-[12px] font-medium text-gray-800">{acct.name}</span>
+                        <span className="text-[10px] text-gray-400 ml-2">{acct.id}</span>
+                        {acct.id === metaStatus.adAccountId && (
+                          <span className="text-[9px] ml-2 px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-600">Current</span>
+                        )}
+                      </button>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ) : metaStatus && !metaStatus.appConfigured ? (
+              /* ── App ID not configured ── */
+              <div className="bg-amber-50/50 border border-amber-100 rounded-xl p-4">
+                <p className="text-[12px] text-amber-700 font-medium mb-1">Meta App Not Configured</p>
+                <p className="text-[11px] text-amber-600 mb-3">
+                  Enter your Meta App ID and App Secret in global Settings before connecting projects.
+                </p>
+                <Link to="/settings" className="text-[12px] text-blue-500 hover:underline">
+                  Go to Settings
+                </Link>
+              </div>
+            ) : metaStatus ? (
+              /* ── Disconnected State (app configured) ── */
+              <div>
+                <button
+                  onClick={handleMetaConnect}
+                  disabled={metaConnecting}
+                  className="btn-primary text-[13px] inline-flex items-center gap-2 disabled:opacity-50"
+                >
+                  {metaConnecting ? (
+                    <>
+                      <svg className="w-3.5 h-3.5 animate-spin" viewBox="0 0 24 24" fill="none">
+                        <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" strokeDasharray="31.4 31.4" strokeLinecap="round" />
+                      </svg>
+                      Connecting...
+                    </>
+                  ) : (
+                    <>
+                      <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M12 2.04C6.5 2.04 2 6.53 2 12.06C2 17.06 5.66 21.21 10.44 21.96V14.96H7.9V12.06H10.44V9.85C10.44 7.34 11.93 5.96 14.22 5.96C15.31 5.96 16.45 6.15 16.45 6.15V8.62H15.19C13.95 8.62 13.56 9.39 13.56 10.18V12.06H16.34L15.89 14.96H13.56V21.96A10 10 0 0022 12.06C22 6.53 17.5 2.04 12 2.04Z" />
+                      </svg>
+                      Connect Meta Account
+                    </>
+                  )}
+                </button>
+                <p className="text-[11px] text-gray-400 mt-2">
+                  This will use the Meta App configured in Settings to start the OAuth flow for this project.
+                </p>
+              </div>
+            ) : null}
           </div>
           </>
         )}

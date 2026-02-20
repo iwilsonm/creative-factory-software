@@ -141,7 +141,7 @@ export default function AdTracker({ projectId }) {
   // ─── Meta connection & performance ──────────────────────────────────────────
   const checkMetaConnection = async () => {
     try {
-      const status = await api.getMetaStatus();
+      const status = await api.getMetaStatus(projectId);
       setMetaConnected(status.connected && !!status.adAccountId);
       if (status.connected && status.adAccountId) {
         loadPerformanceSummary();
@@ -166,7 +166,7 @@ export default function AdTracker({ projectId }) {
   const handleMetaSync = async () => {
     setMetaSyncing(true);
     try {
-      await api.syncMetaPerformance();
+      await api.syncMetaPerformance(projectId);
       addToast('Meta performance synced', 'success');
       await loadPerformanceSummary();
     } catch (err) {
@@ -181,7 +181,7 @@ export default function AdTracker({ projectId }) {
     setLinkingDepId(depId);
     setCampaignBrowser({ step: 'campaigns', campaigns: [], adsets: [], ads: [], loading: true, selectedCampaign: null, selectedAdset: null });
     try {
-      const { campaigns } = await api.getMetaCampaigns();
+      const { campaigns } = await api.getMetaCampaigns(projectId);
       setCampaignBrowser(prev => ({ ...prev, campaigns: campaigns || [], loading: false }));
     } catch (err) {
       addToast('Failed to load campaigns: ' + err.message, 'error');
@@ -192,7 +192,7 @@ export default function AdTracker({ projectId }) {
   const selectCampaign = async (campaign) => {
     setCampaignBrowser(prev => ({ ...prev, step: 'adsets', selectedCampaign: campaign, adsets: [], ads: [], loading: true }));
     try {
-      const { adsets } = await api.getMetaAdSets(campaign.id);
+      const { adsets } = await api.getMetaAdSets(projectId, campaign.id);
       setCampaignBrowser(prev => ({ ...prev, adsets: adsets || [], loading: false }));
     } catch (err) {
       addToast('Failed to load ad sets: ' + err.message, 'error');
@@ -203,7 +203,7 @@ export default function AdTracker({ projectId }) {
   const selectAdset = async (adset) => {
     setCampaignBrowser(prev => ({ ...prev, step: 'ads', selectedAdset: adset, ads: [], loading: true }));
     try {
-      const { ads } = await api.getMetaAds(adset.id);
+      const { ads } = await api.getMetaAds(projectId, adset.id);
       setCampaignBrowser(prev => ({ ...prev, ads: ads || [], loading: false }));
     } catch (err) {
       addToast('Failed to load ads: ' + err.message, 'error');
@@ -215,6 +215,7 @@ export default function AdTracker({ projectId }) {
     if (!linkingDepId) return;
     try {
       const result = await api.linkMetaAd(
+        projectId,
         linkingDepId,
         metaAd.id,
         campaignBrowser.selectedCampaign?.id,
@@ -233,7 +234,7 @@ export default function AdTracker({ projectId }) {
 
   const handleUnlink = async (depId) => {
     try {
-      await api.unlinkMetaAd(depId);
+      await api.unlinkMetaAd(projectId, depId);
       setDeployments(prev => prev.map(d =>
         d.id === depId ? { ...d, meta_ad_id: null, meta_campaign_id: null, meta_adset_id: null } : d
       ));
@@ -1230,9 +1231,8 @@ export default function AdTracker({ projectId }) {
               <h3 className="text-[13px] font-semibold text-gray-900">Performance Tracking</h3>
             </div>
             <p className="text-[12px] text-gray-400 max-w-md mx-auto mb-3">
-              Connect your Meta account in Settings to pull live ad performance data.
+              Connect your Meta account in the Overview tab to pull live ad performance data for this project.
             </p>
-            <a href="/settings" className="text-[12px] text-blue-500 hover:underline">Go to Settings</a>
           </div>
         ) : perfLoading ? (
           /* Loading */

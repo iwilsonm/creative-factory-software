@@ -19,6 +19,13 @@ export default defineSchema({
     prompt_guidelines: v.optional(v.string()),
     product_image_storageId: v.optional(v.id("_storage")),
     status: v.optional(v.string()),
+    // Meta Ads (per-project)
+    meta_access_token: v.optional(v.string()),
+    meta_token_expires_at: v.optional(v.string()),
+    meta_ad_account_id: v.optional(v.string()),
+    meta_user_name: v.optional(v.string()),
+    meta_user_id: v.optional(v.string()),
+    meta_last_sync_at: v.optional(v.string()),
     created_at: v.string(),
     updated_at: v.string(),
   }).index("by_externalId", ["externalId"]),

@@ -1,14 +1,14 @@
 /**
- * metaAds.js — Meta Marketing API wrapper
+ * metaAds.js — Meta Marketing API wrapper (per-project)
  *
- * Handles OAuth token management, campaign/ad set/ad browsing,
- * insights fetching, and automated performance sync.
- * Uses raw fetch against the Graph API (no SDK needed).
+ * Each project has its own Meta OAuth token and ad account.
+ * App ID + App Secret are global (developer credentials in settings table).
+ * All other Meta data lives on the project record.
  */
 
 import fetch from 'node-fetch';
 import { v4 as uuidv4 } from 'uuid';
-import { getSetting, setSetting, getAllDeployments, upsertMetaPerformance } from '../convexClient.js';
+import { getSetting, setSetting, getProject, updateProject, getAllDeployments, upsertMetaPerformance } from '../convexClient.js';
 import { withRetry } from './retry.js';
 
 const META_GRAPH_URL = 'https://graph.facebook.com/v21.0';
@@ -16,25 +16,27 @@ const META_GRAPH_URL = 'https://graph.facebook.com/v21.0';
 // ── Token Management ────────────────────────────────────────────────────────
 
 /**
- * Get a valid access token, auto-refreshing if near expiry.
+ * Get a valid access token for a project, auto-refreshing if near expiry.
  */
-export async function getAccessToken() {
-  const token = await getSetting('meta_access_token');
-  if (!token) throw new Error('Meta not connected. Connect your account in Settings.');
+export async function getAccessToken(projectId) {
+  const project = await getProject(projectId);
+  if (!project) throw new Error('Project not found');
 
-  const expiresAt = await getSetting('meta_token_expires_at');
+  const token = project.meta_access_token;
+  if (!token) throw new Error('Meta not connected for this project. Connect in the project Overview tab.');
+
+  const expiresAt = project.meta_token_expires_at;
   if (expiresAt) {
     const daysUntilExpiry = (new Date(expiresAt) - Date.now()) / (1000 * 60 * 60 * 24);
     if (daysUntilExpiry < 7) {
       try {
-        await refreshLongLivedToken(token);
+        await refreshLongLivedToken(projectId, token);
       } catch (err) {
-        console.warn('[Meta] Token refresh failed:', err.message);
-        // Continue with current token if refresh fails
+        console.warn(`[Meta] Token refresh failed for project ${projectId.slice(0, 8)}:`, err.message);
       }
     }
     if (daysUntilExpiry < 0) {
-      throw new Error('Meta access token expired. Please reconnect in Settings.');
+      throw new Error('Meta access token expired. Please reconnect in the project Overview tab.');
     }
   }
 
@@ -44,10 +46,10 @@ export async function getAccessToken() {
 /**
  * Exchange current token for a fresh long-lived token (~60 days).
  */
-async function refreshLongLivedToken(currentToken) {
+async function refreshLongLivedToken(projectId, currentToken) {
   const appId = await getSetting('meta_app_id');
   const appSecret = await getSetting('meta_app_secret');
-  if (!appId || !appSecret) throw new Error('Meta App ID/Secret not configured');
+  if (!appId || !appSecret) throw new Error('Meta App ID/Secret not configured in Settings');
 
   const url = `${META_GRAPH_URL}/oauth/access_token?grant_type=fb_exchange_token&client_id=${appId}&client_secret=${appSecret}&fb_exchange_token=${currentToken}`;
   const res = await fetch(url);
@@ -55,47 +57,48 @@ async function refreshLongLivedToken(currentToken) {
 
   if (data.error) throw new Error(data.error.message);
 
-  await setSetting('meta_access_token', data.access_token);
-  // Long-lived tokens expire in ~60 days
   const expiresAt = new Date(Date.now() + (data.expires_in || 5184000) * 1000).toISOString();
-  await setSetting('meta_token_expires_at', expiresAt);
-  console.log('[Meta] Token refreshed, new expiry:', expiresAt);
+  await updateProject(projectId, {
+    meta_access_token: data.access_token,
+    meta_token_expires_at: expiresAt,
+  });
+  console.log(`[Meta] Token refreshed for project ${projectId.slice(0, 8)}, new expiry:`, expiresAt);
 }
 
 /**
- * Refresh token if needed (called by scheduler).
+ * Refresh token if needed (called by scheduler for each project).
  */
-export async function refreshMetaTokenIfNeeded() {
-  const token = await getSetting('meta_access_token');
-  if (!token) return; // Not connected
+export async function refreshMetaTokenIfNeeded(projectId) {
+  const project = await getProject(projectId);
+  if (!project || !project.meta_access_token) return;
 
-  const expiresAt = await getSetting('meta_token_expires_at');
+  const expiresAt = project.meta_token_expires_at;
   if (!expiresAt) return;
 
   const daysUntilExpiry = (new Date(expiresAt) - Date.now()) / (1000 * 60 * 60 * 24);
   if (daysUntilExpiry < 14) {
-    await refreshLongLivedToken(token);
+    await refreshLongLivedToken(projectId, project.meta_access_token);
   }
 }
 
 /**
- * Check if Meta is connected.
+ * Check if Meta is connected for a project.
  */
-export async function isMetaConnected() {
-  const token = await getSetting('meta_access_token');
-  if (!token) return { connected: false };
-
-  const userName = await getSetting('meta_user_name');
-  const adAccountId = await getSetting('meta_ad_account_id');
-  const expiresAt = await getSetting('meta_token_expires_at');
-  const lastSyncAt = await getSetting('meta_last_sync_at');
+export async function isMetaConnected(projectId) {
+  const project = await getProject(projectId);
+  if (!project || !project.meta_access_token) {
+    // Also check if global app creds are configured
+    const appId = await getSetting('meta_app_id');
+    return { connected: false, appConfigured: !!appId };
+  }
 
   return {
     connected: true,
-    userName: userName || null,
-    adAccountId: adAccountId || null,
-    expiresAt: expiresAt || null,
-    lastSyncAt: lastSyncAt || null,
+    appConfigured: true,
+    userName: project.meta_user_name || null,
+    adAccountId: project.meta_ad_account_id || null,
+    tokenExpiresAt: project.meta_token_expires_at || null,
+    lastSyncAt: project.meta_last_sync_at || null,
   };
 }
 
@@ -114,11 +117,9 @@ async function graphGet(path, token) {
       const err = new Error(data.error.message || 'Meta API error');
       err.code = data.error.code;
       err.status = res.status;
-      // Rate limit codes
       if (data.error.code === 4 || data.error.code === 17 || res.status === 429) {
         err.retryable = true;
       }
-      // Expired token
       if (data.error.code === 190) {
         err.tokenExpired = true;
       }
@@ -131,8 +132,8 @@ async function graphGet(path, token) {
 
 // ── Account Discovery ───────────────────────────────────────────────────────
 
-export async function getAdAccounts() {
-  const token = await getAccessToken();
+export async function getAdAccounts(projectId) {
+  const token = await getAccessToken(projectId);
   const data = await graphGet('/me/adaccounts?fields=name,account_id,account_status&limit=100', token);
   return (data.data || []).map(a => ({
     id: a.id,
@@ -144,10 +145,11 @@ export async function getAdAccounts() {
 
 // ── Campaign Browser ────────────────────────────────────────────────────────
 
-export async function getCampaigns() {
-  const token = await getAccessToken();
-  const adAccountId = await getSetting('meta_ad_account_id');
-  if (!adAccountId) throw new Error('No ad account selected. Select one in Settings.');
+export async function getCampaigns(projectId) {
+  const token = await getAccessToken(projectId);
+  const project = await getProject(projectId);
+  const adAccountId = project?.meta_ad_account_id;
+  if (!adAccountId) throw new Error('No ad account selected for this project.');
 
   const data = await graphGet(
     `/${adAccountId}/campaigns?fields=name,status,objective,created_time&limit=100&filtering=[{"field":"effective_status","operator":"IN","value":["ACTIVE","PAUSED"]}]`,
@@ -161,8 +163,8 @@ export async function getCampaigns() {
   }));
 }
 
-export async function getAdSets(campaignId) {
-  const token = await getAccessToken();
+export async function getAdSets(projectId, campaignId) {
+  const token = await getAccessToken(projectId);
   const data = await graphGet(
     `/${campaignId}/adsets?fields=name,status,daily_budget,lifetime_budget&limit=100&filtering=[{"field":"effective_status","operator":"IN","value":["ACTIVE","PAUSED"]}]`,
     token
@@ -175,8 +177,8 @@ export async function getAdSets(campaignId) {
   }));
 }
 
-export async function getAds(adSetId) {
-  const token = await getAccessToken();
+export async function getAds(projectId, adSetId) {
+  const token = await getAccessToken(projectId);
   const data = await graphGet(
     `/${adSetId}/ads?fields=name,status,creative{thumbnail_url,title,body},created_time&limit=100`,
     token
@@ -192,12 +194,8 @@ export async function getAds(adSetId) {
 
 // ── Insights ────────────────────────────────────────────────────────────────
 
-/**
- * Fetch daily insights for a single Meta Ad.
- * Returns array of daily metric objects.
- */
-export async function getAdInsights(adId, sinceDays = 30) {
-  const token = await getAccessToken();
+export async function getAdInsights(projectId, adId, sinceDays = 30) {
+  const token = await getAccessToken(projectId);
   const since = new Date(Date.now() - sinceDays * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
   const until = new Date().toISOString().split('T')[0];
 
@@ -209,18 +207,13 @@ export async function getAdInsights(adId, sinceDays = 30) {
   return (data.data || []).map(parseInsightsRow);
 }
 
-/**
- * Parse a single Insights API row into normalized metrics.
- */
 function parseInsightsRow(row) {
-  // Extract purchase conversions from actions array
   let conversions = 0;
   if (row.actions) {
     const purchase = row.actions.find(a => a.action_type === 'purchase' || a.action_type === 'offsite_conversion.fb_pixel_purchase');
     if (purchase) conversions = parseInt(purchase.value) || 0;
   }
 
-  // Extract conversion value from action_values array
   let conversionValue = 0;
   if (row.action_values) {
     const purchaseVal = row.action_values.find(a => a.action_type === 'purchase' || a.action_type === 'offsite_conversion.fb_pixel_purchase');
@@ -245,21 +238,20 @@ function parseInsightsRow(row) {
 // ── Sync ────────────────────────────────────────────────────────────────────
 
 /**
- * Sync performance data for all linked deployments.
- * Called by the scheduler every 30 minutes.
+ * Sync performance data for all linked deployments in a project.
  */
-export async function syncMetaPerformance() {
-  const status = await isMetaConnected();
-  if (!status.connected || !status.adAccountId) return;
+export async function syncMetaPerformance(projectId) {
+  const status = await isMetaConnected(projectId);
+  if (!status.connected || !status.adAccountId) return { synced: 0, failed: 0, total: 0 };
 
-  // Get all deployments that have a meta_ad_id
+  // Get all deployments for this project that have a meta_ad_id
   const allDeps = await getAllDeployments();
-  const linkedDeps = allDeps.filter(d => d.meta_ad_id);
+  const linkedDeps = allDeps.filter(d => d.meta_ad_id && d.project_id === projectId);
 
-  if (linkedDeps.length === 0) return;
+  if (linkedDeps.length === 0) return { synced: 0, failed: 0, total: 0 };
 
-  // Deduplicate by meta_ad_id (multiple deployments may share a Flex Ad)
-  const metaAdMap = new Map(); // meta_ad_id -> first deployment
+  // Deduplicate by meta_ad_id
+  const metaAdMap = new Map();
   for (const dep of linkedDeps) {
     if (!metaAdMap.has(dep.meta_ad_id)) {
       metaAdMap.set(dep.meta_ad_id, dep);
@@ -271,7 +263,7 @@ export async function syncMetaPerformance() {
 
   for (const [metaAdId, dep] of metaAdMap) {
     try {
-      const dailyMetrics = await getAdInsights(metaAdId, 7);
+      const dailyMetrics = await getAdInsights(projectId, metaAdId, 7);
 
       for (const day of dailyMetrics) {
         await upsertMetaPerformance({
@@ -294,13 +286,13 @@ export async function syncMetaPerformance() {
 
       synced++;
     } catch (err) {
-      console.error(`[Meta Sync] Failed for ad ${metaAdId}:`, err.message);
+      console.error(`[Meta Sync] Failed for ad ${metaAdId} (project ${projectId.slice(0, 8)}):`, err.message);
       failed++;
     }
   }
 
-  await setSetting('meta_last_sync_at', new Date().toISOString());
-  console.log(`[Meta Sync] Completed: ${synced} synced, ${failed} failed out of ${metaAdMap.size} unique Meta Ads`);
+  await updateProject(projectId, { meta_last_sync_at: new Date().toISOString() });
+  console.log(`[Meta Sync] Project ${projectId.slice(0, 8)}: ${synced} synced, ${failed} failed out of ${metaAdMap.size} unique Meta Ads`);
 
   return { synced, failed, total: metaAdMap.size };
 }
@@ -309,21 +301,24 @@ export async function syncMetaPerformance() {
 
 /**
  * Build the OAuth authorization URL.
+ * Encodes projectId in the state parameter so the callback knows which project to save to.
  */
-export async function getOAuthUrl(redirectUri) {
+export async function getOAuthUrl(projectId, redirectUri) {
   const appId = await getSetting('meta_app_id');
   if (!appId) throw new Error('Meta App ID not configured. Enter it in Settings first.');
 
-  const state = uuidv4(); // CSRF protection
+  // Include projectId in state for the callback to extract
+  const stateObj = { csrf: uuidv4(), projectId };
+  const state = Buffer.from(JSON.stringify(stateObj)).toString('base64url');
   await setSetting('meta_oauth_state', state);
 
   return `https://www.facebook.com/v21.0/dialog/oauth?client_id=${appId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=ads_read&state=${state}`;
 }
 
 /**
- * Exchange authorization code for tokens and store them.
+ * Exchange authorization code for tokens and store them on the project.
  */
-export async function handleOAuthCallback(code, redirectUri) {
+export async function handleOAuthCallback(code, redirectUri, projectId) {
   const appId = await getSetting('meta_app_id');
   const appSecret = await getSetting('meta_app_secret');
   if (!appId || !appSecret) throw new Error('Meta App ID/Secret not configured');
@@ -343,29 +338,34 @@ export async function handleOAuthCallback(code, redirectUri) {
   if (longData.error) throw new Error(longData.error.message);
 
   const accessToken = longData.access_token;
-  const expiresIn = longData.expires_in || 5184000; // ~60 days
+  const expiresIn = longData.expires_in || 5184000;
   const expiresAt = new Date(Date.now() + expiresIn * 1000).toISOString();
 
   // Fetch user info
   const meRes = await fetch(`${META_GRAPH_URL}/me?fields=name,id&access_token=${accessToken}`);
   const meData = await meRes.json();
 
-  // Store everything
-  await setSetting('meta_access_token', accessToken);
-  await setSetting('meta_token_expires_at', expiresAt);
-  await setSetting('meta_user_name', meData.name || 'Meta User');
-  await setSetting('meta_user_id', meData.id || '');
+  // Store on the project record
+  await updateProject(projectId, {
+    meta_access_token: accessToken,
+    meta_token_expires_at: expiresAt,
+    meta_user_name: meData.name || 'Meta User',
+    meta_user_id: meData.id || '',
+  });
 
   return { userName: meData.name, expiresAt };
 }
 
 /**
- * Disconnect Meta by clearing all stored settings.
+ * Disconnect Meta for a project by clearing its Meta fields.
  */
-export async function disconnectMeta() {
-  const keys = ['meta_access_token', 'meta_token_expires_at', 'meta_ad_account_id',
-    'meta_user_name', 'meta_user_id', 'meta_last_sync_at', 'meta_oauth_state'];
-  for (const key of keys) {
-    try { await setSetting(key, ''); } catch (e) { /* ignore */ }
-  }
+export async function disconnectMeta(projectId) {
+  await updateProject(projectId, {
+    meta_access_token: '',
+    meta_token_expires_at: '',
+    meta_ad_account_id: '',
+    meta_user_name: '',
+    meta_user_id: '',
+    meta_last_sync_at: '',
+  });
 }

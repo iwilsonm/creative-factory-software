@@ -345,29 +345,8 @@ export default function Settings() {
   const [passwordForm, setPasswordForm] = useState({ currentPassword: '', newPassword: '' });
   const [passwordMsg, setPasswordMsg] = useState('');
 
-  // Meta Ads connection
-  const [metaStatus, setMetaStatus] = useState(null); // null=loading, object=loaded
-  const [metaAdAccounts, setMetaAdAccounts] = useState([]);
-  const [metaAccountsLoading, setMetaAccountsLoading] = useState(false);
-  const [metaSyncing, setMetaSyncing] = useState(false);
-  const [metaDisconnecting, setMetaDisconnecting] = useState(false);
-  const [metaAppId, setMetaAppId] = useState('');
-  const [metaAppSecret, setMetaAppSecret] = useState('');
-  const [metaConnecting, setMetaConnecting] = useState(false);
-
   useEffect(() => {
     loadSettings();
-    loadMetaStatus();
-    // Check if returning from OAuth callback
-    const params = new URLSearchParams(window.location.search);
-    if (params.get('meta') === 'connected') {
-      toast.success('Meta account connected successfully!');
-      window.history.replaceState({}, '', '/settings');
-      loadMetaStatus();
-    } else if (params.get('meta') === 'error') {
-      toast.error('Meta connection failed: ' + (params.get('message') || 'Unknown error'));
-      window.history.replaceState({}, '', '/settings');
-    }
   }, []);
 
   const loadSettings = async () => {
@@ -387,88 +366,6 @@ export default function Settings() {
     }
   };
 
-  // ─── Meta Ads helpers ───────────────────────────────────────────────────
-  const loadMetaStatus = async () => {
-    try {
-      const status = await api.getMetaStatus();
-      setMetaStatus(status);
-      // Pre-fill app ID/secret if already saved
-      if (status.appId) setMetaAppId(status.appId);
-    } catch {
-      setMetaStatus({ connected: false });
-    }
-  };
-
-  const handleMetaConnect = async () => {
-    if (!metaAppId.trim() || !metaAppSecret.trim()) {
-      toast.error('Please enter both Meta App ID and App Secret');
-      return;
-    }
-    setMetaConnecting(true);
-    try {
-      // Save the App ID + Secret first
-      await api.updateSettings({ meta_app_id: metaAppId.trim(), meta_app_secret: metaAppSecret.trim() });
-      // Get the OAuth URL and redirect
-      const { url } = await api.getMetaAuthUrl();
-      window.location.href = url;
-    } catch (err) {
-      toast.error('Failed to start Meta connection: ' + err.message);
-      setMetaConnecting(false);
-    }
-  };
-
-  const handleMetaDisconnect = async () => {
-    if (!confirm('Disconnect your Meta account? This will remove all stored Meta credentials.')) return;
-    setMetaDisconnecting(true);
-    try {
-      await api.disconnectMeta();
-      setMetaStatus({ connected: false });
-      setMetaAdAccounts([]);
-      setMetaAppId('');
-      setMetaAppSecret('');
-      toast.success('Meta account disconnected');
-    } catch (err) {
-      toast.error('Failed to disconnect: ' + err.message);
-    } finally {
-      setMetaDisconnecting(false);
-    }
-  };
-
-  const handleMetaSync = async () => {
-    setMetaSyncing(true);
-    try {
-      const result = await api.syncMetaPerformance();
-      toast.success(`Meta sync complete: ${result.synced || 0} ads synced`);
-      await loadMetaStatus();
-    } catch (err) {
-      toast.error('Meta sync failed: ' + err.message);
-    } finally {
-      setMetaSyncing(false);
-    }
-  };
-
-  const loadMetaAdAccounts = async () => {
-    setMetaAccountsLoading(true);
-    try {
-      const { accounts } = await api.getMetaAdAccounts();
-      setMetaAdAccounts(accounts || []);
-    } catch (err) {
-      toast.error('Failed to load ad accounts: ' + err.message);
-    } finally {
-      setMetaAccountsLoading(false);
-    }
-  };
-
-  const handleSelectAdAccount = async (accountId) => {
-    try {
-      await api.selectMetaAdAccount(accountId);
-      toast.success('Ad account selected');
-      await loadMetaStatus();
-    } catch (err) {
-      toast.error('Failed to select account: ' + err.message);
-    }
-  };
-
   const handleSave = async () => {
     setSaving(true);
     setMessage('');
@@ -482,11 +379,13 @@ export default function Settings() {
       if (form.gemini_rate_1k) payload.gemini_rate_1k = form.gemini_rate_1k;
       if (form.gemini_rate_2k) payload.gemini_rate_2k = form.gemini_rate_2k;
       if (form.gemini_rate_4k) payload.gemini_rate_4k = form.gemini_rate_4k;
+      if (form.meta_app_id) payload.meta_app_id = form.meta_app_id;
+      if (form.meta_app_secret) payload.meta_app_secret = form.meta_app_secret;
 
       await api.updateSettings(payload);
       toast.success('Settings saved');
       setMessage('');
-      setForm(prev => ({ ...prev, openai_api_key: '', openai_admin_key: '', gemini_api_key: '', perplexity_api_key: '', anthropic_api_key: '' }));
+      setForm(prev => ({ ...prev, openai_api_key: '', openai_admin_key: '', gemini_api_key: '', perplexity_api_key: '', anthropic_api_key: '', meta_app_id: '', meta_app_secret: '' }));
       await loadSettings();
     } catch (err) {
       toast.error(err.message);
@@ -789,7 +688,7 @@ export default function Settings() {
           </button>
         </div>
 
-        {/* Meta Ads Connection */}
+        {/* Meta Developer Credentials (global, shared across all projects) */}
         <div className="card p-6">
           <div className="flex items-center gap-2 mb-1">
             <div className="w-6 h-6 rounded-lg bg-blue-100 flex items-center justify-center">
@@ -797,201 +696,46 @@ export default function Settings() {
                 <path d="M12 2.04C6.5 2.04 2 6.53 2 12.06C2 17.06 5.66 21.21 10.44 21.96V14.96H7.9V12.06H10.44V9.85C10.44 7.34 11.93 5.96 14.22 5.96C15.31 5.96 16.45 6.15 16.45 6.15V8.62H15.19C13.95 8.62 13.56 9.39 13.56 10.18V12.06H16.34L15.89 14.96H13.56V21.96A10 10 0 0022 12.06C22 6.53 17.5 2.04 12 2.04Z" />
               </svg>
             </div>
-            <h2 className="text-[15px] font-semibold text-gray-900 tracking-tight">Meta Ads</h2>
-            {metaStatus?.connected ? (
-              <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-green-100 text-green-700">Connected</span>
+            <h2 className="text-[15px] font-semibold text-gray-900 tracking-tight">Meta Developer Credentials</h2>
+            {settings.meta_app_id ? (
+              <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-green-100 text-green-700">Configured</span>
             ) : (
-              <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-gray-100 text-gray-500">Not Connected</span>
+              <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-gray-100 text-gray-500">Not Set</span>
             )}
-            <InfoTooltip text="Connect your Meta (Facebook) Ads account to pull live performance data for deployed ads. Requires a Meta App with Marketing API access." />
+            <InfoTooltip text="Your Meta App credentials (App ID + Secret) are shared across all projects. Each project then connects its own Meta account via OAuth on the project's Overview tab." />
           </div>
           <p className="text-[12px] text-gray-500 mb-4">
-            Pull live ad performance data (impressions, clicks, spend, CTR, CPC, ROAS) from your Meta Ads account.
+            These developer credentials are shared across all projects. Connect individual Meta accounts in each project's Overview tab.
           </p>
-
-          {metaStatus?.connected ? (
-            /* ── Connected State ── */
-            <div className="space-y-4">
-              {/* Status info */}
-              <div className="bg-green-50/50 border border-green-100 rounded-xl p-4 space-y-2">
-                <div className="flex items-center gap-2">
-                  <div className="w-2 h-2 rounded-full bg-green-500" />
-                  <span className="text-[13px] font-medium text-green-800">
-                    {metaStatus.userName || 'Meta Account'}
-                  </span>
-                </div>
-                <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-[11px] text-gray-500">
-                  {metaStatus.adAccountId && (
-                    <div>
-                      <span className="text-gray-400">Ad Account:</span>{' '}
-                      <span className="text-gray-600 font-medium">{metaStatus.adAccountId}</span>
-                    </div>
-                  )}
-                  {metaStatus.tokenExpiresAt && (
-                    <div>
-                      <span className="text-gray-400">Token Expires:</span>{' '}
-                      <span className="text-gray-600 font-medium">
-                        {new Date(metaStatus.tokenExpiresAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
-                      </span>
-                    </div>
-                  )}
-                  {metaStatus.lastSyncAt && (
-                    <div>
-                      <span className="text-gray-400">Last Sync:</span>{' '}
-                      <span className="text-gray-600 font-medium">
-                        {new Date(metaStatus.lastSyncAt).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
-                      </span>
-                    </div>
-                  )}
-                </div>
-              </div>
-
-              {/* Ad Account Selector (if connected but no account chosen) */}
-              {!metaStatus.adAccountId && (
-                <div className="bg-amber-50/50 border border-amber-100 rounded-xl p-4">
-                  <p className="text-[12px] text-amber-700 font-medium mb-2">Select an Ad Account</p>
-                  <p className="text-[11px] text-amber-600 mb-3">Choose which ad account to pull data from.</p>
-                  {metaAdAccounts.length === 0 ? (
-                    <button
-                      onClick={loadMetaAdAccounts}
-                      disabled={metaAccountsLoading}
-                      className="btn-primary text-[12px] px-4 py-1.5"
-                    >
-                      {metaAccountsLoading ? 'Loading...' : 'Load Ad Accounts'}
-                    </button>
-                  ) : (
-                    <div className="space-y-1.5">
-                      {metaAdAccounts.map(acct => (
-                        <button
-                          key={acct.id}
-                          onClick={() => handleSelectAdAccount(acct.id)}
-                          className="w-full text-left px-3 py-2 rounded-lg border border-gray-200 hover:border-blue-300 hover:bg-blue-50/50 transition-colors"
-                        >
-                          <span className="text-[12px] font-medium text-gray-800">{acct.name}</span>
-                          <span className="text-[10px] text-gray-400 ml-2">{acct.id}</span>
-                        </button>
-                      ))}
-                    </div>
-                  )}
-                </div>
-              )}
-
-              {/* Action buttons */}
-              <div className="flex items-center gap-2">
-                <button
-                  onClick={handleMetaSync}
-                  disabled={metaSyncing}
-                  className="btn-secondary text-[13px] inline-flex items-center gap-1.5"
-                >
-                  {metaSyncing ? (
-                    <>
-                      <svg className="w-3.5 h-3.5 animate-spin" viewBox="0 0 24 24" fill="none">
-                        <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" strokeDasharray="31.4 31.4" strokeLinecap="round" />
-                      </svg>
-                      Syncing...
-                    </>
-                  ) : 'Sync Now'}
-                </button>
-                {metaStatus.adAccountId && (
-                  <button
-                    onClick={async () => {
-                      setMetaAdAccounts([]);
-                      await loadMetaAdAccounts();
-                    }}
-                    disabled={metaAccountsLoading}
-                    className="btn-secondary text-[13px]"
-                  >
-                    {metaAccountsLoading ? 'Loading...' : 'Change Ad Account'}
-                  </button>
-                )}
-                <button
-                  onClick={handleMetaDisconnect}
-                  disabled={metaDisconnecting}
-                  className="text-[12px] text-red-500 hover:text-red-600 hover:underline ml-auto"
-                >
-                  {metaDisconnecting ? 'Disconnecting...' : 'Disconnect'}
-                </button>
-              </div>
-
-              {/* Show ad account picker if Change Ad Account was clicked */}
-              {metaStatus.adAccountId && metaAdAccounts.length > 0 && (
-                <div className="border border-gray-200 rounded-xl p-3 space-y-1.5">
-                  <p className="text-[11px] font-medium text-gray-500 mb-2">Select Ad Account</p>
-                  {metaAdAccounts.map(acct => (
-                    <button
-                      key={acct.id}
-                      onClick={() => { handleSelectAdAccount(acct.id); setMetaAdAccounts([]); }}
-                      className={`w-full text-left px-3 py-2 rounded-lg border transition-colors ${
-                        acct.id === metaStatus.adAccountId
-                          ? 'border-blue-300 bg-blue-50'
-                          : 'border-gray-200 hover:border-blue-300 hover:bg-blue-50/50'
-                      }`}
-                    >
-                      <span className="text-[12px] font-medium text-gray-800">{acct.name}</span>
-                      <span className="text-[10px] text-gray-400 ml-2">{acct.id}</span>
-                      {acct.id === metaStatus.adAccountId && (
-                        <span className="text-[9px] ml-2 px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-600">Current</span>
-                      )}
-                    </button>
-                  ))}
-                </div>
-              )}
+          <div className="space-y-3">
+            <div>
+              <label className="block text-[13px] font-medium text-gray-600 mb-1.5">Meta App ID</label>
+              <input
+                type="text"
+                value={form.meta_app_id || ''}
+                onChange={(e) => setForm(p => ({ ...p, meta_app_id: e.target.value }))}
+                className="input-apple"
+                placeholder={settings.meta_app_id || 'Enter your Meta App ID'}
+              />
             </div>
-          ) : (
-            /* ── Disconnected State ── */
-            <div className="space-y-4">
-              <div className="space-y-3">
-                <div>
-                  <label className="block text-[13px] font-medium text-gray-600 mb-1.5">Meta App ID</label>
-                  <input
-                    type="text"
-                    value={metaAppId}
-                    onChange={(e) => setMetaAppId(e.target.value)}
-                    className="input-apple"
-                    placeholder="Enter your Meta App ID"
-                  />
-                </div>
-                <div>
-                  <label className="block text-[13px] font-medium text-gray-600 mb-1.5">Meta App Secret</label>
-                  <input
-                    type="password"
-                    value={metaAppSecret}
-                    onChange={(e) => setMetaAppSecret(e.target.value)}
-                    className="input-apple"
-                    placeholder="Enter your Meta App Secret"
-                  />
-                </div>
-              </div>
-              <button
-                onClick={handleMetaConnect}
-                disabled={metaConnecting || !metaAppId.trim() || !metaAppSecret.trim()}
-                className="btn-primary text-[13px] inline-flex items-center gap-2 disabled:opacity-50"
-              >
-                {metaConnecting ? (
-                  <>
-                    <svg className="w-3.5 h-3.5 animate-spin" viewBox="0 0 24 24" fill="none">
-                      <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" strokeDasharray="31.4 31.4" strokeLinecap="round" />
-                    </svg>
-                    Connecting...
-                  </>
-                ) : (
-                  <>
-                    <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor">
-                      <path d="M12 2.04C6.5 2.04 2 6.53 2 12.06C2 17.06 5.66 21.21 10.44 21.96V14.96H7.9V12.06H10.44V9.85C10.44 7.34 11.93 5.96 14.22 5.96C15.31 5.96 16.45 6.15 16.45 6.15V8.62H15.19C13.95 8.62 13.56 9.39 13.56 10.18V12.06H16.34L15.89 14.96H13.56V21.96A10 10 0 0022 12.06C22 6.53 17.5 2.04 12 2.04Z" />
-                    </svg>
-                    Connect Meta Account
-                  </>
-                )}
-              </button>
-              <p className="text-[11px] text-gray-400">
-                You need a Meta App with Marketing API access. Create one at{' '}
-                <a href="https://developers.facebook.com" target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline">
-                  developers.facebook.com
-                </a>{' '}
-                and add the "Marketing API" product with <code className="text-[10px] bg-gray-100 px-1 py-0.5 rounded">ads_read</code> permission.
-              </p>
+            <div>
+              <label className="block text-[13px] font-medium text-gray-600 mb-1.5">Meta App Secret</label>
+              <input
+                type="password"
+                value={form.meta_app_secret || ''}
+                onChange={(e) => setForm(p => ({ ...p, meta_app_secret: e.target.value }))}
+                className="input-apple"
+                placeholder={settings.meta_app_secret || 'Enter your Meta App Secret'}
+              />
             </div>
-          )}
+          </div>
+          <p className="text-[11px] text-gray-400 mt-3">
+            Create a Meta App at{' '}
+            <a href="https://developers.facebook.com" target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline">
+              developers.facebook.com
+            </a>{' '}
+            with Marketing API access and <code className="text-[10px] bg-gray-100 px-1 py-0.5 rounded">ads_read</code> permission.
+          </p>
         </div>
 
         {/* Headline Reference Document (Ad Studio Juicer) */}
