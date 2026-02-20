@@ -2,6 +2,7 @@ import cron from 'node-cron';
 import { getActiveBatchJobs, getScheduledBatchJobs, getBatchJob, updateBatchJob } from '../convexClient.js';
 import { runBatch, pollBatchJob } from './batchProcessor.js';
 import { syncOpenAICosts, refreshGeminiRates } from './costTracker.js';
+import { syncMetaPerformance, refreshMetaTokenIfNeeded } from './metaAds.js';
 
 // Store active cron jobs so we can stop/restart them
 const activeCronJobs = new Map(); // batchId -> cron.ScheduledTask
@@ -32,7 +33,17 @@ export async function initScheduler() {
     try { await refreshGeminiRates(); } catch (e) { console.error('[Scheduler] Gemini rate refresh error:', e.message); }
   });
 
-  console.log('[Scheduler] Active. Polling every 5 minutes for batch completion. Cost sync hourly, rate refresh daily.');
+  // Sync Meta performance data every 30 minutes
+  cron.schedule('*/30 * * * *', async () => {
+    try { await syncMetaPerformance(); } catch (e) { console.error('[Scheduler] Meta performance sync error:', e.message); }
+  });
+
+  // Refresh Meta token weekly (Monday 3am) if near expiry
+  cron.schedule('0 3 * * 1', async () => {
+    try { await refreshMetaTokenIfNeeded(); } catch (e) { console.error('[Scheduler] Meta token refresh error:', e.message); }
+  });
+
+  console.log('[Scheduler] Active. Polling every 5 minutes for batch completion. Cost sync hourly, rate refresh daily. Meta sync every 30 min.');
 }
 
 /**

@@ -608,6 +608,26 @@ export async function backfillQuoteBankProblems(updates) {
 }
 
 // =============================================
+// Meta Performance helpers
+// =============================================
+
+export async function getMetaPerformanceByDeployment(deploymentId) {
+  return await queryWithRetry(api.metaPerformance.getByDeployment, { deploymentId });
+}
+
+export async function getMetaPerformanceByMetaAdId(metaAdId) {
+  return await queryWithRetry(api.metaPerformance.getByMetaAdId, { metaAdId });
+}
+
+export async function upsertMetaPerformance(record) {
+  return await mutationWithRetry(api.metaPerformance.upsert, record);
+}
+
+export async function deleteMetaPerformanceByDeployment(deploymentId) {
+  return await mutationWithRetry(api.metaPerformance.removeByDeployment, { deploymentId });
+}
+
+// =============================================
 // Chat Thread helpers
 // =============================================
 

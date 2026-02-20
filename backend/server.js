@@ -21,6 +21,7 @@ import costsRoutes from './routes/costs.js';
 import deploymentRoutes from './routes/deployments.js';
 import quoteMiningRoutes from './routes/quoteMining.js';
 import chatRoutes from './routes/chat.js';
+import metaRoutes from './routes/meta.js';
 import { initScheduler } from './services/scheduler.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
@@ -81,6 +82,7 @@ const PORT = process.env.PORT || 3001;
   app.use('/api', deploymentRoutes);
   app.use('/api/projects', quoteMiningRoutes);
   app.use('/api/projects', chatRoutes);
+  app.use('/api', metaRoutes);
 
   // Health check
   app.get('/api/health', (req, res) => {

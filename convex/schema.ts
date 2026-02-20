@@ -234,4 +234,26 @@ export default defineSchema({
     .index("by_externalId", ["externalId"])
     .index("by_thread", ["thread_id"])
     .index("by_project", ["project_id"]),
+
+  meta_performance: defineTable({
+    externalId: v.string(),
+    deployment_id: v.string(),       // → ad_deployments.externalId
+    meta_ad_id: v.string(),          // Meta Ad ID
+    date: v.string(),                // YYYY-MM-DD
+    impressions: v.number(),
+    clicks: v.number(),
+    spend: v.number(),               // USD
+    reach: v.number(),
+    ctr: v.number(),                 // click-through rate %
+    cpc: v.number(),                 // cost per click
+    cpm: v.number(),                 // cost per 1000 impressions
+    conversions: v.number(),
+    conversion_value: v.number(),    // for ROAS calculation
+    frequency: v.number(),
+    updated_at: v.string(),
+  })
+    .index("by_externalId", ["externalId"])
+    .index("by_deployment", ["deployment_id"])
+    .index("by_meta_ad_id", ["meta_ad_id"])
+    .index("by_meta_ad_and_date", ["meta_ad_id", "date"]),
 });

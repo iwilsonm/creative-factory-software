@@ -383,4 +383,22 @@ export const api = {
   sendChatMessage: (projectId, message, onEvent) =>
     streamSSEWithBody(`/projects/${projectId}/chat/send`, { message }, onEvent),
   clearChat: (projectId) => request(`/projects/${projectId}/chat/clear`, { method: 'POST' }),
+
+  // Meta Ads Integration
+  getMetaStatus: () => request('/meta/status'),
+  getMetaAuthUrl: () => request('/meta/auth-url'),
+  disconnectMeta: () => request('/meta/disconnect', { method: 'POST' }),
+  getMetaAdAccounts: () => request('/meta/ad-accounts'),
+  selectMetaAdAccount: (adAccountId) =>
+    request('/meta/ad-account', { method: 'POST', body: JSON.stringify({ adAccountId }) }),
+  getMetaCampaigns: () => request('/meta/campaigns'),
+  getMetaAdSets: (campaignId) => request(`/meta/campaigns/${campaignId}/adsets`),
+  getMetaAds: (adsetId) => request(`/meta/adsets/${adsetId}/ads`),
+  linkMetaAd: (deploymentId, metaAdId, metaCampaignId, metaAdsetId) =>
+    request('/meta/link', { method: 'POST', body: JSON.stringify({ deploymentId, metaAdId, metaCampaignId, metaAdsetId }) }),
+  unlinkMetaAd: (deploymentId) =>
+    request('/meta/unlink', { method: 'POST', body: JSON.stringify({ deploymentId }) }),
+  getMetaPerformance: (deploymentId) => request(`/meta/performance/${deploymentId}`),
+  getMetaPerformanceSummary: (projectId) => request(`/meta/performance/summary?projectId=${projectId || ''}`),
+  syncMetaPerformance: () => request('/meta/sync', { method: 'POST' }),
 };
