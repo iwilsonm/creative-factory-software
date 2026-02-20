@@ -75,6 +75,7 @@ function CopyCorrection({ projectId, onDocsUpdated }) {
   const [history, setHistory] = useState([]);
   const [historyOpen, setHistoryOpen] = useState(false);
   const [reverting, setReverting] = useState(null);
+  const [expandedHistoryId, setExpandedHistoryId] = useState(null);
 
   // Load history on mount
   useEffect(() => {
@@ -163,36 +164,80 @@ function CopyCorrection({ projectId, onDocsUpdated }) {
                 : 'bg-amber-100/60 text-amber-600 hover:bg-amber-200/60'
             }`}
           >
-            History ({history.length})
+            Correction History ({history.length})
           </button>
         )}
       </div>
 
-      {/* History dropdown */}
+      {/* Correction history archive */}
       {historyOpen && history.length > 0 && (
         <div className="mb-3 bg-white border border-amber-200/60 rounded-lg overflow-hidden">
-          <div className="max-h-64 overflow-y-auto divide-y divide-gray-100">
-            {history.map((entry) => (
-              <div key={entry.id} className="flex items-center gap-3 px-3 py-2 hover:bg-gray-50/50 transition-colors">
-                <div className="flex-1 min-w-0">
-                  <p className="text-[12px] text-gray-700 truncate" title={entry.correction}>
-                    {entry.correction}
-                  </p>
-                  <p className="text-[10px] text-gray-400">
-                    {entry.changes?.length || 0} doc{(entry.changes?.length || 0) !== 1 ? 's' : ''} changed
-                    {' · '}
-                    {timeAgo(entry.timestamp)}
-                  </p>
+          <div className="max-h-96 overflow-y-auto divide-y divide-gray-100">
+            {history.map((entry) => {
+              const isExpanded = expandedHistoryId === entry.id;
+              const changeCount = entry.changes?.length || 0;
+              return (
+                <div key={entry.id} className="px-3 py-2.5">
+                  {/* Clickable header row */}
+                  <div
+                    className="flex items-center gap-2 cursor-pointer group"
+                    onClick={() => setExpandedHistoryId(isExpanded ? null : entry.id)}
+                  >
+                    <svg
+                      className={`w-3 h-3 text-gray-400 flex-shrink-0 transition-transform duration-200 ${isExpanded ? 'rotate-90' : ''}`}
+                      fill="none" stroke="currentColor" viewBox="0 0 24 24"
+                    >
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                    </svg>
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[12px] text-gray-700 group-hover:text-gray-900 transition-colors">
+                        {entry.correction}
+                      </p>
+                      <p className="text-[10px] text-gray-400">
+                        {changeCount} doc{changeCount !== 1 ? 's' : ''} changed
+                        {' · '}
+                        {new Date(entry.timestamp).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                        {' at '}
+                        {new Date(entry.timestamp).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
+                        {' ('}
+                        {timeAgo(entry.timestamp)}
+                        {')'}
+                      </p>
+                    </div>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); handleRevert(entry.id); }}
+                      disabled={reverting === entry.id}
+                      className="text-[11px] font-medium text-amber-600 hover:text-amber-800 bg-amber-50 hover:bg-amber-100 px-2 py-1 rounded transition-colors disabled:opacity-50 flex-shrink-0"
+                    >
+                      {reverting === entry.id ? 'Reverting...' : 'Revert'}
+                    </button>
+                  </div>
+
+                  {/* Expanded diff view */}
+                  {isExpanded && entry.changes?.length > 0 && (
+                    <div className="mt-2 ml-5 space-y-2 fade-in">
+                      {entry.changes.map((change, i) => (
+                        <div key={i} className="bg-gray-50/80 rounded-lg border border-gray-200/60 p-3">
+                          <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider mb-1.5">
+                            {change.doc_label || change.doc_type}
+                          </p>
+                          <div className="space-y-1">
+                            <div className="flex items-start gap-2">
+                              <span className="text-[10px] font-medium text-red-400 mt-0.5 flex-shrink-0">OLD</span>
+                              <p className="text-[12px] text-red-700 bg-red-50 rounded px-2 py-1 line-through">{change.old_text}</p>
+                            </div>
+                            <div className="flex items-start gap-2">
+                              <span className="text-[10px] font-medium text-green-500 mt-0.5 flex-shrink-0">NEW</span>
+                              <p className="text-[12px] text-green-700 bg-green-50 rounded px-2 py-1">{change.new_text}</p>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
-                <button
-                  onClick={() => handleRevert(entry.id)}
-                  disabled={reverting === entry.id}
-                  className="text-[11px] font-medium text-amber-600 hover:text-amber-800 bg-amber-50 hover:bg-amber-100 px-2 py-1 rounded transition-colors disabled:opacity-50 flex-shrink-0"
-                >
-                  {reverting === entry.id ? 'Reverting...' : 'Revert'}
-                </button>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </div>
       )}
