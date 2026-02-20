@@ -48,9 +48,12 @@ export default function TemplateImages({ projectId, inspirationFolderId }) {
     }
   };
 
+  const [driveError, setDriveError] = useState('');
+
   const handleSync = async () => {
     setSyncing(true);
     setError('');
+    setDriveError('');
     setSyncResult(null);
     try {
       const result = await api.syncInspiration(projectId);
@@ -58,7 +61,12 @@ export default function TemplateImages({ projectId, inspirationFolderId }) {
       setSyncResult({ synced: result.synced, removed: result.removed, total: result.total });
       setTimeout(() => setSyncResult(null), 5000);
     } catch (err) {
-      setError(err.message);
+      // Show service-account errors inline in the Drive section, not as a page-level error
+      if (err.message?.toLowerCase().includes('service account')) {
+        setDriveError(err.message);
+      } else {
+        setError(err.message);
+      }
     } finally {
       setSyncing(false);
     }
@@ -189,6 +197,13 @@ export default function TemplateImages({ projectId, inspirationFolderId }) {
             </button>
           )}
         </div>
+
+        {driveError && (
+          <div className="p-3 mb-4 bg-amber-50/80 border border-amber-200/60 text-amber-700 text-[12px] rounded-xl">
+            <span className="font-medium">Drive sync requires a Google service account.</span>{' '}
+            Upload one in Settings → Google Drive, or use the Uploaded Templates section below instead.
+          </div>
+        )}
 
         {!inspirationFolderId ? (
           <div className="p-6 bg-gray-50/50 border border-gray-200/60 rounded-xl text-center">
