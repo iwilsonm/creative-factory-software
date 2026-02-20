@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { api } from '../api';
 import { useToast } from './Toast';
 
@@ -969,10 +969,16 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
           {/* Stats bar */}
           <div className="card p-4">
             <div className="flex items-center justify-between">
-              <div className="flex items-center gap-4">
+              <div className="flex items-center gap-4 flex-wrap">
                 <span className="text-[13px] font-semibold text-gray-800">{totalHeadlines} headlines</span>
                 <span className="text-[12px] text-green-600 font-medium">{usedHeadlineCount} used</span>
                 <span className="text-[12px] text-gray-400">{unusedHeadlineCount} unused</span>
+                {uniqueTechniques.length > 0 && (
+                  <span className="text-[11px] text-amber-600 font-medium">{uniqueTechniques.length} techniques</span>
+                )}
+                {quotesWithHeadlinesCount > 0 && (
+                  <span className="text-[11px] text-purple-500">{quotesWithHeadlinesCount} quotes with headlines</span>
+                )}
               </div>
               <div className="flex items-center gap-2">
                 <button onClick={loadUsage} className="btn-secondary text-[11px] flex items-center gap-1">
@@ -1279,118 +1285,160 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
                       <p className="text-[10px] text-gray-400">{filtered.length} of {totalHeadlines} headlines shown</p>
                     </div>
                     {filtered.map((h, idx) => {
+                      const prevQuoteId = idx > 0 ? filtered[idx - 1].quoteId : null;
+                      const showGroupSep = idx > 0 && h.quoteId !== prevQuoteId;
+                      const isLastInGroup = idx === filtered.length - 1 || filtered[idx + 1]?.quoteId !== h.quoteId;
                       const isSelected = selectedHeadlineKeys.has(h.key);
                       const isEditingThis = editingField && editingField.quoteId === h.quoteId && editingField.hlIdx === h.hlIdx && editingField.field === 'headline';
                       return (
-                        <div key={h.key} className={`flex items-start gap-3 p-3 rounded-xl bg-white border transition-all ${
-                          isSelected ? 'border-purple-300 bg-purple-50/30' : 'border-gray-100 hover:border-gray-200'
-                        }`}>
-                          <input
-                            type="checkbox"
-                            checked={isSelected}
-                            onChange={() => toggleHeadlineSelect(h.key)}
-                            className="w-3.5 h-3.5 mt-1 rounded border-gray-300 text-purple-600 focus:ring-purple-500 flex-shrink-0"
-                          />
-                          <span className={`flex-shrink-0 mt-0.5 text-[9px] font-bold px-2 py-0.5 rounded-full ${
-                            h.isUsed ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'
+                        <React.Fragment key={h.key}>
+                          {showGroupSep && (
+                            <div className="flex items-center gap-2 pt-3 pb-1">
+                              <div className="flex-1 border-t border-gray-200/60" />
+                              <button
+                                onClick={() => handleGenerateMoreHeadlines(prevQuoteId)}
+                                disabled={generatingMoreForQuote === prevQuoteId}
+                                className="inline-flex items-center gap-1 text-[9px] font-medium text-purple-500 hover:text-purple-700 transition-colors"
+                              >
+                                {generatingMoreForQuote === prevQuoteId ? (
+                                  <svg className="w-2.5 h-2.5 animate-spin" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" className="opacity-25" /><path d="M4 12a8 8 0 018-8" stroke="currentColor" strokeWidth="4" strokeLinecap="round" className="opacity-75" /></svg>
+                                ) : (
+                                  <svg className="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
+                                )}
+                                Generate More
+                              </button>
+                              <div className="flex-1 border-t border-gray-200/60" />
+                            </div>
+                          )}
+                          <div className={`flex items-start gap-3 p-3 rounded-xl bg-white border transition-all ${
+                            isSelected ? 'border-purple-300 bg-purple-50/30' : 'border-gray-100 hover:border-gray-200'
                           }`}>
-                            {h.isUsed ? 'Used' : 'Unused'}
-                          </span>
-                          <div className="flex-1 min-w-0">
-                            {isEditingThis ? (
-                              <form onSubmit={(e) => { e.preventDefault(); saveEdit(); }} className="flex items-center gap-2">
-                                <input
-                                  autoFocus
-                                  value={editingField.value}
-                                  onChange={e => setEditingField(prev => ({ ...prev, value: e.target.value }))}
-                                  className="flex-1 text-[13px] font-medium text-gray-800 px-2 py-1 rounded-lg border border-purple-300 outline-none focus:ring-2 focus:ring-purple-200"
-                                />
-                                <button type="submit" disabled={savingEdit} className="text-[10px] px-2 py-1 rounded-lg bg-purple-600 text-white font-medium">{savingEdit ? '...' : 'Save'}</button>
-                                <button type="button" onClick={cancelEditing} className="text-[10px] text-gray-500">Cancel</button>
-                              </form>
-                            ) : (
-                              <p
-                                className="text-[13px] font-medium text-gray-800 leading-relaxed cursor-pointer hover:bg-purple-50/50 rounded px-1 -mx-1 transition-colors"
-                                onClick={() => startEditingHeadline(h.quoteId, h.hlIdx, h.headline)}
-                                title="Click to edit headline"
-                              >{h.headline}</p>
-                            )}
-                            <div className="flex items-center gap-2 mt-1.5 flex-wrap">
-                              {h.problem && (
-                                <span
-                                  className="text-[9px] font-semibold px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 cursor-pointer hover:bg-blue-100 transition-colors"
-                                  onClick={() => setHeadlineProblemFilter(headlineProblemFilter === h.problem ? 'all' : h.problem)}
-                                  title={`Filter by: ${h.problem}`}
-                                >
-                                  {h.problem}
-                                </span>
+                            <input
+                              type="checkbox"
+                              checked={isSelected}
+                              onChange={() => toggleHeadlineSelect(h.key)}
+                              className="w-3.5 h-3.5 mt-1 rounded border-gray-300 text-purple-600 focus:ring-purple-500 flex-shrink-0"
+                            />
+                            <span className={`flex-shrink-0 mt-0.5 text-[9px] font-bold px-2 py-0.5 rounded-full ${
+                              h.isUsed ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'
+                            }`}>
+                              {h.isUsed ? 'Used' : 'Unused'}
+                            </span>
+                            <div className="flex-1 min-w-0">
+                              {isEditingThis ? (
+                                <form onSubmit={(e) => { e.preventDefault(); saveEdit(); }} className="flex items-center gap-2">
+                                  <input
+                                    autoFocus
+                                    value={editingField.value}
+                                    onChange={e => setEditingField(prev => ({ ...prev, value: e.target.value }))}
+                                    className="flex-1 text-[13px] font-medium text-gray-800 px-2 py-1 rounded-lg border border-purple-300 outline-none focus:ring-2 focus:ring-purple-200"
+                                  />
+                                  <button type="submit" disabled={savingEdit} className="text-[10px] px-2 py-1 rounded-lg bg-purple-600 text-white font-medium">{savingEdit ? '...' : 'Save'}</button>
+                                  <button type="button" onClick={cancelEditing} className="text-[10px] text-gray-500">Cancel</button>
+                                </form>
+                              ) : (
+                                <p
+                                  className="text-[13px] font-medium text-gray-800 leading-relaxed cursor-pointer hover:bg-purple-50/50 rounded px-1 -mx-1 transition-colors"
+                                  onClick={() => startEditingHeadline(h.quoteId, h.hlIdx, h.headline)}
+                                  title="Click to edit headline"
+                                >{h.headline}</p>
                               )}
-                              {h.emotion && (
-                                <span
-                                  className={`text-[9px] font-semibold px-1.5 py-0.5 rounded-full cursor-pointer hover:opacity-80 transition-opacity ${EMOTION_COLORS[h.emotion] || 'bg-gray-100 text-gray-600'}`}
-                                  onClick={() => setHeadlineEmotionFilter(headlineEmotionFilter === h.emotion ? 'all' : h.emotion)}
-                                  title={`Filter by: ${h.emotion}`}
-                                >
-                                  {h.emotion}
-                                </span>
-                              )}
-                              {h.tags.map(t => (
-                                <span
-                                  key={t}
-                                  className="text-[9px] font-medium px-1.5 py-0.5 rounded-full bg-teal-50 text-teal-600 cursor-pointer hover:bg-teal-100 transition-colors"
-                                  onClick={() => setHeadlineTagFilter(headlineTagFilter === t ? 'all' : t)}
-                                  title={`Filter by tag: ${t}`}
-                                >
-                                  {t}
-                                </span>
-                              ))}
-                              {h.technique && (
-                                <span
-                                  className="text-[9px] font-medium px-1.5 py-0.5 rounded-full bg-amber-50 text-amber-700 cursor-pointer hover:bg-amber-100 transition-colors"
-                                  onClick={() => setHeadlineTechniqueFilter(headlineTechniqueFilter === h.technique ? 'all' : h.technique)}
-                                  title={`Filter by technique: ${h.technique}`}
-                                >
-                                  {h.technique}
-                                </span>
-                              )}
-                              <p className="text-[10px] text-gray-400 truncate max-w-[250px]" title={h.quoteText}>
-                                &ldquo;{h.quoteText.length > 50 ? h.quoteText.slice(0, 50) + '...' : h.quoteText}&rdquo;
-                              </p>
+                              <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                                {h.problem && (
+                                  <span
+                                    className="text-[9px] font-semibold px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 cursor-pointer hover:bg-blue-100 transition-colors"
+                                    onClick={() => setHeadlineProblemFilter(headlineProblemFilter === h.problem ? 'all' : h.problem)}
+                                    title={`Filter by: ${h.problem}`}
+                                  >
+                                    {h.problem}
+                                  </span>
+                                )}
+                                {h.emotion && (
+                                  <span
+                                    className={`text-[9px] font-semibold px-1.5 py-0.5 rounded-full cursor-pointer hover:opacity-80 transition-opacity ${EMOTION_COLORS[h.emotion] || 'bg-gray-100 text-gray-600'}`}
+                                    onClick={() => setHeadlineEmotionFilter(headlineEmotionFilter === h.emotion ? 'all' : h.emotion)}
+                                    title={`Filter by: ${h.emotion}`}
+                                  >
+                                    {h.emotion}
+                                  </span>
+                                )}
+                                {h.tags.map(t => (
+                                  <span
+                                    key={t}
+                                    className="text-[9px] font-medium px-1.5 py-0.5 rounded-full bg-teal-50 text-teal-600 cursor-pointer hover:bg-teal-100 transition-colors"
+                                    onClick={() => setHeadlineTagFilter(headlineTagFilter === t ? 'all' : t)}
+                                    title={`Filter by tag: ${t}`}
+                                  >
+                                    {t}
+                                  </span>
+                                ))}
+                                {h.technique && (
+                                  <span
+                                    className="text-[9px] font-medium px-1.5 py-0.5 rounded-full bg-amber-50 text-amber-700 cursor-pointer hover:bg-amber-100 transition-colors"
+                                    onClick={() => setHeadlineTechniqueFilter(headlineTechniqueFilter === h.technique ? 'all' : h.technique)}
+                                    title={`Filter by technique: ${h.technique}`}
+                                  >
+                                    {h.technique}
+                                  </span>
+                                )}
+                                <p className="text-[10px] text-gray-400 truncate max-w-[250px]" title={h.quoteText}>
+                                  &ldquo;{h.quoteText.length > 50 ? h.quoteText.slice(0, 50) + '...' : h.quoteText}&rdquo;
+                                </p>
+                              </div>
+                            </div>
+                            <div className="flex items-center gap-1.5 flex-shrink-0">
+                              <button
+                                onClick={() => copyHeadline(h.headline)}
+                                className="text-gray-400 hover:text-purple-600 transition-colors p-1"
+                                title="Copy headline"
+                              >
+                                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                                  <path strokeLinecap="round" strokeLinejoin="round" d="M15.666 3.888A2.25 2.25 0 0013.5 2.25H10.5a2.25 2.25 0 00-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 01-.75.75H9.75a.75.75 0 01-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 01-2.25 2.25H6.75A2.25 2.25 0 014.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 011.927-.184" />
+                                </svg>
+                              </button>
+                              <button
+                                onClick={() => {
+                                  const srcQuote = bankQuotes.find(q => q.id === h.quoteId);
+                                  if (srcQuote && onSendToAdStudio) {
+                                    onSendToAdStudio({
+                                      headline: h.headline,
+                                      sourceQuoteId: srcQuote.id,
+                                      quoteText: srcQuote.quote,
+                                      emotion: srcQuote.emotion,
+                                      problem: srcQuote.problem || config.problem,
+                                    });
+                                  }
+                                }}
+                                className="inline-flex items-center gap-1 text-[10px] font-semibold text-purple-600 hover:text-white bg-purple-50 hover:bg-purple-600 px-2.5 py-1 rounded-lg transition-all"
+                                title="Turn this headline into an ad"
+                              >
+                                Turn into Ad
+                                <svg className="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                                  <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" />
+                                </svg>
+                              </button>
                             </div>
                           </div>
-                          <div className="flex items-center gap-1.5 flex-shrink-0">
-                            <button
-                              onClick={() => copyHeadline(h.headline)}
-                              className="text-gray-400 hover:text-purple-600 transition-colors p-1"
-                              title="Copy headline"
-                            >
-                              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M15.666 3.888A2.25 2.25 0 0013.5 2.25H10.5a2.25 2.25 0 00-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 01-.75.75H9.75a.75.75 0 01-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 01-2.25 2.25H6.75A2.25 2.25 0 014.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 011.927-.184" />
-                              </svg>
-                            </button>
-                            <button
-                              onClick={() => {
-                                const srcQuote = bankQuotes.find(q => q.id === h.quoteId);
-                                if (srcQuote && onSendToAdStudio) {
-                                  onSendToAdStudio({
-                                    headline: h.headline,
-                                    sourceQuoteId: srcQuote.id,
-                                    quoteText: srcQuote.quote,
-                                    emotion: srcQuote.emotion,
-                                    problem: srcQuote.problem || config.problem,
-                                  });
-                                }
-                              }}
-                              className="inline-flex items-center gap-1 text-[10px] font-semibold text-purple-600 hover:text-white bg-purple-50 hover:bg-purple-600 px-2.5 py-1 rounded-lg transition-all"
-                              title="Turn this headline into an ad"
-                            >
-                              Turn into Ad
-                              <svg className="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-                                <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" />
-                              </svg>
-                            </button>
-                          </div>
-                        </div>
+                          {/* Generate More button at end of last group */}
+                          {isLastInGroup && idx === filtered.length - 1 && (
+                            <div className="flex items-center gap-2 pt-2">
+                              <div className="flex-1 border-t border-gray-200/60" />
+                              <button
+                                onClick={() => handleGenerateMoreHeadlines(h.quoteId)}
+                                disabled={generatingMoreForQuote === h.quoteId}
+                                className="inline-flex items-center gap-1 text-[9px] font-medium text-purple-500 hover:text-purple-700 transition-colors"
+                              >
+                                {generatingMoreForQuote === h.quoteId ? (
+                                  <svg className="w-2.5 h-2.5 animate-spin" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" className="opacity-25" /><path d="M4 12a8 8 0 018-8" stroke="currentColor" strokeWidth="4" strokeLinecap="round" className="opacity-75" /></svg>
+                                ) : (
+                                  <svg className="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" /></svg>
+                                )}
+                                Generate More
+                              </button>
+                              <div className="flex-1 border-t border-gray-200/60" />
+                            </div>
+                          )}
+                        </React.Fragment>
                       );
                     })}
                   </div>
@@ -1721,6 +1769,15 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
                                 {headlines.length} headlines
                               </span>
                             )}
+                            {(() => {
+                              const techs = headlines.map(h => h.technique).filter(Boolean);
+                              const uniqueTechs = [...new Set(techs)];
+                              return uniqueTechs.length > 0 ? (
+                                <span className="text-[9px] font-medium px-1.5 py-0.5 rounded-full bg-amber-50 text-amber-600" title={uniqueTechs.join(', ')}>
+                                  {uniqueTechs.length} technique{uniqueTechs.length !== 1 ? 's' : ''}
+                                </span>
+                              ) : null;
+                            })()}
                             {(quote.tags || []).map(t => (
                               <span key={t} className="text-[9px] font-medium px-1.5 py-0.5 rounded-full bg-teal-50 text-teal-600">
                                 {t}

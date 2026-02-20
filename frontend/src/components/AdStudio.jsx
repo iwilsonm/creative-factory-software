@@ -177,6 +177,18 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
 
   useEffect(() => {
     loadAds();
+    // Reset form state when project changes
+    setAngle('');
+    setHeadline('');
+    setBodyCopy('');
+    setSourceQuoteId(null);
+    setCustomPrompt('');
+    setParentAdId(null);
+    setSelectedTemplate(null);
+    setTemplateAnalysis(null);
+    setSkipProductImage(false);
+    setOptionalOpen(false);
+    setPromptGuidelines(project?.prompt_guidelines || '');
   }, [projectId]);
 
   // Check if headline reference doc exists (for Headline Juicer toggle)
@@ -329,6 +341,9 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
   };
 
   // ── Prefill from Copywriter tab (headline → Ad Studio) ──
+  // Use a ref to track prefill-triggered body copy gen so template analysis doesn't race
+  const prefillBodyGenRef = useRef(false);
+
   useEffect(() => {
     if (!prefill) return;
 
@@ -344,8 +359,9 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
     setCustomPrompt('');
     setParentAdId(null);
 
-    // Auto-generate body copy
+    // Auto-generate body copy (mark prefill as source to prevent template analysis race)
     if (prefill.headline) {
+      prefillBodyGenRef.current = true;
       setGeneratingBody(true);
       api.generateAdBodyCopy(projectId, {
         headline: prefill.headline,
@@ -359,8 +375,18 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
         toast.error('Body copy generation failed');
       }).finally(() => {
         setGeneratingBody(false);
+        // Allow template analysis to regen body after a brief delay
+        setTimeout(() => { prefillBodyGenRef.current = false; }, 2000);
       });
     }
+
+    // Show confirmation toast
+    toast.success(
+      <span>
+        Headline loaded into Ad Studio
+        {prefill.problem ? <span className="text-green-600/70"> · Angle: {prefill.problem}</span> : ''}
+      </span>
+    );
 
     // Notify parent that prefill was consumed
     if (onPrefillConsumed) onPrefillConsumed();
@@ -393,8 +419,8 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
         setTemplateAnalysis(parsed);
         if (parsed.recommended_style) setBodyCopyStyle(parsed.recommended_style);
         setSkipProductImage(!parsed.needs_product_image);
-        // Auto-regenerate body copy if headline exists
-        if (headline.trim() && parsed.recommended_style) {
+        // Auto-regenerate body copy if headline exists and prefill isn't actively generating
+        if (headline.trim() && parsed.recommended_style && !prefillBodyGenRef.current) {
           handleRegenerateBody(parsed.recommended_style);
         }
         return;
@@ -419,8 +445,8 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
           t.id === selectedTemplate.id ? { ...t, analysis: JSON.stringify(analysis) } : t
         ));
 
-        // Auto-regenerate body copy if headline exists
-        if (headline.trim() && analysis.recommended_style) {
+        // Auto-regenerate body copy if headline exists and prefill isn't actively generating
+        if (headline.trim() && analysis.recommended_style && !prefillBodyGenRef.current) {
           handleRegenerateBody(analysis.recommended_style);
         }
       })
@@ -2712,6 +2738,14 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
                       />
                       <span className="text-gray-600 text-[12px]">{getTemplateName(viewAd.template_image_id)}</span>
                     </div>
+                  </div>
+                )}
+                {viewAd.source_quote_text && (
+                  <div>
+                    <p className="text-[11px] text-gray-400 mb-0.5">Source Quote</p>
+                    <p className="text-gray-600 text-[12px] leading-relaxed italic bg-purple-50/50 p-2.5 rounded-xl border border-purple-100/60">
+                      &ldquo;{viewAd.source_quote_text}&rdquo;
+                    </p>
                   </div>
                 )}
                 {viewAd.parent_ad_id && (

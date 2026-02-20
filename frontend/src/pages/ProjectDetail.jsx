@@ -77,6 +77,8 @@ export default function ProjectDetail() {
 
   useEffect(() => {
     loadProject();
+    // Clear cross-tab prefill on project switch to avoid stale data
+    setAdStudioPrefill(null);
   }, [id]);
 
   useEffect(() => {

@@ -29,6 +29,7 @@ router.post('/:projectId/batches', async (req, res) => {
     inspiration_image_ids,     // JSON string array of drive template IDs (multi-select)
     product_image,
     product_image_mime,
+    skip_product_image,
     scheduled = false,
     schedule_cron,
     run_immediately = true
@@ -48,7 +49,10 @@ router.post('/:projectId/batches', async (req, res) => {
 
   // Upload product image to Convex storage if provided, else use project-level image
   let productImageStorageId = undefined;
-  if (product_image && product_image_mime) {
+  if (skip_product_image) {
+    // Explicitly skip product image (user opted out)
+    productImageStorageId = undefined;
+  } else if (product_image && product_image_mime) {
     const buffer = Buffer.from(product_image, 'base64');
     productImageStorageId = await uploadBuffer(buffer, product_image_mime);
   } else if (project.product_image_storageId) {

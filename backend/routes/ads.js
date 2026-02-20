@@ -231,11 +231,23 @@ router.get('/:projectId/ads', async (req, res) => {
   // Full-size URL: pre-resolved Convex CDN URL (direct), with redirect fallback
   // Thumbnail URL: resized 400px endpoint with disk cache
   const projectId = req.params.projectId;
+
+  // Resolve source quote text for ads linked to quote bank
+  const quoteIds = [...new Set(ads.filter(a => a.source_quote_id).map(a => a.source_quote_id))];
+  const quoteTexts = {};
+  await Promise.all(quoteIds.map(async (qid) => {
+    try {
+      const q = await getQuoteBankQuote(qid);
+      if (q) quoteTexts[qid] = q.quote;
+    } catch { /* non-critical */ }
+  }));
+
   const withUrls = ads.map(ad => ({
     ...ad,
     imageUrl: ad.resolvedImageUrl
       || (ad.storageId ? `/api/projects/${projectId}/ads/${ad.id}/image` : null),
-    thumbnailUrl: ad.storageId ? `/api/projects/${projectId}/ads/${ad.id}/thumbnail` : null
+    thumbnailUrl: ad.storageId ? `/api/projects/${projectId}/ads/${ad.id}/thumbnail` : null,
+    source_quote_text: ad.source_quote_id ? (quoteTexts[ad.source_quote_id] || null) : null,
   }));
 
   res.json({ ads: withUrls, total: withUrls.length });
