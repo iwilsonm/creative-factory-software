@@ -41,114 +41,34 @@ const EXT_TO_MIME = {
 };
 
 /**
- * Parse a headline reference document into individual headline types.
- * Handles both plain text and markdown-formatted documents.
- * Expected format: numbered entries like "1. Technique name:\nA: EXAMPLE\nB: EXAMPLE"
- * Also handles: "**1. Technique name:**", horizontal rules (---), extra blank lines.
- * Returns an array of { number, technique, examples: [string] } objects.
- */
-export function parseHeadlineTypes(content) {
-  if (!content) return [];
-
-  // Strip markdown formatting to normalize the content
-  let normalized = content
-    .replace(/\*\*/g, '')        // Remove ** bold markers
-    .replace(/^---+$/gm, '')     // Remove horizontal rules
-    .replace(/\n{3,}/g, '\n\n'); // Collapse excessive blank lines
-
-  // Split on numbered entries (e.g., "1.", "2.", ... "38.")
-  // Match lines that start with a number followed by a period (with optional leading whitespace)
-  const chunks = normalized.split(/\n(?=\s*\d{1,2}\.\s)/);
-
-  const types = [];
-  for (const chunk of chunks) {
-    const trimmed = chunk.trim();
-    if (!trimmed) continue;
-
-    // Match the number and technique description
-    // Handles "1. Technique name:" at end of line ($ with multiline flag via /m)
-    const headerMatch = trimmed.match(/^(\d{1,2})\.\s+(.+?):\s*$/m);
-    if (!headerMatch) continue;
-
-    const number = parseInt(headerMatch[1], 10);
-    const technique = headerMatch[2].trim();
-
-    // Extract examples (lines starting with A:, B:, or similar letter patterns)
-    const examples = [];
-    const exampleMatches = trimmed.matchAll(/^([A-Z]):\s*(.+)/gm);
-    for (const m of exampleMatches) {
-      examples.push(m[2].trim());
-    }
-
-    if (examples.length > 0) {
-      types.push({ number, technique, examples });
-    }
-  }
-
-  return types;
-}
-
-/**
- * In-memory tracker of recently used headline types per project.
- * Prevents consecutive ads from getting the same headline technique.
- * Resets automatically when all types have been used, or on server restart.
- * Map<projectId, number[]> — stores the headline type numbers that have been used.
- */
-const usedHeadlineTypes = new Map();
-
-/**
  * Build the Headline Juicer Message 3 content.
- * Randomly selects one headline type (excluding recently used ones for this project)
- * and one example from that type.
- * @param {string} headlineContent - The full headline reference document content
- * @param {string} projectId - The project ID for tracking used types
- * Returns the message string.
+ * Loads the 3 headline reference docs (Headline Engine, 100 Greatest Headlines, 349 Swipe File)
+ * and sends them as combined reference material for GPT to select a technique.
+ * Returns null if no reference docs are uploaded.
  */
-export function buildHeadlineJuicerMessage(headlineContent, projectId) {
-  const types = parseHeadlineTypes(headlineContent);
-  console.log(`[HeadlineJuicer] Parsed ${types.length} headline types from document (${headlineContent?.length || 0} chars)`);
-  if (types.length === 0) {
-    console.log('[HeadlineJuicer] WARNING: No types parsed — falling back to full document');
-    // Fallback: send the full document if we can't parse it
-    return `Here is a headline reference document. Choose one of the headline techniques from this document and revise the image prompt you just created to use a headline that follows that technique. Adjust the body copy so it aligns with and supports the new headline. Keep everything else about the prompt the same — the visual style, layout, and creative direction — just swap in the new headline and adjust the copy to match.
+export async function buildHeadlineJuicerMessage() {
+  const [engine, greatest, swipe] = await Promise.all([
+    getSetting('headline_ref_engine'),
+    getSetting('headline_ref_greatest'),
+    getSetting('headline_ref_swipe'),
+  ]);
 
-HEADLINE REFERENCE DOCUMENT:
-${headlineContent}
+  const loadedCount = [engine, greatest, swipe].filter(Boolean).length;
+  if (loadedCount === 0) return null;
 
-Now output ONLY the revised image prompt with the new headline and aligned body copy. No explanation, just the prompt.`;
-  }
+  console.log(`[HeadlineJuicer] Loaded ${loadedCount}/3 headline reference docs`);
 
-  // Get the used types for this project, or initialize empty
-  let used = usedHeadlineTypes.get(projectId) || [];
+  let refSection = '';
+  if (engine) refSection += '\n=== HEADLINE ENGINE (Methodology & Rules) ===\n' + engine + '\n';
+  if (greatest) refSection += '\n=== 100 GREATEST HEADLINES EVER USED ===\n' + greatest + '\n';
+  if (swipe) refSection += '\n=== 349 GREAT HEADLINES / HALBERT SWIPE FILE ===\n' + swipe + '\n';
 
-  // Filter to types that haven't been used yet
-  let available = types.filter(t => !used.includes(t.number));
+  return `Here are headline reference documents containing proven headline techniques, patterns, and examples from the world's best direct response copywriters. Study them carefully, then select ONE specific headline technique or pattern from these references and revise the image prompt you just created to use a headline that follows that technique.
 
-  // If all types have been used, reset the tracker
-  if (available.length === 0) {
-    used = [];
-    available = types;
-    usedHeadlineTypes.set(projectId, []);
-  }
+Choose a technique that best fits this particular ad's angle and audience. The headline should be original and tailored to this brand — do not copy examples verbatim, but follow the same pattern and approach. Adjust the body copy so it naturally supports and reinforces the new headline. Keep everything else about the prompt the same — the visual style, layout, and creative direction.
 
-  // Randomly pick from available types
-  const selectedType = available[Math.floor(Math.random() * available.length)];
-
-  // Track this type as used
-  used.push(selectedType.number);
-  usedHeadlineTypes.set(projectId, used);
-  console.log(`[HeadlineJuicer] Selected type #${selectedType.number}: "${selectedType.technique}" (${available.length} available, ${used.length} used)`);
-
-  // Randomly pick one example from that type
-  const selectedExample = selectedType.examples[Math.floor(Math.random() * selectedType.examples.length)];
-
-  return `Apply this specific headline technique to revise the image prompt you just created. Use this technique and example as your guide to craft a new headline for the ad.
-
-HEADLINE TECHNIQUE #${selectedType.number}: ${selectedType.technique}
-
-EXAMPLE: ${selectedExample}
-
-Revise the image prompt to use a headline that follows this exact technique and style. The headline should be original and tailored to this brand — do not copy the example verbatim, but follow the same pattern and approach. Adjust the body copy so it naturally supports and reinforces the new headline. Keep everything else about the prompt the same — the visual style, layout, and creative direction.
+HEADLINE REFERENCE DOCUMENTS:
+${refSection}
 
 Output ONLY the revised image prompt with the new headline and aligned body copy. No explanation, just the prompt.`;
 }
@@ -489,7 +409,7 @@ export async function generateAd(projectId, options = {}) {
   try {
     // 1. Load project + foundational docs + inspiration image in parallel
     const useUploadedImage = !!(uploadedImageBase64 && uploadedImageMimeType);
-    const [project, research, avatar, offer_brief, necessary_beliefs, inspiration, headlineRefRaw] = await Promise.all([
+    const [project, research, avatar, offer_brief, necessary_beliefs, inspiration] = await Promise.all([
       getProject(projectId),
       getLatestDoc(projectId, 'research'),
       getLatestDoc(projectId, 'avatar'),
@@ -498,10 +418,7 @@ export async function generateAd(projectId, options = {}) {
       useUploadedImage
         ? Promise.resolve({ base64: uploadedImageBase64, mimeType: uploadedImageMimeType, fileId: 'uploaded' })
         : selectInspirationImage(projectId, inspirationImageId),
-      headlineJuicer ? getSetting('headline_reference_content') : Promise.resolve(null),
     ]);
-    // Wrap headline ref string into expected { content } shape
-    const headlineRef = headlineRefRaw ? { content: headlineRefRaw } : null;
     if (!project) throw new Error('Project not found');
 
     const docs = { research, avatar, offer_brief, necessary_beliefs };
@@ -565,24 +482,25 @@ export async function generateAd(projectId, options = {}) {
         );
       }
 
-      // Message 3 (Headline Juicer): Randomly select one headline type + example,
-      // then ask GPT to revise the prompt using that specific technique
-      if (headlineRef && headlineRef.content) {
+      // Message 3 (Headline Juicer): Load headline reference docs and ask GPT
+      // to select a technique and revise the prompt with a new headline
+      if (headlineJuicer) {
         emit({ type: 'status', status: 'generating_copy', message: 'Applying Headline Juicer — selecting headline technique...', progress: 50 });
 
-        const msg3 = buildHeadlineJuicerMessage(headlineRef.content, projectId);
+        const msg3 = await buildHeadlineJuicerMessage();
+        if (msg3) {
+          const conversationWithMsg2 = [
+            { role: 'user', content: creativeDirectorPrompt_inner },
+            { role: 'assistant', content: acknowledgment },
+            { role: 'user', content: imageRequestText_inner },
+            { role: 'assistant', content: prompt }
+          ];
 
-        const conversationWithMsg2 = [
-          { role: 'user', content: creativeDirectorPrompt_inner },
-          { role: 'assistant', content: acknowledgment },
-          { role: 'user', content: imageRequestText_inner },
-          { role: 'assistant', content: prompt }
-        ];
-
-        prompt = await chat(
-          [...conversationWithMsg2, { role: 'user', content: msg3 }],
-          'gpt-5.2'
-        );
+          prompt = await chat(
+            [...conversationWithMsg2, { role: 'user', content: msg3 }],
+            'gpt-5.2'
+          );
+        }
       }
 
       return prompt;
@@ -742,17 +660,14 @@ export async function generateAdMode2(projectId, options = {}) {
 
   try {
     // 1. Load project + foundational docs + template image (+ optional headline ref) in parallel
-    const [project, research, avatar, offer_brief, necessary_beliefs, template, headlineRefRaw] = await Promise.all([
+    const [project, research, avatar, offer_brief, necessary_beliefs, template] = await Promise.all([
       getProject(projectId),
       getLatestDoc(projectId, 'research'),
       getLatestDoc(projectId, 'avatar'),
       getLatestDoc(projectId, 'offer_brief'),
       getLatestDoc(projectId, 'necessary_beliefs'),
       selectTemplateImage(templateImageId),
-      headlineJuicer ? getSetting('headline_reference_content') : Promise.resolve(null),
     ]);
-    // Wrap headline ref string into expected { content } shape
-    const headlineRef = headlineRefRaw ? { content: headlineRefRaw } : null;
     if (!project) throw new Error('Project not found');
 
     const docs = { research, avatar, offer_brief, necessary_beliefs };
@@ -807,24 +722,25 @@ export async function generateAdMode2(projectId, options = {}) {
         );
       }
 
-      // Message 3 (Headline Juicer): Randomly select one headline type + example,
-      // then ask GPT to revise the prompt using that specific technique
-      if (headlineRef && headlineRef.content) {
+      // Message 3 (Headline Juicer): Load headline reference docs and ask GPT
+      // to select a technique and revise the prompt with a new headline
+      if (headlineJuicer) {
         emit({ type: 'status', status: 'generating_copy', message: 'Applying Headline Juicer — selecting headline technique...', progress: 50 });
 
-        const msg3 = buildHeadlineJuicerMessage(headlineRef.content, projectId);
+        const msg3 = await buildHeadlineJuicerMessage();
+        if (msg3) {
+          const conversationWithMsg2 = [
+            { role: 'user', content: creativeDirectorPrompt_inner },
+            { role: 'assistant', content: acknowledgment },
+            { role: 'user', content: imageRequestText_inner },
+            { role: 'assistant', content: prompt }
+          ];
 
-        const conversationWithMsg2 = [
-          { role: 'user', content: creativeDirectorPrompt_inner },
-          { role: 'assistant', content: acknowledgment },
-          { role: 'user', content: imageRequestText_inner },
-          { role: 'assistant', content: prompt }
-        ];
-
-        prompt = await chat(
-          [...conversationWithMsg2, { role: 'user', content: msg3 }],
-          'gpt-5.2'
-        );
+          prompt = await chat(
+            [...conversationWithMsg2, { role: 'user', content: msg3 }],
+            'gpt-5.2'
+          );
+        }
       }
 
       return prompt;

@@ -191,10 +191,10 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
     setPromptGuidelines(project?.prompt_guidelines || '');
   }, [projectId]);
 
-  // Check if headline reference doc exists (for Headline Juicer toggle)
+  // Check if headline reference docs exist (for Headline Juicer toggle)
   useEffect(() => {
-    api.getHeadlineReference().then(doc => {
-      setHasHeadlineDoc(!!(doc && doc.content));
+    api.getHeadlineReferences().then(data => {
+      setHasHeadlineDoc(!!(data && (data.engine || data.greatest || data.swipe)));
     }).catch(() => setHasHeadlineDoc(false));
   }, []);
 
@@ -1831,12 +1831,12 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
                 {headlineJuicerOn && hasHeadlineDoc && (
                   <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-orange-100 text-orange-700">Active</span>
                 )}
-                <InfoTooltip text="When enabled, your uploaded headline reference document is sent to the AI as creative inspiration. Headlines will be more varied and punchy. Upload a headline doc in Settings." />
+                <InfoTooltip text="When enabled, your headline reference documents (Headline Engine, 100 Greatest Headlines, Swipe File) are sent to the AI as creative inspiration. Headlines will be more varied and punchy. Upload reference docs in Settings → Headline Generator Reference Docs." />
               </div>
               <p className={`text-[11px] ${hasHeadlineDoc ? 'text-gray-500' : 'text-gray-400'}`}>
                 {hasHeadlineDoc
-                  ? 'Use your headline reference document as creative fuel for more diverse headlines'
-                  : 'Upload a headline reference document in Settings to enable this'}
+                  ? 'Use your headline reference documents as creative fuel for more diverse headlines'
+                  : 'Upload headline reference documents in Settings to enable this'}
               </p>
             </div>
           </div>

@@ -192,42 +192,8 @@ router.post('/refresh-gemini-rates', async (req, res) => {
 });
 
 // =============================================
-// Headline Reference Document (global, stored in settings)
 // =============================================
-
-router.get('/headline-reference', async (req, res) => {
-  try {
-    const content = await getSetting('headline_reference_content');
-    res.json({ content: content || null });
-  } catch (err) {
-    res.status(500).json({ error: 'Failed to fetch headline reference' });
-  }
-});
-
-router.put('/headline-reference', async (req, res) => {
-  try {
-    const { content } = req.body;
-    if (!content || !content.trim()) {
-      return res.status(400).json({ error: 'Content is required' });
-    }
-    await setSetting('headline_reference_content', content.trim());
-    res.json({ success: true, charCount: content.trim().length });
-  } catch (err) {
-    res.status(500).json({ error: 'Failed to save headline reference' });
-  }
-});
-
-router.delete('/headline-reference', async (req, res) => {
-  try {
-    await setSetting('headline_reference_content', '');
-    res.json({ success: true });
-  } catch (err) {
-    res.status(500).json({ error: 'Failed to delete headline reference' });
-  }
-});
-
-// =============================================
-// Headline Generator Reference Docs (3 separate documents for Quote Miner)
+// Headline Generator Reference Docs (3 documents — powers Copywriter + Ad Studio Headline Juicer)
 // =============================================
 
 const HEADLINE_REF_KEYS = {

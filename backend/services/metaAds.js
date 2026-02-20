@@ -2,13 +2,13 @@
  * metaAds.js — Meta Marketing API wrapper (per-project)
  *
  * Each project has its own Meta OAuth token and ad account.
- * App ID + App Secret are global (developer credentials in settings table).
- * All other Meta data lives on the project record.
+ * Each project also has its own App ID + App Secret (developer credentials).
+ * All Meta data lives on the project record — nothing is global.
  */
 
 import fetch from 'node-fetch';
 import { v4 as uuidv4 } from 'uuid';
-import { getSetting, setSetting, getProject, updateProject, getAllDeployments, upsertMetaPerformance } from '../convexClient.js';
+import { setSetting, getProject, updateProject, getAllDeployments, upsertMetaPerformance } from '../convexClient.js';
 import { withRetry } from './retry.js';
 
 const META_GRAPH_URL = 'https://graph.facebook.com/v21.0';
@@ -47,9 +47,10 @@ export async function getAccessToken(projectId) {
  * Exchange current token for a fresh long-lived token (~60 days).
  */
 async function refreshLongLivedToken(projectId, currentToken) {
-  const appId = await getSetting('meta_app_id');
-  const appSecret = await getSetting('meta_app_secret');
-  if (!appId || !appSecret) throw new Error('Meta App ID/Secret not configured in Settings');
+  const project = await getProject(projectId);
+  const appId = project?.meta_app_id;
+  const appSecret = project?.meta_app_secret;
+  if (!appId || !appSecret) throw new Error('Meta App ID/Secret not configured for this project. Enter them in the project Overview tab.');
 
   const url = `${META_GRAPH_URL}/oauth/access_token?grant_type=fb_exchange_token&client_id=${appId}&client_secret=${appSecret}&fb_exchange_token=${currentToken}`;
   const res = await fetch(url);
@@ -87,9 +88,8 @@ export async function refreshMetaTokenIfNeeded(projectId) {
 export async function isMetaConnected(projectId) {
   const project = await getProject(projectId);
   if (!project || !project.meta_access_token) {
-    // Also check if global app creds are configured
-    const appId = await getSetting('meta_app_id');
-    return { connected: false, appConfigured: !!appId };
+    // Check if this project has app credentials configured
+    return { connected: false, appConfigured: !!(project?.meta_app_id) };
   }
 
   return {
@@ -304,8 +304,9 @@ export async function syncMetaPerformance(projectId) {
  * Encodes projectId in the state parameter so the callback knows which project to save to.
  */
 export async function getOAuthUrl(projectId, redirectUri) {
-  const appId = await getSetting('meta_app_id');
-  if (!appId) throw new Error('Meta App ID not configured. Enter it in Settings first.');
+  const project = await getProject(projectId);
+  const appId = project?.meta_app_id;
+  if (!appId) throw new Error('Meta App ID not configured for this project. Enter it in the project Overview tab.');
 
   // Include projectId in state for the callback to extract
   const stateObj = { csrf: uuidv4(), projectId };
@@ -319,9 +320,10 @@ export async function getOAuthUrl(projectId, redirectUri) {
  * Exchange authorization code for tokens and store them on the project.
  */
 export async function handleOAuthCallback(code, redirectUri, projectId) {
-  const appId = await getSetting('meta_app_id');
-  const appSecret = await getSetting('meta_app_secret');
-  if (!appId || !appSecret) throw new Error('Meta App ID/Secret not configured');
+  const project = await getProject(projectId);
+  const appId = project?.meta_app_id;
+  const appSecret = project?.meta_app_secret;
+  if (!appId || !appSecret) throw new Error('Meta App ID/Secret not configured for this project');
 
   // Exchange code for short-lived token
   const tokenUrl = `${META_GRAPH_URL}/oauth/access_token?client_id=${appId}&redirect_uri=${encodeURIComponent(redirectUri)}&client_secret=${appSecret}&code=${code}`;

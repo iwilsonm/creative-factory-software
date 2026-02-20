@@ -5,137 +5,6 @@ import InfoTooltip from '../components/InfoTooltip';
 import DragDropUpload from '../components/DragDropUpload';
 import { useToast } from '../components/Toast';
 
-// ─── Headline Reference Document Section (global) ─────────────────────────
-function HeadlineReferenceSection() {
-  const toast = useToast();
-  const [headlineDoc, setHeadlineDoc] = useState(null);
-  const [loading, setLoading] = useState(true);
-  const [pasteContent, setPasteContent] = useState('');
-  const [saving, setSaving] = useState(false);
-  const [editing, setEditing] = useState(false);
-  const [expanded, setExpanded] = useState(false);
-  const [deleting, setDeleting] = useState(false);
-
-  useEffect(() => { loadHeadlineDoc(); }, []);
-
-  const loadHeadlineDoc = async () => {
-    try {
-      const doc = await api.getHeadlineReference();
-      setHeadlineDoc(doc && doc.content ? doc : null);
-    } catch (err) {
-      console.error('Failed to load headline reference:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleSave = async () => {
-    if (!pasteContent.trim()) { toast.error('Please enter or upload headline content'); return; }
-    setSaving(true);
-    try {
-      await api.uploadHeadlineReference(pasteContent.trim());
-      toast.success('Headline reference document saved');
-      setPasteContent('');
-      setEditing(false);
-      await loadHeadlineDoc();
-    } catch (err) {
-      toast.error('Failed to save: ' + (err.message || 'Unknown error'));
-    } finally { setSaving(false); }
-  };
-
-  const handleDelete = async () => {
-    if (!confirm('Remove the headline reference document?')) return;
-    setDeleting(true);
-    try {
-      await api.deleteHeadlineReference();
-      setHeadlineDoc(null);
-      toast.success('Headline reference removed');
-    } catch (err) {
-      toast.error('Failed to delete: ' + (err.message || 'Unknown error'));
-    } finally { setDeleting(false); }
-  };
-
-  const handleFileExtracted = (result) => {
-    setPasteContent(result.text);
-    toast.success(`Extracted ${result.charCount.toLocaleString()} characters from ${result.filename}`);
-  };
-
-  if (loading) return null;
-
-  return (
-    <div className="card p-6">
-      <div className="flex items-center gap-2 mb-1">
-        <div className="w-6 h-6 rounded-lg bg-orange-100 flex items-center justify-center">
-          <svg className="w-3.5 h-3.5 text-orange-600" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z" />
-          </svg>
-        </div>
-        <h2 className="text-[15px] font-semibold text-gray-900 tracking-tight">Headline Reference Document</h2>
-        <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-orange-100 text-orange-700">Optional</span>
-        <InfoTooltip text="Upload a document with headline examples (swipe file, headline collection, etc.). When the Headline Juicer is enabled in Ad Studio, the AI uses these as creative inspiration for more diverse, varied headlines. This applies to all projects." />
-      </div>
-      <p className="text-[12px] text-gray-500 mb-4">
-        Upload a swipe file or headline collection. The AI will use these as creative fuel for all projects when Headline Juicer is enabled in Ad Studio.
-      </p>
-
-      {headlineDoc && !editing ? (
-        <div className="bg-white rounded-lg shadow-sm border border-orange-200 p-4">
-          <div className="flex items-start justify-between mb-2">
-            <div className="flex items-center gap-2">
-              <h4 className="text-[13px] font-medium text-gray-900">Headline Reference</h4>
-              <span className="text-[10px] px-2 py-0.5 rounded-full bg-blue-100 text-blue-700">Uploaded</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <button onClick={() => { setEditing(true); setPasteContent(headlineDoc.content || ''); }} className="text-[11px] text-blue-600 hover:underline">Replace</button>
-              <button onClick={handleDelete} disabled={deleting} className="text-[11px] text-red-500 hover:underline disabled:opacity-50">
-                {deleting ? 'Removing...' : 'Remove'}
-              </button>
-            </div>
-          </div>
-          <div className="flex items-center gap-3 mb-2 text-[11px] text-gray-400">
-            <span>{(headlineDoc.content?.length || 0).toLocaleString()} characters</span>
-          </div>
-          <button onClick={() => setExpanded(prev => !prev)} className="text-[11px] text-gray-500 hover:text-gray-700 flex items-center gap-1">
-            <svg className={`w-3 h-3 transition-transform ${expanded ? 'rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
-            </svg>
-            {expanded ? 'Hide content' : 'Show content'}
-          </button>
-          {expanded && (
-            <div className="mt-2 max-h-[300px] overflow-y-auto text-[12px] text-gray-600 whitespace-pre-wrap bg-gray-50 rounded-lg p-3 border border-gray-100">
-              {headlineDoc.content}
-            </div>
-          )}
-        </div>
-      ) : (
-        <div className="space-y-3">
-          <DragDropUpload
-            onTextExtracted={handleFileExtracted}
-            accept=".pdf,.docx,.epub,.mobi,.txt,.html,.htm,.md,.markdown"
-            label="Drop a headline file here (PDF, DOCX, EPUB, MOBI, TXT, HTML, Markdown)"
-          />
-          <textarea
-            value={pasteContent}
-            onChange={(e) => setPasteContent(e.target.value)}
-            placeholder="Or paste headline content here..."
-            rows={6}
-            className="input-apple w-full text-[13px] resize-y"
-          />
-          {pasteContent && <p className="text-[11px] text-gray-400">{pasteContent.length.toLocaleString()} characters</p>}
-          <div className="flex items-center gap-2">
-            <button onClick={handleSave} disabled={saving || !pasteContent.trim()} className="btn-primary text-[13px] px-4 py-1.5 disabled:opacity-50">
-              {saving ? 'Saving...' : 'Save Headline Reference'}
-            </button>
-            {editing && (
-              <button onClick={() => { setEditing(false); setPasteContent(''); }} className="btn-secondary text-[13px] px-4 py-1.5">Cancel</button>
-            )}
-          </div>
-        </div>
-      )}
-    </div>
-  );
-}
-
 // ─── Single reference doc upload slot (reusable) ─────────────────────────
 function ReferenceDocSlot({ docKey, label, description, content, onSave, onDelete }) {
   const toast = useToast();
@@ -379,13 +248,11 @@ export default function Settings() {
       if (form.gemini_rate_1k) payload.gemini_rate_1k = form.gemini_rate_1k;
       if (form.gemini_rate_2k) payload.gemini_rate_2k = form.gemini_rate_2k;
       if (form.gemini_rate_4k) payload.gemini_rate_4k = form.gemini_rate_4k;
-      if (form.meta_app_id) payload.meta_app_id = form.meta_app_id;
-      if (form.meta_app_secret) payload.meta_app_secret = form.meta_app_secret;
 
       await api.updateSettings(payload);
       toast.success('Settings saved');
       setMessage('');
-      setForm(prev => ({ ...prev, openai_api_key: '', openai_admin_key: '', gemini_api_key: '', perplexity_api_key: '', anthropic_api_key: '', meta_app_id: '', meta_app_secret: '' }));
+      setForm(prev => ({ ...prev, openai_api_key: '', openai_admin_key: '', gemini_api_key: '', perplexity_api_key: '', anthropic_api_key: '' }));
       await loadSettings();
     } catch (err) {
       toast.error(err.message);
@@ -688,60 +555,7 @@ export default function Settings() {
           </button>
         </div>
 
-        {/* Meta Developer Credentials (global, shared across all projects) */}
-        <div className="card p-6">
-          <div className="flex items-center gap-2 mb-1">
-            <div className="w-6 h-6 rounded-lg bg-blue-100 flex items-center justify-center">
-              <svg className="w-3.5 h-3.5 text-blue-600" viewBox="0 0 24 24" fill="currentColor">
-                <path d="M12 2.04C6.5 2.04 2 6.53 2 12.06C2 17.06 5.66 21.21 10.44 21.96V14.96H7.9V12.06H10.44V9.85C10.44 7.34 11.93 5.96 14.22 5.96C15.31 5.96 16.45 6.15 16.45 6.15V8.62H15.19C13.95 8.62 13.56 9.39 13.56 10.18V12.06H16.34L15.89 14.96H13.56V21.96A10 10 0 0022 12.06C22 6.53 17.5 2.04 12 2.04Z" />
-              </svg>
-            </div>
-            <h2 className="text-[15px] font-semibold text-gray-900 tracking-tight">Meta Developer Credentials</h2>
-            {settings.meta_app_id ? (
-              <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-green-100 text-green-700">Configured</span>
-            ) : (
-              <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-gray-100 text-gray-500">Not Set</span>
-            )}
-            <InfoTooltip text="Your Meta App credentials (App ID + Secret) are shared across all projects. Each project then connects its own Meta account via OAuth on the project's Overview tab." />
-          </div>
-          <p className="text-[12px] text-gray-500 mb-4">
-            These developer credentials are shared across all projects. Connect individual Meta accounts in each project's Overview tab.
-          </p>
-          <div className="space-y-3">
-            <div>
-              <label className="block text-[13px] font-medium text-gray-600 mb-1.5">Meta App ID</label>
-              <input
-                type="text"
-                value={form.meta_app_id || ''}
-                onChange={(e) => setForm(p => ({ ...p, meta_app_id: e.target.value }))}
-                className="input-apple"
-                placeholder={settings.meta_app_id || 'Enter your Meta App ID'}
-              />
-            </div>
-            <div>
-              <label className="block text-[13px] font-medium text-gray-600 mb-1.5">Meta App Secret</label>
-              <input
-                type="password"
-                value={form.meta_app_secret || ''}
-                onChange={(e) => setForm(p => ({ ...p, meta_app_secret: e.target.value }))}
-                className="input-apple"
-                placeholder={settings.meta_app_secret || 'Enter your Meta App Secret'}
-              />
-            </div>
-          </div>
-          <p className="text-[11px] text-gray-400 mt-3">
-            Create a Meta App at{' '}
-            <a href="https://developers.facebook.com" target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline">
-              developers.facebook.com
-            </a>{' '}
-            with Marketing API access and <code className="text-[10px] bg-gray-100 px-1 py-0.5 rounded">ads_read</code> permission.
-          </p>
-        </div>
-
-        {/* Headline Reference Document (Ad Studio Juicer) */}
-        <HeadlineReferenceSection />
-
-        {/* Headline Generator Reference Docs (Copywriter) */}
+        {/* Headline Generator Reference Docs (Copywriter + Ad Studio Juicer) */}
         <HeadlineGeneratorRefsSection />
 
         {/* Save button */}

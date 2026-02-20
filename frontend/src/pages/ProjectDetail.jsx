@@ -43,6 +43,9 @@ export default function ProjectDetail() {
   const [metaSyncing, setMetaSyncing] = useState(false);
   const [metaDisconnecting, setMetaDisconnecting] = useState(false);
   const [metaConnecting, setMetaConnecting] = useState(false);
+  const [metaAppForm, setMetaAppForm] = useState({ meta_app_id: '', meta_app_secret: '' });
+  const [metaAppSaving, setMetaAppSaving] = useState(false);
+  const [metaShowEditCreds, setMetaShowEditCreds] = useState(false);
 
   // Product image state
   const [productImageUploading, setProductImageUploading] = useState(false);
@@ -182,6 +185,31 @@ export default function ProjectDetail() {
     }
   };
 
+  const handleSaveMetaCreds = async () => {
+    if (!metaAppForm.meta_app_id?.trim()) {
+      toast.error('Meta App ID is required');
+      return;
+    }
+    if (!metaAppForm.meta_app_secret?.trim()) {
+      toast.error('Meta App Secret is required');
+      return;
+    }
+    setMetaAppSaving(true);
+    try {
+      await api.updateProject(id, {
+        meta_app_id: metaAppForm.meta_app_id.trim(),
+        meta_app_secret: metaAppForm.meta_app_secret.trim(),
+      });
+      toast.success('Meta credentials saved for this project');
+      setMetaShowEditCreds(false);
+      await loadMetaStatus();
+    } catch (err) {
+      toast.error('Failed to save credentials: ' + err.message);
+    } finally {
+      setMetaAppSaving(false);
+    }
+  };
+
   const loadProjectCosts = async () => {
     setCostsLoading(true);
     try {
@@ -207,6 +235,10 @@ export default function ProjectDetail() {
         drive_folder_id: data.drive_folder_id,
         inspiration_folder_id: data.inspiration_folder_id,
         prompt_guidelines: data.prompt_guidelines || ''
+      });
+      setMetaAppForm({
+        meta_app_id: data.meta_app_id || '',
+        meta_app_secret: data.meta_app_secret || '',
       });
     } catch (err) {
       console.error('Failed to load project:', err);
@@ -750,44 +782,99 @@ export default function ProjectDetail() {
                   </div>
                 )}
               </div>
-            ) : metaStatus && !metaStatus.appConfigured ? (
-              /* ── App ID not configured ── */
-              <div className="bg-amber-50/50 border border-amber-100 rounded-xl p-4">
-                <p className="text-[12px] text-amber-700 font-medium mb-1">Meta App Not Configured</p>
-                <p className="text-[11px] text-amber-600 mb-3">
-                  Enter your Meta App ID and App Secret in global Settings before connecting projects.
-                </p>
-                <Link to="/settings" className="text-[12px] text-blue-500 hover:underline">
-                  Go to Settings
-                </Link>
-              </div>
             ) : metaStatus ? (
-              /* ── Disconnected State (app configured) ── */
-              <div>
-                <button
-                  onClick={handleMetaConnect}
-                  disabled={metaConnecting}
-                  className="btn-primary text-[13px] inline-flex items-center gap-2 disabled:opacity-50"
-                >
-                  {metaConnecting ? (
-                    <>
-                      <svg className="w-3.5 h-3.5 animate-spin" viewBox="0 0 24 24" fill="none">
-                        <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" strokeDasharray="31.4 31.4" strokeLinecap="round" />
-                      </svg>
-                      Connecting...
-                    </>
-                  ) : (
-                    <>
-                      <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor">
-                        <path d="M12 2.04C6.5 2.04 2 6.53 2 12.06C2 17.06 5.66 21.21 10.44 21.96V14.96H7.9V12.06H10.44V9.85C10.44 7.34 11.93 5.96 14.22 5.96C15.31 5.96 16.45 6.15 16.45 6.15V8.62H15.19C13.95 8.62 13.56 9.39 13.56 10.18V12.06H16.34L15.89 14.96H13.56V21.96A10 10 0 0022 12.06C22 6.53 17.5 2.04 12 2.04Z" />
-                      </svg>
-                      Connect Meta Account
-                    </>
-                  )}
-                </button>
-                <p className="text-[11px] text-gray-400 mt-2">
-                  This will use the Meta App configured in Settings to start the OAuth flow for this project.
-                </p>
+              /* ── Disconnected / Not Configured State ── */
+              <div className="space-y-4">
+                {/* Credential inputs — show if no app ID or if user wants to edit */}
+                {(!metaStatus.appConfigured || metaShowEditCreds) && (
+                  <div className="bg-gray-50/50 border border-gray-200/60 rounded-xl p-4 space-y-3">
+                    <p className="text-[12px] font-medium text-gray-700">
+                      {metaStatus.appConfigured ? 'Edit Meta Developer Credentials' : 'Enter Meta Developer Credentials'}
+                    </p>
+                    <p className="text-[11px] text-gray-500">
+                      Each project can use its own Meta App. Create one at{' '}
+                      <a href="https://developers.facebook.com" target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline">
+                        developers.facebook.com
+                      </a>{' '}
+                      with Marketing API access and <code className="text-[10px] bg-gray-100 px-1 py-0.5 rounded">ads_read</code> permission.
+                    </p>
+                    <div>
+                      <label className="block text-[11px] font-medium text-gray-500 mb-1">Meta App ID</label>
+                      <input
+                        type="text"
+                        value={metaAppForm.meta_app_id}
+                        onChange={(e) => setMetaAppForm(p => ({ ...p, meta_app_id: e.target.value }))}
+                        className="input-apple text-[13px]"
+                        placeholder="Enter your Meta App ID"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] font-medium text-gray-500 mb-1">Meta App Secret</label>
+                      <input
+                        type="password"
+                        value={metaAppForm.meta_app_secret}
+                        onChange={(e) => setMetaAppForm(p => ({ ...p, meta_app_secret: e.target.value }))}
+                        className="input-apple text-[13px]"
+                        placeholder="Enter your Meta App Secret"
+                      />
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={handleSaveMetaCreds}
+                        disabled={metaAppSaving}
+                        className="btn-primary text-[12px] px-4 py-1.5"
+                      >
+                        {metaAppSaving ? 'Saving...' : 'Save Credentials'}
+                      </button>
+                      {metaShowEditCreds && (
+                        <button
+                          onClick={() => setMetaShowEditCreds(false)}
+                          className="text-[12px] text-gray-400 hover:text-gray-600"
+                        >
+                          Cancel
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                )}
+
+                {/* Connect button — only show if app is configured */}
+                {metaStatus.appConfigured && !metaShowEditCreds && (
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <button
+                        onClick={handleMetaConnect}
+                        disabled={metaConnecting}
+                        className="btn-primary text-[13px] inline-flex items-center gap-2 disabled:opacity-50"
+                      >
+                        {metaConnecting ? (
+                          <>
+                            <svg className="w-3.5 h-3.5 animate-spin" viewBox="0 0 24 24" fill="none">
+                              <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" strokeDasharray="31.4 31.4" strokeLinecap="round" />
+                            </svg>
+                            Connecting...
+                          </>
+                        ) : (
+                          <>
+                            <svg className="w-3.5 h-3.5" viewBox="0 0 24 24" fill="currentColor">
+                              <path d="M12 2.04C6.5 2.04 2 6.53 2 12.06C2 17.06 5.66 21.21 10.44 21.96V14.96H7.9V12.06H10.44V9.85C10.44 7.34 11.93 5.96 14.22 5.96C15.31 5.96 16.45 6.15 16.45 6.15V8.62H15.19C13.95 8.62 13.56 9.39 13.56 10.18V12.06H16.34L15.89 14.96H13.56V21.96A10 10 0 0022 12.06C22 6.53 17.5 2.04 12 2.04Z" />
+                            </svg>
+                            Connect Meta Account
+                          </>
+                        )}
+                      </button>
+                      <button
+                        onClick={() => setMetaShowEditCreds(true)}
+                        className="text-[11px] text-gray-400 hover:text-gray-600 hover:underline"
+                      >
+                        Edit Credentials
+                      </button>
+                    </div>
+                    <p className="text-[11px] text-gray-400 mt-2">
+                      Starts the OAuth flow using this project's Meta App credentials.
+                    </p>
+                  </div>
+                )}
               </div>
             ) : null}
           </div>

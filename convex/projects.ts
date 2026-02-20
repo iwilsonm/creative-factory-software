@@ -52,7 +52,9 @@ export const update = mutation({
     inspiration_folder_id: v.optional(v.string()),
     prompt_guidelines: v.optional(v.string()),
     status: v.optional(v.string()),
-    // Meta Ads (per-project)
+    // Meta Ads (per-project — each project has its own Meta App + OAuth)
+    meta_app_id: v.optional(v.string()),
+    meta_app_secret: v.optional(v.string()),
     meta_access_token: v.optional(v.string()),
     meta_token_expires_at: v.optional(v.string()),
     meta_ad_account_id: v.optional(v.string()),

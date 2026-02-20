@@ -19,7 +19,9 @@ export default defineSchema({
     prompt_guidelines: v.optional(v.string()),
     product_image_storageId: v.optional(v.id("_storage")),
     status: v.optional(v.string()),
-    // Meta Ads (per-project)
+    // Meta Ads (per-project — each project has its own Meta App + OAuth)
+    meta_app_id: v.optional(v.string()),
+    meta_app_secret: v.optional(v.string()),
     meta_access_token: v.optional(v.string()),
     meta_token_expires_at: v.optional(v.string()),
     meta_ad_account_id: v.optional(v.string()),
