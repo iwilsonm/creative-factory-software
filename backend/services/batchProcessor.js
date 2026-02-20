@@ -398,7 +398,16 @@ async function submitGeminiBatch(batchId, prompts, aspectRatio, projectName, pro
  */
 export async function pollBatchJob(batchId) {
   const batch = await getBatchJob(batchId);
-  if (!batch || !batch.gemini_batch_job) return 'failed';
+  if (!batch) return 'failed';
+
+  // If the batch is still in the pre-Gemini pipeline stages (generating prompts,
+  // submitting, etc.) it won't have a gemini_batch_job yet — that's normal, not a failure.
+  if (!batch.gemini_batch_job) {
+    if (['generating_prompts', 'submitting'].includes(batch.status)) {
+      return 'processing';
+    }
+    return 'failed';
+  }
 
   const ai = await getClient();
 
