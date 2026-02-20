@@ -435,6 +435,7 @@ export async function pollBatchJob(batchId) {
     }
 
     // JOB_STATE_PENDING or JOB_STATE_RUNNING — still processing
+    console.log(`[BatchProcessor] Batch ${batchId.slice(0, 8)}: state=${job.state}`);
     // Store batch stats for frontend progress display
     if (job.batchStats) {
       const stats = {
