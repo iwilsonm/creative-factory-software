@@ -4,9 +4,9 @@
  * Provides chat() and chatWithImage() functions that match the OpenAI signatures
  * but route to Claude via the Anthropic SDK.
  *
- * JSON mode: Sonnet supports assistant prefill (append `{` as assistant msg).
- * Opus does NOT support prefill — for Opus we add a JSON instruction to the
- * system prompt and extract JSON from the response text.
+ * JSON mode: Neither Opus 4.6 nor Sonnet 4.6 support assistant message prefill.
+ * For JSON output we add a JSON instruction to the system prompt and extract
+ * JSON from the response text using a robust brace-matching parser.
  */
 
 import Anthropic from '@anthropic-ai/sdk';
@@ -15,9 +15,6 @@ import { withRetry } from './retry.js';
 
 let client = null;
 let lastApiKey = null;
-
-// Models that do NOT support assistant message prefill
-const NO_PREFILL_MODELS = ['claude-opus-4-6', 'claude-opus-4-5-20250620'];
 
 async function getClient() {
   const apiKey = await getSetting('anthropic_api_key');
@@ -73,8 +70,8 @@ function extractJSON(text) {
  * Automatically extracts system messages and passes them via the `system` parameter.
  *
  * JSON mode handling:
- * - Sonnet: uses assistant prefill (appends `{` as assistant message)
- * - Opus: adds JSON instruction to system prompt, extracts JSON from response
+ * Adds a JSON instruction to the system prompt and extracts JSON from response.
+ * No assistant prefill — current Claude models do not support it.
  *
  * @param {Array} messages - OpenAI-format messages array
  * @param {string} [model='claude-sonnet-4-6'] - Anthropic model name
@@ -99,21 +96,11 @@ export async function chat(messages, model = 'claude-sonnet-4-6', options = {}) 
     content: typeof m.content === 'string' ? m.content : m.content,
   }));
 
-  // Handle JSON mode
+  // Handle JSON mode — add instruction to system prompt (no prefill, current models do not support it)
   const wantJSON = options.response_format?.type === 'json_object';
-  const supportsPrefill = !NO_PREFILL_MODELS.some(m => model.startsWith(m));
-  let usedPrefill = false;
-
   if (wantJSON) {
-    if (supportsPrefill) {
-      // Sonnet: use assistant prefill to force JSON output
-      anthropicMessages.push({ role: 'assistant', content: '{' });
-      usedPrefill = true;
-    } else {
-      // Opus: add JSON instruction to system prompt (no prefill)
-      const jsonInstruction = '\n\nIMPORTANT: You must respond with ONLY a valid JSON object. No markdown fences, no prose before or after — just the raw JSON object starting with { and ending with }.';
-      systemPrompt = systemPrompt ? systemPrompt + jsonInstruction : jsonInstruction;
-    }
+    const jsonInstruction = '\n\nIMPORTANT: You must respond with ONLY a valid JSON object. No markdown fences, no prose before or after — just the raw JSON object starting with { and ending with }.';
+    systemPrompt = systemPrompt ? systemPrompt + jsonInstruction : jsonInstruction;
   }
 
   const createParams = {
@@ -136,13 +123,8 @@ export async function chat(messages, model = 'claude-sonnet-4-6', options = {}) 
     .map(block => block.text)
     .join('');
 
-  // If we used prefill, prepend the opening brace back
-  if (usedPrefill) {
-    text = '{' + text;
-  }
-
-  // For non-prefill JSON mode, extract the JSON object from the response
-  if (wantJSON && !usedPrefill) {
+  // For JSON mode, extract the JSON object from the response
+  if (wantJSON) {
     const parsed = extractJSON(text);
     if (parsed) {
       text = JSON.stringify(parsed);
