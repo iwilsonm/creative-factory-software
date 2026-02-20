@@ -241,20 +241,22 @@ function Changelog({ projectId, onDocsUpdated, refreshKey }) {
     }
   };
 
-  if (loading || history.length === 0) return null;
+  if (loading) return null;
 
   return (
     <div className="card p-5">
       <div
-        className="flex items-center gap-2 cursor-pointer"
-        onClick={() => setOpen(!open)}
+        className={`flex items-center gap-2 ${history.length > 0 ? 'cursor-pointer' : ''}`}
+        onClick={() => history.length > 0 && setOpen(!open)}
       >
-        <svg
-          className={`w-4 h-4 text-gray-400 transition-transform duration-200 ${open ? 'rotate-90' : ''}`}
-          fill="none" stroke="currentColor" viewBox="0 0 24 24"
-        >
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-        </svg>
+        {history.length > 0 && (
+          <svg
+            className={`w-4 h-4 text-gray-400 transition-transform duration-200 ${open ? 'rotate-90' : ''}`}
+            fill="none" stroke="currentColor" viewBox="0 0 24 24"
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+          </svg>
+        )}
         <div className="w-7 h-7 rounded-lg bg-gray-100 flex items-center justify-center flex-shrink-0">
           <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
@@ -262,11 +264,15 @@ function Changelog({ projectId, onDocsUpdated, refreshKey }) {
         </div>
         <div>
           <h3 className="text-[14px] font-semibold text-gray-900 tracking-tight">Changelog</h3>
-          <p className="text-[11px] text-gray-400">{history.length} correction{history.length !== 1 ? 's' : ''} recorded</p>
+          <p className="text-[11px] text-gray-400">
+            {history.length === 0
+              ? 'No changes recorded yet — edits and AI fixes will appear here'
+              : `${history.length} change${history.length !== 1 ? 's' : ''} recorded`}
+          </p>
         </div>
       </div>
 
-      {open && (
+      {open && history.length > 0 && (
         <div className="mt-4 border border-gray-200/60 rounded-xl overflow-hidden fade-in">
           <div className="max-h-[500px] overflow-y-auto divide-y divide-gray-100">
             {history.map((entry) => {

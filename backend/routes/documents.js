@@ -305,11 +305,16 @@ router.put('/:projectId/docs/:docId', async (req, res) => {
 
     // Log to correction history if content actually changed
     if (beforeContent !== content) {
+      console.log(`[Changelog] Manual edit detected for ${doc.doc_type} (project: ${req.params.projectId})`);
       try {
         const DOC_LABELS = { research: 'Research Document', avatar: 'Avatar Sheet', offer_brief: 'Offer Brief', necessary_beliefs: 'Necessary Beliefs' };
         const historyKey = `correction_history_${req.params.projectId}`;
         const raw = await getSetting(historyKey);
         const history = raw ? JSON.parse(raw) : [];
+
+        // Compute a concise diff summary (first difference region, ~200 chars)
+        const oldSnippet = beforeContent.length > 200 ? beforeContent.slice(0, 200) + '...' : beforeContent;
+        const newSnippet = content.length > 200 ? content.slice(0, 200) + '...' : content;
 
         history.unshift({
           id: Date.now(),
@@ -320,17 +325,35 @@ router.put('/:projectId/docs/:docId', async (req, res) => {
             doc_type: doc.doc_type,
             doc_id: doc.externalId,
             doc_label: DOC_LABELS[doc.doc_type] || doc.doc_type,
-            old_text: beforeContent.length > 500 ? beforeContent.slice(0, 500) + '...' : beforeContent,
-            new_text: content.length > 500 ? content.slice(0, 500) + '...' : content,
+            old_text: oldSnippet,
+            new_text: newSnippet,
             before_content: beforeContent,
             after_content: content,
           }],
         });
 
         if (history.length > 50) history.length = 50;
+
+        // Check payload size before saving — Convex has a 1MB document limit
+        const payload = JSON.stringify(history);
+        if (payload.length > 900000) {
+          // Trim old entries or strip before_content/after_content from older entries
+          console.log(`[Changelog] History payload too large (${(payload.length / 1024).toFixed(0)}KB), trimming older entries...`);
+          // Keep full data only for last 5 entries, strip before/after content from the rest
+          for (let i = 5; i < history.length; i++) {
+            if (history[i].changes) {
+              for (const c of history[i].changes) {
+                delete c.before_content;
+                delete c.after_content;
+              }
+            }
+          }
+        }
+
         await setSetting(historyKey, JSON.stringify(history));
+        console.log(`[Changelog] Saved ${history.length} entries (${(JSON.stringify(history).length / 1024).toFixed(0)}KB) for project ${req.params.projectId}`);
       } catch (histErr) {
-        console.error('[ManualEdit] Failed to log to changelog:', histErr.message);
+        console.error('[Changelog] Failed to log manual edit:', histErr.message);
       }
     }
 
@@ -448,6 +471,7 @@ router.post('/:projectId/apply-corrections', async (req, res) => {
 
   // 2. Save to correction history
   if (changes.length > 0) {
+    console.log(`[Changelog] AI fix applied: ${changes.length} doc(s) changed for project ${req.params.projectId}`);
     try {
       const historyKey = `correction_history_${req.params.projectId}`;
       const raw = await getSetting(historyKey);
@@ -462,9 +486,26 @@ router.post('/:projectId/apply-corrections', async (req, res) => {
 
       // Keep last 50
       if (history.length > 50) history.length = 50;
-      await setSetting(historyKey, JSON.stringify(history));
+
+      // Check payload size — Convex has a 1MB document limit
+      let payload = JSON.stringify(history);
+      if (payload.length > 900000) {
+        console.log(`[Changelog] History payload too large (${(payload.length / 1024).toFixed(0)}KB), trimming...`);
+        for (let i = 5; i < history.length; i++) {
+          if (history[i].changes) {
+            for (const c of history[i].changes) {
+              delete c.before_content;
+              delete c.after_content;
+            }
+          }
+        }
+        payload = JSON.stringify(history);
+      }
+
+      await setSetting(historyKey, payload);
+      console.log(`[Changelog] Saved ${history.length} entries (${(payload.length / 1024).toFixed(0)}KB)`);
     } catch (err) {
-      console.error('[CopyCorrection] Failed to save history:', err.message);
+      console.error('[Changelog] Failed to save AI fix history:', err.message);
     }
   }
 
