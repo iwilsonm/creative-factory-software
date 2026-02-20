@@ -1196,7 +1196,7 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
   };
 
   // Redo — load an ad's settings back into the generation form for iteration
-  const handleRedo = (ad, e) => {
+  const handleRedo = async (ad, e) => {
     if (e) e.stopPropagation();
 
     // Load core settings
@@ -1205,19 +1205,45 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
     if (ad.body_copy) setBodyCopy(ad.body_copy);
     if (ad.aspect_ratio) setAspectRatio(ad.aspect_ratio);
 
-    // If template-based, try to re-select the template
+    // If template-based, re-select the template (loading templates if needed)
     if (ad.generation_mode === 'mode2' && ad.template_image_id) {
-      // Check if template exists in drive images or uploaded templates
-      const driveMatch = driveImages.find(img => img.id === ad.template_image_id);
-      const uploadMatch = uploadedTemplates.find(img => img.id === ad.template_image_id);
-      if (driveMatch) {
-        setTemplateSource(TEMPLATE_SELECT);
-        setSelectedTemplate({ id: driveMatch.id, source: 'drive' });
-      } else if (uploadMatch) {
-        setTemplateSource(TEMPLATE_SELECT);
-        setSelectedTemplate({ id: uploadMatch.id, source: 'uploaded' });
+      const trySelectTemplate = (drive, uploaded) => {
+        const driveMatch = drive.find(img => img.id === ad.template_image_id);
+        const uploadMatch = uploaded.find(img => img.id === ad.template_image_id);
+        if (driveMatch) {
+          setSelectedTemplate({ id: driveMatch.id, source: 'drive' });
+          return true;
+        } else if (uploadMatch) {
+          setSelectedTemplate({ id: uploadMatch.id, source: 'uploaded' });
+          return true;
+        }
+        return false;
+      };
+
+      setTemplateSource(TEMPLATE_SELECT);
+
+      // If templates are already loaded, select immediately
+      if (driveImages.length > 0 || uploadedTemplates.length > 0) {
+        if (!trySelectTemplate(driveImages, uploadedTemplates)) {
+          toast.info('Original template no longer available — using template picker');
+        }
       } else {
-        setTemplateSource(TEMPLATE_RANDOM);
+        // Templates not loaded yet — fetch them, then select
+        try {
+          const [driveData, uploadedData] = await Promise.all([
+            api.getInspirationImages(projectId).catch(() => ({ images: [] })),
+            api.getTemplates(projectId).catch(() => ({ templates: [] }))
+          ]);
+          const drive = driveData.images || [];
+          const uploaded = uploadedData.templates || [];
+          setDriveImages(drive);
+          setUploadedTemplates(uploaded);
+          if (!trySelectTemplate(drive, uploaded)) {
+            toast.info('Original template no longer available — using template picker');
+          }
+        } catch {
+          toast.info('Could not load templates — select one manually');
+        }
       }
     }
 
@@ -2060,6 +2086,36 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
                   className="hidden"
                 />
 
+                {/* Product image toggle inside edit panel */}
+                {project?.productImageUrl && !productFile && (
+                  <div className={`flex items-center gap-3 p-2 rounded-lg mb-2 ${
+                    skipProductImage
+                      ? 'bg-amber-50/50 border border-amber-200/50'
+                      : 'bg-emerald-50/50 border border-emerald-200/50'
+                  }`}>
+                    <button
+                      onClick={() => setSkipProductImage(prev => !prev)}
+                      className={`relative w-8 h-[18px] rounded-full transition-colors flex-shrink-0 cursor-pointer ${
+                        !skipProductImage ? 'bg-emerald-500' : 'bg-gray-300'
+                      }`}
+                    >
+                      <span className={`absolute top-[2px] left-[2px] w-3.5 h-3.5 bg-white rounded-full shadow transition-transform ${
+                        !skipProductImage ? 'translate-x-[14px]' : ''
+                      }`} />
+                    </button>
+                    {!skipProductImage && (
+                      <img
+                        src={project.productImageUrl}
+                        alt="Product"
+                        className="w-6 h-6 object-cover rounded border border-emerald-200/60 flex-shrink-0"
+                      />
+                    )}
+                    <p className={`text-[10px] font-medium ${skipProductImage ? 'text-amber-600' : 'text-emerald-600'}`}>
+                      {skipProductImage ? 'Product image off' : 'Product image on'}
+                    </p>
+                  </div>
+                )}
+
                 <button
                   onClick={handleApplyEdit}
                   disabled={isApplyingEdit || !editInstruction.trim()}
@@ -2097,6 +2153,36 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
                   >
                     Reset to original prompt
                   </button>
+                )}
+
+                {/* Product image toggle inside direct edit */}
+                {project?.productImageUrl && !productFile && (
+                  <div className={`flex items-center gap-3 p-2 rounded-lg mt-3 ${
+                    skipProductImage
+                      ? 'bg-amber-50/50 border border-amber-200/50'
+                      : 'bg-emerald-50/50 border border-emerald-200/50'
+                  }`}>
+                    <button
+                      onClick={() => setSkipProductImage(prev => !prev)}
+                      className={`relative w-8 h-[18px] rounded-full transition-colors flex-shrink-0 cursor-pointer ${
+                        !skipProductImage ? 'bg-emerald-500' : 'bg-gray-300'
+                      }`}
+                    >
+                      <span className={`absolute top-[2px] left-[2px] w-3.5 h-3.5 bg-white rounded-full shadow transition-transform ${
+                        !skipProductImage ? 'translate-x-[14px]' : ''
+                      }`} />
+                    </button>
+                    {!skipProductImage && (
+                      <img
+                        src={project.productImageUrl}
+                        alt="Product"
+                        className="w-6 h-6 object-cover rounded border border-emerald-200/60 flex-shrink-0"
+                      />
+                    )}
+                    <p className={`text-[10px] font-medium ${skipProductImage ? 'text-amber-600' : 'text-emerald-600'}`}>
+                      {skipProductImage ? 'Product image off' : 'Product image on'}
+                    </p>
+                  </div>
                 )}
               </div>
             )}
