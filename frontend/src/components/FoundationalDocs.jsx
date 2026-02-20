@@ -286,9 +286,16 @@ function Changelog({ projectId, onDocsUpdated, refreshKey }) {
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                     </svg>
                     <div className="flex-1 min-w-0">
-                      <p className="text-[13px] text-gray-800 group-hover:text-gray-900 font-medium transition-colors">
-                        {entry.correction}
-                      </p>
+                      <div className="flex items-center gap-2">
+                        <p className="text-[13px] text-gray-800 group-hover:text-gray-900 font-medium transition-colors">
+                          {entry.correction}
+                        </p>
+                        {entry.manual ? (
+                          <span className="text-[9px] font-semibold uppercase tracking-wider bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded flex-shrink-0">Edit</span>
+                        ) : (
+                          <span className="text-[9px] font-semibold uppercase tracking-wider bg-amber-100 text-amber-600 px-1.5 py-0.5 rounded flex-shrink-0">AI Fix</span>
+                        )}
+                      </div>
                       <p className="text-[11px] text-gray-400 mt-0.5">
                         {changeCount} doc{changeCount !== 1 ? 's' : ''} changed
                         {' · '}
@@ -663,6 +670,7 @@ export default function FoundationalDocs({ projectId, projectStatus }) {
       await api.updateDoc(projectId, editingDoc.id, editContent);
       setEditingDoc(null);
       loadDocs();
+      setChangelogRefreshKey(k => k + 1);
       toast.success('Document saved');
     } catch (err) {
       toast.error(err.message);

@@ -286,18 +286,54 @@ router.post('/:projectId/generate-doc/:type', async (req, res) => {
   });
 });
 
-// Update doc content (manual edit)
+// Update doc content (manual edit) — also logs to correction history
 router.put('/:projectId/docs/:docId', async (req, res) => {
   const { content } = req.body;
   if (content === undefined) return res.status(400).json({ error: 'Content is required' });
 
   try {
+    // Fetch before-snapshot for changelog
+    const beforeDoc = await convexClient.query(api.foundationalDocs.getByExternalId, { externalId: req.params.docId });
+    if (!beforeDoc) return res.status(404).json({ error: 'Document not found' });
+    const beforeContent = beforeDoc.content || '';
+
     await convexClient.mutation(api.foundationalDocs.update, {
       externalId: req.params.docId,
       content,
     });
     const doc = await convexClient.query(api.foundationalDocs.getByExternalId, { externalId: req.params.docId });
-    if (!doc) return res.status(404).json({ error: 'Document not found' });
+
+    // Log to correction history if content actually changed
+    if (beforeContent !== content) {
+      try {
+        const DOC_LABELS = { research: 'Research Document', avatar: 'Avatar Sheet', offer_brief: 'Offer Brief', necessary_beliefs: 'Necessary Beliefs' };
+        const historyKey = `correction_history_${req.params.projectId}`;
+        const raw = await getSetting(historyKey);
+        const history = raw ? JSON.parse(raw) : [];
+
+        history.unshift({
+          id: Date.now(),
+          correction: `Manual edit to ${DOC_LABELS[doc.doc_type] || doc.doc_type}`,
+          timestamp: new Date().toISOString(),
+          manual: true,
+          changes: [{
+            doc_type: doc.doc_type,
+            doc_id: doc.externalId,
+            doc_label: DOC_LABELS[doc.doc_type] || doc.doc_type,
+            old_text: beforeContent.length > 500 ? beforeContent.slice(0, 500) + '...' : beforeContent,
+            new_text: content.length > 500 ? content.slice(0, 500) + '...' : content,
+            before_content: beforeContent,
+            after_content: content,
+          }],
+        });
+
+        if (history.length > 50) history.length = 50;
+        await setSetting(historyKey, JSON.stringify(history));
+      } catch (histErr) {
+        console.error('[ManualEdit] Failed to log to changelog:', histErr.message);
+      }
+    }
+
     res.json({
       id: doc.externalId,
       project_id: doc.project_id,
@@ -421,8 +457,8 @@ router.post('/:projectId/apply-corrections', async (req, res) => {
         changes,
       });
 
-      // Keep last 20
-      if (history.length > 20) history.length = 20;
+      // Keep last 50
+      if (history.length > 50) history.length = 50;
       await setSetting(historyKey, JSON.stringify(history));
     } catch (err) {
       console.error('[CopyCorrection] Failed to save history:', err.message);
