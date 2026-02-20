@@ -646,6 +646,21 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
     }
   };
 
+  const handleToggleFavorite = async (ad, e) => {
+    if (e) e.stopPropagation();
+    const newFavorite = !ad.is_favorite;
+    // Optimistic update
+    setAds(prev => prev.map(a => a.id === ad.id ? { ...a, is_favorite: newFavorite } : a));
+    if (viewAd?.id === ad.id) setViewAd(prev => prev ? { ...prev, is_favorite: newFavorite } : null);
+    try {
+      await api.toggleAdFavorite(projectId, ad.id, newFavorite);
+    } catch (err) {
+      console.error('Failed to toggle favorite:', err);
+      setAds(prev => prev.map(a => a.id === ad.id ? { ...a, is_favorite: !newFavorite } : a));
+      if (viewAd?.id === ad.id) setViewAd(prev => prev ? { ...prev, is_favorite: !newFavorite } : null);
+    }
+  };
+
   // Bulk tag functions for multi-select action bar
   const handleBulkAddTag = async (tag) => {
     const trimmed = tag.trim();
@@ -1305,6 +1320,7 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
   const filteredAds = ads.filter(ad => {
     // Hide in-progress ads from gallery (they show in the queue instead)
     if (ad.status === 'generating_copy' || ad.status === 'generating_image') return false;
+    if (galleryFilter === 'favorites') return !!ad.is_favorite;
     if (galleryFilter === 'individual') return !ad.auto_generated;
     if (galleryFilter === 'batch') return !!ad.auto_generated;
     return true; // 'all'
@@ -1318,6 +1334,7 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
   // Counts for filter labels
   const individualCount = ads.filter(a => !a.auto_generated).length;
   const batchCount = ads.filter(a => !!a.auto_generated).length;
+  const favoritesCount = ads.filter(a => !!a.is_favorite).length;
   const completedFilteredAds = filteredAds.filter(ad => ad.status === 'completed' && ad.imageUrl);
   const allFilteredSelected = completedFilteredAds.length > 0 && completedFilteredAds.every(ad => selectedAdIds.has(ad.id));
 
@@ -2339,6 +2356,15 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
               >
                 All
               </button>
+              {favoritesCount > 0 && (
+                <button
+                  onClick={() => setGalleryFilter('favorites')}
+                  className={galleryFilter === 'favorites' ? 'active' : ''}
+                >
+                  <svg className="w-3 h-3 inline mr-0.5 -mt-0.5" fill={galleryFilter === 'favorites' ? 'currentColor' : 'none'} stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 8.25c0-2.485-2.099-4.5-4.688-4.5-1.935 0-3.597 1.126-4.312 2.733-.715-1.607-2.377-2.733-4.313-2.733C5.1 3.75 3 5.765 3 8.25c0 7.22 9 12 9 12s9-4.78 9-12z" /></svg>
+                  {favoritesCount}
+                </button>
+              )}
             </div>
           )}
           {ads.length > 0 && (
@@ -2433,10 +2459,11 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
                 >
                   {ad.imageUrl && ad.status === 'completed' ? (
                     <img
-                      src={ad.thumbnailUrl || ad.imageUrl}
+                      src={ad.imageUrl}
                       alt={`Ad - ${ad.angle || 'No angle'}`}
                       className="w-full h-full object-cover group-hover:scale-[1.02] transition-transform duration-500"
                       loading="lazy"
+                      decoding="async"
                     />
                   ) : (
                     <div className="w-full h-full flex items-center justify-center">
@@ -2528,7 +2555,24 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
                     </div>
                   )}
 
-                  {ad.drive_url && (
+                  {/* Favorite heart — visible on hover or when favorited */}
+                  {ad.status === 'completed' && (
+                    <button
+                      onClick={(e) => handleToggleFavorite(ad, e)}
+                      className={`absolute top-2 right-2 z-10 w-7 h-7 rounded-lg flex items-center justify-center transition-all duration-200 ${
+                        ad.is_favorite
+                          ? 'text-rose-500 bg-white/90 backdrop-blur-sm shadow-sm'
+                          : 'text-white/80 bg-black/30 backdrop-blur-sm opacity-0 group-hover:opacity-100 hover:bg-black/50'
+                      }`}
+                      title={ad.is_favorite ? 'Remove from favorites' : 'Add to favorites'}
+                    >
+                      <svg className="w-4 h-4" fill={ad.is_favorite ? 'currentColor' : 'none'} stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 8.25c0-2.485-2.099-4.5-4.688-4.5-1.935 0-3.597 1.126-4.312 2.733-.715-1.607-2.377-2.733-4.313-2.733C5.1 3.75 3 5.765 3 8.25c0 7.22 9 12 9 12s9-4.78 9-12z" />
+                      </svg>
+                    </button>
+                  )}
+
+                  {ad.drive_url && !ad.is_favorite && (
                     <div className="absolute top-2 right-2 badge bg-white/80 backdrop-blur-sm text-gray-500">
                       <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.25 15a4.5 4.5 0 004.5 4.5H18a3.75 3.75 0 001.332-7.257 3 3 0 00-3.758-3.848 5.25 5.25 0 00-10.233 2.33A4.502 4.502 0 002.25 15z" /></svg>
                     </div>
@@ -2625,8 +2669,8 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
 
                 {/* Thumbnail */}
                 <div className="w-12 h-12 rounded-lg overflow-hidden bg-gray-100 flex-shrink-0">
-                  {ad.thumbnailUrl && ad.status === 'completed' ? (
-                    <img src={ad.thumbnailUrl} alt="" className="w-full h-full object-cover" loading="lazy" />
+                  {(ad.thumbnailUrl || ad.imageUrl) && ad.status === 'completed' ? (
+                    <img src={ad.thumbnailUrl || ad.imageUrl} alt="" className="w-full h-full object-cover" loading="lazy" decoding="async" />
                   ) : ad.status === 'failed' ? (
                     <div className="w-full h-full flex items-center justify-center">
                       <svg className="w-4 h-4 text-red-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" /></svg>
@@ -2673,6 +2717,13 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
                 {/* Actions */}
                 {ad.status === 'completed' && (
                   <>
+                    <button
+                      onClick={(e) => handleToggleFavorite(ad, e)}
+                      className={`transition-colors flex-shrink-0 ${ad.is_favorite ? 'text-rose-500' : 'text-gray-300 hover:text-rose-400'}`}
+                      title={ad.is_favorite ? 'Remove from favorites' : 'Add to favorites'}
+                    >
+                      <svg className="w-4 h-4" fill={ad.is_favorite ? 'currentColor' : 'none'} stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 8.25c0-2.485-2.099-4.5-4.688-4.5-1.935 0-3.597 1.126-4.312 2.733-.715-1.607-2.377-2.733-4.313-2.733C5.1 3.75 3 5.765 3 8.25c0 7.22 9 12 9 12s9-4.78 9-12z" /></svg>
+                    </button>
                     <button
                       onClick={(e) => { e.stopPropagation(); handleRedo(ad, e); }}
                       className="text-[11px] text-gray-300 hover:text-purple-500 transition-colors flex-shrink-0"
@@ -2788,7 +2839,22 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
 
             <div className="w-full md:w-80 border-t md:border-t-0 md:border-l border-gray-200/60 p-5 overflow-y-auto max-h-[40vh] md:max-h-[90vh] scrollbar-thin">
               <div className="flex items-center justify-between mb-4">
-                <h4 className="text-[15px] font-semibold text-gray-900 tracking-tight">Ad Details</h4>
+                <div className="flex items-center gap-2">
+                  <h4 className="text-[15px] font-semibold text-gray-900 tracking-tight">Ad Details</h4>
+                  <button
+                    onClick={(e) => handleToggleFavorite(viewAd, e)}
+                    className={`w-7 h-7 rounded-lg flex items-center justify-center transition-all ${
+                      viewAd.is_favorite
+                        ? 'text-rose-500 bg-rose-50 hover:bg-rose-100'
+                        : 'text-gray-300 hover:text-rose-400 hover:bg-rose-50'
+                    }`}
+                    title={viewAd.is_favorite ? 'Remove from favorites' : 'Add to favorites'}
+                  >
+                    <svg className="w-4 h-4" fill={viewAd.is_favorite ? 'currentColor' : 'none'} stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 8.25c0-2.485-2.099-4.5-4.688-4.5-1.935 0-3.597 1.126-4.312 2.733-.715-1.607-2.377-2.733-4.313-2.733C5.1 3.75 3 5.765 3 8.25c0 7.22 9 12 9 12s9-4.78 9-12z" />
+                    </svg>
+                  </button>
+                </div>
                 <button
                   onClick={() => setViewAd(null)}
                   className="w-7 h-7 rounded-lg bg-gray-100 flex items-center justify-center text-gray-400 hover:text-gray-600 hover:bg-gray-200 transition-all"

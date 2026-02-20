@@ -414,16 +414,18 @@ export async function uploadBuffer(buffer, contentType = 'image/png') {
  * Useful for passing to external APIs (Drive, Gemini).
  */
 export async function downloadToBuffer(storageId) {
-  const url = await getStorageUrl(storageId);
-  if (!url) throw new Error('No storage URL for storageId');
+  return withRetry(async () => {
+    const url = await getStorageUrl(storageId);
+    if (!url) throw new Error('No storage URL for storageId');
 
-  const response = await fetch(url);
-  if (!response.ok) {
-    throw new Error(`Failed to download from Convex storage: ${response.status}`);
-  }
+    const response = await fetch(url);
+    if (!response.ok) {
+      throw new Error(`Failed to download from Convex storage: ${response.status}`);
+    }
 
-  const arrayBuffer = await response.arrayBuffer();
-  return Buffer.from(arrayBuffer);
+    const arrayBuffer = await response.arrayBuffer();
+    return Buffer.from(arrayBuffer);
+  }, { maxRetries: 3, label: 'Convex storage download' });
 }
 
 // =============================================

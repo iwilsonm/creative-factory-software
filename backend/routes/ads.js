@@ -3,6 +3,7 @@ import { requireAuth } from '../auth.js';
 import { getProject, getAdsByProject, getInProgressAdsByProject, getAd, getAdImageUrl, downloadToBuffer, getQuoteBankQuote, convexClient, api } from '../convexClient.js';
 import { generateAd, generateAdMode2, regenerateImageOnly, applyPromptEdit } from '../services/adGenerator.js';
 import { generateBodyCopy } from '../services/bodyCopyGenerator.js';
+import { withRetry } from '../services/retry.js';
 import sharp from 'sharp';
 import fs from 'fs';
 import path from 'path';
@@ -289,6 +290,20 @@ router.patch('/:projectId/ads/:adId/tags', async (req, res) => {
   }
 });
 
+// Toggle favorite on an ad
+router.patch('/:projectId/ads/:adId/favorite', async (req, res) => {
+  try {
+    const { is_favorite } = req.body;
+    await convexClient.mutation(api.adCreatives.update, {
+      externalId: req.params.adId,
+      is_favorite: !!is_favorite,
+    });
+    res.json({ success: true, is_favorite: !!is_favorite });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Serve ad image file (redirect to Convex storage URL — fallback for direct links)
 router.get('/:projectId/ads/:adId/image', async (req, res) => {
   const url = await getAdImageUrl(req.params.adId);
@@ -318,13 +333,14 @@ router.get('/:projectId/ads/:adId/thumbnail', async (req, res) => {
       return res.status(404).json({ error: 'Image not found' });
     }
 
-    const imgRes = await fetch(url);
-    if (!imgRes.ok) {
-      return res.status(502).json({ error: 'Failed to fetch original image' });
-    }
-
-    const arrayBuffer = await imgRes.arrayBuffer();
-    const buffer = Buffer.from(arrayBuffer);
+    const buffer = await withRetry(async () => {
+      const imgRes = await fetch(url);
+      if (!imgRes.ok) {
+        throw new Error(`Failed to fetch original image: ${imgRes.status}`);
+      }
+      const ab = await imgRes.arrayBuffer();
+      return Buffer.from(ab);
+    }, { maxRetries: 3, label: 'Thumbnail fetch' });
 
     const thumb = await sharp(buffer)
       .resize({ width: 400, withoutEnlargement: true })

@@ -105,6 +105,7 @@ export const update = mutation({
     drive_url: v.optional(v.string()),
     inspiration_image_id: v.optional(v.string()),
     tags: v.optional(v.array(v.string())),
+    is_favorite: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     const ad = await ctx.db

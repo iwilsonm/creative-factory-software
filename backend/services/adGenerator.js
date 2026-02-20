@@ -6,9 +6,29 @@ import { withGptRateLimit } from './rateLimiter.js';
 import {
   getProject, getLatestDoc, uploadBuffer, downloadToBuffer,
   getInspirationImages, getInspirationImageUrl,
-  getSetting, convexClient, api
+  getAdImageUrl, getSetting, convexClient, api
 } from '../convexClient.js';
+import sharp from 'sharp';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 // Drive upload removed — ads are stored in Convex only
+
+// Pre-generate thumbnail cache for newly created ads
+const __adgen_dirname = path.dirname(fileURLToPath(import.meta.url));
+const THUMB_CACHE_DIR = path.join(__adgen_dirname, '..', '.thumb-cache');
+if (!fs.existsSync(THUMB_CACHE_DIR)) {
+  fs.mkdirSync(THUMB_CACHE_DIR, { recursive: true });
+}
+async function precacheThumb(adId, imageBuffer) {
+  try {
+    const thumb = await sharp(imageBuffer)
+      .resize({ width: 400, withoutEnlargement: true })
+      .jpeg({ quality: 80 })
+      .toBuffer();
+    fs.writeFile(path.join(THUMB_CACHE_DIR, `${adId}.jpg`), thumb, () => {});
+  } catch (e) { /* non-critical */ }
+}
 
 const EXT_TO_MIME = {
   '.jpg': 'image/jpeg',
@@ -324,10 +344,12 @@ export function buildImageRequestText(angle, aspectRatio, hasProductImage = fals
     extras.push('I have attached an image of the product — reference this product image in your prompt, as it will also be attached when the prompt is used for image generation');
   }
   if (headline) {
-    extras.push(`The ad must include this headline text: "${headline}"`);
+    const cleanHeadline = headline.replace(/^["'""\u201C\u201D]+|["'""\u201C\u201D]+$/g, '');
+    extras.push(`The ad must include this headline text exactly as written (do NOT add quotation marks around it): ${cleanHeadline}`);
   }
   if (bodyCopy) {
-    extras.push(`The ad must include this body copy text: "${bodyCopy}"`);
+    const cleanBody = bodyCopy.replace(/^["'""\u201C\u201D]+|["'""\u201C\u201D]+$/g, '');
+    extras.push(`The ad must include this body copy text exactly as written (do NOT add quotation marks around it): ${cleanBody}`);
   }
   if (angle) {
     extras.push(`The ad should focus on this angle/topic: ${angle}`);
@@ -637,6 +659,9 @@ async function generateAndSaveImage({ adId, projectId, project, imagePrompt, asp
   // Upload image to Convex storage
   const storageId = await uploadBuffer(imageBuffer, imgMime);
 
+  // Pre-generate thumbnail cache (fire-and-forget)
+  precacheThumb(adId, imageBuffer);
+
   // Update final record
   await convexClient.mutation(api.adCreatives.update, {
     externalId: adId,
@@ -644,8 +669,11 @@ async function generateAndSaveImage({ adId, projectId, project, imagePrompt, asp
     status: 'completed',
   });
 
-  // Return the completed ad record
+  // Return the completed ad record with direct CDN URL for fast loading
   const ad = await convexClient.query(api.adCreatives.getByExternalId, { externalId: adId });
+  let resolvedUrl = null;
+  try { resolvedUrl = await getAdImageUrl(adId); } catch {}
+
   const adRow = {
     id: ad.externalId,
     project_id: ad.project_id,
@@ -658,7 +686,8 @@ async function generateAndSaveImage({ adId, projectId, project, imagePrompt, asp
     storageId: ad.storageId || null,
     aspect_ratio: ad.aspect_ratio || '1:1',
     status: ad.status,
-    imageUrl: `/api/projects/${projectId}/ads/${adId}/image`,
+    imageUrl: resolvedUrl || `/api/projects/${projectId}/ads/${adId}/image`,
+    thumbnailUrl: `/api/projects/${projectId}/ads/${adId}/thumbnail`,
   };
 
   emit({ type: 'complete', ad: adRow });

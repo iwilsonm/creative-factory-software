@@ -1545,10 +1545,10 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
                                     {h.technique}
                                   </span>
                                 )}
-                                <p className="text-[10px] text-gray-400 truncate max-w-[250px]" title={h.quoteText}>
-                                  &ldquo;{h.quoteText.length > 50 ? h.quoteText.slice(0, 50) + '...' : h.quoteText}&rdquo;
-                                </p>
                               </div>
+                              <p className="text-[11px] text-gray-500 mt-1.5 leading-relaxed italic bg-gray-50/80 px-2.5 py-1.5 rounded-lg border border-gray-100/60" title={h.quoteText}>
+                                &ldquo;{h.quoteText.length > 120 ? h.quoteText.slice(0, 120) + '...' : h.quoteText}&rdquo;
+                              </p>
                             </div>
                             <div className="flex items-center gap-1.5 flex-shrink-0">
                               <button

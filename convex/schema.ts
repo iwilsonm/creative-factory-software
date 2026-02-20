@@ -69,6 +69,7 @@ export default defineSchema({
     auto_generated: v.optional(v.boolean()),
     parent_ad_id: v.optional(v.string()),
     tags: v.optional(v.array(v.string())),
+    is_favorite: v.optional(v.boolean()),    // Heart/favorite toggle in gallery
     source_quote_id: v.optional(v.string()), // → quote_bank.externalId (ad created from quote)
     copy_framework: v.optional(v.string()),  // Legacy: from removed diversity features
     sub_angle: v.optional(v.string()),       // Legacy: from removed diversity features

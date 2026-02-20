@@ -269,6 +269,8 @@ export const api = {
     request(`/projects/${projectId}/ads/${adId}`, { method: 'DELETE' }),
   updateAdTags: (projectId, adId, tags) =>
     request(`/projects/${projectId}/ads/${adId}/tags`, { method: 'PATCH', body: JSON.stringify({ tags }) }),
+  toggleAdFavorite: (projectId, adId, isFavorite) =>
+    request(`/projects/${projectId}/ads/${adId}/favorite`, { method: 'PATCH', body: JSON.stringify({ is_favorite: isFavorite }) }),
 
   // Batch Jobs
   getBatches: (projectId) => request(`/projects/${projectId}/batches`),
