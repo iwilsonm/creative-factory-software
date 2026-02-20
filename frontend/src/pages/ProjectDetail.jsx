@@ -29,7 +29,7 @@ export default function ProjectDetail() {
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState({});
   const [saving, setSaving] = useState(false);
-  const [tab, setTab] = useState('ads');
+  const [tab, setTab] = useState('quotes');
   const [projectCosts, setProjectCosts] = useState(null);
   const [costsLoading, setCostsLoading] = useState(false);
 
@@ -315,9 +315,9 @@ export default function ProjectDetail() {
   }
 
   const tabs = [
-    { id: 'ads', label: 'Ad Studio', tooltip: 'Generate individual ads or run batch generation.' },
-    { id: 'tracker', label: 'Ad Tracker', tooltip: 'Track ad deployments, campaigns, and performance.' },
     { id: 'quotes', label: 'Copywriter', tooltip: 'Mine quotes, generate headlines, and turn them into ads.' },
+    { id: 'ads', label: 'Ad Studio', tooltip: 'Generate individual ads or run batch generation.' },
+    { id: 'tracker', label: 'Performance Tracker', tooltip: 'Track ad deployments, campaigns, and performance.' },
     { id: 'overview', label: 'Overview', tooltip: 'Project settings, cost tracking, and stats.' },
     { id: 'docs', label: 'Foundational Docs', tooltip: 'Core research documents that guide ad generation.' },
     { id: 'templates', label: 'Template Library', tooltip: 'Reference images synced from Drive or uploaded directly.' }

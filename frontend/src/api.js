@@ -297,7 +297,7 @@ export const api = {
   getTodos: () => request('/settings/todos'),
   saveTodos: (todos) => request('/settings/todos', { method: 'PUT', body: JSON.stringify({ todos }) }),
 
-  // Ad Tracker / Deployments
+  // Performance Tracker / Deployments
   getDeployments: () => request('/deployments'),
   getProjectDeployments: (projectId) => request(`/deployments?projectId=${projectId}`),
   createDeployments: (adIds) => request('/deployments', { method: 'POST', body: JSON.stringify({ adIds }) }),

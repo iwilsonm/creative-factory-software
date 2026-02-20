@@ -164,6 +164,7 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
   const [viewAd, setViewAd] = useState(null);
   const [galleryFilter, setGalleryFilter] = useState('individual'); // 'individual' | 'batch' | 'all'
   const [galleryView, setGalleryView] = useState('grid'); // 'grid' | 'list'
+  const [dateRange, setDateRange] = useState('4d'); // '4d' | '7d' | '14d' | '30d' | 'all'
 
   // Tags
   const [tagEditAd, setTagEditAd] = useState(null); // ad being tag-edited
@@ -1327,8 +1328,8 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
     }
   };
 
-  // Filtered ads based on gallery filter
-  const filteredAds = ads.filter(ad => {
+  // Filtered ads based on gallery filter (type) then date range
+  const typeFilteredAds = ads.filter(ad => {
     // Hide in-progress ads from gallery (they show in the queue instead)
     if (ad.status === 'generating_copy' || ad.status === 'generating_image') return false;
     if (galleryFilter === 'favorites') return !!ad.is_favorite;
@@ -1337,10 +1338,22 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
     return true; // 'all'
   });
 
+  const filteredAds = typeFilteredAds.filter(ad => {
+    if (dateRange === 'all') return true;
+    const adDate = parseDate(ad.created_at);
+    if (!adDate) return true; // show ads with unparseable dates
+    const daysMap = { '4d': 4, '7d': 7, '14d': 14, '30d': 30 };
+    const cutoff = new Date();
+    cutoff.setDate(cutoff.getDate() - daysMap[dateRange]);
+    return adDate >= cutoff;
+  });
+
+  const hiddenByDateCount = typeFilteredAds.length - filteredAds.length;
+
   // Clear selection when filter changes
   useEffect(() => {
     setSelectedAdIds(new Set());
-  }, [galleryFilter]);
+  }, [galleryFilter, dateRange]);
 
   // Counts for filter labels
   const individualCount = ads.filter(a => !a.auto_generated).length;
@@ -2381,39 +2394,53 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
             {ads.length > 0 && (
               <p className="text-[12px] text-gray-400">
                 {filteredAds.length} ad{filteredAds.length !== 1 ? 's' : ''}
-                {galleryFilter !== 'all' && ` (${ads.length} total)`}
+                {hiddenByDateCount > 0 && ` (${hiddenByDateCount} older hidden)`}
+                {galleryFilter !== 'all' && ` · ${ads.length} total`}
               </p>
             )}
           </div>
           {ads.length > 0 && (
-            <div className="segmented-control text-[12px]">
-              <button
-                onClick={() => setGalleryFilter('individual')}
-                className={galleryFilter === 'individual' ? 'active' : ''}
-              >
-                Individual{individualCount > 0 ? ` (${individualCount})` : ''}
-              </button>
-              <button
-                onClick={() => setGalleryFilter('batch')}
-                className={galleryFilter === 'batch' ? 'active' : ''}
-              >
-                Batch{batchCount > 0 ? ` (${batchCount})` : ''}
-              </button>
-              <button
-                onClick={() => setGalleryFilter('all')}
-                className={galleryFilter === 'all' ? 'active' : ''}
-              >
-                All
-              </button>
-              {favoritesCount > 0 && (
+            <div className="flex items-center gap-2">
+              <div className="segmented-control text-[12px]">
                 <button
-                  onClick={() => setGalleryFilter('favorites')}
-                  className={galleryFilter === 'favorites' ? 'active' : ''}
+                  onClick={() => setGalleryFilter('individual')}
+                  className={galleryFilter === 'individual' ? 'active' : ''}
                 >
-                  <svg className="w-3 h-3 inline mr-0.5 -mt-0.5" fill={galleryFilter === 'favorites' ? 'currentColor' : 'none'} stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 8.25c0-2.485-2.099-4.5-4.688-4.5-1.935 0-3.597 1.126-4.312 2.733-.715-1.607-2.377-2.733-4.313-2.733C5.1 3.75 3 5.765 3 8.25c0 7.22 9 12 9 12s9-4.78 9-12z" /></svg>
-                  {favoritesCount}
+                  Individual{individualCount > 0 ? ` (${individualCount})` : ''}
                 </button>
-              )}
+                <button
+                  onClick={() => setGalleryFilter('batch')}
+                  className={galleryFilter === 'batch' ? 'active' : ''}
+                >
+                  Batch{batchCount > 0 ? ` (${batchCount})` : ''}
+                </button>
+                <button
+                  onClick={() => setGalleryFilter('all')}
+                  className={galleryFilter === 'all' ? 'active' : ''}
+                >
+                  All
+                </button>
+                {favoritesCount > 0 && (
+                  <button
+                    onClick={() => setGalleryFilter('favorites')}
+                    className={galleryFilter === 'favorites' ? 'active' : ''}
+                  >
+                    <svg className="w-3 h-3 inline mr-0.5 -mt-0.5" fill={galleryFilter === 'favorites' ? 'currentColor' : 'none'} stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 8.25c0-2.485-2.099-4.5-4.688-4.5-1.935 0-3.597 1.126-4.312 2.733-.715-1.607-2.377-2.733-4.313-2.733C5.1 3.75 3 5.765 3 8.25c0 7.22 9 12 9 12s9-4.78 9-12z" /></svg>
+                    {favoritesCount}
+                  </button>
+                )}
+              </div>
+              <select
+                value={dateRange}
+                onChange={(e) => setDateRange(e.target.value)}
+                className="input-apple text-[12px] py-1 px-2 pr-7 w-auto"
+              >
+                <option value="4d">Last 4 days</option>
+                <option value="7d">Last 7 days</option>
+                <option value="14d">Last 14 days</option>
+                <option value="30d">Last 30 days</option>
+                <option value="all">All time</option>
+              </select>
             </div>
           )}
           {ads.length > 0 && (
