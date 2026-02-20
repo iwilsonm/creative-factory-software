@@ -1522,6 +1522,24 @@ function BatchRow({ batch, onRunNow, onCancel, onDelete, onEdit, onPause, onResu
   const progressDone = (batchStats?.succeededRequests || 0) + (batchStats?.failedRequests || 0);
   const progressPct = progressTotal > 0 ? Math.round((progressDone / progressTotal) * 100) : 0;
 
+  // Parse pipeline_state for stage-level progress
+  let pipelineState = null;
+  if (batch.pipeline_state) {
+    try {
+      pipelineState = typeof batch.pipeline_state === 'string' ? JSON.parse(batch.pipeline_state) : batch.pipeline_state;
+    } catch {}
+  }
+  const pipelineStage = pipelineState?.stage ?? null;
+  const pipelineCurrent = pipelineState?.current || 0;
+  const pipelineTotal = pipelineState?.total || 0;
+  const pipelinePct = pipelineStage === 3 && pipelineTotal > 0
+    ? Math.round((pipelineCurrent / pipelineTotal) * 100)
+    : pipelineStage === 'complete' ? 100
+    : pipelineStage === 2 ? 60
+    : pipelineStage === 1 ? 30
+    : pipelineStage === 0 ? 10
+    : 0;
+
   return (
     <div className="rounded-xl bg-gray-50/30 border border-gray-100/80 hover:bg-gray-50/60 transition-colors">
       <div className="flex items-center gap-3 p-3">
@@ -1555,7 +1573,14 @@ function BatchRow({ batch, onRunNow, onCancel, onDelete, onEdit, onPause, onResu
               {batch.batch_size} image{batch.batch_size !== 1 ? 's' : ''}
             </span>
             <span className={`badge text-[10px] ${STATUS_COLORS[batch.status] || STATUS_COLORS.pending}`}>
-              {STATUS_LABELS[batch.status] || batch.status}
+              {batch.status === 'generating_prompts' && batch.pipeline_state
+                ? (() => {
+                    try {
+                      const ps = JSON.parse(batch.pipeline_state);
+                      return ps.stage_label || STATUS_LABELS[batch.status];
+                    } catch { return STATUS_LABELS[batch.status]; }
+                  })()
+                : (STATUS_LABELS[batch.status] || batch.status)}
             </span>
             {batch.schedule_cron ? (
               batch.scheduled ? (
@@ -1793,6 +1818,23 @@ function BatchRow({ batch, onRunNow, onCancel, onDelete, onEdit, onPause, onResu
             >
               Cancel
             </button>
+          </div>
+        </div>
+      )}
+
+      {/* Pipeline progress bar for generating_prompts stage */}
+      {batch.status === 'generating_prompts' && pipelineState && (
+        <div className="px-3 pb-3">
+          <div className="flex items-center gap-2">
+            <div className="flex-1 h-1.5 rounded-full bg-gray-200 overflow-hidden">
+              <div
+                className="h-full bg-blue-400 rounded-full transition-all duration-500"
+                style={{ width: `${pipelinePct}%` }}
+              />
+            </div>
+            <span className="text-[10px] text-gray-400 flex-shrink-0">
+              {pipelineState.stage_label || `Stage ${pipelineStage}`}
+            </span>
           </div>
         </div>
       )}

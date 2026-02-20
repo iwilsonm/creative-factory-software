@@ -800,6 +800,511 @@ export async function generateAdMode2(projectId, options = {}) {
  * Regenerate an image using a user-provided prompt (skip GPT entirely).
  * Creates a new ad record linked to the parent ad.
  */
+// =============================================
+// 4-Stage Batch Pipeline Functions
+// =============================================
+
+/**
+ * Attempt to repair malformed JSON from LLM responses.
+ * Strips markdown code fences, fixes trailing commas, then parses.
+ */
+export function repairJSON(text) {
+  if (!text || !text.trim()) throw new Error('Empty JSON response');
+  let cleaned = text.trim();
+
+  // Strip markdown code fences (```json ... ``` or ``` ... ```)
+  cleaned = cleaned.replace(/^```(?:json)?\s*\n?/i, '').replace(/\n?```\s*$/i, '');
+
+  // Fix trailing commas before } or ]
+  cleaned = cleaned.replace(/,(\s*[}\]])/g, '$1');
+
+  return JSON.parse(cleaned);
+}
+
+/**
+ * Extract a named section from the brief_packet markdown.
+ * Returns the text between the section heading and the next ## heading (or end).
+ */
+function extractBriefSection(briefPacket, sectionName) {
+  const regex = new RegExp(`## ${sectionName}[^\n]*\n([\\s\\S]*?)(?=\n## |$)`, 'i');
+  const match = briefPacket.match(regex);
+  return match ? match[1].trim() : '';
+}
+
+/**
+ * Stage 0: Brief Extraction — condenses 4 foundational docs into angle-specific ~1 page brief.
+ * Runs once per batch. 1 API call.
+ *
+ * @param {object} project - Project record
+ * @param {object} docs - { research, avatar, offer_brief, necessary_beliefs }
+ * @param {string} angle - The advertising angle for this batch
+ * @returns {string} brief_packet (markdown)
+ */
+export async function extractBrief(project, docs, angle) {
+  const researchContent = docs.research?.content || '[No research document available]';
+  const avatarContent = docs.avatar?.content || '[No avatar sheet available]';
+  const offerContent = docs.offer_brief?.content || '[No offer brief available]';
+  const beliefsContent = docs.necessary_beliefs?.content || '[No necessary beliefs document available]';
+
+  // Extract first paragraph of avatar sheet for target demographic summary
+  const targetDemographic = avatarContent.split('\n\n')[0] || avatarContent.slice(0, 500);
+
+  const prompt = `You are a direct response research analyst. Your job is to extract the most relevant raw material from brand foundational documents for a specific advertising angle.
+
+BRAND: ${project.brand_name || project.name}
+PRODUCT: ${project.product_description || ''}
+TARGET DEMOGRAPHIC: ${targetDemographic}
+
+THE ANGLE FOR THIS BATCH: "${angle || 'general'}"
+
+I will provide you with four foundational documents. From these documents, extract ONLY the material directly relevant to this specific angle. Ignore everything else — do not try to be comprehensive.
+
+Your output must contain exactly these sections:
+
+## AVATAR IN THIS MOMENT
+3-4 sentences describing who this woman is specifically when she encounters an ad using this angle. What is she feeling right now? What would make her stop scrolling?
+
+## RELEVANT PAIN POINTS (max 5)
+Only the pain points from the research/avatar docs that this angle activates. Not all pain points — just the ones this angle touches.
+
+## RELEVANT QUOTES FROM LANGUAGE BANK (max 8)
+Exact raw quotes from the deep research doc's language bank that a copywriter would use for THIS angle. Emotional, specific phrases only.
+
+## RELEVANT BELIEFS (max 3)
+From the necessary beliefs document, which 3 beliefs are most critical for this angle?
+
+## RELEVANT OBJECTIONS (max 4)
+Which objections does this angle need to preempt or address?
+
+## EMOTIONAL ENTRY POINT
+One sentence: what is the single dominant emotion this angle enters through?
+
+## SPECIFICITY ANCHORS (max 6)
+Concrete details from the research that make ads feel real: specific times of night, body parts, failed solutions, social moments. Only ones relevant to this angle.
+
+FOUNDATIONAL DOCUMENTS:
+
+=== DEEP RESEARCH ===
+${researchContent}
+
+=== AVATAR SHEET ===
+${avatarContent}
+
+=== OFFER BRIEF ===
+${offerContent}
+
+=== NECESSARY BELIEFS ===
+${beliefsContent}`;
+
+  // Attempt with retry — fall back to raw docs if both attempts fail
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try {
+      const briefPacket = await withGptRateLimit(async () => {
+        return await chat([{ role: 'user', content: prompt }], 'gpt-5.2');
+      }, `[Stage 0 Brief Extraction attempt ${attempt}]`);
+
+      console.log(`[Pipeline Stage 0] Brief extracted (${briefPacket.length} chars) for angle: "${(angle || 'general').slice(0, 40)}"`);
+      return briefPacket;
+    } catch (err) {
+      console.error(`[Pipeline Stage 0] Attempt ${attempt} failed:`, err.message);
+      if (attempt === 2) {
+        // Fallback: concatenate raw docs
+        console.warn('[Pipeline Stage 0] Falling back to raw foundational docs');
+        return `## AVATAR IN THIS MOMENT\n${targetDemographic}\n\n## RELEVANT PAIN POINTS\n(Full docs — brief extraction failed)\n\n## RELEVANT QUOTES FROM LANGUAGE BANK\n(See research document)\n\n## RELEVANT BELIEFS\n(See necessary beliefs document)\n\n## RELEVANT OBJECTIONS\n(See offer brief)\n\n## EMOTIONAL ENTRY POINT\n(Brief extraction failed — using full docs)\n\n## SPECIFICITY ANCHORS\n(See research document)\n\nFULL FOUNDATIONAL DOCUMENTS:\n\n${researchContent}\n\n${avatarContent}\n\n${offerContent}\n\n${beliefsContent}`;
+      }
+      await new Promise(r => setTimeout(r, 3000));
+    }
+  }
+}
+
+/**
+ * Stage 1: Headline + Sub-Angle Generation — generates scored/ranked headlines with sub-angle diversity.
+ * Runs once per batch. 1 API call.
+ *
+ * @param {object} project - Project record
+ * @param {string} briefPacket - Output of Stage 0
+ * @param {string} angle - The advertising angle
+ * @param {number} count - headlines_to_generate count
+ * @returns {{ sub_angles: Array, headlines: Array }}
+ */
+export async function generateHeadlines(project, briefPacket, angle, count) {
+  const avatarSection = extractBriefSection(briefPacket, 'AVATAR IN THIS MOMENT');
+  const emotionalEntry = extractBriefSection(briefPacket, 'EMOTIONAL ENTRY POINT');
+  const painPoints = extractBriefSection(briefPacket, 'RELEVANT PAIN POINTS');
+  const quotes = extractBriefSection(briefPacket, 'RELEVANT QUOTES');
+  const anchors = extractBriefSection(briefPacket, 'SPECIFICITY ANCHORS');
+
+  const prompt = `You are a world-class direct response copywriter who writes Facebook ad headlines for health and wellness products targeting women 55-75. These women are skeptical, have been disappointed by other products, and need to feel safe and understood before they'll engage.
+
+Your headlines stop the scroll. They are specific, emotional, and impossible to ignore. They sound like something a real person would say or think — not like marketing copy.
+
+BRAND: ${project.brand_name || project.name}
+PRODUCT: ${project.product_description || ''}
+
+TARGET AUDIENCE IN THIS MOMENT:
+${avatarSection || '(Not available)'}
+
+THE ANGLE FOR THIS BATCH: "${angle || 'general'}"
+
+EMOTIONAL ENTRY POINT:
+${emotionalEntry || '(Not available)'}
+
+RELEVANT PAIN POINTS:
+${painPoints || '(Not available)'}
+
+LANGUAGE TO DRAW FROM (for tone and specificity — do not copy verbatim):
+${quotes || '(Not available)'}
+
+CONCRETE DETAILS TO WEAVE IN:
+${anchors || '(Not available)'}
+
+---
+
+STEP 1: GENERATE SUB-ANGLES
+
+Before writing any headlines, create exactly 4 sub-angles within the main angle "${angle || 'general'}". Each sub-angle is a distinct emotional or strategic variation that will force different types of headlines.
+
+Rules for sub-angles:
+- Each must target a different emotional entry point (e.g., betrayal, outrage, quiet determination, surprise)
+- Each must suggest a different speaker perspective (e.g., first-person skeptic, editorial exposé, reluctant convert, defiant grandma)
+- They must be specific enough that headlines from one sub-angle could not be confused with another
+
+STEP 2: GENERATE HEADLINES
+
+Write exactly ${count} headlines total, distributed roughly evenly across your 4 sub-angles.
+
+Every headline must follow ALL of these rules:
+
+1. MAXIMUM 12 WORDS. Shorter is better. Under 8 is ideal for scroll-stopping power.
+
+2. THE ANGLE NEVER BECOMES THE HEADLINE. The angle "${angle || 'general'}" is a strategic lens that informs the headline — it must NEVER be the headline text itself. If the angle is "American small business," the headline must still hit a pain point or create curiosity. "American Small Business" as a headline = failure. "We're the small US company your neighbor told you about after she finally slept through the night" = success.
+
+3. Every headline must trigger one clear emotion: curiosity, recognition ("that's me"), outrage, vindication, relief, or surprise.
+
+4. At least 25% must use first-person voice ("I tried...", "I felt...", "My knees...")
+5. At least 25% must lead with a concrete physical sensation or specific symptom
+6. At least 25% must create an open loop or unanswered question
+7. At least 15% must use a pattern interrupt (contradiction, confession, counterintuitive framing)
+
+8. NO TWO HEADLINES may start with the same word.
+
+9. NO TWO HEADLINES may use the same sentence structure.
+
+10. NONE may use these phrases: "game-changer", "what if I told you", "here's the thing", "discover the secret", "unlock", "revolutionize", "transform your", "the ultimate", "you won't believe", "this changes everything", "finally revealed", "the truth about", "doctors don't want you to know", "one weird trick", "miracle", "breakthrough", "ancient secret"
+
+11. These are HEADLINES, not taglines or slogans. A headline makes someone stop and want to read more. A tagline is a brand statement. Write headlines.
+
+CALIBRATION — headlines at the quality level I expect:
+GOOD:
+- "I Felt Cheated After Every Grounding Product I Tried — Until I Discovered Why."
+- "The Grounding Sheet Ripoff: When You've Run Out of 'New Things to Try'"
+- "Wake up less stiff tomorrow. Seriously."
+- "I Stopped Waking Up at 3am. My Husband Noticed Before I Did."
+
+BAD (do NOT produce anything like these):
+- "2026 Sleep Wins" (meaningless, no hook)
+- "American Small Business" (angle as headline)
+- "Natural Sleep Solution for Better Rest" (generic, any product)
+- "Discover the Power of Grounding" (vague hype)
+
+STEP 3: SCORE YOUR OWN HEADLINES
+
+After generating all headlines, score each one yourself on these criteria (1-10):
+- SCROLL STOP: Would a 65-year-old woman stop her thumb mid-scroll?
+- SPECIFICITY: Does it trigger one clear emotion, or is it vague?
+- UNIQUENESS: Does it stand out from the other headlines in this batch?
+- REAL HUMAN: Would a real person say, think, or react to this exact phrasing?
+
+Compute an average score for each. Then rank all headlines from highest to lowest average score.
+
+OUTPUT FORMAT — respond as JSON only:
+
+{
+  "angle": "${angle || 'general'}",
+  "sub_angles": [
+    {
+      "id": "A",
+      "name": "short label",
+      "emotional_entry": "dominant emotion",
+      "speaker_perspective": "who is speaking"
+    }
+  ],
+  "headlines": [
+    {
+      "rank": 1,
+      "headline": "the headline text",
+      "sub_angle": "A",
+      "primary_emotion": "curiosity",
+      "category": "first_person | pain_point | open_loop | pattern_interrupt",
+      "word_count": 8,
+      "scores": {
+        "scroll_stop": 9,
+        "specificity": 8,
+        "uniqueness": 9,
+        "real_human": 8
+      },
+      "average_score": 8.5
+    }
+  ]
+}`;
+
+  for (let attempt = 1; attempt <= 2; attempt++) {
+    try {
+      const response = await withGptRateLimit(async () => {
+        return await chat(
+          [{ role: 'user', content: prompt }],
+          'gpt-5.2',
+          { response_format: { type: 'json_object' } }
+        );
+      }, `[Stage 1 Headlines attempt ${attempt}]`);
+
+      let result;
+      try {
+        result = JSON.parse(response);
+      } catch {
+        result = repairJSON(response);
+      }
+
+      if (!result.headlines || !Array.isArray(result.headlines)) {
+        throw new Error('Response missing headlines array');
+      }
+
+      // Sort by rank (should already be sorted, but ensure)
+      result.headlines.sort((a, b) => (a.rank || 999) - (b.rank || 999));
+
+      console.log(`[Pipeline Stage 1] Generated ${result.headlines.length} headlines, ${(result.sub_angles || []).length} sub-angles for angle: "${(angle || 'general').slice(0, 40)}"`);
+
+      // If we got fewer than needed on first attempt, retry with note
+      if (attempt === 1 && result.headlines.length < count) {
+        console.warn(`[Pipeline Stage 1] Got ${result.headlines.length}/${count} headlines, retrying...`);
+        throw new Error(`Only generated ${result.headlines.length}/${count} headlines`);
+      }
+
+      return result;
+
+    } catch (err) {
+      console.error(`[Pipeline Stage 1] Attempt ${attempt} failed:`, err.message);
+      if (attempt === 2) {
+        // Return whatever we have, even if incomplete
+        throw err;
+      }
+      await new Promise(r => setTimeout(r, 3000));
+    }
+  }
+}
+
+/**
+ * Stage 2: Body Copy Generation — writes body copy in batches of 5 headlines.
+ * Multiple API calls (N/5).
+ *
+ * @param {object} project - Project record
+ * @param {string} briefPacket - Output of Stage 0
+ * @param {Array} headlines - Array of headline objects from Stage 1
+ * @returns {Array} Array of { headline, body_copy, structure, word_count, specific_detail_used, closing_cta, primary_emotion }
+ */
+export async function generateBodyCopies(project, briefPacket, headlines) {
+  const quotes = extractBriefSection(briefPacket, 'RELEVANT QUOTES');
+  const anchors = extractBriefSection(briefPacket, 'SPECIFICITY ANCHORS');
+  const beliefs = extractBriefSection(briefPacket, 'RELEVANT BELIEFS');
+
+  const allCopies = [];
+
+  // Process in batches of 5
+  for (let i = 0; i < headlines.length; i += 5) {
+    const batch = headlines.slice(i, i + 5);
+    const batchNum = Math.floor(i / 5) + 1;
+    const totalBatches = Math.ceil(headlines.length / 5);
+
+    const headlineList = batch.map((h, idx) => `${idx + 1}. "${h.headline}"`).join('\n');
+
+    const prompt = `You are a direct response copywriter writing Facebook ad primary text for a health/wellness brand. You write for women 55-75 dealing with chronic pain, broken sleep, and morning stiffness. Your copy is warm, specific, honest, and sounds like a real person — not a brand.
+
+BRAND: ${project.brand_name || project.name}
+PRODUCT: ${project.product_description || ''}
+
+TONE RULES:
+- Never use hype language or miracle framing
+- Lead with relief, not claims
+- Show skepticism openly — don't fight it
+- Emphasize safety and reversibility
+- Sound like a trusted friend who found something that helped, not a salesperson
+
+REFERENCE MATERIAL (use for specificity and emotional tone — do not copy verbatim):
+${quotes || '(Not available)'}
+${anchors || '(Not available)'}
+
+BELIEFS TO ACTIVATE (weave in naturally, never state as bullet points):
+${beliefs || '(Not available)'}
+
+---
+
+For each headline below, write Facebook ad primary text (the body copy that appears below the headline in the ad).
+
+RULES FOR EVERY BODY COPY:
+
+1. ANCHOR TO THE HEADLINE. Your first sentence must continue the emotional thread the headline started. Do not restart. Do not introduce a new idea. Do not repeat the headline. If the headline opens a loop, partially close it — enough to satisfy, not enough to remove the need to click.
+
+2. MAXIMUM 90 WORDS. Every word earns its place.
+
+3. INCLUDE ONE SPECIFIC, CONCRETE DETAIL: a time of night (2-4am), a body part (hips, knees, shoulders), a failed solution (melatonin, expensive mattress), or a life moment (playing with grandkids, dreading bedtime). "Better sleep" or "less pain" do NOT count as specific.
+
+4. DO NOT REPEAT THE HEADLINE TEXT in the body copy.
+
+5. END WITH A REASON TO CLICK that connects to the headline's emotion — not a generic "Learn more" or "Shop now." If the headline was about feeling cheated, the closer should be about finding out why. If the headline was about stiffness, the closer should be about what changed.
+
+6. NONE of these phrases: "game-changer", "revolutionize", "transform your life", "the ultimate solution", "miracle", "breakthrough discovery", "you won't believe what happened next"
+
+---
+
+HEADLINES TO WRITE BODY COPY FOR:
+
+${headlineList}
+
+For each headline, write ONE body copy. Vary the structural approach across the five:
+- At least 1 should use STORY CONTINUATION (extend the narrative voice of the headline)
+- At least 1 should use PROBLEM-AGITATE (hit the pain with specific detail, then pivot to product)
+- At least 1 should use SOCIAL PROOF (open with what another woman experienced — a name, an age, a specific result)
+- The remaining can use whichever approach fits the headline best
+
+OUTPUT FORMAT — respond as JSON only:
+
+{
+  "body_copies": [
+    {
+      "headline": "...",
+      "body_copy": "...",
+      "structure": "story_continuation | problem_agitate | social_proof",
+      "word_count": 78,
+      "specific_detail_used": "2-4am wakeups",
+      "closing_cta": "the last sentence / CTA text"
+    }
+  ]
+}`;
+
+    // Retry each batch up to 2 times
+    let batchSuccess = false;
+    for (let attempt = 1; attempt <= 2 && !batchSuccess; attempt++) {
+      try {
+        const response = await withGptRateLimit(async () => {
+          return await chat(
+            [{ role: 'user', content: prompt }],
+            'gpt-5.2',
+            { response_format: { type: 'json_object' } }
+          );
+        }, `[Stage 2 Body Copy batch ${batchNum}/${totalBatches} attempt ${attempt}]`);
+
+        let result;
+        try {
+          result = JSON.parse(response);
+        } catch {
+          result = repairJSON(response);
+        }
+
+        if (!result.body_copies || !Array.isArray(result.body_copies)) {
+          throw new Error('Response missing body_copies array');
+        }
+
+        // Match body copies back to original headline objects to preserve primary_emotion
+        for (const copy of result.body_copies) {
+          const matchingHeadline = batch.find(h => h.headline === copy.headline);
+          allCopies.push({
+            ...copy,
+            primary_emotion: matchingHeadline?.primary_emotion || 'curiosity',
+            sub_angle: matchingHeadline?.sub_angle || null,
+          });
+        }
+
+        batchSuccess = true;
+        console.log(`[Pipeline Stage 2] Body copy batch ${batchNum}/${totalBatches}: ${result.body_copies.length} copies generated`);
+
+      } catch (err) {
+        console.error(`[Pipeline Stage 2] Batch ${batchNum} attempt ${attempt} failed:`, err.message);
+        if (attempt === 2) {
+          console.warn(`[Pipeline Stage 2] Skipping batch ${batchNum} (${batch.length} headlines lost)`);
+        } else {
+          await new Promise(r => setTimeout(r, 3000));
+        }
+      }
+    }
+
+    // Small delay between batches
+    if (i + 5 < headlines.length) {
+      await new Promise(r => setTimeout(r, 1000));
+    }
+  }
+
+  console.log(`[Pipeline Stage 2] Total body copies generated: ${allCopies.length}/${headlines.length}`);
+  return allCopies;
+}
+
+/**
+ * Stage 3: Image Prompt Generation — generates image prompt for a single ad with locked copy.
+ * Runs once per ad. Uses vision API with template image.
+ *
+ * @param {object} project - Project record
+ * @param {string} headline - Locked headline text
+ * @param {string} bodyCopy - Locked body copy text
+ * @param {string} primaryEmotion - Primary emotion from Stage 1
+ * @param {{ base64: string, mimeType: string }} imageData - Template image data
+ * @param {string} aspectRatio - User-selected aspect ratio
+ * @returns {string} Image generation prompt
+ */
+export async function generateImagePrompt(project, headline, bodyCopy, primaryEmotion, imageData, aspectRatio) {
+  const promptText = `You are a creative director generating prompts for text-to-image AI software. You create Facebook ad visuals for DTC health/wellness brands targeting women 55-75.
+
+BRAND: ${project.brand_name || project.name}
+PRODUCT APPEARANCE: ${project.product_description || ''}
+
+ASPECT RATIO: ${aspectRatio || '1:1'}
+
+THE APPROVED AD COPY (DO NOT MODIFY — render exactly as written):
+HEADLINE: "${headline}"
+BODY COPY: "${bodyCopy}"
+
+PRIMARY EMOTION OF THIS AD: ${primaryEmotion || 'curiosity'}
+
+TEMPLATE TO MATCH:
+(See attached image — analyze its visual structure, layout, color palette, typography, and composition)
+
+---
+
+Analyze the template's visual structure:
+- Layout (where text sits, where product sits, visual hierarchy)
+- Color palette and mood
+- Typography style (serif vs sans-serif, weight, contrast)
+- Use of badges, callouts, trust elements, or decorative frames
+- Overall composition and whitespace
+
+Generate an image prompt that:
+
+1. Recreates the template's layout and composition style — adapted for ${project.brand_name || project.name}
+2. Features the product (${project.product_description || ''}) as the primary product visual, positioned where the template places its product. The product image will be composited in separately — so describe where it should go and at what scale, but focus the image prompt on the background, layout, and design elements.
+3. Places the EXACT headline text in the primary/dominant text position matching the template's hierarchy
+4. Places a key supporting line from the body copy (or the closing CTA) in the secondary text position if the template has one
+5. Places the brand name (${project.brand_name || project.name}) in a subtle position (footer, corner) matching the template
+6. Supports the emotional tone of the headline — the visual mood (colors, lighting, texture) should reinforce what the headline makes the reader feel. Skepticism angles get editorial/news-style treatments. Pain point angles get warm, empathetic tones. Relief angles get bright, calm aesthetics.
+7. Uses the specified aspect ratio: ${aspectRatio || '1:1'}
+8. Avoids generic stock photo aesthetics — aim for authentic, warm, realistic DTC ad quality that resonates with women 60-70
+9. Prioritizes scroll-stopping contrast and clean, conversion-focused design
+10. Includes realistic product representation — not cartoonish or overly polished
+
+CRITICAL: The headline and body copy are FINAL. Do not rewrite, shorten, improve, or paraphrase them. Your job is visual execution only. Render the text exactly as provided.
+
+Output the image generation prompt as a single text block ready to paste into the image generation tool.`;
+
+  const imagePrompt = await withGptRateLimit(async () => {
+    return await chatWithImage(
+      [],
+      promptText,
+      imageData.base64,
+      imageData.mimeType,
+      'gpt-5.2'
+    );
+  }, `[Stage 3 Image Prompt]`);
+
+  return imagePrompt;
+}
+
 export async function regenerateImageOnly(projectId, options = {}) {
   const { imagePrompt, aspectRatio = '1:1', parentAdId, productImageBase64, productImageMimeType, angle, headline, bodyCopy, onEvent } = options;
 

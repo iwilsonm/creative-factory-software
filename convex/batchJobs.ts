@@ -112,6 +112,7 @@ export const update = mutation({
     batch_size: v.optional(v.number()),
     aspect_ratio: v.optional(v.string()),
     used_template_ids: v.optional(v.string()),
+    pipeline_state: v.optional(v.string()),
     failed_count: v.optional(v.number()),
     run_count: v.optional(v.number()),
   },

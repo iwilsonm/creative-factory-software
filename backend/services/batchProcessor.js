@@ -1,13 +1,13 @@
 import { v4 as uuidv4 } from 'uuid';
-import { chat, chatWithImage } from './openai.js';
 import { getClient, generateImage } from './gemini.js';
 import {
-  buildCreativeDirectorPrompt,
-  buildImageRequestText,
+  extractBrief,
+  generateHeadlines,
+  generateBodyCopies,
+  generateImagePrompt,
   selectInspirationImage,
   selectTemplateImage,
   reviewPromptWithGuidelines,
-  extractHeadlineAndBody
 } from './adGenerator.js';
 import {
   getProject, getLatestDoc, getBatchJob, updateBatchJob,
@@ -16,7 +16,6 @@ import {
 } from '../convexClient.js';
 import { logGeminiCost } from './costTracker.js';
 import { withRetry } from './retry.js';
-import { withGptRateLimit } from './rateLimiter.js';
 // Drive upload skipped for batch images — Service Account has no storage quota.
 // Images are stored in Convex storage and viewable in the UI.
 
@@ -67,8 +66,15 @@ export async function runBatch(batchId, onProgress) {
 
     const prompts = await generateBatchPrompts(batch, project, docs, onProgress);
 
-    // Store text-only prompts in DB (exclude base64 image data to keep DB size reasonable)
-    await updateBatchJob(batchId, { gpt_prompts: JSON.stringify(prompts.map(p => p.prompt)), status: 'submitting' });
+    // Store prompts with headline/body in DB (exclude base64 image data to keep DB size reasonable)
+    await updateBatchJob(batchId, {
+      gpt_prompts: JSON.stringify(prompts.map(p => ({
+        prompt: p.prompt,
+        headline: p.headline || null,
+        body_copy: p.body_copy || null,
+      }))),
+      status: 'submitting'
+    });
     emit({ type: 'status', status: 'submitting', message: 'Submitting to Gemini Batch API...' });
 
     // Load product image if configured (from Convex storage)
@@ -106,23 +112,91 @@ export async function runBatch(batchId, onProgress) {
 }
 
 /**
- * Generate GPT-5.2 image prompts for all images in a batch.
- * Runs sequentially to respect rate limits.
- * Returns array of { prompt, inspirationBase64, inspirationMimeType, templateFileId } objects.
- * Each prompt is retried up to 3 times before being skipped.
+ * 4-Stage Pipeline: Generate GPT-5.2 image prompts for all images in a batch.
  *
- * Diversity features:
- * - Template dedup: excludes previously used template IDs across runs
- * - Variation instruction: tells GPT to create unique concepts per ad
+ * Stage 0: Brief Extraction (1 API call) — condense foundational docs to angle-specific brief
+ * Stage 1: Headline + Sub-Angle Generation (1 API call) — scored/ranked headlines with diversity
+ * Stage 2: Body Copy Generation (N/5 API calls) — body copy in batches of 5
+ * Stage 3: Image Prompt Generation (N API calls) — one per ad with locked copy + template
+ *
+ * Returns array of { prompt, headline, body_copy, inspirationBase64, inspirationMimeType, templateFileId } objects.
  */
 async function generateBatchPrompts(batch, project, docs, onProgress) {
   const emit = (event) => { if (onProgress) try { onProgress(event); } catch {} };
+  const batchId = batch.id;
+  const angle = batch.angle || null;
+
+  // ========================================
+  // STAGE 0: Brief Extraction (1 API call)
+  // ========================================
+  emit({ type: 'prompt_progress', current: 0, total: batch.batch_size, message: 'Stage 0: Extracting angle-specific brief...' });
+  await updateBatchJob(batchId, {
+    pipeline_state: JSON.stringify({ stage: 0, stage_label: 'Extracting brief...' })
+  });
+
+  const briefPacket = await extractBrief(project, docs, angle);
+
+  await updateBatchJob(batchId, {
+    pipeline_state: JSON.stringify({ stage: 0, stage_label: 'Brief extracted', brief_length: briefPacket.length })
+  });
+
+  // ========================================
+  // STAGE 1: Headline Generation (1 API call)
+  // ========================================
+  const headlineCount = Math.ceil(Math.max(batch.batch_size + 10, batch.batch_size * 1.2));
+  emit({ type: 'prompt_progress', current: 0, total: batch.batch_size, message: `Stage 1: Generating ${headlineCount} headlines...` });
+  await updateBatchJob(batchId, {
+    pipeline_state: JSON.stringify({ stage: 1, stage_label: `Generating ${headlineCount} headlines...` })
+  });
+
+  const headlineResult = await generateHeadlines(project, briefPacket, angle, headlineCount);
+
+  // Take the top N headlines by rank (they should already be sorted by rank/average_score)
+  const topHeadlines = headlineResult.headlines.slice(0, batch.batch_size);
+
+  console.log(`[BatchProcessor] Stage 1 complete: ${headlineResult.headlines.length} generated, top ${topHeadlines.length} selected`);
+  await updateBatchJob(batchId, {
+    pipeline_state: JSON.stringify({
+      stage: 1,
+      stage_label: `${topHeadlines.length} headlines selected`,
+      headline_count: topHeadlines.length,
+      sub_angle_count: (headlineResult.sub_angles || []).length,
+    })
+  });
+
+  // ========================================
+  // STAGE 2: Body Copy Generation (N/5 API calls)
+  // ========================================
+  const totalBodyBatches = Math.ceil(topHeadlines.length / 5);
+  emit({ type: 'prompt_progress', current: 0, total: batch.batch_size, message: `Stage 2: Writing body copy (${totalBodyBatches} batches of 5)...` });
+  await updateBatchJob(batchId, {
+    pipeline_state: JSON.stringify({ stage: 2, stage_label: `Writing body copy (0/${totalBodyBatches} batches)...` })
+  });
+
+  const bodyCopies = await generateBodyCopies(project, briefPacket, topHeadlines);
+
+  console.log(`[BatchProcessor] Stage 2 complete: ${bodyCopies.length} body copies for ${topHeadlines.length} headlines`);
+  await updateBatchJob(batchId, {
+    pipeline_state: JSON.stringify({
+      stage: 2,
+      stage_label: `${bodyCopies.length} body copies generated`,
+      body_copy_count: bodyCopies.length,
+    })
+  });
+
+  if (bodyCopies.length === 0) {
+    throw new Error('All body copy generations failed. Check your OpenAI API key and project configuration.');
+  }
+
+  // ========================================
+  // STAGE 3: Image Prompt Generation (1 per ad)
+  // ========================================
+  emit({ type: 'prompt_progress', current: 0, total: bodyCopies.length, message: `Stage 3: Creating image prompts (0/${bodyCopies.length})...` });
+  await updateBatchJob(batchId, {
+    pipeline_state: JSON.stringify({ stage: 3, stage_label: `Creating image prompts (0/${bodyCopies.length})...` })
+  });
+
   const prompts = [];
-
-  const creativeDirectorPrompt = buildCreativeDirectorPrompt(project, docs);
-
-  // Use the single angle for all ads in the batch
-  const currentAngle = batch.angle || null;
 
   // Load previously used template IDs for cross-run deduplication
   let usedTemplateIds = [];
@@ -131,19 +205,27 @@ async function generateBatchPrompts(batch, project, docs, onProgress) {
   }
   const newlyUsedTemplateIds = [];
 
-  for (let i = 0; i < batch.batch_size; i++) {
+  for (let i = 0; i < bodyCopies.length; i++) {
+    const copy = bodyCopies[i];
+
     emit({
       type: 'prompt_progress',
       current: i + 1,
-      total: batch.batch_size,
-      message: `Generating prompt ${i + 1} of ${batch.batch_size}${currentAngle ? ` (${currentAngle.slice(0, 40)})` : ''}...`
+      total: bodyCopies.length,
+      message: `Stage 3: Creating image prompt ${i + 1} of ${bodyCopies.length}...`
     });
 
+    // Update pipeline_state for frontend polling
+    if (i % 5 === 0 || i === bodyCopies.length - 1) {
+      await updateBatchJob(batchId, {
+        pipeline_state: JSON.stringify({ stage: 3, stage_label: `Creating image prompts (${i + 1}/${bodyCopies.length})...`, current: i + 1, total: bodyCopies.length })
+      });
+    }
+
     let success = false;
-    for (let attempt = 1; attempt <= 3 && !success; attempt++) {
+    for (let attempt = 1; attempt <= 2 && !success; attempt++) {
       try {
-        // Select image for this iteration
-        // Exclude templates used in this run AND previous runs
+        // Select template image — existing logic, unchanged
         const allExcluded = [...usedTemplateIds, ...newlyUsedTemplateIds];
 
         // Parse multi-template arrays (if present)
@@ -157,7 +239,6 @@ async function generateBatchPrompts(batch, project, docs, onProgress) {
 
         let imageData;
         if (templatePool.length > 0) {
-          // Multi-template mode: randomly pick from the pool for this ad
           const pick = templatePool[Math.floor(Math.random() * templatePool.length)];
           if (pick.type === 'uploaded') {
             imageData = await selectTemplateImage(pick.id);
@@ -165,13 +246,10 @@ async function generateBatchPrompts(batch, project, docs, onProgress) {
             imageData = await selectInspirationImage(batch.project_id, pick.id);
           }
         } else if (batch.generation_mode === 'mode2' && batch.template_image_id) {
-          // Legacy single uploaded template (backward compatible)
           imageData = await selectTemplateImage(batch.template_image_id);
         } else if (batch.inspiration_image_id) {
-          // Legacy single drive inspiration (backward compatible)
           imageData = await selectInspirationImage(batch.project_id, batch.inspiration_image_id);
         } else {
-          // Full random mode: exclude previously used templates
           imageData = await selectInspirationImage(batch.project_id, null, allExcluded);
         }
 
@@ -180,42 +258,25 @@ async function generateBatchPrompts(batch, project, docs, onProgress) {
           newlyUsedTemplateIds.push(imageData.fileId);
         }
 
-        // GPT-5.2 Messages 1-2: Rate-limited to prevent TPM overload
-        let imagePrompt = await withGptRateLimit(async () => {
-          // Message 1: Creative director prompt
-          const acknowledgment = await chat(
-            [{ role: 'user', content: creativeDirectorPrompt }],
-            'gpt-5.2'
-          );
-
-          // Message 2: Image + instructions with current angle
-          let imageRequestText = buildImageRequestText(currentAngle, batch.aspect_ratio);
-          imageRequestText += `. IMPORTANT: This is ad ${i + 1} of ${batch.batch_size} in a batch — create a COMPLETELY UNIQUE creative concept. Use a different visual style, layout, color palette, and headline approach than you would for any other ad in this series. Be bold and experimental with this variation.`;
-
-          const conversationSoFar = [
-            { role: 'user', content: creativeDirectorPrompt },
-            { role: 'assistant', content: acknowledgment }
-          ];
-
-          let prompt = await chatWithImage(
-            conversationSoFar,
-            imageRequestText,
-            imageData.base64,
-            imageData.mimeType,
-            'gpt-5.2'
-          );
-
-          return prompt;
-        }, `[Batch ${batch.id?.slice(0, 8)} prompt ${i + 1}/${batch.batch_size}]`);
+        // Stage 3: Generate image prompt with locked copy + template image
+        let imagePrompt = await generateImagePrompt(
+          project,
+          copy.headline,
+          copy.body_copy,
+          copy.primary_emotion || 'curiosity',
+          imageData,
+          batch.aspect_ratio || '1:1'
+        );
 
         // Apply prompt guidelines if set (uses gpt-4.1-mini, not rate-limited)
         if (project.prompt_guidelines) {
           imagePrompt = await reviewPromptWithGuidelines(imagePrompt, project.prompt_guidelines);
         }
 
-        // Store prompt + inspiration image data for Gemini to reference
         prompts.push({
           prompt: imagePrompt,
+          headline: copy.headline,
+          body_copy: copy.body_copy,
           inspirationBase64: imageData.base64,
           inspirationMimeType: imageData.mimeType,
           templateFileId: imageData.fileId || null,
@@ -223,36 +284,41 @@ async function generateBatchPrompts(batch, project, docs, onProgress) {
         success = true;
 
       } catch (err) {
-        console.error(`[BatchProcessor] Prompt ${i + 1} attempt ${attempt}/3 failed:`, err.message);
-        if (attempt < 3) {
-          await new Promise(r => setTimeout(r, 2000 * attempt)); // 2s, 4s backoff
+        console.error(`[BatchProcessor] Stage 3 prompt ${i + 1} attempt ${attempt}/2 failed:`, err.message);
+        if (attempt < 2) {
+          await new Promise(r => setTimeout(r, 3000));
         } else {
-          // Only give up after all 3 attempts
           prompts.push(null);
         }
       }
     }
 
-    // Delay between GPT calls to avoid rate limiting
-    if (i < batch.batch_size - 1) {
-      await new Promise(resolve => setTimeout(resolve, 1500));
+    // Small delay between GPT calls
+    if (i < bodyCopies.length - 1) {
+      await new Promise(resolve => setTimeout(resolve, 1000));
     }
   }
 
   // Update used_template_ids on the batch record for cross-run tracking
   if (newlyUsedTemplateIds.length > 0) {
     const updatedUsed = [...usedTemplateIds, ...newlyUsedTemplateIds];
-    await updateBatchJob(batch.id, { used_template_ids: JSON.stringify(updatedUsed) });
+    await updateBatchJob(batchId, { used_template_ids: JSON.stringify(updatedUsed) });
     console.log(`[BatchProcessor] Tracked ${newlyUsedTemplateIds.length} new template IDs (${updatedUsed.length} total used)`);
   }
 
   // Filter out failed prompts
   const validPrompts = prompts.filter(p => p !== null);
   if (validPrompts.length === 0) {
-    throw new Error('All GPT prompt generations failed. Check your OpenAI API key and project configuration.');
+    throw new Error('All image prompt generations failed. Check your OpenAI API key and project configuration.');
   }
 
-  console.log(`[BatchProcessor] Generated ${validPrompts.length}/${batch.batch_size} prompts successfully.`);
+  console.log(`[BatchProcessor] Pipeline complete: ${validPrompts.length}/${bodyCopies.length} prompts generated successfully.`);
+
+  // Clear pipeline_state now that all stages are done
+  await updateBatchJob(batchId, {
+    pipeline_state: JSON.stringify({ stage: 'complete', prompts_generated: validPrompts.length })
+  });
+
   return validPrompts;
 }
 
@@ -416,11 +482,15 @@ async function processBatchResults(batchId, job) {
         }
       }
 
+      // Get the prompt object (may be { prompt, headline, body_copy } or a legacy string)
+      const promptObj = prompts[i];
+      const promptText = typeof promptObj === 'string' ? promptObj : (promptObj?.prompt || null);
+
       // If batch response had no image, retry with direct Gemini call (1 attempt)
-      if (!imageBuffer && prompts[i]) {
+      if (!imageBuffer && promptText) {
         console.log(`[BatchProcessor] Batch ${batchId.slice(0, 8)}: No image in response ${i}, retrying with direct Gemini call...`);
         try {
-          const retryResult = await generateImage(prompts[i], batch.aspect_ratio || '1:1', productImageData);
+          const retryResult = await generateImage(promptText, batch.aspect_ratio || '1:1', productImageData);
           if (retryResult && retryResult.buffer) {
             imageBuffer = retryResult.buffer;
             mimeType = retryResult.mimeType || 'image/png';
@@ -440,33 +510,23 @@ async function processBatchResults(batchId, job) {
       // Upload image to Convex storage
       const storageId = await uploadBuffer(imageBuffer, mimeType);
 
-      // Create ad_creative record
+      // Create ad_creative record with headline/body from pipeline (no extraction needed)
       const adId = uuidv4();
       await convexClient.mutation(api.adCreatives.create, {
         externalId: adId,
         project_id: batch.project_id,
         generation_mode: batch.generation_mode,
         angle: batch.angle || undefined,
-        image_prompt: prompts[i] || undefined,
-        gpt_creative_output: prompts[i] || undefined,
+        headline: (typeof promptObj === 'object' ? promptObj?.headline : null) || undefined,
+        body_copy: (typeof promptObj === 'object' ? promptObj?.body_copy : null) || undefined,
+        image_prompt: promptText || undefined,
+        gpt_creative_output: promptText || undefined,
         aspect_ratio: batch.aspect_ratio,
         storageId,
         status: 'completed',
         auto_generated: true,
         template_image_id: batch.template_image_id || undefined,
       });
-
-      // Extract headline from the GPT prompt (fire-and-forget)
-      if (prompts[i]) {
-        extractHeadlineAndBody(prompts[i]).then(({ headline, body_copy }) => {
-          if (headline || body_copy) {
-            const updates = { externalId: adId };
-            if (headline) updates.headline = headline;
-            if (body_copy) updates.body_copy = body_copy;
-            convexClient.mutation(api.adCreatives.update, updates).catch(() => {});
-          }
-        }).catch(() => {});
-      }
 
       savedCount++;
 
