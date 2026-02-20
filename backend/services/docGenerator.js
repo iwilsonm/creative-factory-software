@@ -1,5 +1,6 @@
 import { v4 as uuidv4 } from 'uuid';
 import { chat, chatStream, deepResearch } from './openai.js';
+import { chat as claudeChat } from './anthropic.js';
 import { getProject, getLatestDoc, updateProject, convexClient, api } from '../convexClient.js';
 
 // The 8 prompts from the SOP, organized as functions that return prompt text.
@@ -900,8 +901,8 @@ Return this exact JSON structure:
     { role: 'user', content: userContent }
   ];
 
-  // 3. Call GPT
-  const raw = await chat(messages, 'gpt-4.1-mini', {
+  // 3. Call Claude Sonnet 4.6 (faster + no OpenAI 429 issues)
+  const raw = await claudeChat(messages, 'claude-sonnet-4-6', {
     response_format: { type: 'json_object' }
   });
 

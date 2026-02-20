@@ -395,11 +395,14 @@ router.post('/:projectId/correct-docs', async (req, res) => {
     return res.status(400).json({ error: 'Correction instruction is required' });
   }
 
+  console.log(`[CopyCorrection] Scanning docs for: "${correction.trim().slice(0, 80)}"`);
+  const startTime = Date.now();
   try {
     const result = await findAndCorrectDocs(req.params.projectId, correction.trim());
+    console.log(`[CopyCorrection] Done in ${((Date.now() - startTime) / 1000).toFixed(1)}s — ${result.corrections?.length || 0} corrections found`);
     res.json(result);
   } catch (err) {
-    console.error('[CopyCorrection] Error:', err.message);
+    console.error(`[CopyCorrection] Error after ${((Date.now() - startTime) / 1000).toFixed(1)}s:`, err.message);
     res.status(500).json({ error: err.message || 'Failed to analyze documents' });
   }
 });
