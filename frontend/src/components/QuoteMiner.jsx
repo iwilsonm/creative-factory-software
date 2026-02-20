@@ -1425,29 +1425,28 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
                   <div className="text-center py-6 text-gray-400">
                     <p className="text-[12px]">No headlines match the current filters.</p>
                     <button
-                      onClick={() => { setHeadlineFilter('all'); setHeadlineProblemFilter(new Set()); setHeadlineEmotionFilter(new Set()); setHeadlineTagFilter(new Set()); setHeadlineTechniqueFilter(new Set()); }}
+                      onClick={() => { setHeadlineFilter('all'); setHeadlineFilters(new Map()); }}
                       className="text-[11px] text-purple-600 hover:text-purple-700 mt-1 font-medium"
                     >Clear filters</button>
                   </div>
                 ) : (
                   <div className="space-y-1.5">
-                    <div className="flex items-center gap-3">
-                      <label className="flex items-center gap-1.5 cursor-pointer">
-                        <input
-                          type="checkbox"
-                          checked={allFilteredSelected}
-                          onChange={() => {
-                            if (allFilteredSelected) {
-                              clearHeadlineSelection();
-                            } else {
-                              setSelectedHeadlineKeys(new Set(filtered.map(h => h.key)));
-                            }
-                          }}
-                          className="w-3.5 h-3.5 rounded border-gray-300 text-purple-600 focus:ring-purple-500"
-                        />
-                        <span className="text-[10px] text-gray-500">Select all</span>
-                      </label>
-                      <p className="text-[10px] text-gray-400">{filtered.length} of {totalHeadlines} headlines shown</p>
+                    {/* Select All header row — aligned with per-item checkboxes */}
+                    <div className="flex items-center gap-3 px-3 py-1.5 rounded-lg bg-gray-50/80 border border-gray-100">
+                      <input
+                        type="checkbox"
+                        checked={allFilteredSelected}
+                        onChange={() => {
+                          if (allFilteredSelected) {
+                            clearHeadlineSelection();
+                          } else {
+                            setSelectedHeadlineKeys(new Set(filtered.map(h => h.key)));
+                          }
+                        }}
+                        className="w-3.5 h-3.5 rounded border-gray-300 text-purple-600 focus:ring-purple-500 flex-shrink-0"
+                      />
+                      <span className="text-[10px] text-gray-500 font-medium">Select all</span>
+                      <span className="text-[10px] text-gray-400 ml-auto">{filtered.length} of {totalHeadlines} headlines</span>
                     </div>
                     {filtered.map((h, idx) => {
                       const prevQuoteId = idx > 0 ? filtered[idx - 1].quoteId : null;
@@ -1714,21 +1713,6 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
                       ★ Favorites ({bankQuotes.filter(q => q.is_favorite).length})
                     </button>
                   </div>
-                  <label className="flex items-center gap-1.5 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={filteredBankQuotes.length > 0 && filteredBankQuotes.every(q => selectedQuoteIds.has(q.id))}
-                      onChange={() => {
-                        if (filteredBankQuotes.every(q => selectedQuoteIds.has(q.id))) {
-                          clearQuoteSelection();
-                        } else {
-                          selectAllQuotes();
-                        }
-                      }}
-                      className="w-3.5 h-3.5 rounded border-gray-300 text-purple-600 focus:ring-purple-500"
-                    />
-                    <span className="text-[10px] text-gray-500">Select all</span>
-                  </label>
                 </div>
                 <div className="flex items-center gap-2">
                   {!generatingBankHeadlines && (
@@ -1866,6 +1850,25 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
 
               {/* Bank quote cards */}
               <div className="space-y-2">
+                {/* Select All header row — aligned with per-item checkboxes */}
+                {filteredBankQuotes.length > 0 && (
+                  <div className="flex items-center gap-3 px-3 py-1.5 rounded-lg bg-gray-50/80 border border-gray-100">
+                    <input
+                      type="checkbox"
+                      checked={filteredBankQuotes.length > 0 && filteredBankQuotes.every(q => selectedQuoteIds.has(q.id))}
+                      onChange={() => {
+                        if (filteredBankQuotes.every(q => selectedQuoteIds.has(q.id))) {
+                          clearQuoteSelection();
+                        } else {
+                          selectAllQuotes();
+                        }
+                      }}
+                      className="w-3.5 h-3.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500 flex-shrink-0"
+                    />
+                    <span className="text-[10px] text-gray-500 font-medium">Select all</span>
+                    <span className="text-[10px] text-gray-400 ml-auto">{filteredBankQuotes.length} quotes</span>
+                  </div>
+                )}
                 {filteredBankQuotes.length === 0 && (
                   <p className="text-[12px] text-gray-400 py-4 text-center">
                     {hasBankFilters ? 'No quotes match the current filters.' : bankFilter === 'favorites' ? 'No favorite quotes yet. Star quotes to add them here.' : 'No quotes in bank.'}
