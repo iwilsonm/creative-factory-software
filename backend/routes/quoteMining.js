@@ -4,7 +4,7 @@ import { requireAuth } from '../auth.js';
 import { getProject, getQuoteMiningRunsByProject, getQuoteMiningRun, getQuoteBankByProject, getQuoteBankQuote, updateQuoteBankQuote, deleteQuoteBankQuote, getAdsWithSourceQuote, backfillQuoteBankProblems } from '../convexClient.js';
 import { convexClient, api } from '../convexClient.js';
 import { runQuoteMining, generateSuggestions } from '../services/quoteMiner.js';
-import { generateHeadlines, generateHeadlinesPerQuote } from '../services/headlineGenerator.js';
+import { generateHeadlines, generateHeadlinesPerQuote, generateMoreHeadlinesForQuote } from '../services/headlineGenerator.js';
 import { deduplicateAndAddToBank } from '../services/quoteDedup.js';
 import { generateBodyCopy } from '../services/bodyCopyGenerator.js';
 
@@ -510,6 +510,98 @@ router.post('/:projectId/quote-bank/headlines', async (req, res) => {
     });
   } catch (err) {
     console.error('Failed to start bank headline generation:', err);
+    if (!res.headersSent) {
+      res.status(500).json({ error: err.message });
+    }
+  }
+});
+
+// ── Generate MORE headlines for a specific quote (SSE stream) ─────────────────
+router.post('/:projectId/quote-bank/:quoteId/generate-more-headlines', async (req, res) => {
+  try {
+    const { target_demographic, problem } = req.body;
+    if (!target_demographic || !problem) {
+      return res.status(400).json({ error: 'target_demographic and problem are required' });
+    }
+
+    const quote = await getQuoteBankQuote(req.params.quoteId);
+    if (!quote || quote.project_id !== req.params.projectId) {
+      return res.status(404).json({ error: 'Quote not found in bank' });
+    }
+
+    // Parse existing headlines and extract used techniques
+    let existingHeadlines = [];
+    if (quote.headlines) {
+      try {
+        const parsed = JSON.parse(quote.headlines);
+        existingHeadlines = (Array.isArray(parsed) ? parsed : []).map(h => {
+          if (typeof h === 'string') return { text: h, technique: 'unknown' };
+          return { text: h.text || h, technique: h.technique || 'unknown' };
+        });
+      } catch { /* ignore */ }
+    }
+    const usedTechniques = existingHeadlines
+      .map(h => h.technique)
+      .filter(t => t && t !== 'unknown');
+
+    // Disable timeout
+    req.setTimeout(0);
+    res.setTimeout(0);
+
+    // Set up SSE
+    res.writeHead(200, {
+      'Content-Type': 'text/event-stream',
+      'Cache-Control': 'no-cache',
+      'Connection': 'keep-alive',
+      'X-Accel-Buffering': 'no'
+    });
+
+    const keepalive = setInterval(() => {
+      if (!closed) res.write(': keepalive\n\n');
+    }, 30000);
+
+    const sendEvent = (event) => {
+      if (!closed) res.write(`data: ${JSON.stringify(event)}\n\n`);
+    };
+
+    let closed = false;
+    req.on('close', () => {
+      closed = true;
+      clearInterval(keepalive);
+    });
+
+    generateMoreHeadlinesForQuote(quote, { target_demographic, problem }, usedTechniques, (event) => {
+      sendEvent(event);
+    }).then(async (result) => {
+      // Merge: append new headlines to existing ones
+      const merged = [...existingHeadlines, ...result.headlines];
+      await updateQuoteBankQuote(req.params.quoteId, {
+        headlines: JSON.stringify(merged),
+        headlines_generated_at: new Date().toISOString(),
+      });
+
+      clearInterval(keepalive);
+      if (!closed) {
+        sendEvent({
+          type: 'headlines_saved',
+          message: `Added ${result.headlines.length} new headlines (${merged.length} total).`,
+          newCount: result.headlines.length,
+          totalCount: merged.length,
+        });
+        res.write('data: [DONE]\n\n');
+        res.end();
+      }
+    }).catch(async (err) => {
+      console.error('[GenerateMore] Failed:', err);
+      clearInterval(keepalive);
+      if (!closed) {
+        sendEvent({ type: 'error', message: err.message });
+        res.write('data: [DONE]\n\n');
+        res.end();
+      }
+    });
+  } catch (err) {
+    console.error('Failed to start generate-more:', err);
     if (!res.headersSent) {
       res.status(500).json({ error: err.message });
     }

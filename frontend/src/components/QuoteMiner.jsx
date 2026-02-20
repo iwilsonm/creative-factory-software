@@ -128,6 +128,8 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
   const [headlineProblemFilter, setHeadlineProblemFilter] = useState('all'); // 'all' | specific problem
   const [headlineEmotionFilter, setHeadlineEmotionFilter] = useState('all'); // 'all' | specific emotion
   const [headlineTagFilter, setHeadlineTagFilter] = useState('all'); // 'all' | specific tag
+  const [headlineTechniqueFilter, setHeadlineTechniqueFilter] = useState('all'); // 'all' | specific technique
+  const [generatingMoreForQuote, setGeneratingMoreForQuote] = useState(null); // quoteId or null
   const [bankOpen, setBankOpen] = useState(true);
   const [loadingBank, setLoadingBank] = useState(true);
   const [expandedQuoteIds, setExpandedQuoteIds] = useState(new Set());
@@ -424,7 +426,7 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
         const quote = bankQuotes.find(q => q.id === editingField.quoteId);
         if (!quote) return;
         const headlines = parseHeadlines(quote.headlines);
-        headlines[editingField.hlIdx] = editingField.value;
+        headlines[editingField.hlIdx] = { ...headlines[editingField.hlIdx], text: editingField.value };
         await api.updateQuoteBankQuote(projectId, editingField.quoteId, {
           headlines: JSON.stringify(headlines),
         });
@@ -683,6 +685,34 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
     }
   };
 
+  // ─── Generate MORE headlines for a specific quote ─────────────────────────
+  const handleGenerateMoreHeadlines = (quoteId) => {
+    const quote = bankQuotes.find(q => q.id === quoteId);
+    if (!quote) return;
+
+    setGeneratingMoreForQuote(quoteId);
+
+    const lastRun = runs.length > 0 ? runs[0] : null;
+
+    const { abort, done } = api.generateMoreHeadlines(projectId, quoteId, {
+      target_demographic: lastRun?.target_demographic || config.target_demographic.trim() || 'target customers',
+      problem: lastRun?.problem || config.problem.trim() || 'their problem',
+    }, (event) => {
+      // Progress events — could show per-quote progress later
+    });
+
+    done.then(() => {
+      setGeneratingMoreForQuote(null);
+      loadBank(); // Refresh to get new headlines
+      toast.success('New headlines generated');
+    }).catch((err) => {
+      setGeneratingMoreForQuote(null);
+      if (err.name !== 'AbortError') {
+        toast.error('Failed to generate more headlines');
+      }
+    });
+  };
+
   // ─── Legacy headline generation (for run view) ────────────────────────────
   const handleGenerateHeadlines = () => {
     if (!viewingRunId) {
@@ -837,11 +867,17 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
   const quotesWithHeadlines = filteredBankQuotes.filter(q => q.headlines && q.headlines !== '[]');
   const quotesWithoutHeadlines = filteredBankQuotes.filter(q => !q.headlines || q.headlines === '[]');
 
-  // Parse headlines helper
+  // Parse headlines helper — normalizes both old (string[]) and new ({ text, technique }[]) formats
   const parseHeadlines = (headlinesStr) => {
     if (!headlinesStr) return [];
     try {
-      return JSON.parse(headlinesStr);
+      const parsed = JSON.parse(headlinesStr);
+      if (!Array.isArray(parsed)) return [];
+      return parsed.map(h => {
+        if (typeof h === 'string') return { text: h, technique: null };
+        if (h && typeof h === 'object' && h.text) return { text: h.text, technique: h.technique || null };
+        return null;
+      }).filter(Boolean);
     } catch {
       return [];
     }
@@ -851,7 +887,8 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
   const allHeadlinesFlat = bankQuotes.flatMap(q => {
     const hls = parseHeadlines(q.headlines);
     return hls.map((hl, hlIdx) => ({
-      headline: hl,
+      headline: hl.text,
+      technique: hl.technique,
       hlIdx,
       quoteId: q.id,
       key: `${q.id}::${hlIdx}`,
@@ -861,7 +898,7 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
       source: q.source,
       problem: q.problem,
       tags: q.tags || [],
-      isUsed: (usageData.usedHeadlines[q.id] || []).includes(hl),
+      isUsed: (usageData.usedHeadlines[q.id] || []).includes(hl.text),
     }));
   });
   const totalHeadlines = allHeadlinesFlat.length;
@@ -872,6 +909,7 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
   const uniqueProblems = [...new Set(allHeadlinesFlat.map(h => h.problem).filter(Boolean))].sort();
   const uniqueEmotions = [...new Set(allHeadlinesFlat.map(h => h.emotion).filter(Boolean))].sort();
   const uniqueTags = [...new Set(allHeadlinesFlat.flatMap(h => h.tags))].sort();
+  const uniqueTechniques = [...new Set(allHeadlinesFlat.map(h => h.technique).filter(Boolean))].sort();
 
   // Detect quotes needing backfill
   const quotesNeedingBackfill = bankQuotes.filter(q => !q.problem).length;
@@ -1063,10 +1101,37 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
                     ))}
                   </>
                 )}
+
+                {/* Technique chips */}
+                {uniqueTechniques.length > 0 && (
+                  <>
+                    {(uniqueProblems.length > 1 || uniqueEmotions.length > 1 || uniqueTags.length > 0) && <span className="text-gray-200">|</span>}
+                    <span className="text-[10px] text-gray-400 font-medium uppercase tracking-wider">Technique:</span>
+                    <button
+                      onClick={() => setHeadlineTechniqueFilter('all')}
+                      className={`text-[10px] px-2 py-0.5 rounded-full border transition-all ${
+                        headlineTechniqueFilter === 'all'
+                          ? 'bg-amber-50 text-amber-700 border-amber-200 font-semibold'
+                          : 'text-gray-500 border-gray-200 hover:border-amber-200 hover:text-amber-600'
+                      }`}
+                    >All</button>
+                    {uniqueTechniques.map(t => (
+                      <button
+                        key={t}
+                        onClick={() => setHeadlineTechniqueFilter(headlineTechniqueFilter === t ? 'all' : t)}
+                        className={`text-[10px] px-2 py-0.5 rounded-full border transition-all ${
+                          headlineTechniqueFilter === t
+                            ? 'bg-amber-50 text-amber-700 border-amber-200 font-semibold'
+                            : 'text-gray-500 border-gray-200 hover:border-amber-200 hover:text-amber-600'
+                        }`}
+                      >{t}</button>
+                    ))}
+                  </>
+                )}
               </div>
 
               {/* Active filters summary */}
-              {(headlineProblemFilter !== 'all' || headlineEmotionFilter !== 'all' || headlineTagFilter !== 'all') && (
+              {(headlineProblemFilter !== 'all' || headlineEmotionFilter !== 'all' || headlineTagFilter !== 'all' || headlineTechniqueFilter !== 'all') && (
                 <div className="flex items-center gap-1.5 flex-wrap">
                   <span className="text-[10px] text-gray-400">Active filters:</span>
                   {headlineProblemFilter !== 'all' && (
@@ -1087,8 +1152,14 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
                       <button onClick={() => setHeadlineTagFilter('all')} className="text-teal-400 hover:text-teal-600">×</button>
                     </span>
                   )}
+                  {headlineTechniqueFilter !== 'all' && (
+                    <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-amber-50 text-amber-700">
+                      {headlineTechniqueFilter}
+                      <button onClick={() => setHeadlineTechniqueFilter('all')} className="text-amber-400 hover:text-amber-600">×</button>
+                    </span>
+                  )}
                   <button
-                    onClick={() => { setHeadlineProblemFilter('all'); setHeadlineEmotionFilter('all'); setHeadlineTagFilter('all'); }}
+                    onClick={() => { setHeadlineProblemFilter('all'); setHeadlineEmotionFilter('all'); setHeadlineTagFilter('all'); setHeadlineTechniqueFilter('all'); }}
                     className="text-[10px] text-gray-400 hover:text-gray-600 underline ml-1"
                   >Clear all</button>
                 </div>
@@ -1109,7 +1180,8 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
               .filter(h => headlineFilter === 'all' ? true : headlineFilter === 'used' ? h.isUsed : !h.isUsed)
               .filter(h => headlineProblemFilter === 'all' ? true : h.problem === headlineProblemFilter)
               .filter(h => headlineEmotionFilter === 'all' ? true : h.emotion === headlineEmotionFilter)
-              .filter(h => headlineTagFilter === 'all' ? true : h.tags.includes(headlineTagFilter));
+              .filter(h => headlineTagFilter === 'all' ? true : h.tags.includes(headlineTagFilter))
+              .filter(h => headlineTechniqueFilter === 'all' ? true : h.technique === headlineTechniqueFilter);
             const allFilteredSelected = filtered.length > 0 && filtered.every(h => selectedHeadlineKeys.has(h.key));
             return (
               <>
@@ -1272,6 +1344,15 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
                                   {t}
                                 </span>
                               ))}
+                              {h.technique && (
+                                <span
+                                  className="text-[9px] font-medium px-1.5 py-0.5 rounded-full bg-amber-50 text-amber-700 cursor-pointer hover:bg-amber-100 transition-colors"
+                                  onClick={() => setHeadlineTechniqueFilter(headlineTechniqueFilter === h.technique ? 'all' : h.technique)}
+                                  title={`Filter by technique: ${h.technique}`}
+                                >
+                                  {h.technique}
+                                </span>
+                              )}
                               <p className="text-[10px] text-gray-400 truncate max-w-[250px]" title={h.quoteText}>
                                 &ldquo;{h.quoteText.length > 50 ? h.quoteText.slice(0, 50) + '...' : h.quoteText}&rdquo;
                               </p>
@@ -1772,7 +1853,7 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
                                 Headlines ({headlines.length})
                               </p>
                               {headlines.map((hl, hlIdx) => {
-                                const hlUsed = quoteUsedHeadlines.includes(hl);
+                                const hlUsed = quoteUsedHeadlines.includes(hl.text);
                                 const isEditingThisHl = editingField && editingField.quoteId === quote.id && editingField.hlIdx === hlIdx && editingField.field === 'headline';
                                 return (
                                   <div key={hlIdx} className="flex items-start gap-2 p-2 rounded-lg bg-white/80 hover:bg-purple-50/50 transition-colors">
@@ -1795,15 +1876,20 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
                                     ) : (
                                       <p
                                         className="flex-1 text-[12px] font-medium text-gray-800 leading-relaxed cursor-pointer hover:bg-purple-50/50 rounded px-1 -mx-1 transition-colors"
-                                        onClick={() => startEditingHeadline(quote.id, hlIdx, hl)}
+                                        onClick={() => startEditingHeadline(quote.id, hlIdx, hl.text)}
                                         title="Click to edit headline"
                                       >
-                                        {hl}
+                                        {hl.text}
                                       </p>
+                                    )}
+                                    {hl.technique && (
+                                      <span className="text-[8px] font-medium px-1.5 py-0.5 rounded-full bg-amber-50 text-amber-700 flex-shrink-0 whitespace-nowrap">
+                                        {hl.technique}
+                                      </span>
                                     )}
                                     <div className="flex items-center gap-1.5 flex-shrink-0">
                                       <button
-                                        onClick={() => copyHeadline(hl)}
+                                        onClick={() => copyHeadline(hl.text)}
                                         className="text-gray-400 hover:text-purple-600 transition-colors p-0.5"
                                         title="Copy headline"
                                       >
@@ -1813,7 +1899,7 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
                                       </button>
                                       <button
                                         onClick={() => onSendToAdStudio && onSendToAdStudio({
-                                          headline: hl,
+                                          headline: hl.text,
                                           sourceQuoteId: quote.id,
                                           quoteText: quote.quote,
                                           emotion: quote.emotion,
@@ -1831,6 +1917,28 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
                                   </div>
                                 );
                               })}
+                              <button
+                                onClick={() => handleGenerateMoreHeadlines(quote.id)}
+                                disabled={generatingMoreForQuote === quote.id}
+                                className="inline-flex items-center gap-1.5 mt-2 px-3 py-1.5 text-[10px] font-medium rounded-lg bg-purple-50 text-purple-600 hover:bg-purple-100 transition-all disabled:opacity-50"
+                              >
+                                {generatingMoreForQuote === quote.id ? (
+                                  <>
+                                    <svg className="w-3 h-3 animate-spin" viewBox="0 0 24 24" fill="none">
+                                      <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" className="opacity-25" />
+                                      <path d="M4 12a8 8 0 018-8" stroke="currentColor" strokeWidth="4" strokeLinecap="round" className="opacity-75" />
+                                    </svg>
+                                    Generating...
+                                  </>
+                                ) : (
+                                  <>
+                                    <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+                                    </svg>
+                                    Generate More Headlines
+                                  </>
+                                )}
+                              </button>
                             </div>
                           )}
                         </div>
@@ -1913,7 +2021,7 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
             </div>
             <div>
               <label className="block text-[13px] font-medium text-gray-600 mb-1.5">
-                Problem <span className="text-red-400">*</span>
+                Problem (Angle) <span className="text-red-400">*</span>
               </label>
               <input
                 value={config.problem}
