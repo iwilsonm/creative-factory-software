@@ -1532,8 +1532,8 @@ function BatchRow({ batch, onRunNow, onCancel, onDelete, onEdit, onPause, onResu
       batchStats = typeof batch.batch_stats === 'string' ? JSON.parse(batch.batch_stats) : batch.batch_stats;
     } catch {}
   }
-  const progressTotal = batchStats?.totalRequests || 0;
-  const progressDone = (batchStats?.succeededRequests || 0) + (batchStats?.failedRequests || 0);
+  const progressTotal = batchStats?.totalCount || batchStats?.totalRequests || 0;
+  const progressDone = (batchStats?.successfulCount || batchStats?.succeededRequests || 0) + (batchStats?.failedCount || batchStats?.failedRequests || 0);
   const progressPct = progressTotal > 0 ? Math.round((progressDone / progressTotal) * 100) : 0;
 
   // Parse pipeline_state for stage-level progress
