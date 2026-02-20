@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import JSZip from 'jszip';
 import { api } from '../api';
 import BatchManager from './BatchManager';
+import GenerationQueue from './GenerationQueue';
 import InfoTooltip from './InfoTooltip';
 import { useToast } from './Toast';
 
@@ -17,12 +18,6 @@ const STATUS_STEPS = [
   { status: 'generating_image', label: 'Image Generation', icon: '2' },
   { status: 'completed', label: 'Complete', icon: '3' }
 ];
-
-// Format start time for display (e.g. "9:04 PM")
-function formatStartTime(timestamp) {
-  if (!timestamp) return '';
-  return new Date(timestamp).toLocaleTimeString([], { hour: 'numeric', minute: '2-digit' });
-}
 
 // Template source options
 const TEMPLATE_RANDOM = 'random';      // Random from Drive folder
@@ -2440,89 +2435,15 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
         onBatchComplete={loadAds}
       />
 
-      {/* Ad Queue — inline between batch generation and gallery */}
-      {activeGens.length > 0 && (
-        <div ref={queueRef} className="card p-4 mb-6 fade-in">
-          <div className="flex items-center justify-between mb-3">
-            <div className="flex items-center gap-2">
-              <div className="w-6 h-6 rounded-lg bg-blue-100 flex items-center justify-center flex-shrink-0">
-                {activeGenCount > 0 ? (
-                  <div className="w-3 h-3 rounded-full border-2 border-blue-200 border-t-blue-500 animate-spin" />
-                ) : (
-                  <svg className="w-3 h-3 text-green-500" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" /></svg>
-                )}
-              </div>
-              <h3 className="text-[14px] font-semibold text-gray-900 tracking-tight">Ad Queue</h3>
-              <span className="text-[11px] text-gray-400">
-                {activeGenCount > 0
-                  ? `${activeGenCount} generating...`
-                  : 'All complete'}
-              </span>
-            </div>
-            <button
-              onClick={() => setGenQueueExpanded(!genQueueExpanded)}
-              className="text-gray-400 hover:text-gray-600 transition-colors p-1"
-            >
-              <svg className={`w-4 h-4 transition-transform ${genQueueExpanded ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-              </svg>
-            </button>
-          </div>
-
-          {genQueueExpanded && (
-            <div className="space-y-1.5">
-              {(() => {
-                // Compute queue positions for dynamic time estimates
-                // With concurrency=2, ads are processed 2 at a time
-                // Base time: ~50s for 2-message flow (foundational docs only), ~75s with additional docs (3 messages)
-                const pending = activeGens.filter(g => g.status && g.status !== 'completed' && !g.error);
-                const pendingIds = new Set(pending.map(g => g.id));
-
-                return activeGens.map((gen, idx) => {
-                  // Queue position: 0-indexed among pending items
-                  const queuePos = pending.findIndex(g => g.id === gen.id);
-                  // With concurrency=2: items at pos 0-1 run now, 2-3 wait for batch 1, etc.
-                  const batchNum = queuePos >= 0 ? Math.floor(queuePos / 2) : 0;
-                  const baseSeconds = 50; // 2-message flow baseline
-                  const estSeconds = baseSeconds + batchNum * 60; // 60s per batch queue wait
-                  const estLabel = estSeconds < 120 ? `~${estSeconds}s` : `~${(estSeconds / 60).toFixed(1)} min`;
-
-                  return (
-                    <div key={gen.id} className="flex items-center gap-3 px-3 py-2 rounded-lg bg-gray-50/80">
-                      {gen.error ? (
-                        <svg className="w-3.5 h-3.5 text-red-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" /></svg>
-                      ) : gen.status === 'completed' ? (
-                        <svg className="w-3.5 h-3.5 text-green-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
-                      ) : (
-                        <div className="w-3.5 h-3.5 rounded-full border-2 border-gray-300 border-t-blue-500 animate-spin flex-shrink-0" />
-                      )}
-                      <div className="flex-1 min-w-0">
-                        <p className={`text-[12px] font-medium truncate ${gen.error ? 'text-red-600' : gen.status === 'completed' ? 'text-green-600' : 'text-gray-700'}`}>
-                          {gen.label && <span className="text-gray-400 mr-1.5">{gen.label}</span>}
-                          {gen.error || gen.message || 'Starting...'}
-                        </p>
-                        {gen.warning && (
-                          <p className="text-[10px] text-amber-500 truncate">{gen.warning}</p>
-                        )}
-                      </div>
-                      {!gen.error && gen.status !== 'completed' && gen.startTime && (
-                        <span className="hidden sm:inline text-[10px] text-gray-400 whitespace-nowrap flex-shrink-0">
-                          Started {formatStartTime(gen.startTime)} · {estLabel}
-                        </span>
-                      )}
-                      {(gen.error || gen.status === 'completed') && (
-                        <button onClick={() => dismissGen(gen.id)} className="text-gray-300 hover:text-gray-500 flex-shrink-0 transition-colors">
-                          <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
-                        </button>
-                      )}
-                    </div>
-                  );
-                });
-              })()}
-            </div>
-          )}
-        </div>
-      )}
+      {/* Ad Queue */}
+      <GenerationQueue
+        ref={queueRef}
+        activeGens={activeGens}
+        genQueueExpanded={genQueueExpanded}
+        setGenQueueExpanded={setGenQueueExpanded}
+        activeGenCount={activeGenCount}
+        dismissGen={dismissGen}
+      />
 
       {/* Ad Gallery */}
       <div>
