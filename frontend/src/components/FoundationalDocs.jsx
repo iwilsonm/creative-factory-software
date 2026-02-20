@@ -90,14 +90,18 @@ function CopyCorrection({ projectId, onDocsUpdated, onCorrectionApplied }) {
   const handleApply = async () => {
     if (!results?.corrections?.length) return;
     setApplying(true);
+    setError('');
     try {
-      await api.applyCorrections(projectId, results.corrections, correction.trim());
+      console.log('[CopyCorrection] Applying', results.corrections.length, 'corrections...');
+      const resp = await api.applyCorrections(projectId, results.corrections, correction.trim());
+      console.log('[CopyCorrection] Apply response:', resp);
       await onDocsUpdated();
       onCorrectionApplied?.();
       setResults(null);
       setCorrection('');
       setError('');
     } catch (err) {
+      console.error('[CopyCorrection] Apply failed:', err);
       setError(err.message || 'Failed to apply corrections');
     } finally {
       setApplying(false);

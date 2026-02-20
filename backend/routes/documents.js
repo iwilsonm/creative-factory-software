@@ -432,10 +432,12 @@ router.post('/:projectId/correct-docs', async (req, res) => {
 
 // Apply proposed corrections to documents (with history tracking)
 router.post('/:projectId/apply-corrections', async (req, res) => {
+  console.log(`[Changelog] Apply corrections request received for project ${req.params.projectId}`);
   const project = await getProject(req.params.projectId);
   if (!project) return res.status(404).json({ error: 'Project not found' });
 
   const { corrections, correction_text } = req.body;
+  console.log(`[Changelog] Corrections payload: ${corrections?.length || 0} items, body size: ${JSON.stringify(req.body).length} bytes`);
   if (!Array.isArray(corrections) || corrections.length === 0) {
     return res.status(400).json({ error: 'Corrections array is required' });
   }
@@ -444,7 +446,10 @@ router.post('/:projectId/apply-corrections', async (req, res) => {
   const changes = [];
   const updated = [];
   for (const c of corrections) {
-    if (!c.doc_id || !c.full_updated_content) continue;
+    if (!c.doc_id || !c.full_updated_content) {
+      console.log(`[Changelog] Skipping correction: doc_id=${!!c.doc_id}, full_updated_content=${!!c.full_updated_content}, doc_type=${c.doc_type}`);
+      continue;
+    }
     try {
       const currentDoc = await convexClient.query(api.foundationalDocs.getByExternalId, { externalId: c.doc_id });
       const beforeContent = currentDoc?.content || '';
