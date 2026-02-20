@@ -140,24 +140,24 @@ async function generateBatchPrompts(batch, project, docs, onProgress) {
   // ========================================
   // STAGE 0: Brief Extraction (1 API call)
   // ========================================
-  emit({ type: 'prompt_progress', current: 0, total: batch.batch_size, message: 'Stage 0: Extracting angle-specific brief...' });
+  emit({ type: 'prompt_progress', current: 0, total: batch.batch_size, message: 'Step 1 of 5: Extracting angle-specific brief...' });
   await updateBatchJob(batchId, {
-    pipeline_state: JSON.stringify({ stage: 0, stage_label: 'Extracting brief...' })
+    pipeline_state: JSON.stringify({ stage: 0, stage_label: 'Step 1 of 5: Extracting brief...' })
   });
 
   const briefPacket = await extractBrief(project, docs, angle);
 
   await updateBatchJob(batchId, {
-    pipeline_state: JSON.stringify({ stage: 0, stage_label: 'Brief extracted', brief_length: briefPacket.length })
+    pipeline_state: JSON.stringify({ stage: 0, stage_label: 'Step 1 of 5: Brief extracted', brief_length: briefPacket.length })
   });
 
   // ========================================
   // STAGE 1: Headline Generation (1 API call)
   // ========================================
   const headlineCount = Math.ceil(Math.max(batch.batch_size + 10, batch.batch_size * 1.2));
-  emit({ type: 'prompt_progress', current: 0, total: batch.batch_size, message: `Stage 1: Generating ${headlineCount} headlines...` });
+  emit({ type: 'prompt_progress', current: 0, total: batch.batch_size, message: `Step 2 of 5: Generating ${headlineCount} headlines...` });
   await updateBatchJob(batchId, {
-    pipeline_state: JSON.stringify({ stage: 1, stage_label: `Generating ${headlineCount} headlines...` })
+    pipeline_state: JSON.stringify({ stage: 1, stage_label: `Step 2 of 5: Generating headlines...` })
   });
 
   const headlineResult = await generateHeadlines(project, briefPacket, angle, headlineCount);
@@ -169,7 +169,7 @@ async function generateBatchPrompts(batch, project, docs, onProgress) {
   await updateBatchJob(batchId, {
     pipeline_state: JSON.stringify({
       stage: 1,
-      stage_label: `${topHeadlines.length} headlines selected`,
+      stage_label: `Step 2 of 5: ${topHeadlines.length} headlines selected`,
       headline_count: topHeadlines.length,
       sub_angle_count: (headlineResult.sub_angles || []).length,
     })
@@ -179,9 +179,9 @@ async function generateBatchPrompts(batch, project, docs, onProgress) {
   // STAGE 2: Body Copy Generation (N/5 API calls)
   // ========================================
   const totalBodyBatches = Math.ceil(topHeadlines.length / 5);
-  emit({ type: 'prompt_progress', current: 0, total: batch.batch_size, message: `Stage 2: Writing body copy (${totalBodyBatches} batches of 5)...` });
+  emit({ type: 'prompt_progress', current: 0, total: batch.batch_size, message: `Step 3 of 5: Writing body copy (${totalBodyBatches} batches of 5)...` });
   await updateBatchJob(batchId, {
-    pipeline_state: JSON.stringify({ stage: 2, stage_label: `Writing body copy (0/${totalBodyBatches} batches)...` })
+    pipeline_state: JSON.stringify({ stage: 2, stage_label: `Step 3 of 5: Writing body copy...` })
   });
 
   const bodyCopies = await generateBodyCopies(project, briefPacket, topHeadlines);
@@ -190,7 +190,7 @@ async function generateBatchPrompts(batch, project, docs, onProgress) {
   await updateBatchJob(batchId, {
     pipeline_state: JSON.stringify({
       stage: 2,
-      stage_label: `${bodyCopies.length} body copies generated`,
+      stage_label: `Step 3 of 5: ${bodyCopies.length} body copies generated`,
       body_copy_count: bodyCopies.length,
     })
   });
@@ -202,9 +202,9 @@ async function generateBatchPrompts(batch, project, docs, onProgress) {
   // ========================================
   // STAGE 3: Image Prompt Generation (1 per ad)
   // ========================================
-  emit({ type: 'prompt_progress', current: 0, total: bodyCopies.length, message: `Stage 3: Creating image prompts (0/${bodyCopies.length})...` });
+  emit({ type: 'prompt_progress', current: 0, total: bodyCopies.length, message: `Step 4 of 5: Creating image prompts (0/${bodyCopies.length})...` });
   await updateBatchJob(batchId, {
-    pipeline_state: JSON.stringify({ stage: 3, stage_label: `Creating image prompts (0/${bodyCopies.length})...` })
+    pipeline_state: JSON.stringify({ stage: 3, stage_label: `Step 4 of 5: Creating image prompts (0/${bodyCopies.length})...` })
   });
 
   const prompts = [];
@@ -223,13 +223,13 @@ async function generateBatchPrompts(batch, project, docs, onProgress) {
       type: 'prompt_progress',
       current: i + 1,
       total: bodyCopies.length,
-      message: `Stage 3: Creating image prompt ${i + 1} of ${bodyCopies.length}...`
+      message: `Step 4 of 5: Creating image prompt ${i + 1} of ${bodyCopies.length}...`
     });
 
     // Update pipeline_state for frontend polling
     if (i % 5 === 0 || i === bodyCopies.length - 1) {
       await updateBatchJob(batchId, {
-        pipeline_state: JSON.stringify({ stage: 3, stage_label: `Creating image prompts (${i + 1}/${bodyCopies.length})...`, current: i + 1, total: bodyCopies.length })
+        pipeline_state: JSON.stringify({ stage: 3, stage_label: `Step 4 of 5: Image prompts (${i + 1}/${bodyCopies.length})...`, current: i + 1, total: bodyCopies.length })
       });
     }
 

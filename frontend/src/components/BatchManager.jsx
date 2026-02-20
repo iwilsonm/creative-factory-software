@@ -269,8 +269,8 @@ const STATUS_COLORS = {
 const STATUS_LABELS = {
   pending: 'Pending',
   generating_prompts: 'Generating Prompts',
-  submitting: 'Submitting',
-  processing: 'Processing',
+  submitting: 'Step 5 of 5: Submitting',
+  processing: 'Step 5 of 5: Generating Images',
   completed: 'Completed',
   failed: 'Failed'
 };
