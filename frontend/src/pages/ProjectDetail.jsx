@@ -537,7 +537,7 @@ export default function ProjectDetail() {
       </div>
 
       {/* Floating Copywriter Chat Widget */}
-      <CopywriterChat projectId={id} />
+      <CopywriterChat projectId={id} projectName={project.name} />
     </Layout>
   );
 }

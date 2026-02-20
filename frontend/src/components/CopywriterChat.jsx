@@ -1,7 +1,14 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { api } from '../api';
 
-export default function CopywriterChat({ projectId }) {
+const DOC_TYPE_LABELS = {
+  research: 'Research',
+  avatar: 'Avatar',
+  offer_brief: 'Offer Brief',
+  necessary_beliefs: 'Necessary Beliefs',
+};
+
+export default function CopywriterChat({ projectId, projectName }) {
   const [isOpen, setIsOpen] = useState(false);
   const [messages, setMessages] = useState([]);
   const [inputValue, setInputValue] = useState('');
@@ -11,30 +18,53 @@ export default function CopywriterChat({ projectId }) {
   const [threadId, setThreadId] = useState(null);
   const [statusText, setStatusText] = useState('');
   const [error, setError] = useState(null);
+  const [loadedDocs, setLoadedDocs] = useState({}); // { research: true, avatar: true, ... }
+  const [docsExpanded, setDocsExpanded] = useState(false);
+  const [docContents, setDocContents] = useState({}); // { research: "...", avatar: "...", ... }
+  const [viewingDoc, setViewingDoc] = useState(null); // which doc type is being viewed
 
   const streamingTextRef = useRef('');
   const abortRef = useRef(null);
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
 
-  // Load existing thread on mount / project change
+  // Load existing thread + doc statuses on mount / project change
   useEffect(() => {
     let cancelled = false;
     const load = async () => {
       try {
-        const data = await api.getChatThread(projectId);
+        // Load thread and docs in parallel
+        const [threadData, docsData] = await Promise.all([
+          api.getChatThread(projectId),
+          api.getDocs(projectId),
+        ]);
         if (cancelled) return;
-        if (data.thread) {
-          setThreadId(data.thread.id);
-          // Filter out context messages for display
-          const visible = (data.messages || []).filter(m => !m.is_context_message);
+
+        // Thread
+        if (threadData.thread) {
+          setThreadId(threadData.thread.id);
+          const visible = (threadData.messages || []).filter(m => !m.is_context_message);
           setMessages(visible.map(m => ({ id: m.id, role: m.role, content: m.content })));
         } else {
           setThreadId(null);
           setMessages([]);
         }
+
+        // Doc statuses — check which of the 4 types exist
+        const docs = docsData.docs || docsData || [];
+        const docMap = {};
+        const contentMap = {};
+        for (const doc of docs) {
+          const type = doc.doc_type;
+          if (DOC_TYPE_LABELS[type]) {
+            docMap[type] = true;
+            contentMap[type] = doc.content || '';
+          }
+        }
+        setLoadedDocs(docMap);
+        setDocContents(contentMap);
       } catch (err) {
-        console.error('[Chat] Failed to load thread:', err);
+        console.error('[Chat] Failed to load thread/docs:', err);
       }
     };
     load();
@@ -168,38 +198,107 @@ export default function CopywriterChat({ projectId }) {
   return (
     <div className="fixed bottom-6 right-6 z-50 w-[400px] h-[520px] bg-white/95 backdrop-blur-xl rounded-2xl shadow-2xl border border-gray-200/60 flex flex-col overflow-hidden fade-in">
       {/* Header */}
-      <div className="flex items-center justify-between px-4 py-3 border-b border-gray-100/80 bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-t-2xl">
-        <div className="flex items-center gap-2">
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
-          </svg>
-          <span className="text-[13px] font-semibold">Copywriter Chat</span>
-          <span className="text-[10px] font-medium bg-white/20 px-1.5 py-0.5 rounded-full">Claude Sonnet</span>
-        </div>
-        <div className="flex items-center gap-1">
-          {messages.length > 0 && (
+      <div className="bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-t-2xl">
+        <div className="flex items-center justify-between px-4 py-2.5">
+          <div className="flex items-center gap-2 min-w-0">
+            <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
+            </svg>
+            <div className="min-w-0">
+              <span className="text-[13px] font-semibold block truncate">{projectName || 'Project'} Chat</span>
+            </div>
+          </div>
+          <div className="flex items-center gap-1 flex-shrink-0">
+            {messages.length > 0 && (
+              <button
+                onClick={handleClear}
+                disabled={isStreaming}
+                className="text-white/70 hover:text-white p-1 rounded transition-colors disabled:opacity-40"
+                title="Clear conversation"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                </svg>
+              </button>
+            )}
             <button
-              onClick={handleClear}
-              disabled={isStreaming}
-              className="text-white/70 hover:text-white p-1 rounded transition-colors disabled:opacity-40"
-              title="Clear conversation"
+              onClick={() => setIsOpen(false)}
+              className="text-white/70 hover:text-white p-1 rounded transition-colors"
+              title="Minimize"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
               </svg>
             </button>
-          )}
+          </div>
+        </div>
+
+        {/* Doc status strip */}
+        <div className="px-4 pb-2.5">
           <button
-            onClick={() => setIsOpen(false)}
-            className="text-white/70 hover:text-white p-1 rounded transition-colors"
-            title="Minimize"
+            onClick={() => setDocsExpanded(prev => !prev)}
+            className="flex items-center gap-1.5 text-[10px] text-white/80 hover:text-white transition-colors w-full"
           >
-            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg className="w-3 h-3 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            </svg>
+            <span className="font-medium">
+              {Object.keys(loadedDocs).length === 4
+                ? 'All 4 docs loaded'
+                : `${Object.keys(loadedDocs).length}/4 docs loaded`}
+            </span>
+            <svg className={`w-3 h-3 transition-transform ${docsExpanded ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
             </svg>
           </button>
+
+          {docsExpanded && (
+            <div className="mt-1.5 flex flex-wrap gap-1">
+              {Object.entries(DOC_TYPE_LABELS).map(([type, label]) => {
+                const exists = loadedDocs[type];
+                return (
+                  <button
+                    key={type}
+                    onClick={() => exists && setViewingDoc(viewingDoc === type ? null : type)}
+                    className={`text-[9px] px-1.5 py-0.5 rounded-full font-medium transition-all ${
+                      exists
+                        ? 'bg-white/25 text-white cursor-pointer hover:bg-white/35'
+                        : 'bg-white/10 text-white/40 cursor-default'
+                    }`}
+                    title={exists ? `Click to view ${label}` : `${label} not generated yet`}
+                  >
+                    {exists ? '\u2713' : '\u2717'} {label}
+                  </button>
+                );
+              })}
+            </div>
+          )}
         </div>
       </div>
+
+      {/* Doc viewer overlay */}
+      {viewingDoc && docContents[viewingDoc] && (
+        <div className="border-b border-gray-200/60 bg-gray-50/80 max-h-[200px] overflow-y-auto scrollbar-thin">
+          <div className="flex items-center justify-between px-3 py-2 border-b border-gray-100/80 sticky top-0 bg-gray-50/95 backdrop-blur-sm">
+            <span className="text-[11px] font-semibold text-gray-700">{DOC_TYPE_LABELS[viewingDoc]}</span>
+            <button
+              onClick={() => setViewingDoc(null)}
+              className="text-gray-400 hover:text-gray-600 transition-colors"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+          <div className="px-3 py-2">
+            <p className="text-[11px] text-gray-600 leading-relaxed whitespace-pre-wrap">
+              {docContents[viewingDoc].length > 3000
+                ? docContents[viewingDoc].slice(0, 3000) + '\n\n... (truncated — view full doc in Foundational Docs tab)'
+                : docContents[viewingDoc]}
+            </p>
+          </div>
+        </div>
+      )}
 
       {/* Messages area */}
       <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3 scrollbar-thin">
@@ -210,9 +309,11 @@ export default function CopywriterChat({ projectId }) {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
               </svg>
             </div>
-            <p className="text-[13px] font-medium text-gray-700 mb-1">Copywriter Chat</p>
+            <p className="text-[13px] font-medium text-gray-700 mb-1">{projectName || 'Project'} Copywriter</p>
             <p className="text-[11px] text-gray-400 leading-relaxed">
-              Send a message to start chatting. All foundational docs are loaded automatically.
+              {Object.keys(loadedDocs).length > 0
+                ? `${Object.keys(loadedDocs).length} foundational doc${Object.keys(loadedDocs).length !== 1 ? 's' : ''} loaded for ${projectName || 'this project'}. Send a message to start chatting.`
+                : `No foundational docs found. Generate docs first for best results.`}
             </p>
           </div>
         )}
