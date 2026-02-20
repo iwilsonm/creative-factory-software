@@ -1,9 +1,9 @@
-import { useState, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api';
 import Layout from '../components/Layout';
 import InfoTooltip from '../components/InfoTooltip';
 import { useToast } from '../components/Toast';
+import { useAsyncData } from '../hooks/useAsyncData';
 
 const STATUS_CONFIG = {
   setup: { label: 'Setup', bg: 'bg-amber-100/80', text: 'text-amber-700' },
@@ -21,24 +21,10 @@ const STATUS_COLORS = {
 
 export default function Projects() {
   const toast = useToast();
-  const [projects, setProjects] = useState([]);
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => {
-    loadProjects();
-  }, []);
-
-  const loadProjects = async () => {
-    try {
-      const data = await api.getProjects();
-      setProjects(data);
-    } catch (err) {
-      console.error('Failed to load projects:', err);
-      toast.error('Failed to load projects');
-    } finally {
-      setLoading(false);
-    }
-  };
+  const { data: projects, loading } = useAsyncData(
+    () => api.getProjects(),
+    []
+  );
 
   return (
     <Layout>

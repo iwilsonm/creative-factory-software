@@ -1,6 +1,7 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback } from 'react';
 import { api } from '../api';
 import InfoTooltip from './InfoTooltip';
+import { useAsyncData } from '../hooks/useAsyncData';
 
 /**
  * Unified Templates tab — shows both:
@@ -9,14 +10,19 @@ import InfoTooltip from './InfoTooltip';
  */
 export default function TemplateImages({ projectId, inspirationFolderId }) {
   // Drive-synced templates (formerly "Inspiration")
-  const [driveImages, setDriveImages] = useState([]);
-  const [loadingDrive, setLoadingDrive] = useState(true);
+  const { data: driveImages, setData: setDriveImages, loading: loadingDrive } = useAsyncData(
+    () => api.getInspirationImages(projectId).then(d => d.images || []),
+    [projectId, inspirationFolderId],
+    { enabled: !!inspirationFolderId }
+  );
   const [syncing, setSyncing] = useState(false);
   const [syncResult, setSyncResult] = useState(null);
 
   // Uploaded templates
-  const [templates, setTemplates] = useState([]);
-  const [loadingTemplates, setLoadingTemplates] = useState(true);
+  const { data: templates, setData: setTemplates, loading: loadingTemplates, refetch: loadTemplates } = useAsyncData(
+    () => api.getTemplates(projectId).then(d => d.templates || []),
+    [projectId]
+  );
   const [uploading, setUploading] = useState(false);
 
   // Shared
@@ -26,27 +32,6 @@ export default function TemplateImages({ projectId, inspirationFolderId }) {
   const [descValue, setDescValue] = useState('');
   const [dragOver, setDragOver] = useState(false);
   const fileInputRef = useRef(null);
-
-  useEffect(() => {
-    loadTemplates();
-    if (inspirationFolderId) {
-      loadDriveImages();
-    } else {
-      setLoadingDrive(false);
-    }
-  }, [projectId, inspirationFolderId]);
-
-  // --- Drive templates ---
-  const loadDriveImages = async () => {
-    try {
-      const data = await api.getInspirationImages(projectId);
-      setDriveImages(data.images || []);
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoadingDrive(false);
-    }
-  };
 
   const [driveError, setDriveError] = useState('');
 
@@ -69,18 +54,6 @@ export default function TemplateImages({ projectId, inspirationFolderId }) {
       }
     } finally {
       setSyncing(false);
-    }
-  };
-
-  // --- Uploaded templates ---
-  const loadTemplates = async () => {
-    try {
-      const data = await api.getTemplates(projectId);
-      setTemplates(data.templates || []);
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setLoadingTemplates(false);
     }
   };
 

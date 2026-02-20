@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import JSZip from 'jszip';
 import { api } from '../api';
 import { useToast } from '../components/Toast';
+import { useAsyncData } from '../hooks/useAsyncData';
 
 const STATUS_ORDER = ['selected', 'scheduled', 'posted', 'analyzing'];
 const STATUS_META = {
@@ -20,8 +21,10 @@ function displayName(dep) {
 }
 
 export default function AdTracker({ projectId }) {
-  const [deployments, setDeployments] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const { data: deployments, setData: setDeployments, loading, refetch: loadDeployments } = useAsyncData(
+    () => api.getProjectDeployments(projectId).then(d => d.deployments || []),
+    [projectId]
+  );
   const [statusFilter, setStatusFilter] = useState('all');
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [bulkEditOpen, setBulkEditOpen] = useState(false);
@@ -49,7 +52,6 @@ export default function AdTracker({ projectId }) {
   const { addToast } = useToast();
 
   useEffect(() => {
-    loadDeployments();
     checkMetaConnection();
   }, [projectId]);
 
@@ -126,17 +128,6 @@ export default function AdTracker({ projectId }) {
     }
   }, [tagPopover]);
 
-  const loadDeployments = async () => {
-    setLoading(true);
-    try {
-      const data = await api.getProjectDeployments(projectId);
-      setDeployments(data.deployments || []);
-    } catch (err) {
-      console.error('Failed to load deployments:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
 
   // ─── Meta connection & performance ──────────────────────────────────────────
   const checkMetaConnection = async () => {

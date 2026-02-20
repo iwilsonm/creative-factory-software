@@ -3,6 +3,8 @@ import { api } from '../api';
 import DragDropUpload from './DragDropUpload';
 import InfoTooltip from './InfoTooltip';
 import { useToast } from './Toast';
+import { useAsyncData } from '../hooks/useAsyncData';
+import { useSSEStream } from '../hooks/useSSEStream';
 
 const DOC_LABELS = {
   research: 'Research Document',
@@ -210,26 +212,13 @@ function CopyCorrection({ projectId, onDocsUpdated, onCorrectionApplied }) {
 
 // ─── Changelog — Standalone correction history below doc cards ────────────────
 function Changelog({ projectId, onDocsUpdated, refreshKey }) {
-  const [history, setHistory] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const { data: history, loading, refetch: loadHistory } = useAsyncData(
+    () => api.getCorrectionHistory(projectId).then(d => d.history || []).catch(() => []),
+    [projectId, refreshKey]
+  );
   const [open, setOpen] = useState(false);
   const [expandedId, setExpandedId] = useState(null);
   const [reverting, setReverting] = useState(null);
-
-  const loadHistory = async () => {
-    try {
-      const data = await api.getCorrectionHistory(projectId);
-      setHistory(data.history || []);
-    } catch {
-      setHistory([]);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  useEffect(() => {
-    loadHistory();
-  }, [projectId, refreshKey]);
 
   const handleRevert = async (entryId) => {
     if (!confirm('Revert all documents to their state before this correction?')) return;
@@ -358,21 +347,24 @@ function Changelog({ projectId, onDocsUpdated, refreshKey }) {
 
 export default function FoundationalDocs({ projectId, projectStatus }) {
   const toast = useToast();
-  const [docs, setDocs] = useState([]);
-  const [steps, setSteps] = useState([]);
-  const [loading, setLoading] = useState(true);
+  const { data: docsData, loading, refetch: loadDocs } = useAsyncData(
+    () => api.getDocs(projectId),
+    [projectId],
+    { initialData: { docs: [], steps: [] } }
+  );
+  const docs = docsData.docs || [];
+  const steps = docsData.steps || [];
   const [changelogRefreshKey, setChangelogRefreshKey] = useState(0);
 
   // Generation mode: null | 'choosing' | 'auto' | 'manual' | 'upload'
   const [generationMode, setGenerationMode] = useState(null);
 
   // Generation state (shared by auto & manual)
-  const [generating, setGenerating] = useState(false);
+  const { streaming: generating, startStream, cancelStream } = useSSEStream();
   const [currentStep, setCurrentStep] = useState(null);
   const [streamContent, setStreamContent] = useState('');
   const [completedSteps, setCompletedSteps] = useState(new Set());
   const [genError, setGenError] = useState('');
-  const abortRef = useRef(null);
 
   // Deep research progress state (auto mode only)
   const [deepResearchProgress, setDeepResearchProgress] = useState(null);
@@ -407,28 +399,12 @@ export default function FoundationalDocs({ projectId, projectStatus }) {
 
   const streamRef = useRef(null);
 
-  useEffect(() => {
-    loadDocs();
-  }, [projectId]);
-
   // Auto-scroll stream content
   useEffect(() => {
     if (streamRef.current) {
       streamRef.current.scrollTop = streamRef.current.scrollHeight;
     }
   }, [streamContent]);
-
-  const loadDocs = async () => {
-    try {
-      const data = await api.getDocs(projectId);
-      setDocs(data.docs);
-      setSteps(data.steps);
-    } catch (err) {
-      console.error('Failed to load docs:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
 
   // --- Choice screen handlers ---
 
@@ -526,14 +502,13 @@ export default function FoundationalDocs({ projectId, projectStatus }) {
   // --- Auto generation (existing flow) ---
 
   const handleGenerate = () => {
-    setGenerating(true);
     setGenError('');
     setStreamContent('');
     setCurrentStep(null);
     setCompletedSteps(new Set());
     setDeepResearchProgress(null);
 
-    const { abort, done } = api.generateDocs(projectId, (event) => {
+    startStream(() => api.generateDocs(projectId, (event) => {
       switch (event.type) {
         case 'step_start':
           setCurrentStep(event);
@@ -554,19 +529,13 @@ export default function FoundationalDocs({ projectId, projectStatus }) {
           setGenError(event.message);
           break;
       }
-    });
-
-    abortRef.current = abort;
-
-    done.then(() => {
-      setGenerating(false);
+    })).then(() => {
       setCurrentStep(null);
       setDeepResearchProgress(null);
       setGenerationMode(null);
       loadDocs();
     }).catch(err => {
       if (err.name !== 'AbortError') setGenError(err.message);
-      setGenerating(false);
     });
   };
 
@@ -574,13 +543,12 @@ export default function FoundationalDocs({ projectId, projectStatus }) {
 
   const handleManualGenerate = () => {
     setManualStep(3);
-    setGenerating(true);
     setGenError('');
     setStreamContent('');
     setCurrentStep(null);
     setCompletedSteps(new Set([1, 2, 3, 4])); // Steps 1-4 already done manually
 
-    const { abort, done } = api.generateDocsManual(projectId, manualResearchText, (event) => {
+    startStream(() => api.generateDocsManual(projectId, manualResearchText, (event) => {
       switch (event.type) {
         case 'step_start':
           setCurrentStep(event);
@@ -597,12 +565,7 @@ export default function FoundationalDocs({ projectId, projectStatus }) {
           setGenError(event.message);
           break;
       }
-    });
-
-    abortRef.current = abort;
-
-    done.then(() => {
-      setGenerating(false);
+    })).then(() => {
       setCurrentStep(null);
       setGenerationMode(null);
       setManualStep(1);
@@ -610,13 +573,11 @@ export default function FoundationalDocs({ projectId, projectStatus }) {
       loadDocs();
     }).catch(err => {
       if (err.name !== 'AbortError') setGenError(err.message);
-      setGenerating(false);
     });
   };
 
   const handleCancel = () => {
-    if (abortRef.current) abortRef.current();
-    setGenerating(false);
+    cancelStream();
     setGenerationMode(null);
     setManualStep(1);
   };
@@ -631,7 +592,7 @@ export default function FoundationalDocs({ projectId, projectStatus }) {
     setCompletedSteps(new Set());
     setDeepResearchProgress(null);
 
-    const { abort, done } = api.regenerateDoc(projectId, docType, (event) => {
+    startStream(() => api.regenerateDoc(projectId, docType, (event) => {
       switch (event.type) {
         case 'step_start':
           setCurrentStep(event);
@@ -651,11 +612,7 @@ export default function FoundationalDocs({ projectId, projectStatus }) {
           setGenError(event.message);
           break;
       }
-    });
-
-    abortRef.current = abort;
-
-    done.then(() => {
+    })).then(() => {
       setRegenerating(null);
       setCurrentStep(null);
       setDeepResearchProgress(null);

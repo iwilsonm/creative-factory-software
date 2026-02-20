@@ -3,6 +3,8 @@ import { api } from '../api';
 import { useToast } from './Toast';
 import MultiInput from './MultiInput';
 import NotionFilter from './NotionFilter';
+import { useAsyncData } from '../hooks/useAsyncData';
+import { usePolling } from '../hooks/usePolling';
 
 // ─── Emotion badge colors ────────────────────────────────────────────────────
 const EMOTION_COLORS = {
@@ -46,8 +48,11 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
   const toast = useToast();
   // Sub-tab state: 'bank' | 'headlines' | 'mine'
   const [subTab, setSubTab] = useState('mine');
-  const [usageData, setUsageData] = useState({ usedHeadlines: {}, totalAds: 0 });
-  const [loadingUsage, setLoadingUsage] = useState(false);
+  const { data: usageData, refetch: loadUsage } = useAsyncData(
+    () => api.getQuoteBankUsage(projectId).then(d => d || { usedHeadlines: {}, totalAds: 0 }),
+    [projectId],
+    { initialData: { usedHeadlines: {}, totalAds: 0 } }
+  );
 
   // Config form state
   const [config, setConfig] = useState({
@@ -82,13 +87,18 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
   const headlineAbortRef = useRef(null);
 
   // History state
-  const [runs, setRuns] = useState([]);
+  const { data: runs, setData: setRuns, loading: loadingHistory, refetch: loadHistory } = useAsyncData(
+    () => api.getQuoteMiningRuns(projectId).then(d => d.runs || []),
+    [projectId]
+  );
   const [historyOpen, setHistoryOpen] = useState(false);
-  const [loadingHistory, setLoadingHistory] = useState(true);
   const [viewingRunId, setViewingRunId] = useState(null);
 
   // ─── Quote Bank state ──────────────────────────────────────────────────────
-  const [bankQuotes, setBankQuotes] = useState([]);
+  const { data: bankQuotes, setData: setBankQuotes, loading: loadingBank, refetch: loadBank } = useAsyncData(
+    () => api.getQuoteBank(projectId).then(d => d.quotes || []),
+    [projectId]
+  );
   const [bankFilter, setBankFilter] = useState('all'); // 'all' | 'favorites'
   const [headlineFilter, setHeadlineFilter] = useState('all'); // 'all' | 'used' | 'unused'
   // Notion-style filters (Map<propertyKey, Set<selectedValues>>)
@@ -100,7 +110,6 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
   const [miningStartTime, setMiningStartTime] = useState(null);
   const [miningElapsed, setMiningElapsed] = useState(0);
   const [bankOpen, setBankOpen] = useState(true);
-  const [loadingBank, setLoadingBank] = useState(true);
   const [expandedQuoteIds, setExpandedQuoteIds] = useState(new Set());
   const [generatingBankHeadlines, setGeneratingBankHeadlines] = useState(false);
   const [bankHeadlineProgress, setBankHeadlineProgress] = useState([]);
@@ -162,67 +171,28 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
     return () => clearInterval(timer);
   }, [mining, miningStartTime]);
 
-  // Load history + bank + usage on mount
+  // Detect in-progress runs when history loads
   useEffect(() => {
-    loadHistory();
-    loadBank();
-    loadUsage();
-  }, [projectId]);
-
-  const loadHistory = async () => {
-    try {
-      const data = await api.getQuoteMiningRuns(projectId);
-      const allRuns = data.runs || [];
-      setRuns(allRuns);
-
-      // Detect in-progress runs (restored from navigation away)
-      const runningRun = allRuns.find(r => r.status === 'running');
-      if (runningRun && !mining) {
-        const runAge = Date.now() - new Date(runningRun.created_at).getTime();
-        if (runAge > 10 * 60 * 1000) return;
-        setCurrentRunId(runningRun.id);
-        setMining(true);
-        setProgress([{ type: 'restored', message: `Reconnected to mining run: ${runningRun.target_demographic} × ${runningRun.problem}` }]);
-      }
-    } catch (err) {
-      console.error('Failed to load quote mining history:', err);
-    } finally {
-      setLoadingHistory(false);
+    const runningRun = runs.find(r => r.status === 'running');
+    if (runningRun && !mining) {
+      const runAge = Date.now() - new Date(runningRun.created_at).getTime();
+      if (runAge > 10 * 60 * 1000) return;
+      setCurrentRunId(runningRun.id);
+      setMining(true);
+      setProgress([{ type: 'restored', message: `Reconnected to mining run: ${runningRun.target_demographic} × ${runningRun.problem}` }]);
     }
-  };
+  }, [runs]);
 
-  const loadBank = async () => {
-    try {
-      const data = await api.getQuoteBank(projectId);
-      const quotes = data.quotes || [];
-      setBankQuotes(quotes);
-      // Smart default: advance to the furthest completed step
-      // headlines exist → Headline Bank; quotes exist → Quote Bank; else → Mine Quotes
-      if (quotes.length > 0) {
-        const hasHeadlines = quotes.some(q => q.headlines && q.headlines !== '[]');
-        setSubTab(prev => {
-          if (prev !== 'mine') return prev; // don't override manual selection
-          return hasHeadlines ? 'headlines' : 'bank';
-        });
-      }
-    } catch (err) {
-      console.error('Failed to load quote bank:', err);
-    } finally {
-      setLoadingBank(false);
+  // Smart default sub-tab based on bank data
+  useEffect(() => {
+    if (bankQuotes.length > 0) {
+      const hasHeadlines = bankQuotes.some(q => q.headlines && q.headlines !== '[]');
+      setSubTab(prev => {
+        if (prev !== 'mine') return prev;
+        return hasHeadlines ? 'headlines' : 'bank';
+      });
     }
-  };
-
-  const loadUsage = async () => {
-    setLoadingUsage(true);
-    try {
-      const data = await api.getQuoteBankUsage(projectId);
-      setUsageData(data || { usedHeadlines: {}, totalAds: 0 });
-    } catch (err) {
-      console.error('Failed to load usage data:', err);
-    } finally {
-      setLoadingUsage(false);
-    }
-  };
+  }, [bankQuotes]);
 
   // Import all past runs into the quote bank
   const handleImportAllRuns = async () => {
@@ -562,32 +532,24 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
   }, [mining, currentRunId]);
 
   // ─── Poll for completion of restored in-progress runs ──────────────────────
-  useEffect(() => {
-    if (!mining || !currentRunId || abortRef.current) return;
-
-    const pollInterval = setInterval(async () => {
-      try {
-        const run = await api.getQuoteMiningRun(projectId, currentRunId);
-        if (run.status === 'completed') {
-          clearInterval(pollInterval);
-          setMining(false);
-          loadRunResults(currentRunId);
-          loadHistory();
-          loadBank();
-          toast.success(`Mining complete — ${run.quote_count} quotes found`);
-        } else if (run.status === 'failed') {
-          clearInterval(pollInterval);
-          setMining(false);
-          setProgress(prev => [...prev, { type: 'error', message: run.error_message || 'Mining failed' }]);
-          loadHistory();
-        }
-      } catch (err) {
-        console.warn('Poll failed:', err.message);
+  usePolling(async () => {
+    try {
+      const run = await api.getQuoteMiningRun(projectId, currentRunId);
+      if (run.status === 'completed') {
+        setMining(false);
+        loadRunResults(currentRunId);
+        loadHistory();
+        loadBank();
+        toast.success(`Mining complete — ${run.quote_count} quotes found`);
+      } else if (run.status === 'failed') {
+        setMining(false);
+        setProgress(prev => [...prev, { type: 'error', message: run.error_message || 'Mining failed' }]);
+        loadHistory();
       }
-    }, 5000);
-
-    return () => clearInterval(pollInterval);
-  }, [mining, currentRunId]);
+    } catch (err) {
+      console.warn('Poll failed:', err.message);
+    }
+  }, 5000, mining && !!currentRunId && !abortRef.current);
 
   const handleCancel = () => {
     if (abortRef.current) {

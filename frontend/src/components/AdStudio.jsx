@@ -5,6 +5,8 @@ import BatchManager from './BatchManager';
 import GenerationQueue from './GenerationQueue';
 import InfoTooltip from './InfoTooltip';
 import { useToast } from './Toast';
+import { useAsyncData } from '../hooks/useAsyncData';
+import { usePolling } from '../hooks/usePolling';
 
 const ASPECT_RATIOS = [
   { value: '1:1', label: '1:1 (Square)' },
@@ -158,8 +160,10 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
   const activeGenCount = activeGens.filter(g => g.status && g.status !== 'completed' && !g.error).length;
 
   // Gallery
-  const [ads, setAds] = useState([]);
-  const [loadingAds, setLoadingAds] = useState(true);
+  const { data: ads, setData: setAds, loading: loadingAds, refetch: loadAds } = useAsyncData(
+    () => api.getAds(projectId).then(d => d.ads || []),
+    [projectId]
+  );
   const [viewAd, setViewAd] = useState(null);
   const [galleryFilter, setGalleryFilter] = useState('individual'); // 'individual' | 'batch' | 'all'
   const [galleryView, setGalleryView] = useState('grid'); // 'grid' | 'list'
@@ -176,7 +180,6 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
   const [isBulkDownloading, setIsBulkDownloading] = useState(false);
 
   useEffect(() => {
-    loadAds();
     // Reset form state when project changes
     setAngle('');
     setHeadline('');
@@ -250,74 +253,62 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
   // Poll for status updates on restored (non-SSE) queue items
   const restoredCount = activeGens.filter(g => g.source === 'restored' && g.status !== 'completed' && !g.error).length;
 
-  useEffect(() => {
-    if (restoredCount === 0) return;
+  usePolling(async () => {
+    try {
+      const data = await api.getInProgressAds(projectId);
+      const inProgressMap = new Map((data.ads || []).map(a => [a.id, a]));
 
-    const pollInterval = setInterval(async () => {
-      try {
-        const data = await api.getInProgressAds(projectId);
-        const inProgressMap = new Map((data.ads || []).map(a => [a.id, a]));
+      const currentRestored = activeGens.filter(g => g.source === 'restored' && g.status !== 'completed' && !g.error);
+      const disappeared = currentRestored.filter(g => !inProgressMap.has(g.adExternalId));
 
-        // Find restored items that are no longer in-progress → they completed or failed
-        const currentRestored = activeGens.filter(g => g.source === 'restored' && g.status !== 'completed' && !g.error);
-        const disappeared = currentRestored.filter(g => !inProgressMap.has(g.adExternalId));
-
-        // Fetch final status for disappeared items
-        const finalStatuses = {};
-        await Promise.all(disappeared.map(async (g) => {
-          try {
-            const ad = await api.getAd(projectId, g.adExternalId);
-            finalStatuses[g.adExternalId] = ad.status;
-          } catch {
-            finalStatuses[g.adExternalId] = 'completed';
-          }
-        }));
-
-        setActiveGens(prev => prev.map(g => {
-          if (g.source !== 'restored') return g;
-          if (g.status === 'completed' || g.error) return g;
-
-          // Disappeared from in-progress → completed or failed
-          if (!inProgressMap.has(g.adExternalId)) {
-            const finalStatus = finalStatuses[g.adExternalId];
-            if (finalStatus === 'failed') {
-              return { ...g, status: null, error: 'Generation failed on server', progress: 0 };
-            }
-            return { ...g, status: 'completed', message: 'Ad generated successfully!', progress: 100 };
-          }
-
-          // Status changed (e.g., generating_copy → generating_image)
-          const currentAd = inProgressMap.get(g.adExternalId);
-          if (currentAd && currentAd.status !== g.status) {
-            return {
-              ...g,
-              status: currentAd.status,
-              message: currentAd.status === 'generating_image'
-                ? 'Image generation in progress...'
-                : 'Creative direction in progress...',
-              progress: currentAd.status === 'generating_image' ? 65 : 25,
-            };
-          }
-
-          return g;
-        }));
-
-        // If any items just completed, refresh the gallery
-        if (Object.values(finalStatuses).some(s => s === 'completed')) {
-          loadAds();
-          // Auto-dismiss completed restored items after 5 seconds
-          const completedIds = Object.entries(finalStatuses).filter(([, s]) => s === 'completed').map(([id]) => `restored-${id}`);
-          setTimeout(() => {
-            setActiveGens(prev => prev.filter(g => !completedIds.includes(g.id)));
-          }, 5000);
+      const finalStatuses = {};
+      await Promise.all(disappeared.map(async (g) => {
+        try {
+          const ad = await api.getAd(projectId, g.adExternalId);
+          finalStatuses[g.adExternalId] = ad.status;
+        } catch {
+          finalStatuses[g.adExternalId] = 'completed';
         }
-      } catch (err) {
-        console.error('Queue poll error:', err);
-      }
-    }, 5000);
+      }));
 
-    return () => clearInterval(pollInterval);
-  }, [restoredCount, projectId]);
+      setActiveGens(prev => prev.map(g => {
+        if (g.source !== 'restored') return g;
+        if (g.status === 'completed' || g.error) return g;
+
+        if (!inProgressMap.has(g.adExternalId)) {
+          const finalStatus = finalStatuses[g.adExternalId];
+          if (finalStatus === 'failed') {
+            return { ...g, status: null, error: 'Generation failed on server', progress: 0 };
+          }
+          return { ...g, status: 'completed', message: 'Ad generated successfully!', progress: 100 };
+        }
+
+        const currentAd = inProgressMap.get(g.adExternalId);
+        if (currentAd && currentAd.status !== g.status) {
+          return {
+            ...g,
+            status: currentAd.status,
+            message: currentAd.status === 'generating_image'
+              ? 'Image generation in progress...'
+              : 'Creative direction in progress...',
+            progress: currentAd.status === 'generating_image' ? 65 : 25,
+          };
+        }
+
+        return g;
+      }));
+
+      if (Object.values(finalStatuses).some(s => s === 'completed')) {
+        loadAds();
+        const completedIds = Object.entries(finalStatuses).filter(([, s]) => s === 'completed').map(([id]) => `restored-${id}`);
+        setTimeout(() => {
+          setActiveGens(prev => prev.filter(g => !completedIds.includes(g.id)));
+        }, 5000);
+      }
+    } catch (err) {
+      console.error('Queue poll error:', err);
+    }
+  }, 5000, restoredCount > 0);
 
   // Sync prompt guidelines when project prop changes
   useEffect(() => {
@@ -461,17 +452,6 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
 
     return () => { cancelled = true; };
   }, [selectedTemplate?.id]);
-
-  const loadAds = async () => {
-    try {
-      const data = await api.getAds(projectId);
-      setAds(data.ads || []);
-    } catch (err) {
-      console.error('Failed to load ads:', err);
-    } finally {
-      setLoadingAds(false);
-    }
-  };
 
   // Auto-generate an angle from foundational docs
   const handleGenerateAngle = async () => {

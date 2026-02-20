@@ -3,6 +3,7 @@ import { api } from '../api';
 import InfoTooltip from './InfoTooltip';
 import { useToast } from './Toast';
 import BatchRow from './BatchRow';
+import { usePolling } from '../hooks/usePolling';
 import {
   CRON_PRESETS, INTERVAL_UNITS, ASPECT_RATIOS,
   STATUS_COLORS, STATUS_LABELS,
@@ -65,8 +66,6 @@ export default function BatchManager({ projectId, project, onBatchComplete }) {
   const [queue, setQueue] = useState([]);
   const [submittingQueue, setSubmittingQueue] = useState(false);
 
-  const pollRef = useRef(null);
-
   // Load batches when expanded
   useEffect(() => {
     if (expanded) {
@@ -75,16 +74,7 @@ export default function BatchManager({ projectId, project, onBatchComplete }) {
   }, [expanded, projectId]);
 
   // Poll for active batches every 30s when expanded
-  useEffect(() => {
-    if (expanded) {
-      pollRef.current = setInterval(() => {
-        loadBatches(true);
-      }, 30000);
-    }
-    return () => {
-      if (pollRef.current) clearInterval(pollRef.current);
-    };
-  }, [expanded, projectId]);
+  usePolling(() => loadBatches(true), 30000, expanded);
 
   // Load templates when "Pick Template" is selected
   useEffect(() => {
