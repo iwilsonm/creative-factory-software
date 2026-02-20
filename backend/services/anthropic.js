@@ -2,7 +2,11 @@
  * Anthropic Claude API wrapper — mirrors the openai.js interface for drop-in use.
  *
  * Provides chat() and chatWithImage() functions that match the OpenAI signatures
- * but route to Claude Sonnet 4.6 via the Anthropic SDK.
+ * but route to Claude via the Anthropic SDK.
+ *
+ * JSON mode: Sonnet supports assistant prefill (append `{` as assistant msg).
+ * Opus does NOT support prefill — for Opus we add a JSON instruction to the
+ * system prompt and extract JSON from the response text.
  */
 
 import Anthropic from '@anthropic-ai/sdk';
@@ -11,6 +15,9 @@ import { withRetry } from './retry.js';
 
 let client = null;
 let lastApiKey = null;
+
+// Models that do NOT support assistant message prefill
+const NO_PREFILL_MODELS = ['claude-opus-4-6', 'claude-opus-4-5-20250620'];
 
 async function getClient() {
   const apiKey = await getSetting('anthropic_api_key');
@@ -23,10 +30,51 @@ async function getClient() {
 }
 
 /**
+ * Extract the first complete JSON object from a text string.
+ * Handles cases where the model wraps JSON in markdown fences or adds prose.
+ */
+function extractJSON(text) {
+  // Try direct parse first
+  try { return JSON.parse(text.trim()); } catch {}
+
+  // Strip markdown code fences
+  const fenceMatch = text.match(/```(?:json)?\s*\n?([\s\S]*?)\n?```/);
+  if (fenceMatch) {
+    try { return JSON.parse(fenceMatch[1].trim()); } catch {}
+  }
+
+  // Find the first { ... } block (greedy)
+  const braceStart = text.indexOf('{');
+  if (braceStart !== -1) {
+    // Find matching closing brace
+    let depth = 0;
+    for (let i = braceStart; i < text.length; i++) {
+      if (text[i] === '{') depth++;
+      else if (text[i] === '}') depth--;
+      if (depth === 0) {
+        try { return JSON.parse(text.slice(braceStart, i + 1)); } catch {}
+        break;
+      }
+    }
+    // Last resort: try from first { to last }
+    const lastBrace = text.lastIndexOf('}');
+    if (lastBrace > braceStart) {
+      try { return JSON.parse(text.slice(braceStart, lastBrace + 1)); } catch {}
+    }
+  }
+
+  return null;
+}
+
+/**
  * Send a conversation to Claude and get the full response (no streaming).
  *
  * Accepts OpenAI-style messages array: [{ role: 'user'|'assistant', content: string }]
  * Automatically extracts system messages and passes them via the `system` parameter.
+ *
+ * JSON mode handling:
+ * - Sonnet: uses assistant prefill (appends `{` as assistant message)
+ * - Opus: adds JSON instruction to system prompt, extracts JSON from response
  *
  * @param {Array} messages - OpenAI-format messages array
  * @param {string} [model='claude-sonnet-4-6'] - Anthropic model name
@@ -41,7 +89,7 @@ export async function chat(messages, model = 'claude-sonnet-4-6', options = {}) 
   const conversationMessages = messages.filter(m => m.role !== 'system');
 
   // Build system prompt from system messages (if any)
-  const systemPrompt = systemMessages.length > 0
+  let systemPrompt = systemMessages.length > 0
     ? systemMessages.map(m => m.content).join('\n\n')
     : undefined;
 
@@ -51,11 +99,21 @@ export async function chat(messages, model = 'claude-sonnet-4-6', options = {}) 
     content: typeof m.content === 'string' ? m.content : m.content,
   }));
 
-  // Handle JSON mode — Anthropic doesn't have response_format, use prefill instead
+  // Handle JSON mode
   const wantJSON = options.response_format?.type === 'json_object';
+  const supportsPrefill = !NO_PREFILL_MODELS.some(m => model.startsWith(m));
+  let usedPrefill = false;
+
   if (wantJSON) {
-    // Add a prefill to force JSON output
-    anthropicMessages.push({ role: 'assistant', content: '{' });
+    if (supportsPrefill) {
+      // Sonnet: use assistant prefill to force JSON output
+      anthropicMessages.push({ role: 'assistant', content: '{' });
+      usedPrefill = true;
+    } else {
+      // Opus: add JSON instruction to system prompt (no prefill)
+      const jsonInstruction = '\n\nIMPORTANT: You must respond with ONLY a valid JSON object. No markdown fences, no prose before or after — just the raw JSON object starting with { and ending with }.';
+      systemPrompt = systemPrompt ? systemPrompt + jsonInstruction : jsonInstruction;
+    }
   }
 
   const createParams = {
@@ -78,9 +136,18 @@ export async function chat(messages, model = 'claude-sonnet-4-6', options = {}) 
     .map(block => block.text)
     .join('');
 
-  // If we used JSON prefill, prepend the opening brace back
-  if (wantJSON) {
+  // If we used prefill, prepend the opening brace back
+  if (usedPrefill) {
     text = '{' + text;
+  }
+
+  // For non-prefill JSON mode, extract the JSON object from the response
+  if (wantJSON && !usedPrefill) {
+    const parsed = extractJSON(text);
+    if (parsed) {
+      text = JSON.stringify(parsed);
+    }
+    // If extraction failed, return raw text — caller's repairJSON will handle it
   }
 
   return text;
