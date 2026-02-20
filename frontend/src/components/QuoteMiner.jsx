@@ -463,8 +463,15 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
       const data = await api.getQuoteBank(projectId);
       const quotes = data.quotes || [];
       setBankQuotes(quotes);
-      // Default to bank tab when quotes exist
-      if (quotes.length > 0) setSubTab(prev => prev === 'mine' ? 'bank' : prev);
+      // Smart default: advance to the furthest completed step
+      // headlines exist → Headline Bank; quotes exist → Quote Bank; else → Mine Quotes
+      if (quotes.length > 0) {
+        const hasHeadlines = quotes.some(q => q.headlines && q.headlines !== '[]');
+        setSubTab(prev => {
+          if (prev !== 'mine') return prev; // don't override manual selection
+          return hasHeadlines ? 'headlines' : 'bank';
+        });
+      }
     } catch (err) {
       console.error('Failed to load quote bank:', err);
     } finally {

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import JSZip from 'jszip';
 import { api } from '../api';
 import BatchManager from './BatchManager';
@@ -954,21 +954,32 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
   const handleDeploy = async () => {
     if (selectedAdIds.size === 0) return;
     setIsDeploying(true);
+    const adIds = [...selectedAdIds];
+    // Optimistic: immediately mark as deployed so badges appear
+    setDeployedAdIds(prev => {
+      const next = new Set(prev);
+      adIds.forEach(id => next.add(id));
+      return next;
+    });
+    clearSelection();
     try {
-      const adIds = [...selectedAdIds];
       const result = await api.createDeployments(adIds);
       const msg = result.created > 0
         ? `${result.created} ad${result.created !== 1 ? 's' : ''} added to Ad Tracker`
         : 'All selected ads are already in Ad Tracker';
       toast.addToast(msg, result.created > 0 ? 'success' : 'info');
-      // Refresh deployed IDs so badges appear immediately
+      // Background re-fetch for consistency with server state
+      api.getProjectDeployments(projectId).then(data => {
+        const ids = new Set((data.deployments || []).map(d => d.ad_id));
+        setDeployedAdIds(ids);
+      }).catch(() => {});
+    } catch (err) {
+      // Revert optimistic update on failure
       setDeployedAdIds(prev => {
         const next = new Set(prev);
-        adIds.forEach(id => next.add(id));
+        adIds.forEach(id => next.delete(id));
         return next;
       });
-      clearSelection();
-    } catch (err) {
       toast.addToast('Failed to deploy ads', 'error');
     } finally {
       setIsDeploying(false);
@@ -1344,6 +1355,32 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
     return t ? (t.description || t.filename) : templateId?.slice(0, 8);
   };
 
+  // Compute template usage counts from ads in the last 30 days for popularity sorting
+  const templateUsageCounts = useMemo(() => {
+    const counts = {};
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000);
+    for (const ad of ads) {
+      const adDate = ad.created_at ? new Date(ad.created_at) : null;
+      if (adDate && adDate < thirtyDaysAgo) continue;
+      if (ad.template_image_id) {
+        counts[ad.template_image_id] = (counts[ad.template_image_id] || 0) + 1;
+      }
+      if (ad.inspiration_image_id) {
+        counts[ad.inspiration_image_id] = (counts[ad.inspiration_image_id] || 0) + 1;
+      }
+    }
+    return counts;
+  }, [ads]);
+
+  // Sort templates by popularity (most used in last 30 days first)
+  const sortedDriveImages = useMemo(() => {
+    return [...driveImages].sort((a, b) => (templateUsageCounts[b.id] || 0) - (templateUsageCounts[a.id] || 0));
+  }, [driveImages, templateUsageCounts]);
+
+  const sortedUploadedTemplates = useMemo(() => {
+    return [...uploadedTemplates].sort((a, b) => (templateUsageCounts[b.id] || 0) - (templateUsageCounts[a.id] || 0));
+  }, [uploadedTemplates, templateUsageCounts]);
+
   return (
     <div className="space-y-6">
       {/* Generation Controls */}
@@ -1492,22 +1529,23 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
                   </div>
                 ) : (
                   <div className="space-y-4">
-                    {/* Drive templates */}
+                    {/* Drive templates — sorted by popularity (last 30 days) */}
                     {driveImages.length > 0 && (
                       <div>
                         <p className="text-[11px] text-gray-400 font-medium mb-2">
                           Drive Templates <span className="text-gray-300">({driveImages.length})</span>
                         </p>
                         <div className="grid grid-cols-4 sm:grid-cols-5 md:grid-cols-6 gap-2 max-h-[320px] overflow-y-auto rounded-xl pr-1 scrollbar-thin">
-                          {driveImages.map(img => {
+                          {sortedDriveImages.map(img => {
                             const isSelected = selectedTemplate?.id === img.id && selectedTemplate?.source === 'drive';
+                            const useCount = templateUsageCounts[img.id] || 0;
                             return (
                               <button
                                 key={`drive-${img.id}`}
                                 onClick={() => setSelectedTemplate(
                                   isSelected ? null : { id: img.id, source: 'drive' }
                                 )}
-                  
+
                                 className={`group relative rounded-xl overflow-hidden border-2 transition-all aspect-square ${
                                   isSelected
                                     ? 'border-blue-500 ring-2 ring-blue-200 shadow-md'
@@ -1527,6 +1565,11 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
                                     </svg>
                                   </div>
                                 )}
+                                {useCount > 0 && !isSelected && (
+                                  <div className="absolute top-1 left-1 px-1.5 py-0.5 rounded-md bg-black/50 backdrop-blur-sm text-white text-[9px] font-bold">
+                                    {useCount}×
+                                  </div>
+                                )}
                               </button>
                             );
                           })}
@@ -1534,22 +1577,23 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
                       </div>
                     )}
 
-                    {/* Uploaded templates */}
+                    {/* Uploaded templates — sorted by popularity (last 30 days) */}
                     {uploadedTemplates.length > 0 && (
                       <div>
                         <p className="text-[11px] text-gray-400 font-medium mb-2">
                           Uploaded Templates <span className="text-gray-300">({uploadedTemplates.length})</span>
                         </p>
                         <div className="grid grid-cols-4 sm:grid-cols-5 md:grid-cols-6 gap-2">
-                          {uploadedTemplates.map(t => {
+                          {sortedUploadedTemplates.map(t => {
                             const isSelected = selectedTemplate?.id === t.id && selectedTemplate?.source === 'uploaded';
+                            const useCount = templateUsageCounts[t.id] || 0;
                             return (
                               <button
                                 key={`uploaded-${t.id}`}
                                 onClick={() => setSelectedTemplate(
                                   isSelected ? null : { id: t.id, source: 'uploaded' }
                                 )}
-                  
+
                                 className={`group relative rounded-xl overflow-hidden border-2 transition-all aspect-square ${
                                   isSelected
                                     ? 'border-blue-500 ring-2 ring-blue-200 shadow-md'
@@ -1567,6 +1611,11 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
                                     <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
                                     </svg>
+                                  </div>
+                                )}
+                                {useCount > 0 && !isSelected && (
+                                  <div className="absolute top-1 left-1 px-1.5 py-0.5 rounded-md bg-black/50 backdrop-blur-sm text-white text-[9px] font-bold">
+                                    {useCount}×
                                   </div>
                                 )}
                                 {(t.description || t.filename) && (
