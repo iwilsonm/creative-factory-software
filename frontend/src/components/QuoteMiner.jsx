@@ -629,6 +629,16 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker }) 
   // Backfill state
   const [backfilling, setBackfilling] = useState(false);
 
+  // Multi-select state
+  const [selectedQuoteIds, setSelectedQuoteIds] = useState(new Set());
+  const [selectedHeadlineKeys, setSelectedHeadlineKeys] = useState(new Set()); // "quoteId::idx"
+  const [bulkActionOpen, setBulkActionOpen] = useState(null); // 'tags' | 'emotion' | 'problem' | null
+  const [bulkInput, setBulkInput] = useState('');
+
+  // Inline editing state
+  const [editingField, setEditingField] = useState(null); // { quoteId, field, value } or { quoteId, hlIdx, value } for headlines
+  const [savingEdit, setSavingEdit] = useState(false);
+
   // Ad creation modal
   const [adModal, setAdModal] = useState({ open: false, quote: null, headline: '' });
 
@@ -758,6 +768,170 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker }) 
       setBankQuotes(prev => prev.map(q => q.id === quoteId ? { ...q, tags: newTags } : q));
     } catch (err) {
       toast.error('Failed to remove tag: ' + err.message);
+    }
+  };
+
+  // ─── Multi-select helpers ──────────────────────────────────────────────────
+  const toggleQuoteSelect = (quoteId) => {
+    setSelectedQuoteIds(prev => {
+      const next = new Set(prev);
+      if (next.has(quoteId)) next.delete(quoteId);
+      else next.add(quoteId);
+      return next;
+    });
+  };
+
+  const selectAllQuotes = () => {
+    setSelectedQuoteIds(new Set(filteredBankQuotes.map(q => q.id)));
+  };
+
+  const clearQuoteSelection = () => {
+    setSelectedQuoteIds(new Set());
+    setBulkActionOpen(null);
+    setBulkInput('');
+  };
+
+  const toggleHeadlineSelect = (key) => {
+    setSelectedHeadlineKeys(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  };
+
+  const clearHeadlineSelection = () => {
+    setSelectedHeadlineKeys(new Set());
+    setBulkActionOpen(null);
+    setBulkInput('');
+  };
+
+  // ─── Bulk actions ──────────────────────────────────────────────────────────
+  const handleBulkUpdate = async (field, value) => {
+    const ids = [...selectedQuoteIds];
+    if (ids.length === 0) return;
+    try {
+      await api.bulkUpdateQuoteBank(projectId, ids, { [field]: value });
+      setBankQuotes(prev => prev.map(q =>
+        ids.includes(q.id) ? { ...q, [field]: value } : q
+      ));
+      toast.success(`Updated ${field} on ${ids.length} quotes`);
+      setBulkActionOpen(null);
+      setBulkInput('');
+    } catch (err) {
+      toast.error('Bulk update failed: ' + err.message);
+    }
+  };
+
+  const handleBulkAddTag = async (tag) => {
+    const ids = [...selectedQuoteIds];
+    if (ids.length === 0 || !tag.trim()) return;
+    // For tags, we need to merge — fetch current tags and add
+    let updated = 0;
+    for (const id of ids) {
+      const q = bankQuotes.find(q => q.id === id);
+      const currentTags = q?.tags || [];
+      if (!currentTags.includes(tag.trim())) {
+        try {
+          const newTags = [...currentTags, tag.trim()];
+          await api.updateQuoteBankTags(projectId, id, newTags);
+          setBankQuotes(prev => prev.map(bq => bq.id === id ? { ...bq, tags: newTags } : bq));
+          updated++;
+        } catch (err) {
+          console.warn(`Failed to add tag to quote ${id}:`, err);
+        }
+      }
+    }
+    toast.success(`Added tag "${tag.trim()}" to ${updated} quotes`);
+    setBulkActionOpen(null);
+    setBulkInput('');
+  };
+
+  const handleBulkRemoveTag = async (tag) => {
+    const ids = [...selectedQuoteIds];
+    if (ids.length === 0) return;
+    let updated = 0;
+    for (const id of ids) {
+      const q = bankQuotes.find(q => q.id === id);
+      const currentTags = q?.tags || [];
+      if (currentTags.includes(tag)) {
+        try {
+          const newTags = currentTags.filter(t => t !== tag);
+          await api.updateQuoteBankTags(projectId, id, newTags);
+          setBankQuotes(prev => prev.map(bq => bq.id === id ? { ...bq, tags: newTags } : bq));
+          updated++;
+        } catch (err) {
+          console.warn(`Failed to remove tag from quote ${id}:`, err);
+        }
+      }
+    }
+    toast.success(`Removed tag "${tag}" from ${updated} quotes`);
+    setBulkActionOpen(null);
+  };
+
+  // Bulk update from headline bank — find unique quote IDs from selected headlines
+  const handleHeadlineBulkUpdate = async (field, value) => {
+    // Get unique quote IDs from selected headlines
+    const quoteIds = [...new Set([...selectedHeadlineKeys].map(k => k.split('::')[0]))];
+    if (quoteIds.length === 0) return;
+    try {
+      await api.bulkUpdateQuoteBank(projectId, quoteIds, { [field]: value });
+      setBankQuotes(prev => prev.map(q =>
+        quoteIds.includes(q.id) ? { ...q, [field]: value } : q
+      ));
+      toast.success(`Updated ${field} on ${quoteIds.length} source quotes`);
+      setBulkActionOpen(null);
+      setBulkInput('');
+    } catch (err) {
+      toast.error('Bulk update failed: ' + err.message);
+    }
+  };
+
+  // ─── Inline editing ────────────────────────────────────────────────────────
+  const startEditing = (quoteId, field, currentValue) => {
+    setEditingField({ quoteId, field, value: currentValue || '' });
+  };
+
+  const startEditingHeadline = (quoteId, hlIdx, currentValue) => {
+    setEditingField({ quoteId, hlIdx, field: 'headline', value: currentValue || '' });
+  };
+
+  const cancelEditing = () => {
+    setEditingField(null);
+  };
+
+  const saveEdit = async () => {
+    if (!editingField) return;
+    setSavingEdit(true);
+    try {
+      if (editingField.field === 'headline' && editingField.hlIdx !== undefined) {
+        // Editing a specific headline within the JSON array
+        const quote = bankQuotes.find(q => q.id === editingField.quoteId);
+        if (!quote) return;
+        const headlines = parseHeadlines(quote.headlines);
+        headlines[editingField.hlIdx] = editingField.value;
+        await api.updateQuoteBankQuote(projectId, editingField.quoteId, {
+          headlines: JSON.stringify(headlines),
+        });
+        setBankQuotes(prev => prev.map(q =>
+          q.id === editingField.quoteId ? { ...q, headlines: JSON.stringify(headlines) } : q
+        ));
+        toast.success('Headline updated');
+      } else {
+        // Editing emotion, problem, or quote text
+        await api.updateQuoteBankQuote(projectId, editingField.quoteId, {
+          [editingField.field]: editingField.value,
+        });
+        setBankQuotes(prev => prev.map(q =>
+          q.id === editingField.quoteId ? { ...q, [editingField.field]: editingField.value } : q
+        ));
+        toast.success(`${editingField.field} updated`);
+      }
+    } catch (err) {
+      toast.error('Save failed: ' + err.message);
+    } finally {
+      setSavingEdit(false);
+      setEditingField(null);
     }
   };
 
@@ -1161,9 +1335,11 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker }) 
   // ─── Headline Bank computed data ──────────────────────────────────────────
   const allHeadlinesFlat = bankQuotes.flatMap(q => {
     const hls = parseHeadlines(q.headlines);
-    return hls.map(hl => ({
+    return hls.map((hl, hlIdx) => ({
       headline: hl,
+      hlIdx,
       quoteId: q.id,
+      key: `${q.id}::${hlIdx}`,
       quoteText: q.quote,
       emotion: q.emotion,
       emotional_intensity: q.emotional_intensity,
@@ -1419,8 +1595,74 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker }) 
               .filter(h => headlineProblemFilter === 'all' ? true : h.problem === headlineProblemFilter)
               .filter(h => headlineEmotionFilter === 'all' ? true : h.emotion === headlineEmotionFilter)
               .filter(h => headlineTagFilter === 'all' ? true : h.tags.includes(headlineTagFilter));
+            const allFilteredSelected = filtered.length > 0 && filtered.every(h => selectedHeadlineKeys.has(h.key));
             return (
               <>
+                {/* Bulk action bar */}
+                {selectedHeadlineKeys.size > 0 && (
+                  <div className="sticky top-0 z-10 flex items-center gap-3 p-3 rounded-xl bg-purple-50 border border-purple-200 shadow-sm">
+                    <span className="text-[12px] font-semibold text-purple-700">{selectedHeadlineKeys.size} selected</span>
+                    <div className="flex items-center gap-1.5">
+                      <button
+                        onClick={() => setBulkActionOpen(bulkActionOpen === 'hl-problem' ? null : 'hl-problem')}
+                        className="text-[11px] px-2.5 py-1 rounded-lg bg-white border border-purple-200 text-purple-700 hover:bg-purple-100 transition-all font-medium"
+                      >Set Problem</button>
+                      <button
+                        onClick={() => setBulkActionOpen(bulkActionOpen === 'hl-emotion' ? null : 'hl-emotion')}
+                        className="text-[11px] px-2.5 py-1 rounded-lg bg-white border border-purple-200 text-purple-700 hover:bg-purple-100 transition-all font-medium"
+                      >Set Emotion</button>
+                      <button
+                        onClick={() => setBulkActionOpen(bulkActionOpen === 'hl-tag' ? null : 'hl-tag')}
+                        className="text-[11px] px-2.5 py-1 rounded-lg bg-white border border-purple-200 text-purple-700 hover:bg-purple-100 transition-all font-medium"
+                      >Add Tag</button>
+                    </div>
+                    <button onClick={clearHeadlineSelection} className="text-[11px] text-gray-500 hover:text-gray-700 ml-auto">Clear</button>
+                  </div>
+                )}
+
+                {/* Bulk action input */}
+                {bulkActionOpen && bulkActionOpen.startsWith('hl-') && (
+                  <form
+                    onSubmit={(e) => {
+                      e.preventDefault();
+                      if (!bulkInput.trim()) return;
+                      if (bulkActionOpen === 'hl-tag') {
+                        // Add tag to all source quotes of selected headlines
+                        const quoteIds = [...new Set([...selectedHeadlineKeys].map(k => k.split('::')[0]))];
+                        (async () => {
+                          for (const id of quoteIds) {
+                            const q = bankQuotes.find(bq => bq.id === id);
+                            const currentTags = q?.tags || [];
+                            if (!currentTags.includes(bulkInput.trim())) {
+                              await api.updateQuoteBankTags(projectId, id, [...currentTags, bulkInput.trim()]);
+                            }
+                          }
+                          setBankQuotes(prev => prev.map(q =>
+                            quoteIds.includes(q.id) ? { ...q, tags: [...new Set([...(q.tags || []), bulkInput.trim()])] } : q
+                          ));
+                          toast.success(`Added tag to ${quoteIds.length} source quotes`);
+                          setBulkActionOpen(null);
+                          setBulkInput('');
+                        })();
+                      } else {
+                        const field = bulkActionOpen === 'hl-problem' ? 'problem' : 'emotion';
+                        handleHeadlineBulkUpdate(field, bulkInput.trim());
+                      }
+                    }}
+                    className="flex items-center gap-2 p-2 rounded-xl bg-gray-50 border border-gray-200"
+                  >
+                    <input
+                      autoFocus
+                      value={bulkInput}
+                      onChange={e => setBulkInput(e.target.value)}
+                      placeholder={bulkActionOpen === 'hl-problem' ? 'New problem label...' : bulkActionOpen === 'hl-emotion' ? 'New emotion...' : 'Tag name...'}
+                      className="text-[12px] flex-1 px-3 py-1.5 rounded-lg border border-gray-200 outline-none focus:ring-2 focus:ring-purple-300 focus:border-purple-300"
+                    />
+                    <button type="submit" className="text-[11px] px-3 py-1.5 rounded-lg bg-purple-600 text-white font-medium hover:bg-purple-700">Apply</button>
+                    <button type="button" onClick={() => { setBulkActionOpen(null); setBulkInput(''); }} className="text-[11px] text-gray-500 hover:text-gray-700">Cancel</button>
+                  </form>
+                )}
+
                 {filtered.length === 0 ? (
                   <div className="text-center py-6 text-gray-400">
                     <p className="text-[12px]">No headlines match the current filters.</p>
@@ -1431,76 +1673,122 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker }) 
                   </div>
                 ) : (
                   <div className="space-y-1.5">
-                    <p className="text-[10px] text-gray-400">{filtered.length} of {totalHeadlines} headlines shown</p>
-                    {filtered.map((h, idx) => (
-                      <div key={`${h.quoteId}-${idx}`} className="flex items-start gap-3 p-3 rounded-xl bg-white border border-gray-100 hover:border-gray-200 transition-all">
-                        <span className={`flex-shrink-0 mt-0.5 text-[9px] font-bold px-2 py-0.5 rounded-full ${
-                          h.isUsed ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'
+                    <div className="flex items-center gap-3">
+                      <label className="flex items-center gap-1.5 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={allFilteredSelected}
+                          onChange={() => {
+                            if (allFilteredSelected) {
+                              clearHeadlineSelection();
+                            } else {
+                              setSelectedHeadlineKeys(new Set(filtered.map(h => h.key)));
+                            }
+                          }}
+                          className="w-3.5 h-3.5 rounded border-gray-300 text-purple-600 focus:ring-purple-500"
+                        />
+                        <span className="text-[10px] text-gray-500">Select all</span>
+                      </label>
+                      <p className="text-[10px] text-gray-400">{filtered.length} of {totalHeadlines} headlines shown</p>
+                    </div>
+                    {filtered.map((h, idx) => {
+                      const isSelected = selectedHeadlineKeys.has(h.key);
+                      const isEditingThis = editingField && editingField.quoteId === h.quoteId && editingField.hlIdx === h.hlIdx && editingField.field === 'headline';
+                      return (
+                        <div key={h.key} className={`flex items-start gap-3 p-3 rounded-xl bg-white border transition-all ${
+                          isSelected ? 'border-purple-300 bg-purple-50/30' : 'border-gray-100 hover:border-gray-200'
                         }`}>
-                          {h.isUsed ? 'Used' : 'Unused'}
-                        </span>
-                        <div className="flex-1 min-w-0">
-                          <p className="text-[13px] font-medium text-gray-800 leading-relaxed">{h.headline}</p>
-                          <div className="flex items-center gap-2 mt-1.5 flex-wrap">
-                            {h.problem && (
-                              <span
-                                className="text-[9px] font-semibold px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 cursor-pointer hover:bg-blue-100 transition-colors"
-                                onClick={() => setHeadlineProblemFilter(headlineProblemFilter === h.problem ? 'all' : h.problem)}
-                                title={`Filter by: ${h.problem}`}
-                              >
-                                {h.problem}
-                              </span>
+                          <input
+                            type="checkbox"
+                            checked={isSelected}
+                            onChange={() => toggleHeadlineSelect(h.key)}
+                            className="w-3.5 h-3.5 mt-1 rounded border-gray-300 text-purple-600 focus:ring-purple-500 flex-shrink-0"
+                          />
+                          <span className={`flex-shrink-0 mt-0.5 text-[9px] font-bold px-2 py-0.5 rounded-full ${
+                            h.isUsed ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'
+                          }`}>
+                            {h.isUsed ? 'Used' : 'Unused'}
+                          </span>
+                          <div className="flex-1 min-w-0">
+                            {isEditingThis ? (
+                              <form onSubmit={(e) => { e.preventDefault(); saveEdit(); }} className="flex items-center gap-2">
+                                <input
+                                  autoFocus
+                                  value={editingField.value}
+                                  onChange={e => setEditingField(prev => ({ ...prev, value: e.target.value }))}
+                                  className="flex-1 text-[13px] font-medium text-gray-800 px-2 py-1 rounded-lg border border-purple-300 outline-none focus:ring-2 focus:ring-purple-200"
+                                />
+                                <button type="submit" disabled={savingEdit} className="text-[10px] px-2 py-1 rounded-lg bg-purple-600 text-white font-medium">{savingEdit ? '...' : 'Save'}</button>
+                                <button type="button" onClick={cancelEditing} className="text-[10px] text-gray-500">Cancel</button>
+                              </form>
+                            ) : (
+                              <p
+                                className="text-[13px] font-medium text-gray-800 leading-relaxed cursor-pointer hover:bg-purple-50/50 rounded px-1 -mx-1 transition-colors"
+                                onClick={() => startEditingHeadline(h.quoteId, h.hlIdx, h.headline)}
+                                title="Click to edit headline"
+                              >{h.headline}</p>
                             )}
-                            {h.emotion && (
-                              <span
-                                className={`text-[9px] font-semibold px-1.5 py-0.5 rounded-full cursor-pointer hover:opacity-80 transition-opacity ${EMOTION_COLORS[h.emotion] || 'bg-gray-100 text-gray-600'}`}
-                                onClick={() => setHeadlineEmotionFilter(headlineEmotionFilter === h.emotion ? 'all' : h.emotion)}
-                                title={`Filter by: ${h.emotion}`}
-                              >
-                                {h.emotion}
-                              </span>
-                            )}
-                            {h.tags.map(t => (
-                              <span
-                                key={t}
-                                className="text-[9px] font-medium px-1.5 py-0.5 rounded-full bg-teal-50 text-teal-600 cursor-pointer hover:bg-teal-100 transition-colors"
-                                onClick={() => setHeadlineTagFilter(headlineTagFilter === t ? 'all' : t)}
-                                title={`Filter by tag: ${t}`}
-                              >
-                                {t}
-                              </span>
-                            ))}
-                            <p className="text-[10px] text-gray-400 truncate max-w-[250px]" title={h.quoteText}>
-                              &ldquo;{h.quoteText.length > 50 ? h.quoteText.slice(0, 50) + '...' : h.quoteText}&rdquo;
-                            </p>
+                            <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                              {h.problem && (
+                                <span
+                                  className="text-[9px] font-semibold px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 cursor-pointer hover:bg-blue-100 transition-colors"
+                                  onClick={() => setHeadlineProblemFilter(headlineProblemFilter === h.problem ? 'all' : h.problem)}
+                                  title={`Filter by: ${h.problem}`}
+                                >
+                                  {h.problem}
+                                </span>
+                              )}
+                              {h.emotion && (
+                                <span
+                                  className={`text-[9px] font-semibold px-1.5 py-0.5 rounded-full cursor-pointer hover:opacity-80 transition-opacity ${EMOTION_COLORS[h.emotion] || 'bg-gray-100 text-gray-600'}`}
+                                  onClick={() => setHeadlineEmotionFilter(headlineEmotionFilter === h.emotion ? 'all' : h.emotion)}
+                                  title={`Filter by: ${h.emotion}`}
+                                >
+                                  {h.emotion}
+                                </span>
+                              )}
+                              {h.tags.map(t => (
+                                <span
+                                  key={t}
+                                  className="text-[9px] font-medium px-1.5 py-0.5 rounded-full bg-teal-50 text-teal-600 cursor-pointer hover:bg-teal-100 transition-colors"
+                                  onClick={() => setHeadlineTagFilter(headlineTagFilter === t ? 'all' : t)}
+                                  title={`Filter by tag: ${t}`}
+                                >
+                                  {t}
+                                </span>
+                              ))}
+                              <p className="text-[10px] text-gray-400 truncate max-w-[250px]" title={h.quoteText}>
+                                &ldquo;{h.quoteText.length > 50 ? h.quoteText.slice(0, 50) + '...' : h.quoteText}&rdquo;
+                              </p>
+                            </div>
+                          </div>
+                          <div className="flex items-center gap-1.5 flex-shrink-0">
+                            <button
+                              onClick={() => copyHeadline(h.headline)}
+                              className="text-gray-400 hover:text-purple-600 transition-colors p-1"
+                              title="Copy headline"
+                            >
+                              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M15.666 3.888A2.25 2.25 0 0013.5 2.25H10.5a2.25 2.25 0 00-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 01-.75.75H9.75a.75.75 0 01-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 01-2.25 2.25H6.75A2.25 2.25 0 014.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 011.927-.184" />
+                              </svg>
+                            </button>
+                            <button
+                              onClick={() => {
+                                const srcQuote = bankQuotes.find(q => q.id === h.quoteId);
+                                if (srcQuote) setAdModal({ open: true, quote: srcQuote, headline: h.headline });
+                              }}
+                              className="inline-flex items-center gap-1 text-[10px] font-semibold text-purple-600 hover:text-white bg-purple-50 hover:bg-purple-600 px-2.5 py-1 rounded-lg transition-all"
+                              title="Turn this headline into an ad"
+                            >
+                              Turn into Ad
+                              <svg className="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" />
+                              </svg>
+                            </button>
                           </div>
                         </div>
-                        <div className="flex items-center gap-1.5 flex-shrink-0">
-                          <button
-                            onClick={() => copyHeadline(h.headline)}
-                            className="text-gray-400 hover:text-purple-600 transition-colors p-1"
-                            title="Copy headline"
-                          >
-                            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-                              <path strokeLinecap="round" strokeLinejoin="round" d="M15.666 3.888A2.25 2.25 0 0013.5 2.25H10.5a2.25 2.25 0 00-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 01-.75.75H9.75a.75.75 0 01-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 01-2.25 2.25H6.75A2.25 2.25 0 014.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 011.927-.184" />
-                            </svg>
-                          </button>
-                          <button
-                            onClick={() => {
-                              const srcQuote = bankQuotes.find(q => q.id === h.quoteId);
-                              if (srcQuote) setAdModal({ open: true, quote: srcQuote, headline: h.headline });
-                            }}
-                            className="inline-flex items-center gap-1 text-[10px] font-semibold text-purple-600 hover:text-white bg-purple-50 hover:bg-purple-600 px-2.5 py-1 rounded-lg transition-all"
-                            title="Turn this headline into an ad"
-                          >
-                            Turn into Ad
-                            <svg className="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-                              <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" />
-                            </svg>
-                          </button>
-                        </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </>
@@ -1600,13 +1888,30 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker }) 
             <>
               {/* Bank controls */}
               <div className="flex items-center justify-between">
-                <div className="segmented-control text-[11px]">
-                  <button onClick={() => setBankFilter('all')} className={bankFilter === 'all' ? 'active' : ''}>
-                    All ({bankQuotes.length})
-                  </button>
-                  <button onClick={() => setBankFilter('favorites')} className={bankFilter === 'favorites' ? 'active' : ''}>
-                    ★ Favorites ({bankQuotes.filter(q => q.is_favorite).length})
-                  </button>
+                <div className="flex items-center gap-3">
+                  <div className="segmented-control text-[11px]">
+                    <button onClick={() => setBankFilter('all')} className={bankFilter === 'all' ? 'active' : ''}>
+                      All ({bankQuotes.length})
+                    </button>
+                    <button onClick={() => setBankFilter('favorites')} className={bankFilter === 'favorites' ? 'active' : ''}>
+                      ★ Favorites ({bankQuotes.filter(q => q.is_favorite).length})
+                    </button>
+                  </div>
+                  <label className="flex items-center gap-1.5 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={filteredBankQuotes.length > 0 && filteredBankQuotes.every(q => selectedQuoteIds.has(q.id))}
+                      onChange={() => {
+                        if (filteredBankQuotes.every(q => selectedQuoteIds.has(q.id))) {
+                          clearQuoteSelection();
+                        } else {
+                          selectAllQuotes();
+                        }
+                      }}
+                      className="w-3.5 h-3.5 rounded border-gray-300 text-purple-600 focus:ring-purple-500"
+                    />
+                    <span className="text-[10px] text-gray-500">Select all</span>
+                  </label>
                 </div>
                 <div className="flex items-center gap-2">
                   {!generatingBankHeadlines && (
@@ -1629,6 +1934,89 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker }) 
                   )}
                 </div>
               </div>
+
+              {/* Bulk action bar for Quote Bank */}
+              {selectedQuoteIds.size > 0 && (
+                <div className="sticky top-0 z-10 flex items-center gap-3 p-3 rounded-xl bg-blue-50 border border-blue-200 shadow-sm">
+                  <span className="text-[12px] font-semibold text-blue-700">{selectedQuoteIds.size} selected</span>
+                  <div className="flex items-center gap-1.5">
+                    <button
+                      onClick={() => setBulkActionOpen(bulkActionOpen === 'qb-problem' ? null : 'qb-problem')}
+                      className="text-[11px] px-2.5 py-1 rounded-lg bg-white border border-blue-200 text-blue-700 hover:bg-blue-100 transition-all font-medium"
+                    >Set Problem</button>
+                    <button
+                      onClick={() => setBulkActionOpen(bulkActionOpen === 'qb-emotion' ? null : 'qb-emotion')}
+                      className="text-[11px] px-2.5 py-1 rounded-lg bg-white border border-blue-200 text-blue-700 hover:bg-blue-100 transition-all font-medium"
+                    >Set Emotion</button>
+                    <button
+                      onClick={() => setBulkActionOpen(bulkActionOpen === 'qb-tag' ? null : 'qb-tag')}
+                      className="text-[11px] px-2.5 py-1 rounded-lg bg-white border border-blue-200 text-blue-700 hover:bg-blue-100 transition-all font-medium"
+                    >Add Tag</button>
+                    {/* Remove tag if any selected quotes have tags */}
+                    {(() => {
+                      const allTags = [...new Set([...selectedQuoteIds].flatMap(id => {
+                        const q = bankQuotes.find(bq => bq.id === id);
+                        return q?.tags || [];
+                      }))];
+                      return allTags.length > 0 ? (
+                        <button
+                          onClick={() => setBulkActionOpen(bulkActionOpen === 'qb-removetag' ? null : 'qb-removetag')}
+                          className="text-[11px] px-2.5 py-1 rounded-lg bg-white border border-red-200 text-red-600 hover:bg-red-50 transition-all font-medium"
+                        >Remove Tag</button>
+                      ) : null;
+                    })()}
+                  </div>
+                  <button onClick={clearQuoteSelection} className="text-[11px] text-gray-500 hover:text-gray-700 ml-auto">Clear</button>
+                </div>
+              )}
+
+              {/* Bulk action input for Quote Bank */}
+              {bulkActionOpen && bulkActionOpen.startsWith('qb-') && bulkActionOpen !== 'qb-removetag' && (
+                <form
+                  onSubmit={(e) => {
+                    e.preventDefault();
+                    if (!bulkInput.trim()) return;
+                    if (bulkActionOpen === 'qb-tag') {
+                      handleBulkAddTag(bulkInput.trim());
+                    } else {
+                      const field = bulkActionOpen === 'qb-problem' ? 'problem' : 'emotion';
+                      handleBulkUpdate(field, bulkInput.trim());
+                    }
+                  }}
+                  className="flex items-center gap-2 p-2 rounded-xl bg-gray-50 border border-gray-200"
+                >
+                  <input
+                    autoFocus
+                    value={bulkInput}
+                    onChange={e => setBulkInput(e.target.value)}
+                    placeholder={bulkActionOpen === 'qb-problem' ? 'New problem label...' : bulkActionOpen === 'qb-emotion' ? 'New emotion...' : 'Tag name...'}
+                    className="text-[12px] flex-1 px-3 py-1.5 rounded-lg border border-gray-200 outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-300"
+                  />
+                  <button type="submit" className="text-[11px] px-3 py-1.5 rounded-lg bg-blue-600 text-white font-medium hover:bg-blue-700">Apply</button>
+                  <button type="button" onClick={() => { setBulkActionOpen(null); setBulkInput(''); }} className="text-[11px] text-gray-500 hover:text-gray-700">Cancel</button>
+                </form>
+              )}
+
+              {/* Remove tag picker */}
+              {bulkActionOpen === 'qb-removetag' && (() => {
+                const allTags = [...new Set([...selectedQuoteIds].flatMap(id => {
+                  const q = bankQuotes.find(bq => bq.id === id);
+                  return q?.tags || [];
+                }))].sort();
+                return (
+                  <div className="flex items-center gap-2 p-2 rounded-xl bg-gray-50 border border-gray-200 flex-wrap">
+                    <span className="text-[11px] text-gray-500 font-medium">Remove tag:</span>
+                    {allTags.map(t => (
+                      <button
+                        key={t}
+                        onClick={() => handleBulkRemoveTag(t)}
+                        className="text-[10px] px-2 py-0.5 rounded-full bg-red-50 text-red-600 border border-red-200 hover:bg-red-100 transition-colors font-medium"
+                      >{t} ×</button>
+                    ))}
+                    <button onClick={() => setBulkActionOpen(null)} className="text-[11px] text-gray-500 hover:text-gray-700 ml-auto">Cancel</button>
+                  </div>
+                );
+              })()}
 
               {/* Bank headline progress */}
               {generatingBankHeadlines && (
@@ -1660,14 +2048,26 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker }) 
                   const headlines = parseHeadlines(quote.headlines);
                   const isExpanded = expandedQuoteIds.has(quote.id);
                   const quoteUsedHeadlines = usageData.usedHeadlines[quote.id] || [];
+                  const isQuoteSelected = selectedQuoteIds.has(quote.id);
 
                   return (
-                    <div key={quote.id} className="rounded-xl border border-gray-100 overflow-hidden hover:border-gray-200 transition-all">
+                    <div key={quote.id} className={`rounded-xl border overflow-hidden transition-all ${
+                      isQuoteSelected ? 'border-blue-300 bg-blue-50/20' : 'border-gray-100 hover:border-gray-200'
+                    }`}>
                       {/* Quote row */}
                       <div
                         className="flex items-start gap-3 p-3 cursor-pointer hover:bg-gray-50/50 transition-colors"
                         onClick={() => toggleExpand(quote.id)}
                       >
+                        {/* Checkbox */}
+                        <input
+                          type="checkbox"
+                          checked={isQuoteSelected}
+                          onChange={(e) => { e.stopPropagation(); toggleQuoteSelect(quote.id); }}
+                          onClick={e => e.stopPropagation()}
+                          className="w-3.5 h-3.5 mt-1 rounded border-gray-300 text-blue-600 focus:ring-blue-500 flex-shrink-0"
+                        />
+
                         {/* Expand chevron */}
                         <svg className={`w-4 h-4 text-gray-300 mt-0.5 flex-shrink-0 transition-transform ${isExpanded ? 'rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
                           <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
@@ -1680,14 +2080,34 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker }) 
                           </p>
                           <div className="flex items-center flex-wrap gap-1.5 mt-1.5">
                             {quote.problem && (
-                              <span className="text-[9px] font-semibold px-2 py-0.5 rounded-full bg-blue-50 text-blue-700">
+                              <span
+                                className="text-[9px] font-semibold px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 cursor-pointer hover:bg-blue-100 transition-colors"
+                                onClick={(e) => { e.stopPropagation(); startEditing(quote.id, 'problem', quote.problem); }}
+                                title="Click to edit problem"
+                              >
                                 {quote.problem}
                               </span>
                             )}
                             {quote.emotion && (
-                              <span className={`text-[9px] font-semibold px-1.5 py-0.5 rounded-full ${EMOTION_COLORS[quote.emotion] || 'bg-gray-100 text-gray-600'}`}>
+                              <span
+                                className={`text-[9px] font-semibold px-1.5 py-0.5 rounded-full cursor-pointer hover:opacity-80 transition-opacity ${EMOTION_COLORS[quote.emotion] || 'bg-gray-100 text-gray-600'}`}
+                                onClick={(e) => { e.stopPropagation(); startEditing(quote.id, 'emotion', quote.emotion); }}
+                                title="Click to edit emotion"
+                              >
                                 {quote.emotion}
                               </span>
+                            )}
+                            {!quote.problem && (
+                              <button
+                                className="text-[9px] text-gray-400 hover:text-blue-600 px-1.5 py-0.5 rounded-full border border-dashed border-gray-300 hover:border-blue-300 transition-colors"
+                                onClick={(e) => { e.stopPropagation(); startEditing(quote.id, 'problem', ''); }}
+                              >+ Problem</button>
+                            )}
+                            {!quote.emotion && (
+                              <button
+                                className="text-[9px] text-gray-400 hover:text-purple-600 px-1.5 py-0.5 rounded-full border border-dashed border-gray-300 hover:border-purple-300 transition-colors"
+                                onClick={(e) => { e.stopPropagation(); startEditing(quote.id, 'emotion', ''); }}
+                              >+ Emotion</button>
                             )}
                             {quote.emotional_intensity === 'high' && (
                               <span className="text-[9px] font-medium px-1.5 py-0.5 rounded-full bg-red-50 text-red-600">High</span>
@@ -1731,9 +2151,53 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker }) 
                         </div>
                       </div>
 
-                      {/* Expanded: Headlines */}
+                      {/* Inline edit overlay */}
+                      {editingField && editingField.quoteId === quote.id && editingField.field !== 'headline' && (
+                        <div className="border-t border-gray-200 bg-yellow-50/50 px-4 py-2" onClick={e => e.stopPropagation()}>
+                          <form onSubmit={(e) => { e.preventDefault(); saveEdit(); }} className="flex items-center gap-2">
+                            <span className="text-[10px] text-gray-500 font-medium uppercase tracking-wider w-[60px]">{editingField.field}:</span>
+                            <input
+                              autoFocus
+                              value={editingField.value}
+                              onChange={e => setEditingField(prev => ({ ...prev, value: e.target.value }))}
+                              className="flex-1 text-[12px] px-2.5 py-1 rounded-lg border border-gray-300 outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-300"
+                              placeholder={`Enter ${editingField.field}...`}
+                            />
+                            <button type="submit" disabled={savingEdit} className="text-[10px] px-2.5 py-1 rounded-lg bg-blue-600 text-white font-medium hover:bg-blue-700 disabled:opacity-50">
+                              {savingEdit ? '...' : 'Save'}
+                            </button>
+                            <button type="button" onClick={cancelEditing} className="text-[10px] text-gray-500 hover:text-gray-700">Cancel</button>
+                          </form>
+                        </div>
+                      )}
+
+                      {/* Expanded: Headlines + Metadata */}
                       {isExpanded && (
                         <div className="border-t border-gray-100 bg-gray-50/30 px-4 py-3 space-y-3">
+                          {/* Editable metadata section */}
+                          <div className="flex items-center gap-4 flex-wrap" onClick={e => e.stopPropagation()}>
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-[9px] text-gray-400 font-medium uppercase tracking-wider">Problem:</span>
+                              <span
+                                className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 cursor-pointer hover:bg-blue-100 transition-colors"
+                                onClick={() => startEditing(quote.id, 'problem', quote.problem || '')}
+                                title="Click to edit"
+                              >
+                                {quote.problem || 'none'}
+                              </span>
+                            </div>
+                            <div className="flex items-center gap-1.5">
+                              <span className="text-[9px] text-gray-400 font-medium uppercase tracking-wider">Emotion:</span>
+                              <span
+                                className={`text-[10px] font-medium px-2 py-0.5 rounded-full cursor-pointer hover:opacity-80 transition-opacity ${EMOTION_COLORS[quote.emotion] || 'bg-gray-100 text-gray-600'}`}
+                                onClick={() => startEditing(quote.id, 'emotion', quote.emotion || '')}
+                                title="Click to edit"
+                              >
+                                {quote.emotion || 'none'}
+                              </span>
+                            </div>
+                          </div>
+
                           {/* Tag editing */}
                           <div className="flex items-center gap-1.5 flex-wrap" onClick={e => e.stopPropagation()}>
                             <span className="text-[9px] text-gray-400 font-medium uppercase tracking-wider">Tags:</span>
@@ -1786,6 +2250,7 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker }) 
                               </p>
                               {headlines.map((hl, hlIdx) => {
                                 const hlUsed = quoteUsedHeadlines.includes(hl);
+                                const isEditingThisHl = editingField && editingField.quoteId === quote.id && editingField.hlIdx === hlIdx && editingField.field === 'headline';
                                 return (
                                   <div key={hlIdx} className="flex items-start gap-2 p-2 rounded-lg bg-white/80 hover:bg-purple-50/50 transition-colors">
                                     <span className={`flex-shrink-0 mt-0.5 text-[8px] font-bold px-1.5 py-0.5 rounded-full ${
@@ -1793,9 +2258,26 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker }) 
                                     }`}>
                                       {hlUsed ? 'Used' : hlIdx + 1}
                                     </span>
-                                    <p className="flex-1 text-[12px] font-medium text-gray-800 leading-relaxed">
-                                      {hl}
-                                    </p>
+                                    {isEditingThisHl ? (
+                                      <form onSubmit={(e) => { e.preventDefault(); saveEdit(); }} className="flex-1 flex items-center gap-2">
+                                        <input
+                                          autoFocus
+                                          value={editingField.value}
+                                          onChange={e => setEditingField(prev => ({ ...prev, value: e.target.value }))}
+                                          className="flex-1 text-[12px] font-medium text-gray-800 px-2 py-1 rounded-lg border border-purple-300 outline-none focus:ring-2 focus:ring-purple-200"
+                                        />
+                                        <button type="submit" disabled={savingEdit} className="text-[10px] px-2 py-1 rounded-lg bg-purple-600 text-white font-medium">{savingEdit ? '...' : 'Save'}</button>
+                                        <button type="button" onClick={cancelEditing} className="text-[10px] text-gray-500">Cancel</button>
+                                      </form>
+                                    ) : (
+                                      <p
+                                        className="flex-1 text-[12px] font-medium text-gray-800 leading-relaxed cursor-pointer hover:bg-purple-50/50 rounded px-1 -mx-1 transition-colors"
+                                        onClick={() => startEditingHeadline(quote.id, hlIdx, hl)}
+                                        title="Click to edit headline"
+                                      >
+                                        {hl}
+                                      </p>
+                                    )}
                                     <div className="flex items-center gap-1.5 flex-shrink-0">
                                       <button
                                         onClick={() => copyHeadline(hl)}

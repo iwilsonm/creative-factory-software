@@ -620,4 +620,70 @@ router.patch('/:projectId/quote-bank/:quoteId/tags', async (req, res) => {
   }
 });
 
+// ── Update a quote bank entry (emotion, problem, quote text, headlines) ───────
+router.patch('/:projectId/quote-bank/:quoteId', async (req, res) => {
+  try {
+    const quote = await getQuoteBankQuote(req.params.quoteId);
+    if (!quote || quote.project_id !== req.params.projectId) {
+      return res.status(404).json({ error: 'Quote not found in bank' });
+    }
+    const allowedFields = ['emotion', 'problem', 'quote', 'tags', 'headlines', 'headlines_generated_at'];
+    const updates = {};
+    for (const field of allowedFields) {
+      if (req.body[field] !== undefined) {
+        updates[field] = req.body[field];
+      }
+    }
+    if (Object.keys(updates).length === 0) {
+      return res.status(400).json({ error: 'No valid fields to update' });
+    }
+    await updateQuoteBankQuote(req.params.quoteId, updates);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Failed to update bank quote:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Bulk update multiple quote bank entries ───────────────────────────────────
+router.post('/:projectId/quote-bank/bulk-update', async (req, res) => {
+  try {
+    const { quoteIds, updates } = req.body;
+    if (!Array.isArray(quoteIds) || quoteIds.length === 0) {
+      return res.status(400).json({ error: 'quoteIds must be a non-empty array' });
+    }
+    const allowedFields = ['emotion', 'problem', 'tags'];
+    const validUpdates = {};
+    for (const field of allowedFields) {
+      if (updates[field] !== undefined) {
+        validUpdates[field] = updates[field];
+      }
+    }
+    if (Object.keys(validUpdates).length === 0) {
+      return res.status(400).json({ error: 'No valid fields to update' });
+    }
+
+    // Build bulk update payload
+    const bulkItems = quoteIds.map(id => ({
+      externalId: id,
+      ...validUpdates,
+    }));
+
+    // Batch in groups of 50
+    let totalPatched = 0;
+    for (let i = 0; i < bulkItems.length; i += 50) {
+      const batch = bulkItems.slice(i, i + 50);
+      const result = await convexClient.mutation(api.quote_bank.bulkUpdate, {
+        updates: JSON.stringify(batch),
+      });
+      totalPatched += result.patched || 0;
+    }
+
+    res.json({ success: true, updated: totalPatched });
+  } catch (err) {
+    console.error('Failed to bulk update quotes:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 export default router;

@@ -65,6 +65,8 @@ export const update = mutation({
     headlines_generated_at: v.optional(v.string()),
     problem: v.optional(v.string()),
     tags: v.optional(v.array(v.string())),
+    emotion: v.optional(v.string()),
+    quote: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const doc = await ctx.db
@@ -78,6 +80,28 @@ export const update = mutation({
       if (value !== undefined) updates[key] = value;
     }
     await ctx.db.patch(doc._id, updates);
+  },
+});
+
+export const bulkUpdate = mutation({
+  args: {
+    updates: v.string(), // JSON array of { externalId, ...fields }
+  },
+  handler: async (ctx, args) => {
+    const items = JSON.parse(args.updates);
+    let patched = 0;
+    for (const item of items) {
+      const { externalId, ...fields } = item;
+      const doc = await ctx.db
+        .query("quote_bank")
+        .withIndex("by_externalId", (q: any) => q.eq("externalId", externalId))
+        .first();
+      if (doc) {
+        await ctx.db.patch(doc._id, fields);
+        patched++;
+      }
+    }
+    return { patched };
   },
 });
 

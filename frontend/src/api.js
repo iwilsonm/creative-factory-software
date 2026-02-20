@@ -348,6 +348,10 @@ export const api = {
     request(`/projects/${projectId}/quote-bank/backfill-problems`, { method: 'POST' }),
   updateQuoteBankTags: (projectId, quoteId, tags) =>
     request(`/projects/${projectId}/quote-bank/${quoteId}/tags`, { method: 'PATCH', body: JSON.stringify({ tags }) }),
+  updateQuoteBankQuote: (projectId, quoteId, fields) =>
+    request(`/projects/${projectId}/quote-bank/${quoteId}`, { method: 'PATCH', body: JSON.stringify(fields) }),
+  bulkUpdateQuoteBank: (projectId, quoteIds, updates) =>
+    request(`/projects/${projectId}/quote-bank/bulk-update`, { method: 'POST', body: JSON.stringify({ quoteIds, updates }) }),
 
   // Headline Generator Reference Docs (3 separate documents)
   getHeadlineReferences: () => request('/settings/headline-references'),
