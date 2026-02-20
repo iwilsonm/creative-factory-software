@@ -901,7 +901,7 @@ ${beliefsContent}`;
   for (let attempt = 1; attempt <= 2; attempt++) {
     try {
       const briefPacket = await withGptRateLimit(async () => {
-        return await claudeChat([{ role: 'user', content: prompt }], 'claude-sonnet-4-6');
+        return await claudeChat([{ role: 'user', content: prompt }], 'claude-opus-4-6');
       }, `[Stage 0 Brief Extraction attempt ${attempt}]`);
 
       console.log(`[Pipeline Stage 0] Brief extracted (${briefPacket.length} chars) for angle: "${(angle || 'general').slice(0, 40)}"`);
@@ -1059,7 +1059,7 @@ OUTPUT FORMAT — respond as JSON only:
           [{ role: 'user', content: attempt > 1
             ? prompt + `\n\nIMPORTANT: Your previous attempt did not succeed. Please ensure you generate exactly ${count} headlines and return valid JSON.`
             : prompt }],
-          'claude-sonnet-4-6',
+          'claude-opus-4-6',
           { response_format: { type: 'json_object' } }
         );
       }, `[Stage 1 Headlines attempt ${attempt}]`);
