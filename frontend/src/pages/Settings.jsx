@@ -237,7 +237,7 @@ function ReferenceDocSlot({ docKey, label, description, content, onSave, onDelet
   );
 }
 
-// ─── Headline Generator Reference Docs (3 documents for Quote Miner) ─────
+// ─── Headline Generator Reference Docs (3 documents for Copywriter) ─────
 function HeadlineGeneratorRefsSection() {
   const [docs, setDocs] = useState({ engine: null, greatest: null, swipe: null });
   const [loading, setLoading] = useState(true);
@@ -282,11 +282,11 @@ function HeadlineGeneratorRefsSection() {
           </svg>
         </div>
         <h2 className="text-[15px] font-semibold text-gray-900 tracking-tight">Headline Generator Reference Docs</h2>
-        <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-purple-100 text-purple-700">Quote Miner</span>
-        <InfoTooltip text="Upload 3 reference documents used by the Quote Miner's headline generation step. Claude uses these as frameworks when creating direct response headlines from mined quotes." />
+        <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-purple-100 text-purple-700">Copywriter</span>
+        <InfoTooltip text="Upload 3 reference documents used by the Copywriter's headline generation step. Claude uses these as frameworks when creating direct response headlines from mined quotes." />
       </div>
       <p className="text-[12px] text-gray-500 mb-4">
-        {uploadedCount}/3 documents uploaded. These power the "Generate Headlines" button in the Quote Miner.
+        {uploadedCount}/3 documents uploaded. These power the "Generate Headlines" button in the Copywriter.
       </p>
 
       <div className="space-y-3">
@@ -554,8 +554,8 @@ export default function Settings() {
 
             <div className="border-t border-gray-100 pt-4 mt-4">
               <p className="text-[11px] text-gray-400 mb-3 flex items-center gap-1.5">
-                <span className="inline-flex items-center px-1.5 py-0.5 rounded-md bg-purple-50 text-purple-600 font-medium">Quote Miner</span>
-                Required for the Quote Miner feature
+                <span className="inline-flex items-center px-1.5 py-0.5 rounded-md bg-purple-50 text-purple-600 font-medium">Copywriter</span>
+                Required for the Copywriter feature
               </p>
             </div>
 
@@ -689,7 +689,7 @@ export default function Settings() {
         {/* Headline Reference Document (Ad Studio Juicer) */}
         <HeadlineReferenceSection />
 
-        {/* Headline Generator Reference Docs (Quote Miner) */}
+        {/* Headline Generator Reference Docs (Copywriter) */}
         <HeadlineGeneratorRefsSection />
 
         {/* Save button */}

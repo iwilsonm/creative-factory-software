@@ -185,7 +185,7 @@ export default function ProjectDetail() {
   const tabs = [
     { id: 'ads', label: 'Ad Studio', tooltip: 'Generate individual ads or run batch generation.' },
     { id: 'tracker', label: 'Ad Tracker', tooltip: 'Track ad deployments, campaigns, and performance.' },
-    { id: 'quotes', label: 'Quote Miner', tooltip: 'Find authentic first-person quotes from your target demographic online.' },
+    { id: 'quotes', label: 'Copywriter', tooltip: 'Mine quotes, generate headlines, and turn them into ads.' },
     { id: 'overview', label: 'Overview', tooltip: 'Project settings, cost tracking, and stats.' },
     { id: 'docs', label: 'Foundational Docs', tooltip: 'Core research documents that guide ad generation.' },
     { id: 'templates', label: 'Template Library', tooltip: 'Reference images synced from Drive or uploaded directly.' }
