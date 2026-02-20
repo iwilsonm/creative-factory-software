@@ -548,6 +548,8 @@ export async function getQuoteBankByProject(projectId) {
     emotional_intensity: q.emotional_intensity || null,
     context: q.context || null,
     run_id: q.run_id,
+    problem: q.problem || null,
+    tags: q.tags || [],
     is_favorite: q.is_favorite || false,
     headlines: q.headlines || null,
     headlines_generated_at: q.headlines_generated_at || null,
@@ -568,6 +570,8 @@ export async function getQuoteBankQuote(externalId) {
     emotional_intensity: q.emotional_intensity || null,
     context: q.context || null,
     run_id: q.run_id,
+    problem: q.problem || null,
+    tags: q.tags || [],
     is_favorite: q.is_favorite || false,
     headlines: q.headlines || null,
     headlines_generated_at: q.headlines_generated_at || null,
@@ -593,6 +597,12 @@ export async function getAdsWithSourceQuote(projectId) {
     status: ad.status || null,
     created_at: ad.created_at,
   }));
+}
+
+export async function backfillQuoteBankProblems(updates) {
+  return await mutationWithRetry(api.quote_bank.backfillProblems, {
+    updates: JSON.stringify(updates),
+  });
 }
 
 // =============================================

@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import { requireAuth } from '../auth.js';
-import { getProject, getQuoteMiningRunsByProject, getQuoteMiningRun, getQuoteBankByProject, getQuoteBankQuote, updateQuoteBankQuote, deleteQuoteBankQuote, getAdsWithSourceQuote } from '../convexClient.js';
+import { getProject, getQuoteMiningRunsByProject, getQuoteMiningRun, getQuoteBankByProject, getQuoteBankQuote, updateQuoteBankQuote, deleteQuoteBankQuote, getAdsWithSourceQuote, backfillQuoteBankProblems } from '../convexClient.js';
 import { convexClient, api } from '../convexClient.js';
 import { runQuoteMining, generateSuggestions } from '../services/quoteMiner.js';
 import { generateHeadlines, generateHeadlinesPerQuote } from '../services/headlineGenerator.js';
@@ -147,7 +147,7 @@ router.post('/:projectId/quote-mining', async (req, res) => {
       try {
         sendEvent({ type: 'bank_dedup_start', message: 'Cross-referencing with quote bank...' });
         const bankResult = await deduplicateAndAddToBank(
-          req.params.projectId, runId, result.quotes
+          req.params.projectId, runId, result.quotes, problem
         );
         sendEvent({
           type: 'bank_updated',
@@ -226,7 +226,7 @@ router.post('/:projectId/quote-mining/:runId/add-to-bank', async (req, res) => {
     }
 
     const bankResult = await deduplicateAndAddToBank(
-      req.params.projectId, req.params.runId, quotes
+      req.params.projectId, req.params.runId, quotes, run.problem
     );
 
     res.json({
@@ -261,7 +261,7 @@ router.post('/:projectId/quote-mining/import-all', async (req, res) => {
         if (!Array.isArray(quotes) || quotes.length === 0) continue;
 
         const bankResult = await deduplicateAndAddToBank(
-          req.params.projectId, run.id, quotes
+          req.params.projectId, run.id, quotes, run.problem
         );
         totalAdded += bankResult.added;
         totalDuplicates += bankResult.duplicates;
@@ -556,6 +556,66 @@ router.get('/:projectId/quote-bank/usage', async (req, res) => {
     res.json({ usedHeadlines, totalAds: ads.length });
   } catch (err) {
     console.error('Failed to get quote bank usage:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Backfill problem field on existing bank quotes ────────────────────────────
+router.post('/:projectId/quote-bank/backfill-problems', async (req, res) => {
+  try {
+    const bankQuotes = await getQuoteBankByProject(req.params.projectId);
+    const missingProblem = bankQuotes.filter(q => !q.problem);
+
+    if (missingProblem.length === 0) {
+      return res.json({ success: true, updated: 0, message: 'All quotes already have problem labels.' });
+    }
+
+    // Load all runs to build run_id → problem map
+    const runs = await getQuoteMiningRunsByProject(req.params.projectId);
+    const runProblemMap = {};
+    for (const run of runs) {
+      if (run.problem) runProblemMap[run.id] = run.problem;
+    }
+
+    // Build updates
+    const updates = [];
+    for (const q of missingProblem) {
+      const problem = runProblemMap[q.run_id];
+      if (problem) {
+        updates.push({ externalId: q.id, problem });
+      }
+    }
+
+    if (updates.length === 0) {
+      return res.json({ success: true, updated: 0, message: 'No matching runs found for quotes.' });
+    }
+
+    // Batch in groups of 50 (Convex mutation limits)
+    let totalPatched = 0;
+    for (let i = 0; i < updates.length; i += 50) {
+      const batch = updates.slice(i, i + 50);
+      const result = await backfillQuoteBankProblems(batch);
+      totalPatched += result.patched || 0;
+    }
+
+    res.json({ success: true, updated: totalPatched });
+  } catch (err) {
+    console.error('Failed to backfill problems:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Update tags on a quote bank entry ─────────────────────────────────────────
+router.patch('/:projectId/quote-bank/:quoteId/tags', async (req, res) => {
+  try {
+    const { tags } = req.body;
+    if (!Array.isArray(tags)) {
+      return res.status(400).json({ error: 'tags must be an array of strings' });
+    }
+    await updateQuoteBankQuote(req.params.quoteId, { tags });
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Failed to update quote tags:', err);
     res.status(500).json({ error: err.message });
   }
 });

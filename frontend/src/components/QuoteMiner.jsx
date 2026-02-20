@@ -609,6 +609,9 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker }) 
   const [bankQuotes, setBankQuotes] = useState([]);
   const [bankFilter, setBankFilter] = useState('all'); // 'all' | 'favorites'
   const [headlineFilter, setHeadlineFilter] = useState('all'); // 'all' | 'used' | 'unused'
+  const [headlineProblemFilter, setHeadlineProblemFilter] = useState('all'); // 'all' | specific problem
+  const [headlineEmotionFilter, setHeadlineEmotionFilter] = useState('all'); // 'all' | specific emotion
+  const [headlineTagFilter, setHeadlineTagFilter] = useState('all'); // 'all' | specific tag
   const [bankOpen, setBankOpen] = useState(true);
   const [loadingBank, setLoadingBank] = useState(true);
   const [expandedQuoteIds, setExpandedQuoteIds] = useState(new Set());
@@ -618,6 +621,13 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker }) 
 
   // Import state
   const [importing, setImporting] = useState(false);
+
+  // Tag editing state
+  const [editingTagQuoteId, setEditingTagQuoteId] = useState(null);
+  const [tagInput, setTagInput] = useState('');
+
+  // Backfill state
+  const [backfilling, setBackfilling] = useState(false);
 
   // Ad creation modal
   const [adModal, setAdModal] = useState({ open: false, quote: null, headline: '' });
@@ -707,6 +717,47 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker }) 
       toast.error('Import failed: ' + err.message);
     } finally {
       setImporting(false);
+    }
+  };
+
+  // Backfill problem labels from mining runs
+  const handleBackfillProblems = async () => {
+    setBackfilling(true);
+    try {
+      const data = await api.backfillQuoteBankProblems(projectId);
+      toast.success(`Updated ${data.updated} quotes with problem labels`);
+      await loadBank();
+    } catch (err) {
+      toast.error('Backfill failed: ' + err.message);
+    } finally {
+      setBackfilling(false);
+    }
+  };
+
+  // Tag management
+  const handleAddTag = async (quoteId, tag) => {
+    const quote = bankQuotes.find(q => q.id === quoteId);
+    if (!quote) return;
+    const currentTags = quote.tags || [];
+    if (currentTags.includes(tag)) return;
+    const newTags = [...currentTags, tag];
+    try {
+      await api.updateQuoteBankTags(projectId, quoteId, newTags);
+      setBankQuotes(prev => prev.map(q => q.id === quoteId ? { ...q, tags: newTags } : q));
+    } catch (err) {
+      toast.error('Failed to add tag: ' + err.message);
+    }
+  };
+
+  const handleRemoveTag = async (quoteId, tag) => {
+    const quote = bankQuotes.find(q => q.id === quoteId);
+    if (!quote) return;
+    const newTags = (quote.tags || []).filter(t => t !== tag);
+    try {
+      await api.updateQuoteBankTags(projectId, quoteId, newTags);
+      setBankQuotes(prev => prev.map(q => q.id === quoteId ? { ...q, tags: newTags } : q));
+    } catch (err) {
+      toast.error('Failed to remove tag: ' + err.message);
     }
   };
 
@@ -1117,12 +1168,22 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker }) 
       emotion: q.emotion,
       emotional_intensity: q.emotional_intensity,
       source: q.source,
+      problem: q.problem,
+      tags: q.tags || [],
       isUsed: (usageData.usedHeadlines[q.id] || []).includes(hl),
     }));
   });
   const totalHeadlines = allHeadlinesFlat.length;
   const usedHeadlineCount = allHeadlinesFlat.filter(h => h.isUsed).length;
   const unusedHeadlineCount = totalHeadlines - usedHeadlineCount;
+
+  // Unique filter options
+  const uniqueProblems = [...new Set(allHeadlinesFlat.map(h => h.problem).filter(Boolean))].sort();
+  const uniqueEmotions = [...new Set(allHeadlinesFlat.map(h => h.emotion).filter(Boolean))].sort();
+  const uniqueTags = [...new Set(allHeadlinesFlat.flatMap(h => h.tags))].sort();
+
+  // Detect quotes needing backfill
+  const quotesNeedingBackfill = bankQuotes.filter(q => !q.problem).length;
 
   // Bank stats
   const quotesWithHeadlinesCount = bankQuotes.filter(q => q.headlines && q.headlines !== '[]').length;
@@ -1195,20 +1256,152 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker }) 
             </div>
           </div>
 
-          {/* Headline filter */}
+          {/* Backfill banner */}
+          {quotesNeedingBackfill > 0 && (
+            <div className="flex items-center gap-3 p-3 rounded-xl bg-amber-50 border border-amber-200">
+              <svg className="w-4 h-4 text-amber-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
+              </svg>
+              <span className="text-[12px] text-amber-700">{quotesNeedingBackfill} quotes missing problem labels.</span>
+              <button
+                onClick={handleBackfillProblems}
+                disabled={backfilling}
+                className="text-[11px] font-semibold text-amber-700 hover:text-amber-900 underline disabled:opacity-50"
+              >
+                {backfilling ? 'Fixing…' : 'Fix now'}
+              </button>
+            </div>
+          )}
+
+          {/* Filters */}
           {totalHeadlines > 0 && (
-            <div className="flex items-center gap-2">
-              <div className="segmented-control text-[11px]">
-                <button onClick={() => setHeadlineFilter('all')} className={headlineFilter === 'all' ? 'active' : ''}>
-                  All ({totalHeadlines})
-                </button>
-                <button onClick={() => setHeadlineFilter('used')} className={headlineFilter === 'used' ? 'active' : ''}>
-                  Used ({usedHeadlineCount})
-                </button>
-                <button onClick={() => setHeadlineFilter('unused')} className={headlineFilter === 'unused' ? 'active' : ''}>
-                  Unused ({unusedHeadlineCount})
-                </button>
+            <div className="space-y-2">
+              {/* Status filter */}
+              <div className="flex items-center gap-2 flex-wrap">
+                <div className="segmented-control text-[11px]">
+                  <button onClick={() => setHeadlineFilter('all')} className={headlineFilter === 'all' ? 'active' : ''}>
+                    All ({totalHeadlines})
+                  </button>
+                  <button onClick={() => setHeadlineFilter('used')} className={headlineFilter === 'used' ? 'active' : ''}>
+                    Used ({usedHeadlineCount})
+                  </button>
+                  <button onClick={() => setHeadlineFilter('unused')} className={headlineFilter === 'unused' ? 'active' : ''}>
+                    Unused ({unusedHeadlineCount})
+                  </button>
+                </div>
               </div>
+
+              {/* Problem / Emotion / Tag chip filters */}
+              <div className="flex items-center gap-2 flex-wrap">
+                {/* Problem chips */}
+                {uniqueProblems.length > 1 && (
+                  <>
+                    <span className="text-[10px] text-gray-400 font-medium uppercase tracking-wider">Problem:</span>
+                    <button
+                      onClick={() => setHeadlineProblemFilter('all')}
+                      className={`text-[10px] px-2 py-0.5 rounded-full border transition-all ${
+                        headlineProblemFilter === 'all'
+                          ? 'bg-blue-50 text-blue-700 border-blue-200 font-semibold'
+                          : 'text-gray-500 border-gray-200 hover:border-blue-200 hover:text-blue-600'
+                      }`}
+                    >All</button>
+                    {uniqueProblems.map(p => (
+                      <button
+                        key={p}
+                        onClick={() => setHeadlineProblemFilter(headlineProblemFilter === p ? 'all' : p)}
+                        className={`text-[10px] px-2 py-0.5 rounded-full border transition-all ${
+                          headlineProblemFilter === p
+                            ? 'bg-blue-50 text-blue-700 border-blue-200 font-semibold'
+                            : 'text-gray-500 border-gray-200 hover:border-blue-200 hover:text-blue-600'
+                        }`}
+                      >{p}</button>
+                    ))}
+                    <span className="text-gray-200">|</span>
+                  </>
+                )}
+
+                {/* Emotion chips */}
+                {uniqueEmotions.length > 1 && (
+                  <>
+                    <span className="text-[10px] text-gray-400 font-medium uppercase tracking-wider">Emotion:</span>
+                    <button
+                      onClick={() => setHeadlineEmotionFilter('all')}
+                      className={`text-[10px] px-2 py-0.5 rounded-full border transition-all ${
+                        headlineEmotionFilter === 'all'
+                          ? 'bg-purple-50 text-purple-700 border-purple-200 font-semibold'
+                          : 'text-gray-500 border-gray-200 hover:border-purple-200 hover:text-purple-600'
+                      }`}
+                    >All</button>
+                    {uniqueEmotions.map(e => (
+                      <button
+                        key={e}
+                        onClick={() => setHeadlineEmotionFilter(headlineEmotionFilter === e ? 'all' : e)}
+                        className={`text-[10px] px-2 py-0.5 rounded-full border transition-all ${
+                          headlineEmotionFilter === e
+                            ? `${EMOTION_COLORS[e] || 'bg-gray-100 text-gray-600'} border-current font-semibold`
+                            : 'text-gray-500 border-gray-200 hover:border-purple-200 hover:text-purple-600'
+                        }`}
+                      >{e}</button>
+                    ))}
+                  </>
+                )}
+
+                {/* Tag chips */}
+                {uniqueTags.length > 0 && (
+                  <>
+                    {(uniqueProblems.length > 1 || uniqueEmotions.length > 1) && <span className="text-gray-200">|</span>}
+                    <span className="text-[10px] text-gray-400 font-medium uppercase tracking-wider">Tag:</span>
+                    <button
+                      onClick={() => setHeadlineTagFilter('all')}
+                      className={`text-[10px] px-2 py-0.5 rounded-full border transition-all ${
+                        headlineTagFilter === 'all'
+                          ? 'bg-teal-50 text-teal-700 border-teal-200 font-semibold'
+                          : 'text-gray-500 border-gray-200 hover:border-teal-200 hover:text-teal-600'
+                      }`}
+                    >All</button>
+                    {uniqueTags.map(t => (
+                      <button
+                        key={t}
+                        onClick={() => setHeadlineTagFilter(headlineTagFilter === t ? 'all' : t)}
+                        className={`text-[10px] px-2 py-0.5 rounded-full border transition-all ${
+                          headlineTagFilter === t
+                            ? 'bg-teal-50 text-teal-700 border-teal-200 font-semibold'
+                            : 'text-gray-500 border-gray-200 hover:border-teal-200 hover:text-teal-600'
+                        }`}
+                      >{t}</button>
+                    ))}
+                  </>
+                )}
+              </div>
+
+              {/* Active filters summary */}
+              {(headlineProblemFilter !== 'all' || headlineEmotionFilter !== 'all' || headlineTagFilter !== 'all') && (
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  <span className="text-[10px] text-gray-400">Active filters:</span>
+                  {headlineProblemFilter !== 'all' && (
+                    <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-blue-50 text-blue-700">
+                      {headlineProblemFilter}
+                      <button onClick={() => setHeadlineProblemFilter('all')} className="text-blue-400 hover:text-blue-600">×</button>
+                    </span>
+                  )}
+                  {headlineEmotionFilter !== 'all' && (
+                    <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-purple-50 text-purple-700">
+                      {headlineEmotionFilter}
+                      <button onClick={() => setHeadlineEmotionFilter('all')} className="text-purple-400 hover:text-purple-600">×</button>
+                    </span>
+                  )}
+                  {headlineTagFilter !== 'all' && (
+                    <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-teal-50 text-teal-700">
+                      {headlineTagFilter}
+                      <button onClick={() => setHeadlineTagFilter('all')} className="text-teal-400 hover:text-teal-600">×</button>
+                    </span>
+                  )}
+                  <button
+                    onClick={() => { setHeadlineProblemFilter('all'); setHeadlineEmotionFilter('all'); setHeadlineTagFilter('all'); }}
+                    className="text-[10px] text-gray-400 hover:text-gray-600 underline ml-1"
+                  >Clear all</button>
+                </div>
+              )}
             </div>
           )}
 
@@ -1220,58 +1413,99 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker }) 
                 Go to Quote Bank →
               </button>
             </div>
-          ) : (
-            <div className="space-y-1.5">
-              {allHeadlinesFlat
-                .filter(h => headlineFilter === 'all' ? true : headlineFilter === 'used' ? h.isUsed : !h.isUsed)
-                .map((h, idx) => (
-                  <div key={`${h.quoteId}-${idx}`} className="flex items-start gap-3 p-3 rounded-xl bg-white border border-gray-100 hover:border-gray-200 transition-all">
-                    <span className={`flex-shrink-0 mt-0.5 text-[9px] font-bold px-2 py-0.5 rounded-full ${
-                      h.isUsed ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'
-                    }`}>
-                      {h.isUsed ? 'Used' : 'Unused'}
-                    </span>
-                    <div className="flex-1 min-w-0">
-                      <p className="text-[13px] font-medium text-gray-800 leading-relaxed">{h.headline}</p>
-                      <div className="flex items-center gap-2 mt-1">
-                        <p className="text-[10px] text-gray-400 truncate max-w-[300px]" title={h.quoteText}>
-                          from: &ldquo;{h.quoteText.length > 60 ? h.quoteText.slice(0, 60) + '...' : h.quoteText}&rdquo;
-                        </p>
-                        {h.emotion && (
-                          <span className={`text-[9px] font-semibold px-1.5 py-0.5 rounded-full ${EMOTION_COLORS[h.emotion] || 'bg-gray-100 text-gray-600'}`}>
-                            {h.emotion}
-                          </span>
-                        )}
-                      </div>
-                    </div>
-                    <div className="flex items-center gap-1.5 flex-shrink-0">
-                      <button
-                        onClick={() => copyHeadline(h.headline)}
-                        className="text-gray-400 hover:text-purple-600 transition-colors p-1"
-                        title="Copy headline"
-                      >
-                        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M15.666 3.888A2.25 2.25 0 0013.5 2.25H10.5a2.25 2.25 0 00-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 01-.75.75H9.75a.75.75 0 01-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 01-2.25 2.25H6.75A2.25 2.25 0 014.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 011.927-.184" />
-                        </svg>
-                      </button>
-                      <button
-                        onClick={() => {
-                          const srcQuote = bankQuotes.find(q => q.id === h.quoteId);
-                          if (srcQuote) setAdModal({ open: true, quote: srcQuote, headline: h.headline });
-                        }}
-                        className="inline-flex items-center gap-1 text-[10px] font-semibold text-purple-600 hover:text-white bg-purple-50 hover:bg-purple-600 px-2.5 py-1 rounded-lg transition-all"
-                        title="Turn this headline into an ad"
-                      >
-                        Turn into Ad
-                        <svg className="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" />
-                        </svg>
-                      </button>
-                    </div>
+          ) : (() => {
+            const filtered = allHeadlinesFlat
+              .filter(h => headlineFilter === 'all' ? true : headlineFilter === 'used' ? h.isUsed : !h.isUsed)
+              .filter(h => headlineProblemFilter === 'all' ? true : h.problem === headlineProblemFilter)
+              .filter(h => headlineEmotionFilter === 'all' ? true : h.emotion === headlineEmotionFilter)
+              .filter(h => headlineTagFilter === 'all' ? true : h.tags.includes(headlineTagFilter));
+            return (
+              <>
+                {filtered.length === 0 ? (
+                  <div className="text-center py-6 text-gray-400">
+                    <p className="text-[12px]">No headlines match the current filters.</p>
+                    <button
+                      onClick={() => { setHeadlineFilter('all'); setHeadlineProblemFilter('all'); setHeadlineEmotionFilter('all'); setHeadlineTagFilter('all'); }}
+                      className="text-[11px] text-purple-600 hover:text-purple-700 mt-1 font-medium"
+                    >Clear filters</button>
                   </div>
-                ))}
-            </div>
-          )}
+                ) : (
+                  <div className="space-y-1.5">
+                    <p className="text-[10px] text-gray-400">{filtered.length} of {totalHeadlines} headlines shown</p>
+                    {filtered.map((h, idx) => (
+                      <div key={`${h.quoteId}-${idx}`} className="flex items-start gap-3 p-3 rounded-xl bg-white border border-gray-100 hover:border-gray-200 transition-all">
+                        <span className={`flex-shrink-0 mt-0.5 text-[9px] font-bold px-2 py-0.5 rounded-full ${
+                          h.isUsed ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'
+                        }`}>
+                          {h.isUsed ? 'Used' : 'Unused'}
+                        </span>
+                        <div className="flex-1 min-w-0">
+                          <p className="text-[13px] font-medium text-gray-800 leading-relaxed">{h.headline}</p>
+                          <div className="flex items-center gap-2 mt-1.5 flex-wrap">
+                            {h.problem && (
+                              <span
+                                className="text-[9px] font-semibold px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 cursor-pointer hover:bg-blue-100 transition-colors"
+                                onClick={() => setHeadlineProblemFilter(headlineProblemFilter === h.problem ? 'all' : h.problem)}
+                                title={`Filter by: ${h.problem}`}
+                              >
+                                {h.problem}
+                              </span>
+                            )}
+                            {h.emotion && (
+                              <span
+                                className={`text-[9px] font-semibold px-1.5 py-0.5 rounded-full cursor-pointer hover:opacity-80 transition-opacity ${EMOTION_COLORS[h.emotion] || 'bg-gray-100 text-gray-600'}`}
+                                onClick={() => setHeadlineEmotionFilter(headlineEmotionFilter === h.emotion ? 'all' : h.emotion)}
+                                title={`Filter by: ${h.emotion}`}
+                              >
+                                {h.emotion}
+                              </span>
+                            )}
+                            {h.tags.map(t => (
+                              <span
+                                key={t}
+                                className="text-[9px] font-medium px-1.5 py-0.5 rounded-full bg-teal-50 text-teal-600 cursor-pointer hover:bg-teal-100 transition-colors"
+                                onClick={() => setHeadlineTagFilter(headlineTagFilter === t ? 'all' : t)}
+                                title={`Filter by tag: ${t}`}
+                              >
+                                {t}
+                              </span>
+                            ))}
+                            <p className="text-[10px] text-gray-400 truncate max-w-[250px]" title={h.quoteText}>
+                              &ldquo;{h.quoteText.length > 50 ? h.quoteText.slice(0, 50) + '...' : h.quoteText}&rdquo;
+                            </p>
+                          </div>
+                        </div>
+                        <div className="flex items-center gap-1.5 flex-shrink-0">
+                          <button
+                            onClick={() => copyHeadline(h.headline)}
+                            className="text-gray-400 hover:text-purple-600 transition-colors p-1"
+                            title="Copy headline"
+                          >
+                            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M15.666 3.888A2.25 2.25 0 0013.5 2.25H10.5a2.25 2.25 0 00-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 01-.75.75H9.75a.75.75 0 01-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 01-2.25 2.25H6.75A2.25 2.25 0 014.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 011.927-.184" />
+                            </svg>
+                          </button>
+                          <button
+                            onClick={() => {
+                              const srcQuote = bankQuotes.find(q => q.id === h.quoteId);
+                              if (srcQuote) setAdModal({ open: true, quote: srcQuote, headline: h.headline });
+                            }}
+                            className="inline-flex items-center gap-1 text-[10px] font-semibold text-purple-600 hover:text-white bg-purple-50 hover:bg-purple-600 px-2.5 py-1 rounded-lg transition-all"
+                            title="Turn this headline into an ad"
+                          >
+                            Turn into Ad
+                            <svg className="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M13.5 4.5L21 12m0 0l-7.5 7.5M21 12H3" />
+                            </svg>
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </>
+            );
+          })()}
         </div>
       )}
 
@@ -1282,14 +1516,46 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker }) 
         <div className="space-y-4">
           {/* Stats bar */}
           <div className="card p-4">
-            <div className="flex items-center gap-4 text-[13px]">
+            <div className="flex items-center gap-4 text-[13px] flex-wrap">
               <span className="font-semibold text-gray-800">{bankQuotes.length} quotes</span>
               <span className="text-gray-400">·</span>
               <span className="text-gray-500">{quotesWithHeadlinesCount} with headlines</span>
               <span className="text-gray-400">·</span>
               <span className="text-gray-500">{totalHeadlines} total headlines</span>
+              {uniqueProblems.length > 0 && (
+                <>
+                  <span className="text-gray-400">·</span>
+                  <span className="text-gray-500">{uniqueProblems.length} problem{uniqueProblems.length !== 1 ? 's' : ''}</span>
+                </>
+              )}
             </div>
+            {uniqueProblems.length > 0 && (
+              <div className="flex items-center gap-1.5 mt-2 flex-wrap">
+                {uniqueProblems.map(p => (
+                  <span key={p} className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-blue-50 text-blue-700">
+                    {p}
+                  </span>
+                ))}
+              </div>
+            )}
           </div>
+
+          {/* Backfill banner */}
+          {quotesNeedingBackfill > 0 && (
+            <div className="flex items-center gap-3 p-3 rounded-xl bg-amber-50 border border-amber-200">
+              <svg className="w-4 h-4 text-amber-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
+              </svg>
+              <span className="text-[12px] text-amber-700">{quotesNeedingBackfill} quotes missing problem labels.</span>
+              <button
+                onClick={handleBackfillProblems}
+                disabled={backfilling}
+                className="text-[11px] font-semibold text-amber-700 hover:text-amber-900 underline disabled:opacity-50"
+              >
+                {backfilling ? 'Fixing...' : 'Fix now'}
+              </button>
+            </div>
+          )}
 
           {bankQuotes.length === 0 ? (
             <div className="text-center py-8 text-gray-400">
@@ -1413,19 +1679,29 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker }) 
                             &ldquo;{quote.quote.length > 150 && !isExpanded ? quote.quote.slice(0, 150) + '...' : quote.quote}&rdquo;
                           </p>
                           <div className="flex items-center flex-wrap gap-1.5 mt-1.5">
+                            {quote.problem && (
+                              <span className="text-[9px] font-semibold px-2 py-0.5 rounded-full bg-blue-50 text-blue-700">
+                                {quote.problem}
+                              </span>
+                            )}
                             {quote.emotion && (
                               <span className={`text-[9px] font-semibold px-1.5 py-0.5 rounded-full ${EMOTION_COLORS[quote.emotion] || 'bg-gray-100 text-gray-600'}`}>
                                 {quote.emotion}
                               </span>
                             )}
                             {quote.emotional_intensity === 'high' && (
-                              <span className="text-[9px] font-medium px-1.5 py-0.5 rounded-full bg-red-50 text-red-600">🔥 High</span>
+                              <span className="text-[9px] font-medium px-1.5 py-0.5 rounded-full bg-red-50 text-red-600">High</span>
                             )}
                             {headlines.length > 0 && (
                               <span className="text-[9px] font-medium px-1.5 py-0.5 rounded-full bg-purple-50 text-purple-600">
                                 {headlines.length} headlines
                               </span>
                             )}
+                            {(quote.tags || []).map(t => (
+                              <span key={t} className="text-[9px] font-medium px-1.5 py-0.5 rounded-full bg-teal-50 text-teal-600">
+                                {t}
+                              </span>
+                            ))}
                             {quote.source && (
                               <span className="text-[9px] text-gray-400">{quote.source}</span>
                             )}
@@ -1457,7 +1733,48 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker }) 
 
                       {/* Expanded: Headlines */}
                       {isExpanded && (
-                        <div className="border-t border-gray-100 bg-gray-50/30 px-4 py-3">
+                        <div className="border-t border-gray-100 bg-gray-50/30 px-4 py-3 space-y-3">
+                          {/* Tag editing */}
+                          <div className="flex items-center gap-1.5 flex-wrap" onClick={e => e.stopPropagation()}>
+                            <span className="text-[9px] text-gray-400 font-medium uppercase tracking-wider">Tags:</span>
+                            {(quote.tags || []).map(t => (
+                              <span key={t} className="inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-full bg-teal-50 text-teal-700 border border-teal-200">
+                                {t}
+                                <button
+                                  onClick={() => handleRemoveTag(quote.id, t)}
+                                  className="text-teal-400 hover:text-teal-600"
+                                >×</button>
+                              </span>
+                            ))}
+                            {editingTagQuoteId === quote.id ? (
+                              <form
+                                onSubmit={(e) => {
+                                  e.preventDefault();
+                                  if (tagInput.trim()) {
+                                    handleAddTag(quote.id, tagInput.trim());
+                                    setTagInput('');
+                                    setEditingTagQuoteId(null);
+                                  }
+                                }}
+                                className="inline-flex"
+                              >
+                                <input
+                                  autoFocus
+                                  value={tagInput}
+                                  onChange={e => setTagInput(e.target.value)}
+                                  onBlur={() => { setEditingTagQuoteId(null); setTagInput(''); }}
+                                  placeholder="Tag name"
+                                  className="text-[10px] px-2 py-0.5 rounded-full border border-teal-300 outline-none focus:ring-1 focus:ring-teal-300 w-[80px]"
+                                />
+                              </form>
+                            ) : (
+                              <button
+                                onClick={() => setEditingTagQuoteId(quote.id)}
+                                className="text-[10px] text-gray-400 hover:text-teal-600 transition-colors px-1.5 py-0.5 rounded-full border border-dashed border-gray-300 hover:border-teal-300"
+                              >+ Tag</button>
+                            )}
+                          </div>
+
                           {headlines.length === 0 ? (
                             <p className="text-[11px] text-gray-400 italic">
                               No headlines yet. Click "Generate Headlines" above to create them.

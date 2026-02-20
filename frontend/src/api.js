@@ -344,6 +344,10 @@ export const api = {
     request(`/projects/${projectId}/quote-mining/${runId}/add-to-bank`, { method: 'POST' }),
   importAllRunsToBank: (projectId) =>
     request(`/projects/${projectId}/quote-mining/import-all`, { method: 'POST' }),
+  backfillQuoteBankProblems: (projectId) =>
+    request(`/projects/${projectId}/quote-bank/backfill-problems`, { method: 'POST' }),
+  updateQuoteBankTags: (projectId, quoteId, tags) =>
+    request(`/projects/${projectId}/quote-bank/${quoteId}/tags`, { method: 'PATCH', body: JSON.stringify({ tags }) }),
 
   // Headline Generator Reference Docs (3 separate documents)
   getHeadlineReferences: () => request('/settings/headline-references'),

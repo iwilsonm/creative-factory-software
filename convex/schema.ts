@@ -198,6 +198,8 @@ export default defineSchema({
     emotional_intensity: v.optional(v.string()),    // "high" or "medium"
     context: v.optional(v.string()),               // 1-sentence context
     run_id: v.string(),                            // → quote_mining_runs.externalId
+    problem: v.optional(v.string()),               // Denormalized from run — the "angle"
+    tags: v.optional(v.array(v.string())),         // User-applied custom tags
     is_favorite: v.optional(v.boolean()),
     headlines: v.optional(v.string()),             // JSON array of headline strings
     headlines_generated_at: v.optional(v.string()), // ISO timestamp

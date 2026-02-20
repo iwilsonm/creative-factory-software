@@ -17,9 +17,10 @@ import { convexClient, api } from '../convexClient.js';
  * @param {string} projectId
  * @param {string} runId - The mining run that produced these quotes
  * @param {Array} newQuotes - Array of quote objects from the mining run
+ * @param {string} [problem] - The problem/angle from the mining run (denormalized)
  * @returns {{ added: number, duplicates: number, total: number }}
  */
-export async function deduplicateAndAddToBank(projectId, runId, newQuotes) {
+export async function deduplicateAndAddToBank(projectId, runId, newQuotes, problem) {
   if (!newQuotes || newQuotes.length === 0) {
     return { added: 0, duplicates: 0, total: 0 };
   }
@@ -39,6 +40,7 @@ export async function deduplicateAndAddToBank(projectId, runId, newQuotes) {
       emotional_intensity: q.emotional_intensity || undefined,
       context: q.context || undefined,
       run_id: runId,
+      ...(problem ? { problem } : {}),
       created_at: new Date().toISOString(),
     }));
 
@@ -67,6 +69,7 @@ export async function deduplicateAndAddToBank(projectId, runId, newQuotes) {
     emotional_intensity: newQuotes[idx].emotional_intensity || undefined,
     context: newQuotes[idx].context || undefined,
     run_id: runId,
+    ...(problem ? { problem } : {}),
     created_at: new Date().toISOString(),
   }));
 

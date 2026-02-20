@@ -32,6 +32,8 @@ export const create = mutation({
     emotional_intensity: v.optional(v.string()),
     context: v.optional(v.string()),
     run_id: v.string(),
+    problem: v.optional(v.string()),
+    tags: v.optional(v.array(v.string())),
     is_favorite: v.optional(v.boolean()),
     headlines: v.optional(v.string()),
     headlines_generated_at: v.optional(v.string()),
@@ -61,6 +63,8 @@ export const update = mutation({
     is_favorite: v.optional(v.boolean()),
     headlines: v.optional(v.string()),
     headlines_generated_at: v.optional(v.string()),
+    problem: v.optional(v.string()),
+    tags: v.optional(v.array(v.string())),
   },
   handler: async (ctx, args) => {
     const doc = await ctx.db
@@ -86,6 +90,27 @@ export const remove = mutation({
       .first();
     if (!doc) throw new Error("Quote not found in bank");
     await ctx.db.delete(doc._id);
+  },
+});
+
+export const backfillProblems = mutation({
+  args: {
+    updates: v.string(), // JSON array of [{ externalId, problem }]
+  },
+  handler: async (ctx, args) => {
+    const updates = JSON.parse(args.updates);
+    let patched = 0;
+    for (const { externalId, problem } of updates) {
+      const doc = await ctx.db
+        .query("quote_bank")
+        .withIndex("by_externalId", (q) => q.eq("externalId", externalId))
+        .first();
+      if (doc && !doc.problem) {
+        await ctx.db.patch(doc._id, { problem });
+        patched++;
+      }
+    }
+    return { patched };
   },
 });
 
