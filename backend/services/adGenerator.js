@@ -1,5 +1,6 @@
 import { v4 as uuidv4 } from 'uuid';
 import { chat, chatWithImage, chatWithImages } from './openai.js';
+import { chat as claudeChat, chatWithImage as claudeChatWithImage } from './anthropic.js';
 import { generateImage } from './gemini.js';
 import { logGeminiCost } from './costTracker.js';
 import { withGptRateLimit } from './rateLimiter.js';
@@ -900,7 +901,7 @@ ${beliefsContent}`;
   for (let attempt = 1; attempt <= 2; attempt++) {
     try {
       const briefPacket = await withGptRateLimit(async () => {
-        return await chat([{ role: 'user', content: prompt }], 'gpt-5.2');
+        return await claudeChat([{ role: 'user', content: prompt }], 'claude-sonnet-4-6');
       }, `[Stage 0 Brief Extraction attempt ${attempt}]`);
 
       console.log(`[Pipeline Stage 0] Brief extracted (${briefPacket.length} chars) for angle: "${(angle || 'general').slice(0, 40)}"`);
@@ -1054,11 +1055,11 @@ OUTPUT FORMAT — respond as JSON only:
   for (let attempt = 1; attempt <= 3; attempt++) {
     try {
       const response = await withGptRateLimit(async () => {
-        return await chat(
+        return await claudeChat(
           [{ role: 'user', content: attempt > 1
             ? prompt + `\n\nIMPORTANT: Your previous attempt did not succeed. Please ensure you generate exactly ${count} headlines and return valid JSON.`
             : prompt }],
-          'gpt-5.2',
+          'claude-sonnet-4-6',
           { response_format: { type: 'json_object' } }
         );
       }, `[Stage 1 Headlines attempt ${attempt}]`);
@@ -1199,9 +1200,9 @@ OUTPUT FORMAT — respond as JSON only:
     for (let attempt = 1; attempt <= 2 && !batchSuccess; attempt++) {
       try {
         const response = await withGptRateLimit(async () => {
-          return await chat(
+          return await claudeChat(
             [{ role: 'user', content: prompt }],
-            'gpt-5.2',
+            'claude-sonnet-4-6',
             { response_format: { type: 'json_object' } }
           );
         }, `[Stage 2 Body Copy batch ${batchNum}/${totalBatches} attempt ${attempt}]`);
@@ -1306,12 +1307,12 @@ CRITICAL: The headline and body copy are FINAL. Do not rewrite, shorten, improve
 Output the image generation prompt as a single text block ready to paste into the image generation tool.`;
 
   const imagePrompt = await withGptRateLimit(async () => {
-    return await chatWithImage(
+    return await claudeChatWithImage(
       [],
       promptText,
       imageData.base64,
       imageData.mimeType,
-      'gpt-5.2'
+      'claude-sonnet-4-6'
     );
   }, `[Stage 3 Image Prompt]`);
 
