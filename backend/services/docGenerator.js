@@ -858,7 +858,7 @@ async function findAndCorrectDocs(projectId, correctionInstruction) {
     return { corrections: [], message: 'No foundational documents found to search.' };
   }
 
-  // 2. Build GPT prompt
+  // 2. Build prompt — lightweight: only old_text/new_text, NO full_updated_content
   const systemPrompt = `You are a document correction assistant. You will receive foundational marketing documents and a correction instruction from the user.
 
 Your job:
@@ -869,12 +869,13 @@ Your job:
 
 CRITICAL RULES:
 - Search ALL documents thoroughly. The same incorrect claim may appear in multiple documents.
-- Make MINIMAL changes. Only fix the specific incorrect claim. Do NOT rewrite surrounding sentences or restructure paragraphs.
+- Make MINIMAL changes. Only fix the specific incorrect claim. Do NOT rewrite surrounding sentences.
 - Preserve ALL markdown formatting, headers, bullet points, and structure exactly as-is.
-- If you find NO instances of the incorrect information in any document, return an empty corrections array.
-- The "old_text" field must be an EXACT substring of the original document content (copy-paste exact, including punctuation and whitespace). This will be used for programmatic find-and-replace.
+- If you find NO instances of the incorrect information, return an empty corrections array.
+- The "old_text" field must be an EXACT substring copy-pasted from the original document (including punctuation and whitespace). This is critical — it will be used for programmatic find-and-replace.
 - The "new_text" field is what should replace the old_text.
-- The "full_updated_content" field must contain the COMPLETE document with the correction applied — the entire document text, not just a snippet.
+- Keep old_text as SHORT as possible while being unique within the document. Include just enough surrounding context to be unambiguous.
+- Do NOT include the full document in your response. Only return the specific old_text and new_text snippets.
 
 Return this exact JSON structure:
 {
@@ -883,8 +884,7 @@ Return this exact JSON structure:
       "doc_type": "research|avatar|offer_brief|necessary_beliefs",
       "old_text": "exact substring from the original document",
       "new_text": "the corrected replacement text",
-      "context": "...roughly 60 chars of surrounding text with the old_text in the middle for user preview...",
-      "full_updated_content": "the entire corrected document content"
+      "explanation": "Brief explanation of what was wrong and what was changed"
     }
   ],
   "message": "Brief summary of what was found and changed"
@@ -892,7 +892,7 @@ Return this exact JSON structure:
 
   let userContent = 'Here are the foundational documents:\n\n';
   for (const entry of docEntries) {
-    userContent += `=== ${DOC_LABELS_MAP[entry.doc_type]} (doc_type: ${entry.doc_type}, doc_id: ${entry.id}) ===\n${entry.content}\n\n`;
+    userContent += `=== ${DOC_LABELS_MAP[entry.doc_type]} (doc_type: ${entry.doc_type}) ===\n${entry.content}\n\n`;
   }
   userContent += `---\n\nCORRECTION INSTRUCTION:\n${correctionInstruction}`;
 
@@ -901,9 +901,12 @@ Return this exact JSON structure:
     { role: 'user', content: userContent }
   ];
 
-  // 3. Call Claude Sonnet 4.6 (faster + no OpenAI 429 issues)
+  // 3. Call Claude Sonnet 4.6 with reduced max_tokens (corrections are small, not full docs)
   const raw = await claudeChat(messages, 'claude-sonnet-4-6', {
-    response_format: { type: 'json_object' }
+    response_format: { type: 'json_object' },
+    max_tokens: 4096,
+    timeout: 60000,    // 60s timeout — corrections should be fast
+    maxRetries: 2,     // Fewer retries for interactive feature
   });
 
   let result;
@@ -917,21 +920,39 @@ Return this exact JSON structure:
     return { corrections: [], message: result.message || 'No corrections found.' };
   }
 
-  // 4. For each correction, attempt programmatic replace; fall back to GPT's full doc
+  // 4. For each correction, do programmatic find-and-replace (no full_updated_content needed)
   const enriched = [];
   for (const c of result.corrections) {
     const docEntry = docEntries.find(d => d.doc_type === c.doc_type);
     if (!docEntry) continue;
+    if (!c.old_text || !c.new_text) continue;
 
     let finalContent;
-    if (c.old_text && docEntry.content.includes(c.old_text)) {
-      // Programmatic replace — more trustworthy
+    if (docEntry.content.includes(c.old_text)) {
+      // Exact match — best case
       finalContent = docEntry.content.replace(c.old_text, c.new_text);
-    } else if (c.full_updated_content) {
-      // Fall back to GPT's full document
-      finalContent = c.full_updated_content;
     } else {
-      continue; // Skip if we can't apply the correction
+      // Try trimmed match (model sometimes adds/removes leading/trailing whitespace)
+      const trimmed = c.old_text.trim();
+      if (trimmed && docEntry.content.includes(trimmed)) {
+        finalContent = docEntry.content.replace(trimmed, c.new_text.trim());
+      } else {
+        // Try case-insensitive search for the first 40 chars to find approximate location
+        const searchSnippet = trimmed.slice(0, 40).toLowerCase();
+        const lowerContent = docEntry.content.toLowerCase();
+        const idx = lowerContent.indexOf(searchSnippet);
+        if (idx !== -1) {
+          // Found approximate location — try to match a broader region
+          const region = docEntry.content.slice(Math.max(0, idx - 20), idx + trimmed.length + 20);
+          console.log(`[CopyCorrection] Fuzzy match needed for "${trimmed.slice(0, 50)}..." — found near index ${idx}`);
+          // Use the old_text as-is but with the actual content from the document
+          const actualOld = docEntry.content.slice(idx, idx + trimmed.length);
+          finalContent = docEntry.content.replace(actualOld, c.new_text.trim());
+        } else {
+          console.log(`[CopyCorrection] Could not match old_text in ${c.doc_type}: "${c.old_text.slice(0, 60)}..."`);
+          continue; // Skip — can't find the text to replace
+        }
+      }
     }
 
     enriched.push({
@@ -940,7 +961,7 @@ Return this exact JSON structure:
       doc_label: DOC_LABELS_MAP[c.doc_type],
       old_text: c.old_text,
       new_text: c.new_text,
-      context: c.context || '',
+      context: c.explanation || '',
       full_updated_content: finalContent
     });
   }

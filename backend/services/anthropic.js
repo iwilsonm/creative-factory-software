@@ -113,9 +113,19 @@ export async function chat(messages, model = 'claude-sonnet-4-6', options = {}) 
     createParams.system = systemPrompt;
   }
 
+  // Use timeout if specified (in ms), default 120s
+  const timeoutMs = options.timeout || 120000;
+
   const response = await withRetry(
-    () => anthropic.messages.create(createParams),
-    { label: '[Anthropic chat]' }
+    () => {
+      const apiCall = anthropic.messages.create(createParams);
+      // Race against timeout to prevent hanging calls
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error(`Anthropic API call timed out after ${Math.round(timeoutMs / 1000)}s`)), timeoutMs)
+      );
+      return Promise.race([apiCall, timeoutPromise]);
+    },
+    { label: '[Anthropic chat]', maxRetries: options.maxRetries ?? 3 }
   );
 
   let text = response.content
