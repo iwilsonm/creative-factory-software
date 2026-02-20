@@ -4,6 +4,10 @@
  * Provides chat() and chatWithImage() functions that match the OpenAI signatures
  * but route to Claude via the Anthropic SDK.
  *
+ * Cost tracking: Every successful call automatically logs cost to the api_costs
+ * table using token counts from the API response. Callers pass an `operation`
+ * string in options to categorize the cost (e.g. 'copy_correction', 'brief_extraction').
+ *
  * JSON mode: Neither Opus 4.6 nor Sonnet 4.6 support assistant message prefill.
  * For JSON output we add a JSON instruction to the system prompt and extract
  * JSON from the response text using a robust brace-matching parser.
@@ -12,6 +16,7 @@
 import Anthropic from '@anthropic-ai/sdk';
 import { getSetting } from '../convexClient.js';
 import { withRetry } from './retry.js';
+import { logAnthropicCost } from './costTracker.js';
 
 let client = null;
 let lastApiKey = null;
@@ -64,6 +69,25 @@ function extractJSON(text) {
 }
 
 /**
+ * Fire-and-forget cost logging for an Anthropic API response.
+ * Extracts token usage from the response and logs to api_costs.
+ */
+function logCostFromResponse(response, model, options) {
+  if (!response?.usage) return;
+  const { input_tokens, output_tokens } = response.usage;
+  if (!input_tokens && !output_tokens) return;
+
+  // Fire-and-forget — don't block the caller
+  logAnthropicCost({
+    model,
+    operation: options.operation || 'other',
+    inputTokens: input_tokens || 0,
+    outputTokens: output_tokens || 0,
+    projectId: options.projectId || null,
+  }).catch(() => {}); // silently ignore cost logging failures
+}
+
+/**
  * Send a conversation to Claude and get the full response (no streaming).
  *
  * Accepts OpenAI-style messages array: [{ role: 'user'|'assistant', content: string }]
@@ -75,7 +99,7 @@ function extractJSON(text) {
  *
  * @param {Array} messages - OpenAI-format messages array
  * @param {string} [model='claude-sonnet-4-6'] - Anthropic model name
- * @param {object} [options={}] - Extra options (e.g., max_tokens, response_format)
+ * @param {object} [options={}] - Extra options (e.g., max_tokens, response_format, operation, projectId)
  * @returns {string} The assistant's response text
  */
 export async function chat(messages, model = 'claude-sonnet-4-6', options = {}) {
@@ -128,6 +152,9 @@ export async function chat(messages, model = 'claude-sonnet-4-6', options = {}) 
     { label: '[Anthropic chat]', maxRetries: options.maxRetries ?? 3 }
   );
 
+  // Log cost from token usage (fire-and-forget)
+  logCostFromResponse(response, model, options);
+
   let text = response.content
     .filter(block => block.type === 'text')
     .map(block => block.text)
@@ -153,9 +180,10 @@ export async function chat(messages, model = 'claude-sonnet-4-6', options = {}) 
  * @param {string} base64Image - Base64-encoded image data
  * @param {string} mimeType - Image MIME type (e.g., 'image/png', 'image/jpeg')
  * @param {string} [model='claude-sonnet-4-6'] - Anthropic model name
+ * @param {object} [options={}] - Extra options (e.g., operation, projectId for cost tracking)
  * @returns {string} The assistant's response text
  */
-export async function chatWithImage(messages, text, base64Image, mimeType, model = 'claude-sonnet-4-6') {
+export async function chatWithImage(messages, text, base64Image, mimeType, model = 'claude-sonnet-4-6', options = {}) {
   const anthropic = await getClient();
 
   // Separate system messages from conversation messages
@@ -211,6 +239,9 @@ export async function chatWithImage(messages, text, base64Image, mimeType, model
     () => anthropic.messages.create(createParams),
     { label: '[Anthropic chatWithImage]' }
   );
+
+  // Log cost from token usage (fire-and-forget)
+  logCostFromResponse(response, model, options);
 
   return response.content
     .filter(block => block.type === 'text')

@@ -11,6 +11,7 @@
 import { getAnthropicClient } from './quoteMiner.js';
 import { getSetting } from '../convexClient.js';
 import { withRetry } from './retry.js';
+import { logAnthropicCost } from './costTracker.js';
 
 // ── Load reference documents (shared) ────────────────────────────────────────
 async function loadRefDocs(onProgress) {
@@ -141,6 +142,11 @@ export async function generateHeadlines(quotes, config, onProgress) {
     { label: '[Headline generation]' }
   );
 
+  // Log cost (fire-and-forget)
+  if (response.usage) {
+    logAnthropicCost({ model: 'claude-sonnet-4-6', operation: 'headline_generation', inputTokens: response.usage.input_tokens || 0, outputTokens: response.usage.output_tokens || 0 }).catch(() => {});
+  }
+
   let rawText = '';
   for (const block of response.content) {
     if (block.type === 'text') rawText += block.text;
@@ -210,6 +216,11 @@ export async function generateHeadlinesPerQuote(quotes, config, onProgress) {
       }),
       { label: `[Per-quote headlines batch ${batchNum}]` }
     );
+
+    // Log cost (fire-and-forget)
+    if (response.usage) {
+      logAnthropicCost({ model: 'claude-sonnet-4-6', operation: 'headline_generation_per_quote', inputTokens: response.usage.input_tokens || 0, outputTokens: response.usage.output_tokens || 0 }).catch(() => {});
+    }
 
     let rawText = '';
     for (const block of response.content) {
@@ -316,6 +327,11 @@ Output: Return ONLY a valid JSON array, no markdown code fences:
     }),
     { label: '[Generate more headlines]' }
   );
+
+  // Log cost (fire-and-forget)
+  if (response.usage) {
+    logAnthropicCost({ model: 'claude-sonnet-4-6', operation: 'headline_generation_more', inputTokens: response.usage.input_tokens || 0, outputTokens: response.usage.output_tokens || 0 }).catch(() => {});
+  }
 
   let rawText = '';
   for (const block of response.content) {

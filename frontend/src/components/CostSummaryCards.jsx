@@ -7,13 +7,33 @@ const PERIODS = [
 ];
 
 const OPERATION_META = {
-  image_generation: { label: 'Images (manual)', color: 'bg-emerald-400', icon: '🖼' },
-  image_generation_batch: { label: 'Images (batch)', color: 'bg-purple-400', icon: '📦' },
-  ad_creative_director: { label: 'Creative direction', color: 'bg-blue-400', icon: '✍️' },
-  foundational_docs: { label: 'Docs & research', color: 'bg-amber-400', icon: '📄' },
+  image_generation: { label: 'Images (manual)', color: 'bg-emerald-400', icon: '' },
+  image_generation_batch: { label: 'Images (batch)', color: 'bg-purple-400', icon: '' },
+  ad_creative_director: { label: 'Creative direction', color: 'bg-blue-400', icon: '' },
+  foundational_docs: { label: 'Docs & research', color: 'bg-amber-400', icon: '' },
+  doc_correction: { label: 'Doc corrections', color: 'bg-violet-400', icon: '' },
+  batch_brief_extraction: { label: 'Brief extraction', color: 'bg-violet-300', icon: '' },
+  batch_headline_generation: { label: 'Headlines (batch)', color: 'bg-violet-400', icon: '' },
+  batch_body_copy: { label: 'Body copy (batch)', color: 'bg-violet-300', icon: '' },
+  batch_image_prompt: { label: 'Image prompts (batch)', color: 'bg-violet-400', icon: '' },
+  ad_angle_generation: { label: 'Angle generation', color: 'bg-violet-300', icon: '' },
+  ad_headline_generation: { label: 'Headline generation', color: 'bg-violet-400', icon: '' },
+  headline_generation: { label: 'Headlines', color: 'bg-violet-300', icon: '' },
+  headline_generation_per_quote: { label: 'Headlines (per quote)', color: 'bg-violet-400', icon: '' },
+  headline_generation_more: { label: 'Headlines (more)', color: 'bg-violet-300', icon: '' },
+  quote_mining: { label: 'Quote mining (Perplexity)', color: 'bg-cyan-400', icon: '' },
+  quote_mining_web_search: { label: 'Quote mining (Claude)', color: 'bg-violet-300', icon: '' },
   other: { label: 'Other', color: 'bg-gray-300', icon: '' },
   unknown: { label: 'Other', color: 'bg-gray-300', icon: '' },
 };
+
+// Service definitions for the breakdown bar + legend
+const SERVICE_DEFS = [
+  { key: 'openai', label: 'OpenAI', barClass: 'bg-blue-400', dotClass: 'bg-blue-400' },
+  { key: 'anthropic', label: 'Anthropic', barClass: 'bg-violet-400', dotClass: 'bg-violet-400' },
+  { key: 'gemini', label: 'Gemini', barClass: 'bg-emerald-400', dotClass: 'bg-emerald-400' },
+  { key: 'perplexity', label: 'Perplexity', barClass: 'bg-cyan-400', dotClass: 'bg-cyan-400' },
+];
 
 function formatCost(value) {
   if (value === 0 || value === undefined || value === null) return '$0.00';
@@ -55,11 +75,14 @@ export default function CostSummaryCards({ costs, loading }) {
         const data = costs[period.key];
         if (!data) return null;
 
-        const openai = data.byService?.openai || 0;
-        const gemini = data.byService?.gemini || 0;
         const total = data.total || 0;
-        const openaiPct = total > 0 ? (openai / total) * 100 : 0;
-        const geminiPct = total > 0 ? (gemini / total) * 100 : 0;
+
+        // Build service amounts array
+        const services = SERVICE_DEFS.map(s => ({
+          ...s,
+          amount: data.byService?.[s.key] || 0,
+          pct: total > 0 ? ((data.byService?.[s.key] || 0) / total) * 100 : 0,
+        })).filter(s => s.amount > 0);
 
         // Image counts
         const manualImages = data.imageCount || 0;
@@ -97,39 +120,30 @@ export default function CostSummaryCards({ costs, loading }) {
             {total > 0 && (
               <>
                 {/* Service breakdown bar */}
-                <div className="w-full h-1.5 rounded-full bg-gray-100 overflow-hidden mb-2">
-                  {openai > 0 && (
+                <div className="w-full h-1.5 rounded-full bg-gray-100 overflow-hidden mb-2 flex">
+                  {services.map((s, idx) => (
                     <div
-                      className="h-full bg-blue-400 float-left rounded-l-full"
-                      style={{ width: `${openaiPct}%` }}
-                    />
-                  )}
-                  {gemini > 0 && (
-                    <div
-                      className="h-full bg-emerald-400 float-left"
+                      key={s.key}
+                      className={`h-full ${s.barClass}`}
                       style={{
-                        width: `${geminiPct}%`,
-                        borderTopRightRadius: '9999px',
-                        borderBottomRightRadius: '9999px'
+                        width: `${s.pct}%`,
+                        borderTopLeftRadius: idx === 0 ? '9999px' : 0,
+                        borderBottomLeftRadius: idx === 0 ? '9999px' : 0,
+                        borderTopRightRadius: idx === services.length - 1 ? '9999px' : 0,
+                        borderBottomRightRadius: idx === services.length - 1 ? '9999px' : 0,
                       }}
                     />
-                  )}
+                  ))}
                 </div>
 
                 {/* Service legend */}
-                <div className="flex items-center gap-3 text-[10px] text-gray-400 mb-3">
-                  {openai > 0 && (
-                    <span className="flex items-center gap-1">
-                      <span className="w-2 h-2 rounded-full bg-blue-400" />
-                      OpenAI {formatCost(openai)}
+                <div className="flex items-center gap-3 text-[10px] text-gray-400 mb-3 flex-wrap">
+                  {services.map(s => (
+                    <span key={s.key} className="flex items-center gap-1">
+                      <span className={`w-2 h-2 rounded-full ${s.dotClass}`} />
+                      {s.label} {formatCost(s.amount)}
                     </span>
-                  )}
-                  {gemini > 0 && (
-                    <span className="flex items-center gap-1">
-                      <span className="w-2 h-2 rounded-full bg-emerald-400" />
-                      Gemini {formatCost(gemini)}
-                    </span>
-                  )}
+                  ))}
                 </div>
 
                 {/* Operation breakdown toggle + detail */}

@@ -907,6 +907,8 @@ Return this exact JSON structure:
     max_tokens: 4096,
     timeout: 60000,    // 60s timeout — corrections should be fast
     maxRetries: 2,     // Fewer retries for interactive feature
+    operation: 'doc_correction',
+    projectId,
   });
 
   let result;

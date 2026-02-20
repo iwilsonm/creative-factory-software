@@ -11,6 +11,7 @@ import Anthropic from '@anthropic-ai/sdk';
 import { getSetting } from '../convexClient.js';
 import { chat } from './openai.js';
 import { withRetry } from './retry.js';
+import { logAnthropicCost, logPerplexityCost } from './costTracker.js';
 
 // ── Perplexity client (reuses OpenAI SDK with different baseURL) ──────────────
 let perplexityClient = null;
@@ -144,6 +145,17 @@ async function searchWithPerplexity(config, onProgress) {
   const rawText = response.choices[0]?.message?.content || '';
   const citations = response.citations || [];
 
+  // Log Perplexity cost (fire-and-forget)
+  const usage = response.usage;
+  if (usage) {
+    logPerplexityCost({
+      model: 'sonar-pro',
+      operation: 'quote_mining',
+      inputTokens: usage.prompt_tokens || 0,
+      outputTokens: usage.completion_tokens || 0,
+    }).catch(() => {});
+  }
+
   onProgress({
     type: 'engine_complete',
     engine: 'perplexity',
@@ -197,6 +209,16 @@ async function searchWithClaude(config, onProgress) {
     }),
     { label: '[Claude web search]' }
   );
+
+  // Log Claude cost (fire-and-forget)
+  if (response.usage) {
+    logAnthropicCost({
+      model: 'claude-sonnet-4-6',
+      operation: 'quote_mining_web_search',
+      inputTokens: response.usage.input_tokens || 0,
+      outputTokens: response.usage.output_tokens || 0,
+    }).catch(() => {});
+  }
 
   // Extract text content from Claude's response
   let rawText = '';

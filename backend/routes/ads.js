@@ -221,7 +221,7 @@ ${offerSnippet}
 
 Return ONLY a short angle phrase (3-10 words). No explanation, no quotes, no numbering. Just the angle.
 Examples of good angles: "the 3am bathroom trip nobody talks about", "why your doctor never mentioned this", "what grandma knew that science just proved"`,
-    }], 'claude-sonnet-4-6', { max_tokens: 100 });
+    }], 'claude-sonnet-4-6', { max_tokens: 100, operation: 'ad_angle_generation', projectId: req.params.projectId });
 
     const angle = result.trim().replace(/^["'"]+|["'"]+$/g, '');
     res.json({ angle });
@@ -275,7 +275,7 @@ Write ONE scroll-stopping headline that:
 - ${angle ? `Focuses on the angle: "${angle}"` : 'Picks a compelling angle from the docs'}
 
 Return ONLY the headline text. No quotes, no labels, no explanation. Under 15 words.`,
-    }], 'claude-sonnet-4-6', { max_tokens: 150 });
+    }], 'claude-sonnet-4-6', { max_tokens: 150, operation: 'ad_headline_generation', projectId: req.params.projectId });
 
     const headline = result.trim().replace(/^["'"]+|["'"]+$/g, '');
     res.json({ headline });

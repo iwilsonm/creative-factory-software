@@ -91,14 +91,16 @@ export const getDailyHistory = query({
     }
 
     // Group by date
-    const byDate: Record<string, { openai: number; gemini: number; total: number }> = {};
+    const byDate: Record<string, { openai: number; gemini: number; anthropic: number; perplexity: number; total: number }> = {};
     for (const c of costs) {
       if (!byDate[c.period_date]) {
-        byDate[c.period_date] = { openai: 0, gemini: 0, total: 0 };
+        byDate[c.period_date] = { openai: 0, gemini: 0, anthropic: 0, perplexity: 0, total: 0 };
       }
       byDate[c.period_date].total += c.cost_usd;
       if (c.service === "openai") byDate[c.period_date].openai += c.cost_usd;
-      if (c.service === "gemini") byDate[c.period_date].gemini += c.cost_usd;
+      else if (c.service === "gemini") byDate[c.period_date].gemini += c.cost_usd;
+      else if (c.service === "anthropic") byDate[c.period_date].anthropic += c.cost_usd;
+      else if (c.service === "perplexity") byDate[c.period_date].perplexity += c.cost_usd;
     }
 
     return Object.entries(byDate)

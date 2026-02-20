@@ -12,6 +12,14 @@ function formatDateLabel(dateStr) {
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
+// Stacked bar segments (bottom to top): OpenAI → Anthropic → Gemini → Perplexity
+const SERVICES = [
+  { key: 'openai',     label: 'OpenAI',     color: '#93bbfd', hoverColor: '#60a5fa', legendColor: 'bg-blue-400',    tooltipColor: 'text-blue-300' },
+  { key: 'anthropic',  label: 'Anthropic',   color: '#c4b5fd', hoverColor: '#a78bfa', legendColor: 'bg-violet-400',  tooltipColor: 'text-violet-300' },
+  { key: 'gemini',     label: 'Gemini',      color: '#6ee7b7', hoverColor: '#34d399', legendColor: 'bg-emerald-400', tooltipColor: 'text-emerald-300' },
+  { key: 'perplexity', label: 'Perplexity',  color: '#67e8f9', hoverColor: '#22d3ee', legendColor: 'bg-cyan-400',    tooltipColor: 'text-cyan-300' },
+];
+
 export default function CostBarChart({ data, loading }) {
   const [hoveredIndex, setHoveredIndex] = useState(null);
 
@@ -28,6 +36,12 @@ export default function CostBarChart({ data, loading }) {
     }
 
     return { bars: data, maxValue, yLabels };
+  }, [data]);
+
+  // Which services actually have data (for legend + tooltip)
+  const activeServices = useMemo(() => {
+    if (!data || data.length === 0) return [];
+    return SERVICES.filter(s => data.some(d => (d[s.key] || 0) > 0));
   }, [data]);
 
   if (loading) {
@@ -60,14 +74,12 @@ export default function CostBarChart({ data, loading }) {
       <div className="flex items-center justify-between mb-4">
         <h4 className="text-[13px] font-semibold text-gray-700">30 Days of Spend History</h4>
         <div className="flex items-center gap-3 text-[10px] text-gray-400">
-          <span className="flex items-center gap-1">
-            <span className="w-2 h-2 rounded-full bg-blue-400" />
-            OpenAI
-          </span>
-          <span className="flex items-center gap-1">
-            <span className="w-2 h-2 rounded-full bg-emerald-400" />
-            Gemini
-          </span>
+          {activeServices.map(s => (
+            <span key={s.key} className="flex items-center gap-1">
+              <span className={`w-2 h-2 rounded-full ${s.legendColor}`} />
+              {s.label}
+            </span>
+          ))}
         </div>
       </div>
 
@@ -99,9 +111,18 @@ export default function CostBarChart({ data, loading }) {
             className="relative z-10"
           >
             {bars.map((bar, i) => {
-              const openaiH = maxValue > 0 ? (bar.openai / maxValue) * chartHeight : 0;
-              const geminiH = maxValue > 0 ? (bar.gemini / maxValue) * chartHeight : 0;
               const x = i * (barWidth + barGap);
+              const isHovered = hoveredIndex === i;
+
+              // Calculate heights for stacked segments
+              const segments = SERVICES.map(s => ({
+                ...s,
+                value: bar[s.key] || 0,
+                h: maxValue > 0 ? ((bar[s.key] || 0) / maxValue) * chartHeight : 0,
+              })).filter(seg => seg.h > 0);
+
+              // Stack from bottom: first segment at bottom, last at top
+              let yOffset = chartHeight;
 
               return (
                 <g
@@ -111,37 +132,22 @@ export default function CostBarChart({ data, loading }) {
                   className="cursor-pointer"
                 >
                   {/* Hover target (full height, invisible) */}
-                  <rect
-                    x={x}
-                    y={0}
-                    width={barWidth}
-                    height={chartHeight}
-                    fill="transparent"
-                  />
-                  {/* OpenAI bar (bottom) */}
-                  {openaiH > 0 && (
-                    <rect
-                      x={x}
-                      y={chartHeight - openaiH - geminiH}
-                      width={barWidth}
-                      height={openaiH}
-                      rx={1}
-                      fill={hoveredIndex === i ? '#60a5fa' : '#93bbfd'}
-                      className="transition-all duration-150"
-                    />
-                  )}
-                  {/* Gemini bar (top of stack) */}
-                  {geminiH > 0 && (
-                    <rect
-                      x={x}
-                      y={chartHeight - geminiH}
-                      width={barWidth}
-                      height={geminiH}
-                      rx={1}
-                      fill={hoveredIndex === i ? '#34d399' : '#6ee7b7'}
-                      className="transition-all duration-150"
-                    />
-                  )}
+                  <rect x={x} y={0} width={barWidth} height={chartHeight} fill="transparent" />
+                  {segments.map(seg => {
+                    yOffset -= seg.h;
+                    return (
+                      <rect
+                        key={seg.key}
+                        x={x}
+                        y={yOffset}
+                        width={barWidth}
+                        height={seg.h}
+                        rx={1}
+                        fill={isHovered ? seg.hoverColor : seg.color}
+                        className="transition-all duration-150"
+                      />
+                    );
+                  })}
                 </g>
               );
             })}
@@ -168,12 +174,12 @@ export default function CostBarChart({ data, loading }) {
           >
             <p className="font-medium mb-0.5">{formatDateLabel(bars[hoveredIndex].date)}</p>
             <p>Total: {formatCost(bars[hoveredIndex].total)}</p>
-            {bars[hoveredIndex].openai > 0 && (
-              <p className="text-blue-300">OpenAI: {formatCost(bars[hoveredIndex].openai)}</p>
-            )}
-            {bars[hoveredIndex].gemini > 0 && (
-              <p className="text-emerald-300">Gemini: {formatCost(bars[hoveredIndex].gemini)}</p>
-            )}
+            {SERVICES.map(s => {
+              const val = bars[hoveredIndex][s.key] || 0;
+              return val > 0 ? (
+                <p key={s.key} className={s.tooltipColor}>{s.label}: {formatCost(val)}</p>
+              ) : null;
+            })}
           </div>
         )}
       </div>

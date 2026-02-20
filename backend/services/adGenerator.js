@@ -901,7 +901,10 @@ ${beliefsContent}`;
   for (let attempt = 1; attempt <= 2; attempt++) {
     try {
       const briefPacket = await withGptRateLimit(async () => {
-        return await claudeChat([{ role: 'user', content: prompt }], 'claude-opus-4-6');
+        return await claudeChat([{ role: 'user', content: prompt }], 'claude-opus-4-6', {
+          operation: 'batch_brief_extraction',
+          projectId: project?.id || null,
+        });
       }, `[Stage 0 Brief Extraction attempt ${attempt}]`);
 
       console.log(`[Pipeline Stage 0] Brief extracted (${briefPacket.length} chars) for angle: "${(angle || 'general').slice(0, 40)}"`);
@@ -1060,7 +1063,11 @@ OUTPUT FORMAT — respond as JSON only:
             ? prompt + `\n\nIMPORTANT: Your previous attempt did not succeed. Please ensure you generate exactly ${count} headlines and return valid JSON.`
             : prompt }],
           'claude-opus-4-6',
-          { response_format: { type: 'json_object' } }
+          {
+            response_format: { type: 'json_object' },
+            operation: 'batch_headline_generation',
+            projectId: project?.id || null,
+          }
         );
       }, `[Stage 1 Headlines attempt ${attempt}]`);
 
@@ -1203,7 +1210,11 @@ OUTPUT FORMAT — respond as JSON only:
           return await claudeChat(
             [{ role: 'user', content: prompt }],
             'claude-sonnet-4-6',
-            { response_format: { type: 'json_object' } }
+            {
+              response_format: { type: 'json_object' },
+              operation: 'batch_body_copy',
+              projectId: project?.id || null,
+            }
           );
         }, `[Stage 2 Body Copy batch ${batchNum}/${totalBatches} attempt ${attempt}]`);
 
@@ -1312,7 +1323,8 @@ Output the image generation prompt as a single text block ready to paste into th
       promptText,
       imageData.base64,
       imageData.mimeType,
-      'claude-sonnet-4-6'
+      'claude-sonnet-4-6',
+      { operation: 'batch_image_prompt', projectId: project?.id || null }
     );
   }, `[Stage 3 Image Prompt]`);
 

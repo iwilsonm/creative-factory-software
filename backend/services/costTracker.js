@@ -2,6 +2,102 @@ import { v4 as uuidv4 } from 'uuid';
 import { getSetting, setSetting, logCost, getCostAggregates, getDailyCostHistory, deleteCostsBySource, getAllScheduledBatchesForCost, getAllProjects } from '../convexClient.js';
 import { withRetry } from './retry.js';
 
+// ── Anthropic Claude pricing (per million tokens) ──────────────────────────────
+// Source: https://docs.anthropic.com/en/docs/about-claude/pricing
+const ANTHROPIC_RATES = {
+  'claude-opus-4-6':   { input: 15.00, output: 75.00 },  // $15/M in, $75/M out
+  'claude-sonnet-4-6': { input: 3.00, output: 15.00 },    // $3/M in, $15/M out
+  'claude-haiku-3-5':  { input: 0.80, output: 4.00 },     // $0.80/M in, $4/M out
+};
+
+// ── Perplexity pricing (per million tokens) ────────────────────────────────────
+// Source: https://docs.perplexity.ai/docs/pricing
+const PERPLEXITY_RATES = {
+  'sonar-pro':  { input: 3.00, output: 15.00 },  // $3/M in, $15/M out
+  'sonar':      { input: 1.00, output: 1.00 },    // $1/M in, $1/M out
+};
+
+/**
+ * Log an Anthropic Claude API cost (fire-and-forget).
+ * Uses token counts from the API response to calculate exact cost.
+ *
+ * @param {object} params
+ * @param {string} params.model - e.g. 'claude-sonnet-4-6'
+ * @param {string} params.operation - e.g. 'copy_correction', 'brief_extraction'
+ * @param {number} params.inputTokens - input tokens used
+ * @param {number} params.outputTokens - output tokens used
+ * @param {string|null} [params.projectId] - project ID if applicable
+ */
+export async function logAnthropicCost({ model, operation, inputTokens, outputTokens, projectId = null }) {
+  try {
+    const rates = ANTHROPIC_RATES[model] || ANTHROPIC_RATES['claude-sonnet-4-6'];
+    const inputCost = (inputTokens / 1_000_000) * rates.input;
+    const outputCost = (outputTokens / 1_000_000) * rates.output;
+    const totalCost = inputCost + outputCost;
+
+    if (totalCost <= 0) return null;
+
+    const record = {
+      id: uuidv4(),
+      project_id: projectId,
+      service: 'anthropic',
+      operation,
+      cost_usd: Math.round(totalCost * 1000000) / 1000000,
+      rate_used: null,
+      image_count: null,
+      resolution: null,
+      source: 'calculated',
+      period_date: new Date().toISOString().split('T')[0]
+    };
+
+    await logCost(record);
+    return record;
+  } catch (err) {
+    console.error('[CostTracker] Failed to log Anthropic cost:', err.message);
+    return null;
+  }
+}
+
+/**
+ * Log a Perplexity API cost (fire-and-forget).
+ *
+ * @param {object} params
+ * @param {string} params.model - e.g. 'sonar-pro'
+ * @param {string} params.operation - e.g. 'quote_mining'
+ * @param {number} params.inputTokens - input tokens used
+ * @param {number} params.outputTokens - output tokens used
+ * @param {string|null} [params.projectId] - project ID if applicable
+ */
+export async function logPerplexityCost({ model, operation, inputTokens, outputTokens, projectId = null }) {
+  try {
+    const rates = PERPLEXITY_RATES[model] || PERPLEXITY_RATES['sonar-pro'];
+    const inputCost = (inputTokens / 1_000_000) * rates.input;
+    const outputCost = (outputTokens / 1_000_000) * rates.output;
+    const totalCost = inputCost + outputCost;
+
+    if (totalCost <= 0) return null;
+
+    const record = {
+      id: uuidv4(),
+      project_id: projectId,
+      service: 'perplexity',
+      operation,
+      cost_usd: Math.round(totalCost * 1000000) / 1000000,
+      rate_used: null,
+      image_count: null,
+      resolution: null,
+      source: 'calculated',
+      period_date: new Date().toISOString().split('T')[0]
+    };
+
+    await logCost(record);
+    return record;
+  } catch (err) {
+    console.error('[CostTracker] Failed to log Perplexity cost:', err.message);
+    return null;
+  }
+}
+
 /**
  * Log a Gemini image generation cost (fire-and-forget).
  * Reads the current rate from settings, applies batch discount if applicable,
