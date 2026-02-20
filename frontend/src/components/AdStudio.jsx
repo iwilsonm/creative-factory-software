@@ -1236,7 +1236,7 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
 
     toast.success(
       <span>
-        Settings loaded from ad
+        Settings reused
         {ad.angle ? <span className="text-green-600/70"> · {ad.angle}</span> : ''}
       </span>
     );
@@ -2429,14 +2429,14 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
                           </svg>
                         </button>
                       )}
-                      {/* Redo — load settings */}
+                      {/* Reuse settings */}
                       <button
                         onClick={(e) => handleRedo(ad, e)}
                         className="w-7 h-7 rounded-lg bg-black/40 backdrop-blur-sm flex items-center justify-center text-white/90 hover:bg-black/60 transition-all"
-                        title="Load settings into form"
+                        title="Reuse settings"
                       >
                         <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 8.25H7.5a2.25 2.25 0 00-2.25 2.25v9a2.25 2.25 0 002.25 2.25h9a2.25 2.25 0 002.25-2.25v-9a2.25 2.25 0 00-2.25-2.25H15m0-3l-3-3m0 0l-3 3m3-3v11.25" />
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.666 3.888A2.25 2.25 0 0013.5 2.25h-3a2.25 2.25 0 00-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 01-.75.75H9.75a.75.75 0 01-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 01-2.25 2.25H6.75A2.25 2.25 0 014.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 011.927-.184" />
                         </svg>
                       </button>
                     </div>
@@ -2590,9 +2590,9 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
                     <button
                       onClick={(e) => { e.stopPropagation(); handleRedo(ad, e); }}
                       className="text-[11px] text-gray-300 hover:text-purple-500 transition-colors flex-shrink-0"
-                      title="Load settings into form"
+                      title="Reuse settings"
                     >
-                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 8.25H7.5a2.25 2.25 0 00-2.25 2.25v9a2.25 2.25 0 002.25 2.25h9a2.25 2.25 0 002.25-2.25v-9a2.25 2.25 0 00-2.25-2.25H15m0-3l-3-3m0 0l-3 3m3-3v11.25" /></svg>
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15.666 3.888A2.25 2.25 0 0013.5 2.25h-3a2.25 2.25 0 00-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 01-.75.75H9.75a.75.75 0 01-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 01-2.25 2.25H6.75A2.25 2.25 0 014.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 011.927-.184" /></svg>
                     </button>
                     <button
                       onClick={(e) => { e.stopPropagation(); handleRegenerate(ad, e); }}
@@ -2743,19 +2743,19 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
                   </button>
                 )}
               </div>
-              {/* Redo — load settings into form */}
+              {/* Reuse settings */}
               <div className="mb-5">
                 <button
                   onClick={(e) => handleRedo(viewAd, e)}
                   className="w-full flex items-center justify-center gap-1.5 py-2 px-3 bg-purple-50 text-purple-700 border border-purple-200 rounded-xl text-[12px] font-medium hover:bg-purple-100 transition-colors"
                 >
                   <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 8.25H7.5a2.25 2.25 0 00-2.25 2.25v9a2.25 2.25 0 002.25 2.25h9a2.25 2.25 0 002.25-2.25v-9a2.25 2.25 0 00-2.25-2.25H15m0-3l-3-3m0 0l-3 3m3-3v11.25" />
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.666 3.888A2.25 2.25 0 0013.5 2.25h-3a2.25 2.25 0 00-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 01-.75.75H9.75a.75.75 0 01-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 01-2.25 2.25H6.75A2.25 2.25 0 014.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 011.927-.184" />
                   </svg>
-                  Load Settings into Form
+                  Reuse Settings
                 </button>
                 <p className="text-[10px] text-gray-400 mt-1 text-center">
-                  Copies this ad's angle, headline, body copy, and aspect ratio into the generation form so you can iterate on it.
+                  Copies this ad's settings into the form so you can iterate on it.
                 </p>
               </div>
 
