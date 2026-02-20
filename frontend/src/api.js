@@ -226,6 +226,11 @@ export const api = {
     request(`/projects/${projectId}/templates/${imageId}`, { method: 'PUT', body: JSON.stringify({ description }) }),
   deleteTemplate: (projectId, imageId) =>
     request(`/projects/${projectId}/templates/${imageId}`, { method: 'DELETE' }),
+  analyzeTemplate: (projectId, templateId, force = false) =>
+    request(`/projects/${projectId}/templates/${templateId}/analyze`, {
+      method: 'POST',
+      body: JSON.stringify({ force })
+    }),
 
   // Project Product Image
   uploadProductImage: async (projectId, file) => {

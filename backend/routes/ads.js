@@ -39,10 +39,10 @@ router.post('/:projectId/generate-ad', async (req, res) => {
   const project = await getProject(req.params.projectId);
   if (!project) return res.status(404).json({ error: 'Project not found' });
 
-  let { mode = 'mode1', aspect_ratio, angle, inspiration_image_id, uploaded_image, uploaded_image_mime, product_image, product_image_mime, headline, body_copy, template_image_id, headline_juicer, source_quote_id } = req.body;
+  let { mode = 'mode1', aspect_ratio, angle, inspiration_image_id, uploaded_image, uploaded_image_mime, product_image, product_image_mime, headline, body_copy, template_image_id, headline_juicer, source_quote_id, skip_product_image } = req.body;
 
-  // Auto-inject project-level product image if none provided
-  if (!product_image && project.product_image_storageId) {
+  // Auto-inject project-level product image if none provided (and not explicitly skipped)
+  if (!product_image && !skip_product_image && project.product_image_storageId) {
     const projImg = await getProjectProductImage(project);
     if (projImg) {
       product_image = projImg.base64;
@@ -117,10 +117,10 @@ router.post('/:projectId/regenerate-image', async (req, res) => {
   const project = await getProject(req.params.projectId);
   if (!project) return res.status(404).json({ error: 'Project not found' });
 
-  let { image_prompt, aspect_ratio, parent_ad_id, product_image, product_image_mime, angle, headline, body_copy } = req.body;
+  let { image_prompt, aspect_ratio, parent_ad_id, product_image, product_image_mime, angle, headline, body_copy, skip_product_image } = req.body;
 
-  // Auto-inject project-level product image if none provided
-  if (!product_image && project.product_image_storageId) {
+  // Auto-inject project-level product image if none provided (and not explicitly skipped)
+  if (!product_image && !skip_product_image && project.product_image_storageId) {
     const projImg = await getProjectProductImage(project);
     if (projImg) {
       product_image = projImg.base64;

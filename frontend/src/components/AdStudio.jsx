@@ -137,6 +137,11 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
   // Selection stores both the id and the source ('drive' or 'uploaded')
   const [selectedTemplate, setSelectedTemplate] = useState(null); // { id, source }
 
+  // Template analysis (GPT-4.1-mini vision)
+  const [templateAnalysis, setTemplateAnalysis] = useState(null);
+  const [analyzingTemplate, setAnalyzingTemplate] = useState(false);
+  const [skipProductImage, setSkipProductImage] = useState(false);
+
   // Product image
   const [productFile, setProductFile] = useState(null);
   const [productPreview, setProductPreview] = useState(null);
@@ -370,6 +375,66 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
       loadTemplates();
     }
   }, [templateSource]);
+
+  // ── Template analysis (GPT-4.1-mini vision) — triggers when an uploaded template is selected ──
+  useEffect(() => {
+    // Only analyze uploaded templates (not Drive inspiration images)
+    if (!selectedTemplate || selectedTemplate.source !== 'uploaded') {
+      setTemplateAnalysis(null);
+      setAnalyzingTemplate(false);
+      return;
+    }
+
+    // Check if analysis is already cached in local state
+    const cached = uploadedTemplates.find(t => t.id === selectedTemplate.id);
+    if (cached?.analysis) {
+      try {
+        const parsed = typeof cached.analysis === 'string' ? JSON.parse(cached.analysis) : cached.analysis;
+        setTemplateAnalysis(parsed);
+        if (parsed.recommended_style) setBodyCopyStyle(parsed.recommended_style);
+        setSkipProductImage(!parsed.needs_product_image);
+        // Auto-regenerate body copy if headline exists
+        if (headline.trim() && parsed.recommended_style) {
+          handleRegenerateBody(parsed.recommended_style);
+        }
+        return;
+      } catch { /* parse failed, fetch from API */ }
+    }
+
+    // Fetch analysis from API
+    let cancelled = false;
+    setAnalyzingTemplate(true);
+    setTemplateAnalysis(null);
+
+    api.analyzeTemplate(projectId, selectedTemplate.id)
+      .then(data => {
+        if (cancelled) return;
+        const analysis = data.analysis;
+        setTemplateAnalysis(analysis);
+        if (analysis.recommended_style) setBodyCopyStyle(analysis.recommended_style);
+        setSkipProductImage(!analysis.needs_product_image);
+
+        // Update local cache so re-selecting doesn't re-fetch
+        setUploadedTemplates(prev => prev.map(t =>
+          t.id === selectedTemplate.id ? { ...t, analysis: JSON.stringify(analysis) } : t
+        ));
+
+        // Auto-regenerate body copy if headline exists
+        if (headline.trim() && analysis.recommended_style) {
+          handleRegenerateBody(analysis.recommended_style);
+        }
+      })
+      .catch(err => {
+        if (cancelled) return;
+        console.error('Template analysis failed:', err);
+        toast.error('Template analysis failed');
+      })
+      .finally(() => {
+        if (!cancelled) setAnalyzingTemplate(false);
+      });
+
+    return () => { cancelled = true; };
+  }, [selectedTemplate?.id]);
 
   const loadAds = async () => {
     try {
@@ -696,7 +761,8 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
         parent_ad_id: parentAdId || undefined,
         angle: angle || undefined,
         headline: headline || undefined,
-        body_copy: bodyCopy || undefined
+        body_copy: bodyCopy || undefined,
+        skip_product_image: skipProductImage || undefined
       };
 
       if (!(await attachProductImage(options))) return;
@@ -720,7 +786,8 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
         headline: headline || undefined,
         body_copy: bodyCopy || undefined,
         headline_juicer: headlineJuicerOn || undefined,
-        source_quote_id: sourceQuoteId || undefined
+        source_quote_id: sourceQuoteId || undefined,
+        skip_product_image: skipProductImage || undefined
       };
 
       if (selectedTemplate.source === 'drive') {
@@ -744,7 +811,8 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
         headline: headline || undefined,
         body_copy: bodyCopy || undefined,
         headline_juicer: headlineJuicerOn || undefined,
-        source_quote_id: sourceQuoteId || undefined
+        source_quote_id: sourceQuoteId || undefined,
+        skip_product_image: skipProductImage || undefined
       };
 
       if (templateSource === TEMPLATE_UPLOAD && uploadedFile) {
@@ -1402,23 +1470,65 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
                 )}
 
                 {selectedTemplate && (
-                  <div className="mt-2 flex items-center gap-2">
-                    <span className="text-[11px] text-blue-600 font-medium">
-                      Selected: {selectedTemplate.source === 'drive'
-                        ? (driveImages.find(i => i.id === selectedTemplate.id)?.name || selectedTemplate.id).slice(0, 20)
-                        : getTemplateName(selectedTemplate.id)
-                      }
-                    </span>
-                    <span className="text-[10px] text-gray-300">
-                      ({selectedTemplate.source === 'drive' ? 'Drive' : 'Uploaded'})
-                    </span>
-                    <button
-                      onClick={() => setSelectedTemplate(null)}
-        
-                      className="text-[11px] text-gray-400 hover:text-gray-600 transition-colors"
-                    >
-                      Clear
-                    </button>
+                  <div className="mt-2">
+                    <div className="flex items-center gap-2">
+                      <span className="text-[11px] text-blue-600 font-medium">
+                        Selected: {selectedTemplate.source === 'drive'
+                          ? (driveImages.find(i => i.id === selectedTemplate.id)?.name || selectedTemplate.id).slice(0, 20)
+                          : getTemplateName(selectedTemplate.id)
+                        }
+                      </span>
+                      <span className="text-[10px] text-gray-300">
+                        ({selectedTemplate.source === 'drive' ? 'Drive' : 'Uploaded'})
+                      </span>
+                      <button
+                        onClick={() => setSelectedTemplate(null)}
+                        className="text-[11px] text-gray-400 hover:text-gray-600 transition-colors"
+                      >
+                        Clear
+                      </button>
+                    </div>
+
+                    {/* Template analysis indicator */}
+                    {analyzingTemplate && (
+                      <div className="mt-2 flex items-center gap-2 p-2.5 bg-blue-50/50 border border-blue-200/50 rounded-xl">
+                        <svg className="w-3.5 h-3.5 text-blue-500 animate-spin flex-shrink-0" fill="none" viewBox="0 0 24 24">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                        </svg>
+                        <span className="text-[11px] text-blue-600">Analyzing template layout...</span>
+                      </div>
+                    )}
+
+                    {templateAnalysis && !analyzingTemplate && selectedTemplate.source === 'uploaded' && (
+                      <div className="mt-2 p-2.5 bg-indigo-50/40 border border-indigo-200/50 rounded-xl space-y-1">
+                        <p className="text-[11px] text-indigo-700 font-medium flex items-center gap-1.5">
+                          <svg className="w-3 h-3 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                          </svg>
+                          Template Analysis
+                        </p>
+                        <p className="text-[10px] text-indigo-600/80">{templateAnalysis.layout_description}</p>
+                        <div className="flex flex-wrap gap-1.5 mt-1">
+                          <span className="text-[9px] px-1.5 py-0.5 bg-indigo-100/60 text-indigo-600 rounded-full">
+                            Style: {templateAnalysis.recommended_style}
+                          </span>
+                          <span className="text-[9px] px-1.5 py-0.5 bg-indigo-100/60 text-indigo-600 rounded-full">
+                            Text space: {templateAnalysis.text_space}
+                          </span>
+                          <span className="text-[9px] px-1.5 py-0.5 bg-indigo-100/60 text-indigo-600 rounded-full">
+                            {templateAnalysis.visual_tone}
+                          </span>
+                          <span className={`text-[9px] px-1.5 py-0.5 rounded-full ${
+                            templateAnalysis.needs_product_image
+                              ? 'bg-emerald-100/60 text-emerald-600'
+                              : 'bg-amber-100/60 text-amber-600'
+                          }`}>
+                            Product image: {templateAnalysis.needs_product_image ? 'recommended' : 'not needed'}
+                          </span>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 )}
               </div>
@@ -1432,8 +1542,39 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
             Product Image
           </label>
 
+          {/* Skip product image toggle — shown when template analysis says not needed OR user can override */}
+          {(templateAnalysis || skipProductImage) && project?.productImageUrl && (
+            <div className={`flex items-center gap-3 p-2.5 rounded-xl mb-2 ${
+              skipProductImage
+                ? 'bg-amber-50/50 border border-amber-200/50'
+                : 'bg-emerald-50/50 border border-emerald-200/50'
+            }`}>
+              <button
+                onClick={() => setSkipProductImage(prev => !prev)}
+                className={`relative w-9 h-[20px] rounded-full transition-colors flex-shrink-0 cursor-pointer ${
+                  !skipProductImage ? 'bg-emerald-500' : 'bg-gray-300'
+                }`}
+              >
+                <span className={`absolute top-[2px] left-[2px] w-4 h-4 bg-white rounded-full shadow transition-transform ${
+                  !skipProductImage ? 'translate-x-[16px]' : ''
+                }`} />
+              </button>
+              <div className="flex-1 min-w-0">
+                <p className={`text-[11px] font-medium ${skipProductImage ? 'text-amber-700' : 'text-emerald-700'}`}>
+                  {skipProductImage ? 'Product image excluded' : 'Product image included'}
+                </p>
+                <p className={`text-[10px] ${skipProductImage ? 'text-amber-500' : 'text-emerald-500'}`}>
+                  {skipProductImage
+                    ? (templateAnalysis ? 'Template analysis: not needed for this layout' : 'Product image will not be sent to generation')
+                    : 'Product image will be included in generation'
+                  }
+                </p>
+              </div>
+            </div>
+          )}
+
           {/* Show project-level product image indicator */}
-          {project?.productImageUrl && !productFile && (
+          {project?.productImageUrl && !productFile && !skipProductImage && (
             <div className="flex items-center gap-3 p-3 bg-emerald-50/50 border border-emerald-200/60 rounded-xl mb-2">
               <img
                 src={project.productImageUrl}

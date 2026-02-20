@@ -6,7 +6,8 @@ import fs from 'fs';
 import os from 'os';
 import { fileURLToPath } from 'url';
 import { requireAuth } from '../auth.js';
-import { getProject, uploadBuffer, getTemplateImageUrl, convexClient, api } from '../convexClient.js';
+import { getProject, uploadBuffer, downloadToBuffer, getTemplateImageUrl, convexClient, api } from '../convexClient.js';
+import { chatWithImage } from '../services/openai.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -44,12 +45,13 @@ router.get('/:projectId/templates', async (req, res) => {
     projectId: req.params.projectId,
   });
 
-  // Add thumbnail URLs
+  // Add thumbnail URLs + analysis cache
   const withUrls = templates.map(t => ({
     id: t.externalId,
     project_id: t.project_id,
     filename: t.filename,
     description: t.description || '',
+    analysis: t.analysis || null,
     created_at: t.created_at,
     thumbnailUrl: `/api/projects/${req.params.projectId}/templates/${t.externalId}/file`
   }));
@@ -153,6 +155,80 @@ router.get('/:projectId/templates/:imageId/file', async (req, res) => {
     return res.status(404).json({ error: 'Image file not found' });
   }
   res.redirect(url);
+});
+
+// ── Analyze template image with GPT-4.1-mini vision ─────────────────────────
+const TEMPLATE_ANALYSIS_SYSTEM = `You are analyzing an ad template image for a direct response advertising platform. Return a JSON object with exactly these fields:
+- "recommended_style": one of "short", "bullets", "paragraph", or "story" — the body copy style that best fits this template's text layout
+- "needs_product_image": boolean — true if the template has a prominent area for a product photo or product showcase, false if the template is text/graphic-only or already contains imagery that would conflict with a product overlay
+- "layout_description": 1-2 sentences describing the layout (where text goes, how much space, visual hierarchy)
+- "text_space": one of "minimal", "limited", "moderate", "generous" — how much room there is for body copy text
+- "visual_tone": brief description of the mood/style (e.g., "bold, high-contrast", "elegant, minimal", "playful, colorful")
+
+Return ONLY valid JSON. No markdown code fences, no explanation.`;
+
+router.post('/:projectId/templates/:templateId/analyze', async (req, res) => {
+  try {
+    const { force } = req.body || {};
+
+    const template = await convexClient.query(api.templateImages.getByExternalId, {
+      externalId: req.params.templateId,
+    });
+    if (!template || template.project_id !== req.params.projectId) {
+      return res.status(404).json({ error: 'Template not found' });
+    }
+
+    // Check cache (unless force re-analyze)
+    if (template.analysis && !force) {
+      try {
+        return res.json({ analysis: JSON.parse(template.analysis), cached: true });
+      } catch { /* parse failed, re-analyze */ }
+    }
+
+    if (!template.storageId) {
+      return res.status(400).json({ error: 'Template has no stored image' });
+    }
+
+    // Download image from Convex storage
+    const buffer = await downloadToBuffer(template.storageId);
+    const base64 = buffer.toString('base64');
+
+    // GPT-4.1-mini vision analysis
+    const raw = await chatWithImage(
+      [{ role: 'system', content: TEMPLATE_ANALYSIS_SYSTEM }],
+      'Analyze this ad template image and return the JSON analysis.',
+      base64,
+      'image/jpeg',
+      'gpt-4.1-mini'
+    );
+
+    // Parse response — strip markdown fences if present
+    let analysis;
+    try {
+      const cleaned = raw.replace(/```json\s*/gi, '').replace(/```\s*/g, '').trim();
+      analysis = JSON.parse(cleaned);
+    } catch {
+      // Fallback defaults
+      analysis = {
+        recommended_style: 'short',
+        needs_product_image: true,
+        layout_description: 'Could not parse template analysis',
+        text_space: 'unknown',
+        visual_tone: 'unknown',
+      };
+    }
+
+    // Cache to DB
+    await convexClient.mutation(api.templateImages.update, {
+      externalId: req.params.templateId,
+      analysis: JSON.stringify(analysis),
+    });
+
+    res.json({ analysis, cached: false });
+  } catch (err) {
+    console.error('Failed to analyze template:', err);
+    res.status(500).json({ error: err.message });
+  }
 });
 
 export default router;

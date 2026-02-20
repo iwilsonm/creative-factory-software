@@ -43,6 +43,7 @@ export const update = mutation({
     externalId: v.string(),
     description: v.optional(v.string()),
     storageId: v.optional(v.id("_storage")),
+    analysis: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const img = await ctx.db

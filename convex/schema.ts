@@ -44,6 +44,7 @@ export default defineSchema({
     filename: v.string(),
     storageId: v.optional(v.id("_storage")),
     description: v.optional(v.string()),
+    analysis: v.optional(v.string()),
     created_at: v.string(),
   })
     .index("by_externalId", ["externalId"])
