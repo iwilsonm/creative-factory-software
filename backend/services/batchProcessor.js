@@ -104,9 +104,11 @@ export async function runBatch(batchId, onProgress) {
     console.log(`[BatchProcessor] Batch ${batchId.slice(0, 8)} submitted. Gemini job: ${geminiBatchName}`);
 
   } catch (err) {
-    await updateBatchJob(batchId, { status: 'failed', error_message: err.message });
-    emit({ type: 'error', error: err.message });
-    console.error(`[BatchProcessor] Batch ${batchId.slice(0, 8)} failed:`, err.message);
+    const errorMsg = `Pipeline failed: ${err.message}`;
+    await updateBatchJob(batchId, { status: 'failed', error_message: errorMsg });
+    emit({ type: 'error', error: errorMsg });
+    console.error(`[BatchProcessor] Batch ${batchId.slice(0, 8)} pipeline failed:`, err.message);
+    console.error(`[BatchProcessor] Stack:`, err.stack?.split('\n').slice(0, 3).join('\n'));
     throw err;
   }
 }

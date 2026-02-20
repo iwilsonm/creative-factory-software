@@ -906,7 +906,8 @@ ${beliefsContent}`;
       console.log(`[Pipeline Stage 0] Brief extracted (${briefPacket.length} chars) for angle: "${(angle || 'general').slice(0, 40)}"`);
       return briefPacket;
     } catch (err) {
-      console.error(`[Pipeline Stage 0] Attempt ${attempt} failed:`, err.message);
+      console.error(`[Pipeline Stage 0] Attempt ${attempt}/2 failed:`, err.message);
+      console.error(`[Pipeline Stage 0] Error status: ${err.status || 'none'}, type: ${err.type || 'none'}`);
       if (attempt === 2) {
         // Fallback: concatenate raw docs
         console.warn('[Pipeline Stage 0] Falling back to raw foundational docs');
@@ -1048,11 +1049,15 @@ OUTPUT FORMAT — respond as JSON only:
   ]
 }`;
 
-  for (let attempt = 1; attempt <= 2; attempt++) {
+  let lastResult = null;
+
+  for (let attempt = 1; attempt <= 3; attempt++) {
     try {
       const response = await withGptRateLimit(async () => {
         return await chat(
-          [{ role: 'user', content: prompt }],
+          [{ role: 'user', content: attempt > 1
+            ? prompt + `\n\nIMPORTANT: Your previous attempt did not succeed. Please ensure you generate exactly ${count} headlines and return valid JSON.`
+            : prompt }],
           'gpt-5.2',
           { response_format: { type: 'json_object' } }
         );
@@ -1071,26 +1076,34 @@ OUTPUT FORMAT — respond as JSON only:
 
       // Sort by rank (should already be sorted, but ensure)
       result.headlines.sort((a, b) => (a.rank || 999) - (b.rank || 999));
+      lastResult = result;
 
       console.log(`[Pipeline Stage 1] Generated ${result.headlines.length} headlines, ${(result.sub_angles || []).length} sub-angles for angle: "${(angle || 'general').slice(0, 40)}"`);
 
       // If we got fewer than needed on first attempt, retry with note
-      if (attempt === 1 && result.headlines.length < count) {
+      if (attempt < 3 && result.headlines.length < count) {
         console.warn(`[Pipeline Stage 1] Got ${result.headlines.length}/${count} headlines, retrying...`);
-        throw new Error(`Only generated ${result.headlines.length}/${count} headlines`);
+        await new Promise(r => setTimeout(r, 3000));
+        continue;
       }
 
       return result;
 
     } catch (err) {
-      console.error(`[Pipeline Stage 1] Attempt ${attempt} failed:`, err.message);
-      if (attempt === 2) {
-        // Return whatever we have, even if incomplete
-        throw err;
+      console.error(`[Pipeline Stage 1] Attempt ${attempt}/3 failed:`, err.message);
+      if (attempt < 3) {
+        await new Promise(r => setTimeout(r, 5000 * attempt)); // 5s, 10s backoff
       }
-      await new Promise(r => setTimeout(r, 3000));
     }
   }
+
+  // If we got partial results, return them rather than throwing
+  if (lastResult && lastResult.headlines && lastResult.headlines.length > 0) {
+    console.warn(`[Pipeline Stage 1] Returning partial results: ${lastResult.headlines.length} headlines`);
+    return lastResult;
+  }
+
+  throw new Error('[Stage 1] All headline generation attempts failed. OpenAI may be experiencing issues — try again in a few minutes.');
 }
 
 /**
