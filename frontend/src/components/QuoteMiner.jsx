@@ -125,11 +125,20 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
   const [bankQuotes, setBankQuotes] = useState([]);
   const [bankFilter, setBankFilter] = useState('all'); // 'all' | 'favorites'
   const [headlineFilter, setHeadlineFilter] = useState('all'); // 'all' | 'used' | 'unused'
-  const [headlineProblemFilter, setHeadlineProblemFilter] = useState('all'); // 'all' | specific problem
-  const [headlineEmotionFilter, setHeadlineEmotionFilter] = useState('all'); // 'all' | specific emotion
-  const [headlineTagFilter, setHeadlineTagFilter] = useState('all'); // 'all' | specific tag
-  const [headlineTechniqueFilter, setHeadlineTechniqueFilter] = useState('all'); // 'all' | specific technique
+  // Multi-select filters (Set of selected values — empty set = all)
+  const [headlineProblemFilter, setHeadlineProblemFilter] = useState(new Set());
+  const [headlineEmotionFilter, setHeadlineEmotionFilter] = useState(new Set());
+  const [headlineTagFilter, setHeadlineTagFilter] = useState(new Set());
+  const [headlineTechniqueFilter, setHeadlineTechniqueFilter] = useState(new Set());
+  // Quote Bank multi-select filters (same pattern)
+  const [bankProblemFilter, setBankProblemFilter] = useState(new Set());
+  const [bankEmotionFilter, setBankEmotionFilter] = useState(new Set());
+  const [bankTagFilter, setBankTagFilter] = useState(new Set());
   const [generatingMoreForQuote, setGeneratingMoreForQuote] = useState(null); // quoteId or null
+
+  // Mining elapsed time
+  const [miningStartTime, setMiningStartTime] = useState(null);
+  const [miningElapsed, setMiningElapsed] = useState(0);
   const [bankOpen, setBankOpen] = useState(true);
   const [loadingBank, setLoadingBank] = useState(true);
   const [expandedQuoteIds, setExpandedQuoteIds] = useState(new Set());
@@ -161,6 +170,25 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
 
   // Progress ref for auto-scroll
   const progressEndRef = useRef(null);
+
+  // Helper: toggle a value in a Set-based filter (multi-select)
+  const toggleFilter = useCallback((setter, value) => {
+    setter(prev => {
+      const next = new Set(prev);
+      if (next.has(value)) next.delete(value);
+      else next.add(value);
+      return next;
+    });
+  }, []);
+
+  // Mining elapsed timer
+  useEffect(() => {
+    if (!mining || !miningStartTime) return;
+    const timer = setInterval(() => {
+      setMiningElapsed(Math.floor((Date.now() - miningStartTime) / 1000));
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [mining, miningStartTime]);
 
   // Load history + bank + usage on mount
   useEffect(() => {
@@ -501,6 +529,8 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
 
     setMining(true);
     setProgress([]);
+    setMiningStartTime(Date.now());
+    setMiningElapsed(0);
     setCurrentQuotes(null);
     setCurrentRunMeta(null);
     setViewingRunId(null);
@@ -531,6 +561,7 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
 
     done.then(() => {
       setMining(false);
+      setMiningStartTime(null);
       abortRef.current = null;
       loadHistory();
       loadBank(); // Refresh bank after mining
@@ -539,6 +570,7 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
       }
     }).catch(() => {
       setMining(false);
+      setMiningStartTime(null);
       abortRef.current = null;
     });
   };
@@ -859,10 +891,18 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
     return 'pending';
   };
 
-  // ─── Filtered bank quotes ──────────────────────────────────────────────────
-  const filteredBankQuotes = bankFilter === 'favorites'
-    ? bankQuotes.filter(q => q.is_favorite)
-    : bankQuotes;
+  // ─── Filtered bank quotes (with multi-select filters) ──────────────────────
+  const filteredBankQuotes = bankQuotes
+    .filter(q => bankFilter === 'favorites' ? q.is_favorite : true)
+    .filter(q => bankProblemFilter.size === 0 ? true : bankProblemFilter.has(q.problem))
+    .filter(q => bankEmotionFilter.size === 0 ? true : bankEmotionFilter.has(q.emotion))
+    .filter(q => bankTagFilter.size === 0 ? true : (q.tags || []).some(t => bankTagFilter.has(t)));
+
+  // Unique filter options for Quote Bank
+  const bankUniqueProblems = [...new Set(bankQuotes.map(q => q.problem).filter(Boolean))].sort();
+  const bankUniqueEmotions = [...new Set(bankQuotes.map(q => q.emotion).filter(Boolean))].sort();
+  const bankUniqueTags = [...new Set(bankQuotes.flatMap(q => q.tags || []))].sort();
+  const hasBankFilters = bankProblemFilter.size > 0 || bankEmotionFilter.size > 0 || bankTagFilter.size > 0;
 
   const quotesWithHeadlines = filteredBankQuotes.filter(q => q.headlines && q.headlines !== '[]');
   const quotesWithoutHeadlines = filteredBankQuotes.filter(q => !q.headlines || q.headlines === '[]');
@@ -1026,30 +1066,22 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
                 </div>
               </div>
 
-              {/* Problem / Emotion / Tag chip filters */}
+              {/* Problem / Emotion / Tag / Technique multi-select filters */}
               <div className="flex items-center gap-2 flex-wrap">
                 {/* Problem chips */}
                 {uniqueProblems.length > 1 && (
                   <>
                     <span className="text-[10px] text-gray-400 font-medium uppercase tracking-wider">Problem:</span>
-                    <button
-                      onClick={() => setHeadlineProblemFilter('all')}
-                      className={`text-[10px] px-2 py-0.5 rounded-full border transition-all ${
-                        headlineProblemFilter === 'all'
-                          ? 'bg-blue-50 text-blue-700 border-blue-200 font-semibold'
-                          : 'text-gray-500 border-gray-200 hover:border-blue-200 hover:text-blue-600'
-                      }`}
-                    >All</button>
                     {uniqueProblems.map(p => (
                       <button
                         key={p}
-                        onClick={() => setHeadlineProblemFilter(headlineProblemFilter === p ? 'all' : p)}
+                        onClick={() => toggleFilter(setHeadlineProblemFilter, p)}
                         className={`text-[10px] px-2 py-0.5 rounded-full border transition-all ${
-                          headlineProblemFilter === p
+                          headlineProblemFilter.has(p)
                             ? 'bg-blue-50 text-blue-700 border-blue-200 font-semibold'
                             : 'text-gray-500 border-gray-200 hover:border-blue-200 hover:text-blue-600'
                         }`}
-                      >{p}</button>
+                      >{headlineProblemFilter.has(p) ? '✓ ' : ''}{p}</button>
                     ))}
                     <span className="text-gray-200">|</span>
                   </>
@@ -1059,24 +1091,16 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
                 {uniqueEmotions.length > 1 && (
                   <>
                     <span className="text-[10px] text-gray-400 font-medium uppercase tracking-wider">Emotion:</span>
-                    <button
-                      onClick={() => setHeadlineEmotionFilter('all')}
-                      className={`text-[10px] px-2 py-0.5 rounded-full border transition-all ${
-                        headlineEmotionFilter === 'all'
-                          ? 'bg-purple-50 text-purple-700 border-purple-200 font-semibold'
-                          : 'text-gray-500 border-gray-200 hover:border-purple-200 hover:text-purple-600'
-                      }`}
-                    >All</button>
                     {uniqueEmotions.map(e => (
                       <button
                         key={e}
-                        onClick={() => setHeadlineEmotionFilter(headlineEmotionFilter === e ? 'all' : e)}
+                        onClick={() => toggleFilter(setHeadlineEmotionFilter, e)}
                         className={`text-[10px] px-2 py-0.5 rounded-full border transition-all ${
-                          headlineEmotionFilter === e
+                          headlineEmotionFilter.has(e)
                             ? `${EMOTION_COLORS[e] || 'bg-gray-100 text-gray-600'} border-current font-semibold`
                             : 'text-gray-500 border-gray-200 hover:border-purple-200 hover:text-purple-600'
                         }`}
-                      >{e}</button>
+                      >{headlineEmotionFilter.has(e) ? '✓ ' : ''}{e}</button>
                     ))}
                   </>
                 )}
@@ -1086,24 +1110,16 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
                   <>
                     {(uniqueProblems.length > 1 || uniqueEmotions.length > 1) && <span className="text-gray-200">|</span>}
                     <span className="text-[10px] text-gray-400 font-medium uppercase tracking-wider">Tag:</span>
-                    <button
-                      onClick={() => setHeadlineTagFilter('all')}
-                      className={`text-[10px] px-2 py-0.5 rounded-full border transition-all ${
-                        headlineTagFilter === 'all'
-                          ? 'bg-teal-50 text-teal-700 border-teal-200 font-semibold'
-                          : 'text-gray-500 border-gray-200 hover:border-teal-200 hover:text-teal-600'
-                      }`}
-                    >All</button>
                     {uniqueTags.map(t => (
                       <button
                         key={t}
-                        onClick={() => setHeadlineTagFilter(headlineTagFilter === t ? 'all' : t)}
+                        onClick={() => toggleFilter(setHeadlineTagFilter, t)}
                         className={`text-[10px] px-2 py-0.5 rounded-full border transition-all ${
-                          headlineTagFilter === t
+                          headlineTagFilter.has(t)
                             ? 'bg-teal-50 text-teal-700 border-teal-200 font-semibold'
                             : 'text-gray-500 border-gray-200 hover:border-teal-200 hover:text-teal-600'
                         }`}
-                      >{t}</button>
+                      >{headlineTagFilter.has(t) ? '✓ ' : ''}{t}</button>
                     ))}
                   </>
                 )}
@@ -1113,59 +1129,51 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
                   <>
                     {(uniqueProblems.length > 1 || uniqueEmotions.length > 1 || uniqueTags.length > 0) && <span className="text-gray-200">|</span>}
                     <span className="text-[10px] text-gray-400 font-medium uppercase tracking-wider">Technique:</span>
-                    <button
-                      onClick={() => setHeadlineTechniqueFilter('all')}
-                      className={`text-[10px] px-2 py-0.5 rounded-full border transition-all ${
-                        headlineTechniqueFilter === 'all'
-                          ? 'bg-amber-50 text-amber-700 border-amber-200 font-semibold'
-                          : 'text-gray-500 border-gray-200 hover:border-amber-200 hover:text-amber-600'
-                      }`}
-                    >All</button>
                     {uniqueTechniques.map(t => (
                       <button
                         key={t}
-                        onClick={() => setHeadlineTechniqueFilter(headlineTechniqueFilter === t ? 'all' : t)}
+                        onClick={() => toggleFilter(setHeadlineTechniqueFilter, t)}
                         className={`text-[10px] px-2 py-0.5 rounded-full border transition-all ${
-                          headlineTechniqueFilter === t
+                          headlineTechniqueFilter.has(t)
                             ? 'bg-amber-50 text-amber-700 border-amber-200 font-semibold'
                             : 'text-gray-500 border-gray-200 hover:border-amber-200 hover:text-amber-600'
                         }`}
-                      >{t}</button>
+                      >{headlineTechniqueFilter.has(t) ? '✓ ' : ''}{t}</button>
                     ))}
                   </>
                 )}
               </div>
 
               {/* Active filters summary */}
-              {(headlineProblemFilter !== 'all' || headlineEmotionFilter !== 'all' || headlineTagFilter !== 'all' || headlineTechniqueFilter !== 'all') && (
+              {(headlineProblemFilter.size > 0 || headlineEmotionFilter.size > 0 || headlineTagFilter.size > 0 || headlineTechniqueFilter.size > 0) && (
                 <div className="flex items-center gap-1.5 flex-wrap">
                   <span className="text-[10px] text-gray-400">Active filters:</span>
-                  {headlineProblemFilter !== 'all' && (
-                    <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-blue-50 text-blue-700">
-                      {headlineProblemFilter}
-                      <button onClick={() => setHeadlineProblemFilter('all')} className="text-blue-400 hover:text-blue-600">×</button>
+                  {[...headlineProblemFilter].map(v => (
+                    <span key={`p-${v}`} className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-blue-50 text-blue-700">
+                      {v}
+                      <button onClick={() => toggleFilter(setHeadlineProblemFilter, v)} className="text-blue-400 hover:text-blue-600">×</button>
                     </span>
-                  )}
-                  {headlineEmotionFilter !== 'all' && (
-                    <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-purple-50 text-purple-700">
-                      {headlineEmotionFilter}
-                      <button onClick={() => setHeadlineEmotionFilter('all')} className="text-purple-400 hover:text-purple-600">×</button>
+                  ))}
+                  {[...headlineEmotionFilter].map(v => (
+                    <span key={`e-${v}`} className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-purple-50 text-purple-700">
+                      {v}
+                      <button onClick={() => toggleFilter(setHeadlineEmotionFilter, v)} className="text-purple-400 hover:text-purple-600">×</button>
                     </span>
-                  )}
-                  {headlineTagFilter !== 'all' && (
-                    <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-teal-50 text-teal-700">
-                      {headlineTagFilter}
-                      <button onClick={() => setHeadlineTagFilter('all')} className="text-teal-400 hover:text-teal-600">×</button>
+                  ))}
+                  {[...headlineTagFilter].map(v => (
+                    <span key={`t-${v}`} className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-teal-50 text-teal-700">
+                      {v}
+                      <button onClick={() => toggleFilter(setHeadlineTagFilter, v)} className="text-teal-400 hover:text-teal-600">×</button>
                     </span>
-                  )}
-                  {headlineTechniqueFilter !== 'all' && (
-                    <span className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-amber-50 text-amber-700">
-                      {headlineTechniqueFilter}
-                      <button onClick={() => setHeadlineTechniqueFilter('all')} className="text-amber-400 hover:text-amber-600">×</button>
+                  ))}
+                  {[...headlineTechniqueFilter].map(v => (
+                    <span key={`tc-${v}`} className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-amber-50 text-amber-700">
+                      {v}
+                      <button onClick={() => toggleFilter(setHeadlineTechniqueFilter, v)} className="text-amber-400 hover:text-amber-600">×</button>
                     </span>
-                  )}
+                  ))}
                   <button
-                    onClick={() => { setHeadlineProblemFilter('all'); setHeadlineEmotionFilter('all'); setHeadlineTagFilter('all'); setHeadlineTechniqueFilter('all'); }}
+                    onClick={() => { setHeadlineProblemFilter(new Set()); setHeadlineEmotionFilter(new Set()); setHeadlineTagFilter(new Set()); setHeadlineTechniqueFilter(new Set()); }}
                     className="text-[10px] text-gray-400 hover:text-gray-600 underline ml-1"
                   >Clear all</button>
                 </div>
@@ -1184,10 +1192,10 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
           ) : (() => {
             const filtered = allHeadlinesFlat
               .filter(h => headlineFilter === 'all' ? true : headlineFilter === 'used' ? h.isUsed : !h.isUsed)
-              .filter(h => headlineProblemFilter === 'all' ? true : h.problem === headlineProblemFilter)
-              .filter(h => headlineEmotionFilter === 'all' ? true : h.emotion === headlineEmotionFilter)
-              .filter(h => headlineTagFilter === 'all' ? true : h.tags.includes(headlineTagFilter))
-              .filter(h => headlineTechniqueFilter === 'all' ? true : h.technique === headlineTechniqueFilter);
+              .filter(h => headlineProblemFilter.size === 0 ? true : headlineProblemFilter.has(h.problem))
+              .filter(h => headlineEmotionFilter.size === 0 ? true : headlineEmotionFilter.has(h.emotion))
+              .filter(h => headlineTagFilter.size === 0 ? true : h.tags.some(t => headlineTagFilter.has(t)))
+              .filter(h => headlineTechniqueFilter.size === 0 ? true : headlineTechniqueFilter.has(h.technique));
             const allFilteredSelected = filtered.length > 0 && filtered.every(h => selectedHeadlineKeys.has(h.key));
             return (
               <>
@@ -1260,7 +1268,7 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
                   <div className="text-center py-6 text-gray-400">
                     <p className="text-[12px]">No headlines match the current filters.</p>
                     <button
-                      onClick={() => { setHeadlineFilter('all'); setHeadlineProblemFilter('all'); setHeadlineEmotionFilter('all'); setHeadlineTagFilter('all'); }}
+                      onClick={() => { setHeadlineFilter('all'); setHeadlineProblemFilter(new Set()); setHeadlineEmotionFilter(new Set()); setHeadlineTagFilter(new Set()); setHeadlineTechniqueFilter(new Set()); }}
                       className="text-[11px] text-purple-600 hover:text-purple-700 mt-1 font-medium"
                     >Clear filters</button>
                   </div>
@@ -1347,7 +1355,7 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
                                 {h.problem && (
                                   <span
                                     className="text-[9px] font-semibold px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 cursor-pointer hover:bg-blue-100 transition-colors"
-                                    onClick={() => setHeadlineProblemFilter(headlineProblemFilter === h.problem ? 'all' : h.problem)}
+                                    onClick={() => toggleFilter(setHeadlineProblemFilter, h.problem)}
                                     title={`Filter by: ${h.problem}`}
                                   >
                                     {h.problem}
@@ -1356,7 +1364,7 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
                                 {h.emotion && (
                                   <span
                                     className={`text-[9px] font-semibold px-1.5 py-0.5 rounded-full cursor-pointer hover:opacity-80 transition-opacity ${EMOTION_COLORS[h.emotion] || 'bg-gray-100 text-gray-600'}`}
-                                    onClick={() => setHeadlineEmotionFilter(headlineEmotionFilter === h.emotion ? 'all' : h.emotion)}
+                                    onClick={() => toggleFilter(setHeadlineEmotionFilter, h.emotion)}
                                     title={`Filter by: ${h.emotion}`}
                                   >
                                     {h.emotion}
@@ -1366,7 +1374,7 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
                                   <span
                                     key={t}
                                     className="text-[9px] font-medium px-1.5 py-0.5 rounded-full bg-teal-50 text-teal-600 cursor-pointer hover:bg-teal-100 transition-colors"
-                                    onClick={() => setHeadlineTagFilter(headlineTagFilter === t ? 'all' : t)}
+                                    onClick={() => toggleFilter(setHeadlineTagFilter, t)}
                                     title={`Filter by tag: ${t}`}
                                   >
                                     {t}
@@ -1375,7 +1383,7 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
                                 {h.technique && (
                                   <span
                                     className="text-[9px] font-medium px-1.5 py-0.5 rounded-full bg-amber-50 text-amber-700 cursor-pointer hover:bg-amber-100 transition-colors"
-                                    onClick={() => setHeadlineTechniqueFilter(headlineTechniqueFilter === h.technique ? 'all' : h.technique)}
+                                    onClick={() => toggleFilter(setHeadlineTechniqueFilter, h.technique)}
                                     title={`Filter by technique: ${h.technique}`}
                                   >
                                     {h.technique}
@@ -1587,6 +1595,95 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
                 </div>
               </div>
 
+              {/* Quote Bank multi-select filters */}
+              {(bankUniqueProblems.length > 1 || bankUniqueEmotions.length > 1 || bankUniqueTags.length > 0) && (
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {bankUniqueProblems.length > 1 && (
+                      <>
+                        <span className="text-[10px] text-gray-400 font-medium uppercase tracking-wider">Problem:</span>
+                        {bankUniqueProblems.map(p => (
+                          <button
+                            key={p}
+                            onClick={() => toggleFilter(setBankProblemFilter, p)}
+                            className={`text-[10px] px-2 py-0.5 rounded-full border transition-all ${
+                              bankProblemFilter.has(p)
+                                ? 'bg-blue-50 text-blue-700 border-blue-200 font-semibold'
+                                : 'text-gray-500 border-gray-200 hover:border-blue-200 hover:text-blue-600'
+                            }`}
+                          >{bankProblemFilter.has(p) ? '✓ ' : ''}{p}</button>
+                        ))}
+                        {(bankUniqueEmotions.length > 1 || bankUniqueTags.length > 0) && <span className="text-gray-200">|</span>}
+                      </>
+                    )}
+
+                    {bankUniqueEmotions.length > 1 && (
+                      <>
+                        <span className="text-[10px] text-gray-400 font-medium uppercase tracking-wider">Emotion:</span>
+                        {bankUniqueEmotions.map(e => (
+                          <button
+                            key={e}
+                            onClick={() => toggleFilter(setBankEmotionFilter, e)}
+                            className={`text-[10px] px-2 py-0.5 rounded-full border transition-all ${
+                              bankEmotionFilter.has(e)
+                                ? `${EMOTION_COLORS[e] || 'bg-gray-100 text-gray-600'} border-current font-semibold`
+                                : 'text-gray-500 border-gray-200 hover:border-purple-200 hover:text-purple-600'
+                            }`}
+                          >{bankEmotionFilter.has(e) ? '✓ ' : ''}{e}</button>
+                        ))}
+                      </>
+                    )}
+
+                    {bankUniqueTags.length > 0 && (
+                      <>
+                        {(bankUniqueProblems.length > 1 || bankUniqueEmotions.length > 1) && <span className="text-gray-200">|</span>}
+                        <span className="text-[10px] text-gray-400 font-medium uppercase tracking-wider">Tag:</span>
+                        {bankUniqueTags.map(t => (
+                          <button
+                            key={t}
+                            onClick={() => toggleFilter(setBankTagFilter, t)}
+                            className={`text-[10px] px-2 py-0.5 rounded-full border transition-all ${
+                              bankTagFilter.has(t)
+                                ? 'bg-teal-50 text-teal-700 border-teal-200 font-semibold'
+                                : 'text-gray-500 border-gray-200 hover:border-teal-200 hover:text-teal-600'
+                            }`}
+                          >{bankTagFilter.has(t) ? '✓ ' : ''}{t}</button>
+                        ))}
+                      </>
+                    )}
+                  </div>
+
+                  {/* Active Quote Bank filters summary */}
+                  {hasBankFilters && (
+                    <div className="flex items-center gap-1.5 flex-wrap">
+                      <span className="text-[10px] text-gray-400">Active filters:</span>
+                      {[...bankProblemFilter].map(v => (
+                        <span key={`bp-${v}`} className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-blue-50 text-blue-700">
+                          {v}
+                          <button onClick={() => toggleFilter(setBankProblemFilter, v)} className="text-blue-400 hover:text-blue-600">×</button>
+                        </span>
+                      ))}
+                      {[...bankEmotionFilter].map(v => (
+                        <span key={`be-${v}`} className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-purple-50 text-purple-700">
+                          {v}
+                          <button onClick={() => toggleFilter(setBankEmotionFilter, v)} className="text-purple-400 hover:text-purple-600">×</button>
+                        </span>
+                      ))}
+                      {[...bankTagFilter].map(v => (
+                        <span key={`bt-${v}`} className="inline-flex items-center gap-1 text-[10px] px-2 py-0.5 rounded-full bg-teal-50 text-teal-700">
+                          {v}
+                          <button onClick={() => toggleFilter(setBankTagFilter, v)} className="text-teal-400 hover:text-teal-600">×</button>
+                        </span>
+                      ))}
+                      <button
+                        onClick={() => { setBankProblemFilter(new Set()); setBankEmotionFilter(new Set()); setBankTagFilter(new Set()); }}
+                        className="text-[10px] text-gray-400 hover:text-gray-600 underline ml-1"
+                      >Clear all</button>
+                    </div>
+                  )}
+                </div>
+              )}
+
               {/* Bulk action bar for Quote Bank */}
               {selectedQuoteIds.size > 0 && (
                 <div className="sticky top-0 z-10 flex items-center gap-3 p-3 rounded-xl bg-blue-50 border border-blue-200 shadow-sm">
@@ -1693,7 +1790,7 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
               <div className="space-y-2">
                 {filteredBankQuotes.length === 0 && (
                   <p className="text-[12px] text-gray-400 py-4 text-center">
-                    {bankFilter === 'favorites' ? 'No favorite quotes yet. Star quotes to add them here.' : 'No quotes in bank.'}
+                    {hasBankFilters ? 'No quotes match the current filters.' : bankFilter === 'favorites' ? 'No favorite quotes yet. Star quotes to add them here.' : 'No quotes in bank.'}
                   </p>
                 )}
                 {filteredBankQuotes.map((quote) => {
@@ -2239,7 +2336,45 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
       {subTab === 'mine' && mining && abortRef.current && (
         <div className="card p-6 space-y-4">
           <div className="flex items-center justify-between">
-            <h3 className="text-[14px] font-semibold text-gray-800">Mining in Progress...</h3>
+            <div className="flex items-center gap-3">
+              <h3 className="text-[14px] font-semibold text-gray-800">Mining in Progress...</h3>
+              {miningElapsed > 0 && (
+                <div className="flex items-center gap-2">
+                  <span className="text-[12px] text-gray-500 font-mono tabular-nums">
+                    {Math.floor(miningElapsed / 60)}:{String(miningElapsed % 60).padStart(2, '0')}
+                  </span>
+                  {(() => {
+                    // Step-based ETA: Search ~40s, Merge ~30s, Bank dedup ~10s = ~80s total
+                    const perplexityDone = getEngineStatus('perplexity') === 'complete' || getEngineStatus('perplexity') === 'error';
+                    const claudeDone = getEngineStatus('claude') === 'complete' || getEngineStatus('claude') === 'error';
+                    const mergeDone = getMergeStatus() === 'complete';
+                    const mergeRunning = getMergeStatus() === 'running';
+                    const bankUpdated = progress.some(e => e.type === 'bank_updated');
+
+                    let estRemaining = null;
+                    if (bankUpdated || mergeDone) {
+                      estRemaining = '< 10s';
+                    } else if (mergeRunning) {
+                      estRemaining = '~20-30s';
+                    } else if (perplexityDone && claudeDone) {
+                      estRemaining = '~30-40s';
+                    } else if (perplexityDone || claudeDone) {
+                      estRemaining = '~45-60s';
+                    } else if (miningElapsed < 5) {
+                      estRemaining = '~1-2 min';
+                    } else {
+                      estRemaining = '~1-2 min';
+                    }
+
+                    return estRemaining ? (
+                      <span className="text-[11px] text-blue-500 font-medium">
+                        Est. remaining: {estRemaining}
+                      </span>
+                    ) : null;
+                  })()}
+                </div>
+              )}
+            </div>
             <button onClick={handleCancel} className="text-[12px] text-red-500 hover:text-red-700 font-medium">
               Cancel
             </button>
