@@ -168,7 +168,7 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
   const [viewAd, setViewAd] = useState(null);
   const [galleryFilter, setGalleryFilter] = useState('individual'); // 'individual' | 'batch' | 'all'
   const [galleryView, setGalleryView] = useState('grid'); // 'grid' | 'list'
-  const [dateRange, setDateRange] = useState('4d'); // '4d' | '7d' | '14d' | '30d' | 'all'
+  const [dateRange, setDateRange] = useState('4d'); // 'today' | 'yesterday' | '4d' | '7d' | '14d' | '30d' | 'all'
 
   // Tags
   const [tagEditAd, setTagEditAd] = useState(null); // ad being tag-edited
@@ -1410,6 +1410,15 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
     if (dateRange === 'all') return true;
     const adDate = parseDate(ad.created_at);
     if (!adDate) return true; // show ads with unparseable dates
+    const now = new Date();
+    if (dateRange === 'today') {
+      const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate());
+      return adDate >= startOfToday;
+    }
+    if (dateRange === 'yesterday') {
+      const startOfYesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
+      return adDate >= startOfYesterday;
+    }
     const daysMap = { '4d': 4, '7d': 7, '14d': 14, '30d': 30 };
     const cutoff = new Date();
     cutoff.setDate(cutoff.getDate() - daysMap[dateRange]);
@@ -2564,6 +2573,8 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
                 onChange={(e) => setDateRange(e.target.value)}
                 className="input-apple text-[12px] py-1 px-2 pr-7 w-auto"
               >
+                <option value="today">Today</option>
+                <option value="yesterday">Yesterday</option>
                 <option value="4d">Last 4 days</option>
                 <option value="7d">Last 7 days</option>
                 <option value="14d">Last 14 days</option>
