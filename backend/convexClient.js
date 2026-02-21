@@ -697,6 +697,59 @@ export async function createChatMessage({ id, thread_id, project_id, role, conte
 }
 
 // =============================================
+// Correction History (dedicated table)
+// =============================================
+
+export async function getCorrectionHistoryByProject(projectId) {
+  const rows = await queryWithRetry(api.correction_history.getByProject, { projectId });
+  return (rows || []).map(row => ({
+    id: row.externalId,
+    correction: row.correction,
+    timestamp: row.timestamp,
+    manual: row.manual || false,
+    changes: row.changes ? JSON.parse(row.changes) : [],
+  }));
+}
+
+export async function createCorrectionHistory({ id, project_id, correction, timestamp, manual, changes }) {
+  await mutationWithRetry(api.correction_history.create, {
+    externalId: id,
+    project_id,
+    correction,
+    timestamp,
+    manual: manual || undefined,
+    changes: typeof changes === 'string' ? changes : JSON.stringify(changes),
+  });
+}
+
+export async function deleteCorrectionHistory(externalId) {
+  await mutationWithRetry(api.correction_history.remove, { externalId });
+}
+
+// =============================================
+// Dashboard Todos (dedicated table)
+// =============================================
+
+export async function getDashboardTodos() {
+  const rows = await queryWithRetry(api.dashboard_todos.getAll, {});
+  return (rows || [])
+    .sort((a, b) => a.sort_order - b.sort_order)
+    .map(row => ({
+      id: row.externalId,
+      text: row.text,
+      done: row.done,
+      author: row.author || undefined,
+      notes: row.notes || undefined,
+    }));
+}
+
+export async function replaceDashboardTodos(todos) {
+  await mutationWithRetry(api.dashboard_todos.replaceAll, {
+    todos: JSON.stringify(todos),
+  });
+}
+
+// =============================================
 // Direct Convex client access (for advanced use cases)
 // =============================================
 

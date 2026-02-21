@@ -246,6 +246,27 @@ export default defineSchema({
     .index("by_thread", ["thread_id"])
     .index("by_project", ["project_id"]),
 
+  correction_history: defineTable({
+    externalId: v.string(),
+    project_id: v.string(),        // → projects.externalId
+    correction: v.string(),        // user instruction or "Manual edit to X"
+    timestamp: v.string(),         // ISO 8601
+    manual: v.optional(v.boolean()),
+    changes: v.string(),           // JSON array of change objects
+  })
+    .index("by_externalId", ["externalId"])
+    .index("by_project", ["project_id"]),
+
+  dashboard_todos: defineTable({
+    externalId: v.string(),
+    text: v.string(),
+    done: v.boolean(),
+    author: v.optional(v.string()),
+    notes: v.optional(v.string()),
+    sort_order: v.number(),
+  })
+    .index("by_externalId", ["externalId"]),
+
   meta_performance: defineTable({
     externalId: v.string(),
     deployment_id: v.string(),       // → ad_deployments.externalId

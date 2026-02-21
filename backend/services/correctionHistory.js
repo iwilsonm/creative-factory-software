@@ -1,12 +1,13 @@
 /**
  * Correction history service — manages the changelog of document corrections.
  *
- * History is stored as a JSON array in the Convex settings table under
- * key `correction_history_{projectId}`. Each entry captures before/after
- * snapshots so corrections can be reverted.
+ * Each correction is stored as its own row in the `correction_history` Convex
+ * table. The `changes` field holds a JSON array of before/after doc snapshots
+ * so corrections can be reverted.
  */
 
-import { getSetting, setSetting } from '../convexClient.js';
+import { v4 as uuidv4 } from 'uuid';
+import { getCorrectionHistoryByProject, createCorrectionHistory, deleteCorrectionHistory } from '../convexClient.js';
 import { convexClient, api } from '../convexClient.js';
 
 const DOC_LABELS = {
@@ -16,46 +17,15 @@ const DOC_LABELS = {
   necessary_beliefs: 'Necessary Beliefs',
 };
 
-// ── Internal helpers ────────────────────────────────────────────────────────
-
-async function loadHistory(projectId) {
-  const raw = await getSetting(`correction_history_${projectId}`);
-  return raw ? JSON.parse(raw) : [];
-}
-
-async function saveHistory(projectId, history) {
-  // Cap at 50 entries
-  if (history.length > 50) history.length = 50;
-
-  // Convex has a 1MB document limit — trim older entries if needed
-  let payload = JSON.stringify(history);
-  if (payload.length > 900000) {
-    console.log(`[Changelog] History payload too large (${(payload.length / 1024).toFixed(0)}KB), trimming older entries...`);
-    // Keep full data only for the last 5 entries
-    for (let i = 5; i < history.length; i++) {
-      if (history[i].changes) {
-        for (const c of history[i].changes) {
-          delete c.before_content;
-          delete c.after_content;
-        }
-      }
-    }
-    payload = JSON.stringify(history);
-  }
-
-  await setSetting(`correction_history_${projectId}`, payload);
-  console.log(`[Changelog] Saved ${history.length} entries (${(payload.length / 1024).toFixed(0)}KB)`);
-}
-
 // ── Public API ──────────────────────────────────────────────────────────────
 
 /**
  * Get the correction history for a project.
  * @param {string} projectId
- * @returns {Promise<Array<{ id: number, correction: string, timestamp: string, manual?: boolean, changes: Array<{ doc_type: string, doc_id: string, doc_label: string, old_text: string, new_text: string, before_content?: string, after_content?: string }> }>>}
+ * @returns {Promise<Array<{ id: string, correction: string, timestamp: string, manual?: boolean, changes: Array<{ doc_type: string, doc_id: string, doc_label: string, old_text: string, new_text: string, before_content?: string, after_content?: string }> }>>}
  */
 export async function getHistory(projectId) {
-  return loadHistory(projectId);
+  return getCorrectionHistoryByProject(projectId);
 }
 
 /**
@@ -71,13 +41,12 @@ export async function getHistory(projectId) {
 export async function logManualEdit(projectId, docId, beforeContent, afterContent, docType) {
   console.log(`[Changelog] Manual edit detected for ${docType} (project: ${projectId})`);
 
-  const history = await loadHistory(projectId);
-
   const oldSnippet = beforeContent.length > 200 ? beforeContent.slice(0, 200) + '...' : beforeContent;
   const newSnippet = afterContent.length > 200 ? afterContent.slice(0, 200) + '...' : afterContent;
 
-  history.unshift({
-    id: Date.now(),
+  await createCorrectionHistory({
+    id: uuidv4(),
+    project_id: projectId,
     correction: `Manual edit to ${DOC_LABELS[docType] || docType}`,
     timestamp: new Date().toISOString(),
     manual: true,
@@ -91,8 +60,6 @@ export async function logManualEdit(projectId, docId, beforeContent, afterConten
       after_content: afterContent,
     }],
   });
-
-  await saveHistory(projectId, history);
 }
 
 /**
@@ -142,14 +109,13 @@ export async function applyCorrections(projectId, corrections, correctionText) {
   if (changes.length > 0) {
     console.log(`[Changelog] AI fix applied: ${changes.length} doc(s) changed for project ${projectId}`);
     try {
-      const history = await loadHistory(projectId);
-      history.unshift({
-        id: Date.now(),
+      await createCorrectionHistory({
+        id: uuidv4(),
+        project_id: projectId,
         correction: correctionText || 'Unknown correction',
         timestamp: new Date().toISOString(),
         changes,
       });
-      await saveHistory(projectId, history);
     } catch (err) {
       console.error('[Changelog] Failed to save AI fix history:', err.message);
     }
@@ -162,11 +128,11 @@ export async function applyCorrections(projectId, corrections, correctionText) {
  * Revert a correction — restore each doc to its before_content and remove
  * the entry from history.
  * @param {string} projectId
- * @param {number} correctionId - The correction's `id` (timestamp-based)
+ * @param {string} correctionId - The correction's externalId
  * @returns {Promise<{ reverted_count: number }>}
  */
 export async function revertCorrection(projectId, correctionId) {
-  const history = await loadHistory(projectId);
+  const history = await getCorrectionHistoryByProject(projectId);
 
   const entry = history.find(h => h.id === correctionId);
   if (!entry) {
@@ -190,8 +156,7 @@ export async function revertCorrection(projectId, correctionId) {
   }
 
   // Remove this entry from history
-  const updatedHistory = history.filter(h => h.id !== correctionId);
-  await setSetting(`correction_history_${projectId}`, JSON.stringify(updatedHistory));
+  await deleteCorrectionHistory(correctionId);
 
   return { reverted_count: reverted.length };
 }

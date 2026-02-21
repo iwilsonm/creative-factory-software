@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { requireAuth } from '../auth.js';
-import { getSetting, setSetting, getAllSettings } from '../convexClient.js';
+import { getSetting, setSetting, getAllSettings, getDashboardTodos, replaceDashboardTodos } from '../convexClient.js';
 import { getDriveClient } from './drive.js';
 import { refreshGeminiRates } from '../services/costTracker.js';
 
@@ -157,13 +157,12 @@ router.post('/test-anthropic', async (req, res) => {
 });
 
 // =============================================
-// Dashboard To-Do List (stored as JSON in settings)
+// Dashboard To-Do List (dedicated Convex table)
 // =============================================
 
 router.get('/todos', async (req, res) => {
   try {
-    const raw = await getSetting('dashboard_todos');
-    const todos = raw ? JSON.parse(raw) : [];
+    const todos = await getDashboardTodos();
     res.json({ todos });
   } catch {
     res.json({ todos: [] });
@@ -173,7 +172,7 @@ router.get('/todos', async (req, res) => {
 router.put('/todos', async (req, res) => {
   const { todos } = req.body;
   if (!Array.isArray(todos)) return res.status(400).json({ error: 'todos must be an array' });
-  await setSetting('dashboard_todos', JSON.stringify(todos));
+  await replaceDashboardTodos(todos);
   res.json({ success: true });
 });
 
