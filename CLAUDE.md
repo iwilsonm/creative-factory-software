@@ -14,7 +14,7 @@ A single-tenant web application for direct response copywriters and e-commerce b
 
 **Live at**: `daciaautomation.com` (VPS: `76.13.183.219`)
 **Convex deployment**: `prod:strong-civet-577` at `https://energized-hare-760.convex.cloud`
-**GitHub**: `daciaventures/ad-platform`
+**GitHub**: `daciaventures/dacia-automation`
 
 ---
 
