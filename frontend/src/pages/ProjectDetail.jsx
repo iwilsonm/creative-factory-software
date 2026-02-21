@@ -10,6 +10,7 @@ import QuoteMiner from '../components/QuoteMiner';
 import CostSummaryCards from '../components/CostSummaryCards';
 import CopywriterChat from '../components/CopywriterChat';
 import InfoTooltip from '../components/InfoTooltip';
+import ErrorBoundary from '../components/ErrorBoundary';
 import { useToast } from '../components/Toast';
 
 const STATUS_CONFIG = {
@@ -882,27 +883,37 @@ export default function ProjectDetail() {
         )}
 
         {tab === 'docs' && (
-          <FoundationalDocs projectId={id} projectStatus={project.status} />
+          <ErrorBoundary level="tab" key="docs">
+            <FoundationalDocs projectId={id} projectStatus={project.status} />
+          </ErrorBoundary>
         )}
         {tab === 'templates' && (
-          <TemplateImages projectId={id} inspirationFolderId={project.inspiration_folder_id} />
+          <ErrorBoundary level="tab" key="templates">
+            <TemplateImages projectId={id} inspirationFolderId={project.inspiration_folder_id} />
+          </ErrorBoundary>
         )}
         {tab === 'ads' && (
-          <AdStudio projectId={id} project={project} prefill={adStudioPrefill} onPrefillConsumed={() => setAdStudioPrefill(null)} />
+          <ErrorBoundary level="tab" key="ads">
+            <AdStudio projectId={id} project={project} prefill={adStudioPrefill} onPrefillConsumed={() => setAdStudioPrefill(null)} />
+          </ErrorBoundary>
         )}
         {tab === 'tracker' && (
-          <AdTracker projectId={id} />
+          <ErrorBoundary level="tab" key="tracker">
+            <AdTracker projectId={id} />
+          </ErrorBoundary>
         )}
         {tab === 'quotes' && (
-          <QuoteMiner
-            projectId={id}
-            project={project}
-            onNavigateToTracker={() => setTab('tracker')}
-            onSendToAdStudio={(data) => {
-              setAdStudioPrefill(data);
-              setTab('ads');
-            }}
-          />
+          <ErrorBoundary level="tab" key="quotes">
+            <QuoteMiner
+              projectId={id}
+              project={project}
+              onNavigateToTracker={() => setTab('tracker')}
+              onSendToAdStudio={(data) => {
+                setAdStudioPrefill(data);
+                setTab('ads');
+              }}
+            />
+          </ErrorBoundary>
         )}
       </div>
 
