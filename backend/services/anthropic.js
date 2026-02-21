@@ -248,3 +248,100 @@ export async function chatWithImage(messages, text, base64Image, mimeType, model
     .map(block => block.text)
     .join('');
 }
+
+/**
+ * Send a message with multiple images (base64) to Claude.
+ *
+ * @param {Array} messages - Previous conversation messages (OpenAI format)
+ * @param {string} text - Text prompt to accompany the images
+ * @param {Array<{base64: string, mimeType: string}>} images - Array of base64-encoded images
+ * @param {string} [model='claude-sonnet-4-6'] - Anthropic model name
+ * @param {object} [options={}] - Extra options (e.g., max_tokens, operation, projectId, response_format)
+ * @returns {string} The assistant's response text
+ */
+export async function chatWithMultipleImages(messages, text, images, model = 'claude-sonnet-4-6', options = {}) {
+  const anthropic = await getClient();
+
+  // Separate system messages from conversation messages
+  const systemMessages = messages.filter(m => m.role === 'system');
+  const conversationMessages = messages.filter(m => m.role !== 'system');
+
+  let systemPrompt = systemMessages.length > 0
+    ? systemMessages.map(m => m.content).join('\n\n')
+    : undefined;
+
+  // Convert previous messages
+  const anthropicMessages = conversationMessages.map(m => ({
+    role: m.role === 'user' ? 'user' : 'assistant',
+    content: typeof m.content === 'string' ? m.content : m.content,
+  }));
+
+  // Handle JSON mode
+  const wantJSON = options.response_format?.type === 'json_object';
+  if (wantJSON) {
+    const jsonInstruction = '\n\nIMPORTANT: You must respond with ONLY a valid JSON object. No markdown fences, no prose before or after — just the raw JSON object starting with { and ending with }.';
+    systemPrompt = systemPrompt ? systemPrompt + jsonInstruction : jsonInstruction;
+  }
+
+  // Build content blocks: all images first, then text
+  const contentBlocks = [];
+  for (const img of images) {
+    let normalizedMime = img.mimeType;
+    if (!['image/jpeg', 'image/png', 'image/gif', 'image/webp'].includes(normalizedMime)) {
+      normalizedMime = 'image/png';
+    }
+    contentBlocks.push({
+      type: 'image',
+      source: {
+        type: 'base64',
+        media_type: normalizedMime,
+        data: img.base64,
+      },
+    });
+  }
+  contentBlocks.push({ type: 'text', text });
+
+  // Add the new message with all images
+  anthropicMessages.push({ role: 'user', content: contentBlocks });
+
+  const createParams = {
+    model,
+    max_tokens: options.max_tokens || 16384,
+    messages: anthropicMessages,
+  };
+
+  if (systemPrompt) {
+    createParams.system = systemPrompt;
+  }
+
+  const timeoutMs = options.timeout || 120000;
+
+  const response = await withRetry(
+    () => {
+      const apiCall = anthropic.messages.create(createParams);
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error(`Anthropic API call timed out after ${Math.round(timeoutMs / 1000)}s`)), timeoutMs)
+      );
+      return Promise.race([apiCall, timeoutPromise]);
+    },
+    { label: '[Anthropic chatWithMultipleImages]', maxRetries: options.maxRetries ?? 3 }
+  );
+
+  // Log cost from token usage (fire-and-forget)
+  logCostFromResponse(response, model, options);
+
+  let responseText = response.content
+    .filter(block => block.type === 'text')
+    .map(block => block.text)
+    .join('');
+
+  // For JSON mode, extract the JSON object from the response
+  if (wantJSON) {
+    const parsed = extractJSON(responseText);
+    if (parsed) {
+      responseText = JSON.stringify(parsed);
+    }
+  }
+
+  return responseText;
+}

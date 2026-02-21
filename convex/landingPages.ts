@@ -63,6 +63,11 @@ export const update = mutation({
     status: v.optional(v.string()),
     error_message: v.optional(v.string()),
     copy_sections: v.optional(v.string()),
+    // Phase 2 fields
+    swipe_design_analysis: v.optional(v.string()),
+    image_slots: v.optional(v.string()),
+    html_template: v.optional(v.string()),
+    assembled_html: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const doc = await ctx.db
@@ -81,6 +86,10 @@ export const update = mutation({
     if (args.status !== undefined) updates.status = args.status;
     if (args.error_message !== undefined) updates.error_message = args.error_message;
     if (args.copy_sections !== undefined) updates.copy_sections = args.copy_sections;
+    if (args.swipe_design_analysis !== undefined) updates.swipe_design_analysis = args.swipe_design_analysis;
+    if (args.image_slots !== undefined) updates.image_slots = args.image_slots;
+    if (args.html_template !== undefined) updates.html_template = args.html_template;
+    if (args.assembled_html !== undefined) updates.assembled_html = args.assembled_html;
     await ctx.db.patch(doc._id, updates);
   },
 });

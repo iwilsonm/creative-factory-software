@@ -301,6 +301,11 @@ export default defineSchema({
     status: v.string(),                  // draft | generating | completed | failed
     error_message: v.optional(v.string()),
     copy_sections: v.optional(v.string()), // JSON: generated copy sections
+    // Phase 2 fields
+    swipe_design_analysis: v.optional(v.string()),  // JSON: design spec from Claude vision analysis
+    image_slots: v.optional(v.string()),             // JSON: array of image slot objects with storageId
+    html_template: v.optional(v.string()),           // Raw HTML template with placeholders
+    assembled_html: v.optional(v.string()),          // Final HTML with placeholders replaced
     created_at: v.string(),
     updated_at: v.string(),
   })

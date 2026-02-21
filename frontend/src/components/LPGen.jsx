@@ -50,11 +50,20 @@ function countWords(text) {
   return text.trim().split(/\s+/).filter(Boolean).length;
 }
 
+// ─── Phase labels for progress display ──────────────────────────────────────
+const PHASE_LABELS = {
+  design_analysis: { label: 'Design Analysis', icon: '🎨', description: 'Analyzing swipe PDF visual layout...' },
+  copy_generation: { label: 'Copy Generation', icon: '✍️', description: 'Writing landing page copy...' },
+  image_generation: { label: 'Image Generation', icon: '🖼️', description: 'Generating images via Gemini...' },
+  html_generation: { label: 'HTML Template', icon: '🏗️', description: 'Building HTML page...' },
+  assembling: { label: 'Assembly', icon: '🔧', description: 'Assembling final page...' },
+};
+
 // ═══════════════════════════════════════════════════════════════════════════
-// Copy Section Display
+// Copy Section Display (collapsible)
 // ═══════════════════════════════════════════════════════════════════════════
-function CopySection({ section, index }) {
-  const [expanded, setExpanded] = useState(true);
+function CopySection({ section, index, defaultExpanded = false }) {
+  const [expanded, setExpanded] = useState(defaultExpanded);
   const wordCount = countWords(section.content);
 
   return (
@@ -89,13 +98,72 @@ function CopySection({ section, index }) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Landing Page Detail View (generated copy sections)
+// Sandboxed iframe preview for assembled HTML
+// ═══════════════════════════════════════════════════════════════════════════
+function HtmlPreview({ html, className = '' }) {
+  const iframeRef = useRef(null);
+  const [iframeHeight, setIframeHeight] = useState(800);
+
+  useEffect(() => {
+    if (!iframeRef.current || !html) return;
+
+    // Auto-resize iframe to fit content
+    const handleMessage = (event) => {
+      if (event.data?.type === 'lp-preview-height' && typeof event.data.height === 'number') {
+        setIframeHeight(Math.min(event.data.height + 40, 5000)); // cap at 5000px
+      }
+    };
+    window.addEventListener('message', handleMessage);
+
+    return () => window.removeEventListener('message', handleMessage);
+  }, [html]);
+
+  if (!html) return null;
+
+  // Inject a small script into the HTML to communicate height back to parent
+  const htmlWithHeightReporter = html.replace(
+    '</body>',
+    `<script>
+      (function() {
+        function reportHeight() {
+          var h = document.documentElement.scrollHeight || document.body.scrollHeight;
+          window.parent.postMessage({ type: 'lp-preview-height', height: h }, '*');
+        }
+        reportHeight();
+        window.addEventListener('load', reportHeight);
+        setTimeout(reportHeight, 500);
+        setTimeout(reportHeight, 2000);
+        new MutationObserver(reportHeight).observe(document.body, { childList: true, subtree: true });
+      })();
+    </script></body>`
+  );
+
+  return (
+    <div className={`border border-black/10 rounded-xl overflow-hidden bg-white ${className}`}>
+      <iframe
+        ref={iframeRef}
+        srcDoc={htmlWithHeightReporter}
+        sandbox="allow-scripts"
+        title="Landing Page Preview"
+        className="w-full border-0"
+        style={{ height: `${iframeHeight}px`, minHeight: '400px' }}
+      />
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Landing Page Detail View (preview + copy sections)
 // ═══════════════════════════════════════════════════════════════════════════
 function LandingPageDetail({ page, onBack, onDelete, projectId }) {
   const toast = useToast();
   const [deleting, setDeleting] = useState(false);
+  const [activeTab, setActiveTab] = useState(page.assembled_html ? 'preview' : 'copy');
   const sections = page.copy_sections ? JSON.parse(page.copy_sections) : [];
   const totalWords = sections.reduce((sum, s) => sum + countWords(s.content), 0);
+  const imageSlots = page.image_slots ? JSON.parse(page.image_slots) : [];
+  const hasDesign = !!page.swipe_design_analysis;
+  const generatedImages = imageSlots.filter(s => s.generated);
 
   const handleDelete = async () => {
     if (!confirm('Delete this landing page? This cannot be undone.')) return;
@@ -114,7 +182,7 @@ function LandingPageDetail({ page, onBack, onDelete, projectId }) {
   return (
     <div>
       {/* Header */}
-      <div className="flex items-center gap-3 mb-5">
+      <div className="flex items-center gap-3 mb-4">
         <button onClick={onBack} className="text-textlight hover:text-textmid transition-colors">
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
@@ -122,7 +190,7 @@ function LandingPageDetail({ page, onBack, onDelete, projectId }) {
         </button>
         <div className="flex-1 min-w-0">
           <h2 className="text-[15px] font-semibold text-textdark tracking-tight truncate">{page.name}</h2>
-          <div className="flex items-center gap-3 mt-0.5">
+          <div className="flex items-center gap-3 mt-0.5 flex-wrap">
             <span className="text-[11px] text-textlight">
               {new Date(page.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
             </span>
@@ -133,6 +201,16 @@ function LandingPageDetail({ page, onBack, onDelete, projectId }) {
             )}
             <span className="text-[10px] text-textlight">{totalWords} words</span>
             <span className="text-[10px] text-textlight">{sections.length} sections</span>
+            {generatedImages.length > 0 && (
+              <span className="text-[10px] text-teal bg-teal/5 px-2 py-0.5 rounded-full">
+                {generatedImages.length} image{generatedImages.length !== 1 ? 's' : ''}
+              </span>
+            )}
+            {hasDesign && (
+              <span className="text-[10px] text-navy bg-navy/5 px-2 py-0.5 rounded-full">
+                Design analyzed
+              </span>
+            )}
           </div>
         </div>
         <button
@@ -144,17 +222,49 @@ function LandingPageDetail({ page, onBack, onDelete, projectId }) {
         </button>
       </div>
 
-      {/* Copy Sections */}
-      {sections.length > 0 ? (
-        <div className="space-y-2">
-          {sections.map((section, i) => (
-            <CopySection key={i} section={section} index={i} />
-          ))}
+      {/* Tab bar: Preview | Copy Sections */}
+      {page.assembled_html && (
+        <div className="flex gap-1 mb-4 p-1 bg-offwhite rounded-lg w-fit">
+          <button
+            onClick={() => setActiveTab('preview')}
+            className={`px-4 py-1.5 rounded-md text-[12px] font-medium transition-all ${
+              activeTab === 'preview'
+                ? 'bg-navy text-white shadow-sm'
+                : 'text-textmid hover:text-textdark'
+            }`}
+          >
+            Preview
+          </button>
+          <button
+            onClick={() => setActiveTab('copy')}
+            className={`px-4 py-1.5 rounded-md text-[12px] font-medium transition-all ${
+              activeTab === 'copy'
+                ? 'bg-navy text-white shadow-sm'
+                : 'text-textmid hover:text-textdark'
+            }`}
+          >
+            Copy Sections
+          </button>
         </div>
+      )}
+
+      {/* Content */}
+      {activeTab === 'preview' && page.assembled_html ? (
+        <HtmlPreview html={page.assembled_html} />
       ) : (
-        <div className="card p-8 text-center">
-          <p className="text-textmid text-[13px]">No copy sections generated yet.</p>
-        </div>
+        <>
+          {sections.length > 0 ? (
+            <div className="space-y-2">
+              {sections.map((section, i) => (
+                <CopySection key={i} section={section} index={i} />
+              ))}
+            </div>
+          ) : (
+            <div className="card p-8 text-center">
+              <p className="text-textmid text-[13px]">No copy sections generated yet.</p>
+            </div>
+          )}
+        </>
       )}
 
       {/* Metadata footer */}
@@ -171,9 +281,78 @@ function LandingPageDetail({ page, onBack, onDelete, projectId }) {
             {page.additional_direction && (
               <p>Additional direction: <span className="text-textmid">{page.additional_direction}</span></p>
             )}
+            {hasDesign && (
+              <p>Design analysis: <span className="text-teal">Yes — extracted from swipe PDF</span></p>
+            )}
+            {generatedImages.length > 0 && (
+              <p>Generated images: <span className="text-teal">{generatedImages.length} via Gemini</span></p>
+            )}
           </div>
         </div>
       )}
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// Multi-phase progress display during generation
+// ═══════════════════════════════════════════════════════════════════════════
+function GenerationProgress({ phases, currentPhase, progress, imageProgress }) {
+  return (
+    <div className="space-y-3 text-left w-full max-w-md mx-auto">
+      {phases.map((phase) => {
+        const config = PHASE_LABELS[phase] || { label: phase, icon: '⏳', description: '' };
+        const isCurrent = phase === currentPhase;
+        const isDone = phases.indexOf(phase) < phases.indexOf(currentPhase);
+
+        return (
+          <div
+            key={phase}
+            className={`flex items-center gap-3 p-2.5 rounded-lg transition-all ${
+              isCurrent ? 'bg-navy/5 border border-navy/10' : isDone ? 'opacity-60' : 'opacity-30'
+            }`}
+          >
+            <div className={`w-7 h-7 rounded-full flex items-center justify-center text-[14px] flex-shrink-0 ${
+              isDone ? 'bg-teal/10' : isCurrent ? 'bg-navy/10' : 'bg-black/5'
+            }`}>
+              {isDone ? (
+                <svg className="w-4 h-4 text-teal" fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                </svg>
+              ) : isCurrent ? (
+                <svg className="w-4 h-4 text-navy animate-spin" viewBox="0 0 24 24" fill="none">
+                  <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" strokeDasharray="31.4 31.4" strokeLinecap="round" />
+                </svg>
+              ) : (
+                <span className="text-[12px]">{config.icon}</span>
+              )}
+            </div>
+            <div className="flex-1 min-w-0">
+              <p className={`text-[12px] font-medium ${isCurrent ? 'text-navy' : isDone ? 'text-teal' : 'text-textlight'}`}>
+                {config.label}
+              </p>
+              {isCurrent && progress && (
+                <p className="text-[11px] text-textmid truncate">{progress}</p>
+              )}
+              {isCurrent && phase === 'image_generation' && imageProgress && (
+                <div className="mt-1.5">
+                  <div className="flex items-center gap-2">
+                    <div className="flex-1 h-1.5 bg-black/5 rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-teal rounded-full transition-all duration-500"
+                        style={{ width: `${(imageProgress.current / imageProgress.total) * 100}%` }}
+                      />
+                    </div>
+                    <span className="text-[10px] text-textlight flex-shrink-0">
+                      {imageProgress.current}/{imageProgress.total}
+                    </span>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        );
+      })}
     </div>
   );
 }
@@ -212,6 +391,9 @@ export default function LPGen({ projectId, project }) {
   const [genProgress, setGenProgress] = useState('');
   const [genResult, setGenResult] = useState(null);
   const [genError, setGenError] = useState('');
+  const [genPhases, setGenPhases] = useState([]); // ordered list of phases for this generation
+  const [currentPhase, setCurrentPhase] = useState('');
+  const [imageProgress, setImageProgress] = useState(null); // { current, total, slotId }
   const abortRef = useRef(null);
 
   // Load pages + check docs on mount
@@ -250,6 +432,9 @@ export default function LPGen({ projectId, project }) {
     setGenProgress('Starting...');
     setGenError('');
     setGenResult(null);
+    setGenPhases([]);
+    setCurrentPhase('');
+    setImageProgress(null);
     setView('generating');
 
     const formData = new FormData();
@@ -263,15 +448,33 @@ export default function LPGen({ projectId, project }) {
     }
 
     const { abort, done } = api.generateLandingPage(projectId, formData, (event) => {
-      if (event.type === 'progress') {
+      if (event.type === 'phase') {
+        // New phase started
+        setCurrentPhase(event.phase);
+        setGenPhases(prev => {
+          if (!prev.includes(event.phase)) return [...prev, event.phase];
+          return prev;
+        });
+        setGenProgress(event.message || '');
+      } else if (event.type === 'progress') {
         setGenProgress(event.message || event.step || 'Processing...');
+        // Track image generation progress
+        if (event.imageProgress) {
+          setImageProgress(event.imageProgress);
+        }
       } else if (event.type === 'started') {
         setGenProgress('Generation started...');
+        // Set up initial phases based on whether we have a swipe PDF
+        if (event.hasSwipePdf) {
+          setGenPhases(['design_analysis', 'copy_generation', 'image_generation', 'html_generation', 'assembling']);
+        } else {
+          setGenPhases(['copy_generation', 'html_generation', 'assembling']);
+        }
       } else if (event.type === 'completed') {
         setGenResult(event);
         setGenProgress('');
         setGenerating(false);
-        // Refresh the list
+        setCurrentPhase('done');
         loadPages();
       } else if (event.type === 'error') {
         setGenError(event.message || 'Generation failed');
@@ -306,7 +509,6 @@ export default function LPGen({ projectId, project }) {
 
   const handleSwipeFileSelected = useCallback(async (file) => {
     if (!file) return;
-    // Store raw File for multipart upload + extract text for preview
     setSwipeFile({ file, filename: file.name, extracting: true });
     try {
       const result = await api.extractText(file);
@@ -317,7 +519,6 @@ export default function LPGen({ projectId, project }) {
         extracting: false,
       }));
     } catch {
-      // Text extraction failed — still keep the file for upload
       setSwipeFile(prev => ({ ...prev, extracting: false }));
     }
   }, []);
@@ -341,6 +542,9 @@ export default function LPGen({ projectId, project }) {
     setGenResult(null);
     setGenError('');
     setGenProgress('');
+    setGenPhases([]);
+    setCurrentPhase('');
+    setImageProgress(null);
   };
 
   // ── Detail view ──
@@ -355,7 +559,7 @@ export default function LPGen({ projectId, project }) {
     );
   }
 
-  // ── Generating view (SSE progress) ──
+  // ── Generating view (SSE progress with multi-phase tracking) ──
   if (view === 'generating') {
     return (
       <div>
@@ -363,25 +567,40 @@ export default function LPGen({ projectId, project }) {
           <h2 className="text-[15px] font-semibold text-textdark tracking-tight">Generating Landing Page</h2>
         </div>
 
-        <div className="card p-8 text-center">
+        <div className="card p-8">
           {generating ? (
-            <>
+            <div className="text-center">
               <div className="w-10 h-10 mx-auto mb-4 rounded-full bg-navy/10 flex items-center justify-center">
                 <svg className="w-5 h-5 text-navy animate-spin" viewBox="0 0 24 24" fill="none">
                   <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" strokeDasharray="31.4 31.4" strokeLinecap="round" />
                 </svg>
               </div>
-              <p className="text-[14px] font-medium text-textdark mb-1">Writing your landing page...</p>
-              <p className="text-[12px] text-textmid mb-4">{genProgress}</p>
+              <p className="text-[14px] font-medium text-textdark mb-4">Building your landing page...</p>
+
+              {/* Multi-phase progress */}
+              {genPhases.length > 0 && (
+                <GenerationProgress
+                  phases={genPhases}
+                  currentPhase={currentPhase}
+                  progress={genProgress}
+                  imageProgress={imageProgress}
+                />
+              )}
+
+              {/* Fallback progress text if no phases yet */}
+              {genPhases.length === 0 && genProgress && (
+                <p className="text-[12px] text-textmid">{genProgress}</p>
+              )}
+
               <button
                 onClick={handleCancelGenerate}
-                className="btn-secondary text-[12px]"
+                className="btn-secondary text-[12px] mt-6"
               >
                 Cancel
               </button>
-            </>
+            </div>
           ) : genError ? (
-            <>
+            <div className="text-center">
               <div className="w-10 h-10 mx-auto mb-4 rounded-full bg-red-50 flex items-center justify-center">
                 <svg className="w-5 h-5 text-red-500" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
@@ -403,22 +622,26 @@ export default function LPGen({ projectId, project }) {
                   Retry
                 </button>
               </div>
-            </>
+            </div>
           ) : genResult ? (
-            <>
+            <div className="text-center">
               <div className="w-10 h-10 mx-auto mb-4 rounded-full bg-teal/10 flex items-center justify-center">
                 <svg className="w-5 h-5 text-teal" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
                   <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
                 </svg>
               </div>
               <p className="text-[14px] font-medium text-teal mb-1">Landing Page Generated!</p>
-              <p className="text-[12px] text-textmid mb-4">
-                {genResult.sections?.length || 0} sections created
+              <p className="text-[12px] text-textmid mb-1">
+                {genResult.sections?.length || 0} sections
+                {genResult.imageCount > 0 && ` · ${genResult.imageCount} images`}
+                {genResult.hasHtml && ' · HTML preview ready'}
               </p>
-              <div className="flex items-center justify-center gap-2">
+              {genResult.hasDesignAnalysis && (
+                <p className="text-[10px] text-navy/60 mb-4">Design extracted from swipe PDF</p>
+              )}
+              <div className="flex items-center justify-center gap-2 mt-3">
                 <button
                   onClick={async () => {
-                    // Reload pages first to get the full record
                     try {
                       const data = await api.getLandingPages(projectId);
                       setPages(data.pages || []);
@@ -443,16 +666,7 @@ export default function LPGen({ projectId, project }) {
                   Generate Another
                 </button>
               </div>
-
-              {/* Preview the generated sections inline */}
-              {genResult.sections && (
-                <div className="mt-6 text-left space-y-2">
-                  {genResult.sections.map((section, i) => (
-                    <CopySection key={i} section={section} index={i} />
-                  ))}
-                </div>
-              )}
-            </>
+            </div>
           ) : null}
         </div>
       </div>
@@ -506,7 +720,7 @@ export default function LPGen({ projectId, project }) {
           <div className="card p-5">
             <label className="block text-[13px] font-medium text-textdark mb-1.5">
               Swipe File (PDF)
-              <InfoTooltip text="Upload a PDF of a landing page you want to use as structural and tonal inspiration. The AI will reference its style but not copy it." />
+              <InfoTooltip text="Upload a PDF of a landing page to use as design and tonal inspiration. The AI will analyze its visual design, generate matching images, and produce a styled HTML page." />
             </label>
             {swipeFile ? (
               <div className="flex items-center gap-3 p-3 bg-teal/5 border border-teal/15 rounded-xl">
@@ -556,7 +770,7 @@ export default function LPGen({ projectId, project }) {
                   <p className={`text-xs font-medium ${swipeDragOver ? 'text-gold' : 'text-textmid'}`}>
                     {swipeDragOver ? 'Drop PDF here' : 'Drop a swipe PDF here, or click to browse'}
                   </p>
-                  <p className="text-[10px] text-gray-400 mt-1">PDF only — used as structural inspiration</p>
+                  <p className="text-[10px] text-gray-400 mt-1">PDF only — used for design analysis + copy inspiration</p>
                 </div>
                 <input
                   ref={swipeInputRef}
@@ -572,7 +786,7 @@ export default function LPGen({ projectId, project }) {
               </>
             )}
             <p className="text-[10px] text-textlight mt-1.5">
-              Optional — provides structural and tonal reference for the generated copy.
+              Optional — when provided, the AI analyzes the visual design, generates matching images, and creates a styled HTML page.
             </p>
           </div>
 
@@ -619,9 +833,24 @@ export default function LPGen({ projectId, project }) {
               ? 'Foundational Docs Required'
               : !angle.trim()
                 ? 'Enter an Angle to Generate'
-                : 'Generate Landing Page Copy'
+                : swipeFile
+                  ? 'Generate Landing Page (with Design Analysis)'
+                  : 'Generate Landing Page'
             }
           </button>
+
+          {/* Info about what happens with a swipe PDF */}
+          {swipeFile && (
+            <div className="p-3 bg-navy/5 border border-navy/10 rounded-xl">
+              <p className="text-[11px] text-navy font-medium mb-1">With swipe PDF, generation includes:</p>
+              <ul className="text-[10px] text-navy/70 space-y-0.5 ml-3 list-disc">
+                <li>Visual design analysis (colors, typography, layout)</li>
+                <li>Copy generation guided by swipe structure</li>
+                <li>AI image generation for each image slot</li>
+                <li>Complete HTML page with embedded styling</li>
+              </ul>
+            </div>
+          )}
         </div>
       </div>
     );
@@ -684,6 +913,8 @@ export default function LPGen({ projectId, project }) {
             const status = STATUS_CONFIG[page.status] || STATUS_CONFIG.draft;
             const sections = page.copy_sections ? JSON.parse(page.copy_sections) : [];
             const totalWords = sections.reduce((sum, s) => sum + countWords(s.content), 0);
+            const hasHtml = !!page.assembled_html;
+            const hasDesign = !!page.swipe_design_analysis;
 
             return (
               <button
@@ -698,6 +929,11 @@ export default function LPGen({ projectId, project }) {
                       <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${status.bg} ${status.text}`}>
                         {status.label}
                       </span>
+                      {hasHtml && (
+                        <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-teal/5 text-teal">
+                          HTML
+                        </span>
+                      )}
                     </div>
                     <div className="flex items-center gap-3 mt-1">
                       <span className="text-[11px] text-textlight">
@@ -711,7 +947,12 @@ export default function LPGen({ projectId, project }) {
                       )}
                       {page.swipe_filename && (
                         <span className="text-[10px] text-textlight bg-black/5 px-1.5 py-0.5 rounded">
-                          📄 {page.swipe_filename}
+                          {page.swipe_filename}
+                        </span>
+                      )}
+                      {hasDesign && (
+                        <span className="text-[10px] text-navy/50">
+                          Design analyzed
                         </span>
                       )}
                     </div>
