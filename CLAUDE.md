@@ -31,6 +31,7 @@ A single-tenant web application for direct response copywriters and e-commerce b
 | LLM (web search) | Perplexity Sonar Pro (quote mining via web search) |
 | LLM (images) | Google Gemini 3 Pro Image Preview via `@google/genai` SDK |
 | External | Google Drive API v3 (service account auth) for inspiration sync + ad upload; Meta Marketing API v21.0 for per-project Ads Manager integration |
+| Web Scraping | Puppeteer (headless Chrome) for LP Gen swipe page fetching |
 | Auth | bcrypt + express-session (single shared account, not multi-user) |
 | Scheduling | node-cron for recurring batch jobs + scheduler service polling Gemini Batch API |
 | Process Manager | PM2 (production) |
@@ -55,16 +56,16 @@ ad-platform/
 │   │   ├── costs.js                 # Cost aggregation (today/week/month) + history + recurring estimates + rates
 │   │   ├── drive.js                 # Google Drive sync + folder browsing + service account upload
 │   │   ├── templates.js             # Template image management + Drive sync + AI analysis
-│   │   ├── upload.js                # File upload + text extraction (PDF, DOCX, EPUB, MOBI, Markdown, HTML)
+│   │   ├── upload.js                # File upload + text extraction (PDF, DOCX, EPUB, MOBI, Excel, Markdown, HTML, code, config files)
 │   │   ├── settings.js              # API keys, rates, headline reference docs, app config
 │   │   ├── deployments.js           # Ad deployment tracking (Meta/Facebook pipeline)
 │   │   ├── quoteMining.js           # Quote mining runs, suggestions, headline generation, quote bank operations
-│   │   ├── chat.js                  # Copywriter Chat widget (Claude Opus 4.6, foundational docs as context)
+│   │   ├── chat.js                  # Copywriter Chat widget (Claude Sonnet 4.6, foundational docs as context, multimodal: images + PDFs)
 │   │   ├── landingPages.js          # Landing page CRUD, copy generation (SSE), HTML generation, publishing
 │   │   └── meta.js                  # Meta OAuth, per-project ad account/campaign/adset management, performance sync
 │   └── services/
 │       ├── openai.js                # GPT-5.2, GPT-4.1, GPT-4.1-mini, o3-deep-research wrappers; streaming support
-│       ├── anthropic.js             # Claude Opus 4.6 + Sonnet 4.6 wrappers; JSON mode; cost logging
+│       ├── anthropic.js             # Claude Opus 4.6 + Sonnet 4.6 wrappers; JSON mode; cost logging; PDF document blocks
 │       ├── gemini.js                # Nano Banana Pro image generation (batch + single)
 │       ├── docGenerator.js          # 8-step foundational doc pipeline
 │       ├── adGenerator.js           # Ad generation orchestrator (Mode 1 + Mode 2); Headline Juicer; prompt editing
@@ -79,6 +80,7 @@ ad-platform/
 │       ├── rateLimiter.js           # GPT rate limiter (AsyncSemaphore, concurrency=2, 2s gap)
 │       ├── quoteDedup.js            # Quote deduplication before adding to quote bank
 │       ├── lpGenerator.js           # Landing page copy + HTML generation via Claude Sonnet
+│       ├── lpSwipeFetcher.js        # Headless browser (Puppeteer) swipe page fetching + screenshot capture
 │       └── lpPublisher.js           # Cloudflare Pages deployment (publish/unpublish landing pages)
 │
 ├── frontend/
@@ -102,7 +104,7 @@ ad-platform/
 │   │       ├── FoundationalDocs.jsx # Doc generation with SSE progress, upload, manual research, copy correction, correction history
 │   │       ├── TemplateImages.jsx   # Template upload/management + Drive sync + AI analysis
 │   │       ├── QuoteMiner.jsx       # Quote mining, auto-suggest, headline generation, quote bank, Notion-style filtering
-│   │       ├── CopywriterChat.jsx   # Copywriter assistant (Claude Opus 4.6, foundational docs context, file attachments with drag-and-drop)
+│   │       ├── CopywriterChat.jsx   # Copywriter assistant (Claude Sonnet 4.6, foundational docs context, multimodal file attachments with drag-and-drop)
 │   │       ├── LPGen.jsx            # Landing page generator (copy, design, HTML preview, CTA editor, publishing)
 │   │       ├── InspirationFolder.jsx # Drive inspiration image sync
 │   │       ├── CostSummaryCards.jsx # Dashboard cost widgets (expandable details, operation-level breakdown)
@@ -167,7 +169,7 @@ All tables live in Convex cloud. Schema is enforced via `convex/schema.ts`. 16 t
 | `chat_messages` | Chat messages within threads | `thread_id`, `project_id`, `role` (user/assistant), `content`, `is_context_message` (hides priming message) |
 | `meta_performance` | Meta ad performance data | `deployment_id`, `meta_ad_id`, `date`, `impressions`, `clicks`, `spend`, `reach`, `ctr`, `cpc`, `cpm`, `conversions`, `conversion_value`, `frequency` |
 | `dashboard_todos` | Roadmap to-do items (dedicated table) | `externalId`, `text`, `done`, `author`, `notes`, `priority` (1-4), `sort_order` |
-| `landing_pages` | Generated landing pages | `externalId`, `project_id`, `name`, `slug`, `status` (draft/published/unpublished), `target_audience`, `page_goal`, `tone`, `include_pdf`, `copy_sections` (JSON), `design_analysis`, `image_slots` (JSON), `html_template`, `assembled_html`, `cta_links` (JSON), `published_url`, `published_at`, `hosting_metadata`, `final_html`, `current_version` |
+| `landing_pages` | Generated landing pages | `externalId`, `project_id`, `name`, `slug`, `status` (draft/published/unpublished), `target_audience`, `page_goal`, `tone`, `swipe_url`, `swipe_screenshot_storageId`, `copy_sections` (JSON), `design_analysis`, `image_slots` (JSON), `html_template`, `assembled_html`, `cta_links` (JSON), `published_url`, `published_at`, `hosting_metadata`, `final_html`, `current_version` |
 
 **Important**: Foreign keys use `externalId` (UUID strings), not Convex `_id`. The `externalId` pattern was carried over from the SQLite-to-Convex migration. All cross-table references use `project_id` → `projects.externalId`.
 
@@ -356,23 +358,31 @@ Same flow as Mode 1 but template image used instead of random inspiration. Promp
 
 ### 7. Copywriter Chat
 
-- Claude Opus 4.6 with all 4 foundational docs loaded as context
+- Claude Sonnet 4.6 with all 4 foundational docs loaded as context
 - First message sends a hidden priming message with full docs (marked `is_context_message`)
 - Can prefill Ad Studio with generated headlines/angles
 - Thread-based: one active thread per project, can clear and restart
-- **File attachments**: Upload documents (PDF, DOCX, TXT, MD, HTML, EPUB, MOBI) via paperclip button or drag-and-drop
-- Files extracted client-side via `/upload/extract-text` endpoint, content prepended to message
-- Attached files shown as chips with extraction progress, char count, and error states
+- **Multimodal file attachments**: Upload files via paperclip button or drag-and-drop
+  - **Images** (JPEG, PNG, GIF, WebP): Sent natively to Claude via vision API (base64 content blocks) — previewed as thumbnails in chat
+  - **PDFs**: Sent natively to Claude via document API (base64 document blocks) — no text extraction needed
+  - **Documents** (DOCX, EPUB, MOBI, TXT, MD, HTML, CSV, JSON, XML, code files, config files, Excel): Text extracted client-side via `/upload/extract-text` endpoint, content prepended to message
+  - **Non-vision images** (SVG, BMP, TIFF, HEIC, AVIF): Treated as documents, text extracted where possible
+- Attached files shown as chips with extraction progress, thumbnails (for images), char count, and error states
 - User message bubbles display file names as styled chips, not the full extracted text
 
 ### 8. Landing Page Generation
 
 **5-Phase Pipeline** (LP Gen component):
-1. **Copy Generation** (Claude Sonnet) — Generate landing page copy sections from foundational docs + optional uploaded PDF reference
-2. **Design Analysis** (Claude Sonnet) — Analyze copy to generate design direction, color scheme, typography suggestions
+1. **Copy Generation** (Claude Sonnet) — Generate landing page copy sections from foundational docs + swipe page reference (URL or PDF)
+2. **Design Analysis** (Claude Sonnet) — Analyze swipe page screenshot/PDF for design direction, color scheme, typography
 3. **HTML Generation** (Claude Sonnet) — Generate responsive HTML template with image placeholders and CTA placeholders
 4. **CTA Link Editor** — User configures button URLs and text for each CTA slot in the generated HTML
 5. **Publishing** — Deploy to Cloudflare Pages via Direct Upload API, slug management, publish/unpublish flow
+
+**Swipe Page Input** (primary: URL, secondary: PDF):
+- **URL input**: User enters a swipe page URL → Puppeteer headless browser fetches the page, extracts text content and captures a full-page screenshot → text used for copy generation, screenshot used for design analysis
+- **PDF upload**: User uploads a PDF via drag-and-drop or file picker → PDF text extracted via pdf-parse, PDF sent as native document block for design analysis
+- URL and PDF are mutually exclusive — entering one clears the other
 
 **Key Features**:
 - Split-panel editor: copy sections on left, live HTML preview on right
@@ -478,7 +488,7 @@ Same flow as Mode 1 but template image used instead of random inspiration. Promp
 | Method | Path | Purpose |
 |--------|------|---------|
 | GET | `/api/projects/:id/chat/thread` | Get active thread + messages |
-| POST | `/api/projects/:id/chat/send` | Send message and stream Claude response (SSE) |
+| POST | `/api/projects/:id/chat/send` | Send message (with optional images/PDFs) and stream Claude response (SSE) |
 | POST | `/api/projects/:id/chat/clear` | Clear chat history |
 
 ### Landing Pages
@@ -578,7 +588,7 @@ Same flow as Mode 1 but template image used instead of random inspiration. Promp
 ### Upload & Extract
 | Method | Path | Purpose |
 |--------|------|---------|
-| POST | `/api/upload/extract-text` | Extract text from PDF/DOCX/EPUB/MOBI/Markdown/HTML |
+| POST | `/api/upload/extract-text` | Extract text from PDF/DOCX/EPUB/MOBI/Excel/Markdown/HTML/code/config files |
 | POST | `/api/upload/auto-describe` | Auto-generate product description from sales page |
 
 ### Health
@@ -717,9 +727,11 @@ ssh root@76.13.183.219 "cd /opt/ad-platform && npx convex deploy -y"
 
 16. **Dashboard todos in dedicated table**: Migrated from `settings.dashboard_todos` JSON string to a dedicated `dashboard_todos` Convex table for better querying and atomic updates. Supports optional priority (1-4) for auto-sorting.
 
-17. **Chat file attachments (client-side extraction)**: Files are extracted to text client-side via the existing `/upload/extract-text` endpoint. Extracted text is prepended to the message string before sending to the backend — zero backend/schema changes needed. Supports both paperclip button and drag-and-drop.
+17. **Chat multimodal attachments**: Three-path file handling: (1) Images (JPEG/PNG/GIF/WebP) are sent natively to Claude via vision API as base64 content blocks — no text extraction needed. (2) PDFs are sent natively via Claude's document API as base64 document blocks. (3) All other documents (DOCX, EPUB, Excel, code files, etc.) are extracted to text client-side via `/upload/extract-text` and prepended to the message string. Backend `chat.js` builds multimodal content blocks for the last user message. Supports both paperclip button and drag-and-drop.
 
 18. **Landing page publishing via Cloudflare Pages Direct Upload**: Landing pages are deployed as self-contained HTML files with co-deployed optimized images. Each publish creates a version snapshot. Images are processed via sharp (resize + JPEG compression) before upload.
+
+19. **LP Gen URL-based swipe input with Puppeteer**: Landing page generation uses Puppeteer headless browser to fetch swipe page content from a URL — extracting text and capturing a full-page screenshot. The screenshot is sent to Claude for design analysis while the text is used for copy generation. PDF upload is supported as an alternative, with the PDF sent as a native document block for design analysis. This replaced the original PDF-only approach for better UX.
 
 ---
 
@@ -745,6 +757,9 @@ ssh root@76.13.183.219 "cd /opt/ad-platform && npx convex deploy -y"
 - **Batch pipeline polling**: Scheduler polls every 5 minutes. Batches in `generating_prompts` or `submitting` status don't have a `gemini_batch_job` yet — `pollBatchJob` correctly returns `'processing'` for these (not `'failed'`).
 - **Dashboard todos migration**: Todos were migrated from `settings.dashboard_todos` (JSON string) to a dedicated `dashboard_todos` Convex table. The old settings key may still exist but is no longer read.
 - **LP Gen HTML generation**: Claude sometimes generates HTML with markdown code fences (```html...```). The `lpGenerator.js` service strips these automatically before saving.
+- **VPS dependency installation**: `package.json` is excluded from rsync in `deploy.sh`. New npm dependencies (e.g., `puppeteer`, `xlsx`) must be installed manually on the VPS via SSH: `ssh root@76.13.183.219 "cd /opt/ad-platform/backend && npm install <package>"` then restart PM2.
+- **Puppeteer on VPS**: Puppeteer requires Chromium. On first install, it downloads ~300MB of Chromium. If disk space is low, use `PUPPETEER_SKIP_DOWNLOAD=true` and install system Chromium separately.
+- **Chat multimodal content blocks**: The chat backend builds multimodal content blocks only for the current (last) user message. Previous messages in the conversation history are stored as text-only (with `[filename]` markers for images). This means Claude can only "see" images/PDFs from the current message, not from earlier in the thread.
 
 ---
 
@@ -775,7 +790,7 @@ ssh root@76.13.183.219 "cd /opt/ad-platform && npx convex deploy -y"
 - Quote bank with tagging, favorites, per-quote headlines, Notion-style filtering
 - Headline generation (Claude Sonnet 4.6 + 3 reference copywriting docs)
 - Body copy generation from headlines + quote context
-- Copywriter Chat widget (Claude Opus 4.6, foundational docs as context, file attachments with drag-and-drop)
+- Copywriter Chat widget (Claude Sonnet 4.6, foundational docs as context, multimodal attachments: images via vision API, PDFs via document API, documents via text extraction, drag-and-drop)
 - Single ad generation (Mode 1: direct inspiration, Mode 2: template)
 - Headline Juicer (optional 3rd GPT message using headline reference docs)
 - Prompt editing (NLP-based + direct edit + vision-guided with reference images)
@@ -799,7 +814,7 @@ ssh root@76.13.183.219 "cd /opt/ad-platform && npx convex deploy -y"
 - Per-project Meta Ads integration (OAuth, campaign/adset/ad browsing, performance sync)
 - Meta performance data (impressions, clicks, spend, CPC, CPM, ROAS)
 - Headline reference document uploads (3 docs: Headline Engine, 100 Greatest, 349 Swipe File)
-- File upload with text extraction (PDF, DOCX, EPUB, MOBI, Markdown, HTML)
+- File upload with text extraction (PDF, DOCX, EPUB, MOBI, Excel, Markdown, HTML, CSV, JSON, XML, code files, config files)
 - GPT rate limiter (AsyncSemaphore concurrency control for 429 prevention)
 - Dynamic time estimates in generation queue (based on queue position)
 - Dashboard roadmap with inline edit, P1–P4 priority badges (auto-sorted)
@@ -807,6 +822,7 @@ ssh root@76.13.183.219 "cd /opt/ad-platform && npx convex deploy -y"
 - Batch auto-retry (up to 3 retries on failure)
 - Lazy-loaded pages (React.lazy + Suspense)
 - Landing page generation (5-phase: copy → design → HTML → CTAs → publish to Cloudflare Pages)
+- Landing page swipe input via URL (Puppeteer headless browser) or PDF drag-and-drop
 - Landing page split-panel editor with live HTML preview
 - Landing page CTA link editor with URL validation
 - Landing page publishing to Cloudflare Pages (Direct Upload API)

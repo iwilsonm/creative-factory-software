@@ -9,6 +9,7 @@ const require = createRequire(import.meta.url);
 const pdf = require('pdf-parse');
 import mammoth from 'mammoth';
 import EPub from 'epub';
+import XLSX from 'xlsx';
 import { requireAuth } from '../auth.js';
 import { getSetting } from '../convexClient.js';
 
@@ -18,12 +19,12 @@ const upload = multer({
   dest: uploadDir,
   limits: { fileSize: 20 * 1024 * 1024 }, // 20MB
   fileFilter: (req, file, cb) => {
-    const allowed = ['.pdf', '.txt', '.html', '.htm', '.docx', '.epub', '.mobi', '.md'];
+    const allowed = ['.pdf', '.txt', '.html', '.htm', '.docx', '.epub', '.mobi', '.md', '.csv', '.json', '.xml', '.rtf', '.log', '.yaml', '.yml', '.toml', '.ini', '.cfg', '.conf', '.properties', '.tsx', '.ts', '.js', '.jsx', '.py', '.java', '.rb', '.go', '.rs', '.c', '.cpp', '.h', '.css', '.scss', '.less', '.sql', '.sh', '.bat', '.ps1', '.r', '.swift', '.kt', '.xls', '.xlsx'];
     const ext = path.extname(file.originalname).toLowerCase();
     if (allowed.includes(ext)) {
       cb(null, true);
     } else {
-      cb(new Error(`File type ${ext} not supported. Supported: PDF, DOCX, EPUB, MOBI, TXT, HTML, Markdown.`));
+      cb(new Error(`File type ${ext} not supported.`));
     }
   }
 });
@@ -79,14 +80,28 @@ router.post('/extract-text', upload.single('file'), async (req, res) => {
       const raw = buffer.toString('utf-8');
       // Strip non-printable characters, keep readable text
       text = raw.replace(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g, ' ').replace(/\s+/g, ' ').trim();
+    } else if (ext === '.xlsx' || ext === '.xls') {
+      // Excel files: convert each sheet to CSV-like text
+      const workbook = XLSX.readFile(req.file.path);
+      const sheets = [];
+      for (const sheetName of workbook.SheetNames) {
+        const sheet = workbook.Sheets[sheetName];
+        const csv = XLSX.utils.sheet_to_csv(sheet);
+        sheets.push(`--- Sheet: ${sheetName} ---\n${csv}`);
+      }
+      text = sheets.join('\n\n');
+    } else if (ext === '.xml') {
+      // Strip XML tags for plain text
+      text = fs.readFileSync(req.file.path, 'utf-8');
+      text = text.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
     } else {
-      // TXT, HTML, or Markdown — read as text
+      // TXT, HTML, Markdown, CSV, JSON, code files, config files — read as text
       text = fs.readFileSync(req.file.path, 'utf-8');
       if (ext === '.html' || ext === '.htm') {
         // Strip HTML tags for plain text
         text = text.replace(/<[^>]*>/g, ' ').replace(/\s+/g, ' ').trim();
       }
-      // Markdown (.md) is kept as-is — plain text with formatting markers
+      // All other text formats kept as-is (CSV, JSON, Markdown, code, config, etc.)
     }
 
     // Clean up uploaded file

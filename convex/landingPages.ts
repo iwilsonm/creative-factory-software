@@ -31,6 +31,8 @@ export const create = mutation({
     additional_direction: v.optional(v.string()),
     swipe_text: v.optional(v.string()),
     swipe_filename: v.optional(v.string()),
+    swipe_url: v.optional(v.string()),
+    swipe_screenshot_storageId: v.optional(v.string()),
     status: v.string(),
   },
   handler: async (ctx, args) => {
@@ -44,6 +46,8 @@ export const create = mutation({
       additional_direction: args.additional_direction,
       swipe_text: args.swipe_text,
       swipe_filename: args.swipe_filename,
+      swipe_url: args.swipe_url,
+      swipe_screenshot_storageId: args.swipe_screenshot_storageId,
       status: args.status,
       created_at: now,
       updated_at: now,
@@ -60,6 +64,8 @@ export const update = mutation({
     additional_direction: v.optional(v.string()),
     swipe_text: v.optional(v.string()),
     swipe_filename: v.optional(v.string()),
+    swipe_url: v.optional(v.string()),
+    swipe_screenshot_storageId: v.optional(v.string()),
     status: v.optional(v.string()),
     error_message: v.optional(v.string()),
     copy_sections: v.optional(v.string()),
@@ -91,6 +97,8 @@ export const update = mutation({
     if (args.additional_direction !== undefined) updates.additional_direction = args.additional_direction;
     if (args.swipe_text !== undefined) updates.swipe_text = args.swipe_text;
     if (args.swipe_filename !== undefined) updates.swipe_filename = args.swipe_filename;
+    if (args.swipe_url !== undefined) updates.swipe_url = args.swipe_url;
+    if (args.swipe_screenshot_storageId !== undefined) updates.swipe_screenshot_storageId = args.swipe_screenshot_storageId;
     if (args.status !== undefined) updates.status = args.status;
     if (args.error_message !== undefined) updates.error_message = args.error_message;
     if (args.copy_sections !== undefined) updates.copy_sections = args.copy_sections;

@@ -764,7 +764,7 @@ export async function getLandingPage(externalId) {
   return await queryWithRetry(api.landingPages.getByExternalId, { externalId });
 }
 
-export async function createLandingPage({ id, project_id, name, angle, word_count, additional_direction, swipe_text, swipe_filename, status }) {
+export async function createLandingPage({ id, project_id, name, angle, word_count, additional_direction, swipe_text, swipe_filename, swipe_url, swipe_screenshot_storageId, status }) {
   await mutationWithRetry(api.landingPages.create, {
     externalId: id,
     project_id,
@@ -774,6 +774,8 @@ export async function createLandingPage({ id, project_id, name, angle, word_coun
     additional_direction: additional_direction || undefined,
     swipe_text: swipe_text || undefined,
     swipe_filename: swipe_filename || undefined,
+    swipe_url: swipe_url || undefined,
+    swipe_screenshot_storageId: swipe_screenshot_storageId || undefined,
     status: status || 'draft',
   });
 }

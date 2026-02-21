@@ -283,21 +283,34 @@ export async function chatWithMultipleImages(messages, text, images, model = 'cl
     systemPrompt = systemPrompt ? systemPrompt + jsonInstruction : jsonInstruction;
   }
 
-  // Build content blocks: all images first, then text
+  // Build content blocks: all images/documents first, then text
   const contentBlocks = [];
   for (const img of images) {
-    let normalizedMime = img.mimeType;
-    if (!['image/jpeg', 'image/png', 'image/gif', 'image/webp'].includes(normalizedMime)) {
-      normalizedMime = 'image/png';
+    if (img.mimeType === 'application/pdf') {
+      // PDF: send as document block
+      contentBlocks.push({
+        type: 'document',
+        source: {
+          type: 'base64',
+          media_type: 'application/pdf',
+          data: img.base64,
+        },
+      });
+    } else {
+      // Image: send as vision block
+      let normalizedMime = img.mimeType;
+      if (!['image/jpeg', 'image/png', 'image/gif', 'image/webp'].includes(normalizedMime)) {
+        normalizedMime = 'image/png';
+      }
+      contentBlocks.push({
+        type: 'image',
+        source: {
+          type: 'base64',
+          media_type: normalizedMime,
+          data: img.base64,
+        },
+      });
     }
-    contentBlocks.push({
-      type: 'image',
-      source: {
-        type: 'base64',
-        media_type: normalizedMime,
-        data: img.base64,
-      },
-    });
   }
   contentBlocks.push({ type: 'text', text });
 

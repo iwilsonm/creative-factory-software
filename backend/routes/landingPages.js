@@ -20,7 +20,6 @@ import {
 } from '../convexClient.js';
 import { logGeminiCost } from '../services/costTracker.js';
 import {
-  extractPdfText,
   generateLandingPageCopy,
   checkDocsReady,
   analyzeSwipeDesign,
@@ -28,25 +27,13 @@ import {
   generateHtmlTemplate,
   assembleLandingPage,
 } from '../services/lpGenerator.js';
+import { fetchSwipePage } from '../services/lpSwipeFetcher.js';
 import { generateImage } from '../services/gemini.js';
 import { createSSEStream } from '../utils/sseHelper.js';
 import { publishLandingPage, unpublishLandingPage } from '../services/lpPublisher.js';
 
 const router = Router();
 router.use(requireAuth);
-
-// Multer for swipe PDF upload (temp directory)
-const upload = multer({
-  dest: os.tmpdir(),
-  limits: { fileSize: 20 * 1024 * 1024 }, // 20MB
-  fileFilter: (req, file, cb) => {
-    if (file.mimetype === 'application/pdf' || file.originalname.toLowerCase().endsWith('.pdf')) {
-      cb(null, true);
-    } else {
-      cb(new Error('Only PDF files are supported for swipe uploads.'));
-    }
-  },
-});
 
 // Multer for image uploads (jpg, png, webp, gif)
 const imageUpload = multer({
@@ -130,45 +117,26 @@ router.get('/:projectId/landing-pages-check', async (req, res) => {
   res.json(result);
 });
 
-// ─── Generate landing page (SSE stream + multipart for swipe PDF) ────────────
-// Phase 2 pipeline: Design Analysis → Copy Gen → Image Gen → HTML Gen → Assemble
-router.post('/:projectId/landing-pages/generate', upload.single('swipe_pdf'), async (req, res) => {
+// ─── Generate landing page (SSE stream + JSON body with swipe URL) ───────────
+// Phase 2 pipeline: URL Fetch → Design Analysis → Copy Gen → Image Gen → HTML Gen → Assemble
+router.post('/:projectId/landing-pages/generate', async (req, res) => {
   const project = await getProject(req.params.projectId);
   if (!project) {
-    if (req.file?.path) fs.unlinkSync(req.file.path);
     return res.status(404).json({ error: 'Project not found' });
   }
 
-  const { angle, word_count, additional_direction } = req.body;
+  const { angle, swipe_url, word_count, additional_direction, swipe_pdf_base64, swipe_pdf_filename } = req.body;
 
   if (!angle || !angle.trim()) {
-    if (req.file?.path) fs.unlinkSync(req.file.path);
     return res.status(400).json({ error: 'Angle is required' });
   }
 
   // Check foundational docs
   const docsCheck = await checkDocsReady(req.params.projectId);
   if (!docsCheck.ready) {
-    if (req.file?.path) fs.unlinkSync(req.file.path);
     return res.status(400).json({
       error: `Missing foundational documents: ${docsCheck.missing.join(', ')}. Generate or upload these first.`,
     });
-  }
-
-  // Keep the PDF file path for Phase 2A design analysis (don't delete it yet)
-  let swipeText = '';
-  let swipeFilename = '';
-  let pdfPath = null;
-
-  if (req.file) {
-    pdfPath = req.file.path;
-    swipeFilename = req.file.originalname;
-    try {
-      swipeText = await extractPdfText(req.file.path);
-    } catch (err) {
-      console.error('[LPGen] PDF text extraction error:', err.message);
-      swipeText = '';
-    }
   }
 
   // Create landing page record
@@ -183,24 +151,75 @@ router.post('/:projectId/landing-pages/generate', upload.single('swipe_pdf'), as
     angle: angle.trim(),
     word_count: wordCountNum,
     additional_direction: additional_direction?.trim() || undefined,
-    swipe_text: swipeText || undefined,
-    swipe_filename: swipeFilename || undefined,
+    swipe_url: swipe_url?.trim() || undefined,
     status: 'generating',
   });
 
   // SSE stream setup
   const sse = createSSEStream(req, res);
-  sse.sendEvent({ type: 'started', pageId, name: pageName, hasSwipePdf: !!pdfPath });
+  const hasSwipeRef = !!swipe_url || !!swipe_pdf_base64;
+  sse.sendEvent({ type: 'started', pageId, name: pageName, hasSwipeUrl: hasSwipeRef, hasSwipePdf: !!swipe_pdf_base64 });
 
   // Run the full generation pipeline
   (async () => {
     try {
-      // ── Phase 2A: Design Analysis (only if swipe PDF provided) ──
-      let designAnalysis = null;
-      if (pdfPath) {
+      let swipeText = '';
+      let screenshotBuffer = null;
+
+      // ── Phase A: Fetch swipe page (URL) or read swipe PDF ──
+      if (swipe_url && swipe_url.trim()) {
         try {
-          sse.sendEvent({ type: 'phase', phase: 'design_analysis', message: 'Analyzing swipe PDF design...' });
-          designAnalysis = await analyzeSwipeDesign(pdfPath, sse.sendEvent, req.params.projectId);
+          sse.sendEvent({ type: 'phase', phase: 'fetch', message: 'Loading swipe page...' });
+          const fetchResult = await fetchSwipePage(swipe_url.trim(), sse.sendEvent);
+
+          swipeText = fetchResult.textContent;
+          screenshotBuffer = fetchResult.screenshotBuffer;
+
+          // Save fetched data to the landing page record
+          await updateLandingPage(pageId, {
+            swipe_text: swipeText || undefined,
+            swipe_screenshot_storageId: fetchResult.screenshotStorageId,
+          });
+        } catch (err) {
+          console.error('[LPGen] Swipe page fetch error:', err.message);
+          throw new Error(`Failed to fetch swipe page: ${err.message}`);
+        }
+      } else if (swipe_pdf_base64) {
+        try {
+          sse.sendEvent({ type: 'phase', phase: 'fetch', message: 'Reading swipe PDF...' });
+
+          // Extract base64 data from data URL
+          const base64Match = swipe_pdf_base64.match(/^data:application\/pdf;base64,(.+)$/);
+          if (!base64Match) throw new Error('Invalid PDF data');
+          const pdfBuffer = Buffer.from(base64Match[1], 'base64');
+
+          // Use the PDF buffer directly as the "screenshot" for design analysis
+          // Claude can analyze PDFs natively as document blocks
+          screenshotBuffer = pdfBuffer;
+
+          // Extract text from PDF for copy guidance
+          try {
+            const pdfParse = require('pdf-parse');
+            const pdfData = await pdfParse(pdfBuffer);
+            swipeText = pdfData.text || '';
+          } catch {
+            // Text extraction failed, continue with visual analysis only
+            swipeText = '';
+          }
+
+          sse.sendEvent({ type: 'progress', message: `PDF loaded${swipeText ? ` — ${swipeText.length.toLocaleString()} characters extracted` : ''}` });
+        } catch (err) {
+          console.error('[LPGen] Swipe PDF read error:', err.message);
+          throw new Error(`Failed to read swipe PDF: ${err.message}`);
+        }
+      }
+
+      // ── Phase 2A: Design Analysis (only if we have a screenshot) ──
+      let designAnalysis = null;
+      if (screenshotBuffer) {
+        try {
+          sse.sendEvent({ type: 'phase', phase: 'design_analysis', message: 'Analyzing swipe page design...' });
+          designAnalysis = await analyzeSwipeDesign(screenshotBuffer, sse.sendEvent, req.params.projectId);
 
           // Save design analysis
           await updateLandingPage(pageId, {
@@ -214,10 +233,6 @@ router.post('/:projectId/landing-pages/generate', upload.single('swipe_pdf'), as
             message: `Design analysis failed: ${err.message}. Continuing with default layout.`,
           });
           designAnalysis = null;
-        } finally {
-          // Clean up PDF now that design analysis is done
-          if (fs.existsSync(pdfPath)) fs.unlinkSync(pdfPath);
-          pdfPath = null;
         }
       }
 
@@ -311,11 +326,6 @@ router.post('/:projectId/landing-pages/generate', upload.single('swipe_pdf'), as
       sse.end();
     } catch (err) {
       console.error('[LPGen] Generation error:', err.message);
-
-      // Clean up PDF if still exists
-      if (pdfPath && fs.existsSync(pdfPath)) {
-        fs.unlinkSync(pdfPath);
-      }
 
       await updateLandingPage(pageId, {
         status: 'failed',
@@ -735,11 +745,12 @@ router.post('/:projectId/landing-pages/:pageId/duplicate', async (req, res) => {
     word_count: page.word_count || undefined,
     additional_direction: page.additional_direction || undefined,
     swipe_text: page.swipe_text || undefined,
-    swipe_filename: page.swipe_filename || undefined,
+    swipe_url: page.swipe_url || undefined,
+    swipe_screenshot_storageId: page.swipe_screenshot_storageId || undefined,
     status: 'draft',
   });
 
-  // Copy design analysis if it exists (enables regenerating without re-uploading PDF)
+  // Copy design analysis if it exists (enables regenerating without re-fetching URL)
   if (page.swipe_design_analysis) {
     await updateLandingPage(newId, {
       swipe_design_analysis: page.swipe_design_analysis,
@@ -750,7 +761,7 @@ router.post('/:projectId/landing-pages/:pageId/duplicate', async (req, res) => {
   res.status(201).json(newPage);
 });
 
-// ─── Helper: Default design spec when no swipe PDF is provided ──────────────
+// ─── Helper: Default design spec when no swipe URL is provided ──────────────
 function createDefaultDesignSpec(copySections) {
   return {
     layout: {

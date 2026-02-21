@@ -297,8 +297,10 @@ export default defineSchema({
     angle: v.optional(v.string()),       // The angle/hook for this LP
     word_count: v.optional(v.number()),  // Target word count (default 1200)
     additional_direction: v.optional(v.string()), // Extra instructions from user
-    swipe_text: v.optional(v.string()),  // Extracted text from swipe PDF
-    swipe_filename: v.optional(v.string()), // Original swipe PDF filename
+    swipe_text: v.optional(v.string()),  // Extracted text from swipe page
+    swipe_filename: v.optional(v.string()), // Legacy: original swipe PDF filename
+    swipe_url: v.optional(v.string()),               // URL of swipe page
+    swipe_screenshot_storageId: v.optional(v.string()), // Convex storage ID for full-page screenshot
     status: v.string(),                  // draft | generating | completed | failed
     error_message: v.optional(v.string()),
     copy_sections: v.optional(v.string()), // JSON: generated copy sections

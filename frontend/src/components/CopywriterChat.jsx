@@ -8,6 +8,27 @@ const DOC_TYPE_LABELS = {
   necessary_beliefs: 'Necessary Beliefs',
 };
 
+// Image types Claude vision API supports natively (sent as base64)
+const VISION_IMAGE_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.gif', '.webp'];
+// All image types we accept (others shown as attachment markers)
+const IMAGE_EXTENSIONS = ['.jpg', '.jpeg', '.png', '.gif', '.webp', '.svg', '.bmp', '.tiff', '.tif', '.ico', '.heic', '.heif', '.avif'];
+// PDF can be sent natively to Claude as a document block
+const PDF_EXTENSION = '.pdf';
+const DOCUMENT_EXTENSIONS = ['.pdf', '.docx', '.epub', '.mobi', '.txt', '.html', '.htm', '.md', '.csv', '.json', '.xml', '.rtf', '.log', '.yaml', '.yml', '.toml', '.ini', '.cfg', '.conf', '.properties', '.tsx', '.ts', '.js', '.jsx', '.py', '.java', '.rb', '.go', '.rs', '.c', '.cpp', '.h', '.css', '.scss', '.less', '.sql', '.sh', '.bat', '.ps1', '.r', '.swift', '.kt', '.xls', '.xlsx'];
+const ALL_ACCEPTED_EXTENSIONS = [...DOCUMENT_EXTENSIONS, ...IMAGE_EXTENSIONS];
+
+function isImageFile(filename) {
+  return IMAGE_EXTENSIONS.some(ext => filename.toLowerCase().endsWith(ext));
+}
+
+function isVisionImage(filename) {
+  return VISION_IMAGE_EXTENSIONS.some(ext => filename.toLowerCase().endsWith(ext));
+}
+
+function isPdfFile(filename) {
+  return filename.toLowerCase().endsWith(PDF_EXTENSION);
+}
+
 export default function CopywriterChat({ projectId, projectName }) {
   const [isOpen, setIsOpen] = useState(false);
   const [messages, setMessages] = useState([]);
@@ -102,18 +123,78 @@ export default function CopywriterChat({ projectId, projectName }) {
 
     for (const file of files) {
       const id = Date.now() + '-' + Math.random().toString(36).slice(2);
-      const entry = { id, file, name: file.name, extracting: true, text: null, error: null, charCount: null };
-      setAttachedFiles(prev => [...prev, entry]);
+      const isImage = isImageFile(file.name);
+      const isPdf = isPdfFile(file.name);
 
-      try {
-        const result = await api.extractText(file);
-        setAttachedFiles(prev => prev.map(f =>
-          f.id === id ? { ...f, extracting: false, text: result.text, charCount: result.charCount } : f
-        ));
-      } catch (err) {
-        setAttachedFiles(prev => prev.map(f =>
-          f.id === id ? { ...f, extracting: false, error: err.message || 'Extraction failed' } : f
-        ));
+      if (isImage) {
+        // Images: read as data URL for preview + vision API
+        const entry = { id, file, name: file.name, extracting: true, text: null, error: null, charCount: null, isImage: true, isPdf: false, dataUrl: null };
+        setAttachedFiles(prev => [...prev, entry]);
+
+        try {
+          const dataUrl = await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result);
+            reader.onerror = () => reject(new Error('Failed to read image'));
+            reader.readAsDataURL(file);
+          });
+          setAttachedFiles(prev => prev.map(f =>
+            f.id === id ? { ...f, extracting: false, dataUrl, text: `[Image: ${file.name}]`, charCount: 0 } : f
+          ));
+        } catch (err) {
+          setAttachedFiles(prev => prev.map(f =>
+            f.id === id ? { ...f, extracting: false, error: err.message || 'Failed to read image' } : f
+          ));
+        }
+      } else if (isPdf) {
+        // PDFs: read as base64 for native Claude document support + extract text as fallback
+        const entry = { id, file, name: file.name, extracting: true, text: null, error: null, charCount: null, isImage: false, isPdf: true, dataUrl: null };
+        setAttachedFiles(prev => [...prev, entry]);
+
+        try {
+          // Read PDF as base64 data URL for Claude document API
+          const dataUrl = await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result);
+            reader.onerror = () => reject(new Error('Failed to read PDF'));
+            reader.readAsDataURL(file);
+          });
+
+          // Also extract text for the stored message
+          let extractedText = '';
+          let charCount = 0;
+          try {
+            const result = await api.extractText(file);
+            extractedText = result.text;
+            charCount = result.charCount;
+          } catch {
+            // Text extraction failed, PDF will still be sent as document block
+            extractedText = `[PDF: ${file.name}]`;
+          }
+
+          setAttachedFiles(prev => prev.map(f =>
+            f.id === id ? { ...f, extracting: false, dataUrl, text: extractedText, charCount } : f
+          ));
+        } catch (err) {
+          setAttachedFiles(prev => prev.map(f =>
+            f.id === id ? { ...f, extracting: false, error: err.message || 'Failed to read PDF' } : f
+          ));
+        }
+      } else {
+        // Documents: extract text via backend
+        const entry = { id, file, name: file.name, extracting: true, text: null, error: null, charCount: null, isImage: false, isPdf: false, dataUrl: null };
+        setAttachedFiles(prev => [...prev, entry]);
+
+        try {
+          const result = await api.extractText(file);
+          setAttachedFiles(prev => prev.map(f =>
+            f.id === id ? { ...f, extracting: false, text: result.text, charCount: result.charCount } : f
+          ));
+        } catch (err) {
+          setAttachedFiles(prev => prev.map(f =>
+            f.id === id ? { ...f, extracting: false, error: err.message || 'Extraction failed' } : f
+          ));
+        }
       }
     }
   }, []);
@@ -154,9 +235,8 @@ export default function CopywriterChat({ projectId, projectName }) {
     setIsDragging(false);
 
     const files = Array.from(e.dataTransfer?.files || []);
-    // Filter to accepted file types
-    const accepted = ['.pdf', '.docx', '.epub', '.mobi', '.txt', '.html', '.htm', '.md'];
-    const validFiles = files.filter(f => accepted.some(ext => f.name.toLowerCase().endsWith(ext)));
+    // Filter to accepted file types (documents + images)
+    const validFiles = files.filter(f => ALL_ACCEPTED_EXTENSIONS.some(ext => f.name.toLowerCase().endsWith(ext)));
     if (validFiles.length > 0) {
       processFiles(validFiles);
     }
@@ -178,14 +258,27 @@ export default function CopywriterChat({ projectId, projectName }) {
     streamingTextRef.current = '';
 
     // Build message with attached file content prepended
-    const successfulFiles = attachedFiles.filter(f => f.text && !f.error);
+    const successfulFiles = attachedFiles.filter(f => (f.text || f.isImage || f.isPdf) && !f.error);
+    const textOnlyFiles = successfulFiles.filter(f => !f.isImage && !f.isPdf);
+    const pdfFilesWithText = successfulFiles.filter(f => f.isPdf && f.text && !f.dataUrl);
+    const imageFiles = successfulFiles.filter(f => f.isImage);
+    const pdfFilesNative = successfulFiles.filter(f => f.isPdf && f.dataUrl);
+
+    // Text-extracted documents (non-image, non-native-PDF) get prepended as text
+    const allTextDocs = [...textOnlyFiles, ...pdfFilesWithText];
     let fullMessage = text;
-    if (successfulFiles.length > 0) {
-      const fileBlocks = successfulFiles.map(f =>
+    if (allTextDocs.length > 0) {
+      const fileBlocks = allTextDocs.map(f =>
         `[Attached: ${f.name}]\n\n${f.text}`
       ).join('\n\n---\n\n');
       fullMessage = text ? fileBlocks + '\n\n---\n\n' + text : fileBlocks;
     }
+
+    // Build attachments array for Claude API (images as vision, PDFs as document blocks)
+    const images = [
+      ...imageFiles.filter(f => f.dataUrl).map(f => ({ name: f.name, dataUrl: f.dataUrl })),
+      ...pdfFilesNative.map(f => ({ name: f.name, dataUrl: f.dataUrl, isPdf: true })),
+    ];
 
     // Optimistic: show file chips + text in the UI (not the full extracted content)
     const displayContent = successfulFiles.length > 0
@@ -214,7 +307,7 @@ export default function CopywriterChat({ projectId, projectName }) {
         } else if (event.type === 'error') {
           setError(event.text);
         }
-      });
+      }, images.length > 0 ? { images } : undefined);
 
       abortRef.current = abort;
       await done;
@@ -296,11 +389,11 @@ export default function CopywriterChat({ projectId, projectName }) {
         <div className="absolute inset-0 z-50 bg-navy/90 backdrop-blur-sm rounded-2xl flex flex-col items-center justify-center pointer-events-none">
           <div className="w-16 h-16 rounded-2xl border-2 border-dashed border-white/50 flex items-center justify-center mb-3">
             <svg className="w-8 h-8 text-white/80" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 16V4m0 0l-4 4m4-4l4 4M4 14v4a2 2 0 002 2h12a2 2 0 002-2v-4" />
             </svg>
           </div>
           <p className="text-white font-semibold text-[14px]">Drop files here</p>
-          <p className="text-white/60 text-[11px] mt-1">PDF, DOCX, TXT, Markdown, HTML</p>
+          <p className="text-white/60 text-[11px] mt-1">Images, PDFs, documents, code, and more</p>
         </div>
       )}
 
@@ -454,9 +547,15 @@ export default function CopywriterChat({ projectId, projectName }) {
                   <div className="flex flex-wrap gap-1 mb-1.5">
                     {fileAttachments.map((name, i) => (
                       <span key={i} className="inline-flex items-center gap-1 text-[10px] bg-white/20 px-1.5 py-0.5 rounded-md">
-                        <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                        </svg>
+                        {isImageFile(name) ? (
+                          <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                          </svg>
+                        ) : (
+                          <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                          </svg>
+                        )}
                         {name}
                       </span>
                     ))}
@@ -526,9 +625,17 @@ export default function CopywriterChat({ projectId, projectName }) {
                   : 'bg-navy/5 border-navy/15 text-navy'
                 }`}
               >
-                <svg className="w-3 h-3 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
-                </svg>
+                {f.isImage && f.dataUrl ? (
+                  <img src={f.dataUrl} alt={f.name} className="w-5 h-5 rounded object-cover flex-shrink-0" />
+                ) : f.isImage ? (
+                  <svg className="w-3 h-3 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16l4.586-4.586a2 2 0 012.828 0L16 16m-2-2l1.586-1.586a2 2 0 012.828 0L20 14m-6-6h.01M6 20h12a2 2 0 002-2V6a2 2 0 00-2-2H6a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                  </svg>
+                ) : (
+                  <svg className="w-3 h-3 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                  </svg>
+                )}
                 <span className="truncate max-w-[120px]">{f.name}</span>
                 {f.extracting && (
                   <svg className="w-3 h-3 animate-spin flex-shrink-0" fill="none" viewBox="0 0 24 24">
@@ -536,7 +643,7 @@ export default function CopywriterChat({ projectId, projectName }) {
                     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                   </svg>
                 )}
-                {f.charCount && !f.extracting && (
+                {!f.isImage && f.charCount > 0 && !f.extracting && (
                   <span className="text-[9px] text-textlight">{(f.charCount / 1000).toFixed(0)}k</span>
                 )}
                 {f.error && (
@@ -561,7 +668,7 @@ export default function CopywriterChat({ projectId, projectName }) {
             onClick={() => fileInputRef.current?.click()}
             disabled={isStreaming}
             className="w-9 h-9 rounded-xl border border-black/10 hover:border-gold hover:bg-gold/5 text-textlight hover:text-gold disabled:opacity-40 flex items-center justify-center transition-all flex-shrink-0"
-            title="Attach a file (PDF, DOCX, TXT, etc.)"
+            title="Attach files (images, PDFs, documents, code)"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
@@ -570,7 +677,7 @@ export default function CopywriterChat({ projectId, projectName }) {
           <input
             ref={fileInputRef}
             type="file"
-            accept=".pdf,.docx,.epub,.mobi,.txt,.html,.htm,.md"
+            accept=".pdf,.docx,.epub,.mobi,.txt,.html,.htm,.md,.csv,.json,.xml,.rtf,.log,.yaml,.yml,.toml,.ini,.cfg,.conf,.properties,.tsx,.ts,.js,.jsx,.py,.java,.rb,.go,.rs,.c,.cpp,.h,.css,.scss,.less,.sql,.sh,.bat,.ps1,.r,.swift,.kt,.xls,.xlsx,.jpg,.jpeg,.png,.gif,.webp,.svg,.bmp,.tiff,.tif,.ico,.heic,.heif,.avif"
             multiple
             onChange={handleFileSelect}
             className="hidden"

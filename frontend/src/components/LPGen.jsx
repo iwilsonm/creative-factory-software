@@ -52,7 +52,8 @@ function countWords(text) {
 
 // ─── Phase labels for progress display ──────────────────────────────────────
 const PHASE_LABELS = {
-  design_analysis: { label: 'Design Analysis', icon: '🎨', description: 'Analyzing swipe PDF visual layout...' },
+  fetch: { label: 'Page Fetch', icon: '🌐', description: 'Loading swipe page and taking screenshot...' },
+  design_analysis: { label: 'Design Analysis', icon: '🎨', description: 'Analyzing swipe page visual layout...' },
   copy_generation: { label: 'Copy Generation', icon: '✍️', description: 'Writing landing page copy...' },
   image_generation: { label: 'Image Generation', icon: '🖼️', description: 'Generating images via Gemini...' },
   html_generation: { label: 'HTML Template', icon: '🏗️', description: 'Building HTML page...' },
@@ -61,6 +62,7 @@ const PHASE_LABELS = {
 
 // Empirical time estimates per phase (seconds)
 const PHASE_TIMING = {
+  fetch: 15,
   design_analysis: 25,
   copy_generation: 40,
   image_generation: 15, // per image
@@ -833,7 +835,7 @@ function LPEditor({ page: initialPage, onBack, onDelete, projectId }) {
               {imageSlots.length === 0 ? (
                 <div className="text-center py-8">
                   <p className="text-[13px] text-textmid">No image slots in this landing page.</p>
-                  <p className="text-[11px] text-textlight mt-1">Upload a swipe PDF to get AI-generated images.</p>
+                  <p className="text-[11px] text-textlight mt-1">Provide a swipe URL to get AI-generated images.</p>
                 </div>
               ) : (
                 <div className="grid grid-cols-2 gap-3">
@@ -1096,8 +1098,8 @@ function LPEditor({ page: initialPage, onBack, onDelete, projectId }) {
               <div className="p-3 bg-offwhite rounded-xl border border-black/5">
                 <p className="text-[11px] font-medium text-textmid mb-1.5">Generation Details</p>
                 <div className="space-y-1 text-[11px] text-textlight">
-                  {initialPage.swipe_filename && (
-                    <p>Swipe file: <span className="text-textmid">{initialPage.swipe_filename}</span></p>
+                  {initialPage.swipe_url && (
+                    <p>Swipe URL: <a href={initialPage.swipe_url} target="_blank" rel="noopener noreferrer" className="text-gold hover:text-gold/80">{initialPage.swipe_url}</a></p>
                   )}
                   {initialPage.word_count > 0 && (
                     <p>Target: <span className="text-textmid">{initialPage.word_count} words</span> · Actual: <span className="text-textmid">{totalWords} words</span></p>
@@ -1301,7 +1303,8 @@ export default function LPGen({ projectId, project }) {
   const [angle, setAngle] = useState('');
   const [wordCount, setWordCount] = useState(1200);
   const [additionalDirection, setAdditionalDirection] = useState('');
-  const [swipeFile, setSwipeFile] = useState(null); // { file, text, filename, charCount }
+  const [swipeUrl, setSwipeUrl] = useState('');
+  const [swipePdf, setSwipePdf] = useState(null); // { file, name }
 
   // Generation state
   const [generating, setGenerating] = useState(false);
@@ -1369,62 +1372,82 @@ export default function LPGen({ projectId, project }) {
     setImageProgress(null);
     setView('generating');
 
-    const formData = new FormData();
-    formData.append('angle', angle.trim());
-    formData.append('word_count', String(wordCount));
+    const body = {
+      angle: angle.trim(),
+      word_count: wordCount,
+    };
     if (additionalDirection.trim()) {
-      formData.append('additional_direction', additionalDirection.trim());
+      body.additional_direction = additionalDirection.trim();
     }
-    if (!skipSwipe && swipeFile?.file) {
-      formData.append('swipe_pdf', swipeFile.file);
+    if (!skipSwipe && swipeUrl.trim()) {
+      body.swipe_url = swipeUrl.trim();
     }
 
-    const { abort, done } = api.generateLandingPage(projectId, formData, (event) => {
-      if (event.type === 'phase') {
-        // New phase started
-        setCurrentPhase(event.phase);
-        setGenPhases(prev => {
-          if (!prev.includes(event.phase)) return [...prev, event.phase];
-          return prev;
-        });
-        setGenProgress(event.message || '');
-      } else if (event.type === 'progress') {
-        setGenProgress(event.message || event.step || 'Processing...');
-        // Track image generation progress
-        if (event.imageProgress) {
-          setImageProgress(event.imageProgress);
+    // If PDF swipe file provided (and no URL), read as base64 and include
+    const startGeneration = async () => {
+      if (!skipSwipe && swipePdf && !swipeUrl.trim()) {
+        try {
+          const base64 = await new Promise((resolve, reject) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(reader.result);
+            reader.onerror = () => reject(new Error('Failed to read PDF'));
+            reader.readAsDataURL(swipePdf.file);
+          });
+          body.swipe_pdf_base64 = base64;
+          body.swipe_pdf_filename = swipePdf.name;
+        } catch (err) {
+          setGenError('Failed to read PDF file');
+          setGenerating(false);
+          return;
         }
-      } else if (event.type === 'started') {
-        setGenProgress('Generation started...');
-        // Set up initial phases based on whether we have a swipe PDF
-        if (event.hasSwipePdf) {
-          setGenPhases(['design_analysis', 'copy_generation', 'image_generation', 'html_generation', 'assembling']);
-        } else {
-          setGenPhases(['copy_generation', 'html_generation', 'assembling']);
+      }
+
+      const { abort, done } = api.generateLandingPage(projectId, body, (event) => {
+        if (event.type === 'phase') {
+          setCurrentPhase(event.phase);
+          setGenPhases(prev => {
+            if (!prev.includes(event.phase)) return [...prev, event.phase];
+            return prev;
+          });
+          setGenProgress(event.message || '');
+        } else if (event.type === 'progress') {
+          setGenProgress(event.message || event.step || 'Processing...');
+          if (event.imageProgress) {
+            setImageProgress(event.imageProgress);
+          }
+        } else if (event.type === 'started') {
+          setGenProgress('Generation started...');
+          if (event.hasSwipeUrl || event.hasSwipePdf) {
+            setGenPhases(['fetch', 'design_analysis', 'copy_generation', 'image_generation', 'html_generation', 'assembling']);
+          } else {
+            setGenPhases(['copy_generation', 'html_generation', 'assembling']);
+          }
+        } else if (event.type === 'completed') {
+          setGenResult(event);
+          setGenProgress('');
+          setGenerating(false);
+          setCurrentPhase('done');
+          loadPages();
+        } else if (event.type === 'error') {
+          setGenError(event.message || 'Generation failed');
+          setGenProgress('');
+          setGenerating(false);
         }
-      } else if (event.type === 'completed') {
-        setGenResult(event);
-        setGenProgress('');
-        setGenerating(false);
-        setCurrentPhase('done');
-        loadPages();
-      } else if (event.type === 'error') {
-        setGenError(event.message || 'Generation failed');
-        setGenProgress('');
-        setGenerating(false);
-      }
-    });
+      });
 
-    abortRef.current = abort;
+      abortRef.current = abort;
 
-    done.catch((err) => {
-      if (err.name !== 'AbortError') {
-        setGenError(err.message || 'Generation failed');
-        setGenerating(false);
-        setGenProgress('');
-      }
-    });
-  }, [projectId, angle, wordCount, additionalDirection, swipeFile]);
+      done.catch((err) => {
+        if (err.name !== 'AbortError') {
+          setGenError(err.message || 'Generation failed');
+          setGenerating(false);
+          setGenProgress('');
+        }
+      });
+    };
+
+    startGeneration();
+  }, [projectId, angle, wordCount, additionalDirection, swipeUrl, swipePdf]);
 
   const handleCancelGenerate = () => {
     if (abortRef.current) {
@@ -1436,24 +1459,8 @@ export default function LPGen({ projectId, project }) {
     setView('configure');
   };
 
-  const swipeInputRef = useRef(null);
-  const [swipeDragOver, setSwipeDragOver] = useState(false);
 
-  const handleSwipeFileSelected = useCallback(async (file) => {
-    if (!file) return;
-    setSwipeFile({ file, filename: file.name, extracting: true });
-    try {
-      const result = await api.extractText(file);
-      setSwipeFile(prev => ({
-        ...prev,
-        text: result.text,
-        charCount: result.charCount,
-        extracting: false,
-      }));
-    } catch {
-      setSwipeFile(prev => ({ ...prev, extracting: false }));
-    }
-  }, []);
+
 
   const handleViewPage = (page) => {
     setSelectedPage(page);
@@ -1480,7 +1487,8 @@ export default function LPGen({ projectId, project }) {
     setAngle('');
     setWordCount(1200);
     setAdditionalDirection('');
-    setSwipeFile(null);
+    setSwipeUrl('');
+    setSwipePdf(null);
     setGenResult(null);
     setGenError('');
     setGenProgress('');
@@ -1566,16 +1574,16 @@ export default function LPGen({ projectId, project }) {
                 >
                   Back to Configure
                 </button>
-                {(genError.includes('PDF') || genError.toLowerCase().includes('design analysis') || genError.includes('extract pages')) && swipeFile && (
+                {(genError.includes('fetch') || genError.toLowerCase().includes('design analysis') || genError.toLowerCase().includes('swipe page')) && swipeUrl && (
                   <button
                     onClick={() => {
-                      setSwipeFile(null);
+                      setSwipeUrl('');
                       setGenError('');
                       handleStartGenerate({ skipSwipe: true });
                     }}
                     className="btn-secondary text-[12px]"
                   >
-                    Retry Without PDF
+                    Retry Without Swipe
                   </button>
                 )}
                 <button
@@ -1600,7 +1608,7 @@ export default function LPGen({ projectId, project }) {
                 {genResult.hasHtml && ' · HTML preview ready'}
               </p>
               {genResult.hasDesignAnalysis && (
-                <p className="text-[10px] text-navy/60 mb-4">Design extracted from swipe PDF</p>
+                <p className="text-[10px] text-navy/60 mb-4">Design extracted from swipe page</p>
               )}
               <div className="flex items-center justify-center gap-2 mt-3">
                 <button
@@ -1679,78 +1687,90 @@ export default function LPGen({ projectId, project }) {
             />
           </div>
 
-          {/* Swipe PDF */}
+          {/* Swipe Reference */}
           <div className="card p-5">
             <label className="block text-[13px] font-medium text-textdark mb-1.5">
-              Swipe File (PDF)
-              <InfoTooltip text="Upload a PDF of a landing page to use as design and tonal inspiration. The AI will analyze its visual design, generate matching images, and produce a styled HTML page." />
+              Swipe Page URL
+              <InfoTooltip text="Paste the URL of an advertorial or landing page to use as design and tonal inspiration. The AI will load the page, take a screenshot, analyze its visual design, and produce a styled HTML page." />
             </label>
-            {swipeFile ? (
-              <div className="flex items-center gap-3 p-3 bg-teal/5 border border-teal/15 rounded-xl">
-                <svg className="w-5 h-5 text-teal flex-shrink-0" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-                  <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
+            <input
+              type="url"
+              value={swipeUrl}
+              onChange={(e) => { setSwipeUrl(e.target.value); if (e.target.value.trim()) setSwipePdf(null); }}
+              className="input-apple"
+              placeholder="https://example.com/advertorial"
+            />
+            <p className="text-[10px] text-textlight mt-1.5">
+              Optional — the page is loaded in a headless browser, screenshotted, and analyzed for visual design and copy structure.
+            </p>
+
+            {/* Divider */}
+            <div className="flex items-center gap-3 my-3">
+              <div className="flex-1 border-t border-black/5" />
+              <span className="text-[10px] text-textlight font-medium uppercase tracking-wider">or upload PDF</span>
+              <div className="flex-1 border-t border-black/5" />
+            </div>
+
+            {/* PDF upload with drag & drop */}
+            {swipePdf ? (
+              <div className="flex items-center gap-2 px-3 py-2 bg-navy/5 border border-navy/10 rounded-xl">
+                <svg className="w-4 h-4 text-navy/60 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m0 12.75h7.5m-7.5 3H12M10.5 2.25H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" />
                 </svg>
-                <div className="flex-1 min-w-0">
-                  <p className="text-[12px] font-medium text-teal truncate">{swipeFile.filename}</p>
-                  {swipeFile.extracting ? (
-                    <p className="text-[10px] text-teal/70">Extracting text...</p>
-                  ) : swipeFile.charCount ? (
-                    <p className="text-[10px] text-teal/70">{swipeFile.charCount.toLocaleString()} characters extracted</p>
-                  ) : null}
-                </div>
+                <span className="text-[12px] text-navy truncate flex-1">{swipePdf.name}</span>
                 <button
-                  onClick={() => setSwipeFile(null)}
-                  className="text-[11px] text-red-400 hover:text-red-500"
+                  onClick={() => setSwipePdf(null)}
+                  className="text-textlight hover:text-red-500 transition-colors"
                 >
-                  Remove
+                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
                 </button>
               </div>
             ) : (
-              <>
-                <div
-                  onClick={() => swipeInputRef.current?.click()}
-                  onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setSwipeDragOver(true); }}
-                  onDragEnter={(e) => { e.preventDefault(); e.stopPropagation(); setSwipeDragOver(true); }}
-                  onDragLeave={(e) => { e.preventDefault(); e.stopPropagation(); setSwipeDragOver(false); }}
-                  onDrop={(e) => {
-                    e.preventDefault();
-                    e.stopPropagation();
-                    setSwipeDragOver(false);
-                    const file = e.dataTransfer?.files?.[0];
-                    if (file && (file.type === 'application/pdf' || file.name.toLowerCase().endsWith('.pdf'))) {
-                      handleSwipeFileSelected(file);
-                    } else {
-                      toast.error('Only PDF files are supported');
-                    }
-                  }}
-                  className={`border-2 border-dashed rounded-lg p-4 text-center cursor-pointer transition-all ${
-                    swipeDragOver
-                      ? 'border-gold bg-gold/5'
-                      : 'border-gray-300 hover:border-gold hover:bg-offwhite'
-                  }`}
-                >
-                  <div className="text-lg mb-1 text-gray-400">{swipeDragOver ? '📂' : '📄'}</div>
-                  <p className={`text-xs font-medium ${swipeDragOver ? 'text-gold' : 'text-textmid'}`}>
-                    {swipeDragOver ? 'Drop PDF here' : 'Drop a swipe PDF here, or click to browse'}
-                  </p>
-                  <p className="text-[10px] text-gray-400 mt-1">PDF only — used for design analysis + copy inspiration</p>
-                </div>
+              <label
+                className={`flex flex-col items-center justify-center gap-1 px-3 py-4 border-2 border-dashed rounded-xl cursor-pointer transition-all ${swipeUrl.trim() ? 'border-black/10 text-textlight opacity-50 pointer-events-none' : 'border-navy/20 text-textmid hover:border-navy/40 hover:bg-navy/5'}`}
+                onDragOver={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  if (!swipeUrl.trim()) e.currentTarget.classList.add('border-gold', 'bg-gold/5');
+                }}
+                onDragLeave={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  e.currentTarget.classList.remove('border-gold', 'bg-gold/5');
+                }}
+                onDrop={(e) => {
+                  e.preventDefault();
+                  e.stopPropagation();
+                  e.currentTarget.classList.remove('border-gold', 'bg-gold/5');
+                  if (swipeUrl.trim()) return;
+                  const file = Array.from(e.dataTransfer?.files || []).find(f => f.name.toLowerCase().endsWith('.pdf'));
+                  if (file) {
+                    setSwipePdf({ file, name: file.name });
+                    setSwipeUrl('');
+                  }
+                }}
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 16V4m0 0l-4 4m4-4l4 4M4 14v4a2 2 0 002 2h12a2 2 0 002-2v-4" />
+                </svg>
+                <span className="text-[12px]">Drop PDF here or click to browse</span>
                 <input
-                  ref={swipeInputRef}
                   type="file"
                   accept=".pdf"
+                  className="hidden"
                   onChange={(e) => {
                     const file = e.target.files?.[0];
-                    if (file) handleSwipeFileSelected(file);
+                    if (file) {
+                      setSwipePdf({ file, name: file.name });
+                      setSwipeUrl('');
+                    }
                     e.target.value = '';
                   }}
-                  className="hidden"
                 />
-              </>
+              </label>
             )}
-            <p className="text-[10px] text-textlight mt-1.5">
-              Optional — when provided, the AI analyzes the visual design, generates matching images, and creates a styled HTML page.
-            </p>
           </div>
 
           {/* Word Count */}
@@ -1796,17 +1816,19 @@ export default function LPGen({ projectId, project }) {
               ? 'Foundational Docs Required'
               : !angle.trim()
                 ? 'Enter an Angle to Generate'
-                : swipeFile
+                : (swipeUrl.trim() || swipePdf)
                   ? 'Generate Landing Page (with Design Analysis)'
                   : 'Generate Landing Page'
             }
           </button>
 
-          {/* Info about what happens with a swipe PDF */}
-          {swipeFile && (
+          {/* Info about what happens with a swipe reference */}
+          {(swipeUrl.trim() || swipePdf) && (
             <div className="p-3 bg-navy/5 border border-navy/10 rounded-xl">
-              <p className="text-[11px] text-navy font-medium mb-1">With swipe PDF, generation includes:</p>
+              <p className="text-[11px] text-navy font-medium mb-1">With swipe {swipeUrl.trim() ? 'URL' : 'PDF'}, generation includes:</p>
               <ul className="text-[10px] text-navy/70 space-y-0.5 ml-3 list-disc">
+                {swipeUrl.trim() && <li>Full-page screenshot and text extraction from the live page</li>}
+                {swipePdf && <li>PDF visual analysis and content extraction</li>}
                 <li>Visual design analysis (colors, typography, layout)</li>
                 <li>Copy generation guided by swipe structure</li>
                 <li>AI image generation for each image slot</li>
@@ -1861,7 +1883,7 @@ export default function LPGen({ projectId, project }) {
           </div>
           <p className="text-[14px] font-medium text-textdark mb-1">No landing pages yet</p>
           <p className="text-[12px] text-textmid mb-4">
-            Generate your first landing page from foundational docs and a swipe file.
+            Generate your first landing page from foundational docs and a swipe URL.
           </p>
           <button
             onClick={() => setView('configure')}
@@ -1910,10 +1932,17 @@ export default function LPGen({ projectId, project }) {
                           <span className="text-[11px] text-textlight">{sections.length} sections</span>
                         </>
                       )}
-                      {page.swipe_filename && (
-                        <span className="text-[10px] text-textlight bg-black/5 px-1.5 py-0.5 rounded">
-                          {page.swipe_filename}
-                        </span>
+                      {page.swipe_url && (
+                        <a
+                          href={page.swipe_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={(e) => e.stopPropagation()}
+                          className="text-[10px] text-gold hover:text-gold/80 bg-gold/5 px-1.5 py-0.5 rounded truncate max-w-[200px] inline-block"
+                          title={page.swipe_url}
+                        >
+                          {(() => { try { return new URL(page.swipe_url).hostname; } catch { return page.swipe_url; } })()}
+                        </a>
                       )}
                       {hasDesign && (
                         <span className="text-[10px] text-navy/50">

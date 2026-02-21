@@ -52,10 +52,10 @@ router.get('/:projectId/chat/thread', async (req, res) => {
  * SSE streaming endpoint — sends a message and streams Claude's response.
  */
 router.post('/:projectId/chat/send', async (req, res) => {
-  const { message } = req.body;
+  const { message, images } = req.body;
   const projectId = req.params.projectId;
 
-  if (!message || !message.trim()) {
+  if ((!message || !message.trim()) && (!images || images.length === 0)) {
     return res.status(400).json({ error: 'Message is required' });
   }
 
@@ -143,13 +143,19 @@ ${docs.necessary_beliefs}`;
       });
     }
 
-    // 2. Save the user's new message
+    // 2. Save the user's new message (text only — images not persisted)
+    const messageText = message?.trim() || '';
+    const imageNames = (images || []).map(img => img.name).filter(Boolean);
+    const storedMessage = imageNames.length > 0
+      ? (messageText ? `${imageNames.map(n => `[${n}]`).join(' ')}\n${messageText}` : imageNames.map(n => `[${n}]`).join(' '))
+      : messageText;
+
     await createChatMessage({
       id: uuidv4(),
       thread_id: thread.externalId,
       project_id: projectId,
       role: 'user',
-      content: message.trim(),
+      content: storedMessage,
     });
 
     // 3. Load ALL messages from Convex to build conversation history
@@ -159,7 +165,59 @@ ${docs.necessary_beliefs}`;
       content: m.content,
     }));
 
-    // 4. Stream Claude's response
+    // 4. If images are attached to the current message, build multimodal content for the last user message
+    if (images && images.length > 0) {
+      const lastMsg = anthropicMessages[anthropicMessages.length - 1];
+      if (lastMsg && lastMsg.role === 'user') {
+        const contentBlocks = [];
+
+        // Add images and PDFs as native content blocks
+        for (const img of images) {
+          if (img.dataUrl) {
+            if (img.isPdf) {
+              // PDF: send as document block
+              const pdfMatch = img.dataUrl.match(/^data:application\/pdf;base64,(.+)$/);
+              if (pdfMatch) {
+                contentBlocks.push({
+                  type: 'document',
+                  source: { type: 'base64', media_type: 'application/pdf', data: pdfMatch[1] },
+                });
+              }
+            } else {
+              // Image: send as vision content block
+              const match = img.dataUrl.match(/^data:(image\/[^;]+);base64,(.+)$/);
+              if (match) {
+                const mediaType = match[1];
+                const base64Data = match[2];
+                // Only send supported image types to Claude
+                const supportedTypes = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+                if (supportedTypes.includes(mediaType)) {
+                  contentBlocks.push({
+                    type: 'image',
+                    source: { type: 'base64', media_type: mediaType, data: base64Data },
+                  });
+                }
+              }
+            }
+          }
+        }
+
+        // Add text content
+        if (messageText) {
+          contentBlocks.push({ type: 'text', text: messageText });
+        } else if (contentBlocks.length > 0) {
+          // If only images, add a short prompt
+          contentBlocks.push({ type: 'text', text: `Please analyze ${contentBlocks.length === 1 ? 'this image' : 'these images'}.` });
+        }
+
+        // Replace the last message's content with multimodal blocks
+        if (contentBlocks.length > 0) {
+          lastMsg.content = contentBlocks;
+        }
+      }
+    }
+
+    // 5. Stream Claude's response
     sse.sendEvent({ type: 'status', text: 'Thinking...' });
 
     const stream = await client.messages.stream({
@@ -179,7 +237,7 @@ ${docs.necessary_beliefs}`;
       }
     }
 
-    // 5. Save assistant's full response
+    // 6. Save assistant's full response
     await createChatMessage({
       id: uuidv4(),
       thread_id: thread.externalId,

@@ -1,9 +1,9 @@
 /**
  * LP (Landing Page) Generator Service — Phase 1 + Phase 2
  *
- * Phase A: Extract text from uploaded swipe PDF using existing PDF extraction logic
+ * Phase A: Fetch swipe page via headless browser (lpSwipeFetcher.js)
  * Phase B: Generate landing page copy via Claude Sonnet multi-message conversation
- * Phase 2A: Design analysis — convert PDF pages to images, analyze via Claude vision
+ * Phase 2A: Design analysis — analyze screenshot via Claude vision
  * Phase 2C: Image generation — generate images for each slot via Gemini
  * Phase 2D: HTML generation — generate self-contained HTML page via Claude
  * Phase 2E: Placeholder replacement — assemble final HTML with copy, images, CTAs
@@ -11,120 +11,44 @@
  * Uses the same Anthropic wrapper (services/anthropic.js) as the rest of the platform.
  */
 
-import fs from 'fs';
-import path from 'path';
-import os from 'os';
-import { execSync } from 'child_process';
-import { createRequire } from 'module';
 import { logGeminiCost } from './costTracker.js';
-const require = createRequire(import.meta.url);
-const pdf = require('pdf-parse');
 
 import { chat, chatWithMultipleImages } from './anthropic.js';
 import { generateImage } from './gemini.js';
 import { getDocsByProject, uploadBuffer, getStorageUrl } from '../convexClient.js';
 
-// ─── Phase A: Extract text from a swipe PDF buffer ──────────────────────────
+// ─── Phase 2A: Screenshot-based Claude vision design analysis ────────────────
 
 /**
- * Extract text content from a PDF file on disk.
- * Reuses the same pdf-parse library as routes/upload.js.
+ * Analyze swipe page design using Claude Sonnet vision API.
+ * Takes a screenshot buffer (from lpSwipeFetcher) and sends it to Claude for analysis.
  *
- * @param {string} filePath - Path to the PDF file
- * @returns {Promise<string>} Extracted text
- */
-export async function extractPdfText(filePath) {
-  const buffer = fs.readFileSync(filePath);
-  const data = await pdf(buffer);
-  return data.text.trim();
-}
-
-// ─── Phase 2A: PDF to images + Claude vision design analysis ────────────────
-
-/**
- * Convert PDF pages to images using pdftoppm.
- * Falls back to a single-page approach if pdftoppm is not available.
- *
- * @param {string} pdfPath - Path to the PDF file
- * @param {number} [maxPages=5] - Maximum pages to convert
- * @returns {Promise<Array<{base64: string, mimeType: string, pageNum: number}>>}
- */
-async function pdfToImages(pdfPath, maxPages = 5) {
-  const tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'lp-pdf-'));
-  const outputPrefix = path.join(tmpDir, 'page');
-
-  try {
-    // Use pdftoppm to convert PDF pages to JPEG images
-    // -jpeg for JPEG output, -r 150 for 150 DPI (good balance of quality/size),
-    // -l maxPages to limit pages
-    execSync(
-      `pdftoppm -jpeg -r 150 -l ${maxPages} "${pdfPath}" "${outputPrefix}"`,
-      { timeout: 30000 }
-    );
-
-    // Read generated images
-    const files = fs.readdirSync(tmpDir)
-      .filter(f => f.endsWith('.jpg'))
-      .sort(); // pdftoppm names: page-01.jpg, page-02.jpg, etc.
-
-    const images = [];
-    for (let i = 0; i < files.length && i < maxPages; i++) {
-      const imgPath = path.join(tmpDir, files[i]);
-      const imgBuffer = fs.readFileSync(imgPath);
-      images.push({
-        base64: imgBuffer.toString('base64'),
-        mimeType: 'image/jpeg',
-        pageNum: i + 1,
-      });
-    }
-
-    return images;
-  } finally {
-    // Clean up temp directory
-    try {
-      const files = fs.readdirSync(tmpDir);
-      for (const f of files) {
-        fs.unlinkSync(path.join(tmpDir, f));
-      }
-      fs.rmdirSync(tmpDir);
-    } catch {}
-  }
-}
-
-/**
- * Analyze swipe PDF design using Claude Sonnet vision API.
- * Converts PDF pages to images, sends them to Claude, and returns a design specification JSON.
- *
- * @param {string} pdfPath - Path to the PDF file
+ * @param {Buffer} screenshotBuffer - JPEG screenshot buffer
  * @param {(event: object) => void} sendEvent - SSE event callback
  * @param {string} projectId - For cost logging
  * @returns {Promise<object>} Design analysis JSON
  */
-export async function analyzeSwipeDesign(pdfPath, sendEvent, projectId) {
-  // Validate PDF size before processing
-  try {
-    const fileStats = fs.statSync(pdfPath);
-    if (fileStats.size > 15 * 1024 * 1024) {
-      throw new Error(`PDF is too large (${Math.round(fileStats.size / 1024 / 1024)}MB). Maximum supported size is 15MB. Try compressing the PDF or using fewer pages.`);
-    }
-  } catch (err) {
-    if (err.message.includes('too large')) throw err;
-    // If stat fails, continue anyway
-  }
-
-  sendEvent({ type: 'progress', step: 'design_converting', message: 'Converting PDF pages to images...' });
-
-  const pageImages = await pdfToImages(pdfPath, 5);
-
-  if (pageImages.length === 0) {
-    throw new Error('Failed to extract pages from the swipe PDF. Ensure the file is a valid, unencrypted PDF. If the problem persists, try re-saving the PDF from a different application.');
+export async function analyzeSwipeDesign(screenshotBuffer, sendEvent, projectId) {
+  if (!screenshotBuffer || screenshotBuffer.length === 0) {
+    throw new Error('No screenshot available for design analysis.');
   }
 
   sendEvent({
     type: 'progress',
     step: 'design_analyzing',
-    message: `Analyzing ${pageImages.length} page${pageImages.length > 1 ? 's' : ''} with Claude vision...`,
+    message: 'Analyzing swipe page design with Claude vision...',
   });
+
+  // Detect if buffer is a PDF (starts with %PDF) or an image
+  const isPdf = screenshotBuffer[0] === 0x25 && screenshotBuffer[1] === 0x50 &&
+                screenshotBuffer[2] === 0x44 && screenshotBuffer[3] === 0x46;
+
+  // Convert buffer to the format expected by chatWithMultipleImages
+  const pageImages = [{
+    base64: screenshotBuffer.toString('base64'),
+    mimeType: isPdf ? 'application/pdf' : 'image/jpeg',
+    pageNum: 1,
+  }];
 
   const systemPrompt = `You are a web design analyst specializing in landing page design. You analyze visual designs from PDF screenshots and produce detailed design specifications that can be used to recreate similar layouts in HTML/CSS.
 
