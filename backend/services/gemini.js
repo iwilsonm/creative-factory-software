@@ -1,6 +1,7 @@
 import { GoogleGenAI } from '@google/genai';
 import { getSetting } from '../convexClient.js';
 import { withRetry } from './retry.js';
+import { withGeminiLimit } from './rateLimiter.js';
 
 let client = null;
 let lastApiKey = null;
@@ -53,19 +54,22 @@ export async function generateImage(prompt, aspectRatio = '1:1', productImage = 
     return false;
   };
 
-  const response = await withRetry(
-    () => ai.models.generateContent({
-      model: 'gemini-3-pro-image-preview',
-      contents,
-      config: {
-        responseModalities: ['TEXT', 'IMAGE'],
-        imageConfig: {
-          aspectRatio: aspectRatio || '1:1',
-          imageSize: '2K'
+  const response = await withGeminiLimit(
+    () => withRetry(
+      () => ai.models.generateContent({
+        model: 'gemini-3-pro-image-preview',
+        contents,
+        config: {
+          responseModalities: ['TEXT', 'IMAGE'],
+          imageConfig: {
+            aspectRatio: aspectRatio || '1:1',
+            imageSize: '2K'
+          }
         }
-      }
-    }),
-    { label: '[Gemini generateImage]', maxRetries: 3, shouldRetry: shouldRetryGemini, baseDelayMs: 2000 }
+      }),
+      { label: '[Gemini generateImage]', maxRetries: 3, shouldRetry: shouldRetryGemini, baseDelayMs: 2000 }
+    ),
+    `[Gemini ${aspectRatio || '1:1'}]`
   );
 
   let imageBuffer = null;

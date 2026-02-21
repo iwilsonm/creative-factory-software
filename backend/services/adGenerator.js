@@ -3,7 +3,7 @@ import { chat, chatWithImage, chatWithImages } from './openai.js';
 import { chat as claudeChat, chatWithImage as claudeChatWithImage } from './anthropic.js';
 import { generateImage } from './gemini.js';
 import { logGeminiCost } from './costTracker.js';
-import { withGptRateLimit } from './rateLimiter.js';
+import { withHeavyLLMLimit } from './rateLimiter.js';
 import {
   getProject, getLatestDoc, uploadBuffer, downloadToBuffer,
   getInspirationImages, getInspirationImageUrl,
@@ -441,7 +441,7 @@ export async function generateAd(projectId, options = {}) {
     // GPT-5.2 Messages 1-2: Rate-limited to prevent TPM overload
     const hasProductImage = !!(productImageBase64 && productImageMimeType);
 
-    let imagePrompt = await withGptRateLimit(async () => {
+    let imagePrompt = await withHeavyLLMLimit(async () => {
       // Message 1: Creative director prompt + foundational docs
       emit({ type: 'status', status: 'generating_copy', message: 'Sending creative brief to GPT-5.2...', progress: 15 });
 
@@ -681,7 +681,7 @@ export async function generateAdMode2(projectId, options = {}) {
     // GPT-5.2 Messages 1-2: Rate-limited to prevent TPM overload
     const hasProductImage = !!(productImageBase64 && productImageMimeType);
 
-    let imagePrompt = await withGptRateLimit(async () => {
+    let imagePrompt = await withHeavyLLMLimit(async () => {
       // Message 1: Creative director prompt + foundational docs
       emit({ type: 'status', status: 'generating_copy', message: 'Sending creative brief to GPT-5.2...', progress: 15 });
 
@@ -900,7 +900,7 @@ ${beliefsContent}`;
   // Attempt with retry — fall back to raw docs if both attempts fail
   for (let attempt = 1; attempt <= 2; attempt++) {
     try {
-      const briefPacket = await withGptRateLimit(async () => {
+      const briefPacket = await withHeavyLLMLimit(async () => {
         return await claudeChat([{ role: 'user', content: prompt }], 'claude-opus-4-6', {
           operation: 'batch_brief_extraction',
           projectId: project?.id || null,
@@ -1057,7 +1057,7 @@ OUTPUT FORMAT — respond as JSON only:
 
   for (let attempt = 1; attempt <= 3; attempt++) {
     try {
-      const response = await withGptRateLimit(async () => {
+      const response = await withHeavyLLMLimit(async () => {
         return await claudeChat(
           [{ role: 'user', content: attempt > 1
             ? prompt + `\n\nIMPORTANT: Your previous attempt did not succeed. Please ensure you generate exactly ${count} headlines and return valid JSON.`
@@ -1206,7 +1206,7 @@ OUTPUT FORMAT — respond as JSON only:
     let batchSuccess = false;
     for (let attempt = 1; attempt <= 2 && !batchSuccess; attempt++) {
       try {
-        const response = await withGptRateLimit(async () => {
+        const response = await withHeavyLLMLimit(async () => {
           return await claudeChat(
             [{ role: 'user', content: prompt }],
             'claude-sonnet-4-6',
@@ -1317,7 +1317,7 @@ CRITICAL: The headline and body copy are FINAL. Do not rewrite, shorten, improve
 
 Output the image generation prompt as a single text block ready to paste into the image generation tool.`;
 
-  const imagePrompt = await withGptRateLimit(async () => {
+  const imagePrompt = await withHeavyLLMLimit(async () => {
     return await claudeChatWithImage(
       [],
       promptText,

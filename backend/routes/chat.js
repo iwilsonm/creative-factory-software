@@ -11,6 +11,7 @@ import {
 } from '../convexClient.js';
 import { getAnthropicClient } from '../services/quoteMiner.js';
 import { createSSEStream } from '../utils/sseHelper.js';
+import { withRetry } from '../services/retry.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -117,14 +118,17 @@ ${docs.necessary_beliefs}`;
         is_context_message: true,
       });
 
-      // Get Claude's initial acknowledgment
+      // Get Claude's initial acknowledgment (with retry for transient errors)
       sse.sendEvent({ type: 'status', text: 'Getting initial acknowledgment...' });
-      const ackResponse = await client.messages.create({
-        model: 'claude-sonnet-4-6-20250514',
-        max_tokens: 1024,
-        system: SYSTEM_PROMPT,
-        messages: [{ role: 'user', content: contextContent }],
-      });
+      const ackResponse = await withRetry(
+        () => client.messages.create({
+          model: 'claude-sonnet-4-6-20250514',
+          max_tokens: 1024,
+          system: SYSTEM_PROMPT,
+          messages: [{ role: 'user', content: contextContent }],
+        }),
+        { label: '[Chat Ack]' }
+      );
 
       const ackText = ackResponse.content[0]?.text || 'I\'ve reviewed all four documents. Ready to help with your copywriting.';
 
