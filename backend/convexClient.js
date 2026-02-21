@@ -508,6 +508,93 @@ export async function deleteDeployment(id) {
 }
 
 // =============================================
+// Campaign helpers (local campaign organization)
+// =============================================
+
+export async function getCampaignsByProject(projectId) {
+  const campaigns = await queryWithRetry(api.campaigns.getByProject, { projectId });
+  return campaigns.map(c => ({
+    id: c.externalId,
+    project_id: c.project_id,
+    name: c.name,
+    sort_order: c.sort_order,
+    created_at: c.created_at,
+    updated_at: c.updated_at,
+  }));
+}
+
+export async function createCampaign({ id, project_id, name, sort_order }) {
+  const now = new Date().toISOString();
+  return await mutationWithRetry(api.campaigns.create, {
+    externalId: id,
+    project_id,
+    name,
+    sort_order: sort_order || 0,
+    created_at: now,
+    updated_at: now,
+  });
+}
+
+export async function updateCampaign(id, fields) {
+  return await mutationWithRetry(api.campaigns.update, { externalId: id, fields });
+}
+
+export async function deleteCampaign(id) {
+  return await mutationWithRetry(api.campaigns.remove, { externalId: id });
+}
+
+// =============================================
+// Ad Set helpers (local ad set organization)
+// =============================================
+
+export async function getAdSetsByProject(projectId) {
+  const adSets = await queryWithRetry(api.adSets.getByProject, { projectId });
+  return adSets.map(a => ({
+    id: a.externalId,
+    campaign_id: a.campaign_id,
+    project_id: a.project_id,
+    name: a.name,
+    sort_order: a.sort_order,
+    created_at: a.created_at,
+    updated_at: a.updated_at,
+  }));
+}
+
+export async function getAdSetsByCampaign(campaignId) {
+  const adSets = await queryWithRetry(api.adSets.getByCampaign, { campaignId });
+  return adSets.map(a => ({
+    id: a.externalId,
+    campaign_id: a.campaign_id,
+    project_id: a.project_id,
+    name: a.name,
+    sort_order: a.sort_order,
+    created_at: a.created_at,
+    updated_at: a.updated_at,
+  }));
+}
+
+export async function createAdSet({ id, campaign_id, project_id, name, sort_order }) {
+  const now = new Date().toISOString();
+  return await mutationWithRetry(api.adSets.create, {
+    externalId: id,
+    campaign_id,
+    project_id,
+    name,
+    sort_order: sort_order || 0,
+    created_at: now,
+    updated_at: now,
+  });
+}
+
+export async function updateAdSet(id, fields) {
+  return await mutationWithRetry(api.adSets.update, { externalId: id, fields });
+}
+
+export async function deleteAdSet(id) {
+  return await mutationWithRetry(api.adSets.remove, { externalId: id });
+}
+
+// =============================================
 // Quote Mining Run helpers
 // =============================================
 

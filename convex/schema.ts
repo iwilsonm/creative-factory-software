@@ -140,6 +140,30 @@ export default defineSchema({
     .index("by_project_and_period", ["project_id", "period_date"])
     .index("by_source_and_period", ["source", "period_date"]),
 
+  campaigns: defineTable({
+    externalId: v.string(),
+    project_id: v.string(),      // → projects.externalId
+    name: v.string(),
+    sort_order: v.number(),
+    created_at: v.string(),
+    updated_at: v.string(),
+  })
+    .index("by_externalId", ["externalId"])
+    .index("by_project", ["project_id"]),
+
+  ad_sets: defineTable({
+    externalId: v.string(),
+    campaign_id: v.string(),     // → campaigns.externalId
+    project_id: v.string(),      // → projects.externalId (denormalized)
+    name: v.string(),
+    sort_order: v.number(),
+    created_at: v.string(),
+    updated_at: v.string(),
+  })
+    .index("by_externalId", ["externalId"])
+    .index("by_campaign", ["campaign_id"])
+    .index("by_project", ["project_id"]),
+
   ad_deployments: defineTable({
     externalId: v.string(),
     ad_id: v.string(),           // → ad_creatives.externalId
@@ -155,6 +179,8 @@ export default defineSchema({
     meta_campaign_id: v.optional(v.string()),
     meta_adset_id: v.optional(v.string()),
     meta_ad_id: v.optional(v.string()),
+    local_campaign_id: v.optional(v.string()),  // → campaigns.externalId or "unplanned"
+    local_adset_id: v.optional(v.string()),     // → ad_sets.externalId
     created_at: v.string(),
   })
     .index("by_externalId", ["externalId"])

@@ -79,6 +79,8 @@ export const update = mutation({
       meta_campaign_id: v.optional(v.string()),
       meta_adset_id: v.optional(v.string()),
       meta_ad_id: v.optional(v.string()),
+      local_campaign_id: v.optional(v.string()),
+      local_adset_id: v.optional(v.string()),
     }),
   },
   handler: async (ctx, args) => {

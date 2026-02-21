@@ -12,6 +12,15 @@ import {
   getAllAds,
   getAdImageUrl,
   getProject,
+  getCampaignsByProject,
+  createCampaign,
+  updateCampaign,
+  deleteCampaign,
+  getAdSetsByProject,
+  getAdSetsByCampaign,
+  createAdSet,
+  updateAdSet,
+  deleteAdSet,
   convexClient,
   api,
 } from '../convexClient.js';
@@ -143,6 +152,7 @@ router.put('/deployments/:id', async (req, res) => {
     const allowedFields = [
       'campaign_name', 'ad_set_name', 'ad_name',
       'landing_page_url', 'notes', 'planned_date', 'posted_date',
+      'local_campaign_id', 'local_adset_id',
     ];
 
     const fields = {};
@@ -253,6 +263,208 @@ router.post('/deployments/backfill-headlines', async (req, res) => {
   } catch (err) {
     console.error('Failed to backfill headlines:', err);
     res.status(500).json({ error: 'Failed to backfill headlines' });
+  }
+});
+
+// =============================================
+// Campaign & Ad Set CRUD (local organization)
+// =============================================
+
+/**
+ * GET /deployments/campaigns?projectId=xxx — List campaigns for project
+ */
+router.get('/deployments/campaigns', async (req, res) => {
+  try {
+    const { projectId } = req.query;
+    if (!projectId) return res.status(400).json({ error: 'projectId required' });
+    const campaigns = await getCampaignsByProject(projectId);
+    const adSets = await getAdSetsByProject(projectId);
+    res.json({ campaigns, adSets });
+  } catch (err) {
+    console.error('Failed to list campaigns:', err);
+    res.status(500).json({ error: 'Failed to list campaigns' });
+  }
+});
+
+/**
+ * POST /deployments/campaigns — Create campaign
+ * Body: { projectId, name }
+ */
+router.post('/deployments/campaigns', async (req, res) => {
+  try {
+    const { projectId, name } = req.body;
+    if (!projectId || !name) return res.status(400).json({ error: 'projectId and name required' });
+    const existing = await getCampaignsByProject(projectId);
+    const id = crypto.randomUUID();
+    await createCampaign({ id, project_id: projectId, name, sort_order: existing.length });
+    res.json({ success: true, id });
+  } catch (err) {
+    console.error('Failed to create campaign:', err);
+    res.status(500).json({ error: 'Failed to create campaign' });
+  }
+});
+
+/**
+ * PUT /deployments/campaigns/:id — Update campaign
+ */
+router.put('/deployments/campaigns/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const allowed = ['name', 'sort_order'];
+    const fields = {};
+    for (const key of allowed) {
+      if (req.body[key] !== undefined) fields[key] = req.body[key];
+    }
+    if (Object.keys(fields).length === 0) return res.status(400).json({ error: 'No valid fields' });
+    await updateCampaign(id, fields);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Failed to update campaign:', err);
+    res.status(500).json({ error: 'Failed to update campaign' });
+  }
+});
+
+/**
+ * DELETE /deployments/campaigns/:id — Delete campaign + cascade
+ * Unassigns all deployments, deletes all ad sets, then deletes campaign
+ */
+router.delete('/deployments/campaigns/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    // Get all ad sets for this campaign
+    const adSets = await getAdSetsByCampaign(id);
+    // Get all deployments in this project and unassign those linked to this campaign
+    // (We need to find deployments by checking local_campaign_id)
+    const allDeps = await getAllDeployments();
+    const linked = allDeps.filter(d => d.local_campaign_id === id || d.local_campaign_id === id);
+    for (const dep of linked) {
+      await updateDeployment(dep.externalId, { local_campaign_id: 'unplanned', local_adset_id: undefined });
+    }
+    // Delete all ad sets
+    for (const adSet of adSets) {
+      await deleteAdSet(adSet.id);
+    }
+    // Delete the campaign
+    await deleteCampaign(id);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Failed to delete campaign:', err);
+    res.status(500).json({ error: 'Failed to delete campaign' });
+  }
+});
+
+/**
+ * POST /deployments/campaigns/:id/adsets — Create ad set in campaign
+ * Body: { name, projectId }
+ */
+router.post('/deployments/campaigns/:campaignId/adsets', async (req, res) => {
+  try {
+    const { campaignId } = req.params;
+    const { name, projectId } = req.body;
+    if (!name || !projectId) return res.status(400).json({ error: 'name and projectId required' });
+    const existing = await getAdSetsByCampaign(campaignId);
+    const id = crypto.randomUUID();
+    await createAdSet({ id, campaign_id: campaignId, project_id: projectId, name, sort_order: existing.length });
+    res.json({ success: true, id });
+  } catch (err) {
+    console.error('Failed to create ad set:', err);
+    res.status(500).json({ error: 'Failed to create ad set' });
+  }
+});
+
+/**
+ * PUT /deployments/adsets/:id — Update ad set
+ */
+router.put('/deployments/adsets/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const allowed = ['name', 'sort_order', 'campaign_id'];
+    const fields = {};
+    for (const key of allowed) {
+      if (req.body[key] !== undefined) fields[key] = req.body[key];
+    }
+    if (Object.keys(fields).length === 0) return res.status(400).json({ error: 'No valid fields' });
+    await updateAdSet(id, fields);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Failed to update ad set:', err);
+    res.status(500).json({ error: 'Failed to update ad set' });
+  }
+});
+
+/**
+ * DELETE /deployments/adsets/:id — Delete ad set, unassign deployments back to unplanned
+ */
+router.delete('/deployments/adsets/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    // Unassign all deployments in this ad set
+    const allDeps = await getAllDeployments();
+    const linked = allDeps.filter(d => d.local_adset_id === id);
+    for (const dep of linked) {
+      await updateDeployment(dep.externalId, { local_campaign_id: 'unplanned', local_adset_id: undefined });
+    }
+    await deleteAdSet(id);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Failed to delete ad set:', err);
+    res.status(500).json({ error: 'Failed to delete ad set' });
+  }
+});
+
+/**
+ * POST /deployments/move-to-unplanned — Move deployments to Campaigns (Unplanned section)
+ * Body: { deploymentIds: string[] }
+ */
+router.post('/deployments/move-to-unplanned', async (req, res) => {
+  try {
+    const { deploymentIds } = req.body;
+    if (!deploymentIds?.length) return res.status(400).json({ error: 'deploymentIds required' });
+    await Promise.all(deploymentIds.map(id =>
+      updateDeployment(id, { local_campaign_id: 'unplanned' })
+    ));
+    res.json({ success: true, count: deploymentIds.length });
+  } catch (err) {
+    console.error('Failed to move to unplanned:', err);
+    res.status(500).json({ error: 'Failed to move to unplanned' });
+  }
+});
+
+/**
+ * POST /deployments/assign-to-adset — Assign deployments to a campaign + ad set
+ * Body: { deploymentIds: string[], campaignId: string, adsetId: string }
+ */
+router.post('/deployments/assign-to-adset', async (req, res) => {
+  try {
+    const { deploymentIds, campaignId, adsetId } = req.body;
+    if (!deploymentIds?.length || !campaignId || !adsetId) {
+      return res.status(400).json({ error: 'deploymentIds, campaignId, and adsetId required' });
+    }
+    await Promise.all(deploymentIds.map(id =>
+      updateDeployment(id, { local_campaign_id: campaignId, local_adset_id: adsetId })
+    ));
+    res.json({ success: true, count: deploymentIds.length });
+  } catch (err) {
+    console.error('Failed to assign to ad set:', err);
+    res.status(500).json({ error: 'Failed to assign to ad set' });
+  }
+});
+
+/**
+ * POST /deployments/unassign — Move deployments back to Unplanned
+ * Body: { deploymentIds: string[] }
+ */
+router.post('/deployments/unassign', async (req, res) => {
+  try {
+    const { deploymentIds } = req.body;
+    if (!deploymentIds?.length) return res.status(400).json({ error: 'deploymentIds required' });
+    await Promise.all(deploymentIds.map(id =>
+      updateDeployment(id, { local_campaign_id: 'unplanned', local_adset_id: undefined })
+    ));
+    res.json({ success: true, count: deploymentIds.length });
+  } catch (err) {
+    console.error('Failed to unassign:', err);
+    res.status(500).json({ error: 'Failed to unassign' });
   }
 });
 

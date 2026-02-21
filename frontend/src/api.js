@@ -308,6 +308,18 @@ export const api = {
   renameAllDeployments: () => request('/deployments/rename-all', { method: 'POST' }),
   backfillHeadlines: () => request('/deployments/backfill-headlines', { method: 'POST' }),
 
+  // Campaigns & Ad Sets (local organization)
+  getCampaigns: (projectId) => request(`/deployments/campaigns?projectId=${projectId}`),
+  createCampaign: (projectId, name) => request('/deployments/campaigns', { method: 'POST', body: JSON.stringify({ projectId, name }) }),
+  updateCampaign: (id, fields) => request(`/deployments/campaigns/${id}`, { method: 'PUT', body: JSON.stringify(fields) }),
+  deleteCampaign: (id) => request(`/deployments/campaigns/${id}`, { method: 'DELETE' }),
+  createAdSet: (campaignId, name, projectId) => request(`/deployments/campaigns/${campaignId}/adsets`, { method: 'POST', body: JSON.stringify({ name, projectId }) }),
+  updateAdSet: (id, fields) => request(`/deployments/adsets/${id}`, { method: 'PUT', body: JSON.stringify(fields) }),
+  deleteAdSet: (id) => request(`/deployments/adsets/${id}`, { method: 'DELETE' }),
+  moveToUnplanned: (deploymentIds) => request('/deployments/move-to-unplanned', { method: 'POST', body: JSON.stringify({ deploymentIds }) }),
+  assignToAdSet: (deploymentIds, campaignId, adsetId) => request('/deployments/assign-to-adset', { method: 'POST', body: JSON.stringify({ deploymentIds, campaignId, adsetId }) }),
+  unassignFromAdSet: (deploymentIds) => request('/deployments/unassign', { method: 'POST', body: JSON.stringify({ deploymentIds }) }),
+
   // Quote Mining
   getQuoteMiningRuns: (projectId) => request(`/projects/${projectId}/quote-mining`),
   getQuoteMiningRun: (projectId, runId) => request(`/projects/${projectId}/quote-mining/${runId}`),

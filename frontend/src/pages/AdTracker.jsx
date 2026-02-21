@@ -3,6 +3,7 @@ import JSZip from 'jszip';
 import { api } from '../api';
 import { useToast } from '../components/Toast';
 import { useAsyncData } from '../hooks/useAsyncData';
+import CampaignsView from '../components/CampaignsView';
 
 const STATUS_ORDER = ['selected', 'scheduled', 'posted', 'analyzing'];
 const STATUS_META = {
@@ -25,6 +26,7 @@ export default function AdTracker({ projectId }) {
     () => api.getProjectDeployments(projectId).then(d => d.deployments || []),
     [projectId]
   );
+  const [activeView, setActiveView] = useState('status'); // 'status' | 'campaigns'
   const [statusFilter, setStatusFilter] = useState('selected');
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [bulkEditOpen, setBulkEditOpen] = useState(false);
@@ -243,8 +245,15 @@ export default function AdTracker({ projectId }) {
   };
 
   // ─── Filtering & Sorting ──────────────────────────────────────────────────
+  // Unposted = selected status AND not moved to campaigns
+  const unpostedDeps = deployments.filter(d => d.status === 'selected' && !d.local_campaign_id);
+  // Campaigns = any deployment with local_campaign_id set
+  const campaignsDeps = deployments.filter(d => !!d.local_campaign_id);
+
   const filtered = statusFilter === 'all'
     ? deployments
+    : statusFilter === 'selected'
+    ? unpostedDeps // Unposted tab excludes campaign-assigned deployments
     : deployments.filter(d => d.status === statusFilter);
 
   const sorted = [...filtered].sort((a, b) => {
@@ -255,6 +264,8 @@ export default function AdTracker({ projectId }) {
 
   const statusCounts = {};
   for (const d of deployments) {
+    // Don't count campaign-assigned 'selected' deployments in the Unposted count
+    if (d.status === 'selected' && d.local_campaign_id) continue;
     statusCounts[d.status] = (statusCounts[d.status] || 0) + 1;
   }
 
@@ -638,15 +649,38 @@ export default function AdTracker({ projectId }) {
     <div>
       {/* Status filter pills */}
       <div className="flex items-center gap-2 mb-5 flex-wrap">
-        {STATUS_ORDER.map(status => {
+        {/* Unposted */}
+        <button
+          onClick={() => { setActiveView('status'); setStatusFilter('selected'); setSelectedIds(new Set()); }}
+          className={`px-3 py-1.5 rounded-full text-[12px] font-medium transition-colors ${
+            activeView === 'status' && statusFilter === 'selected'
+              ? 'bg-gray-900 text-white'
+              : `${STATUS_META.selected.color} hover:opacity-80`
+          }`}
+        >
+          Unposted ({statusCounts['selected'] || 0})
+        </button>
+        {/* Campaigns */}
+        <button
+          onClick={() => { setActiveView('campaigns'); setSelectedIds(new Set()); }}
+          className={`px-3 py-1.5 rounded-full text-[12px] font-medium transition-colors ${
+            activeView === 'campaigns'
+              ? 'bg-gray-900 text-white'
+              : 'bg-navy/10 text-navy hover:opacity-80'
+          }`}
+        >
+          Campaigns ({campaignsDeps.length})
+        </button>
+        {/* Scheduled / Posted / Analyzing */}
+        {STATUS_ORDER.slice(1).map(status => {
           const meta = STATUS_META[status];
           const count = statusCounts[status] || 0;
           return (
             <button
               key={status}
-              onClick={() => setStatusFilter(status)}
+              onClick={() => { setActiveView('status'); setStatusFilter(status); setSelectedIds(new Set()); }}
               className={`px-3 py-1.5 rounded-full text-[12px] font-medium transition-colors ${
-                statusFilter === status
+                activeView === 'status' && statusFilter === status
                   ? 'bg-gray-900 text-white'
                   : `${meta.color} hover:opacity-80`
               }`}
@@ -656,9 +690,9 @@ export default function AdTracker({ projectId }) {
           );
         })}
         <button
-          onClick={() => setStatusFilter('all')}
+          onClick={() => { setActiveView('status'); setStatusFilter('all'); setSelectedIds(new Set()); }}
           className={`px-3 py-1.5 rounded-full text-[12px] font-medium transition-colors ${
-            statusFilter === 'all'
+            activeView === 'status' && statusFilter === 'all'
               ? 'bg-gray-900 text-white'
               : 'bg-black/5 text-textmid hover:bg-black/10'
           }`}
@@ -667,6 +701,20 @@ export default function AdTracker({ projectId }) {
         </button>
       </div>
 
+      {/* ═══════════ Campaigns View ═══════════ */}
+      {activeView === 'campaigns' && (
+        <CampaignsView
+          projectId={projectId}
+          deployments={deployments}
+          setDeployments={setDeployments}
+          addToast={addToast}
+          loadDeployments={loadDeployments}
+        />
+      )}
+
+      {/* ═══════════ Status Table View ═══════════ */}
+      {activeView === 'status' && <>
+
       {/* Bulk action bar */}
       {selectedIds.size > 0 && (
         <div className="flex items-center gap-3 mb-4 p-3 bg-navy/5 rounded-xl border border-navy/10 fade-in">
@@ -674,6 +722,32 @@ export default function AdTracker({ projectId }) {
             {selectedIds.size} selected
           </span>
           <div className="flex items-center gap-2 ml-auto">
+            {/* Move to Campaigns — only on Unposted tab */}
+            {statusFilter === 'selected' && (
+              <button
+                onClick={async () => {
+                  const ids = [...selectedIds];
+                  // Optimistic update
+                  setDeployments(prev => prev.map(d =>
+                    ids.includes(d.id) ? { ...d, local_campaign_id: 'unplanned' } : d
+                  ));
+                  setSelectedIds(new Set());
+                  try {
+                    await api.moveToUnplanned(ids);
+                    addToast(`Moved ${ids.length} ad${ids.length > 1 ? 's' : ''} to Campaigns`, 'success');
+                  } catch (err) {
+                    addToast('Failed to move to campaigns', 'error');
+                    loadDeployments();
+                  }
+                }}
+                className="text-[11px] px-2.5 py-1 rounded-lg bg-navy text-white hover:bg-navy-light transition-colors inline-flex items-center gap-1"
+              >
+                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+                </svg>
+                Move to Campaigns
+              </button>
+            )}
             {STATUS_ORDER.slice(1).map(status => (
               <button
                 key={status}
@@ -1237,6 +1311,8 @@ export default function AdTracker({ projectId }) {
           </div>
         </div>
       )}
+
+      </>}
 
       {/* Performance section */}
       <div className="mt-8">
