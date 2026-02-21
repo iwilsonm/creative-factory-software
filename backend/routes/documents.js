@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import { requireAuth } from '../auth.js';
-import { getProject, getDocsByProject, getLatestDoc, updateProject, getSetting, setSetting } from '../convexClient.js';
+import { getProject, getDocsByProject, getLatestDoc, updateProject } from '../convexClient.js';
 import { convexClient, api } from '../convexClient.js';
 import {
   generateAllDocs,
@@ -13,6 +13,8 @@ import {
   prompt2_ResearchMethodology,
   prompt3_GenerateResearchPrompt
 } from '../services/docGenerator.js';
+import { getHistory, logManualEdit, applyCorrections, revertCorrection } from '../services/correctionHistory.js';
+import { streamService } from '../utils/sseHelper.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -87,7 +89,6 @@ router.post('/:projectId/upload-docs', async (req, res) => {
     if (!validTypes.includes(docType)) continue;
     if (!content || content.trim().length === 0) continue;
 
-    // Get the next version number
     const existing = await getLatestDoc(req.params.projectId, docType);
     const version = existing ? existing.version + 1 : 1;
     const id = uuidv4();
@@ -130,51 +131,9 @@ router.post('/:projectId/generate-docs-manual', async (req, res) => {
     return res.status(400).json({ error: 'Research content is required' });
   }
 
-  // Disable timeout (synthesis can take a few minutes)
-  req.setTimeout(0);
-  res.setTimeout(0);
-
-  // Set up SSE
-  res.writeHead(200, {
-    'Content-Type': 'text/event-stream',
-    'Cache-Control': 'no-cache',
-    'Connection': 'keep-alive',
-    'X-Accel-Buffering': 'no'
-  });
-
-  const keepalive = setInterval(() => {
-    if (!closed) {
-      res.write(': keepalive\n\n');
-    }
-  }, 30000);
-
-  const sendEvent = (event) => {
-    res.write(`data: ${JSON.stringify(event)}\n\n`);
-  };
-
-  let closed = false;
-  req.on('close', () => {
-    closed = true;
-    clearInterval(keepalive);
-  });
-
-  generateFromManualResearch(req.params.projectId, researchContent.trim(), (event) => {
-    if (closed) return;
-    sendEvent(event);
-  }).then(() => {
-    clearInterval(keepalive);
-    if (!closed) {
-      res.write('data: [DONE]\n\n');
-      res.end();
-    }
-  }).catch((err) => {
-    clearInterval(keepalive);
-    if (!closed) {
-      sendEvent({ type: 'error', message: err.message });
-      res.write('data: [DONE]\n\n');
-      res.end();
-    }
-  });
+  streamService(req, res, (sendEvent) =>
+    generateFromManualResearch(req.params.projectId, researchContent.trim(), sendEvent)
+  );
 });
 
 // Generate all foundational docs (SSE streaming)
@@ -182,51 +141,9 @@ router.post('/:projectId/generate-docs', async (req, res) => {
   const project = await getProject(req.params.projectId);
   if (!project) return res.status(404).json({ error: 'Project not found' });
 
-  // Disable Express/Node timeout for this long-running request
-  req.setTimeout(0);
-  res.setTimeout(0);
-
-  // Set up SSE
-  res.writeHead(200, {
-    'Content-Type': 'text/event-stream',
-    'Cache-Control': 'no-cache',
-    'Connection': 'keep-alive',
-    'X-Accel-Buffering': 'no'
-  });
-
-  const keepalive = setInterval(() => {
-    if (!closed) {
-      res.write(': keepalive\n\n');
-    }
-  }, 30000);
-
-  const sendEvent = (event) => {
-    res.write(`data: ${JSON.stringify(event)}\n\n`);
-  };
-
-  let closed = false;
-  req.on('close', () => {
-    closed = true;
-    clearInterval(keepalive);
-  });
-
-  generateAllDocs(req.params.projectId, (event) => {
-    if (closed) return;
-    sendEvent(event);
-  }).then(() => {
-    clearInterval(keepalive);
-    if (!closed) {
-      res.write('data: [DONE]\n\n');
-      res.end();
-    }
-  }).catch((err) => {
-    clearInterval(keepalive);
-    if (!closed) {
-      sendEvent({ type: 'error', message: err.message });
-      res.write('data: [DONE]\n\n');
-      res.end();
-    }
-  });
+  streamService(req, res, (sendEvent) =>
+    generateAllDocs(req.params.projectId, sendEvent)
+  );
 });
 
 // Regenerate a single doc type (SSE streaming)
@@ -239,51 +156,9 @@ router.post('/:projectId/generate-doc/:type', async (req, res) => {
     return res.status(400).json({ error: `Invalid doc type. Must be one of: ${validTypes.join(', ')}` });
   }
 
-  // Disable timeout for research regeneration
-  req.setTimeout(0);
-  res.setTimeout(0);
-
-  // Set up SSE
-  res.writeHead(200, {
-    'Content-Type': 'text/event-stream',
-    'Cache-Control': 'no-cache',
-    'Connection': 'keep-alive',
-    'X-Accel-Buffering': 'no'
-  });
-
-  const keepalive = setInterval(() => {
-    if (!closed) {
-      res.write(': keepalive\n\n');
-    }
-  }, 30000);
-
-  const sendEvent = (event) => {
-    res.write(`data: ${JSON.stringify(event)}\n\n`);
-  };
-
-  let closed = false;
-  req.on('close', () => {
-    closed = true;
-    clearInterval(keepalive);
-  });
-
-  regenerateDoc(req.params.projectId, req.params.type, (event) => {
-    if (closed) return;
-    sendEvent(event);
-  }).then(() => {
-    clearInterval(keepalive);
-    if (!closed) {
-      res.write('data: [DONE]\n\n');
-      res.end();
-    }
-  }).catch((err) => {
-    clearInterval(keepalive);
-    if (!closed) {
-      sendEvent({ type: 'error', message: err.message });
-      res.write('data: [DONE]\n\n');
-      res.end();
-    }
-  });
+  streamService(req, res, (sendEvent) =>
+    regenerateDoc(req.params.projectId, req.params.type, sendEvent)
+  );
 });
 
 // Update doc content (manual edit) — also logs to correction history
@@ -292,7 +167,6 @@ router.put('/:projectId/docs/:docId', async (req, res) => {
   if (content === undefined) return res.status(400).json({ error: 'Content is required' });
 
   try {
-    // Fetch before-snapshot for changelog
     const beforeDoc = await convexClient.query(api.foundationalDocs.getByExternalId, { externalId: req.params.docId });
     if (!beforeDoc) return res.status(404).json({ error: 'Document not found' });
     const beforeContent = beforeDoc.content || '';
@@ -303,58 +177,10 @@ router.put('/:projectId/docs/:docId', async (req, res) => {
     });
     const doc = await convexClient.query(api.foundationalDocs.getByExternalId, { externalId: req.params.docId });
 
-    // Log to correction history if content actually changed
+    // Fire-and-forget history logging
     if (beforeContent !== content) {
-      console.log(`[Changelog] Manual edit detected for ${doc.doc_type} (project: ${req.params.projectId})`);
-      try {
-        const DOC_LABELS = { research: 'Research Document', avatar: 'Avatar Sheet', offer_brief: 'Offer Brief', necessary_beliefs: 'Necessary Beliefs' };
-        const historyKey = `correction_history_${req.params.projectId}`;
-        const raw = await getSetting(historyKey);
-        const history = raw ? JSON.parse(raw) : [];
-
-        // Compute a concise diff summary (first difference region, ~200 chars)
-        const oldSnippet = beforeContent.length > 200 ? beforeContent.slice(0, 200) + '...' : beforeContent;
-        const newSnippet = content.length > 200 ? content.slice(0, 200) + '...' : content;
-
-        history.unshift({
-          id: Date.now(),
-          correction: `Manual edit to ${DOC_LABELS[doc.doc_type] || doc.doc_type}`,
-          timestamp: new Date().toISOString(),
-          manual: true,
-          changes: [{
-            doc_type: doc.doc_type,
-            doc_id: doc.externalId,
-            doc_label: DOC_LABELS[doc.doc_type] || doc.doc_type,
-            old_text: oldSnippet,
-            new_text: newSnippet,
-            before_content: beforeContent,
-            after_content: content,
-          }],
-        });
-
-        if (history.length > 50) history.length = 50;
-
-        // Check payload size before saving — Convex has a 1MB document limit
-        const payload = JSON.stringify(history);
-        if (payload.length > 900000) {
-          // Trim old entries or strip before_content/after_content from older entries
-          console.log(`[Changelog] History payload too large (${(payload.length / 1024).toFixed(0)}KB), trimming older entries...`);
-          // Keep full data only for last 5 entries, strip before/after content from the rest
-          for (let i = 5; i < history.length; i++) {
-            if (history[i].changes) {
-              for (const c of history[i].changes) {
-                delete c.before_content;
-                delete c.after_content;
-              }
-            }
-          }
-        }
-
-        await setSetting(historyKey, JSON.stringify(history));
-        console.log(`[Changelog] Saved ${history.length} entries (${(JSON.stringify(history).length / 1024).toFixed(0)}KB) for project ${req.params.projectId}`);
-      } catch (histErr) {
-        console.error('[Changelog] Failed to log manual edit:', histErr.message);
-      }
+      logManualEdit(req.params.projectId, doc.externalId, beforeContent, content, doc.doc_type)
+        .catch(err => console.error('[Changelog] Failed to log manual edit:', err.message));
     }
 
     res.json({
@@ -404,10 +230,6 @@ router.put('/:projectId/docs/:docId/approve', async (req, res) => {
   }
 });
 
-// =============================================
-// Copy Correction — find and fix inaccurate info
-// =============================================
-
 // Scan all docs for inaccurate claims and propose corrections
 router.post('/:projectId/correct-docs', async (req, res) => {
   const project = await getProject(req.params.projectId);
@@ -423,7 +245,6 @@ router.post('/:projectId/correct-docs', async (req, res) => {
   try {
     const result = await findAndCorrectDocs(req.params.projectId, correction.trim());
     console.log(`[CopyCorrection] Done in ${((Date.now() - startTime) / 1000).toFixed(1)}s — ${result.corrections?.length || 0} corrections found`);
-    // Debug: log correction fields to verify doc_id is present
     for (const c of (result.corrections || [])) {
       console.log(`[CopyCorrection]   → ${c.doc_type}: doc_id=${c.doc_id}, old_text="${(c.old_text || '').slice(0, 40)}..."`);
     }
@@ -436,97 +257,27 @@ router.post('/:projectId/correct-docs', async (req, res) => {
 
 // Apply proposed corrections to documents (with history tracking)
 router.post('/:projectId/apply-corrections', async (req, res) => {
-  console.log(`[Changelog] Apply corrections request received for project ${req.params.projectId}`);
   const project = await getProject(req.params.projectId);
   if (!project) return res.status(404).json({ error: 'Project not found' });
 
   const { corrections, correction_text } = req.body;
-  console.log(`[Changelog] Corrections payload: ${corrections?.length || 0} items, body size: ${JSON.stringify(req.body).length} bytes`);
   if (!Array.isArray(corrections) || corrections.length === 0) {
     return res.status(400).json({ error: 'Corrections array is required' });
   }
 
-  // 1. Fetch current doc content for before-snapshots
-  const changes = [];
-  const updated = [];
-  for (const c of corrections) {
-    if (!c.doc_id || !c.full_updated_content) {
-      console.log(`[Changelog] Skipping correction: doc_id=${JSON.stringify(c.doc_id)}, full_updated_content=${!!c.full_updated_content}, doc_type=${c.doc_type}, keys=${Object.keys(c).join(',')}`);
-      continue;
-    }
-    try {
-      const currentDoc = await convexClient.query(api.foundationalDocs.getByExternalId, { externalId: c.doc_id });
-      const beforeContent = currentDoc?.content || '';
-
-      await convexClient.mutation(api.foundationalDocs.update, {
-        externalId: c.doc_id,
-        content: c.full_updated_content,
-      });
-      updated.push(c.doc_id);
-
-      changes.push({
-        doc_type: c.doc_type,
-        doc_id: c.doc_id,
-        doc_label: c.doc_label,
-        old_text: c.old_text,
-        new_text: c.new_text,
-        before_content: beforeContent,
-        after_content: c.full_updated_content,
-      });
-    } catch (err) {
-      console.error(`[CopyCorrection] Failed to update doc ${c.doc_id}:`, err.message);
-    }
+  try {
+    const result = await applyCorrections(req.params.projectId, corrections, correction_text);
+    res.json({ success: true, ...result });
+  } catch (err) {
+    console.error('[CopyCorrection] Apply error:', err.message);
+    res.status(500).json({ error: err.message });
   }
-
-  // 2. Save to correction history
-  if (changes.length > 0) {
-    console.log(`[Changelog] AI fix applied: ${changes.length} doc(s) changed for project ${req.params.projectId}`);
-    try {
-      const historyKey = `correction_history_${req.params.projectId}`;
-      const raw = await getSetting(historyKey);
-      const history = raw ? JSON.parse(raw) : [];
-
-      history.unshift({
-        id: Date.now(),
-        correction: correction_text || 'Unknown correction',
-        timestamp: new Date().toISOString(),
-        changes,
-      });
-
-      // Keep last 50
-      if (history.length > 50) history.length = 50;
-
-      // Check payload size — Convex has a 1MB document limit
-      let payload = JSON.stringify(history);
-      if (payload.length > 900000) {
-        console.log(`[Changelog] History payload too large (${(payload.length / 1024).toFixed(0)}KB), trimming...`);
-        for (let i = 5; i < history.length; i++) {
-          if (history[i].changes) {
-            for (const c of history[i].changes) {
-              delete c.before_content;
-              delete c.after_content;
-            }
-          }
-        }
-        payload = JSON.stringify(history);
-      }
-
-      await setSetting(historyKey, payload);
-      console.log(`[Changelog] Saved ${history.length} entries (${(payload.length / 1024).toFixed(0)}KB)`);
-    } catch (err) {
-      console.error('[Changelog] Failed to save AI fix history:', err.message);
-    }
-  }
-
-  res.json({ success: true, updated_count: updated.length, updated_doc_ids: updated });
 });
 
 // Get correction history for a project
 router.get('/:projectId/correction-history', async (req, res) => {
   try {
-    const historyKey = `correction_history_${req.params.projectId}`;
-    const raw = await getSetting(historyKey);
-    const history = raw ? JSON.parse(raw) : [];
+    const history = await getHistory(req.params.projectId);
     res.json({ history });
   } catch {
     res.json({ history: [] });
@@ -542,36 +293,12 @@ router.post('/:projectId/revert-correction', async (req, res) => {
   if (!correction_id) return res.status(400).json({ error: 'correction_id is required' });
 
   try {
-    const historyKey = `correction_history_${req.params.projectId}`;
-    const raw = await getSetting(historyKey);
-    const history = raw ? JSON.parse(raw) : [];
-
-    const entry = history.find(h => h.id === correction_id);
-    if (!entry) return res.status(404).json({ error: 'Correction not found in history' });
-
-    // Restore each doc to its before_content
-    const reverted = [];
-    for (const change of entry.changes) {
-      if (!change.doc_id || !change.before_content) continue;
-      try {
-        await convexClient.mutation(api.foundationalDocs.update, {
-          externalId: change.doc_id,
-          content: change.before_content,
-        });
-        reverted.push(change.doc_id);
-      } catch (err) {
-        console.error(`[CopyCorrection] Failed to revert doc ${change.doc_id}:`, err.message);
-      }
-    }
-
-    // Remove this entry from history
-    const updatedHistory = history.filter(h => h.id !== correction_id);
-    await setSetting(historyKey, JSON.stringify(updatedHistory));
-
-    res.json({ success: true, reverted_count: reverted.length });
+    const result = await revertCorrection(req.params.projectId, correction_id);
+    res.json({ success: true, ...result });
   } catch (err) {
     console.error('[CopyCorrection] Revert error:', err.message);
-    res.status(500).json({ error: err.message || 'Failed to revert correction' });
+    const status = err.status || 500;
+    res.status(status).json({ error: err.message || 'Failed to revert correction' });
   }
 });
 

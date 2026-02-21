@@ -1,11 +1,11 @@
 import { Router } from 'express';
 import { requireAuth } from '../auth.js';
-import { getProject, getLatestDoc, getAdsByProject, getInProgressAdsByProject, getAd, getAdImageUrl, downloadToBuffer, getQuoteBankQuote, convexClient, api } from '../convexClient.js';
+import { getProject, getLatestDoc, getAdsByProject, getInProgressAdsByProject, getAd, getAdImageUrl, getQuoteBankQuote, convexClient, api } from '../convexClient.js';
 import { generateAd, generateAdMode2, regenerateImageOnly, applyPromptEdit } from '../services/adGenerator.js';
 import { generateBodyCopy } from '../services/bodyCopyGenerator.js';
 import { chat as claudeChat } from '../services/anthropic.js';
-import { withRetry } from '../services/retry.js';
-import sharp from 'sharp';
+import { getProjectProductImage, enrichAdsWithQuotes, generateThumbnail } from '../utils/adImages.js';
+import { createSSEStream } from '../utils/sseHelper.js';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -20,21 +20,6 @@ if (!fs.existsSync(THUMB_CACHE_DIR)) {
 
 const router = Router();
 router.use(requireAuth);
-
-/**
- * Load project-level product image as base64 if available.
- * Returns { base64, mimeType } or null.
- */
-async function getProjectProductImage(project) {
-  if (!project.product_image_storageId) return null;
-  try {
-    const buffer = await downloadToBuffer(project.product_image_storageId);
-    return { base64: buffer.toString('base64'), mimeType: 'image/png' };
-  } catch (err) {
-    console.warn('[Ads] Could not load project product image:', err.message);
-    return null;
-  }
-}
 
 // Generate an ad creative (SSE stream)
 router.post('/:projectId/generate-ad', async (req, res) => {
@@ -60,17 +45,7 @@ router.post('/:projectId/generate-ad', async (req, res) => {
     return res.status(400).json({ error: 'template_image_id is required for Mode 2 generation.' });
   }
 
-  // Set up SSE
-  res.writeHead(200, {
-    'Content-Type': 'text/event-stream',
-    'Cache-Control': 'no-cache',
-    'Connection': 'keep-alive',
-    'X-Accel-Buffering': 'no'
-  });
-
-  const sendEvent = (data) => {
-    res.write(`data: ${JSON.stringify(data)}\n\n`);
-  };
+  const sse = createSSEStream(req, res);
 
   try {
     let ad;
@@ -86,7 +61,7 @@ router.post('/:projectId/generate-ad', async (req, res) => {
         bodyCopy: body_copy || undefined,
         headlineJuicer: !!headline_juicer,
         sourceQuoteId: source_quote_id || undefined,
-        onEvent: sendEvent
+        onEvent: sse.sendEvent
       });
     } else {
       ad = await generateAd(req.params.projectId, {
@@ -101,16 +76,14 @@ router.post('/:projectId/generate-ad', async (req, res) => {
         bodyCopy: body_copy || undefined,
         headlineJuicer: !!headline_juicer,
         sourceQuoteId: source_quote_id || undefined,
-        onEvent: sendEvent
+        onEvent: sse.sendEvent
       });
     }
 
-    res.write('data: [DONE]\n\n');
-    res.end();
+    sse.end();
   } catch (err) {
-    sendEvent({ type: 'error', error: err.message });
-    res.write('data: [DONE]\n\n');
-    res.end();
+    sse.sendEvent({ type: 'error', error: err.message });
+    sse.end();
   }
 });
 
@@ -134,17 +107,7 @@ router.post('/:projectId/regenerate-image', async (req, res) => {
     return res.status(400).json({ error: 'image_prompt is required for image-only regeneration.' });
   }
 
-  // Set up SSE
-  res.writeHead(200, {
-    'Content-Type': 'text/event-stream',
-    'Cache-Control': 'no-cache',
-    'Connection': 'keep-alive',
-    'X-Accel-Buffering': 'no'
-  });
-
-  const sendEvent = (data) => {
-    res.write(`data: ${JSON.stringify(data)}\n\n`);
-  };
+  const sse = createSSEStream(req, res);
 
   try {
     const ad = await regenerateImageOnly(req.params.projectId, {
@@ -156,15 +119,13 @@ router.post('/:projectId/regenerate-image', async (req, res) => {
       angle: angle || undefined,
       headline: headline || undefined,
       bodyCopy: body_copy || undefined,
-      onEvent: sendEvent
+      onEvent: sse.sendEvent
     });
 
-    res.write('data: [DONE]\n\n');
-    res.end();
+    sse.end();
   } catch (err) {
-    sendEvent({ type: 'error', error: err.message });
-    res.write('data: [DONE]\n\n');
-    res.end();
+    sse.sendEvent({ type: 'error', error: err.message });
+    sse.end();
   }
 });
 
@@ -295,11 +256,9 @@ router.post('/:projectId/generate-body-copy', async (req, res) => {
 
     let quote;
     if (source_quote_id) {
-      // Load the source quote for emotional context
       quote = await getQuoteBankQuote(source_quote_id);
     }
 
-    // If no source quote, construct a minimal quote-like object
     if (!quote) {
       quote = {
         quote: headline,
@@ -326,29 +285,7 @@ router.get('/:projectId/ads', async (req, res) => {
   if (!project) return res.status(404).json({ error: 'Project not found' });
 
   const ads = await getAdsByProject(req.params.projectId);
-
-  // Full-size URL: pre-resolved Convex CDN URL (direct), with redirect fallback
-  // Thumbnail URL: resized 400px endpoint with disk cache
-  const projectId = req.params.projectId;
-
-  // Resolve source quote text for ads linked to quote bank
-  const quoteIds = [...new Set(ads.filter(a => a.source_quote_id).map(a => a.source_quote_id))];
-  const quoteTexts = {};
-  await Promise.all(quoteIds.map(async (qid) => {
-    try {
-      const q = await getQuoteBankQuote(qid);
-      if (q) quoteTexts[qid] = q.quote;
-    } catch { /* non-critical */ }
-  }));
-
-  const withUrls = ads.map(ad => ({
-    ...ad,
-    imageUrl: ad.resolvedImageUrl
-      || (ad.storageId ? `/api/projects/${projectId}/ads/${ad.id}/image` : null),
-    thumbnailUrl: ad.storageId ? `/api/projects/${projectId}/ads/${ad.id}/thumbnail` : null,
-    source_quote_text: ad.source_quote_id ? (quoteTexts[ad.source_quote_id] || null) : null,
-  }));
-
+  const withUrls = await enrichAdsWithQuotes(ads, req.params.projectId);
   res.json({ ads: withUrls, total: withUrls.length });
 });
 
@@ -414,48 +351,21 @@ router.get('/:projectId/ads/:adId/image', async (req, res) => {
 
 // Serve resized thumbnail (~400px wide, JPEG 80%) with disk cache
 router.get('/:projectId/ads/:adId/thumbnail', async (req, res) => {
-  const adId = req.params.adId;
-  const thumbPath = path.join(THUMB_CACHE_DIR, `${adId}.jpg`);
-
-  // Serve from disk cache if available
-  if (fs.existsSync(thumbPath)) {
-    res.set('Content-Type', 'image/jpeg');
-    res.set('Cache-Control', 'public, max-age=86400');
-    return fs.createReadStream(thumbPath).pipe(res);
-  }
-
-  // Generate thumbnail: download original → resize → cache → serve
   try {
-    const url = await getAdImageUrl(adId);
-    if (!url) {
-      return res.status(404).json({ error: 'Image not found' });
+    const result = await generateThumbnail(req.params.adId, THUMB_CACHE_DIR);
+    if (result.cached) {
+      res.set('Content-Type', 'image/jpeg');
+      res.set('Cache-Control', 'public, max-age=86400');
+      return fs.createReadStream(result.path).pipe(res);
     }
-
-    const buffer = await withRetry(async () => {
-      const imgRes = await fetch(url);
-      if (!imgRes.ok) {
-        throw new Error(`Failed to fetch original image: ${imgRes.status}`);
-      }
-      const ab = await imgRes.arrayBuffer();
-      return Buffer.from(ab);
-    }, { maxRetries: 3, label: 'Thumbnail fetch' });
-
-    const thumb = await sharp(buffer)
-      .resize({ width: 400, withoutEnlargement: true })
-      .jpeg({ quality: 80 })
-      .toBuffer();
-
-    // Write to disk cache (fire-and-forget)
-    fs.writeFile(thumbPath, thumb, () => {});
-
     res.set('Content-Type', 'image/jpeg');
     res.set('Cache-Control', 'public, max-age=86400');
-    res.end(thumb);
+    res.end(result.buffer);
   } catch (err) {
-    console.error(`[Thumbnail] Failed for ${adId}:`, err.message);
+    console.error(`[Thumbnail] Failed for ${req.params.adId}:`, err.message);
     // Fallback: redirect to full image
     try {
-      const url = await getAdImageUrl(adId);
+      const url = await getAdImageUrl(req.params.adId);
       if (url) return res.redirect(url);
     } catch {}
     res.status(500).json({ error: 'Thumbnail generation failed' });
@@ -469,7 +379,6 @@ router.delete('/:projectId/ads/:adId', async (req, res) => {
     return res.status(404).json({ error: 'Ad not found' });
   }
 
-  // Delete from Convex (also deletes storage file)
   await convexClient.mutation(api.adCreatives.remove, {
     externalId: req.params.adId,
   });
