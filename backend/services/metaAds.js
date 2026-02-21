@@ -17,6 +17,8 @@ const META_GRAPH_URL = 'https://graph.facebook.com/v21.0';
 
 /**
  * Get a valid access token for a project, auto-refreshing if near expiry.
+ * @param {string} projectId
+ * @returns {Promise<string>} The Meta access token
  */
 export async function getAccessToken(projectId) {
   const project = await getProject(projectId);
@@ -45,6 +47,9 @@ export async function getAccessToken(projectId) {
 
 /**
  * Exchange current token for a fresh long-lived token (~60 days).
+ * @param {string} projectId
+ * @param {string} currentToken - The current (possibly short-lived) access token
+ * @returns {Promise<void>}
  */
 async function refreshLongLivedToken(projectId, currentToken) {
   const project = await getProject(projectId);
@@ -68,6 +73,8 @@ async function refreshLongLivedToken(projectId, currentToken) {
 
 /**
  * Refresh token if needed (called by scheduler for each project).
+ * @param {string} projectId
+ * @returns {Promise<void>}
  */
 export async function refreshMetaTokenIfNeeded(projectId) {
   const project = await getProject(projectId);
@@ -84,6 +91,8 @@ export async function refreshMetaTokenIfNeeded(projectId) {
 
 /**
  * Check if Meta is connected for a project.
+ * @param {string} projectId
+ * @returns {Promise<{ connected: boolean, appConfigured: boolean, userName?: string, adAccountId?: string, tokenExpiresAt?: string, lastSyncAt?: string }>}
  */
 export async function isMetaConnected(projectId) {
   const project = await getProject(projectId);
@@ -132,6 +141,11 @@ async function graphGet(path, token) {
 
 // ── Account Discovery ───────────────────────────────────────────────────────
 
+/**
+ * List available Meta ad accounts for a project.
+ * @param {string} projectId
+ * @returns {Promise<Array<{ id: string, name: string, accountId: string, status: number }>>}
+ */
 export async function getAdAccounts(projectId) {
   const token = await getAccessToken(projectId);
   const data = await graphGet('/me/adaccounts?fields=name,account_id,account_status&limit=100', token);
@@ -145,6 +159,11 @@ export async function getAdAccounts(projectId) {
 
 // ── Campaign Browser ────────────────────────────────────────────────────────
 
+/**
+ * List campaigns in the project's selected ad account.
+ * @param {string} projectId
+ * @returns {Promise<Array<{ id: string, name: string, status: string, objective: string }>>}
+ */
 export async function getCampaigns(projectId) {
   const token = await getAccessToken(projectId);
   const project = await getProject(projectId);
@@ -163,6 +182,12 @@ export async function getCampaigns(projectId) {
   }));
 }
 
+/**
+ * List ad sets in a campaign.
+ * @param {string} projectId
+ * @param {string} campaignId - Meta campaign ID
+ * @returns {Promise<Array<{ id: string, name: string, status: string, dailyBudget: string|null }>>}
+ */
 export async function getAdSets(projectId, campaignId) {
   const token = await getAccessToken(projectId);
   const data = await graphGet(
@@ -177,6 +202,12 @@ export async function getAdSets(projectId, campaignId) {
   }));
 }
 
+/**
+ * List ads in an ad set.
+ * @param {string} projectId
+ * @param {string} adSetId - Meta ad set ID
+ * @returns {Promise<Array<{ id: string, name: string, status: string, thumbnailUrl: string|null, createdTime: string }>>}
+ */
 export async function getAds(projectId, adSetId) {
   const token = await getAccessToken(projectId);
   const data = await graphGet(
@@ -194,6 +225,13 @@ export async function getAds(projectId, adSetId) {
 
 // ── Insights ────────────────────────────────────────────────────────────────
 
+/**
+ * Get daily performance metrics for a specific Meta ad.
+ * @param {string} projectId
+ * @param {string} adId - Meta ad ID
+ * @param {number} [sinceDays=30] - Number of days to look back
+ * @returns {Promise<Array<{ date: string, impressions: number, clicks: number, spend: number, reach: number, ctr: number, cpc: number, cpm: number, frequency: number, conversions: number, conversionValue: number }>>}
+ */
 export async function getAdInsights(projectId, adId, sinceDays = 30) {
   const token = await getAccessToken(projectId);
   const since = new Date(Date.now() - sinceDays * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
@@ -239,6 +277,8 @@ function parseInsightsRow(row) {
 
 /**
  * Sync performance data for all linked deployments in a project.
+ * @param {string} projectId
+ * @returns {Promise<{ synced: number, failed: number, total: number }>}
  */
 export async function syncMetaPerformance(projectId) {
   const status = await isMetaConnected(projectId);
@@ -302,6 +342,9 @@ export async function syncMetaPerformance(projectId) {
 /**
  * Build the OAuth authorization URL.
  * Encodes projectId in the state parameter so the callback knows which project to save to.
+ * @param {string} projectId
+ * @param {string} redirectUri - The OAuth redirect URL
+ * @returns {Promise<string>} The full Facebook OAuth authorization URL
  */
 export async function getOAuthUrl(projectId, redirectUri) {
   const project = await getProject(projectId);
@@ -318,6 +361,10 @@ export async function getOAuthUrl(projectId, redirectUri) {
 
 /**
  * Exchange authorization code for tokens and store them on the project.
+ * @param {string} code - The OAuth authorization code from Facebook
+ * @param {string} redirectUri - Must match the redirect URI used in getOAuthUrl
+ * @param {string} projectId
+ * @returns {Promise<{ userName: string, expiresAt: string }>}
  */
 export async function handleOAuthCallback(code, redirectUri, projectId) {
   const project = await getProject(projectId);
@@ -360,6 +407,8 @@ export async function handleOAuthCallback(code, redirectUri, projectId) {
 
 /**
  * Disconnect Meta for a project by clearing its Meta fields.
+ * @param {string} projectId
+ * @returns {Promise<void>}
  */
 export async function disconnectMeta(projectId) {
   await updateProject(projectId, {

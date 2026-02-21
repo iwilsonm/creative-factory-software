@@ -568,6 +568,10 @@ Include specific URLs and sources for all claims. The research should be organiz
  * Uses a focused context for each doc type to stay within token limits.
  * For synthesis docs (avatar, offer_brief, necessary_beliefs), builds a lean
  * context with only the prerequisite documents — not the full conversation history.
+ * @param {string} projectId
+ * @param {'research'|'avatar'|'offer_brief'|'necessary_beliefs'} docType
+ * @param {(event: { type: string, step?: number, label?: string, [key: string]: any }) => void} onEvent
+ * @returns {Promise<void>}
  */
 export async function regenerateDoc(projectId, docType, onEvent) {
   const project = await getProject(projectId);
@@ -844,6 +848,12 @@ const DOC_LABELS_MAP = {
   necessary_beliefs: 'Necessary Beliefs'
 };
 
+/**
+ * Scan all foundational docs for claims matching a correction instruction and propose fixes.
+ * @param {string} projectId
+ * @param {string} correctionInstruction - e.g. "fix the claim about vitamin D deficiency"
+ * @returns {Promise<{ corrections: Array<{ doc_type: string, doc_id: string, doc_label: string, old_text: string, new_text: string, context: string, full_updated_content: string }>, message: string }>}
+ */
 async function findAndCorrectDocs(projectId, correctionInstruction) {
   // 1. Fetch all latest docs
   const docEntries = [];

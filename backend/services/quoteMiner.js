@@ -42,6 +42,12 @@ export async function getAnthropicClient() {
 }
 
 // ── Generate search suggestions using GPT-4.1-mini ──────────────────────────
+/**
+ * Auto-suggest search keywords, subreddits, forums, and Facebook groups.
+ * @param {string} targetDemographic - e.g. "women over 60"
+ * @param {string} problem - e.g. "middle-of-the-night insomnia"
+ * @returns {Promise<{ keywords: string[], subreddits: string[], forums: string[], facebook_groups: string[] }>}
+ */
 export async function generateSuggestions(targetDemographic, problem) {
   const result = await chat([
     {
@@ -122,6 +128,20 @@ Sort results by emotional intensity — highest (gut punch) first, lowest last. 
 }
 
 // ── Perplexity Sonar search ───────────────────────────────────────────────────
+/**
+ * Execute a Perplexity Sonar Pro web search for quotes.
+ * @param {object} config - Mining configuration
+ * @param {string} config.target_demographic
+ * @param {string} config.problem
+ * @param {string} [config.root_cause]
+ * @param {string} config.keywords - JSON-stringified string[]
+ * @param {string} [config.subreddits] - JSON-stringified string[]
+ * @param {string} [config.forums] - JSON-stringified string[]
+ * @param {string} [config.facebook_groups] - JSON-stringified string[]
+ * @param {number} [config.num_quotes=20]
+ * @param {(event: { type: string, engine?: string, message: string }) => void} onProgress
+ * @returns {Promise<{ rawText: string, citations: Array<{ url?: string, title?: string }> }>}
+ */
 async function searchWithPerplexity(config, onProgress) {
   const client = await getPerplexityClient();
   const prompt = buildMiningPrompt(config);
@@ -166,6 +186,12 @@ async function searchWithPerplexity(config, onProgress) {
 }
 
 // ── Claude Opus 4.6 web search ────────────────────────────────────────────────
+/**
+ * Execute a Claude Opus 4.6 web search for quotes with domain filtering.
+ * @param {object} config - Mining configuration (same shape as searchWithPerplexity)
+ * @param {(event: { type: string, engine?: string, message: string }) => void} onProgress
+ * @returns {Promise<{ rawText: string, citations: Array<{ url: string, title: string }> }>}
+ */
 async function searchWithClaude(config, onProgress) {
   const client = await getAnthropicClient();
   const prompt = buildMiningPrompt(config);
@@ -245,6 +271,14 @@ async function searchWithClaude(config, onProgress) {
 }
 
 // ── Merge, deduplicate, and rank with GPT-4.1 ────────────────────────────────
+/**
+ * Merge results from both engines, deduplicate, and rank by emotional intensity.
+ * @param {{ rawText: string, citations: Array<{ url?: string }> }} perplexityResult
+ * @param {{ rawText: string, citations: Array<{ url?: string }> }} claudeResult
+ * @param {object} config - Mining config (uses target_demographic, problem, num_quotes)
+ * @param {(event: { type: string, message: string, quoteCount?: number }) => void} onProgress
+ * @returns {Promise<{ quotes: Array<{ quote: string, source: string, source_url: string, emotional_intensity: string, emotion: string, context: string }>, sourcesUsed: string[] }>}
+ */
 async function mergeAndRankQuotes(perplexityResult, claudeResult, config, onProgress) {
   onProgress({ type: 'merge_start', message: 'Merging and ranking quotes with GPT-4.1...' });
 
@@ -315,6 +349,20 @@ Return ONLY valid JSON, no extra text.`;
 }
 
 // ── Main orchestrator ─────────────────────────────────────────────────────────
+/**
+ * Run dual-engine quote mining: Perplexity + Claude in parallel, then merge.
+ * @param {object} config - Mining configuration
+ * @param {string} config.target_demographic
+ * @param {string} config.problem
+ * @param {string} [config.root_cause]
+ * @param {string} config.keywords - JSON-stringified string[]
+ * @param {string} [config.subreddits] - JSON-stringified string[]
+ * @param {string} [config.forums] - JSON-stringified string[]
+ * @param {string} [config.facebook_groups] - JSON-stringified string[]
+ * @param {number} [config.num_quotes=20]
+ * @param {(event: { type: string, message: string, [key: string]: any }) => void} onProgress
+ * @returns {Promise<{ quotes: Array<{ quote: string, source: string, source_url: string, emotional_intensity: string, emotion: string, context: string }>, sourcesUsed: string[], perplexityRaw: string, claudeRaw: string, durationMs: number }>}
+ */
 export async function runQuoteMining(config, onProgress) {
   const startTime = Date.now();
 

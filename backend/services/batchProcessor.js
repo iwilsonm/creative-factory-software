@@ -130,7 +130,11 @@ export async function runBatch(batchId, onProgress) {
  * Stage 2: Body Copy Generation (N/5 API calls) — body copy in batches of 5
  * Stage 3: Image Prompt Generation (N API calls) — one per ad with locked copy + template
  *
- * Returns array of { prompt, headline, body_copy, inspirationBase64, inspirationMimeType, templateFileId } objects.
+ * @param {object} batch - The batch job record
+ * @param {object} project - The project record
+ * @param {{ research?: string, avatar?: string, offer_brief?: string, necessary_beliefs?: string }} docs
+ * @param {(event: { type: string, [key: string]: any }) => void} [onProgress]
+ * @returns {Promise<Array<{ prompt: string, headline: string, body_copy: string, inspirationBase64?: string, inspirationMimeType?: string, templateFileId?: string }>>}
  */
 async function generateBatchPrompts(batch, project, docs, onProgress) {
   const emit = (event) => { if (onProgress) try { onProgress(event); } catch {} };
@@ -335,7 +339,12 @@ async function generateBatchPrompts(batch, project, docs, onProgress) {
 
 /**
  * Submit prompts to Gemini Batch API.
- * Each prompt is an object: { prompt, inspirationBase64?, inspirationMimeType? }
+ * @param {string} batchId
+ * @param {Array<{ prompt: string, inspirationBase64?: string, inspirationMimeType?: string }>} prompts
+ * @param {string} aspectRatio - e.g. '1:1', '9:16'
+ * @param {string} projectName - Used in the batch job display name
+ * @param {{ base64: string, mimeType: string }|null} [productImageData]
+ * @returns {Promise<string>} Gemini batch job name (for polling)
  */
 async function submitGeminiBatch(batchId, prompts, aspectRatio, projectName, productImageData = null) {
   const ai = await getClient();
@@ -393,8 +402,8 @@ async function submitGeminiBatch(batchId, prompts, aspectRatio, projectName, pro
 /**
  * Poll a single batch job for completion.
  * Called by the scheduler's polling loop.
- *
- * @returns {'processing'|'completed'|'failed'}
+ * @param {string} batchId
+ * @returns {Promise<'processing'|'completed'|'failed'>}
  */
 export async function pollBatchJob(batchId) {
   const batch = await getBatchJob(batchId);
@@ -459,6 +468,9 @@ export async function pollBatchJob(batchId) {
 /**
  * Process completed batch results: extract images, upload to Convex storage,
  * upload to Drive, create ad_creative records.
+ * @param {string} batchId
+ * @param {object} job - The Gemini batch job object from the API
+ * @returns {Promise<{ savedCount: number, failedCount: number }>}
  */
 async function processBatchResults(batchId, job) {
   const batch = await getBatchJob(batchId);

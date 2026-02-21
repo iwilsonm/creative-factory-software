@@ -51,6 +51,8 @@ async function saveHistory(projectId, history) {
 
 /**
  * Get the correction history for a project.
+ * @param {string} projectId
+ * @returns {Promise<Array<{ id: number, correction: string, timestamp: string, manual?: boolean, changes: Array<{ doc_type: string, doc_id: string, doc_label: string, old_text: string, new_text: string, before_content?: string, after_content?: string }> }>>}
  */
 export async function getHistory(projectId) {
   return loadHistory(projectId);
@@ -59,6 +61,12 @@ export async function getHistory(projectId) {
 /**
  * Log a manual edit to the correction history.
  * Fire-and-forget from the route — errors are caught internally.
+ * @param {string} projectId
+ * @param {string} docId - The foundational doc's externalId
+ * @param {string} beforeContent - Full content before the edit
+ * @param {string} afterContent - Full content after the edit
+ * @param {string} docType - One of 'research', 'avatar', 'offer_brief', 'necessary_beliefs'
+ * @returns {Promise<void>}
  */
 export async function logManualEdit(projectId, docId, beforeContent, afterContent, docType) {
   console.log(`[Changelog] Manual edit detected for ${docType} (project: ${projectId})`);
@@ -90,8 +98,10 @@ export async function logManualEdit(projectId, docId, beforeContent, afterConten
 /**
  * Apply proposed AI corrections: update each doc, capture before/after snapshots,
  * and log everything to the correction history.
- *
- * @returns {{ updated_count: number, updated_doc_ids: string[] }}
+ * @param {string} projectId
+ * @param {Array<{ doc_id: string, doc_type: string, doc_label: string, old_text: string, new_text: string, full_updated_content: string }>} corrections
+ * @param {string} correctionText - The user's original correction instruction
+ * @returns {Promise<{ updated_count: number, updated_doc_ids: string[] }>}
  */
 export async function applyCorrections(projectId, corrections, correctionText) {
   console.log(`[Changelog] Apply corrections: ${corrections.length} items for project ${projectId}`);
@@ -151,8 +161,9 @@ export async function applyCorrections(projectId, corrections, correctionText) {
 /**
  * Revert a correction — restore each doc to its before_content and remove
  * the entry from history.
- *
- * @returns {{ reverted_count: number }}
+ * @param {string} projectId
+ * @param {number} correctionId - The correction's `id` (timestamp-based)
+ * @returns {Promise<{ reverted_count: number }>}
  */
 export async function revertCorrection(projectId, correctionId) {
   const history = await loadHistory(projectId);

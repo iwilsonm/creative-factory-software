@@ -12,7 +12,8 @@ import path from 'path';
 
 /**
  * Load project-level product image as base64 if available.
- * @returns {{ base64: string, mimeType: string } | null}
+ * @param {object} project - The project record (needs product_image_storageId)
+ * @returns {Promise<{ base64: string, mimeType: string } | null>}
  */
 export async function getProjectProductImage(project) {
   if (!project.product_image_storageId) return null;
@@ -27,6 +28,9 @@ export async function getProjectProductImage(project) {
 
 /**
  * Enrich an ads array with image URLs and resolved source quote text.
+ * @param {Array<object>} ads - Array of ad creative records from Convex
+ * @param {string} projectId
+ * @returns {Promise<Array<object>>} Ads with imageUrl, thumbnailUrl, and source_quote_text added
  */
 export async function enrichAdsWithQuotes(ads, projectId) {
   // Resolve source quote text for ads linked to quote bank
@@ -50,8 +54,9 @@ export async function enrichAdsWithQuotes(ads, projectId) {
 
 /**
  * Generate (or serve from cache) a 400px JPEG thumbnail for an ad.
- *
- * @returns {{ cached: true, path: string } | { cached: false, buffer: Buffer }}
+ * @param {string} adId - The ad creative's externalId
+ * @param {string} thumbCacheDir - Absolute path to the thumbnail cache directory
+ * @returns {Promise<{ cached: true, path: string } | { cached: false, buffer: Buffer }>}
  */
 export async function generateThumbnail(adId, thumbCacheDir) {
   const thumbPath = path.join(thumbCacheDir, `${adId}.jpg`);

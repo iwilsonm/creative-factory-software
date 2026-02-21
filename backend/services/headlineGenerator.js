@@ -117,6 +117,13 @@ Output: Return ONLY a valid JSON array of objects, no markdown code fences:
 }
 
 // ── Legacy: Flat headline generation (for existing runs) ─────────────────────
+/**
+ * Generate 20 flat headlines from all quotes using Claude Sonnet 4.6 + reference docs.
+ * @param {Array<{ quote: string }>} quotes - Array of quote objects
+ * @param {{ target_demographic: string, problem: string }} config
+ * @param {(event: { type: string, message: string, headlines?: string[], durationMs?: number }) => void} onProgress
+ * @returns {Promise<{ headlines: string[], durationMs: number }>}
+ */
 export async function generateHeadlines(quotes, config, onProgress) {
   const startTime = Date.now();
 
@@ -182,6 +189,13 @@ export async function generateHeadlines(quotes, config, onProgress) {
 }
 
 // ── New: Per-quote headline generation (for quote bank) ──────────────────────
+/**
+ * Generate 3-5 headlines per individual quote, processed in batches of 10.
+ * @param {Array<{ quote: string, emotion?: string }>} quotes
+ * @param {{ target_demographic: string, problem: string }} config
+ * @param {(event: { type: string, message: string, [key: string]: any }) => void} onProgress
+ * @returns {Promise<{ results: Array<{ quote_index: number, headlines: Array<{ text: string, technique: string }> }>, durationMs: number }>}
+ */
 export async function generateHeadlinesPerQuote(quotes, config, onProgress) {
   const startTime = Date.now();
 
@@ -278,6 +292,14 @@ export async function generateHeadlinesPerQuote(quotes, config, onProgress) {
 }
 
 // ── Generate MORE headlines for a single quote (excluding already-used techniques) ─
+/**
+ * Generate additional headlines for a single quote, excluding already-used techniques.
+ * @param {{ quote: string, emotion?: string }} quote
+ * @param {{ target_demographic: string, problem: string }} config
+ * @param {string[]} existingTechniques - Technique names to avoid repeating
+ * @param {(event: { type: string, message: string, headlines?: Array<{ text: string, technique: string }>, durationMs?: number }) => void} onProgress
+ * @returns {Promise<{ headlines: Array<{ text: string, technique: string }>, durationMs: number }>}
+ */
 export async function generateMoreHeadlinesForQuote(quote, config, existingTechniques, onProgress) {
   const startTime = Date.now();
 

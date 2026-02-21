@@ -15,10 +15,18 @@ import { deduplicateAndAddToBank } from './quoteDedup.js';
 /**
  * Execute a quote mining run: create the run record, call the mining service,
  * save results, and auto-import to bank.
- *
  * @param {string} projectId
- * @param {object} params - { target_demographic, problem, root_cause, keywords, subreddits, forums, facebook_groups, num_quotes }
- * @param {(event: object) => void} sendEvent - SSE event emitter
+ * @param {object} params
+ * @param {string} params.target_demographic
+ * @param {string} params.problem
+ * @param {string} [params.root_cause]
+ * @param {string[]} params.keywords
+ * @param {string[]} [params.subreddits]
+ * @param {string[]} [params.forums]
+ * @param {string[]} [params.facebook_groups]
+ * @param {number} [params.num_quotes=20]
+ * @param {(event: { type: string, [key: string]: any }) => void} sendEvent - SSE event emitter
+ * @returns {Promise<void>}
  */
 export async function executeMiningRun(projectId, params, sendEvent) {
   const { target_demographic, problem, root_cause, keywords, subreddits, forums, facebook_groups, num_quotes } = params;
@@ -104,6 +112,10 @@ export async function executeMiningRun(projectId, params, sendEvent) {
 
 /**
  * Generate headlines for a mining run's quotes and save them.
+ * @param {string} runId - The mining run's externalId
+ * @param {string} projectId
+ * @param {(event: { type: string, [key: string]: any }) => void} sendEvent
+ * @returns {Promise<void>}
  */
 export async function generateRunHeadlines(runId, projectId, sendEvent) {
   const run = await getQuoteMiningRun(runId);
@@ -136,6 +148,11 @@ export async function generateRunHeadlines(runId, projectId, sendEvent) {
 
 /**
  * Generate headlines for bank quotes and save to each quote record.
+ * @param {string} projectId
+ * @param {string[]|null} quoteIds - Specific quote IDs, or null for all without headlines
+ * @param {{ target_demographic: string, problem: string }} context
+ * @param {(event: { type: string, [key: string]: any }) => void} sendEvent
+ * @returns {Promise<void>}
  */
 export async function generateBankHeadlines(projectId, quoteIds, context, sendEvent) {
   let bankQuotes = await getQuoteBankByProject(projectId);
@@ -185,6 +202,11 @@ export async function generateBankHeadlines(projectId, quoteIds, context, sendEv
 
 /**
  * Generate additional headlines for a single quote, merging with existing ones.
+ * @param {string} quoteId - The bank quote's externalId
+ * @param {string} projectId
+ * @param {{ target_demographic: string, problem: string }} context
+ * @param {(event: { type: string, [key: string]: any }) => void} sendEvent
+ * @returns {Promise<void>}
  */
 export async function generateMoreForQuote(quoteId, projectId, context, sendEvent) {
   const quote = await getQuoteBankQuote(quoteId);
@@ -229,6 +251,8 @@ export async function generateMoreForQuote(quoteId, projectId, context, sendEven
 
 /**
  * Import all completed runs' quotes into the quote bank.
+ * @param {string} projectId
+ * @returns {Promise<{ runs_processed: number, total_added: number, total_duplicates: number, details: Array<{ runId: string, added?: number, duplicates?: number, error?: string }> }>}
  */
 export async function importAllRunsToBank(projectId) {
   const runs = await getQuoteMiningRunsByProject(projectId);
@@ -268,6 +292,8 @@ export async function importAllRunsToBank(projectId) {
 /**
  * Backfill the `problem` field on bank quotes that are missing it,
  * using the problem from their source mining run.
+ * @param {string} projectId
+ * @returns {Promise<{ updated: number, message?: string }>}
  */
 export async function backfillProblems(projectId) {
   const bankQuotes = await getQuoteBankByProject(projectId);

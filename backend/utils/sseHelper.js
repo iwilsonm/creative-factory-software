@@ -7,8 +7,9 @@
 /**
  * Initialize an SSE stream on the response.
  * Disables timeouts, sets headers, starts keepalive, tracks client disconnect.
- *
- * @returns {{ sendEvent: (obj) => void, end: () => void, isClosed: () => boolean }}
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ * @returns {{ sendEvent: (obj: object) => void, end: () => void, isClosed: () => boolean }}
  */
 export function createSSEStream(req, res) {
   req.setTimeout(0);
