@@ -68,6 +68,9 @@ export const update = mutation({
     image_slots: v.optional(v.string()),
     html_template: v.optional(v.string()),
     assembled_html: v.optional(v.string()),
+    slug: v.optional(v.string()),
+    cta_links: v.optional(v.string()),
+    current_version: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     const doc = await ctx.db
@@ -90,6 +93,9 @@ export const update = mutation({
     if (args.image_slots !== undefined) updates.image_slots = args.image_slots;
     if (args.html_template !== undefined) updates.html_template = args.html_template;
     if (args.assembled_html !== undefined) updates.assembled_html = args.assembled_html;
+    if (args.slug !== undefined) updates.slug = args.slug;
+    if (args.cta_links !== undefined) updates.cta_links = args.cta_links;
+    if (args.current_version !== undefined) updates.current_version = args.current_version;
     await ctx.db.patch(doc._id, updates);
   },
 });

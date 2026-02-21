@@ -792,14 +792,22 @@ export async function getLandingPageVersions(landingPageId) {
   return await queryWithRetry(api.landingPageVersions.getByLandingPage, { landingPageId });
 }
 
-export async function createLandingPageVersion({ id, landing_page_id, version, copy_sections, source }) {
+export async function createLandingPageVersion({ id, landing_page_id, version, copy_sections, source, image_slots, cta_links, html_template, assembled_html }) {
   await mutationWithRetry(api.landingPageVersions.create, {
     externalId: id,
     landing_page_id,
     version,
     copy_sections,
     source,
+    image_slots: image_slots || undefined,
+    cta_links: cta_links || undefined,
+    html_template: html_template || undefined,
+    assembled_html: assembled_html || undefined,
   });
+}
+
+export async function getLandingPageVersion(externalId) {
+  return await queryWithRetry(api.landingPageVersions.getByExternalId, { externalId });
 }
 
 // =============================================

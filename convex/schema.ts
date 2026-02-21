@@ -306,6 +306,9 @@ export default defineSchema({
     image_slots: v.optional(v.string()),             // JSON: array of image slot objects with storageId
     html_template: v.optional(v.string()),           // Raw HTML template with placeholders
     assembled_html: v.optional(v.string()),          // Final HTML with placeholders replaced
+    slug: v.optional(v.string()),                    // URL slug for publishing
+    cta_links: v.optional(v.string()),               // JSON: array of CTA link objects [{cta_id, text, url}]
+    current_version: v.optional(v.number()),         // Current version number
     created_at: v.string(),
     updated_at: v.string(),
   })
@@ -318,6 +321,10 @@ export default defineSchema({
     version: v.number(),
     copy_sections: v.string(),           // JSON: copy sections snapshot
     source: v.string(),                  // generated | edited
+    image_slots: v.optional(v.string()),           // JSON: image slot snapshot
+    cta_links: v.optional(v.string()),             // JSON: CTA links snapshot
+    html_template: v.optional(v.string()),         // HTML template snapshot
+    assembled_html: v.optional(v.string()),        // Assembled HTML snapshot
     created_at: v.string(),
   })
     .index("by_externalId", ["externalId"])

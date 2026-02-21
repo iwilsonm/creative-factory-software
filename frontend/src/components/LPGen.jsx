@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { api } from '../api';
 import InfoTooltip from './InfoTooltip';
 import { useToast } from './Toast';
@@ -153,140 +153,763 @@ function HtmlPreview({ html, className = '' }) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
-// Landing Page Detail View (preview + copy sections)
+// Client-side assembly function (mirrors backend assembleLandingPage)
 // ═══════════════════════════════════════════════════════════════════════════
-function LandingPageDetail({ page, onBack, onDelete, projectId }) {
+function assembleHtmlClient(htmlTemplate, copySections, imageSlots, ctaLinks) {
+  if (!htmlTemplate) return '';
+  let html = htmlTemplate;
+
+  // Replace copy section placeholders: {{section_type}} → actual content
+  for (const section of (copySections || [])) {
+    const placeholder = `{{${section.type}}}`;
+    const htmlContent = section.content
+      .split(/\n\n+/)
+      .map(para => para.trim())
+      .filter(para => para.length > 0)
+      .map(para => {
+        if (para.length < 100 && !para.includes('.')) return para;
+        return `<p>${para.replace(/\n/g, '<br>')}</p>`;
+      })
+      .join('\n');
+    html = html.replaceAll(placeholder, htmlContent);
+  }
+
+  // Replace image placeholders: {{image_N}} → actual storage URL or placeholder
+  if (imageSlots && imageSlots.length > 0) {
+    for (let i = 0; i < imageSlots.length; i++) {
+      const placeholder = `{{image_${i + 1}}}`;
+      const slot = imageSlots[i];
+      const url = slot.storageUrl || `https://placehold.co/${slot.suggested_size || '800x400'}/e2e8f0/64748b?text=Image+${i + 1}`;
+      html = html.replaceAll(placeholder, url);
+    }
+  }
+
+  // Replace CTA placeholders: {{cta_N_url}} and {{cta_N_text}}
+  if (ctaLinks && ctaLinks.length > 0) {
+    for (let i = 0; i < ctaLinks.length; i++) {
+      const urlPlaceholder = `{{cta_${i + 1}_url}}`;
+      const textPlaceholder = `{{cta_${i + 1}_text}}`;
+      const cta = ctaLinks[i];
+      html = html.replaceAll(urlPlaceholder, cta.url || '#order');
+      html = html.replaceAll(textPlaceholder, cta.text || cta.text_suggestion || 'Order Now');
+    }
+  }
+
+  return html;
+}
+
+// Inject image number overlays into preview HTML
+function injectImageOverlays(html) {
+  if (!html) return html;
+  const overlayScript = `<script>
+    (function() {
+      function addOverlays() {
+        var imgs = document.querySelectorAll('img');
+        imgs.forEach(function(img, i) {
+          if (img.parentElement.querySelector('.lp-img-badge')) return;
+          var wrap = document.createElement('div');
+          wrap.style.cssText = 'position:relative;display:inline-block;';
+          img.parentElement.insertBefore(wrap, img);
+          wrap.appendChild(img);
+          var badge = document.createElement('div');
+          badge.className = 'lp-img-badge';
+          badge.textContent = (i + 1);
+          badge.style.cssText = 'position:absolute;top:8px;left:8px;background:rgba(0,0,0,0.7);color:#fff;font-size:11px;font-weight:600;width:22px;height:22px;border-radius:6px;display:flex;align-items:center;justify-content:center;z-index:10;font-family:system-ui,sans-serif;';
+          wrap.appendChild(badge);
+        });
+      }
+      if (document.readyState === 'complete') addOverlays();
+      else window.addEventListener('load', addOverlays);
+      setTimeout(addOverlays, 1000);
+    })();
+  </script>`;
+  return html.replace('</body>', overlayScript + '</body>');
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
+// LP Editor — Split-panel editor (replaces LandingPageDetail)
+// ═══════════════════════════════════════════════════════════════════════════
+function LPEditor({ page: initialPage, onBack, onDelete, projectId }) {
   const toast = useToast();
   const [deleting, setDeleting] = useState(false);
-  const [activeTab, setActiveTab] = useState(page.assembled_html ? 'preview' : 'copy');
-  const sections = page.copy_sections ? JSON.parse(page.copy_sections) : [];
-  const totalWords = sections.reduce((sum, s) => sum + countWords(s.content), 0);
-  const imageSlots = page.image_slots ? JSON.parse(page.image_slots) : [];
-  const hasDesign = !!page.swipe_design_analysis;
-  const generatedImages = imageSlots.filter(s => s.generated);
+  const [activeTab, setActiveTab] = useState('copy');
 
+  // ── Core state (mirrors server record, edited locally) ──
+  const [copySections, setCopySections] = useState(() => {
+    try { return initialPage.copy_sections ? JSON.parse(initialPage.copy_sections) : []; } catch { return []; }
+  });
+  const [imageSlots, setImageSlots] = useState(() => {
+    try { return initialPage.image_slots ? JSON.parse(initialPage.image_slots) : []; } catch { return []; }
+  });
+  const [ctaLinks, setCtaLinks] = useState(() => {
+    // Initialize from cta_links if set, otherwise extract from design analysis
+    try {
+      if (initialPage.cta_links) return JSON.parse(initialPage.cta_links);
+      if (initialPage.swipe_design_analysis) {
+        const da = JSON.parse(initialPage.swipe_design_analysis);
+        return (da.cta_elements || []).map(cta => ({
+          cta_id: cta.cta_id,
+          text: cta.text_suggestion || 'Order Now',
+          url: '#order',
+          location: cta.location || '',
+        }));
+      }
+      return [{ cta_id: 'cta_1', text: 'Order Now', url: '#order', location: 'Main CTA' }];
+    } catch { return [{ cta_id: 'cta_1', text: 'Order Now', url: '#order', location: 'Main CTA' }]; }
+  });
+  const [slug, setSlug] = useState(() => {
+    if (initialPage.slug) return initialPage.slug;
+    // Auto-generate from angle
+    return (initialPage.angle || 'landing-page')
+      .toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 60);
+  });
+  const [currentVersion, setCurrentVersion] = useState(initialPage.current_version || 1);
+  const [htmlTemplate] = useState(initialPage.html_template || '');
+  const [previewHtml, setPreviewHtml] = useState(initialPage.assembled_html || '');
+
+  // ── Versions ──
+  const [versions, setVersions] = useState([]);
+  const [versionsLoading, setVersionsLoading] = useState(false);
+  const [savingVersion, setSavingVersion] = useState(false);
+  const [restoringVersion, setRestoringVersion] = useState(null);
+  const [previewVersionHtml, setPreviewVersionHtml] = useState(null); // modal
+
+  // ── Image tab state ──
+  const [regeneratingSlot, setRegeneratingSlot] = useState(null); // index
+  const [uploadingSlot, setUploadingSlot] = useState(null); // index
+  const [regenPrompts, setRegenPrompts] = useState({}); // { slotIndex: prompt }
+  const [expandedPrompts, setExpandedPrompts] = useState({}); // { slotIndex: bool }
+  const fileInputRefs = useRef({});
+
+  // ── Debounce timers ──
+  const previewTimer = useRef(null);
+  const saveTimer = useRef(null);
+  const initDone = useRef(false);
+
+  // ── Initialize CTA links, slug, current_version on first load ──
+  useEffect(() => {
+    if (initDone.current) return;
+    initDone.current = true;
+
+    const updates = {};
+    if (!initialPage.cta_links) {
+      updates.cta_links = JSON.stringify(ctaLinks);
+    }
+    if (!initialPage.slug) {
+      updates.slug = slug;
+    }
+    if (!initialPage.current_version) {
+      updates.current_version = 1;
+    }
+    if (Object.keys(updates).length > 0) {
+      api.updateLandingPage(projectId, initialPage.externalId, updates).catch(() => {});
+    }
+  }, []);
+
+  // ── Load versions when Settings tab is selected ──
+  useEffect(() => {
+    if (activeTab === 'settings') loadVersions();
+  }, [activeTab]);
+
+  const loadVersions = async () => {
+    setVersionsLoading(true);
+    try {
+      const data = await api.getLPVersions(projectId, initialPage.externalId);
+      setVersions(data.versions || []);
+    } catch { }
+    setVersionsLoading(false);
+  };
+
+  // ── Rebuild preview (debounced) ──
+  const rebuildPreview = useCallback(() => {
+    clearTimeout(previewTimer.current);
+    previewTimer.current = setTimeout(() => {
+      const assembled = assembleHtmlClient(htmlTemplate, copySections, imageSlots, ctaLinks);
+      setPreviewHtml(assembled);
+    }, 500);
+  }, [htmlTemplate, copySections, imageSlots, ctaLinks]);
+
+  // ── Debounced save to backend ──
+  const saveToBackend = useCallback(() => {
+    clearTimeout(saveTimer.current);
+    saveTimer.current = setTimeout(async () => {
+      const assembled = assembleHtmlClient(htmlTemplate, copySections, imageSlots, ctaLinks);
+      try {
+        await api.updateLandingPage(projectId, initialPage.externalId, {
+          copy_sections: JSON.stringify(copySections),
+          cta_links: JSON.stringify(ctaLinks),
+          slug,
+          assembled_html: assembled,
+        });
+      } catch (err) {
+        console.error('Auto-save failed:', err);
+      }
+    }, 1500);
+  }, [htmlTemplate, copySections, imageSlots, ctaLinks, slug, projectId, initialPage.externalId]);
+
+  // Trigger preview rebuild + save on relevant state changes
+  useEffect(() => {
+    rebuildPreview();
+    saveToBackend();
+    return () => {
+      clearTimeout(previewTimer.current);
+      clearTimeout(saveTimer.current);
+    };
+  }, [copySections, ctaLinks]);
+
+  // ── Copy section edit ──
+  const handleCopyChange = (index, newContent) => {
+    setCopySections(prev => {
+      const updated = [...prev];
+      updated[index] = { ...updated[index], content: newContent };
+      return updated;
+    });
+  };
+
+  // ── CTA link edit ──
+  const handleCtaChange = (index, field, value) => {
+    setCtaLinks(prev => {
+      const updated = [...prev];
+      updated[index] = { ...updated[index], [field]: value };
+      return updated;
+    });
+  };
+
+  // ── Slug save ──
+  const handleSlugBlur = () => {
+    api.updateLandingPage(projectId, initialPage.externalId, { slug }).catch(() => {});
+  };
+
+  // ── Image regeneration ──
+  const handleRegenerateImage = (slotIndex) => {
+    const slot = imageSlots[slotIndex];
+    const prompt = regenPrompts[slotIndex] ||
+      `${slot.description || ''} for a landing page about ${initialPage.angle || 'the product'}. Location: ${slot.location || 'hero section'}`;
+
+    setRegeneratingSlot(slotIndex);
+    const { abort, done } = api.regenerateLPImage(projectId, initialPage.externalId, {
+      slot_index: slotIndex,
+      prompt,
+      aspect_ratio: slot.aspect_ratio || '16:9',
+    }, (event) => {
+      if (event.type === 'completed') {
+        setImageSlots(event.imageSlots || []);
+        setPreviewHtml(event.assembled_html || '');
+        setRegeneratingSlot(null);
+        toast.success(`Image ${slotIndex + 1} regenerated`);
+      } else if (event.type === 'error') {
+        setRegeneratingSlot(null);
+        toast.error(event.message || 'Image generation failed');
+      }
+    });
+    done.catch(err => {
+      if (err.name !== 'AbortError') {
+        setRegeneratingSlot(null);
+        toast.error(err.message || 'Image generation failed');
+      }
+    });
+  };
+
+  // ── Image upload ──
+  const handleUploadImage = async (slotIndex, file) => {
+    setUploadingSlot(slotIndex);
+    try {
+      const result = await api.uploadLPImage(projectId, initialPage.externalId, file, slotIndex);
+      // Update local state
+      setImageSlots(prev => {
+        const updated = [...prev];
+        updated[slotIndex] = result.slot;
+        return updated;
+      });
+      if (result.assembled_html) setPreviewHtml(result.assembled_html);
+      toast.success(`Image ${slotIndex + 1} uploaded`);
+    } catch (err) {
+      toast.error(err.message || 'Upload failed');
+    }
+    setUploadingSlot(null);
+  };
+
+  // ── Image revert ──
+  const handleRevertImage = async (slotIndex) => {
+    try {
+      const result = await api.revertLPImage(projectId, initialPage.externalId, slotIndex);
+      setImageSlots(prev => {
+        const updated = [...prev];
+        updated[slotIndex] = result.slot;
+        return updated;
+      });
+      if (result.assembled_html) setPreviewHtml(result.assembled_html);
+      toast.success(`Image ${slotIndex + 1} reverted to original`);
+    } catch (err) {
+      toast.error(err.message || 'Revert failed');
+    }
+  };
+
+  // ── Version save ──
+  const handleSaveVersion = async () => {
+    setSavingVersion(true);
+    try {
+      const result = await api.saveLPVersion(projectId, initialPage.externalId);
+      setCurrentVersion(result.version);
+      toast.success(`Version ${result.version} saved`);
+      loadVersions();
+    } catch (err) {
+      toast.error(err.message || 'Failed to save version');
+    }
+    setSavingVersion(false);
+  };
+
+  // ── Version restore ──
+  const handleRestoreVersion = async (versionId, versionNum) => {
+    if (!confirm(`This will save your current state as a new version and restore version ${versionNum}. Continue?`)) return;
+    setRestoringVersion(versionId);
+    try {
+      const updated = await api.restoreLPVersion(projectId, initialPage.externalId, versionId);
+      // Reset all local state from restored data
+      setCopySections(updated.copy_sections ? JSON.parse(updated.copy_sections) : []);
+      setImageSlots(updated.image_slots ? JSON.parse(updated.image_slots) : []);
+      if (updated.cta_links) setCtaLinks(JSON.parse(updated.cta_links));
+      if (updated.current_version) setCurrentVersion(updated.current_version);
+      if (updated.assembled_html) setPreviewHtml(updated.assembled_html);
+      toast.success(`Restored to version ${versionNum}`);
+      loadVersions();
+    } catch (err) {
+      toast.error(err.message || 'Failed to restore version');
+    }
+    setRestoringVersion(null);
+  };
+
+  // ── Delete ──
   const handleDelete = async () => {
     if (!confirm('Delete this landing page? This cannot be undone.')) return;
     setDeleting(true);
     try {
-      await api.deleteLandingPage(projectId, page.externalId);
+      await api.deleteLandingPage(projectId, initialPage.externalId);
       toast.success('Landing page deleted');
       onDelete();
     } catch (err) {
       toast.error(err.message || 'Failed to delete');
-    } finally {
-      setDeleting(false);
     }
+    setDeleting(false);
   };
 
+  // ── Derived values ──
+  const totalWords = useMemo(() => copySections.reduce((sum, s) => sum + countWords(s.content), 0), [copySections]);
+  const hasMissingCtaUrl = ctaLinks.some(c => !c.url || c.url === '#order' || c.url === '#');
+
+  // ── Build preview HTML with image overlays ──
+  const displayHtml = useMemo(() => injectImageOverlays(previewHtml), [previewHtml]);
+
+  // Tab config
+  const TABS = [
+    { id: 'copy', label: 'Copy' },
+    { id: 'images', label: 'Images', count: imageSlots.length },
+    { id: 'links', label: 'Links', count: ctaLinks.length },
+    { id: 'settings', label: 'Settings' },
+  ];
+
   return (
-    <div>
-      {/* Header */}
-      <div className="flex items-center gap-3 mb-4">
+    <div className="flex flex-col h-[calc(100vh-180px)]">
+      {/* ── Top Bar ── */}
+      <div className="flex items-center gap-3 mb-3 flex-shrink-0">
         <button onClick={onBack} className="text-textlight hover:text-textmid transition-colors">
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
           </svg>
         </button>
         <div className="flex-1 min-w-0">
-          <h2 className="text-[15px] font-semibold text-textdark tracking-tight truncate">{page.name}</h2>
-          <div className="flex items-center gap-3 mt-0.5 flex-wrap">
-            <span className="text-[11px] text-textlight">
-              {new Date(page.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
+          <div className="flex items-center gap-2">
+            <h2 className="text-[14px] font-semibold text-textdark truncate max-w-[300px]">
+              {initialPage.angle || initialPage.name}
+            </h2>
+            <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${
+              initialPage.status === 'completed' ? 'bg-teal/10 text-teal' :
+              initialPage.status === 'failed' ? 'bg-red-50 text-red-600' :
+              'bg-black/5 text-textmid'
+            }`}>
+              {initialPage.status}
             </span>
-            {page.angle && (
-              <span className="text-[10px] text-textmid bg-black/5 px-2 py-0.5 rounded-full truncate max-w-[300px]">
-                {page.angle}
-              </span>
-            )}
-            <span className="text-[10px] text-textlight">{totalWords} words</span>
-            <span className="text-[10px] text-textlight">{sections.length} sections</span>
-            {generatedImages.length > 0 && (
-              <span className="text-[10px] text-teal bg-teal/5 px-2 py-0.5 rounded-full">
-                {generatedImages.length} image{generatedImages.length !== 1 ? 's' : ''}
-              </span>
-            )}
-            {hasDesign && (
-              <span className="text-[10px] text-navy bg-navy/5 px-2 py-0.5 rounded-full">
-                Design analyzed
-              </span>
-            )}
+            <span className="text-[10px] font-mono text-textlight bg-black/5 px-1.5 py-0.5 rounded">
+              v{currentVersion}
+            </span>
           </div>
         </div>
-        <button
-          onClick={handleDelete}
-          disabled={deleting}
-          className="text-[11px] text-red-400 hover:text-red-500 transition-colors disabled:opacity-50"
-        >
-          {deleting ? 'Deleting...' : 'Delete'}
-        </button>
-      </div>
-
-      {/* Tab bar: Preview | Copy Sections */}
-      {page.assembled_html && (
-        <div className="flex gap-1 mb-4 p-1 bg-offwhite rounded-lg w-fit">
+        <div className="flex items-center gap-2">
+          {hasMissingCtaUrl && (
+            <span className="text-gold text-[10px] flex items-center gap-1" title="Some CTA links need URLs">
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126z" />
+              </svg>
+              CTA links
+            </span>
+          )}
           <button
-            onClick={() => setActiveTab('preview')}
-            className={`px-4 py-1.5 rounded-md text-[12px] font-medium transition-all ${
-              activeTab === 'preview'
-                ? 'bg-navy text-white shadow-sm'
-                : 'text-textmid hover:text-textdark'
-            }`}
+            disabled
+            title="Publishing coming in next update"
+            className="btn-primary text-[11px] px-3 py-1.5 opacity-50 cursor-not-allowed"
           >
-            Preview
+            Publish
           </button>
           <button
-            onClick={() => setActiveTab('copy')}
-            className={`px-4 py-1.5 rounded-md text-[12px] font-medium transition-all ${
-              activeTab === 'copy'
-                ? 'bg-navy text-white shadow-sm'
-                : 'text-textmid hover:text-textdark'
-            }`}
+            onClick={handleDelete}
+            disabled={deleting}
+            className="text-[11px] text-red-400 hover:text-red-500 transition-colors disabled:opacity-50"
           >
-            Copy Sections
+            {deleting ? '...' : 'Delete'}
           </button>
         </div>
-      )}
+      </div>
 
-      {/* Content */}
-      {activeTab === 'preview' && page.assembled_html ? (
-        <HtmlPreview html={page.assembled_html} />
-      ) : (
-        <>
-          {sections.length > 0 ? (
-            <div className="space-y-2">
-              {sections.map((section, i) => (
-                <CopySection key={i} section={section} index={i} />
-              ))}
-            </div>
+      {/* ── Split Panel ── */}
+      <div className="flex flex-1 min-h-0 gap-0">
+        {/* ── Left: Preview ── */}
+        <div className="w-[60%] overflow-auto border border-black/10 rounded-xl bg-white">
+          {displayHtml ? (
+            <HtmlPreview html={displayHtml} className="border-0 rounded-none" />
           ) : (
-            <div className="card p-8 text-center">
-              <p className="text-textmid text-[13px]">No copy sections generated yet.</p>
+            <div className="flex items-center justify-center h-full text-textlight text-[13px]">
+              No preview available
             </div>
           )}
-        </>
-      )}
+        </div>
 
-      {/* Metadata footer */}
-      {(page.swipe_filename || page.additional_direction) && (
-        <div className="mt-4 p-3 bg-offwhite rounded-xl border border-black/5">
-          <p className="text-[11px] font-medium text-textmid mb-1.5">Generation Details</p>
-          <div className="space-y-1 text-[11px] text-textlight">
-            {page.swipe_filename && (
-              <p>Swipe file: <span className="text-textmid">{page.swipe_filename}</span></p>
-            )}
-            {page.word_count && (
-              <p>Target word count: <span className="text-textmid">{page.word_count}</span></p>
-            )}
-            {page.additional_direction && (
-              <p>Additional direction: <span className="text-textmid">{page.additional_direction}</span></p>
-            )}
-            {hasDesign && (
-              <p>Design analysis: <span className="text-teal">Yes — extracted from swipe PDF</span></p>
-            )}
-            {generatedImages.length > 0 && (
-              <p>Generated images: <span className="text-teal">{generatedImages.length} via Gemini</span></p>
-            )}
+        {/* ── Right: Editor Panel ── */}
+        <div className="w-[40%] overflow-y-auto border-l border-black/5 pl-4 ml-2">
+          {/* Tab bar */}
+          <div className="flex gap-1 p-1 bg-offwhite rounded-lg w-fit mb-4 sticky top-0 z-10 bg-white/95 backdrop-blur">
+            {TABS.map(tab => (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id)}
+                className={`px-3 py-1.5 rounded-md text-[11px] font-medium transition-all flex items-center gap-1 ${
+                  activeTab === tab.id
+                    ? 'bg-navy text-white shadow-sm'
+                    : 'text-textmid hover:text-textdark'
+                }`}
+              >
+                {tab.label}
+                {tab.count > 0 && (
+                  <span className={`text-[9px] px-1 rounded-full ${
+                    activeTab === tab.id ? 'bg-white/20' : 'bg-black/10'
+                  }`}>{tab.count}</span>
+                )}
+              </button>
+            ))}
+          </div>
+
+          {/* ──── COPY TAB ──── */}
+          {activeTab === 'copy' && (
+            <div className="space-y-3">
+              <div className="flex items-center justify-between mb-1">
+                <p className="text-[11px] text-textmid">{copySections.length} sections · {totalWords} words</p>
+              </div>
+              {copySections.map((section, i) => (
+                <div key={i} className="border border-black/5 rounded-xl overflow-hidden">
+                  <div className="flex items-center gap-2 px-3 py-2 bg-offwhite">
+                    <span className="text-[10px] font-mono text-textlight w-4">{i + 1}</span>
+                    <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${getSectionColor(section.type)}`}>
+                      {getSectionLabel(section.type)}
+                    </span>
+                    <span className="text-[10px] text-textlight ml-auto">{countWords(section.content)} words</span>
+                  </div>
+                  <textarea
+                    value={section.content}
+                    onChange={(e) => handleCopyChange(i, e.target.value)}
+                    className="w-full px-3 py-2.5 text-[12px] text-textdark leading-relaxed resize-none border-0 focus:ring-0 focus:outline-none bg-white"
+                    style={{ minHeight: '80px' }}
+                    onInput={(e) => {
+                      e.target.style.height = 'auto';
+                      e.target.style.height = e.target.scrollHeight + 'px';
+                    }}
+                    ref={(el) => {
+                      if (el) {
+                        el.style.height = 'auto';
+                        el.style.height = el.scrollHeight + 'px';
+                      }
+                    }}
+                  />
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* ──── IMAGES TAB ──── */}
+          {activeTab === 'images' && (
+            <div>
+              {imageSlots.length === 0 ? (
+                <div className="text-center py-8">
+                  <p className="text-[13px] text-textmid">No image slots in this landing page.</p>
+                  <p className="text-[11px] text-textlight mt-1">Upload a swipe PDF to get AI-generated images.</p>
+                </div>
+              ) : (
+                <div className="grid grid-cols-2 gap-3">
+                  {imageSlots.map((slot, i) => {
+                    const isRegenerating = regeneratingSlot === i;
+                    const isUploading = uploadingSlot === i;
+                    const canRevert = slot.original_storageId && slot.storageId !== slot.original_storageId;
+                    const promptExpanded = expandedPrompts[i];
+
+                    return (
+                      <div key={i} className="border border-black/5 rounded-xl overflow-hidden bg-white">
+                        {/* Thumbnail */}
+                        <div className="relative aspect-video bg-offwhite">
+                          {slot.storageUrl ? (
+                            <img src={slot.storageUrl} alt={`Slot ${i + 1}`} className="w-full h-full object-cover" />
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center text-[11px] text-textlight">
+                              {slot.description || `Image ${i + 1}`}
+                            </div>
+                          )}
+                          {/* Slot number badge */}
+                          <div className="absolute top-1.5 left-1.5 w-5 h-5 bg-black/70 text-white text-[10px] font-semibold rounded flex items-center justify-center">
+                            {i + 1}
+                          </div>
+                          {/* Loading overlay */}
+                          {(isRegenerating || isUploading) && (
+                            <div className="absolute inset-0 bg-white/80 flex items-center justify-center">
+                              <div className="text-center">
+                                <svg className="w-5 h-5 text-navy animate-spin mx-auto" viewBox="0 0 24 24" fill="none">
+                                  <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" strokeDasharray="31.4 31.4" strokeLinecap="round" />
+                                </svg>
+                                <p className="text-[10px] text-navy mt-1">{isRegenerating ? 'Generating...' : 'Uploading...'}</p>
+                              </div>
+                            </div>
+                          )}
+                        </div>
+
+                        {/* Info + Actions */}
+                        <div className="p-2">
+                          <p className="text-[10px] text-textmid truncate mb-1.5" title={slot.location}>
+                            {slot.location || `Image slot ${i + 1}`}
+                          </p>
+
+                          {/* Collapsible prompt */}
+                          <button
+                            onClick={() => setExpandedPrompts(prev => ({ ...prev, [i]: !prev[i] }))}
+                            className="text-[10px] text-navy/60 hover:text-navy mb-1.5 flex items-center gap-0.5"
+                          >
+                            <svg className={`w-2.5 h-2.5 transition-transform ${promptExpanded ? 'rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+                            </svg>
+                            Prompt
+                          </button>
+
+                          {promptExpanded && (
+                            <textarea
+                              value={regenPrompts[i] ?? (slot.description || '')}
+                              onChange={(e) => setRegenPrompts(prev => ({ ...prev, [i]: e.target.value }))}
+                              className="w-full text-[10px] p-1.5 border border-black/10 rounded-lg resize-none mb-1.5 focus:ring-1 focus:ring-navy/30 focus:outline-none"
+                              rows={3}
+                              placeholder="Describe the image to generate..."
+                            />
+                          )}
+
+                          {/* Action buttons */}
+                          <div className="flex gap-1">
+                            <button
+                              onClick={() => handleRegenerateImage(i)}
+                              disabled={isRegenerating || isUploading}
+                              className="flex-1 text-[10px] px-2 py-1 bg-navy/5 text-navy rounded-lg hover:bg-navy/10 disabled:opacity-50 transition-colors font-medium"
+                            >
+                              Regen
+                            </button>
+                            <button
+                              onClick={() => fileInputRefs.current[i]?.click()}
+                              disabled={isRegenerating || isUploading}
+                              className="flex-1 text-[10px] px-2 py-1 bg-black/5 text-textmid rounded-lg hover:bg-black/10 disabled:opacity-50 transition-colors font-medium"
+                            >
+                              Upload
+                            </button>
+                            {canRevert && (
+                              <button
+                                onClick={() => handleRevertImage(i)}
+                                disabled={isRegenerating || isUploading}
+                                className="text-[10px] px-2 py-1 bg-gold/5 text-gold rounded-lg hover:bg-gold/10 disabled:opacity-50 transition-colors font-medium"
+                              >
+                                Revert
+                              </button>
+                            )}
+                          </div>
+                          <input
+                            ref={(el) => { fileInputRefs.current[i] = el; }}
+                            type="file"
+                            accept="image/*"
+                            className="hidden"
+                            onChange={(e) => {
+                              const file = e.target.files?.[0];
+                              if (file) handleUploadImage(i, file);
+                              e.target.value = '';
+                            }}
+                          />
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ──── LINKS TAB ──── */}
+          {activeTab === 'links' && (
+            <div className="space-y-3">
+              <p className="text-[11px] text-textmid mb-2">
+                Configure CTA button text and destination URLs.
+              </p>
+              {ctaLinks.map((cta, i) => (
+                <div key={i} className="border border-black/5 rounded-xl p-3 bg-white">
+                  <div className="flex items-center gap-2 mb-2">
+                    <span className="text-[10px] font-mono text-textlight">CTA {i + 1}</span>
+                    {cta.location && (
+                      <span className="text-[10px] text-textlight bg-black/5 px-1.5 py-0.5 rounded">{cta.location}</span>
+                    )}
+                  </div>
+                  <div className="space-y-2">
+                    <div>
+                      <label className="text-[10px] text-textmid font-medium block mb-0.5">Button Text</label>
+                      <input
+                        type="text"
+                        value={cta.text || ''}
+                        onChange={(e) => handleCtaChange(i, 'text', e.target.value)}
+                        className="input-apple text-[12px] py-1.5"
+                        placeholder="Order Now"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-[10px] text-textmid font-medium block mb-0.5">URL</label>
+                      <input
+                        type="text"
+                        value={cta.url || ''}
+                        onChange={(e) => handleCtaChange(i, 'url', e.target.value)}
+                        className={`input-apple text-[12px] py-1.5 ${
+                          !cta.url || cta.url === '#order' || cta.url === '#' ? 'border-gold/30 bg-gold/5' : ''
+                        }`}
+                        placeholder="https://example.com/checkout"
+                      />
+                    </div>
+                  </div>
+                </div>
+              ))}
+              <div className="p-3 bg-navy/5 border border-navy/10 rounded-xl mt-4">
+                <p className="text-[10px] text-navy/70">
+                  Publishing & custom domains coming in next update. For now, CTA links will be embedded in the exported HTML.
+                </p>
+              </div>
+            </div>
+          )}
+
+          {/* ──── SETTINGS TAB ──── */}
+          {activeTab === 'settings' && (
+            <div className="space-y-5">
+              {/* Slug */}
+              <div>
+                <label className="text-[12px] font-medium text-textdark block mb-1.5">URL Slug</label>
+                <input
+                  type="text"
+                  value={slug}
+                  onChange={(e) => setSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''))}
+                  onBlur={handleSlugBlur}
+                  className="input-apple text-[12px]"
+                  placeholder="landing-page-slug"
+                />
+                <p className="text-[10px] text-textlight mt-1 font-mono bg-offwhite px-2 py-1 rounded">
+                  offers.yourdomain.com/<span className="text-navy">{slug || '...'}</span>
+                </p>
+              </div>
+
+              {/* Version History */}
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <label className="text-[12px] font-medium text-textdark">Version History</label>
+                  <button
+                    onClick={handleSaveVersion}
+                    disabled={savingVersion}
+                    className="text-[11px] px-3 py-1 bg-navy/5 text-navy rounded-lg hover:bg-navy/10 disabled:opacity-50 transition-colors font-medium"
+                  >
+                    {savingVersion ? 'Saving...' : 'Save Version'}
+                  </button>
+                </div>
+
+                {versionsLoading ? (
+                  <div className="space-y-2">
+                    {[0, 1].map(i => (
+                      <div key={i} className="h-10 bg-offwhite rounded-lg animate-pulse" />
+                    ))}
+                  </div>
+                ) : versions.length === 0 ? (
+                  <p className="text-[11px] text-textlight py-2">No saved versions yet. Click "Save Version" to create a snapshot.</p>
+                ) : (
+                  <div className="space-y-1.5 max-h-[300px] overflow-y-auto">
+                    {versions.map((v) => (
+                      <div key={v.externalId} className="flex items-center gap-2 p-2 bg-offwhite rounded-lg">
+                        <div className="flex-1 min-w-0">
+                          <div className="flex items-center gap-1.5">
+                            <span className="text-[11px] font-medium text-textdark">v{v.version}</span>
+                            <span className={`text-[9px] px-1.5 py-0.5 rounded-full ${
+                              v.source === 'generated' ? 'bg-teal/10 text-teal' :
+                              v.source === 'auto-save' ? 'bg-gold/10 text-gold' :
+                              'bg-black/5 text-textmid'
+                            }`}>{v.source}</span>
+                          </div>
+                          <p className="text-[10px] text-textlight">
+                            {new Date(v.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                          </p>
+                        </div>
+                        <button
+                          onClick={() => setPreviewVersionHtml(v.assembled_html || v.copy_sections)}
+                          className="text-[10px] text-navy hover:text-navy/80 font-medium"
+                        >
+                          Preview
+                        </button>
+                        <button
+                          onClick={() => handleRestoreVersion(v.externalId, v.version)}
+                          disabled={restoringVersion === v.externalId}
+                          className="text-[10px] text-gold hover:text-gold/80 font-medium disabled:opacity-50"
+                        >
+                          {restoringVersion === v.externalId ? '...' : 'Restore'}
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              {/* Generation Details */}
+              <div className="p-3 bg-offwhite rounded-xl border border-black/5">
+                <p className="text-[11px] font-medium text-textmid mb-1.5">Generation Details</p>
+                <div className="space-y-1 text-[11px] text-textlight">
+                  {initialPage.swipe_filename && (
+                    <p>Swipe file: <span className="text-textmid">{initialPage.swipe_filename}</span></p>
+                  )}
+                  {initialPage.word_count > 0 && (
+                    <p>Target: <span className="text-textmid">{initialPage.word_count} words</span> · Actual: <span className="text-textmid">{totalWords} words</span></p>
+                  )}
+                  {initialPage.additional_direction && (
+                    <p>Direction: <span className="text-textmid">{initialPage.additional_direction}</span></p>
+                  )}
+                  <p>Created: <span className="text-textmid">{new Date(initialPage.created_at).toLocaleString()}</span></p>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* ── Version Preview Modal ── */}
+      {previewVersionHtml && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setPreviewVersionHtml(null)}>
+          <div className="bg-white rounded-2xl shadow-xl w-[80vw] h-[80vh] overflow-hidden flex flex-col" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between px-4 py-3 border-b border-black/5">
+              <span className="text-[13px] font-medium text-textdark">Version Preview</span>
+              <button onClick={() => setPreviewVersionHtml(null)} className="text-textlight hover:text-textmid">
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+            <div className="flex-1 overflow-auto">
+              <HtmlPreview html={previewVersionHtml} className="border-0 rounded-none" />
+            </div>
           </div>
         </div>
       )}
@@ -372,7 +995,7 @@ const STATUS_CONFIG = {
 // ═══════════════════════════════════════════════════════════════════════════
 export default function LPGen({ projectId, project }) {
   const toast = useToast();
-  const [view, setView] = useState('list'); // list | configure | detail | generating
+  const [view, setView] = useState('list'); // list | configure | editor | generating
   const [pages, setPages] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedPage, setSelectedPage] = useState(null);
@@ -525,7 +1148,7 @@ export default function LPGen({ projectId, project }) {
 
   const handleViewPage = (page) => {
     setSelectedPage(page);
-    setView('detail');
+    setView('editor');
   };
 
   const handleDeleteFromDetail = () => {
@@ -547,12 +1170,12 @@ export default function LPGen({ projectId, project }) {
     setImageProgress(null);
   };
 
-  // ── Detail view ──
-  if (view === 'detail' && selectedPage) {
+  // ── Editor view ──
+  if (view === 'editor' && selectedPage) {
     return (
-      <LandingPageDetail
+      <LPEditor
         page={selectedPage}
-        onBack={() => { setView('list'); setSelectedPage(null); }}
+        onBack={() => { setView('list'); setSelectedPage(null); loadPages(); }}
         onDelete={handleDeleteFromDetail}
         projectId={projectId}
       />

@@ -453,4 +453,36 @@ export const api = {
     request(`/projects/${projectId}/landing-pages/${pageId}`, { method: 'PUT', body: JSON.stringify(data) }),
   deleteLandingPage: (projectId, pageId) =>
     request(`/projects/${projectId}/landing-pages/${pageId}`, { method: 'DELETE' }),
+
+  // LP Editor — Image management
+  regenerateLPImage: (projectId, pageId, body, onEvent) =>
+    streamSSEWithBody(`/projects/${projectId}/landing-pages/${pageId}/regenerate-image`, body, onEvent),
+  uploadLPImage: async (projectId, pageId, file, slotIndex) => {
+    const formData = new FormData();
+    formData.append('image', file);
+    formData.append('slot_index', String(slotIndex));
+    const res = await fetch(`${API_BASE}/projects/${projectId}/landing-pages/${pageId}/upload-image`, {
+      method: 'POST',
+      credentials: 'include',
+      body: formData,
+    });
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+      throw new Error(err.error || `Upload failed with ${res.status}`);
+    }
+    return res.json();
+  },
+  revertLPImage: (projectId, pageId, slotIndex) =>
+    request(`/projects/${projectId}/landing-pages/${pageId}/revert-image`, {
+      method: 'POST',
+      body: JSON.stringify({ slot_index: slotIndex }),
+    }),
+
+  // LP Editor — Versions
+  getLPVersions: (projectId, pageId) =>
+    request(`/projects/${projectId}/landing-pages/${pageId}/versions`),
+  saveLPVersion: (projectId, pageId) =>
+    request(`/projects/${projectId}/landing-pages/${pageId}/versions`, { method: 'POST' }),
+  restoreLPVersion: (projectId, pageId, versionId) =>
+    request(`/projects/${projectId}/landing-pages/${pageId}/versions/${versionId}/restore`, { method: 'POST' }),
 };

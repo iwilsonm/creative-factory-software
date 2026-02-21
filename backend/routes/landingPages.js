@@ -13,7 +13,10 @@ import {
   updateLandingPage,
   deleteLandingPage,
   createLandingPageVersion,
+  getLandingPageVersions,
+  getLandingPageVersion,
   getStorageUrl,
+  uploadBuffer,
 } from '../convexClient.js';
 import {
   extractPdfText,
@@ -24,6 +27,7 @@ import {
   generateHtmlTemplate,
   assembleLandingPage,
 } from '../services/lpGenerator.js';
+import { generateImage } from '../services/gemini.js';
 import { createSSEStream } from '../utils/sseHelper.js';
 
 const router = Router();
@@ -41,6 +45,29 @@ const upload = multer({
     }
   },
 });
+
+// Multer for image uploads (jpg, png, webp, gif)
+const imageUpload = multer({
+  dest: os.tmpdir(),
+  limits: { fileSize: 20 * 1024 * 1024 }, // 20MB
+  fileFilter: (req, file, cb) => {
+    const allowed = ['.jpg', '.jpeg', '.png', '.webp', '.gif'];
+    const ext = path.extname(file.originalname).toLowerCase();
+    if (allowed.includes(ext)) {
+      cb(null, true);
+    } else {
+      cb(new Error(`File type ${ext} not supported. Use JPG, PNG, WebP, or GIF.`));
+    }
+  },
+});
+
+const EXT_TO_MIME = {
+  '.jpg': 'image/jpeg',
+  '.jpeg': 'image/jpeg',
+  '.png': 'image/png',
+  '.webp': 'image/webp',
+  '.gif': 'image/gif',
+};
 
 // ─── List all landing pages for a project ────────────────────────────────────
 router.get('/:projectId/landing-pages', async (req, res) => {
@@ -311,9 +338,310 @@ router.put('/:projectId/landing-pages/:pageId', async (req, res) => {
     typeof req.body.copy_sections === 'string'
       ? req.body.copy_sections
       : JSON.stringify(req.body.copy_sections);
+  if (req.body.cta_links !== undefined) updates.cta_links =
+    typeof req.body.cta_links === 'string'
+      ? req.body.cta_links
+      : JSON.stringify(req.body.cta_links);
+  if (req.body.slug !== undefined) updates.slug = req.body.slug;
+  if (req.body.assembled_html !== undefined) updates.assembled_html = req.body.assembled_html;
+  if (req.body.image_slots !== undefined) updates.image_slots =
+    typeof req.body.image_slots === 'string'
+      ? req.body.image_slots
+      : JSON.stringify(req.body.image_slots);
+  if (req.body.html_template !== undefined) updates.html_template = req.body.html_template;
+  if (req.body.current_version !== undefined) updates.current_version = req.body.current_version;
 
   await updateLandingPage(req.params.pageId, updates);
   const updated = await getLandingPage(req.params.pageId);
+  res.json(updated);
+});
+
+// ─── Regenerate a single image slot (SSE stream) ─────────────────────────────
+router.post('/:projectId/landing-pages/:pageId/regenerate-image', async (req, res) => {
+  const page = await getLandingPage(req.params.pageId);
+  if (!page || page.project_id !== req.params.projectId) {
+    return res.status(404).json({ error: 'Landing page not found' });
+  }
+
+  const { slot_index, prompt, aspect_ratio } = req.body;
+  if (slot_index === undefined || !prompt) {
+    return res.status(400).json({ error: 'slot_index and prompt are required' });
+  }
+
+  const imageSlots = page.image_slots ? JSON.parse(page.image_slots) : [];
+  if (slot_index < 0 || slot_index >= imageSlots.length) {
+    return res.status(400).json({ error: 'Invalid slot_index' });
+  }
+
+  const sse = createSSEStream(req, res);
+  sse.sendEvent({ type: 'started', slot_index });
+
+  (async () => {
+    try {
+      sse.sendEvent({ type: 'progress', message: `Generating image for slot ${slot_index + 1}...` });
+
+      const result = await generateImage(prompt, aspect_ratio || '1:1');
+
+      if (!result?.imageBuffer) {
+        throw new Error('Image generation returned no image');
+      }
+
+      // Upload to Convex storage
+      const storageId = await uploadBuffer(result.imageBuffer, result.mimeType || 'image/png');
+      const storageUrl = await getStorageUrl(storageId);
+
+      // Preserve original storageId for revert
+      if (!imageSlots[slot_index].original_storageId) {
+        imageSlots[slot_index].original_storageId = imageSlots[slot_index].storageId || null;
+      }
+
+      // Update the slot
+      imageSlots[slot_index].storageId = storageId;
+      imageSlots[slot_index].storageUrl = storageUrl;
+      imageSlots[slot_index].generated = true;
+
+      // Re-assemble HTML
+      const copySections = page.copy_sections ? JSON.parse(page.copy_sections) : [];
+      const ctaLinks = page.cta_links ? JSON.parse(page.cta_links) : [];
+      const ctaElements = ctaLinks.length > 0 ? ctaLinks : (page.swipe_design_analysis ? JSON.parse(page.swipe_design_analysis).cta_elements || [] : []);
+
+      const assembledHtml = assembleLandingPage({
+        htmlTemplate: page.html_template || '',
+        copySections,
+        imageSlots,
+        ctaElements: ctaLinks.length > 0 ? ctaLinks : ctaElements,
+      });
+
+      // Save everything
+      await updateLandingPage(req.params.pageId, {
+        image_slots: JSON.stringify(imageSlots),
+        assembled_html: assembledHtml,
+      });
+
+      sse.sendEvent({
+        type: 'completed',
+        slot_index,
+        storageId,
+        storageUrl,
+        imageSlots,
+        assembled_html: assembledHtml,
+      });
+      sse.end();
+    } catch (err) {
+      console.error('[LPGen] Image regeneration error:', err.message);
+      sse.sendEvent({ type: 'error', message: err.message });
+      sse.end();
+    }
+  })();
+});
+
+// ─── Upload an image for a specific slot ──────────────────────────────────────
+router.post('/:projectId/landing-pages/:pageId/upload-image', imageUpload.single('image'), async (req, res) => {
+  const page = await getLandingPage(req.params.pageId);
+  if (!page || page.project_id !== req.params.projectId) {
+    if (req.file?.path) fs.unlinkSync(req.file.path);
+    return res.status(404).json({ error: 'Landing page not found' });
+  }
+
+  const slotIndex = parseInt(req.body.slot_index);
+  if (isNaN(slotIndex)) {
+    if (req.file?.path) fs.unlinkSync(req.file.path);
+    return res.status(400).json({ error: 'slot_index is required' });
+  }
+
+  const imageSlots = page.image_slots ? JSON.parse(page.image_slots) : [];
+  if (slotIndex < 0 || slotIndex >= imageSlots.length) {
+    if (req.file?.path) fs.unlinkSync(req.file.path);
+    return res.status(400).json({ error: 'Invalid slot_index' });
+  }
+
+  try {
+    const fileBuffer = fs.readFileSync(req.file.path);
+    const ext = path.extname(req.file.originalname).toLowerCase();
+    const mime = EXT_TO_MIME[ext] || 'image/png';
+
+    // Upload to Convex storage
+    const storageId = await uploadBuffer(fileBuffer, mime);
+    const storageUrl = await getStorageUrl(storageId);
+
+    // Preserve original storageId for revert
+    if (!imageSlots[slotIndex].original_storageId) {
+      imageSlots[slotIndex].original_storageId = imageSlots[slotIndex].storageId || null;
+    }
+
+    imageSlots[slotIndex].storageId = storageId;
+    imageSlots[slotIndex].storageUrl = storageUrl;
+    imageSlots[slotIndex].generated = true;
+
+    // Re-assemble HTML
+    const copySections = page.copy_sections ? JSON.parse(page.copy_sections) : [];
+    const ctaLinks = page.cta_links ? JSON.parse(page.cta_links) : [];
+    const ctaElements = ctaLinks.length > 0 ? ctaLinks : (page.swipe_design_analysis ? JSON.parse(page.swipe_design_analysis).cta_elements || [] : []);
+
+    const assembledHtml = assembleLandingPage({
+      htmlTemplate: page.html_template || '',
+      copySections,
+      imageSlots,
+      ctaElements: ctaLinks.length > 0 ? ctaLinks : ctaElements,
+    });
+
+    await updateLandingPage(req.params.pageId, {
+      image_slots: JSON.stringify(imageSlots),
+      assembled_html: assembledHtml,
+    });
+
+    res.json({ slot: imageSlots[slotIndex], assembled_html: assembledHtml });
+  } catch (err) {
+    console.error('[LPGen] Image upload error:', err.message);
+    res.status(500).json({ error: err.message });
+  } finally {
+    if (req.file?.path && fs.existsSync(req.file.path)) fs.unlinkSync(req.file.path);
+  }
+});
+
+// ─── Revert an image slot to original ─────────────────────────────────────────
+router.post('/:projectId/landing-pages/:pageId/revert-image', async (req, res) => {
+  const page = await getLandingPage(req.params.pageId);
+  if (!page || page.project_id !== req.params.projectId) {
+    return res.status(404).json({ error: 'Landing page not found' });
+  }
+
+  const { slot_index } = req.body;
+  const imageSlots = page.image_slots ? JSON.parse(page.image_slots) : [];
+  if (slot_index < 0 || slot_index >= imageSlots.length) {
+    return res.status(400).json({ error: 'Invalid slot_index' });
+  }
+
+  const slot = imageSlots[slot_index];
+  if (!slot.original_storageId) {
+    return res.status(400).json({ error: 'No original image to revert to' });
+  }
+
+  // Copy original back
+  slot.storageId = slot.original_storageId;
+  try {
+    slot.storageUrl = await getStorageUrl(slot.storageId);
+  } catch {
+    slot.storageUrl = null;
+  }
+
+  // Re-assemble HTML
+  const copySections = page.copy_sections ? JSON.parse(page.copy_sections) : [];
+  const ctaLinks = page.cta_links ? JSON.parse(page.cta_links) : [];
+  const ctaElements = ctaLinks.length > 0 ? ctaLinks : (page.swipe_design_analysis ? JSON.parse(page.swipe_design_analysis).cta_elements || [] : []);
+
+  const assembledHtml = assembleLandingPage({
+    htmlTemplate: page.html_template || '',
+    copySections,
+    imageSlots,
+    ctaElements: ctaLinks.length > 0 ? ctaLinks : ctaElements,
+  });
+
+  await updateLandingPage(req.params.pageId, {
+    image_slots: JSON.stringify(imageSlots),
+    assembled_html: assembledHtml,
+  });
+
+  res.json({ slot: imageSlots[slot_index], assembled_html: assembledHtml });
+});
+
+// ─── Get all versions for a landing page ──────────────────────────────────────
+router.get('/:projectId/landing-pages/:pageId/versions', async (req, res) => {
+  const page = await getLandingPage(req.params.pageId);
+  if (!page || page.project_id !== req.params.projectId) {
+    return res.status(404).json({ error: 'Landing page not found' });
+  }
+
+  const versions = await getLandingPageVersions(req.params.pageId);
+  versions.sort((a, b) => b.version - a.version);
+  res.json({ versions });
+});
+
+// ─── Save a new version snapshot ──────────────────────────────────────────────
+router.post('/:projectId/landing-pages/:pageId/versions', async (req, res) => {
+  const page = await getLandingPage(req.params.pageId);
+  if (!page || page.project_id !== req.params.projectId) {
+    return res.status(404).json({ error: 'Landing page not found' });
+  }
+
+  const currentVersion = page.current_version || 1;
+  const newVersion = currentVersion + 1;
+  const versionId = uuidv4();
+
+  await createLandingPageVersion({
+    id: versionId,
+    landing_page_id: req.params.pageId,
+    version: newVersion,
+    copy_sections: page.copy_sections || '[]',
+    source: 'edited',
+    image_slots: page.image_slots || undefined,
+    cta_links: page.cta_links || undefined,
+    html_template: page.html_template || undefined,
+    assembled_html: page.assembled_html || undefined,
+  });
+
+  await updateLandingPage(req.params.pageId, { current_version: newVersion });
+
+  res.json({ versionId, version: newVersion });
+});
+
+// ─── Restore a version ─────────────────────────────────────────────────────────
+router.post('/:projectId/landing-pages/:pageId/versions/:versionId/restore', async (req, res) => {
+  const page = await getLandingPage(req.params.pageId);
+  if (!page || page.project_id !== req.params.projectId) {
+    return res.status(404).json({ error: 'Landing page not found' });
+  }
+
+  const targetVersion = await getLandingPageVersion(req.params.versionId);
+  if (!targetVersion || targetVersion.landing_page_id !== req.params.pageId) {
+    return res.status(404).json({ error: 'Version not found' });
+  }
+
+  // Safety: save current state as a new version first
+  const currentVersion = page.current_version || 1;
+  const safetyVersion = currentVersion + 1;
+  const safetyId = uuidv4();
+
+  await createLandingPageVersion({
+    id: safetyId,
+    landing_page_id: req.params.pageId,
+    version: safetyVersion,
+    copy_sections: page.copy_sections || '[]',
+    source: 'auto-save',
+    image_slots: page.image_slots || undefined,
+    cta_links: page.cta_links || undefined,
+    html_template: page.html_template || undefined,
+    assembled_html: page.assembled_html || undefined,
+  });
+
+  // Restore target version's data
+  const restoredVersion = safetyVersion + 1;
+  const updates = {
+    copy_sections: targetVersion.copy_sections,
+    current_version: restoredVersion,
+  };
+  if (targetVersion.image_slots) updates.image_slots = targetVersion.image_slots;
+  if (targetVersion.cta_links) updates.cta_links = targetVersion.cta_links;
+  if (targetVersion.html_template) updates.html_template = targetVersion.html_template;
+  if (targetVersion.assembled_html) updates.assembled_html = targetVersion.assembled_html;
+
+  await updateLandingPage(req.params.pageId, updates);
+
+  const updated = await getLandingPage(req.params.pageId);
+
+  // Resolve image URLs for the restored page
+  if (updated.image_slots) {
+    try {
+      const slots = JSON.parse(updated.image_slots);
+      for (const slot of slots) {
+        if (slot.storageId && !slot.storageUrl) {
+          slot.storageUrl = await getStorageUrl(slot.storageId);
+        }
+      }
+      updated.image_slots = JSON.stringify(slots);
+    } catch {}
+  }
+
   res.json(updated);
 });
 
