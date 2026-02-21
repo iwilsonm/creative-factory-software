@@ -5,7 +5,7 @@ import { generateAd, generateAdMode2, regenerateImageOnly, applyPromptEdit } fro
 import { generateBodyCopy } from '../services/bodyCopyGenerator.js';
 import { chat as claudeChat } from '../services/anthropic.js';
 import { getProjectProductImage, enrichAdsWithQuotes, generateThumbnail } from '../utils/adImages.js';
-import { createSSEStream } from '../utils/sseHelper.js';
+import { streamService } from '../utils/sseHelper.js';
 import fs from 'fs';
 import path from 'path';
 import { fileURLToPath } from 'url';
@@ -45,13 +45,9 @@ router.post('/:projectId/generate-ad', async (req, res) => {
     return res.status(400).json({ error: 'template_image_id is required for Mode 2 generation.' });
   }
 
-  const sse = createSSEStream(req, res);
-
-  try {
-    let ad;
-
+  streamService(req, res, async (sendEvent) => {
     if (mode === 'mode2') {
-      ad = await generateAdMode2(req.params.projectId, {
+      await generateAdMode2(req.params.projectId, {
         templateImageId: template_image_id,
         angle,
         aspectRatio: aspect_ratio || '1:1',
@@ -61,10 +57,10 @@ router.post('/:projectId/generate-ad', async (req, res) => {
         bodyCopy: body_copy || undefined,
         headlineJuicer: !!headline_juicer,
         sourceQuoteId: source_quote_id || undefined,
-        onEvent: sse.sendEvent
+        onEvent: sendEvent
       });
     } else {
-      ad = await generateAd(req.params.projectId, {
+      await generateAd(req.params.projectId, {
         angle,
         aspectRatio: aspect_ratio || '1:1',
         inspirationImageId: inspiration_image_id,
@@ -76,15 +72,10 @@ router.post('/:projectId/generate-ad', async (req, res) => {
         bodyCopy: body_copy || undefined,
         headlineJuicer: !!headline_juicer,
         sourceQuoteId: source_quote_id || undefined,
-        onEvent: sse.sendEvent
+        onEvent: sendEvent
       });
     }
-
-    sse.end();
-  } catch (err) {
-    sse.sendEvent({ type: 'error', error: err.message });
-    sse.end();
-  }
+  });
 });
 
 // Regenerate image only — skip GPT, use provided prompt (SSE stream)
@@ -107,10 +98,8 @@ router.post('/:projectId/regenerate-image', async (req, res) => {
     return res.status(400).json({ error: 'image_prompt is required for image-only regeneration.' });
   }
 
-  const sse = createSSEStream(req, res);
-
-  try {
-    const ad = await regenerateImageOnly(req.params.projectId, {
+  streamService(req, res, async (sendEvent) => {
+    await regenerateImageOnly(req.params.projectId, {
       imagePrompt: image_prompt.trim(),
       aspectRatio: aspect_ratio || '1:1',
       parentAdId: parent_ad_id || undefined,
@@ -119,14 +108,9 @@ router.post('/:projectId/regenerate-image', async (req, res) => {
       angle: angle || undefined,
       headline: headline || undefined,
       bodyCopy: body_copy || undefined,
-      onEvent: sse.sendEvent
+      onEvent: sendEvent
     });
-
-    sse.end();
-  } catch (err) {
-    sse.sendEvent({ type: 'error', error: err.message });
-    sse.end();
-  }
+  });
 });
 
 // Apply a natural-language edit to an existing image prompt (returns modified prompt, no image generation)

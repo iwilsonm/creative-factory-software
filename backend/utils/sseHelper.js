@@ -69,7 +69,7 @@ export function streamService(req, res, serviceFn) {
     })
     .catch((err) => {
       console.error('[SSE] Stream error:', err.message);
-      sse.sendEvent({ type: 'error', message: err.message });
+      sse.sendEvent({ type: 'error', message: err.message, error: err.message });
       sse.end();
     });
 }

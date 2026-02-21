@@ -10,6 +10,7 @@ import {
   getLatestDoc,
 } from '../convexClient.js';
 import { getAnthropicClient } from '../services/quoteMiner.js';
+import { createSSEStream } from '../utils/sseHelper.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -57,17 +58,8 @@ router.post('/:projectId/chat/send', async (req, res) => {
     return res.status(400).json({ error: 'Message is required' });
   }
 
-  // Set up SSE
-  res.writeHead(200, {
-    'Content-Type': 'text/event-stream',
-    'Cache-Control': 'no-cache',
-    'Connection': 'keep-alive',
-    'X-Accel-Buffering': 'no',
-  });
-
-  const sendEvent = (data) => {
-    res.write(`data: ${JSON.stringify(data)}\n\n`);
-  };
+  // Set up SSE (with keepalive to prevent Nginx proxy timeouts)
+  const sse = createSSEStream(req, res);
 
   try {
     const client = await getAnthropicClient();
@@ -82,7 +74,7 @@ router.post('/:projectId/chat/send', async (req, res) => {
       await createChatThread({ id: threadId, project_id: projectId, title: 'Chat' });
       thread = { externalId: threadId, project_id: projectId };
 
-      sendEvent({ type: 'status', text: 'Initializing — loading foundational docs...' });
+      sse.sendEvent({ type: 'status', text: 'Initializing — loading foundational docs...' });
 
       // Load all 4 foundational docs
       const docTypes = ['research', 'avatar', 'offer_brief', 'necessary_beliefs'];
@@ -126,7 +118,7 @@ ${docs.necessary_beliefs}`;
       });
 
       // Get Claude's initial acknowledgment
-      sendEvent({ type: 'status', text: 'Getting initial acknowledgment...' });
+      sse.sendEvent({ type: 'status', text: 'Getting initial acknowledgment...' });
       const ackResponse = await client.messages.create({
         model: 'claude-sonnet-4-6-20250514',
         max_tokens: 1024,
@@ -164,7 +156,7 @@ ${docs.necessary_beliefs}`;
     }));
 
     // 4. Stream Claude's response
-    sendEvent({ type: 'status', text: 'Thinking...' });
+    sse.sendEvent({ type: 'status', text: 'Thinking...' });
 
     const stream = await client.messages.stream({
       model: 'claude-sonnet-4-6-20250514',
@@ -179,7 +171,7 @@ ${docs.necessary_beliefs}`;
       if (event.type === 'content_block_delta' && event.delta?.type === 'text_delta') {
         const text = event.delta.text;
         fullResponse += text;
-        sendEvent({ type: 'token', text });
+        sse.sendEvent({ type: 'token', text });
       }
     }
 
@@ -192,14 +184,12 @@ ${docs.necessary_beliefs}`;
       content: fullResponse,
     });
 
-    sendEvent({ type: 'done', threadId: thread.externalId });
-    res.write('data: [DONE]\n\n');
-    res.end();
+    sse.sendEvent({ type: 'done', threadId: thread.externalId });
+    sse.end();
   } catch (err) {
     console.error('[Chat] Error sending message:', err);
-    sendEvent({ type: 'error', text: err.message || 'Failed to get response from Claude' });
-    res.write('data: [DONE]\n\n');
-    res.end();
+    sse.sendEvent({ type: 'error', text: err.message || 'Failed to get response from Claude' });
+    sse.end();
   }
 });
 
