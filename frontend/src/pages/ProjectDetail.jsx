@@ -10,6 +10,7 @@ import QuoteMiner from '../components/QuoteMiner';
 import CostSummaryCards from '../components/CostSummaryCards';
 import CopywriterChat from '../components/CopywriterChat';
 import InfoTooltip from '../components/InfoTooltip';
+import LPGen from '../components/LPGen';
 import ErrorBoundary from '../components/ErrorBoundary';
 import { useToast } from '../components/Toast';
 
@@ -319,6 +320,7 @@ export default function ProjectDetail() {
     { id: 'quotes', label: 'Copywriter', tooltip: 'Mine quotes, generate headlines, and turn them into ads.' },
     { id: 'ads', label: 'Ad Studio', tooltip: 'Generate individual ads or run batch generation.' },
     { id: 'tracker', label: 'Performance Tracker', tooltip: 'Track ad deployments, campaigns, and performance.' },
+    { id: 'lpgen', label: 'LP Gen', tooltip: 'Generate landing page copy from foundational docs + swipe file.' },
     { id: 'overview', label: 'Overview', tooltip: 'Project settings, cost tracking, and stats.' },
     { id: 'docs', label: 'Foundational Docs', tooltip: 'Core research documents that guide ad generation.' },
     { id: 'templates', label: 'Template Library', tooltip: 'Reference images synced from Drive or uploaded directly.' }
@@ -900,6 +902,11 @@ export default function ProjectDetail() {
         {tab === 'tracker' && (
           <ErrorBoundary level="tab" key="tracker">
             <AdTracker projectId={id} />
+          </ErrorBoundary>
+        )}
+        {tab === 'lpgen' && (
+          <ErrorBoundary level="tab" key="lpgen">
+            <LPGen projectId={id} project={project} />
           </ErrorBoundary>
         )}
         {tab === 'quotes' && (

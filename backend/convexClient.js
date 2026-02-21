@@ -750,6 +750,59 @@ export async function replaceDashboardTodos(todos) {
 }
 
 // =============================================
+// Landing Page helpers
+// =============================================
+
+export async function getLandingPagesByProject(projectId) {
+  return await queryWithRetry(api.landingPages.getByProject, { projectId });
+}
+
+export async function getLandingPage(externalId) {
+  return await queryWithRetry(api.landingPages.getByExternalId, { externalId });
+}
+
+export async function createLandingPage({ id, project_id, name, angle, word_count, additional_direction, swipe_text, swipe_filename, status }) {
+  await mutationWithRetry(api.landingPages.create, {
+    externalId: id,
+    project_id,
+    name,
+    angle: angle || undefined,
+    word_count: word_count || undefined,
+    additional_direction: additional_direction || undefined,
+    swipe_text: swipe_text || undefined,
+    swipe_filename: swipe_filename || undefined,
+    status: status || 'draft',
+  });
+}
+
+export async function updateLandingPage(externalId, fields) {
+  await mutationWithRetry(api.landingPages.update, { externalId, ...fields });
+}
+
+export async function deleteLandingPage(externalId) {
+  // Delete all versions first
+  const versions = await queryWithRetry(api.landingPageVersions.getByLandingPage, { landingPageId: externalId });
+  for (const v of versions) {
+    await mutationWithRetry(api.landingPageVersions.remove, { externalId: v.externalId });
+  }
+  await mutationWithRetry(api.landingPages.remove, { externalId });
+}
+
+export async function getLandingPageVersions(landingPageId) {
+  return await queryWithRetry(api.landingPageVersions.getByLandingPage, { landingPageId });
+}
+
+export async function createLandingPageVersion({ id, landing_page_id, version, copy_sections, source }) {
+  await mutationWithRetry(api.landingPageVersions.create, {
+    externalId: id,
+    landing_page_id,
+    version,
+    copy_sections,
+    source,
+  });
+}
+
+// =============================================
 // Direct Convex client access (for advanced use cases)
 // =============================================
 

@@ -22,6 +22,7 @@ import deploymentRoutes from './routes/deployments.js';
 import quoteMiningRoutes from './routes/quoteMining.js';
 import chatRoutes from './routes/chat.js';
 import metaRoutes from './routes/meta.js';
+import landingPageRoutes from './routes/landingPages.js';
 import { initScheduler, getSchedulerStatus } from './services/scheduler.js';
 import { getRateLimiterStats } from './services/rateLimiter.js';
 
@@ -94,6 +95,7 @@ process.on('uncaughtException', (err) => {
   app.use('/api/projects', quoteMiningRoutes);
   app.use('/api/projects', chatRoutes);
   app.use('/api', metaRoutes);
+  app.use('/api/projects', landingPageRoutes);
 
   // Health check — real connectivity + operational checks
   app.get('/api/health', async (req, res) => {

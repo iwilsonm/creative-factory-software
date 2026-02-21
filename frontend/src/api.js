@@ -402,4 +402,55 @@ export const api = {
   getMetaPerformance: (projectId, deploymentId) => request(`/projects/${projectId}/meta/performance/${deploymentId}`),
   getMetaPerformanceSummary: (projectId) => request(`/projects/${projectId}/meta/performance/summary`),
   syncMetaPerformance: (projectId) => request(`/projects/${projectId}/meta/sync`, { method: 'POST' }),
+
+  // Landing Pages (LP Gen)
+  getLandingPages: (projectId) => request(`/projects/${projectId}/landing-pages`),
+  getLandingPage: (projectId, pageId) => request(`/projects/${projectId}/landing-pages/${pageId}`),
+  checkLandingPageDocs: (projectId) => request(`/projects/${projectId}/landing-pages-check`),
+  generateLandingPage: (projectId, formData, onEvent) => {
+    // Custom SSE stream with multipart/form-data (for PDF upload)
+    const controller = new AbortController();
+    const done = (async () => {
+      const res = await fetch(`${API_BASE}/projects/${projectId}/landing-pages/generate`, {
+        method: 'POST',
+        credentials: 'include',
+        body: formData, // FormData — browser sets Content-Type automatically
+        signal: controller.signal,
+      });
+
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
+        throw new Error(err.error || `Request failed with ${res.status}`);
+      }
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = '';
+
+      while (true) {
+        const { done: readerDone, value } = await reader.read();
+        if (readerDone) break;
+
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split('\n');
+        buffer = lines.pop() || '';
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const data = line.slice(6);
+            if (data === '[DONE]') return;
+            try {
+              onEvent(JSON.parse(data));
+            } catch {}
+          }
+        }
+      }
+    })();
+
+    return { abort: () => controller.abort(), done };
+  },
+  updateLandingPage: (projectId, pageId, data) =>
+    request(`/projects/${projectId}/landing-pages/${pageId}`, { method: 'PUT', body: JSON.stringify(data) }),
+  deleteLandingPage: (projectId, pageId) =>
+    request(`/projects/${projectId}/landing-pages/${pageId}`, { method: 'DELETE' }),
 };

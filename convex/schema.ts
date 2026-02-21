@@ -288,4 +288,33 @@ export default defineSchema({
     .index("by_deployment", ["deployment_id"])
     .index("by_meta_ad_id", ["meta_ad_id"])
     .index("by_meta_ad_and_date", ["meta_ad_id", "date"]),
+
+  landing_pages: defineTable({
+    externalId: v.string(),
+    project_id: v.string(),              // → projects.externalId
+    name: v.string(),                    // User-facing name (auto-generated or manual)
+    angle: v.optional(v.string()),       // The angle/hook for this LP
+    word_count: v.optional(v.number()),  // Target word count (default 1200)
+    additional_direction: v.optional(v.string()), // Extra instructions from user
+    swipe_text: v.optional(v.string()),  // Extracted text from swipe PDF
+    swipe_filename: v.optional(v.string()), // Original swipe PDF filename
+    status: v.string(),                  // draft | generating | completed | failed
+    error_message: v.optional(v.string()),
+    copy_sections: v.optional(v.string()), // JSON: generated copy sections
+    created_at: v.string(),
+    updated_at: v.string(),
+  })
+    .index("by_externalId", ["externalId"])
+    .index("by_project", ["project_id"]),
+
+  landing_page_versions: defineTable({
+    externalId: v.string(),
+    landing_page_id: v.string(),         // → landing_pages.externalId
+    version: v.number(),
+    copy_sections: v.string(),           // JSON: copy sections snapshot
+    source: v.string(),                  // generated | edited
+    created_at: v.string(),
+  })
+    .index("by_externalId", ["externalId"])
+    .index("by_landing_page", ["landing_page_id"]),
 });
