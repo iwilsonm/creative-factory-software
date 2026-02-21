@@ -7,6 +7,15 @@ import { syncMetaPerformance, refreshMetaTokenIfNeeded } from './metaAds.js';
 // Store active cron jobs so we can stop/restart them
 const activeCronJobs = new Map(); // batchId -> cron.ScheduledTask
 
+// ── Scheduler status tracking ────────────────────────────────────────────────
+let schedulerInitialized = false;
+let lastPollAt = null;
+let lastPollResult = null;
+let lastCostSyncAt = null;
+let lastRateRefreshAt = null;
+let lastMetaSyncAt = null;
+let lastMetaTokenRefreshAt = null;
+
 /**
  * Initialize the scheduler on server startup.
  * 1. Register cron jobs for all scheduled batches
@@ -25,12 +34,18 @@ export async function initScheduler() {
 
   // Sync OpenAI costs every hour
   cron.schedule('0 * * * *', async () => {
-    try { await syncOpenAICosts(); } catch (e) { console.error('[Scheduler] OpenAI cost sync error:', e.message); }
+    try {
+      await syncOpenAICosts();
+      lastCostSyncAt = new Date().toISOString();
+    } catch (e) { console.error('[Scheduler] OpenAI cost sync error:', e.message); }
   });
 
   // Refresh Gemini rates daily at midnight
   cron.schedule('0 0 * * *', async () => {
-    try { await refreshGeminiRates(); } catch (e) { console.error('[Scheduler] Gemini rate refresh error:', e.message); }
+    try {
+      await refreshGeminiRates();
+      lastRateRefreshAt = new Date().toISOString();
+    } catch (e) { console.error('[Scheduler] Gemini rate refresh error:', e.message); }
   });
 
   // Sync Meta performance data every 30 minutes (per-project)
@@ -44,6 +59,7 @@ export async function initScheduler() {
           console.error(`[Scheduler] Meta sync error for project ${project.externalId.slice(0, 8)}:`, e.message);
         }
       }
+      lastMetaSyncAt = new Date().toISOString();
     } catch (e) { console.error('[Scheduler] Meta performance sync error:', e.message); }
   });
 
@@ -58,9 +74,11 @@ export async function initScheduler() {
           console.error(`[Scheduler] Meta token refresh error for project ${project.externalId.slice(0, 8)}:`, e.message);
         }
       }
+      lastMetaTokenRefreshAt = new Date().toISOString();
     } catch (e) { console.error('[Scheduler] Meta token refresh error:', e.message); }
   });
 
+  schedulerInitialized = true;
   console.log('[Scheduler] Active. Polling every 5 minutes for batch completion. Cost sync hourly, rate refresh daily. Meta sync every 30 min.');
 }
 
@@ -141,14 +159,23 @@ export function unregisterCronJob(batchId) {
  */
 async function pollActiveBatches() {
   const active = await getActiveBatchJobs();
-  if (active.length === 0) return;
+  lastPollAt = new Date().toISOString();
+
+  if (active.length === 0) {
+    lastPollResult = { checked: 0 };
+    return;
+  }
 
   console.log(`[Scheduler] Polling ${active.length} active batch job(s)...`);
+  let completed = 0;
+  let failed = 0;
 
   for (const batch of active) {
     try {
       const result = await pollBatchJob(batch.id);
+      if (result === 'completed') completed++;
       if (result === 'failed') {
+        failed++;
         // Check if eligible for auto-retry
         const current = await getBatchJob(batch.id);
         const retryCount = current?.retry_count || 0;
@@ -180,4 +207,25 @@ async function pollActiveBatches() {
       console.error(`[Scheduler] Poll error for batch ${batch.id.slice(0, 8)}:`, err.message);
     }
   }
+
+  lastPollResult = { checked: active.length, completed, failed };
+}
+
+// ── Status reporting ─────────────────────────────────────────────────────────
+
+/**
+ * Get current scheduler status for the health endpoint.
+ * @returns {{ initialized: boolean, activeCronJobs: number, lastPollAt: string|null, lastPollResult: object|null, lastCostSyncAt: string|null, lastRateRefreshAt: string|null, lastMetaSyncAt: string|null, lastMetaTokenRefreshAt: string|null }}
+ */
+export function getSchedulerStatus() {
+  return {
+    initialized: schedulerInitialized,
+    activeCronJobs: activeCronJobs.size,
+    lastPollAt,
+    lastPollResult,
+    lastCostSyncAt,
+    lastRateRefreshAt,
+    lastMetaSyncAt,
+    lastMetaTokenRefreshAt,
+  };
 }

@@ -22,11 +22,22 @@ import deploymentRoutes from './routes/deployments.js';
 import quoteMiningRoutes from './routes/quoteMining.js';
 import chatRoutes from './routes/chat.js';
 import metaRoutes from './routes/meta.js';
-import { initScheduler } from './services/scheduler.js';
+import { initScheduler, getSchedulerStatus } from './services/scheduler.js';
+import { getRateLimiterStats } from './services/rateLimiter.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 const PORT = process.env.PORT || 3001;
+
+// Global error handlers — log and let PM2 handle restart
+process.on('unhandledRejection', (reason) => {
+  console.error('[FATAL] Unhandled rejection:', reason);
+});
+
+process.on('uncaughtException', (err) => {
+  console.error('[FATAL] Uncaught exception:', err);
+  process.exit(1); // Let PM2 restart
+});
 
 // Wrap startup in async IIFE since getSetting is now async
 (async () => {
@@ -84,9 +95,45 @@ const PORT = process.env.PORT || 3001;
   app.use('/api/projects', chatRoutes);
   app.use('/api', metaRoutes);
 
-  // Health check
-  app.get('/api/health', (req, res) => {
-    res.json({ status: 'ok', timestamp: new Date().toISOString() });
+  // Health check — real connectivity + operational checks
+  app.get('/api/health', async (req, res) => {
+    const checks = {};
+
+    // Convex connectivity — try a lightweight query
+    try {
+      await getSetting('session_secret');
+      checks.convex = 'ok';
+    } catch (e) {
+      checks.convex = 'error';
+    }
+
+    // Scheduler status
+    checks.scheduler = getSchedulerStatus();
+
+    // Rate limiter
+    checks.rateLimiter = getRateLimiterStats();
+
+    // Memory
+    const mem = process.memoryUsage();
+    checks.memory = {
+      rss_mb: Math.round(mem.rss / 1024 / 1024),
+      heap_used_mb: Math.round(mem.heapUsed / 1024 / 1024),
+      heap_total_mb: Math.round(mem.heapTotal / 1024 / 1024),
+    };
+
+    // Uptime
+    checks.uptime_seconds = Math.round(process.uptime());
+
+    const overall = checks.convex === 'ok' ? 'ok' : 'degraded';
+    res.json({ status: overall, timestamp: new Date().toISOString(), checks });
+  });
+
+  // Catch-all error handler
+  app.use((err, req, res, _next) => {
+    console.error(`[ERROR] ${req.method} ${req.path}:`, err.message);
+    res.status(err.status || 500).json({
+      error: err.message || 'Internal server error',
+    });
   });
 
   // Serve frontend in production
