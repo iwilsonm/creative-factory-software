@@ -8,7 +8,7 @@
  * so only one runs at a time. Lighter calls (gpt-4.1-mini) are not limited.
  */
 
-class AsyncSemaphore {
+export class AsyncSemaphore {
   constructor(concurrency) {
     this.concurrency = concurrency;
     this.running = 0;

@@ -123,3 +123,6 @@ function getDelay(err, attempt, baseDelayMs, maxDelayMs) {
 function sleep(ms) {
   return new Promise(resolve => setTimeout(resolve, ms));
 }
+
+// Exported for testing
+export { isRateLimitError, defaultShouldRetry, getDelay };

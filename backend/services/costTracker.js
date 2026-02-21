@@ -320,7 +320,7 @@ export async function refreshGeminiRates() {
  * Looks specifically for Gemini 3 Pro Image pricing. Returns null if
  * parsing fails — the caller handles fallback to known-good defaults.
  */
-function parseGeminiImageRates(html) {
+export function parseGeminiImageRates(html) {
   try {
     // Strategy: Look for "Gemini 3 Pro Image" or similar section, then find
     // nearby dollar amounts that look like per-image rates (typically $0.01–$1.00)
@@ -463,7 +463,7 @@ export async function getRecurringBatchCostEstimate() {
 
 // Estimate how many times per day a cron expression fires.
 // Simplified parser covering common presets (e.g. every N hours, specific hours, weekday filters).
-function estimateRunsPerDay(cronExpr) {
+export function estimateRunsPerDay(cronExpr) {
   if (!cronExpr) return 0;
   const parts = cronExpr.trim().split(/\s+/);
   if (parts.length < 5) return 0;
