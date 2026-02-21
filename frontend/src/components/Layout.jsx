@@ -23,7 +23,7 @@ export default function Layout({ children }) {
   const isProjectsActive = location.pathname === '/projects' || isProjectSubPage;
 
   return (
-    <div className="min-h-screen bg-[#F5F5F7]">
+    <div className="min-h-screen bg-offwhite">
       <nav className="glass-nav sticky top-0 z-40">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between h-14">
@@ -51,21 +51,21 @@ export default function Layout({ children }) {
             <div className="flex items-center gap-2">
               <button
                 onClick={handleLogout}
-                className="text-[13px] text-gray-500 hover:text-gray-900 transition-colors duration-200 hidden md:block"
+                className="text-[13px] text-textlight hover:text-textdark transition-colors duration-200 hidden md:block"
               >
                 Sign Out
               </button>
               {/* Mobile hamburger */}
               <button
                 onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-                className="md:hidden w-8 h-8 flex items-center justify-center rounded-lg hover:bg-gray-100/60 transition-colors"
+                className="md:hidden w-8 h-8 flex items-center justify-center rounded-lg hover:bg-black/5 transition-colors"
               >
                 {mobileMenuOpen ? (
-                  <svg className="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <svg className="w-5 h-5 text-textmid" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                   </svg>
                 ) : (
-                  <svg className="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <svg className="w-5 h-5 text-textmid" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6h16M4 12h16M4 18h16" />
                   </svg>
                 )}
@@ -76,7 +76,7 @@ export default function Layout({ children }) {
 
         {/* Mobile dropdown menu */}
         {mobileMenuOpen && (
-          <div className="md:hidden border-t border-gray-200/60 bg-white/90 backdrop-blur-sm fade-in">
+          <div className="md:hidden border-t border-black/5 bg-white fade-in">
             <div className="px-4 py-3 space-y-1">
               {navLinks.map(link => {
                 const isActive = link.to === '/projects'
@@ -89,8 +89,8 @@ export default function Layout({ children }) {
                     onClick={() => setMobileMenuOpen(false)}
                     className={`block px-3 py-2 rounded-xl text-[14px] font-medium transition-colors ${
                       isActive
-                        ? 'bg-blue-50/80 text-blue-600'
-                        : 'text-gray-700 hover:bg-gray-50'
+                        ? 'bg-navy/10 text-navy'
+                        : 'text-textmid hover:bg-black/3'
                     }`}
                   >
                     {link.label}

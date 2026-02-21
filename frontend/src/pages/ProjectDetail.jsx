@@ -14,10 +14,10 @@ import ErrorBoundary from '../components/ErrorBoundary';
 import { useToast } from '../components/Toast';
 
 const STATUS_CONFIG = {
-  setup: { label: 'Setup', bg: 'bg-amber-100/80', text: 'text-amber-700' },
-  generating_docs: { label: 'Generating', bg: 'bg-blue-100/80', text: 'text-blue-700' },
-  docs_ready: { label: 'Ready', bg: 'bg-green-100/80', text: 'text-green-700' },
-  active: { label: 'Active', bg: 'bg-emerald-100/80', text: 'text-emerald-700' }
+  setup: { label: 'Setup', bg: 'bg-gold/10', text: 'text-gold' },
+  generating_docs: { label: 'Generating', bg: 'bg-navy/10', text: 'text-navy' },
+  docs_ready: { label: 'Ready', bg: 'bg-teal/10', text: 'text-teal' },
+  active: { label: 'Active', bg: 'bg-teal/15', text: 'text-teal' }
 };
 
 export default function ProjectDetail() {
@@ -308,8 +308,8 @@ export default function ProjectDetail() {
     return (
       <Layout>
         <div className="text-center py-16">
-          <p className="text-gray-500 text-sm mb-4">Project not found</p>
-          <Link to="/projects" className="text-blue-500 hover:text-blue-600 text-sm transition-colors">Back to Projects</Link>
+          <p className="text-textmid text-sm mb-4">Project not found</p>
+          <Link to="/projects" className="text-gold hover:text-gold text-sm transition-colors">Back to Projects</Link>
         </div>
       </Layout>
     );
@@ -324,17 +324,17 @@ export default function ProjectDetail() {
     { id: 'templates', label: 'Template Library', tooltip: 'Reference images synced from Drive or uploaded directly.' }
   ];
 
-  const status = STATUS_CONFIG[project.status] || { label: project.status, bg: 'bg-gray-100', text: 'text-gray-600' };
+  const status = STATUS_CONFIG[project.status] || { label: project.status, bg: 'bg-gray-100', text: 'text-textmid' };
 
   return (
     <Layout>
       <div className="flex items-center gap-3 mb-6">
-        <Link to="/projects" className="text-gray-400 hover:text-gray-600 transition-colors">
+        <Link to="/projects" className="text-textlight hover:text-textmid transition-colors">
           <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
           </svg>
         </Link>
-        <h1 className="text-2xl font-semibold text-gray-900 tracking-tight">{project.name}</h1>
+        <h1 className="text-2xl font-semibold text-textdark tracking-tight">{project.name}</h1>
         <span className={`badge ${status.bg} ${status.text}`}>
           {status.label}
         </span>
@@ -359,14 +359,14 @@ export default function ProjectDetail() {
       <div className="fade-in">
         {/* Docs needed alert */}
         {!project.docCount && (
-          <div className="mb-4 p-3 bg-amber-50/80 border border-amber-200/60 rounded-xl flex items-center gap-2">
-            <svg className="w-4 h-4 text-amber-500 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <div className="mb-4 p-3 bg-gold/5 border border-gold/20 rounded-xl flex items-center gap-2">
+            <svg className="w-4 h-4 text-gold flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
             </svg>
-            <span className="text-[12px] text-amber-700 font-medium">
+            <span className="text-[12px] text-gold font-medium">
               Foundational documents needed — add research docs to improve ad quality.
             </span>
-            <button onClick={() => setTab('docs')} className="ml-auto text-[11px] text-amber-600 hover:text-amber-800 font-medium whitespace-nowrap">
+            <button onClick={() => setTab('docs')} className="ml-auto text-[11px] text-gold hover:text-gold-light font-medium whitespace-nowrap">
               Add Docs →
             </button>
           </div>
@@ -377,7 +377,7 @@ export default function ProjectDetail() {
           <>
           <div className="card p-6">
             <div className="flex justify-between items-start mb-5">
-              <h2 className="text-[15px] font-semibold text-gray-900 tracking-tight">Project Details</h2>
+              <h2 className="text-[15px] font-semibold text-textdark tracking-tight">Project Details</h2>
               <div className="flex gap-2">
                 {editing ? (
                   <>
@@ -417,7 +417,7 @@ export default function ProjectDetail() {
             {editing ? (
               <div className="space-y-4">
                 <div>
-                  <label className="block text-[13px] font-medium text-gray-600 mb-1.5">Project Name</label>
+                  <label className="block text-[13px] font-medium text-textmid mb-1.5">Project Name</label>
                   <input
                     value={form.name}
                     onChange={e => setForm(p => ({ ...p, name: e.target.value }))}
@@ -426,7 +426,7 @@ export default function ProjectDetail() {
                 </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
-                    <label className="block text-[13px] font-medium text-gray-600 mb-1.5">Brand Name</label>
+                    <label className="block text-[13px] font-medium text-textmid mb-1.5">Brand Name</label>
                     <input
                       value={form.brand_name}
                       onChange={e => setForm(p => ({ ...p, brand_name: e.target.value }))}
@@ -434,7 +434,7 @@ export default function ProjectDetail() {
                     />
                   </div>
                   <div>
-                    <label className="block text-[13px] font-medium text-gray-600 mb-1.5">Niche</label>
+                    <label className="block text-[13px] font-medium text-textmid mb-1.5">Niche</label>
                     <input
                       value={form.niche}
                       onChange={e => setForm(p => ({ ...p, niche: e.target.value }))}
@@ -443,7 +443,7 @@ export default function ProjectDetail() {
                   </div>
                 </div>
                 <div>
-                  <label className="block text-[13px] font-medium text-gray-600 mb-1.5">Product Description</label>
+                  <label className="block text-[13px] font-medium text-textmid mb-1.5">Product Description</label>
                   <textarea
                     value={form.product_description}
                     onChange={e => setForm(p => ({ ...p, product_description: e.target.value }))}
@@ -454,7 +454,7 @@ export default function ProjectDetail() {
 
                 {/* Product Image — edit mode */}
                 <div>
-                  <label className="block text-[13px] font-medium text-gray-600 mb-1.5">
+                  <label className="block text-[13px] font-medium text-textmid mb-1.5">
                     Product Image
                     <InfoTooltip text="Stored at the project level — automatically used in every ad so Gemini renders your real product. You can still override per-ad in Ad Studio." position="right" />
                   </label>
@@ -467,15 +467,15 @@ export default function ProjectDetail() {
                         className="w-16 h-16 object-cover rounded-lg border border-gray-200/60"
                       />
                       <div className="flex-1 min-w-0">
-                        <p className="text-[12px] font-medium text-gray-700">Current product image</p>
-                        <p className="text-[10px] text-gray-400">Used in all ads unless overridden</p>
+                        <p className="text-[12px] font-medium text-textdark">Current product image</p>
+                        <p className="text-[10px] text-textlight">Used in all ads unless overridden</p>
                       </div>
                       <div className="flex gap-2">
                         <button
                           type="button"
                           onClick={() => productFileInputRef.current?.click()}
                           disabled={productImageUploading}
-                          className="text-[11px] text-blue-500 hover:text-blue-600 transition-colors"
+                          className="text-[11px] text-gold hover:text-gold transition-colors"
                         >
                           {productImageUploading ? 'Uploading...' : 'Replace'}
                         </button>
@@ -497,21 +497,21 @@ export default function ProjectDetail() {
                       onDragLeave={(e) => { e.preventDefault(); e.stopPropagation(); setProductDragOver(false); }}
                       onDrop={handleProductDrop}
                       className={`border-2 border-dashed rounded-xl p-4 text-center cursor-pointer transition-all ${
-                        productDragOver ? 'border-blue-400 bg-blue-50/30' :
-                        'border-gray-200/80 hover:border-blue-300 hover:bg-gray-50/30'
+                        productDragOver ? 'border-gold bg-gold/5' :
+                        'border-black/10 hover:border-gold hover:bg-offwhite'
                       }`}
                     >
-                      <svg className="w-6 h-6 mx-auto mb-1.5 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <svg className="w-6 h-6 mx-auto mb-1.5 text-textlight/60" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909M3.75 21h16.5a2.25 2.25 0 002.25-2.25V6.75a2.25 2.25 0 00-2.25-2.25H3.75a2.25 2.25 0 00-2.25 2.25v12a2.25 2.25 0 002.25 2.25z" />
                       </svg>
                       {productImageUploading ? (
-                        <p className="text-[11px] font-medium text-blue-500">Uploading...</p>
+                        <p className="text-[11px] font-medium text-gold">Uploading...</p>
                       ) : (
                         <>
-                          <p className={`text-[11px] font-medium ${productDragOver ? 'text-blue-600' : 'text-gray-500'}`}>
+                          <p className={`text-[11px] font-medium ${productDragOver ? 'text-gold' : 'text-textmid'}`}>
                             {productDragOver ? 'Drop product image here' : 'Drop a product photo, or click to browse'}
                           </p>
-                          <p className="text-[10px] text-gray-400 mt-0.5">Used in every ad — ensures Gemini renders your real product</p>
+                          <p className="text-[10px] text-textlight mt-0.5">Used in every ad — ensures Gemini renders your real product</p>
                         </>
                       )}
                     </div>
@@ -526,7 +526,7 @@ export default function ProjectDetail() {
                 </div>
 
                 <div>
-                  <label className="block text-[13px] font-medium text-gray-600 mb-1.5">Sales Page Content</label>
+                  <label className="block text-[13px] font-medium text-textmid mb-1.5">Sales Page Content</label>
                   <textarea
                     value={form.sales_page_content}
                     onChange={e => setForm(p => ({ ...p, sales_page_content: e.target.value }))}
@@ -535,7 +535,7 @@ export default function ProjectDetail() {
                   />
                 </div>
                 <div>
-                  <label className="block text-[13px] font-medium text-gray-600 mb-1.5">
+                  <label className="block text-[13px] font-medium text-textmid mb-1.5">
                     Prompt Guidelines
                   </label>
                   <textarea
@@ -545,7 +545,7 @@ export default function ProjectDetail() {
                     className="input-apple resize-none"
                     placeholder='e.g., "Only show one type of produce at a time — never mix fruits/vegetables in the same image"'
                   />
-                  <p className="text-[11px] text-gray-400 mt-1">
+                  <p className="text-[11px] text-textlight mt-1">
                     Rules that AI will enforce on every generated image prompt. Use this to fix recurring issues in your ads.
                   </p>
                 </div>
@@ -554,22 +554,22 @@ export default function ProjectDetail() {
               <div className="space-y-4">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                   <div>
-                    <p className="text-[12px] text-gray-400 mb-0.5">Brand Name</p>
-                    <p className="text-[14px] text-gray-900">{project.brand_name || '—'}</p>
+                    <p className="text-[12px] text-textlight mb-0.5">Brand Name</p>
+                    <p className="text-[14px] text-textdark">{project.brand_name || '—'}</p>
                   </div>
                   <div>
-                    <p className="text-[12px] text-gray-400 mb-0.5">Niche</p>
-                    <p className="text-[14px] text-gray-900">{project.niche || '—'}</p>
+                    <p className="text-[12px] text-textlight mb-0.5">Niche</p>
+                    <p className="text-[14px] text-textdark">{project.niche || '—'}</p>
                   </div>
                 </div>
                 <div>
-                  <p className="text-[12px] text-gray-400 mb-0.5">Product Description</p>
-                  <p className="text-[14px] text-gray-900 whitespace-pre-wrap">{project.product_description || '—'}</p>
+                  <p className="text-[12px] text-textlight mb-0.5">Product Description</p>
+                  <p className="text-[14px] text-textdark whitespace-pre-wrap">{project.product_description || '—'}</p>
                 </div>
 
                 {/* Product Image — view mode */}
                 <div>
-                  <p className="text-[12px] text-gray-400 mb-1">Product Image</p>
+                  <p className="text-[12px] text-textlight mb-1">Product Image</p>
                   {project.productImageUrl ? (
                     <div className="flex items-center gap-3">
                       <img
@@ -578,19 +578,19 @@ export default function ProjectDetail() {
                         className="w-20 h-20 object-cover rounded-xl border border-gray-200/60 shadow-sm"
                       />
                       <div>
-                        <p className="text-[12px] text-gray-600">Used in all generated ads</p>
-                        <p className="text-[10px] text-gray-400">Override per-ad in Ad Studio</p>
+                        <p className="text-[12px] text-textmid">Used in all generated ads</p>
+                        <p className="text-[10px] text-textlight">Override per-ad in Ad Studio</p>
                       </div>
                     </div>
                   ) : (
-                    <p className="text-[13px] text-gray-400 italic">No product image set — click Edit to upload</p>
+                    <p className="text-[13px] text-textlight italic">No product image set — click Edit to upload</p>
                   )}
                 </div>
 
                 {project.sales_page_content && (
                   <div>
-                    <p className="text-[12px] text-gray-400 mb-0.5">Sales Page Content</p>
-                    <p className="text-[13px] text-gray-600 max-h-40 overflow-y-auto whitespace-pre-wrap scrollbar-thin">
+                    <p className="text-[12px] text-textlight mb-0.5">Sales Page Content</p>
+                    <p className="text-[13px] text-textmid max-h-40 overflow-y-auto whitespace-pre-wrap scrollbar-thin">
                       {project.sales_page_content.slice(0, 500)}
                       {project.sales_page_content.length > 500 ? '...' : ''}
                     </p>
@@ -598,30 +598,30 @@ export default function ProjectDetail() {
                 )}
                 {project.prompt_guidelines && (
                   <div>
-                    <p className="text-[12px] text-gray-400 mb-0.5">Prompt Guidelines</p>
-                    <p className="text-[13px] text-gray-600 whitespace-pre-wrap bg-purple-50/40 border border-purple-200/40 rounded-xl p-3">
+                    <p className="text-[12px] text-textlight mb-0.5">Prompt Guidelines</p>
+                    <p className="text-[13px] text-textmid whitespace-pre-wrap bg-navy/5 border border-navy/10 rounded-xl p-3">
                       {project.prompt_guidelines}
                     </p>
                   </div>
                 )}
                 <div className="flex gap-8 pt-3 border-t border-gray-100/80">
                   <div>
-                    <p className="text-[12px] text-gray-400 mb-0.5">Documents</p>
-                    <p className="text-xl font-semibold text-gray-900">{project.docCount || 0}</p>
+                    <p className="text-[12px] text-textlight mb-0.5">Documents</p>
+                    <p className="text-xl font-semibold text-textdark">{project.docCount || 0}</p>
                   </div>
                   <div>
-                    <p className="text-[12px] text-gray-400 mb-0.5">Ads Generated</p>
-                    <p className="text-xl font-semibold text-gray-900">{project.adCount || 0}</p>
+                    <p className="text-[12px] text-textlight mb-0.5">Ads Generated</p>
+                    <p className="text-xl font-semibold text-textdark">{project.adCount || 0}</p>
                   </div>
                   <div>
-                    <p className="text-[12px] text-gray-400 mb-0.5">API Spend</p>
-                    <p className="text-xl font-semibold text-gray-900">
+                    <p className="text-[12px] text-textlight mb-0.5">API Spend</p>
+                    <p className="text-xl font-semibold text-textdark">
                       ${projectCosts?.month?.total?.toFixed(2) || '0.00'}
                     </p>
                   </div>
                   <div>
-                    <p className="text-[12px] text-gray-400 mb-0.5">Cost per Ad</p>
-                    <p className="text-xl font-semibold text-gray-900">
+                    <p className="text-[12px] text-textlight mb-0.5">Cost per Ad</p>
+                    <p className="text-xl font-semibold text-textdark">
                       ${projectCosts?.costPerAd?.toFixed(3) || '0.000'}
                     </p>
                   </div>
@@ -632,59 +632,59 @@ export default function ProjectDetail() {
 
           {/* Project Cost Tracking */}
           <div className="mt-6">
-            <h3 className="text-[15px] font-semibold text-gray-900 tracking-tight mb-4">Project Costs</h3>
+            <h3 className="text-[15px] font-semibold text-textdark tracking-tight mb-4">Project Costs</h3>
             <CostSummaryCards costs={projectCosts} loading={costsLoading} />
           </div>
 
           {/* Meta Ads Connection (per-project) */}
           <div className="mt-6 card p-6">
             <div className="flex items-center gap-2 mb-1">
-              <div className="w-6 h-6 rounded-lg bg-blue-100 flex items-center justify-center">
-                <svg className="w-3.5 h-3.5 text-blue-600" viewBox="0 0 24 24" fill="currentColor">
+              <div className="w-6 h-6 rounded-lg bg-navy/10 flex items-center justify-center">
+                <svg className="w-3.5 h-3.5 text-gold" viewBox="0 0 24 24" fill="currentColor">
                   <path d="M12 2.04C6.5 2.04 2 6.53 2 12.06C2 17.06 5.66 21.21 10.44 21.96V14.96H7.9V12.06H10.44V9.85C10.44 7.34 11.93 5.96 14.22 5.96C15.31 5.96 16.45 6.15 16.45 6.15V8.62H15.19C13.95 8.62 13.56 9.39 13.56 10.18V12.06H16.34L15.89 14.96H13.56V21.96A10 10 0 0022 12.06C22 6.53 17.5 2.04 12 2.04Z" />
                 </svg>
               </div>
-              <h2 className="text-[15px] font-semibold text-gray-900 tracking-tight">Meta Ads</h2>
+              <h2 className="text-[15px] font-semibold text-textdark tracking-tight">Meta Ads</h2>
               {metaStatus?.connected ? (
-                <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-green-100 text-green-700">Connected</span>
+                <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-teal/10 text-teal">Connected</span>
               ) : (
-                <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-gray-100 text-gray-500">Not Connected</span>
+                <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-gray-100 text-textmid">Not Connected</span>
               )}
               <InfoTooltip text="Connect this project's Meta (Facebook) Ads account to pull live performance data. Each project can have its own Meta login and ad account." />
             </div>
-            <p className="text-[12px] text-gray-500 mb-4">
+            <p className="text-[12px] text-textmid mb-4">
               Pull live ad performance data (impressions, clicks, spend, CTR, CPC, ROAS) from Meta Ads for this project.
             </p>
 
             {metaStatus?.connected ? (
               /* ── Connected State ── */
               <div className="space-y-4">
-                <div className="bg-green-50/50 border border-green-100 rounded-xl p-4 space-y-2">
+                <div className="bg-teal/5 border border-teal/15 rounded-xl p-4 space-y-2">
                   <div className="flex items-center gap-2">
-                    <div className="w-2 h-2 rounded-full bg-green-500" />
-                    <span className="text-[13px] font-medium text-green-800">
+                    <div className="w-2 h-2 rounded-full bg-teal" />
+                    <span className="text-[13px] font-medium text-teal">
                       {metaStatus.userName || 'Meta Account'}
                     </span>
                   </div>
-                  <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-[11px] text-gray-500">
+                  <div className="grid grid-cols-2 gap-x-4 gap-y-1 text-[11px] text-textmid">
                     {metaStatus.adAccountId && (
                       <div>
-                        <span className="text-gray-400">Ad Account:</span>{' '}
-                        <span className="text-gray-600 font-medium">{metaStatus.adAccountId}</span>
+                        <span className="text-textlight">Ad Account:</span>{' '}
+                        <span className="text-textmid font-medium">{metaStatus.adAccountId}</span>
                       </div>
                     )}
                     {metaStatus.tokenExpiresAt && (
                       <div>
-                        <span className="text-gray-400">Token Expires:</span>{' '}
-                        <span className="text-gray-600 font-medium">
+                        <span className="text-textlight">Token Expires:</span>{' '}
+                        <span className="text-textmid font-medium">
                           {new Date(metaStatus.tokenExpiresAt).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}
                         </span>
                       </div>
                     )}
                     {metaStatus.lastSyncAt && (
                       <div>
-                        <span className="text-gray-400">Last Sync:</span>{' '}
-                        <span className="text-gray-600 font-medium">
+                        <span className="text-textlight">Last Sync:</span>{' '}
+                        <span className="text-textmid font-medium">
                           {new Date(metaStatus.lastSyncAt).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' })}
                         </span>
                       </div>
@@ -694,9 +694,9 @@ export default function ProjectDetail() {
 
                 {/* Ad Account Selector (if connected but no account chosen) */}
                 {!metaStatus.adAccountId && (
-                  <div className="bg-amber-50/50 border border-amber-100 rounded-xl p-4">
-                    <p className="text-[12px] text-amber-700 font-medium mb-2">Select an Ad Account</p>
-                    <p className="text-[11px] text-amber-600 mb-3">Choose which ad account to pull data from.</p>
+                  <div className="bg-gold/5 border border-gold/15 rounded-xl p-4">
+                    <p className="text-[12px] text-gold font-medium mb-2">Select an Ad Account</p>
+                    <p className="text-[11px] text-gold/80 mb-3">Choose which ad account to pull data from.</p>
                     {metaAdAccounts.length === 0 ? (
                       <button
                         onClick={loadMetaAdAccounts}
@@ -711,10 +711,10 @@ export default function ProjectDetail() {
                           <button
                             key={acct.id}
                             onClick={() => handleSelectAdAccount(acct.id)}
-                            className="w-full text-left px-3 py-2 rounded-lg border border-gray-200 hover:border-blue-300 hover:bg-blue-50/50 transition-colors"
+                            className="w-full text-left px-3 py-2 rounded-lg border border-black/10 hover:border-navy/30 hover:bg-navy/5 transition-colors"
                           >
-                            <span className="text-[12px] font-medium text-gray-800">{acct.name}</span>
-                            <span className="text-[10px] text-gray-400 ml-2">{acct.id}</span>
+                            <span className="text-[12px] font-medium text-textdark">{acct.name}</span>
+                            <span className="text-[10px] text-textlight ml-2">{acct.id}</span>
                           </button>
                         ))}
                       </div>
@@ -762,21 +762,21 @@ export default function ProjectDetail() {
                 {/* Show ad account picker if Change Ad Account was clicked */}
                 {metaStatus.adAccountId && metaAdAccounts.length > 0 && (
                   <div className="border border-gray-200 rounded-xl p-3 space-y-1.5">
-                    <p className="text-[11px] font-medium text-gray-500 mb-2">Select Ad Account</p>
+                    <p className="text-[11px] font-medium text-textmid mb-2">Select Ad Account</p>
                     {metaAdAccounts.map(acct => (
                       <button
                         key={acct.id}
                         onClick={() => { handleSelectAdAccount(acct.id); setMetaAdAccounts([]); }}
                         className={`w-full text-left px-3 py-2 rounded-lg border transition-colors ${
                           acct.id === metaStatus.adAccountId
-                            ? 'border-blue-300 bg-blue-50'
-                            : 'border-gray-200 hover:border-blue-300 hover:bg-blue-50/50'
+                            ? 'border-navy/30 bg-navy/5'
+                            : 'border-black/10 hover:border-navy/30 hover:bg-navy/5'
                         }`}
                       >
-                        <span className="text-[12px] font-medium text-gray-800">{acct.name}</span>
-                        <span className="text-[10px] text-gray-400 ml-2">{acct.id}</span>
+                        <span className="text-[12px] font-medium text-textdark">{acct.name}</span>
+                        <span className="text-[10px] text-textlight ml-2">{acct.id}</span>
                         {acct.id === metaStatus.adAccountId && (
-                          <span className="text-[9px] ml-2 px-1.5 py-0.5 rounded-full bg-blue-100 text-blue-600">Current</span>
+                          <span className="text-[9px] ml-2 px-1.5 py-0.5 rounded-full bg-navy/10 text-navy">Current</span>
                         )}
                       </button>
                     ))}
@@ -789,18 +789,18 @@ export default function ProjectDetail() {
                 {/* Credential inputs — show if no app ID or if user wants to edit */}
                 {(!metaStatus.appConfigured || metaShowEditCreds) && (
                   <div className="bg-gray-50/50 border border-gray-200/60 rounded-xl p-4 space-y-3">
-                    <p className="text-[12px] font-medium text-gray-700">
+                    <p className="text-[12px] font-medium text-textdark">
                       {metaStatus.appConfigured ? 'Edit Meta Developer Credentials' : 'Enter Meta Developer Credentials'}
                     </p>
-                    <p className="text-[11px] text-gray-500">
+                    <p className="text-[11px] text-textmid">
                       Each project can use its own Meta App. Create one at{' '}
-                      <a href="https://developers.facebook.com" target="_blank" rel="noopener noreferrer" className="text-blue-500 hover:underline">
+                      <a href="https://developers.facebook.com" target="_blank" rel="noopener noreferrer" className="text-gold hover:underline">
                         developers.facebook.com
                       </a>{' '}
                       with Marketing API access and <code className="text-[10px] bg-gray-100 px-1 py-0.5 rounded">ads_read</code> permission.
                     </p>
                     <div>
-                      <label className="block text-[11px] font-medium text-gray-500 mb-1">Meta App ID</label>
+                      <label className="block text-[11px] font-medium text-textmid mb-1">Meta App ID</label>
                       <input
                         type="text"
                         value={metaAppForm.meta_app_id}
@@ -810,7 +810,7 @@ export default function ProjectDetail() {
                       />
                     </div>
                     <div>
-                      <label className="block text-[11px] font-medium text-gray-500 mb-1">Meta App Secret</label>
+                      <label className="block text-[11px] font-medium text-textmid mb-1">Meta App Secret</label>
                       <input
                         type="password"
                         value={metaAppForm.meta_app_secret}
@@ -830,7 +830,7 @@ export default function ProjectDetail() {
                       {metaShowEditCreds && (
                         <button
                           onClick={() => setMetaShowEditCreds(false)}
-                          className="text-[12px] text-gray-400 hover:text-gray-600"
+                          className="text-[12px] text-textlight hover:text-textmid"
                         >
                           Cancel
                         </button>
@@ -866,12 +866,12 @@ export default function ProjectDetail() {
                       </button>
                       <button
                         onClick={() => setMetaShowEditCreds(true)}
-                        className="text-[11px] text-gray-400 hover:text-gray-600 hover:underline"
+                        className="text-[11px] text-textlight hover:text-textmid hover:underline"
                       >
                         Edit Credentials
                       </button>
                     </div>
-                    <p className="text-[11px] text-gray-400 mt-2">
+                    <p className="text-[11px] text-textlight mt-2">
                       Starts the OAuth flow using this project's Meta App credentials.
                     </p>
                   </div>

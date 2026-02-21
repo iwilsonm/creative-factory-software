@@ -15,11 +15,11 @@ export default function MultiInput({ items, onAdd, onRemove, placeholder, prefix
   };
 
   return (
-    <div className="flex flex-wrap gap-1.5 p-2 border border-gray-200/80 rounded-xl bg-white/80 backdrop-blur focus-within:ring-2 focus-within:ring-blue-500/30 focus-within:border-blue-300 transition-all min-h-[38px]">
+    <div className="flex flex-wrap gap-1.5 p-2 border border-black/5 rounded-xl bg-white/80 backdrop-blur focus-within:ring-2 focus-within:ring-gold/30 focus-within:border-gold transition-all min-h-[38px]">
       {items.map((item, i) => (
-        <span key={i} className="inline-flex items-center gap-1 px-2 py-0.5 bg-blue-50 text-blue-700 rounded-lg text-[12px] font-medium">
+        <span key={i} className="inline-flex items-center gap-1 px-2 py-0.5 bg-navy/10 text-navy rounded-lg text-[12px] font-medium">
           {prefix}{item}
-          <button onClick={() => onRemove(i)} className="text-blue-400 hover:text-blue-600 ml-0.5">
+          <button onClick={() => onRemove(i)} className="text-navy/60 hover:text-navy ml-0.5">
             <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
             </svg>

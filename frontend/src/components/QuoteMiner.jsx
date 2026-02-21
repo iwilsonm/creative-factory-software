@@ -11,9 +11,9 @@ const EMOTION_COLORS = {
   frustration: 'bg-orange-100 text-orange-700',
   desperation: 'bg-red-100 text-red-700',
   anger: 'bg-red-100 text-red-700',
-  fear: 'bg-purple-100 text-purple-700',
-  hope: 'bg-green-100 text-green-700',
-  relief: 'bg-emerald-100 text-emerald-700',
+  fear: 'bg-navy/10 text-navy',
+  hope: 'bg-teal/10 text-teal',
+  relief: 'bg-teal/10 text-teal',
   shame: 'bg-pink-100 text-pink-700',
   confusion: 'bg-yellow-100 text-yellow-700',
 };
@@ -922,13 +922,13 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h2 className="text-lg font-semibold text-gray-900 tracking-tight flex items-center gap-2">
-            <svg className="w-5 h-5 text-purple-500" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
+          <h2 className="text-lg font-semibold text-textdark tracking-tight flex items-center gap-2">
+            <svg className="w-5 h-5 text-navy" fill="none" viewBox="0 0 24 24" strokeWidth={1.5} stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" />
             </svg>
             Copywriter
           </h2>
-          <p className="text-[12px] text-gray-500 mt-0.5">
+          <p className="text-[12px] text-textmid mt-0.5">
             Mine quotes, generate headlines, and turn them into ads.
           </p>
         </div>
@@ -961,7 +961,7 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
       </div>
 
       {/* Sub-tab description */}
-      <p className="text-[12px] text-gray-400 italic -mt-1 mb-3">
+      <p className="text-[12px] text-textlight italic -mt-1 mb-3">
         {subTab === 'mine' && 'Search Reddit, forums, and online communities for real first-person quotes from your target audience. These authentic words capture the exact language, pain points, and emotions your customers use — the raw material for scroll-stopping ad copy.'}
         {subTab === 'bank' && 'Your permanent library of the best quotes across all mining runs. Favorite the strongest ones, tag them by theme, and generate headlines directly from any quote. Quotes persist here even when you re-run mining with different settings.'}
         {subTab === 'headlines' && 'Every headline generated from your quotes, organized in one place. Track which headlines have been used in ads, generate more variations from any quote, and find your strongest hooks at a glance.'}
@@ -976,14 +976,14 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
           <div className="card p-4">
             <div className="flex items-center justify-between">
               <div className="flex items-center gap-4 flex-wrap">
-                <span className="text-[13px] font-semibold text-gray-800">{totalHeadlines} headlines</span>
-                <span className="text-[12px] text-green-600 font-medium">{usedHeadlineCount} used</span>
-                <span className="text-[12px] text-gray-400">{unusedHeadlineCount} unused</span>
+                <span className="text-[13px] font-semibold text-textdark">{totalHeadlines} headlines</span>
+                <span className="text-[12px] text-teal font-medium">{usedHeadlineCount} used</span>
+                <span className="text-[12px] text-textlight">{unusedHeadlineCount} unused</span>
                 {uniqueTechniques.length > 0 && (
-                  <span className="text-[11px] text-amber-600 font-medium">{uniqueTechniques.length} techniques</span>
+                  <span className="text-[11px] text-gold font-medium">{uniqueTechniques.length} techniques</span>
                 )}
                 {quotesWithHeadlinesCount > 0 && (
-                  <span className="text-[11px] text-purple-500">{quotesWithHeadlinesCount} quotes with headlines</span>
+                  <span className="text-[11px] text-navy">{quotesWithHeadlinesCount} quotes with headlines</span>
                 )}
               </div>
               <div className="flex items-center gap-2">
@@ -999,15 +999,15 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
 
           {/* Backfill banner */}
           {quotesNeedingBackfill > 0 && (
-            <div className="flex items-center gap-3 p-3 rounded-xl bg-amber-50 border border-amber-200">
-              <svg className="w-4 h-4 text-amber-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+            <div className="flex items-center gap-3 p-3 rounded-xl bg-gold/5 border border-gold/15">
+              <svg className="w-4 h-4 text-gold flex-shrink-0" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
               </svg>
-              <span className="text-[12px] text-amber-700">{quotesNeedingBackfill} quotes missing problem labels.</span>
+              <span className="text-[12px] text-gold">{quotesNeedingBackfill} quotes missing problem labels.</span>
               <button
                 onClick={handleBackfillProblems}
                 disabled={backfilling}
-                className="text-[11px] font-semibold text-amber-700 hover:text-amber-900 underline disabled:opacity-50"
+                className="text-[11px] font-semibold text-gold hover:text-gold/80 underline disabled:opacity-50"
               >
                 {backfilling ? 'Fixing…' : 'Fix now'}
               </button>
@@ -1032,7 +1032,7 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
                 </div>
 
                 {/* Notion-style property filters */}
-                <span className="text-gray-200">|</span>
+                <span className="text-textlight/40">|</span>
                 <NotionFilter
                   properties={headlineFilterProperties}
                   filters={headlineFilters}
@@ -1045,9 +1045,9 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
 
           {/* Headline list */}
           {totalHeadlines === 0 ? (
-            <div className="text-center py-8 text-gray-400">
+            <div className="text-center py-8 text-textlight">
               <p className="text-[13px]">No headlines yet. Generate headlines from your Quote Bank first.</p>
-              <button onClick={() => setSubTab('bank')} className="text-[12px] text-purple-600 hover:text-purple-700 mt-2 font-medium">
+              <button onClick={() => setSubTab('bank')} className="text-[12px] text-navy hover:text-navy mt-2 font-medium">
                 Go to Quote Bank →
               </button>
             </div>
@@ -1067,23 +1067,23 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
               <>
                 {/* Bulk action bar */}
                 {selectedHeadlineKeys.size > 0 && (
-                  <div className="sticky top-0 z-10 flex items-center gap-3 p-3 rounded-xl bg-purple-50 border border-purple-200 shadow-sm">
-                    <span className="text-[12px] font-semibold text-purple-700">{selectedHeadlineKeys.size} selected</span>
+                  <div className="sticky top-0 z-10 flex items-center gap-3 p-3 rounded-xl bg-navy/5 border border-navy/20 shadow-sm">
+                    <span className="text-[12px] font-semibold text-navy">{selectedHeadlineKeys.size} selected</span>
                     <div className="flex items-center gap-1.5">
                       <button
                         onClick={() => setBulkActionOpen(bulkActionOpen === 'hl-problem' ? null : 'hl-problem')}
-                        className="text-[11px] px-2.5 py-1 rounded-lg bg-white border border-purple-200 text-purple-700 hover:bg-purple-100 transition-all font-medium"
+                        className="text-[11px] px-2.5 py-1 rounded-lg bg-white border border-navy/20 text-navy hover:bg-navy/10 transition-all font-medium"
                       >Set Problem</button>
                       <button
                         onClick={() => setBulkActionOpen(bulkActionOpen === 'hl-emotion' ? null : 'hl-emotion')}
-                        className="text-[11px] px-2.5 py-1 rounded-lg bg-white border border-purple-200 text-purple-700 hover:bg-purple-100 transition-all font-medium"
+                        className="text-[11px] px-2.5 py-1 rounded-lg bg-white border border-navy/20 text-navy hover:bg-navy/10 transition-all font-medium"
                       >Set Emotion</button>
                       <button
                         onClick={() => setBulkActionOpen(bulkActionOpen === 'hl-tag' ? null : 'hl-tag')}
-                        className="text-[11px] px-2.5 py-1 rounded-lg bg-white border border-purple-200 text-purple-700 hover:bg-purple-100 transition-all font-medium"
+                        className="text-[11px] px-2.5 py-1 rounded-lg bg-white border border-navy/20 text-navy hover:bg-navy/10 transition-all font-medium"
                       >Add Tag</button>
                     </div>
-                    <button onClick={clearHeadlineSelection} className="text-[11px] text-gray-500 hover:text-gray-700 ml-auto">Clear</button>
+                    <button onClick={clearHeadlineSelection} className="text-[11px] text-textmid hover:text-textdark ml-auto">Clear</button>
                   </div>
                 )}
 
@@ -1116,32 +1116,32 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
                         handleHeadlineBulkUpdate(field, bulkInput.trim());
                       }
                     }}
-                    className="flex items-center gap-2 p-2 rounded-xl bg-gray-50 border border-gray-200"
+                    className="flex items-center gap-2 p-2 rounded-xl bg-offwhite border border-black/5"
                   >
                     <input
                       autoFocus
                       value={bulkInput}
                       onChange={e => setBulkInput(e.target.value)}
                       placeholder={bulkActionOpen === 'hl-problem' ? 'New problem label...' : bulkActionOpen === 'hl-emotion' ? 'New emotion...' : 'Tag name...'}
-                      className="text-[12px] flex-1 px-3 py-1.5 rounded-lg border border-gray-200 outline-none focus:ring-2 focus:ring-purple-300 focus:border-purple-300"
+                      className="text-[12px] flex-1 px-3 py-1.5 rounded-lg border border-black/5 outline-none focus:ring-2 focus:ring-navy/30 focus:border-navy/30"
                     />
-                    <button type="submit" className="text-[11px] px-3 py-1.5 rounded-lg bg-purple-600 text-white font-medium hover:bg-purple-700">Apply</button>
-                    <button type="button" onClick={() => { setBulkActionOpen(null); setBulkInput(''); }} className="text-[11px] text-gray-500 hover:text-gray-700">Cancel</button>
+                    <button type="submit" className="text-[11px] px-3 py-1.5 rounded-lg bg-navy text-white font-medium hover:bg-navy-light">Apply</button>
+                    <button type="button" onClick={() => { setBulkActionOpen(null); setBulkInput(''); }} className="text-[11px] text-textmid hover:text-textdark">Cancel</button>
                   </form>
                 )}
 
                 {filtered.length === 0 ? (
-                  <div className="text-center py-6 text-gray-400">
+                  <div className="text-center py-6 text-textlight">
                     <p className="text-[12px]">No headlines match the current filters.</p>
                     <button
                       onClick={() => { setHeadlineFilter('all'); setHeadlineFilters(new Map()); }}
-                      className="text-[11px] text-purple-600 hover:text-purple-700 mt-1 font-medium"
+                      className="text-[11px] text-navy hover:text-navy mt-1 font-medium"
                     >Clear filters</button>
                   </div>
                 ) : (
                   <div className="space-y-1.5">
                     {/* Select All header row — aligned with per-item checkboxes */}
-                    <div className="flex items-center gap-3 px-3 py-1.5 rounded-lg bg-gray-50/80 border border-gray-100">
+                    <div className="flex items-center gap-3 px-3 py-1.5 rounded-lg bg-offwhite border border-black/5">
                       <input
                         type="checkbox"
                         checked={allFilteredSelected}
@@ -1152,10 +1152,10 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
                             setSelectedHeadlineKeys(new Set(filtered.map(h => h.key)));
                           }
                         }}
-                        className="w-3.5 h-3.5 rounded border-gray-300 text-purple-600 focus:ring-purple-500 flex-shrink-0"
+                        className="w-3.5 h-3.5 rounded border-black/10 text-navy focus:ring-navy flex-shrink-0"
                       />
-                      <span className="text-[10px] text-gray-500 font-medium">Select all</span>
-                      <span className="text-[10px] text-gray-400 ml-auto">{filtered.length} of {totalHeadlines} headlines</span>
+                      <span className="text-[10px] text-textmid font-medium">Select all</span>
+                      <span className="text-[10px] text-textlight ml-auto">{filtered.length} of {totalHeadlines} headlines</span>
                     </div>
                     {filtered.map((h, idx) => {
                       const prevQuoteId = idx > 0 ? filtered[idx - 1].quoteId : null;
@@ -1167,11 +1167,11 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
                         <React.Fragment key={h.key}>
                           {showGroupSep && (
                             <div className="flex items-center gap-2 pt-3 pb-1">
-                              <div className="flex-1 border-t border-gray-200/60" />
+                              <div className="flex-1 border-t border-black/5" />
                               <button
                                 onClick={() => handleGenerateMoreHeadlines(prevQuoteId)}
                                 disabled={generatingMoreForQuote === prevQuoteId}
-                                className="inline-flex items-center gap-1 text-[9px] font-medium text-purple-500 hover:text-purple-700 transition-colors"
+                                className="inline-flex items-center gap-1 text-[9px] font-medium text-navy hover:text-navy transition-colors"
                               >
                                 {generatingMoreForQuote === prevQuoteId ? (
                                   <svg className="w-2.5 h-2.5 animate-spin" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" className="opacity-25" /><path d="M4 12a8 8 0 018-8" stroke="currentColor" strokeWidth="4" strokeLinecap="round" className="opacity-75" /></svg>
@@ -1180,20 +1180,20 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
                                 )}
                                 Generate More
                               </button>
-                              <div className="flex-1 border-t border-gray-200/60" />
+                              <div className="flex-1 border-t border-black/5" />
                             </div>
                           )}
                           <div className={`flex items-start gap-3 p-3 rounded-xl bg-white border transition-all ${
-                            isSelected ? 'border-purple-300 bg-purple-50/30' : 'border-gray-100 hover:border-gray-200'
+                            isSelected ? 'border-navy/30 bg-navy/5' : 'border-black/5 hover:border-black/5'
                           }`}>
                             <input
                               type="checkbox"
                               checked={isSelected}
                               onChange={() => toggleHeadlineSelect(h.key)}
-                              className="w-3.5 h-3.5 mt-1 rounded border-gray-300 text-purple-600 focus:ring-purple-500 flex-shrink-0"
+                              className="w-3.5 h-3.5 mt-1 rounded border-black/10 text-navy focus:ring-navy flex-shrink-0"
                             />
                             <span className={`flex-shrink-0 mt-0.5 text-[9px] font-bold px-2 py-0.5 rounded-full ${
-                              h.isUsed ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'
+                              h.isUsed ? 'bg-teal/10 text-teal' : 'bg-black/5 text-textmid'
                             }`}>
                               {h.isUsed ? 'Used' : 'Unused'}
                             </span>
@@ -1204,14 +1204,14 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
                                     autoFocus
                                     value={editingField.value}
                                     onChange={e => setEditingField(prev => ({ ...prev, value: e.target.value }))}
-                                    className="flex-1 text-[13px] font-medium text-gray-800 px-2 py-1 rounded-lg border border-purple-300 outline-none focus:ring-2 focus:ring-purple-200"
+                                    className="flex-1 text-[13px] font-medium text-textdark px-2 py-1 rounded-lg border border-navy/30 outline-none focus:ring-2 focus:ring-navy/20"
                                   />
-                                  <button type="submit" disabled={savingEdit} className="text-[10px] px-2 py-1 rounded-lg bg-purple-600 text-white font-medium">{savingEdit ? '...' : 'Save'}</button>
-                                  <button type="button" onClick={cancelEditing} className="text-[10px] text-gray-500">Cancel</button>
+                                  <button type="submit" disabled={savingEdit} className="text-[10px] px-2 py-1 rounded-lg bg-navy text-white font-medium">{savingEdit ? '...' : 'Save'}</button>
+                                  <button type="button" onClick={cancelEditing} className="text-[10px] text-textmid">Cancel</button>
                                 </form>
                               ) : (
                                 <p
-                                  className="text-[13px] font-medium text-gray-800 leading-relaxed cursor-pointer hover:bg-purple-50/50 rounded px-1 -mx-1 transition-colors"
+                                  className="text-[13px] font-medium text-textdark leading-relaxed cursor-pointer hover:bg-navy/5 rounded px-1 -mx-1 transition-colors"
                                   onClick={() => startEditingHeadline(h.quoteId, h.hlIdx, h.headline)}
                                   title="Click to edit headline"
                                 >{h.headline}</p>
@@ -1219,7 +1219,7 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
                               <div className="flex items-center gap-2 mt-1.5 flex-wrap">
                                 {h.problem && (
                                   <span
-                                    className="text-[9px] font-semibold px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 cursor-pointer hover:bg-blue-100 transition-colors"
+                                    className="text-[9px] font-semibold px-2 py-0.5 rounded-full bg-navy/5 text-navy cursor-pointer hover:bg-navy/10 transition-colors"
                                     onClick={() => toggleMapFilter(setHeadlineFilters, 'problem', h.problem)}
                                     title={`Filter by: ${h.problem}`}
                                   >
@@ -1228,7 +1228,7 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
                                 )}
                                 {h.emotion && (
                                   <span
-                                    className={`text-[9px] font-semibold px-1.5 py-0.5 rounded-full cursor-pointer hover:opacity-80 transition-opacity ${EMOTION_COLORS[h.emotion] || 'bg-gray-100 text-gray-600'}`}
+                                    className={`text-[9px] font-semibold px-1.5 py-0.5 rounded-full cursor-pointer hover:opacity-80 transition-opacity ${EMOTION_COLORS[h.emotion] || 'bg-black/5 text-textmid'}`}
                                     onClick={() => toggleMapFilter(setHeadlineFilters, 'emotion', h.emotion)}
                                     title={`Filter by: ${h.emotion}`}
                                   >
@@ -1247,7 +1247,7 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
                                 ))}
                                 {h.technique && (
                                   <span
-                                    className="text-[9px] font-medium px-1.5 py-0.5 rounded-full bg-amber-50 text-amber-700 cursor-pointer hover:bg-amber-100 transition-colors"
+                                    className="text-[9px] font-medium px-1.5 py-0.5 rounded-full bg-gold/5 text-gold cursor-pointer hover:bg-gold/10 transition-colors"
                                     onClick={() => toggleMapFilter(setHeadlineFilters, 'technique', h.technique)}
                                     title={`Filter by technique: ${h.technique}`}
                                   >
@@ -1255,14 +1255,14 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
                                   </span>
                                 )}
                               </div>
-                              <p className="text-[11px] text-gray-500 mt-1.5 leading-relaxed italic bg-gray-50/80 px-2.5 py-1.5 rounded-lg border border-gray-100/60" title={h.quoteText}>
+                              <p className="text-[11px] text-textmid mt-1.5 leading-relaxed italic bg-offwhite px-2.5 py-1.5 rounded-lg border border-black/[0.03]" title={h.quoteText}>
                                 &ldquo;{h.quoteText.length > 120 ? h.quoteText.slice(0, 120) + '...' : h.quoteText}&rdquo;
                               </p>
                             </div>
                             <div className="flex items-center gap-1.5 flex-shrink-0">
                               <button
                                 onClick={() => copyHeadline(h.headline)}
-                                className="text-gray-400 hover:text-purple-600 transition-colors p-1"
+                                className="text-textlight hover:text-navy transition-colors p-1"
                                 title="Copy headline"
                               >
                                 <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
@@ -1282,7 +1282,7 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
                                     });
                                   }
                                 }}
-                                className="inline-flex items-center gap-1 text-[10px] font-semibold text-purple-600 hover:text-white bg-purple-50 hover:bg-purple-600 px-2.5 py-1 rounded-lg transition-all"
+                                className="inline-flex items-center gap-1 text-[10px] font-semibold text-navy hover:text-white bg-navy/5 hover:bg-navy px-2.5 py-1 rounded-lg transition-all"
                                 title="Turn this headline into an ad"
                               >
                                 Turn into Ad
@@ -1295,11 +1295,11 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
                           {/* Generate More button at end of last group */}
                           {isLastInGroup && idx === filtered.length - 1 && (
                             <div className="flex items-center gap-2 pt-2">
-                              <div className="flex-1 border-t border-gray-200/60" />
+                              <div className="flex-1 border-t border-black/5" />
                               <button
                                 onClick={() => handleGenerateMoreHeadlines(h.quoteId)}
                                 disabled={generatingMoreForQuote === h.quoteId}
-                                className="inline-flex items-center gap-1 text-[9px] font-medium text-purple-500 hover:text-purple-700 transition-colors"
+                                className="inline-flex items-center gap-1 text-[9px] font-medium text-navy hover:text-navy transition-colors"
                               >
                                 {generatingMoreForQuote === h.quoteId ? (
                                   <svg className="w-2.5 h-2.5 animate-spin" viewBox="0 0 24 24" fill="none"><circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" className="opacity-25" /><path d="M4 12a8 8 0 018-8" stroke="currentColor" strokeWidth="4" strokeLinecap="round" className="opacity-75" /></svg>
@@ -1308,7 +1308,7 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
                                 )}
                                 Generate More
                               </button>
-                              <div className="flex-1 border-t border-gray-200/60" />
+                              <div className="flex-1 border-t border-black/5" />
                             </div>
                           )}
                         </React.Fragment>
@@ -1330,22 +1330,22 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
           {/* Stats bar */}
           <div className="card p-4">
             <div className="flex items-center gap-4 text-[13px] flex-wrap">
-              <span className="font-semibold text-gray-800">{bankQuotes.length} quotes</span>
-              <span className="text-gray-400">·</span>
-              <span className="text-gray-500">{quotesWithHeadlinesCount} with headlines</span>
-              <span className="text-gray-400">·</span>
-              <span className="text-gray-500">{totalHeadlines} total headlines</span>
+              <span className="font-semibold text-textdark">{bankQuotes.length} quotes</span>
+              <span className="text-textlight">·</span>
+              <span className="text-textmid">{quotesWithHeadlinesCount} with headlines</span>
+              <span className="text-textlight">·</span>
+              <span className="text-textmid">{totalHeadlines} total headlines</span>
               {uniqueProblems.length > 0 && (
                 <>
-                  <span className="text-gray-400">·</span>
-                  <span className="text-gray-500">{uniqueProblems.length} problem{uniqueProblems.length !== 1 ? 's' : ''}</span>
+                  <span className="text-textlight">·</span>
+                  <span className="text-textmid">{uniqueProblems.length} problem{uniqueProblems.length !== 1 ? 's' : ''}</span>
                 </>
               )}
             </div>
             {uniqueProblems.length > 0 && (
               <div className="flex items-center gap-1.5 mt-2 flex-wrap">
                 {uniqueProblems.map(p => (
-                  <span key={p} className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-blue-50 text-blue-700">
+                  <span key={p} className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-navy/5 text-navy">
                     {p}
                   </span>
                 ))}
@@ -1355,15 +1355,15 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
 
           {/* Backfill banner */}
           {quotesNeedingBackfill > 0 && (
-            <div className="flex items-center gap-3 p-3 rounded-xl bg-amber-50 border border-amber-200">
-              <svg className="w-4 h-4 text-amber-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+            <div className="flex items-center gap-3 p-3 rounded-xl bg-gold/5 border border-gold/15">
+              <svg className="w-4 h-4 text-gold flex-shrink-0" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
               </svg>
-              <span className="text-[12px] text-amber-700">{quotesNeedingBackfill} quotes missing problem labels.</span>
+              <span className="text-[12px] text-gold">{quotesNeedingBackfill} quotes missing problem labels.</span>
               <button
                 onClick={handleBackfillProblems}
                 disabled={backfilling}
-                className="text-[11px] font-semibold text-amber-700 hover:text-amber-900 underline disabled:opacity-50"
+                className="text-[11px] font-semibold text-gold hover:text-gold/80 underline disabled:opacity-50"
               >
                 {backfilling ? 'Fixing...' : 'Fix now'}
               </button>
@@ -1371,14 +1371,14 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
           )}
 
           {bankQuotes.length === 0 ? (
-            <div className="text-center py-8 text-gray-400">
-              <svg className="w-12 h-12 mx-auto mb-3 text-gray-200" fill="none" viewBox="0 0 24 24" strokeWidth={1} stroke="currentColor">
+            <div className="text-center py-8 text-textlight">
+              <svg className="w-12 h-12 mx-auto mb-3 text-textlight/40" fill="none" viewBox="0 0 24 24" strokeWidth={1} stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M20.25 6.375c0 2.278-3.694 4.125-8.25 4.125S3.75 8.653 3.75 6.375m16.5 0c0-2.278-3.694-4.125-8.25-4.125S3.75 4.097 3.75 6.375m16.5 0v11.25c0 2.278-3.694 4.125-8.25 4.125s-8.25-1.847-8.25-4.125V6.375" />
               </svg>
               <p className="text-[13px]">No quotes in the bank yet.</p>
               {runs.filter(r => r.status === 'completed' && r.quote_count > 0).length > 0 ? (
                 <div className="mt-3 space-y-2">
-                  <p className="text-[12px] text-gray-500">
+                  <p className="text-[12px] text-textmid">
                     You have {runs.filter(r => r.status === 'completed' && r.quote_count > 0).length} past run{runs.filter(r => r.status === 'completed' && r.quote_count > 0).length !== 1 ? 's' : ''} with quotes that can be imported.
                   </p>
                   <button
@@ -1404,7 +1404,7 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
                   </button>
                 </div>
               ) : (
-                <button onClick={() => setSubTab('mine')} className="text-[12px] text-purple-600 hover:text-purple-700 mt-2 font-medium">
+                <button onClick={() => setSubTab('mine')} className="text-[12px] text-navy hover:text-navy mt-2 font-medium">
                   Mine Quotes to get started →
                 </button>
               )}
@@ -1427,7 +1427,7 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
                   {!generatingBankHeadlines && (
                     <button
                       onClick={handleGenerateBankHeadlines}
-                      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-medium rounded-lg bg-purple-600 text-white hover:bg-purple-700 shadow-sm transition-all"
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-medium rounded-lg bg-navy text-white hover:bg-navy-light shadow-sm transition-all"
                     >
                       <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z" />
@@ -1457,20 +1457,20 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
 
               {/* Bulk action bar for Quote Bank */}
               {selectedQuoteIds.size > 0 && (
-                <div className="sticky top-0 z-10 flex items-center gap-3 p-3 rounded-xl bg-blue-50 border border-blue-200 shadow-sm">
-                  <span className="text-[12px] font-semibold text-blue-700">{selectedQuoteIds.size} selected</span>
+                <div className="sticky top-0 z-10 flex items-center gap-3 p-3 rounded-xl bg-navy/5 border border-navy/20 shadow-sm">
+                  <span className="text-[12px] font-semibold text-navy">{selectedQuoteIds.size} selected</span>
                   <div className="flex items-center gap-1.5">
                     <button
                       onClick={() => setBulkActionOpen(bulkActionOpen === 'qb-problem' ? null : 'qb-problem')}
-                      className="text-[11px] px-2.5 py-1 rounded-lg bg-white border border-blue-200 text-blue-700 hover:bg-blue-100 transition-all font-medium"
+                      className="text-[11px] px-2.5 py-1 rounded-lg bg-white border border-navy/20 text-navy hover:bg-navy/10 transition-all font-medium"
                     >Set Problem</button>
                     <button
                       onClick={() => setBulkActionOpen(bulkActionOpen === 'qb-emotion' ? null : 'qb-emotion')}
-                      className="text-[11px] px-2.5 py-1 rounded-lg bg-white border border-blue-200 text-blue-700 hover:bg-blue-100 transition-all font-medium"
+                      className="text-[11px] px-2.5 py-1 rounded-lg bg-white border border-navy/20 text-navy hover:bg-navy/10 transition-all font-medium"
                     >Set Emotion</button>
                     <button
                       onClick={() => setBulkActionOpen(bulkActionOpen === 'qb-tag' ? null : 'qb-tag')}
-                      className="text-[11px] px-2.5 py-1 rounded-lg bg-white border border-blue-200 text-blue-700 hover:bg-blue-100 transition-all font-medium"
+                      className="text-[11px] px-2.5 py-1 rounded-lg bg-white border border-navy/20 text-navy hover:bg-navy/10 transition-all font-medium"
                     >Add Tag</button>
                     {/* Remove tag if any selected quotes have tags */}
                     {(() => {
@@ -1486,7 +1486,7 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
                       ) : null;
                     })()}
                   </div>
-                  <button onClick={clearQuoteSelection} className="text-[11px] text-gray-500 hover:text-gray-700 ml-auto">Clear</button>
+                  <button onClick={clearQuoteSelection} className="text-[11px] text-textmid hover:text-textdark ml-auto">Clear</button>
                 </div>
               )}
 
@@ -1503,17 +1503,17 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
                       handleBulkUpdate(field, bulkInput.trim());
                     }
                   }}
-                  className="flex items-center gap-2 p-2 rounded-xl bg-gray-50 border border-gray-200"
+                  className="flex items-center gap-2 p-2 rounded-xl bg-offwhite border border-black/5"
                 >
                   <input
                     autoFocus
                     value={bulkInput}
                     onChange={e => setBulkInput(e.target.value)}
                     placeholder={bulkActionOpen === 'qb-problem' ? 'New problem label...' : bulkActionOpen === 'qb-emotion' ? 'New emotion...' : 'Tag name...'}
-                    className="text-[12px] flex-1 px-3 py-1.5 rounded-lg border border-gray-200 outline-none focus:ring-2 focus:ring-blue-300 focus:border-blue-300"
+                    className="text-[12px] flex-1 px-3 py-1.5 rounded-lg border border-black/5 outline-none focus:ring-2 focus:ring-navy/30 focus:border-navy/30"
                   />
-                  <button type="submit" className="text-[11px] px-3 py-1.5 rounded-lg bg-blue-600 text-white font-medium hover:bg-blue-700">Apply</button>
-                  <button type="button" onClick={() => { setBulkActionOpen(null); setBulkInput(''); }} className="text-[11px] text-gray-500 hover:text-gray-700">Cancel</button>
+                  <button type="submit" className="text-[11px] px-3 py-1.5 rounded-lg bg-navy text-white font-medium hover:bg-navy-light">Apply</button>
+                  <button type="button" onClick={() => { setBulkActionOpen(null); setBulkInput(''); }} className="text-[11px] text-textmid hover:text-textdark">Cancel</button>
                 </form>
               )}
 
@@ -1524,8 +1524,8 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
                   return q?.tags || [];
                 }))].sort();
                 return (
-                  <div className="flex items-center gap-2 p-2 rounded-xl bg-gray-50 border border-gray-200 flex-wrap">
-                    <span className="text-[11px] text-gray-500 font-medium">Remove tag:</span>
+                  <div className="flex items-center gap-2 p-2 rounded-xl bg-offwhite border border-black/5 flex-wrap">
+                    <span className="text-[11px] text-textmid font-medium">Remove tag:</span>
                     {allTags.map(t => (
                       <button
                         key={t}
@@ -1533,23 +1533,23 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
                         className="text-[10px] px-2 py-0.5 rounded-full bg-red-50 text-red-600 border border-red-200 hover:bg-red-100 transition-colors font-medium"
                       >{t} ×</button>
                     ))}
-                    <button onClick={() => setBulkActionOpen(null)} className="text-[11px] text-gray-500 hover:text-gray-700 ml-auto">Cancel</button>
+                    <button onClick={() => setBulkActionOpen(null)} className="text-[11px] text-textmid hover:text-textdark ml-auto">Cancel</button>
                   </div>
                 );
               })()}
 
               {/* Bank headline progress */}
               {generatingBankHeadlines && (
-                <div className="p-3 bg-purple-50/60 rounded-xl border border-purple-100 space-y-2">
+                <div className="p-3 bg-navy/5 rounded-xl border border-navy/10 space-y-2">
                   <div className="flex items-center gap-2">
-                    <svg className="w-3.5 h-3.5 animate-spin text-purple-500" viewBox="0 0 24 24" fill="none">
+                    <svg className="w-3.5 h-3.5 animate-spin text-navy" viewBox="0 0 24 24" fill="none">
                       <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" strokeDasharray="31.4 31.4" strokeLinecap="round" />
                     </svg>
-                    <span className="text-[12px] font-semibold text-purple-700">Generating headlines for bank quotes...</span>
+                    <span className="text-[12px] font-semibold text-navy">Generating headlines for bank quotes...</span>
                   </div>
-                  <div className="bg-white/60 rounded-lg p-2 max-h-[100px] overflow-y-auto text-[10px] font-mono text-gray-500 space-y-0.5">
+                  <div className="bg-white/60 rounded-lg p-2 max-h-[100px] overflow-y-auto text-[10px] font-mono text-textmid space-y-0.5">
                     {bankHeadlineProgress.map((event, i) => (
-                      <div key={i} className={event.type === 'error' ? 'text-red-500' : event.type?.includes('complete') ? 'text-green-600' : ''}>
+                      <div key={i} className={event.type === 'error' ? 'text-red-500' : event.type?.includes('complete') ? 'text-teal' : ''}>
                         {event.message || JSON.stringify(event)}
                       </div>
                     ))}
@@ -1561,7 +1561,7 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
               <div className="space-y-2">
                 {/* Select All header row — aligned with per-item checkboxes */}
                 {filteredBankQuotes.length > 0 && (
-                  <div className="flex items-center gap-3 px-3 py-1.5 rounded-lg bg-gray-50/80 border border-gray-100">
+                  <div className="flex items-center gap-3 px-3 py-1.5 rounded-lg bg-offwhite border border-black/5">
                     <input
                       type="checkbox"
                       checked={filteredBankQuotes.length > 0 && filteredBankQuotes.every(q => selectedQuoteIds.has(q.id))}
@@ -1572,14 +1572,14 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
                           selectAllQuotes();
                         }
                       }}
-                      className="w-3.5 h-3.5 rounded border-gray-300 text-blue-600 focus:ring-blue-500 flex-shrink-0"
+                      className="w-3.5 h-3.5 rounded border-black/10 text-navy focus:ring-navy flex-shrink-0"
                     />
-                    <span className="text-[10px] text-gray-500 font-medium">Select all</span>
-                    <span className="text-[10px] text-gray-400 ml-auto">{filteredBankQuotes.length} quotes</span>
+                    <span className="text-[10px] text-textmid font-medium">Select all</span>
+                    <span className="text-[10px] text-textlight ml-auto">{filteredBankQuotes.length} quotes</span>
                   </div>
                 )}
                 {filteredBankQuotes.length === 0 && (
-                  <p className="text-[12px] text-gray-400 py-4 text-center">
+                  <p className="text-[12px] text-textlight py-4 text-center">
                     {hasBankFilters ? 'No quotes match the current filters.' : bankFilter === 'favorites' ? 'No favorite quotes yet. Star quotes to add them here.' : 'No quotes in bank.'}
                   </p>
                 )}
@@ -1591,11 +1591,11 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
 
                   return (
                     <div key={quote.id} className={`rounded-xl border overflow-hidden transition-all ${
-                      isQuoteSelected ? 'border-blue-300 bg-blue-50/20' : 'border-gray-100 hover:border-gray-200'
+                      isQuoteSelected ? 'border-navy/30 bg-navy/5' : 'border-black/5 hover:border-black/5'
                     }`}>
                       {/* Quote row */}
                       <div
-                        className="flex items-start gap-3 p-3 cursor-pointer hover:bg-gray-50/50 transition-colors"
+                        className="flex items-start gap-3 p-3 cursor-pointer hover:bg-offwhite/50 transition-colors"
                         onClick={() => toggleExpand(quote.id)}
                       >
                         {/* Checkbox */}
@@ -1604,23 +1604,23 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
                           checked={isQuoteSelected}
                           onChange={(e) => { e.stopPropagation(); toggleQuoteSelect(quote.id); }}
                           onClick={e => e.stopPropagation()}
-                          className="w-3.5 h-3.5 mt-1 rounded border-gray-300 text-blue-600 focus:ring-blue-500 flex-shrink-0"
+                          className="w-3.5 h-3.5 mt-1 rounded border-black/10 text-navy focus:ring-navy flex-shrink-0"
                         />
 
                         {/* Expand chevron */}
-                        <svg className={`w-4 h-4 text-gray-300 mt-0.5 flex-shrink-0 transition-transform ${isExpanded ? 'rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                        <svg className={`w-4 h-4 text-textlight/60 mt-0.5 flex-shrink-0 transition-transform ${isExpanded ? 'rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
                           <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
                         </svg>
 
                         {/* Quote text */}
                         <div className="flex-1 min-w-0">
-                          <p className="text-[13px] text-gray-800 leading-relaxed italic">
+                          <p className="text-[13px] text-textdark leading-relaxed italic">
                             &ldquo;{quote.quote.length > 150 && !isExpanded ? quote.quote.slice(0, 150) + '...' : quote.quote}&rdquo;
                           </p>
                           <div className="flex items-center flex-wrap gap-1.5 mt-1.5">
                             {quote.problem && (
                               <span
-                                className="text-[9px] font-semibold px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 cursor-pointer hover:bg-blue-100 transition-colors"
+                                className="text-[9px] font-semibold px-2 py-0.5 rounded-full bg-navy/5 text-navy cursor-pointer hover:bg-navy/10 transition-colors"
                                 onClick={(e) => { e.stopPropagation(); startEditing(quote.id, 'problem', quote.problem); }}
                                 title="Click to edit problem"
                               >
@@ -1629,7 +1629,7 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
                             )}
                             {quote.emotion && (
                               <span
-                                className={`text-[9px] font-semibold px-1.5 py-0.5 rounded-full cursor-pointer hover:opacity-80 transition-opacity ${EMOTION_COLORS[quote.emotion] || 'bg-gray-100 text-gray-600'}`}
+                                className={`text-[9px] font-semibold px-1.5 py-0.5 rounded-full cursor-pointer hover:opacity-80 transition-opacity ${EMOTION_COLORS[quote.emotion] || 'bg-black/5 text-textmid'}`}
                                 onClick={(e) => { e.stopPropagation(); startEditing(quote.id, 'emotion', quote.emotion); }}
                                 title="Click to edit emotion"
                               >
@@ -1638,13 +1638,13 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
                             )}
                             {!quote.problem && (
                               <button
-                                className="text-[9px] text-gray-400 hover:text-blue-600 px-1.5 py-0.5 rounded-full border border-dashed border-gray-300 hover:border-blue-300 transition-colors"
+                                className="text-[9px] text-textlight hover:text-navy px-1.5 py-0.5 rounded-full border border-dashed border-black/10 hover:border-navy/30 transition-colors"
                                 onClick={(e) => { e.stopPropagation(); startEditing(quote.id, 'problem', ''); }}
                               >+ Problem</button>
                             )}
                             {!quote.emotion && (
                               <button
-                                className="text-[9px] text-gray-400 hover:text-purple-600 px-1.5 py-0.5 rounded-full border border-dashed border-gray-300 hover:border-purple-300 transition-colors"
+                                className="text-[9px] text-textlight hover:text-navy px-1.5 py-0.5 rounded-full border border-dashed border-black/10 hover:border-navy/30 transition-colors"
                                 onClick={(e) => { e.stopPropagation(); startEditing(quote.id, 'emotion', ''); }}
                               >+ Emotion</button>
                             )}
@@ -1652,7 +1652,7 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
                               <span className="text-[9px] font-medium px-1.5 py-0.5 rounded-full bg-red-50 text-red-600">High</span>
                             )}
                             {headlines.length > 0 && (
-                              <span className="text-[9px] font-medium px-1.5 py-0.5 rounded-full bg-purple-50 text-purple-600">
+                              <span className="text-[9px] font-medium px-1.5 py-0.5 rounded-full bg-navy/5 text-navy">
                                 {headlines.length} headlines
                               </span>
                             )}
@@ -1660,7 +1660,7 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
                               const techs = headlines.map(h => h.technique).filter(Boolean);
                               const uniqueTechs = [...new Set(techs)];
                               return uniqueTechs.length > 0 ? (
-                                <span className="text-[9px] font-medium px-1.5 py-0.5 rounded-full bg-amber-50 text-amber-600" title={uniqueTechs.join(', ')}>
+                                <span className="text-[9px] font-medium px-1.5 py-0.5 rounded-full bg-gold/5 text-gold" title={uniqueTechs.join(', ')}>
                                   {uniqueTechs.length} technique{uniqueTechs.length !== 1 ? 's' : ''}
                                 </span>
                               ) : null;
@@ -1671,7 +1671,7 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
                               </span>
                             ))}
                             {quote.source && (
-                              <span className="text-[9px] text-gray-400">{quote.source}</span>
+                              <span className="text-[9px] text-textlight">{quote.source}</span>
                             )}
                           </div>
                         </div>
@@ -1680,7 +1680,7 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
                         <div className="flex items-center gap-1 flex-shrink-0" onClick={e => e.stopPropagation()}>
                           <button
                             onClick={() => toggleFavorite(quote.id)}
-                            className={`p-1 transition-colors ${quote.is_favorite ? 'text-amber-400' : 'text-gray-300 hover:text-amber-400'}`}
+                            className={`p-1 transition-colors ${quote.is_favorite ? 'text-gold/70' : 'text-textlight/60 hover:text-gold/70'}`}
                             title={quote.is_favorite ? 'Remove from favorites' : 'Add to favorites'}
                           >
                             <svg className="w-4 h-4" fill={quote.is_favorite ? 'currentColor' : 'none'} viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
@@ -1689,7 +1689,7 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
                           </button>
                           <button
                             onClick={() => deleteBankQuote(quote.id)}
-                            className="text-gray-300 hover:text-red-500 transition-colors p-1"
+                            className="text-textlight/60 hover:text-red-500 transition-colors p-1"
                             title="Delete quote"
                           >
                             <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
@@ -1701,33 +1701,33 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
 
                       {/* Inline edit overlay */}
                       {editingField && editingField.quoteId === quote.id && editingField.field !== 'headline' && (
-                        <div className="border-t border-gray-200 bg-yellow-50/50 px-4 py-2" onClick={e => e.stopPropagation()}>
+                        <div className="border-t border-black/5 bg-yellow-50/50 px-4 py-2" onClick={e => e.stopPropagation()}>
                           <form onSubmit={(e) => { e.preventDefault(); saveEdit(); }} className="flex items-center gap-2">
-                            <span className="text-[10px] text-gray-500 font-medium uppercase tracking-wider w-[60px]">{editingField.field}:</span>
+                            <span className="text-[10px] text-textmid font-medium uppercase tracking-wider w-[60px]">{editingField.field}:</span>
                             <input
                               autoFocus
                               value={editingField.value}
                               onChange={e => setEditingField(prev => ({ ...prev, value: e.target.value }))}
-                              className="flex-1 text-[12px] px-2.5 py-1 rounded-lg border border-gray-300 outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-300"
+                              className="flex-1 text-[12px] px-2.5 py-1 rounded-lg border border-black/10 outline-none focus:ring-2 focus:ring-navy/20 focus:border-navy/30"
                               placeholder={`Enter ${editingField.field}...`}
                             />
-                            <button type="submit" disabled={savingEdit} className="text-[10px] px-2.5 py-1 rounded-lg bg-blue-600 text-white font-medium hover:bg-blue-700 disabled:opacity-50">
+                            <button type="submit" disabled={savingEdit} className="text-[10px] px-2.5 py-1 rounded-lg bg-navy text-white font-medium hover:bg-navy-light disabled:opacity-50">
                               {savingEdit ? '...' : 'Save'}
                             </button>
-                            <button type="button" onClick={cancelEditing} className="text-[10px] text-gray-500 hover:text-gray-700">Cancel</button>
+                            <button type="button" onClick={cancelEditing} className="text-[10px] text-textmid hover:text-textdark">Cancel</button>
                           </form>
                         </div>
                       )}
 
                       {/* Expanded: Headlines + Metadata */}
                       {isExpanded && (
-                        <div className="border-t border-gray-100 bg-gray-50/30 px-4 py-3 space-y-3">
+                        <div className="border-t border-black/5 bg-black/[0.02] px-4 py-3 space-y-3">
                           {/* Editable metadata section */}
                           <div className="flex items-center gap-4 flex-wrap" onClick={e => e.stopPropagation()}>
                             <div className="flex items-center gap-1.5">
-                              <span className="text-[9px] text-gray-400 font-medium uppercase tracking-wider">Problem:</span>
+                              <span className="text-[9px] text-textlight font-medium uppercase tracking-wider">Problem:</span>
                               <span
-                                className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-blue-50 text-blue-700 cursor-pointer hover:bg-blue-100 transition-colors"
+                                className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-navy/5 text-navy cursor-pointer hover:bg-navy/10 transition-colors"
                                 onClick={() => startEditing(quote.id, 'problem', quote.problem || '')}
                                 title="Click to edit"
                               >
@@ -1735,9 +1735,9 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
                               </span>
                             </div>
                             <div className="flex items-center gap-1.5">
-                              <span className="text-[9px] text-gray-400 font-medium uppercase tracking-wider">Emotion:</span>
+                              <span className="text-[9px] text-textlight font-medium uppercase tracking-wider">Emotion:</span>
                               <span
-                                className={`text-[10px] font-medium px-2 py-0.5 rounded-full cursor-pointer hover:opacity-80 transition-opacity ${EMOTION_COLORS[quote.emotion] || 'bg-gray-100 text-gray-600'}`}
+                                className={`text-[10px] font-medium px-2 py-0.5 rounded-full cursor-pointer hover:opacity-80 transition-opacity ${EMOTION_COLORS[quote.emotion] || 'bg-black/5 text-textmid'}`}
                                 onClick={() => startEditing(quote.id, 'emotion', quote.emotion || '')}
                                 title="Click to edit"
                               >
@@ -1748,7 +1748,7 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
 
                           {/* Tag editing */}
                           <div className="flex items-center gap-1.5 flex-wrap" onClick={e => e.stopPropagation()}>
-                            <span className="text-[9px] text-gray-400 font-medium uppercase tracking-wider">Tags:</span>
+                            <span className="text-[9px] text-textlight font-medium uppercase tracking-wider">Tags:</span>
                             {(quote.tags || []).map(t => (
                               <span key={t} className="inline-flex items-center gap-1 text-[10px] font-medium px-2 py-0.5 rounded-full bg-teal-50 text-teal-700 border border-teal-200">
                                 {t}
@@ -1782,27 +1782,27 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
                             ) : (
                               <button
                                 onClick={() => setEditingTagQuoteId(quote.id)}
-                                className="text-[10px] text-gray-400 hover:text-teal-600 transition-colors px-1.5 py-0.5 rounded-full border border-dashed border-gray-300 hover:border-teal-300"
+                                className="text-[10px] text-textlight hover:text-teal-600 transition-colors px-1.5 py-0.5 rounded-full border border-dashed border-black/10 hover:border-teal-300"
                               >+ Tag</button>
                             )}
                           </div>
 
                           {headlines.length === 0 ? (
-                            <p className="text-[11px] text-gray-400 italic">
+                            <p className="text-[11px] text-textlight italic">
                               No headlines yet. Click "Generate Headlines" above to create them.
                             </p>
                           ) : (
                             <div className="space-y-1.5">
-                              <p className="text-[10px] text-purple-500 font-semibold uppercase tracking-wider mb-2">
+                              <p className="text-[10px] text-navy font-semibold uppercase tracking-wider mb-2">
                                 Headlines ({headlines.length})
                               </p>
                               {headlines.map((hl, hlIdx) => {
                                 const hlUsed = quoteUsedHeadlines.includes(hl.text);
                                 const isEditingThisHl = editingField && editingField.quoteId === quote.id && editingField.hlIdx === hlIdx && editingField.field === 'headline';
                                 return (
-                                  <div key={hlIdx} className="flex items-start gap-2 p-2 rounded-lg bg-white/80 hover:bg-purple-50/50 transition-colors">
+                                  <div key={hlIdx} className="flex items-start gap-2 p-2 rounded-lg bg-white/80 hover:bg-navy/5 transition-colors">
                                     <span className={`flex-shrink-0 mt-0.5 text-[8px] font-bold px-1.5 py-0.5 rounded-full ${
-                                      hlUsed ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-400'
+                                      hlUsed ? 'bg-teal/10 text-teal' : 'bg-black/5 text-textlight'
                                     }`}>
                                       {hlUsed ? 'Used' : hlIdx + 1}
                                     </span>
@@ -1812,14 +1812,14 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
                                           autoFocus
                                           value={editingField.value}
                                           onChange={e => setEditingField(prev => ({ ...prev, value: e.target.value }))}
-                                          className="flex-1 text-[12px] font-medium text-gray-800 px-2 py-1 rounded-lg border border-purple-300 outline-none focus:ring-2 focus:ring-purple-200"
+                                          className="flex-1 text-[12px] font-medium text-textdark px-2 py-1 rounded-lg border border-navy/30 outline-none focus:ring-2 focus:ring-navy/20"
                                         />
-                                        <button type="submit" disabled={savingEdit} className="text-[10px] px-2 py-1 rounded-lg bg-purple-600 text-white font-medium">{savingEdit ? '...' : 'Save'}</button>
-                                        <button type="button" onClick={cancelEditing} className="text-[10px] text-gray-500">Cancel</button>
+                                        <button type="submit" disabled={savingEdit} className="text-[10px] px-2 py-1 rounded-lg bg-navy text-white font-medium">{savingEdit ? '...' : 'Save'}</button>
+                                        <button type="button" onClick={cancelEditing} className="text-[10px] text-textmid">Cancel</button>
                                       </form>
                                     ) : (
                                       <p
-                                        className="flex-1 text-[12px] font-medium text-gray-800 leading-relaxed cursor-pointer hover:bg-purple-50/50 rounded px-1 -mx-1 transition-colors"
+                                        className="flex-1 text-[12px] font-medium text-textdark leading-relaxed cursor-pointer hover:bg-navy/5 rounded px-1 -mx-1 transition-colors"
                                         onClick={() => startEditingHeadline(quote.id, hlIdx, hl.text)}
                                         title="Click to edit headline"
                                       >
@@ -1827,14 +1827,14 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
                                       </p>
                                     )}
                                     {hl.technique && (
-                                      <span className="text-[8px] font-medium px-1.5 py-0.5 rounded-full bg-amber-50 text-amber-700 flex-shrink-0 whitespace-nowrap">
+                                      <span className="text-[8px] font-medium px-1.5 py-0.5 rounded-full bg-gold/5 text-gold flex-shrink-0 whitespace-nowrap">
                                         {hl.technique}
                                       </span>
                                     )}
                                     <div className="flex items-center gap-1.5 flex-shrink-0">
                                       <button
                                         onClick={() => copyHeadline(hl.text)}
-                                        className="text-gray-400 hover:text-purple-600 transition-colors p-0.5"
+                                        className="text-textlight hover:text-navy transition-colors p-0.5"
                                         title="Copy headline"
                                       >
                                         <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
@@ -1849,7 +1849,7 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
                                           emotion: quote.emotion,
                                           problem: quote.problem || config.problem,
                                         })}
-                                        className="inline-flex items-center gap-1 text-[10px] font-semibold text-purple-600 hover:text-white bg-purple-50 hover:bg-purple-600 px-2.5 py-1 rounded-lg transition-all"
+                                        className="inline-flex items-center gap-1 text-[10px] font-semibold text-navy hover:text-white bg-navy/5 hover:bg-navy px-2.5 py-1 rounded-lg transition-all"
                                         title="Turn this headline into an ad"
                                       >
                                         Turn into Ad
@@ -1864,7 +1864,7 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
                               <button
                                 onClick={() => handleGenerateMoreHeadlines(quote.id)}
                                 disabled={generatingMoreForQuote === quote.id}
-                                className="inline-flex items-center gap-1.5 mt-2 px-3 py-1.5 text-[10px] font-medium rounded-lg bg-purple-50 text-purple-600 hover:bg-purple-100 transition-all disabled:opacity-50"
+                                className="inline-flex items-center gap-1.5 mt-2 px-3 py-1.5 text-[10px] font-medium rounded-lg bg-navy/5 text-navy hover:bg-navy/10 transition-all disabled:opacity-50"
                               >
                                 {generatingMoreForQuote === quote.id ? (
                                   <>
@@ -1901,33 +1901,33 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
           ═══════════════════════════════════════════════════════════════════════════ */}
       {subTab === 'mine' && historyOpen && (
         <div className="card p-4 space-y-2">
-          <h3 className="text-[13px] font-semibold text-gray-700 mb-2">Past Runs</h3>
+          <h3 className="text-[13px] font-semibold text-textdark mb-2">Past Runs</h3>
           {runs.length === 0 ? (
-            <p className="text-[12px] text-gray-400">No mining runs yet.</p>
+            <p className="text-[12px] text-textlight">No mining runs yet.</p>
           ) : (
             <div className="space-y-1.5 max-h-[300px] overflow-y-auto">
               {runs.map(run => (
                 <div
                   key={run.id}
-                  className={`flex items-center justify-between p-2.5 rounded-lg border transition-all cursor-pointer hover:bg-gray-50 ${
-                    viewingRunId === run.id ? 'border-purple-300 bg-purple-50/50' : 'border-gray-100'
+                  className={`flex items-center justify-between p-2.5 rounded-lg border transition-all cursor-pointer hover:bg-black/[0.02] ${
+                    viewingRunId === run.id ? 'border-navy/30 bg-navy/5' : 'border-black/5'
                   }`}
                   onClick={() => loadRunResults(run.id)}
                 >
                   <div className="flex-1 min-w-0">
                     <div className="flex items-center gap-2">
-                      <span className="text-[12px] font-medium text-gray-800 truncate">
+                      <span className="text-[12px] font-medium text-textdark truncate">
                         {run.target_demographic} × {run.problem}
                       </span>
                       <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full ${
-                        run.status === 'completed' ? 'bg-green-100 text-green-700' :
+                        run.status === 'completed' ? 'bg-teal/10 text-teal' :
                         run.status === 'failed' ? 'bg-red-100 text-red-700' :
                         'bg-yellow-100 text-yellow-700'
                       }`}>
                         {run.status}
                       </span>
                     </div>
-                    <div className="flex items-center gap-3 text-[10px] text-gray-400 mt-0.5">
+                    <div className="flex items-center gap-3 text-[10px] text-textlight mt-0.5">
                       <span>{formatTimeAgo(run.created_at)}</span>
                       {run.quote_count > 0 && <span>{run.quote_count} quotes</span>}
                       {run.duration_ms && <span>{formatDuration(run.duration_ms)}</span>}
@@ -1935,7 +1935,7 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
                   </div>
                   <button
                     onClick={(e) => { e.stopPropagation(); handleDeleteRun(run.id); }}
-                    className="text-gray-300 hover:text-red-500 transition-colors ml-2 p-1"
+                    className="text-textlight/60 hover:text-red-500 transition-colors ml-2 p-1"
                   >
                     <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
@@ -1953,7 +1953,7 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
         <div className="card p-6 space-y-5">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label className="block text-[13px] font-medium text-gray-600 mb-1.5">
+              <label className="block text-[13px] font-medium text-textmid mb-1.5">
                 Target Demographic <span className="text-red-400">*</span>
               </label>
               <input
@@ -1964,7 +1964,7 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
               />
             </div>
             <div>
-              <label className="block text-[13px] font-medium text-gray-600 mb-1.5">
+              <label className="block text-[13px] font-medium text-textmid mb-1.5">
                 Problem (Angle) <span className="text-red-400">*</span>
               </label>
               <input
@@ -1978,8 +1978,8 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
             <div>
-              <label className="block text-[13px] font-medium text-gray-600 mb-1.5">
-                Root Cause <span className="text-[11px] text-gray-400 font-normal">(optional)</span>
+              <label className="block text-[13px] font-medium text-textmid mb-1.5">
+                Root Cause <span className="text-[11px] text-textlight font-normal">(optional)</span>
               </label>
               <input
                 value={config.root_cause}
@@ -1989,7 +1989,7 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
               />
             </div>
             <div>
-              <label className="block text-[13px] font-medium text-gray-600 mb-1.5">
+              <label className="block text-[13px] font-medium text-textmid mb-1.5">
                 Number of Quotes
               </label>
               <input
@@ -2005,19 +2005,19 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
 
           {/* Suggesting indicator */}
           {suggesting && (
-            <div className="flex items-center gap-2 px-3 py-2 bg-blue-50/80 rounded-xl border border-blue-100">
-              <svg className="w-3.5 h-3.5 animate-spin text-blue-500" viewBox="0 0 24 24" fill="none">
+            <div className="flex items-center gap-2 px-3 py-2 bg-navy/5 rounded-xl border border-navy/10">
+              <svg className="w-3.5 h-3.5 animate-spin text-navy" viewBox="0 0 24 24" fill="none">
                 <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" strokeDasharray="31.4 31.4" strokeLinecap="round" />
               </svg>
-              <span className="text-[12px] text-blue-600 font-medium">Generating search suggestions...</span>
+              <span className="text-[12px] text-navy font-medium">Generating search suggestions...</span>
             </div>
           )}
 
           <div className={suggesting ? 'opacity-60 pointer-events-none transition-opacity' : 'transition-opacity'}>
             <div>
-              <label className="block text-[13px] font-medium text-gray-600 mb-1.5">
+              <label className="block text-[13px] font-medium text-textmid mb-1.5">
                 Search Keywords <span className="text-red-400">*</span>
-                <span className="text-[11px] text-gray-400 font-normal ml-1">Type and press Enter</span>
+                <span className="text-[11px] text-textlight font-normal ml-1">Type and press Enter</span>
               </label>
               <MultiInput
                 items={keywords}
@@ -2029,8 +2029,8 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
 
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
               <div>
-                <label className="block text-[13px] font-medium text-gray-600 mb-1.5">
-                  Subreddits <span className="text-[11px] text-gray-400 font-normal">(optional)</span>
+                <label className="block text-[13px] font-medium text-textmid mb-1.5">
+                  Subreddits <span className="text-[11px] text-textlight font-normal">(optional)</span>
                 </label>
                 <MultiInput
                   items={subreddits}
@@ -2041,8 +2041,8 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
                 />
               </div>
               <div>
-                <label className="block text-[13px] font-medium text-gray-600 mb-1.5">
-                  Other Forums <span className="text-[11px] text-gray-400 font-normal">(optional)</span>
+                <label className="block text-[13px] font-medium text-textmid mb-1.5">
+                  Other Forums <span className="text-[11px] text-textlight font-normal">(optional)</span>
                 </label>
                 <MultiInput
                   items={forums}
@@ -2054,8 +2054,8 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
             </div>
 
             <div className="mt-4">
-              <label className="block text-[13px] font-medium text-gray-600 mb-1.5">
-                Facebook Groups <span className="text-[11px] text-gray-400 font-normal">(optional)</span>
+              <label className="block text-[13px] font-medium text-textmid mb-1.5">
+                Facebook Groups <span className="text-[11px] text-textlight font-normal">(optional)</span>
               </label>
               <MultiInput
                 items={facebookGroups}
@@ -2093,7 +2093,7 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
               )}
               Suggest
             </button>
-            <p className="text-[11px] text-gray-400">
+            <p className="text-[11px] text-textlight">
               Searches with Perplexity + Claude, merges with GPT-4.1. Takes 1-3 minutes.
             </p>
           </div>
@@ -2104,15 +2104,15 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
       {subTab === 'mine' && mining && !abortRef.current && (
         <div className="card p-6 space-y-3">
           <div className="flex items-center gap-2">
-            <svg className="w-4 h-4 animate-spin text-purple-500" viewBox="0 0 24 24" fill="none">
+            <svg className="w-4 h-4 animate-spin text-navy" viewBox="0 0 24 24" fill="none">
               <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" strokeDasharray="31.4 31.4" strokeLinecap="round" />
             </svg>
-            <h3 className="text-[14px] font-semibold text-gray-800">Mining in Progress...</h3>
+            <h3 className="text-[14px] font-semibold text-textdark">Mining in Progress...</h3>
           </div>
-          <p className="text-[12px] text-gray-500">
+          <p className="text-[12px] text-textmid">
             A mining run is still processing in the background. Results will appear automatically when complete.
           </p>
-          <div className="bg-gray-50 rounded-xl p-3 text-[11px] font-mono text-gray-500 space-y-1">
+          <div className="bg-offwhite rounded-xl p-3 text-[11px] font-mono text-textmid space-y-1">
             {progress.map((event, i) => (
               <div key={i} className={event.type === 'error' ? 'text-red-500' : ''}>
                 {event.message || JSON.stringify(event)}
@@ -2127,10 +2127,10 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
         <div className="card p-6 space-y-4">
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-3">
-              <h3 className="text-[14px] font-semibold text-gray-800">Mining in Progress...</h3>
+              <h3 className="text-[14px] font-semibold text-textdark">Mining in Progress...</h3>
               {miningElapsed > 0 && (
                 <div className="flex items-center gap-2">
-                  <span className="text-[12px] text-gray-500 font-mono tabular-nums">
+                  <span className="text-[12px] text-textmid font-mono tabular-nums">
                     {Math.floor(miningElapsed / 60)}:{String(miningElapsed % 60).padStart(2, '0')}
                   </span>
                   {(() => {
@@ -2157,7 +2157,7 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
                     }
 
                     return estRemaining ? (
-                      <span className="text-[11px] text-blue-500 font-medium">
+                      <span className="text-[11px] text-navy font-medium">
                         Est. remaining: {estRemaining}
                       </span>
                     ) : null;
@@ -2174,19 +2174,19 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
             {/* Perplexity */}
             <div className={`p-3 rounded-xl border transition-all ${
-              getEngineStatus('perplexity') === 'complete' ? 'border-green-200 bg-green-50/50' :
+              getEngineStatus('perplexity') === 'complete' ? 'border-teal/15 bg-teal/5' :
               getEngineStatus('perplexity') === 'error' ? 'border-red-200 bg-red-50/50' :
-              getEngineStatus('perplexity') === 'running' ? 'border-blue-200 bg-blue-50/50' :
-              'border-gray-100 bg-gray-50/50'
+              getEngineStatus('perplexity') === 'running' ? 'border-navy/20 bg-navy/5' :
+              'border-black/5 bg-offwhite/50'
             }`}>
               <div className="flex items-center gap-2">
                 {getEngineStatus('perplexity') === 'running' && (
-                  <svg className="w-3.5 h-3.5 animate-spin text-blue-500" viewBox="0 0 24 24" fill="none">
+                  <svg className="w-3.5 h-3.5 animate-spin text-navy" viewBox="0 0 24 24" fill="none">
                     <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" strokeDasharray="31.4 31.4" strokeLinecap="round" />
                   </svg>
                 )}
                 {getEngineStatus('perplexity') === 'complete' && (
-                  <svg className="w-3.5 h-3.5 text-green-500" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                  <svg className="w-3.5 h-3.5 text-teal" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
                   </svg>
                 )}
@@ -2195,9 +2195,9 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
                     <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
                   </svg>
                 )}
-                <span className="text-[12px] font-semibold text-gray-700">Perplexity Sonar</span>
+                <span className="text-[12px] font-semibold text-textdark">Perplexity Sonar</span>
               </div>
-              <p className="text-[10px] text-gray-500 mt-1">
+              <p className="text-[10px] text-textmid mt-1">
                 {getEngineStatus('perplexity') === 'pending' && 'Waiting...'}
                 {getEngineStatus('perplexity') === 'running' && 'Searching Reddit, forums...'}
                 {getEngineStatus('perplexity') === 'complete' && 'Done'}
@@ -2207,19 +2207,19 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
 
             {/* Claude */}
             <div className={`p-3 rounded-xl border transition-all ${
-              getEngineStatus('claude') === 'complete' ? 'border-green-200 bg-green-50/50' :
+              getEngineStatus('claude') === 'complete' ? 'border-teal/15 bg-teal/5' :
               getEngineStatus('claude') === 'error' ? 'border-red-200 bg-red-50/50' :
-              getEngineStatus('claude') === 'running' ? 'border-blue-200 bg-blue-50/50' :
-              'border-gray-100 bg-gray-50/50'
+              getEngineStatus('claude') === 'running' ? 'border-navy/20 bg-navy/5' :
+              'border-black/5 bg-offwhite/50'
             }`}>
               <div className="flex items-center gap-2">
                 {getEngineStatus('claude') === 'running' && (
-                  <svg className="w-3.5 h-3.5 animate-spin text-blue-500" viewBox="0 0 24 24" fill="none">
+                  <svg className="w-3.5 h-3.5 animate-spin text-navy" viewBox="0 0 24 24" fill="none">
                     <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" strokeDasharray="31.4 31.4" strokeLinecap="round" />
                   </svg>
                 )}
                 {getEngineStatus('claude') === 'complete' && (
-                  <svg className="w-3.5 h-3.5 text-green-500" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                  <svg className="w-3.5 h-3.5 text-teal" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
                   </svg>
                 )}
@@ -2228,9 +2228,9 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
                     <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" />
                   </svg>
                 )}
-                <span className="text-[12px] font-semibold text-gray-700">Claude Web Search</span>
+                <span className="text-[12px] font-semibold text-textdark">Claude Web Search</span>
               </div>
-              <p className="text-[10px] text-gray-500 mt-1">
+              <p className="text-[10px] text-textmid mt-1">
                 {getEngineStatus('claude') === 'pending' && 'Waiting...'}
                 {getEngineStatus('claude') === 'running' && 'Browsing with domain filtering...'}
                 {getEngineStatus('claude') === 'complete' && 'Done'}
@@ -2240,24 +2240,24 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
 
             {/* Merge */}
             <div className={`p-3 rounded-xl border transition-all ${
-              getMergeStatus() === 'complete' ? 'border-green-200 bg-green-50/50' :
-              getMergeStatus() === 'running' ? 'border-blue-200 bg-blue-50/50' :
-              'border-gray-100 bg-gray-50/50'
+              getMergeStatus() === 'complete' ? 'border-teal/15 bg-teal/5' :
+              getMergeStatus() === 'running' ? 'border-navy/20 bg-navy/5' :
+              'border-black/5 bg-offwhite/50'
             }`}>
               <div className="flex items-center gap-2">
                 {getMergeStatus() === 'running' && (
-                  <svg className="w-3.5 h-3.5 animate-spin text-blue-500" viewBox="0 0 24 24" fill="none">
+                  <svg className="w-3.5 h-3.5 animate-spin text-navy" viewBox="0 0 24 24" fill="none">
                     <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" strokeDasharray="31.4 31.4" strokeLinecap="round" />
                   </svg>
                 )}
                 {getMergeStatus() === 'complete' && (
-                  <svg className="w-3.5 h-3.5 text-green-500" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                  <svg className="w-3.5 h-3.5 text-teal" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
                   </svg>
                 )}
-                <span className="text-[12px] font-semibold text-gray-700">GPT-4.1 Merge</span>
+                <span className="text-[12px] font-semibold text-textdark">GPT-4.1 Merge</span>
               </div>
-              <p className="text-[10px] text-gray-500 mt-1">
+              <p className="text-[10px] text-textmid mt-1">
                 {getMergeStatus() === 'pending' && 'Waiting for search engines...'}
                 {getMergeStatus() === 'running' && 'Deduplicating & ranking...'}
                 {getMergeStatus() === 'complete' && 'Done'}
@@ -2266,11 +2266,11 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
           </div>
 
           {/* Progress log */}
-          <div className="bg-gray-50 rounded-xl p-3 max-h-[200px] overflow-y-auto text-[11px] font-mono text-gray-500 space-y-1">
+          <div className="bg-offwhite rounded-xl p-3 max-h-[200px] overflow-y-auto text-[11px] font-mono text-textmid space-y-1">
             {progress.map((event, i) => (
               <div key={i} className={`${
                 event.type === 'error' || event.type === 'engine_error' ? 'text-red-500' :
-                event.type === 'complete' || event.type === 'saved' || event.type === 'bank_updated' ? 'text-green-600' :
+                event.type === 'complete' || event.type === 'saved' || event.type === 'bank_updated' ? 'text-teal' :
                 ''
               }`}>
                 {event.message || JSON.stringify(event)}
@@ -2288,19 +2288,19 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
           <div className="card p-4">
             <div className="flex items-center justify-between">
               <div>
-                <h3 className="text-[14px] font-semibold text-gray-800 flex items-center gap-2">
-                  <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-purple-100 text-purple-700 text-[11px] font-bold">
+                <h3 className="text-[14px] font-semibold text-textdark flex items-center gap-2">
+                  <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-navy/10 text-navy text-[11px] font-bold">
                     {currentQuotes.length}
                   </span>
                   Quotes Found
                   {currentRunMeta?.duration_ms && (
-                    <span className="text-[11px] font-normal text-gray-400">
+                    <span className="text-[11px] font-normal text-textlight">
                       in {formatDuration(currentRunMeta.duration_ms)}
                     </span>
                   )}
                 </h3>
                 {currentRunMeta && (
-                  <p className="text-[11px] text-gray-400 mt-0.5">
+                  <p className="text-[11px] text-textlight mt-0.5">
                     {currentRunMeta.target_demographic} × {currentRunMeta.problem}
                   </p>
                 )}
@@ -2309,7 +2309,7 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
                 {!generatingHeadlines && (
                   <button
                     onClick={handleGenerateHeadlines}
-                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-medium rounded-lg bg-purple-600 text-white hover:bg-purple-700 shadow-sm transition-all"
+                    className="inline-flex items-center gap-1.5 px-3 py-1.5 text-[11px] font-medium rounded-lg bg-navy text-white hover:bg-navy-light shadow-sm transition-all"
                   >
                     <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z" />
@@ -2333,7 +2333,7 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
                   <button
                     onClick={() => handleAddRunToBank(viewingRunId)}
                     disabled={importing}
-                    className="inline-flex items-center gap-1 px-3 py-1.5 text-[11px] font-medium rounded-lg bg-green-50 text-green-700 hover:bg-green-100 border border-green-200 transition-all disabled:opacity-50"
+                    className="inline-flex items-center gap-1 px-3 py-1.5 text-[11px] font-medium rounded-lg bg-teal/5 text-teal hover:bg-teal/10 border border-teal/15 transition-all disabled:opacity-50"
                   >
                     {importing ? (
                       <>
@@ -2365,30 +2365,30 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
             {currentQuotes.map((quote, index) => (
               <div key={index} className="card p-4 hover:shadow-md transition-shadow">
                 <div className="flex items-start gap-3">
-                  <div className="flex-shrink-0 w-7 h-7 rounded-full bg-gray-100 flex items-center justify-center text-[11px] font-bold text-gray-500">
+                  <div className="flex-shrink-0 w-7 h-7 rounded-full bg-black/5 flex items-center justify-center text-[11px] font-bold text-textmid">
                     {index + 1}
                   </div>
                   <div className="flex-1 min-w-0">
-                    <blockquote className="text-[14px] text-gray-800 leading-relaxed italic">
+                    <blockquote className="text-[14px] text-textdark leading-relaxed italic">
                       &ldquo;{quote.quote}&rdquo;
                     </blockquote>
                     <div className="flex items-center flex-wrap gap-2 mt-2.5">
                       {quote.emotion && (
-                        <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${EMOTION_COLORS[quote.emotion] || 'bg-gray-100 text-gray-600'}`}>
+                        <span className={`text-[10px] font-semibold px-2 py-0.5 rounded-full ${EMOTION_COLORS[quote.emotion] || 'bg-black/5 text-textmid'}`}>
                           {quote.emotion}
                         </span>
                       )}
                       {quote.emotional_intensity && (
                         <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full ${
-                          quote.emotional_intensity === 'high' ? 'bg-red-50 text-red-600' : 'bg-gray-50 text-gray-500'
+                          quote.emotional_intensity === 'high' ? 'bg-red-50 text-red-600' : 'bg-offwhite text-textmid'
                         }`}>
                           {quote.emotional_intensity === 'high' ? '🔥 High' : '○ Medium'}
                         </span>
                       )}
                       {quote.source && (
-                        <span className="text-[10px] text-gray-400">
+                        <span className="text-[10px] text-textlight">
                           {quote.source_url ? (
-                            <a href={quote.source_url} target="_blank" rel="noopener noreferrer" className="hover:text-blue-500 hover:underline">
+                            <a href={quote.source_url} target="_blank" rel="noopener noreferrer" className="hover:text-navy hover:underline">
                               {quote.source}
                             </a>
                           ) : quote.source}
@@ -2396,7 +2396,7 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
                       )}
                       <button
                         onClick={() => copyQuote(quote)}
-                        className="text-gray-300 hover:text-gray-600 transition-colors ml-auto"
+                        className="text-textlight/60 hover:text-textmid transition-colors ml-auto"
                         title="Copy quote"
                       >
                         <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
@@ -2405,7 +2405,7 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
                       </button>
                     </div>
                     {quote.context && (
-                      <p className="text-[11px] text-gray-400 mt-1.5">{quote.context}</p>
+                      <p className="text-[11px] text-textlight mt-1.5">{quote.context}</p>
                     )}
                   </div>
                 </div>
@@ -2415,23 +2415,23 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
 
           {/* Headline generation progress (legacy) */}
           {generatingHeadlines && (
-            <div className="card p-5 space-y-3 border-l-4 border-l-purple-400">
+            <div className="card p-5 space-y-3 border-l-4 border-l-navy">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-2">
-                  <svg className="w-4 h-4 animate-spin text-purple-500" viewBox="0 0 24 24" fill="none">
+                  <svg className="w-4 h-4 animate-spin text-navy" viewBox="0 0 24 24" fill="none">
                     <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" strokeDasharray="31.4 31.4" strokeLinecap="round" />
                   </svg>
-                  <h3 className="text-[13px] font-semibold text-gray-800">Generating Headlines...</h3>
+                  <h3 className="text-[13px] font-semibold text-textdark">Generating Headlines...</h3>
                 </div>
                 <button onClick={handleCancelHeadlines} className="text-[11px] text-red-500 hover:text-red-700 font-medium">
                   Cancel
                 </button>
               </div>
-              <div className="bg-gray-50 rounded-xl p-3 max-h-[120px] overflow-y-auto text-[11px] font-mono text-gray-500 space-y-1">
+              <div className="bg-offwhite rounded-xl p-3 max-h-[120px] overflow-y-auto text-[11px] font-mono text-textmid space-y-1">
                 {headlineProgress.map((event, i) => (
                   <div key={i} className={`${
                     event.type === 'error' ? 'text-red-500' :
-                    event.type === 'headline_complete' || event.type === 'headlines_saved' ? 'text-green-600' :
+                    event.type === 'headline_complete' || event.type === 'headlines_saved' ? 'text-teal' :
                     ''
                   }`}>
                     {event.message || JSON.stringify(event)}
@@ -2443,14 +2443,14 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
 
           {/* Headlines display (legacy flat list) */}
           {currentHeadlines && currentHeadlines.length > 0 && !generatingHeadlines && (
-            <div className="card p-5 border-l-4 border-l-purple-400">
+            <div className="card p-5 border-l-4 border-l-navy">
               <div className="flex items-center justify-between mb-4">
                 <div className="flex items-center gap-2">
-                  <svg className="w-4 h-4 text-purple-500" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                  <svg className="w-4 h-4 text-navy" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
                     <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z" />
                   </svg>
-                  <h3 className="text-[14px] font-semibold text-gray-800">
-                    <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-purple-100 text-purple-700 text-[11px] font-bold mr-1.5">
+                  <h3 className="text-[14px] font-semibold text-textdark">
+                    <span className="inline-flex items-center justify-center w-6 h-6 rounded-full bg-navy/10 text-navy text-[11px] font-bold mr-1.5">
                       {currentHeadlines.length}
                     </span>
                     Headlines Generated
@@ -2474,16 +2474,16 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
 
               <div className="space-y-2">
                 {currentHeadlines.map((headline, index) => (
-                  <div key={index} className="flex items-start gap-3 p-2.5 rounded-lg bg-gray-50/80 hover:bg-purple-50/50 transition-colors group">
-                    <span className="flex-shrink-0 w-6 h-6 rounded-full bg-purple-100 flex items-center justify-center text-[10px] font-bold text-purple-700 mt-0.5">
+                  <div key={index} className="flex items-start gap-3 p-2.5 rounded-lg bg-offwhite hover:bg-navy/5 transition-colors group">
+                    <span className="flex-shrink-0 w-6 h-6 rounded-full bg-navy/10 flex items-center justify-center text-[10px] font-bold text-navy mt-0.5">
                       {index + 1}
                     </span>
-                    <p className="flex-1 text-[13px] font-medium text-gray-800 leading-relaxed">
+                    <p className="flex-1 text-[13px] font-medium text-textdark leading-relaxed">
                       {headline}
                     </p>
                     <button
                       onClick={() => copyHeadline(headline)}
-                      className="flex-shrink-0 text-gray-300 group-hover:text-gray-500 hover:text-purple-600 transition-colors mt-0.5"
+                      className="flex-shrink-0 text-textlight/60 group-hover:text-textmid hover:text-navy transition-colors mt-0.5"
                       title="Copy headline"
                     >
                       <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
@@ -2500,8 +2500,8 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
 
       {/* Empty state */}
       {subTab === 'mine' && !mining && !currentQuotes && bankQuotes.length === 0 && runs.length === 0 && (
-        <div className="text-center py-8 text-gray-400">
-          <svg className="w-12 h-12 mx-auto mb-3 text-gray-200" fill="none" viewBox="0 0 24 24" strokeWidth={1} stroke="currentColor">
+        <div className="text-center py-8 text-textlight">
+          <svg className="w-12 h-12 mx-auto mb-3 text-textlight/40" fill="none" viewBox="0 0 24 24" strokeWidth={1} stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" d="M21 21l-5.197-5.197m0 0A7.5 7.5 0 105.196 5.196a7.5 7.5 0 0010.607 10.607z" />
           </svg>
           <p className="text-[13px]">Configure your search parameters above to start mining quotes.</p>

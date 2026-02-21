@@ -495,20 +495,20 @@ export default function BatchManager({ projectId, project, onBatchComplete }) {
       {/* Header — always visible */}
       <button
         onClick={() => setExpanded(!expanded)}
-        className="w-full flex items-center justify-between p-5 text-left hover:bg-gray-50/30 transition-colors"
+        className="w-full flex items-center justify-between p-5 text-left hover:bg-black/[0.02] transition-colors"
       >
         <div className="flex items-center gap-3">
-          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-purple-500 to-indigo-600 flex items-center justify-center shadow-sm">
+          <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-navy to-navy-mid flex items-center justify-center shadow-sm">
             <svg className="w-4.5 h-4.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M6.429 9.75L2.25 12l4.179 2.25m0-4.5l5.571 3 5.571-3m-11.142 0L2.25 7.5 12 2.25l9.75 5.25-4.179 2.25m0 0L12 12.75 6.429 9.75m11.142 0l4.179 2.25-9.75 5.25-9.75-5.25 4.179-2.25" />
             </svg>
           </div>
           <div>
-            <h3 className="text-[15px] font-semibold text-gray-900 tracking-tight flex items-center gap-1">
+            <h3 className="text-[15px] font-semibold text-textdark tracking-tight flex items-center gap-1">
               Batch Generation
               <InfoTooltip text="Create batches of ads using the Gemini Batch API at 50% cost savings. Batches run in the background and can be scheduled to repeat." position="right" />
             </h3>
-            <p className="text-[12px] text-gray-400">
+            <p className="text-[12px] text-textlight">
               Generate multiple ads at once via Gemini Batch API (50% cost savings)
             </p>
           </div>
@@ -516,12 +516,12 @@ export default function BatchManager({ projectId, project, onBatchComplete }) {
 
         <div className="flex items-center gap-2">
           {activeBatches.length > 0 && (
-            <span className="badge bg-blue-100/80 text-blue-600">
+            <span className="badge bg-navy/10 text-navy">
               {activeBatches.length} active
             </span>
           )}
           <svg
-            className={`w-5 h-5 text-gray-400 transition-transform duration-200 ${expanded ? 'rotate-180' : ''}`}
+            className={`w-5 h-5 text-textlight transition-transform duration-200 ${expanded ? 'rotate-180' : ''}`}
             fill="none" stroke="currentColor" viewBox="0 0 24 24"
           >
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
@@ -531,15 +531,15 @@ export default function BatchManager({ projectId, project, onBatchComplete }) {
 
       {/* Expandable content */}
       {expanded && (
-        <div className="border-t border-gray-200/60 fade-in">
+        <div className="border-t border-black/5 fade-in">
           {/* Create Batch Form */}
-          <div className="p-5 border-b border-gray-100/80">
-            <h4 className="text-[13px] font-semibold text-gray-700 mb-3">New Batch</h4>
+          <div className="p-5 border-b border-black/5">
+            <h4 className="text-[13px] font-semibold text-textdark mb-3">New Batch</h4>
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-3">
               {/* Batch size */}
               <div>
-                <label className="block text-[11px] font-medium text-gray-500 mb-1">
+                <label className="block text-[11px] font-medium text-textmid mb-1">
                   Batch Size
                 </label>
                 <input
@@ -551,12 +551,12 @@ export default function BatchManager({ projectId, project, onBatchComplete }) {
                   disabled={creating}
                   className="input-apple"
                 />
-                <p className="text-[10px] text-gray-400 mt-0.5">1-50 images</p>
+                <p className="text-[10px] text-textlight mt-0.5">1-50 images</p>
               </div>
 
               {/* Aspect ratio */}
               <div>
-                <label className="block text-[11px] font-medium text-gray-500 mb-1">
+                <label className="block text-[11px] font-medium text-textmid mb-1">
                   Aspect Ratio
                 </label>
                 <select
@@ -573,8 +573,8 @@ export default function BatchManager({ projectId, project, onBatchComplete }) {
 
               {/* Angle */}
               <div>
-                <label className="block text-[11px] font-medium text-gray-500 mb-1">
-                  Ad Topic / Angle <span className="text-gray-300">(opt.)</span>
+                <label className="block text-[11px] font-medium text-textmid mb-1">
+                  Ad Topic / Angle <span className="text-textlight/60">(opt.)</span>
                 </label>
                 <input
                   value={batchAngle}
@@ -588,7 +588,7 @@ export default function BatchManager({ projectId, project, onBatchComplete }) {
 
             {/* Template Source */}
             <div className="mb-3">
-              <label className="block text-[11px] font-medium text-gray-500 mb-1.5">
+              <label className="block text-[11px] font-medium text-textmid mb-1.5">
                 Template Image
               </label>
               <div className="segmented-control mb-2">
@@ -617,8 +617,8 @@ export default function BatchManager({ projectId, project, onBatchComplete }) {
 
               {/* Random */}
               {templateSource === TEMPLATE_RANDOM && (
-                <div className="p-3 bg-gray-50/50 border border-gray-200/60 rounded-xl">
-                  <p className="text-[11px] text-gray-500">
+                <div className="p-3 bg-offwhite border border-black/5 rounded-xl">
+                  <p className="text-[11px] text-textmid">
                     Each ad in the batch will use a <strong>different random template</strong> from your synced Google Drive templates folder.
                   </p>
                 </div>
@@ -628,15 +628,15 @@ export default function BatchManager({ projectId, project, onBatchComplete }) {
               {templateSource === TEMPLATE_UPLOAD && (
                 <div>
                   {uploadedFile && uploadedPreview ? (
-                    <div className="flex items-center gap-3 p-3 bg-gray-50/50 border border-gray-200/60 rounded-xl">
+                    <div className="flex items-center gap-3 p-3 bg-offwhite border border-black/5 rounded-xl">
                       <img
                         src={uploadedPreview}
                         alt="Uploaded template"
-                        className="w-14 h-14 object-cover rounded-lg border border-gray-200/60"
+                        className="w-14 h-14 object-cover rounded-lg border border-black/5"
                       />
                       <div className="flex-1 min-w-0">
-                        <p className="text-[12px] font-medium text-gray-900 truncate">{uploadedFile.name}</p>
-                        <p className="text-[10px] text-gray-400">{(uploadedFile.size / 1024).toFixed(0)} KB — all ads in batch use this template</p>
+                        <p className="text-[12px] font-medium text-textdark truncate">{uploadedFile.name}</p>
+                        <p className="text-[10px] text-textlight">{(uploadedFile.size / 1024).toFixed(0)} KB — all ads in batch use this template</p>
                       </div>
                       <button
                         onClick={clearUploadedImage}
@@ -654,14 +654,14 @@ export default function BatchManager({ projectId, project, onBatchComplete }) {
                       onDragLeave={handleDragLeave}
                       onDrop={handleDrop}
                       className={`border-2 border-dashed rounded-xl p-4 text-center cursor-pointer transition-all ${
-                        dragOver ? 'border-blue-400 bg-blue-50/30' :
-                        'border-gray-200/80 hover:border-blue-300 hover:bg-gray-50/30'
+                        dragOver ? 'border-gold bg-gold/5' :
+                        'border-black/5 hover:border-gold hover:bg-offwhite'
                       }`}
                     >
-                      <p className={`text-[12px] font-medium ${dragOver ? 'text-blue-600' : 'text-gray-500'}`}>
+                      <p className={`text-[12px] font-medium ${dragOver ? 'text-gold' : 'text-textmid'}`}>
                         {dragOver ? 'Drop image here' : 'Drop a template image, or click to browse'}
                       </p>
-                      <p className="text-[10px] text-gray-400 mt-0.5">JPG, PNG, WebP, or GIF — all ads in batch use this template</p>
+                      <p className="text-[10px] text-textlight mt-0.5">JPG, PNG, WebP, or GIF — all ads in batch use this template</p>
                     </div>
                   )}
                   <input
@@ -678,11 +678,11 @@ export default function BatchManager({ projectId, project, onBatchComplete }) {
               {templateSource === TEMPLATE_SELECT && (
                 <div>
                   {loadingTemplates ? (
-                    <div className="text-gray-400 text-center py-6 text-[12px]">Loading templates...</div>
+                    <div className="text-textlight text-center py-6 text-[12px]">Loading templates...</div>
                   ) : driveImages.length === 0 && uploadedTemplates.length === 0 ? (
-                    <div className="p-4 bg-gray-50/50 border border-gray-200/60 rounded-xl text-center">
-                      <p className="text-[12px] text-gray-500 font-medium mb-0.5">No Templates Available</p>
-                      <p className="text-[10px] text-gray-400">
+                    <div className="p-4 bg-offwhite border border-black/5 rounded-xl text-center">
+                      <p className="text-[12px] text-textmid font-medium mb-0.5">No Templates Available</p>
+                      <p className="text-[10px] text-textlight">
                         Sync your Google Drive templates folder or upload templates in the Template Library tab.
                       </p>
                     </div>
@@ -690,8 +690,8 @@ export default function BatchManager({ projectId, project, onBatchComplete }) {
                     <div className="space-y-3">
                       {driveImages.length > 0 && (
                         <div>
-                          <p className="text-[10px] text-gray-400 font-medium mb-1.5">
-                            Drive Templates <span className="text-gray-300">({driveImages.length})</span>
+                          <p className="text-[10px] text-textlight font-medium mb-1.5">
+                            Drive Templates <span className="text-textlight/60">({driveImages.length})</span>
                           </p>
                           <div className="grid grid-cols-5 sm:grid-cols-6 md:grid-cols-8 gap-1.5 max-h-[200px] overflow-y-auto rounded-lg pr-1 scrollbar-thin">
                             {driveImages.map(img => {
@@ -705,10 +705,10 @@ export default function BatchManager({ projectId, project, onBatchComplete }) {
                                   disabled={creating || atMax}
                                   className={`group relative rounded-lg overflow-hidden border-2 transition-all aspect-square ${
                                     isSelected
-                                      ? 'border-blue-500 ring-2 ring-blue-200 shadow-md'
+                                      ? 'border-gold ring-2 ring-gold/20 shadow-md'
                                       : atMax
-                                        ? 'border-gray-200/60 opacity-40 cursor-not-allowed'
-                                        : 'border-gray-200/60 hover:border-gray-300'
+                                        ? 'border-black/5 opacity-40 cursor-not-allowed'
+                                        : 'border-black/5 hover:border-black/10'
                                   } cursor-pointer`}
                                 >
                                   <img
@@ -718,7 +718,7 @@ export default function BatchManager({ projectId, project, onBatchComplete }) {
                                     loading="lazy"
                                   />
                                   {isSelected && (
-                                    <div className="absolute top-1 right-1 w-4 h-4 rounded-full bg-blue-500 flex items-center justify-center shadow-sm text-[8px] font-bold text-white leading-none">
+                                    <div className="absolute top-1 right-1 w-4 h-4 rounded-full bg-gold flex items-center justify-center shadow-sm text-[8px] font-bold text-white leading-none">
                                       {selIdx + 1}
                                     </div>
                                   )}
@@ -730,8 +730,8 @@ export default function BatchManager({ projectId, project, onBatchComplete }) {
                       )}
                       {uploadedTemplates.length > 0 && (
                         <div>
-                          <p className="text-[10px] text-gray-400 font-medium mb-1.5">
-                            Uploaded Templates <span className="text-gray-300">({uploadedTemplates.length})</span>
+                          <p className="text-[10px] text-textlight font-medium mb-1.5">
+                            Uploaded Templates <span className="text-textlight/60">({uploadedTemplates.length})</span>
                           </p>
                           <div className="grid grid-cols-5 sm:grid-cols-6 md:grid-cols-8 gap-1.5">
                             {uploadedTemplates.map(t => {
@@ -745,10 +745,10 @@ export default function BatchManager({ projectId, project, onBatchComplete }) {
                                   disabled={creating || atMax}
                                   className={`group relative rounded-lg overflow-hidden border-2 transition-all aspect-square ${
                                     isSelected
-                                      ? 'border-blue-500 ring-2 ring-blue-200 shadow-md'
+                                      ? 'border-gold ring-2 ring-gold/20 shadow-md'
                                       : atMax
-                                        ? 'border-gray-200/60 opacity-40 cursor-not-allowed'
-                                        : 'border-gray-200/60 hover:border-gray-300'
+                                        ? 'border-black/5 opacity-40 cursor-not-allowed'
+                                        : 'border-black/5 hover:border-black/10'
                                   } cursor-pointer`}
                                 >
                                   <img
@@ -758,7 +758,7 @@ export default function BatchManager({ projectId, project, onBatchComplete }) {
                                     loading="lazy"
                                   />
                                   {isSelected && (
-                                    <div className="absolute top-1 right-1 w-4 h-4 rounded-full bg-blue-500 flex items-center justify-center shadow-sm text-[8px] font-bold text-white leading-none">
+                                    <div className="absolute top-1 right-1 w-4 h-4 rounded-full bg-gold flex items-center justify-center shadow-sm text-[8px] font-bold text-white leading-none">
                                       {selIdx + 1}
                                     </div>
                                   )}
@@ -772,10 +772,10 @@ export default function BatchManager({ projectId, project, onBatchComplete }) {
                   )}
                   {selectedTemplates.length > 0 && (
                     <div className="mt-2 flex items-center gap-2">
-                      <span className="text-[11px] text-blue-600 font-medium">
+                      <span className="text-[11px] text-gold font-medium">
                         {selectedTemplates.length} template{selectedTemplates.length !== 1 ? 's' : ''} selected
                       </span>
-                      <span className="text-[10px] text-gray-400">
+                      <span className="text-[10px] text-textlight">
                         {selectedTemplates.length === 1
                           ? '— all ads use this template'
                           : selectedTemplates.length >= batchSize
@@ -785,14 +785,14 @@ export default function BatchManager({ projectId, project, onBatchComplete }) {
                       <button
                         onClick={() => setSelectedTemplates([])}
                         disabled={creating}
-                        className="text-[11px] text-gray-400 hover:text-gray-600 transition-colors"
+                        className="text-[11px] text-textlight hover:text-textmid transition-colors"
                       >
                         Clear all
                       </button>
                     </div>
                   )}
                   {selectedTemplates.length === 0 && (driveImages.length > 0 || uploadedTemplates.length > 0) && (
-                    <p className="mt-2 text-[10px] text-gray-400">
+                    <p className="mt-2 text-[10px] text-textlight">
                       Select templates to use in this batch (up to {batchSize}), or leave empty for fully random.
                     </p>
                   )}
@@ -802,25 +802,25 @@ export default function BatchManager({ projectId, project, onBatchComplete }) {
 
             {/* Product Image (project-level + optional per-batch override) */}
             <div className="mb-3">
-              <label className="block text-[11px] font-medium text-gray-500 mb-1.5">
+              <label className="block text-[11px] font-medium text-textmid mb-1.5">
                 Product Image
               </label>
 
               {/* Show project-level product image indicator */}
               {project?.productImageUrl && !batchProductFile && (
-                <div className="flex items-center gap-3 p-2.5 bg-emerald-50/50 border border-emerald-200/60 rounded-xl mb-2">
+                <div className="flex items-center gap-3 p-2.5 bg-teal/5 border border-teal/15 rounded-xl mb-2">
                   <img
                     src={project.productImageUrl}
                     alt="Project product"
-                    className="w-9 h-9 object-cover rounded-lg border border-emerald-200/60"
+                    className="w-9 h-9 object-cover rounded-lg border border-teal/15"
                   />
                   <div className="flex-1 min-w-0">
-                    <p className="text-[11px] font-medium text-emerald-700">Project product image active</p>
-                    <p className="text-[10px] text-emerald-500">Used for all ads in batch</p>
+                    <p className="text-[11px] font-medium text-teal">Project product image active</p>
+                    <p className="text-[10px] text-teal/70">Used for all ads in batch</p>
                   </div>
                   <button
                     onClick={() => !creating && batchProductInputRef.current?.click()}
-                    className="text-[10px] text-gray-400 hover:text-gray-600 transition-colors whitespace-nowrap"
+                    className="text-[10px] text-textlight hover:text-textmid transition-colors whitespace-nowrap"
                   >
                     Override →
                   </button>
@@ -828,15 +828,15 @@ export default function BatchManager({ projectId, project, onBatchComplete }) {
               )}
 
               {batchProductFile && batchProductPreview ? (
-                <div className="flex items-center gap-3 p-3 bg-gray-50/50 border border-gray-200/60 rounded-xl">
+                <div className="flex items-center gap-3 p-3 bg-offwhite border border-black/5 rounded-xl">
                   <img
                     src={batchProductPreview}
                     alt="Product image"
-                    className="w-12 h-12 object-cover rounded-lg border border-gray-200/60"
+                    className="w-12 h-12 object-cover rounded-lg border border-black/5"
                   />
                   <div className="flex-1 min-w-0">
-                    <p className="text-[12px] font-medium text-gray-900 truncate">{batchProductFile.name}</p>
-                    <p className="text-[10px] text-gray-400">
+                    <p className="text-[12px] font-medium text-textdark truncate">{batchProductFile.name}</p>
+                    <p className="text-[10px] text-textlight">
                       {(batchProductFile.size / 1024).toFixed(0)} KB
                       {project?.productImageUrl ? ' — overrides project image' : ' — used for all ads in batch'}
                     </p>
@@ -857,17 +857,17 @@ export default function BatchManager({ projectId, project, onBatchComplete }) {
                   onDragLeave={(e) => { e.preventDefault(); e.stopPropagation(); setBatchProductDragOver(false); }}
                   onDrop={handleBatchProductDrop}
                   className={`border-2 border-dashed rounded-xl p-3 text-center cursor-pointer transition-all ${
-                    batchProductDragOver ? 'border-blue-400 bg-blue-50/30' :
-                    'border-gray-200/80 hover:border-blue-300 hover:bg-gray-50/30'
+                    batchProductDragOver ? 'border-gold bg-gold/5' :
+                    'border-black/5 hover:border-gold hover:bg-offwhite'
                   }`}
                 >
-                  <svg className="w-5 h-5 mx-auto mb-1 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <svg className="w-5 h-5 mx-auto mb-1 text-textlight/60" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909M3.75 21h16.5a2.25 2.25 0 002.25-2.25V6.75a2.25 2.25 0 00-2.25-2.25H3.75a2.25 2.25 0 00-2.25 2.25v12a2.25 2.25 0 002.25 2.25z" />
                   </svg>
-                  <p className={`text-[11px] font-medium ${batchProductDragOver ? 'text-blue-600' : 'text-gray-500'}`}>
+                  <p className={`text-[11px] font-medium ${batchProductDragOver ? 'text-gold' : 'text-textmid'}`}>
                     {batchProductDragOver ? 'Drop product image here' : 'Drop a product image, or click to browse'}
                   </p>
-                  <p className="text-[10px] text-gray-400 mt-0.5">Or set one on the project Overview for all ads</p>
+                  <p className="text-[10px] text-textlight mt-0.5">Or set one on the project Overview for all ads</p>
                 </div>
               ) : null}
               <input
@@ -884,8 +884,8 @@ export default function BatchManager({ projectId, project, onBatchComplete }) {
                   onClick={() => setSkipProductImage(!skipProductImage)}
                   className={`mt-1.5 inline-flex items-center gap-1.5 text-[10px] font-medium px-2.5 py-1 rounded-lg transition-all ${
                     skipProductImage
-                      ? 'bg-amber-50 text-amber-700 border border-amber-200'
-                      : 'text-gray-400 hover:text-gray-600'
+                      ? 'bg-gold/5 text-gold border border-gold/15'
+                      : 'text-textlight hover:text-textmid'
                   }`}
                 >
                   <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
@@ -901,9 +901,9 @@ export default function BatchManager({ projectId, project, onBatchComplete }) {
 
             {/* Prompt Guidelines indicator */}
             {project?.prompt_guidelines && (
-              <div className="mb-3 p-2.5 bg-purple-50/40 border border-purple-200/40 rounded-xl">
-                <p className="text-[11px] font-medium text-purple-600 mb-0.5">Prompt Guidelines Active</p>
-                <p className="text-[10px] text-purple-500/80 line-clamp-2">{project.prompt_guidelines}</p>
+              <div className="mb-3 p-2.5 bg-navy/5 border border-navy/10 rounded-xl">
+                <p className="text-[11px] font-medium text-navy mb-0.5">Prompt Guidelines Active</p>
+                <p className="text-[10px] text-navy/60 line-clamp-2">{project.prompt_guidelines}</p>
               </div>
             )}
 
@@ -915,18 +915,18 @@ export default function BatchManager({ projectId, project, onBatchComplete }) {
                   checked={isScheduled}
                   onChange={e => setIsScheduled(e.target.checked)}
                   disabled={creating}
-                  className="w-4 h-4 rounded border-gray-300 text-blue-500 focus:ring-blue-500/20"
+                  className="w-4 h-4 rounded border-black/10 text-navy focus:ring-navy/20"
                 />
-                <span className="text-[12px] text-gray-600 font-medium">Schedule recurring</span>
+                <span className="text-[12px] text-textmid font-medium">Schedule recurring</span>
               </label>
             </div>
 
             {/* Cron config (shown when scheduled) */}
             {isScheduled && (
-              <div className="p-3 bg-gray-50/50 border border-gray-200/60 rounded-xl mb-3 fade-in">
+              <div className="p-3 bg-offwhite border border-black/5 rounded-xl mb-3 fade-in">
                 <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                   <div>
-                    <label className="block text-[11px] font-medium text-gray-500 mb-1">
+                    <label className="block text-[11px] font-medium text-textmid mb-1">
                       Frequency
                     </label>
                     <select
@@ -942,7 +942,7 @@ export default function BatchManager({ projectId, project, onBatchComplete }) {
                   </div>
                   {cronPreset === 'custom' && (
                     <div>
-                      <label className="block text-[11px] font-medium text-gray-500 mb-1">
+                      <label className="block text-[11px] font-medium text-textmid mb-1">
                         Run every
                       </label>
                       <div className="flex items-center gap-2">
@@ -976,14 +976,14 @@ export default function BatchManager({ projectId, project, onBatchComplete }) {
                         </select>
                       </div>
                       {intervalUnit === 'weeks' && intervalAmount > 1 && (
-                        <p className="text-[10px] text-amber-500 mt-1">
+                        <p className="text-[10px] text-gold mt-1">
                           Approximated as every {intervalAmount * 7} days
                         </p>
                       )}
                     </div>
                   )}
                 </div>
-                <p className="text-[10px] text-gray-400 mt-2">
+                <p className="text-[10px] text-textlight mt-2">
                   Batch will run automatically on this schedule using the template source selected above.
                 </p>
               </div>
@@ -1020,16 +1020,16 @@ export default function BatchManager({ projectId, project, onBatchComplete }) {
 
             {/* Batch Queue */}
             {queue.length > 0 && (
-              <div className="mt-3 p-4 bg-blue-50/30 border border-blue-200/40 rounded-xl fade-in">
+              <div className="mt-3 p-4 bg-navy/5 border border-navy/10 rounded-xl fade-in">
                 <div className="flex items-center justify-between mb-3">
-                  <h4 className="text-[12px] font-semibold text-blue-700 uppercase tracking-wider">
+                  <h4 className="text-[12px] font-semibold text-navy uppercase tracking-wider">
                     Queue ({queue.length} batch{queue.length !== 1 ? 'es' : ''})
                   </h4>
                   <div className="flex items-center gap-2">
                     <button
                       onClick={() => setQueue([])}
                       disabled={submittingQueue}
-                      className="text-[11px] text-gray-400 hover:text-gray-600 transition-colors"
+                      className="text-[11px] text-textlight hover:text-textmid transition-colors"
                     >
                       Clear All
                     </button>
@@ -1046,27 +1046,27 @@ export default function BatchManager({ projectId, project, onBatchComplete }) {
                   {queue.map(item => (
                     <div
                       key={item.id}
-                      className="flex items-center justify-between p-2.5 bg-white/60 rounded-lg border border-blue-100/60"
+                      className="flex items-center justify-between p-2.5 bg-white/60 rounded-lg border border-navy/10"
                     >
                       <div className="flex items-center gap-3 text-[12px]">
-                        <span className="font-medium text-gray-800">
+                        <span className="font-medium text-textdark">
                           {item.batch_size} image{item.batch_size !== 1 ? 's' : ''}
                         </span>
-                        <span className="text-gray-400">{item.aspect_ratio}</span>
+                        <span className="text-textlight">{item.aspect_ratio}</span>
                         {item.templateLabel && item.templateLabel !== 'Random' && (
                           <>
-                            <span className="text-gray-300">|</span>
-                            <span className="badge bg-blue-50/80 text-blue-500 text-[10px]">{item.templateLabel}</span>
+                            <span className="text-textlight/60">|</span>
+                            <span className="badge bg-navy/10 text-navy text-[10px]">{item.templateLabel}</span>
                           </>
                         )}
                         {item.angle && (
                           <>
-                            <span className="text-gray-300">|</span>
-                            <span className="text-gray-500 truncate max-w-[120px]">{item.angle}</span>
+                            <span className="text-textlight/60">|</span>
+                            <span className="text-textmid truncate max-w-[120px]">{item.angle}</span>
                           </>
                         )}
                         {item.scheduled && item.schedule_cron && (
-                          <span className="badge bg-purple-100/80 text-purple-600 text-[10px]">
+                          <span className="badge bg-gold/10 text-gold text-[10px]">
                             {cronToLabel(item.schedule_cron)}
                           </span>
                         )}
@@ -1075,7 +1075,7 @@ export default function BatchManager({ projectId, project, onBatchComplete }) {
                         <button
                           onClick={() => handleEditQueueItem(item.id)}
                           disabled={submittingQueue}
-                          className="text-[11px] text-blue-400 hover:text-blue-600 transition-colors px-1.5"
+                          className="text-[11px] text-gold hover:text-gold/80 transition-colors px-1.5"
                         >
                           Edit
                         </button>
@@ -1098,7 +1098,7 @@ export default function BatchManager({ projectId, project, onBatchComplete }) {
           {loading ? (
             <div className="p-5 space-y-2">
               {[0, 1, 2].map(i => (
-                <div key={i} className="flex items-center gap-3 p-3 rounded-xl bg-gray-50/30 border border-gray-100/80 animate-pulse">
+                <div key={i} className="flex items-center gap-3 p-3 rounded-xl bg-offwhite/50 border border-black/5 animate-pulse">
                   <div className="w-5 h-5 rounded-full bg-gray-200 flex-shrink-0" />
                   <div className="flex-1">
                     <div className="flex items-center gap-2 mb-1">
@@ -1115,7 +1115,7 @@ export default function BatchManager({ projectId, project, onBatchComplete }) {
             <div className="divide-y divide-gray-100/80">
               {activeBatches.length > 0 && (
                 <div className="p-5">
-                  <h4 className="text-[12px] font-semibold text-gray-500 uppercase tracking-wider mb-3">
+                  <h4 className="text-[12px] font-semibold text-textmid uppercase tracking-wider mb-3">
                     Active
                   </h4>
                   <div className="space-y-2">
@@ -1137,7 +1137,7 @@ export default function BatchManager({ projectId, project, onBatchComplete }) {
 
               {completedBatches.length > 0 && (
                 <div className="p-5">
-                  <h4 className="text-[12px] font-semibold text-gray-500 uppercase tracking-wider mb-3">
+                  <h4 className="text-[12px] font-semibold text-textmid uppercase tracking-wider mb-3">
                     History
                   </h4>
                   <div className="space-y-2">
@@ -1155,7 +1155,7 @@ export default function BatchManager({ projectId, project, onBatchComplete }) {
                     ))}
                   </div>
                   {completedBatches.length > 10 && (
-                    <p className="text-[11px] text-gray-400 mt-2">
+                    <p className="text-[11px] text-textlight mt-2">
                       + {completedBatches.length - 10} older batch{completedBatches.length - 10 !== 1 ? 'es' : ''}
                     </p>
                   )}
@@ -1164,8 +1164,8 @@ export default function BatchManager({ projectId, project, onBatchComplete }) {
 
               {batches.length === 0 && (
                 <div className="p-8 text-center">
-                  <p className="text-[13px] text-gray-500 font-medium mb-1">No Batch Jobs Yet</p>
-                  <p className="text-[11px] text-gray-400">
+                  <p className="text-[13px] text-textmid font-medium mb-1">No Batch Jobs Yet</p>
+                  <p className="text-[11px] text-textlight">
                     Create a batch above to generate multiple ads at once.
                   </p>
                 </div>

@@ -177,7 +177,7 @@ export default function CopywriterChat({ projectId, projectName }) {
     return (
       <button
         onClick={() => setIsOpen(true)}
-        className="fixed bottom-6 right-6 z-50 w-14 h-14 rounded-full bg-gradient-to-br from-blue-500 to-blue-600 text-white shadow-lg hover:shadow-xl hover:scale-105 transition-all duration-200 flex items-center justify-center group"
+        className="fixed bottom-6 right-6 z-50 w-14 h-14 rounded-full bg-gradient-to-br from-navy to-navy-light text-white shadow-lg hover:shadow-xl hover:scale-105 transition-all duration-200 flex items-center justify-center group"
         title="Chat with Copywriter AI"
       >
         {/* Chat bubble icon */}
@@ -198,7 +198,7 @@ export default function CopywriterChat({ projectId, projectName }) {
   return (
     <div className="fixed bottom-6 right-6 z-50 w-[400px] h-[520px] bg-white/95 backdrop-blur-xl rounded-2xl shadow-2xl border border-gray-200/60 flex flex-col overflow-hidden fade-in">
       {/* Header */}
-      <div className="bg-gradient-to-r from-blue-500 to-blue-600 text-white rounded-t-2xl">
+      <div className="bg-gradient-to-r from-navy to-navy-light text-white rounded-t-2xl">
         <div className="flex items-center justify-between px-4 py-2.5">
           <div className="flex items-center gap-2 min-w-0">
             <svg className="w-4 h-4 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -278,12 +278,12 @@ export default function CopywriterChat({ projectId, projectName }) {
 
       {/* Doc viewer overlay */}
       {viewingDoc && docContents[viewingDoc] && (
-        <div className="border-b border-gray-200/60 bg-gray-50/80 max-h-[200px] overflow-y-auto scrollbar-thin">
-          <div className="flex items-center justify-between px-3 py-2 border-b border-gray-100/80 sticky top-0 bg-gray-50/95 backdrop-blur-sm">
-            <span className="text-[11px] font-semibold text-gray-700">{DOC_TYPE_LABELS[viewingDoc]}</span>
+        <div className="border-b border-black/5 bg-offwhite max-h-[200px] overflow-y-auto scrollbar-thin">
+          <div className="flex items-center justify-between px-3 py-2 border-b border-black/5 sticky top-0 bg-offwhite/95 backdrop-blur-sm">
+            <span className="text-[11px] font-semibold text-textdark">{DOC_TYPE_LABELS[viewingDoc]}</span>
             <button
               onClick={() => setViewingDoc(null)}
-              className="text-gray-400 hover:text-gray-600 transition-colors"
+              className="text-textlight hover:text-textmid transition-colors"
             >
               <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -291,7 +291,7 @@ export default function CopywriterChat({ projectId, projectName }) {
             </button>
           </div>
           <div className="px-3 py-2">
-            <p className="text-[11px] text-gray-600 leading-relaxed whitespace-pre-wrap">
+            <p className="text-[11px] text-textmid leading-relaxed whitespace-pre-wrap">
               {docContents[viewingDoc].length > 3000
                 ? docContents[viewingDoc].slice(0, 3000) + '\n\n... (truncated — view full doc in Foundational Docs tab)'
                 : docContents[viewingDoc]}
@@ -304,13 +304,13 @@ export default function CopywriterChat({ projectId, projectName }) {
       <div className="flex-1 overflow-y-auto px-4 py-3 space-y-3 scrollbar-thin">
         {messages.length === 0 && !isStreaming && (
           <div className="flex flex-col items-center justify-center h-full text-center px-4">
-            <div className="w-12 h-12 rounded-full bg-blue-50 flex items-center justify-center mb-3">
-              <svg className="w-6 h-6 text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <div className="w-12 h-12 rounded-full bg-navy/10 flex items-center justify-center mb-3">
+              <svg className="w-6 h-6 text-navy/50" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z" />
               </svg>
             </div>
-            <p className="text-[13px] font-medium text-gray-700 mb-1">{projectName || 'Project'} Copywriter</p>
-            <p className="text-[11px] text-gray-400 leading-relaxed">
+            <p className="text-[13px] font-medium text-textdark mb-1">{projectName || 'Project'} Copywriter</p>
+            <p className="text-[11px] text-textlight leading-relaxed">
               {Object.keys(loadedDocs).length > 0
                 ? `${Object.keys(loadedDocs).length} foundational doc${Object.keys(loadedDocs).length !== 1 ? 's' : ''} loaded for ${projectName || 'this project'}. Send a message to start chatting.`
                 : `No foundational docs found. Generate docs first for best results.`}
@@ -326,8 +326,8 @@ export default function CopywriterChat({ projectId, projectName }) {
             <div
               className={`max-w-[85%] px-3 py-2 rounded-2xl text-[13px] leading-relaxed ${
                 msg.role === 'user'
-                  ? 'bg-blue-500 text-white rounded-br-md'
-                  : 'bg-gray-100/80 text-gray-800 rounded-bl-md'
+                  ? 'bg-navy text-white rounded-br-md'
+                  : 'bg-black/5 text-textdark rounded-bl-md'
               }`}
             >
               <div className="whitespace-pre-wrap break-words">{msg.content}</div>
@@ -338,7 +338,7 @@ export default function CopywriterChat({ projectId, projectName }) {
         {/* Streaming response */}
         {isStreaming && streamingText && (
           <div className="flex justify-start">
-            <div className="max-w-[85%] px-3 py-2 rounded-2xl rounded-bl-md bg-gray-100/80 text-gray-800 text-[13px] leading-relaxed">
+            <div className="max-w-[85%] px-3 py-2 rounded-2xl rounded-bl-md bg-black/5 text-textdark text-[13px] leading-relaxed">
               <div className="whitespace-pre-wrap break-words">{streamingText}</div>
             </div>
           </div>
@@ -347,9 +347,9 @@ export default function CopywriterChat({ projectId, projectName }) {
         {/* Typing / initializing indicator */}
         {isStreaming && !streamingText && (
           <div className="flex justify-start">
-            <div className="px-3 py-2 rounded-2xl rounded-bl-md bg-gray-100/80">
+            <div className="px-3 py-2 rounded-2xl rounded-bl-md bg-black/5">
               {isInitializing || statusText ? (
-                <p className="text-[11px] text-blue-500 font-medium flex items-center gap-1.5">
+                <p className="text-[11px] text-navy font-medium flex items-center gap-1.5">
                   <svg className="w-3 h-3 animate-spin" fill="none" viewBox="0 0 24 24">
                     <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                     <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
@@ -358,9 +358,9 @@ export default function CopywriterChat({ projectId, projectName }) {
                 </p>
               ) : (
                 <div className="flex gap-1 items-center py-1">
-                  <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
-                  <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
-                  <span className="w-2 h-2 bg-gray-400 rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
+                  <span className="w-2 h-2 bg-textlight rounded-full animate-bounce" style={{ animationDelay: '0ms' }} />
+                  <span className="w-2 h-2 bg-textlight rounded-full animate-bounce" style={{ animationDelay: '150ms' }} />
+                  <span className="w-2 h-2 bg-textlight rounded-full animate-bounce" style={{ animationDelay: '300ms' }} />
                 </div>
               )}
             </div>
@@ -380,7 +380,7 @@ export default function CopywriterChat({ projectId, projectName }) {
       </div>
 
       {/* Input area */}
-      <div className="px-4 py-3 border-t border-gray-100/80">
+      <div className="px-4 py-3 border-t border-black/5">
         <div className="flex items-end gap-2">
           <textarea
             ref={inputRef}
@@ -390,7 +390,7 @@ export default function CopywriterChat({ projectId, projectName }) {
             placeholder={isStreaming ? 'Waiting for response...' : 'Type a message...'}
             disabled={isStreaming}
             rows={1}
-            className="flex-1 resize-none rounded-xl border border-gray-200/80 bg-gray-50/50 px-3 py-2 text-[13px] text-gray-900 placeholder:text-gray-400 focus:outline-none focus:ring-2 focus:ring-blue-500/30 focus:border-blue-300 disabled:opacity-50 transition-all max-h-[100px] overflow-y-auto"
+            className="flex-1 resize-none rounded-xl border border-black/10 bg-offwhite px-3 py-2 text-[13px] text-textdark placeholder:text-textlight focus:outline-none focus:ring-2 focus:ring-gold/20 focus:border-gold disabled:opacity-50 transition-all max-h-[100px] overflow-y-auto"
             style={{ minHeight: '38px' }}
             onInput={(e) => {
               // Auto-resize textarea
@@ -401,7 +401,7 @@ export default function CopywriterChat({ projectId, projectName }) {
           <button
             onClick={handleSend}
             disabled={isStreaming || !inputValue.trim()}
-            className="w-9 h-9 rounded-xl bg-blue-500 hover:bg-blue-600 disabled:bg-gray-200 disabled:text-gray-400 text-white flex items-center justify-center transition-all flex-shrink-0"
+            className="w-9 h-9 rounded-xl bg-navy hover:bg-navy-light disabled:bg-gray-200 disabled:text-textlight text-white flex items-center justify-center transition-all flex-shrink-0"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 19V5m0 0l-7 7m7-7l7 7" />

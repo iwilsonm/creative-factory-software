@@ -42,7 +42,7 @@ function ProtectedRoute({ children }) {
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
-        <div className="text-gray-400">Loading...</div>
+        <div className="text-textlight">Loading...</div>
       </div>
     );
   }
@@ -55,7 +55,7 @@ function ProtectedRoute({ children }) {
 function PageLoader() {
   return (
     <div className="min-h-screen flex items-center justify-center">
-      <div className="text-gray-300 text-sm">Loading page...</div>
+      <div className="text-textlight text-sm">Loading page...</div>
     </div>
   );
 }

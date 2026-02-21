@@ -6,10 +6,10 @@ import { useAsyncData } from '../hooks/useAsyncData';
 
 const STATUS_ORDER = ['selected', 'scheduled', 'posted', 'analyzing'];
 const STATUS_META = {
-  selected:  { label: 'Selected',  color: 'bg-gray-100 text-gray-600',    dot: 'bg-gray-400' },
-  scheduled: { label: 'Scheduled', color: 'bg-blue-50 text-blue-600',     dot: 'bg-blue-400' },
-  posted:    { label: 'Posted',    color: 'bg-emerald-50 text-emerald-600', dot: 'bg-emerald-400' },
-  analyzing: { label: 'Analyzing', color: 'bg-purple-50 text-purple-600', dot: 'bg-purple-400' },
+  selected:  { label: 'Selected',  color: 'bg-black/5 text-textmid',      dot: 'bg-textlight' },
+  scheduled: { label: 'Scheduled', color: 'bg-navy/10 text-navy',         dot: 'bg-navy' },
+  posted:    { label: 'Posted',    color: 'bg-teal/10 text-teal',         dot: 'bg-teal' },
+  analyzing: { label: 'Analyzing', color: 'bg-gold/10 text-gold',         dot: 'bg-gold' },
 };
 
 
@@ -591,7 +591,7 @@ export default function AdTracker({ projectId }) {
           onBlur={saveEdit}
           onKeyDown={handleKeyDown}
           placeholder={placeholder}
-          className={`w-full bg-white border border-blue-300 rounded px-1.5 py-0.5 text-[12px] text-gray-900 outline-none ring-1 ring-blue-200 ${className}`}
+          className={`w-full bg-white border border-gold rounded px-1.5 py-0.5 text-[12px] text-textdark outline-none ring-1 ring-gold/30 ${className}`}
         />
       );
     }
@@ -607,8 +607,8 @@ export default function AdTracker({ projectId }) {
     return (
       <span
         onClick={(e) => { e.stopPropagation(); startEdit(dep.id, field, editableValue); }}
-        className={`cursor-pointer rounded px-1.5 py-0.5 -mx-1.5 -my-0.5 hover:bg-blue-50 transition-colors truncate block ${
-          display ? 'text-gray-700' : 'text-gray-300'
+        className={`cursor-pointer rounded px-1.5 py-0.5 -mx-1.5 -my-0.5 hover:bg-navy/5 transition-colors truncate block ${
+          display ? 'text-textdark' : 'text-textlight/60'
         } ${className}`}
         title={display || placeholder}
       >
@@ -627,7 +627,7 @@ export default function AdTracker({ projectId }) {
           className={`px-3 py-1.5 rounded-full text-[12px] font-medium transition-colors ${
             statusFilter === 'all'
               ? 'bg-gray-900 text-white'
-              : 'bg-gray-100 text-gray-500 hover:bg-gray-200'
+              : 'bg-black/5 text-textmid hover:bg-black/10'
           }`}
         >
           All ({deployments.length})
@@ -653,8 +653,8 @@ export default function AdTracker({ projectId }) {
 
       {/* Bulk action bar */}
       {selectedIds.size > 0 && (
-        <div className="flex items-center gap-3 mb-4 p-3 bg-blue-50 rounded-xl border border-blue-100 fade-in">
-          <span className="text-[12px] font-medium text-blue-700">
+        <div className="flex items-center gap-3 mb-4 p-3 bg-navy/5 rounded-xl border border-navy/10 fade-in">
+          <span className="text-[12px] font-medium text-navy">
             {selectedIds.size} selected
           </span>
           <div className="flex items-center gap-2 ml-auto">
@@ -662,7 +662,7 @@ export default function AdTracker({ projectId }) {
               <button
                 key={status}
                 onClick={() => handleBulkStatus(status)}
-                className="text-[11px] px-2.5 py-1 rounded-lg bg-white border border-gray-200 text-gray-600 hover:bg-gray-50 transition-colors"
+                className="text-[11px] px-2.5 py-1 rounded-lg bg-white border border-gray-200 text-textmid hover:bg-gray-50 transition-colors"
               >
                 {STATUS_META[status].label}
               </button>
@@ -670,7 +670,7 @@ export default function AdTracker({ projectId }) {
             <button
               onClick={handleBulkDownload}
               disabled={isBulkDownloading}
-              className="text-[11px] px-2.5 py-1 rounded-lg bg-white border border-gray-200 text-blue-600 hover:bg-blue-50 transition-colors disabled:opacity-50 inline-flex items-center gap-1"
+              className="text-[11px] px-2.5 py-1 rounded-lg bg-white border border-black/10 text-navy hover:bg-navy/5 transition-colors disabled:opacity-50 inline-flex items-center gap-1"
             >
               <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
@@ -681,8 +681,8 @@ export default function AdTracker({ projectId }) {
               onClick={() => setBulkEditOpen(!bulkEditOpen)}
               className={`text-[11px] px-2.5 py-1 rounded-lg border transition-colors ${
                 bulkEditOpen
-                  ? 'bg-blue-500 border-blue-500 text-white'
-                  : 'bg-white border-gray-200 text-gray-600 hover:bg-gray-50'
+                  ? 'bg-navy border-navy text-white'
+                  : 'bg-white border-black/10 text-textmid hover:bg-offwhite'
               }`}
             >
               Edit Fields
@@ -695,7 +695,7 @@ export default function AdTracker({ projectId }) {
             </button>
             <button
               onClick={() => { setSelectedIds(new Set()); setBulkEditOpen(false); setBulkFields({ campaign_name: '', ad_set_name: '', ad_name: '', status: '', planned_date: '', landing_page_url: '' }); }}
-              className="text-[11px] px-2.5 py-1 rounded-lg text-gray-400 hover:text-gray-600 transition-colors"
+              className="text-[11px] px-2.5 py-1 rounded-lg text-textlight hover:text-textmid transition-colors"
             >
               Clear
             </button>
@@ -705,13 +705,13 @@ export default function AdTracker({ projectId }) {
 
       {/* Bulk edit panel */}
       {bulkEditOpen && selectedIds.size > 0 && (
-        <div className="mb-4 p-4 bg-blue-50/50 rounded-xl border border-blue-100 fade-in">
-          <p className="text-[11px] font-medium text-blue-700 mb-3">
+        <div className="mb-4 p-4 bg-navy/5 rounded-xl border border-navy/10 fade-in">
+          <p className="text-[11px] font-medium text-navy mb-3">
             Apply to {selectedIds.size} selected ad{selectedIds.size !== 1 ? 's' : ''}
           </p>
           <div className="grid grid-cols-2 md:grid-cols-3 gap-3 mb-3">
             <div>
-              <label className="block text-[10px] font-medium text-gray-400 uppercase tracking-wider mb-1">
+              <label className="block text-[10px] font-medium text-textlight uppercase tracking-wider mb-1">
                 Ad Name
               </label>
               <input
@@ -723,7 +723,7 @@ export default function AdTracker({ projectId }) {
               />
             </div>
             <div>
-              <label className="block text-[10px] font-medium text-gray-400 uppercase tracking-wider mb-1">
+              <label className="block text-[10px] font-medium text-textlight uppercase tracking-wider mb-1">
                 Status
               </label>
               <select
@@ -738,7 +738,7 @@ export default function AdTracker({ projectId }) {
               </select>
             </div>
             <div>
-              <label className="block text-[10px] font-medium text-gray-400 uppercase tracking-wider mb-1">
+              <label className="block text-[10px] font-medium text-textlight uppercase tracking-wider mb-1">
                 Planned Date
               </label>
               <input
@@ -749,7 +749,7 @@ export default function AdTracker({ projectId }) {
               />
             </div>
             <div>
-              <label className="block text-[10px] font-medium text-gray-400 uppercase tracking-wider mb-1">
+              <label className="block text-[10px] font-medium text-textlight uppercase tracking-wider mb-1">
                 Campaign Name
               </label>
               <input
@@ -761,7 +761,7 @@ export default function AdTracker({ projectId }) {
               />
             </div>
             <div>
-              <label className="block text-[10px] font-medium text-gray-400 uppercase tracking-wider mb-1">
+              <label className="block text-[10px] font-medium text-textlight uppercase tracking-wider mb-1">
                 Ad Set Name
               </label>
               <input
@@ -773,7 +773,7 @@ export default function AdTracker({ projectId }) {
               />
             </div>
             <div>
-              <label className="block text-[10px] font-medium text-gray-400 uppercase tracking-wider mb-1">
+              <label className="block text-[10px] font-medium text-textlight uppercase tracking-wider mb-1">
                 Landing Page
               </label>
               <input
@@ -816,12 +816,12 @@ export default function AdTracker({ projectId }) {
       {!loading && deployments.length === 0 && (
         <div className="card p-12 text-center">
           <div className="w-14 h-14 rounded-2xl bg-gray-100 flex items-center justify-center mx-auto mb-4">
-            <svg className="w-7 h-7 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg className="w-7 h-7 text-textlight/60" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15.59 14.37a6 6 0 01-5.84 7.38v-4.8m5.84-2.58a14.98 14.98 0 006.16-12.12A14.98 14.98 0 009.631 8.41m5.96 5.96a14.926 14.926 0 01-5.841 2.58m-.119-8.54a6 6 0 00-7.381 5.84h4.8m2.58-5.84a14.927 14.927 0 00-2.58 5.84m2.699 2.7c-.103.021-.207.041-.311.06a15.09 15.09 0 01-2.448-2.448 14.9 14.9 0 01.06-.312m-2.24 2.39a4.493 4.493 0 00-1.757 4.306 4.493 4.493 0 004.306-1.758M16.5 9a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0z" />
             </svg>
           </div>
-          <h3 className="text-[15px] font-semibold text-gray-900 mb-1">No deployments yet</h3>
-          <p className="text-[13px] text-gray-400 max-w-sm mx-auto">
+          <h3 className="text-[15px] font-semibold text-textdark mb-1">No deployments yet</h3>
+          <p className="text-[13px] text-textlight max-w-sm mx-auto">
             Select ads in the Ad Studio and click "Deploy" to start tracking them here.
           </p>
         </div>
@@ -830,7 +830,7 @@ export default function AdTracker({ projectId }) {
       {/* Filtered empty state */}
       {!loading && deployments.length > 0 && sorted.length === 0 && (
         <div className="card p-8 text-center">
-          <p className="text-[13px] text-gray-400">
+          <p className="text-[13px] text-textlight">
             No deployments with status "{STATUS_META[statusFilter]?.label}".
           </p>
         </div>
@@ -842,14 +842,14 @@ export default function AdTracker({ projectId }) {
           <div className="overflow-x-auto">
             <table className="w-full text-left min-w-[800px]">
               <thead>
-                <tr className="bg-gray-50/80 border-b border-gray-100">
+                <tr className="bg-offwhite border-b border-black/5">
                   <th className="px-3 py-2.5 w-10">
                     <button
                       onClick={toggleSelectAll}
                       className={`w-[16px] h-[16px] rounded flex items-center justify-center transition-colors ${
                         selectedIds.size === sorted.length && sorted.length > 0
-                          ? 'bg-blue-500'
-                          : 'border-[1.5px] border-gray-300 hover:border-blue-400'
+                          ? 'bg-navy'
+                          : 'border-[1.5px] border-textlight/60 hover:border-navy/40'
                       }`}
                     >
                       {selectedIds.size === sorted.length && sorted.length > 0 && (
@@ -860,25 +860,25 @@ export default function AdTracker({ projectId }) {
                     </button>
                   </th>
                   <th className="px-2 py-2.5 w-16" />
-                  <th className="px-3 py-2.5 text-[10px] uppercase tracking-wider font-medium text-gray-400">
+                  <th className="px-3 py-2.5 text-[10px] uppercase tracking-wider font-medium text-textlight">
                     Ad Name
                   </th>
-                  <th className="px-3 py-2.5 text-[10px] uppercase tracking-wider font-medium text-gray-400 w-24">
+                  <th className="px-3 py-2.5 text-[10px] uppercase tracking-wider font-medium text-textlight w-24">
                     Status
                   </th>
-                  <th className="px-3 py-2.5 text-[10px] uppercase tracking-wider font-medium text-gray-400 hidden md:table-cell">
+                  <th className="px-3 py-2.5 text-[10px] uppercase tracking-wider font-medium text-textlight hidden md:table-cell">
                     Campaign
                   </th>
-                  <th className="px-3 py-2.5 text-[10px] uppercase tracking-wider font-medium text-gray-400 hidden md:table-cell">
+                  <th className="px-3 py-2.5 text-[10px] uppercase tracking-wider font-medium text-textlight hidden md:table-cell">
                     Ad Set
                   </th>
-                  <th className="px-3 py-2.5 text-[10px] uppercase tracking-wider font-medium text-gray-400 hidden lg:table-cell w-40">
+                  <th className="px-3 py-2.5 text-[10px] uppercase tracking-wider font-medium text-textlight hidden lg:table-cell w-40">
                     Planned Date
                   </th>
-                  <th className="px-3 py-2.5 text-[10px] uppercase tracking-wider font-medium text-gray-400 hidden lg:table-cell">
+                  <th className="px-3 py-2.5 text-[10px] uppercase tracking-wider font-medium text-textlight hidden lg:table-cell">
                     Landing Page
                   </th>
-                  <th className="px-3 py-2.5 text-[10px] uppercase tracking-wider font-medium text-gray-400 hidden md:table-cell w-24">
+                  <th className="px-3 py-2.5 text-[10px] uppercase tracking-wider font-medium text-textlight hidden md:table-cell w-24">
                     Created
                   </th>
                   <th className="px-3 py-2.5 w-12" />
@@ -894,7 +894,7 @@ export default function AdTracker({ projectId }) {
                     <tr
                       key={dep.id}
                       className={`border-b border-gray-100 last:border-0 transition-colors ${
-                        isSelected ? 'bg-blue-50/50' : 'hover:bg-gray-50/50'
+                        isSelected ? 'bg-navy/5' : 'hover:bg-offwhite'
                       }`}
                     >
                       {/* Checkbox */}
@@ -903,8 +903,8 @@ export default function AdTracker({ projectId }) {
                           onClick={() => toggleSelect(dep.id)}
                           className={`w-[16px] h-[16px] rounded flex items-center justify-center transition-colors ${
                             isSelected
-                              ? 'bg-blue-500'
-                              : 'border-[1.5px] border-gray-300 hover:border-blue-400'
+                              ? 'bg-navy'
+                              : 'border-[1.5px] border-textlight/60 hover:border-navy/40'
                           }`}
                         >
                           {isSelected && (
@@ -921,12 +921,12 @@ export default function AdTracker({ projectId }) {
                           <img
                             src={dep.imageUrl}
                             alt=""
-                            className="w-12 h-12 rounded-md object-cover cursor-pointer hover:ring-2 hover:ring-blue-300 transition-all"
+                            className="w-12 h-12 rounded-md object-cover cursor-pointer hover:ring-2 hover:ring-navy/30 transition-all"
                             onClick={(e) => { e.stopPropagation(); setPreviewDepId(dep.id); }}
                           />
                         ) : (
                           <div className="w-12 h-12 rounded-md bg-gray-100 flex items-center justify-center">
-                            <svg className="w-4 h-4 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <svg className="w-4 h-4 text-textlight/60" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909M3.75 21h16.5" />
                             </svg>
                           </div>
@@ -947,7 +947,7 @@ export default function AdTracker({ projectId }) {
                           <button
                             onClick={(e) => { e.stopPropagation(); openNotes(dep); }}
                             className={`flex-shrink-0 p-0.5 rounded transition-colors ${
-                              dep.notes ? 'text-amber-500 hover:text-amber-600' : 'text-gray-200 hover:text-gray-400'
+                              dep.notes ? 'text-gold hover:text-gold/80' : 'text-textlight/40 hover:text-textlight'
                             }`}
                             title={dep.notes ? 'View notes' : 'Add notes'}
                           >
@@ -960,14 +960,14 @@ export default function AdTracker({ projectId }) {
                         {/* Tags inline */}
                         <div className="flex items-center gap-1 mt-1 flex-wrap">
                           {(dep.ad?.tags || []).slice(0, 3).map(tag => (
-                            <span key={tag} className="text-[9px] px-1.5 py-0.5 bg-blue-50 text-blue-600 rounded-full">{tag}</span>
+                            <span key={tag} className="text-[9px] px-1.5 py-0.5 bg-navy/10 text-navy rounded-full">{tag}</span>
                           ))}
                           {(dep.ad?.tags || []).length > 3 && (
-                            <span className="text-[9px] text-gray-400">+{dep.ad.tags.length - 3}</span>
+                            <span className="text-[9px] text-textlight">+{dep.ad.tags.length - 3}</span>
                           )}
                           <button
                             onClick={(e) => { e.stopPropagation(); openTagPopover(dep); }}
-                            className="text-[9px] px-1.5 py-0.5 rounded-full text-gray-300 hover:text-blue-500 hover:bg-blue-50 transition-colors"
+                            className="text-[9px] px-1.5 py-0.5 rounded-full text-textlight/60 hover:text-navy hover:bg-navy/5 transition-colors"
                             title="Manage tags"
                           >
                             + tag
@@ -978,23 +978,23 @@ export default function AdTracker({ projectId }) {
                         {tagPopover?.depId === dep.id && (
                           <div
                             ref={tagPopoverRef}
-                            className="absolute z-50 mt-1 left-0 w-72 bg-white rounded-xl shadow-apple-md border border-gray-200 p-3 fade-in"
+                            className="absolute z-50 mt-1 left-0 w-72 bg-white rounded-xl shadow-card border border-gray-200 p-3 fade-in"
                           >
-                            <label className="block text-[10px] font-medium text-gray-400 uppercase tracking-wider mb-1.5">
+                            <label className="block text-[10px] font-medium text-textlight uppercase tracking-wider mb-1.5">
                               Tags
                             </label>
                             {/* Existing tags */}
                             <div className="flex flex-wrap gap-1 mb-2">
                               {(tagPopover.tags || []).map(tag => (
-                                <span key={tag} className="inline-flex items-center gap-0.5 text-[10px] px-2 py-0.5 bg-blue-50 text-blue-600 rounded-full">
+                                <span key={tag} className="inline-flex items-center gap-0.5 text-[10px] px-2 py-0.5 bg-navy/10 text-navy rounded-full">
                                   {tag}
-                                  <button onClick={() => handleRemoveTag(tag)} className="text-blue-400 hover:text-blue-600 ml-0.5">
+                                  <button onClick={() => handleRemoveTag(tag)} className="text-navy/60 hover:text-navy ml-0.5">
                                     <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M6 18L18 6M6 6l12 12" /></svg>
                                   </button>
                                 </span>
                               ))}
                               {(tagPopover.tags || []).length === 0 && (
-                                <span className="text-[10px] text-gray-300">No tags yet</span>
+                                <span className="text-[10px] text-textlight/60">No tags yet</span>
                               )}
                             </div>
                             {/* Add tag input */}
@@ -1017,7 +1017,7 @@ export default function AdTracker({ projectId }) {
                                 <button
                                   key={tag}
                                   onClick={() => handleAddTag(tag)}
-                                  className="text-[9px] px-2 py-0.5 rounded-full border border-dashed border-gray-200 text-gray-400 hover:border-blue-300 hover:text-blue-500 transition-colors"
+                                  className="text-[9px] px-2 py-0.5 rounded-full border border-dashed border-gray-200 text-textlight hover:border-navy/30 hover:text-navy transition-colors"
                                 >
                                   {tag}
                                 </button>
@@ -1030,9 +1030,9 @@ export default function AdTracker({ projectId }) {
                         {notesPopover?.id === dep.id && (
                           <div
                             ref={notesRef}
-                            className="absolute z-50 mt-1 left-0 w-72 bg-white rounded-xl shadow-apple-md border border-gray-200 p-3 fade-in"
+                            className="absolute z-50 mt-1 left-0 w-72 bg-white rounded-xl shadow-card border border-gray-200 p-3 fade-in"
                           >
-                            <label className="block text-[10px] font-medium text-gray-400 uppercase tracking-wider mb-1.5">
+                            <label className="block text-[10px] font-medium text-textlight uppercase tracking-wider mb-1.5">
                               Notes
                             </label>
                             <textarea
@@ -1046,7 +1046,7 @@ export default function AdTracker({ projectId }) {
                             <div className="flex items-center gap-2 justify-end">
                               <button
                                 onClick={() => setNotesPopover(null)}
-                                className="text-[11px] px-2.5 py-1 rounded-lg text-gray-400 hover:text-gray-600"
+                                className="text-[11px] px-2.5 py-1 rounded-lg text-textlight hover:text-textmid"
                               >
                                 Cancel
                               </button>
@@ -1076,7 +1076,7 @@ export default function AdTracker({ projectId }) {
                         {statusDropdown === dep.id && (
                           <div
                             ref={statusDropdownRef}
-                            className="absolute z-50 mt-1 left-0 w-36 bg-white rounded-xl shadow-apple-md border border-gray-200 py-1 fade-in"
+                            className="absolute z-50 mt-1 left-0 w-36 bg-white rounded-xl shadow-card border border-gray-200 py-1 fade-in"
                           >
                             {STATUS_ORDER.map(s => {
                               const sMeta = STATUS_META[s];
@@ -1086,13 +1086,13 @@ export default function AdTracker({ projectId }) {
                                   key={s}
                                   onClick={(e) => { e.stopPropagation(); if (!isCurrent) handleStatusChange(dep.id, s); }}
                                   className={`w-full flex items-center gap-2 px-3 py-1.5 text-[11px] transition-colors ${
-                                    isCurrent ? 'bg-gray-50 font-semibold text-gray-900' : 'text-gray-600 hover:bg-gray-50'
+                                    isCurrent ? 'bg-gray-50 font-semibold text-textdark' : 'text-textmid hover:bg-gray-50'
                                   }`}
                                 >
                                   <span className={`w-2 h-2 rounded-full ${sMeta.dot}`} />
                                   {sMeta.label}
                                   {isCurrent && (
-                                    <svg className="w-3 h-3 ml-auto text-blue-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <svg className="w-3 h-3 ml-auto text-navy" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
                                     </svg>
                                   )}
@@ -1146,7 +1146,7 @@ export default function AdTracker({ projectId }) {
                       </td>
 
                       {/* Created */}
-                      <td className="px-3 py-2.5 hidden md:table-cell text-[11px] text-gray-400 whitespace-nowrap">
+                      <td className="px-3 py-2.5 hidden md:table-cell text-[11px] text-textlight whitespace-nowrap">
                         {dep.created_at
                           ? new Date(dep.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })
                           : '—'}
@@ -1160,7 +1160,7 @@ export default function AdTracker({ projectId }) {
                             dep.meta_ad_id ? (
                               <button
                                 onClick={() => handleUnlink(dep.id)}
-                                className="text-blue-500 hover:text-blue-600 hover:bg-blue-50 transition-all p-1 rounded-md"
+                                className="text-navy hover:text-navy-light hover:bg-navy/5 transition-all p-1 rounded-md"
                                 title="Linked to Meta — click to unlink"
                               >
                                 <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24">
@@ -1170,7 +1170,7 @@ export default function AdTracker({ projectId }) {
                             ) : (
                               <button
                                 onClick={() => openCampaignBrowser(dep.id)}
-                                className="text-gray-300 hover:text-blue-500 hover:bg-blue-50 transition-all p-1 rounded-md"
+                                className="text-textlight/60 hover:text-navy hover:bg-navy/5 transition-all p-1 rounded-md"
                                 title="Link to Meta Ad"
                               >
                                 <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1182,7 +1182,7 @@ export default function AdTracker({ projectId }) {
                           {dep.imageUrl && (
                             <button
                               onClick={() => handleDownload(dep)}
-                              className="text-gray-300 hover:text-blue-500 hover:bg-blue-50 transition-all p-1 rounded-md"
+                              className="text-textlight/60 hover:text-navy hover:bg-navy/5 transition-all p-1 rounded-md"
                               title="Download image"
                             >
                               <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1192,7 +1192,7 @@ export default function AdTracker({ projectId }) {
                           )}
                           <button
                             onClick={() => handleDelete(dep.id)}
-                            className="text-gray-300 hover:text-red-500 hover:bg-red-50 transition-all p-1 rounded-md"
+                            className="text-textlight/60 hover:text-red-500 hover:bg-red-50 transition-all p-1 rounded-md"
                             title="Remove"
                           >
                             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1216,12 +1216,12 @@ export default function AdTracker({ projectId }) {
           /* Not connected — prompt to connect */
           <div className="card p-8 text-center">
             <div className="flex items-center justify-center gap-3 mb-2">
-              <svg className="w-5 h-5 text-purple-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="w-5 h-5 text-gold/40" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z" />
               </svg>
-              <h3 className="text-[13px] font-semibold text-gray-900">Performance Tracking</h3>
+              <h3 className="text-[13px] font-semibold text-textdark">Performance Tracking</h3>
             </div>
-            <p className="text-[12px] text-gray-400 max-w-md mx-auto mb-3">
+            <p className="text-[12px] text-textlight max-w-md mx-auto mb-3">
               Connect your Meta account in the Overview tab to pull live ad performance data for this project.
             </p>
           </div>
@@ -1245,11 +1245,11 @@ export default function AdTracker({ projectId }) {
           <div className="card p-6">
             <div className="flex items-center justify-between mb-4">
               <div className="flex items-center gap-2">
-                <svg className="w-4 h-4 text-purple-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg className="w-4 h-4 text-gold" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z" />
                 </svg>
-                <h3 className="text-[14px] font-semibold text-gray-900">Meta Performance</h3>
-                <span className="text-[10px] px-2 py-0.5 rounded-full bg-purple-50 text-purple-600 font-medium">
+                <h3 className="text-[14px] font-semibold text-textdark">Meta Performance</h3>
+                <span className="text-[10px] px-2 py-0.5 rounded-full bg-gold/10 text-gold font-medium">
                   {perfSummary.ads?.length || 0} linked ad{(perfSummary.ads?.length || 0) !== 1 ? 's' : ''}
                 </span>
               </div>
@@ -1278,21 +1278,21 @@ export default function AdTracker({ projectId }) {
 
             {/* Summary metric cards */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
-              <div className="bg-gradient-to-br from-green-50 to-emerald-50 rounded-xl p-4 border border-green-100">
-                <p className="text-[10px] uppercase tracking-wider font-medium text-green-600 mb-1">Total Spend</p>
-                <p className="text-[20px] font-bold text-green-800">${perfSummary.totalSpend?.toFixed(2) || '0.00'}</p>
+              <div className="bg-teal/5 rounded-xl p-4 border border-teal/15">
+                <p className="text-[10px] uppercase tracking-wider font-medium text-teal mb-1">Total Spend</p>
+                <p className="text-[20px] font-bold text-textdark">${perfSummary.totalSpend?.toFixed(2) || '0.00'}</p>
               </div>
-              <div className="bg-gradient-to-br from-blue-50 to-indigo-50 rounded-xl p-4 border border-blue-100">
-                <p className="text-[10px] uppercase tracking-wider font-medium text-blue-600 mb-1">Impressions</p>
-                <p className="text-[20px] font-bold text-blue-800">{(perfSummary.totalImpressions || 0).toLocaleString()}</p>
+              <div className="bg-navy/5 rounded-xl p-4 border border-navy/10">
+                <p className="text-[10px] uppercase tracking-wider font-medium text-navy mb-1">Impressions</p>
+                <p className="text-[20px] font-bold text-textdark">{(perfSummary.totalImpressions || 0).toLocaleString()}</p>
               </div>
-              <div className="bg-gradient-to-br from-purple-50 to-violet-50 rounded-xl p-4 border border-purple-100">
-                <p className="text-[10px] uppercase tracking-wider font-medium text-purple-600 mb-1">Avg CTR</p>
-                <p className="text-[20px] font-bold text-purple-800">{(perfSummary.avgCTR || 0).toFixed(2)}%</p>
+              <div className="bg-gold/5 rounded-xl p-4 border border-gold/15">
+                <p className="text-[10px] uppercase tracking-wider font-medium text-gold mb-1">Avg CTR</p>
+                <p className="text-[20px] font-bold text-textdark">{(perfSummary.avgCTR || 0).toFixed(2)}%</p>
               </div>
-              <div className="bg-gradient-to-br from-amber-50 to-orange-50 rounded-xl p-4 border border-amber-100">
-                <p className="text-[10px] uppercase tracking-wider font-medium text-amber-600 mb-1">Avg CPC</p>
-                <p className="text-[20px] font-bold text-amber-800">${(perfSummary.avgCPC || 0).toFixed(2)}</p>
+              <div className="bg-cream rounded-xl p-4 border border-gold/10">
+                <p className="text-[10px] uppercase tracking-wider font-medium text-gold mb-1">Avg CPC</p>
+                <p className="text-[20px] font-bold text-textdark">${(perfSummary.avgCPC || 0).toFixed(2)}</p>
               </div>
             </div>
 
@@ -1302,14 +1302,14 @@ export default function AdTracker({ projectId }) {
                 <table className="w-full text-left">
                   <thead>
                     <tr className="border-b border-gray-100">
-                      <th className="px-3 py-2 text-[10px] uppercase tracking-wider font-medium text-gray-400">Ad</th>
-                      <th className="px-3 py-2 text-[10px] uppercase tracking-wider font-medium text-gray-400 text-right">Spend</th>
-                      <th className="px-3 py-2 text-[10px] uppercase tracking-wider font-medium text-gray-400 text-right">Impressions</th>
-                      <th className="px-3 py-2 text-[10px] uppercase tracking-wider font-medium text-gray-400 text-right">Clicks</th>
-                      <th className="px-3 py-2 text-[10px] uppercase tracking-wider font-medium text-gray-400 text-right">CTR</th>
-                      <th className="px-3 py-2 text-[10px] uppercase tracking-wider font-medium text-gray-400 text-right">CPC</th>
-                      <th className="px-3 py-2 text-[10px] uppercase tracking-wider font-medium text-gray-400 text-right">CPM</th>
-                      <th className="px-3 py-2 text-[10px] uppercase tracking-wider font-medium text-gray-400 text-right">ROAS</th>
+                      <th className="px-3 py-2 text-[10px] uppercase tracking-wider font-medium text-textlight">Ad</th>
+                      <th className="px-3 py-2 text-[10px] uppercase tracking-wider font-medium text-textlight text-right">Spend</th>
+                      <th className="px-3 py-2 text-[10px] uppercase tracking-wider font-medium text-textlight text-right">Impressions</th>
+                      <th className="px-3 py-2 text-[10px] uppercase tracking-wider font-medium text-textlight text-right">Clicks</th>
+                      <th className="px-3 py-2 text-[10px] uppercase tracking-wider font-medium text-textlight text-right">CTR</th>
+                      <th className="px-3 py-2 text-[10px] uppercase tracking-wider font-medium text-textlight text-right">CPC</th>
+                      <th className="px-3 py-2 text-[10px] uppercase tracking-wider font-medium text-textlight text-right">CPM</th>
+                      <th className="px-3 py-2 text-[10px] uppercase tracking-wider font-medium text-textlight text-right">ROAS</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1319,20 +1319,20 @@ export default function AdTracker({ projectId }) {
                       return (
                         <tr key={ad.metaAdId || idx} className="border-b border-gray-50 last:border-0 hover:bg-gray-50/50">
                           <td className="px-3 py-2.5">
-                            <span className="text-[12px] font-medium text-gray-800">{ad.adName || ad.metaAdId?.slice(0, 8)}</span>
+                            <span className="text-[12px] font-medium text-textdark">{ad.adName || ad.metaAdId?.slice(0, 8)}</span>
                             {sharedCount > 1 && (
-                              <span className="ml-1.5 text-[9px] px-1.5 py-0.5 rounded-full bg-blue-50 text-blue-500 font-medium">
+                              <span className="ml-1.5 text-[9px] px-1.5 py-0.5 rounded-full bg-navy/10 text-navy font-medium">
                                 Shared ({sharedCount})
                               </span>
                             )}
                           </td>
-                          <td className="px-3 py-2.5 text-[12px] text-gray-700 text-right font-medium">${ad.spend?.toFixed(2)}</td>
-                          <td className="px-3 py-2.5 text-[12px] text-gray-600 text-right">{(ad.impressions || 0).toLocaleString()}</td>
-                          <td className="px-3 py-2.5 text-[12px] text-gray-600 text-right">{(ad.clicks || 0).toLocaleString()}</td>
-                          <td className="px-3 py-2.5 text-[12px] text-gray-600 text-right">{ad.ctr?.toFixed(2)}%</td>
-                          <td className="px-3 py-2.5 text-[12px] text-gray-600 text-right">${ad.cpc?.toFixed(2)}</td>
-                          <td className="px-3 py-2.5 text-[12px] text-gray-600 text-right">${ad.cpm?.toFixed(2)}</td>
-                          <td className="px-3 py-2.5 text-[12px] text-gray-600 text-right font-medium">
+                          <td className="px-3 py-2.5 text-[12px] text-textdark text-right font-medium">${ad.spend?.toFixed(2)}</td>
+                          <td className="px-3 py-2.5 text-[12px] text-textmid text-right">{(ad.impressions || 0).toLocaleString()}</td>
+                          <td className="px-3 py-2.5 text-[12px] text-textmid text-right">{(ad.clicks || 0).toLocaleString()}</td>
+                          <td className="px-3 py-2.5 text-[12px] text-textmid text-right">{ad.ctr?.toFixed(2)}%</td>
+                          <td className="px-3 py-2.5 text-[12px] text-textmid text-right">${ad.cpc?.toFixed(2)}</td>
+                          <td className="px-3 py-2.5 text-[12px] text-textmid text-right">${ad.cpm?.toFixed(2)}</td>
+                          <td className="px-3 py-2.5 text-[12px] text-textmid text-right font-medium">
                             {ad.roas > 0 ? `${ad.roas.toFixed(2)}x` : '—'}
                           </td>
                         </tr>
@@ -1347,14 +1347,14 @@ export default function AdTracker({ projectId }) {
           /* Connected but no linked ads */
           <div className="card p-8 text-center">
             <div className="flex items-center justify-center gap-3 mb-2">
-              <svg className="w-5 h-5 text-purple-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="w-5 h-5 text-gold/40" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m9.86-4.553a4.5 4.5 0 00-6.364-6.364l-4.5 4.5a4.5 4.5 0 001.242 7.244" />
               </svg>
-              <h3 className="text-[13px] font-semibold text-gray-900">Performance Tracking</h3>
+              <h3 className="text-[13px] font-semibold text-textdark">Performance Tracking</h3>
             </div>
-            <p className="text-[12px] text-gray-400 max-w-md mx-auto">
+            <p className="text-[12px] text-textlight max-w-md mx-auto">
               Meta is connected! Click the link icon
-              <svg className="w-3.5 h-3.5 inline mx-1 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="w-3.5 h-3.5 inline mx-1 text-textlight" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m9.86-4.553a4.5 4.5 0 00-6.364-6.364l-4.5 4.5a4.5 4.5 0 001.242 7.244" />
               </svg>
               on any deployment to link it to a Meta Ad and start tracking performance.
@@ -1370,16 +1370,16 @@ export default function AdTracker({ projectId }) {
           onClick={() => setLinkingDepId(null)}
         >
           <div
-            className="bg-white rounded-2xl shadow-apple-xl w-full max-w-lg max-h-[70vh] flex flex-col"
+            className="bg-white rounded-2xl shadow-card-hover w-full max-w-lg max-h-[70vh] flex flex-col"
             onClick={(e) => e.stopPropagation()}
           >
             {/* Header with breadcrumbs */}
             <div className="px-5 py-4 border-b border-gray-100">
               <div className="flex items-center justify-between mb-2">
-                <h3 className="text-[15px] font-semibold text-gray-900">Link to Meta Ad</h3>
+                <h3 className="text-[15px] font-semibold text-textdark">Link to Meta Ad</h3>
                 <button
                   onClick={() => setLinkingDepId(null)}
-                  className="text-gray-300 hover:text-gray-500 transition-colors"
+                  className="text-textlight/60 hover:text-textmid transition-colors"
                 >
                   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -1390,18 +1390,18 @@ export default function AdTracker({ projectId }) {
               <div className="flex items-center gap-1 text-[11px]">
                 <button
                   onClick={() => setCampaignBrowser(prev => ({ ...prev, step: 'campaigns', selectedCampaign: null, selectedAdset: null, adsets: [], ads: [] }))}
-                  className={`px-2 py-0.5 rounded-md transition-colors ${campaignBrowser.step === 'campaigns' ? 'bg-blue-50 text-blue-600 font-medium' : 'text-gray-400 hover:text-gray-600'}`}
+                  className={`px-2 py-0.5 rounded-md transition-colors ${campaignBrowser.step === 'campaigns' ? 'bg-navy/10 text-navy font-medium' : 'text-textlight hover:text-textmid'}`}
                 >
                   Campaigns
                 </button>
                 {campaignBrowser.selectedCampaign && (
                   <>
-                    <svg className="w-3 h-3 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <svg className="w-3 h-3 text-textlight/60" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                     </svg>
                     <button
                       onClick={() => setCampaignBrowser(prev => ({ ...prev, step: 'adsets', selectedAdset: null, ads: [] }))}
-                      className={`px-2 py-0.5 rounded-md transition-colors truncate max-w-[120px] ${campaignBrowser.step === 'adsets' ? 'bg-blue-50 text-blue-600 font-medium' : 'text-gray-400 hover:text-gray-600'}`}
+                      className={`px-2 py-0.5 rounded-md transition-colors truncate max-w-[120px] ${campaignBrowser.step === 'adsets' ? 'bg-navy/10 text-navy font-medium' : 'text-textlight hover:text-textmid'}`}
                       title={campaignBrowser.selectedCampaign.name}
                     >
                       {campaignBrowser.selectedCampaign.name}
@@ -1410,10 +1410,10 @@ export default function AdTracker({ projectId }) {
                 )}
                 {campaignBrowser.selectedAdset && (
                   <>
-                    <svg className="w-3 h-3 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <svg className="w-3 h-3 text-textlight/60" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                     </svg>
-                    <span className="px-2 py-0.5 rounded-md bg-blue-50 text-blue-600 font-medium truncate max-w-[120px]" title={campaignBrowser.selectedAdset.name}>
+                    <span className="px-2 py-0.5 rounded-md bg-navy/10 text-navy font-medium truncate max-w-[120px]" title={campaignBrowser.selectedAdset.name}>
                       {campaignBrowser.selectedAdset.name}
                     </span>
                   </>
@@ -1431,24 +1431,24 @@ export default function AdTracker({ projectId }) {
                 </div>
               ) : campaignBrowser.step === 'campaigns' ? (
                 campaignBrowser.campaigns.length === 0 ? (
-                  <p className="text-[12px] text-gray-400 py-8 text-center">No campaigns found in this ad account.</p>
+                  <p className="text-[12px] text-textlight py-8 text-center">No campaigns found in this ad account.</p>
                 ) : (
                   <div className="space-y-1.5">
                     {campaignBrowser.campaigns.map(c => (
                       <button
                         key={c.id}
                         onClick={() => selectCampaign(c)}
-                        className="w-full text-left px-3 py-2.5 rounded-lg border border-gray-200 hover:border-blue-300 hover:bg-blue-50/50 transition-colors flex items-center justify-between group"
+                        className="w-full text-left px-3 py-2.5 rounded-lg border border-gray-200 hover:border-navy/30 hover:bg-navy/5 transition-colors flex items-center justify-between group"
                       >
                         <div>
-                          <span className="text-[12px] font-medium text-gray-800">{c.name}</span>
+                          <span className="text-[12px] font-medium text-textdark">{c.name}</span>
                           {c.status && (
                             <span className={`ml-2 text-[9px] px-1.5 py-0.5 rounded-full font-medium ${
-                              c.status === 'ACTIVE' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'
+                              c.status === 'ACTIVE' ? 'bg-teal/10 text-teal' : 'bg-gray-100 text-textmid'
                             }`}>{c.status}</span>
                           )}
                         </div>
-                        <svg className="w-4 h-4 text-gray-300 group-hover:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <svg className="w-4 h-4 text-textlight/60 group-hover:text-navy" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                         </svg>
                       </button>
@@ -1457,24 +1457,24 @@ export default function AdTracker({ projectId }) {
                 )
               ) : campaignBrowser.step === 'adsets' ? (
                 campaignBrowser.adsets.length === 0 ? (
-                  <p className="text-[12px] text-gray-400 py-8 text-center">No ad sets found in this campaign.</p>
+                  <p className="text-[12px] text-textlight py-8 text-center">No ad sets found in this campaign.</p>
                 ) : (
                   <div className="space-y-1.5">
                     {campaignBrowser.adsets.map(as => (
                       <button
                         key={as.id}
                         onClick={() => selectAdset(as)}
-                        className="w-full text-left px-3 py-2.5 rounded-lg border border-gray-200 hover:border-blue-300 hover:bg-blue-50/50 transition-colors flex items-center justify-between group"
+                        className="w-full text-left px-3 py-2.5 rounded-lg border border-gray-200 hover:border-navy/30 hover:bg-navy/5 transition-colors flex items-center justify-between group"
                       >
                         <div>
-                          <span className="text-[12px] font-medium text-gray-800">{as.name}</span>
+                          <span className="text-[12px] font-medium text-textdark">{as.name}</span>
                           {as.status && (
                             <span className={`ml-2 text-[9px] px-1.5 py-0.5 rounded-full font-medium ${
-                              as.status === 'ACTIVE' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'
+                              as.status === 'ACTIVE' ? 'bg-teal/10 text-teal' : 'bg-gray-100 text-textmid'
                             }`}>{as.status}</span>
                           )}
                         </div>
-                        <svg className="w-4 h-4 text-gray-300 group-hover:text-blue-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <svg className="w-4 h-4 text-textlight/60 group-hover:text-navy" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                         </svg>
                       </button>
@@ -1483,25 +1483,25 @@ export default function AdTracker({ projectId }) {
                 )
               ) : campaignBrowser.step === 'ads' ? (
                 campaignBrowser.ads.length === 0 ? (
-                  <p className="text-[12px] text-gray-400 py-8 text-center">No ads found in this ad set.</p>
+                  <p className="text-[12px] text-textlight py-8 text-center">No ads found in this ad set.</p>
                 ) : (
                   <div className="space-y-1.5">
                     {campaignBrowser.ads.map(ad => (
                       <button
                         key={ad.id}
                         onClick={() => selectMetaAd(ad)}
-                        className="w-full text-left px-3 py-2.5 rounded-lg border border-gray-200 hover:border-green-300 hover:bg-green-50/50 transition-colors flex items-center justify-between group"
+                        className="w-full text-left px-3 py-2.5 rounded-lg border border-gray-200 hover:border-teal/30 hover:bg-teal/5 transition-colors flex items-center justify-between group"
                       >
                         <div>
-                          <span className="text-[12px] font-medium text-gray-800">{ad.name}</span>
+                          <span className="text-[12px] font-medium text-textdark">{ad.name}</span>
                           {ad.status && (
                             <span className={`ml-2 text-[9px] px-1.5 py-0.5 rounded-full font-medium ${
-                              ad.status === 'ACTIVE' ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-500'
+                              ad.status === 'ACTIVE' ? 'bg-teal/10 text-teal' : 'bg-gray-100 text-textmid'
                             }`}>{ad.status}</span>
                           )}
-                          <span className="block text-[10px] text-gray-400 mt-0.5">ID: {ad.id}</span>
+                          <span className="block text-[10px] text-textlight mt-0.5">ID: {ad.id}</span>
                         </div>
-                        <span className="text-[10px] text-green-600 font-medium opacity-0 group-hover:opacity-100 transition-opacity">
+                        <span className="text-[10px] text-teal font-medium opacity-0 group-hover:opacity-100 transition-opacity">
                           Select
                         </span>
                       </button>
@@ -1524,7 +1524,7 @@ export default function AdTracker({ projectId }) {
           {canGoPrev && (
             <button
               onClick={(e) => { e.stopPropagation(); goPreviewPrev(); }}
-              className="absolute left-4 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-white/90 shadow-apple-md flex items-center justify-center text-gray-500 hover:text-gray-800 hover:bg-white transition-all z-20"
+              className="absolute left-4 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-white/90 shadow-card flex items-center justify-center text-textmid hover:text-textdark hover:bg-white transition-all z-20"
             >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
@@ -1535,7 +1535,7 @@ export default function AdTracker({ projectId }) {
           {canGoNext && (
             <button
               onClick={(e) => { e.stopPropagation(); goPreviewNext(); }}
-              className="absolute right-4 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-white/90 shadow-apple-md flex items-center justify-center text-gray-500 hover:text-gray-800 hover:bg-white transition-all z-20"
+              className="absolute right-4 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-white/90 shadow-card flex items-center justify-center text-textmid hover:text-textdark hover:bg-white transition-all z-20"
             >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
@@ -1547,7 +1547,7 @@ export default function AdTracker({ projectId }) {
             <div className="absolute -top-3 -right-3 flex items-center gap-2 z-10">
               <button
                 onClick={() => handleDownload(previewDep)}
-                className="w-8 h-8 rounded-full bg-white shadow-apple-md flex items-center justify-center text-gray-400 hover:text-blue-500 transition-colors"
+                className="w-8 h-8 rounded-full bg-white shadow-card flex items-center justify-center text-textlight hover:text-navy transition-colors"
                 title="Download image"
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1556,7 +1556,7 @@ export default function AdTracker({ projectId }) {
               </button>
               <button
                 onClick={() => setPreviewDepId(null)}
-                className="w-8 h-8 rounded-full bg-white shadow-apple-md flex items-center justify-center text-gray-400 hover:text-gray-600 transition-colors"
+                className="w-8 h-8 rounded-full bg-white shadow-card flex items-center justify-center text-textlight hover:text-textmid transition-colors"
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -1566,7 +1566,7 @@ export default function AdTracker({ projectId }) {
             <img
               src={previewDep.imageUrl}
               alt={displayName(previewDep)}
-              className="max-w-full max-h-[85vh] object-contain rounded-2xl shadow-apple-xl mx-auto"
+              className="max-w-full max-h-[85vh] object-contain rounded-2xl shadow-card-hover mx-auto"
             />
             <div className="flex items-center justify-center gap-3 mt-3">
               <p className="text-white/70 text-[12px]">{displayName(previewDep)}</p>

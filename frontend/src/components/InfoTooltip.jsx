@@ -10,7 +10,7 @@ export default function InfoTooltip({ text, position = 'top' }) {
   return (
     <span className={`info-tooltip info-tooltip-${position}`}>
       <svg
-        className="w-3.5 h-3.5 text-gray-400 hover:text-gray-500 transition-colors cursor-help"
+        className="w-3.5 h-3.5 text-textlight hover:text-textmid transition-colors cursor-help"
         fill="none"
         stroke="currentColor"
         viewBox="0 0 24 24"

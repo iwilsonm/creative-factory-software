@@ -122,7 +122,7 @@ export default function TemplateImages({ projectId, inspirationFolderId }) {
   const isLoading = loadingDrive || loadingTemplates;
 
   if (isLoading) {
-    return <div className="text-gray-400 text-center py-8 animate-pulse text-sm">Loading templates...</div>;
+    return <div className="text-textlight text-center py-8 animate-pulse text-sm">Loading templates...</div>;
   }
 
   return (
@@ -136,7 +136,7 @@ export default function TemplateImages({ projectId, inspirationFolderId }) {
 
       {/* Sync result */}
       {syncResult && (
-        <div className="p-3 bg-green-50/80 border border-green-200/60 text-green-700 text-[13px] rounded-xl fade-in">
+        <div className="p-3 bg-teal/5 border border-teal/15 text-teal text-[13px] rounded-xl fade-in">
           Sync complete: {syncResult.total} images total
           {syncResult.synced > 0 && `, ${syncResult.synced} new`}
           {syncResult.removed > 0 && `, ${syncResult.removed} removed`}
@@ -147,11 +147,11 @@ export default function TemplateImages({ projectId, inspirationFolderId }) {
       <div className="card p-6">
         <div className="flex items-center justify-between mb-4">
           <div>
-            <h3 className="text-[15px] font-semibold text-gray-900 tracking-tight mb-0.5 flex items-center gap-1">
+            <h3 className="text-[15px] font-semibold text-textdark tracking-tight mb-0.5 flex items-center gap-1">
               Drive Templates
               <InfoTooltip text="Reference images synced from Google Drive. These are used as the default template pool for AI ad generation." position="right" />
             </h3>
-            <p className="text-[12px] text-gray-400">
+            <p className="text-[12px] text-textlight">
               {inspirationFolderId
                 ? `${driveImages.length} template${driveImages.length !== 1 ? 's' : ''} synced from Google Drive`
                 : 'No Templates Folder configured'}
@@ -172,33 +172,33 @@ export default function TemplateImages({ projectId, inspirationFolderId }) {
         </div>
 
         {driveError && (
-          <div className="p-3 mb-4 bg-amber-50/80 border border-amber-200/60 text-amber-700 text-[12px] rounded-xl">
+          <div className="p-3 mb-4 bg-gold/5 border border-gold/15 text-gold text-[12px] rounded-xl">
             <span className="font-medium">Drive sync requires a Google service account.</span>{' '}
             Upload one in Settings → Google Drive, or use the Uploaded Templates section below instead.
           </div>
         )}
 
         {!inspirationFolderId ? (
-          <div className="p-6 bg-gray-50/50 border border-gray-200/60 rounded-xl text-center">
+          <div className="p-6 bg-offwhite border border-black/5 rounded-xl text-center">
             <div className="w-10 h-10 mx-auto mb-2 rounded-xl bg-gray-100 flex items-center justify-center">
-              <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="w-5 h-5 text-textlight" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.25 12.75V12A2.25 2.25 0 014.5 9.75h15A2.25 2.25 0 0121.75 12v.75m-8.69-6.44l-2.12-2.12a1.5 1.5 0 00-1.061-.44H4.5A2.25 2.25 0 002.25 6v12a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9a2.25 2.25 0 00-2.25-2.25h-5.379a1.5 1.5 0 01-1.06-.44z" />
               </svg>
             </div>
-            <p className="text-[13px] text-gray-500 font-medium mb-1">No Templates Folder</p>
-            <p className="text-[11px] text-gray-400 max-w-sm mx-auto">
+            <p className="text-[13px] text-textmid font-medium mb-1">No Templates Folder</p>
+            <p className="text-[11px] text-textlight max-w-sm mx-auto">
               Set a Templates Folder ID in the Overview tab to sync reference images from Google Drive. These are used as the default template pool for ad generation.
             </p>
           </div>
         ) : driveImages.length === 0 ? (
-          <div className="p-6 bg-gray-50/50 border border-gray-200/60 rounded-xl text-center">
+          <div className="p-6 bg-offwhite border border-black/5 rounded-xl text-center">
             <div className="w-10 h-10 mx-auto mb-2 rounded-xl bg-gray-100 flex items-center justify-center">
-              <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="w-5 h-5 text-textlight" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909M3.75 21h16.5a2.25 2.25 0 002.25-2.25V6.75a2.25 2.25 0 00-2.25-2.25H3.75a2.25 2.25 0 00-2.25 2.25v12a2.25 2.25 0 002.25 2.25z" />
               </svg>
             </div>
-            <p className="text-[13px] text-gray-500 font-medium mb-1">No Images Found</p>
-            <p className="text-[11px] text-gray-400 max-w-sm mx-auto">
+            <p className="text-[13px] text-textmid font-medium mb-1">No Images Found</p>
+            <p className="text-[11px] text-textlight max-w-sm mx-auto">
               Add images to your Google Drive templates folder, then click "Sync Now" to pull them in.
             </p>
           </div>
@@ -219,7 +219,7 @@ export default function TemplateImages({ projectId, inspirationFolderId }) {
                   />
                 </div>
                 <div className="p-2">
-                  <p className="text-[11px] text-gray-600 truncate" title={img.name}>
+                  <p className="text-[11px] text-textmid truncate" title={img.name}>
                     {img.name}
                   </p>
                 </div>
@@ -232,11 +232,11 @@ export default function TemplateImages({ projectId, inspirationFolderId }) {
       {/* ===== SECTION 2: Uploaded Templates ===== */}
       <div className="card p-6">
         <div className="mb-4">
-          <h3 className="text-[15px] font-semibold text-gray-900 tracking-tight mb-0.5 flex items-center gap-1">
+          <h3 className="text-[15px] font-semibold text-textdark tracking-tight mb-0.5 flex items-center gap-1">
             Uploaded Templates
             <InfoTooltip text="Manually uploaded reference ad images. Use these as specific style guides for AI generation." position="right" />
           </h3>
-          <p className="text-[12px] text-gray-400">
+          <p className="text-[12px] text-textlight">
             {templates.length} uploaded template{templates.length !== 1 ? 's' : ''} — upload specific reference ads to recreate
           </p>
         </div>
@@ -249,29 +249,29 @@ export default function TemplateImages({ projectId, inspirationFolderId }) {
           onDragLeave={handleDragLeave}
           onDrop={handleDrop}
           className={`border-2 border-dashed rounded-xl p-5 text-center cursor-pointer transition-all mb-4 ${
-            dragOver ? 'border-blue-400 bg-blue-50/30' :
-            uploading ? 'border-gray-200 bg-gray-50/50 opacity-60 cursor-not-allowed' :
-            'border-gray-200/80 hover:border-blue-300 hover:bg-gray-50/30'
+            dragOver ? 'border-gold bg-gold/5' :
+            uploading ? 'border-black/10 bg-offwhite opacity-60 cursor-not-allowed' :
+            'border-black/10 hover:border-gold hover:bg-offwhite'
           }`}
         >
           {uploading ? (
             <div>
-              <div className="w-8 h-8 mx-auto mb-2 rounded-lg bg-blue-100 flex items-center justify-center">
-                <div className="w-4 h-4 rounded-full border-2 border-blue-200 border-t-blue-500 animate-spin" />
+              <div className="w-8 h-8 mx-auto mb-2 rounded-lg bg-gold/10 flex items-center justify-center">
+                <div className="w-4 h-4 rounded-full border-2 border-gold/30 border-t-gold animate-spin" />
               </div>
-              <p className="text-[13px] text-blue-600 font-medium">Uploading...</p>
+              <p className="text-[13px] text-gold font-medium">Uploading...</p>
             </div>
           ) : (
             <div>
               <div className="w-8 h-8 mx-auto mb-2 rounded-lg bg-gray-100 flex items-center justify-center">
-                <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg className="w-4 h-4 text-textlight" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
                 </svg>
               </div>
-              <p className={`text-[13px] font-medium ${dragOver ? 'text-blue-600' : 'text-gray-500'}`}>
+              <p className={`text-[13px] font-medium ${dragOver ? 'text-gold' : 'text-textmid'}`}>
                 {dragOver ? 'Drop image here' : 'Drop a template image here, or click to browse'}
               </p>
-              <p className="text-[10px] text-gray-400 mt-0.5">JPG, PNG, WebP, or GIF — up to 20MB</p>
+              <p className="text-[10px] text-textlight mt-0.5">JPG, PNG, WebP, or GIF — up to 20MB</p>
             </div>
           )}
         </div>
@@ -287,7 +287,7 @@ export default function TemplateImages({ projectId, inspirationFolderId }) {
         {/* Uploaded templates grid */}
         {templates.length === 0 ? (
           <div className="text-center py-2">
-            <p className="text-[11px] text-gray-400">
+            <p className="text-[11px] text-textlight">
               Upload specific reference ads you want to recreate for your brand.
             </p>
           </div>
@@ -310,7 +310,7 @@ export default function TemplateImages({ projectId, inspirationFolderId }) {
                   />
                 </div>
                 <div className="p-2.5">
-                  <p className="text-[11px] text-gray-700 font-medium truncate" title={tmpl.filename}>
+                  <p className="text-[11px] text-textdark font-medium truncate" title={tmpl.filename}>
                     {tmpl.filename}
                   </p>
                   {editingDesc === tmpl.id ? (
@@ -328,14 +328,14 @@ export default function TemplateImages({ projectId, inspirationFolderId }) {
                       />
                       <button
                         onClick={() => handleSaveDesc(tmpl.id)}
-                        className="text-[11px] text-blue-500 hover:text-blue-600 transition-colors"
+                        className="text-[11px] text-gold hover:text-gold/80 transition-colors"
                       >
                         Save
                       </button>
                     </div>
                   ) : (
                     <p
-                      className="text-[11px] text-gray-400 mt-0.5 cursor-pointer hover:text-gray-600 transition-colors"
+                      className="text-[11px] text-textlight mt-0.5 cursor-pointer hover:text-textmid transition-colors"
                       onClick={(e) => {
                         e.stopPropagation();
                         setEditingDesc(tmpl.id);
@@ -352,7 +352,7 @@ export default function TemplateImages({ projectId, inspirationFolderId }) {
                         setEditingDesc(tmpl.id);
                         setDescValue(tmpl.description || '');
                       }}
-                      className="text-[11px] text-blue-500 hover:text-blue-600 transition-colors"
+                      className="text-[11px] text-gold hover:text-gold/80 transition-colors"
                     >
                       Edit
                     </button>
@@ -377,16 +377,16 @@ export default function TemplateImages({ projectId, inspirationFolderId }) {
           onClick={() => setViewImage(null)}
         >
           <div
-            className="relative max-w-4xl max-h-[90vh] bg-white rounded-2xl overflow-hidden shadow-apple-xl fade-in"
+            className="relative max-w-4xl max-h-[90vh] bg-white rounded-2xl overflow-hidden shadow-card-hover fade-in"
             onClick={e => e.stopPropagation()}
           >
             <div className="flex items-center justify-between p-4 border-b border-gray-200/60">
               <div>
-                <p className="text-[14px] font-semibold text-gray-900">{viewImage.name || viewImage.filename}</p>
+                <p className="text-[14px] font-semibold text-textdark">{viewImage.name || viewImage.filename}</p>
                 {viewImage.description && (
-                  <p className="text-[12px] text-gray-500">{viewImage.description}</p>
+                  <p className="text-[12px] text-textmid">{viewImage.description}</p>
                 )}
-                <span className={`badge mt-1 ${viewImage.source === 'drive' ? 'bg-blue-100/80 text-blue-600' : 'bg-purple-100/80 text-purple-600'}`}>
+                <span className={`badge mt-1 ${viewImage.source === 'drive' ? 'bg-navy/10 text-navy' : 'bg-gold/10 text-gold'}`}>
                   {viewImage.source === 'drive' ? 'Drive' : 'Uploaded'}
                 </span>
               </div>
@@ -401,13 +401,13 @@ export default function TemplateImages({ projectId, inspirationFolderId }) {
                 )}
                 <button
                   onClick={() => setViewImage(null)}
-                  className="w-7 h-7 rounded-lg bg-gray-100 flex items-center justify-center text-gray-400 hover:text-gray-600 hover:bg-gray-200 transition-all"
+                  className="w-7 h-7 rounded-lg bg-black/5 flex items-center justify-center text-textlight hover:text-textmid hover:bg-black/10 transition-all"
                 >
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
                 </button>
               </div>
             </div>
-            <div className="p-2 flex items-center justify-center bg-gray-50" style={{ maxHeight: 'calc(90vh - 80px)' }}>
+            <div className="p-2 flex items-center justify-center bg-offwhite" style={{ maxHeight: 'calc(90vh - 80px)' }}>
               <img
                 src={viewImage.thumbnailUrl}
                 alt={viewImage.name || viewImage.filename}

@@ -29,12 +29,12 @@ export function ToastProvider({ children }) {
           <div
             key={t.id}
             className={`pointer-events-auto max-w-sm px-4 py-3 rounded-xl text-[13px] font-medium shadow-lg
-              backdrop-blur-sm border animate-slide-up
+              border animate-slide-up
               ${t.type === 'error'
                 ? 'bg-red-50/90 border-red-200/60 text-red-700'
                 : t.type === 'info'
-                ? 'bg-blue-50/90 border-blue-200/60 text-blue-700'
-                : 'bg-green-50/90 border-green-200/60 text-green-700'}`}
+                ? 'bg-navy/5 border-navy/15 text-navy'
+                : 'bg-teal/5 border-teal/15 text-teal'}`}
           >
             <div className="flex items-center gap-2">
               {t.type === 'error' ? (

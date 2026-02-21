@@ -14,10 +14,10 @@ function formatDateLabel(dateStr) {
 
 // Stacked bar segments (bottom to top): OpenAI → Anthropic → Gemini → Perplexity
 const SERVICES = [
-  { key: 'openai',     label: 'OpenAI',     color: '#93bbfd', hoverColor: '#60a5fa', legendColor: 'bg-blue-400',    tooltipColor: 'text-blue-300' },
-  { key: 'anthropic',  label: 'Anthropic',   color: '#c4b5fd', hoverColor: '#a78bfa', legendColor: 'bg-violet-400',  tooltipColor: 'text-violet-300' },
-  { key: 'gemini',     label: 'Gemini',      color: '#6ee7b7', hoverColor: '#34d399', legendColor: 'bg-emerald-400', tooltipColor: 'text-emerald-300' },
-  { key: 'perplexity', label: 'Perplexity',  color: '#67e8f9', hoverColor: '#22d3ee', legendColor: 'bg-cyan-400',    tooltipColor: 'text-cyan-300' },
+  { key: 'openai',     label: 'OpenAI',     color: '#5B8DEF', hoverColor: '#4A7ADE', legendColor: 'bg-[#5B8DEF]',  tooltipColor: 'text-[#8BAFF5]' },
+  { key: 'anthropic',  label: 'Anthropic',   color: '#7C6DCD', hoverColor: '#6B5CBC', legendColor: 'bg-[#7C6DCD]',  tooltipColor: 'text-[#9D91DA]' },
+  { key: 'gemini',     label: 'Gemini',      color: '#2A9D8F', hoverColor: '#238B7F', legendColor: 'bg-teal',        tooltipColor: 'text-teal' },
+  { key: 'perplexity', label: 'Perplexity',  color: '#C4975A', hoverColor: '#B3874A', legendColor: 'bg-gold',        tooltipColor: 'text-gold' },
 ];
 
 export default function CostBarChart({ data, loading }) {
@@ -56,8 +56,8 @@ export default function CostBarChart({ data, loading }) {
   if (!data || data.length === 0) {
     return (
       <div className="card p-5">
-        <h4 className="text-[13px] font-semibold text-gray-700 mb-3">30 Days of Spend History</h4>
-        <div className="h-32 flex items-center justify-center text-[12px] text-gray-400">
+        <h4 className="text-[13px] font-semibold text-textdark mb-3">30 Days of Spend History</h4>
+        <div className="h-32 flex items-center justify-center text-[12px] text-textlight">
           No cost data yet. Costs will appear here after generating ads.
         </div>
       </div>
@@ -72,8 +72,8 @@ export default function CostBarChart({ data, loading }) {
   return (
     <div className="card p-5">
       <div className="flex items-center justify-between mb-4">
-        <h4 className="text-[13px] font-semibold text-gray-700">30 Days of Spend History</h4>
-        <div className="flex items-center gap-3 text-[10px] text-gray-400">
+        <h4 className="text-[13px] font-semibold text-textdark">30 Days of Spend History</h4>
+        <div className="flex items-center gap-3 text-[10px] text-textlight">
           {activeServices.map(s => (
             <span key={s.key} className="flex items-center gap-1">
               <span className={`w-2 h-2 rounded-full ${s.legendColor}`} />
@@ -85,7 +85,7 @@ export default function CostBarChart({ data, loading }) {
 
       <div className="relative" style={{ height: chartHeight + 30 }}>
         {/* Y-axis labels */}
-        <div className="absolute left-0 top-0 bottom-[30px] w-10 flex flex-col justify-between text-[9px] text-gray-400 font-mono">
+        <div className="absolute left-0 top-0 bottom-[30px] w-10 flex flex-col justify-between text-[9px] text-textlight font-mono">
           {yLabels.map((v, i) => (
             <span key={i}>{formatCost(v)}</span>
           ))}
@@ -97,7 +97,7 @@ export default function CostBarChart({ data, loading }) {
           {yLabels.map((_, i) => (
             <div
               key={i}
-              className="absolute w-full border-t border-gray-100/80"
+              className="absolute w-full border-t border-black/5"
               style={{ top: `${(i / (yLabels.length - 1)) * 100}%` }}
             />
           ))}
@@ -155,7 +155,7 @@ export default function CostBarChart({ data, loading }) {
         </div>
 
         {/* X-axis date labels (show every ~5th) */}
-        <div className="ml-12 flex justify-between mt-1 text-[9px] text-gray-400">
+        <div className="ml-12 flex justify-between mt-1 text-[9px] text-textlight">
           {bars.filter((_, i) => i === 0 || i === bars.length - 1 || i % Math.ceil(bars.length / 5) === 0)
             .map(bar => (
               <span key={bar.date}>{formatDateLabel(bar.date)}</span>
@@ -165,7 +165,7 @@ export default function CostBarChart({ data, loading }) {
         {/* Tooltip */}
         {hoveredIndex !== null && bars[hoveredIndex] && (
           <div
-            className="absolute z-20 bg-gray-900 text-white text-[11px] rounded-lg px-3 py-2 shadow-lg pointer-events-none"
+            className="absolute z-20 bg-navy text-white text-[11px] rounded-lg px-3 py-2 shadow-lg pointer-events-none"
             style={{
               left: `${12 + (hoveredIndex / bars.length) * 85}%`,
               top: 0,

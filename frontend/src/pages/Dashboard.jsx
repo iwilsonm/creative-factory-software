@@ -7,8 +7,8 @@ import InfoTooltip from '../components/InfoTooltip';
 
 // ─── Roadmap / To-Do Widget ───────────────────────────────────────────────────
 const AUTHOR_META = {
-  Ian:  { color: 'bg-blue-50 text-blue-600', dotColor: 'bg-blue-400' },
-  Luke: { color: 'bg-emerald-50 text-emerald-600', dotColor: 'bg-emerald-400' },
+  Ian:  { color: 'bg-navy/10 text-navy', dotColor: 'bg-navy' },
+  Luke: { color: 'bg-teal/10 text-teal', dotColor: 'bg-teal' },
 };
 const AUTHORS = Object.keys(AUTHOR_META);
 
@@ -105,12 +105,12 @@ function TodoWidget() {
 
     return (
       <li key={t.id} className="px-1 -mx-1">
-        <div className={`flex items-center gap-2 group ${isDone ? 'py-0.5' : 'py-1'} rounded-lg hover:bg-gray-50/50 transition-colors`}>
+        <div className={`flex items-center gap-2 group ${isDone ? 'py-0.5' : 'py-1'} rounded-lg hover:bg-black/3 transition-colors`}>
           {/* Checkbox */}
           {isDone ? (
             <button
               onClick={() => toggle(t.id)}
-              className="w-[18px] h-[18px] rounded-md bg-indigo-500 flex-shrink-0 flex items-center justify-center"
+              className="w-[18px] h-[18px] rounded-md bg-navy flex-shrink-0 flex items-center justify-center"
             >
               <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
@@ -119,7 +119,7 @@ function TodoWidget() {
           ) : (
             <button
               onClick={() => toggle(t.id)}
-              className="w-[18px] h-[18px] rounded-md border-2 border-gray-300 flex-shrink-0 hover:border-indigo-400 transition-colors"
+              className="w-[18px] h-[18px] rounded-md border-2 border-gray-300 flex-shrink-0 hover:border-gold transition-colors"
             />
           )}
 
@@ -131,7 +131,7 @@ function TodoWidget() {
                 value={editText}
                 onChange={e => setEditText(e.target.value)}
                 onKeyDown={handleEditKeyDown}
-                className="text-[13px] text-gray-700 w-full bg-white border border-indigo-300 rounded-md px-1.5 py-0.5 outline-none ring-2 ring-indigo-100"
+                className="text-[13px] text-textdark w-full bg-white border border-gold rounded-md px-1.5 py-0.5 outline-none ring-2 ring-gold/15"
               />
               <div className="flex items-center gap-2">
                 <div className="flex items-center gap-0.5 bg-gray-100 rounded-md p-0.5">
@@ -143,7 +143,7 @@ function TodoWidget() {
                       className={`text-[10px] px-2 py-0.5 rounded font-medium transition-colors ${
                         editAuthor === a
                           ? `${AUTHOR_META[a].color}`
-                          : 'text-gray-400 hover:text-gray-600'
+                          : 'text-textlight hover:text-textmid'
                       }`}
                     >
                       {a}
@@ -156,17 +156,17 @@ function TodoWidget() {
                 onChange={e => setEditNotes(e.target.value)}
                 placeholder="Notes (optional)..."
                 rows={2}
-                className="text-[11px] text-gray-500 w-full bg-white border border-gray-200 rounded-md px-1.5 py-1 outline-none focus:border-indigo-300 focus:ring-2 focus:ring-indigo-100 resize-none"
+                className="text-[11px] text-textmid w-full bg-white border border-black/10 rounded-md px-1.5 py-1 outline-none focus:border-gold focus:ring-2 focus:ring-gold/15 resize-none"
               />
               <div className="flex items-center gap-1.5">
                 <button onClick={saveEdit} className="btn-primary text-[10px] px-2.5 py-0.5">Save</button>
-                <button onClick={cancelEdit} className="text-[10px] text-gray-400 hover:text-gray-600 px-1.5">Cancel</button>
+                <button onClick={cancelEdit} className="text-[10px] text-textlight hover:text-textmid px-1.5">Cancel</button>
               </div>
             </div>
           ) : (
             <div className="flex items-center gap-1.5 flex-1 min-w-0">
               <span
-                className={`text-[13px] ${isDone ? 'text-gray-400 line-through' : 'text-gray-700'} cursor-text rounded px-0.5 truncate`}
+                className={`text-[13px] ${isDone ? 'text-textlight line-through' : 'text-textdark'} cursor-text rounded px-0.5 truncate`}
                 onDoubleClick={() => startEdit(t)}
               >
                 {t.text}
@@ -179,7 +179,7 @@ function TodoWidget() {
               {t.notes && (
                 <button
                   onClick={() => setExpandedNoteId(isExpanded ? null : t.id)}
-                  className="flex-shrink-0 text-amber-400 hover:text-amber-500 transition-colors p-0.5"
+                  className="flex-shrink-0 text-gold/60 hover:text-gold transition-colors p-0.5"
                   title="View notes"
                 >
                   <svg className="w-3 h-3" fill="currentColor" stroke="currentColor" viewBox="0 0 24 24">
@@ -195,21 +195,21 @@ function TodoWidget() {
             <div className="flex items-center gap-1 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
               <button
                 onClick={() => startEdit(t)}
-                className="text-[10px] font-medium text-indigo-500 bg-indigo-50 hover:bg-indigo-100 transition-colors px-2 py-0.5 rounded-md"
+                className="text-[10px] font-medium text-navy bg-navy/10 hover:bg-navy/15 transition-colors px-2 py-0.5 rounded-md"
               >
                 Edit
               </button>
               {!t.notes && (
                 <button
                   onClick={() => startEdit(t)}
-                  className="text-[10px] font-medium text-amber-500 bg-amber-50 hover:bg-amber-100 transition-colors px-2 py-0.5 rounded-md"
+                  className="text-[10px] font-medium text-gold bg-gold/10 hover:bg-gold/15 transition-colors px-2 py-0.5 rounded-md"
                 >
                   Add Notes
                 </button>
               )}
               <button
                 onClick={() => remove(t.id)}
-                className="text-gray-300 hover:text-red-500 hover:bg-red-50 transition-all p-0.5 rounded-md"
+                className="text-textlight/60 hover:text-red-500 hover:bg-red-50 transition-all p-0.5 rounded-md"
                 title="Delete"
               >
                 <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -222,8 +222,8 @@ function TodoWidget() {
 
         {/* Expanded notes */}
         {isExpanded && !isEditing && (
-          <div className="ml-7 mt-0.5 mb-1.5 pl-2 border-l-2 border-amber-200 fade-in">
-            <p className="text-[11px] text-gray-400 whitespace-pre-wrap">{t.notes}</p>
+          <div className="ml-7 mt-0.5 mb-1.5 pl-2 border-l-2 border-gold/20 fade-in">
+            <p className="text-[11px] text-textlight whitespace-pre-wrap">{t.notes}</p>
           </div>
         )}
       </li>
@@ -243,16 +243,16 @@ function TodoWidget() {
     <div className="card p-5 mb-8 fade-in">
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2">
-          <div className="w-7 h-7 rounded-lg bg-indigo-100 flex items-center justify-center flex-shrink-0">
-            <svg className="w-3.5 h-3.5 text-indigo-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <div className="w-7 h-7 rounded-lg bg-navy/10 flex items-center justify-center flex-shrink-0">
+            <svg className="w-3.5 h-3.5 text-navy" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
             </svg>
           </div>
-          <h2 className="text-[15px] font-semibold text-gray-900 tracking-tight">Roadmap</h2>
-          {saving && <span className="text-[10px] text-gray-300">saving...</span>}
+          <h2 className="text-[15px] font-semibold text-textdark tracking-tight">Roadmap</h2>
+          {saving && <span className="text-[10px] text-textlight">saving...</span>}
         </div>
         {todos.length > 0 && (
-          <span className="text-[11px] text-gray-400">
+          <span className="text-[11px] text-textlight">
             {completed.length}/{todos.length} done
           </span>
         )}
@@ -270,7 +270,7 @@ function TodoWidget() {
           />
           {/* Author toggle */}
           <div className="flex items-center gap-1.5 flex-shrink-0">
-            <span className="text-[10px] text-gray-400">by</span>
+            <span className="text-[10px] text-textlight">by</span>
             <div className="flex items-center gap-0.5 bg-gray-100 rounded-md p-0.5">
               {AUTHORS.map(a => (
                 <button
@@ -280,7 +280,7 @@ function TodoWidget() {
                   className={`text-[10px] px-2 py-0.5 rounded font-medium transition-colors ${
                     newAuthor === a
                       ? `${AUTHOR_META[a].color}`
-                      : 'text-gray-400 hover:text-gray-600'
+                      : 'text-textlight hover:text-textmid'
                   }`}
                 >
                   {a}
@@ -309,7 +309,7 @@ function TodoWidget() {
           <button
             type="button"
             onClick={() => setShowNewNotes(true)}
-            className="text-[10px] text-gray-300 hover:text-gray-500 mt-1 transition-colors"
+            className="text-[10px] text-textlight/60 hover:text-textmid mt-1 transition-colors"
           >
             + Add notes
           </button>
@@ -325,9 +325,9 @@ function TodoWidget() {
 
       {/* Completed items */}
       {completed.length > 0 && (
-        <div className={pending.length > 0 ? 'mt-3 pt-3 border-t border-gray-100' : ''}>
+        <div className={pending.length > 0 ? 'mt-3 pt-3 border-t border-black/5' : ''}>
           {pending.length > 0 && (
-            <p className="text-[10px] font-medium text-gray-300 uppercase tracking-wider mb-1">Completed</p>
+            <p className="text-[10px] font-medium text-textlight/60 uppercase tracking-wider mb-1">Completed</p>
           )}
           <ul className="space-y-0.5">
             {completed.map(t => renderItem(t, true))}
@@ -336,7 +336,7 @@ function TodoWidget() {
       )}
 
       {todos.length === 0 && (
-        <p className="text-[12px] text-gray-300 text-center py-3">No tasks yet — add one above.</p>
+        <p className="text-[12px] text-textlight/60 text-center py-3">No tasks yet — add one above.</p>
       )}
     </div>
   );
@@ -405,29 +405,29 @@ export default function Dashboard() {
     <Layout>
       {/* Page Header */}
       <div className="mb-8">
-        <h1 className="text-2xl font-semibold text-gray-900 tracking-tight">Dashboard</h1>
-        <p className="text-[13px] text-gray-500 mt-0.5">Manage your ad creative projects</p>
+        <h1 className="text-2xl font-semibold text-textdark tracking-tight">Dashboard</h1>
+        <p className="text-[13px] text-textmid mt-0.5">Manage your ad creative projects</p>
       </div>
 
       {/* 1. API Cost Summary */}
       <div className="mb-8 fade-in">
         <div className="flex items-center gap-2 mb-1">
-          <h2 className="text-[15px] font-semibold text-gray-900 tracking-tight">API Costs</h2>
+          <h2 className="text-[15px] font-semibold text-textdark tracking-tight">API Costs</h2>
           <InfoTooltip
             text="Tracks your spending on OpenAI (document generation, creative direction) and Gemini (image generation) API calls across all projects."
             position="right"
           />
         </div>
-        <p className="text-[12px] text-gray-400 mb-1">
+        <p className="text-[12px] text-textlight mb-1">
           Real-time cost tracking. Today resets at midnight UTC.
         </p>
         {imageRates && imageRates.manualRate && (
-          <p className="text-[11px] text-gray-400 mb-4">
-            Image rates: <span className="text-gray-500 font-medium">${imageRates.manualRate.toFixed(4)}/image</span> (manual)
+          <p className="text-[11px] text-textlight mb-4">
+            Image rates: <span className="text-textmid font-medium">${imageRates.manualRate.toFixed(4)}/image</span> (manual)
             {' · '}
-            <span className="text-gray-500 font-medium">${imageRates.batchRate.toFixed(4)}/image</span> (batch 50% off)
+            <span className="text-textmid font-medium">${imageRates.batchRate.toFixed(4)}/image</span> (batch 50% off)
             {imageRates.updatedAt && (
-              <span className="text-gray-300 ml-1">
+              <span className="text-textlight/60 ml-1">
                 · Updated {new Date(imageRates.updatedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
               </span>
             )}
@@ -443,16 +443,16 @@ export default function Dashboard() {
       <div className="mb-8 fade-in">
         <div className="card p-4">
           <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-xl bg-purple-100 flex items-center justify-center flex-shrink-0">
-              <svg className="w-4 h-4 text-purple-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <div className="w-8 h-8 rounded-xl bg-gold/10 flex items-center justify-center flex-shrink-0">
+              <svg className="w-4 h-4 text-gold" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
               </svg>
             </div>
             <div className="flex-1">
-              <p className="text-[11px] font-medium text-gray-400 uppercase tracking-wider">
+              <p className="text-[11px] font-medium text-textlight uppercase tracking-wider">
                 Est. Daily Recurring
               </p>
-              <p className="text-lg font-semibold text-gray-900 tracking-tight">
+              <p className="text-lg font-semibold text-textdark tracking-tight">
                 {hasScheduledBatches
                   ? `~$${recurringCosts.estimatedDailyCost.toFixed(2)}/day`
                   : '$0.00/day'}
@@ -468,13 +468,13 @@ export default function Dashboard() {
 
           {hasScheduledBatches ? (
             <>
-              <p className="text-[11px] text-gray-400 mt-2 ml-11">
+              <p className="text-[11px] text-textlight mt-2 ml-11">
                 {recurringCosts.scheduledBatchCount} scheduled batch{recurringCosts.scheduledBatchCount !== 1 ? 'es' : ''}
                 {' | '}~${(recurringCosts.estimatedDailyCost * 30).toFixed(2)}/month est.
               </p>
 
               {recurringCosts.perImageRate > 0 && (
-                <p className="text-[11px] text-gray-400 mt-1 ml-11">
+                <p className="text-[11px] text-textlight mt-1 ml-11">
                   Based on ${recurringCosts.perImageRate.toFixed(4)}/image Gemini rate
                   {recurringCosts.batchDiscount ? ` with ${Math.round(recurringCosts.batchDiscount * 100)}% batch discount ($${(recurringCosts.perImageRate * recurringCosts.batchDiscount).toFixed(4)}/image effective)` : ''}
                 </p>
@@ -484,37 +484,37 @@ export default function Dashboard() {
                 <div className="mt-4 ml-11">
                   <table className="w-full text-[11px]">
                     <thead>
-                      <tr className="border-b border-gray-100">
-                        <th className="text-left font-medium text-gray-400 uppercase tracking-wider pb-2 pr-3">Project</th>
-                        <th className="text-left font-medium text-gray-400 uppercase tracking-wider pb-2 pr-3">Schedule</th>
-                        <th className="text-right font-medium text-gray-400 uppercase tracking-wider pb-2 pr-3">Batch Size</th>
-                        <th className="text-right font-medium text-gray-400 uppercase tracking-wider pb-2 pr-3">Runs/Day</th>
-                        <th className="text-right font-medium text-gray-400 uppercase tracking-wider pb-2 pr-3">Cost/Run</th>
-                        <th className="text-right font-medium text-gray-400 uppercase tracking-wider pb-2">Daily Cost</th>
+                      <tr className="border-b border-black/5">
+                        <th className="text-left font-medium text-textlight uppercase tracking-wider pb-2 pr-3">Project</th>
+                        <th className="text-left font-medium text-textlight uppercase tracking-wider pb-2 pr-3">Schedule</th>
+                        <th className="text-right font-medium text-textlight uppercase tracking-wider pb-2 pr-3">Batch Size</th>
+                        <th className="text-right font-medium text-textlight uppercase tracking-wider pb-2 pr-3">Runs/Day</th>
+                        <th className="text-right font-medium text-textlight uppercase tracking-wider pb-2 pr-3">Cost/Run</th>
+                        <th className="text-right font-medium text-textlight uppercase tracking-wider pb-2">Daily Cost</th>
                       </tr>
                     </thead>
                     <tbody>
                       {recurringCosts.breakdown.map((row, i) => (
                         <tr key={i} className="border-b border-gray-50 last:border-0">
-                          <td className="py-2 pr-3 text-gray-700">
+                          <td className="py-2 pr-3 text-textdark">
                             {row.project_name}
                             {row.angle && (
-                              <span className="text-gray-400 ml-1">({row.angle})</span>
+                              <span className="text-textlight ml-1">({row.angle})</span>
                             )}
                           </td>
-                          <td className="py-2 pr-3 text-gray-500">{cronToLabel(row.schedule_cron)}</td>
-                          <td className="py-2 pr-3 text-right text-gray-500">{row.batch_size} img</td>
-                          <td className="py-2 pr-3 text-right text-gray-500">{row.runs_per_day}×</td>
-                          <td className="py-2 pr-3 text-right text-gray-500">${row.cost_per_run.toFixed(4)}</td>
-                          <td className="py-2 text-right font-medium text-gray-700">${row.daily_cost.toFixed(4)}</td>
+                          <td className="py-2 pr-3 text-textmid">{cronToLabel(row.schedule_cron)}</td>
+                          <td className="py-2 pr-3 text-right text-textmid">{row.batch_size} img</td>
+                          <td className="py-2 pr-3 text-right text-textmid">{row.runs_per_day}×</td>
+                          <td className="py-2 pr-3 text-right text-textmid">${row.cost_per_run.toFixed(4)}</td>
+                          <td className="py-2 text-right font-medium text-textdark">${row.daily_cost.toFixed(4)}</td>
                         </tr>
                       ))}
                     </tbody>
                     {recurringCosts.breakdown.length > 1 && (
                       <tfoot>
                         <tr className="border-t border-gray-200">
-                          <td colSpan={5} className="py-2 pr-3 text-right font-medium text-gray-500">Total</td>
-                          <td className="py-2 text-right font-semibold text-gray-900">${recurringCosts.estimatedDailyCost.toFixed(4)}</td>
+                          <td colSpan={5} className="py-2 pr-3 text-right font-medium text-textmid">Total</td>
+                          <td className="py-2 text-right font-semibold text-textdark">${recurringCosts.estimatedDailyCost.toFixed(4)}</td>
                         </tr>
                       </tfoot>
                     )}
@@ -523,7 +523,7 @@ export default function Dashboard() {
               )}
             </>
           ) : (
-            <p className="text-[11px] text-gray-400 mt-2 ml-11">
+            <p className="text-[11px] text-textlight mt-2 ml-11">
               No scheduled automations. Set up batch schedules in a project to see estimated recurring costs.
             </p>
           )}

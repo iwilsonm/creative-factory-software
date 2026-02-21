@@ -87,15 +87,15 @@ export default function BatchRow({ batch, onRunNow, onCancel, onDelete, onEdit, 
     : 0;
 
   return (
-    <div className="rounded-xl bg-gray-50/30 border border-gray-100/80 hover:bg-gray-50/60 transition-colors">
+    <div className="rounded-xl bg-black/[0.02] border border-black/5 hover:bg-black/[0.03] transition-colors">
       <div className="flex items-center gap-3 p-3">
         {/* Status indicator */}
         <div className="flex-shrink-0">
           {isActive ? (
-            <div className="w-5 h-5 rounded-full border-2 border-blue-200 border-t-blue-500 animate-spin" />
+            <div className="w-5 h-5 rounded-full border-2 border-navy/20 border-t-navy animate-spin" />
           ) : batch.status === 'completed' ? (
-            <div className="w-5 h-5 rounded-full bg-green-100 flex items-center justify-center">
-              <svg className="w-3 h-3 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <div className="w-5 h-5 rounded-full bg-teal/10 flex items-center justify-center">
+              <svg className="w-3 h-3 text-teal" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
               </svg>
             </div>
@@ -106,8 +106,8 @@ export default function BatchRow({ batch, onRunNow, onCancel, onDelete, onEdit, 
               </svg>
             </div>
           ) : (
-            <div className="w-5 h-5 rounded-full bg-gray-100 flex items-center justify-center">
-              <div className="w-2 h-2 rounded-full bg-gray-400" />
+            <div className="w-5 h-5 rounded-full bg-black/5 flex items-center justify-center">
+              <div className="w-2 h-2 rounded-full bg-textlight" />
             </div>
           )}
         </div>
@@ -115,7 +115,7 @@ export default function BatchRow({ batch, onRunNow, onCancel, onDelete, onEdit, 
         {/* Info */}
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2 flex-wrap">
-            <span className="text-[13px] font-medium text-gray-800">
+            <span className="text-[13px] font-medium text-textdark">
               {batch.batch_size} image{batch.batch_size !== 1 ? 's' : ''}
             </span>
             <span className={`badge text-[10px] ${STATUS_COLORS[batch.status] || STATUS_COLORS.pending}`}>
@@ -130,7 +130,7 @@ export default function BatchRow({ batch, onRunNow, onCancel, onDelete, onEdit, 
             </span>
             {batch.schedule_cron ? (
               batch.scheduled ? (
-                <span className="badge bg-purple-100/80 text-purple-600 text-[10px]">
+                <span className="badge bg-navy/10 text-navy text-[10px]">
                   {cronToLabel(batch.schedule_cron)}
                 </span>
               ) : (
@@ -140,36 +140,36 @@ export default function BatchRow({ batch, onRunNow, onCancel, onDelete, onEdit, 
               )
             ) : null}
             {batch.retry_count > 0 && (
-              <span className="badge bg-amber-100/80 text-amber-700 text-[10px]">
+              <span className="badge bg-gold/10 text-gold text-[10px]">
                 {batch.retry_count}/3 retries
               </span>
             )}
           </div>
           <div className="flex items-center gap-2 mt-0.5 flex-wrap">
-            <span className="text-[11px] text-gray-400">{batch.aspect_ratio}</span>
+            <span className="text-[11px] text-textlight">{batch.aspect_ratio}</span>
             {batch.angle && (
               <>
-                <span className="text-[11px] text-gray-300">|</span>
-                <span className="text-[11px] text-gray-500 truncate" title={batch.angle}>
+                <span className="text-[11px] text-textlight/60">|</span>
+                <span className="text-[11px] text-textmid truncate" title={batch.angle}>
                   {batch.angle}
                 </span>
               </>
             )}
             {batch.completed_count > 0 && (
               <>
-                <span className="text-[11px] text-gray-300">|</span>
-                <span className="text-[11px] text-green-600">{batch.completed_count} saved</span>
+                <span className="text-[11px] text-textlight/60">|</span>
+                <span className="text-[11px] text-teal">{batch.completed_count} saved</span>
                 {batch.failed_count > 0 && (
                   <span className="text-[11px] text-red-400">· {batch.failed_count} failed</span>
                 )}
                 {batch.run_count > 1 && (
-                  <span className="text-[11px] text-gray-400">· {batch.run_count} runs</span>
+                  <span className="text-[11px] text-textlight">· {batch.run_count} runs</span>
                 )}
               </>
             )}
             {batch.error_message && (
               <>
-                <span className="text-[11px] text-gray-300">|</span>
+                <span className="text-[11px] text-textlight/60">|</span>
                 <span className="text-[11px] text-red-500 truncate" title={batch.error_message}>
                   {batch.error_message.slice(0, 50)}
                 </span>
@@ -177,11 +177,11 @@ export default function BatchRow({ batch, onRunNow, onCancel, onDelete, onEdit, 
             )}
           </div>
           <div className="flex items-center gap-2">
-            <span className="text-[10px] text-gray-400">{formatDate(batch.created_at)}</span>
+            <span className="text-[10px] text-textlight">{formatDate(batch.created_at)}</span>
             {batch.status === 'completed' && formatDuration(batch.started_at, batch.completed_at) && (
               <>
-                <span className="text-[10px] text-gray-300">·</span>
-                <span className="text-[10px] text-emerald-500">Completed in {formatDuration(batch.started_at, batch.completed_at)}</span>
+                <span className="text-[10px] text-textlight/60">·</span>
+                <span className="text-[10px] text-teal">Completed in {formatDuration(batch.started_at, batch.completed_at)}</span>
               </>
             )}
             {!!batch.scheduled && batch.schedule_cron && (() => {
@@ -189,8 +189,8 @@ export default function BatchRow({ batch, onRunNow, onCancel, onDelete, onEdit, 
               const label = formatNextRun(next);
               return label ? (
                 <>
-                  <span className="text-[10px] text-gray-300">·</span>
-                  <span className="text-[10px] text-purple-400">Next: {label}</span>
+                  <span className="text-[10px] text-textlight/60">·</span>
+                  <span className="text-[10px] text-navy/60">Next: {label}</span>
                 </>
               ) : null;
             })()}
@@ -211,7 +211,7 @@ export default function BatchRow({ batch, onRunNow, onCancel, onDelete, onEdit, 
           {isPaused && (
             <button
               onClick={() => onResume(batch.id)}
-              className="text-[11px] text-green-500 hover:text-green-600 font-medium transition-colors px-2 py-1 rounded-lg hover:bg-green-50/50"
+              className="text-[11px] text-teal hover:text-teal/80 font-medium transition-colors px-2 py-1 rounded-lg hover:bg-teal/5"
               title="Resume automation"
             >
               Resume
@@ -220,7 +220,7 @@ export default function BatchRow({ batch, onRunNow, onCancel, onDelete, onEdit, 
           {canCancel && (
             <button
               onClick={() => onCancel(batch.id)}
-              className="text-[11px] text-amber-500 hover:text-amber-600 font-medium transition-colors px-2 py-1 rounded-lg hover:bg-amber-50/50"
+              className="text-[11px] text-gold hover:text-gold/80 font-medium transition-colors px-2 py-1 rounded-lg hover:bg-gold/5"
               title="Cancel batch"
             >
               Cancel
@@ -229,7 +229,7 @@ export default function BatchRow({ batch, onRunNow, onCancel, onDelete, onEdit, 
           {canEdit && (
             <button
               onClick={() => setEditing(!editing)}
-              className="text-[11px] text-gray-400 hover:text-gray-600 font-medium transition-colors px-2 py-1 rounded-lg hover:bg-gray-50/50"
+              className="text-[11px] text-textlight hover:text-textmid font-medium transition-colors px-2 py-1 rounded-lg hover:bg-black/[0.02]"
               title="Edit batch"
             >
               {editing ? 'Close' : 'Edit'}
@@ -238,7 +238,7 @@ export default function BatchRow({ batch, onRunNow, onCancel, onDelete, onEdit, 
           {canRun && (
             <button
               onClick={() => onRunNow(batch.id)}
-              className="text-[11px] text-blue-500 hover:text-blue-600 font-medium transition-colors px-2 py-1 rounded-lg hover:bg-blue-50/50"
+              className="text-[11px] text-navy hover:text-navy-light font-medium transition-colors px-2 py-1 rounded-lg hover:bg-navy/5"
               title="Run now"
             >
               Run
@@ -256,10 +256,10 @@ export default function BatchRow({ batch, onRunNow, onCancel, onDelete, onEdit, 
 
       {/* Inline edit panel */}
       {editing && (
-        <div className="px-3 pb-3 pt-1 border-t border-gray-100/80 fade-in">
+        <div className="px-3 pb-3 pt-1 border-t border-black/5 fade-in">
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mb-2">
             <div>
-              <label className="block text-[10px] font-medium text-gray-400 mb-0.5">Batch Size</label>
+              <label className="block text-[10px] font-medium text-textlight mb-0.5">Batch Size</label>
               <input
                 type="number"
                 min={1}
@@ -271,7 +271,7 @@ export default function BatchRow({ batch, onRunNow, onCancel, onDelete, onEdit, 
               />
             </div>
             <div>
-              <label className="block text-[10px] font-medium text-gray-400 mb-0.5">Aspect Ratio</label>
+              <label className="block text-[10px] font-medium text-textlight mb-0.5">Aspect Ratio</label>
               <select
                 value={editAspect}
                 onChange={e => setEditAspect(e.target.value)}
@@ -284,7 +284,7 @@ export default function BatchRow({ batch, onRunNow, onCancel, onDelete, onEdit, 
               </select>
             </div>
             <div className="col-span-2">
-              <label className="block text-[10px] font-medium text-gray-400 mb-0.5">Ad Topic / Angle</label>
+              <label className="block text-[10px] font-medium text-textlight mb-0.5">Ad Topic / Angle</label>
               <input
                 value={editAngle}
                 onChange={e => setEditAngle(e.target.value)}
@@ -303,9 +303,9 @@ export default function BatchRow({ batch, onRunNow, onCancel, onDelete, onEdit, 
                 checked={editScheduled}
                 onChange={e => setEditScheduled(e.target.checked)}
                 disabled={saving}
-                className="w-3.5 h-3.5 rounded border-gray-300 text-blue-500 focus:ring-blue-500/20"
+                className="w-3.5 h-3.5 rounded border-black/10 text-navy focus:ring-navy/20"
               />
-              <span className="text-[11px] text-gray-500 font-medium">Scheduled</span>
+              <span className="text-[11px] text-textmid font-medium">Scheduled</span>
             </label>
           </div>
           {editScheduled && (
@@ -366,7 +366,7 @@ export default function BatchRow({ batch, onRunNow, onCancel, onDelete, onEdit, 
             <button
               onClick={() => setEditing(false)}
               disabled={saving}
-              className="text-[11px] text-gray-400 hover:text-gray-600 transition-colors px-2 py-1"
+              className="text-[11px] text-textlight hover:text-textmid transition-colors px-2 py-1"
             >
               Cancel
             </button>
@@ -378,13 +378,13 @@ export default function BatchRow({ batch, onRunNow, onCancel, onDelete, onEdit, 
       {batch.status === 'generating_prompts' && pipelineState && (
         <div className="px-3 pb-3">
           <div className="flex items-center gap-2">
-            <div className="flex-1 h-1.5 rounded-full bg-gray-200 overflow-hidden">
+            <div className="flex-1 h-1.5 rounded-full bg-black/10 overflow-hidden">
               <div
-                className="h-full bg-blue-400 rounded-full transition-all duration-500"
+                className="h-full bg-teal rounded-full transition-all duration-500"
                 style={{ width: `${pipelinePct}%` }}
               />
             </div>
-            <span className="text-[10px] text-gray-400 flex-shrink-0">
+            <span className="text-[10px] text-textlight flex-shrink-0">
               {pipelineState.stage_label || `Stage ${pipelineStage}`}
             </span>
           </div>
@@ -395,13 +395,13 @@ export default function BatchRow({ batch, onRunNow, onCancel, onDelete, onEdit, 
       {batch.status === 'processing' && progressTotal > 0 && (
         <div className="px-3 pb-3">
           <div className="flex items-center gap-2">
-            <div className="flex-1 h-1.5 rounded-full bg-gray-200 overflow-hidden">
+            <div className="flex-1 h-1.5 rounded-full bg-black/10 overflow-hidden">
               <div
-                className="h-full bg-blue-400 rounded-full transition-all duration-500"
+                className="h-full bg-teal rounded-full transition-all duration-500"
                 style={{ width: `${progressPct}%` }}
               />
             </div>
-            <span className="text-[10px] text-gray-400 flex-shrink-0">
+            <span className="text-[10px] text-textlight flex-shrink-0">
               {progressDone}/{progressTotal} generated
             </span>
           </div>

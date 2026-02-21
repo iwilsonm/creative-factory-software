@@ -98,11 +98,11 @@ export default function DragDropUpload({
   }, [processFile]);
 
   const borderColor =
-    dragOver ? 'border-blue-400 bg-blue-50' :
-    status === 'uploading' ? 'border-blue-300 bg-blue-50' :
-    status === 'success' ? 'border-green-300 bg-green-50' :
+    dragOver ? 'border-gold bg-gold/5' :
+    status === 'uploading' ? 'border-gold/50 bg-gold/5' :
+    status === 'success' ? 'border-teal/40 bg-teal/5' :
     error ? 'border-red-300 bg-red-50' :
-    'border-gray-300 hover:border-blue-400 hover:bg-gray-50';
+    'border-gray-300 hover:border-gold hover:bg-offwhite';
 
   return (
     <div className={className}>
@@ -122,10 +122,10 @@ export default function DragDropUpload({
               <div className={`mx-auto mb-2 ${compact ? 'text-lg' : 'text-2xl'}`}>
                 <span className="animate-spin inline-block">⏳</span>
               </div>
-              <p className={`text-blue-600 font-medium ${compact ? 'text-xs' : 'text-sm'}`}>
+              <p className={`text-gold font-medium ${compact ? 'text-xs' : 'text-sm'}`}>
                 Extracting text...
               </p>
-              <p className={`text-blue-500 mt-1 ${compact ? 'text-[10px]' : 'text-xs'}`}>
+              <p className={`text-gold/70 mt-1 ${compact ? 'text-[10px]' : 'text-xs'}`}>
                 This may take a moment for large PDFs
               </p>
             </div>
@@ -133,15 +133,15 @@ export default function DragDropUpload({
             <div>
               <div className={`mx-auto mb-2 ${compact ? 'text-lg' : 'text-2xl'}`}>✅</div>
               {successMessage ? (
-                <p className={`text-green-700 font-medium ${compact ? 'text-xs' : 'text-sm'}`}>
+                <p className={`text-teal font-medium ${compact ? 'text-xs' : 'text-sm'}`}>
                   {successMessage}
                 </p>
               ) : uploadResult ? (
                 <>
-                  <p className={`text-green-700 font-medium ${compact ? 'text-xs' : 'text-sm'}`}>
+                  <p className={`text-teal font-medium ${compact ? 'text-xs' : 'text-sm'}`}>
                     {uploadResult.name}
                   </p>
-                  <p className={`text-green-600 mt-1 ${compact ? 'text-[10px]' : 'text-xs'}`}>
+                  <p className={`text-teal/80 mt-1 ${compact ? 'text-[10px]' : 'text-xs'}`}>
                     {uploadResult.charCount.toLocaleString()} characters extracted
                   </p>
                 </>
@@ -156,7 +156,7 @@ export default function DragDropUpload({
                 {dragOver ? '📂' : '📄'}
               </div>
               <p className={`font-medium ${compact ? 'text-xs' : 'text-sm'} ${
-                dragOver ? 'text-blue-600' : 'text-gray-600'
+                dragOver ? 'text-gold' : 'text-textmid'
               }`}>
                 {dragOver ? 'Drop file here' : label}
               </p>

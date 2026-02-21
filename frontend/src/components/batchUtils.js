@@ -24,11 +24,11 @@ export const ASPECT_RATIOS = [
 ];
 
 export const STATUS_COLORS = {
-  pending: 'bg-gray-100/80 text-gray-600',
-  generating_prompts: 'bg-blue-100/80 text-blue-600',
-  submitting: 'bg-blue-100/80 text-blue-600',
-  processing: 'bg-amber-100/80 text-amber-700',
-  completed: 'bg-green-100/80 text-green-700',
+  pending: 'bg-black/5 text-textmid',
+  generating_prompts: 'bg-navy/10 text-navy',
+  submitting: 'bg-navy/10 text-navy',
+  processing: 'bg-gold/10 text-gold',
+  completed: 'bg-teal/10 text-teal',
   failed: 'bg-red-100/80 text-red-600'
 };
 

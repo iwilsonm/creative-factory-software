@@ -375,7 +375,7 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
     toast.success(
       <span>
         Headline loaded into Ad Studio
-        {prefill.problem ? <span className="text-green-600/70"> · Angle: {prefill.problem}</span> : ''}
+        {prefill.problem ? <span className="text-teal/70"> · Angle: {prefill.problem}</span> : ''}
       </span>
     );
 
@@ -788,7 +788,7 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
         Generation started{' '}
         <button
           onClick={scrollToQueue}
-          className="underline font-semibold hover:text-blue-900 transition-colors"
+          className="underline font-semibold hover:text-gold/80 transition-colors"
         >
           View Queue ↓
         </button>
@@ -1151,7 +1151,7 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
     toast.info(
       <span>
         Regenerating ad{' '}
-        <button onClick={scrollToQueue} className="underline font-semibold hover:text-blue-900 transition-colors">View Queue ↓</button>
+        <button onClick={scrollToQueue} className="underline font-semibold hover:text-gold/80 transition-colors">View Queue ↓</button>
       </span>
     );
 
@@ -1333,7 +1333,7 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
     toast.success(
       <span>
         Settings reused
-        {ad.angle ? <span className="text-green-600/70"> · {ad.angle}</span> : ''}
+        {ad.angle ? <span className="text-teal/70"> · {ad.angle}</span> : ''}
       </span>
     );
   };
@@ -1451,8 +1451,8 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
       {/* Generation Controls */}
       <div className="card p-6">
         <div className="mb-4">
-          <h3 className="text-[15px] font-semibold text-gray-900 tracking-tight mb-0.5 flex items-center gap-1">Generate Ad <InfoTooltip text="Create individual ad creatives using AI. Choose a template source, set your options, and generate." position="right" /></h3>
-          <p className="text-[12px] text-gray-400">
+          <h3 className="text-[15px] font-semibold text-textdark tracking-tight mb-0.5 flex items-center gap-1">Generate Ad <InfoTooltip text="Create individual ad creatives using AI. Choose a template source, set your options, and generate." position="right" /></h3>
+          <p className="text-[12px] text-textlight">
             Select a template image source, configure options, and generate a new ad creative.
           </p>
         </div>
@@ -1461,7 +1461,7 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
 
         {/* Aspect Ratio */}
         <div className="mb-5">
-          <label className="block text-[13px] font-medium text-gray-600 mb-1.5">Aspect Ratio</label>
+          <label className="block text-[13px] font-medium text-textmid mb-1.5">Aspect Ratio</label>
           <select
             value={aspectRatio}
             onChange={e => setAspectRatio(e.target.value)}
@@ -1476,8 +1476,8 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
         {/* Template Image Source — hidden when using a custom prompt */}
         {!isCustomPromptMode && (
           <div className="mb-5">
-            <label className="block text-[13px] font-medium text-gray-600 mb-1.5">Template Image</label>
-            <p className="text-[11px] text-gray-400 mb-3">
+            <label className="block text-[13px] font-medium text-textmid mb-1.5">Template Image</label>
+            <p className="text-[11px] text-textlight mb-3">
               Choose the reference ad image the AI will analyze and recreate in your brand's style.
             </p>
 
@@ -1505,14 +1505,14 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
 
             {/* Random from folder */}
             {templateSource === TEMPLATE_RANDOM && (
-              <div className="p-4 bg-gray-50/50 border border-gray-200/60 rounded-xl">
+              <div className="p-4 bg-offwhite border border-black/5 rounded-xl">
                 <div className="flex items-center gap-2 mb-1">
-                  <svg className="w-4 h-4 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <svg className="w-4 h-4 text-textlight" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19.5 12c0-1.232-.046-2.453-.138-3.662a4.006 4.006 0 00-3.7-3.7 48.678 48.678 0 00-7.324 0 4.006 4.006 0 00-3.7 3.7c-.017.22-.032.441-.046.662M19.5 12l3-3m-3 3l-3-3m-12 3c0 1.232.046 2.453.138 3.662a4.006 4.006 0 003.7 3.7 48.656 48.656 0 007.324 0 4.006 4.006 0 003.7-3.7c.017-.22.032-.441.046-.662M4.5 12l3 3m-3-3l-3 3" />
                   </svg>
-                  <p className="text-[13px] font-medium text-gray-600">Random from Templates Folder</p>
+                  <p className="text-[13px] font-medium text-textmid">Random from Templates Folder</p>
                 </div>
-                <p className="text-[11px] text-gray-400">
+                <p className="text-[11px] text-textlight">
                   The system will randomly pick a template from your synced Google Drive templates folder.
                 </p>
               </div>
@@ -1522,15 +1522,15 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
             {templateSource === TEMPLATE_UPLOAD && (
               <div>
                 {uploadedFile && uploadedPreview ? (
-                  <div className="flex items-start gap-4 p-3 bg-gray-50/50 border border-gray-200/60 rounded-xl">
+                  <div className="flex items-start gap-4 p-3 bg-offwhite border border-black/5 rounded-xl">
                     <img
                       src={uploadedPreview}
                       alt="Uploaded template"
-                      className="w-20 h-20 object-cover rounded-xl border border-gray-200/60"
+                      className="w-20 h-20 object-cover rounded-xl border border-black/5"
                     />
                     <div className="flex-1 min-w-0">
-                      <p className="text-[13px] font-medium text-gray-900 truncate">{uploadedFile.name}</p>
-                      <p className="text-[11px] text-gray-400 mt-0.5">
+                      <p className="text-[13px] font-medium text-textdark truncate">{uploadedFile.name}</p>
+                      <p className="text-[11px] text-textlight mt-0.5">
                         {(uploadedFile.size / 1024).toFixed(0)} KB
                       </p>
                       <button
@@ -1550,19 +1550,19 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
                     onDragLeave={handleDragLeave}
                     onDrop={handleDrop}
                     className={`border-2 border-dashed rounded-xl p-6 text-center cursor-pointer transition-all ${
-                      dragOver ? 'border-blue-400 bg-blue-50/30' :
-                      'border-gray-200/80 hover:border-blue-300 hover:bg-gray-50/30'
+                      dragOver ? 'border-gold bg-navy/5' :
+                      'border-black/5 hover:border-navy/30 hover:bg-black/[0.02]'
                     }`}
                   >
-                    <div className="w-10 h-10 mx-auto mb-2 rounded-xl bg-gray-100 flex items-center justify-center">
-                      <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <div className="w-10 h-10 mx-auto mb-2 rounded-xl bg-black/5 flex items-center justify-center">
+                      <svg className="w-5 h-5 text-textlight" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909M3.75 21h16.5a2.25 2.25 0 002.25-2.25V6.75a2.25 2.25 0 00-2.25-2.25H3.75a2.25 2.25 0 00-2.25 2.25v12a2.25 2.25 0 002.25 2.25z" />
                       </svg>
                     </div>
-                    <p className={`text-[13px] font-medium ${dragOver ? 'text-blue-600' : 'text-gray-500'}`}>
+                    <p className={`text-[13px] font-medium ${dragOver ? 'text-navy' : 'text-textmid'}`}>
                       {dragOver ? 'Drop image here' : 'Drop a reference ad image here, or click to browse'}
                     </p>
-                    <p className="text-[11px] text-gray-400 mt-1">JPG, PNG, WebP, or GIF</p>
+                    <p className="text-[11px] text-textlight mt-1">JPG, PNG, WebP, or GIF</p>
                   </div>
                 )}
                 <input
@@ -1579,16 +1579,16 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
             {templateSource === TEMPLATE_SELECT && (
               <div>
                 {loadingTemplates ? (
-                  <div className="text-gray-400 text-center py-8 text-sm">Loading templates...</div>
+                  <div className="text-textlight text-center py-8 text-sm">Loading templates...</div>
                 ) : driveImages.length === 0 && uploadedTemplates.length === 0 ? (
-                  <div className="p-6 bg-gray-50/50 border border-gray-200/60 rounded-xl text-center">
-                    <div className="w-10 h-10 mx-auto mb-2 rounded-xl bg-gray-100 flex items-center justify-center">
-                      <svg className="w-5 h-5 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <div className="p-6 bg-offwhite border border-black/5 rounded-xl text-center">
+                    <div className="w-10 h-10 mx-auto mb-2 rounded-xl bg-black/5 flex items-center justify-center">
+                      <svg className="w-5 h-5 text-textlight" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3.75 6A2.25 2.25 0 016 3.75h2.25A2.25 2.25 0 0110.5 6v2.25a2.25 2.25 0 01-2.25 2.25H6a2.25 2.25 0 01-2.25-2.25V6zM3.75 15.75A2.25 2.25 0 016 13.5h2.25a2.25 2.25 0 012.25 2.25V18a2.25 2.25 0 01-2.25 2.25H6A2.25 2.25 0 013.75 18v-2.25zM13.5 6a2.25 2.25 0 012.25-2.25H18A2.25 2.25 0 0120.25 6v2.25A2.25 2.25 0 0118 10.5h-2.25a2.25 2.25 0 01-2.25-2.25V6zM13.5 15.75a2.25 2.25 0 012.25-2.25H18a2.25 2.25 0 012.25 2.25V18A2.25 2.25 0 0118 20.25h-2.25A2.25 2.25 0 0113.5 18v-2.25z" />
                       </svg>
                     </div>
-                    <p className="text-[13px] text-gray-500 font-medium mb-1">No Templates Available</p>
-                    <p className="text-[11px] text-gray-400">
+                    <p className="text-[13px] text-textmid font-medium mb-1">No Templates Available</p>
+                    <p className="text-[11px] text-textlight">
                       Sync your Google Drive templates folder or upload reference ads in the Templates tab.
                     </p>
                   </div>
@@ -1597,8 +1597,8 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
                     {/* Drive templates — sorted by popularity (last 30 days) */}
                     {driveImages.length > 0 && (
                       <div>
-                        <p className="text-[11px] text-gray-400 font-medium mb-2">
-                          Drive Templates <span className="text-gray-300">({driveImages.length})</span>
+                        <p className="text-[11px] text-textlight font-medium mb-2">
+                          Drive Templates <span className="text-textlight/60">({driveImages.length})</span>
                         </p>
                         <div className="grid grid-cols-4 sm:grid-cols-5 md:grid-cols-6 gap-2 max-h-[320px] overflow-y-auto rounded-xl pr-1 scrollbar-thin">
                           {sortedDriveImages.map(img => {
@@ -1613,8 +1613,8 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
 
                                 className={`group relative rounded-xl overflow-hidden border-2 transition-all aspect-square ${
                                   isSelected
-                                    ? 'border-blue-500 ring-2 ring-blue-200 shadow-md'
-                                    : 'border-gray-200/60 hover:border-gray-300'
+                                    ? 'border-navy ring-2 ring-navy/20 shadow-md'
+                                    : 'border-black/5 hover:border-black/10'
                                 } cursor-pointer`}
                               >
                                 <img
@@ -1624,7 +1624,7 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
                                   loading="lazy"
                                 />
                                 {isSelected && (
-                                  <div className="absolute top-1.5 right-1.5 w-5 h-5 rounded-full bg-blue-500 flex items-center justify-center shadow-sm">
+                                  <div className="absolute top-1.5 right-1.5 w-5 h-5 rounded-full bg-navy/50 flex items-center justify-center shadow-sm">
                                     <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
                                     </svg>
@@ -1645,8 +1645,8 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
                     {/* Uploaded templates — sorted by popularity (last 30 days) */}
                     {uploadedTemplates.length > 0 && (
                       <div>
-                        <p className="text-[11px] text-gray-400 font-medium mb-2">
-                          Uploaded Templates <span className="text-gray-300">({uploadedTemplates.length})</span>
+                        <p className="text-[11px] text-textlight font-medium mb-2">
+                          Uploaded Templates <span className="text-textlight/60">({uploadedTemplates.length})</span>
                         </p>
                         <div className="grid grid-cols-4 sm:grid-cols-5 md:grid-cols-6 gap-2">
                           {sortedUploadedTemplates.map(t => {
@@ -1661,8 +1661,8 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
 
                                 className={`group relative rounded-xl overflow-hidden border-2 transition-all aspect-square ${
                                   isSelected
-                                    ? 'border-blue-500 ring-2 ring-blue-200 shadow-md'
-                                    : 'border-gray-200/60 hover:border-gray-300'
+                                    ? 'border-navy ring-2 ring-navy/20 shadow-md'
+                                    : 'border-black/5 hover:border-black/10'
                                 } cursor-pointer`}
                               >
                                 <img
@@ -1672,7 +1672,7 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
                                   loading="lazy"
                                 />
                                 {isSelected && (
-                                  <div className="absolute top-1.5 right-1.5 w-5 h-5 rounded-full bg-blue-500 flex items-center justify-center shadow-sm">
+                                  <div className="absolute top-1.5 right-1.5 w-5 h-5 rounded-full bg-navy/50 flex items-center justify-center shadow-sm">
                                     <svg className="w-3 h-3 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
                                     </svg>
@@ -1702,18 +1702,18 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
                 {selectedTemplate && (
                   <div className="mt-2">
                     <div className="flex items-center gap-2">
-                      <span className="text-[11px] text-blue-600 font-medium">
+                      <span className="text-[11px] text-navy font-medium">
                         Selected: {selectedTemplate.source === 'drive'
                           ? (driveImages.find(i => i.id === selectedTemplate.id)?.name || selectedTemplate.id).slice(0, 20)
                           : getTemplateName(selectedTemplate.id)
                         }
                       </span>
-                      <span className="text-[10px] text-gray-300">
+                      <span className="text-[10px] text-textlight/60">
                         ({selectedTemplate.source === 'drive' ? 'Drive' : 'Uploaded'})
                       </span>
                       <button
                         onClick={() => setSelectedTemplate(null)}
-                        className="text-[11px] text-gray-400 hover:text-gray-600 transition-colors"
+                        className="text-[11px] text-textlight hover:text-textmid transition-colors"
                       >
                         Clear
                       </button>
@@ -1721,38 +1721,38 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
 
                     {/* Template analysis indicator */}
                     {analyzingTemplate && (
-                      <div className="mt-2 flex items-center gap-2 p-2.5 bg-blue-50/50 border border-blue-200/50 rounded-xl">
-                        <svg className="w-3.5 h-3.5 text-blue-500 animate-spin flex-shrink-0" fill="none" viewBox="0 0 24 24">
+                      <div className="mt-2 flex items-center gap-2 p-2.5 bg-navy/5 border border-navy/15 rounded-xl">
+                        <svg className="w-3.5 h-3.5 text-navy animate-spin flex-shrink-0" fill="none" viewBox="0 0 24 24">
                           <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
                           <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
                         </svg>
-                        <span className="text-[11px] text-blue-600">Analyzing template layout...</span>
+                        <span className="text-[11px] text-navy">Analyzing template layout...</span>
                       </div>
                     )}
 
                     {templateAnalysis && !analyzingTemplate && selectedTemplate.source === 'uploaded' && (
-                      <div className="mt-2 p-2.5 bg-indigo-50/40 border border-indigo-200/50 rounded-xl space-y-1">
-                        <p className="text-[11px] text-indigo-700 font-medium flex items-center gap-1.5">
+                      <div className="mt-2 p-2.5 bg-navy/5 border border-navy/15 rounded-xl space-y-1">
+                        <p className="text-[11px] text-navy font-medium flex items-center gap-1.5">
                           <svg className="w-3 h-3 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                           </svg>
                           Template Analysis
                         </p>
-                        <p className="text-[10px] text-indigo-600/80">{templateAnalysis.layout_description}</p>
+                        <p className="text-[10px] text-navy/70">{templateAnalysis.layout_description}</p>
                         <div className="flex flex-wrap gap-1.5 mt-1">
-                          <span className="text-[9px] px-1.5 py-0.5 bg-indigo-100/60 text-indigo-600 rounded-full">
+                          <span className="text-[9px] px-1.5 py-0.5 bg-navy/10 text-navy rounded-full">
                             Style: {templateAnalysis.recommended_style}
                           </span>
-                          <span className="text-[9px] px-1.5 py-0.5 bg-indigo-100/60 text-indigo-600 rounded-full">
+                          <span className="text-[9px] px-1.5 py-0.5 bg-navy/10 text-navy rounded-full">
                             Text space: {templateAnalysis.text_space}
                           </span>
-                          <span className="text-[9px] px-1.5 py-0.5 bg-indigo-100/60 text-indigo-600 rounded-full">
+                          <span className="text-[9px] px-1.5 py-0.5 bg-navy/10 text-navy rounded-full">
                             {templateAnalysis.visual_tone}
                           </span>
                           <span className={`text-[9px] px-1.5 py-0.5 rounded-full ${
                             templateAnalysis.needs_product_image
-                              ? 'bg-emerald-100/60 text-emerald-600'
-                              : 'bg-amber-100/60 text-amber-600'
+                              ? 'bg-teal/10 text-teal'
+                              : 'bg-gold/10 text-gold'
                           }`}>
                             Product image: {templateAnalysis.needs_product_image ? 'recommended' : 'not needed'}
                           </span>
@@ -1768,7 +1768,7 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
 
         {/* Product Image (project-level + optional per-ad override) */}
         <div className="mb-5">
-          <label className="block text-[11px] font-medium text-gray-500 mb-1.5">
+          <label className="block text-[11px] font-medium text-textmid mb-1.5">
             Product Image
           </label>
 
@@ -1776,13 +1776,13 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
           {project?.productImageUrl && !productFile && (
             <div className={`flex items-center gap-3 p-2.5 rounded-xl mb-2 ${
               skipProductImage
-                ? 'bg-amber-50/50 border border-amber-200/50'
-                : 'bg-emerald-50/50 border border-emerald-200/50'
+                ? 'bg-gold/5 border border-gold/15'
+                : 'bg-teal/5 border border-teal/15'
             }`}>
               <button
                 onClick={() => setSkipProductImage(prev => !prev)}
                 className={`relative w-9 h-[20px] rounded-full transition-colors flex-shrink-0 cursor-pointer ${
-                  !skipProductImage ? 'bg-emerald-500' : 'bg-gray-300'
+                  !skipProductImage ? 'bg-teal' : 'bg-textlight'
                 }`}
               >
                 <span className={`absolute top-[2px] left-[2px] w-4 h-4 bg-white rounded-full shadow transition-transform ${
@@ -1793,14 +1793,14 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
                 <img
                   src={project.productImageUrl}
                   alt="Project product"
-                  className="w-8 h-8 object-cover rounded-lg border border-emerald-200/60 flex-shrink-0"
+                  className="w-8 h-8 object-cover rounded-lg border border-teal/15 flex-shrink-0"
                 />
               )}
               <div className="flex-1 min-w-0">
-                <p className={`text-[11px] font-medium ${skipProductImage ? 'text-amber-700' : 'text-emerald-700'}`}>
+                <p className={`text-[11px] font-medium ${skipProductImage ? 'text-gold' : 'text-teal'}`}>
                   {skipProductImage ? 'Product image off for this ad' : 'Product image included'}
                 </p>
-                <p className={`text-[10px] ${skipProductImage ? 'text-amber-500' : 'text-emerald-500'}`}>
+                <p className={`text-[10px] ${skipProductImage ? 'text-gold' : 'text-teal'}`}>
                   {skipProductImage
                     ? (templateAnalysis ? 'Template analysis: not needed for this layout' : 'Toggle on to include product image')
                     : 'Toggle off to exclude for this ad'
@@ -1810,7 +1810,7 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
               {!skipProductImage && (
                 <button
                   onClick={() => productFileInputRef.current?.click()}
-                  className="text-[10px] text-gray-400 hover:text-gray-600 transition-colors whitespace-nowrap"
+                  className="text-[10px] text-textlight hover:text-textmid transition-colors whitespace-nowrap"
                 >
                   Override →
                 </button>
@@ -1820,15 +1820,15 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
 
           {/* Per-ad override: show when user has uploaded one OR when no project image */}
           {productFile && productPreview ? (
-            <div className="flex items-center gap-3 p-3 bg-gray-50/50 border border-gray-200/60 rounded-xl">
+            <div className="flex items-center gap-3 p-3 bg-offwhite border border-black/5 rounded-xl">
               <img
                 src={productPreview}
                 alt="Product image"
-                className="w-12 h-12 object-cover rounded-lg border border-gray-200/60"
+                className="w-12 h-12 object-cover rounded-lg border border-black/5"
               />
               <div className="flex-1 min-w-0">
-                <p className="text-[12px] font-medium text-gray-900 truncate">{productFile.name}</p>
-                <p className="text-[10px] text-gray-400">
+                <p className="text-[12px] font-medium text-textdark truncate">{productFile.name}</p>
+                <p className="text-[10px] text-textlight">
                   {(productFile.size / 1024).toFixed(0)} KB
                   {project?.productImageUrl ? ' — overrides project image' : ''}
                 </p>
@@ -1848,17 +1848,17 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
               onDragLeave={handleProductDragLeave}
               onDrop={handleProductDrop}
               className={`border-2 border-dashed rounded-xl p-3 text-center cursor-pointer transition-all ${
-                productDragOver ? 'border-blue-400 bg-blue-50/30' :
-                'border-gray-200/80 hover:border-blue-300 hover:bg-gray-50/30'
+                productDragOver ? 'border-gold bg-navy/5' :
+                'border-black/5 hover:border-navy/30 hover:bg-black/[0.02]'
               }`}
             >
-              <svg className="w-5 h-5 mx-auto mb-1 text-gray-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <svg className="w-5 h-5 mx-auto mb-1 text-textlight/60" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909M3.75 21h16.5a2.25 2.25 0 002.25-2.25V6.75a2.25 2.25 0 00-2.25-2.25H3.75a2.25 2.25 0 00-2.25 2.25v12a2.25 2.25 0 002.25 2.25z" />
               </svg>
-              <p className={`text-[11px] font-medium ${productDragOver ? 'text-blue-600' : 'text-gray-500'}`}>
+              <p className={`text-[11px] font-medium ${productDragOver ? 'text-navy' : 'text-textmid'}`}>
                 {productDragOver ? 'Drop product image here' : 'Drop a product image, or click to browse'}
               </p>
-              <p className="text-[10px] text-gray-400 mt-0.5">Or set one on the project Overview for all ads</p>
+              <p className="text-[10px] text-textlight mt-0.5">Or set one on the project Overview for all ads</p>
             </div>
           ) : null}
           <input
@@ -1875,13 +1875,13 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
           <div className={`my-4 flex items-center gap-3 p-3 rounded-xl ${
             hasHeadlineDoc
               ? 'bg-orange-50/50 border border-orange-200/60'
-              : 'bg-gray-50/50 border border-gray-200/40 opacity-60'
+              : 'bg-offwhite border border-black/5 opacity-60'
           }`}>
             <button
               onClick={() => hasHeadlineDoc && setHeadlineJuicerOn(prev => !prev)}
               disabled={!hasHeadlineDoc}
               className={`relative w-10 h-[22px] rounded-full transition-colors flex-shrink-0 ${
-                headlineJuicerOn && hasHeadlineDoc ? 'bg-orange-500' : 'bg-gray-300'
+                headlineJuicerOn && hasHeadlineDoc ? 'bg-orange-500' : 'bg-textlight'
               } ${!hasHeadlineDoc ? 'cursor-not-allowed' : 'cursor-pointer'}`}
             >
               <span className={`absolute top-[3px] left-[3px] w-4 h-4 bg-white rounded-full shadow transition-transform ${
@@ -1890,7 +1890,7 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
             </button>
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2">
-                <p className={`text-[13px] font-semibold ${hasHeadlineDoc ? 'text-gray-800' : 'text-gray-500'}`}>
+                <p className={`text-[13px] font-semibold ${hasHeadlineDoc ? 'text-textdark' : 'text-textmid'}`}>
                   Headline Juicer
                 </p>
                 {headlineJuicerOn && hasHeadlineDoc && (
@@ -1898,7 +1898,7 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
                 )}
                 <InfoTooltip text="When enabled, your headline reference documents (Headline Engine, 100 Greatest Headlines, Swipe File) are sent to the AI as creative inspiration. Headlines will be more varied and punchy. Upload reference docs in Settings → Headline Generator Reference Docs." />
               </div>
-              <p className={`text-[11px] ${hasHeadlineDoc ? 'text-gray-500' : 'text-gray-400'}`}>
+              <p className={`text-[11px] ${hasHeadlineDoc ? 'text-textmid' : 'text-textlight'}`}>
                 {hasHeadlineDoc
                   ? 'Use your headline reference documents as creative fuel for more diverse headlines'
                   : 'Upload headline reference documents in Settings to enable this'}
@@ -1911,14 +1911,14 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
         <div className="my-6 -mx-6">
           <button
             onClick={() => setOptionalOpen(prev => !prev)}
-            className="w-full py-3 px-4 bg-gray-50/80 border-y border-gray-200/60 flex items-center justify-between hover:bg-gray-100/60 transition-colors"
+            className="w-full py-3 px-4 bg-offwhite border-y border-black/5 flex items-center justify-between hover:bg-black/5 transition-colors"
           >
             <div className="text-left">
-              <p className="text-[12px] font-semibold text-gray-500 uppercase tracking-wider">Optional Fields</p>
-              <p className="text-[11px] text-gray-400 mt-0.5">Topic, headline, body copy, and prompt guidelines — the AI handles these if left blank.</p>
+              <p className="text-[12px] font-semibold text-textmid uppercase tracking-wider">Optional Fields</p>
+              <p className="text-[11px] text-textlight mt-0.5">Topic, headline, body copy, and prompt guidelines — the AI handles these if left blank.</p>
             </div>
             <svg
-              className={`w-4 h-4 text-gray-400 transition-transform duration-200 ${optionalOpen ? 'rotate-180' : ''}`}
+              className={`w-4 h-4 text-textlight transition-transform duration-200 ${optionalOpen ? 'rotate-180' : ''}`}
               fill="none" stroke="currentColor" viewBox="0 0 24 24"
             >
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
@@ -1931,17 +1931,17 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
                 {/* Ad Topic / Angle */}
                 <div>
                   <div className="flex items-center justify-between mb-1.5">
-                    <label className="block text-[13px] font-medium text-gray-600">
+                    <label className="block text-[13px] font-medium text-textmid">
                       Ad Topic / Angle
                     </label>
                     <button
                       onClick={handleGenerateAngle}
                       disabled={generatingAngle}
-                      className="inline-flex items-center gap-1 text-[11px] font-semibold text-blue-600 hover:text-blue-700 disabled:opacity-50 transition-colors"
+                      className="inline-flex items-center gap-1 text-[11px] font-semibold text-gold hover:text-gold/80 disabled:opacity-50 transition-colors"
                     >
                       {generatingAngle ? (
                         <>
-                          <div className="w-3 h-3 rounded-full border-2 border-blue-300 border-t-blue-600 animate-spin" />
+                          <div className="w-3 h-3 rounded-full border-2 border-navy/30 border-t-navy animate-spin" />
                           Generating...
                         </>
                       ) : (
@@ -1966,17 +1966,17 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
                 {/* Headline */}
                 <div>
                   <div className="flex items-center justify-between mb-1.5">
-                    <label className="block text-[13px] font-medium text-gray-600">
+                    <label className="block text-[13px] font-medium text-textmid">
                       Headline
                     </label>
                     <button
                       onClick={handleGenerateHeadline}
                       disabled={generatingHeadline}
-                      className="inline-flex items-center gap-1 text-[11px] font-semibold text-blue-600 hover:text-blue-700 disabled:opacity-50 transition-colors"
+                      className="inline-flex items-center gap-1 text-[11px] font-semibold text-gold hover:text-gold/80 disabled:opacity-50 transition-colors"
                     >
                       {generatingHeadline ? (
                         <>
-                          <div className="w-3 h-3 rounded-full border-2 border-blue-300 border-t-blue-600 animate-spin" />
+                          <div className="w-3 h-3 rounded-full border-2 border-navy/30 border-t-navy animate-spin" />
                           Generating...
                         </>
                       ) : (
@@ -2003,12 +2003,12 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
                   <div className="md:col-span-2">
                     <button
                       onClick={handleGenerateFromAngle}
-                      className="w-full py-2.5 px-4 rounded-xl bg-gradient-to-r from-blue-50 to-indigo-50 border border-blue-200/60 hover:border-blue-300 hover:from-blue-100 hover:to-indigo-100 transition-all flex items-center justify-center gap-2 group"
+                      className="w-full py-2.5 px-4 rounded-xl bg-gradient-to-r from-navy/5 to-navy/10 border border-navy/15 hover:border-navy/30 hover:from-navy/10 hover:to-navy/15 transition-all flex items-center justify-center gap-2 group"
                     >
-                      <svg className="w-4 h-4 text-blue-500 group-hover:text-blue-600 transition-colors" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                      <svg className="w-4 h-4 text-navy group-hover:text-navy transition-colors" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.455 2.456L21.75 6l-1.036.259a3.375 3.375 0 00-2.455 2.456z" />
                       </svg>
-                      <span className="text-[12px] font-semibold text-blue-600 group-hover:text-blue-700 transition-colors">
+                      <span className="text-[12px] font-semibold text-navy group-hover:text-navy transition-colors">
                         Generate headline & body copy for this angle
                       </span>
                     </button>
@@ -2018,18 +2018,18 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
                 {/* Body Copy — full width, with style selector + regenerate */}
                 <div className="md:col-span-2">
                   <div className="flex items-center justify-between mb-1.5">
-                    <label className="block text-[13px] font-medium text-gray-600">
+                    <label className="block text-[13px] font-medium text-textmid">
                       Body Copy
                     </label>
                     {headline.trim() && (
                       <button
                         onClick={() => handleRegenerateBody()}
                         disabled={generatingBody}
-                        className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-blue-600 hover:text-blue-700 disabled:opacity-50 transition-colors"
+                        className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-gold hover:text-gold/80 disabled:opacity-50 transition-colors"
                       >
                         {generatingBody ? (
                           <>
-                            <div className="w-3 h-3 rounded-full border-2 border-blue-300 border-t-blue-600 animate-spin" />
+                            <div className="w-3 h-3 rounded-full border-2 border-navy/30 border-t-navy animate-spin" />
                             Generating...
                           </>
                         ) : (
@@ -2063,8 +2063,8 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
                         }}
                         className={`flex-1 px-2 py-1.5 rounded-lg text-center transition-all ${
                           bodyCopyStyle === s.value
-                            ? 'bg-blue-50 border border-blue-200 text-blue-700 shadow-sm'
-                            : 'bg-gray-50 border border-gray-200/60 text-gray-500 hover:bg-gray-100'
+                            ? 'bg-navy/10 border border-navy/20 text-navy shadow-sm'
+                            : 'bg-offwhite border border-black/5 text-textmid hover:bg-black/5'
                         }`}
                       >
                         <p className="text-[11px] font-semibold">{s.label}</p>
@@ -2082,7 +2082,7 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
                     disabled={generatingBody}
                   />
                   {sourceQuoteId && (
-                    <p className="text-[10px] text-purple-500 mt-1 flex items-center gap-1">
+                    <p className="text-[10px] text-navy mt-1 flex items-center gap-1">
                       <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" d="M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m9.86-3.07a4.5 4.5 0 00-1.242-7.244l4.5-4.5a4.5 4.5 0 016.364 6.364l-1.757 1.757" />
                       </svg>
@@ -2095,21 +2095,21 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
               {/* Prompt Guidelines */}
               <div className="mb-2">
                 <div className="flex items-center justify-between mb-1.5">
-                  <label className="block text-[13px] font-medium text-gray-600 flex items-center gap-1">
+                  <label className="block text-[13px] font-medium text-textmid flex items-center gap-1">
                     Prompt Guidelines
                     <InfoTooltip text="Rules the AI will enforce on every generated image prompt. Use this to fix recurring issues in your ads." position="right" />
                   </label>
                   {guidelinesSaving && (
-                    <span className="text-[11px] text-gray-400 flex items-center gap-1">
-                      <div className="w-2.5 h-2.5 rounded-full border border-gray-300 border-t-blue-400 animate-spin" />
+                    <span className="text-[11px] text-textlight flex items-center gap-1">
+                      <div className="w-2.5 h-2.5 rounded-full border border-black/10 border-t-navy/60 animate-spin" />
                       Saving...
                     </span>
                   )}
                   {!guidelinesSaving && promptGuidelines.trim() && (
-                    <span className="text-[11px] text-green-500">Saved</span>
+                    <span className="text-[11px] text-teal">Saved</span>
                   )}
                 </div>
-                <p className="text-[11px] text-amber-500 mb-2">
+                <p className="text-[11px] text-gold mb-2">
                   Optional — only needed if you're noticing a recurring pattern in the output you'd like to correct.
                 </p>
                 <textarea
@@ -2119,7 +2119,7 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
                   className="input-apple resize-none text-[13px]"
                   placeholder='e.g., "Only show one type of produce at a time — never mix fruits/vegetables in the same image"'
                 />
-                <p className="text-[11px] text-gray-400 mt-1">
+                <p className="text-[11px] text-textlight mt-1">
                   These rules are automatically applied to every image prompt before generation. Changes auto-save.
                 </p>
               </div>
@@ -2133,12 +2133,12 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
             ref={editPanelRef}
             className={`mb-5 p-4 border rounded-xl transition-all duration-700 ${
               editPanelFlash
-                ? 'bg-blue-100/60 border-blue-400 shadow-lg shadow-blue-200/50 ring-2 ring-blue-300/50'
-                : 'bg-blue-50/30 border-blue-200/60'
+                ? 'bg-navy/10 border-gold shadow-lg shadow-navy/20 ring-2 ring-navy/30'
+                : 'bg-navy/5 border-navy/15'
             }`}
           >
             <div className="flex items-center justify-between mb-2">
-              <label className="block text-[13px] font-semibold text-blue-700">
+              <label className="block text-[13px] font-semibold text-navy">
                 Edit Image
               </label>
               <button
@@ -2154,19 +2154,19 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
                 <img
                   src={editingAdImage}
                   alt="Ad being edited"
-                  className="max-h-96 rounded-lg border border-blue-200/60 shadow-sm object-contain"
+                  className="max-h-96 rounded-lg border border-navy/15 shadow-sm object-contain"
                 />
               </div>
             )}
 
             {/* Mode tabs */}
-            <div className="flex gap-1 mb-3 bg-gray-100/80 rounded-lg p-0.5">
+            <div className="flex gap-1 mb-3 bg-black/5 rounded-lg p-0.5">
               <button
                 onClick={() => setEditMode('describe')}
                 className={`flex-1 text-[12px] py-1.5 px-3 rounded-md transition-all font-medium ${
                   editMode === 'describe'
-                    ? 'bg-white text-blue-700 shadow-sm'
-                    : 'text-gray-500 hover:text-gray-700'
+                    ? 'bg-white text-navy shadow-sm'
+                    : 'text-textmid hover:text-textdark'
                 }`}
               >
                 Describe Edit
@@ -2175,8 +2175,8 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
                 onClick={() => setEditMode('direct')}
                 className={`flex-1 text-[12px] py-1.5 px-3 rounded-md transition-all font-medium ${
                   editMode === 'direct'
-                    ? 'bg-white text-blue-700 shadow-sm'
-                    : 'text-gray-500 hover:text-gray-700'
+                    ? 'bg-white text-navy shadow-sm'
+                    : 'text-textmid hover:text-textdark'
                 }`}
               >
                 Edit Prompt Directly
@@ -2187,8 +2187,8 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
               /* Describe Edit mode — natural language + optional reference image */
               <div>
                 <div className="flex items-center gap-2 mb-2">
-                  <span className="text-[10px] font-semibold text-blue-500 bg-blue-100/60 px-1.5 py-0.5 rounded">Step 1</span>
-                  <p className="text-[11px] text-blue-600/70">
+                  <span className="text-[10px] font-semibold text-navy bg-navy/10 px-1.5 py-0.5 rounded">Step 1</span>
+                  <p className="text-[11px] text-navy/70">
                     Describe what to change — AI will rewrite the prompt for you.
                   </p>
                 </div>
@@ -2198,7 +2198,7 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
                   onChange={e => setEditInstruction(e.target.value)}
                   rows={3}
                   placeholder={'e.g., "Change the background to warm orange sunset tones" or "The product shown is wrong \u2014 I\u2019ve attached the correct one"'}
-                  className="input-apple resize-none border-blue-300/80 bg-white text-[13px] mb-2"
+                  className="input-apple resize-none border-navy/30 bg-white text-[13px] mb-2"
                   onKeyDown={e => {
                     if (e.key === 'Enter' && (e.metaKey || e.ctrlKey) && !isApplyingEdit) {
                       e.preventDefault();
@@ -2209,15 +2209,15 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
 
                 {/* Reference image upload */}
                 {editReferenceFile && editReferencePreview ? (
-                  <div className="flex items-center gap-3 mb-2 p-2 bg-blue-50/50 border border-blue-200/40 rounded-lg">
+                  <div className="flex items-center gap-3 mb-2 p-2 bg-navy/5 border border-navy/10 rounded-lg">
                     <img
                       src={editReferencePreview}
                       alt="Reference"
-                      className="w-10 h-10 object-cover rounded-lg border border-blue-200/60"
+                      className="w-10 h-10 object-cover rounded-lg border border-navy/15"
                     />
                     <div className="flex-1 min-w-0">
-                      <p className="text-[11px] text-gray-700 truncate">{editReferenceFile.name}</p>
-                      <p className="text-[10px] text-gray-400">{(editReferenceFile.size / 1024).toFixed(0)} KB</p>
+                      <p className="text-[11px] text-textdark truncate">{editReferenceFile.name}</p>
+                      <p className="text-[10px] text-textlight">{(editReferenceFile.size / 1024).toFixed(0)} KB</p>
                     </div>
                     <button
                       onClick={() => {
@@ -2247,8 +2247,8 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
                     }}
                     className={`flex flex-col items-center justify-center gap-1 mb-2 px-3 py-4 rounded-lg border-2 border-dashed cursor-pointer transition-all ${
                       editRefDragOver
-                        ? 'border-blue-400 bg-blue-50 text-blue-600'
-                        : 'border-blue-300/70 bg-blue-50/40 hover:border-blue-400 hover:bg-blue-50/70 text-blue-500 hover:text-blue-600'
+                        ? 'border-gold bg-navy/5 text-navy'
+                        : 'border-navy/30 bg-navy/5 hover:border-gold hover:bg-navy/10 text-gold hover:text-gold/80'
                     }`}
                   >
                     <svg className="w-5 h-5 mb-0.5 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -2258,7 +2258,7 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
                       {editRefDragOver ? 'Drop image here' : 'Attach a reference image'}
                     </span>
                     {!editRefDragOver && (
-                      <span className="text-[10px] text-blue-400">
+                      <span className="text-[10px] text-navy/60">
                         Click to browse or drag & drop
                       </span>
                     )}
@@ -2282,13 +2282,13 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
                 {project?.productImageUrl && !productFile && (
                   <div className={`flex items-center gap-3 p-2 rounded-lg mb-2 ${
                     skipProductImage
-                      ? 'bg-amber-50/50 border border-amber-200/50'
-                      : 'bg-emerald-50/50 border border-emerald-200/50'
+                      ? 'bg-gold/5 border border-gold/15'
+                      : 'bg-teal/5 border border-teal/15'
                   }`}>
                     <button
                       onClick={() => setSkipProductImage(prev => !prev)}
                       className={`relative w-8 h-[18px] rounded-full transition-colors flex-shrink-0 cursor-pointer ${
-                        !skipProductImage ? 'bg-emerald-500' : 'bg-gray-300'
+                        !skipProductImage ? 'bg-teal' : 'bg-textlight'
                       }`}
                     >
                       <span className={`absolute top-[2px] left-[2px] w-3.5 h-3.5 bg-white rounded-full shadow transition-transform ${
@@ -2299,10 +2299,10 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
                       <img
                         src={project.productImageUrl}
                         alt="Product"
-                        className="w-6 h-6 object-cover rounded border border-emerald-200/60 flex-shrink-0"
+                        className="w-6 h-6 object-cover rounded border border-teal/15 flex-shrink-0"
                       />
                     )}
-                    <p className={`text-[10px] font-medium ${skipProductImage ? 'text-amber-600' : 'text-emerald-600'}`}>
+                    <p className={`text-[10px] font-medium ${skipProductImage ? 'text-gold' : 'text-teal'}`}>
                       {skipProductImage ? 'Product image off' : 'Product image on'}
                     </p>
                   </div>
@@ -2313,8 +2313,8 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
                   disabled={isApplyingEdit || !editInstruction.trim()}
                   className={`text-[12px] font-medium px-4 py-2 rounded-lg transition-all ${
                     isApplyingEdit || !editInstruction.trim()
-                      ? 'bg-gray-100 text-gray-400 cursor-not-allowed'
-                      : 'bg-blue-600 text-white hover:bg-blue-700 shadow-sm'
+                      ? 'bg-black/5 text-textlight cursor-not-allowed'
+                      : 'bg-navy text-white hover:bg-navy-light shadow-sm'
                   }`}
                 >
                   {isApplyingEdit ? (
@@ -2324,24 +2324,24 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
                     </span>
                   ) : 'Update Prompt'}
                 </button>
-                <span className="text-[10px] text-gray-400 ml-2">{navigator.platform?.includes('Mac') ? '⌘' : 'Ctrl'}+Enter</span>
+                <span className="text-[10px] text-textlight ml-2">{navigator.platform?.includes('Mac') ? '⌘' : 'Ctrl'}+Enter</span>
               </div>
             ) : (
               /* Direct edit mode — raw prompt textarea */
               <div>
-                <p className="text-[11px] text-blue-600/70 mb-2">
+                <p className="text-[11px] text-navy/70 mb-2">
                   Review or tweak the prompt, then generate.
                 </p>
                 <textarea
                   value={customPrompt}
                   onChange={e => setCustomPrompt(e.target.value)}
                   rows={8}
-                  className="input-apple resize-none border-blue-300/80 bg-white font-mono text-[12px]"
+                  className="input-apple resize-none border-navy/30 bg-white font-mono text-[12px]"
                 />
                 {originalPromptRef && customPrompt !== originalPromptRef && (
                   <button
                     onClick={() => setCustomPrompt(originalPromptRef)}
-                    className="text-[11px] text-gray-400 hover:text-gray-600 mt-1.5 transition-colors"
+                    className="text-[11px] text-textlight hover:text-textmid mt-1.5 transition-colors"
                   >
                     Reset to original prompt
                   </button>
@@ -2351,13 +2351,13 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
                 {project?.productImageUrl && !productFile && (
                   <div className={`flex items-center gap-3 p-2 rounded-lg mt-3 ${
                     skipProductImage
-                      ? 'bg-amber-50/50 border border-amber-200/50'
-                      : 'bg-emerald-50/50 border border-emerald-200/50'
+                      ? 'bg-gold/5 border border-gold/15'
+                      : 'bg-teal/5 border border-teal/15'
                   }`}>
                     <button
                       onClick={() => setSkipProductImage(prev => !prev)}
                       className={`relative w-8 h-[18px] rounded-full transition-colors flex-shrink-0 cursor-pointer ${
-                        !skipProductImage ? 'bg-emerald-500' : 'bg-gray-300'
+                        !skipProductImage ? 'bg-teal' : 'bg-textlight'
                       }`}
                     >
                       <span className={`absolute top-[2px] left-[2px] w-3.5 h-3.5 bg-white rounded-full shadow transition-transform ${
@@ -2368,10 +2368,10 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
                       <img
                         src={project.productImageUrl}
                         alt="Product"
-                        className="w-6 h-6 object-cover rounded border border-emerald-200/60 flex-shrink-0"
+                        className="w-6 h-6 object-cover rounded border border-teal/15 flex-shrink-0"
                       />
                     )}
-                    <p className={`text-[10px] font-medium ${skipProductImage ? 'text-amber-600' : 'text-emerald-600'}`}>
+                    <p className={`text-[10px] font-medium ${skipProductImage ? 'text-gold' : 'text-teal'}`}>
                       {skipProductImage ? 'Product image off' : 'Product image on'}
                     </p>
                   </div>
@@ -2384,8 +2384,8 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
         {/* Step 2 hint — shown after user has updated the prompt via Step 1 */}
         {isCustomPromptMode && promptUpdated && (
           <div className="flex items-center gap-2 mb-2 fade-in">
-            <span className="text-[10px] font-semibold text-green-600 bg-green-100/60 px-1.5 py-0.5 rounded">Step 2</span>
-            <p className="text-[11px] text-gray-500">
+            <span className="text-[10px] font-semibold text-teal bg-teal/10 px-1.5 py-0.5 rounded">Step 2</span>
+            <p className="text-[11px] text-textmid">
               Review the prompt above, then generate your new image.
             </p>
           </div>
@@ -2401,7 +2401,7 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
             : 'Generate Ad'}
         </button>
         {activeGenCount > 0 && (
-          <p className="text-[11px] text-gray-400 mt-1.5">
+          <p className="text-[11px] text-textlight mt-1.5">
             {activeGenCount} generation{activeGenCount !== 1 ? 's' : ''} in progress — you can generate more while waiting
           </p>
         )}
@@ -2429,9 +2429,9 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
       <div>
         <div className="flex items-center justify-between mb-4">
           <div>
-            <h3 className="text-[15px] font-semibold text-gray-900 tracking-tight flex items-center gap-1">Ad Gallery <InfoTooltip text="All generated ad creatives for this project. Click an ad to view details, download, or edit the prompt." position="right" /></h3>
+            <h3 className="text-[15px] font-semibold text-textdark tracking-tight flex items-center gap-1">Ad Gallery <InfoTooltip text="All generated ad creatives for this project. Click an ad to view details, download, or edit the prompt." position="right" /></h3>
             {ads.length > 0 && (
-              <p className="text-[12px] text-gray-400">
+              <p className="text-[12px] text-textlight">
                 {filteredAds.length} ad{filteredAds.length !== 1 ? 's' : ''}
                 {hiddenByDateCount > 0 && ` (${hiddenByDateCount} older hidden)`}
                 {galleryFilter !== 'all' && ` · ${ads.length} total`}
@@ -2488,14 +2488,14 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
             <div className="flex items-center gap-1 ml-2">
               <button
                 onClick={() => setGalleryView('grid')}
-                className={`p-1.5 rounded-md transition-colors ${galleryView === 'grid' ? 'bg-gray-100 text-gray-700' : 'text-gray-300 hover:text-gray-500'}`}
+                className={`p-1.5 rounded-md transition-colors ${galleryView === 'grid' ? 'bg-black/5 text-textdark' : 'text-textlight/60 hover:text-textmid'}`}
                 title="Grid view"
               >
                 <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 16 16"><rect x="1" y="1" width="6" height="6" rx="1"/><rect x="9" y="1" width="6" height="6" rx="1"/><rect x="1" y="9" width="6" height="6" rx="1"/><rect x="9" y="9" width="6" height="6" rx="1"/></svg>
               </button>
               <button
                 onClick={() => setGalleryView('list')}
-                className={`p-1.5 rounded-md transition-colors ${galleryView === 'list' ? 'bg-gray-100 text-gray-700' : 'text-gray-300 hover:text-gray-500'}`}
+                className={`p-1.5 rounded-md transition-colors ${galleryView === 'list' ? 'bg-black/5 text-textdark' : 'text-textlight/60 hover:text-textmid'}`}
                 title="List view"
               >
                 <svg className="w-4 h-4" fill="currentColor" viewBox="0 0 16 16"><rect x="1" y="1.5" width="14" height="3" rx="0.75"/><rect x="1" y="6.5" width="14" height="3" rx="0.75"/><rect x="1" y="11.5" width="14" height="3" rx="0.75"/></svg>
@@ -2509,12 +2509,12 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
           <div className="flex items-center gap-3 mb-3">
             <button
               onClick={allFilteredSelected ? clearSelection : selectAllFiltered}
-              className="text-[12px] font-medium text-blue-600 hover:text-blue-700 transition-colors"
+              className="text-[12px] font-medium text-gold hover:text-gold/80 transition-colors"
             >
               {allFilteredSelected ? 'Deselect All' : 'Select All'}
             </button>
             {selectedCount > 0 && (
-              <span className="text-[12px] text-gray-400">
+              <span className="text-[12px] text-textlight">
                 {selectedCount} selected
               </span>
             )}
@@ -2538,20 +2538,20 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
           </div>
         ) : ads.length === 0 ? (
           <div className="card p-12 text-center">
-            <div className="w-12 h-12 mx-auto mb-3 rounded-2xl bg-gray-100 flex items-center justify-center">
-              <svg className="w-6 h-6 text-gray-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <div className="w-12 h-12 mx-auto mb-3 rounded-2xl bg-black/5 flex items-center justify-center">
+              <svg className="w-6 h-6 text-textlight" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909M3.75 21h16.5a2.25 2.25 0 002.25-2.25V6.75a2.25 2.25 0 00-2.25-2.25H3.75a2.25 2.25 0 00-2.25 2.25v12a2.25 2.25 0 002.25 2.25z" />
               </svg>
             </div>
-            <h4 className="font-medium text-gray-600 text-[14px] mb-1">No Ads Yet</h4>
-            <p className="text-[12px] text-gray-400 max-w-sm mx-auto">
+            <h4 className="font-medium text-textmid text-[14px] mb-1">No Ads Yet</h4>
+            <p className="text-[12px] text-textlight max-w-sm mx-auto">
               Choose a template source above and click Generate to create your first ad.
             </p>
           </div>
         ) : filteredAds.length === 0 ? (
           <div className="card p-8 text-center">
-            <p className="text-[13px] text-gray-500 mb-1">No {galleryFilter === 'batch' ? 'batch' : 'individual'} ads yet</p>
-            <p className="text-[12px] text-gray-400">
+            <p className="text-[13px] text-textmid mb-1">No {galleryFilter === 'batch' ? 'batch' : 'individual'} ads yet</p>
+            <p className="text-[12px] text-textlight">
               {galleryFilter === 'batch'
                 ? 'Run a batch generation to see ads here.'
                 : 'Generate an ad above to see it here.'}
@@ -2563,11 +2563,11 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
               <div
                 key={ad.id}
                 className={`group card overflow-hidden transition-all duration-300 hover:-translate-y-0.5 ${
-                  selectedAdIds.has(ad.id) ? 'ring-2 ring-blue-500 ring-offset-1' : ''
+                  selectedAdIds.has(ad.id) ? 'ring-2 ring-navy ring-offset-1' : ''
                 }`}
               >
                 <div
-                  className="aspect-square bg-gray-50 cursor-pointer relative overflow-hidden"
+                  className="aspect-square bg-offwhite cursor-pointer relative overflow-hidden"
                   onClick={() => {
                     if (ad.status !== 'completed') return;
                     if (selectedCount > 0) toggleAdSelection(ad.id);
@@ -2587,7 +2587,7 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
                       {ad.status === 'failed' ? (
                         <svg className="w-6 h-6 text-red-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" /></svg>
                       ) : (
-                        <div className="w-6 h-6 rounded-full border-2 border-gray-200 border-t-blue-400 animate-spin" />
+                        <div className="w-6 h-6 rounded-full border-2 border-black/5 border-t-navy/60 animate-spin" />
                       )}
                     </div>
                   )}
@@ -2598,7 +2598,7 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
                       onClick={(e) => toggleAdSelection(ad.id, e)}
                       className={`absolute top-2 left-2 z-10 w-6 h-6 rounded-lg flex items-center justify-center transition-all duration-200 ${
                         selectedAdIds.has(ad.id)
-                          ? 'bg-blue-500 text-white shadow-sm'
+                          ? 'bg-navy text-white shadow-sm'
                           : 'bg-black/30 backdrop-blur-sm text-white/80 opacity-0 group-hover:opacity-100 hover:bg-black/50'
                       }`}
                       title={selectedAdIds.has(ad.id) ? 'Deselect' : 'Select for bulk download'}
@@ -2617,9 +2617,9 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
 
                   {/* Mode badge */}
                   <div className={`absolute top-2 ${ad.status === 'completed' ? 'left-10' : 'left-2'} badge ${
-                    ad.status === 'completed' ? 'bg-white/80 backdrop-blur-sm text-gray-600' :
+                    ad.status === 'completed' ? 'bg-white/80 backdrop-blur-sm text-textmid' :
                     ad.status === 'failed' ? 'bg-red-100/80 text-red-600' :
-                    'bg-blue-100/80 text-blue-600'
+                    'bg-navy/10 text-navy'
                   }`}>
                     {ad.generation_mode === 'image_only' ? 'RE' : ad.generation_mode === 'mode2' ? 'T' : 'Ad'}
                   </div>
@@ -2690,14 +2690,14 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
                   )}
 
                   {ad.drive_url && !ad.is_favorite && (
-                    <div className="absolute top-2 right-2 badge bg-white/80 backdrop-blur-sm text-gray-500">
+                    <div className="absolute top-2 right-2 badge bg-white/80 backdrop-blur-sm text-textmid">
                       <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.25 15a4.5 4.5 0 004.5 4.5H18a3.75 3.75 0 001.332-7.257 3 3 0 00-3.758-3.848 5.25 5.25 0 00-10.233 2.33A4.502 4.502 0 002.25 15z" /></svg>
                     </div>
                   )}
 
                   {/* Deployed badge */}
                   {deployedAdIds.has(ad.id) && (
-                    <div className="absolute bottom-2 left-2 flex items-center gap-1 px-2 py-1 rounded-lg bg-emerald-500/90 backdrop-blur-sm text-white text-[10px] font-semibold shadow-sm">
+                    <div className="absolute bottom-2 left-2 flex items-center gap-1 px-2 py-1 rounded-lg bg-teal/90 backdrop-blur-sm text-white text-[10px] font-semibold shadow-sm">
                       <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12.75L11.25 15 15 9.75M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
                       Deployed
                     </div>
@@ -2706,25 +2706,25 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
 
                 <div className="p-3">
                   <div className="flex items-center justify-between mb-0.5">
-                    <span className="text-[11px] text-gray-400">{ad.aspect_ratio}</span>
-                    <span className="text-[11px] text-gray-400">{formatDateTime(ad.created_at)}</span>
+                    <span className="text-[11px] text-textlight">{ad.aspect_ratio}</span>
+                    <span className="text-[11px] text-textlight">{formatDateTime(ad.created_at)}</span>
                   </div>
                   {ad.angle && (
-                    <p className="text-[12px] text-gray-700 font-medium truncate" title={ad.angle}>
+                    <p className="text-[12px] text-textdark font-medium truncate" title={ad.angle}>
                       {ad.angle}
                     </p>
                   )}
                   {/* Tags */}
                   <div className="flex items-center gap-1 mt-1 flex-wrap">
                     {(ad.tags || []).slice(0, 3).map(tag => (
-                      <span key={tag} className="text-[10px] px-1.5 py-0.5 bg-blue-50 text-blue-600 rounded-full">{tag}</span>
+                      <span key={tag} className="text-[10px] px-1.5 py-0.5 bg-navy/5 text-navy rounded-full">{tag}</span>
                     ))}
                     {(ad.tags || []).length > 3 && (
-                      <span className="text-[10px] text-gray-400">+{ad.tags.length - 3}</span>
+                      <span className="text-[10px] text-textlight">+{ad.tags.length - 3}</span>
                     )}
                     <button
                       onClick={(e) => { e.stopPropagation(); setTagEditAd(ad); }}
-                      className="text-[10px] px-1.5 py-0.5 rounded-full text-gray-300 hover:text-blue-500 hover:bg-blue-50 transition-colors"
+                      className="text-[10px] px-1.5 py-0.5 rounded-full text-textlight/60 hover:text-gold hover:bg-gold/5 transition-colors"
                       title="Add tag"
                     >
                       + tag
@@ -2736,7 +2736,7 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
                         href={ad.drive_url}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="text-[11px] text-blue-500 hover:text-blue-600 transition-colors"
+                        className="text-[11px] text-gold hover:text-gold/80 transition-colors"
                         onClick={e => e.stopPropagation()}
                       >
                         Drive
@@ -2759,8 +2759,8 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
             {filteredAds.map(ad => (
               <div
                 key={ad.id}
-                className={`flex items-center gap-3 p-2.5 rounded-xl hover:bg-gray-50 cursor-pointer transition-colors ${
-                  selectedAdIds.has(ad.id) ? 'bg-blue-50/50 ring-1 ring-blue-200' : ''
+                className={`flex items-center gap-3 p-2.5 rounded-xl hover:bg-black/[0.02] cursor-pointer transition-colors ${
+                  selectedAdIds.has(ad.id) ? 'bg-navy/5 ring-1 ring-navy/20' : ''
                 }`}
                 onClick={() => {
                   if (ad.status !== 'completed') return;
@@ -2774,8 +2774,8 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
                     onClick={(e) => toggleAdSelection(ad.id, e)}
                     className={`w-5 h-5 rounded-md flex items-center justify-center flex-shrink-0 transition-colors ${
                       selectedAdIds.has(ad.id)
-                        ? 'bg-blue-500 text-white'
-                        : 'border border-gray-200 hover:border-gray-300'
+                        ? 'bg-navy text-white'
+                        : 'border border-black/5 hover:border-black/10'
                     }`}
                   >
                     {selectedAdIds.has(ad.id) && (
@@ -2785,7 +2785,7 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
                 )}
 
                 {/* Thumbnail */}
-                <div className="w-12 h-12 rounded-lg overflow-hidden bg-gray-100 flex-shrink-0">
+                <div className="w-12 h-12 rounded-lg overflow-hidden bg-black/5 flex-shrink-0">
                   {(ad.thumbnailUrl || ad.imageUrl) && ad.status === 'completed' ? (
                     <img src={ad.thumbnailUrl || ad.imageUrl} alt="" className="w-full h-full object-cover" loading="lazy" decoding="async" />
                   ) : ad.status === 'failed' ? (
@@ -2794,24 +2794,24 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
                     </div>
                   ) : (
                     <div className="w-full h-full flex items-center justify-center">
-                      <div className="w-4 h-4 rounded-full border-2 border-gray-200 border-t-blue-400 animate-spin" />
+                      <div className="w-4 h-4 rounded-full border-2 border-black/5 border-t-navy/60 animate-spin" />
                     </div>
                   )}
                 </div>
 
                 {/* Info */}
                 <div className="flex-1 min-w-0">
-                  <p className="text-[13px] font-medium text-gray-900 truncate">{ad.angle || 'No angle'}</p>
+                  <p className="text-[13px] font-medium text-textdark truncate">{ad.angle || 'No angle'}</p>
                   <div className="flex items-center gap-1 mt-0.5 flex-wrap">
                     {(ad.tags || []).slice(0, 4).map(tag => (
-                      <span key={tag} className="text-[10px] px-1.5 py-0.5 bg-blue-50 text-blue-600 rounded-full">{tag}</span>
+                      <span key={tag} className="text-[10px] px-1.5 py-0.5 bg-navy/5 text-navy rounded-full">{tag}</span>
                     ))}
                     {(ad.tags || []).length > 4 && (
-                      <span className="text-[10px] text-gray-400">+{ad.tags.length - 4}</span>
+                      <span className="text-[10px] text-textlight">+{ad.tags.length - 4}</span>
                     )}
                     <button
                       onClick={(e) => { e.stopPropagation(); setTagEditAd(ad); }}
-                      className="text-[10px] px-1.5 py-0.5 rounded-full text-gray-300 hover:text-blue-500 hover:bg-blue-50 transition-colors"
+                      className="text-[10px] px-1.5 py-0.5 rounded-full text-textlight/60 hover:text-gold hover:bg-gold/5 transition-colors"
                       title="Add tag"
                     >
                       + tag
@@ -2820,13 +2820,13 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
                 </div>
 
                 {/* Metadata */}
-                <span className="text-[11px] text-gray-400 flex-shrink-0 hidden sm:inline">{ad.aspect_ratio}</span>
-                <span className="text-[11px] text-gray-400 flex-shrink-0 w-32 text-right hidden md:inline">{formatDateTime(ad.created_at)}</span>
-                <span className="text-[10px] px-2 py-0.5 bg-gray-100 text-gray-500 rounded-full flex-shrink-0 hidden sm:inline">
+                <span className="text-[11px] text-textlight flex-shrink-0 hidden sm:inline">{ad.aspect_ratio}</span>
+                <span className="text-[11px] text-textlight flex-shrink-0 w-32 text-right hidden md:inline">{formatDateTime(ad.created_at)}</span>
+                <span className="text-[10px] px-2 py-0.5 bg-black/5 text-textmid rounded-full flex-shrink-0 hidden sm:inline">
                   {ad.auto_generated ? 'Batch' : ad.generation_mode === 'image_only' ? 'Edit' : ad.generation_mode === 'mode2' ? 'Template' : 'Individual'}
                 </span>
                 {deployedAdIds.has(ad.id) && (
-                  <span className="text-[10px] px-2 py-0.5 bg-emerald-100 text-emerald-700 rounded-full flex-shrink-0 font-medium hidden sm:inline">
+                  <span className="text-[10px] px-2 py-0.5 bg-teal/10 text-teal rounded-full flex-shrink-0 font-medium hidden sm:inline">
                     Deployed
                   </span>
                 )}
@@ -2836,21 +2836,21 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
                   <>
                     <button
                       onClick={(e) => handleToggleFavorite(ad, e)}
-                      className={`transition-colors flex-shrink-0 ${ad.is_favorite ? 'text-rose-500' : 'text-gray-300 hover:text-rose-400'}`}
+                      className={`transition-colors flex-shrink-0 ${ad.is_favorite ? 'text-rose-500' : 'text-textlight/60 hover:text-rose-400'}`}
                       title={ad.is_favorite ? 'Remove from favorites' : 'Add to favorites'}
                     >
                       <svg className="w-4 h-4" fill={ad.is_favorite ? 'currentColor' : 'none'} stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M21 8.25c0-2.485-2.099-4.5-4.688-4.5-1.935 0-3.597 1.126-4.312 2.733-.715-1.607-2.377-2.733-4.313-2.733C5.1 3.75 3 5.765 3 8.25c0 7.22 9 12 9 12s9-4.78 9-12z" /></svg>
                     </button>
                     <button
                       onClick={(e) => { e.stopPropagation(); handleRedo(ad, e); }}
-                      className="text-[11px] text-gray-300 hover:text-purple-500 transition-colors flex-shrink-0"
+                      className="text-[11px] text-textlight/60 hover:text-navy transition-colors flex-shrink-0"
                       title="Reuse settings"
                     >
                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15.666 3.888A2.25 2.25 0 0013.5 2.25h-3a2.25 2.25 0 00-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 01-.75.75H9.75a.75.75 0 01-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 01-2.25 2.25H6.75A2.25 2.25 0 014.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 011.927-.184" /></svg>
                     </button>
                     <button
                       onClick={(e) => { e.stopPropagation(); handleRegenerate(ad, e); }}
-                      className="text-[11px] text-gray-300 hover:text-blue-500 transition-colors flex-shrink-0"
+                      className="text-[11px] text-textlight/60 hover:text-navy transition-colors flex-shrink-0"
                       title="Regenerate"
                     >
                       <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182M20.015 4.356v4.992" /></svg>
@@ -2859,7 +2859,7 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
                 )}
                 <button
                   onClick={(e) => { e.stopPropagation(); handleDelete(ad.id); }}
-                  className="text-[11px] text-gray-300 hover:text-red-500 transition-colors flex-shrink-0"
+                  className="text-[11px] text-textlight/60 hover:text-red-500 transition-colors flex-shrink-0"
                   title="Delete"
                 >
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" /></svg>
@@ -2874,12 +2874,12 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
       {tagEditAd && (
         <div className="fixed inset-0 z-50" onClick={() => { setTagEditAd(null); setTagInput(''); }}>
           <div
-            className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-white rounded-2xl shadow-xl border border-gray-200/60 p-4 w-80"
+            className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 bg-white rounded-2xl shadow-xl border border-black/5 p-4 w-80"
             onClick={e => e.stopPropagation()}
           >
             <div className="flex items-center justify-between mb-3">
-              <h4 className="text-[13px] font-semibold text-gray-900">Tags</h4>
-              <button onClick={() => { setTagEditAd(null); setTagInput(''); }} className="text-gray-400 hover:text-gray-600">
+              <h4 className="text-[13px] font-semibold text-textdark">Tags</h4>
+              <button onClick={() => { setTagEditAd(null); setTagInput(''); }} className="text-textlight hover:text-textmid">
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
               </button>
             </div>
@@ -2887,18 +2887,18 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
             {/* Current tags */}
             <div className="flex flex-wrap gap-1.5 mb-3 min-h-[28px]">
               {(tagEditAd.tags || []).map(tag => (
-                <span key={tag} className="inline-flex items-center gap-1 text-[11px] px-2 py-1 bg-blue-50 text-blue-600 rounded-full">
+                <span key={tag} className="inline-flex items-center gap-1 text-[11px] px-2 py-1 bg-navy/5 text-navy rounded-full">
                   {tag}
                   <button
                     onClick={() => handleRemoveTag(tagEditAd, tag)}
-                    className="text-blue-400 hover:text-blue-600"
+                    className="text-navy/60 hover:text-navy"
                   >
                     <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
                   </button>
                 </span>
               ))}
               {(!tagEditAd.tags || tagEditAd.tags.length === 0) && (
-                <span className="text-[11px] text-gray-400">No tags yet</span>
+                <span className="text-[11px] text-textlight">No tags yet</span>
               )}
             </div>
 
@@ -2915,7 +2915,7 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
                 value={tagInput}
                 onChange={e => setTagInput(e.target.value)}
                 placeholder="Add a tag..."
-                className="w-full text-[12px] px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-300"
+                className="w-full text-[12px] px-3 py-2 border border-black/5 rounded-lg focus:outline-none focus:ring-2 focus:ring-gold/20 focus:border-gold"
                 autoFocus
               />
             </form>
@@ -2926,7 +2926,7 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
                 <button
                   key={tag}
                   onClick={() => handleAddTag(tagEditAd, tag)}
-                  className="text-[10px] px-2 py-1 bg-gray-50 text-gray-500 rounded-full hover:bg-blue-50 hover:text-blue-600 transition-colors"
+                  className="text-[10px] px-2 py-1 bg-offwhite text-textmid rounded-full hover:bg-navy/5 hover:text-navy transition-colors"
                 >
                   {tag}
                 </button>
@@ -2943,10 +2943,10 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
           onClick={() => setViewAd(null)}
         >
           <div
-            className="relative max-w-5xl w-full max-h-[90vh] bg-white rounded-2xl overflow-hidden shadow-apple-xl flex flex-col md:flex-row fade-in"
+            className="relative max-w-5xl w-full max-h-[90vh] bg-white rounded-2xl overflow-hidden shadow-card-hover flex flex-col md:flex-row fade-in"
             onClick={e => e.stopPropagation()}
           >
-            <div className="flex-1 bg-gray-50 flex items-center justify-center p-2 min-h-[300px]">
+            <div className="flex-1 bg-offwhite flex items-center justify-center p-2 min-h-[300px]">
               <img
                 src={viewAd.imageUrl}
                 alt={`Ad - ${viewAd.angle || 'No angle'}`}
@@ -2954,16 +2954,16 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
               />
             </div>
 
-            <div className="w-full md:w-80 border-t md:border-t-0 md:border-l border-gray-200/60 p-5 overflow-y-auto max-h-[40vh] md:max-h-[90vh] scrollbar-thin">
+            <div className="w-full md:w-80 border-t md:border-t-0 md:border-l border-black/5 p-5 overflow-y-auto max-h-[40vh] md:max-h-[90vh] scrollbar-thin">
               <div className="flex items-center justify-between mb-4">
                 <div className="flex items-center gap-2">
-                  <h4 className="text-[15px] font-semibold text-gray-900 tracking-tight">Ad Details</h4>
+                  <h4 className="text-[15px] font-semibold text-textdark tracking-tight">Ad Details</h4>
                   <button
                     onClick={(e) => handleToggleFavorite(viewAd, e)}
                     className={`w-7 h-7 rounded-lg flex items-center justify-center transition-all ${
                       viewAd.is_favorite
                         ? 'text-rose-500 bg-rose-50 hover:bg-rose-100'
-                        : 'text-gray-300 hover:text-rose-400 hover:bg-rose-50'
+                        : 'text-textlight/60 hover:text-rose-400 hover:bg-rose-50'
                     }`}
                     title={viewAd.is_favorite ? 'Remove from favorites' : 'Add to favorites'}
                   >
@@ -2974,7 +2974,7 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
                 </div>
                 <button
                   onClick={() => setViewAd(null)}
-                  className="w-7 h-7 rounded-lg bg-gray-100 flex items-center justify-center text-gray-400 hover:text-gray-600 hover:bg-gray-200 transition-all"
+                  className="w-7 h-7 rounded-lg bg-black/5 flex items-center justify-center text-textlight hover:text-textmid hover:bg-black/10 transition-all"
                 >
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
                 </button>
@@ -2984,7 +2984,7 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
               <div className="flex gap-2 mb-5">
                 <button
                   onClick={(e) => handleDownload(viewAd, e)}
-                  className="flex-1 flex items-center justify-center gap-1.5 py-2 px-3 bg-gray-900 text-white rounded-xl text-[12px] font-medium hover:bg-gray-800 transition-colors"
+                  className="flex-1 flex items-center justify-center gap-1.5 py-2 px-3 bg-navy text-white rounded-xl text-[12px] font-medium hover:bg-navy-light transition-colors"
                 >
                   <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
@@ -3003,7 +3003,7 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
                 {viewAd.image_prompt && (
                   <button
                     onClick={(e) => handleEditPrompt(viewAd, e)}
-                    className="flex-1 flex items-center justify-center gap-1.5 py-2 px-3 bg-blue-500 text-white rounded-xl text-[12px] font-medium hover:bg-blue-600 transition-colors"
+                    className="flex-1 flex items-center justify-center gap-1.5 py-2 px-3 bg-navy text-white rounded-xl text-[12px] font-medium hover:bg-navy-light transition-colors"
                   >
                     <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" />
@@ -3016,23 +3016,23 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
               <div className="mb-5">
                 <button
                   onClick={(e) => handleRedo(viewAd, e)}
-                  className="w-full flex items-center justify-center gap-1.5 py-2 px-3 bg-purple-50 text-purple-700 border border-purple-200 rounded-xl text-[12px] font-medium hover:bg-purple-100 transition-colors"
+                  className="w-full flex items-center justify-center gap-1.5 py-2 px-3 bg-navy/5 text-navy border border-navy/15 rounded-xl text-[12px] font-medium hover:bg-navy/10 transition-colors"
                 >
                   <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.666 3.888A2.25 2.25 0 0013.5 2.25h-3a2.25 2.25 0 00-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 01-.75.75H9.75a.75.75 0 01-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 01-2.25 2.25H6.75A2.25 2.25 0 014.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 011.927-.184" />
                   </svg>
                   Reuse Settings
                 </button>
-                <p className="text-[10px] text-gray-400 mt-1 text-center">
+                <p className="text-[10px] text-textlight mt-1 text-center">
                   Copies this ad's settings into the form so you can iterate on it.
                 </p>
               </div>
 
               {/* Edit workflow explanation */}
               {viewAd.image_prompt && (
-                <div className="mb-5 p-3 bg-blue-50/50 border border-blue-200/40 rounded-xl">
-                  <p className="text-[11px] font-medium text-blue-700 mb-1">How editing works</p>
-                  <p className="text-[10px] text-blue-600/70 leading-relaxed">
+                <div className="mb-5 p-3 bg-navy/5 border border-navy/10 rounded-xl">
+                  <p className="text-[11px] font-medium text-navy mb-1">How editing works</p>
+                  <p className="text-[10px] text-navy/70 leading-relaxed">
                     Click "Edit" to open the editor. Describe what you want to change in plain English and AI will update the prompt — or switch to direct editing for manual control. The original ad stays untouched.
                   </p>
                 </div>
@@ -3041,66 +3041,66 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
               <div className="space-y-4 text-[13px]">
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <p className="text-[11px] text-gray-400 mb-0.5">Source</p>
-                    <p className="text-gray-900 text-[12px]">
+                    <p className="text-[11px] text-textlight mb-0.5">Source</p>
+                    <p className="text-textdark text-[12px]">
                       {viewAd.auto_generated ? 'Batch' :
                        viewAd.generation_mode === 'image_only' ? 'Prompt Edit' :
                        viewAd.generation_mode === 'mode2' ? 'Template' : 'Individual'}
                     </p>
                   </div>
                   <div>
-                    <p className="text-[11px] text-gray-400 mb-0.5">Aspect Ratio</p>
-                    <p className="text-gray-900 text-[12px]">{viewAd.aspect_ratio}</p>
+                    <p className="text-[11px] text-textlight mb-0.5">Aspect Ratio</p>
+                    <p className="text-textdark text-[12px]">{viewAd.aspect_ratio}</p>
                   </div>
                 </div>
                 {viewAd.angle && (
                   <div>
-                    <p className="text-[11px] text-gray-400 mb-0.5">Ad Topic / Angle</p>
-                    <p className="text-gray-900">{viewAd.angle}</p>
+                    <p className="text-[11px] text-textlight mb-0.5">Ad Topic / Angle</p>
+                    <p className="text-textdark">{viewAd.angle}</p>
                   </div>
                 )}
                 {viewAd.headline && (
                   <div>
-                    <p className="text-[11px] text-gray-400 mb-0.5">Headline</p>
-                    <p className="text-gray-900">{viewAd.headline}</p>
+                    <p className="text-[11px] text-textlight mb-0.5">Headline</p>
+                    <p className="text-textdark">{viewAd.headline}</p>
                   </div>
                 )}
                 {viewAd.body_copy && (
                   <div>
-                    <p className="text-[11px] text-gray-400 mb-0.5">Body Copy</p>
-                    <p className="text-gray-900">{viewAd.body_copy}</p>
+                    <p className="text-[11px] text-textlight mb-0.5">Body Copy</p>
+                    <p className="text-textdark">{viewAd.body_copy}</p>
                   </div>
                 )}
                 {viewAd.template_image_id && (
                   <div>
-                    <p className="text-[11px] text-gray-400 mb-0.5">Template Image</p>
+                    <p className="text-[11px] text-textlight mb-0.5">Template Image</p>
                     <div className="flex items-center gap-2">
                       <img
                         src={`/api/projects/${projectId}/templates/${viewAd.template_image_id}/file`}
                         alt="Template"
-                        className="w-10 h-10 object-cover rounded-lg border border-gray-200/60"
+                        className="w-10 h-10 object-cover rounded-lg border border-black/5"
                       />
-                      <span className="text-gray-600 text-[12px]">{getTemplateName(viewAd.template_image_id)}</span>
+                      <span className="text-textmid text-[12px]">{getTemplateName(viewAd.template_image_id)}</span>
                     </div>
                   </div>
                 )}
                 {viewAd.source_quote_text && (
                   <div>
-                    <p className="text-[11px] text-gray-400 mb-0.5">Source Quote</p>
-                    <p className="text-gray-600 text-[12px] leading-relaxed italic bg-purple-50/50 p-2.5 rounded-xl border border-purple-100/60">
+                    <p className="text-[11px] text-textlight mb-0.5">Source Quote</p>
+                    <p className="text-textmid text-[12px] leading-relaxed italic bg-navy/5 p-2.5 rounded-xl border border-navy/10">
                       &ldquo;{viewAd.source_quote_text}&rdquo;
                     </p>
                   </div>
                 )}
                 {viewAd.parent_ad_id && (
                   <div>
-                    <p className="text-[11px] text-gray-400 mb-0.5">Derived From</p>
+                    <p className="text-[11px] text-textlight mb-0.5">Derived From</p>
                     <button
                       onClick={() => {
                         const parentAd = ads.find(a => a.id === viewAd.parent_ad_id);
                         if (parentAd) setViewAd(parentAd);
                       }}
-                      className="text-blue-500 hover:text-blue-600 text-[13px] transition-colors"
+                      className="text-gold hover:text-gold/80 text-[13px] transition-colors"
                     >
                       View parent ad
                     </button>
@@ -3108,17 +3108,17 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
                 )}
                 <div className="grid grid-cols-2 gap-3">
                   <div>
-                    <p className="text-[11px] text-gray-400 mb-0.5">Created</p>
-                    <p className="text-gray-900 text-[12px]">{parseDate(viewAd.created_at)?.toLocaleString() || 'Unknown'}</p>
+                    <p className="text-[11px] text-textlight mb-0.5">Created</p>
+                    <p className="text-textdark text-[12px]">{parseDate(viewAd.created_at)?.toLocaleString() || 'Unknown'}</p>
                   </div>
                   {viewAd.drive_url && (
                     <div>
-                      <p className="text-[11px] text-gray-400 mb-0.5">Google Drive</p>
+                      <p className="text-[11px] text-textlight mb-0.5">Google Drive</p>
                       <a
                         href={viewAd.drive_url}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="text-blue-500 hover:text-blue-600 text-[12px] transition-colors"
+                        className="text-gold hover:text-gold/80 text-[12px] transition-colors"
                       >
                         Open in Drive
                       </a>
@@ -3127,14 +3127,14 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
                 </div>
                 {/* Tags */}
                 <div>
-                  <p className="text-[11px] text-gray-400 mb-1.5">Tags</p>
+                  <p className="text-[11px] text-textlight mb-1.5">Tags</p>
                   <div className="flex flex-wrap gap-1.5">
                     {(viewAd.tags || []).map(tag => (
-                      <span key={tag} className="inline-flex items-center gap-1 text-[11px] px-2 py-1 bg-blue-50 text-blue-600 rounded-full">
+                      <span key={tag} className="inline-flex items-center gap-1 text-[11px] px-2 py-1 bg-navy/5 text-navy rounded-full">
                         {tag}
                         <button
                           onClick={() => handleRemoveTag(viewAd, tag)}
-                          className="text-blue-400 hover:text-blue-600"
+                          className="text-navy/60 hover:text-navy"
                         >
                           <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
                         </button>
@@ -3142,7 +3142,7 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
                     ))}
                     <button
                       onClick={() => setTagEditAd(viewAd)}
-                      className="text-[11px] px-2 py-1 border border-dashed border-gray-200 text-gray-400 rounded-full hover:border-blue-300 hover:text-blue-500 transition-colors"
+                      className="text-[11px] px-2 py-1 border border-dashed border-black/5 text-textlight rounded-full hover:border-navy/30 hover:text-navy transition-colors"
                     >
                       + Add tag
                     </button>
@@ -3150,13 +3150,13 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
                 </div>
                 {viewAd.image_prompt && (
                   <div>
-                    <p className="text-[11px] text-gray-400 mb-1">Image Prompt</p>
-                    <p className="text-gray-600 text-[12px] leading-relaxed max-h-40 overflow-y-auto whitespace-pre-wrap bg-gray-50/50 p-3 rounded-xl scrollbar-thin font-mono">
+                    <p className="text-[11px] text-textlight mb-1">Image Prompt</p>
+                    <p className="text-textmid text-[12px] leading-relaxed max-h-40 overflow-y-auto whitespace-pre-wrap bg-offwhite p-3 rounded-xl scrollbar-thin font-mono">
                       {viewAd.image_prompt}
                     </p>
                   </div>
                 )}
-                <div className="pt-3 border-t border-gray-100/80">
+                <div className="pt-3 border-t border-black/5">
                   <button
                     onClick={() => handleDelete(viewAd.id)}
                     className="text-[12px] text-red-500 hover:text-red-600 transition-colors"
@@ -3188,12 +3188,12 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
 
             return (
               <div
-                className="absolute bottom-full left-1/2 -translate-x-1/2 mb-3 bg-white rounded-2xl shadow-xl border border-gray-200/60 p-4 w-80"
+                className="absolute bottom-full left-1/2 -translate-x-1/2 mb-3 bg-white rounded-2xl shadow-xl border border-black/5 p-4 w-80"
                 onClick={e => e.stopPropagation()}
               >
                 <div className="flex items-center justify-between mb-3">
-                  <h4 className="text-[13px] font-semibold text-gray-900">Tag {selectedCount} ad{selectedCount !== 1 ? 's' : ''}</h4>
-                  <button onClick={() => { setBulkTagOpen(false); setBulkTagInput(''); }} className="text-gray-400 hover:text-gray-600">
+                  <h4 className="text-[13px] font-semibold text-textdark">Tag {selectedCount} ad{selectedCount !== 1 ? 's' : ''}</h4>
+                  <button onClick={() => { setBulkTagOpen(false); setBulkTagInput(''); }} className="text-textlight hover:text-textmid">
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
                   </button>
                 </div>
@@ -3201,18 +3201,18 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
                 {/* Current tags across selected ads */}
                 <div className="flex flex-wrap gap-1.5 mb-3 min-h-[28px]">
                   {allTags.map(([tag, count]) => (
-                    <span key={tag} className="inline-flex items-center gap-1 text-[11px] px-2 py-1 bg-blue-50 text-blue-600 rounded-full">
+                    <span key={tag} className="inline-flex items-center gap-1 text-[11px] px-2 py-1 bg-navy/5 text-navy rounded-full">
                       {tag}{count < selectedCount && ` (${count})`}
                       <button
                         onClick={() => handleBulkRemoveTag(tag)}
-                        className="text-blue-400 hover:text-blue-600"
+                        className="text-navy/60 hover:text-navy"
                       >
                         <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
                       </button>
                     </span>
                   ))}
                   {allTags.length === 0 && (
-                    <span className="text-[11px] text-gray-400">No tags yet</span>
+                    <span className="text-[11px] text-textlight">No tags yet</span>
                   )}
                 </div>
 
@@ -3229,7 +3229,7 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
                     value={bulkTagInput}
                     onChange={e => setBulkTagInput(e.target.value)}
                     placeholder="Add a tag..."
-                    className="w-full text-[12px] px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500/20 focus:border-blue-300"
+                    className="w-full text-[12px] px-3 py-2 border border-black/5 rounded-lg focus:outline-none focus:ring-2 focus:ring-gold/20 focus:border-gold"
                     autoFocus
                   />
                 </form>
@@ -3240,7 +3240,7 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
                     <button
                       key={tag}
                       onClick={() => handleBulkAddTag(tag)}
-                      className="text-[10px] px-2 py-1 bg-gray-50 text-gray-500 rounded-full hover:bg-blue-50 hover:text-blue-600 transition-colors"
+                      className="text-[10px] px-2 py-1 bg-offwhite text-textmid rounded-full hover:bg-navy/5 hover:text-navy transition-colors"
                     >
                       {tag}
                     </button>
@@ -3250,7 +3250,7 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
             );
           })()}
 
-          <div className="flex items-center gap-3 px-5 py-3 bg-gray-900/95 backdrop-blur-sm rounded-2xl shadow-lg border border-white/10">
+          <div className="flex items-center gap-3 px-5 py-3 bg-navy/95 backdrop-blur-sm rounded-2xl shadow-lg border border-white/10">
             <span className="text-[13px] text-white font-medium">
               {selectedCount} ad{selectedCount !== 1 ? 's' : ''} selected
             </span>
@@ -3260,7 +3260,7 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
             <button
               onClick={handleDeploy}
               disabled={isDeploying}
-              className="flex items-center gap-1.5 px-4 py-1.5 bg-emerald-500 hover:bg-emerald-600 disabled:bg-emerald-400 text-white text-[13px] font-medium rounded-xl transition-colors"
+              className="flex items-center gap-1.5 px-4 py-1.5 bg-teal hover:bg-teal/90 disabled:bg-teal/60 text-white text-[13px] font-medium rounded-xl transition-colors"
             >
               {isDeploying ? (
                 <>
@@ -3290,7 +3290,7 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
             <button
               onClick={handleBulkDownload}
               disabled={isBulkDownloading}
-              className="flex items-center gap-1.5 px-4 py-1.5 bg-blue-500 hover:bg-blue-600 disabled:bg-blue-400 text-white text-[13px] font-medium rounded-xl transition-colors"
+              className="flex items-center gap-1.5 px-4 py-1.5 bg-navy hover:bg-navy-light disabled:bg-navy/60 text-white text-[13px] font-medium rounded-xl transition-colors"
             >
               {isBulkDownloading ? (
                 <>

@@ -7,32 +7,32 @@ const PERIODS = [
 ];
 
 const OPERATION_META = {
-  image_generation: { label: 'Images (manual)', color: 'bg-emerald-400', icon: '' },
-  image_generation_batch: { label: 'Images (batch)', color: 'bg-purple-400', icon: '' },
-  ad_creative_director: { label: 'Creative direction', color: 'bg-blue-400', icon: '' },
-  foundational_docs: { label: 'Docs & research', color: 'bg-amber-400', icon: '' },
-  doc_correction: { label: 'Doc corrections', color: 'bg-violet-400', icon: '' },
-  batch_brief_extraction: { label: 'Brief extraction', color: 'bg-violet-300', icon: '' },
-  batch_headline_generation: { label: 'Headlines (batch)', color: 'bg-violet-400', icon: '' },
-  batch_body_copy: { label: 'Body copy (batch)', color: 'bg-violet-300', icon: '' },
-  batch_image_prompt: { label: 'Image prompts (batch)', color: 'bg-violet-400', icon: '' },
-  ad_angle_generation: { label: 'Angle generation', color: 'bg-violet-300', icon: '' },
-  ad_headline_generation: { label: 'Headline generation', color: 'bg-violet-400', icon: '' },
-  headline_generation: { label: 'Headlines', color: 'bg-violet-300', icon: '' },
-  headline_generation_per_quote: { label: 'Headlines (per quote)', color: 'bg-violet-400', icon: '' },
-  headline_generation_more: { label: 'Headlines (more)', color: 'bg-violet-300', icon: '' },
-  quote_mining: { label: 'Quote mining (Perplexity)', color: 'bg-cyan-400', icon: '' },
-  quote_mining_web_search: { label: 'Quote mining (Claude)', color: 'bg-violet-300', icon: '' },
-  other: { label: 'Other', color: 'bg-gray-300', icon: '' },
-  unknown: { label: 'Other', color: 'bg-gray-300', icon: '' },
+  image_generation: { label: 'Images (manual)', color: 'bg-teal', icon: '' },
+  image_generation_batch: { label: 'Images (batch)', color: 'bg-teal/70', icon: '' },
+  ad_creative_director: { label: 'Creative direction', color: 'bg-[#5B8DEF]', icon: '' },
+  foundational_docs: { label: 'Docs & research', color: 'bg-[#5B8DEF]/70', icon: '' },
+  doc_correction: { label: 'Doc corrections', color: 'bg-[#7C6DCD]', icon: '' },
+  batch_brief_extraction: { label: 'Brief extraction', color: 'bg-[#7C6DCD]/70', icon: '' },
+  batch_headline_generation: { label: 'Headlines (batch)', color: 'bg-[#7C6DCD]', icon: '' },
+  batch_body_copy: { label: 'Body copy (batch)', color: 'bg-[#7C6DCD]/70', icon: '' },
+  batch_image_prompt: { label: 'Image prompts (batch)', color: 'bg-[#7C6DCD]', icon: '' },
+  ad_angle_generation: { label: 'Angle generation', color: 'bg-[#7C6DCD]/70', icon: '' },
+  ad_headline_generation: { label: 'Headline generation', color: 'bg-[#7C6DCD]', icon: '' },
+  headline_generation: { label: 'Headlines', color: 'bg-[#7C6DCD]/70', icon: '' },
+  headline_generation_per_quote: { label: 'Headlines (per quote)', color: 'bg-[#7C6DCD]', icon: '' },
+  headline_generation_more: { label: 'Headlines (more)', color: 'bg-[#7C6DCD]/70', icon: '' },
+  quote_mining: { label: 'Quote mining (Perplexity)', color: 'bg-gold', icon: '' },
+  quote_mining_web_search: { label: 'Quote mining (Claude)', color: 'bg-[#7C6DCD]/70', icon: '' },
+  other: { label: 'Other', color: 'bg-textlight/50', icon: '' },
+  unknown: { label: 'Other', color: 'bg-textlight/50', icon: '' },
 };
 
 // Service definitions for the breakdown bar + legend
 const SERVICE_DEFS = [
-  { key: 'openai', label: 'OpenAI', barClass: 'bg-blue-400', dotClass: 'bg-blue-400' },
-  { key: 'anthropic', label: 'Anthropic', barClass: 'bg-violet-400', dotClass: 'bg-violet-400' },
-  { key: 'gemini', label: 'Gemini', barClass: 'bg-emerald-400', dotClass: 'bg-emerald-400' },
-  { key: 'perplexity', label: 'Perplexity', barClass: 'bg-cyan-400', dotClass: 'bg-cyan-400' },
+  { key: 'openai', label: 'OpenAI', barClass: 'bg-[#5B8DEF]', dotClass: 'bg-[#5B8DEF]' },
+  { key: 'anthropic', label: 'Anthropic', barClass: 'bg-[#7C6DCD]', dotClass: 'bg-[#7C6DCD]' },
+  { key: 'gemini', label: 'Gemini', barClass: 'bg-teal', dotClass: 'bg-teal' },
+  { key: 'perplexity', label: 'Perplexity', barClass: 'bg-gold', dotClass: 'bg-gold' },
 ];
 
 function formatCost(value) {
@@ -60,7 +60,7 @@ export default function CostSummaryCards({ costs, loading }) {
           <div key={i} className="card p-4 animate-pulse">
             <div className="h-3 w-16 bg-gray-200 rounded mb-3" />
             <div className="h-6 w-24 bg-gray-200 rounded mb-2" />
-            <div className="h-2 w-full bg-gray-100 rounded" />
+            <div className="h-2 w-full bg-black/5 rounded" />
           </div>
         ))}
       </div>
@@ -103,15 +103,15 @@ export default function CostSummaryCards({ costs, loading }) {
 
         return (
           <div key={period.key} className="card p-4">
-            <p className="text-[11px] font-medium text-gray-400 uppercase tracking-wider mb-1">
+            <p className="text-[11px] font-medium text-textlight uppercase tracking-wider mb-1">
               {period.label}
             </p>
             <div className="flex items-baseline gap-3 mb-2">
-              <p className="text-xl font-semibold text-gray-900 tracking-tight">
+              <p className="text-xl font-semibold text-textdark tracking-tight">
                 {formatCost(total)}
               </p>
               {totalImages > 0 && (
-                <span className="text-[11px] text-gray-400 font-medium">
+                <span className="text-[11px] text-textlight font-medium">
                   {totalImages} image{totalImages !== 1 ? 's' : ''}
                 </span>
               )}
@@ -120,7 +120,7 @@ export default function CostSummaryCards({ costs, loading }) {
             {total > 0 && (
               <>
                 {/* Service breakdown bar */}
-                <div className="w-full h-1.5 rounded-full bg-gray-100 overflow-hidden mb-2 flex">
+                <div className="w-full h-1.5 rounded-full bg-black/5 overflow-hidden mb-2 flex">
                   {services.map((s, idx) => (
                     <div
                       key={s.key}
@@ -137,7 +137,7 @@ export default function CostSummaryCards({ costs, loading }) {
                 </div>
 
                 {/* Service legend */}
-                <div className="flex items-center gap-3 text-[10px] text-gray-400 mb-3 flex-wrap">
+                <div className="flex items-center gap-3 text-[10px] text-textlight mb-3 flex-wrap">
                   {services.map(s => (
                     <span key={s.key} className="flex items-center gap-1">
                       <span className={`w-2 h-2 rounded-full ${s.dotClass}`} />
@@ -151,7 +151,7 @@ export default function CostSummaryCards({ costs, loading }) {
                   <>
                     <button
                       onClick={() => toggleCard(period.key)}
-                      className="flex items-center gap-1 text-[10px] text-gray-400 hover:text-gray-600 cursor-pointer mt-1 transition-colors"
+                      className="flex items-center gap-1 text-[10px] text-textlight hover:text-textmid cursor-pointer mt-1 transition-colors"
                     >
                       <svg
                         className={`w-3 h-3 transition-transform duration-200 ${expandedCards.has(period.key) ? 'rotate-180' : ''}`}
@@ -165,21 +165,21 @@ export default function CostSummaryCards({ costs, loading }) {
                     </button>
 
                     {expandedCards.has(period.key) && (
-                      <div className="border-t border-gray-100 pt-2 mt-1.5 space-y-1.5">
+                      <div className="border-t border-black/5 pt-2 mt-1.5 space-y-1.5">
                         {opEntries.map(op => {
                           const meta = OPERATION_META[op.key] || OPERATION_META.other;
                           return (
                             <div key={op.key} className="flex items-center justify-between text-[11px]">
-                              <div className="flex items-center gap-1.5 text-gray-500">
+                              <div className="flex items-center gap-1.5 text-textmid">
                                 <span className={`w-1.5 h-1.5 rounded-full ${meta.color}`} />
                                 <span>{meta.label}</span>
                                 {op.imageCount > 0 && (
-                                  <span className="text-gray-300">
+                                  <span className="text-textlight/60">
                                     ({op.imageCount} img{op.imageCount !== 1 ? 's' : ''})
                                   </span>
                                 )}
                               </div>
-                              <span className="text-gray-500 font-medium tabular-nums">
+                              <span className="text-textmid font-medium tabular-nums">
                                 {formatCost(op.cost)}
                               </span>
                             </div>
@@ -193,7 +193,7 @@ export default function CostSummaryCards({ costs, loading }) {
             )}
 
             {total === 0 && (
-              <p className="text-[11px] text-gray-300">No costs recorded</p>
+              <p className="text-[11px] text-textlight/60">No costs recorded</p>
             )}
           </div>
         );

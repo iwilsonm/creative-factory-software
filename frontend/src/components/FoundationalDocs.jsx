@@ -44,9 +44,9 @@ function formatDate(dateStr) {
 }
 
 const SOURCE_LABELS = {
-  uploaded: { label: 'Uploaded', color: 'bg-blue-100 text-blue-700' },
-  generated: { label: 'Generated', color: 'bg-purple-100 text-purple-700' },
-  manual_research: { label: 'Manual Research', color: 'bg-green-100 text-green-700' }
+  uploaded: { label: 'Uploaded', color: 'bg-navy/10 text-navy' },
+  generated: { label: 'Generated', color: 'bg-gold/10 text-gold' },
+  manual_research: { label: 'Manual Research', color: 'bg-teal/10 text-teal' }
 };
 
 // ─── Relative time helper for correction history ─────────────────────────────
@@ -117,14 +117,14 @@ function CopyCorrection({ projectId, onDocsUpdated, onCorrectionApplied }) {
   };
 
   return (
-    <div className="bg-amber-50/60 border border-amber-200/60 rounded-xl p-4">
+    <div className="bg-gold/5 border border-gold/15 rounded-xl p-4">
       <div className="flex items-center gap-2 mb-2">
-        <div className="w-6 h-6 rounded-md bg-amber-100 flex items-center justify-center flex-shrink-0">
-          <svg className="w-3.5 h-3.5 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <div className="w-6 h-6 rounded-md bg-gold/10 flex items-center justify-center flex-shrink-0">
+          <svg className="w-3.5 h-3.5 text-gold" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
           </svg>
         </div>
-        <span className="text-[13px] font-semibold text-gray-800">Fix Inaccurate Info</span>
+        <span className="text-[13px] font-semibold text-textdark">Fix Inaccurate Info</span>
         <InfoTooltip text="Noticed wrong claims in your ad copy? Describe the correction here and AI will scan all foundational documents to find and fix the source." position="right" />
       </div>
 
@@ -164,11 +164,11 @@ function CopyCorrection({ projectId, onDocsUpdated, onCorrectionApplied }) {
         <div className="mt-3">
           {results.corrections.length > 0 ? (
             <>
-              <p className="text-[12px] font-medium text-gray-700 mb-2">{results.message}</p>
+              <p className="text-[12px] font-medium text-textdark mb-2">{results.message}</p>
               <div className="space-y-2">
                 {results.corrections.map((c, i) => (
                   <div key={i} className="bg-white rounded-lg border border-gray-200 p-3">
-                    <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider mb-1.5">
+                    <p className="text-[11px] font-semibold text-textmid uppercase tracking-wider mb-1.5">
                       {c.doc_label}
                     </p>
                     <div className="space-y-1">
@@ -177,8 +177,8 @@ function CopyCorrection({ projectId, onDocsUpdated, onCorrectionApplied }) {
                         <p className="text-[12px] text-red-700 bg-red-50 rounded px-2 py-1 line-through">{c.old_text}</p>
                       </div>
                       <div className="flex items-start gap-2">
-                        <span className="text-[10px] font-medium text-green-500 mt-0.5 flex-shrink-0">NEW</span>
-                        <p className="text-[12px] text-green-700 bg-green-50 rounded px-2 py-1">{c.new_text}</p>
+                        <span className="text-[10px] font-medium text-teal mt-0.5 flex-shrink-0">NEW</span>
+                        <p className="text-[12px] text-teal bg-teal/5 rounded px-2 py-1">{c.new_text}</p>
                       </div>
                     </div>
                   </div>
@@ -195,14 +195,14 @@ function CopyCorrection({ projectId, onDocsUpdated, onCorrectionApplied }) {
                 <button
                   onClick={handleCancel}
                   disabled={applying}
-                  className="text-[12px] text-gray-500 hover:text-gray-700 px-3 py-1.5"
+                  className="text-[12px] text-textmid hover:text-textdark px-3 py-1.5"
                 >
                   Cancel
                 </button>
               </div>
             </>
           ) : (
-            <p className="text-[12px] text-gray-500 mt-1">{results.message || 'No matching claims found in any document. Try rephrasing your correction.'}</p>
+            <p className="text-[12px] text-textmid mt-1">{results.message || 'No matching claims found in any document. Try rephrasing your correction.'}</p>
           )}
         </div>
       )}
@@ -244,20 +244,20 @@ function Changelog({ projectId, onDocsUpdated, refreshKey }) {
       >
         {history.length > 0 && (
           <svg
-            className={`w-4 h-4 text-gray-400 transition-transform duration-200 ${open ? 'rotate-90' : ''}`}
+            className={`w-4 h-4 text-textlight transition-transform duration-200 ${open ? 'rotate-90' : ''}`}
             fill="none" stroke="currentColor" viewBox="0 0 24 24"
           >
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
           </svg>
         )}
         <div className="w-7 h-7 rounded-lg bg-gray-100 flex items-center justify-center flex-shrink-0">
-          <svg className="w-4 h-4 text-gray-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <svg className="w-4 h-4 text-textmid" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
           </svg>
         </div>
         <div>
-          <h3 className="text-[14px] font-semibold text-gray-900 tracking-tight">Changelog</h3>
-          <p className="text-[11px] text-gray-400">
+          <h3 className="text-[14px] font-semibold text-textdark tracking-tight">Changelog</h3>
+          <p className="text-[11px] text-textlight">
             {history.length === 0
               ? 'No changes recorded yet — edits and AI fixes will appear here'
               : `${history.length} change${history.length !== 1 ? 's' : ''} recorded`}
@@ -279,35 +279,35 @@ function Changelog({ projectId, onDocsUpdated, refreshKey }) {
                     onClick={() => setExpandedId(isExpanded ? null : entry.id)}
                   >
                     <svg
-                      className={`w-3.5 h-3.5 text-gray-400 flex-shrink-0 transition-transform duration-200 ${isExpanded ? 'rotate-90' : ''}`}
+                      className={`w-3.5 h-3.5 text-textlight flex-shrink-0 transition-transform duration-200 ${isExpanded ? 'rotate-90' : ''}`}
                       fill="none" stroke="currentColor" viewBox="0 0 24 24"
                     >
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                     </svg>
                     <div className="flex-1 min-w-0">
                       <div className="flex items-center gap-2">
-                        <p className="text-[13px] text-gray-800 group-hover:text-gray-900 font-medium transition-colors">
+                        <p className="text-[13px] text-textdark group-hover:text-textdark font-medium transition-colors">
                           {entry.correction}
                         </p>
                         {entry.manual ? (
-                          <span className="text-[9px] font-semibold uppercase tracking-wider bg-blue-100 text-blue-600 px-1.5 py-0.5 rounded flex-shrink-0">Edit</span>
+                          <span className="text-[9px] font-semibold uppercase tracking-wider bg-navy/10 text-gold px-1.5 py-0.5 rounded flex-shrink-0">Edit</span>
                         ) : (
-                          <span className="text-[9px] font-semibold uppercase tracking-wider bg-amber-100 text-amber-600 px-1.5 py-0.5 rounded flex-shrink-0">AI Fix</span>
+                          <span className="text-[9px] font-semibold uppercase tracking-wider bg-gold/10 text-gold px-1.5 py-0.5 rounded flex-shrink-0">AI Fix</span>
                         )}
                       </div>
-                      <p className="text-[11px] text-gray-400 mt-0.5">
+                      <p className="text-[11px] text-textlight mt-0.5">
                         {changeCount} doc{changeCount !== 1 ? 's' : ''} changed
                         {' · '}
                         {new Date(entry.timestamp).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
                         {' at '}
                         {new Date(entry.timestamp).toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
-                        <span className="text-gray-300 ml-1">({timeAgo(entry.timestamp)})</span>
+                        <span className="text-textlight/60 ml-1">({timeAgo(entry.timestamp)})</span>
                       </p>
                     </div>
                     <button
                       onClick={(e) => { e.stopPropagation(); handleRevert(entry.id); }}
                       disabled={reverting === entry.id}
-                      className="text-[11px] font-medium text-amber-600 hover:text-amber-800 bg-amber-50 hover:bg-amber-100 px-2.5 py-1 rounded-md transition-colors disabled:opacity-50 flex-shrink-0"
+                      className="text-[11px] font-medium text-gold hover:text-gold/80 bg-gold/5 hover:bg-gold/10 px-2.5 py-1 rounded-md transition-colors disabled:opacity-50 flex-shrink-0"
                     >
                       {reverting === entry.id ? 'Reverting...' : 'Revert'}
                     </button>
@@ -318,7 +318,7 @@ function Changelog({ projectId, onDocsUpdated, refreshKey }) {
                     <div className="mt-3 ml-6 space-y-2 fade-in">
                       {entry.changes.map((change, i) => (
                         <div key={i} className="bg-white rounded-lg border border-gray-200/60 p-3">
-                          <p className="text-[11px] font-semibold text-gray-500 uppercase tracking-wider mb-1.5">
+                          <p className="text-[11px] font-semibold text-textmid uppercase tracking-wider mb-1.5">
                             {change.doc_label || change.doc_type}
                           </p>
                           <div className="space-y-1">
@@ -327,8 +327,8 @@ function Changelog({ projectId, onDocsUpdated, refreshKey }) {
                               <p className="text-[12px] text-red-700 bg-red-50 rounded px-2 py-1 line-through">{change.old_text}</p>
                             </div>
                             <div className="flex items-start gap-2">
-                              <span className="text-[10px] font-medium text-green-500 mt-0.5 flex-shrink-0">NEW</span>
-                              <p className="text-[12px] text-green-700 bg-green-50 rounded px-2 py-1">{change.new_text}</p>
+                              <span className="text-[10px] font-medium text-teal mt-0.5 flex-shrink-0">NEW</span>
+                              <p className="text-[12px] text-teal bg-teal/5 rounded px-2 py-1">{change.new_text}</p>
                             </div>
                           </div>
                         </div>
@@ -691,108 +691,108 @@ export default function FoundationalDocs({ projectId, projectStatus }) {
     return (
       <div className="space-y-6">
         <div className="flex items-center justify-between">
-          <h3 className="text-lg font-semibold text-gray-900">
+          <h3 className="text-lg font-semibold text-textdark">
             {hasDocs ? 'Regenerate Foundational Documents' : 'Generate Foundational Documents'}
           </h3>
-          <button onClick={handleBackToList} className="text-sm text-gray-500 hover:text-gray-700">
+          <button onClick={handleBackToList} className="text-sm text-textmid hover:text-textdark">
             Cancel
           </button>
         </div>
 
-        <p className="text-sm text-gray-600">
+        <p className="text-sm text-textmid">
           Choose how you want to conduct the market research for your foundational documents.
         </p>
 
         <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
           {/* Card 1: Upload Existing Documents */}
-          <div className="border-2 border-blue-200 rounded-lg p-6 hover:border-blue-400 transition-colors bg-blue-50/30">
+          <div className="border-2 border-navy/15 rounded-lg p-6 hover:border-navy/30 transition-colors bg-navy/5">
             <div className="flex items-center gap-2 mb-3">
               <span className="text-2xl">📤</span>
-              <h4 className="font-semibold text-gray-900">Upload Documents</h4>
+              <h4 className="font-semibold text-textdark">Upload Documents</h4>
             </div>
 
-            <p className="text-sm text-gray-600 mb-3">
+            <p className="text-sm text-textmid mb-3">
               Already have your foundational documents? Upload them directly — paste text or drag and drop files.
             </p>
 
             <div className="space-y-2 mb-4">
-              <div className="flex items-center gap-2 text-sm text-blue-700">
+              <div className="flex items-center gap-2 text-sm text-navy">
                 <span>✓</span> Skip all generation steps
               </div>
-              <div className="flex items-center gap-2 text-sm text-blue-700">
+              <div className="flex items-center gap-2 text-sm text-navy">
                 <span>✓</span> Free — no API costs
               </div>
-              <div className="flex items-center gap-2 text-sm text-gray-500">
+              <div className="flex items-center gap-2 text-sm text-textmid">
                 <span>•</span> Drag & drop or paste your docs
               </div>
             </div>
 
             <button
               onClick={handleChooseUpload}
-              className="w-full bg-blue-600 text-white py-2 px-4 rounded-md text-sm font-medium hover:bg-blue-700 transition-colors"
+              className="w-full bg-navy text-white py-2 px-4 rounded-md text-sm font-medium hover:bg-navy-light transition-colors"
             >
               Upload Existing Docs
             </button>
           </div>
 
           {/* Card 2: Manual Research (Recommended) */}
-          <div className="border-2 border-green-200 rounded-lg p-6 hover:border-green-400 transition-colors bg-green-50/30">
+          <div className="border-2 border-teal/15 rounded-lg p-6 hover:border-teal/30 transition-colors bg-teal/5">
             <div className="flex items-center gap-2 mb-3">
               <span className="text-2xl">📋</span>
-              <h4 className="font-semibold text-gray-900">Generate with Prompts</h4>
-              <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">Recommended</span>
+              <h4 className="font-semibold text-textdark">Generate with Prompts</h4>
+              <span className="text-xs bg-teal/10 text-teal px-2 py-0.5 rounded-full">Recommended</span>
             </div>
 
-            <p className="text-sm text-gray-600 mb-3">
+            <p className="text-sm text-textmid mb-3">
               We'll show you the exact prompts to use in ChatGPT or Claude. Do the research yourself, then upload it here.
             </p>
 
             <div className="space-y-2 mb-4">
-              <div className="flex items-center gap-2 text-sm text-green-700">
+              <div className="flex items-center gap-2 text-sm text-teal">
                 <span>✓</span> Free — no API cost for research
               </div>
-              <div className="flex items-center gap-2 text-sm text-green-700">
+              <div className="flex items-center gap-2 text-sm text-teal">
                 <span>✓</span> Use ChatGPT Deep Research or Claude
               </div>
-              <div className="flex items-center gap-2 text-sm text-gray-500">
+              <div className="flex items-center gap-2 text-sm text-textmid">
                 <span>•</span> ~$0.50-2 for synthesis steps (GPT-4.1)
               </div>
             </div>
 
             <button
               onClick={handleChooseManual}
-              className="w-full bg-green-600 text-white py-2 px-4 rounded-md text-sm font-medium hover:bg-green-700 transition-colors"
+              className="w-full bg-teal text-white py-2 px-4 rounded-md text-sm font-medium hover:bg-teal/90 transition-colors"
             >
               Start Manual Research
             </button>
           </div>
 
           {/* Card 3: Automated Deep Research */}
-          <div className="border-2 border-purple-200 rounded-lg p-6 hover:border-purple-400 transition-colors">
+          <div className="border-2 border-gold/15 rounded-lg p-6 hover:border-gold/30 transition-colors">
             <div className="flex items-center gap-2 mb-3">
               <span className="text-2xl">🤖</span>
-              <h4 className="font-semibold text-gray-900">Run Deep Research via API</h4>
+              <h4 className="font-semibold text-textdark">Run Deep Research via API</h4>
             </div>
 
-            <p className="text-sm text-gray-600 mb-3">
+            <p className="text-sm text-textmid mb-3">
               The AI will autonomously browse the web, read forums, reviews, and articles to build a comprehensive research document.
             </p>
 
             <div className="space-y-2 mb-4">
-              <div className="flex items-center gap-2 text-sm text-purple-700">
+              <div className="flex items-center gap-2 text-sm text-navy-mid">
                 <span>•</span> Fully automated, hands-off
               </div>
-              <div className="flex items-center gap-2 text-sm text-purple-700">
+              <div className="flex items-center gap-2 text-sm text-navy-mid">
                 <span>•</span> Takes 5-15 minutes
               </div>
-              <div className="flex items-center gap-2 text-sm text-amber-600 font-medium">
+              <div className="flex items-center gap-2 text-sm text-gold font-medium">
                 <span>⚠️</span> Estimated cost: $10-30 per run
               </div>
             </div>
 
             <button
               onClick={handleChooseAuto}
-              className="w-full bg-purple-600 text-white py-2 px-4 rounded-md text-sm font-medium hover:bg-purple-700 transition-colors"
+              className="w-full bg-gold text-white py-2 px-4 rounded-md text-sm font-medium hover:bg-gold/90 transition-colors"
             >
               Start Automated Research
             </button>
@@ -807,23 +807,23 @@ export default function FoundationalDocs({ projectId, projectStatus }) {
   // ========================
   if (generationMode === 'manual' && manualStep === 1) {
     if (loadingPrompts) {
-      return <div className="text-gray-400 text-center py-8 animate-pulse">Loading research prompts...</div>;
+      return <div className="text-textlight text-center py-8 animate-pulse">Loading research prompts...</div>;
     }
 
     return (
       <div className="space-y-6">
         <div className="flex items-center justify-between">
           <div>
-            <h3 className="text-lg font-semibold text-gray-900">Manual Research Guide</h3>
-            <p className="text-sm text-gray-500">Step 1 of 2: Copy these prompts into ChatGPT or Claude</p>
+            <h3 className="text-lg font-semibold text-textdark">Manual Research Guide</h3>
+            <p className="text-sm text-textmid">Step 1 of 2: Copy these prompts into ChatGPT or Claude</p>
           </div>
-          <button onClick={handleBackToChoice} className="text-sm text-gray-500 hover:text-gray-700">
+          <button onClick={handleBackToChoice} className="text-sm text-textmid hover:text-textdark">
             ← Back
           </button>
         </div>
 
-        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-          <p className="text-sm text-blue-800">
+        <div className="bg-navy/5 border border-navy/15 rounded-lg p-4">
+          <p className="text-sm text-navy">
             <strong>How this works:</strong> Open ChatGPT (GPT-4 recommended) or Claude in a new tab.
             Send these 3 prompts <strong>in sequence, in the same conversation</strong>.
             After prompt 3, the AI will generate a detailed research prompt specific to your product.
@@ -839,15 +839,15 @@ export default function FoundationalDocs({ projectId, projectStatus }) {
               className="w-full flex items-center justify-between p-4 bg-gray-50 hover:bg-gray-100 transition-colors text-left"
             >
               <div className="flex items-center gap-3">
-                <span className="w-7 h-7 bg-blue-100 text-blue-700 rounded-full flex items-center justify-center text-sm font-bold">
+                <span className="w-7 h-7 bg-navy/10 text-navy rounded-full flex items-center justify-center text-sm font-bold">
                   {p.step}
                 </span>
                 <div>
-                  <h4 className="font-medium text-gray-900">{p.title}</h4>
-                  <p className="text-xs text-gray-500">{p.instruction}</p>
+                  <h4 className="font-medium text-textdark">{p.title}</h4>
+                  <p className="text-xs text-textmid">{p.instruction}</p>
                 </div>
               </div>
-              <span className="text-gray-400 text-lg">
+              <span className="text-textlight text-lg">
                 {expandedPrompt === index ? '▼' : '▶'}
               </span>
             </button>
@@ -859,8 +859,8 @@ export default function FoundationalDocs({ projectId, projectStatus }) {
                     onClick={() => handleCopyPrompt(index, p.prompt)}
                     className={`text-xs px-3 py-1 rounded font-medium transition-colors ${
                       copiedPrompt === index
-                        ? 'bg-green-100 text-green-700'
-                        : 'bg-blue-100 text-blue-700 hover:bg-blue-200'
+                        ? 'bg-teal/10 text-teal'
+                        : 'bg-navy/10 text-navy hover:bg-navy/15'
                     }`}
                   >
                     {copiedPrompt === index ? '✓ Copied!' : 'Copy to Clipboard'}
@@ -877,7 +877,7 @@ export default function FoundationalDocs({ projectId, projectStatus }) {
         <div className="flex justify-end">
           <button
             onClick={() => setManualStep(2)}
-            className="bg-blue-600 text-white px-6 py-2 rounded-md text-sm font-medium hover:bg-blue-700"
+            className="bg-navy text-white px-6 py-2 rounded-md text-sm font-medium hover:bg-navy-light"
           >
             Next: Upload Your Research →
           </button>
@@ -897,16 +897,16 @@ export default function FoundationalDocs({ projectId, projectStatus }) {
       <div className="space-y-6">
         <div className="flex items-center justify-between">
           <div>
-            <h3 className="text-lg font-semibold text-gray-900">Upload Your Research</h3>
-            <p className="text-sm text-gray-500">Step 2 of 2: Paste or upload your completed research document</p>
+            <h3 className="text-lg font-semibold text-textdark">Upload Your Research</h3>
+            <p className="text-sm text-textmid">Step 2 of 2: Paste or upload your completed research document</p>
           </div>
-          <button onClick={() => setManualStep(1)} className="text-sm text-gray-500 hover:text-gray-700">
+          <button onClick={() => setManualStep(1)} className="text-sm text-textmid hover:text-textdark">
             ← Back to Prompts
           </button>
         </div>
 
         <div className="bg-gray-50 border border-gray-200 rounded-lg p-4">
-          <p className="text-sm text-gray-700">
+          <p className="text-sm text-textdark">
             After completing your research using the prompts from the previous step,
             paste the full research document below or upload a file (PDF, TXT, or HTML).
           </p>
@@ -925,12 +925,12 @@ export default function FoundationalDocs({ projectId, projectStatus }) {
           value={manualResearchText}
           onChange={e => setManualResearchText(e.target.value)}
           placeholder="Paste your completed research document here..."
-          className="w-full h-[500px] border border-gray-300 rounded-md px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500 resize-y"
+          className="w-full h-[500px] border border-black/10 rounded-md px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-gold resize-y"
         />
 
         {/* Short warning */}
         {isShort && (
-          <div className="bg-amber-50 border border-amber-200 text-amber-700 text-sm rounded p-3">
+          <div className="bg-gold/5 border border-gold/15 text-gold text-sm rounded p-3">
             Your research document seems short ({charCount.toLocaleString()} characters).
             The SOP recommends at least 6 pages of content for best results.
             You can still proceed, but the quality of the output documents may be limited.
@@ -947,14 +947,14 @@ export default function FoundationalDocs({ projectId, projectStatus }) {
         <div className="flex justify-between">
           <button
             onClick={() => setManualStep(1)}
-            className="border border-gray-300 text-gray-700 px-4 py-2 rounded-md text-sm hover:bg-gray-50"
+            className="border border-black/10 text-textdark px-4 py-2 rounded-md text-sm hover:bg-gray-50"
           >
             ← Back to Prompts
           </button>
           <button
             onClick={handleManualGenerate}
             disabled={!manualResearchText.trim()}
-            className="bg-blue-600 text-white px-6 py-2 rounded-md text-sm font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="bg-navy text-white px-6 py-2 rounded-md text-sm font-medium hover:bg-navy-light disabled:opacity-50 disabled:cursor-not-allowed"
           >
             Generate Documents from Research
           </button>
@@ -973,16 +973,16 @@ export default function FoundationalDocs({ projectId, projectStatus }) {
       <div className="space-y-6">
         <div className="flex items-center justify-between">
           <div>
-            <h3 className="text-lg font-semibold text-gray-900">Upload Existing Documents</h3>
-            <p className="text-sm text-gray-500">Paste or drag & drop your foundational documents</p>
+            <h3 className="text-lg font-semibold text-textdark">Upload Existing Documents</h3>
+            <p className="text-sm text-textmid">Paste or drag & drop your foundational documents</p>
           </div>
-          <button onClick={handleBackToChoice} className="text-sm text-gray-500 hover:text-gray-700">
+          <button onClick={handleBackToChoice} className="text-sm text-textmid hover:text-textdark">
             ← Back
           </button>
         </div>
 
-        <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
-          <p className="text-sm text-blue-800">
+        <div className="bg-navy/5 border border-navy/15 rounded-lg p-4">
+          <p className="text-sm text-navy">
             Upload any or all of the 4 foundational documents. You can paste text directly into each field
             or drag & drop a file. Only documents with content will be saved.
           </p>
@@ -998,9 +998,9 @@ export default function FoundationalDocs({ projectId, projectStatus }) {
         {DOC_ORDER.map(docType => (
           <div key={docType} className="border border-gray-200 rounded-lg overflow-hidden">
             <div className="bg-gray-50 px-4 py-3 flex items-center justify-between">
-              <h4 className="font-medium text-gray-900">{DOC_LABELS[docType]}</h4>
+              <h4 className="font-medium text-textdark">{DOC_LABELS[docType]}</h4>
               {uploadDocs[docType].trim().length > 0 && (
-                <span className="text-xs text-green-600">
+                <span className="text-xs text-teal">
                   {uploadDocs[docType].length.toLocaleString()} characters
                 </span>
               )}
@@ -1018,7 +1018,7 @@ export default function FoundationalDocs({ projectId, projectStatus }) {
                 value={uploadDocs[docType]}
                 onChange={e => setUploadDocs(prev => ({ ...prev, [docType]: e.target.value }))}
                 placeholder={`Paste your ${DOC_LABELS[docType]} content here...`}
-                className="w-full h-32 border border-gray-300 rounded-md px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500 resize-y"
+                className="w-full h-32 border border-black/10 rounded-md px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-gold resize-y"
               />
             </div>
           </div>
@@ -1027,18 +1027,18 @@ export default function FoundationalDocs({ projectId, projectStatus }) {
         <div className="flex justify-between items-center">
           <button
             onClick={handleBackToChoice}
-            className="border border-gray-300 text-gray-700 px-4 py-2 rounded-md text-sm hover:bg-gray-50"
+            className="border border-black/10 text-textdark px-4 py-2 rounded-md text-sm hover:bg-gray-50"
           >
             ← Back
           </button>
           <div className="flex items-center gap-3">
-            <span className="text-xs text-gray-500">
+            <span className="text-xs text-textmid">
               {filledCount} of 4 documents provided
             </span>
             <button
               onClick={handleSaveUploadedDocs}
               disabled={filledCount === 0 || savingUpload}
-              className="bg-blue-600 text-white px-6 py-2 rounded-md text-sm font-medium hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="bg-navy text-white px-6 py-2 rounded-md text-sm font-medium hover:bg-navy-light disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {savingUpload ? 'Saving...' : 'Save Documents'}
             </button>
@@ -1065,7 +1065,7 @@ export default function FoundationalDocs({ projectId, projectStatus }) {
 
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
           <div className="flex items-center justify-between mb-4">
-            <h3 className="font-semibold text-gray-900">
+            <h3 className="font-semibold text-textdark">
               {regenerating
                 ? `Regenerating ${DOC_LABELS[regenerating]}`
                 : isManualMode
@@ -1089,19 +1089,19 @@ export default function FoundationalDocs({ projectId, projectStatus }) {
                 return (
                   <div key={step.id} className="flex items-center gap-2 text-sm">
                     <span className={`w-5 h-5 rounded-full flex items-center justify-center text-xs ${
-                      isDone && isManualPreStep ? 'bg-green-100 text-green-700' :
-                      isDone ? 'bg-green-100 text-green-700' :
-                      isActive && isDeepResearch ? 'bg-purple-100 text-purple-700 animate-pulse' :
-                      isActive ? 'bg-blue-100 text-blue-700 animate-pulse' :
-                      'bg-gray-100 text-gray-400'
+                      isDone && isManualPreStep ? 'bg-teal/10 text-teal' :
+                      isDone ? 'bg-teal/10 text-teal' :
+                      isActive && isDeepResearch ? 'bg-navy/10 text-navy-mid animate-pulse' :
+                      isActive ? 'bg-navy/10 text-navy animate-pulse' :
+                      'bg-gray-100 text-textlight'
                     }`}>
                       {isDone ? '✓' : isDeepResearch && !isManualMode ? '🔍' : step.id}
                     </span>
                     <span className={
-                      isActive && isDeepResearch ? 'text-purple-700 font-medium' :
-                      isActive ? 'text-blue-700 font-medium' :
-                      isDone ? 'text-green-700' :
-                      'text-gray-400'
+                      isActive && isDeepResearch ? 'text-navy-mid font-medium' :
+                      isActive ? 'text-navy font-medium' :
+                      isDone ? 'text-teal' :
+                      'text-textlight'
                     }>
                       {isManualPreStep && isDone
                         ? (step.id <= 3 ? 'Prompts Provided (Manual)' : 'Research Uploaded (Manual)')
@@ -1118,39 +1118,39 @@ export default function FoundationalDocs({ projectId, projectStatus }) {
 
           {/* Deep research progress panel (auto mode only) */}
           {currentStep?.mode === 'deep_research' && deepResearchProgress && !streamContent && (
-            <div className="mb-4 bg-purple-50 border border-purple-200 rounded-lg p-4">
+            <div className="mb-4 bg-navy/5 border border-navy/15 rounded-lg p-4">
               <div className="flex items-center gap-2 mb-3">
-                <div className="w-3 h-3 bg-purple-500 rounded-full animate-pulse" />
-                <h4 className="font-medium text-purple-900">Deep Research in Progress</h4>
+                <div className="w-3 h-3 bg-navy rounded-full animate-pulse" />
+                <h4 className="font-medium text-navy">Deep Research in Progress</h4>
               </div>
 
-              <p className="text-sm text-purple-700 mb-3">
+              <p className="text-sm text-navy-mid mb-3">
                 The AI is autonomously browsing the web, reading forums, reviews, and articles to build a comprehensive research document.
                 This typically takes 5-15 minutes.
               </p>
 
               <div className="grid grid-cols-3 gap-3 mb-3">
                 <div className="bg-white rounded p-2 text-center">
-                  <div className="text-lg font-bold text-purple-700">
+                  <div className="text-lg font-bold text-navy-mid">
                     {deepResearchProgress.searchesCompleted || 0}
                   </div>
-                  <div className="text-xs text-gray-500">Web Searches</div>
+                  <div className="text-xs text-textmid">Web Searches</div>
                 </div>
                 <div className="bg-white rounded p-2 text-center">
-                  <div className="text-lg font-bold text-purple-700">
+                  <div className="text-lg font-bold text-navy-mid">
                     {deepResearchProgress.status || 'starting'}
                   </div>
-                  <div className="text-xs text-gray-500">Status</div>
+                  <div className="text-xs text-textmid">Status</div>
                 </div>
                 <div className="bg-white rounded p-2 text-center">
-                  <div className="text-lg font-bold text-purple-700">
+                  <div className="text-lg font-bold text-navy-mid">
                     {formatElapsed(deepResearchProgress.elapsedMs)}
                   </div>
-                  <div className="text-xs text-gray-500">Elapsed</div>
+                  <div className="text-xs text-textmid">Elapsed</div>
                 </div>
               </div>
 
-              <p className="text-xs text-purple-600">
+              <p className="text-xs text-navy">
                 {deepResearchProgress.message}
               </p>
             </div>
@@ -1159,13 +1159,13 @@ export default function FoundationalDocs({ projectId, projectStatus }) {
           {/* Live stream content */}
           {currentStep && streamContent && (
             <div>
-              <p className="text-xs text-gray-500 mb-2">
+              <p className="text-xs text-textmid mb-2">
                 Step {currentStep.step}: {currentStep.label}
                 {currentStep.mode === 'deep_research' && ' — Research Complete'}
               </p>
               <div
                 ref={streamRef}
-                className="bg-gray-50 border border-gray-200 rounded p-3 max-h-96 overflow-y-auto font-mono text-xs text-gray-700 whitespace-pre-wrap"
+                className="bg-gray-50 border border-gray-200 rounded p-3 max-h-96 overflow-y-auto font-mono text-xs text-textdark whitespace-pre-wrap"
               >
                 {streamContent || 'Waiting for response...'}
               </div>
@@ -1175,10 +1175,10 @@ export default function FoundationalDocs({ projectId, projectStatus }) {
           {/* Waiting state */}
           {currentStep && !streamContent && !deepResearchProgress && (
             <div>
-              <p className="text-xs text-gray-500 mb-2">
+              <p className="text-xs text-textmid mb-2">
                 Step {currentStep.step}: {currentStep.label}
               </p>
-              <div className="bg-gray-50 border border-gray-200 rounded p-3 text-sm text-gray-500 animate-pulse">
+              <div className="bg-gray-50 border border-gray-200 rounded p-3 text-sm text-textmid animate-pulse">
                 Waiting for response...
               </div>
             </div>
@@ -1197,14 +1197,14 @@ export default function FoundationalDocs({ projectId, projectStatus }) {
       {!editingDoc && !viewDoc && (
         <>
           <div className="p-4 bg-gray-50/80 border border-gray-200/60 rounded-xl">
-            <p className="text-[13px] text-gray-600 leading-relaxed">
+            <p className="text-[13px] text-textmid leading-relaxed">
               Foundational documents are the backbone of effective ad generation. The system creates four core documents — a <strong>Research Document</strong>, <strong>Customer Avatar</strong>, <strong>Offer Brief</strong>, and <strong>Necessary Beliefs</strong> — that capture everything about your market, ideal customer, and product positioning. These documents give the AI the context it needs to write compelling, on-brand ad copy every time.
             </p>
           </div>
 
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2">
-              <p className="text-sm text-gray-500">
+              <p className="text-sm text-textmid">
                 {hasDocs
                   ? `${docs.length} of 4 documents generated`
                   : 'No documents generated yet. Start the generation process.'}
@@ -1213,7 +1213,7 @@ export default function FoundationalDocs({ projectId, projectStatus }) {
             </div>
             <button
               onClick={handleGenerateClick}
-              className="bg-blue-600 text-white px-4 py-2 rounded-md text-sm font-medium hover:bg-blue-700"
+              className="bg-navy text-white px-4 py-2 rounded-md text-sm font-medium hover:bg-navy-light"
             >
               {hasDocs ? 'Regenerate All Docs' : 'Generate Foundational Docs'}
             </button>
@@ -1237,20 +1237,20 @@ export default function FoundationalDocs({ projectId, projectStatus }) {
       {editingDoc && (
         <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
           <div className="flex items-center justify-between mb-4">
-            <h3 className="font-semibold text-gray-900">
+            <h3 className="font-semibold text-textdark">
               Editing: {DOC_LABELS[editingDoc.doc_type]}
             </h3>
             <div className="flex gap-2">
               <button
                 onClick={handleSaveEdit}
                 disabled={saving}
-                className="bg-blue-600 text-white px-3 py-1.5 rounded text-sm font-medium hover:bg-blue-700 disabled:opacity-50"
+                className="bg-navy text-white px-3 py-1.5 rounded text-sm font-medium hover:bg-navy-light disabled:opacity-50"
               >
                 {saving ? 'Saving...' : 'Save'}
               </button>
               <button
                 onClick={() => setEditingDoc(null)}
-                className="border border-gray-300 text-gray-700 px-3 py-1.5 rounded text-sm hover:bg-gray-50"
+                className="border border-black/10 text-textdark px-3 py-1.5 rounded text-sm hover:bg-gray-50"
               >
                 Cancel
               </button>
@@ -1259,7 +1259,7 @@ export default function FoundationalDocs({ projectId, projectStatus }) {
           <textarea
             value={editContent}
             onChange={e => setEditContent(e.target.value)}
-            className="w-full h-[600px] border border-gray-300 rounded-md px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-blue-500"
+            className="w-full h-[600px] border border-black/10 rounded-md px-3 py-2 text-sm font-mono focus:outline-none focus:ring-2 focus:ring-gold"
           />
         </div>
       )}
@@ -1272,18 +1272,18 @@ export default function FoundationalDocs({ projectId, projectStatus }) {
           <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
             <div className="flex items-center justify-between mb-2">
               <div className="flex items-center gap-2">
-                <h3 className="font-semibold text-gray-900">
+                <h3 className="font-semibold text-textdark">
                   {DOC_LABELS[viewDoc.doc_type]}
                 </h3>
                 <span className={`text-xs px-2 py-0.5 rounded-full ${viewSourceInfo.color}`}>
                   {viewSourceInfo.label}
                 </span>
-                <span className="text-xs text-gray-400">v{viewDoc.version}</span>
+                <span className="text-xs text-textlight">v{viewDoc.version}</span>
               </div>
               <div className="flex gap-2">
                 <button
                   onClick={() => handleEdit(viewDoc)}
-                  className="border border-gray-300 text-gray-700 px-3 py-1.5 rounded text-sm hover:bg-gray-50"
+                  className="border border-black/10 text-textdark px-3 py-1.5 rounded text-sm hover:bg-gray-50"
                 >
                   Edit
                 </button>
@@ -1291,21 +1291,21 @@ export default function FoundationalDocs({ projectId, projectStatus }) {
                   onClick={() => handleRegenerate(viewDoc.doc_type)}
                   className={`border px-3 py-1.5 rounded text-sm ${
                     viewDoc.doc_type === 'research'
-                      ? 'border-purple-300 text-purple-600 hover:bg-purple-50'
-                      : 'border-blue-300 text-blue-600 hover:bg-blue-50'
+                      ? 'border-navy/20 text-navy hover:bg-navy/5'
+                      : 'border-gold/20 text-gold hover:bg-navy/5'
                   }`}
                 >
                   {viewDoc.doc_type === 'research' ? 'Re-run Deep Research' : 'Regenerate'}
                 </button>
                 <button
                   onClick={() => setViewDoc(null)}
-                  className="border border-gray-300 text-gray-700 px-3 py-1.5 rounded text-sm hover:bg-gray-50"
+                  className="border border-black/10 text-textdark px-3 py-1.5 rounded text-sm hover:bg-gray-50"
                 >
                   Close
                 </button>
               </div>
             </div>
-            <div className="flex items-center gap-3 mb-4 text-xs text-gray-400">
+            <div className="flex items-center gap-3 mb-4 text-xs text-textlight">
               <span title={viewLastUpdated ? new Date(viewLastUpdated + 'Z').toLocaleString() : ''}>
                 Last updated: {viewLastUpdated ? new Date(viewLastUpdated + 'Z').toLocaleString() : 'Unknown'}
               </span>
@@ -1313,7 +1313,7 @@ export default function FoundationalDocs({ projectId, projectStatus }) {
                 <span>{viewDoc.content.length.toLocaleString()} characters</span>
               )}
             </div>
-            <div className="prose prose-sm max-w-none overflow-y-auto max-h-[600px] whitespace-pre-wrap text-sm text-gray-700">
+            <div className="prose prose-sm max-w-none overflow-y-auto max-h-[600px] whitespace-pre-wrap text-sm text-textdark">
               {viewDoc.content}
             </div>
           </div>
@@ -1328,9 +1328,9 @@ export default function FoundationalDocs({ projectId, projectStatus }) {
             const isResearch = docType === 'research';
             if (!doc) {
               return (
-                <div key={docType} className="bg-white rounded-lg shadow-sm border border-dashed border-gray-300 p-5">
-                  <h3 className="font-medium text-gray-400">{DOC_LABELS[docType]}</h3>
-                  <p className="text-xs text-gray-400 mt-1">Not yet generated</p>
+                <div key={docType} className="bg-white rounded-lg shadow-sm border border-dashed border-black/10 p-5">
+                  <h3 className="font-medium text-textlight">{DOC_LABELS[docType]}</h3>
+                  <p className="text-xs text-textlight mt-1">Not yet generated</p>
                 </div>
               );
             }
@@ -1346,21 +1346,21 @@ export default function FoundationalDocs({ projectId, projectStatus }) {
               <div
                 key={docType}
                 className={`bg-white rounded-lg shadow-sm border p-5 hover:shadow-md transition-shadow cursor-pointer ${
-                  isResearch ? 'border-purple-200' : 'border-gray-200'
+                  isResearch ? 'border-navy/15' : 'border-gray-200'
                 }`}
                 onClick={() => setViewDoc(doc)}
               >
                 <div className="flex items-start justify-between mb-2">
                   <div className="flex items-center gap-2">
                     {isResearch && <span className="text-sm">🔍</span>}
-                    <h3 className="font-medium text-gray-900">{DOC_LABELS[docType]}</h3>
+                    <h3 className="font-medium text-textdark">{DOC_LABELS[docType]}</h3>
                   </div>
                   <div className="flex items-center gap-2 flex-wrap justify-end">
                     <span className={`text-xs px-2 py-0.5 rounded-full ${sourceInfo.color}`}>
                       {sourceInfo.label}
                     </span>
                     {doc.approved ? (
-                      <span className="text-xs bg-green-100 text-green-700 px-2 py-0.5 rounded-full">Approved</span>
+                      <span className="text-xs bg-teal/10 text-teal px-2 py-0.5 rounded-full">Approved</span>
                     ) : (
                       <button
                         onClick={(e) => { e.stopPropagation(); handleApprove(doc); }}
@@ -1369,12 +1369,12 @@ export default function FoundationalDocs({ projectId, projectStatus }) {
                         Approve
                       </button>
                     )}
-                    <span className="text-xs text-gray-400">v{doc.version}</span>
+                    <span className="text-xs text-textlight">v{doc.version}</span>
                   </div>
                 </div>
 
                 {/* Timestamp row */}
-                <div className="flex items-center gap-3 mb-2 text-xs text-gray-400">
+                <div className="flex items-center gap-3 mb-2 text-xs text-textlight">
                   <span title={lastUpdated ? new Date(lastUpdated + 'Z').toLocaleString() : ''}>
                     Updated {formatDate(lastUpdated)}
                   </span>
@@ -1383,19 +1383,19 @@ export default function FoundationalDocs({ projectId, projectStatus }) {
                   )}
                 </div>
 
-                <p className="text-xs text-gray-500 line-clamp-3">
+                <p className="text-xs text-textmid line-clamp-3">
                   {doc.content?.slice(0, 200)}...
                 </p>
                 <div className="flex gap-2 mt-3">
                   <button
                     onClick={(e) => { e.stopPropagation(); handleEdit(doc); }}
-                    className="text-xs text-blue-600 hover:underline"
+                    className="text-xs text-gold hover:underline"
                   >
                     Edit
                   </button>
                   <button
                     onClick={(e) => { e.stopPropagation(); handleRegenerate(docType); }}
-                    className={`text-xs hover:underline ${isResearch ? 'text-purple-600' : 'text-blue-600'}`}
+                    className={`text-xs hover:underline ${isResearch ? 'text-navy' : 'text-gold'}`}
                   >
                     {isResearch ? 'Re-run Deep Research' : 'Regenerate'}
                   </button>

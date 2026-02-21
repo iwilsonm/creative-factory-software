@@ -1,11 +1,11 @@
 import { useState, useEffect, useRef } from 'react';
 
 const PROPERTY_COLORS = {
-  problem:   { bg: 'bg-blue-50',   text: 'text-blue-700',   border: 'border-blue-200',   dot: 'bg-blue-400',   hoverBg: 'hover:bg-blue-50'   },
-  emotion:   { bg: 'bg-purple-50', text: 'text-purple-700', border: 'border-purple-200', dot: 'bg-purple-400', hoverBg: 'hover:bg-purple-50' },
-  tag:       { bg: 'bg-teal-50',   text: 'text-teal-700',   border: 'border-teal-200',   dot: 'bg-teal-400',   hoverBg: 'hover:bg-teal-50'   },
-  technique: { bg: 'bg-amber-50',  text: 'text-amber-700',  border: 'border-amber-200',  dot: 'bg-amber-400',  hoverBg: 'hover:bg-amber-50'  },
-  status:    { bg: 'bg-gray-50',   text: 'text-gray-700',   border: 'border-gray-200',   dot: 'bg-gray-400',   hoverBg: 'hover:bg-gray-50'   },
+  problem:   { bg: 'bg-navy/5',   text: 'text-navy',   border: 'border-navy/20',   dot: 'bg-navy',     hoverBg: 'hover:bg-navy/5'   },
+  emotion:   { bg: 'bg-navy/5',   text: 'text-navy',   border: 'border-navy/20',   dot: 'bg-navy/60',  hoverBg: 'hover:bg-navy/5'   },
+  tag:       { bg: 'bg-teal/5',   text: 'text-teal',   border: 'border-teal/20',   dot: 'bg-teal',     hoverBg: 'hover:bg-teal/5'   },
+  technique: { bg: 'bg-gold/5',   text: 'text-gold',   border: 'border-gold/20',   dot: 'bg-gold',     hoverBg: 'hover:bg-gold/5'   },
+  status:    { bg: 'bg-offwhite',  text: 'text-textdark', border: 'border-black/5',  dot: 'bg-textlight', hoverBg: 'hover:bg-offwhite' },
 };
 
 // properties: [{ key: 'problem', label: 'Problem', values: ['...'] }, ...]
@@ -70,14 +70,14 @@ export default function NotionFilter({ properties, filters, onToggle, onClear })
 
           {/* Value dropdown for existing filter */}
           {openDropdown === af.key && (
-            <div ref={dropdownRef} className="absolute top-full left-0 mt-1 z-50 w-56 bg-white rounded-xl border border-gray-200 shadow-lg shadow-gray-200/50 overflow-hidden">
+            <div ref={dropdownRef} className="absolute top-full left-0 mt-1 z-50 w-56 bg-white rounded-xl border border-black/5 shadow-lg shadow-black/5 overflow-hidden">
               <div className="p-1.5">
                 <input
                   autoFocus
                   value={searchText}
                   onChange={e => setSearchText(e.target.value)}
                   placeholder={`Filter ${af.label.toLowerCase()}...`}
-                  className="w-full text-[12px] px-2.5 py-1.5 rounded-lg border border-gray-200 outline-none focus:border-blue-300 focus:ring-1 focus:ring-blue-200 bg-gray-50/50"
+                  className="w-full text-[12px] px-2.5 py-1.5 rounded-lg border border-black/5 outline-none focus:border-gold focus:ring-1 focus:ring-gold/20 bg-offwhite/50"
                 />
               </div>
               <div className="max-h-48 overflow-y-auto">
@@ -90,11 +90,11 @@ export default function NotionFilter({ properties, filters, onToggle, onClear })
                         key={v}
                         onClick={() => onToggle(af.key, v)}
                         className={`w-full flex items-center gap-2.5 px-3 py-1.5 text-[12px] text-left transition-colors ${
-                          isSelected ? `${af.colors.bg} font-medium` : 'hover:bg-gray-50'
+                          isSelected ? `${af.colors.bg} font-medium` : 'hover:bg-black/[0.02]'
                         }`}
                       >
                         <span className={`flex-shrink-0 w-3.5 h-3.5 rounded border flex items-center justify-center ${
-                          isSelected ? `${af.colors.border} ${af.colors.bg}` : 'border-gray-300'
+                          isSelected ? `${af.colors.border} ${af.colors.bg}` : 'border-black/10'
                         }`}>
                           {isSelected && (
                             <svg className="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" strokeWidth={3} stroke="currentColor">
@@ -102,14 +102,14 @@ export default function NotionFilter({ properties, filters, onToggle, onClear })
                             </svg>
                           )}
                         </span>
-                        <span className={`truncate ${isSelected ? af.colors.text : 'text-gray-700'}`}>{v}</span>
+                        <span className={`truncate ${isSelected ? af.colors.text : 'text-textdark'}`}>{v}</span>
                       </button>
                     );
                   })}
               </div>
-              <div className="border-t border-gray-100 px-3 py-1.5 flex items-center justify-between">
-                <span className="text-[10px] text-gray-400">{af.selected.size} selected</span>
-                <button onClick={() => onClear(af.key)} className="text-[10px] text-gray-400 hover:text-gray-600">Clear</button>
+              <div className="border-t border-black/5 px-3 py-1.5 flex items-center justify-between">
+                <span className="text-[10px] text-textlight">{af.selected.size} selected</span>
+                <button onClick={() => onClear(af.key)} className="text-[10px] text-textlight hover:text-textmid">Clear</button>
               </div>
             </div>
           )}
@@ -124,8 +124,8 @@ export default function NotionFilter({ properties, filters, onToggle, onClear })
             onClick={() => { setAddingFilter(!addingFilter); setOpenDropdown(null); setSearchText(''); }}
             className={`inline-flex items-center gap-1 text-[11px] px-2 py-1 rounded-lg border border-dashed transition-all ${
               hasAnyFilter
-                ? 'border-gray-200 text-gray-400 hover:border-gray-300 hover:text-gray-600'
-                : 'border-gray-300 text-gray-500 hover:border-blue-300 hover:text-blue-600'
+                ? 'border-black/5 text-textlight hover:border-black/10 hover:text-textmid'
+                : 'border-black/10 text-textmid hover:border-navy/30 hover:text-navy'
             }`}
           >
             <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
@@ -136,9 +136,9 @@ export default function NotionFilter({ properties, filters, onToggle, onClear })
 
           {/* Property picker dropdown */}
           {addingFilter && (
-            <div ref={dropdownRef} className="absolute top-full left-0 mt-1 z-50 w-48 bg-white rounded-xl border border-gray-200 shadow-lg shadow-gray-200/50 overflow-hidden">
-              <div className="px-3 py-2 border-b border-gray-100">
-                <p className="text-[10px] font-medium text-gray-400 uppercase tracking-wider">Filter by property</p>
+            <div ref={dropdownRef} className="absolute top-full left-0 mt-1 z-50 w-48 bg-white rounded-xl border border-black/5 shadow-lg shadow-black/5 overflow-hidden">
+              <div className="px-3 py-2 border-b border-black/5">
+                <p className="text-[10px] font-medium text-textlight uppercase tracking-wider">Filter by property</p>
               </div>
               {availableProps.map(prop => {
                 const colors = PROPERTY_COLORS[prop.key] || PROPERTY_COLORS.status;
@@ -147,11 +147,11 @@ export default function NotionFilter({ properties, filters, onToggle, onClear })
                   <button
                     key={prop.key}
                     onClick={() => { setAddingFilter(false); setOpenDropdown(prop.key); setSearchText(''); }}
-                    className={`w-full flex items-center gap-2.5 px-3 py-2 text-[12px] text-left transition-colors hover:bg-gray-50 ${isActive ? 'opacity-50' : ''}`}
+                    className={`w-full flex items-center gap-2.5 px-3 py-2 text-[12px] text-left transition-colors hover:bg-black/[0.02] ${isActive ? 'opacity-50' : ''}`}
                   >
                     <span className={`w-2 h-2 rounded-full ${colors.dot}`} />
-                    <span className="text-gray-700">{prop.label}</span>
-                    <span className="text-[10px] text-gray-300 ml-auto">{prop.values.length}</span>
+                    <span className="text-textdark">{prop.label}</span>
+                    <span className="text-[10px] text-textlight/60 ml-auto">{prop.values.length}</span>
                   </button>
                 );
               })}
@@ -165,10 +165,10 @@ export default function NotionFilter({ properties, filters, onToggle, onClear })
             const colors = PROPERTY_COLORS[prop.key] || PROPERTY_COLORS.status;
             const selected = filters.get(prop.key) || new Set();
             return (
-              <div ref={dropdownRef} className="absolute top-full left-0 mt-1 z-50 w-56 bg-white rounded-xl border border-gray-200 shadow-lg shadow-gray-200/50 overflow-hidden">
-                <div className="px-3 py-2 border-b border-gray-100 flex items-center gap-2">
+              <div ref={dropdownRef} className="absolute top-full left-0 mt-1 z-50 w-56 bg-white rounded-xl border border-black/5 shadow-lg shadow-black/5 overflow-hidden">
+                <div className="px-3 py-2 border-b border-black/5 flex items-center gap-2">
                   <span className={`w-2 h-2 rounded-full ${colors.dot}`} />
-                  <span className="text-[11px] font-medium text-gray-600">{prop.label}</span>
+                  <span className="text-[11px] font-medium text-textmid">{prop.label}</span>
                 </div>
                 <div className="p-1.5">
                   <input
@@ -176,7 +176,7 @@ export default function NotionFilter({ properties, filters, onToggle, onClear })
                     value={searchText}
                     onChange={e => setSearchText(e.target.value)}
                     placeholder={`Search ${prop.label.toLowerCase()}...`}
-                    className="w-full text-[12px] px-2.5 py-1.5 rounded-lg border border-gray-200 outline-none focus:border-blue-300 focus:ring-1 focus:ring-blue-200 bg-gray-50/50"
+                    className="w-full text-[12px] px-2.5 py-1.5 rounded-lg border border-black/5 outline-none focus:border-gold focus:ring-1 focus:ring-gold/20 bg-offwhite/50"
                   />
                 </div>
                 <div className="max-h-48 overflow-y-auto">
@@ -189,11 +189,11 @@ export default function NotionFilter({ properties, filters, onToggle, onClear })
                           key={v}
                           onClick={() => onToggle(prop.key, v)}
                           className={`w-full flex items-center gap-2.5 px-3 py-1.5 text-[12px] text-left transition-colors ${
-                            isSelected ? `${colors.bg} font-medium` : 'hover:bg-gray-50'
+                            isSelected ? `${colors.bg} font-medium` : 'hover:bg-black/[0.02]'
                           }`}
                         >
                           <span className={`flex-shrink-0 w-3.5 h-3.5 rounded border flex items-center justify-center ${
-                            isSelected ? `${colors.border} ${colors.bg}` : 'border-gray-300'
+                            isSelected ? `${colors.border} ${colors.bg}` : 'border-black/10'
                           }`}>
                             {isSelected && (
                               <svg className="w-2.5 h-2.5" fill="none" viewBox="0 0 24 24" strokeWidth={3} stroke="currentColor">
@@ -201,15 +201,15 @@ export default function NotionFilter({ properties, filters, onToggle, onClear })
                               </svg>
                             )}
                           </span>
-                          <span className={`truncate ${isSelected ? colors.text : 'text-gray-700'}`}>{v}</span>
+                          <span className={`truncate ${isSelected ? colors.text : 'text-textdark'}`}>{v}</span>
                         </button>
                       );
                     })}
                 </div>
                 {selected.size > 0 && (
-                  <div className="border-t border-gray-100 px-3 py-1.5 flex items-center justify-between">
-                    <span className="text-[10px] text-gray-400">{selected.size} selected</span>
-                    <button onClick={() => onClear(prop.key)} className="text-[10px] text-gray-400 hover:text-gray-600">Clear</button>
+                  <div className="border-t border-black/5 px-3 py-1.5 flex items-center justify-between">
+                    <span className="text-[10px] text-textlight">{selected.size} selected</span>
+                    <button onClick={() => onClear(prop.key)} className="text-[10px] text-textlight hover:text-textmid">Clear</button>
                   </div>
                 )}
               </div>
@@ -222,7 +222,7 @@ export default function NotionFilter({ properties, filters, onToggle, onClear })
       {hasAnyFilter && (
         <button
           onClick={() => onClear()}
-          className="text-[10px] text-gray-400 hover:text-gray-600 transition-colors ml-1"
+          className="text-[10px] text-textlight hover:text-textmid transition-colors ml-1"
         >
           Clear all
         </button>
