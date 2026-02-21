@@ -4,13 +4,14 @@ import { api } from '../api';
 import { useToast } from '../components/Toast';
 import { useAsyncData } from '../hooks/useAsyncData';
 
-const STATUS_ORDER = ['selected', 'scheduled', 'posted', 'analyzing'];
+const STATUS_ORDER = ['scheduled', 'posted', 'analyzing'];
 const STATUS_META = {
   selected:  { label: 'Selected',  color: 'bg-black/5 text-textmid',      dot: 'bg-textlight' },
   scheduled: { label: 'Scheduled', color: 'bg-navy/10 text-navy',         dot: 'bg-navy' },
   posted:    { label: 'Posted',    color: 'bg-teal/10 text-teal',         dot: 'bg-teal' },
   analyzing: { label: 'Analyzing', color: 'bg-gold/10 text-gold',         dot: 'bg-gold' },
 };
+const TAB_ORDER = ['unposted', ...STATUS_ORDER];
 
 
 /** Display name for a deployment — combines angle + headline, never returns "Untitled" */
@@ -25,8 +26,11 @@ export default function AdTracker({ projectId }) {
     () => api.getProjectDeployments(projectId).then(d => d.deployments || []),
     [projectId]
   );
-  const [statusFilter, setStatusFilter] = useState('all');
+  const [statusFilter, setStatusFilter] = useState('unposted');
   const [selectedIds, setSelectedIds] = useState(new Set());
+  // Unposted ads (ads without deployments)
+  const [allAds, setAllAds] = useState([]);
+  const [allAdsLoading, setAllAdsLoading] = useState(false);
   const [bulkEditOpen, setBulkEditOpen] = useState(false);
   const [bulkFields, setBulkFields] = useState({ campaign_name: '', ad_set_name: '', ad_name: '', status: '', planned_date: '', landing_page_url: '' });
   const [editingCell, setEditingCell] = useState(null); // { id, field }
@@ -59,7 +63,18 @@ export default function AdTracker({ projectId }) {
       const published = (data.pages || []).filter(p => p.status === 'published' && p.published_url);
       setPublishedLPs(published);
     }).catch(() => {});
+    // Fetch all ads for unposted tab
+    loadAllAds();
   }, [projectId]);
+
+  const loadAllAds = async () => {
+    setAllAdsLoading(true);
+    try {
+      const data = await api.getAds(projectId);
+      setAllAds(data.ads || []);
+    } catch { /* ignore */ }
+    setAllAdsLoading(false);
+  };
 
   // One-time migration: backfill headlines on existing ads, then rename deployments
   useEffect(() => {
@@ -243,8 +258,15 @@ export default function AdTracker({ projectId }) {
   };
 
   // ─── Filtering & Sorting ──────────────────────────────────────────────────
+  // Compute unposted ads: ads that have no deployment
+  const deployedAdIds = new Set(deployments.map(d => d.ad_id));
+  const unpostedAds = allAds.filter(ad => !deployedAdIds.has(ad.id) && ad.storageId);
+  const unpostedCount = unpostedAds.length;
+
   const filtered = statusFilter === 'all'
     ? deployments
+    : statusFilter === 'unposted'
+    ? [] // unposted tab renders its own table
     : deployments.filter(d => d.status === statusFilter);
 
   const sorted = [...filtered].sort((a, b) => {
@@ -257,6 +279,26 @@ export default function AdTracker({ projectId }) {
   for (const d of deployments) {
     statusCounts[d.status] = (statusCounts[d.status] || 0) + 1;
   }
+
+  // ─── Deploy Unposted Ads ─────────────────────────────────────────────────
+  const [deployingAdIds, setDeployingAdIds] = useState(new Set());
+  const handleDeployAds = async (adIds) => {
+    setDeployingAdIds(prev => new Set([...prev, ...adIds]));
+    try {
+      await api.createDeployments(adIds);
+      addToast(`Deployed ${adIds.length} ad${adIds.length > 1 ? 's' : ''}`, 'success');
+      // Refresh both deployments and ads
+      loadDeployments();
+      loadAllAds();
+    } catch (err) {
+      addToast('Failed to deploy: ' + err.message, 'error');
+    }
+    setDeployingAdIds(prev => {
+      const next = new Set(prev);
+      adIds.forEach(id => next.delete(id));
+      return next;
+    });
+  };
 
   // ─── Actions ──────────────────────────────────────────────────────────────
   const handleStatusChange = async (id, newStatus) => {
@@ -638,8 +680,19 @@ export default function AdTracker({ projectId }) {
     <div>
       {/* Status filter pills */}
       <div className="flex items-center gap-2 mb-5 flex-wrap">
+        {/* Unposted tab — default */}
         <button
-          onClick={() => setStatusFilter('all')}
+          onClick={() => { setStatusFilter('unposted'); setSelectedIds(new Set()); }}
+          className={`px-3 py-1.5 rounded-full text-[12px] font-medium transition-colors ${
+            statusFilter === 'unposted'
+              ? 'bg-gray-900 text-white'
+              : 'bg-black/5 text-textmid hover:bg-black/10'
+          }`}
+        >
+          Unposted ({unpostedCount})
+        </button>
+        <button
+          onClick={() => { setStatusFilter('all'); setSelectedIds(new Set()); }}
           className={`px-3 py-1.5 rounded-full text-[12px] font-medium transition-colors ${
             statusFilter === 'all'
               ? 'bg-gray-900 text-white'
@@ -654,7 +707,7 @@ export default function AdTracker({ projectId }) {
           return (
             <button
               key={status}
-              onClick={() => setStatusFilter(status)}
+              onClick={() => { setStatusFilter(status); setSelectedIds(new Set()); }}
               className={`px-3 py-1.5 rounded-full text-[12px] font-medium transition-colors ${
                 statusFilter === status
                   ? 'bg-gray-900 text-white'
@@ -667,6 +720,214 @@ export default function AdTracker({ projectId }) {
         })}
       </div>
 
+      {/* ═══════════ Unposted Ads Tab ═══════════ */}
+      {statusFilter === 'unposted' && (
+        <>
+          {/* Unposted bulk action bar */}
+          {selectedIds.size > 0 && (
+            <div className="flex items-center gap-3 mb-4 p-3 bg-navy/5 rounded-xl border border-navy/10 fade-in">
+              <span className="text-[12px] font-medium text-navy">
+                {selectedIds.size} selected
+              </span>
+              <div className="flex items-center gap-2 ml-auto">
+                <button
+                  onClick={() => handleDeployAds([...selectedIds])}
+                  disabled={deployingAdIds.size > 0}
+                  className="text-[11px] px-3 py-1 rounded-lg bg-navy text-white hover:bg-navy-light transition-colors disabled:opacity-50 inline-flex items-center gap-1.5"
+                >
+                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.59 14.37a6 6 0 01-5.84 7.38v-4.8m5.84-2.58a14.98 14.98 0 006.16-12.12A14.98 14.98 0 009.631 8.41m5.96 5.96a14.926 14.926 0 01-5.841 2.58m-.119-8.54a6 6 0 00-7.381 5.84h4.8m2.58-5.84a14.927 14.927 0 00-2.58 5.84m2.699 2.7c-.103.021-.207.041-.311.06a15.09 15.09 0 01-2.448-2.448 14.9 14.9 0 01.06-.312m-2.24 2.39a4.493 4.493 0 00-1.757 4.306 4.493 4.493 0 004.306-1.758M16.5 9a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0z" />
+                  </svg>
+                  {deployingAdIds.size > 0 ? 'Deploying...' : 'Deploy'}
+                </button>
+                <button
+                  onClick={() => setSelectedIds(new Set())}
+                  className="text-[11px] px-2.5 py-1 rounded-lg text-textlight hover:text-textmid transition-colors"
+                >
+                  Clear
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Unposted loading */}
+          {(loading || allAdsLoading) && (
+            <div className="card overflow-hidden">
+              <div className="bg-gray-50 border-b border-gray-100 px-3 py-2.5">
+                <div className="h-2.5 w-full bg-gray-200 rounded animate-pulse" />
+              </div>
+              {[0, 1, 2, 3].map(i => (
+                <div key={i} className="flex items-center gap-3 px-3 py-3 border-b border-gray-100 last:border-0 animate-pulse">
+                  <div className="w-4 h-4 bg-gray-200 rounded" />
+                  <div className="w-12 h-12 bg-gray-200 rounded-lg" />
+                  <div className="h-3 w-28 bg-gray-200 rounded" />
+                  <div className="h-3 w-20 bg-gray-100 rounded flex-1" />
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Unposted empty state */}
+          {!loading && !allAdsLoading && unpostedAds.length === 0 && (
+            <div className="card p-12 text-center">
+              <div className="w-14 h-14 rounded-2xl bg-teal/10 flex items-center justify-center mx-auto mb-4">
+                <svg className="w-7 h-7 text-teal" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z" />
+                </svg>
+              </div>
+              <h3 className="text-[15px] font-semibold text-textdark mb-1">All ads deployed</h3>
+              <p className="text-[13px] text-textlight max-w-sm mx-auto">
+                Every generated ad has been deployed. Generate more ads in the Ad Studio to see them here.
+              </p>
+            </div>
+          )}
+
+          {/* Unposted ads table */}
+          {!loading && !allAdsLoading && unpostedAds.length > 0 && (
+            <div className="card overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full text-left min-w-[600px]">
+                  <thead>
+                    <tr className="bg-offwhite border-b border-black/5">
+                      <th className="px-3 py-2.5 w-10">
+                        <button
+                          onClick={() => {
+                            if (selectedIds.size === unpostedAds.length) {
+                              setSelectedIds(new Set());
+                            } else {
+                              setSelectedIds(new Set(unpostedAds.map(a => a.id)));
+                            }
+                          }}
+                          className={`w-[16px] h-[16px] rounded flex items-center justify-center transition-colors ${
+                            selectedIds.size === unpostedAds.length && unpostedAds.length > 0
+                              ? 'bg-navy'
+                              : 'border-[1.5px] border-textlight/60 hover:border-navy/40'
+                          }`}
+                        >
+                          {selectedIds.size === unpostedAds.length && unpostedAds.length > 0 && (
+                            <svg className="w-2.5 h-2.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                            </svg>
+                          )}
+                        </button>
+                      </th>
+                      <th className="px-2 py-2.5 w-16" />
+                      <th className="px-3 py-2.5 text-[10px] uppercase tracking-wider font-medium text-textlight">
+                        Headline / Angle
+                      </th>
+                      <th className="px-3 py-2.5 text-[10px] uppercase tracking-wider font-medium text-textlight hidden md:table-cell">
+                        Mode
+                      </th>
+                      <th className="px-3 py-2.5 text-[10px] uppercase tracking-wider font-medium text-textlight hidden md:table-cell w-28">
+                        Created
+                      </th>
+                      <th className="px-3 py-2.5 w-24" />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {unpostedAds.map(ad => {
+                      const isSelected = selectedIds.has(ad.id);
+                      const title = ad.headline || ad.angle || `Ad ${(ad.id || '').slice(0, 6)}`;
+                      const thumbUrl = `/api/projects/${projectId}/ads/${ad.id}/thumbnail`;
+
+                      return (
+                        <tr
+                          key={ad.id}
+                          className={`border-b border-gray-100 last:border-0 transition-colors ${
+                            isSelected ? 'bg-navy/5' : 'hover:bg-offwhite'
+                          }`}
+                        >
+                          {/* Checkbox */}
+                          <td className="px-3 py-2.5">
+                            <button
+                              onClick={() => {
+                                setSelectedIds(prev => {
+                                  const next = new Set(prev);
+                                  if (next.has(ad.id)) next.delete(ad.id); else next.add(ad.id);
+                                  return next;
+                                });
+                              }}
+                              className={`w-[16px] h-[16px] rounded flex items-center justify-center transition-colors ${
+                                isSelected
+                                  ? 'bg-navy'
+                                  : 'border-[1.5px] border-textlight/60 hover:border-navy/40'
+                              }`}
+                            >
+                              {isSelected && (
+                                <svg className="w-2.5 h-2.5 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+                                </svg>
+                              )}
+                            </button>
+                          </td>
+
+                          {/* Thumbnail */}
+                          <td className="px-2 py-2.5">
+                            <img
+                              src={thumbUrl}
+                              alt=""
+                              className="w-12 h-12 object-cover rounded-lg bg-gray-100"
+                              loading="lazy"
+                            />
+                          </td>
+
+                          {/* Headline / Angle */}
+                          <td className="px-3 py-2.5">
+                            <div className="text-[13px] font-medium text-textdark truncate max-w-[300px]" title={title}>
+                              {title}
+                            </div>
+                            {ad.body_copy && (
+                              <div className="text-[11px] text-textlight truncate max-w-[300px] mt-0.5" title={ad.body_copy}>
+                                {ad.body_copy}
+                              </div>
+                            )}
+                          </td>
+
+                          {/* Mode */}
+                          <td className="px-3 py-2.5 hidden md:table-cell">
+                            <span className="text-[11px] text-textmid">
+                              {ad.generation_mode === 'mode1' ? 'Inspiration' : ad.generation_mode === 'mode2' ? 'Template' : ad.generation_mode || '—'}
+                            </span>
+                          </td>
+
+                          {/* Created */}
+                          <td className="px-3 py-2.5 hidden md:table-cell">
+                            <span className="text-[11px] text-textlight">
+                              {new Date(ad.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                            </span>
+                          </td>
+
+                          {/* Deploy button */}
+                          <td className="px-3 py-2.5 text-right">
+                            <button
+                              onClick={() => handleDeployAds([ad.id])}
+                              disabled={deployingAdIds.has(ad.id)}
+                              className="text-[11px] px-3 py-1.5 rounded-lg bg-navy text-white hover:bg-navy-light transition-colors disabled:opacity-50 inline-flex items-center gap-1"
+                            >
+                              {deployingAdIds.has(ad.id) ? (
+                                <span className="inline-block w-3 h-3 border-2 border-white/30 border-t-white rounded-full animate-spin" />
+                              ) : (
+                                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                                </svg>
+                              )}
+                              Deploy
+                            </button>
+                          </td>
+                        </tr>
+                      );
+                    })}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+
+      {/* ═══════════ Deployment Tabs (All / Scheduled / Posted / Analyzing) ═══════════ */}
+      {statusFilter !== 'unposted' && <>
+
       {/* Bulk action bar */}
       {selectedIds.size > 0 && (
         <div className="flex items-center gap-3 mb-4 p-3 bg-navy/5 rounded-xl border border-navy/10 fade-in">
@@ -674,7 +935,7 @@ export default function AdTracker({ projectId }) {
             {selectedIds.size} selected
           </span>
           <div className="flex items-center gap-2 ml-auto">
-            {STATUS_ORDER.slice(1).map(status => (
+            {STATUS_ORDER.map(status => (
               <button
                 key={status}
                 onClick={() => handleBulkStatus(status)}
@@ -1237,6 +1498,8 @@ export default function AdTracker({ projectId }) {
           </div>
         </div>
       )}
+
+      </>}
 
       {/* Performance section */}
       <div className="mt-8">
