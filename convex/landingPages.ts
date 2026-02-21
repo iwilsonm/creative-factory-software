@@ -71,6 +71,11 @@ export const update = mutation({
     slug: v.optional(v.string()),
     cta_links: v.optional(v.string()),
     current_version: v.optional(v.number()),
+    // Phase 4 publishing
+    published_url: v.optional(v.string()),
+    published_at: v.optional(v.string()),
+    final_html: v.optional(v.string()),
+    hosting_metadata: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const doc = await ctx.db
@@ -96,6 +101,10 @@ export const update = mutation({
     if (args.slug !== undefined) updates.slug = args.slug;
     if (args.cta_links !== undefined) updates.cta_links = args.cta_links;
     if (args.current_version !== undefined) updates.current_version = args.current_version;
+    if (args.published_url !== undefined) updates.published_url = args.published_url;
+    if (args.published_at !== undefined) updates.published_at = args.published_at;
+    if (args.final_html !== undefined) updates.final_html = args.final_html;
+    if (args.hosting_metadata !== undefined) updates.hosting_metadata = args.hosting_metadata;
     await ctx.db.patch(doc._id, updates);
   },
 });

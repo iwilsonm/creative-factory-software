@@ -96,6 +96,8 @@ export async function getAllProjectsWithStats() {
     ...convexProjectToRow(p),
     docCount: p.docCount,
     adCount: p.adCount,
+    lpCount: p.lpCount,
+    lpPublishedCount: p.lpPublishedCount,
   }));
 }
 
@@ -740,6 +742,7 @@ export async function getDashboardTodos() {
       done: row.done,
       author: row.author || undefined,
       notes: row.notes || undefined,
+      priority: typeof row.priority === 'number' ? row.priority : undefined,
     }));
 }
 

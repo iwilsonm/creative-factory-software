@@ -22,11 +22,15 @@ export default function CopywriterChat({ projectId, projectName }) {
   const [docsExpanded, setDocsExpanded] = useState(false);
   const [docContents, setDocContents] = useState({}); // { research: "...", avatar: "...", ... }
   const [viewingDoc, setViewingDoc] = useState(null); // which doc type is being viewed
+  const [attachedFiles, setAttachedFiles] = useState([]); // [{ id, file, name, extracting, text, error, charCount }]
+  const [isDragging, setIsDragging] = useState(false);
 
   const streamingTextRef = useRef('');
   const abortRef = useRef(null);
   const messagesEndRef = useRef(null);
   const inputRef = useRef(null);
+  const fileInputRef = useRef(null);
+  const dragCounterRef = useRef(0);
 
   // Load existing thread + doc statuses on mount / project change
   useEffect(() => {
@@ -93,9 +97,79 @@ export default function CopywriterChat({ projectId, projectName }) {
     };
   }, []);
 
+  const processFiles = useCallback(async (files) => {
+    if (!files || files.length === 0) return;
+
+    for (const file of files) {
+      const id = Date.now() + '-' + Math.random().toString(36).slice(2);
+      const entry = { id, file, name: file.name, extracting: true, text: null, error: null, charCount: null };
+      setAttachedFiles(prev => [...prev, entry]);
+
+      try {
+        const result = await api.extractText(file);
+        setAttachedFiles(prev => prev.map(f =>
+          f.id === id ? { ...f, extracting: false, text: result.text, charCount: result.charCount } : f
+        ));
+      } catch (err) {
+        setAttachedFiles(prev => prev.map(f =>
+          f.id === id ? { ...f, extracting: false, error: err.message || 'Extraction failed' } : f
+        ));
+      }
+    }
+  }, []);
+
+  const handleFileSelect = useCallback((e) => {
+    const files = Array.from(e.target.files || []);
+    if (fileInputRef.current) fileInputRef.current.value = '';
+    processFiles(files);
+  }, [processFiles]);
+
+  const handleDragEnter = useCallback((e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounterRef.current++;
+    if (e.dataTransfer?.types?.includes('Files')) {
+      setIsDragging(true);
+    }
+  }, []);
+
+  const handleDragOver = useCallback((e) => {
+    e.preventDefault();
+    e.stopPropagation();
+  }, []);
+
+  const handleDragLeave = useCallback((e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounterRef.current--;
+    if (dragCounterRef.current === 0) {
+      setIsDragging(false);
+    }
+  }, []);
+
+  const handleDrop = useCallback((e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounterRef.current = 0;
+    setIsDragging(false);
+
+    const files = Array.from(e.dataTransfer?.files || []);
+    // Filter to accepted file types
+    const accepted = ['.pdf', '.docx', '.epub', '.mobi', '.txt', '.html', '.htm', '.md'];
+    const validFiles = files.filter(f => accepted.some(ext => f.name.toLowerCase().endsWith(ext)));
+    if (validFiles.length > 0) {
+      processFiles(validFiles);
+    }
+  }, [processFiles]);
+
+  const removeAttachedFile = useCallback((id) => {
+    setAttachedFiles(prev => prev.filter(f => f.id !== id));
+  }, []);
+
   const handleSend = useCallback(async () => {
     const text = inputValue.trim();
-    if (!text || isStreaming) return;
+    const stillExtracting = attachedFiles.some(f => f.extracting);
+    if ((!text && attachedFiles.length === 0) || isStreaming || stillExtracting) return;
 
     setError(null);
     setInputValue('');
@@ -103,9 +177,23 @@ export default function CopywriterChat({ projectId, projectName }) {
     setStreamingText('');
     streamingTextRef.current = '';
 
-    // Optimistic: add user message
-    const userMsg = { id: 'temp-user-' + Date.now(), role: 'user', content: text };
+    // Build message with attached file content prepended
+    const successfulFiles = attachedFiles.filter(f => f.text && !f.error);
+    let fullMessage = text;
+    if (successfulFiles.length > 0) {
+      const fileBlocks = successfulFiles.map(f =>
+        `[Attached: ${f.name}]\n\n${f.text}`
+      ).join('\n\n---\n\n');
+      fullMessage = text ? fileBlocks + '\n\n---\n\n' + text : fileBlocks;
+    }
+
+    // Optimistic: show file chips + text in the UI (not the full extracted content)
+    const displayContent = successfulFiles.length > 0
+      ? `${successfulFiles.map(f => `[${f.name}]`).join(' ')}${text ? '\n' + text : ''}`
+      : text;
+    const userMsg = { id: 'temp-user-' + Date.now(), role: 'user', content: displayContent };
     setMessages(prev => [...prev, userMsg]);
+    setAttachedFiles([]);
 
     // Check if this is a new thread (no existing thread)
     if (!threadId) {
@@ -113,7 +201,7 @@ export default function CopywriterChat({ projectId, projectName }) {
     }
 
     try {
-      const { abort, done } = api.sendChatMessage(projectId, text, (event) => {
+      const { abort, done } = api.sendChatMessage(projectId, fullMessage, (event) => {
         if (event.type === 'status') {
           setStatusText(event.text);
         } else if (event.type === 'token') {
@@ -150,7 +238,7 @@ export default function CopywriterChat({ projectId, projectName }) {
       setIsInitializing(false);
       abortRef.current = null;
     }
-  }, [inputValue, isStreaming, projectId, threadId]);
+  }, [inputValue, isStreaming, projectId, threadId, attachedFiles]);
 
   const handleKeyDown = (e) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -196,7 +284,26 @@ export default function CopywriterChat({ projectId, projectName }) {
   // ─── Expanded chat panel ───────────────────────────────────────────────
 
   return (
-    <div className="fixed bottom-6 right-6 z-50 w-[400px] h-[520px] bg-white/95 backdrop-blur-xl rounded-2xl shadow-2xl border border-gray-200/60 flex flex-col overflow-hidden fade-in">
+    <div
+      className="fixed bottom-6 right-6 z-50 w-[400px] h-[520px] bg-white/95 backdrop-blur-xl rounded-2xl shadow-2xl border border-gray-200/60 flex flex-col overflow-hidden fade-in"
+      onDragEnter={handleDragEnter}
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+    >
+      {/* Drag & drop overlay */}
+      {isDragging && (
+        <div className="absolute inset-0 z-50 bg-navy/90 backdrop-blur-sm rounded-2xl flex flex-col items-center justify-center pointer-events-none">
+          <div className="w-16 h-16 rounded-2xl border-2 border-dashed border-white/50 flex items-center justify-center mb-3">
+            <svg className="w-8 h-8 text-white/80" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+            </svg>
+          </div>
+          <p className="text-white font-semibold text-[14px]">Drop files here</p>
+          <p className="text-white/60 text-[11px] mt-1">PDF, DOCX, TXT, Markdown, HTML</p>
+        </div>
+      )}
+
       {/* Header */}
       <div className="bg-gradient-to-r from-navy to-navy-light text-white rounded-t-2xl">
         <div className="flex items-center justify-between px-4 py-2.5">
@@ -318,22 +425,48 @@ export default function CopywriterChat({ projectId, projectName }) {
           </div>
         )}
 
-        {messages.map((msg) => (
-          <div
-            key={msg.id}
-            className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
-          >
+        {messages.map((msg) => {
+          // Parse file attachment indicators from user messages
+          let displayContent = msg.content;
+          let fileAttachments = [];
+          if (msg.role === 'user') {
+            const attachRegex = /\[([^\]]+\.\w+)\]/g;
+            let match;
+            while ((match = attachRegex.exec(msg.content)) !== null) {
+              fileAttachments.push(match[1]);
+            }
+            displayContent = msg.content.replace(/\[([^\]]+\.\w+)\]\s*/g, '').trim();
+          }
+
+          return (
             <div
-              className={`max-w-[85%] px-3 py-2 rounded-2xl text-[13px] leading-relaxed ${
-                msg.role === 'user'
-                  ? 'bg-navy text-white rounded-br-md'
-                  : 'bg-black/5 text-textdark rounded-bl-md'
-              }`}
+              key={msg.id}
+              className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}
             >
-              <div className="whitespace-pre-wrap break-words">{msg.content}</div>
+              <div
+                className={`max-w-[85%] px-3 py-2 rounded-2xl text-[13px] leading-relaxed ${
+                  msg.role === 'user'
+                    ? 'bg-navy text-white rounded-br-md'
+                    : 'bg-black/5 text-textdark rounded-bl-md'
+                }`}
+              >
+                {fileAttachments.length > 0 && (
+                  <div className="flex flex-wrap gap-1 mb-1.5">
+                    {fileAttachments.map((name, i) => (
+                      <span key={i} className="inline-flex items-center gap-1 text-[10px] bg-white/20 px-1.5 py-0.5 rounded-md">
+                        <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                        </svg>
+                        {name}
+                      </span>
+                    ))}
+                  </div>
+                )}
+                <div className="whitespace-pre-wrap break-words">{displayContent || (fileAttachments.length > 0 ? '' : msg.content)}</div>
+              </div>
             </div>
-          </div>
-        ))}
+          );
+        })}
 
         {/* Streaming response */}
         {isStreaming && streamingText && (
@@ -381,7 +514,67 @@ export default function CopywriterChat({ projectId, projectName }) {
 
       {/* Input area */}
       <div className="px-4 py-3 border-t border-black/5">
+        {/* Attached file chips */}
+        {attachedFiles.length > 0 && (
+          <div className="flex flex-wrap gap-1.5 mb-2">
+            {attachedFiles.map(f => (
+              <span
+                key={f.id}
+                className={`inline-flex items-center gap-1 text-[11px] px-2 py-1 rounded-lg border ${
+                  f.error ? 'bg-red-50 border-red-200 text-red-600'
+                  : f.extracting ? 'bg-gold/5 border-gold/30 text-gold'
+                  : 'bg-navy/5 border-navy/15 text-navy'
+                }`}
+              >
+                <svg className="w-3 h-3 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                </svg>
+                <span className="truncate max-w-[120px]">{f.name}</span>
+                {f.extracting && (
+                  <svg className="w-3 h-3 animate-spin flex-shrink-0" fill="none" viewBox="0 0 24 24">
+                    <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                    <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                  </svg>
+                )}
+                {f.charCount && !f.extracting && (
+                  <span className="text-[9px] text-textlight">{(f.charCount / 1000).toFixed(0)}k</span>
+                )}
+                {f.error && (
+                  <span className="text-[9px]" title={f.error}>failed</span>
+                )}
+                <button
+                  onClick={() => removeAttachedFile(f.id)}
+                  className="text-current opacity-50 hover:opacity-100 ml-0.5"
+                >
+                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                  </svg>
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
+
         <div className="flex items-end gap-2">
+          {/* Attach file button */}
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            disabled={isStreaming}
+            className="w-9 h-9 rounded-xl border border-black/10 hover:border-gold hover:bg-gold/5 text-textlight hover:text-gold disabled:opacity-40 flex items-center justify-center transition-all flex-shrink-0"
+            title="Attach a file (PDF, DOCX, TXT, etc.)"
+          >
+            <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13" />
+            </svg>
+          </button>
+          <input
+            ref={fileInputRef}
+            type="file"
+            accept=".pdf,.docx,.epub,.mobi,.txt,.html,.htm,.md"
+            multiple
+            onChange={handleFileSelect}
+            className="hidden"
+          />
           <textarea
             ref={inputRef}
             value={inputValue}
@@ -400,7 +593,7 @@ export default function CopywriterChat({ projectId, projectName }) {
           />
           <button
             onClick={handleSend}
-            disabled={isStreaming || !inputValue.trim()}
+            disabled={isStreaming || (!inputValue.trim() && attachedFiles.length === 0) || attachedFiles.some(f => f.extracting)}
             className="w-9 h-9 rounded-xl bg-navy hover:bg-navy-light disabled:bg-gray-200 disabled:text-textlight text-white flex items-center justify-center transition-all flex-shrink-0"
           >
             <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">

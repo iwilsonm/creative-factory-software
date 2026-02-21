@@ -131,7 +131,16 @@ export const getStats = query({
       .query("ad_creatives")
       .withIndex("by_project", (q) => q.eq("project_id", args.projectId))
       .collect();
-    return { docCount: docs.length, adCount: ads.length };
+    const lps = await ctx.db
+      .query("landing_pages")
+      .withIndex("by_project", (q) => q.eq("project_id", args.projectId))
+      .collect();
+    return {
+      docCount: docs.length,
+      adCount: ads.length,
+      lpCount: lps.length,
+      lpPublishedCount: lps.filter((lp) => lp.status === "published").length,
+    };
   },
 });
 
@@ -151,7 +160,17 @@ export const getAllWithStats = query({
           .query("ad_creatives")
           .withIndex("by_project", (q) => q.eq("project_id", project.externalId))
           .collect();
-        return { ...project, docCount: docs.length, adCount: ads.length };
+        const lps = await ctx.db
+          .query("landing_pages")
+          .withIndex("by_project", (q) => q.eq("project_id", project.externalId))
+          .collect();
+        return {
+          ...project,
+          docCount: docs.length,
+          adCount: ads.length,
+          lpCount: lps.length,
+          lpPublishedCount: lps.filter((lp) => lp.status === "published").length,
+        };
       })
     );
   },

@@ -108,7 +108,7 @@ export async function logPerplexityCost({ model, operation, inputTokens, outputT
  * @param {string} resolution - '1K', '2K', or '4K'
  * @param {boolean} isBatch - Whether this is a batch generation (50% discount)
  */
-export async function logGeminiCost(projectId, imageCount = 1, resolution = '2K', isBatch = false) {
+export async function logGeminiCost(projectId, imageCount = 1, resolution = '2K', isBatch = false, operationOverride = null) {
   try {
     const rateKey = `gemini_rate_${resolution.toLowerCase()}`;
     const rateStr = await getSetting(rateKey);
@@ -126,7 +126,7 @@ export async function logGeminiCost(projectId, imageCount = 1, resolution = '2K'
       id: uuidv4(),
       project_id: projectId,
       service: 'gemini',
-      operation: isBatch ? 'image_generation_batch' : 'image_generation',
+      operation: operationOverride || (isBatch ? 'image_generation_batch' : 'image_generation'),
       cost_usd: Math.round(cost * 1000000) / 1000000, // 6 decimal precision
       rate_used: rate,
       image_count: imageCount,

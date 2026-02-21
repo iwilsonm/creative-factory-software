@@ -9,7 +9,7 @@ router.use(requireAuth);
 
 // Sensitive keys that should be masked when returning
 const SENSITIVE_KEYS = ['auth_password_hash', 'session_secret'];
-const API_KEY_KEYS = ['openai_api_key', 'openai_admin_key', 'gemini_api_key', 'perplexity_api_key', 'anthropic_api_key'];
+const API_KEY_KEYS = ['openai_api_key', 'openai_admin_key', 'gemini_api_key', 'perplexity_api_key', 'anthropic_api_key', 'cloudflare_api_token'];
 
 // Get all settings (mask sensitive values)
 router.get('/', async (req, res) => {
@@ -39,7 +39,10 @@ router.put('/', async (req, res) => {
     'default_drive_folder_id',
     'gemini_rate_1k',
     'gemini_rate_2k',
-    'gemini_rate_4k'
+    'gemini_rate_4k',
+    'cloudflare_account_id',
+    'cloudflare_api_token',
+    'cloudflare_pages_projects'
   ];
 
   for (const key of allowed) {

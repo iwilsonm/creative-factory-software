@@ -59,6 +59,45 @@ const PHASE_LABELS = {
   assembling: { label: 'Assembly', icon: '🔧', description: 'Assembling final page...' },
 };
 
+// Empirical time estimates per phase (seconds)
+const PHASE_TIMING = {
+  design_analysis: 25,
+  copy_generation: 40,
+  image_generation: 15, // per image
+  html_generation: 30,
+  assembling: 3,
+};
+
+function estimateRemainingSeconds(phases, currentPhase, imageTotal) {
+  if (!currentPhase || currentPhase === 'done') return null;
+  const currentIdx = phases.indexOf(currentPhase);
+  if (currentIdx < 0) return null;
+
+  let remaining = 0;
+  for (let i = currentIdx; i < phases.length; i++) {
+    const t = PHASE_TIMING[phases[i]];
+    if (!t) continue;
+    if (phases[i] === 'image_generation') {
+      remaining += (imageTotal || 3) * t;
+    } else {
+      remaining += t;
+    }
+  }
+  // Assume halfway through current phase
+  const currentT = PHASE_TIMING[currentPhase];
+  if (currentT) {
+    const phaseTime = currentPhase === 'image_generation' ? (imageTotal || 3) * currentT : currentT;
+    remaining -= Math.round(phaseTime / 2);
+  }
+  return Math.max(0, remaining);
+}
+
+function formatTime(seconds) {
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return m > 0 ? `${m}m ${s}s` : `${s}s`;
+}
+
 // ═══════════════════════════════════════════════════════════════════════════
 // Copy Section Display (collapsible)
 // ═══════════════════════════════════════════════════════════════════════════
@@ -233,6 +272,7 @@ function LPEditor({ page: initialPage, onBack, onDelete, projectId }) {
   const toast = useToast();
   const [deleting, setDeleting] = useState(false);
   const [activeTab, setActiveTab] = useState('copy');
+  const [mobileView, setMobileView] = useState('preview'); // 'preview' | 'editor'
 
   // ── Core state (mirrors server record, edited locally) ──
   const [copySections, setCopySections] = useState(() => {
@@ -274,6 +314,17 @@ function LPEditor({ page: initialPage, onBack, onDelete, projectId }) {
   const [restoringVersion, setRestoringVersion] = useState(null);
   const [previewVersionHtml, setPreviewVersionHtml] = useState(null); // modal
 
+  // ── Publishing state ──
+  const [publishing, setPublishing] = useState(false);
+  const [publishProgress, setPublishProgress] = useState('');
+  const [showPublishModal, setShowPublishModal] = useState(false);
+  const [publishSlug, setPublishSlug] = useState('');
+  const [unpublishing, setUnpublishing] = useState(false);
+  const [publishedUrl, setPublishedUrl] = useState(initialPage.published_url || '');
+  const [pageStatus, setPageStatus] = useState(initialPage.status);
+  const [copiedUrl, setCopiedUrl] = useState(false);
+  const [cfConfigured, setCfConfigured] = useState(true); // assume configured until checked
+
   // ── Image tab state ──
   const [regeneratingSlot, setRegeneratingSlot] = useState(null); // index
   const [uploadingSlot, setUploadingSlot] = useState(null); // index
@@ -304,6 +355,13 @@ function LPEditor({ page: initialPage, onBack, onDelete, projectId }) {
     if (Object.keys(updates).length > 0) {
       api.updateLandingPage(projectId, initialPage.externalId, updates).catch(() => {});
     }
+  }, []);
+
+  // ── Check Cloudflare config ──
+  useEffect(() => {
+    api.getSettings().then(s => {
+      setCfConfigured(!!(s.cloudflare_account_id && s.cloudflare_api_token));
+    }).catch(() => {});
   }, []);
 
   // ── Load versions when Settings tab is selected ──
@@ -493,6 +551,70 @@ function LPEditor({ page: initialPage, onBack, onDelete, projectId }) {
     setDeleting(false);
   };
 
+  // ── Publish handler ──
+  const handlePublish = () => {
+    setPublishSlug(slug);
+    setShowPublishModal(true);
+  };
+
+  const handleConfirmPublish = async () => {
+    if (!publishSlug.trim()) {
+      toast.error('Please enter a URL slug');
+      return;
+    }
+    setShowPublishModal(false);
+    setPublishing(true);
+    setPublishProgress('Starting publish...');
+
+    const { abort, done } = api.publishLandingPage(projectId, initialPage.externalId, publishSlug.trim(), (event) => {
+      if (event.type === 'phase' || event.type === 'progress') {
+        setPublishProgress(event.message || '');
+      } else if (event.type === 'completed') {
+        setPublishProgress('');
+        setPublishing(false);
+        setPublishedUrl(event.published_url);
+        setPageStatus('published');
+        setSlug(publishSlug.trim());
+        toast.success('Landing page published!');
+      } else if (event.type === 'error') {
+        setPublishProgress('');
+        setPublishing(false);
+        toast.error(event.message || 'Publish failed');
+      }
+    });
+
+    done.catch((err) => {
+      if (err.name !== 'AbortError') {
+        setPublishing(false);
+        setPublishProgress('');
+        toast.error(err.message || 'Publish failed');
+      }
+    });
+  };
+
+  // ── Unpublish handler ──
+  const handleUnpublish = async () => {
+    if (!confirm('Unpublish this landing page? It will be removed from Cloudflare.')) return;
+    setUnpublishing(true);
+    try {
+      await api.unpublishLandingPage(projectId, initialPage.externalId);
+      setPageStatus('unpublished');
+      setPublishedUrl('');
+      toast.success('Landing page unpublished');
+    } catch (err) {
+      toast.error(err.message || 'Failed to unpublish');
+    }
+    setUnpublishing(false);
+  };
+
+  // ── Copy URL to clipboard ──
+  const handleCopyUrl = () => {
+    navigator.clipboard.writeText(publishedUrl);
+    setCopiedUrl(true);
+    toast.success('URL copied to clipboard');
+    setTimeout(() => setCopiedUrl(false), 2000);
+  };
+
   // ── Derived values ──
   const totalWords = useMemo(() => copySections.reduce((sum, s) => sum + countWords(s.content), 0), [copySections]);
   const hasMissingCtaUrl = ctaLinks.some(c => !c.url || c.url === '#order' || c.url === '#');
@@ -523,19 +645,57 @@ function LPEditor({ page: initialPage, onBack, onDelete, projectId }) {
               {initialPage.angle || initialPage.name}
             </h2>
             <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${
-              initialPage.status === 'completed' ? 'bg-teal/10 text-teal' :
-              initialPage.status === 'failed' ? 'bg-red-50 text-red-600' :
+              pageStatus === 'published' ? 'bg-teal/15 text-teal' :
+              pageStatus === 'unpublished' ? 'bg-gold/10 text-gold' :
+              pageStatus === 'completed' ? 'bg-teal/10 text-teal' :
+              pageStatus === 'failed' ? 'bg-red-50 text-red-600' :
               'bg-black/5 text-textmid'
             }`}>
-              {initialPage.status}
+              {pageStatus}
             </span>
             <span className="text-[10px] font-mono text-textlight bg-black/5 px-1.5 py-0.5 rounded">
               v{currentVersion}
             </span>
           </div>
+          {/* Published URL display */}
+          {publishedUrl && (
+            <div className="flex items-center gap-1.5 mt-0.5">
+              <a
+                href={publishedUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-[10px] text-gold hover:text-gold/80 font-mono truncate max-w-[300px]"
+              >
+                {publishedUrl}
+              </a>
+              <button
+                onClick={handleCopyUrl}
+                className="text-textlight hover:text-textmid transition-colors flex-shrink-0"
+                title="Copy URL"
+              >
+                {copiedUrl ? (
+                  <svg className="w-3 h-3 text-teal" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
+                  </svg>
+                ) : (
+                  <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M15.666 3.888A2.25 2.25 0 0013.5 2.25h-3c-1.03 0-1.9.693-2.166 1.638m7.332 0c.055.194.084.4.084.612v0a.75.75 0 01-.75.75H9.75a.75.75 0 01-.75-.75v0c0-.212.03-.418.084-.612m7.332 0c.646.049 1.288.11 1.927.184 1.1.128 1.907 1.077 1.907 2.185V19.5a2.25 2.25 0 01-2.25 2.25H6.75A2.25 2.25 0 014.5 19.5V6.257c0-1.108.806-2.057 1.907-2.185a48.208 48.208 0 011.927-.184" />
+                  </svg>
+                )}
+              </button>
+            </div>
+          )}
         </div>
         <div className="flex items-center gap-2">
-          {hasMissingCtaUrl && (
+          {!cfConfigured && !publishing && (
+            <span className="text-red-500 text-[10px] flex items-center gap-1" title="Configure Cloudflare in Settings first">
+              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126z" />
+              </svg>
+              No Cloudflare
+            </span>
+          )}
+          {hasMissingCtaUrl && !publishing && (
             <span className="text-gold text-[10px] flex items-center gap-1" title="Some CTA links need URLs">
               <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126z" />
@@ -543,13 +703,27 @@ function LPEditor({ page: initialPage, onBack, onDelete, projectId }) {
               CTA links
             </span>
           )}
-          <button
-            disabled
-            title="Publishing coming in next update"
-            className="btn-primary text-[11px] px-3 py-1.5 opacity-50 cursor-not-allowed"
-          >
-            Publish
-          </button>
+          {publishing ? (
+            <span className="text-[11px] text-navy flex items-center gap-1.5">
+              <svg className="w-3.5 h-3.5 animate-spin" viewBox="0 0 24 24" fill="none">
+                <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" strokeDasharray="31.4 31.4" strokeLinecap="round" />
+              </svg>
+              {publishProgress || 'Publishing...'}
+            </span>
+          ) : (
+            <button
+              onClick={handlePublish}
+              disabled={hasMissingCtaUrl || !cfConfigured}
+              className={`text-[11px] px-3 py-1.5 rounded-lg font-medium transition-colors ${
+                pageStatus === 'published'
+                  ? 'bg-navy/10 text-navy hover:bg-navy/15'
+                  : 'btn-primary'
+              } ${(hasMissingCtaUrl || !cfConfigured) ? 'opacity-50 cursor-not-allowed' : ''}`}
+              title={!cfConfigured ? 'Configure Cloudflare in Settings first' : hasMissingCtaUrl ? 'Fix CTA links before publishing' : ''}
+            >
+              {pageStatus === 'published' ? 'Re-publish' : 'Publish'}
+            </button>
+          )}
           <button
             onClick={handleDelete}
             disabled={deleting}
@@ -560,10 +734,30 @@ function LPEditor({ page: initialPage, onBack, onDelete, projectId }) {
         </div>
       </div>
 
+      {/* ── Mobile: Preview/Editor toggle ── */}
+      <div className="lg:hidden flex gap-1 p-1 bg-offwhite rounded-lg w-fit mb-3">
+        <button
+          onClick={() => setMobileView('preview')}
+          className={`px-4 py-1.5 rounded-md text-[12px] font-medium transition-all ${
+            mobileView === 'preview' ? 'bg-navy text-white shadow-sm' : 'text-textmid hover:text-textdark'
+          }`}
+        >
+          Preview
+        </button>
+        <button
+          onClick={() => setMobileView('editor')}
+          className={`px-4 py-1.5 rounded-md text-[12px] font-medium transition-all ${
+            mobileView === 'editor' ? 'bg-navy text-white shadow-sm' : 'text-textmid hover:text-textdark'
+          }`}
+        >
+          Editor
+        </button>
+      </div>
+
       {/* ── Split Panel ── */}
-      <div className="flex flex-1 min-h-0 gap-0">
+      <div className="flex flex-col lg:flex-row flex-1 min-h-0 gap-0">
         {/* ── Left: Preview ── */}
-        <div className="w-[60%] overflow-auto border border-black/10 rounded-xl bg-white">
+        <div className={`w-full lg:w-[60%] overflow-auto border border-black/10 rounded-xl bg-white ${mobileView !== 'preview' ? 'hidden lg:block' : ''}`}>
           {displayHtml ? (
             <HtmlPreview html={displayHtml} className="border-0 rounded-none" />
           ) : (
@@ -574,7 +768,7 @@ function LPEditor({ page: initialPage, onBack, onDelete, projectId }) {
         </div>
 
         {/* ── Right: Editor Panel ── */}
-        <div className="w-[40%] overflow-y-auto border-l border-black/5 pl-4 ml-2">
+        <div className={`w-full lg:w-[40%] overflow-y-auto lg:border-l border-black/5 lg:pl-4 lg:ml-2 ${mobileView !== 'editor' ? 'hidden lg:block' : ''}`}>
           {/* Tab bar */}
           <div className="flex gap-1 p-1 bg-offwhite rounded-lg w-fit mb-4 sticky top-0 z-10 bg-white/95 backdrop-blur">
             {TABS.map(tab => (
@@ -792,7 +986,7 @@ function LPEditor({ page: initialPage, onBack, onDelete, projectId }) {
               ))}
               <div className="p-3 bg-navy/5 border border-navy/10 rounded-xl mt-4">
                 <p className="text-[10px] text-navy/70">
-                  Publishing & custom domains coming in next update. For now, CTA links will be embedded in the exported HTML.
+                  CTA links are embedded in the published HTML. Set the URL to your checkout or order page before publishing.
                 </p>
               </div>
             </div>
@@ -874,6 +1068,30 @@ function LPEditor({ page: initialPage, onBack, onDelete, projectId }) {
                 )}
               </div>
 
+              {/* Publishing Controls */}
+              {pageStatus === 'published' && publishedUrl && (
+                <div className="p-3 bg-teal/5 border border-teal/15 rounded-xl">
+                  <p className="text-[11px] font-medium text-teal mb-1.5">Published</p>
+                  <a
+                    href={publishedUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-[11px] text-gold hover:text-gold/80 font-mono break-all"
+                  >
+                    {publishedUrl}
+                  </a>
+                  <div className="mt-2">
+                    <button
+                      onClick={handleUnpublish}
+                      disabled={unpublishing}
+                      className="text-[11px] px-3 py-1 bg-red-50 text-red-600 rounded-lg hover:bg-red-100 transition-colors disabled:opacity-50 font-medium"
+                    >
+                      {unpublishing ? 'Unpublishing...' : 'Unpublish'}
+                    </button>
+                  </div>
+                </div>
+              )}
+
               {/* Generation Details */}
               <div className="p-3 bg-offwhite rounded-xl border border-black/5">
                 <p className="text-[11px] font-medium text-textmid mb-1.5">Generation Details</p>
@@ -909,6 +1127,72 @@ function LPEditor({ page: initialPage, onBack, onDelete, projectId }) {
             </div>
             <div className="flex-1 overflow-auto">
               <HtmlPreview html={previewVersionHtml} className="border-0 rounded-none" />
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── Publish Confirmation Modal ── */}
+      {showPublishModal && (
+        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setShowPublishModal(false)}>
+          <div className="bg-white rounded-2xl shadow-xl w-[440px] overflow-hidden" onClick={e => e.stopPropagation()}>
+            <div className="px-6 py-4 border-b border-black/5">
+              <h3 className="text-[15px] font-semibold text-textdark">
+                {pageStatus === 'published' ? 'Re-publish Landing Page' : 'Publish Landing Page'}
+              </h3>
+              <p className="text-[12px] text-textmid mt-0.5">
+                Deploy to Cloudflare Pages
+              </p>
+            </div>
+            <div className="px-6 py-4 space-y-4">
+              <div>
+                <label className="text-[12px] font-medium text-textdark block mb-1.5">URL Slug</label>
+                <input
+                  type="text"
+                  value={publishSlug}
+                  onChange={(e) => setPublishSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''))}
+                  className="input-apple text-[12px] w-full"
+                  placeholder="landing-page-slug"
+                  autoFocus
+                />
+                <p className="text-[10px] text-textlight mt-1 font-mono bg-offwhite px-2 py-1 rounded">
+                  your-project.pages.dev/<span className="text-navy">{publishSlug || '...'}</span>
+                </p>
+              </div>
+
+              {hasMissingCtaUrl && (
+                <div className="p-3 bg-gold/5 border border-gold/15 rounded-xl">
+                  <p className="text-[11px] text-gold font-medium flex items-center gap-1">
+                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126z" />
+                    </svg>
+                    Some CTA links are missing URLs
+                  </p>
+                </div>
+              )}
+
+              {pageStatus === 'published' && (
+                <div className="p-3 bg-navy/5 border border-navy/10 rounded-xl">
+                  <p className="text-[10px] text-navy/70">
+                    Re-publishing will replace the current live version with the latest edits.
+                  </p>
+                </div>
+              )}
+            </div>
+            <div className="px-6 py-4 border-t border-black/5 flex items-center justify-end gap-2">
+              <button
+                onClick={() => setShowPublishModal(false)}
+                className="btn-secondary text-[12px]"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleConfirmPublish}
+                disabled={!publishSlug.trim() || hasMissingCtaUrl}
+                className="btn-primary text-[12px] disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {pageStatus === 'published' ? 'Re-publish' : 'Publish Now'}
+              </button>
             </div>
           </div>
         </div>
@@ -970,6 +1254,14 @@ function GenerationProgress({ phases, currentPhase, progress, imageProgress }) {
                       {imageProgress.current}/{imageProgress.total}
                     </span>
                   </div>
+                  {imageProgress.error && (
+                    <p className="text-[10px] text-red-500 mt-1 flex items-center gap-1">
+                      <svg className="w-3 h-3 flex-shrink-0" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126z" />
+                      </svg>
+                      {imageProgress.error}
+                    </p>
+                  )}
                 </div>
               )}
             </div>
@@ -988,6 +1280,8 @@ const STATUS_CONFIG = {
   generating: { label: 'Generating...', bg: 'bg-navy/10', text: 'text-navy' },
   completed: { label: 'Completed', bg: 'bg-teal/10', text: 'text-teal' },
   failed: { label: 'Failed', bg: 'bg-red-50', text: 'text-red-600' },
+  published: { label: 'Published', bg: 'bg-teal/15', text: 'text-teal' },
+  unpublished: { label: 'Unpublished', bg: 'bg-gold/10', text: 'text-gold' },
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1017,7 +1311,18 @@ export default function LPGen({ projectId, project }) {
   const [genPhases, setGenPhases] = useState([]); // ordered list of phases for this generation
   const [currentPhase, setCurrentPhase] = useState('');
   const [imageProgress, setImageProgress] = useState(null); // { current, total, slotId }
+  const [genStartTime, setGenStartTime] = useState(null);
+  const [elapsedSeconds, setElapsedSeconds] = useState(0);
   const abortRef = useRef(null);
+
+  // Elapsed timer during generation
+  useEffect(() => {
+    if (!generating || !genStartTime) return;
+    const interval = setInterval(() => {
+      setElapsedSeconds(Math.floor((Date.now() - genStartTime) / 1000));
+    }, 1000);
+    return () => clearInterval(interval);
+  }, [generating, genStartTime]);
 
   // Load pages + check docs on mount
   useEffect(() => {
@@ -1045,13 +1350,17 @@ export default function LPGen({ projectId, project }) {
     }
   };
 
-  const handleStartGenerate = useCallback(() => {
+  const handleStartGenerate = useCallback((options = {}) => {
+    const { skipSwipe = false } = options;
+
     if (!angle.trim()) {
       toast.error('Please enter an angle / hook for the landing page');
       return;
     }
 
     setGenerating(true);
+    setGenStartTime(Date.now());
+    setElapsedSeconds(0);
     setGenProgress('Starting...');
     setGenError('');
     setGenResult(null);
@@ -1066,7 +1375,7 @@ export default function LPGen({ projectId, project }) {
     if (additionalDirection.trim()) {
       formData.append('additional_direction', additionalDirection.trim());
     }
-    if (swipeFile?.file) {
+    if (!skipSwipe && swipeFile?.file) {
       formData.append('swipe_pdf', swipeFile.file);
     }
 
@@ -1157,6 +1466,16 @@ export default function LPGen({ projectId, project }) {
     loadPages();
   };
 
+  const handleDuplicate = async (page) => {
+    try {
+      const newPage = await api.duplicateLandingPage(projectId, page.externalId);
+      toast.success(`Duplicated: "${newPage.name}"`);
+      loadPages();
+    } catch (err) {
+      toast.error(err.message || 'Failed to duplicate');
+    }
+  };
+
   const resetForm = () => {
     setAngle('');
     setWordCount(1200);
@@ -1198,7 +1517,16 @@ export default function LPGen({ projectId, project }) {
                   <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" strokeDasharray="31.4 31.4" strokeLinecap="round" />
                 </svg>
               </div>
-              <p className="text-[14px] font-medium text-textdark mb-4">Building your landing page...</p>
+              <p className="text-[14px] font-medium text-textdark mb-2">Building your landing page...</p>
+
+              {/* Timer + estimate */}
+              <div className="flex items-center justify-center gap-3 text-[11px] text-textlight mb-4">
+                <span>{Math.floor(elapsedSeconds / 60)}:{String(elapsedSeconds % 60).padStart(2, '0')} elapsed</span>
+                {genPhases.length > 0 && (() => {
+                  const rem = estimateRemainingSeconds(genPhases, currentPhase, imageProgress?.total);
+                  return rem !== null ? <span>~{formatTime(rem)} remaining</span> : null;
+                })()}
+              </div>
 
               {/* Multi-phase progress */}
               {genPhases.length > 0 && (
@@ -1238,6 +1566,18 @@ export default function LPGen({ projectId, project }) {
                 >
                   Back to Configure
                 </button>
+                {(genError.includes('PDF') || genError.toLowerCase().includes('design analysis') || genError.includes('extract pages')) && swipeFile && (
+                  <button
+                    onClick={() => {
+                      setSwipeFile(null);
+                      setGenError('');
+                      handleStartGenerate({ skipSwipe: true });
+                    }}
+                    className="btn-secondary text-[12px]"
+                  >
+                    Retry Without PDF
+                  </button>
+                )}
                 <button
                   onClick={() => { setGenError(''); setGenerating(false); handleStartGenerate(); }}
                   className="btn-primary text-[12px]"
@@ -1534,16 +1874,18 @@ export default function LPGen({ projectId, project }) {
         <div className="space-y-2">
           {pages.map(page => {
             const status = STATUS_CONFIG[page.status] || STATUS_CONFIG.draft;
-            const sections = page.copy_sections ? JSON.parse(page.copy_sections) : [];
+            let sections = [];
+            try { sections = page.copy_sections ? JSON.parse(page.copy_sections) : []; } catch {}
             const totalWords = sections.reduce((sum, s) => sum + countWords(s.content), 0);
             const hasHtml = !!page.assembled_html;
             const hasDesign = !!page.swipe_design_analysis;
+            const isPublished = page.status === 'published';
 
             return (
-              <button
+              <div
                 key={page.externalId}
+                className="card p-4 w-full text-left hover:shadow-card-hover transition-shadow cursor-pointer"
                 onClick={() => handleViewPage(page)}
-                className="card p-4 w-full text-left hover:shadow-card-hover transition-shadow"
               >
                 <div className="flex items-center gap-3">
                   <div className="flex-1 min-w-0">
@@ -1552,7 +1894,7 @@ export default function LPGen({ projectId, project }) {
                       <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${status.bg} ${status.text}`}>
                         {status.label}
                       </span>
-                      {hasHtml && (
+                      {hasHtml && !isPublished && (
                         <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-teal/5 text-teal">
                           HTML
                         </span>
@@ -1562,7 +1904,7 @@ export default function LPGen({ projectId, project }) {
                       <span className="text-[11px] text-textlight">
                         {new Date(page.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
                       </span>
-                      {page.status === 'completed' && (
+                      {(page.status === 'completed' || isPublished) && (
                         <>
                           <span className="text-[11px] text-textlight">{totalWords} words</span>
                           <span className="text-[11px] text-textlight">{sections.length} sections</span>
@@ -1579,15 +1921,45 @@ export default function LPGen({ projectId, project }) {
                         </span>
                       )}
                     </div>
+                    {/* Published URL */}
+                    {isPublished && page.published_url && (
+                      <div className="flex items-center gap-1.5 mt-1">
+                        <svg className="w-3 h-3 text-teal flex-shrink-0" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m9.86-2.504a4.5 4.5 0 00-1.242-7.244l-4.5-4.5a4.5 4.5 0 00-6.364 6.364L4.343 8.684" />
+                        </svg>
+                        <span
+                          className="text-[10px] font-mono text-gold hover:text-gold/80 truncate max-w-[300px]"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            navigator.clipboard.writeText(page.published_url);
+                            toast.success('URL copied');
+                          }}
+                          title="Click to copy URL"
+                        >
+                          {page.published_url}
+                        </span>
+                      </div>
+                    )}
                   </div>
-                  <svg className="w-4 h-4 text-textlight flex-shrink-0" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-                    <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
-                  </svg>
+                  <div className="flex items-center gap-1 flex-shrink-0">
+                    <button
+                      onClick={(e) => { e.stopPropagation(); handleDuplicate(page); }}
+                      className="text-textlight hover:text-navy p-1.5 rounded-lg hover:bg-navy/5 transition-colors"
+                      title="Duplicate"
+                    >
+                      <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 17.25v3.375c0 .621-.504 1.125-1.125 1.125h-9.5a1.125 1.125 0 01-1.125-1.125V7.875c0-.621.504-1.125 1.125-1.125H6.75a9.06 9.06 0 011.5.124m7.5 10.376h3.375c.621 0 1.125-.504 1.125-1.125V11.25c0-4.46-3.243-8.161-7.5-8.876a9.06 9.06 0 00-1.5-.124H9.375c-.621 0-1.125.504-1.125 1.125v3.5m7.5 10.375H9.375a1.125 1.125 0 01-1.125-1.125v-9.25m0 0a2.625 2.625 0 00-2.625 2.625v6.625a2.625 2.625 0 002.625 2.625" />
+                      </svg>
+                    </button>
+                    <svg className="w-4 h-4 text-textlight" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+                    </svg>
+                  </div>
                 </div>
                 {page.status === 'failed' && page.error_message && (
                   <p className="text-[11px] text-red-500 mt-1.5 truncate">{page.error_message}</p>
                 )}
-              </button>
+              </div>
             );
           })}
         </div>

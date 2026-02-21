@@ -23,6 +23,10 @@ const OPERATION_META = {
   headline_generation_more: { label: 'Headlines (more)', color: 'bg-[#7C6DCD]/70', icon: '' },
   quote_mining: { label: 'Quote mining (Perplexity)', color: 'bg-gold', icon: '' },
   quote_mining_web_search: { label: 'Quote mining (Claude)', color: 'bg-[#7C6DCD]/70', icon: '' },
+  lp_design_analysis: { label: 'LP design analysis', color: 'bg-[#7C6DCD]/70', icon: '' },
+  lp_generation: { label: 'LP copy generation', color: 'bg-[#7C6DCD]', icon: '' },
+  lp_html_generation: { label: 'LP HTML generation', color: 'bg-[#7C6DCD]/70', icon: '' },
+  lp_image_generation: { label: 'LP images', color: 'bg-teal/70', icon: '' },
   other: { label: 'Other', color: 'bg-textlight/50', icon: '' },
   unknown: { label: 'Other', color: 'bg-textlight/50', icon: '' },
 };

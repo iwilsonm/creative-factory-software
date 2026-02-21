@@ -45,6 +45,7 @@ export default function AdTracker({ projectId }) {
   const [perfSummary, setPerfSummary] = useState(null); // { totalSpend, totalImpressions, totalClicks, avgCTR, avgCPC, ads: [] }
   const [perfLoading, setPerfLoading] = useState(false);
   const [metaSyncing, setMetaSyncing] = useState(false);
+  const [publishedLPs, setPublishedLPs] = useState([]);
   const editRef = useRef(null);
   const notesRef = useRef(null);
   const statusDropdownRef = useRef(null);
@@ -53,6 +54,11 @@ export default function AdTracker({ projectId }) {
 
   useEffect(() => {
     checkMetaConnection();
+    // Fetch published landing pages for URL suggestions
+    api.getLandingPages(projectId).then(data => {
+      const published = (data.pages || []).filter(p => p.status === 'published' && p.published_url);
+      setPublishedLPs(published);
+    }).catch(() => {});
   }, [projectId]);
 
   // One-time migration: backfill headlines on existing ads, then rename deployments
@@ -578,21 +584,31 @@ export default function AdTracker({ projectId }) {
   };
 
   // ─── Editable cell renderer ───────────────────────────────────────────────
-  const EditableCell = ({ dep, field, value, placeholder, type = 'text', className = '' }) => {
+  const EditableCell = ({ dep, field, value, placeholder, type = 'text', className = '', datalistId, datalistOptions }) => {
     const isEditing = editingCell?.id === dep.id && editingCell?.field === field;
 
     if (isEditing) {
       return (
-        <input
-          ref={editRef}
-          type={type}
-          value={editValue}
-          onChange={(e) => setEditValue(e.target.value)}
-          onBlur={saveEdit}
-          onKeyDown={handleKeyDown}
-          placeholder={placeholder}
-          className={`w-full bg-white border border-gold rounded px-1.5 py-0.5 text-[12px] text-textdark outline-none ring-1 ring-gold/30 ${className}`}
-        />
+        <>
+          <input
+            ref={editRef}
+            type={type}
+            list={datalistId || undefined}
+            value={editValue}
+            onChange={(e) => setEditValue(e.target.value)}
+            onBlur={saveEdit}
+            onKeyDown={handleKeyDown}
+            placeholder={placeholder}
+            className={`w-full bg-white border border-gold rounded px-1.5 py-0.5 text-[12px] text-textdark outline-none ring-1 ring-gold/30 ${className}`}
+          />
+          {datalistId && datalistOptions?.length > 0 && (
+            <datalist id={datalistId}>
+              {datalistOptions.map((opt, i) => (
+                <option key={i} value={opt.value}>{opt.label}</option>
+              ))}
+            </datalist>
+          )}
+        </>
       );
     }
 
@@ -778,11 +794,21 @@ export default function AdTracker({ projectId }) {
               </label>
               <input
                 type="url"
+                list="lp-urls-bulk"
                 value={bulkFields.landing_page_url}
                 onChange={(e) => setBulkFields(prev => ({ ...prev, landing_page_url: e.target.value }))}
-                placeholder="e.g. https://..."
+                placeholder={publishedLPs.length > 0 ? 'Select a landing page or enter URL...' : 'e.g. https://...'}
                 className="input-apple text-[12px] w-full"
               />
+              {publishedLPs.length > 0 && (
+                <datalist id="lp-urls-bulk">
+                  {publishedLPs.map(lp => (
+                    <option key={lp.externalId} value={lp.published_url}>
+                      {lp.name}
+                    </option>
+                  ))}
+                </datalist>
+              )}
             </div>
           </div>
           <button
@@ -1140,8 +1166,10 @@ export default function AdTracker({ projectId }) {
                           dep={dep}
                           field="landing_page_url"
                           value={dep.landing_page_url}
-                          placeholder="Add URL..."
+                          placeholder={publishedLPs.length > 0 ? 'Select LP or enter URL...' : 'Add URL...'}
                           type="url"
+                          datalistId={`lp-urls-${dep.id}`}
+                          datalistOptions={publishedLPs.map(lp => ({ value: lp.published_url, label: lp.name }))}
                         />
                       </td>
 

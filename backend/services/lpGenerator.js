@@ -16,6 +16,7 @@ import path from 'path';
 import os from 'os';
 import { execSync } from 'child_process';
 import { createRequire } from 'module';
+import { logGeminiCost } from './costTracker.js';
 const require = createRequire(import.meta.url);
 const pdf = require('pdf-parse');
 
@@ -100,12 +101,23 @@ async function pdfToImages(pdfPath, maxPages = 5) {
  * @returns {Promise<object>} Design analysis JSON
  */
 export async function analyzeSwipeDesign(pdfPath, sendEvent, projectId) {
+  // Validate PDF size before processing
+  try {
+    const fileStats = fs.statSync(pdfPath);
+    if (fileStats.size > 15 * 1024 * 1024) {
+      throw new Error(`PDF is too large (${Math.round(fileStats.size / 1024 / 1024)}MB). Maximum supported size is 15MB. Try compressing the PDF or using fewer pages.`);
+    }
+  } catch (err) {
+    if (err.message.includes('too large')) throw err;
+    // If stat fails, continue anyway
+  }
+
   sendEvent({ type: 'progress', step: 'design_converting', message: 'Converting PDF pages to images...' });
 
   const pageImages = await pdfToImages(pdfPath, 5);
 
   if (pageImages.length === 0) {
-    throw new Error('Failed to extract any pages from the swipe PDF.');
+    throw new Error('Failed to extract pages from the swipe PDF. Ensure the file is a valid, unencrypted PDF. If the problem persists, try re-saving the PDF from a different application.');
   }
 
   sendEvent({
@@ -532,6 +544,9 @@ IMPORTANT:
       // Upload to Convex storage
       const storageId = await uploadBuffer(imageBuffer, mimeType);
       const storageUrl = await getStorageUrl(storageId);
+
+      // Log Gemini cost (fire-and-forget)
+      logGeminiCost(projectId, 1, '2K', false, 'lp_image_generation').catch(() => {});
 
       results.push({
         ...slot,

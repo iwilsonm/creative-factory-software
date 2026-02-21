@@ -199,7 +199,9 @@ export default function Settings() {
     anthropic_api_key: '',
     gemini_rate_1k: '',
     gemini_rate_2k: '',
-    gemini_rate_4k: ''
+    gemini_rate_4k: '',
+    cloudflare_account_id: '',
+    cloudflare_api_token: '',
   });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -209,6 +211,9 @@ export default function Settings() {
   // Gemini rate refresh
   const [refreshingRates, setRefreshingRates] = useState(false);
   const [rateRefreshMsg, setRateRefreshMsg] = useState('');
+
+  // Cloudflare Pages projects
+  const [cfProjects, setCfProjects] = useState([]); // [{ projectId: '', cfProjectName: '' }]
 
   // Password change
   const [passwordForm, setPasswordForm] = useState({ currentPassword: '', newPassword: '' });
@@ -226,8 +231,13 @@ export default function Settings() {
         ...prev,
         gemini_rate_1k: data.gemini_rate_1k || '',
         gemini_rate_2k: data.gemini_rate_2k || '',
-        gemini_rate_4k: data.gemini_rate_4k || ''
+        gemini_rate_4k: data.gemini_rate_4k || '',
       }));
+      // Load Cloudflare Pages projects list
+      try {
+        const cfProjectsStr = data.cloudflare_pages_projects;
+        if (cfProjectsStr) setCfProjects(JSON.parse(cfProjectsStr));
+      } catch { setCfProjects([]); }
     } catch (err) {
       console.error('Failed to load settings:', err);
     } finally {
@@ -248,11 +258,15 @@ export default function Settings() {
       if (form.gemini_rate_1k) payload.gemini_rate_1k = form.gemini_rate_1k;
       if (form.gemini_rate_2k) payload.gemini_rate_2k = form.gemini_rate_2k;
       if (form.gemini_rate_4k) payload.gemini_rate_4k = form.gemini_rate_4k;
+      if (form.cloudflare_account_id) payload.cloudflare_account_id = form.cloudflare_account_id;
+      if (form.cloudflare_api_token) payload.cloudflare_api_token = form.cloudflare_api_token;
+      // Always save CF projects list (even if empty)
+      payload.cloudflare_pages_projects = JSON.stringify(cfProjects.filter(p => p.cfProjectName));
 
       await api.updateSettings(payload);
       toast.success('Settings saved');
       setMessage('');
-      setForm(prev => ({ ...prev, openai_api_key: '', openai_admin_key: '', gemini_api_key: '', perplexity_api_key: '', anthropic_api_key: '' }));
+      setForm(prev => ({ ...prev, openai_api_key: '', openai_admin_key: '', gemini_api_key: '', perplexity_api_key: '', anthropic_api_key: '', cloudflare_api_token: '' }));
       await loadSettings();
     } catch (err) {
       toast.error(err.message);
@@ -553,6 +567,91 @@ export default function Settings() {
           >
             Sync OpenAI Costs Now
           </button>
+        </div>
+
+        {/* Cloudflare Pages (LP Publishing) */}
+        <div className="card p-6">
+          <div className="flex items-center gap-2 mb-1">
+            <div className="w-6 h-6 rounded-lg bg-gold/10 flex items-center justify-center">
+              <svg className="w-3.5 h-3.5 text-gold" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                <path strokeLinecap="round" strokeLinejoin="round" d="M12 21a9.004 9.004 0 008.716-6.747M12 21a9.004 9.004 0 01-8.716-6.747M12 21c2.485 0 4.5-4.03 4.5-9S14.485 3 12 3m0 18c-2.485 0-4.5-4.03-4.5-9S9.515 3 12 3m0 0a8.997 8.997 0 017.843 4.582M12 3a8.997 8.997 0 00-7.843 4.582m15.686 0A11.953 11.953 0 0112 10.5c-2.998 0-5.74-1.1-7.843-2.918m15.686 0A8.959 8.959 0 0121 12c0 .778-.099 1.533-.284 2.253m0 0A17.919 17.919 0 0112 16.5c-3.162 0-6.133-.815-8.716-2.247m0 0A9.015 9.015 0 013 12c0-1.605.42-3.113 1.157-4.418" />
+              </svg>
+            </div>
+            <h2 className="text-[15px] font-semibold text-textdark tracking-tight">Cloudflare Pages</h2>
+            <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-gold/10 text-gold">LP Publishing</span>
+            <InfoTooltip text="Configure Cloudflare Pages for publishing landing pages. Get your Account ID and API Token from the Cloudflare dashboard." />
+          </div>
+          <p className="text-[12px] text-textmid mb-4">
+            Landing pages are deployed to Cloudflare Pages using the Direct Upload API.
+          </p>
+
+          <div className="space-y-4">
+            <div>
+              <label className="block text-[13px] font-medium text-textmid mb-1.5">Account ID</label>
+              <input
+                type="text"
+                value={form.cloudflare_account_id}
+                onChange={e => setForm(p => ({ ...p, cloudflare_account_id: e.target.value }))}
+                className="input-apple"
+                placeholder={settings.cloudflare_account_id || 'Cloudflare Account ID'}
+              />
+            </div>
+
+            <div>
+              <label className="block text-[13px] font-medium text-textmid mb-1.5">API Token</label>
+              <input
+                type="password"
+                value={form.cloudflare_api_token}
+                onChange={e => setForm(p => ({ ...p, cloudflare_api_token: e.target.value }))}
+                className="input-apple"
+                placeholder={settings.cloudflare_api_token || 'Cloudflare API Token (Pages:Edit)'}
+              />
+              <p className="text-[10px] text-textlight mt-1">
+                Create a token with <span className="font-mono text-textmid">Cloudflare Pages:Edit</span> permission.
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-[13px] font-medium text-textmid mb-1.5">Pages Projects</label>
+              <div className="space-y-2">
+                {cfProjects.map((proj, idx) => (
+                  <div key={idx} className="flex items-center gap-2">
+                    <input
+                      type="text"
+                      value={proj.cfProjectName}
+                      onChange={(e) => {
+                        const updated = [...cfProjects];
+                        updated[idx] = { ...updated[idx], cfProjectName: e.target.value };
+                        setCfProjects(updated);
+                      }}
+                      className="input-apple flex-1 text-[12px]"
+                      placeholder="cloudflare-project-name"
+                    />
+                    <button
+                      onClick={() => setCfProjects(prev => prev.filter((_, i) => i !== idx))}
+                      className="text-red-400 hover:text-red-500 transition-colors p-1"
+                    >
+                      <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </button>
+                  </div>
+                ))}
+                <button
+                  onClick={() => setCfProjects(prev => [...prev, { cfProjectName: '', projectId: '' }])}
+                  className="text-[11px] text-gold hover:text-gold/80 font-medium flex items-center gap-1"
+                >
+                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+                  </svg>
+                  Add Project
+                </button>
+              </div>
+              <p className="text-[10px] text-textlight mt-1.5">
+                The Cloudflare Pages project name where landing pages will be deployed. Create a project in the Cloudflare dashboard first.
+              </p>
+            </div>
+          </div>
         </div>
 
         {/* Headline Generator Reference Docs (Copywriter + Ad Studio Juicer) */}

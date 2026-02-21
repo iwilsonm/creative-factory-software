@@ -263,6 +263,7 @@ export default defineSchema({
     done: v.boolean(),
     author: v.optional(v.string()),
     notes: v.optional(v.string()),
+    priority: v.optional(v.number()),
     sort_order: v.number(),
   })
     .index("by_externalId", ["externalId"]),
@@ -309,6 +310,11 @@ export default defineSchema({
     slug: v.optional(v.string()),                    // URL slug for publishing
     cta_links: v.optional(v.string()),               // JSON: array of CTA link objects [{cta_id, text, url}]
     current_version: v.optional(v.number()),         // Current version number
+    // Phase 4 publishing fields
+    published_url: v.optional(v.string()),           // Live URL after publishing
+    published_at: v.optional(v.string()),            // ISO timestamp of last publish
+    final_html: v.optional(v.string()),              // Baked HTML sent to Cloudflare
+    hosting_metadata: v.optional(v.string()),        // JSON: Cloudflare deployment info
     created_at: v.string(),
     updated_at: v.string(),
   })

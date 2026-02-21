@@ -18,6 +18,7 @@ import {
   getStorageUrl,
   uploadBuffer,
 } from '../convexClient.js';
+import { logGeminiCost } from '../services/costTracker.js';
 import {
   extractPdfText,
   generateLandingPageCopy,
@@ -29,6 +30,7 @@ import {
 } from '../services/lpGenerator.js';
 import { generateImage } from '../services/gemini.js';
 import { createSSEStream } from '../utils/sseHelper.js';
+import { publishLandingPage, unpublishLandingPage } from '../services/lpPublisher.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -390,6 +392,9 @@ router.post('/:projectId/landing-pages/:pageId/regenerate-image', async (req, re
       const storageId = await uploadBuffer(result.imageBuffer, result.mimeType || 'image/png');
       const storageUrl = await getStorageUrl(storageId);
 
+      // Log Gemini cost (fire-and-forget)
+      logGeminiCost(req.params.projectId, 1, '2K', false, 'lp_image_generation').catch(() => {});
+
       // Preserve original storageId for revert
       if (!imageSlots[slot_index].original_storageId) {
         imageSlots[slot_index].original_storageId = imageSlots[slot_index].storageId || null;
@@ -645,6 +650,61 @@ router.post('/:projectId/landing-pages/:pageId/versions/:versionId/restore', asy
   res.json(updated);
 });
 
+// ─── Publish landing page (SSE stream) ────────────────────────────────────────
+router.post('/:projectId/landing-pages/:pageId/publish', async (req, res) => {
+  const page = await getLandingPage(req.params.pageId);
+  if (!page || page.project_id !== req.params.projectId) {
+    return res.status(404).json({ error: 'Landing page not found' });
+  }
+
+  const { slug } = req.body;
+  if (!slug || !slug.trim()) {
+    return res.status(400).json({ error: 'Slug is required for publishing' });
+  }
+
+  const sse = createSSEStream(req, res);
+  sse.sendEvent({ type: 'started', message: 'Starting publish...' });
+
+  (async () => {
+    try {
+      const result = await publishLandingPage(
+        req.params.pageId,
+        slug.trim(),
+        req.params.projectId,
+        sse.sendEvent
+      );
+
+      sse.sendEvent({
+        type: 'completed',
+        published_url: result.published_url,
+        deployment: result.deployment,
+        version: result.version,
+      });
+      sse.end();
+    } catch (err) {
+      console.error('[LPPublish] Publish error:', err.message);
+      sse.sendEvent({ type: 'error', message: err.message });
+      sse.end();
+    }
+  })();
+});
+
+// ─── Unpublish landing page ───────────────────────────────────────────────────
+router.post('/:projectId/landing-pages/:pageId/unpublish', async (req, res) => {
+  const page = await getLandingPage(req.params.pageId);
+  if (!page || page.project_id !== req.params.projectId) {
+    return res.status(404).json({ error: 'Landing page not found' });
+  }
+
+  try {
+    await unpublishLandingPage(req.params.pageId);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[LPPublish] Unpublish error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ─── Delete landing page ─────────────────────────────────────────────────────
 router.delete('/:projectId/landing-pages/:pageId', async (req, res) => {
   const page = await getLandingPage(req.params.pageId);
@@ -654,6 +714,40 @@ router.delete('/:projectId/landing-pages/:pageId', async (req, res) => {
 
   await deleteLandingPage(req.params.pageId);
   res.json({ success: true });
+});
+
+// ─── Duplicate a landing page (copies config, not generated content) ────────
+router.post('/:projectId/landing-pages/:pageId/duplicate', async (req, res) => {
+  const page = await getLandingPage(req.params.pageId);
+  if (!page || page.project_id !== req.params.projectId) {
+    return res.status(404).json({ error: 'Landing page not found' });
+  }
+
+  const newId = uuidv4();
+  const baseName = page.name || page.angle || 'Landing Page';
+  const newName = `${baseName} (copy)`;
+
+  await createLandingPage({
+    id: newId,
+    project_id: req.params.projectId,
+    name: newName,
+    angle: page.angle || undefined,
+    word_count: page.word_count || undefined,
+    additional_direction: page.additional_direction || undefined,
+    swipe_text: page.swipe_text || undefined,
+    swipe_filename: page.swipe_filename || undefined,
+    status: 'draft',
+  });
+
+  // Copy design analysis if it exists (enables regenerating without re-uploading PDF)
+  if (page.swipe_design_analysis) {
+    await updateLandingPage(newId, {
+      swipe_design_analysis: page.swipe_design_analysis,
+    });
+  }
+
+  const newPage = await getLandingPage(newId);
+  res.status(201).json(newPage);
 });
 
 // ─── Helper: Default design spec when no swipe PDF is provided ──────────────

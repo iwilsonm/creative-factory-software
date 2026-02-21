@@ -485,4 +485,12 @@ export const api = {
     request(`/projects/${projectId}/landing-pages/${pageId}/versions`, { method: 'POST' }),
   restoreLPVersion: (projectId, pageId, versionId) =>
     request(`/projects/${projectId}/landing-pages/${pageId}/versions/${versionId}/restore`, { method: 'POST' }),
+
+  // LP Editor — Publishing
+  publishLandingPage: (projectId, pageId, slug, onEvent) =>
+    streamSSEWithBody(`/projects/${projectId}/landing-pages/${pageId}/publish`, { slug }, onEvent),
+  unpublishLandingPage: (projectId, pageId) =>
+    request(`/projects/${projectId}/landing-pages/${pageId}/unpublish`, { method: 'POST' }),
+  duplicateLandingPage: (projectId, pageId) =>
+    request(`/projects/${projectId}/landing-pages/${pageId}/duplicate`, { method: 'POST' }),
 };

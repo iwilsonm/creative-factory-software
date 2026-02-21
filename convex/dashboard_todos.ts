@@ -26,6 +26,7 @@ export const replaceAll = mutation({
         done: !!todo.done,
         author: todo.author || undefined,
         notes: todo.notes || undefined,
+        priority: typeof todo.priority === "number" ? todo.priority : undefined,
         sort_order: typeof todo.sort_order === "number" ? todo.sort_order : todos.indexOf(todo),
       });
     }

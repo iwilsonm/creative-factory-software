@@ -12,17 +12,27 @@ const AUTHOR_META = {
 };
 const AUTHORS = Object.keys(AUTHOR_META);
 
+const PRIORITY_META = {
+  1: { label: 'P1', color: 'bg-red-500', textColor: 'text-red-600', bgLight: 'bg-red-50' },
+  2: { label: 'P2', color: 'bg-orange-400', textColor: 'text-orange-600', bgLight: 'bg-orange-50' },
+  3: { label: 'P3', color: 'bg-blue-400', textColor: 'text-blue-600', bgLight: 'bg-blue-50' },
+  4: { label: 'P4', color: 'bg-gray-400', textColor: 'text-gray-500', bgLight: 'bg-gray-50' },
+};
+const PRIORITIES = [1, 2, 3, 4];
+
 function TodoWidget() {
   const [todos, setTodos] = useState([]);
   const [loading, setLoading] = useState(true);
   const [newText, setNewText] = useState('');
   const [newAuthor, setNewAuthor] = useState('Ian');
+  const [newPriority, setNewPriority] = useState(null);
   const [showNewNotes, setShowNewNotes] = useState(false);
   const [newNotes, setNewNotes] = useState('');
   const [saving, setSaving] = useState(false);
   const [editingId, setEditingId] = useState(null);
   const [editText, setEditText] = useState('');
   const [editAuthor, setEditAuthor] = useState('Ian');
+  const [editPriority, setEditPriority] = useState(null);
   const [editNotes, setEditNotes] = useState('');
   const [expandedNoteId, setExpandedNoteId] = useState(null);
   const inputRef = useRef(null);
@@ -46,9 +56,10 @@ function TodoWidget() {
     e.preventDefault();
     const text = newText.trim();
     if (!text) return;
-    persist([...todos, { id: Date.now(), text, done: false, author: newAuthor, notes: newNotes.trim() || '' }]);
+    persist([...todos, { id: Date.now(), text, done: false, author: newAuthor, notes: newNotes.trim() || '', priority: newPriority || undefined }]);
     setNewText('');
     setNewNotes('');
+    setNewPriority(null);
     setShowNewNotes(false);
     inputRef.current?.focus();
   };
@@ -66,6 +77,7 @@ function TodoWidget() {
     setEditingId(todo.id);
     setEditText(todo.text);
     setEditAuthor(todo.author || 'Ian');
+    setEditPriority(todo.priority || null);
     setEditNotes(todo.notes || '');
     setTimeout(() => editInputRef.current?.focus(), 0);
   };
@@ -73,15 +85,17 @@ function TodoWidget() {
   const saveEdit = () => {
     const trimmed = editText.trim();
     if (!trimmed || !editingId) { cancelEdit(); return; }
-    persist(todos.map(t => t.id === editingId ? { ...t, text: trimmed, author: editAuthor, notes: editNotes.trim() } : t));
+    persist(todos.map(t => t.id === editingId ? { ...t, text: trimmed, author: editAuthor, priority: editPriority || undefined, notes: editNotes.trim() } : t));
     setEditingId(null);
     setEditText('');
+    setEditPriority(null);
     setEditNotes('');
   };
 
   const cancelEdit = () => {
     setEditingId(null);
     setEditText('');
+    setEditPriority(null);
     setEditNotes('');
   };
 
@@ -94,8 +108,13 @@ function TodoWidget() {
     persist(todos.map(t => t.id === id ? { ...t, notes: notes.trim() } : t));
   };
 
-  const pending = todos.filter(t => !t.done);
-  const completed = todos.filter(t => t.done);
+  const prioritySort = (a, b) => {
+    const pa = a.priority || 99;
+    const pb = b.priority || 99;
+    return pa - pb;
+  };
+  const pending = todos.filter(t => !t.done).sort(prioritySort);
+  const completed = todos.filter(t => t.done).sort(prioritySort);
 
   // Shared row renderer for pending and completed items
   const renderItem = (t, isDone) => {
@@ -150,6 +169,25 @@ function TodoWidget() {
                     </button>
                   ))}
                 </div>
+                <div className="flex items-center gap-0.5 bg-gray-100 rounded-md p-0.5">
+                  {PRIORITIES.map(p => {
+                    const meta = PRIORITY_META[p];
+                    return (
+                      <button
+                        key={p}
+                        type="button"
+                        onClick={() => setEditPriority(prev => prev === p ? null : p)}
+                        className={`text-[10px] px-1.5 py-0.5 rounded font-semibold transition-colors ${
+                          editPriority === p
+                            ? `${meta.bgLight} ${meta.textColor}`
+                            : 'text-textlight hover:text-textmid'
+                        }`}
+                      >
+                        {meta.label}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
               <textarea
                 value={editNotes}
@@ -165,6 +203,11 @@ function TodoWidget() {
             </div>
           ) : (
             <div className="flex items-center gap-1.5 flex-1 min-w-0">
+              {t.priority && PRIORITY_META[t.priority] && (
+                <span className={`inline-flex items-center justify-center w-[18px] h-[14px] rounded text-[8px] font-bold text-white flex-shrink-0 ${PRIORITY_META[t.priority].color}`}>
+                  {t.priority}
+                </span>
+              )}
               <span
                 className={`text-[13px] ${isDone ? 'text-textlight line-through' : 'text-textdark'} cursor-text rounded px-0.5 truncate`}
                 onDoubleClick={() => startEdit(t)}
@@ -287,6 +330,26 @@ function TodoWidget() {
                 </button>
               ))}
             </div>
+          </div>
+          {/* Priority toggle */}
+          <div className="flex items-center gap-0.5 bg-gray-100 rounded-md p-0.5 flex-shrink-0">
+            {PRIORITIES.map(p => {
+              const meta = PRIORITY_META[p];
+              return (
+                <button
+                  key={p}
+                  type="button"
+                  onClick={() => setNewPriority(prev => prev === p ? null : p)}
+                  className={`text-[10px] px-1.5 py-0.5 rounded font-semibold transition-colors ${
+                    newPriority === p
+                      ? `${meta.bgLight} ${meta.textColor}`
+                      : 'text-textlight hover:text-textmid'
+                  }`}
+                >
+                  {meta.label}
+                </button>
+              );
+            })}
           </div>
           <button
             type="submit"
