@@ -4,12 +4,13 @@
 
 ## What This Is
 
-A single-tenant web application for direct response copywriters and e-commerce brands. It automates four core workflows:
+A single-tenant web application for direct response copywriters and e-commerce brands. It automates five core workflows:
 
 1. **Foundational Document Generation** — An 8-step research pipeline (based on the Mark Builds Brands SOP) that uses GPT-4.1 and o3-deep-research to produce customer avatars, offer briefs, and belief documents from a product's sales page.
 2. **Quote Mining & Headline Generation** — A dual-engine system using Perplexity Sonar Pro and Claude Opus 4.6 to extract emotional first-person quotes from online communities, then generates headlines using Claude Sonnet 4.6 with 3 reference copywriting docs.
 3. **Static Image Ad Generation** — Uses GPT-5.2 as a creative director (2-message conversation flow) and Google Gemini 3 Pro Image ("Nano Banana Pro") to generate ad creatives, either one at a time or in automated batches on a cron schedule.
 4. **Ad Deployment & Meta Ads Integration** — Track generated ads through a deployment pipeline (selected → scheduled → posted → analyzing) with per-project Meta Ads OAuth for performance data syncing.
+5. **Landing Page Generation** — Generate landing page copy and responsive HTML from foundational docs via Claude Sonnet, with a split-panel editor, CTA link management, and one-click publishing to Cloudflare Pages.
 
 **Live at**: `daciaautomation.com` (VPS: `76.13.183.219`)
 **Convex deployment**: `prod:strong-civet-577` at `https://energized-hare-760.convex.cloud`
@@ -59,6 +60,7 @@ ad-platform/
 │   │   ├── deployments.js           # Ad deployment tracking (Meta/Facebook pipeline)
 │   │   ├── quoteMining.js           # Quote mining runs, suggestions, headline generation, quote bank operations
 │   │   ├── chat.js                  # Copywriter Chat widget (Claude Opus 4.6, foundational docs as context)
+│   │   ├── landingPages.js          # Landing page CRUD, copy generation (SSE), HTML generation, publishing
 │   │   └── meta.js                  # Meta OAuth, per-project ad account/campaign/adset management, performance sync
 │   └── services/
 │       ├── openai.js                # GPT-5.2, GPT-4.1, GPT-4.1-mini, o3-deep-research wrappers; streaming support
@@ -75,7 +77,9 @@ ad-platform/
 │       ├── metaAds.js               # Meta OAuth token management, ad account selection, campaign browsing, performance sync
 │       ├── retry.js                 # Exponential backoff utility (5 retries, 429-aware, Retry-After header support)
 │       ├── rateLimiter.js           # GPT rate limiter (AsyncSemaphore, concurrency=2, 2s gap)
-│       └── quoteDedup.js            # Quote deduplication before adding to quote bank
+│       ├── quoteDedup.js            # Quote deduplication before adding to quote bank
+│       ├── lpGenerator.js           # Landing page copy + HTML generation via Claude Sonnet
+│       └── lpPublisher.js           # Cloudflare Pages deployment (publish/unpublish landing pages)
 │
 ├── frontend/
 │   ├── src/
@@ -98,7 +102,8 @@ ad-platform/
 │   │       ├── FoundationalDocs.jsx # Doc generation with SSE progress, upload, manual research, copy correction, correction history
 │   │       ├── TemplateImages.jsx   # Template upload/management + Drive sync + AI analysis
 │   │       ├── QuoteMiner.jsx       # Quote mining, auto-suggest, headline generation, quote bank, Notion-style filtering
-│   │       ├── CopywriterChat.jsx   # Copywriter assistant (Claude Opus 4.6, foundational docs context, prefill to Ad Studio)
+│   │       ├── CopywriterChat.jsx   # Copywriter assistant (Claude Opus 4.6, foundational docs context, file attachments with drag-and-drop)
+│   │       ├── LPGen.jsx            # Landing page generator (copy, design, HTML preview, CTA editor, publishing)
 │   │       ├── InspirationFolder.jsx # Drive inspiration image sync
 │   │       ├── CostSummaryCards.jsx # Dashboard cost widgets (expandable details, operation-level breakdown)
 │   │       ├── CostBarChart.jsx     # 30-day stacked bar chart (SVG, by service)
@@ -111,7 +116,7 @@ ad-platform/
 │   └── package.json
 │
 ├── convex/
-│   ├── schema.ts                    # Full database schema (14 tables)
+│   ├── schema.ts                    # Full database schema (16 tables)
 │   ├── settings.ts                  # Key-value settings queries/mutations
 │   ├── projects.ts                  # Projects CRUD + Meta OAuth fields + stats aggregation
 │   ├── foundationalDocs.ts          # Docs CRUD with versioning
@@ -126,6 +131,8 @@ ad-platform/
 │   ├── chatThreads.ts              # Chat conversations with Claude
 │   ├── chatMessages.ts             # Chat messages (user + assistant) + context hiding (note: filename is camelCase but referenced as chat_messages in schema)
 │   ├── metaPerformance.ts          # Meta ad performance data (impressions, clicks, spend, ROAS)
+│   ├── dashboard_todos.ts           # Roadmap todos CRUD (dedicated table with priority support)
+│   ├── landingPages.ts              # Landing page CRUD + version management
 │   └── fileStorage.ts               # Storage URL generation helpers
 │
 ├── deploy/
@@ -141,7 +148,7 @@ ad-platform/
 
 ## Database Schema (Convex)
 
-All tables live in Convex cloud. Schema is enforced via `convex/schema.ts`. 14 tables total.
+All tables live in Convex cloud. Schema is enforced via `convex/schema.ts`. 16 tables total.
 
 | Table | Purpose | Key Fields |
 |-------|---------|------------|
@@ -159,6 +166,8 @@ All tables live in Convex cloud. Schema is enforced via `convex/schema.ts`. 14 t
 | `chat_threads` | Copywriter chat conversations | `project_id`, `title`, `status` (active/archived) |
 | `chat_messages` | Chat messages within threads | `thread_id`, `project_id`, `role` (user/assistant), `content`, `is_context_message` (hides priming message) |
 | `meta_performance` | Meta ad performance data | `deployment_id`, `meta_ad_id`, `date`, `impressions`, `clicks`, `spend`, `reach`, `ctr`, `cpc`, `cpm`, `conversions`, `conversion_value`, `frequency` |
+| `dashboard_todos` | Roadmap to-do items (dedicated table) | `externalId`, `text`, `done`, `author`, `notes`, `priority` (1-4), `sort_order` |
+| `landing_pages` | Generated landing pages | `externalId`, `project_id`, `name`, `slug`, `status` (draft/published/unpublished), `target_audience`, `page_goal`, `tone`, `include_pdf`, `copy_sections` (JSON), `design_analysis`, `image_slots` (JSON), `html_template`, `assembled_html`, `cta_links` (JSON), `published_url`, `published_at`, `hosting_metadata`, `final_html`, `current_version` |
 
 **Important**: Foreign keys use `externalId` (UUID strings), not Convex `_id`. The `externalId` pattern was carried over from the SQLite-to-Convex migration. All cross-table references use `project_id` → `projects.externalId`.
 
@@ -189,13 +198,21 @@ All tables live in Convex cloud. Schema is enforced via `convex/schema.ts`. 14 t
 
 ### Styling
 
-- **Design language**: macOS / Apple-inspired. Frosted glass navbar, rounded cards with subtle shadows, SF Pro font stack.
+- **Design language**: Navy-gold-teal premium palette. Frosted glass navbar, rounded cards with subtle shadows, SF Pro font stack.
+- **Color tokens** (defined in `tailwind.config.js`):
+  - `navy` (#1B2A4A) / `navy-light` (#2D4A7A) — Primary brand, navbar, buttons, headings
+  - `gold` (#C4975A) — Accent, hover states, links, active indicators
+  - `teal` (#2A9D8F) — Success states, positive indicators
+  - `offwhite` (#F8F6F3) — Page backgrounds
+  - `textdark` (#1B2A4A) — Primary text (same as navy)
+  - `textmid` (#5A6B87) — Secondary text
+  - `textlight` (#8B9BB5) — Tertiary text, placeholders
 - **Tailwind CSS 3.4** with custom component layer (`@layer components` in `index.css`):
   - `.glass-nav` — Frosted glass navbar (backdrop-filter blur + saturation)
   - `.card` — White/80 bg, backdrop-blur, rounded-2xl, subtle multi-layer shadow
-  - `.btn-primary` — Blue gradient (#007AFF), shadow, hover lift
+  - `.btn-primary` — Navy gradient, shadow, hover lift
   - `.btn-secondary` — Gray ghost button
-  - `.input-apple` — Rounded input with blue focus ring
+  - `.input-apple` — Rounded input with gold focus ring
   - `.segmented-control` — Tab group with active pill
   - `.badge` — Inline pill
   - `.info-tooltip` — Pure CSS hover tooltip (dark bg)
@@ -203,6 +220,7 @@ All tables live in Convex cloud. Schema is enforced via `convex/schema.ts`. 14 t
   - Font: `-apple-system, BlinkMacSystemFont, "SF Pro Display"...`
   - Border radius: xl=12px, 2xl=16px, 3xl=20px
   - Box shadows: apple-sm through apple-xl (soft, layered)
+- **Data visualization colors**: OpenAI=#5B8DEF, Anthropic=#7C6DCD, Gemini=#2A9D8F, Perplexity=#C4975A
 - **Animations**: `fade-in` (0.3s ease-out), `animate-slide-up` (0.25s toast animation)
 - **Scrollbar**: Custom thin scrollbar via `.scrollbar-thin` class
 - **Text sizes**: Compact UI density using `text-[10px]` through `text-[15px]`
@@ -342,6 +360,27 @@ Same flow as Mode 1 but template image used instead of random inspiration. Promp
 - First message sends a hidden priming message with full docs (marked `is_context_message`)
 - Can prefill Ad Studio with generated headlines/angles
 - Thread-based: one active thread per project, can clear and restart
+- **File attachments**: Upload documents (PDF, DOCX, TXT, MD, HTML, EPUB, MOBI) via paperclip button or drag-and-drop
+- Files extracted client-side via `/upload/extract-text` endpoint, content prepended to message
+- Attached files shown as chips with extraction progress, char count, and error states
+- User message bubbles display file names as styled chips, not the full extracted text
+
+### 8. Landing Page Generation
+
+**5-Phase Pipeline** (LP Gen component):
+1. **Copy Generation** (Claude Sonnet) — Generate landing page copy sections from foundational docs + optional uploaded PDF reference
+2. **Design Analysis** (Claude Sonnet) — Analyze copy to generate design direction, color scheme, typography suggestions
+3. **HTML Generation** (Claude Sonnet) — Generate responsive HTML template with image placeholders and CTA placeholders
+4. **CTA Link Editor** — User configures button URLs and text for each CTA slot in the generated HTML
+5. **Publishing** — Deploy to Cloudflare Pages via Direct Upload API, slug management, publish/unpublish flow
+
+**Key Features**:
+- Split-panel editor: copy sections on left, live HTML preview on right
+- Image slot detection and management (placeholder images auto-generated)
+- CTA link editing with URL validation
+- Version snapshots saved before each publish
+- Slug conflict detection across project landing pages
+- Image optimization via sharp (resize + JPEG compression) before deployment
 
 ---
 
@@ -441,6 +480,20 @@ Same flow as Mode 1 but template image used instead of random inspiration. Promp
 | GET | `/api/projects/:id/chat/thread` | Get active thread + messages |
 | POST | `/api/projects/:id/chat/send` | Send message and stream Claude response (SSE) |
 | POST | `/api/projects/:id/chat/clear` | Clear chat history |
+
+### Landing Pages
+| Method | Path | Purpose |
+|--------|------|---------|
+| GET | `/api/projects/:id/landing-pages` | List all landing pages for project |
+| POST | `/api/projects/:id/landing-pages` | Create new landing page |
+| GET | `/api/projects/:id/landing-pages/:pageId` | Get single landing page |
+| PUT | `/api/projects/:id/landing-pages/:pageId` | Update landing page fields |
+| DELETE | `/api/projects/:id/landing-pages/:pageId` | Delete landing page |
+| POST | `/api/projects/:id/landing-pages/:pageId/generate-copy` | Generate copy sections (SSE stream) |
+| POST | `/api/projects/:id/landing-pages/:pageId/generate-design` | Generate design analysis (SSE stream) |
+| POST | `/api/projects/:id/landing-pages/:pageId/generate-html` | Generate HTML template (SSE stream) |
+| POST | `/api/projects/:id/landing-pages/:pageId/publish` | Publish to Cloudflare Pages |
+| POST | `/api/projects/:id/landing-pages/:pageId/unpublish` | Remove from Cloudflare Pages |
 
 ### Costs
 | Method | Path | Purpose |
@@ -553,6 +606,7 @@ Same flow as Mode 1 but template image used instead of random inspiration. Promp
 | `quotes` | Copywriter | QuoteMiner + CopywriterChat | Mine quotes, generate headlines, chat with AI copywriter |
 | `ads` | Ad Studio | AdStudio + BatchManager | Generate ads, manage batches, ad gallery |
 | `tracker` | Performance Tracker | AdTracker | Deployment pipeline + Meta performance |
+| `lp` | LP Gen | LPGen | Landing page generation, editing, publishing |
 | `overview` | Overview | (inline) | Project settings, cost tracking, product image, Drive folders |
 | `docs` | Foundational Docs | FoundationalDocs | Core research docs, correction history |
 | `templates` | Template Library | TemplateImages + InspirationFolder | Reference images from Drive or uploaded |
@@ -615,7 +669,9 @@ ssh root@76.13.183.219 "cd /opt/ad-platform && npx convex deploy -y"
 - `auth_username`, `auth_password_hash` — Login credentials (hash is bcrypt)
 - `session_secret` — Auto-generated session encryption key
 - `default_drive_folder_id` — Default Google Drive output folder
-- `dashboard_todos` — JSON array of roadmap to-do items
+- `cloudflare_account_id` — Cloudflare account ID for Pages deployment
+- `cloudflare_api_token` — Cloudflare API token for Pages deployment
+- `cloudflare_pages_projects` — JSON array mapping project IDs to Cloudflare Pages project names
 - `headline_ref_engine`, `headline_ref_greatest`, `headline_ref_swipe` — 3 headline reference docs
 - `meta_oauth_state` — CSRF state for Meta OAuth
 
@@ -659,6 +715,12 @@ ssh root@76.13.183.219 "cd /opt/ad-platform && npx convex deploy -y"
 
 15. **Thumbnail disk cache (fire-and-forget)**: Backend generates thumbnails on-demand, caches them locally at `.thumb-cache/{adId}.jpg`, but doesn't block the response. Fallback redirects to full Convex image.
 
+16. **Dashboard todos in dedicated table**: Migrated from `settings.dashboard_todos` JSON string to a dedicated `dashboard_todos` Convex table for better querying and atomic updates. Supports optional priority (1-4) for auto-sorting.
+
+17. **Chat file attachments (client-side extraction)**: Files are extracted to text client-side via the existing `/upload/extract-text` endpoint. Extracted text is prepended to the message string before sending to the backend — zero backend/schema changes needed. Supports both paperclip button and drag-and-drop.
+
+18. **Landing page publishing via Cloudflare Pages Direct Upload**: Landing pages are deployed as self-contained HTML files with co-deployed optimized images. Each publish creates a version snapshot. Images are processed via sharp (resize + JPEG compression) before upload.
+
 ---
 
 ## Gotchas & Edge Cases
@@ -681,6 +743,8 @@ ssh root@76.13.183.219 "cd /opt/ad-platform && npx convex deploy -y"
 - **React falsy number rendering**: When using `&&` for conditional rendering, always use `!!value &&` or `value > 0 &&` for numeric fields to avoid rendering `0` as text. The `batch.scheduled` field (stored as 0/1) is an example of this gotcha.
 - **`convexBatchToRow` mapper**: The `convexClient.js` mapper converts boolean `scheduled` from Convex to `1`/`0` integers. Frontend code must handle this with `!!batch.scheduled` not bare `batch.scheduled` in JSX.
 - **Batch pipeline polling**: Scheduler polls every 5 minutes. Batches in `generating_prompts` or `submitting` status don't have a `gemini_batch_job` yet — `pollBatchJob` correctly returns `'processing'` for these (not `'failed'`).
+- **Dashboard todos migration**: Todos were migrated from `settings.dashboard_todos` (JSON string) to a dedicated `dashboard_todos` Convex table. The old settings key may still exist but is no longer read.
+- **LP Gen HTML generation**: Claude sometimes generates HTML with markdown code fences (```html...```). The `lpGenerator.js` service strips these automatically before saving.
 
 ---
 
@@ -711,7 +775,7 @@ ssh root@76.13.183.219 "cd /opt/ad-platform && npx convex deploy -y"
 - Quote bank with tagging, favorites, per-quote headlines, Notion-style filtering
 - Headline generation (Claude Sonnet 4.6 + 3 reference copywriting docs)
 - Body copy generation from headlines + quote context
-- Copywriter Chat widget (Claude Opus 4.6, foundational docs as context, prefill to Ad Studio)
+- Copywriter Chat widget (Claude Opus 4.6, foundational docs as context, file attachments with drag-and-drop)
 - Single ad generation (Mode 1: direct inspiration, Mode 2: template)
 - Headline Juicer (optional 3rd GPT message using headline reference docs)
 - Prompt editing (NLP-based + direct edit + vision-guided with reference images)
@@ -738,7 +802,12 @@ ssh root@76.13.183.219 "cd /opt/ad-platform && npx convex deploy -y"
 - File upload with text extraction (PDF, DOCX, EPUB, MOBI, Markdown, HTML)
 - GPT rate limiter (AsyncSemaphore concurrency control for 429 prevention)
 - Dynamic time estimates in generation queue (based on queue position)
-- Dashboard roadmap with inline edit
+- Dashboard roadmap with inline edit, P1–P4 priority badges (auto-sorted)
 - Batch execution timing (started_at → completed_at, displays "Completed in Xm Ys")
 - Batch auto-retry (up to 3 retries on failure)
 - Lazy-loaded pages (React.lazy + Suspense)
+- Landing page generation (5-phase: copy → design → HTML → CTAs → publish to Cloudflare Pages)
+- Landing page split-panel editor with live HTML preview
+- Landing page CTA link editor with URL validation
+- Landing page publishing to Cloudflare Pages (Direct Upload API)
+- Navy-gold-teal design system (migrated from Apple/macOS blue palette)
