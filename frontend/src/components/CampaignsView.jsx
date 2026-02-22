@@ -87,8 +87,8 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
     loadCampaignData();
   }, [projectId]);
 
-  const loadCampaignData = async () => {
-    setLoading(true);
+  const loadCampaignData = async (silent = false) => {
+    if (!silent) setLoading(true);
     try {
       const [campData, flexData] = await Promise.all([
         api.getCampaigns(projectId),
@@ -98,7 +98,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
       setAdSets(campData.adSets || []);
       setFlexAds(flexData.flexAds || []);
     } catch { /* ignore */ }
-    setLoading(false);
+    if (!silent) setLoading(false);
   };
 
   // ─── Derived data ───────────────────────────────────────────────────────
@@ -116,7 +116,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
       await api.createCampaign(projectId, newCampaignName.trim());
       setNewCampaignName('');
       setCreatingCampaign(false);
-      await loadCampaignData();
+      await loadCampaignData(true);
       addToast('Campaign created', 'success');
     } catch {
       addToast('Failed to create campaign', 'error');
@@ -137,7 +137,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
   const handleDeleteCampaign = async (id) => {
     try {
       await api.deleteCampaign(id);
-      await loadCampaignData();
+      await loadCampaignData(true);
       await loadDeployments();
       addToast('Campaign deleted', 'success');
     } catch {
@@ -152,7 +152,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
       await api.createAdSet(campaignId, newAdSetName.trim(), projectId);
       setNewAdSetName('');
       setAddingAdSetFor(null);
-      await loadCampaignData();
+      await loadCampaignData(true);
       addToast('Ad set created', 'success');
     } catch {
       addToast('Failed to create ad set', 'error');
@@ -173,7 +173,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
   const handleDeleteAdSet = async (id) => {
     try {
       await api.deleteAdSet(id);
-      await loadCampaignData();
+      await loadCampaignData(true);
       await loadDeployments();
       addToast('Ad set deleted', 'success');
     } catch {
@@ -287,12 +287,12 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
         await api.unassignFromAdSet(allDepIds);
       }
       // Only refresh campaign data — deployment state is already correct from optimistic update
-      await loadCampaignData();
+      await loadCampaignData(true);
       addToast(`Moved ${allDepIds.length} ad${allDepIds.length !== 1 ? 's' : ''} to unplanned`, 'success');
     } catch {
       addToast('Failed to unassign', 'error');
       // Revert on error: reload everything
-      await Promise.all([loadCampaignData(), loadDeployments()]);
+      await Promise.all([loadCampaignData(true), loadDeployments()]);
     }
   };
 
@@ -365,12 +365,11 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
       await api.createFlexAd(projectId, adSetId, name, allDepIds);
       setSelectedInAdSet(prev => ({ ...prev, [adSetId]: new Set() }));
       // Refresh both — flex ads are created server-side, need to fetch new IDs
-      // Use silentRefetch to avoid overwriting deployment state with loading spinner
-      await Promise.all([loadCampaignData(), loadDeployments()]);
+      await Promise.all([loadCampaignData(true), loadDeployments()]);
       addToast('Flex ad created', 'success');
     } catch {
       addToast('Failed to create flex ad', 'error');
-      await Promise.all([loadCampaignData(), loadDeployments()]);
+      await Promise.all([loadCampaignData(true), loadDeployments()]);
     }
   };
 
@@ -392,12 +391,12 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
     try {
       await api.deleteFlexAd(flexAdId);
       // Refresh campaign data only (deployments already updated optimistically)
-      await loadCampaignData();
+      await loadCampaignData(true);
       addToast('Flex ad ungrouped', 'success');
     } catch {
       addToast('Failed to ungroup flex ad', 'error');
       // Revert on error
-      await Promise.all([loadCampaignData(), loadDeployments()]);
+      await Promise.all([loadCampaignData(true), loadDeployments()]);
     }
   };
 
@@ -519,7 +518,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
           planned_date: sidebarForm.planned_date || null,
         });
       }
-      await Promise.all([loadDeployments(), loadCampaignData()]);
+      await Promise.all([loadDeployments(), loadCampaignData(true)]);
       addToast('Saved', 'success');
     } catch {
       addToast('Failed to save', 'error');
