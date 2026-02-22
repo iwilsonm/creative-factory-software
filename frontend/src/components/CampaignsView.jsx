@@ -243,15 +243,43 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
     }
   };
 
-  const handleUnassign = async (depIds) => {
-    setDeployments(prev => prev.map(d =>
-      depIds.includes(d.id) ? { ...d, local_campaign_id: 'unplanned', local_adset_id: undefined, flex_ad_id: null } : d
-    ));
+  const handleUnassign = async (ids) => {
+    // Separate flex ad IDs from standalone deployment IDs
+    const flexAdIds = ids.filter(id => flexAds.some(f => f.id === id));
+    const standaloneDepIds = ids.filter(id => deployments.some(d => d.id === id));
+
+    // For flex ads: collect their child deployment IDs, then delete the flex ad
+    const flexChildDepIds = [];
+    for (const flexId of flexAdIds) {
+      const flex = flexAds.find(f => f.id === flexId);
+      if (flex) {
+        const childIds = JSON.parse(flex.child_deployment_ids || '[]');
+        flexChildDepIds.push(...childIds);
+      }
+    }
+
+    // All deployment IDs to unassign: standalone + flex children
+    const allDepIds = [...new Set([...standaloneDepIds, ...flexChildDepIds])];
+
+    // Optimistic update for deployments
+    if (allDepIds.length > 0) {
+      setDeployments(prev => prev.map(d =>
+        allDepIds.includes(d.id) ? { ...d, local_campaign_id: 'unplanned', local_adset_id: undefined, flex_ad_id: null } : d
+      ));
+    }
+
     try {
-      await api.unassignFromAdSet(depIds);
+      // Delete flex ads first (dissolves the grouping)
+      await Promise.all(flexAdIds.map(id => api.deleteFlexAd(id)));
+      // Then unassign all deployment IDs
+      if (allDepIds.length > 0) {
+        await api.unassignFromAdSet(allDepIds);
+      }
+      await Promise.all([loadCampaignData(), loadDeployments()]);
     } catch {
       addToast('Failed to unassign', 'error');
       loadDeployments();
+      loadCampaignData();
     }
   };
 
