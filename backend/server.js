@@ -26,6 +26,7 @@ import quoteMiningRoutes from './routes/quoteMining.js';
 import chatRoutes from './routes/chat.js';
 import metaRoutes from './routes/meta.js';
 import landingPageRoutes from './routes/landingPages.js';
+import agentMonitorRoutes from './routes/agentMonitor.js';
 import { initScheduler, getSchedulerStatus } from './services/scheduler.js';
 import { getRateLimiterStats } from './services/rateLimiter.js';
 
@@ -107,6 +108,8 @@ process.on('uncaughtException', (err) => {
   app.use('/api/projects', requireAuth, requireRole('admin', 'manager'), chatRoutes);
   app.use('/api', requireAuth, requireRole('admin', 'manager'), metaRoutes);
   app.use('/api/projects', requireAuth, requireRole('admin', 'manager'), landingPageRoutes);
+  // Routes — agent monitor (admin only)
+  app.use('/api/agent-monitor', requireAuth, requireRole('admin'), agentMonitorRoutes);
   // Routes — deployments (poster has limited access — controlled per-route inside)
   app.use('/api', deploymentRoutes);
 

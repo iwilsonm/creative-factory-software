@@ -305,6 +305,11 @@ export const api = {
   getTodos: () => request('/settings/todos'),
   saveTodos: (todos) => request('/settings/todos', { method: 'PUT', body: JSON.stringify({ todos }) }),
 
+  // Agent Monitor (Dacia Fixer)
+  getAgentMonitorStatus: () => request('/agent-monitor/status'),
+  runAgentFixer: () => request('/agent-monitor/run', { method: 'POST' }),
+  runAgentResurrect: () => request('/agent-monitor/resurrect', { method: 'POST' }),
+
   // Performance Tracker / Deployments
   getDeployments: () => request('/deployments'),
   getProjectDeployments: (projectId) => request(`/deployments?projectId=${projectId}`),
