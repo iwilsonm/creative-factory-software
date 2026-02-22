@@ -82,6 +82,8 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
   const [expandedFlexChild, setExpandedFlexChild] = useState(null);
 
   const sidebarInitialFormRef = useRef(null);
+  const autosaveTimerRef = useRef(null);
+  const lastAutosavedRef = useRef(null); // JSON string of last autosaved { primary_texts, ad_headlines }
   const campaignInputRef = useRef(null);
   const adSetInputRef = useRef(null);
   const assignDropdownRef = useRef(null);
@@ -89,6 +91,40 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
   useEffect(() => {
     loadCampaignData();
   }, [projectId]);
+
+  // ─── Autosave primary texts & headlines every 10 seconds ──────────────
+  useEffect(() => {
+    if (!sidebarData) {
+      lastAutosavedRef.current = null;
+      return;
+    }
+    autosaveTimerRef.current = setInterval(async () => {
+      const snapshot = JSON.stringify({
+        primary_texts: sidebarForm.primary_texts,
+        ad_headlines: sidebarForm.ad_headlines,
+      });
+      // Skip if nothing changed since last autosave
+      if (snapshot === lastAutosavedRef.current) return;
+      // Skip if both are empty (nothing to save)
+      if (sidebarForm.primary_texts.filter(t => t.trim()).length === 0 &&
+          sidebarForm.ad_headlines.filter(h => h.trim()).length === 0) return;
+      lastAutosavedRef.current = snapshot;
+      try {
+        if (sidebarData.type === 'single') {
+          await api.updateDeployment(sidebarData.deployment.id, {
+            primary_texts: JSON.stringify(sidebarForm.primary_texts),
+            ad_headlines: JSON.stringify(sidebarForm.ad_headlines),
+          });
+        } else {
+          await api.updateFlexAd(sidebarData.flexAd.id, {
+            primary_texts: JSON.stringify(sidebarForm.primary_texts),
+            headlines: JSON.stringify(sidebarForm.ad_headlines),
+          });
+        }
+      } catch { /* Silent — don't interrupt user with errors */ }
+    }, 10000);
+    return () => clearInterval(autosaveTimerRef.current);
+  }, [sidebarData, sidebarForm.primary_texts, sidebarForm.ad_headlines]);
 
   const loadCampaignData = async (silent = false) => {
     if (!silent) setLoading(true);
@@ -496,6 +532,11 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
     }
     setSidebarForm(form);
     sidebarInitialFormRef.current = JSON.stringify(form);
+    // Seed autosave ref so existing data doesn't trigger an immediate save
+    lastAutosavedRef.current = JSON.stringify({
+      primary_texts: form.primary_texts,
+      ad_headlines: form.ad_headlines,
+    });
   };
 
   const closeSidebar = () => {
