@@ -60,8 +60,8 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
   // Campaign/Ad Set delete confirmation
   const [entityDeleteConfirm, setEntityDeleteConfirm] = useState(null); // { type: 'campaign'|'adset', id, name }
 
-  // Flex ad delete confirmation
-  const [flexDeleteConfirm, setFlexDeleteConfirm] = useState(null); // flexAdId or null
+  // Flex ad action confirmation: { id: flexAdId, action: 'ungroup'|'unplan'|'remove' } or null
+  const [flexActionConfirm, setFlexActionConfirm] = useState(null);
 
   // Image preview lightbox (for flex ad thumbnails)
   const [previewImage, setPreviewImage] = useState(null);
@@ -375,30 +375,64 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
     }
   };
 
-  const handleDeleteFlexAd = async (flexAdId) => {
-    // Optimistic: remove flex ad from local state and clear flex_ad_id on its children
+  const handleFlexAction = async (flexAdId, action) => {
     const flex = flexAds.find(f => f.id === flexAdId);
     let childIds = [];
     if (flex) {
       try { childIds = JSON.parse(flex.child_deployment_ids || '[]'); } catch { /* ignore */ }
     }
-    setFlexAds(prev => prev.filter(f => f.id !== flexAdId));
-    if (childIds.length > 0) {
-      setDeployments(prev => prev.map(d =>
-        childIds.includes(d.id) ? { ...d, flex_ad_id: '' } : d
-      ));
-    }
-    setFlexDeleteConfirm(null);
+    setFlexActionConfirm(null);
 
-    try {
-      await api.deleteFlexAd(flexAdId);
-      // Refresh campaign data only (deployments already updated optimistically)
-      await loadCampaignData(true);
-      addToast('Flex ad ungrouped', 'success');
-    } catch {
-      addToast('Failed to ungroup flex ad', 'error');
-      // Revert on error
-      await Promise.all([loadCampaignData(true), loadDeployments()]);
+    if (action === 'ungroup') {
+      // Optimistic: remove flex ad, clear flex_ad_id on children (children stay in ad set)
+      setFlexAds(prev => prev.filter(f => f.id !== flexAdId));
+      if (childIds.length > 0) {
+        setDeployments(prev => prev.map(d =>
+          childIds.includes(d.id) ? { ...d, flex_ad_id: '' } : d
+        ));
+      }
+      try {
+        await api.deleteFlexAd(flexAdId);
+        await loadCampaignData(true);
+        addToast('Flex ad ungrouped', 'success');
+      } catch {
+        addToast('Failed to ungroup flex ad', 'error');
+        await Promise.all([loadCampaignData(true), loadDeployments()]);
+      }
+    } else if (action === 'unplan') {
+      // Optimistic: remove flex ad, move children to unplanned
+      setFlexAds(prev => prev.filter(f => f.id !== flexAdId));
+      if (childIds.length > 0) {
+        setDeployments(prev => prev.map(d =>
+          childIds.includes(d.id) ? { ...d, local_campaign_id: 'unplanned', local_adset_id: '', flex_ad_id: '' } : d
+        ));
+      }
+      try {
+        await api.deleteFlexAd(flexAdId);
+        if (childIds.length > 0) {
+          await api.unassignFromAdSet(childIds);
+        }
+        await loadCampaignData(true);
+        addToast(`Moved ${childIds.length} ad${childIds.length !== 1 ? 's' : ''} to unplanned`, 'success');
+      } catch {
+        addToast('Failed to move to unplanned', 'error');
+        await Promise.all([loadCampaignData(true), loadDeployments()]);
+      }
+    } else if (action === 'remove') {
+      // Optimistic: remove flex ad + delete all child deployments
+      setFlexAds(prev => prev.filter(f => f.id !== flexAdId));
+      if (childIds.length > 0) {
+        setDeployments(prev => prev.filter(d => !childIds.includes(d.id)));
+      }
+      try {
+        await api.deleteFlexAd(flexAdId);
+        await Promise.all(childIds.map(id => api.deleteDeployment(id)));
+        await loadCampaignData(true);
+        addToast(`Removed ${childIds.length} ad${childIds.length !== 1 ? 's' : ''} from planner`, 'success');
+      } catch {
+        addToast('Failed to remove from planner', 'error');
+        await Promise.all([loadCampaignData(true), loadDeployments()]);
+      }
     }
   };
 
@@ -547,7 +581,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
           });
         }
       } else {
-        // Flex ad — save first URL
+        // Flex ad — save first URL to existing flex ad
         await api.updateFlexAd(sidebarData.flexAd.id, {
           name: sidebarForm.ad_name,
           primary_texts: JSON.stringify(sidebarForm.primary_texts),
@@ -556,12 +590,37 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
           cta_button: sidebarForm.cta_button,
           planned_date: sidebarForm.planned_date || null,
         });
-        // Note: flex ads can't be duplicated with different URLs the same way,
-        // so extra URLs are ignored for flex ads
+
+        // For each extra URL: duplicate all child deployments, then create a new flex ad
+        const childDeps = sidebarData.deps || [];
+        for (const url of extraUrls) {
+          const newChildIds = [];
+          for (const child of childDeps) {
+            const result = await api.duplicateDeployment(child.id, {
+              ad_name: child.ad_name || sidebarForm.ad_name,
+              destination_url: url,
+              cta_button: sidebarForm.cta_button,
+              primary_texts: JSON.stringify(sidebarForm.primary_texts),
+              ad_headlines: JSON.stringify(sidebarForm.ad_headlines),
+              planned_date: sidebarForm.planned_date || null,
+            });
+            if (result?.id) newChildIds.push(result.id);
+          }
+          // Create a new flex ad grouping the duplicated deployments
+          if (newChildIds.length > 0) {
+            const flexAd = sidebarData.flexAd;
+            await api.createFlexAd(
+              flexAd.project_id,
+              flexAd.ad_set_id,
+              (sidebarForm.ad_name || flexAd.name || 'Flex Ad') + ` (${url.replace(/^https?:\/\//, '').slice(0, 30)})`,
+              newChildIds,
+            );
+          }
+        }
       }
 
       await Promise.all([loadDeployments(), loadCampaignData(true)]);
-      if (extraUrls.length > 0 && sidebarData.type === 'single') {
+      if (extraUrls.length > 0) {
         addToast(`Saved + created ${extraUrls.length} duplicate${extraUrls.length > 1 ? 's' : ''} with different URL${extraUrls.length > 1 ? 's' : ''}`, 'success');
       } else {
         addToast('Saved', 'success');
@@ -819,17 +878,21 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
         </div>
 
         {/* Hover actions / Confirmation */}
-        {flexDeleteConfirm === flexAd.id ? (
+        {flexActionConfirm?.id === flexAd.id ? (
           <div className="flex items-center gap-1 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
-            <span className="text-[10px] text-textmid">Ungroup?</span>
+            <span className="text-[10px] text-textmid">
+              {flexActionConfirm.action === 'ungroup' ? 'Ungroup?' : flexActionConfirm.action === 'unplan' ? 'Move to unplanned?' : 'Remove from planner?'}
+            </span>
             <button
-              onClick={() => handleDeleteFlexAd(flexAd.id)}
-              className="text-[10px] px-1.5 py-0.5 rounded bg-red-500 text-white hover:bg-red-600 transition-colors"
+              onClick={() => handleFlexAction(flexAd.id, flexActionConfirm.action)}
+              className={`text-[10px] px-1.5 py-0.5 rounded text-white transition-colors ${
+                flexActionConfirm.action === 'remove' ? 'bg-red-500 hover:bg-red-600' : 'bg-navy hover:bg-navy-light'
+              }`}
             >
               Confirm
             </button>
             <button
-              onClick={() => setFlexDeleteConfirm(null)}
+              onClick={() => setFlexActionConfirm(null)}
               className="text-[10px] px-1.5 py-0.5 rounded text-textmid hover:bg-gray-100 transition-colors"
             >
               Cancel
@@ -837,10 +900,31 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
           </div>
         ) : (
           <div className="opacity-0 group-hover:opacity-100 flex items-center gap-1 flex-shrink-0 transition-opacity">
+            {/* Ungroup */}
             <button
-              onClick={(e) => { e.stopPropagation(); setFlexDeleteConfirm(flexAd.id); }}
+              onClick={(e) => { e.stopPropagation(); setFlexActionConfirm({ id: flexAd.id, action: 'ungroup' }); }}
+              className="p-1 rounded-lg hover:bg-navy/10 text-textlight hover:text-navy transition-colors"
+              title="Ungroup"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
+              </svg>
+            </button>
+            {/* Move to unplanned */}
+            <button
+              onClick={(e) => { e.stopPropagation(); setFlexActionConfirm({ id: flexAd.id, action: 'unplan' }); }}
+              className="p-1 rounded-lg hover:bg-gold/10 text-textlight hover:text-gold transition-colors"
+              title="Move to unplanned"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
+              </svg>
+            </button>
+            {/* Remove from planner */}
+            <button
+              onClick={(e) => { e.stopPropagation(); setFlexActionConfirm({ id: flexAd.id, action: 'remove' }); }}
               className="p-1 rounded-lg hover:bg-red-50 text-textlight hover:text-red-500 transition-colors"
-              title="Ungroup Flex Ad"
+              title="Remove from planner"
             >
               <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
@@ -1206,23 +1290,21 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
                   </div>
                 ))}
               </div>
-              {!isFlex && (
-                <button
-                  onClick={() => setSidebarForm(prev => ({ ...prev, destination_urls: [...prev.destination_urls, ''] }))}
-                  className="mt-2 w-full py-1.5 rounded-lg border border-dashed border-gray-300 text-[10px] text-textmid hover:border-navy/30 hover:text-navy hover:bg-navy/5 transition-colors inline-flex items-center justify-center gap-1"
-                >
-                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                  </svg>
-                  Add Another URL
-                </button>
-              )}
-              {sidebarForm.destination_urls.length > 1 && !isFlex && (
+              <button
+                onClick={() => setSidebarForm(prev => ({ ...prev, destination_urls: [...prev.destination_urls, ''] }))}
+                className="mt-2 w-full py-1.5 rounded-lg border border-dashed border-gray-300 text-[10px] text-textmid hover:border-navy/30 hover:text-navy hover:bg-navy/5 transition-colors inline-flex items-center justify-center gap-1"
+              >
+                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                </svg>
+                Add Another URL
+              </button>
+              {sidebarForm.destination_urls.length > 1 && (
                 <p className="text-[9px] text-gold mt-1.5 flex items-center gap-1">
                   <svg className="w-3 h-3 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                   </svg>
-                  Saving will create {sidebarForm.destination_urls.length - 1} duplicate{sidebarForm.destination_urls.length > 2 ? 's' : ''} of this ad, each with a different URL.
+                  Saving will duplicate this {isFlex ? 'flex ad' : 'ad'} for each extra URL ({sidebarForm.destination_urls.length - 1} duplicate{sidebarForm.destination_urls.length > 2 ? 's' : ''}).
                 </p>
               )}
             </div>
@@ -1272,10 +1354,13 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
                   </div>
                   <div>
                     <p className="text-[12px] font-semibold text-textdark">
-                      Duplicate ad for {duplicateConfirm.urls.length} URLs?
+                      Duplicate {isFlex ? 'flex ad' : 'ad'} for {duplicateConfirm.urls.length} URLs?
                     </p>
                     <p className="text-[11px] text-textmid mt-1">
-                      This will save the current ad with the first URL, then create {duplicateConfirm.urls.length - 1} duplicate{duplicateConfirm.urls.length > 2 ? 's' : ''} in the same ad set — each with a different destination URL:
+                      {isFlex
+                        ? `This will save the current flex ad with the first URL, then duplicate all ${sidebarData?.deps?.length || 0} child ads for each extra URL — creating ${duplicateConfirm.urls.length - 1} new flex ad${duplicateConfirm.urls.length > 2 ? 's' : ''} in the same ad set:`
+                        : `This will save the current ad with the first URL, then create ${duplicateConfirm.urls.length - 1} duplicate${duplicateConfirm.urls.length > 2 ? 's' : ''} in the same ad set — each with a different destination URL:`
+                      }
                     </p>
                     <ul className="mt-2 space-y-1">
                       {duplicateConfirm.urls.map((url, i) => (
