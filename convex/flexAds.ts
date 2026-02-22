@@ -65,6 +65,7 @@ export const update = mutation({
       headlines: v.optional(v.string()),
       destination_url: v.optional(v.string()),
       cta_button: v.optional(v.string()),
+      facebook_page: v.optional(v.string()),
       planned_date: v.optional(v.string()),
     }),
   },

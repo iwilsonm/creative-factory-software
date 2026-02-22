@@ -122,6 +122,7 @@ export const update = mutation({
       ad_headlines: v.optional(v.string()),
       destination_url: v.optional(v.string()),
       cta_button: v.optional(v.string()),
+      facebook_page: v.optional(v.string()),
     }),
   },
   handler: async (ctx, args) => {
