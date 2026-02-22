@@ -75,6 +75,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
   const [generatingPrimaryText, setGeneratingPrimaryText] = useState(false);
   const [generatingHeadlines, setGeneratingHeadlines] = useState(false);
   const [primaryTextDirection, setPrimaryTextDirection] = useState('');
+  const [primaryTextThread, setPrimaryTextThread] = useState([]); // conversation history for iterative refinement
   const [sidebarSaving, setSidebarSaving] = useState(false);
   const [primaryTextOpen, setPrimaryTextOpen] = useState(false);
   const [headlinesOpen, setHeadlinesOpen] = useState(false);
@@ -467,6 +468,8 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
     setPrimaryTextOpen(false);
     setHeadlinesOpen(false);
     setExpandedFlexChild(null);
+    setPrimaryTextThread([]); // Fresh conversation for each sidebar open
+    setPrimaryTextDirection('');
     let form;
     if (data.type === 'single') {
       const dep = data.deployment;
@@ -545,9 +548,16 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
         : sidebarData.deps[0]?.id;
       const flexAdId = sidebarData.type === 'flex' ? sidebarData.flexAd.id : undefined;
       const direction = primaryTextDirection.trim() || undefined;
-      const result = await api.generatePrimaryText(depId, flexAdId, direction);
+      const result = await api.generatePrimaryText(depId, flexAdId, direction, primaryTextThread);
       setSidebarForm(prev => ({ ...prev, primary_texts: result.primary_texts || [] }));
-      addToast('Primary text generated — edit direction above and regenerate to refine', 'success');
+      setPrimaryTextThread(result.messages || []);
+      setPrimaryTextDirection(''); // Clear direction — it's been "sent"
+      const round = Math.floor(((result.messages || []).length) / 2);
+      if (round <= 1) {
+        addToast('Primary text generated — type more direction below to refine', 'success');
+      } else {
+        addToast(`Round ${round} complete — keep refining or save`, 'success');
+      }
     } catch {
       addToast('Failed to generate primary text', 'error');
     }
@@ -1110,32 +1120,47 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                   </svg>
                   <span className="text-[11px] font-semibold text-textdark uppercase tracking-wider">Primary Text</span>
+                  {primaryTextThread.length > 2 && (
+                    <span className="text-[9px] text-gold font-medium bg-gold/10 px-1.5 py-0.5 rounded-full">
+                      Round {Math.floor(primaryTextThread.length / 2)}
+                    </span>
+                  )}
                   <span className="text-[10px] text-textlight bg-black/5 px-1.5 py-0.5 rounded-full">
                     {sidebarForm.primary_texts.filter(t => t.trim()).length}/5
                   </span>
                 </div>
-                <button
-                  onClick={(e) => { e.stopPropagation(); handleGeneratePrimaryText(); }}
-                  disabled={generatingPrimaryText}
-                  className="text-[10px] px-2.5 py-1 rounded-lg bg-navy text-white hover:bg-navy-light transition-colors disabled:opacity-50 inline-flex items-center gap-1"
-                >
-                  {generatingPrimaryText ? (
-                    <>
-                      <svg className="w-3 h-3 animate-spin" viewBox="0 0 24 24" fill="none">
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                      </svg>
-                      Generating...
-                    </>
-                  ) : (
-                    <>
-                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                      </svg>
-                      {sidebarForm.primary_texts.filter(t => t.trim()).length > 0 ? 'Regenerate' : 'Generate'}
-                    </>
+                <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+                  {primaryTextThread.length > 0 && !generatingPrimaryText && (
+                    <button
+                      onClick={() => { setPrimaryTextThread([]); setPrimaryTextDirection(''); }}
+                      className="text-[9px] text-textlight hover:text-navy underline transition-colors"
+                    >
+                      Start over
+                    </button>
                   )}
-                </button>
+                  <button
+                    onClick={handleGeneratePrimaryText}
+                    disabled={generatingPrimaryText}
+                    className="text-[10px] px-2.5 py-1 rounded-lg bg-navy text-white hover:bg-navy-light transition-colors disabled:opacity-50 inline-flex items-center gap-1"
+                  >
+                    {generatingPrimaryText ? (
+                      <>
+                        <svg className="w-3 h-3 animate-spin" viewBox="0 0 24 24" fill="none">
+                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                        </svg>
+                        {primaryTextThread.length > 0 ? 'Refining...' : 'Generating...'}
+                      </>
+                    ) : (
+                      <>
+                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                        </svg>
+                        {primaryTextThread.length > 0 ? 'Refine' : 'Generate'}
+                      </>
+                    )}
+                  </button>
+                </div>
               </div>
               {primaryTextOpen && (
                 <div className="p-4 space-y-3">
@@ -1147,9 +1172,15 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
                       onChange={(e) => setPrimaryTextDirection(e.target.value)}
                       className="input-apple text-[12px] w-full mt-1"
                       rows={2}
-                      placeholder='e.g. "Hook about how I thought grounding was a scam, then explain why it often is — click to learn why. Keep it short."'
+                      placeholder={primaryTextThread.length > 0
+                        ? 'e.g. "Make them shorter and punchier" or "Focus more on the skeptic angle"'
+                        : 'e.g. "Hook about how I thought grounding was a scam, then explain why it often is — click to learn why. Keep it short."'}
                     />
-                    <p className="text-[9px] text-textlight mt-1">Optional — guide the tone, hook, angle, or length of generated text.</p>
+                    <p className="text-[9px] text-textlight mt-1">
+                      {primaryTextThread.length > 0
+                        ? 'Each prompt builds on the last — tell Claude what to adjust and it\'ll refine the variations.'
+                        : 'Describe the tone, hook, angle, or structure you want.'}
+                    </p>
                   </div>
 
                   {/* Divider */}
@@ -1359,15 +1390,36 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
               </select>
             </div>
 
-            {/* ─── Scheduled Post Date & Time ─── */}
+            {/* ─── Schedule Ad ─── */}
             <div>
-              <label className="text-[11px] font-semibold text-textdark uppercase tracking-wider">Scheduled Post Date & Time</label>
-              <input
-                type="datetime-local"
-                value={sidebarForm.planned_date}
-                onChange={(e) => setSidebarForm(prev => ({ ...prev, planned_date: e.target.value }))}
+              <label className="text-[11px] font-semibold text-textdark uppercase tracking-wider">Schedule Ad</label>
+              <select
+                value={sidebarForm.planned_date ? 'scheduled' : 'immediately'}
+                onChange={(e) => {
+                  if (e.target.value === 'immediately') {
+                    setSidebarForm(prev => ({ ...prev, planned_date: '' }));
+                  } else {
+                    // Default to tomorrow at 9:00 AM local time
+                    const tomorrow = new Date();
+                    tomorrow.setDate(tomorrow.getDate() + 1);
+                    tomorrow.setHours(9, 0, 0, 0);
+                    const local = new Date(tomorrow.getTime() - tomorrow.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
+                    setSidebarForm(prev => ({ ...prev, planned_date: prev.planned_date || local }));
+                  }
+                }}
                 className="input-apple text-[12px] w-full mt-1.5"
-              />
+              >
+                <option value="immediately">Immediately</option>
+                <option value="scheduled">Specific Date & Time</option>
+              </select>
+              {sidebarForm.planned_date && (
+                <input
+                  type="datetime-local"
+                  value={sidebarForm.planned_date}
+                  onChange={(e) => setSidebarForm(prev => ({ ...prev, planned_date: e.target.value }))}
+                  className="input-apple text-[12px] w-full mt-2"
+                />
+              )}
             </div>
 
             {/* ─── Save ─── */}

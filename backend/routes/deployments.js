@@ -723,7 +723,7 @@ router.post('/deployments/flex-ads/:id/restore', async (req, res) => {
 router.post('/deployments/:id/generate-primary-text', async (req, res) => {
   try {
     const { id } = req.params;
-    const { flexAdId, direction } = req.body;
+    const { flexAdId, direction, messages: threadMessages } = req.body;
 
     // Get the deployment to find project_id
     const allDeps = await getAllDeployments();
@@ -786,9 +786,8 @@ Image Prompt: ${(ad.image_prompt || '').slice(0, 500)}`;
       } catch {}
     }
 
-    const result = await claudeChat([{
-      role: 'user',
-      content: `You are a world-class direct response copywriter writing Facebook ad primary text (the text that appears ABOVE the ad image).
+    // ── Build system prompt (context that stays the same across the conversation) ──
+    const systemPrompt = `You are a world-class direct response copywriter writing Facebook ad primary text (the text that appears ABOVE the ad image).
 
 BRAND: ${project.brand_name || project.name}
 PRODUCT: ${project.product_description || ''}
@@ -805,7 +804,7 @@ ${beliefsSnippet ? `NECESSARY BELIEFS (excerpt):\n${beliefsSnippet}\n` : ''}
 AD CREATIVE INFO:
 ${creativeContext}
 
-Write 5 variations of Facebook ad primary text. Each MUST follow this structure:
+Your task is to write 5 variations of Facebook ad primary text. Each MUST follow this structure:
 
 FIRST LINE (HOOK): The very first line must be an attention-grabbing hook that stops the scroll. Use a bold claim, surprising fact, provocative question, or pattern interrupt. This line is the most important — if it doesn't grab attention, nothing else matters.
 
@@ -816,11 +815,39 @@ LAST LINE (CTA): The final line must be a clear call to action that drives the c
 Additional rules:
 - ${flexAdId ? 'Work well with multiple creative images that rotate' : 'Align with the specific ad creative described above'}
 - IMPORTANT: Split each variation into short, readable paragraphs. Each distinct thought or idea should be its own paragraph (separated by \\n\\n). Do NOT write dense blocks of text — break it up so it's easy to scan on mobile.
-${direction ? `\nCREATIVE DIRECTION FROM THE ADVERTISER — follow this closely:\n"${direction}"\n\nThis is the most important instruction. Shape every variation around this direction. If it specifies a hook angle, tone, length, or structure, follow it exactly.` : ''}
 
-Return ONLY a JSON object: { "primary_texts": ["text1", "text2", "text3", "text4", "text5"] }
-Remember to use \\n\\n between paragraphs within each text variation.`,
-    }], 'claude-sonnet-4-6', {
+ALWAYS return ONLY a JSON object: { "primary_texts": ["text1", "text2", "text3", "text4", "text5"] }
+Remember to use \\n\\n between paragraphs within each text variation.`;
+
+    // ── Build conversation messages ──
+    // Thread-based: each refinement round builds on the previous conversation
+    const conversationMessages = [{ role: 'system', content: systemPrompt }];
+
+    if (threadMessages && threadMessages.length > 0) {
+      // Continuation: replay previous user/assistant exchanges, then add new direction
+      for (const msg of threadMessages) {
+        conversationMessages.push({ role: msg.role, content: msg.content });
+      }
+      // New refinement instruction
+      conversationMessages.push({
+        role: 'user',
+        content: `The advertiser wants refinements to the primary text variations you just wrote.
+
+Their feedback: "${direction || 'Generate new variations with a different approach.'}"
+
+Write 5 NEW refined variations that incorporate this feedback while keeping what worked from the previous versions. Return ONLY a JSON object: { "primary_texts": ["text1", "text2", "text3", "text4", "text5"] }`,
+      });
+    } else {
+      // First generation — include creative direction in the initial user message
+      conversationMessages.push({
+        role: 'user',
+        content: direction
+          ? `Write 5 variations of Facebook ad primary text.\n\nCREATIVE DIRECTION FROM THE ADVERTISER — follow this closely:\n"${direction}"\n\nThis is the most important instruction. Shape every variation around this direction. If it specifies a hook angle, tone, length, or structure, follow it exactly.`
+          : 'Write 5 variations of Facebook ad primary text based on the brand context and ad creative info provided.',
+      });
+    }
+
+    const result = await claudeChat(conversationMessages, 'claude-sonnet-4-6', {
       max_tokens: 2048,
       operation: 'primary_text_generation',
       projectId,
@@ -845,7 +872,20 @@ Remember to use \\n\\n between paragraphs within each text variation.`,
       }
     }
 
-    res.json({ primary_texts: primaryTexts });
+    // Build updated thread history (exclude system message — only user/assistant turns)
+    const updatedThread = threadMessages ? [...threadMessages] : [];
+    // Add the user's direction from this round
+    updatedThread.push({
+      role: 'user',
+      content: direction || '(initial generation)',
+    });
+    // Add Claude's response
+    updatedThread.push({
+      role: 'assistant',
+      content: JSON.stringify({ primary_texts: primaryTexts }),
+    });
+
+    res.json({ primary_texts: primaryTexts, messages: updatedThread });
   } catch (err) {
     console.error('Failed to generate primary text:', err);
     res.status(500).json({ error: err.message });
