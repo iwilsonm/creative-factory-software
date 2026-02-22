@@ -82,7 +82,7 @@ export const remove = mutation({
       .query("flex_ads")
       .withIndex("by_externalId", (q) => q.eq("externalId", args.externalId))
       .first();
-    if (!doc) throw new Error("Flex ad not found");
+    if (!doc) return; // Already deleted — no-op
     await ctx.db.delete(doc._id);
   },
 });

@@ -384,11 +384,16 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
     setFlexActionConfirm(null);
 
     if (action === 'ungroup') {
-      // Optimistic: remove flex ad, clear flex_ad_id on children (children stay in ad set)
+      // Only affect children that actually belong to this flex ad
+      const ownedChildIds = childIds.filter(id => {
+        const dep = deployments.find(d => d.id === id);
+        return dep && dep.flex_ad_id === flexAdId;
+      });
+      // Optimistic: remove flex ad, clear flex_ad_id on owned children (children stay in ad set)
       setFlexAds(prev => prev.filter(f => f.id !== flexAdId));
-      if (childIds.length > 0) {
+      if (ownedChildIds.length > 0) {
         setDeployments(prev => prev.map(d =>
-          childIds.includes(d.id) ? { ...d, flex_ad_id: '' } : d
+          ownedChildIds.includes(d.id) ? { ...d, flex_ad_id: '' } : d
         ));
       }
       try {
@@ -400,35 +405,45 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
         await Promise.all([loadCampaignData(true), loadDeployments()]);
       }
     } else if (action === 'unplan') {
-      // Optimistic: remove flex ad, move children to unplanned
+      // Only affect children that actually belong to this flex ad
+      const ownedChildIds = childIds.filter(id => {
+        const dep = deployments.find(d => d.id === id);
+        return dep && dep.flex_ad_id === flexAdId;
+      });
+      // Optimistic: remove flex ad, move owned children to unplanned
       setFlexAds(prev => prev.filter(f => f.id !== flexAdId));
-      if (childIds.length > 0) {
+      if (ownedChildIds.length > 0) {
         setDeployments(prev => prev.map(d =>
-          childIds.includes(d.id) ? { ...d, local_campaign_id: 'unplanned', local_adset_id: '', flex_ad_id: '' } : d
+          ownedChildIds.includes(d.id) ? { ...d, local_campaign_id: 'unplanned', local_adset_id: '', flex_ad_id: '' } : d
         ));
       }
       try {
         await api.deleteFlexAd(flexAdId);
-        if (childIds.length > 0) {
-          await api.unassignFromAdSet(childIds);
+        if (ownedChildIds.length > 0) {
+          await api.unassignFromAdSet(ownedChildIds);
         }
         await loadCampaignData(true);
-        addToast(`Moved ${childIds.length} ad${childIds.length !== 1 ? 's' : ''} to unplanned`, 'success');
+        addToast(`Moved ${ownedChildIds.length} ad${ownedChildIds.length !== 1 ? 's' : ''} to unplanned`, 'success');
       } catch {
         addToast('Failed to move to unplanned', 'error');
         await Promise.all([loadCampaignData(true), loadDeployments()]);
       }
     } else if (action === 'remove') {
-      // Optimistic: remove flex ad + delete all child deployments
+      // Only delete child deployments that actually belong to this flex ad
+      const ownedChildIds = childIds.filter(id => {
+        const dep = deployments.find(d => d.id === id);
+        return dep && dep.flex_ad_id === flexAdId;
+      });
+      // Optimistic: remove flex ad + delete owned child deployments
       setFlexAds(prev => prev.filter(f => f.id !== flexAdId));
-      if (childIds.length > 0) {
-        setDeployments(prev => prev.filter(d => !childIds.includes(d.id)));
+      if (ownedChildIds.length > 0) {
+        setDeployments(prev => prev.filter(d => !ownedChildIds.includes(d.id)));
       }
       try {
         await api.deleteFlexAd(flexAdId);
-        await Promise.all(childIds.map(id => api.deleteDeployment(id)));
+        await Promise.all(ownedChildIds.map(id => api.deleteDeployment(id)));
         await loadCampaignData(true);
-        addToast(`Removed ${childIds.length} ad${childIds.length !== 1 ? 's' : ''} from planner`, 'success');
+        addToast(`Removed ${ownedChildIds.length} ad${ownedChildIds.length !== 1 ? 's' : ''} from planner`, 'success');
       } catch {
         addToast('Failed to remove from planner', 'error');
         await Promise.all([loadCampaignData(true), loadDeployments()]);
