@@ -73,6 +73,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
   });
   const [generatingPrimaryText, setGeneratingPrimaryText] = useState(false);
   const [generatingHeadlines, setGeneratingHeadlines] = useState(false);
+  const [primaryTextDirection, setPrimaryTextDirection] = useState('');
   const [sidebarSaving, setSidebarSaving] = useState(false);
   const [primaryTextOpen, setPrimaryTextOpen] = useState(false);
   const [headlinesOpen, setHeadlinesOpen] = useState(false);
@@ -479,7 +480,8 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
         ? sidebarData.deployment.id
         : sidebarData.deps[0]?.id;
       const flexAdId = sidebarData.type === 'flex' ? sidebarData.flexAd.id : undefined;
-      const result = await api.generatePrimaryText(depId, flexAdId);
+      const direction = primaryTextDirection.trim() || undefined;
+      const result = await api.generatePrimaryText(depId, flexAdId, direction);
       setSidebarForm(prev => ({ ...prev, primary_texts: result.primary_texts || [] }));
       addToast('Primary text generated', 'success');
     } catch {
@@ -977,6 +979,22 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
               </button>
               {primaryTextOpen && (
                 <div className="p-4 space-y-3">
+                  {/* Creative direction input */}
+                  <div>
+                    <label className="text-[10px] font-medium text-textlight uppercase tracking-wider">Creative Direction</label>
+                    <textarea
+                      value={primaryTextDirection}
+                      onChange={(e) => setPrimaryTextDirection(e.target.value)}
+                      className="input-apple text-[12px] w-full mt-1"
+                      rows={2}
+                      placeholder='e.g. "Hook about how I thought grounding was a scam, then explain why it often is — click to learn why. Keep it short."'
+                    />
+                    <p className="text-[9px] text-textlight mt-1">Optional — guide the tone, hook, angle, or length of generated text.</p>
+                  </div>
+
+                  {/* Divider */}
+                  <div className="border-t border-gray-100" />
+
                   {Array.from({ length: Math.max(sidebarForm.primary_texts.length, 0) }, (_, i) => i).map(i => (
                     <div key={i}>
                       <div className="flex items-center justify-between mb-1">

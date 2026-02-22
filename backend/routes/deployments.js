@@ -649,12 +649,12 @@ router.delete('/deployments/flex-ads/:id', async (req, res) => {
 
 /**
  * POST /deployments/:id/generate-primary-text — AI-generate primary text
- * Body: { flexAdId?: string }
+ * Body: { flexAdId?: string, direction?: string }
  */
 router.post('/deployments/:id/generate-primary-text', async (req, res) => {
   try {
     const { id } = req.params;
-    const { flexAdId } = req.body;
+    const { flexAdId, direction } = req.body;
 
     // Get the deployment to find project_id
     const allDeps = await getAllDeployments();
@@ -747,6 +747,7 @@ LAST LINE (CTA): The final line must be a clear call to action that drives the c
 Additional rules:
 - ${flexAdId ? 'Work well with multiple creative images that rotate' : 'Align with the specific ad creative described above'}
 - IMPORTANT: Split each variation into short, readable paragraphs. Each distinct thought or idea should be its own paragraph (separated by \\n\\n). Do NOT write dense blocks of text — break it up so it's easy to scan on mobile.
+${direction ? `\nCREATIVE DIRECTION FROM THE ADVERTISER — follow this closely:\n"${direction}"\n\nThis is the most important instruction. Shape every variation around this direction. If it specifies a hook angle, tone, length, or structure, follow it exactly.` : ''}
 
 Return ONLY a JSON object: { "primary_texts": ["text1", "text2", "text3", "text4", "text5"] }
 Remember to use \\n\\n between paragraphs within each text variation.`,
