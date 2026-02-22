@@ -1,17 +1,18 @@
 import { useState, useEffect, useCallback } from 'react';
+import JSZip from 'jszip';
 import { api } from '../api';
 
 /**
  * ReadyToPostView — Employee-facing view showing only ads with status 'ready_to_post'.
  *
- * Layout: Flat list of self-contained cards, each showing:
- *   - Ad image + name
- *   - "POST IN" section with Campaign > Ad Set names prominently displayed
- *   - Individually numbered primary texts with per-item + copy-all buttons
- *   - Individually numbered headlines with per-item + copy-all buttons
- *   - Destination URL with copy button
- *   - CTA button label
- *   - Send Back to Planner + Mark as Posted actions
+ * Layout: Flat list of self-contained cards. Important info at top of each card:
+ *   1. Ad name, ad format (Single Image / Flexible Ad), scheduled date/time
+ *   2. "POST IN" section: Campaign > Ad Set
+ *   3. Ad Creatives section with Download All / Download Selected / individual download
+ *   4. Primary Text variations (numbered, with explanations)
+ *   5. Headline variations (numbered, with explanations)
+ *   6. Destination URL + CTA button
+ *   7. Actions: Send Back / Mark as Posted
  *
  * Props: projectId, deployments, setDeployments, addToast, loadDeployments, onSwitchToPlanner
  */
@@ -20,10 +21,15 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
   const [adSets, setAdSets] = useState([]);
   const [flexAds, setFlexAds] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [confirmPosted, setConfirmPosted] = useState(null); // dep id or flex ad id
-  const [markingPostedIds, setMarkingPostedIds] = useState(new Set()); // per-ad loading state
-  const [sendingBackIds, setSendingBackIds] = useState(new Set()); // per-ad send-back loading
+  const [confirmPosted, setConfirmPosted] = useState(null);
+  const [markingPostedIds, setMarkingPostedIds] = useState(new Set());
+  const [sendingBackIds, setSendingBackIds] = useState(new Set());
   const [bulkMarkingAll, setBulkMarkingAll] = useState(false);
+  // Image selection + download state (per card)
+  const [selectedImages, setSelectedImages] = useState({}); // { [cardKey]: Set(depId) }
+  const [downloadingAll, setDownloadingAll] = useState(new Set()); // cardKey
+  const [downloadingSelected, setDownloadingSelected] = useState(new Set()); // cardKey
+  const [downloadingSingle, setDownloadingSingle] = useState(new Set()); // depId
 
   useEffect(() => {
     loadData();
@@ -48,7 +54,6 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
 
   // ── Helpers ──────────────────────────────────────────────────────────────
 
-  // Resolve campaign + ad set names for a deployment
   const resolveLocation = (dep) => {
     const adSet = adSets.find(a => a.id === dep.local_adset_id);
     if (!adSet) return { campaignName: null, adSetName: null };
@@ -56,13 +61,9 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
       const campAdSets = adSets.filter(a => a.campaign_id === c.id);
       return campAdSets.some(a => a.id === dep.local_adset_id);
     });
-    return {
-      campaignName: campaign?.name || null,
-      adSetName: adSet?.name || null,
-    };
+    return { campaignName: campaign?.name || null, adSetName: adSet?.name || null };
   };
 
-  // Resolve campaign + ad set for a flex ad
   const resolveFlexLocation = (flexAd) => {
     const adSet = adSets.find(a => a.id === flexAd.ad_set_id);
     if (!adSet) return { campaignName: null, adSetName: null };
@@ -70,23 +71,17 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
       const campAdSets = adSets.filter(a => a.campaign_id === c.id);
       return campAdSets.some(a => a.id === flexAd.ad_set_id);
     });
-    return {
-      campaignName: campaign?.name || null,
-      adSetName: adSet?.name || null,
-    };
+    return { campaignName: campaign?.name || null, adSetName: adSet?.name || null };
   };
 
-  // Get child deps for a flex ad that are ready_to_post
   const getFlexChildDeps = (flexAd) => {
     let childIds = [];
     try { childIds = flexAd.child_deployment_ids ? JSON.parse(flexAd.child_deployment_ids) : []; } catch { /* ignore */ }
     return readyDeps.filter(d => childIds.includes(d.id));
   };
 
-  // Check if a flex ad has any ready children
   const flexHasReadyChildren = (flexAd) => getFlexChildDeps(flexAd).length > 0;
 
-  // Copy to clipboard
   const copyToClipboard = async (text, label) => {
     try {
       await navigator.clipboard.writeText(text);
@@ -96,7 +91,6 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
     }
   };
 
-  // Format planned date
   const formatDate = (dateStr) => {
     if (!dateStr) return null;
     try {
@@ -110,7 +104,6 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
 
   // ── Actions ──────────────────────────────────────────────────────────────
 
-  // Mark as posted (per-ad loading state)
   const handleMarkPosted = async (depId) => {
     setMarkingPostedIds(prev => new Set(prev).add(depId));
     try {
@@ -124,7 +117,6 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
     setMarkingPostedIds(prev => { const next = new Set(prev); next.delete(depId); return next; });
   };
 
-  // Mark all children of a flex ad as posted
   const handleMarkFlexPosted = async (flexAd) => {
     const flexId = `flex-${flexAd.id}`;
     setMarkingPostedIds(prev => new Set(prev).add(flexId));
@@ -145,7 +137,6 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
     setMarkingPostedIds(prev => { const next = new Set(prev); next.delete(flexId); return next; });
   };
 
-  // Send back to Planner (single ad)
   const handleSendBack = async (depId) => {
     setSendingBackIds(prev => new Set(prev).add(depId));
     try {
@@ -158,7 +149,6 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
     setSendingBackIds(prev => { const next = new Set(prev); next.delete(depId); return next; });
   };
 
-  // Send back all children of a flex ad
   const handleSendBackFlex = async (flexAd) => {
     const flexId = `flex-${flexAd.id}`;
     setSendingBackIds(prev => new Set(prev).add(flexId));
@@ -178,7 +168,6 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
     setSendingBackIds(prev => { const next = new Set(prev); next.delete(flexId); return next; });
   };
 
-  // Bulk mark all ready_to_post as posted
   const handleBulkMarkAllPosted = async () => {
     if (readyDeps.length === 0) return;
     setBulkMarkingAll(true);
@@ -194,9 +183,99 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
     setBulkMarkingAll(false);
   };
 
+  // ── Download Helpers ──────────────────────────────────────────────────────
+
+  const downloadSingleImage = async (dep) => {
+    if (!dep.imageUrl) return;
+    setDownloadingSingle(prev => new Set(prev).add(dep.id));
+    try {
+      const response = await fetch(dep.imageUrl);
+      const blob = await response.blob();
+      const ext = blob.type === 'image/jpeg' ? '.jpg' : '.png';
+      const name = (dep.ad_name || dep.ad?.headline || dep.id || 'ad').replace(/[^a-z0-9]/gi, '-').slice(0, 40);
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${name}${ext}`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+    } catch {
+      addToast('Failed to download image', 'error');
+    }
+    setDownloadingSingle(prev => { const next = new Set(prev); next.delete(dep.id); return next; });
+  };
+
+  const downloadMultipleImages = async (depsToDownload, cardKey) => {
+    const withImages = depsToDownload.filter(d => d.imageUrl);
+    if (withImages.length === 0) { addToast('No images to download', 'error'); return; }
+    if (withImages.length === 1) { await downloadSingleImage(withImages[0]); return; }
+
+    const stateSet = cardKey.startsWith('selected-') ? setDownloadingSelected : setDownloadingAll;
+    const stateKey = cardKey.replace('selected-', '');
+    stateSet(prev => new Set(prev).add(stateKey));
+    try {
+      const results = await Promise.allSettled(
+        withImages.map(async (dep) => {
+          const res = await fetch(dep.imageUrl);
+          const blob = await res.blob();
+          const ext = blob.type === 'image/jpeg' ? '.jpg' : '.png';
+          return { dep, blob, ext };
+        })
+      );
+      const fulfilled = results.filter(r => r.status === 'fulfilled').map(r => r.value);
+      if (fulfilled.length === 0) { addToast('Failed to download images', 'error'); return; }
+
+      const zip = new JSZip();
+      const usedNames = new Set();
+      for (const { dep, blob, ext } of fulfilled) {
+        let baseName = (dep.ad_name || dep.ad?.headline || dep.id || 'ad').replace(/[^a-z0-9]/gi, '-').slice(0, 40);
+        let fileName = `${baseName}${ext}`;
+        let counter = 1;
+        while (usedNames.has(fileName)) {
+          fileName = `${baseName}-${counter}${ext}`;
+          counter++;
+        }
+        usedNames.add(fileName);
+        zip.file(fileName, blob);
+      }
+      const content = await zip.generateAsync({ type: 'blob' });
+      const url = URL.createObjectURL(content);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `ad-creatives-${fulfilled.length}.zip`;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      URL.revokeObjectURL(url);
+      addToast(`Downloaded ${fulfilled.length} images`, 'success');
+    } catch {
+      addToast('Failed to create ZIP', 'error');
+    }
+    stateSet(prev => { const next = new Set(prev); next.delete(stateKey); return next; });
+  };
+
+  // Toggle image selection for a card
+  const toggleImageSelection = (cardKey, depId) => {
+    setSelectedImages(prev => {
+      const current = prev[cardKey] || new Set();
+      const next = new Set(current);
+      if (next.has(depId)) next.delete(depId); else next.add(depId);
+      return { ...prev, [cardKey]: next };
+    });
+  };
+
+  const toggleSelectAll = (cardKey, allDepIds) => {
+    setSelectedImages(prev => {
+      const current = prev[cardKey] || new Set();
+      const allSelected = allDepIds.every(id => current.has(id));
+      return { ...prev, [cardKey]: allSelected ? new Set() : new Set(allDepIds) };
+    });
+  };
+
   // ── Reusable UI Components ──────────────────────────────────────────────
 
-  // Copy button component
   const CopyBtn = ({ text, label, small }) => {
     if (!text || text.trim() === '' || text === '[]') return null;
     return (
@@ -214,8 +293,29 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
     );
   };
 
-  // Render numbered text items from a JSON string
-  const renderNumberedTexts = (jsonStr, sectionLabel) => {
+  // Download icon button (small, for individual images)
+  const DownloadBtn = ({ dep, small }) => {
+    if (!dep.imageUrl) return null;
+    const isDownloading = downloadingSingle.has(dep.id);
+    return (
+      <button
+        onClick={(e) => { e.stopPropagation(); downloadSingleImage(dep); }}
+        disabled={isDownloading}
+        className={`inline-flex items-center gap-1 rounded-md bg-navy/5 text-navy font-medium hover:bg-navy/10 transition-colors flex-shrink-0 disabled:opacity-50 ${
+          small ? 'px-1.5 py-0.5 text-[9px]' : 'px-2 py-1 text-[10px]'
+        }`}
+        title="Download image"
+      >
+        <svg className={small ? 'w-2.5 h-2.5' : 'w-3 h-3'} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+        </svg>
+        {isDownloading ? '...' : 'Download'}
+      </button>
+    );
+  };
+
+  // Render numbered text items with explanation
+  const renderNumberedTexts = (jsonStr, sectionLabel, explanation) => {
     let items = [];
     try { items = JSON.parse(jsonStr); } catch { return null; }
     items = items.filter(Boolean);
@@ -225,16 +325,19 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
 
     return (
       <div>
-        <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center justify-between mb-1">
           <div className="text-[10px] font-bold text-textmid uppercase tracking-wider">{sectionLabel}</div>
-          <CopyBtn text={allText} label={`Copy All`} />
+          <CopyBtn text={allText} label="Copy All" />
         </div>
+        {explanation && (
+          <p className="text-[11px] text-textmid mb-2">{explanation}</p>
+        )}
         <div className="space-y-1.5">
           {items.map((text, i) => (
             <div key={i} className="flex items-start gap-2 bg-offwhite rounded-lg p-2.5 group">
               <span className="text-[11px] font-bold text-navy/40 mt-0.5 flex-shrink-0 w-4 text-right">{i + 1}.</span>
               <div className="flex-1 text-[12px] text-textdark whitespace-pre-wrap leading-relaxed">{text}</div>
-              <CopyBtn text={text} label={`Copy`} small />
+              <CopyBtn text={text} label="Copy" small />
             </div>
           ))}
         </div>
@@ -242,7 +345,7 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
     );
   };
 
-  // "POST IN" section showing campaign + ad set
+  // "POST IN" section
   const PostInSection = ({ campaignName, adSetName }) => {
     if (!campaignName && !adSetName) {
       return (
@@ -275,9 +378,33 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
     );
   };
 
+  // Info row for the card header (ad name, format, date)
+  const InfoHeader = ({ name, adFormat, plannedDate, formatBadgeColor }) => (
+    <div className="bg-offwhite border-b border-black/[0.06] px-4 py-3">
+      <div className="flex items-start justify-between gap-3">
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center gap-2 flex-wrap">
+            <span className="font-semibold text-[15px] text-textdark leading-tight">{name}</span>
+            <span className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${formatBadgeColor}`}>
+              {adFormat}
+            </span>
+          </div>
+        </div>
+      </div>
+      {plannedDate && (
+        <div className="flex items-center gap-1.5 mt-2 bg-white/80 rounded-lg px-2.5 py-1.5 w-fit">
+          <svg className="w-4 h-4 text-navy" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+          </svg>
+          <span className="text-[12px] font-semibold text-navy">Schedule: {plannedDate}</span>
+        </div>
+      )}
+    </div>
+  );
+
   // ── Card Renderers ──────────────────────────────────────────────────────
 
-  // Render a single ad card (full detail, no expand/collapse)
+  // Render a single ad card
   const renderAdCard = (dep) => {
     const name = dep.ad_name || dep.ad?.headline || dep.ad?.angle || `Ad ${(dep.id || '').slice(0, 6)}`;
     const thumbUrl = dep.imageUrl;
@@ -288,58 +415,56 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
 
     return (
       <div key={dep.id} className="border border-black/[0.08] rounded-2xl bg-white shadow-sm overflow-hidden">
-        {/* ── Header: Image + Name + Date ── */}
-        <div className="p-4 pb-3">
-          <div className="flex items-start gap-3.5">
-            {thumbUrl && (
-              <img src={thumbUrl} alt="" className="w-20 h-20 object-cover rounded-xl bg-offwhite flex-shrink-0" loading="lazy" />
-            )}
-            <div className="flex-1 min-w-0">
-              <div className="font-semibold text-[14px] text-textdark leading-tight">{name}</div>
-              {plannedDate && (
-                <div className="flex items-center gap-1.5 mt-1.5">
-                  <svg className="w-3.5 h-3.5 text-textlight" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                  </svg>
-                  <span className="text-[12px] text-textmid font-medium">{plannedDate}</span>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
+        {/* ── 1. Info Header: Name + Format + Date ── */}
+        <InfoHeader
+          name={name}
+          adFormat="Single Image"
+          plannedDate={plannedDate}
+          formatBadgeColor="bg-navy/10 text-navy"
+        />
 
-        {/* ── POST IN ── */}
-        <div className="px-4 pb-3">
+        {/* ── 2. POST IN ── */}
+        <div className="px-4 pt-3 pb-3">
           <PostInSection campaignName={campaignName} adSetName={adSetName} />
         </div>
 
-        {/* ── Content Sections ── */}
+        {/* ── 3. Ad Creative (single image) ── */}
+        {thumbUrl && (
+          <div className="px-4 pb-4">
+            <div className="flex items-center justify-between mb-2">
+              <div className="text-[10px] font-bold text-textmid uppercase tracking-wider">Ad Creative</div>
+              <DownloadBtn dep={dep} />
+            </div>
+            <img src={thumbUrl} alt="" className="w-full max-w-[280px] rounded-xl bg-offwhite" loading="lazy" />
+          </div>
+        )}
+
+        {/* ── 4. Content Sections ── */}
         <div className="px-4 pb-4 space-y-4">
-          {/* Primary Texts */}
-          {renderNumberedTexts(dep.primary_texts, 'Primary Text')}
+          {renderNumberedTexts(
+            dep.primary_texts,
+            `Primary Text (${(() => { try { return JSON.parse(dep.primary_texts).filter(Boolean).length; } catch { return 0; } })() } Variations)`,
+            'Meta will rotate these variations to find the best performer. Upload all of them when creating the ad.'
+          )}
 
-          {/* Headlines */}
-          {renderNumberedTexts(dep.ad_headlines, 'Headlines')}
+          {renderNumberedTexts(
+            dep.ad_headlines,
+            `Headlines (${(() => { try { return JSON.parse(dep.ad_headlines).filter(Boolean).length; } catch { return 0; } })() } Variations)`,
+            'Meta will test these headline variations. Upload all of them when creating the ad.'
+          )}
 
-          {/* Destination URL */}
           {dep.destination_url && (
             <div>
               <div className="flex items-center justify-between mb-1.5">
                 <div className="text-[10px] font-bold text-textmid uppercase tracking-wider">Destination URL</div>
                 <CopyBtn text={dep.destination_url} label="Copy" />
               </div>
-              <a
-                href={dep.destination_url}
-                target="_blank"
-                rel="noopener noreferrer"
+              <a href={dep.destination_url} target="_blank" rel="noopener noreferrer"
                 className="text-[12px] text-gold hover:underline break-all leading-relaxed"
-              >
-                {dep.destination_url}
-              </a>
+              >{dep.destination_url}</a>
             </div>
           )}
 
-          {/* CTA Button */}
           {dep.cta_button && (
             <div>
               <div className="text-[10px] font-bold text-textmid uppercase tracking-wider mb-1.5">CTA Button</div>
@@ -350,7 +475,7 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
           )}
         </div>
 
-        {/* ── Actions ── */}
+        {/* ── 5. Actions ── */}
         <div className="px-4 py-3 border-t border-black/[0.06] bg-offwhite/50 flex items-center justify-between">
           <button
             onClick={() => handleSendBack(dep.id)}
@@ -362,26 +487,17 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
             </svg>
             {isSendingBack ? 'Sending...' : 'Send Back to Planner'}
           </button>
-
           {confirmPosted === dep.id ? (
             <div className="flex items-center gap-2">
-              <button
-                onClick={() => setConfirmPosted(null)}
+              <button onClick={() => setConfirmPosted(null)}
                 className="px-2.5 py-1.5 rounded-lg text-[11px] text-textmid hover:bg-white transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => handleMarkPosted(dep.id)}
-                disabled={isMarking}
+              >Cancel</button>
+              <button onClick={() => handleMarkPosted(dep.id)} disabled={isMarking}
                 className="px-3 py-1.5 rounded-lg text-[11px] font-semibold bg-teal text-white hover:bg-teal/90 transition-colors disabled:opacity-50"
-              >
-                {isMarking ? 'Updating...' : 'Confirm Posted'}
-              </button>
+              >{isMarking ? 'Updating...' : 'Confirm Posted'}</button>
             </div>
           ) : (
-            <button
-              onClick={() => setConfirmPosted(dep.id)}
+            <button onClick={() => setConfirmPosted(dep.id)}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-semibold text-white bg-teal hover:bg-teal/90 transition-colors"
             >
               <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -405,72 +521,153 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
     const isMarking = markingPostedIds.has(flexId);
     const isSendingBack = sendingBackIds.has(flexId);
     const { campaignName, adSetName } = resolveFlexLocation(flexAd);
+    const cardKey = flexId;
+    const selected = selectedImages[cardKey] || new Set();
+    const depsWithImages = childDeps.filter(d => d.imageUrl);
+    const allSelected = depsWithImages.length > 0 && depsWithImages.every(d => selected.has(d.id));
+    const someSelected = selected.size > 0;
+    const isDownloadingAll = downloadingAll.has(cardKey);
+    const isDownloadingSelected = downloadingSelected.has(cardKey);
 
     return (
       <div key={flexAd.id} className="border border-navy/15 rounded-2xl bg-white shadow-sm overflow-hidden">
-        {/* ── Header: Stacked thumbnails + Name + Date ── */}
-        <div className="p-4 pb-3">
-          <div className="flex items-start gap-3.5">
-            {/* Stacked thumbnails */}
-            <div className="flex -space-x-2 flex-shrink-0">
-              {childDeps.slice(0, 3).map(d => (
-                d.imageUrl ? (
-                  <img key={d.id} src={d.imageUrl} alt="" className="w-16 h-16 object-cover rounded-xl bg-offwhite ring-2 ring-white" loading="lazy" />
-                ) : (
-                  <div key={d.id} className="w-16 h-16 rounded-xl bg-offwhite ring-2 ring-white" />
-                )
-              ))}
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2">
-                <span className="px-1.5 py-0.5 rounded bg-navy/10 text-navy text-[9px] font-bold uppercase">Flex</span>
-                <span className="font-semibold text-[14px] text-textdark leading-tight truncate">{flexAd.name}</span>
-              </div>
-              <div className="text-[11px] text-textmid mt-1">{childDeps.length} ad{childDeps.length !== 1 ? 's' : ''} in this flex</div>
-              {plannedDate && (
-                <div className="flex items-center gap-1.5 mt-1">
-                  <svg className="w-3.5 h-3.5 text-textlight" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                  </svg>
-                  <span className="text-[12px] text-textmid font-medium">{plannedDate}</span>
-                </div>
-              )}
-            </div>
-          </div>
-        </div>
+        {/* ── 1. Info Header: Name + Format + Date ── */}
+        <InfoHeader
+          name={flexAd.name || 'Flex Ad'}
+          adFormat="Flexible Ad"
+          plannedDate={plannedDate}
+          formatBadgeColor="bg-purple-100 text-purple-700"
+        />
 
-        {/* ── POST IN ── */}
-        <div className="px-4 pb-3">
+        {/* ── 2. POST IN ── */}
+        <div className="px-4 pt-3 pb-3">
           <PostInSection campaignName={campaignName} adSetName={adSetName} />
         </div>
 
-        {/* ── Content Sections ── */}
+        {/* ── 3. Ad Creatives (multiple images with download) ── */}
+        <div className="px-4 pb-4">
+          <div className="flex items-center justify-between mb-2">
+            <div className="text-[10px] font-bold text-textmid uppercase tracking-wider">
+              Ad Creatives ({depsWithImages.length} Image{depsWithImages.length !== 1 ? 's' : ''})
+            </div>
+            <div className="flex items-center gap-1.5">
+              {someSelected && (
+                <button
+                  onClick={() => {
+                    const selectedDeps = childDeps.filter(d => selected.has(d.id));
+                    downloadMultipleImages(selectedDeps, `selected-${cardKey}`);
+                  }}
+                  disabled={isDownloadingSelected}
+                  className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-medium bg-gold/10 text-gold hover:bg-gold/20 transition-colors disabled:opacity-50"
+                >
+                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                  </svg>
+                  {isDownloadingSelected ? '...' : `Download Selected (${selected.size})`}
+                </button>
+              )}
+              <button
+                onClick={() => downloadMultipleImages(depsWithImages, cardKey)}
+                disabled={isDownloadingAll || depsWithImages.length === 0}
+                className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-medium bg-navy/5 text-navy hover:bg-navy/10 transition-colors disabled:opacity-50"
+              >
+                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                </svg>
+                {isDownloadingAll ? 'Zipping...' : 'Download All'}
+              </button>
+            </div>
+          </div>
+          <p className="text-[11px] text-textmid mb-2.5">Meta will rotate these images to find the best performer. Upload all of them when creating the ad.</p>
+
+          {/* Select All checkbox */}
+          {depsWithImages.length > 1 && (
+            <label className="flex items-center gap-2 mb-2 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={allSelected}
+                onChange={() => toggleSelectAll(cardKey, depsWithImages.map(d => d.id))}
+                className="rounded border-navy/30 text-navy focus:ring-navy/20 w-3.5 h-3.5"
+              />
+              <span className="text-[11px] text-textmid font-medium">Select All</span>
+            </label>
+          )}
+
+          {/* Image grid with selection + download */}
+          <div className="grid grid-cols-3 gap-2.5">
+            {childDeps.map(d => {
+              const isSelected = selected.has(d.id);
+              const isSingleDownloading = downloadingSingle.has(d.id);
+              return (
+                <div key={d.id} className="relative group">
+                  {/* Selection checkbox */}
+                  {d.imageUrl && (
+                    <label className="absolute top-1.5 left-1.5 z-10 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={isSelected}
+                        onChange={() => toggleImageSelection(cardKey, d.id)}
+                        className="rounded border-white/80 text-navy focus:ring-navy/20 w-4 h-4 shadow-sm"
+                      />
+                    </label>
+                  )}
+                  {d.imageUrl ? (
+                    <img
+                      src={d.imageUrl} alt=""
+                      className={`w-full aspect-square object-cover rounded-xl bg-offwhite transition-all ${
+                        isSelected ? 'ring-2 ring-navy ring-offset-1' : ''
+                      }`}
+                      loading="lazy"
+                    />
+                  ) : (
+                    <div className="w-full aspect-square rounded-xl bg-offwhite" />
+                  )}
+                  {/* Per-image download */}
+                  {d.imageUrl && (
+                    <button
+                      onClick={() => downloadSingleImage(d)}
+                      disabled={isSingleDownloading}
+                      className="absolute bottom-1.5 right-1.5 p-1.5 rounded-lg bg-white/90 text-navy hover:bg-white shadow-sm opacity-0 group-hover:opacity-100 transition-opacity disabled:opacity-50"
+                      title="Download"
+                    >
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                      </svg>
+                    </button>
+                  )}
+                  <div className="text-[10px] text-textmid mt-1 truncate">{d.ad_name || d.ad?.headline || ''}</div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        {/* ── 4. Content Sections ── */}
         <div className="px-4 pb-4 space-y-4">
-          {/* Primary Texts */}
-          {renderNumberedTexts(flexAd.primary_texts, 'Primary Text')}
+          {renderNumberedTexts(
+            flexAd.primary_texts,
+            `Primary Text (${(() => { try { return JSON.parse(flexAd.primary_texts).filter(Boolean).length; } catch { return 0; } })() } Variations)`,
+            'Meta will rotate these text variations to find the best performer. Upload all of them when creating the ad.'
+          )}
 
-          {/* Headlines */}
-          {renderNumberedTexts(flexAd.headlines, 'Headlines')}
+          {renderNumberedTexts(
+            flexAd.headlines,
+            `Headlines (${(() => { try { return JSON.parse(flexAd.headlines).filter(Boolean).length; } catch { return 0; } })() } Variations)`,
+            'Meta will test these headline variations. Upload all of them when creating the ad.'
+          )}
 
-          {/* Destination URL */}
           {flexAd.destination_url && (
             <div>
               <div className="flex items-center justify-between mb-1.5">
                 <div className="text-[10px] font-bold text-textmid uppercase tracking-wider">Destination URL</div>
                 <CopyBtn text={flexAd.destination_url} label="Copy" />
               </div>
-              <a
-                href={flexAd.destination_url}
-                target="_blank"
-                rel="noopener noreferrer"
+              <a href={flexAd.destination_url} target="_blank" rel="noopener noreferrer"
                 className="text-[12px] text-gold hover:underline break-all leading-relaxed"
-              >
-                {flexAd.destination_url}
-              </a>
+              >{flexAd.destination_url}</a>
             </div>
           )}
 
-          {/* CTA Button */}
           {flexAd.cta_button && (
             <div>
               <div className="text-[10px] font-bold text-textmid uppercase tracking-wider mb-1.5">CTA Button</div>
@@ -479,26 +676,9 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
               </span>
             </div>
           )}
-
-          {/* Child ads grid */}
-          <div>
-            <div className="text-[10px] font-bold text-textmid uppercase tracking-wider mb-2">Ad Creatives</div>
-            <div className="grid grid-cols-3 gap-2">
-              {childDeps.map(d => (
-                <div key={d.id} className="text-center">
-                  {d.imageUrl ? (
-                    <img src={d.imageUrl} alt="" className="w-full aspect-square object-cover rounded-xl bg-offwhite" loading="lazy" />
-                  ) : (
-                    <div className="w-full aspect-square rounded-xl bg-offwhite" />
-                  )}
-                  <div className="text-[10px] text-textmid mt-1 truncate">{d.ad_name || d.ad?.headline || ''}</div>
-                </div>
-              ))}
-            </div>
-          </div>
         </div>
 
-        {/* ── Actions ── */}
+        {/* ── 5. Actions ── */}
         <div className="px-4 py-3 border-t border-navy/10 bg-offwhite/50 flex items-center justify-between">
           <button
             onClick={() => handleSendBackFlex(flexAd)}
@@ -510,27 +690,18 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
             </svg>
             {isSendingBack ? 'Sending...' : 'Send Back to Planner'}
           </button>
-
           {confirmPosted === flexId ? (
             <div className="flex items-center gap-2">
               <span className="text-[11px] text-textmid">{childDeps.length} ad{childDeps.length !== 1 ? 's' : ''}</span>
-              <button
-                onClick={() => setConfirmPosted(null)}
+              <button onClick={() => setConfirmPosted(null)}
                 className="px-2.5 py-1.5 rounded-lg text-[11px] text-textmid hover:bg-white transition-colors"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={() => handleMarkFlexPosted(flexAd)}
-                disabled={isMarking}
+              >Cancel</button>
+              <button onClick={() => handleMarkFlexPosted(flexAd)} disabled={isMarking}
                 className="px-3 py-1.5 rounded-lg text-[11px] font-semibold bg-teal text-white hover:bg-teal/90 transition-colors disabled:opacity-50"
-              >
-                {isMarking ? 'Updating...' : 'Confirm Posted'}
-              </button>
+              >{isMarking ? 'Updating...' : 'Confirm Posted'}</button>
             </div>
           ) : (
-            <button
-              onClick={() => setConfirmPosted(flexId)}
+            <button onClick={() => setConfirmPosted(flexId)}
               className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-semibold text-white bg-teal hover:bg-teal/90 transition-colors"
             >
               <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -546,12 +717,8 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
 
   // ── Build flat sorted list ──────────────────────────────────────────────
 
-  // Build a flat list of cards: standalone deps + flex ads with ready children
-  // Sort by campaign name, then ad set name, then planned date
   const buildCardList = () => {
     const cards = [];
-
-    // Collect standalone ready deps (not part of a flex ad)
     const flexChildIds = new Set();
     flexAds.forEach(fa => {
       try {
@@ -561,43 +728,31 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
     });
 
     readyDeps.forEach(dep => {
-      if (flexChildIds.has(dep.id)) return; // skip, handled by flex card
+      if (flexChildIds.has(dep.id)) return;
       const { campaignName, adSetName } = resolveLocation(dep);
       cards.push({
-        type: 'single',
-        dep,
-        campaignName: campaignName || '',
-        adSetName: adSetName || '',
-        plannedDate: dep.planned_date || '',
-        key: dep.id,
+        type: 'single', dep,
+        campaignName: campaignName || '', adSetName: adSetName || '',
+        plannedDate: dep.planned_date || '', key: dep.id,
       });
     });
 
-    // Collect flex ads with ready children
     flexAds.forEach(fa => {
       if (!flexHasReadyChildren(fa)) return;
       const { campaignName, adSetName } = resolveFlexLocation(fa);
       cards.push({
-        type: 'flex',
-        flexAd: fa,
-        campaignName: campaignName || '',
-        adSetName: adSetName || '',
-        plannedDate: fa.planned_date || '',
-        key: `flex-${fa.id}`,
+        type: 'flex', flexAd: fa,
+        campaignName: campaignName || '', adSetName: adSetName || '',
+        plannedDate: fa.planned_date || '', key: `flex-${fa.id}`,
       });
     });
 
-    // Sort: unassigned first (so they get attention), then by campaign > ad set > date
     cards.sort((a, b) => {
-      // Unassigned first
       const aUnassigned = !a.campaignName;
       const bUnassigned = !b.campaignName;
       if (aUnassigned !== bUnassigned) return aUnassigned ? -1 : 1;
-      // Then by campaign name
       if (a.campaignName !== b.campaignName) return a.campaignName.localeCompare(b.campaignName);
-      // Then by ad set name
       if (a.adSetName !== b.adSetName) return a.adSetName.localeCompare(b.adSetName);
-      // Then by planned date (soonest first, empty last)
       if (a.plannedDate && b.plannedDate) return a.plannedDate.localeCompare(b.plannedDate);
       if (a.plannedDate) return -1;
       if (b.plannedDate) return 1;
@@ -610,14 +765,10 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
   // ── Render ──────────────────────────────────────────────────────────────
 
   if (loading) {
-    return (
-      <div className="text-center py-12 text-textmid text-[13px]">Loading...</div>
-    );
+    return <div className="text-center py-12 text-textmid text-[13px]">Loading...</div>;
   }
 
-  const hasReadyAds = readyDeps.length > 0;
-
-  if (!hasReadyAds) {
+  if (readyDeps.length === 0) {
     return (
       <div className="text-center py-16">
         <div className="w-12 h-12 mx-auto mb-3 rounded-full bg-navy/5 flex items-center justify-center">
@@ -635,7 +786,7 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
 
   return (
     <div className="space-y-4">
-      {/* Summary bar with bulk action */}
+      {/* Summary bar */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2 text-[13px]">
           <span className="font-semibold text-textdark">{readyDeps.length}</span>
