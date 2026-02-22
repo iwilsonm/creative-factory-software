@@ -133,6 +133,47 @@ export const update = mutation({
   },
 });
 
+// Used by Dacia Fixer for batch resurrection
+export const getByStatus = query({
+  args: { status: v.string() },
+  handler: async (ctx, args) => {
+    return await ctx.db
+      .query("batch_jobs")
+      .withIndex("by_status", (q) => q.eq("status", args.status))
+      .collect();
+  },
+});
+
+// Used by Dacia Fixer — returns all batch jobs
+export const list = query({
+  args: {},
+  handler: async (ctx) => {
+    return await ctx.db.query("batch_jobs").order("desc").collect();
+  },
+});
+
+// Used by Dacia Fixer for batch resurrection — reset a failed batch
+export const updateStatus = mutation({
+  args: {
+    externalId: v.string(),
+    status: v.string(),
+    error_message: v.optional(v.nullable(v.string())),
+    retry_count: v.optional(v.number()),
+  },
+  handler: async (ctx, args) => {
+    const batch = await ctx.db
+      .query("batch_jobs")
+      .withIndex("by_externalId", (q) => q.eq("externalId", args.externalId))
+      .first();
+    if (!batch) throw new Error("Batch job not found");
+
+    const updates: Record<string, any> = { status: args.status };
+    if (args.error_message !== undefined) updates.error_message = args.error_message;
+    if (args.retry_count !== undefined) updates.retry_count = args.retry_count;
+    await ctx.db.patch(batch._id, updates);
+  },
+});
+
 export const remove = mutation({
   args: { externalId: v.string() },
   handler: async (ctx, args) => {

@@ -888,3 +888,26 @@ ssh root@76.13.183.219 "cd /opt/ad-platform && npx convex deploy -y"
 - Landing page CTA link editor with URL validation
 - Landing page publishing to Cloudflare Pages (Direct Upload API)
 - Navy-gold-teal design system (migrated from Apple/macOS blue palette)
+- Dacia Fixer (Recursive Agent #1): automated batch testing, self-healing, and batch resurrection
+
+---
+
+## Dacia Recursive Agents
+
+Autonomous agent systems that monitor, maintain, and heal the platform.
+
+### Agent #1: Dacia Fixer
+- **Location:** `/dacia-fixer`
+- **Role:** Auto-test, self-heal code, resurrect failed batches
+- **Schedule:** Every 5 minutes via cron
+- **Budget:** $40/month hard cap
+- **Config:** `dacia-fixer/config/fixer.conf`
+- **Commands:** `./dacia-fixer/fixer.sh [--daemon|--status|--resurrect]`
+- **Models:** Gemini Flash (diagnosis), Claude Sonnet (fixes)
+- **Logs:** `dacia-fixer/logs/`
+
+When working on Dacia Fixer:
+- Keep agent prompts focused to minimize token costs
+- Test changes: `./dacia-fixer/fixer.sh batch_creation`
+- New suites go in fixer.conf (suite name, test_cmd, context files)
+- Do not remove the daily budget cap

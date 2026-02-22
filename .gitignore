@@ -40,5 +40,14 @@ Thumbs.db
 logs/
 *.log
 
+# Dacia Fixer
+dacia-fixer/logs/
+dacia-fixer/config/.session_cookie
+*.zip
+
+# Instruction files (one-time setup docs)
+FIXER_INSTRUCTIONS.md
+WATCHDOG_INSTRUCTIONS.md
+
 # Claude
 .claude/

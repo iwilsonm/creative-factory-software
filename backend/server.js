@@ -101,6 +101,7 @@ process.on('uncaughtException', (err) => {
   app.use('/api/projects', requireAuth, requireRole('admin', 'manager'), templateRoutes);
   app.use('/api/projects', requireAuth, requireRole('admin', 'manager'), adRoutes);
   app.use('/api/projects', requireAuth, requireRole('admin', 'manager'), batchRoutes);
+  app.use('/api/batches', requireAuth, batchRoutes);  // Flat mount for Dacia Fixer retry endpoint
   app.use('/api', requireAuth, requireRole('admin', 'manager'), costsRoutes);
   app.use('/api/projects', requireAuth, requireRole('admin', 'manager'), quoteMiningRoutes);
   app.use('/api/projects', requireAuth, requireRole('admin', 'manager'), chatRoutes);

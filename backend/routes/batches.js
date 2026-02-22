@@ -223,4 +223,36 @@ router.post('/:projectId/batches/:batchId/cancel', async (req, res) => {
   res.json({ success: true, message: 'Batch cancelled.', batch: await getBatchJob(req.params.batchId) });
 });
 
+/**
+ * POST /retry/:batchId — Retry a failed batch (used by Dacia Fixer)
+ * This route is mounted at /api/batches/retry/:batchId (flat, no project nesting)
+ */
+router.post('/retry/:batchId', async (req, res) => {
+  try {
+    const batch = await getBatchJob(req.params.batchId);
+    if (!batch) {
+      return res.status(404).json({ error: 'Batch job not found' });
+    }
+
+    if (!['pending', 'completed', 'failed'].includes(batch.status)) {
+      return res.status(400).json({ error: `Cannot retry batch in "${batch.status}" state.` });
+    }
+
+    await updateBatchJob(req.params.batchId, {
+      status: 'pending',
+      error_message: null,
+      retry_count: 0,
+    });
+
+    runBatch(req.params.batchId).catch(err => {
+      console.error(`[Batches API] Background retry failed for ${req.params.batchId}:`, err.message);
+    });
+
+    res.json({ success: true, message: 'Batch retry started.', batch: await getBatchJob(req.params.batchId) });
+  } catch (err) {
+    console.error('[Batches API] Retry error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 export default router;
