@@ -7,20 +7,23 @@ import { api } from '../api';
  * Layout: Campaign > Ad Set > Ads hierarchy
  * Features:
  *   - Copy buttons for primary text, headlines, destination URL
- *   - Mark as Posted button
+ *   - Mark as Posted button (per-ad loading state)
+ *   - Bulk Mark All as Posted
  *   - Planned date/time display
+ *   - Edit in Planner link
  *
- * Props: projectId, deployments, setDeployments, addToast, loadDeployments
+ * Props: projectId, deployments, setDeployments, addToast, loadDeployments, onSwitchToPlanner
  */
-export default function ReadyToPostView({ projectId, deployments, setDeployments, addToast, loadDeployments }) {
+export default function ReadyToPostView({ projectId, deployments, setDeployments, addToast, loadDeployments, onSwitchToPlanner }) {
   const [campaigns, setCampaigns] = useState([]);
   const [adSets, setAdSets] = useState([]);
   const [flexAds, setFlexAds] = useState([]);
   const [loading, setLoading] = useState(true);
   const [collapsed, setCollapsed] = useState(new Set());
   const [confirmPosted, setConfirmPosted] = useState(null); // dep id or flex ad id
-  const [markingPosted, setMarkingPosted] = useState(false);
+  const [markingPostedIds, setMarkingPostedIds] = useState(new Set()); // per-ad loading state
   const [expandedCard, setExpandedCard] = useState(null); // dep id for expanded details
+  const [bulkMarkingAll, setBulkMarkingAll] = useState(false);
 
   useEffect(() => {
     loadData();
@@ -53,7 +56,8 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
 
   // Helper: get child deps for a flex ad that are ready_to_post
   const getFlexChildDeps = (flexAd) => {
-    const childIds = flexAd.child_deployment_ids ? JSON.parse(flexAd.child_deployment_ids) : [];
+    let childIds = [];
+    try { childIds = flexAd.child_deployment_ids ? JSON.parse(flexAd.child_deployment_ids) : []; } catch { /* ignore */ }
     return readyDeps.filter(d => childIds.includes(d.id));
   };
 
@@ -84,38 +88,55 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
     }
   };
 
-  // Mark as posted
+  // Mark as posted (per-ad loading state)
   const handleMarkPosted = async (depId) => {
-    setMarkingPosted(true);
+    setMarkingPostedIds(prev => new Set(prev).add(depId));
     try {
       await api.updateDeploymentStatus(depId, 'posted');
-      // Update local state
       setDeployments(prev => prev.map(d => d.id === depId ? { ...d, status: 'posted', posted_date: new Date().toISOString() } : d));
       addToast('Marked as posted', 'success');
       setConfirmPosted(null);
     } catch {
       addToast('Failed to update status', 'error');
     }
-    setMarkingPosted(false);
+    setMarkingPostedIds(prev => { const next = new Set(prev); next.delete(depId); return next; });
   };
 
   // Mark all children of a flex ad as posted
   const handleMarkFlexPosted = async (flexAd) => {
-    setMarkingPosted(true);
+    const flexId = `flex-${flexAd.id}`;
+    setMarkingPostedIds(prev => new Set(prev).add(flexId));
     try {
       const childDeps = getFlexChildDeps(flexAd);
       await Promise.all(childDeps.map(d => api.updateDeploymentStatus(d.id, 'posted')));
       setDeployments(prev => prev.map(d => {
-        const childIds = flexAd.child_deployment_ids ? JSON.parse(flexAd.child_deployment_ids) : [];
+        let childIds = [];
+        try { childIds = flexAd.child_deployment_ids ? JSON.parse(flexAd.child_deployment_ids) : []; } catch { /* ignore */ }
         if (childIds.includes(d.id)) return { ...d, status: 'posted', posted_date: new Date().toISOString() };
         return d;
       }));
-      addToast(`${getFlexChildDeps(flexAd).length} ads marked as posted`, 'success');
+      addToast(`${childDeps.length} ads marked as posted`, 'success');
       setConfirmPosted(null);
     } catch {
       addToast('Failed to update status', 'error');
     }
-    setMarkingPosted(false);
+    setMarkingPostedIds(prev => { const next = new Set(prev); next.delete(flexId); return next; });
+  };
+
+  // Bulk mark all ready_to_post as posted
+  const handleBulkMarkAllPosted = async () => {
+    if (readyDeps.length === 0) return;
+    setBulkMarkingAll(true);
+    try {
+      await Promise.all(readyDeps.map(d => api.updateDeploymentStatus(d.id, 'posted')));
+      setDeployments(prev => prev.map(d =>
+        d.status === 'ready_to_post' ? { ...d, status: 'posted', posted_date: new Date().toISOString() } : d
+      ));
+      addToast(`${readyDeps.length} ads marked as posted`, 'success');
+    } catch {
+      addToast('Failed to update some ads', 'error');
+    }
+    setBulkMarkingAll(false);
   };
 
   // Format planned date
@@ -165,13 +186,14 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
     const primaryTexts = parseJsonArray(dep.primary_texts);
     const headlines = parseJsonArray(dep.ad_headlines);
     const plannedDate = formatDate(dep.planned_date);
+    const isMarking = markingPostedIds.has(dep.id);
 
     return (
-      <div key={dep.id} className="border border-gray-200 rounded-xl bg-white p-3 space-y-2">
+      <div key={dep.id} className="border border-black/[0.06] rounded-xl bg-white p-3 space-y-2">
         {/* Header row */}
         <div className="flex items-start gap-3">
           {thumbUrl && (
-            <img src={thumbUrl} alt="" className="w-14 h-14 object-cover rounded-lg bg-gray-100 flex-shrink-0" loading="lazy" />
+            <img src={thumbUrl} alt="" className="w-14 h-14 object-cover rounded-lg bg-offwhite flex-shrink-0" loading="lazy" />
           )}
           <div className="flex-1 min-w-0">
             <div className="font-semibold text-[13px] text-textdark truncate">{name}</div>
@@ -203,17 +225,17 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
 
         {/* Expanded details */}
         {isExpanded && (
-          <div className="space-y-3 pt-2 border-t border-gray-100">
+          <div className="space-y-3 pt-2 border-t border-black/[0.04]">
             {primaryTexts && (
               <div>
                 <div className="text-[10px] font-semibold text-textmid uppercase tracking-wider mb-1">Primary Text</div>
-                <div className="text-[12px] text-textdark whitespace-pre-wrap bg-gray-50 rounded-lg p-2.5">{primaryTexts}</div>
+                <div className="text-[12px] text-textdark whitespace-pre-wrap bg-offwhite rounded-lg p-2.5">{primaryTexts}</div>
               </div>
             )}
             {headlines && (
               <div>
                 <div className="text-[10px] font-semibold text-textmid uppercase tracking-wider mb-1">Headlines</div>
-                <div className="text-[12px] text-textdark whitespace-pre-wrap bg-gray-50 rounded-lg p-2.5">{headlines}</div>
+                <div className="text-[12px] text-textdark whitespace-pre-wrap bg-offwhite rounded-lg p-2.5">{headlines}</div>
               </div>
             )}
             {dep.destination_url && (
@@ -238,16 +260,16 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
               <span className="text-[11px] text-textmid">Mark as posted?</span>
               <button
                 onClick={() => setConfirmPosted(null)}
-                className="px-2 py-1 rounded-md text-[11px] text-textmid hover:bg-gray-100 transition-colors"
+                className="px-2 py-1 rounded-md text-[11px] text-textmid hover:bg-offwhite transition-colors"
               >
                 Cancel
               </button>
               <button
                 onClick={() => handleMarkPosted(dep.id)}
-                disabled={markingPosted}
+                disabled={isMarking}
                 className="px-2.5 py-1 rounded-md text-[11px] font-medium bg-teal text-white hover:bg-teal/90 transition-colors disabled:opacity-50"
               >
-                {markingPosted ? 'Updating...' : 'Confirm'}
+                {isMarking ? 'Updating...' : 'Confirm'}
               </button>
             </div>
           ) : (
@@ -276,6 +298,7 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
     const plannedDate = formatDate(flexAd.planned_date);
     const isExpanded = expandedCard === `flex-${flexAd.id}`;
     const flexId = `flex-${flexAd.id}`;
+    const isMarking = markingPostedIds.has(flexId);
 
     return (
       <div key={flexAd.id} className="border border-navy/20 rounded-xl bg-navy/[0.02] p-3 space-y-2">
@@ -285,9 +308,9 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
           <div className="flex -space-x-1.5 flex-shrink-0">
             {childDeps.slice(0, 3).map(d => (
               d.imageUrl ? (
-                <img key={d.id} src={d.imageUrl} alt="" className="w-11 h-11 object-cover rounded-lg bg-gray-100 ring-2 ring-white" loading="lazy" />
+                <img key={d.id} src={d.imageUrl} alt="" className="w-11 h-11 object-cover rounded-lg bg-offwhite ring-2 ring-white" loading="lazy" />
               ) : (
-                <div key={d.id} className="w-11 h-11 rounded-lg bg-gray-100 ring-2 ring-white" />
+                <div key={d.id} className="w-11 h-11 rounded-lg bg-offwhite ring-2 ring-white" />
               )
             ))}
           </div>
@@ -357,9 +380,9 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
                 {childDeps.map(d => (
                   <div key={d.id} className="text-center">
                     {d.imageUrl ? (
-                      <img src={d.imageUrl} alt="" className="w-full aspect-square object-cover rounded-lg bg-gray-100" loading="lazy" />
+                      <img src={d.imageUrl} alt="" className="w-full aspect-square object-cover rounded-lg bg-offwhite" loading="lazy" />
                     ) : (
-                      <div className="w-full aspect-square rounded-lg bg-gray-100" />
+                      <div className="w-full aspect-square rounded-lg bg-offwhite" />
                     )}
                     <div className="text-[10px] text-textmid mt-0.5 truncate">{d.ad_name || d.ad?.headline || ''}</div>
                   </div>
@@ -376,16 +399,16 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
               <span className="text-[11px] text-textmid">Mark {childDeps.length} ad{childDeps.length !== 1 ? 's' : ''} as posted?</span>
               <button
                 onClick={() => setConfirmPosted(null)}
-                className="px-2 py-1 rounded-md text-[11px] text-textmid hover:bg-gray-100 transition-colors"
+                className="px-2 py-1 rounded-md text-[11px] text-textmid hover:bg-offwhite transition-colors"
               >
                 Cancel
               </button>
               <button
                 onClick={() => handleMarkFlexPosted(flexAd)}
-                disabled={markingPosted}
+                disabled={isMarking}
                 className="px-2.5 py-1 rounded-md text-[11px] font-medium bg-teal text-white hover:bg-teal/90 transition-colors disabled:opacity-50"
               >
-                {markingPosted ? 'Updating...' : 'Confirm'}
+                {isMarking ? 'Updating...' : 'Confirm'}
               </button>
             </div>
           ) : (
@@ -427,13 +450,55 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
     );
   }
 
+  // Unplanned ready_to_post ads (show at top since they need attention)
+  const unplannedReady = readyDeps.filter(d => d.local_campaign_id === 'unplanned' || !d.local_campaign_id);
+
   return (
     <div className="space-y-4">
-      {/* Summary */}
-      <div className="flex items-center gap-2 text-[12px] text-textmid">
-        <span className="font-medium text-textdark">{readyDeps.length} ad{readyDeps.length !== 1 ? 's' : ''}</span>
-        ready to post
+      {/* Summary bar with bulk actions */}
+      <div className="flex items-center justify-between">
+        <div className="flex items-center gap-2 text-[12px] text-textmid">
+          <span className="font-medium text-textdark">{readyDeps.length} ad{readyDeps.length !== 1 ? 's' : ''}</span>
+          ready to post
+        </div>
+        <div className="flex items-center gap-2">
+          {onSwitchToPlanner && (
+            <button
+              onClick={onSwitchToPlanner}
+              className="inline-flex items-center gap-1 text-[11px] text-gold hover:text-gold/80 font-medium transition-colors"
+            >
+              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M11 5H6a2 2 0 00-2 2v11a2 2 0 002 2h11a2 2 0 002-2v-5m-1.414-9.414a2 2 0 112.828 2.828L11.828 15H9v-2.828l8.586-8.586z" />
+              </svg>
+              Edit in Planner
+            </button>
+          )}
+          <button
+            onClick={handleBulkMarkAllPosted}
+            disabled={bulkMarkingAll}
+            className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-[11px] font-medium bg-teal text-white hover:bg-teal/90 transition-colors disabled:opacity-50"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+            </svg>
+            {bulkMarkingAll ? 'Marking...' : `Mark All as Posted (${readyDeps.length})`}
+          </button>
+        </div>
       </div>
+
+      {/* Unassigned ready_to_post ads — shown first since they need attention */}
+      {unplannedReady.length > 0 && (
+        <div className="border border-gold/30 rounded-2xl bg-white overflow-hidden">
+          <div className="px-4 py-3 bg-gold/5">
+            <span className="font-semibold text-[13px] text-textdark">Unassigned</span>
+            <span className="ml-2 px-1.5 py-0.5 rounded-full bg-navy/10 text-navy text-[10px] font-medium">{unplannedReady.length}</span>
+            <span className="ml-2 text-[10px] text-textmid">These ads haven't been assigned to a campaign yet</span>
+          </div>
+          <div className="p-3 space-y-2">
+            {unplannedReady.map(dep => renderAdCard(dep))}
+          </div>
+        </div>
+      )}
 
       {/* Campaigns */}
       {sortedCampaigns.map(campaign => {
@@ -449,11 +514,11 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
         const isCampaignCollapsed = collapsed.has(campaign.id);
 
         return (
-          <div key={campaign.id} className="border border-gray-200 rounded-2xl bg-white overflow-hidden">
+          <div key={campaign.id} className="border border-black/[0.06] rounded-2xl bg-white overflow-hidden">
             {/* Campaign header */}
             <button
               onClick={() => toggleCollapse(campaign.id)}
-              className="w-full flex items-center gap-2.5 px-4 py-3 bg-gray-50 hover:bg-gray-100 transition-colors text-left"
+              className="w-full flex items-center gap-2.5 px-4 py-3 bg-offwhite hover:bg-black/[0.04] transition-colors text-left"
             >
               <svg className={`w-4 h-4 text-textmid transition-transform ${isCampaignCollapsed ? '' : 'rotate-90'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
@@ -473,11 +538,11 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
                   const totalReady = readyStandalone.length + readyFlexes.length;
 
                   return (
-                    <div key={adSet.id} className="border border-gray-100 rounded-xl bg-gray-50/50">
+                    <div key={adSet.id} className="border border-black/[0.04] rounded-xl bg-offwhite/50">
                       {/* Ad Set header */}
                       <button
                         onClick={() => toggleCollapse(adSet.id)}
-                        className="w-full flex items-center gap-2 px-3 py-2.5 hover:bg-gray-100/50 transition-colors text-left rounded-xl"
+                        className="w-full flex items-center gap-2 px-3 py-2.5 hover:bg-black/[0.02] transition-colors text-left rounded-xl"
                       >
                         <svg className={`w-3.5 h-3.5 text-textmid transition-transform ${isAdSetCollapsed ? '' : 'rotate-90'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
@@ -503,23 +568,6 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
           </div>
         );
       })}
-
-      {/* Unplanned ready_to_post ads (shouldn't normally exist but handle gracefully) */}
-      {(() => {
-        const unplannedReady = readyDeps.filter(d => d.local_campaign_id === 'unplanned' || !d.local_campaign_id);
-        if (unplannedReady.length === 0) return null;
-        return (
-          <div className="border border-gray-200 rounded-2xl bg-white overflow-hidden">
-            <div className="px-4 py-3 bg-gray-50">
-              <span className="font-semibold text-[13px] text-textdark">Unassigned</span>
-              <span className="ml-2 px-1.5 py-0.5 rounded-full bg-navy/10 text-navy text-[10px] font-medium">{unplannedReady.length}</span>
-            </div>
-            <div className="p-3 space-y-2">
-              {unplannedReady.map(dep => renderAdCard(dep))}
-            </div>
-          </div>
-        );
-      })()}
     </div>
   );
 }

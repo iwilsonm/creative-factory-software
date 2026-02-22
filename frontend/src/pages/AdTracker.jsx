@@ -302,10 +302,15 @@ export default function AdTracker({ projectId }) {
     }
   };
 
+  // Fix #14: Single delete now has confirmation
+  const [deleteConfirmId, setDeleteConfirmId] = useState(null);
+  const [bulkDeleteConfirm, setBulkDeleteConfirm] = useState(false);
+
   const handleDelete = async (id) => {
     try {
       await api.deleteDeployment(id);
       setDeployments(prev => prev.filter(d => d.id !== id));
+      setDeleteConfirmId(null);
       addToast('Deployment removed', 'success');
     } catch (err) {
       addToast('Failed to delete', 'error');
@@ -480,7 +485,8 @@ export default function AdTracker({ projectId }) {
     if (!trimmed || !tagPopover) return;
     if (tagPopover.tags.includes(trimmed)) return;
 
-    const newTags = [...tagPopover.tags, trimmed];
+    const oldTags = tagPopover.tags;
+    const newTags = [...oldTags, trimmed];
     // Optimistic update
     setTagPopover(prev => prev ? { ...prev, tags: newTags } : null);
     setDeployments(prev => prev.map(d =>
@@ -491,13 +497,19 @@ export default function AdTracker({ projectId }) {
       await api.updateAdTags(tagPopover.projectId, tagPopover.adId, newTags);
     } catch (err) {
       console.error('Failed to add tag:', err);
+      // Rollback optimistic update
+      setTagPopover(prev => prev ? { ...prev, tags: oldTags } : null);
+      setDeployments(prev => prev.map(d =>
+        d.id === tagPopover.depId ? { ...d, ad: { ...d.ad, tags: oldTags } } : d
+      ));
       addToast('Failed to add tag', 'error');
     }
   };
 
   const handleRemoveTag = async (tag) => {
     if (!tagPopover) return;
-    const newTags = tagPopover.tags.filter(t => t !== tag);
+    const oldTags = tagPopover.tags;
+    const newTags = oldTags.filter(t => t !== tag);
     // Optimistic update
     setTagPopover(prev => prev ? { ...prev, tags: newTags } : null);
     setDeployments(prev => prev.map(d =>
@@ -508,6 +520,11 @@ export default function AdTracker({ projectId }) {
       await api.updateAdTags(tagPopover.projectId, tagPopover.adId, newTags);
     } catch (err) {
       console.error('Failed to remove tag:', err);
+      // Rollback optimistic update
+      setTagPopover(prev => prev ? { ...prev, tags: oldTags } : null);
+      setDeployments(prev => prev.map(d =>
+        d.id === tagPopover.depId ? { ...d, ad: { ...d.ad, tags: oldTags } } : d
+      ));
       addToast('Failed to remove tag', 'error');
     }
   };
@@ -750,6 +767,7 @@ export default function AdTracker({ projectId }) {
           setDeployments={setDeployments}
           addToast={addToast}
           loadDeployments={loadDeployments}
+          onSwitchToPlanner={() => { setActiveView('campaigns'); setSelectedIds(new Set()); }}
         />
       )}
 
@@ -972,7 +990,7 @@ export default function AdTracker({ projectId }) {
       {!loading && deployments.length > 0 && sorted.length === 0 && (
         <div className="card p-8 text-center">
           <p className="text-[13px] text-textlight">
-            No deployments with status "{STATUS_META[statusFilter]?.label}".
+            No deployments with status "{statusFilter === 'all' ? 'Any' : STATUS_META[statusFilter]?.label || statusFilter}".
           </p>
         </div>
       )}
@@ -1333,15 +1351,32 @@ export default function AdTracker({ projectId }) {
                               </svg>
                             </button>
                           )}
-                          <button
-                            onClick={() => handleDelete(dep.id)}
-                            className="text-textlight/60 hover:text-red-500 hover:bg-red-50 transition-all p-1 rounded-md"
-                            title="Remove"
-                          >
-                            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
-                            </svg>
-                          </button>
+                          {deleteConfirmId === dep.id ? (
+                            <div className="flex items-center gap-1">
+                              <button
+                                onClick={() => handleDelete(dep.id)}
+                                className="text-[10px] px-1.5 py-0.5 rounded bg-red-500 text-white hover:bg-red-600 transition-colors"
+                              >
+                                Confirm
+                              </button>
+                              <button
+                                onClick={() => setDeleteConfirmId(null)}
+                                className="text-[10px] px-1.5 py-0.5 rounded text-textmid hover:bg-gray-100 transition-colors"
+                              >
+                                Cancel
+                              </button>
+                            </div>
+                          ) : (
+                            <button
+                              onClick={() => setDeleteConfirmId(dep.id)}
+                              className="text-textlight/60 hover:text-red-500 hover:bg-red-50 transition-all p-1 rounded-md"
+                              title="Remove"
+                            >
+                              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+                              </svg>
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -1355,8 +1390,8 @@ export default function AdTracker({ projectId }) {
 
       </>}
 
-      {/* Performance section */}
-      <div className="mt-8">
+      {/* Performance section — only show on status table views, not Planner or Ready to Post */}
+      {activeView === 'status' && <div className="mt-8">
         {!metaConnected ? (
           /* Not connected — prompt to connect */
           <div className="card p-8 text-center">
@@ -1435,7 +1470,7 @@ export default function AdTracker({ projectId }) {
                 <p className="text-[10px] uppercase tracking-wider font-medium text-gold mb-1">Avg CTR</p>
                 <p className="text-[20px] font-bold text-textdark">{(perfSummary.avgCTR || 0).toFixed(2)}%</p>
               </div>
-              <div className="bg-cream rounded-xl p-4 border border-gold/10">
+              <div className="bg-gold/5 rounded-xl p-4 border border-gold/10">
                 <p className="text-[10px] uppercase tracking-wider font-medium text-gold mb-1">Avg CPC</p>
                 <p className="text-[20px] font-bold text-textdark">${(perfSummary.avgCPC || 0).toFixed(2)}</p>
               </div>
@@ -1506,7 +1541,7 @@ export default function AdTracker({ projectId }) {
             </p>
           </div>
         ) : null}
-      </div>
+      </div>}
 
       {/* Campaign Browser Modal */}
       {linkingDepId && (

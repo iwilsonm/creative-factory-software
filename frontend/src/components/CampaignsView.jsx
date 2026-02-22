@@ -57,6 +57,9 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
   // Delete confirmation modal
   const [deleteConfirm, setDeleteConfirm] = useState({ open: false, ids: [], source: 'unplanned' });
 
+  // Campaign/Ad Set delete confirmation
+  const [entityDeleteConfirm, setEntityDeleteConfirm] = useState(null); // { type: 'campaign'|'adset', id, name }
+
   // Image preview lightbox (for flex ad thumbnails)
   const [previewImage, setPreviewImage] = useState(null);
 
@@ -72,6 +75,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
   const [headlinesOpen, setHeadlinesOpen] = useState(false);
   const [expandedFlexChild, setExpandedFlexChild] = useState(null);
 
+  const sidebarInitialFormRef = useRef(null);
   const campaignInputRef = useRef(null);
   const adSetInputRef = useRef(null);
   const assignDropdownRef = useRef(null);
@@ -253,8 +257,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
     for (const flexId of flexAdIds) {
       const flex = flexAds.find(f => f.id === flexId);
       if (flex) {
-        const childIds = JSON.parse(flex.child_deployment_ids || '[]');
-        flexChildDepIds.push(...childIds);
+        try { const childIds = JSON.parse(flex.child_deployment_ids || '[]'); flexChildDepIds.push(...childIds); } catch { /* ignore */ }
       }
     }
 
@@ -349,30 +352,40 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
     setPrimaryTextOpen(false);
     setHeadlinesOpen(false);
     setExpandedFlexChild(null);
+    let form;
     if (data.type === 'single') {
       const dep = data.deployment;
-      setSidebarForm({
+      form = {
         ad_name: dep.ad_name || dep.ad?.headline || dep.ad?.angle || '',
         destination_url: dep.destination_url || dep.landing_page_url || '',
         cta_button: dep.cta_button || 'LEARN_MORE',
-        primary_texts: dep.primary_texts ? JSON.parse(dep.primary_texts) : [],
-        ad_headlines: dep.ad_headlines ? JSON.parse(dep.ad_headlines) : [],
+        primary_texts: (() => { try { return dep.primary_texts ? JSON.parse(dep.primary_texts) : []; } catch { return []; } })(),
+        ad_headlines: (() => { try { return dep.ad_headlines ? JSON.parse(dep.ad_headlines) : []; } catch { return []; } })(),
         planned_date: dep.planned_date || '',
-      });
+      };
     } else {
       const flex = data.flexAd;
-      setSidebarForm({
+      form = {
         ad_name: flex.name || '',
         destination_url: flex.destination_url || '',
         cta_button: flex.cta_button || 'LEARN_MORE',
-        primary_texts: flex.primary_texts ? JSON.parse(flex.primary_texts) : [],
-        ad_headlines: flex.headlines ? JSON.parse(flex.headlines) : [],
+        primary_texts: (() => { try { return flex.primary_texts ? JSON.parse(flex.primary_texts) : []; } catch { return []; } })(),
+        ad_headlines: (() => { try { return flex.headlines ? JSON.parse(flex.headlines) : []; } catch { return []; } })(),
         planned_date: flex.planned_date || '',
-      });
+      };
     }
+    setSidebarForm(form);
+    sidebarInitialFormRef.current = JSON.stringify(form);
   };
 
-  const closeSidebar = () => setSidebarData(null);
+  const closeSidebar = () => {
+    // Check for unsaved changes
+    if (sidebarInitialFormRef.current && JSON.stringify(sidebarForm) !== sidebarInitialFormRef.current) {
+      if (!window.confirm('You have unsaved changes. Discard them?')) return;
+    }
+    setSidebarData(null);
+    sidebarInitialFormRef.current = null;
+  };
 
   // Close sidebar on Escape, close assign dropdown on Escape/outside click
   useEffect(() => {
@@ -451,7 +464,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
           planned_date: sidebarForm.planned_date || null,
         });
       }
-      await loadDeployments();
+      await Promise.all([loadDeployments(), loadCampaignData()]);
       addToast('Saved', 'success');
     } catch {
       addToast('Failed to save', 'error');
@@ -651,7 +664,8 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
 
   // ─── renderFlexAdCard (render function, NOT a component) ──────────────
   const renderFlexAdCard = (flexAd, { adsetId = null } = {}) => {
-    const childIds = JSON.parse(flexAd.child_deployment_ids || '[]');
+    let childIds = [];
+    try { childIds = JSON.parse(flexAd.child_deployment_ids || '[]'); } catch { /* ignore */ }
     const childDeps = childIds.map(id => deployments.find(d => d.id === id)).filter(Boolean);
     const isSelected = adsetId && selectedInAdSet[adsetId]?.has(flexAd.id);
 
@@ -1314,15 +1328,33 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
                     + Ad Set
                   </button>
 
-                  <button
-                    onClick={() => handleDeleteCampaign(campaign.id)}
-                    className="p-1 rounded-lg hover:bg-red-50 text-textlight hover:text-red-500 transition-colors"
-                    title="Delete campaign"
-                  >
-                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                    </svg>
-                  </button>
+                  {entityDeleteConfirm?.type === 'campaign' && entityDeleteConfirm.id === campaign.id ? (
+                    <div className="flex items-center gap-1">
+                      <span className="text-[10px] text-textmid">Delete?</span>
+                      <button
+                        onClick={() => { handleDeleteCampaign(campaign.id); setEntityDeleteConfirm(null); }}
+                        className="text-[10px] px-1.5 py-0.5 rounded bg-red-500 text-white hover:bg-red-600 transition-colors"
+                      >
+                        Confirm
+                      </button>
+                      <button
+                        onClick={() => setEntityDeleteConfirm(null)}
+                        className="text-[10px] px-1.5 py-0.5 rounded text-textmid hover:bg-gray-100 transition-colors"
+                      >
+                        Cancel
+                      </button>
+                    </div>
+                  ) : (
+                    <button
+                      onClick={() => setEntityDeleteConfirm({ type: 'campaign', id: campaign.id, name: campaign.name })}
+                      className="p-1 rounded-lg hover:bg-red-50 text-textlight hover:text-red-500 transition-colors"
+                      title="Delete campaign"
+                    >
+                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                      </svg>
+                    </button>
+                  )}
                 </div>
 
                 {/* Campaign body */}
@@ -1437,9 +1469,18 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
                                 )}
                                 <button
                                   onClick={() => {
-                                    const depId = [...(selectedInAdSet[adSet.id] || [])][0];
-                                    const dep = deployments.find(d => d.id === depId);
-                                    if (dep) openSidebar({ type: 'single', deployment: dep, ad: dep.ad });
+                                    const firstId = [...(selectedInAdSet[adSet.id] || [])][0];
+                                    // Check if it's a flex ad or a deployment
+                                    const flex = flexAds.find(f => f.id === firstId);
+                                    if (flex) {
+                                      let childIds = [];
+                                      try { childIds = JSON.parse(flex.child_deployment_ids || '[]'); } catch { /* ignore */ }
+                                      const childDeps = childIds.map(id => deployments.find(d => d.id === id)).filter(Boolean);
+                                      openSidebar({ type: 'flex', flexAd: flex, deps: childDeps });
+                                    } else {
+                                      const dep = deployments.find(d => d.id === firstId);
+                                      if (dep) openSidebar({ type: 'single', deployment: dep, ad: dep.ad });
+                                    }
                                   }}
                                   className="text-[10px] px-2 py-1 rounded-lg bg-white border border-gray-200 text-textmid hover:bg-gray-50 transition-colors"
                                 >
@@ -1454,14 +1495,23 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
                                 <button
                                   onClick={async () => {
                                     const ids = [...(selectedInAdSet[adSet.id] || [])];
-                                    // Only update standalone deployments (not flex ad IDs)
-                                    const depIds = ids.filter(id => deployments.some(d => d.id === id));
-                                    if (depIds.length === 0) { addToast('Select ads to mark as ready', 'info'); return; }
+                                    // Resolve flex ad IDs to their child deployment IDs
+                                    const standaloneDepIds = ids.filter(id => deployments.some(d => d.id === id));
+                                    const flexAdIds = ids.filter(id => flexAds.some(f => f.id === id));
+                                    const flexChildDepIds = [];
+                                    for (const fid of flexAdIds) {
+                                      const flex = flexAds.find(f => f.id === fid);
+                                      if (flex) {
+                                        try { flexChildDepIds.push(...JSON.parse(flex.child_deployment_ids || '[]')); } catch { /* ignore */ }
+                                      }
+                                    }
+                                    const allDepIds = [...new Set([...standaloneDepIds, ...flexChildDepIds])];
+                                    if (allDepIds.length === 0) { addToast('Select ads to mark as ready', 'info'); return; }
                                     try {
-                                      await Promise.all(depIds.map(id => api.updateDeploymentStatus(id, 'ready_to_post')));
-                                      setDeployments(prev => prev.map(d => depIds.includes(d.id) ? { ...d, status: 'ready_to_post' } : d));
+                                      await Promise.all(allDepIds.map(id => api.updateDeploymentStatus(id, 'ready_to_post')));
+                                      setDeployments(prev => prev.map(d => allDepIds.includes(d.id) ? { ...d, status: 'ready_to_post' } : d));
                                       setSelectedInAdSet(prev => ({ ...prev, [adSet.id]: new Set() }));
-                                      addToast(`${depIds.length} ad${depIds.length !== 1 ? 's' : ''} ready to post`, 'success');
+                                      addToast(`${allDepIds.length} ad${allDepIds.length !== 1 ? 's' : ''} ready to post`, 'success');
                                     } catch {
                                       addToast('Failed to update status', 'error');
                                     }
@@ -1483,15 +1533,33 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
                             )}
 
                             <span className="text-[10px] text-textlight">{deps.length} ad{deps.length !== 1 ? 's' : ''}</span>
-                            <button
-                              onClick={() => handleDeleteAdSet(adSet.id)}
-                              className="p-1 rounded hover:bg-red-50 text-textlight hover:text-red-500 transition-colors"
-                              title="Delete ad set"
-                            >
-                              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                              </svg>
-                            </button>
+                            {entityDeleteConfirm?.type === 'adset' && entityDeleteConfirm.id === adSet.id ? (
+                              <div className="flex items-center gap-1">
+                                <span className="text-[10px] text-textmid">Delete?</span>
+                                <button
+                                  onClick={() => { handleDeleteAdSet(adSet.id); setEntityDeleteConfirm(null); }}
+                                  className="text-[10px] px-1.5 py-0.5 rounded bg-red-500 text-white hover:bg-red-600 transition-colors"
+                                >
+                                  Confirm
+                                </button>
+                                <button
+                                  onClick={() => setEntityDeleteConfirm(null)}
+                                  className="text-[10px] px-1.5 py-0.5 rounded text-textmid hover:bg-gray-100 transition-colors"
+                                >
+                                  Cancel
+                                </button>
+                              </div>
+                            ) : (
+                              <button
+                                onClick={() => setEntityDeleteConfirm({ type: 'adset', id: adSet.id, name: adSet.name })}
+                                className="p-1 rounded hover:bg-red-50 text-textlight hover:text-red-500 transition-colors"
+                                title="Delete ad set"
+                              >
+                                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                                </svg>
+                              </button>
+                            )}
                           </div>
 
                           {/* Ad set body — drop zone */}
