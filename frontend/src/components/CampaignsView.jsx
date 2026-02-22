@@ -686,11 +686,11 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
     addToast('Restored previous headlines', 'info');
   };
 
-  const handleSaveSidebar = async () => {
+  const handleSaveSidebar = async ({ closeAfter = false } = {}) => {
     // Check for multiple URLs — show confirmation dialog
     const urls = sidebarForm.destination_urls.filter(u => u.trim());
     if (urls.length > 1 && !duplicateConfirm) {
-      setDuplicateConfirm({ urls });
+      setDuplicateConfirm({ urls, closeAfter });
       return;
     }
     setDuplicateConfirm(null);
@@ -771,6 +771,12 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
       // Reset URLs back to just the primary after save
       setSidebarForm(prev => ({ ...prev, destination_urls: [primaryUrl || ''] }));
       sidebarInitialFormRef.current = JSON.stringify({ ...sidebarForm, destination_urls: [primaryUrl || ''] });
+
+      // Close sidebar if Save & Close was used
+      if (closeAfter || duplicateConfirm?.closeAfter) {
+        setSidebarData(null);
+        sidebarInitialFormRef.current = null;
+      }
     } catch {
       addToast('Failed to save', 'error');
     }
@@ -1630,13 +1636,22 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
             </div>
 
             {/* ─── Save ─── */}
-            <button
-              onClick={handleSaveSidebar}
-              disabled={sidebarSaving}
-              className="btn-primary w-full text-[12px] py-2.5 disabled:opacity-50"
-            >
-              {sidebarSaving ? 'Saving...' : 'Save Changes'}
-            </button>
+            <div className="flex items-center gap-2 pt-3 pb-6">
+              <button
+                onClick={() => handleSaveSidebar({ closeAfter: true })}
+                disabled={sidebarSaving}
+                className="btn-primary flex-1 text-[12px] py-2.5 disabled:opacity-50"
+              >
+                {sidebarSaving ? 'Saving...' : 'Save & Close'}
+              </button>
+              <button
+                onClick={() => handleSaveSidebar()}
+                disabled={sidebarSaving}
+                className="text-[11px] px-4 py-2.5 rounded-xl border border-gray-200 text-textmid hover:bg-gray-50 hover:border-navy/30 hover:text-navy transition-colors disabled:opacity-50 whitespace-nowrap"
+              >
+                {sidebarSaving ? 'Saving...' : 'Save'}
+              </button>
+            </div>
 
             {/* ─── Duplicate Confirmation Dialog (multi-URL) ─── */}
             {duplicateConfirm && (
@@ -1669,7 +1684,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
                 </div>
                 <div className="flex items-center gap-2">
                   <button
-                    onClick={handleSaveSidebar}
+                    onClick={() => handleSaveSidebar({ closeAfter: duplicateConfirm?.closeAfter })}
                     disabled={sidebarSaving}
                     className="flex-1 text-[11px] py-2 rounded-xl bg-navy text-white hover:bg-navy-light transition-colors disabled:opacity-50"
                   >
