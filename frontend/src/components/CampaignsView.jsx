@@ -70,6 +70,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
   const [sidebarSaving, setSidebarSaving] = useState(false);
   const [primaryTextOpen, setPrimaryTextOpen] = useState(false);
   const [headlinesOpen, setHeadlinesOpen] = useState(false);
+  const [expandedFlexChild, setExpandedFlexChild] = useState(null);
 
   const campaignInputRef = useRef(null);
   const adSetInputRef = useRef(null);
@@ -319,6 +320,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
     setSidebarData(data);
     setPrimaryTextOpen(false);
     setHeadlinesOpen(false);
+    setExpandedFlexChild(null);
     if (data.type === 'single') {
       const dep = data.deployment;
       setSidebarForm({
@@ -713,20 +715,57 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
           <div className="p-5 space-y-5">
             {/* Image section */}
             {isFlex ? (
-              <div className="grid grid-cols-4 gap-1.5">
-                {childDeps.map(d => (
-                  d.imageUrl ? (
-                    <img
+              <div className="space-y-2">
+                <label className="text-[10px] font-medium text-textlight uppercase tracking-wider">
+                  {childDeps.length} Ad{childDeps.length !== 1 ? 's' : ''} in Flex
+                </label>
+                {childDeps.map(d => {
+                  const adName = d.ad?.headline || d.ad?.angle || d.ad_name || `Ad ${(d.id || '').slice(0, 6)}`;
+                  const isExpanded = expandedFlexChild === d.id;
+                  return (
+                    <div
                       key={d.id}
-                      src={d.imageUrl}
-                      alt=""
-                      className="w-full aspect-square object-cover rounded-lg bg-gray-100 cursor-pointer hover:ring-2 hover:ring-navy/30 transition-all"
-                      onClick={(e) => { e.stopPropagation(); setPreviewImage(d.imageUrl); }}
-                    />
-                  ) : (
-                    <div key={d.id} className="w-full aspect-square rounded-lg bg-gray-200" />
-                  )
-                ))}
+                      className="rounded-xl border border-gray-200 overflow-hidden transition-all"
+                    >
+                      <button
+                        onClick={() => setExpandedFlexChild(isExpanded ? null : d.id)}
+                        className="w-full flex items-center gap-3 p-2.5 hover:bg-offwhite transition-colors"
+                      >
+                        {d.imageUrl ? (
+                          <img src={d.imageUrl} alt="" className="w-12 h-12 object-cover rounded-lg bg-gray-100 flex-shrink-0" />
+                        ) : (
+                          <div className="w-12 h-12 rounded-lg bg-gray-200 flex-shrink-0" />
+                        )}
+                        <div className="min-w-0 flex-1 text-left">
+                          <div className="text-[12px] font-medium text-textdark truncate">{adName}</div>
+                          {d.ad?.body_copy && (
+                            <div className="text-[10px] text-textlight truncate mt-0.5">{d.ad.body_copy}</div>
+                          )}
+                        </div>
+                        <svg className={`w-4 h-4 text-textlight flex-shrink-0 transition-transform ${isExpanded ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                        </svg>
+                      </button>
+                      {isExpanded && d.imageUrl && (
+                        <div className="px-2.5 pb-2.5">
+                          <img src={d.imageUrl} alt="" className="w-full rounded-lg bg-gray-100" />
+                          {d.ad?.angle && (
+                            <div className="mt-2">
+                              <span className="text-[9px] font-medium text-textlight uppercase tracking-wider">Angle</span>
+                              <p className="text-[11px] text-textdark mt-0.5">{d.ad.angle}</p>
+                            </div>
+                          )}
+                          {d.ad?.headline && (
+                            <div className="mt-1.5">
+                              <span className="text-[9px] font-medium text-textlight uppercase tracking-wider">Headline</span>
+                              <p className="text-[11px] text-textdark mt-0.5">{d.ad.headline}</p>
+                            </div>
+                          )}
+                        </div>
+                      )}
+                    </div>
+                  );
+                })}
               </div>
             ) : (
               dep?.imageUrl && (
