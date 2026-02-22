@@ -1424,6 +1424,28 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
                                   Unplan
                                 </button>
                                 <button
+                                  onClick={async () => {
+                                    const ids = [...(selectedInAdSet[adSet.id] || [])];
+                                    // Only update standalone deployments (not flex ad IDs)
+                                    const depIds = ids.filter(id => deployments.some(d => d.id === id));
+                                    if (depIds.length === 0) { addToast('Select ads to mark as ready', 'info'); return; }
+                                    try {
+                                      await Promise.all(depIds.map(id => api.updateDeploymentStatus(id, 'ready_to_post')));
+                                      setDeployments(prev => prev.map(d => depIds.includes(d.id) ? { ...d, status: 'ready_to_post' } : d));
+                                      setSelectedInAdSet(prev => ({ ...prev, [adSet.id]: new Set() }));
+                                      addToast(`${depIds.length} ad${depIds.length !== 1 ? 's' : ''} ready to post`, 'success');
+                                    } catch {
+                                      addToast('Failed to update status', 'error');
+                                    }
+                                  }}
+                                  className="text-[10px] px-2 py-1 rounded-lg bg-teal/10 border border-teal/30 text-teal font-medium hover:bg-teal/20 transition-colors inline-flex items-center gap-1"
+                                >
+                                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                                  </svg>
+                                  Ready to Post
+                                </button>
+                                <button
                                   onClick={() => setDeleteConfirm({ open: true, ids: [...(selectedInAdSet[adSet.id] || [])], source: 'adset' })}
                                   className="text-[10px] px-2 py-1 rounded-lg bg-red-50 border border-red-200 text-red-600 hover:bg-red-100 transition-colors"
                                 >

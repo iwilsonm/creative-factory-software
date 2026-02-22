@@ -319,7 +319,8 @@ export default function ProjectDetail() {
   const tabs = [
     { id: 'quotes', label: 'Copywriter', tooltip: 'Mine quotes, generate headlines, and turn them into ads.' },
     { id: 'ads', label: 'Ad Studio', tooltip: 'Generate individual ads or run batch generation.' },
-    { id: 'tracker', label: 'Performance Tracker', tooltip: 'Track ad deployments, campaigns, and performance.' },
+    { id: 'tracker', label: 'Ad Deployment', tooltip: 'Plan, organize, and deploy ads to campaigns and ad sets.' },
+    { id: 'performance', label: 'Performance Tracker', tooltip: 'Track ad performance metrics from Meta Ads.' },
     { id: 'lpgen', label: 'LP Gen', tooltip: 'Generate landing page copy from foundational docs + swipe file.' },
     { id: 'overview', label: 'Overview', tooltip: 'Project settings, cost tracking, and stats.' },
     { id: 'docs', label: 'Foundational Docs', tooltip: 'Core research documents that guide ad generation.' },
@@ -903,6 +904,22 @@ export default function ProjectDetail() {
           <ErrorBoundary level="tab" key="tracker">
             <AdTracker projectId={id} />
           </ErrorBoundary>
+        )}
+        {tab === 'performance' && (
+          <div className="text-center py-20">
+            <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-navy/5 flex items-center justify-center">
+              <svg className="w-8 h-8 text-textlight" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 19v-6a2 2 0 00-2-2H5a2 2 0 00-2 2v6a2 2 0 002 2h2a2 2 0 002-2zm0 0V9a2 2 0 012-2h2a2 2 0 012 2v10m-6 0a2 2 0 002 2h2a2 2 0 002-2m0 0V5a2 2 0 012-2h2a2 2 0 012 2v14a2 2 0 01-2 2h-2a2 2 0 01-2-2z" />
+              </svg>
+            </div>
+            <h3 className="text-[16px] font-semibold text-textdark mb-2">Performance Tracker</h3>
+            <p className="text-[13px] text-textmid max-w-md mx-auto mb-3">
+              Track impressions, clicks, spend, CTR, CPC, and ROAS for your ads across Meta Ads.
+            </p>
+            <span className="inline-block px-3 py-1.5 rounded-full bg-gold/10 text-gold text-[12px] font-medium">
+              Coming Soon
+            </span>
+          </div>
         )}
         {tab === 'lpgen' && (
           <ErrorBoundary level="tab" key="lpgen">
