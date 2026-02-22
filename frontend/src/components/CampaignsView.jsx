@@ -441,6 +441,14 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
     sidebarInitialFormRef.current = null;
   };
 
+  // Lock body scroll when sidebar or lightbox is open
+  useEffect(() => {
+    if (sidebarData || previewImage) {
+      document.body.style.overflow = 'hidden';
+      return () => { document.body.style.overflow = ''; };
+    }
+  }, [sidebarData, previewImage]);
+
   // Close sidebar on Escape, close assign dropdown on Escape/outside click
   useEffect(() => {
     const handleKeyDown = (e) => {
@@ -816,9 +824,9 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
         <div className="fixed inset-0 bg-black/20 z-40" onClick={closeSidebar} />
 
         {/* Panel */}
-        <div className="fixed right-0 top-0 h-full w-[420px] bg-white shadow-xl z-50 overflow-y-auto animate-slide-in-right scrollbar-thin">
+        <div className="fixed right-0 top-0 h-full w-[420px] bg-white shadow-xl z-50 overflow-y-auto overscroll-contain animate-slide-in-right scrollbar-thin">
           {/* Header */}
-          <div className="sticky top-0 bg-white/95 backdrop-blur border-b border-gray-100 px-5 py-4 flex items-center justify-between z-10">
+          <div className="sticky top-0 bg-white border-b border-gray-100 px-5 py-4 flex items-center justify-between z-10">
             <div className="flex items-center gap-2">
               {isFlex && <span className="text-[9px] font-bold text-white bg-navy px-1.5 py-0.5 rounded tracking-wide">FLEX</span>}
               <h3 className="text-[14px] font-semibold text-textdark">
@@ -845,7 +853,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
                   return (
                     <div
                       key={d.id}
-                      className="rounded-xl border border-gray-200 overflow-hidden transition-all"
+                      className="rounded-xl border border-gray-200 overflow-hidden"
                     >
                       <button
                         onClick={() => setExpandedFlexChild(isExpanded ? null : d.id)}
