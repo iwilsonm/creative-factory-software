@@ -61,6 +61,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
 
   const campaignInputRef = useRef(null);
   const adSetInputRef = useRef(null);
+  const assignDropdownRef = useRef(null);
 
   useEffect(() => {
     loadCampaignData();
@@ -320,14 +321,26 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
 
   const closeSidebar = () => setSidebarData(null);
 
-  // Close sidebar on Escape
+  // Close sidebar on Escape, close assign dropdown on Escape/outside click
   useEffect(() => {
     const handleKeyDown = (e) => {
-      if (e.key === 'Escape' && sidebarData) closeSidebar();
+      if (e.key === 'Escape') {
+        if (sidebarData) closeSidebar();
+        if (assignDropdown) setAssignDropdown(false);
+      }
+    };
+    const handleClickOutside = (e) => {
+      if (assignDropdown && assignDropdownRef.current && !assignDropdownRef.current.contains(e.target)) {
+        setAssignDropdown(false);
+      }
     };
     document.addEventListener('keydown', handleKeyDown);
-    return () => document.removeEventListener('keydown', handleKeyDown);
-  }, [sidebarData]);
+    document.addEventListener('mousedown', handleClickOutside);
+    return () => {
+      document.removeEventListener('keydown', handleKeyDown);
+      document.removeEventListener('mousedown', handleClickOutside);
+    };
+  }, [sidebarData, assignDropdown]);
 
   const handleGeneratePrimaryText = async () => {
     setGeneratingPrimaryText(true);
@@ -404,6 +417,29 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
     });
   };
 
+  // ─── Assign selected unplanned to a specific ad set ──────────────────
+  const [assignDropdown, setAssignDropdown] = useState(false);
+
+  const handleAssignSelectedToAdSet = async (campaignId, adsetId) => {
+    const ids = [...selectedUnplanned];
+    if (!ids.length) return;
+    setAssignDropdown(false);
+
+    // Optimistic
+    setDeployments(prev => prev.map(d =>
+      ids.includes(d.id) ? { ...d, local_campaign_id: campaignId, local_adset_id: adsetId } : d
+    ));
+    setSelectedUnplanned(new Set());
+
+    try {
+      await api.assignToAdSet(ids, campaignId, adsetId);
+      addToast(`Assigned ${ids.length} ad${ids.length > 1 ? 's' : ''} to ad set`, 'success');
+    } catch {
+      addToast('Failed to assign ads', 'error');
+      loadDeployments();
+    }
+  };
+
   // ─── DepCard ────────────────────────────────────────────────────────────
   const DepCard = ({ dep, draggable = false, inAdSet = false, adsetId = null }) => {
     const name = dep.ad?.headline || dep.ad?.angle || dep.ad_name || `Ad ${(dep.id || '').slice(0, 6)}`;
@@ -416,12 +452,18 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
     return (
       <div
         draggable={draggable}
-        onDragStart={draggable ? (e) => handleDragStart(e, dep.id, inAdSet) : undefined}
+        onDragStart={draggable ? (e) => {
+          // Prevent drag from being blocked by child elements
+          handleDragStart(e, dep.id, inAdSet);
+        } : undefined}
         onDragEnd={draggable ? handleDragEnd : undefined}
-        onClick={inAdSet ? () => openSidebar({ type: 'single', deployment: dep, ad: dep.ad }) : undefined}
-        className={`relative group flex items-center gap-2.5 p-2 rounded-xl border transition-all ${
-          inAdSet ? 'cursor-pointer' : 'cursor-grab active:cursor-grabbing'
-        } ${
+        onClick={(e) => {
+          // Only open sidebar on click in ad sets (not when clicking buttons)
+          if (inAdSet && e.target === e.currentTarget) {
+            openSidebar({ type: 'single', deployment: dep, ad: dep.ad });
+          }
+        }}
+        className={`relative group flex items-center gap-2.5 p-2 rounded-xl border transition-all cursor-grab active:cursor-grabbing select-none ${
           isDragging ? 'opacity-40 border-navy/30 bg-navy/5' :
           isSelected ? 'border-navy/40 bg-navy/5' :
           'border-gray-200 bg-white hover:border-navy/20 hover:shadow-sm'
@@ -429,6 +471,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
       >
         {/* Checkbox */}
         <button
+          draggable={false}
           onClick={(e) => {
             e.stopPropagation();
             if (inAdSet) {
@@ -453,11 +496,17 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
         </button>
 
         {thumbUrl ? (
-          <img src={thumbUrl} alt="" className="w-10 h-10 object-cover rounded-lg bg-gray-100 flex-shrink-0" loading="lazy" />
+          <img
+            src={thumbUrl}
+            alt=""
+            draggable={false}
+            className="w-10 h-10 object-cover rounded-lg bg-gray-100 flex-shrink-0 pointer-events-none"
+            loading="lazy"
+          />
         ) : (
           <div className="w-10 h-10 rounded-lg bg-gray-100 flex-shrink-0" />
         )}
-        <div className="min-w-0 flex-1">
+        <div className="min-w-0 flex-1 pointer-events-none">
           <div className="text-[12px] font-medium text-textdark truncate" title={name}>{name}</div>
           {dep.ad?.body_copy && (
             <div className="text-[10px] text-textlight truncate mt-0.5">{dep.ad.body_copy}</div>
@@ -468,6 +517,20 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
         <div className="opacity-0 group-hover:opacity-100 flex items-center gap-0.5 flex-shrink-0 transition-opacity">
           {inAdSet && (
             <button
+              draggable={false}
+              onClick={(e) => { e.stopPropagation(); openSidebar({ type: 'single', deployment: dep, ad: dep.ad }); }}
+              className="p-1 rounded-lg hover:bg-navy/10 text-textlight hover:text-navy transition-colors"
+              title="Open details"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M2.458 12C3.732 7.943 7.523 5 12 5c4.478 0 8.268 2.943 9.542 7-1.274 4.057-5.064 7-9.542 7-4.477 0-8.268-2.943-9.542-7z" />
+              </svg>
+            </button>
+          )}
+          {inAdSet && (
+            <button
+              draggable={false}
               onClick={(e) => { e.stopPropagation(); handleDuplicate(dep.id); }}
               className="p-1 rounded-lg hover:bg-navy/10 text-textlight hover:text-navy transition-colors"
               title="Duplicate"
@@ -479,6 +542,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
           )}
           {inAdSet && (
             <button
+              draggable={false}
               onClick={(e) => { e.stopPropagation(); handleUnassign([dep.id]); }}
               className="p-1 rounded-lg hover:bg-red-50 text-textlight hover:text-red-500 transition-colors"
               title="Move back to Unplanned"
@@ -809,6 +873,59 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
           {selectedUnplanned.size > 0 && (
             <div className="flex items-center gap-2 text-[11px]">
               <span className="text-navy font-medium">{selectedUnplanned.size} selected</span>
+
+              {/* Assign to Ad Set dropdown */}
+              <div className="relative" ref={assignDropdownRef}>
+                <button
+                  onClick={() => setAssignDropdown(!assignDropdown)}
+                  className="px-2.5 py-1 rounded-lg bg-navy text-white hover:bg-navy-light transition-colors inline-flex items-center gap-1"
+                >
+                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                  </svg>
+                  Add to Ad Set
+                  <svg className={`w-3 h-3 transition-transform ${assignDropdown ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                  </svg>
+                </button>
+                {assignDropdown && (
+                  <div className="absolute right-0 top-full mt-1 w-64 bg-white rounded-xl shadow-lg border border-gray-200 z-50 max-h-[300px] overflow-y-auto">
+                    {sortedCampaigns.length === 0 ? (
+                      <div className="p-3 text-[11px] text-textlight text-center">
+                        Create a campaign first
+                      </div>
+                    ) : (
+                      sortedCampaigns.map(campaign => {
+                        const campaignAS = getCampaignAdSets(campaign.id);
+                        return (
+                          <div key={campaign.id}>
+                            <div className="px-3 py-2 text-[10px] font-semibold text-textlight uppercase tracking-wider bg-offwhite border-b border-gray-100">
+                              {campaign.name}
+                            </div>
+                            {campaignAS.length === 0 ? (
+                              <div className="px-3 py-2 text-[10px] text-textlight italic">
+                                No ad sets — create one first
+                              </div>
+                            ) : (
+                              campaignAS.map(adSet => (
+                                <button
+                                  key={adSet.id}
+                                  onClick={() => handleAssignSelectedToAdSet(campaign.id, adSet.id)}
+                                  className="w-full text-left px-4 py-2 text-[11px] text-textdark hover:bg-navy/5 transition-colors"
+                                >
+                                  {adSet.name}
+                                  <span className="text-textlight ml-1">({getAdSetDeps(adSet.id).length} ads)</span>
+                                </button>
+                              ))
+                            )}
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                )}
+              </div>
+
               <button
                 onClick={() => setSelectedUnplanned(new Set())}
                 className="text-textlight hover:text-textmid"
