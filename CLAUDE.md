@@ -906,12 +906,30 @@ Autonomous agent systems that monitor, maintain, and heal the platform.
 - **Commands:** `./dacia-fixer/fixer.sh [--daemon|--status|--resurrect]`
 - **Models:** Gemini Flash (diagnosis), Claude Sonnet (fixes)
 - **Logs:** `dacia-fixer/logs/`
+- **Fix Ledger:** `dacia-fixer/fix_ledger.md` — persistent record of every successful fix (DO NOT DELETE)
+- **Git Branch:** `fixer/auto-fixes` — all fixer commits go here, main stays clean
+
+**Self-Improvement (Fix Ledger):**
+The fixer gets smarter over time via `fix_ledger.md`. Every successful fix is logged with date, suite, files changed, and diagnosis summary. Both diagnosis and fix agents receive the ledger as context, so they recognize known patterns instantly and apply proven solutions. When the same file breaks 3+ times (`PATTERN_ALERT_THRESHOLD`), the fix agent applies a deeper permanent fix instead of patching symptoms.
+
+**Git Branch Isolation:**
+All fixer commits go to `fixer/auto-fixes` branch. The fix is applied to the working directory (so the running server stays healthy) and committed to the fixer branch (not main). Review and merge when ready: `git log main..fixer/auto-fixes --oneline`.
+
+**Key Config Settings:**
+- `AUTO_COMMIT=true` — commit fixes to fixer branch
+- `FIXER_BRANCH=fixer/auto-fixes` — dedicated branch for fixer commits
+- `AUTO_PUSH=false` — don't push to remote automatically
+- `FIX_LEDGER` — path to fix_ledger.md
+- `MAX_LEDGER_ENTRIES=50` — keep last 50 fixes for context
+- `PATTERN_ALERT_THRESHOLD=3` — deeper fix when same file breaks 3+ times
 
 When working on Dacia Fixer:
 - Keep agent prompts focused to minimize token costs
 - Test changes: `./dacia-fixer/fixer.sh batch_creation`
 - New suites go in fixer.conf (suite name, test_cmd, context files)
 - Do not remove the daily budget cap
+- Do not delete `fix_ledger.md` — it's the fixer's institutional memory
+- Fixer commits go to `fixer/auto-fixes` branch, never directly to main
 
 ### Agent #2: Dacia Creative Filter
 - **Location:** `/dacia-creative-filter`

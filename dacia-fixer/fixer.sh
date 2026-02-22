@@ -50,9 +50,7 @@ log_res()   { log "RESURRECT" "${CYAN}$*${NC}"; }
 
 # --- Cost Tracking ---
 init_spend_tracker() {
-  if [[ ! -f "$SPEND_FILE" ]]; then
-    echo "0" > "$SPEND_FILE"
-  fi
+  [[ ! -f "$SPEND_FILE" ]] && echo "0" > "$SPEND_FILE"
 }
 
 get_daily_spend() {
@@ -92,6 +90,181 @@ send_notification() {
   esac
 }
 
+# ============================================================
+# FIX LEDGER — Self-Improvement System
+# ============================================================
+# Every successful fix is logged here. Over time the ledger
+# gives the diagnosis and fix agents memory of past issues,
+# making them faster and more accurate. Recurring patterns
+# are detected and flagged for deeper fixes.
+# ============================================================
+
+init_ledger() {
+  if [[ ! -f "$FIX_LEDGER" ]]; then
+    cat > "$FIX_LEDGER" << 'EOF'
+# Dacia Fixer — Fix Ledger
+# This file is automatically maintained. Each entry records a bug and its fix.
+# The diagnosis and fix agents read this to recognize patterns and apply proven solutions.
+# DO NOT DELETE — this is the Fixer's institutional memory.
+
+EOF
+    log_info "Initialized fix ledger: $FIX_LEDGER"
+  fi
+}
+
+# Log a successful fix to the ledger
+log_to_ledger() {
+  local suite="$1"
+  local diagnosis="$2"
+  local files_changed="$3"
+  local attempt="$4"
+  local is_recurring="$5"
+
+  local timestamp
+  timestamp=$(date '+%Y-%m-%d %H:%M')
+
+  # Extract key details from diagnosis (first 500 chars)
+  local diag_summary
+  diag_summary=$(echo "$diagnosis" | head -c 500 | tr '\n' ' ')
+
+  local recurring_tag=""
+  [[ "$is_recurring" == "true" ]] && recurring_tag=" [RECURRING — deeper fix applied]"
+
+  cat >> "$FIX_LEDGER" << EOF
+
+## ${timestamp} — ${suite}${recurring_tag}
+**Attempt:** ${attempt}/${MAX_RETRIES}
+**Files changed:** ${files_changed}
+**Diagnosis:** ${diag_summary}
+---
+EOF
+
+  # Trim ledger to MAX_LEDGER_ENTRIES
+  local entry_count
+  entry_count=$(grep -c "^## " "$FIX_LEDGER" 2>/dev/null || echo 0)
+  if [[ "$entry_count" -gt "$MAX_LEDGER_ENTRIES" ]]; then
+    local trim_count=$((entry_count - MAX_LEDGER_ENTRIES))
+    # Remove oldest entries (everything between first ## and the Nth ##)
+    local keep_from
+    keep_from=$(grep -n "^## " "$FIX_LEDGER" | tail -n "$MAX_LEDGER_ENTRIES" | head -1 | cut -d: -f1)
+    if [[ -n "$keep_from" ]]; then
+      local header
+      header=$(head -5 "$FIX_LEDGER")
+      local body
+      body=$(tail -n +"$keep_from" "$FIX_LEDGER")
+      echo "$header" > "$FIX_LEDGER"
+      echo "$body" >> "$FIX_LEDGER"
+      log_info "Trimmed ledger to $MAX_LEDGER_ENTRIES entries (removed $trim_count oldest)"
+    fi
+  fi
+
+  log_info "Fix logged to ledger"
+}
+
+# Check if a file has broken repeatedly (recurring pattern)
+check_recurring_pattern() {
+  local files_changed="$1"
+
+  if [[ ! -f "$FIX_LEDGER" ]]; then
+    echo "false"
+    return
+  fi
+
+  # Check each changed file against the ledger
+  for file in $files_changed; do
+    local hit_count
+    hit_count=$(grep -c "$file" "$FIX_LEDGER" 2>/dev/null || echo 0)
+    if [[ "$hit_count" -ge "$PATTERN_ALERT_THRESHOLD" ]]; then
+      log_warn "⚠ RECURRING PATTERN: $file has broken $hit_count times (threshold: $PATTERN_ALERT_THRESHOLD)"
+      send_notification "🔁 Dacia Fixer: Recurring Bug Detected" \
+        "File: $file\nBreakages: $hit_count times\nThe fixer is applying a deeper fix this round."
+      echo "true"
+      return
+    fi
+  done
+  echo "false"
+}
+
+# ============================================================
+# GIT BRANCH MANAGEMENT
+# ============================================================
+# All fixer commits go to a dedicated branch (fixer/auto-fixes).
+# Main branch stays clean. Working directory keeps the fix so
+# the running server is always healthy.
+#
+# To review:  git log fixer/auto-fixes
+# To merge:   git checkout main && git merge fixer/auto-fixes
+# To diff:    git diff main..fixer/auto-fixes
+# ============================================================
+
+commit_to_fixer_branch() {
+  local suite="$1"
+  local files_changed="$2"
+  local commit_msg="fix(dacia-fixer): auto-fix ${suite} - $(date '+%Y-%m-%d %H:%M')"
+
+  cd "$PROJECT_DIR"
+
+  # Get current branch
+  local current_branch
+  current_branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "main")
+
+  log_info "Committing fix to branch: $FIXER_BRANCH"
+
+  # Stash the fix
+  git stash push -m "dacia-fixer-temp" -- . > /dev/null 2>&1 || {
+    log_warn "Nothing to stash — files may not have changed"
+    return 0
+  }
+
+  # Create or switch to fixer branch
+  if git rev-parse --verify "$FIXER_BRANCH" > /dev/null 2>&1; then
+    # Branch exists — switch to it and rebase on current branch
+    git checkout "$FIXER_BRANCH" > /dev/null 2>&1
+    git rebase "$current_branch" > /dev/null 2>&1 || {
+      log_warn "Rebase conflict — resetting fixer branch to $current_branch"
+      git rebase --abort > /dev/null 2>&1
+      git reset --hard "$current_branch" > /dev/null 2>&1
+    }
+  else
+    # Create new fixer branch from current
+    git checkout -b "$FIXER_BRANCH" > /dev/null 2>&1
+  fi
+
+  # Apply the stashed fix
+  git stash pop > /dev/null 2>&1 || {
+    log_err "Failed to pop stash on fixer branch"
+    git checkout "$current_branch" > /dev/null 2>&1
+    return 1
+  }
+
+  # Commit on fixer branch
+  git add -A > /dev/null 2>&1
+  git commit -m "$commit_msg" > /dev/null 2>&1 || {
+    log_warn "Nothing to commit"
+  }
+
+  local commit_hash
+  commit_hash=$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")
+
+  # Push fixer branch if enabled
+  if [[ "$AUTO_PUSH" == "true" ]]; then
+    git push origin "$FIXER_BRANCH" > /dev/null 2>&1 && \
+      log_info "Pushed to origin/$FIXER_BRANCH" || \
+      log_warn "Failed to push to origin/$FIXER_BRANCH"
+  fi
+
+  # Switch back to original branch
+  git checkout "$current_branch" > /dev/null 2>&1
+
+  # Restore the fix to the working directory (so the server keeps running)
+  git checkout "$FIXER_BRANCH" -- . > /dev/null 2>&1
+  git reset HEAD > /dev/null 2>&1
+
+  log_ok "Committed to $FIXER_BRANCH ($commit_hash): $commit_msg"
+  log_info "Working directory has the fix. Main branch is clean."
+  log_info "To merge: git merge $FIXER_BRANCH"
+}
+
 # --- Test Runner ---
 run_tests() {
   local suite="$1"
@@ -115,8 +288,7 @@ run_tests() {
 build_context() {
   local suite="$1"
   local context_var="${suite}_context[@]"
-  local context_files
-  context_files=("${!context_var}") 2>/dev/null || true
+  local context_files=("${!context_var}" 2>/dev/null || true)
   local context=""
   
   for file in "${context_files[@]}"; do
@@ -326,6 +498,18 @@ run_fix_pipeline() {
   fix_output=$(bash "${SCRIPT_DIR}/agents/fix.sh" "$diagnosis" "$context" "$test_output" "$suite")
   add_spend 5
   
+  # Track which files were changed
+  local files_changed
+  files_changed=$(echo "$fix_output" | grep -oP '(?<=--- WRITE: ).*(?= ---)' | tr '\n' ' ')
+  
+  # Check for recurring patterns BEFORE applying
+  local is_recurring
+  is_recurring=$(check_recurring_pattern "$files_changed")
+  
+  if [[ "$is_recurring" == "true" ]]; then
+    log_warn "Recurring pattern detected — fix agent should apply deeper fix"
+  fi
+  
   # Apply fix
   apply_fix "$fix_output" || { log_err "Failed to apply fix"; return 1; }
   
@@ -337,17 +521,19 @@ run_fix_pipeline() {
   if [[ "$verify_exit" -eq 0 ]]; then
     log_ok "Fix verified — all tests passing!"
     
+    # === LOG TO LEDGER ===
+    log_to_ledger "$suite" "$diagnosis" "$files_changed" "$attempt" "$is_recurring"
+    
+    # === COMMIT TO FIXER BRANCH ===
     if [[ "$AUTO_COMMIT" == "true" ]]; then
-      cd "$PROJECT_DIR"
-      git add -A
-      git commit -m "fix(dacia-fixer): auto-fix $suite - $(date '+%Y-%m-%d %H:%M')"
+      commit_to_fixer_branch "$suite" "$files_changed"
     fi
     
     # === RESURRECTION ===
     resurrect_failed_batches
     
     send_notification "🟢 Dacia Fixer: Fix Applied + Batches Resurrected" \
-      "Suite: $suite | Attempt: $attempt\nFailed batches have been re-queued."
+      "Suite: $suite | Attempt: $attempt\nFiles: $files_changed\nRecurring: $is_recurring\nFailed batches have been re-queued."
     return 0
   else
     log_warn "Fix didn't resolve the issue"
@@ -411,12 +597,65 @@ show_status() {
     echo -e "Failures:      ${RED}$failures${NC}"
     echo -e "Resurrections: ${CYAN}$resurrections${NC}"
   fi
+  echo ""
+  echo -e "${BLUE}── Git Branch ──${NC}"
+  if [[ -d "${PROJECT_DIR}/.git" ]]; then
+    cd "$PROJECT_DIR"
+    local current_branch
+    current_branch=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || echo "unknown")
+    echo "Current branch:  $current_branch"
+    echo "Fixer branch:    $FIXER_BRANCH"
+    if git rev-parse --verify "$FIXER_BRANCH" > /dev/null 2>&1; then
+      local fixer_commits
+      fixer_commits=$(git log "$current_branch".."$FIXER_BRANCH" --oneline 2>/dev/null | wc -l)
+      local last_fix
+      last_fix=$(git log "$FIXER_BRANCH" -1 --format="%h %s" 2>/dev/null || echo "none")
+      echo -e "Unmerged fixes:  ${YELLOW}$fixer_commits${NC}"
+      echo "Last fix:        $last_fix"
+      if [[ "$fixer_commits" -gt 0 ]]; then
+        echo ""
+        echo "To review:  git log main..${FIXER_BRANCH} --oneline"
+        echo "To merge:   git checkout main && git merge ${FIXER_BRANCH}"
+      fi
+    else
+      echo "Fixer branch:    not created yet (no fixes applied)"
+    fi
+  else
+    echo "No git repo found at $PROJECT_DIR"
+  fi
+  echo ""
+  echo -e "${BLUE}── Fix Ledger ──${NC}"
+  if [[ -f "$FIX_LEDGER" ]]; then
+    local total_fixes; total_fixes=$(grep -c "^## " "$FIX_LEDGER" 2>/dev/null || echo 0)
+    local recurring; recurring=$(grep -c "RECURRING" "$FIX_LEDGER" 2>/dev/null || echo 0)
+    echo "Total fixes logged:   $total_fixes"
+    echo -e "Recurring patterns:   ${YELLOW}$recurring${NC}"
+    
+    # Show most frequently fixed files
+    local top_files
+    top_files=$(grep "Files changed:" "$FIX_LEDGER" 2>/dev/null | \
+      sed 's/.*Files changed:\*\* //' | tr ' ' '\n' | \
+      sort | uniq -c | sort -rn | head -5)
+    if [[ -n "$top_files" ]]; then
+      echo ""
+      echo "Most fixed files:"
+      echo "$top_files" | while read -r count file; do
+        [[ -z "$file" ]] && continue
+        local color="$NC"
+        [[ "$count" -ge "$PATTERN_ALERT_THRESHOLD" ]] && color="$RED"
+        echo -e "  ${color}${count}x ${file}${NC}"
+      done
+    fi
+  else
+    echo "No fixes logged yet"
+  fi
   echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
 }
 
 # --- Entry Point ---
 main() {
   init_spend_tracker
+  init_ledger
   
   case "${1:-}" in
     --status)    show_status; exit 0 ;;
