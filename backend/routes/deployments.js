@@ -207,7 +207,8 @@ router.put('/deployments/:id', async (req, res) => {
     const fields = {};
     for (const key of allowedFields) {
       if (req.body[key] !== undefined) {
-        fields[key] = req.body[key];
+        // Convex v.optional(v.string()) doesn't accept null — coerce to empty string
+        fields[key] = req.body[key] === null ? '' : req.body[key];
       }
     }
 
@@ -665,7 +666,10 @@ router.put('/deployments/flex-ads/:id', async (req, res) => {
     const allowed = ['name', 'child_deployment_ids', 'primary_texts', 'headlines', 'destination_url', 'cta_button', 'planned_date'];
     const fields = {};
     for (const key of allowed) {
-      if (req.body[key] !== undefined) fields[key] = req.body[key];
+      if (req.body[key] !== undefined) {
+        // Convex v.optional(v.string()) doesn't accept null — coerce to empty string
+        fields[key] = req.body[key] === null ? '' : req.body[key];
+      }
     }
     if (Object.keys(fields).length === 0) return res.status(400).json({ error: 'No valid fields' });
     await updateFlexAd(id, fields);
@@ -943,12 +947,12 @@ Write 5 NEW refined variations that incorporate this feedback while keeping what
 
 /**
  * POST /deployments/:id/generate-ad-headlines — AI-generate headlines from primary text
- * Body: { primaryTexts: string[], flexAdId?: string }
+ * Body: { primaryTexts: string[], flexAdId?: string, direction?: string, messages?: array }
  */
 router.post('/deployments/:id/generate-ad-headlines', async (req, res) => {
   try {
     const { id } = req.params;
-    const { primaryTexts, flexAdId } = req.body;
+    const { primaryTexts, flexAdId, direction, messages: threadMessages } = req.body;
 
     if (!primaryTexts?.length) {
       return res.status(400).json({ error: 'primaryTexts required' });
@@ -970,9 +974,8 @@ router.post('/deployments/:id/generate-ad-headlines', async (req, res) => {
     const avatarSnippet = (avatar?.content || '').slice(0, 1500);
     const offerSnippet = (offer_brief?.content || '').slice(0, 1000);
 
-    const result = await claudeChat([{
-      role: 'user',
-      content: `You are a world-class direct response copywriter writing Facebook ad headlines (the short text that appears BELOW the ad image in the link preview area).
+    // ── Build system prompt (context that stays the same across the conversation) ──
+    const systemPrompt = `You are a world-class direct response copywriter writing Facebook ad headlines (the short text that appears BELOW the ad image in the link preview area).
 
 BRAND: ${project?.brand_name || project?.name || ''}
 
@@ -985,15 +988,42 @@ ${offerSnippet}
 PRIMARY TEXT VARIATIONS (what appears above the image):
 ${primaryTexts.map((t, i) => `${i + 1}. ${t}`).join('\n')}
 
-Write 5 punchy headlines that:
+Your task is to write 5 punchy headlines that:
 - Are under 10 words each
 - Align with and complement the primary text above
 - Drive curiosity and clicks
 - Sound natural, not salesy
 - Each has a different angle or emphasis
 
-Return ONLY a JSON object: { "headlines": ["h1", "h2", "h3", "h4", "h5"] }`,
-    }], 'claude-sonnet-4-6', {
+ALWAYS return ONLY a JSON object: { "headlines": ["h1", "h2", "h3", "h4", "h5"] }`;
+
+    // ── Build conversation messages ──
+    const conversationMessages = [{ role: 'system', content: systemPrompt }];
+
+    if (threadMessages && threadMessages.length > 0) {
+      // Continuation: replay previous user/assistant exchanges, then add new direction
+      for (const msg of threadMessages) {
+        conversationMessages.push({ role: msg.role, content: msg.content });
+      }
+      conversationMessages.push({
+        role: 'user',
+        content: `The advertiser wants refinements to the headlines you just wrote.
+
+Their feedback: "${direction || 'Generate new headlines with a different approach.'}"
+
+Write 5 NEW refined headlines that incorporate this feedback while keeping what worked from the previous versions. Return ONLY a JSON object: { "headlines": ["h1", "h2", "h3", "h4", "h5"] }`,
+      });
+    } else {
+      // First generation
+      conversationMessages.push({
+        role: 'user',
+        content: direction
+          ? `Write 5 punchy Facebook ad headlines.\n\nCREATIVE DIRECTION FROM THE ADVERTISER — follow this closely:\n"${direction}"\n\nShape every headline around this direction. Return ONLY a JSON object: { "headlines": ["h1", "h2", "h3", "h4", "h5"] }`
+          : 'Write 5 punchy Facebook ad headlines based on the brand context and primary text provided. Return ONLY a JSON object: { "headlines": ["h1", "h2", "h3", "h4", "h5"] }',
+      });
+    }
+
+    const result = await claudeChat(conversationMessages, 'claude-sonnet-4-6', {
       max_tokens: 1024,
       operation: 'ad_headline_generation_sidebar',
       projectId,
@@ -1017,7 +1047,18 @@ Return ONLY a JSON object: { "headlines": ["h1", "h2", "h3", "h4", "h5"] }`,
       }
     }
 
-    res.json({ headlines });
+    // Build updated thread history
+    const updatedThread = threadMessages ? [...threadMessages] : [];
+    updatedThread.push({
+      role: 'user',
+      content: direction || '(initial generation)',
+    });
+    updatedThread.push({
+      role: 'assistant',
+      content: JSON.stringify({ headlines }),
+    });
+
+    res.json({ headlines, messages: updatedThread });
   } catch (err) {
     console.error('Failed to generate ad headlines:', err);
     res.status(500).json({ error: err.message });

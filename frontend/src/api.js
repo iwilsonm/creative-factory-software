@@ -339,8 +339,8 @@ export const api = {
   // Primary Text & Headline Generation (sidebar)
   generatePrimaryText: (deploymentId, flexAdId, direction, messages) =>
     request(`/deployments/${deploymentId}/generate-primary-text`, { method: 'POST', body: JSON.stringify({ flexAdId, direction, messages }) }),
-  generateAdHeadlines: (deploymentId, primaryTexts, flexAdId) =>
-    request(`/deployments/${deploymentId}/generate-ad-headlines`, { method: 'POST', body: JSON.stringify({ primaryTexts, flexAdId }) }),
+  generateAdHeadlines: (deploymentId, primaryTexts, flexAdId, direction, messages) =>
+    request(`/deployments/${deploymentId}/generate-ad-headlines`, { method: 'POST', body: JSON.stringify({ primaryTexts, flexAdId, direction, messages }) }),
 
   // Quote Mining
   getQuoteMiningRuns: (projectId) => request(`/projects/${projectId}/quote-mining`),

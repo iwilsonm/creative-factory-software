@@ -76,6 +76,10 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
   const [generatingHeadlines, setGeneratingHeadlines] = useState(false);
   const [primaryTextDirection, setPrimaryTextDirection] = useState('');
   const [primaryTextThread, setPrimaryTextThread] = useState([]); // conversation history for iterative refinement
+  const [primaryTextDirectionHistory, setPrimaryTextDirectionHistory] = useState([]); // past creative directions
+  const [headlineDirection, setHeadlineDirection] = useState('');
+  const [headlineThread, setHeadlineThread] = useState([]); // conversation history for headline refinement
+  const [headlineDirectionHistory, setHeadlineDirectionHistory] = useState([]); // past headline directions
   const [sidebarSaving, setSidebarSaving] = useState(false);
   const [primaryTextOpen, setPrimaryTextOpen] = useState(false);
   const [headlinesOpen, setHeadlinesOpen] = useState(false);
@@ -506,6 +510,10 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
     setExpandedFlexChild(null);
     setPrimaryTextThread([]); // Fresh conversation for each sidebar open
     setPrimaryTextDirection('');
+    setPrimaryTextDirectionHistory([]);
+    setHeadlineDirection('');
+    setHeadlineThread([]);
+    setHeadlineDirectionHistory([]);
     let form;
     if (data.type === 'single') {
       const dep = data.deployment;
@@ -592,6 +600,10 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
       const result = await api.generatePrimaryText(depId, flexAdId, direction, primaryTextThread);
       setSidebarForm(prev => ({ ...prev, primary_texts: result.primary_texts || [] }));
       setPrimaryTextThread(result.messages || []);
+      // Save direction to history before clearing
+      if (direction) {
+        setPrimaryTextDirectionHistory(prev => [...prev, direction]);
+      }
       setPrimaryTextDirection(''); // Clear direction — it's been "sent"
       const round = Math.floor(((result.messages || []).length) / 2);
       if (round <= 1) {
@@ -613,9 +625,21 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
         ? sidebarData.deployment.id
         : sidebarData.deps[0]?.id;
       const flexAdId = sidebarData.type === 'flex' ? sidebarData.flexAd.id : undefined;
-      const result = await api.generateAdHeadlines(depId, sidebarForm.primary_texts, flexAdId);
+      const direction = headlineDirection.trim() || undefined;
+      const result = await api.generateAdHeadlines(depId, sidebarForm.primary_texts, flexAdId, direction, headlineThread);
       setSidebarForm(prev => ({ ...prev, ad_headlines: result.headlines || [] }));
-      addToast('Headlines generated', 'success');
+      setHeadlineThread(result.messages || []);
+      // Save direction to history before clearing
+      if (direction) {
+        setHeadlineDirectionHistory(prev => [...prev, direction]);
+      }
+      setHeadlineDirection('');
+      const round = Math.floor(((result.messages || []).length) / 2);
+      if (round <= 1) {
+        addToast('Headlines generated — type direction below to refine', 'success');
+      } else {
+        addToast(`Headline round ${round} complete — keep refining or save`, 'success');
+      }
     } catch {
       addToast('Failed to generate headlines', 'error');
     }
@@ -1170,48 +1194,28 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
                     {sidebarForm.primary_texts.filter(t => t.trim()).length}/5
                   </span>
                 </div>
-                <div className="flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
-                  {primaryTextThread.length > 0 && !generatingPrimaryText && (
-                    <button
-                      onClick={() => { setPrimaryTextThread([]); setPrimaryTextDirection(''); }}
-                      className="text-[9px] text-textlight hover:text-navy underline transition-colors"
-                    >
-                      Start over
-                    </button>
-                  )}
-                  <button
-                    onClick={handleGeneratePrimaryText}
-                    disabled={generatingPrimaryText}
-                    className="text-[10px] px-2.5 py-1 rounded-lg bg-navy text-white hover:bg-navy-light transition-colors disabled:opacity-50 inline-flex items-center gap-1"
-                  >
-                    {generatingPrimaryText ? (
-                      <>
-                        <svg className="w-3 h-3 animate-spin" viewBox="0 0 24 24" fill="none">
-                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                        </svg>
-                        {primaryTextThread.length > 0 ? 'Refining...' : 'Generating...'}
-                      </>
-                    ) : (
-                      <>
-                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                        </svg>
-                        {primaryTextThread.length > 0 ? 'Refine' : 'Generate'}
-                      </>
-                    )}
-                  </button>
-                </div>
               </div>
               {primaryTextOpen && (
                 <div className="p-4 space-y-3">
-                  {/* Creative direction input */}
+                  {/* Creative direction input + Generate button */}
                   <div>
-                    <label className="text-[10px] font-medium text-textlight uppercase tracking-wider">Creative Direction</label>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="text-[10px] font-medium text-textlight uppercase tracking-wider">
+                        Creative Direction <span className="normal-case font-normal">(optional)</span>
+                      </label>
+                      {primaryTextThread.length > 0 && !generatingPrimaryText && (
+                        <button
+                          onClick={() => { setPrimaryTextThread([]); setPrimaryTextDirection(''); setPrimaryTextDirectionHistory([]); }}
+                          className="text-[9px] text-textlight hover:text-navy underline transition-colors"
+                        >
+                          Start over
+                        </button>
+                      )}
+                    </div>
                     <textarea
                       value={primaryTextDirection}
                       onChange={(e) => setPrimaryTextDirection(e.target.value)}
-                      className="input-apple text-[12px] w-full mt-1"
+                      className="input-apple text-[12px] w-full"
                       rows={2}
                       placeholder={primaryTextThread.length > 0
                         ? 'e.g. "Make them shorter and punchier" or "Focus more on the skeptic angle"'
@@ -1220,7 +1224,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
                     <p className="text-[9px] text-textlight mt-1">
                       {primaryTextThread.length > 0
                         ? 'Each prompt builds on the last — tell Claude what to adjust and it\'ll refine the variations.'
-                        : 'Describe the tone, hook, angle, or structure you want.'}
+                        : 'Optional — leave blank to auto-generate, or describe the tone, hook, angle, or structure you want.'}
                     </p>
                     {/https?:\/\/[^\s"'<>]+/i.test(primaryTextDirection) && (
                       <p className="text-[9px] text-teal mt-1 flex items-center gap-1">
@@ -1231,10 +1235,45 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
                         Link detected — page content will be fetched and included as context.
                       </p>
                     )}
+                    {/* Direction history */}
+                    {primaryTextDirectionHistory.length > 0 && (
+                      <div className="mt-2 space-y-1">
+                        <p className="text-[9px] text-textlight font-medium uppercase tracking-wider">Previous directions</p>
+                        {primaryTextDirectionHistory.map((d, i) => (
+                          <div key={i} className="flex items-start gap-1.5 text-[10px] text-textmid bg-navy/5 rounded-lg px-2.5 py-1.5">
+                            <span className="text-textlight font-medium flex-shrink-0">{i + 1}.</span>
+                            <span className="break-words">{d}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {/* Generate / Refine button */}
+                    <button
+                      onClick={handleGeneratePrimaryText}
+                      disabled={generatingPrimaryText}
+                      className="mt-2 w-full py-2 rounded-lg bg-navy text-white hover:bg-navy-light transition-colors disabled:opacity-50 inline-flex items-center justify-center gap-1.5 text-[11px] font-medium"
+                    >
+                      {generatingPrimaryText ? (
+                        <>
+                          <svg className="w-3.5 h-3.5 animate-spin" viewBox="0 0 24 24" fill="none">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                          </svg>
+                          {primaryTextThread.length > 0 ? 'Refining...' : 'Generating...'}
+                        </>
+                      ) : (
+                        <>
+                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                          </svg>
+                          {primaryTextThread.length > 0 ? 'Refine' : 'Generate'}
+                        </>
+                      )}
+                    </button>
                   </div>
 
                   {/* Divider */}
-                  <div className="border-t border-gray-100" />
+                  {sidebarForm.primary_texts.length > 0 && <div className="border-t border-gray-100" />}
 
                   {Array.from({ length: Math.max(sidebarForm.primary_texts.length, 0) }, (_, i) => i).map(i => (
                     <div key={i}>
@@ -1274,8 +1313,8 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
                       Add Variation
                     </button>
                   )}
-                  {sidebarForm.primary_texts.length === 0 && (
-                    <p className="text-[11px] text-textlight italic text-center py-2">No primary text yet. Click Generate or Add Variation.</p>
+                  {sidebarForm.primary_texts.length === 0 && !generatingPrimaryText && (
+                    <p className="text-[11px] text-textlight italic text-center py-2">No primary text yet. Click Generate above or Add Variation.</p>
                   )}
                 </div>
               )}
@@ -1292,36 +1331,90 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                   </svg>
                   <span className="text-[11px] font-semibold text-textdark uppercase tracking-wider">Headlines</span>
+                  {headlineThread.length > 2 && (
+                    <span className="text-[9px] text-gold font-medium bg-gold/10 px-1.5 py-0.5 rounded-full">
+                      Round {Math.floor(headlineThread.length / 2)}
+                    </span>
+                  )}
                   <span className="text-[10px] text-textlight bg-black/5 px-1.5 py-0.5 rounded-full">
                     {sidebarForm.ad_headlines.filter(h => h.trim()).length}/5
                   </span>
                 </div>
-                <button
-                  onClick={(e) => { e.stopPropagation(); handleGenerateHeadlines(); }}
-                  disabled={generatingHeadlines || sidebarForm.primary_texts.filter(t => t.trim()).length === 0}
-                  className="text-[10px] px-2.5 py-1 rounded-lg bg-navy text-white hover:bg-navy-light transition-colors disabled:opacity-50 inline-flex items-center gap-1"
-                  title={sidebarForm.primary_texts.filter(t => t.trim()).length === 0 ? 'Generate primary text first' : ''}
-                >
-                  {generatingHeadlines ? (
-                    <>
-                      <svg className="w-3 h-3 animate-spin" viewBox="0 0 24 24" fill="none">
-                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                      </svg>
-                      Generating...
-                    </>
-                  ) : (
-                    <>
-                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
-                      </svg>
-                      {sidebarForm.ad_headlines.filter(h => h.trim()).length > 0 ? 'Regenerate' : 'Generate'}
-                    </>
-                  )}
-                </button>
               </div>
               {headlinesOpen && (
-                <div className="p-4 space-y-2">
+                <div className="p-4 space-y-3">
+                  {/* Creative direction input + Generate button */}
+                  <div>
+                    <div className="flex items-center justify-between mb-1">
+                      <label className="text-[10px] font-medium text-textlight uppercase tracking-wider">
+                        Creative Direction <span className="normal-case font-normal">(optional)</span>
+                      </label>
+                      {headlineThread.length > 0 && !generatingHeadlines && (
+                        <button
+                          onClick={() => { setHeadlineThread([]); setHeadlineDirection(''); setHeadlineDirectionHistory([]); }}
+                          className="text-[9px] text-textlight hover:text-navy underline transition-colors"
+                        >
+                          Start over
+                        </button>
+                      )}
+                    </div>
+                    <textarea
+                      value={headlineDirection}
+                      onChange={(e) => setHeadlineDirection(e.target.value)}
+                      className="input-apple text-[12px] w-full"
+                      rows={2}
+                      placeholder={headlineThread.length > 0
+                        ? 'e.g. "Make them more urgent" or "Include a question format"'
+                        : 'e.g. "Curiosity-driven, short, punchy" or "Use numbers and stats"'}
+                    />
+                    <p className="text-[9px] text-textlight mt-1">
+                      {headlineThread.length > 0
+                        ? 'Each prompt builds on the last — tell Claude what to adjust and it\'ll refine the headlines.'
+                        : sidebarForm.primary_texts.filter(t => t.trim()).length === 0
+                          ? 'Generate primary text first. Headlines are based on the primary text variations.'
+                          : 'Optional — leave blank to auto-generate, or describe the style and angle you want.'}
+                    </p>
+                    {/* Direction history */}
+                    {headlineDirectionHistory.length > 0 && (
+                      <div className="mt-2 space-y-1">
+                        <p className="text-[9px] text-textlight font-medium uppercase tracking-wider">Previous directions</p>
+                        {headlineDirectionHistory.map((d, i) => (
+                          <div key={i} className="flex items-start gap-1.5 text-[10px] text-textmid bg-navy/5 rounded-lg px-2.5 py-1.5">
+                            <span className="text-textlight font-medium flex-shrink-0">{i + 1}.</span>
+                            <span className="break-words">{d}</span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                    {/* Generate / Refine button */}
+                    <button
+                      onClick={handleGenerateHeadlines}
+                      disabled={generatingHeadlines || sidebarForm.primary_texts.filter(t => t.trim()).length === 0}
+                      className="mt-2 w-full py-2 rounded-lg bg-navy text-white hover:bg-navy-light transition-colors disabled:opacity-50 inline-flex items-center justify-center gap-1.5 text-[11px] font-medium"
+                      title={sidebarForm.primary_texts.filter(t => t.trim()).length === 0 ? 'Generate primary text first' : ''}
+                    >
+                      {generatingHeadlines ? (
+                        <>
+                          <svg className="w-3.5 h-3.5 animate-spin" viewBox="0 0 24 24" fill="none">
+                            <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                            <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                          </svg>
+                          {headlineThread.length > 0 ? 'Refining...' : 'Generating...'}
+                        </>
+                      ) : (
+                        <>
+                          <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                          </svg>
+                          {headlineThread.length > 0 ? 'Refine' : 'Generate'}
+                        </>
+                      )}
+                    </button>
+                  </div>
+
+                  {/* Divider */}
+                  {sidebarForm.ad_headlines.length > 0 && <div className="border-t border-gray-100" />}
+
                   {sidebarForm.ad_headlines.map((h, i) => (
                     <div key={i} className="flex items-center gap-2">
                       <span className="text-[10px] text-textlight font-medium w-4 flex-shrink-0">{i + 1}.</span>
@@ -1360,11 +1453,11 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
                       Add Headline
                     </button>
                   )}
-                  {sidebarForm.ad_headlines.length === 0 && (
+                  {sidebarForm.ad_headlines.length === 0 && !generatingHeadlines && (
                     <p className="text-[11px] text-textlight italic text-center py-2">
                       {sidebarForm.primary_texts.filter(t => t.trim()).length === 0
                         ? 'Generate primary text first, then generate headlines.'
-                        : 'No headlines yet. Click Generate or Add Headline.'}
+                        : 'No headlines yet. Click Generate above or Add Headline.'}
                     </p>
                   )}
                 </div>
