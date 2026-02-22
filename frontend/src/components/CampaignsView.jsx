@@ -228,7 +228,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
     if (!ids?.length) return;
 
     setDeployments(prev => prev.map(d =>
-      ids.includes(d.id) ? { ...d, local_campaign_id: campaignId, local_adset_id: adsetId, flex_ad_id: null } : d
+      ids.includes(d.id) ? { ...d, local_campaign_id: campaignId, local_adset_id: adsetId, flex_ad_id: '' } : d
     ));
     setSelectedUnplanned(new Set());
     setSelectedInAdSet(prev => {
@@ -267,7 +267,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
     // Optimistic update for deployments
     if (allDepIds.length > 0) {
       setDeployments(prev => prev.map(d =>
-        allDepIds.includes(d.id) ? { ...d, local_campaign_id: 'unplanned', local_adset_id: undefined, flex_ad_id: null } : d
+        allDepIds.includes(d.id) ? { ...d, local_campaign_id: 'unplanned', local_adset_id: '', flex_ad_id: '' } : d
       ));
     }
 
@@ -297,7 +297,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
     if (!ids?.length) return;
 
     setDeployments(prev => prev.map(d =>
-      ids.includes(d.id) ? { ...d, local_campaign_id: 'unplanned', local_adset_id: undefined, flex_ad_id: null } : d
+      ids.includes(d.id) ? { ...d, local_campaign_id: 'unplanned', local_adset_id: '', flex_ad_id: '' } : d
     ));
     dragIdsRef.current = null;
     setDragVisual(null);

@@ -354,7 +354,7 @@ router.delete('/deployments/campaigns/:id', async (req, res) => {
     const allDeps = await getAllDeployments();
     const linked = allDeps.filter(d => d.local_campaign_id === id || d.local_campaign_id === id);
     for (const dep of linked) {
-      await updateDeployment(dep.externalId, { local_campaign_id: 'unplanned', local_adset_id: undefined });
+      await updateDeployment(dep.externalId, { local_campaign_id: 'unplanned', local_adset_id: '', flex_ad_id: '' });
     }
     // Delete all ad sets
     for (const adSet of adSets) {
@@ -418,7 +418,7 @@ router.delete('/deployments/adsets/:id', async (req, res) => {
     const allDeps = await getAllDeployments();
     const linked = allDeps.filter(d => d.local_adset_id === id);
     for (const dep of linked) {
-      await updateDeployment(dep.externalId, { local_campaign_id: 'unplanned', local_adset_id: undefined });
+      await updateDeployment(dep.externalId, { local_campaign_id: 'unplanned', local_adset_id: '', flex_ad_id: '' });
     }
     await deleteAdSet(id);
     res.json({ success: true });
@@ -437,7 +437,7 @@ router.post('/deployments/move-to-unplanned', async (req, res) => {
     const { deploymentIds } = req.body;
     if (!deploymentIds?.length) return res.status(400).json({ error: 'deploymentIds required' });
     await Promise.all(deploymentIds.map(id =>
-      updateDeployment(id, { local_campaign_id: 'unplanned' })
+      updateDeployment(id, { local_campaign_id: 'unplanned', local_adset_id: '', flex_ad_id: '' })
     ));
     res.json({ success: true, count: deploymentIds.length });
   } catch (err) {
@@ -475,7 +475,7 @@ router.post('/deployments/unassign', async (req, res) => {
     const { deploymentIds } = req.body;
     if (!deploymentIds?.length) return res.status(400).json({ error: 'deploymentIds required' });
     await Promise.all(deploymentIds.map(id =>
-      updateDeployment(id, { local_campaign_id: 'unplanned', local_adset_id: undefined })
+      updateDeployment(id, { local_campaign_id: 'unplanned', local_adset_id: '', flex_ad_id: '' })
     ));
     res.json({ success: true, count: deploymentIds.length });
   } catch (err) {
@@ -605,7 +605,7 @@ router.delete('/deployments/flex-ads/:id', async (req, res) => {
     // Clear flex_ad_id from all child deployments
     const childIds = JSON.parse(flexAd.child_deployment_ids || '[]');
     await Promise.all(childIds.map(depId =>
-      updateDeployment(depId, { flex_ad_id: undefined })
+      updateDeployment(depId, { flex_ad_id: '' })
     ));
 
     await deleteFlexAd(id);
