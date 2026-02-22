@@ -595,6 +595,98 @@ export async function deleteAdSet(id) {
 }
 
 // =============================================
+// Flex Ad helpers
+// =============================================
+
+export async function getFlexAdsByProject(projectId) {
+  const flexAds = await queryWithRetry(api.flexAds.getByProject, { projectId });
+  return flexAds.map(f => ({
+    id: f.externalId,
+    project_id: f.project_id,
+    ad_set_id: f.ad_set_id,
+    name: f.name,
+    child_deployment_ids: f.child_deployment_ids,
+    primary_texts: f.primary_texts || null,
+    headlines: f.headlines || null,
+    destination_url: f.destination_url || null,
+    cta_button: f.cta_button || null,
+    created_at: f.created_at,
+    updated_at: f.updated_at,
+  }));
+}
+
+export async function getFlexAdsByAdSet(adSetId) {
+  const flexAds = await queryWithRetry(api.flexAds.getByAdSet, { adSetId });
+  return flexAds.map(f => ({
+    id: f.externalId,
+    project_id: f.project_id,
+    ad_set_id: f.ad_set_id,
+    name: f.name,
+    child_deployment_ids: f.child_deployment_ids,
+    primary_texts: f.primary_texts || null,
+    headlines: f.headlines || null,
+    destination_url: f.destination_url || null,
+    cta_button: f.cta_button || null,
+    created_at: f.created_at,
+    updated_at: f.updated_at,
+  }));
+}
+
+export async function getFlexAd(id) {
+  const f = await queryWithRetry(api.flexAds.getByExternalId, { externalId: id });
+  if (!f) return null;
+  return {
+    id: f.externalId,
+    project_id: f.project_id,
+    ad_set_id: f.ad_set_id,
+    name: f.name,
+    child_deployment_ids: f.child_deployment_ids,
+    primary_texts: f.primary_texts || null,
+    headlines: f.headlines || null,
+    destination_url: f.destination_url || null,
+    cta_button: f.cta_button || null,
+    created_at: f.created_at,
+    updated_at: f.updated_at,
+  };
+}
+
+export async function createFlexAd({ id, project_id, ad_set_id, name, child_deployment_ids }) {
+  const now = new Date().toISOString();
+  return await mutationWithRetry(api.flexAds.create, {
+    externalId: id,
+    project_id,
+    ad_set_id,
+    name,
+    child_deployment_ids: JSON.stringify(child_deployment_ids),
+    created_at: now,
+    updated_at: now,
+  });
+}
+
+export async function updateFlexAd(id, fields) {
+  return await mutationWithRetry(api.flexAds.update, { externalId: id, fields });
+}
+
+export async function deleteFlexAd(id) {
+  return await mutationWithRetry(api.flexAds.remove, { externalId: id });
+}
+
+// Duplicate a deployment (skips dedup guard)
+export async function createDeploymentDuplicate({ id, ad_id, project_id, status, ad_name, local_campaign_id, local_adset_id, flex_ad_id }) {
+  return await mutationWithRetry(api.ad_deployments.createWithoutDedup, {
+    externalId: id,
+    ad_id,
+    project_id,
+    status,
+    ...(ad_name ? { ad_name } : {}),
+    ...(local_campaign_id ? { local_campaign_id } : {}),
+    ...(local_adset_id ? { local_adset_id } : {}),
+    ...(flex_ad_id ? { flex_ad_id } : {}),
+    created_at: new Date().toISOString(),
+  });
+}
+
+// =============================================
 // Quote Mining Run helpers
 // =============================================
 

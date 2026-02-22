@@ -64,6 +64,30 @@ export const create = mutation({
   },
 });
 
+export const createWithoutDedup = mutation({
+  args: {
+    externalId: v.string(),
+    ad_id: v.string(),
+    project_id: v.string(),
+    status: v.string(),
+    campaign_name: v.optional(v.string()),
+    ad_set_name: v.optional(v.string()),
+    ad_name: v.optional(v.string()),
+    landing_page_url: v.optional(v.string()),
+    notes: v.optional(v.string()),
+    planned_date: v.optional(v.string()),
+    posted_date: v.optional(v.string()),
+    local_campaign_id: v.optional(v.string()),
+    local_adset_id: v.optional(v.string()),
+    flex_ad_id: v.optional(v.string()),
+    created_at: v.string(),
+  },
+  handler: async (ctx, args) => {
+    // No dedup guard — allows duplicating same ad_id
+    return await ctx.db.insert("ad_deployments", args);
+  },
+});
+
 export const update = mutation({
   args: {
     externalId: v.string(),
@@ -81,6 +105,11 @@ export const update = mutation({
       meta_ad_id: v.optional(v.string()),
       local_campaign_id: v.optional(v.string()),
       local_adset_id: v.optional(v.string()),
+      flex_ad_id: v.optional(v.string()),
+      primary_texts: v.optional(v.string()),
+      ad_headlines: v.optional(v.string()),
+      destination_url: v.optional(v.string()),
+      cta_button: v.optional(v.string()),
     }),
   },
   handler: async (ctx, args) => {

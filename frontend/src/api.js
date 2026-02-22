@@ -320,6 +320,24 @@ export const api = {
   assignToAdSet: (deploymentIds, campaignId, adsetId) => request('/deployments/assign-to-adset', { method: 'POST', body: JSON.stringify({ deploymentIds, campaignId, adsetId }) }),
   unassignFromAdSet: (deploymentIds) => request('/deployments/unassign', { method: 'POST', body: JSON.stringify({ deploymentIds }) }),
 
+  // Duplicate
+  duplicateDeployment: (id) => request(`/deployments/${id}/duplicate`, { method: 'POST' }),
+
+  // Flex Ads
+  getFlexAds: (projectId) => request(`/deployments/flex-ads?projectId=${projectId}`),
+  createFlexAd: (projectId, adSetId, name, deploymentIds) =>
+    request('/deployments/flex-ads', { method: 'POST', body: JSON.stringify({ projectId, adSetId, name, deploymentIds }) }),
+  updateFlexAd: (id, fields) =>
+    request(`/deployments/flex-ads/${id}`, { method: 'PUT', body: JSON.stringify(fields) }),
+  deleteFlexAd: (id) =>
+    request(`/deployments/flex-ads/${id}`, { method: 'DELETE' }),
+
+  // Primary Text & Headline Generation (sidebar)
+  generatePrimaryText: (deploymentId, flexAdId) =>
+    request(`/deployments/${deploymentId}/generate-primary-text`, { method: 'POST', body: JSON.stringify({ flexAdId }) }),
+  generateAdHeadlines: (deploymentId, primaryTexts, flexAdId) =>
+    request(`/deployments/${deploymentId}/generate-ad-headlines`, { method: 'POST', body: JSON.stringify({ primaryTexts, flexAdId }) }),
+
   // Quote Mining
   getQuoteMiningRuns: (projectId) => request(`/projects/${projectId}/quote-mining`),
   getQuoteMiningRun: (projectId, runId) => request(`/projects/${projectId}/quote-mining/${runId}`),

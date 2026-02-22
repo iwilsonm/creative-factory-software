@@ -5,6 +5,7 @@ import {
   getAllDeployments,
   getDeploymentsByProject,
   createDeployment,
+  createDeploymentDuplicate,
   updateDeployment,
   updateDeploymentStatus,
   deleteDeployment,
@@ -12,6 +13,7 @@ import {
   getAllAds,
   getAdImageUrl,
   getProject,
+  getLatestDoc,
   getCampaignsByProject,
   createCampaign,
   updateCampaign,
@@ -21,9 +23,15 @@ import {
   createAdSet,
   updateAdSet,
   deleteAdSet,
+  getFlexAdsByProject,
+  getFlexAd,
+  createFlexAd,
+  updateFlexAd,
+  deleteFlexAd,
   convexClient,
   api,
 } from '../convexClient.js';
+import { chat as claudeChat } from '../services/anthropic.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -65,12 +73,18 @@ router.get('/deployments', async (req, res) => {
             angle: ad.angle,
             headline: ad.headline,
             body_copy: ad.body_copy,
+            image_prompt: ad.image_prompt,
             aspect_ratio: ad.aspect_ratio,
             generation_mode: ad.generation_mode,
             tags: ad.tags || [],
           } : null,
           imageUrl,
           projectName,
+          flex_ad_id: dep.flex_ad_id || null,
+          primary_texts: dep.primary_texts || null,
+          ad_headlines: dep.ad_headlines || null,
+          destination_url: dep.destination_url || null,
+          cta_button: dep.cta_button || null,
         };
       })
     );
@@ -153,6 +167,8 @@ router.put('/deployments/:id', async (req, res) => {
       'campaign_name', 'ad_set_name', 'ad_name',
       'landing_page_url', 'notes', 'planned_date', 'posted_date',
       'local_campaign_id', 'local_adset_id',
+      'flex_ad_id', 'primary_texts', 'ad_headlines',
+      'destination_url', 'cta_button',
     ];
 
     const fields = {};
@@ -465,6 +481,355 @@ router.post('/deployments/unassign', async (req, res) => {
   } catch (err) {
     console.error('Failed to unassign:', err);
     res.status(500).json({ error: 'Failed to unassign' });
+  }
+});
+
+// =============================================
+// Duplicate a deployment
+// =============================================
+
+/**
+ * POST /deployments/:id/duplicate — Clone a deployment (same ad_id, same ad set)
+ */
+router.post('/deployments/:id/duplicate', async (req, res) => {
+  try {
+    const { id } = req.params;
+    // Look up source deployment
+    const allDeps = await getAllDeployments();
+    const source = allDeps.find(d => d.externalId === id);
+    if (!source) return res.status(404).json({ error: 'Deployment not found' });
+
+    // Look up the ad for naming
+    let ad;
+    try { ad = await getAd(source.ad_id); } catch {}
+
+    const newId = crypto.randomUUID();
+    const adName = (source.ad_name || ad?.headline || ad?.angle || 'Ad') + ' (Copy)';
+
+    await createDeploymentDuplicate({
+      id: newId,
+      ad_id: source.ad_id,
+      project_id: source.project_id,
+      status: source.status || 'selected',
+      ad_name: adName,
+      local_campaign_id: source.local_campaign_id,
+      local_adset_id: source.local_adset_id,
+    });
+
+    res.json({ success: true, id: newId });
+  } catch (err) {
+    console.error('Failed to duplicate deployment:', err);
+    res.status(500).json({ error: 'Failed to duplicate deployment' });
+  }
+});
+
+// =============================================
+// Flex Ad CRUD
+// =============================================
+
+/**
+ * GET /deployments/flex-ads?projectId=xxx — List flex ads
+ */
+router.get('/deployments/flex-ads', async (req, res) => {
+  try {
+    const { projectId } = req.query;
+    if (!projectId) return res.status(400).json({ error: 'projectId required' });
+    const flexAds = await getFlexAdsByProject(projectId);
+    res.json({ flexAds });
+  } catch (err) {
+    console.error('Failed to list flex ads:', err);
+    res.status(500).json({ error: 'Failed to list flex ads' });
+  }
+});
+
+/**
+ * POST /deployments/flex-ads — Create flex ad
+ * Body: { projectId, adSetId, name, deploymentIds: string[] }
+ */
+router.post('/deployments/flex-ads', async (req, res) => {
+  try {
+    const { projectId, adSetId, name, deploymentIds } = req.body;
+    if (!projectId || !adSetId || !deploymentIds?.length) {
+      return res.status(400).json({ error: 'projectId, adSetId, and deploymentIds required' });
+    }
+    if (deploymentIds.length > 10) {
+      return res.status(400).json({ error: 'Maximum 10 ads per Flex ad' });
+    }
+
+    const id = crypto.randomUUID();
+    const flexName = name || `Flex Ad (${deploymentIds.length} images)`;
+
+    await createFlexAd({ id, project_id: projectId, ad_set_id: adSetId, name: flexName, child_deployment_ids: deploymentIds });
+
+    // Update each child deployment with flex_ad_id
+    await Promise.all(deploymentIds.map(depId =>
+      updateDeployment(depId, { flex_ad_id: id })
+    ));
+
+    res.json({ success: true, id });
+  } catch (err) {
+    console.error('Failed to create flex ad:', err);
+    res.status(500).json({ error: 'Failed to create flex ad' });
+  }
+});
+
+/**
+ * PUT /deployments/flex-ads/:id — Update flex ad fields
+ */
+router.put('/deployments/flex-ads/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const allowed = ['name', 'child_deployment_ids', 'primary_texts', 'headlines', 'destination_url', 'cta_button'];
+    const fields = {};
+    for (const key of allowed) {
+      if (req.body[key] !== undefined) fields[key] = req.body[key];
+    }
+    if (Object.keys(fields).length === 0) return res.status(400).json({ error: 'No valid fields' });
+    await updateFlexAd(id, fields);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Failed to update flex ad:', err);
+    res.status(500).json({ error: 'Failed to update flex ad' });
+  }
+});
+
+/**
+ * DELETE /deployments/flex-ads/:id — Delete flex ad (clears flex_ad_id from children)
+ */
+router.delete('/deployments/flex-ads/:id', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const flexAd = await getFlexAd(id);
+    if (!flexAd) return res.status(404).json({ error: 'Flex ad not found' });
+
+    // Clear flex_ad_id from all child deployments
+    const childIds = JSON.parse(flexAd.child_deployment_ids || '[]');
+    await Promise.all(childIds.map(depId =>
+      updateDeployment(depId, { flex_ad_id: undefined })
+    ));
+
+    await deleteFlexAd(id);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Failed to delete flex ad:', err);
+    res.status(500).json({ error: 'Failed to delete flex ad' });
+  }
+});
+
+// =============================================
+// AI Generation: Primary Text & Headlines
+// =============================================
+
+/**
+ * POST /deployments/:id/generate-primary-text — AI-generate primary text
+ * Body: { flexAdId?: string }
+ */
+router.post('/deployments/:id/generate-primary-text', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { flexAdId } = req.body;
+
+    // Get the deployment to find project_id
+    const allDeps = await getAllDeployments();
+    const dep = allDeps.find(d => d.externalId === id);
+    if (!dep) return res.status(404).json({ error: 'Deployment not found' });
+
+    const projectId = dep.project_id;
+    const project = await getProject(projectId);
+    if (!project) return res.status(404).json({ error: 'Project not found' });
+
+    // Load foundational docs
+    const [avatar, offer_brief, research, beliefs] = await Promise.all([
+      getLatestDoc(projectId, 'avatar'),
+      getLatestDoc(projectId, 'offer_brief'),
+      getLatestDoc(projectId, 'research'),
+      getLatestDoc(projectId, 'necessary_beliefs'),
+    ]);
+
+    const avatarSnippet = (avatar?.content || '').slice(0, 2000);
+    const offerSnippet = (offer_brief?.content || '').slice(0, 1500);
+    const researchSnippet = (research?.content || '').slice(0, 1500);
+    const beliefsSnippet = (beliefs?.content || '').slice(0, 1000);
+
+    if (!avatarSnippet && !offerSnippet) {
+      return res.status(400).json({ error: 'Generate foundational docs first.' });
+    }
+
+    // Build creative context from ad(s)
+    let creativeContext = '';
+    if (flexAdId) {
+      const flexAd = await getFlexAd(flexAdId);
+      if (flexAd) {
+        const childIds = JSON.parse(flexAd.child_deployment_ids || '[]');
+        const childAds = [];
+        for (const cid of childIds) {
+          const childDep = allDeps.find(d => d.externalId === cid);
+          if (childDep) {
+            try {
+              const ad = await getAd(childDep.ad_id);
+              if (ad) childAds.push(ad);
+            } catch {}
+          }
+        }
+        creativeContext = childAds.map((ad, i) => `
+IMAGE ${i + 1}:
+Angle: ${ad.angle || 'N/A'}
+Headline: ${ad.headline || 'N/A'}
+Body Copy: ${ad.body_copy || 'N/A'}`).join('\n');
+      }
+    } else {
+      try {
+        const ad = await getAd(dep.ad_id);
+        if (ad) {
+          creativeContext = `
+Angle: ${ad.angle || 'N/A'}
+Headline: ${ad.headline || 'N/A'}
+Body Copy: ${ad.body_copy || 'N/A'}
+Image Prompt: ${(ad.image_prompt || '').slice(0, 500)}`;
+        }
+      } catch {}
+    }
+
+    const result = await claudeChat([{
+      role: 'user',
+      content: `You are a world-class direct response copywriter writing Facebook ad primary text (the text that appears ABOVE the ad image).
+
+BRAND: ${project.brand_name || project.name}
+PRODUCT: ${project.product_description || ''}
+
+AVATAR (excerpt):
+${avatarSnippet}
+
+OFFER BRIEF (excerpt):
+${offerSnippet}
+
+${researchSnippet ? `RESEARCH (excerpt):\n${researchSnippet}\n` : ''}
+${beliefsSnippet ? `NECESSARY BELIEFS (excerpt):\n${beliefsSnippet}\n` : ''}
+
+AD CREATIVE INFO:
+${creativeContext}
+
+Write 3 variations of Facebook ad primary text. Each should:
+- Be 2-4 sentences long
+- Sound conversational and natural, not like marketing copy
+- Hook the reader in the first sentence
+- Speak directly to the target audience's pain points and desires
+- Create curiosity that drives clicks to learn more
+- ${flexAdId ? 'Work well with multiple creative images that rotate' : 'Align with the specific ad creative described above'}
+
+Return ONLY a JSON object: { "primary_texts": ["text1", "text2", "text3"] }`,
+    }], 'claude-sonnet-4-6', {
+      max_tokens: 2048,
+      operation: 'primary_text_generation',
+      projectId,
+    });
+
+    // Parse JSON response
+    let primaryTexts = [];
+    try {
+      const parsed = JSON.parse(result);
+      primaryTexts = parsed.primary_texts || [];
+    } catch {
+      // Try to extract JSON from response
+      const match = result.match(/\{[\s\S]*"primary_texts"[\s\S]*\}/);
+      if (match) {
+        try {
+          const parsed = JSON.parse(match[0]);
+          primaryTexts = parsed.primary_texts || [];
+        } catch {}
+      }
+      if (primaryTexts.length === 0) {
+        primaryTexts = [result.trim()];
+      }
+    }
+
+    res.json({ primary_texts: primaryTexts });
+  } catch (err) {
+    console.error('Failed to generate primary text:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * POST /deployments/:id/generate-ad-headlines — AI-generate headlines from primary text
+ * Body: { primaryTexts: string[], flexAdId?: string }
+ */
+router.post('/deployments/:id/generate-ad-headlines', async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { primaryTexts, flexAdId } = req.body;
+
+    if (!primaryTexts?.length) {
+      return res.status(400).json({ error: 'primaryTexts required' });
+    }
+
+    // Get the deployment to find project_id
+    const allDeps = await getAllDeployments();
+    const dep = allDeps.find(d => d.externalId === id);
+    if (!dep) return res.status(404).json({ error: 'Deployment not found' });
+
+    const projectId = dep.project_id;
+    const project = await getProject(projectId);
+
+    const [avatar, offer_brief] = await Promise.all([
+      getLatestDoc(projectId, 'avatar'),
+      getLatestDoc(projectId, 'offer_brief'),
+    ]);
+
+    const avatarSnippet = (avatar?.content || '').slice(0, 1500);
+    const offerSnippet = (offer_brief?.content || '').slice(0, 1000);
+
+    const result = await claudeChat([{
+      role: 'user',
+      content: `You are a world-class direct response copywriter writing Facebook ad headlines (the short text that appears BELOW the ad image in the link preview area).
+
+BRAND: ${project?.brand_name || project?.name || ''}
+
+AVATAR (excerpt):
+${avatarSnippet}
+
+OFFER BRIEF (excerpt):
+${offerSnippet}
+
+PRIMARY TEXT VARIATIONS (what appears above the image):
+${primaryTexts.map((t, i) => `${i + 1}. ${t}`).join('\n')}
+
+Write 5 punchy headlines that:
+- Are under 10 words each
+- Align with and complement the primary text above
+- Drive curiosity and clicks
+- Sound natural, not salesy
+- Each has a different angle or emphasis
+
+Return ONLY a JSON object: { "headlines": ["h1", "h2", "h3", "h4", "h5"] }`,
+    }], 'claude-sonnet-4-6', {
+      max_tokens: 1024,
+      operation: 'ad_headline_generation_sidebar',
+      projectId,
+    });
+
+    // Parse JSON response
+    let headlines = [];
+    try {
+      const parsed = JSON.parse(result);
+      headlines = parsed.headlines || [];
+    } catch {
+      const match = result.match(/\{[\s\S]*"headlines"[\s\S]*\}/);
+      if (match) {
+        try {
+          const parsed = JSON.parse(match[0]);
+          headlines = parsed.headlines || [];
+        } catch {}
+      }
+      if (headlines.length === 0) {
+        headlines = [result.trim()];
+      }
+    }
+
+    res.json({ headlines });
+  } catch (err) {
+    console.error('Failed to generate ad headlines:', err);
+    res.status(500).json({ error: err.message });
   }
 });
 

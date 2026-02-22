@@ -1,5 +1,11 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { api } from '../api';
+
+const CTA_OPTIONS = [
+  'SHOP_NOW', 'LEARN_MORE', 'SIGN_UP', 'BOOK_NOW', 'CONTACT_US',
+  'DOWNLOAD', 'GET_QUOTE', 'SUBSCRIBE', 'ORDER_NOW', 'WATCH_MORE',
+  'LISTEN_NOW', 'APPLY_NOW', 'GET_OFFER', 'NO_BUTTON',
+];
 
 /**
  * CampaignsView — Organises deployments into campaigns and ad sets.
@@ -8,31 +14,50 @@ import { api } from '../api';
  *   Top:    "Unplanned" holding area (deployments with local_campaign_id === 'unplanned')
  *   Bottom: Campaigns list with nested ad sets (each ad set is a drop zone)
  *
+ * Features:
+ *   - Drag & drop from Unplanned → ad sets
+ *   - Duplicate ads within ad sets
+ *   - Combine multiple ads into Flex ads
+ *   - Detail sidebar with AI-generated primary text + headlines, destination URL, CTA
+ *
  * Props:
  *   projectId, deployments, setDeployments, addToast, loadDeployments
  */
 export default function CampaignsView({ projectId, deployments, setDeployments, addToast, loadDeployments }) {
   const [campaigns, setCampaigns] = useState([]);
   const [adSets, setAdSets] = useState([]);
+  const [flexAds, setFlexAds] = useState([]);
   const [loading, setLoading] = useState(true);
 
   // Inline editing
-  const [editingCampaign, setEditingCampaign] = useState(null); // { id, name }
-  const [editingAdSet, setEditingAdSet] = useState(null); // { id, name }
+  const [editingCampaign, setEditingCampaign] = useState(null);
+  const [editingAdSet, setEditingAdSet] = useState(null);
   const [newCampaignName, setNewCampaignName] = useState('');
   const [creatingCampaign, setCreatingCampaign] = useState(false);
-  const [addingAdSetFor, setAddingAdSetFor] = useState(null); // campaign id
+  const [addingAdSetFor, setAddingAdSetFor] = useState(null);
   const [newAdSetName, setNewAdSetName] = useState('');
 
   // Drag state
-  const [dragIds, setDragIds] = useState(null); // deployment IDs being dragged
-  const [dropTarget, setDropTarget] = useState(null); // ad set id being hovered
+  const [dragIds, setDragIds] = useState(null);
+  const [dropTarget, setDropTarget] = useState(null);
 
   // Selection for unplanned
   const [selectedUnplanned, setSelectedUnplanned] = useState(new Set());
 
+  // Selection within ad sets (for combining into flex)
+  const [selectedInAdSet, setSelectedInAdSet] = useState({});
+
   // Collapsed campaigns
   const [collapsed, setCollapsed] = useState(new Set());
+
+  // Detail sidebar
+  const [sidebarData, setSidebarData] = useState(null);
+  const [sidebarForm, setSidebarForm] = useState({
+    destination_url: '', cta_button: 'LEARN_MORE', primary_texts: [], ad_headlines: [],
+  });
+  const [generatingPrimaryText, setGeneratingPrimaryText] = useState(false);
+  const [generatingHeadlines, setGeneratingHeadlines] = useState(false);
+  const [sidebarSaving, setSidebarSaving] = useState(false);
 
   const campaignInputRef = useRef(null);
   const adSetInputRef = useRef(null);
@@ -44,9 +69,13 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
   const loadCampaignData = async () => {
     setLoading(true);
     try {
-      const data = await api.getCampaigns(projectId);
-      setCampaigns(data.campaigns || []);
-      setAdSets(data.adSets || []);
+      const [campData, flexData] = await Promise.all([
+        api.getCampaigns(projectId),
+        api.getFlexAds(projectId),
+      ]);
+      setCampaigns(campData.campaigns || []);
+      setAdSets(campData.adSets || []);
+      setFlexAds(flexData.flexAds || []);
     } catch { /* ignore */ }
     setLoading(false);
   };
@@ -57,17 +86,18 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
   const getCampaignAdSets = (campaignId) =>
     adSets.filter(a => a.campaign_id === campaignId).sort((a, b) => a.sort_order - b.sort_order);
   const sortedCampaigns = [...campaigns].sort((a, b) => a.sort_order - b.sort_order);
+  const getAdSetFlexAds = (adsetId) => flexAds.filter(f => f.ad_set_id === adsetId);
 
   // ─── Campaign CRUD ──────────────────────────────────────────────────────
   const handleCreateCampaign = async () => {
     if (!newCampaignName.trim()) return;
     try {
-      const result = await api.createCampaign(projectId, newCampaignName.trim());
+      await api.createCampaign(projectId, newCampaignName.trim());
       setNewCampaignName('');
       setCreatingCampaign(false);
       await loadCampaignData();
       addToast('Campaign created', 'success');
-    } catch (err) {
+    } catch {
       addToast('Failed to create campaign', 'error');
     }
   };
@@ -78,7 +108,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
       await api.updateCampaign(id, { name: name.trim() });
       setCampaigns(prev => prev.map(c => c.id === id ? { ...c, name: name.trim() } : c));
       setEditingCampaign(null);
-    } catch (err) {
+    } catch {
       addToast('Failed to rename campaign', 'error');
     }
   };
@@ -89,7 +119,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
       await loadCampaignData();
       await loadDeployments();
       addToast('Campaign deleted', 'success');
-    } catch (err) {
+    } catch {
       addToast('Failed to delete campaign', 'error');
     }
   };
@@ -103,7 +133,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
       setAddingAdSetFor(null);
       await loadCampaignData();
       addToast('Ad set created', 'success');
-    } catch (err) {
+    } catch {
       addToast('Failed to create ad set', 'error');
     }
   };
@@ -114,7 +144,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
       await api.updateAdSet(id, { name: name.trim() });
       setAdSets(prev => prev.map(a => a.id === id ? { ...a, name: name.trim() } : a));
       setEditingAdSet(null);
-    } catch (err) {
+    } catch {
       addToast('Failed to rename ad set', 'error');
     }
   };
@@ -125,17 +155,25 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
       await loadCampaignData();
       await loadDeployments();
       addToast('Ad set deleted', 'success');
-    } catch (err) {
+    } catch {
       addToast('Failed to delete ad set', 'error');
     }
   };
 
   // ─── Drag & Drop ───────────────────────────────────────────────────────
-  const handleDragStart = (e, depId) => {
-    // If the dragged card is selected, drag all selected; otherwise just this one
-    const ids = selectedUnplanned.has(depId) && selectedUnplanned.size > 0
-      ? [...selectedUnplanned]
-      : [depId];
+  const handleDragStart = (e, depId, fromAdSet = false) => {
+    let ids;
+    if (fromAdSet) {
+      // If dragging from within an ad set, check per-adset selection
+      const dep = deployments.find(d => d.id === depId);
+      const asId = dep?.local_adset_id;
+      const sel = selectedInAdSet[asId];
+      ids = sel?.has(depId) && sel.size > 0 ? [...sel] : [depId];
+    } else {
+      ids = selectedUnplanned.has(depId) && selectedUnplanned.size > 0
+        ? [...selectedUnplanned]
+        : [depId];
+    }
     setDragIds(ids);
     e.dataTransfer.setData('text/plain', JSON.stringify({ deploymentIds: ids }));
     e.dataTransfer.effectAllowed = 'move';
@@ -152,8 +190,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
     setDropTarget(adsetId);
   };
 
-  const handleDragLeave = (e, adsetId) => {
-    // Only clear if we actually left this element (not entering a child)
+  const handleDragLeave = (e) => {
     if (!e.currentTarget.contains(e.relatedTarget)) {
       setDropTarget(null);
     }
@@ -169,35 +206,37 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
     } catch { return; }
     if (!ids?.length) return;
 
-    // Optimistic update
     setDeployments(prev => prev.map(d =>
-      ids.includes(d.id) ? { ...d, local_campaign_id: campaignId, local_adset_id: adsetId } : d
+      ids.includes(d.id) ? { ...d, local_campaign_id: campaignId, local_adset_id: adsetId, flex_ad_id: null } : d
     ));
     setSelectedUnplanned(new Set());
+    setSelectedInAdSet(prev => {
+      const next = { ...prev };
+      Object.keys(next).forEach(k => { next[k] = new Set([...next[k]].filter(id => !ids.includes(id))); });
+      return next;
+    });
     setDragIds(null);
 
     try {
       await api.assignToAdSet(ids, campaignId, adsetId);
-    } catch (err) {
+    } catch {
       addToast('Failed to assign ads', 'error');
-      loadDeployments(); // revert
+      loadDeployments();
     }
   };
 
   const handleUnassign = async (depIds) => {
-    // Optimistic
     setDeployments(prev => prev.map(d =>
-      depIds.includes(d.id) ? { ...d, local_campaign_id: 'unplanned', local_adset_id: undefined } : d
+      depIds.includes(d.id) ? { ...d, local_campaign_id: 'unplanned', local_adset_id: undefined, flex_ad_id: null } : d
     ));
     try {
       await api.unassignFromAdSet(depIds);
-    } catch (err) {
+    } catch {
       addToast('Failed to unassign', 'error');
       loadDeployments();
     }
   };
 
-  // Also allow dropping back onto the Unplanned zone
   const handleDropOnUnplanned = async (e) => {
     e.preventDefault();
     setDropTarget(null);
@@ -209,16 +248,143 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
     if (!ids?.length) return;
 
     setDeployments(prev => prev.map(d =>
-      ids.includes(d.id) ? { ...d, local_campaign_id: 'unplanned', local_adset_id: undefined } : d
+      ids.includes(d.id) ? { ...d, local_campaign_id: 'unplanned', local_adset_id: undefined, flex_ad_id: null } : d
     ));
     setDragIds(null);
 
     try {
       await api.unassignFromAdSet(ids);
-    } catch (err) {
+    } catch {
       addToast('Failed to move to unplanned', 'error');
       loadDeployments();
     }
+  };
+
+  // ─── Duplicate ──────────────────────────────────────────────────────────
+  const handleDuplicate = async (depId) => {
+    try {
+      await api.duplicateDeployment(depId);
+      await loadDeployments();
+      addToast('Ad duplicated', 'success');
+    } catch {
+      addToast('Failed to duplicate', 'error');
+    }
+  };
+
+  // ─── Flex Ad operations ─────────────────────────────────────────────────
+  const handleCombineIntoFlex = async (adSetId) => {
+    const selected = [...(selectedInAdSet[adSetId] || [])];
+    if (selected.length < 2) return;
+    const name = `Flex Ad (${selected.length} images)`;
+    try {
+      await api.createFlexAd(projectId, adSetId, name, selected);
+      setSelectedInAdSet(prev => ({ ...prev, [adSetId]: new Set() }));
+      await Promise.all([loadCampaignData(), loadDeployments()]);
+      addToast('Flex ad created', 'success');
+    } catch {
+      addToast('Failed to create flex ad', 'error');
+    }
+  };
+
+  const handleDeleteFlexAd = async (flexAdId) => {
+    try {
+      await api.deleteFlexAd(flexAdId);
+      await Promise.all([loadCampaignData(), loadDeployments()]);
+      addToast('Flex ad ungrouped', 'success');
+    } catch {
+      addToast('Failed to delete flex ad', 'error');
+    }
+  };
+
+  // ─── Sidebar ────────────────────────────────────────────────────────────
+  const openSidebar = (data) => {
+    setSidebarData(data);
+    if (data.type === 'single') {
+      const dep = data.deployment;
+      setSidebarForm({
+        destination_url: dep.destination_url || dep.landing_page_url || '',
+        cta_button: dep.cta_button || 'LEARN_MORE',
+        primary_texts: dep.primary_texts ? JSON.parse(dep.primary_texts) : [],
+        ad_headlines: dep.ad_headlines ? JSON.parse(dep.ad_headlines) : [],
+      });
+    } else {
+      const flex = data.flexAd;
+      setSidebarForm({
+        destination_url: flex.destination_url || '',
+        cta_button: flex.cta_button || 'LEARN_MORE',
+        primary_texts: flex.primary_texts ? JSON.parse(flex.primary_texts) : [],
+        ad_headlines: flex.headlines ? JSON.parse(flex.headlines) : [],
+      });
+    }
+  };
+
+  const closeSidebar = () => setSidebarData(null);
+
+  // Close sidebar on Escape
+  useEffect(() => {
+    const handleKeyDown = (e) => {
+      if (e.key === 'Escape' && sidebarData) closeSidebar();
+    };
+    document.addEventListener('keydown', handleKeyDown);
+    return () => document.removeEventListener('keydown', handleKeyDown);
+  }, [sidebarData]);
+
+  const handleGeneratePrimaryText = async () => {
+    setGeneratingPrimaryText(true);
+    try {
+      const depId = sidebarData.type === 'single'
+        ? sidebarData.deployment.id
+        : sidebarData.deps[0]?.id;
+      const flexAdId = sidebarData.type === 'flex' ? sidebarData.flexAd.id : undefined;
+      const result = await api.generatePrimaryText(depId, flexAdId);
+      setSidebarForm(prev => ({ ...prev, primary_texts: result.primary_texts || [] }));
+      addToast('Primary text generated', 'success');
+    } catch {
+      addToast('Failed to generate primary text', 'error');
+    }
+    setGeneratingPrimaryText(false);
+  };
+
+  const handleGenerateHeadlines = async () => {
+    setGeneratingHeadlines(true);
+    try {
+      const depId = sidebarData.type === 'single'
+        ? sidebarData.deployment.id
+        : sidebarData.deps[0]?.id;
+      const flexAdId = sidebarData.type === 'flex' ? sidebarData.flexAd.id : undefined;
+      const result = await api.generateAdHeadlines(depId, sidebarForm.primary_texts, flexAdId);
+      setSidebarForm(prev => ({ ...prev, ad_headlines: result.headlines || [] }));
+      addToast('Headlines generated', 'success');
+    } catch {
+      addToast('Failed to generate headlines', 'error');
+    }
+    setGeneratingHeadlines(false);
+  };
+
+  const handleSaveSidebar = async () => {
+    setSidebarSaving(true);
+    try {
+      if (sidebarData.type === 'single') {
+        await api.updateDeployment(sidebarData.deployment.id, {
+          primary_texts: JSON.stringify(sidebarForm.primary_texts),
+          ad_headlines: JSON.stringify(sidebarForm.ad_headlines),
+          destination_url: sidebarForm.destination_url,
+          cta_button: sidebarForm.cta_button,
+        });
+      } else {
+        await api.updateFlexAd(sidebarData.flexAd.id, {
+          primary_texts: JSON.stringify(sidebarForm.primary_texts),
+          headlines: JSON.stringify(sidebarForm.ad_headlines),
+          destination_url: sidebarForm.destination_url,
+          cta_button: sidebarForm.cta_button,
+        });
+      }
+      await loadDeployments();
+      addToast('Saved', 'success');
+    } catch {
+      addToast('Failed to save', 'error');
+    }
+    setSidebarSaving(false);
   };
 
   // Focus inputs when they appear
@@ -229,44 +395,63 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
     if (addingAdSetFor && adSetInputRef.current) adSetInputRef.current.focus();
   }, [addingAdSetFor]);
 
-  // ─── Thumbnail helper ──────────────────────────────────────────────────
-  const DepCard = ({ dep, draggable = false, showUnassign = false }) => {
+  // ─── Toggle ad set selection ────────────────────────────────────────────
+  const toggleAdSetSelect = (adsetId, depId) => {
+    setSelectedInAdSet(prev => {
+      const current = new Set(prev[adsetId] || []);
+      if (current.has(depId)) current.delete(depId); else current.add(depId);
+      return { ...prev, [adsetId]: current };
+    });
+  };
+
+  // ─── DepCard ────────────────────────────────────────────────────────────
+  const DepCard = ({ dep, draggable = false, inAdSet = false, adsetId = null }) => {
     const name = dep.ad?.headline || dep.ad?.angle || dep.ad_name || `Ad ${(dep.id || '').slice(0, 6)}`;
     const thumbUrl = dep.imageUrl;
     const isDragging = dragIds?.includes(dep.id);
+    const isSelectedUnplanned = selectedUnplanned.has(dep.id);
+    const isSelectedInAdSet = inAdSet && selectedInAdSet[adsetId]?.has(dep.id);
+    const isSelected = inAdSet ? isSelectedInAdSet : isSelectedUnplanned;
 
     return (
       <div
         draggable={draggable}
-        onDragStart={draggable ? (e) => handleDragStart(e, dep.id) : undefined}
+        onDragStart={draggable ? (e) => handleDragStart(e, dep.id, inAdSet) : undefined}
         onDragEnd={draggable ? handleDragEnd : undefined}
-        className={`relative group flex items-center gap-2.5 p-2 rounded-xl border transition-all cursor-grab active:cursor-grabbing ${
+        onClick={inAdSet ? () => openSidebar({ type: 'single', deployment: dep, ad: dep.ad }) : undefined}
+        className={`relative group flex items-center gap-2.5 p-2 rounded-xl border transition-all ${
+          inAdSet ? 'cursor-pointer' : 'cursor-grab active:cursor-grabbing'
+        } ${
           isDragging ? 'opacity-40 border-navy/30 bg-navy/5' :
-          selectedUnplanned.has(dep.id) ? 'border-navy/40 bg-navy/5' :
+          isSelected ? 'border-navy/40 bg-navy/5' :
           'border-gray-200 bg-white hover:border-navy/20 hover:shadow-sm'
         }`}
       >
-        {draggable && (
-          <button
-            onClick={(e) => {
-              e.stopPropagation();
+        {/* Checkbox */}
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            if (inAdSet) {
+              toggleAdSetSelect(adsetId, dep.id);
+            } else {
               setSelectedUnplanned(prev => {
                 const next = new Set(prev);
                 if (next.has(dep.id)) next.delete(dep.id); else next.add(dep.id);
                 return next;
               });
-            }}
-            className={`w-[14px] h-[14px] rounded flex-shrink-0 flex items-center justify-center transition-colors ${
-              selectedUnplanned.has(dep.id) ? 'bg-navy' : 'border-[1.5px] border-textlight/60 hover:border-navy/40'
-            }`}
-          >
-            {selectedUnplanned.has(dep.id) && (
-              <svg className="w-2 h-2 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-              </svg>
-            )}
-          </button>
-        )}
+            }
+          }}
+          className={`w-[14px] h-[14px] rounded flex-shrink-0 flex items-center justify-center transition-colors ${
+            isSelected ? 'bg-navy' : 'border-[1.5px] border-textlight/60 hover:border-navy/40'
+          }`}
+        >
+          {isSelected && (
+            <svg className="w-2 h-2 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+            </svg>
+          )}
+        </button>
+
         {thumbUrl ? (
           <img src={thumbUrl} alt="" className="w-10 h-10 object-cover rounded-lg bg-gray-100 flex-shrink-0" loading="lazy" />
         ) : (
@@ -278,18 +463,310 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
             <div className="text-[10px] text-textlight truncate mt-0.5">{dep.ad.body_copy}</div>
           )}
         </div>
-        {showUnassign && (
+
+        {/* Action buttons on hover */}
+        <div className="opacity-0 group-hover:opacity-100 flex items-center gap-0.5 flex-shrink-0 transition-opacity">
+          {inAdSet && (
+            <button
+              onClick={(e) => { e.stopPropagation(); handleDuplicate(dep.id); }}
+              className="p-1 rounded-lg hover:bg-navy/10 text-textlight hover:text-navy transition-colors"
+              title="Duplicate"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+              </svg>
+            </button>
+          )}
+          {inAdSet && (
+            <button
+              onClick={(e) => { e.stopPropagation(); handleUnassign([dep.id]); }}
+              className="p-1 rounded-lg hover:bg-red-50 text-textlight hover:text-red-500 transition-colors"
+              title="Move back to Unplanned"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  // ─── FlexAdCard ─────────────────────────────────────────────────────────
+  const FlexAdCard = ({ flexAd }) => {
+    const childIds = JSON.parse(flexAd.child_deployment_ids || '[]');
+    const childDeps = childIds.map(id => deployments.find(d => d.id === id)).filter(Boolean);
+
+    return (
+      <div
+        onClick={() => openSidebar({ type: 'flex', flexAd, deps: childDeps })}
+        className="relative group p-2.5 rounded-xl border border-navy/20 bg-navy/5 hover:border-navy/30 hover:shadow-sm transition-all cursor-pointer"
+      >
+        <div className="flex items-center gap-2 mb-2">
+          <span className="text-[9px] font-bold text-white bg-navy px-1.5 py-0.5 rounded tracking-wide">FLEX</span>
+          <span className="text-[12px] font-medium text-textdark truncate flex-1">{flexAd.name}</span>
+          <span className="text-[10px] text-textlight">{childDeps.length} img{childDeps.length !== 1 ? 's' : ''}</span>
+        </div>
+        <div className="grid grid-cols-3 gap-1">
+          {childDeps.slice(0, 6).map(dep => (
+            dep.imageUrl ? (
+              <img key={dep.id} src={dep.imageUrl} alt="" className="w-full aspect-square object-cover rounded-md bg-gray-100" loading="lazy" />
+            ) : (
+              <div key={dep.id} className="w-full aspect-square rounded-md bg-gray-200" />
+            )
+          ))}
+          {childDeps.length > 6 && (
+            <div className="w-full aspect-square rounded-md bg-gray-200 flex items-center justify-center text-[10px] text-textlight">
+              +{childDeps.length - 6}
+            </div>
+          )}
+        </div>
+        {/* Hover actions */}
+        <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 flex items-center gap-1 transition-opacity">
           <button
-            onClick={() => handleUnassign([dep.id])}
-            className="opacity-0 group-hover:opacity-100 p-1 rounded-lg hover:bg-red-50 text-textlight hover:text-red-500 transition-all flex-shrink-0"
-            title="Move back to Unplanned"
+            onClick={(e) => { e.stopPropagation(); handleDeleteFlexAd(flexAd.id); }}
+            className="p-1 rounded-lg bg-white/80 hover:bg-red-50 text-textlight hover:text-red-500 transition-colors shadow-sm"
+            title="Ungroup Flex Ad"
           >
             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
             </svg>
           </button>
-        )}
+        </div>
       </div>
+    );
+  };
+
+  // ─── Detail Sidebar ─────────────────────────────────────────────────────
+  const renderSidebar = () => {
+    if (!sidebarData) return null;
+    const isFlex = sidebarData.type === 'flex';
+    const dep = sidebarData.deployment;
+    const flexAd = sidebarData.flexAd;
+    const childDeps = sidebarData.deps || [];
+
+    return (
+      <>
+        {/* Backdrop */}
+        <div className="fixed inset-0 bg-black/20 z-40" onClick={closeSidebar} />
+
+        {/* Panel */}
+        <div className="fixed right-0 top-0 h-full w-[420px] bg-white shadow-xl z-50 overflow-y-auto animate-slide-in-right scrollbar-thin">
+          {/* Header */}
+          <div className="sticky top-0 bg-white/95 backdrop-blur border-b border-gray-100 px-5 py-4 flex items-center justify-between z-10">
+            <div className="flex items-center gap-2">
+              {isFlex && <span className="text-[9px] font-bold text-white bg-navy px-1.5 py-0.5 rounded tracking-wide">FLEX</span>}
+              <h3 className="text-[14px] font-semibold text-textdark">
+                {isFlex ? 'Flex Ad Details' : 'Ad Details'}
+              </h3>
+            </div>
+            <button onClick={closeSidebar} className="p-1.5 rounded-lg hover:bg-gray-100 text-textlight transition-colors">
+              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+              </svg>
+            </button>
+          </div>
+
+          <div className="p-5 space-y-5">
+            {/* Image section */}
+            {isFlex ? (
+              <div className="grid grid-cols-3 gap-2">
+                {childDeps.map(d => (
+                  d.imageUrl ? (
+                    <img key={d.id} src={d.imageUrl} alt="" className="w-full aspect-square object-cover rounded-xl bg-gray-100" />
+                  ) : (
+                    <div key={d.id} className="w-full aspect-square rounded-xl bg-gray-200" />
+                  )
+                ))}
+              </div>
+            ) : (
+              dep?.imageUrl && (
+                <img src={dep.imageUrl} alt="" className="w-full rounded-xl bg-gray-100" />
+              )
+            )}
+
+            {/* Ad info (single ad only) */}
+            {!isFlex && dep?.ad && (
+              <div className="space-y-2.5 bg-offwhite rounded-xl p-4">
+                {dep.ad.angle && (
+                  <div>
+                    <label className="text-[10px] font-medium text-textlight uppercase tracking-wider">Angle</label>
+                    <p className="text-[12px] text-textdark mt-0.5">{dep.ad.angle}</p>
+                  </div>
+                )}
+                {dep.ad.headline && (
+                  <div>
+                    <label className="text-[10px] font-medium text-textlight uppercase tracking-wider">Headline</label>
+                    <p className="text-[12px] text-textdark mt-0.5">{dep.ad.headline}</p>
+                  </div>
+                )}
+                {dep.ad.body_copy && (
+                  <div>
+                    <label className="text-[10px] font-medium text-textlight uppercase tracking-wider">Body Copy</label>
+                    <p className="text-[12px] text-textdark mt-0.5 whitespace-pre-wrap">{dep.ad.body_copy}</p>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* ─── Primary Text ─── */}
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <label className="text-[11px] font-semibold text-textdark uppercase tracking-wider">Primary Text</label>
+                <button
+                  onClick={handleGeneratePrimaryText}
+                  disabled={generatingPrimaryText}
+                  className="text-[10px] px-2.5 py-1 rounded-lg bg-navy text-white hover:bg-navy-light transition-colors disabled:opacity-50 inline-flex items-center gap-1"
+                >
+                  {generatingPrimaryText ? (
+                    <>
+                      <svg className="w-3 h-3 animate-spin" viewBox="0 0 24 24" fill="none">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                      </svg>
+                      Generating...
+                    </>
+                  ) : (
+                    <>
+                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                      </svg>
+                      Generate
+                    </>
+                  )}
+                </button>
+              </div>
+              {sidebarForm.primary_texts.length === 0 && !generatingPrimaryText && (
+                <p className="text-[11px] text-textlight italic">No primary text yet. Click Generate to create variations.</p>
+              )}
+              {sidebarForm.primary_texts.map((text, i) => (
+                <div key={i} className="mb-2">
+                  <div className="flex items-center justify-between mb-1">
+                    <span className="text-[10px] text-textlight">Variation {i + 1}</span>
+                    <button
+                      onClick={() => setSidebarForm(prev => ({
+                        ...prev,
+                        primary_texts: prev.primary_texts.filter((_, idx) => idx !== i),
+                      }))}
+                      className="text-[10px] text-textlight hover:text-red-500 transition-colors"
+                    >
+                      Remove
+                    </button>
+                  </div>
+                  <textarea
+                    value={text}
+                    onChange={(e) => {
+                      const updated = [...sidebarForm.primary_texts];
+                      updated[i] = e.target.value;
+                      setSidebarForm(prev => ({ ...prev, primary_texts: updated }));
+                    }}
+                    className="input-apple text-[12px] w-full"
+                    rows={3}
+                  />
+                </div>
+              ))}
+            </div>
+
+            {/* ─── Headlines ─── */}
+            <div>
+              <div className="flex items-center justify-between mb-2">
+                <label className="text-[11px] font-semibold text-textdark uppercase tracking-wider">Headlines</label>
+                <button
+                  onClick={handleGenerateHeadlines}
+                  disabled={generatingHeadlines || sidebarForm.primary_texts.length === 0}
+                  className="text-[10px] px-2.5 py-1 rounded-lg bg-navy text-white hover:bg-navy-light transition-colors disabled:opacity-50 inline-flex items-center gap-1"
+                  title={sidebarForm.primary_texts.length === 0 ? 'Generate primary text first' : ''}
+                >
+                  {generatingHeadlines ? (
+                    <>
+                      <svg className="w-3 h-3 animate-spin" viewBox="0 0 24 24" fill="none">
+                        <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                        <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                      </svg>
+                      Generating...
+                    </>
+                  ) : (
+                    <>
+                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
+                      </svg>
+                      Generate
+                    </>
+                  )}
+                </button>
+              </div>
+              {sidebarForm.ad_headlines.length === 0 && !generatingHeadlines && (
+                <p className="text-[11px] text-textlight italic">
+                  {sidebarForm.primary_texts.length === 0
+                    ? 'Generate primary text first, then generate headlines.'
+                    : 'No headlines yet. Click Generate to create variations.'}
+                </p>
+              )}
+              {sidebarForm.ad_headlines.map((h, i) => (
+                <div key={i} className="flex items-center gap-2 mb-1.5">
+                  <input
+                    type="text"
+                    value={h}
+                    onChange={(e) => {
+                      const updated = [...sidebarForm.ad_headlines];
+                      updated[i] = e.target.value;
+                      setSidebarForm(prev => ({ ...prev, ad_headlines: updated }));
+                    }}
+                    className="input-apple text-[12px] flex-1"
+                  />
+                  <button
+                    onClick={() => setSidebarForm(prev => ({
+                      ...prev,
+                      ad_headlines: prev.ad_headlines.filter((_, idx) => idx !== i),
+                    }))}
+                    className="text-textlight hover:text-red-500 transition-colors flex-shrink-0"
+                  >
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                </div>
+              ))}
+            </div>
+
+            {/* ─── Destination URL ─── */}
+            <div>
+              <label className="text-[11px] font-semibold text-textdark uppercase tracking-wider">Destination URL</label>
+              <input
+                type="url"
+                value={sidebarForm.destination_url}
+                onChange={(e) => setSidebarForm(prev => ({ ...prev, destination_url: e.target.value }))}
+                className="input-apple text-[12px] w-full mt-1.5"
+                placeholder="https://..."
+              />
+            </div>
+
+            {/* ─── CTA Button ─── */}
+            <div>
+              <label className="text-[11px] font-semibold text-textdark uppercase tracking-wider">CTA Button</label>
+              <select
+                value={sidebarForm.cta_button}
+                onChange={(e) => setSidebarForm(prev => ({ ...prev, cta_button: e.target.value }))}
+                className="input-apple text-[12px] w-full mt-1.5"
+              >
+                {CTA_OPTIONS.map(cta => (
+                  <option key={cta} value={cta}>{cta.replace(/_/g, ' ')}</option>
+                ))}
+              </select>
+            </div>
+
+            {/* ─── Save ─── */}
+            <button
+              onClick={handleSaveSidebar}
+              disabled={sidebarSaving}
+              className="btn-primary w-full text-[12px] py-2.5 disabled:opacity-50"
+            >
+              {sidebarSaving ? 'Saving...' : 'Save Changes'}
+            </button>
+          </div>
+        </div>
+      </>
     );
   };
 
@@ -319,7 +796,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
           dropTarget === 'unplanned' ? 'ring-2 ring-gold bg-gold/5' : ''
         }`}
         onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; setDropTarget('unplanned'); }}
-        onDragLeave={(e) => { if (!e.currentTarget.contains(e.relatedTarget)) setDropTarget(null); }}
+        onDragLeave={handleDragLeave}
         onDrop={handleDropOnUnplanned}
       >
         <div className="flex items-center justify-between mb-4">
@@ -507,13 +984,17 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
 
                     {campaignAdSets.map(adSet => {
                       const deps = getAdSetDeps(adSet.id);
+                      const adSetFlexList = getAdSetFlexAds(adSet.id);
+                      const flexChildIds = new Set(adSetFlexList.flatMap(f => JSON.parse(f.child_deployment_ids || '[]')));
+                      const standaloneDeps = deps.filter(d => !flexChildIds.has(d.id));
                       const isDropHover = dropTarget === adSet.id;
+                      const selCount = selectedInAdSet[adSet.id]?.size || 0;
 
                       return (
                         <div
                           key={adSet.id}
                           onDragOver={(e) => handleDragOver(e, adSet.id)}
-                          onDragLeave={(e) => handleDragLeave(e, adSet.id)}
+                          onDragLeave={handleDragLeave}
                           onDrop={(e) => handleDrop(e, campaign.id, adSet.id)}
                           className={`rounded-xl border-2 border-dashed transition-all ${
                             isDropHover
@@ -542,6 +1023,20 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
                                 {adSet.name}
                               </span>
                             )}
+
+                            {/* Combine button */}
+                            {selCount >= 2 && (
+                              <button
+                                onClick={() => handleCombineIntoFlex(adSet.id)}
+                                className="text-[10px] px-2 py-1 rounded-lg bg-navy text-white hover:bg-navy-light transition-colors inline-flex items-center gap-1"
+                              >
+                                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2z" />
+                                </svg>
+                                Combine as Flex Ad
+                              </button>
+                            )}
+
                             <span className="text-[10px] text-textlight">{deps.length} ad{deps.length !== 1 ? 's' : ''}</span>
                             <button
                               onClick={() => handleDeleteAdSet(adSet.id)}
@@ -556,7 +1051,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
 
                           {/* Ad set body — drop zone */}
                           <div className="p-3 min-h-[60px]">
-                            {deps.length === 0 ? (
+                            {deps.length === 0 && adSetFlexList.length === 0 ? (
                               <div className={`py-4 text-center rounded-lg transition-colors ${
                                 isDropHover ? 'bg-gold/10' : ''
                               }`}>
@@ -566,8 +1061,13 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
                               </div>
                             ) : (
                               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
-                                {deps.map(dep => (
-                                  <DepCard key={dep.id} dep={dep} showUnassign draggable />
+                                {/* Flex ads */}
+                                {adSetFlexList.map(flexAd => (
+                                  <FlexAdCard key={flexAd.id} flexAd={flexAd} />
+                                ))}
+                                {/* Standalone (non-flex) deployments */}
+                                {standaloneDeps.map(dep => (
+                                  <DepCard key={dep.id} dep={dep} inAdSet draggable adsetId={adSet.id} />
                                 ))}
                               </div>
                             )}
@@ -582,6 +1082,9 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
           })}
         </div>
       </div>
+
+      {/* ═══════════ Detail Sidebar ═══════════ */}
+      {renderSidebar()}
     </div>
   );
 }

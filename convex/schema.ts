@@ -164,6 +164,23 @@ export default defineSchema({
     .index("by_campaign", ["campaign_id"])
     .index("by_project", ["project_id"]),
 
+  flex_ads: defineTable({
+    externalId: v.string(),
+    project_id: v.string(),                     // → projects.externalId
+    ad_set_id: v.string(),                      // → ad_sets.externalId
+    name: v.string(),
+    child_deployment_ids: v.string(),            // JSON string array of deployment externalIds
+    primary_texts: v.optional(v.string()),       // JSON string array (up to 5)
+    headlines: v.optional(v.string()),           // JSON string array (up to 5)
+    destination_url: v.optional(v.string()),
+    cta_button: v.optional(v.string()),          // Meta CTA type
+    created_at: v.string(),
+    updated_at: v.string(),
+  })
+    .index("by_externalId", ["externalId"])
+    .index("by_project", ["project_id"])
+    .index("by_ad_set", ["ad_set_id"]),
+
   ad_deployments: defineTable({
     externalId: v.string(),
     ad_id: v.string(),           // → ad_creatives.externalId
@@ -181,6 +198,11 @@ export default defineSchema({
     meta_ad_id: v.optional(v.string()),
     local_campaign_id: v.optional(v.string()),  // → campaigns.externalId or "unplanned"
     local_adset_id: v.optional(v.string()),     // → ad_sets.externalId
+    flex_ad_id: v.optional(v.string()),          // → flex_ads.externalId
+    primary_texts: v.optional(v.string()),       // JSON array of primary text strings
+    ad_headlines: v.optional(v.string()),         // JSON array of headline strings
+    destination_url: v.optional(v.string()),      // Meta destination URL
+    cta_button: v.optional(v.string()),           // Meta CTA type (SHOP_NOW, LEARN_MORE, etc.)
     created_at: v.string(),
   })
     .index("by_externalId", ["externalId"])
