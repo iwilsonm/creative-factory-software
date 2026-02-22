@@ -50,6 +50,9 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
   // Collapsed campaigns
   const [collapsed, setCollapsed] = useState(new Set());
 
+  // Assign dropdown (Unplanned → Ad Set picker)
+  const [assignDropdown, setAssignDropdown] = useState(false);
+
   // Detail sidebar
   const [sidebarData, setSidebarData] = useState(null);
   const [sidebarForm, setSidebarForm] = useState({
@@ -418,8 +421,6 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
   };
 
   // ─── Assign selected unplanned to a specific ad set ──────────────────
-  const [assignDropdown, setAssignDropdown] = useState(false);
-
   const handleAssignSelectedToAdSet = async (campaignId, adsetId) => {
     const ids = [...selectedUnplanned];
     if (!ids.length) return;
