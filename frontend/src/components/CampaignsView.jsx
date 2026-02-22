@@ -147,8 +147,8 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
   };
 
   // ─── Derived data ───────────────────────────────────────────────────────
-  const unplannedDeps = deployments.filter(d => d.local_campaign_id === 'unplanned');
-  const getAdSetDeps = (adsetId) => deployments.filter(d => d.local_adset_id === adsetId);
+  const unplannedDeps = deployments.filter(d => d.local_campaign_id === 'unplanned' && d.status !== 'ready_to_post' && d.status !== 'posted');
+  const getAdSetDeps = (adsetId) => deployments.filter(d => d.local_adset_id === adsetId && d.status !== 'ready_to_post' && d.status !== 'posted');
   const getCampaignAdSets = (campaignId) =>
     adSets.filter(a => a.campaign_id === campaignId).sort((a, b) => a.sort_order - b.sort_order);
   const sortedCampaigns = [...campaigns].sort((a, b) => a.sort_order - b.sort_order);
@@ -934,6 +934,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
           )}
         </button>
 
+        <span className="text-[8px] font-bold text-textlight bg-black/5 px-1 py-0.5 rounded tracking-wide flex-shrink-0">SINGLE</span>
         {thumbUrl ? (
           <img
             src={thumbUrl}
@@ -1000,7 +1001,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
         key={flexAd.id}
         onClick={() => openSidebar({ type: 'flex', flexAd, deps: childDeps })}
         className={`relative group flex items-center gap-2.5 p-2 rounded-xl border transition-all cursor-pointer ${
-          isSelected ? 'border-navy/40 bg-navy/10' : 'border-navy/20 bg-navy/5 hover:border-navy/30 hover:shadow-sm'
+          isSelected ? 'border-navy/40 bg-navy/5' : 'border-gray-200 bg-white hover:border-navy/20 hover:shadow-sm'
         }`}
       >
         {/* Checkbox */}
@@ -1766,10 +1767,15 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
                 )}
               </button>
             )}
-            <h3 className="text-[13px] font-semibold text-textdark">Queue</h3>
-            <span className="text-[11px] text-textlight bg-black/5 px-2 py-0.5 rounded-full">
-              {unplannedDeps.length}
-            </span>
+            <div>
+              <div className="flex items-center gap-2">
+                <h3 className="text-[13px] font-semibold text-textdark">Queue</h3>
+                <span className="text-[11px] text-textlight bg-black/5 px-2 py-0.5 rounded-full">
+                  {unplannedDeps.length}
+                </span>
+              </div>
+              <p className="text-[11px] text-textmid mt-0.5">Newly deployed ads land here. Drag them into a campaign ad set to start planning.</p>
+            </div>
           </div>
           {selectedUnplanned.size > 0 && (
             <div className="flex items-center gap-2 text-[11px]">
@@ -1859,7 +1865,10 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
       {/* ═══════════ Campaigns Section ═══════════ */}
       <div>
         <div className="flex items-center justify-between mb-4">
-          <h3 className="text-[14px] font-semibold text-textdark">Planner</h3>
+          <div>
+            <h3 className="text-[14px] font-semibold text-textdark">Planner</h3>
+            <p className="text-[11px] text-textmid mt-0.5">Organize ads into campaigns and ad sets. Fill in ad details, then mark them "Ready to Post" when they're ready to go live.</p>
+          </div>
           {!creatingCampaign && (
             <button
               onClick={() => setCreatingCampaign(true)}
@@ -1931,6 +1940,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
                     </svg>
                   </button>
 
+                  <span className="text-[9px] font-bold text-navy/60 bg-navy/10 px-1.5 py-0.5 rounded tracking-wider flex-shrink-0">CAMPAIGN</span>
                   {editingCampaign?.id === campaign.id ? (
                     <input
                       autoFocus
@@ -2066,6 +2076,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
                               </button>
                             )}
 
+                            <span className="text-[9px] font-bold text-textmid bg-black/5 px-1.5 py-0.5 rounded tracking-wider flex-shrink-0">AD SET</span>
                             {editingAdSet?.id === adSet.id ? (
                               <input
                                 autoFocus

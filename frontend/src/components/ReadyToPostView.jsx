@@ -24,6 +24,15 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
   const [downloadingAll, setDownloadingAll] = useState(new Set());
   const [downloadingSelected, setDownloadingSelected] = useState(new Set());
   const [downloadingSingle, setDownloadingSingle] = useState(new Set());
+  const [expandedCards, setExpandedCards] = useState(new Set());
+
+  const toggleCardExpanded = (key) => {
+    setExpandedCards(prev => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key); else next.add(key);
+      return next;
+    });
+  };
 
   useEffect(() => { loadData(); }, [projectId]);
 
@@ -397,7 +406,7 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
 
   // ── Card Renderers ──────────────────────────────────────────────────────
 
-  // Single ad card
+  // Single ad card — collapsed by default, shows name + campaign + ad set at top
   const renderAdCard = (dep) => {
     const name = dep.ad_name || dep.ad?.headline || dep.ad?.angle || `Ad ${(dep.id || '').slice(0, 6)}`;
     const thumbUrl = dep.imageUrl;
@@ -405,52 +414,89 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
     const isMarking = markingPostedIds.has(dep.id);
     const isSendingBack = sendingBackIds.has(dep.id);
     const { campaignName, adSetName } = resolveLocation(dep);
+    const isExpanded = expandedCards.has(dep.id);
 
     return (
       <div key={dep.id} className="border border-black/[0.1] rounded-2xl bg-white shadow-sm overflow-hidden">
-        <InfoBar name={name} adFormat="Single Image" plannedDate={plannedDate} />
-
-        <div className="p-5 space-y-4">
-          <PostInSection campaignName={campaignName} adSetName={adSetName} />
-          <FacebookPageSection page={dep.facebook_page} />
-
-          {/* Image */}
-          {thumbUrl && (
-            <div className="border border-black/[0.06] rounded-xl p-4 bg-white">
-              <div className="flex items-center justify-between mb-3">
-                <span className="inline-block px-2 py-0.5 rounded bg-navy/10 text-navy text-[10px] font-bold uppercase tracking-widest">Ad Creative</span>
-                <button onClick={() => downloadSingleImage(dep)} disabled={downloadingSingle.has(dep.id)}
-                  className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-navy text-white text-[12px] font-bold hover:bg-navy-light transition-colors disabled:opacity-50 shadow-sm"
-                >
-                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                  </svg>
-                  {downloadingSingle.has(dep.id) ? 'Downloading...' : 'Download Image'}
-                </button>
+        {/* Always-visible header: Ad Name, Campaign, Ad Set */}
+        <div className="px-5 py-4 space-y-3">
+          {/* Ad Name + Format badge */}
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 mb-1">
+                <span className="inline-block px-2 py-0.5 rounded bg-black/5 text-textlight text-[9px] font-bold uppercase tracking-wider">Single Image</span>
+                {plannedDate && <span className="text-[10px] text-textmid">{plannedDate}</span>}
               </div>
-              <img src={thumbUrl} alt="" className="w-full max-w-[300px] rounded-xl bg-offwhite" loading="lazy" />
+              <div className="text-[17px] font-bold text-textdark leading-tight">{name}</div>
             </div>
-          )}
+            {thumbUrl && (
+              <img src={thumbUrl} alt="" className="w-14 h-14 object-cover rounded-xl bg-gray-100 flex-shrink-0" loading="lazy" />
+            )}
+          </div>
 
-          {/* Primary Text */}
-          {renderNumberedTexts(
-            dep.primary_texts,
-            `Primary Text \u2014 ${parseCount(dep.primary_texts)} Variation${parseCount(dep.primary_texts) !== 1 ? 's' : ''}`,
-            'Upload ALL of these into the "Primary Text" field. Meta will automatically rotate them and show the best-performing version to each person.'
-          )}
+          {/* Campaign + Ad Set — always visible */}
+          <PostInSection campaignName={campaignName} adSetName={adSetName} />
 
-          {/* Headlines */}
-          {renderNumberedTexts(
-            dep.ad_headlines,
-            `Headlines \u2014 ${parseCount(dep.ad_headlines)} Variation${parseCount(dep.ad_headlines) !== 1 ? 's' : ''}`,
-            'Upload ALL of these into the "Headline" field. Meta will automatically test each one and show the best performer.'
-          )}
-
-          <WebsiteUrlSection url={dep.destination_url} />
-          <CallToActionSection cta={dep.cta_button} />
+          {/* Expand/Collapse toggle */}
+          <button
+            onClick={() => toggleCardExpanded(dep.id)}
+            className="w-full flex items-center justify-center gap-2 py-2 rounded-xl bg-offwhite hover:bg-navy/5 transition-colors text-[12px] font-medium text-navy"
+          >
+            <svg className={`w-4 h-4 transition-transform ${isExpanded ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+            </svg>
+            {isExpanded ? 'Hide Ad Details' : 'Show Ad Details'}
+            {!isExpanded && (
+              <span className="text-[10px] text-textmid font-normal">
+                ({[dep.primary_texts && parseCount(dep.primary_texts) > 0 && 'Text', dep.ad_headlines && parseCount(dep.ad_headlines) > 0 && 'Headlines', dep.destination_url && 'URL', dep.cta_button && 'CTA', dep.facebook_page && 'Page'].filter(Boolean).join(', ') || 'No details'})
+              </span>
+            )}
+          </button>
         </div>
 
-        {/* Actions */}
+        {/* Collapsible details */}
+        {isExpanded && (
+          <div className="px-5 pb-5 space-y-4 border-t border-black/[0.06] pt-4">
+            <FacebookPageSection page={dep.facebook_page} />
+
+            {/* Image */}
+            {thumbUrl && (
+              <div className="border border-black/[0.06] rounded-xl p-4 bg-white">
+                <div className="flex items-center justify-between mb-3">
+                  <span className="inline-block px-2 py-0.5 rounded bg-navy/10 text-navy text-[10px] font-bold uppercase tracking-widest">Ad Creative</span>
+                  <button onClick={() => downloadSingleImage(dep)} disabled={downloadingSingle.has(dep.id)}
+                    className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-navy text-white text-[12px] font-bold hover:bg-navy-light transition-colors disabled:opacity-50 shadow-sm"
+                  >
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                    </svg>
+                    {downloadingSingle.has(dep.id) ? 'Downloading...' : 'Download Image'}
+                  </button>
+                </div>
+                <img src={thumbUrl} alt="" className="w-full max-w-[300px] rounded-xl bg-offwhite" loading="lazy" />
+              </div>
+            )}
+
+            {/* Primary Text */}
+            {renderNumberedTexts(
+              dep.primary_texts,
+              `Primary Text \u2014 ${parseCount(dep.primary_texts)} Variation${parseCount(dep.primary_texts) !== 1 ? 's' : ''}`,
+              'Upload ALL of these into the "Primary Text" field. Meta will automatically rotate them and show the best-performing version to each person.'
+            )}
+
+            {/* Headlines */}
+            {renderNumberedTexts(
+              dep.ad_headlines,
+              `Headlines \u2014 ${parseCount(dep.ad_headlines)} Variation${parseCount(dep.ad_headlines) !== 1 ? 's' : ''}`,
+              'Upload ALL of these into the "Headline" field. Meta will automatically test each one and show the best performer.'
+            )}
+
+            <WebsiteUrlSection url={dep.destination_url} />
+            <CallToActionSection cta={dep.cta_button} />
+          </div>
+        )}
+
+        {/* Actions — always visible */}
         <div className="px-5 py-3.5 border-t border-black/[0.08] bg-offwhite/50 flex items-center justify-between">
           <button onClick={() => handleSendBack(dep.id)} disabled={isSendingBack}
             className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium text-textmid hover:text-textdark hover:bg-black/[0.04] transition-colors disabled:opacity-50"
@@ -482,7 +528,7 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
     );
   };
 
-  // Flex ad card
+  // Flex ad card — collapsed by default, shows name + campaign + ad set at top
   const renderFlexCard = (flexAd) => {
     const childDeps = getFlexChildDeps(flexAd);
     if (childDeps.length === 0) return null;
@@ -499,115 +545,160 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
     const someSelected = selected.size > 0;
     const isDownloadingAll = downloadingAll.has(cardKey);
     const isDownloadingSelected = downloadingSelected.has(cardKey);
+    const isExpanded = expandedCards.has(flexId);
 
     return (
-      <div key={flexAd.id} className="border border-navy/15 rounded-2xl bg-white shadow-sm overflow-hidden">
-        <InfoBar name={flexAd.name || 'Flex Ad'} adFormat="Flexible" plannedDate={plannedDate} />
-
-        <div className="p-5 space-y-4">
-          <PostInSection campaignName={campaignName} adSetName={adSetName} />
-          <FacebookPageSection page={flexAd.facebook_page} />
-
-          {/* Ad Creatives with download */}
-          <div className="border border-black/[0.06] rounded-xl p-4 bg-white">
-            <div className="mb-1">
-              <span className="inline-block px-2 py-0.5 rounded bg-navy/10 text-navy text-[10px] font-bold uppercase tracking-widest mb-1">
-                Ad Creatives \u2014 {depsWithImages.length} Image{depsWithImages.length !== 1 ? 's' : ''}
-              </span>
-              <p className="text-[11px] text-textmid mt-0.5 leading-relaxed">Upload ALL of these images. Meta will automatically rotate them and show the best-performing image to each person.</p>
+      <div key={flexAd.id} className="border border-black/[0.1] rounded-2xl bg-white shadow-sm overflow-hidden">
+        {/* Always-visible header: Ad Name, Campaign, Ad Set */}
+        <div className="px-5 py-4 space-y-3">
+          {/* Ad Name + Format badge + small thumbnails */}
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 mb-1">
+                <span className="inline-block px-2 py-0.5 rounded bg-navy text-white text-[9px] font-bold uppercase tracking-wider">Flex</span>
+                <span className="text-[10px] text-textmid">{childDeps.length} image{childDeps.length !== 1 ? 's' : ''}</span>
+                {plannedDate && <span className="text-[10px] text-textmid">{plannedDate}</span>}
+              </div>
+              <div className="text-[17px] font-bold text-textdark leading-tight">{flexAd.name || 'Flex Ad'}</div>
             </div>
-
-            {/* Download bar — prominent, left-aligned */}
-            <div className="flex items-center gap-2 mt-3 mb-3">
-              <button onClick={() => downloadMultipleImages(depsWithImages, cardKey)}
-                disabled={isDownloadingAll || depsWithImages.length === 0}
-                className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-navy text-white text-[13px] font-bold hover:bg-navy-light transition-colors disabled:opacity-50 shadow-sm"
-              >
-                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                </svg>
-                {isDownloadingAll ? 'Zipping...' : `Download All Images (${depsWithImages.length})`}
-              </button>
-              {someSelected && (
-                <button onClick={() => { const selectedDeps = childDeps.filter(d => selected.has(d.id)); downloadMultipleImages(selectedDeps, `selected-${cardKey}`); }}
-                  disabled={isDownloadingSelected}
-                  className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-gold/10 text-gold text-[11px] font-bold hover:bg-gold/20 transition-colors disabled:opacity-50"
-                >
-                  <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                  </svg>
-                  {isDownloadingSelected ? '...' : `Download Selected (${selected.size})`}
-                </button>
+            <div className="flex gap-1 flex-shrink-0">
+              {childDeps.slice(0, 3).map(d => d.imageUrl ? (
+                <img key={d.id} src={d.imageUrl} alt="" className="w-10 h-10 object-cover rounded-lg bg-gray-100" loading="lazy" />
+              ) : (
+                <div key={d.id} className="w-10 h-10 rounded-lg bg-gray-200" />
+              ))}
+              {childDeps.length > 3 && (
+                <div className="w-10 h-10 rounded-lg bg-gray-100 flex items-center justify-center text-[10px] text-textlight font-medium">+{childDeps.length - 3}</div>
               )}
-            </div>
-
-            {/* Select All */}
-            {depsWithImages.length > 1 && (
-              <label className="flex items-center gap-2 mb-2.5 cursor-pointer select-none">
-                <input type="checkbox" checked={allSelected}
-                  onChange={() => toggleSelectAll(cardKey, depsWithImages.map(d => d.id))}
-                  className="rounded border-navy/30 text-navy focus:ring-navy/20 w-4 h-4" />
-                <span className="text-[12px] text-textmid font-medium">Select All</span>
-              </label>
-            )}
-
-            {/* Image grid */}
-            <div className="grid grid-cols-3 gap-3">
-              {childDeps.map(d => {
-                const isSelected = selected.has(d.id);
-                const isSingleDl = downloadingSingle.has(d.id);
-                return (
-                  <div key={d.id} className="relative group">
-                    {d.imageUrl && (
-                      <label className="absolute top-2 left-2 z-10 cursor-pointer">
-                        <input type="checkbox" checked={isSelected}
-                          onChange={() => toggleImageSelection(cardKey, d.id)}
-                          className="rounded border-white/80 text-navy focus:ring-navy/20 w-4 h-4 shadow-sm" />
-                      </label>
-                    )}
-                    {d.imageUrl ? (
-                      <img src={d.imageUrl} alt=""
-                        className={`w-full aspect-square object-cover rounded-xl bg-offwhite transition-all ${isSelected ? 'ring-2 ring-navy ring-offset-2' : ''}`}
-                        loading="lazy" />
-                    ) : (
-                      <div className="w-full aspect-square rounded-xl bg-offwhite" />
-                    )}
-                    {d.imageUrl && (
-                      <button onClick={() => downloadSingleImage(d)} disabled={isSingleDl}
-                        className="absolute bottom-2 right-2 p-1.5 rounded-lg bg-white/90 text-navy hover:bg-white shadow-sm opacity-0 group-hover:opacity-100 transition-opacity disabled:opacity-50"
-                        title="Download this image">
-                        <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
-                        </svg>
-                      </button>
-                    )}
-                    <div className="text-[10px] text-textmid mt-1 truncate">{d.ad_name || d.ad?.headline || ''}</div>
-                  </div>
-                );
-              })}
             </div>
           </div>
 
-          {/* Primary Text */}
-          {renderNumberedTexts(
-            flexAd.primary_texts,
-            `Primary Text \u2014 ${parseCount(flexAd.primary_texts)} Variation${parseCount(flexAd.primary_texts) !== 1 ? 's' : ''}`,
-            'Upload ALL of these into the "Primary Text" field. Meta will automatically rotate them and show the best-performing version to each person.'
-          )}
+          {/* Campaign + Ad Set — always visible */}
+          <PostInSection campaignName={campaignName} adSetName={adSetName} />
 
-          {/* Headlines */}
-          {renderNumberedTexts(
-            flexAd.headlines,
-            `Headlines \u2014 ${parseCount(flexAd.headlines)} Variation${parseCount(flexAd.headlines) !== 1 ? 's' : ''}`,
-            'Upload ALL of these into the "Headline" field. Meta will automatically test each one and show the best performer.'
-          )}
-
-          <WebsiteUrlSection url={flexAd.destination_url} />
-          <CallToActionSection cta={flexAd.cta_button} />
+          {/* Expand/Collapse toggle */}
+          <button
+            onClick={() => toggleCardExpanded(flexId)}
+            className="w-full flex items-center justify-center gap-2 py-2 rounded-xl bg-offwhite hover:bg-navy/5 transition-colors text-[12px] font-medium text-navy"
+          >
+            <svg className={`w-4 h-4 transition-transform ${isExpanded ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+            </svg>
+            {isExpanded ? 'Hide Ad Details' : 'Show Ad Details'}
+            {!isExpanded && (
+              <span className="text-[10px] text-textmid font-normal">
+                ({[depsWithImages.length > 0 && `${depsWithImages.length} Images`, flexAd.primary_texts && parseCount(flexAd.primary_texts) > 0 && 'Text', flexAd.headlines && parseCount(flexAd.headlines) > 0 && 'Headlines', flexAd.destination_url && 'URL', flexAd.cta_button && 'CTA', flexAd.facebook_page && 'Page'].filter(Boolean).join(', ') || 'No details'})
+              </span>
+            )}
+          </button>
         </div>
 
-        {/* Actions */}
-        <div className="px-5 py-3.5 border-t border-navy/10 bg-offwhite/50 flex items-center justify-between">
+        {/* Collapsible details */}
+        {isExpanded && (
+          <div className="px-5 pb-5 space-y-4 border-t border-black/[0.06] pt-4">
+            <FacebookPageSection page={flexAd.facebook_page} />
+
+            {/* Ad Creatives with download */}
+            <div className="border border-black/[0.06] rounded-xl p-4 bg-white">
+              <div className="mb-1">
+                <span className="inline-block px-2 py-0.5 rounded bg-navy/10 text-navy text-[10px] font-bold uppercase tracking-widest mb-1">
+                  Ad Creatives — {depsWithImages.length} Image{depsWithImages.length !== 1 ? 's' : ''}
+                </span>
+                <p className="text-[11px] text-textmid mt-0.5 leading-relaxed">Upload ALL of these images. Meta will automatically rotate them and show the best-performing image to each person.</p>
+              </div>
+
+              {/* Download bar */}
+              <div className="flex items-center gap-2 mt-3 mb-3">
+                <button onClick={() => downloadMultipleImages(depsWithImages, cardKey)}
+                  disabled={isDownloadingAll || depsWithImages.length === 0}
+                  className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-navy text-white text-[13px] font-bold hover:bg-navy-light transition-colors disabled:opacity-50 shadow-sm"
+                >
+                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                  </svg>
+                  {isDownloadingAll ? 'Zipping...' : `Download All Images (${depsWithImages.length})`}
+                </button>
+                {someSelected && (
+                  <button onClick={() => { const selectedDeps = childDeps.filter(d => selected.has(d.id)); downloadMultipleImages(selectedDeps, `selected-${cardKey}`); }}
+                    disabled={isDownloadingSelected}
+                    className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-gold/10 text-gold text-[11px] font-bold hover:bg-gold/20 transition-colors disabled:opacity-50"
+                  >
+                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                    </svg>
+                    {isDownloadingSelected ? '...' : `Download Selected (${selected.size})`}
+                  </button>
+                )}
+              </div>
+
+              {/* Select All */}
+              {depsWithImages.length > 1 && (
+                <label className="flex items-center gap-2 mb-2.5 cursor-pointer select-none">
+                  <input type="checkbox" checked={allSelected}
+                    onChange={() => toggleSelectAll(cardKey, depsWithImages.map(d => d.id))}
+                    className="rounded border-navy/30 text-navy focus:ring-navy/20 w-4 h-4" />
+                  <span className="text-[12px] text-textmid font-medium">Select All</span>
+                </label>
+              )}
+
+              {/* Image grid */}
+              <div className="grid grid-cols-3 gap-3">
+                {childDeps.map(d => {
+                  const isSelected = selected.has(d.id);
+                  const isSingleDl = downloadingSingle.has(d.id);
+                  return (
+                    <div key={d.id} className="relative group">
+                      {d.imageUrl && (
+                        <label className="absolute top-2 left-2 z-10 cursor-pointer">
+                          <input type="checkbox" checked={isSelected}
+                            onChange={() => toggleImageSelection(cardKey, d.id)}
+                            className="rounded border-white/80 text-navy focus:ring-navy/20 w-4 h-4 shadow-sm" />
+                        </label>
+                      )}
+                      {d.imageUrl ? (
+                        <img src={d.imageUrl} alt=""
+                          className={`w-full aspect-square object-cover rounded-xl bg-offwhite transition-all ${isSelected ? 'ring-2 ring-navy ring-offset-2' : ''}`}
+                          loading="lazy" />
+                      ) : (
+                        <div className="w-full aspect-square rounded-xl bg-offwhite" />
+                      )}
+                      {d.imageUrl && (
+                        <button onClick={() => downloadSingleImage(d)} disabled={isSingleDl}
+                          className="absolute bottom-2 right-2 p-1.5 rounded-lg bg-white/90 text-navy hover:bg-white shadow-sm opacity-0 group-hover:opacity-100 transition-opacity disabled:opacity-50"
+                          title="Download this image">
+                          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+                          </svg>
+                        </button>
+                      )}
+                      <div className="text-[10px] text-textmid mt-1 truncate">{d.ad_name || d.ad?.headline || ''}</div>
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Primary Text */}
+            {renderNumberedTexts(
+              flexAd.primary_texts,
+              `Primary Text — ${parseCount(flexAd.primary_texts)} Variation${parseCount(flexAd.primary_texts) !== 1 ? 's' : ''}`,
+              'Upload ALL of these into the "Primary Text" field. Meta will automatically rotate them and show the best-performing version to each person.'
+            )}
+
+            {/* Headlines */}
+            {renderNumberedTexts(
+              flexAd.headlines,
+              `Headlines — ${parseCount(flexAd.headlines)} Variation${parseCount(flexAd.headlines) !== 1 ? 's' : ''}`,
+              'Upload ALL of these into the "Headline" field. Meta will automatically test each one and show the best performer.'
+            )}
+
+            <WebsiteUrlSection url={flexAd.destination_url} />
+            <CallToActionSection cta={flexAd.cta_button} />
+          </div>
+        )}
+
+        {/* Actions — always visible */}
+        <div className="px-5 py-3.5 border-t border-black/[0.08] bg-offwhite/50 flex items-center justify-between">
           <button onClick={() => handleSendBackFlex(flexAd)} disabled={isSendingBack}
             className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium text-textmid hover:text-textdark hover:bg-black/[0.04] transition-colors disabled:opacity-50"
           >
@@ -692,9 +783,12 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
     <div className="space-y-5">
       {/* Summary */}
       <div className="flex items-center justify-between">
-        <div className="text-[14px]">
-          <span className="font-bold text-textdark">{readyDeps.length}</span>
-          <span className="text-textmid ml-1.5">ad{readyDeps.length !== 1 ? 's' : ''} ready to post</span>
+        <div>
+          <div className="text-[14px]">
+            <span className="font-bold text-textdark">{readyDeps.length}</span>
+            <span className="text-textmid ml-1.5">ad{readyDeps.length !== 1 ? 's' : ''} ready to post</span>
+          </div>
+          <p className="text-[11px] text-textmid mt-0.5">These ads are ready to be posted in Meta Ads Manager. Expand each card to see the full details and copy the content.</p>
         </div>
         <button onClick={handleBulkMarkAllPosted} disabled={bulkMarkingAll}
           className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-[12px] font-bold bg-teal text-white hover:bg-teal/90 transition-colors disabled:opacity-50 shadow-sm"
