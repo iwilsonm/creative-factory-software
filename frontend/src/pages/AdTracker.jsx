@@ -27,7 +27,7 @@ export default function AdTracker({ projectId }) {
     [projectId]
   );
   const [activeView, setActiveView] = useState('campaigns'); // 'campaigns' | 'status' | 'ready_to_post'
-  const [statusFilter, setStatusFilter] = useState('all');
+  const [statusFilter, setStatusFilter] = useState('posted');
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [bulkEditOpen, setBulkEditOpen] = useState(false);
   const [bulkFields, setBulkFields] = useState({ campaign_name: '', ad_set_name: '', ad_name: '', status: '', planned_date: '', landing_page_url: '' });
@@ -286,6 +286,18 @@ export default function AdTracker({ projectId }) {
   for (const d of deployments) {
     statusCounts[d.status] = (statusCounts[d.status] || 0) + 1;
   }
+
+  // Smart count for ready_to_post: flex children count as 1 ad (the flex parent), not N
+  const readyToPostCardCount = (() => {
+    const readyDeps = deployments.filter(d => d.status === 'ready_to_post');
+    const flexIds = new Set();
+    let standalone = 0;
+    for (const d of readyDeps) {
+      if (d.flex_ad_id) flexIds.add(d.flex_ad_id);
+      else standalone++;
+    }
+    return standalone + flexIds.size;
+  })();
 
   // ─── Actions ──────────────────────────────────────────────────────────────
   const handleStatusChange = async (id, newStatus) => {
@@ -700,57 +712,58 @@ export default function AdTracker({ projectId }) {
   // ─── Render ───────────────────────────────────────────────────────────────
   return (
     <div>
-      {/* Status filter pills */}
-      <div className="flex items-center gap-2 mb-5 flex-wrap">
-        {/* Planner */}
+      {/* Pipeline tabs */}
+      <div className="flex items-center gap-2 mb-5">
+        {/* 1. Planner */}
         <button
           onClick={() => { setActiveView('campaigns'); setSelectedIds(new Set()); }}
-          className={`px-3 py-1.5 rounded-full text-[12px] font-medium transition-colors ${
+          className={`px-3.5 py-1.5 rounded-full text-[12px] font-semibold transition-colors inline-flex items-center gap-1.5 ${
             activeView === 'campaigns'
-              ? 'bg-gray-900 text-white'
-              : 'bg-navy/10 text-navy hover:opacity-80'
+              ? 'bg-navy text-white shadow-sm'
+              : 'bg-navy/10 text-navy hover:bg-navy/15'
           }`}
         >
-          Planner ({campaignsDeps.length})
+          <span className={`w-[18px] h-[18px] rounded-full text-[10px] font-bold inline-flex items-center justify-center ${
+            activeView === 'campaigns' ? 'bg-white/20 text-white' : 'bg-navy/15 text-navy'
+          }`}>1</span>
+          Planner
+          <span className={`text-[10px] font-normal ${activeView === 'campaigns' ? 'text-white/70' : 'text-navy/50'}`}>
+            {campaignsDeps.length}
+          </span>
         </button>
-        {/* Ready to Post */}
+        {/* 2. Ready to Post */}
         <button
           onClick={() => { setActiveView('ready_to_post'); setSelectedIds(new Set()); }}
-          className={`px-3 py-1.5 rounded-full text-[12px] font-medium transition-colors ${
+          className={`px-3.5 py-1.5 rounded-full text-[12px] font-semibold transition-colors inline-flex items-center gap-1.5 ${
             activeView === 'ready_to_post'
-              ? 'bg-gray-900 text-white'
-              : 'bg-navy/10 text-navy hover:opacity-80'
+              ? 'bg-gold text-white shadow-sm'
+              : 'bg-gold/10 text-gold hover:bg-gold/15'
           }`}
         >
-          Ready to Post ({statusCounts['ready_to_post'] || 0})
+          <span className={`w-[18px] h-[18px] rounded-full text-[10px] font-bold inline-flex items-center justify-center ${
+            activeView === 'ready_to_post' ? 'bg-white/20 text-white' : 'bg-gold/15 text-gold'
+          }`}>2</span>
+          Ready to Post
+          <span className={`text-[10px] font-normal ${activeView === 'ready_to_post' ? 'text-white/70' : 'text-gold/50'}`}>
+            {readyToPostCardCount}
+          </span>
         </button>
-        {/* Posted / Analyzing (skip ready_to_post since it has its own pill) */}
-        {STATUS_ORDER.slice(1).filter(s => s !== 'ready_to_post').map(status => {
-          const meta = STATUS_META[status];
-          const count = statusCounts[status] || 0;
-          return (
-            <button
-              key={status}
-              onClick={() => { setActiveView('status'); setStatusFilter(status); setSelectedIds(new Set()); }}
-              className={`px-3 py-1.5 rounded-full text-[12px] font-medium transition-colors ${
-                activeView === 'status' && statusFilter === status
-                  ? 'bg-gray-900 text-white'
-                  : `${meta.color} hover:opacity-80`
-              }`}
-            >
-              {meta.label} ({count})
-            </button>
-          );
-        })}
+        {/* 3. Posted */}
         <button
-          onClick={() => { setActiveView('status'); setStatusFilter('all'); setSelectedIds(new Set()); }}
-          className={`px-3 py-1.5 rounded-full text-[12px] font-medium transition-colors ${
-            activeView === 'status' && statusFilter === 'all'
-              ? 'bg-gray-900 text-white'
-              : 'bg-black/5 text-textmid hover:bg-black/10'
+          onClick={() => { setActiveView('status'); setStatusFilter('posted'); setSelectedIds(new Set()); }}
+          className={`px-3.5 py-1.5 rounded-full text-[12px] font-semibold transition-colors inline-flex items-center gap-1.5 ${
+            activeView === 'status' && statusFilter === 'posted'
+              ? 'bg-teal text-white shadow-sm'
+              : 'bg-teal/10 text-teal hover:bg-teal/15'
           }`}
         >
-          All ({deployments.length})
+          <span className={`w-[18px] h-[18px] rounded-full text-[10px] font-bold inline-flex items-center justify-center ${
+            activeView === 'status' && statusFilter === 'posted' ? 'bg-white/20 text-white' : 'bg-teal/15 text-teal'
+          }`}>3</span>
+          Posted
+          <span className={`text-[10px] font-normal ${activeView === 'status' && statusFilter === 'posted' ? 'text-white/70' : 'text-teal/50'}`}>
+            {statusCounts['posted'] || 0}
+          </span>
         </button>
       </div>
 
@@ -868,7 +881,7 @@ export default function AdTracker({ projectId }) {
             </div>
             <div>
               <label className="block text-[10px] font-medium text-textlight uppercase tracking-wider mb-1">
-                Planned Date
+                Start Date
               </label>
               <input
                 type="datetime-local"
@@ -879,7 +892,7 @@ export default function AdTracker({ projectId }) {
             </div>
             <div>
               <label className="block text-[10px] font-medium text-textlight uppercase tracking-wider mb-1">
-                Campaign Name
+                Campaign
               </label>
               <input
                 type="text"
@@ -891,7 +904,7 @@ export default function AdTracker({ projectId }) {
             </div>
             <div>
               <label className="block text-[10px] font-medium text-textlight uppercase tracking-wider mb-1">
-                Ad Set Name
+                Ad Set
               </label>
               <input
                 type="text"
@@ -903,7 +916,7 @@ export default function AdTracker({ projectId }) {
             </div>
             <div>
               <label className="block text-[10px] font-medium text-textlight uppercase tracking-wider mb-1">
-                Landing Page
+                Website URL
               </label>
               <input
                 type="url"
@@ -959,9 +972,9 @@ export default function AdTracker({ projectId }) {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15.59 14.37a6 6 0 01-5.84 7.38v-4.8m5.84-2.58a14.98 14.98 0 006.16-12.12A14.98 14.98 0 009.631 8.41m5.96 5.96a14.926 14.926 0 01-5.841 2.58m-.119-8.54a6 6 0 00-7.381 5.84h4.8m2.58-5.84a14.927 14.927 0 00-2.58 5.84m2.699 2.7c-.103.021-.207.041-.311.06a15.09 15.09 0 01-2.448-2.448 14.9 14.9 0 01.06-.312m-2.24 2.39a4.493 4.493 0 00-1.757 4.306 4.493 4.493 0 004.306-1.758M16.5 9a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0z" />
             </svg>
           </div>
-          <h3 className="text-[15px] font-semibold text-textdark mb-1">No deployments yet</h3>
+          <h3 className="text-[15px] font-semibold text-textdark mb-1">No ads in pipeline yet</h3>
           <p className="text-[13px] text-textlight max-w-sm mx-auto">
-            Select ads in the Ad Studio and click "Deploy" to start tracking them here.
+            Select ads in the Ad Studio and click "Send to Ad Pipeline" to start tracking them here.
           </p>
         </div>
       )}
@@ -1012,15 +1025,15 @@ export default function AdTracker({ projectId }) {
                     Ad Set
                   </th>
                   <th className="px-3 py-2.5 text-[10px] uppercase tracking-wider font-medium text-textlight hidden lg:table-cell w-40">
-                    Planned Date
+                    Start Date
                   </th>
                   <th className="px-3 py-2.5 text-[10px] uppercase tracking-wider font-medium text-textlight hidden lg:table-cell">
-                    Landing Page
+                    Website URL
                   </th>
                   <th className="px-3 py-2.5 text-[10px] uppercase tracking-wider font-medium text-textlight hidden md:table-cell w-24">
                     Created
                   </th>
-                  <th className="px-3 py-2.5 w-12" />
+                  <th className="px-3 py-2.5 w-28" />
                 </tr>
               </thead>
               <tbody>
@@ -1262,7 +1275,7 @@ export default function AdTracker({ projectId }) {
                         />
                       </td>
 
-                      {/* Planned Date */}
+                      {/* Start Date */}
                       <td className="px-3 py-2.5 hidden lg:table-cell">
                         <EditableCell
                           dep={dep}
@@ -1273,13 +1286,13 @@ export default function AdTracker({ projectId }) {
                         />
                       </td>
 
-                      {/* Landing Page */}
+                      {/* Website URL */}
                       <td className="px-3 py-2.5 hidden lg:table-cell max-w-[160px]">
                         <EditableCell
                           dep={dep}
                           field="landing_page_url"
                           value={dep.landing_page_url}
-                          placeholder={publishedLPs.length > 0 ? 'Select LP or enter URL...' : 'Add URL...'}
+                          placeholder={publishedLPs.length > 0 ? 'Select or enter URL...' : 'Add URL...'}
                           type="url"
                           datalistId={`lp-urls-${dep.id}`}
                           datalistOptions={publishedLPs.map(lp => ({ value: lp.published_url, label: lp.name }))}
@@ -1296,6 +1309,16 @@ export default function AdTracker({ projectId }) {
                       {/* Actions */}
                       <td className="px-3 py-2.5">
                         <div className="flex items-center gap-1 justify-end">
+                          {/* Send Back to Ready to Post — only for posted ads */}
+                          {dep.status === 'posted' && (
+                            <button
+                              onClick={() => handleStatusChange(dep.id, 'ready_to_post')}
+                              className="text-[9px] px-2 py-1 rounded-lg text-gold border border-gold/30 hover:bg-gold/10 transition-colors whitespace-nowrap"
+                              title="Send back to Ready to Post"
+                            >
+                              ← Ready to Post
+                            </button>
+                          )}
                           {/* Meta link/unlink button */}
                           {metaConnected && (
                             dep.meta_ad_id ? (

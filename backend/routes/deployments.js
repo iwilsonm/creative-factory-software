@@ -87,8 +87,10 @@ router.get('/deployments', async (req, res) => {
           primary_texts: dep.primary_texts || null,
           ad_headlines: dep.ad_headlines || null,
           destination_url: dep.destination_url || null,
+          display_link: dep.display_link || null,
           cta_button: dep.cta_button || null,
           facebook_page: dep.facebook_page || null,
+          posted_by: dep.posted_by || null,
         };
       })
     );
@@ -203,7 +205,7 @@ router.put('/deployments/:id', async (req, res) => {
       'landing_page_url', 'notes', 'planned_date', 'posted_date',
       'local_campaign_id', 'local_adset_id',
       'flex_ad_id', 'primary_texts', 'ad_headlines',
-      'destination_url', 'cta_button', 'facebook_page',
+      'destination_url', 'display_link', 'cta_button', 'facebook_page', 'posted_by',
     ];
 
     const fields = {};
@@ -665,7 +667,7 @@ router.post('/deployments/flex-ads', async (req, res) => {
 router.put('/deployments/flex-ads/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const allowed = ['name', 'child_deployment_ids', 'primary_texts', 'headlines', 'destination_url', 'cta_button', 'facebook_page', 'planned_date'];
+    const allowed = ['name', 'child_deployment_ids', 'primary_texts', 'headlines', 'destination_url', 'display_link', 'cta_button', 'facebook_page', 'planned_date', 'posted_by'];
     const fields = {};
     for (const key of allowed) {
       if (req.body[key] !== undefined) {

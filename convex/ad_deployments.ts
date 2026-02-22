@@ -89,6 +89,7 @@ export const createWithoutDedup = mutation({
     local_adset_id: v.optional(v.string()),
     flex_ad_id: v.optional(v.string()),
     destination_url: v.optional(v.string()),
+    display_link: v.optional(v.string()),
     cta_button: v.optional(v.string()),
     primary_texts: v.optional(v.string()),
     ad_headlines: v.optional(v.string()),
@@ -121,8 +122,10 @@ export const update = mutation({
       primary_texts: v.optional(v.string()),
       ad_headlines: v.optional(v.string()),
       destination_url: v.optional(v.string()),
+      display_link: v.optional(v.string()),
       cta_button: v.optional(v.string()),
       facebook_page: v.optional(v.string()),
+      posted_by: v.optional(v.string()),
     }),
   },
   handler: async (ctx, args) => {

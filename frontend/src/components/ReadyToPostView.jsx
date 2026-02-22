@@ -99,8 +99,32 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
   const handleMarkPosted = async (depId) => {
     setMarkingPostedIds(prev => new Set(prev).add(depId));
     try {
+      // Find this deployment and resolve campaign/ad set names to carry over
+      const dep = readyDeps.find(d => d.id === depId);
+      if (dep) {
+        const { campaignName, adSetName } = resolveLocation(dep);
+        const carryOverFields = {};
+        if (campaignName) carryOverFields.campaign_name = campaignName;
+        if (adSetName) carryOverFields.ad_set_name = adSetName;
+        if (dep.destination_url) carryOverFields.landing_page_url = dep.destination_url;
+        if (Object.keys(carryOverFields).length > 0) {
+          await api.updateDeployment(depId, carryOverFields);
+        }
+      }
       await api.updateDeploymentStatus(depId, 'posted');
-      setDeployments(prev => prev.map(d => d.id === depId ? { ...d, status: 'posted', posted_date: new Date().toISOString() } : d));
+      setDeployments(prev => prev.map(d => {
+        if (d.id !== depId) return d;
+        const dep = readyDeps.find(rd => rd.id === depId);
+        const { campaignName, adSetName } = dep ? resolveLocation(dep) : {};
+        return {
+          ...d,
+          status: 'posted',
+          posted_date: new Date().toISOString(),
+          ...(campaignName ? { campaign_name: campaignName } : {}),
+          ...(adSetName ? { ad_set_name: adSetName } : {}),
+          ...(dep?.destination_url ? { landing_page_url: dep.destination_url } : {}),
+        };
+      }));
       addToast('Marked as posted', 'success');
       setConfirmPosted(null);
     } catch { addToast('Failed to update status', 'error'); }
@@ -112,12 +136,30 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
     setMarkingPostedIds(prev => new Set(prev).add(flexId));
     try {
       const childDeps = getFlexChildDeps(flexAd);
-      await Promise.all(childDeps.map(d => api.updateDeploymentStatus(d.id, 'posted')));
+      const { campaignName, adSetName } = resolveFlexLocation(flexAd);
+      const carryOverFields = {};
+      if (campaignName) carryOverFields.campaign_name = campaignName;
+      if (adSetName) carryOverFields.ad_set_name = adSetName;
+      if (flexAd.destination_url) carryOverFields.landing_page_url = flexAd.destination_url;
+      // Update each child deployment with campaign/ad set/landing page data, then mark posted
+      await Promise.all(childDeps.map(async (d) => {
+        if (Object.keys(carryOverFields).length > 0) {
+          await api.updateDeployment(d.id, carryOverFields);
+        }
+        await api.updateDeploymentStatus(d.id, 'posted');
+      }));
+      let childIds = [];
+      try { childIds = flexAd.child_deployment_ids ? JSON.parse(flexAd.child_deployment_ids) : []; } catch { /* ignore */ }
       setDeployments(prev => prev.map(d => {
-        let childIds = [];
-        try { childIds = flexAd.child_deployment_ids ? JSON.parse(flexAd.child_deployment_ids) : []; } catch { /* ignore */ }
-        if (childIds.includes(d.id)) return { ...d, status: 'posted', posted_date: new Date().toISOString() };
-        return d;
+        if (!childIds.includes(d.id)) return d;
+        return {
+          ...d,
+          status: 'posted',
+          posted_date: new Date().toISOString(),
+          ...(campaignName ? { campaign_name: campaignName } : {}),
+          ...(adSetName ? { ad_set_name: adSetName } : {}),
+          ...(flexAd.destination_url ? { landing_page_url: flexAd.destination_url } : {}),
+        };
       }));
       addToast(`${childDeps.length} ads marked as posted`, 'success');
       setConfirmPosted(null);
@@ -163,6 +205,22 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
       addToast(`${readyDeps.length} ads marked as posted`, 'success');
     } catch { addToast('Failed to update some ads', 'error'); }
     setBulkMarkingAll(false);
+  };
+
+  // ── Posted By ──────────────────────────────────────────────────────────────
+
+  const handlePostedByChange = async (depId, value, isFlex = false) => {
+    try {
+      if (isFlex) {
+        await api.updateFlexAd(depId, { posted_by: value || '' });
+        setFlexAds(prev => prev.map(f => f.id === depId ? { ...f, posted_by: value } : f));
+      } else {
+        await api.updateDeployment(depId, { posted_by: value || '' });
+        setDeployments(prev => prev.map(d => d.id === depId ? { ...d, posted_by: value } : d));
+      }
+    } catch {
+      addToast('Failed to save', 'error');
+    }
   };
 
   // ── Download Helpers ──────────────────────────────────────────────────────
@@ -288,7 +346,7 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
 
   // ── Card Sections ──────────────────────────────────────────────────────
 
-  // Top info bar: Ad Name, Ad Format, Post Date — color-coded labels
+  // Top info bar: Ad Name, Ad Format, Start Date — color-coded labels
   const InfoBar = ({ name, adFormat, plannedDate }) => (
     <div className="bg-navy/[0.04] border-b border-black/[0.08] px-5 py-4 space-y-3">
       {/* Ad Name */}
@@ -304,7 +362,7 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
         </div>
         {plannedDate && (
           <div>
-            <span className="inline-block px-2 py-0.5 rounded bg-teal/10 text-teal text-[10px] font-bold uppercase tracking-widest mb-1">Post Date</span>
+            <span className="inline-block px-2 py-0.5 rounded bg-teal/10 text-teal text-[10px] font-bold uppercase tracking-widest mb-1">Start Date</span>
             <div className="text-[14px] font-bold text-textdark">{plannedDate}</div>
           </div>
         )}
@@ -386,6 +444,32 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
     );
   };
 
+  // Display Link section — shown instead of website URL in ad
+  const DisplayLinkSection = ({ displayLink }) => {
+    if (!displayLink || !displayLink.trim()) return null;
+    return (
+      <div className="border-2 border-navy/15 bg-navy/5 rounded-xl p-4">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex-1 min-w-0">
+            <span className="inline-block px-2 py-0.5 rounded bg-navy/10 text-navy text-[10px] font-bold uppercase tracking-widest mb-1">Display Link</span>
+            <p className="text-[11px] text-textmid mb-2">Enter this into the <strong>"Display Link"</strong> field in Ads Manager (under the Website URL).</p>
+            <div className="bg-white rounded-lg px-3 py-2 border border-navy/15">
+              <span className="text-[13px] text-navy font-medium break-all">{displayLink}</span>
+            </div>
+          </div>
+          <button onClick={() => copyToClipboard(displayLink, 'Display Link')}
+            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-navy text-white text-[11px] font-bold hover:bg-navy-light transition-colors flex-shrink-0 shadow-sm"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+            </svg>
+            Copy
+          </button>
+        </div>
+      </div>
+    );
+  };
+
   // Facebook Page section — which page to post from
   const FacebookPageSection = ({ page }) => {
     if (!page) return null;
@@ -403,6 +487,21 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
       </div>
     );
   };
+
+  const PostedByDropdown = ({ value, onChange }) => (
+    <div className="flex items-center gap-2">
+      <span className="text-[11px] font-medium text-textmid">Posted by:</span>
+      <select
+        value={value || ''}
+        onChange={(e) => onChange(e.target.value)}
+        className="text-[12px] font-semibold text-textdark bg-offwhite border border-black/10 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-navy/20 cursor-pointer"
+      >
+        <option value="">Select...</option>
+        <option value="Corinne">Corinne</option>
+        <option value="Liz">Liz</option>
+      </select>
+    </div>
+  );
 
   // ── Card Renderers ──────────────────────────────────────────────────────
 
@@ -423,11 +522,16 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
           {/* Ad Name + Format badge */}
           <div className="flex items-start justify-between gap-3">
             <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2 mb-1">
-                <span className="inline-block px-2 py-0.5 rounded bg-black/5 text-textlight text-[9px] font-bold uppercase tracking-wider">Single Image</span>
-                {plannedDate && <span className="text-[10px] text-textmid">{plannedDate}</span>}
+              <div className="text-[14px] leading-tight mb-1.5">
+                <span className="text-textmid font-medium">Ad Name: </span>
+                <span className="font-bold text-textdark">{name}</span>
               </div>
-              <div className="text-[17px] font-bold text-textdark leading-tight">{name}</div>
+              <div className="flex items-center gap-2">
+                <span className="inline-block px-2 py-0.5 rounded bg-purple-100 text-purple-700 text-[9px] font-bold uppercase tracking-wider">Ad Format: Single Image</span>
+                {plannedDate && (
+                  <span className="inline-block px-2 py-0.5 rounded bg-teal/10 text-teal text-[9px] font-bold uppercase tracking-wider">Start Date: {plannedDate}</span>
+                )}
+              </div>
             </div>
             {thumbUrl && (
               <img src={thumbUrl} alt="" className="w-14 h-14 object-cover rounded-xl bg-gray-100 flex-shrink-0" loading="lazy" />
@@ -436,6 +540,9 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
 
           {/* Campaign + Ad Set — always visible */}
           <PostInSection campaignName={campaignName} adSetName={adSetName} />
+
+          {/* Posted by dropdown */}
+          <PostedByDropdown value={dep.posted_by} onChange={(val) => handlePostedByChange(dep.id, val)} />
 
           {/* Expand/Collapse toggle */}
           <button
@@ -448,7 +555,7 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
             {isExpanded ? 'Hide Ad Details' : 'Show Ad Details'}
             {!isExpanded && (
               <span className="text-[10px] text-textmid font-normal">
-                ({[dep.primary_texts && parseCount(dep.primary_texts) > 0 && 'Text', dep.ad_headlines && parseCount(dep.ad_headlines) > 0 && 'Headlines', dep.destination_url && 'URL', dep.cta_button && 'CTA', dep.facebook_page && 'Page'].filter(Boolean).join(', ') || 'No details'})
+                ({[dep.primary_texts && parseCount(dep.primary_texts) > 0 && 'Primary Text', dep.ad_headlines && parseCount(dep.ad_headlines) > 0 && 'Headline', dep.destination_url && 'Website URL', dep.display_link && 'Display Link', dep.cta_button && 'Call to Action', dep.facebook_page && 'Facebook Page'].filter(Boolean).join(', ') || 'No details'})
               </span>
             )}
           </button>
@@ -473,7 +580,7 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
                     {downloadingSingle.has(dep.id) ? 'Downloading...' : 'Download Image'}
                   </button>
                 </div>
-                <img src={thumbUrl} alt="" className="w-full max-w-[300px] rounded-xl bg-offwhite" loading="lazy" />
+                <img src={thumbUrl} alt="" className="w-full max-w-[150px] rounded-xl bg-offwhite" loading="lazy" />
               </div>
             )}
 
@@ -484,14 +591,15 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
               'Upload ALL of these into the "Primary Text" field. Meta will automatically rotate them and show the best-performing version to each person.'
             )}
 
-            {/* Headlines */}
+            {/* Headline */}
             {renderNumberedTexts(
               dep.ad_headlines,
-              `Headlines \u2014 ${parseCount(dep.ad_headlines)} Variation${parseCount(dep.ad_headlines) !== 1 ? 's' : ''}`,
+              `Headline \u2014 ${parseCount(dep.ad_headlines)} Variation${parseCount(dep.ad_headlines) !== 1 ? 's' : ''}`,
               'Upload ALL of these into the "Headline" field. Meta will automatically test each one and show the best performer.'
             )}
 
             <WebsiteUrlSection url={dep.destination_url} />
+            <DisplayLinkSection displayLink={dep.display_link} />
             <CallToActionSection cta={dep.cta_button} />
           </div>
         )}
@@ -554,12 +662,16 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
           {/* Ad Name + Format badge + small thumbnails */}
           <div className="flex items-start justify-between gap-3">
             <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2 mb-1">
-                <span className="inline-block px-2 py-0.5 rounded bg-navy text-white text-[9px] font-bold uppercase tracking-wider">Flex</span>
-                <span className="text-[10px] text-textmid">{childDeps.length} image{childDeps.length !== 1 ? 's' : ''}</span>
-                {plannedDate && <span className="text-[10px] text-textmid">{plannedDate}</span>}
+              <div className="text-[14px] leading-tight mb-1.5">
+                <span className="text-textmid font-medium">Ad Name: </span>
+                <span className="font-bold text-textdark">{flexAd.name || 'Flex Ad'}</span>
               </div>
-              <div className="text-[17px] font-bold text-textdark leading-tight">{flexAd.name || 'Flex Ad'}</div>
+              <div className="flex items-center gap-2">
+                <span className="inline-block px-2 py-0.5 rounded bg-purple-100 text-purple-700 text-[9px] font-bold uppercase tracking-wider">Ad Format: Flexible</span>
+                {plannedDate && (
+                  <span className="inline-block px-2 py-0.5 rounded bg-teal/10 text-teal text-[9px] font-bold uppercase tracking-wider">Start Date: {plannedDate}</span>
+                )}
+              </div>
             </div>
             <div className="flex gap-1 flex-shrink-0">
               {childDeps.slice(0, 3).map(d => d.imageUrl ? (
@@ -576,6 +688,9 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
           {/* Campaign + Ad Set — always visible */}
           <PostInSection campaignName={campaignName} adSetName={adSetName} />
 
+          {/* Posted by dropdown */}
+          <PostedByDropdown value={flexAd.posted_by} onChange={(val) => handlePostedByChange(flexAd.id, val, true)} />
+
           {/* Expand/Collapse toggle */}
           <button
             onClick={() => toggleCardExpanded(flexId)}
@@ -587,7 +702,7 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
             {isExpanded ? 'Hide Ad Details' : 'Show Ad Details'}
             {!isExpanded && (
               <span className="text-[10px] text-textmid font-normal">
-                ({[depsWithImages.length > 0 && `${depsWithImages.length} Images`, flexAd.primary_texts && parseCount(flexAd.primary_texts) > 0 && 'Text', flexAd.headlines && parseCount(flexAd.headlines) > 0 && 'Headlines', flexAd.destination_url && 'URL', flexAd.cta_button && 'CTA', flexAd.facebook_page && 'Page'].filter(Boolean).join(', ') || 'No details'})
+                ({[depsWithImages.length > 0 && `${depsWithImages.length} Ad Creatives`, flexAd.primary_texts && parseCount(flexAd.primary_texts) > 0 && 'Primary Text', flexAd.headlines && parseCount(flexAd.headlines) > 0 && 'Headline', flexAd.destination_url && 'Website URL', flexAd.display_link && 'Display Link', flexAd.cta_button && 'Call to Action', flexAd.facebook_page && 'Facebook Page'].filter(Boolean).join(', ') || 'No details'})
               </span>
             )}
           </button>
@@ -642,7 +757,7 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
               )}
 
               {/* Image grid */}
-              <div className="grid grid-cols-3 gap-3">
+              <div className="grid grid-cols-5 gap-2">
                 {childDeps.map(d => {
                   const isSelected = selected.has(d.id);
                   const isSingleDl = downloadingSingle.has(d.id);
@@ -685,14 +800,15 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
               'Upload ALL of these into the "Primary Text" field. Meta will automatically rotate them and show the best-performing version to each person.'
             )}
 
-            {/* Headlines */}
+            {/* Headline */}
             {renderNumberedTexts(
               flexAd.headlines,
-              `Headlines — ${parseCount(flexAd.headlines)} Variation${parseCount(flexAd.headlines) !== 1 ? 's' : ''}`,
+              `Headline — ${parseCount(flexAd.headlines)} Variation${parseCount(flexAd.headlines) !== 1 ? 's' : ''}`,
               'Upload ALL of these into the "Headline" field. Meta will automatically test each one and show the best performer.'
             )}
 
             <WebsiteUrlSection url={flexAd.destination_url} />
+            <DisplayLinkSection displayLink={flexAd.display_link} />
             <CallToActionSection cta={flexAd.cta_button} />
           </div>
         )}
@@ -722,7 +838,7 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
               </svg>
-              Mark All as Posted
+              Mark as Posted
             </button>
           )}
         </div>
@@ -782,22 +898,12 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
   return (
     <div className="space-y-5">
       {/* Summary */}
-      <div className="flex items-center justify-between">
-        <div>
-          <div className="text-[14px]">
-            <span className="font-bold text-textdark">{readyDeps.length}</span>
-            <span className="text-textmid ml-1.5">ad{readyDeps.length !== 1 ? 's' : ''} ready to post</span>
-          </div>
-          <p className="text-[11px] text-textmid mt-0.5">These ads are ready to be posted in Meta Ads Manager. Expand each card to see the full details and copy the content.</p>
+      <div>
+        <div className="text-[14px]">
+          <span className="font-bold text-textdark">{cardList.length}</span>
+          <span className="text-textmid ml-1.5">ad{cardList.length !== 1 ? 's' : ''} ready to post</span>
         </div>
-        <button onClick={handleBulkMarkAllPosted} disabled={bulkMarkingAll}
-          className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-[12px] font-bold bg-teal text-white hover:bg-teal/90 transition-colors disabled:opacity-50 shadow-sm"
-        >
-          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-          </svg>
-          {bulkMarkingAll ? 'Marking...' : `Mark All as Posted (${readyDeps.length})`}
-        </button>
+        <p className="text-[11px] text-textmid mt-0.5">These ads are ready to be posted in Meta Ads Manager. Expand each card to see the full details and copy the content.</p>
       </div>
 
       {/* Cards */}

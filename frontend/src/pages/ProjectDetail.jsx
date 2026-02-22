@@ -319,7 +319,7 @@ export default function ProjectDetail() {
   const tabs = [
     { id: 'quotes', label: 'Copywriter', tooltip: 'Mine quotes, generate headlines, and turn them into ads.' },
     { id: 'ads', label: 'Ad Studio', tooltip: 'Generate individual ads or run batch generation.' },
-    { id: 'tracker', label: 'Ad Deployment', tooltip: 'Plan, organize, and deploy ads to campaigns and ad sets.' },
+    { id: 'tracker', label: 'Ad Pipeline', tooltip: 'Plan, organize, and deploy ads to campaigns and ad sets.' },
     { id: 'lpgen', label: 'LP Gen', tooltip: 'Generate landing page copy from foundational docs + swipe file.' },
     { id: 'overview', label: 'Overview', tooltip: 'Project settings, cost tracking, and stats.' },
     { id: 'docs', label: 'Foundational Docs', tooltip: 'Core research documents that guide ad generation.' },

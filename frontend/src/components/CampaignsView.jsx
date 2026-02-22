@@ -69,7 +69,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
   // Detail sidebar
   const [sidebarData, setSidebarData] = useState(null);
   const [sidebarForm, setSidebarForm] = useState({
-    ad_name: '', destination_urls: [''], cta_button: 'LEARN_MORE', primary_texts: [], ad_headlines: [], planned_date: '', facebook_page: '',
+    ad_name: '', destination_urls: [''], display_link: '', cta_button: 'LEARN_MORE', primary_texts: [], ad_headlines: [], planned_date: '', facebook_page: '',
   });
   const [duplicateConfirm, setDuplicateConfirm] = useState(null); // { urls: string[] } when pending
   const [generatingPrimaryText, setGeneratingPrimaryText] = useState(false);
@@ -401,7 +401,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
       return;
     }
 
-    const name = `Flex Ad (${allDepIds.length} images)`;
+    const name = `Flexible Ad (${allDepIds.length} images)`;
     try {
       // Delete old flex ads first (dissolve them)
       if (selectedFlexIds.length > 0) {
@@ -411,9 +411,9 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
       setSelectedInAdSet(prev => ({ ...prev, [adSetId]: new Set() }));
       // Refresh both — flex ads are created server-side, need to fetch new IDs
       await Promise.all([loadCampaignData(true), loadDeployments()]);
-      addToast('Flex ad created', 'success');
+      addToast('Flexible ad created', 'success');
     } catch {
-      addToast('Failed to create flex ad', 'error');
+      addToast('Failed to create flexible ad', 'error');
       await Promise.all([loadCampaignData(true), loadDeployments()]);
     }
   };
@@ -442,9 +442,9 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
       try {
         await api.deleteFlexAd(flexAdId);
         await loadCampaignData(true);
-        addToast('Flex ad ungrouped', 'success');
+        addToast('Flexible ad ungrouped', 'success');
       } catch {
-        addToast('Failed to ungroup flex ad', 'error');
+        addToast('Failed to ungroup flexible ad', 'error');
         await Promise.all([loadCampaignData(true), loadDeployments()]);
       }
     } else if (action === 'unplan') {
@@ -493,7 +493,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
               await api.restoreFlexAd(flexAdId);
               await Promise.all(ownedChildIds.map(id => api.restoreDeployment(id)));
               await Promise.all([loadCampaignData(true), loadDeployments()]);
-              addToast('Restored flex ad', 'success');
+              addToast('Restored flexible ad', 'success');
             } catch { addToast('Failed to restore', 'error'); }
           },
         });
@@ -525,6 +525,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
       form = {
         ad_name: dep.ad_name || dep.ad?.headline || dep.ad?.angle || '',
         destination_urls: url ? [url] : [''],
+        display_link: dep.display_link || '',
         cta_button: dep.cta_button || 'LEARN_MORE',
         primary_texts: (() => { try { return dep.primary_texts ? JSON.parse(dep.primary_texts) : []; } catch { return []; } })(),
         ad_headlines: (() => { try { return dep.ad_headlines ? JSON.parse(dep.ad_headlines) : []; } catch { return []; } })(),
@@ -537,6 +538,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
       form = {
         ad_name: flex.name || '',
         destination_urls: url ? [url] : [''],
+        display_link: flex.display_link || '',
         cta_button: flex.cta_button || 'LEARN_MORE',
         primary_texts: (() => { try { return flex.primary_texts ? JSON.parse(flex.primary_texts) : []; } catch { return []; } })(),
         ad_headlines: (() => { try { return flex.headlines ? JSON.parse(flex.headlines) : []; } catch { return []; } })(),
@@ -709,6 +711,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
           primary_texts: JSON.stringify(sidebarForm.primary_texts),
           ad_headlines: JSON.stringify(sidebarForm.ad_headlines),
           destination_url: primaryUrl,
+          display_link: sidebarForm.display_link || '',
           cta_button: sidebarForm.cta_button,
           facebook_page: sidebarForm.facebook_page || null,
           planned_date: sidebarForm.planned_date || null,
@@ -732,6 +735,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
           primary_texts: JSON.stringify(sidebarForm.primary_texts),
           headlines: JSON.stringify(sidebarForm.ad_headlines),
           destination_url: primaryUrl,
+          display_link: sidebarForm.display_link || '',
           cta_button: sidebarForm.cta_button,
           facebook_page: sidebarForm.facebook_page || null,
           planned_date: sidebarForm.planned_date || null,
@@ -934,7 +938,12 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
           )}
         </button>
 
-        <span className="text-[8px] font-bold text-textlight bg-black/5 px-1 py-0.5 rounded tracking-wide flex-shrink-0">SINGLE</span>
+        <div className="min-w-0 flex-1">
+          <div className="text-[12px] font-medium text-textdark truncate" title={name}>{name}</div>
+          {dep.ad?.body_copy && (
+            <div className="text-[10px] text-textlight truncate mt-0.5">{dep.ad.body_copy}</div>
+          )}
+        </div>
         {thumbUrl ? (
           <img
             src={thumbUrl}
@@ -946,12 +955,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
         ) : (
           <div className="w-10 h-10 rounded-lg bg-gray-100 flex-shrink-0" />
         )}
-        <div className="min-w-0 flex-1">
-          <div className="text-[12px] font-medium text-textdark truncate" title={name}>{name}</div>
-          {dep.ad?.body_copy && (
-            <div className="text-[10px] text-textlight truncate mt-0.5">{dep.ad.body_copy}</div>
-          )}
-        </div>
+        <span className="text-[8px] font-bold text-purple-700 bg-purple-100 px-1 py-0.5 rounded tracking-wide flex-shrink-0">Single Image</span>
 
         {/* Action buttons on hover */}
         <div className="opacity-0 group-hover:opacity-100 flex items-center gap-0.5 flex-shrink-0 transition-opacity">
@@ -1019,7 +1023,10 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
             )}
           </button>
         )}
-        <span className="text-[9px] font-bold text-white bg-navy px-1.5 py-0.5 rounded tracking-wide flex-shrink-0">FLEX</span>
+        <div className="min-w-0 flex-1">
+          <div className="text-[12px] font-medium text-textdark truncate">{flexAd.name}</div>
+          <div className="text-[10px] text-textlight">{childDeps.length} image{childDeps.length !== 1 ? 's' : ''}</div>
+        </div>
         <div className="flex items-center gap-1 flex-shrink-0">
           {childDeps.slice(0, 4).map(d => (
             d.imageUrl ? (
@@ -1034,10 +1041,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
             </div>
           )}
         </div>
-        <div className="min-w-0 flex-1">
-          <div className="text-[12px] font-medium text-textdark truncate">{flexAd.name}</div>
-          <div className="text-[10px] text-textlight">{childDeps.length} image{childDeps.length !== 1 ? 's' : ''}</div>
-        </div>
+        <span className="text-[9px] font-bold text-purple-700 bg-purple-100 px-1.5 py-0.5 rounded tracking-wide flex-shrink-0">Flexible</span>
 
         {/* Hover actions / Confirmation */}
         {flexActionConfirm?.id === flexAd.id ? (
@@ -1116,9 +1120,9 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
           {/* Header */}
           <div className="sticky top-0 bg-white border-b border-gray-100 px-5 py-4 flex items-center justify-between z-10">
             <div className="flex items-center gap-2">
-              {isFlex && <span className="text-[9px] font-bold text-white bg-navy px-1.5 py-0.5 rounded tracking-wide">FLEX</span>}
+              {isFlex && <span className="text-[9px] font-bold text-purple-700 bg-purple-100 px-1.5 py-0.5 rounded tracking-wide">Flexible</span>}
               <h3 className="text-[14px] font-semibold text-textdark">
-                {isFlex ? 'Flex Ad Details' : 'Ad Details'}
+                Ad Details
               </h3>
             </div>
             <button onClick={closeSidebar} className="p-1.5 rounded-lg hover:bg-gray-100 text-textlight transition-colors">
@@ -1393,7 +1397,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
                   <svg className={`w-3.5 h-3.5 text-textmid transition-transform ${headlinesOpen ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                   </svg>
-                  <span className="text-[11px] font-semibold text-textdark uppercase tracking-wider">Headlines</span>
+                  <span className="text-[11px] font-semibold text-textdark uppercase tracking-wider">Headline</span>
                   {headlineThread.length > 2 && (
                     <span className="text-[9px] text-gold font-medium bg-gold/10 px-1.5 py-0.5 rounded-full">
                       Round {Math.floor(headlineThread.length / 2)}
@@ -1539,10 +1543,10 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
               )}
             </div>
 
-            {/* ─── Destination URL(s) ─── */}
+            {/* ─── Website URL ─── */}
             <div>
               <label className="text-[11px] font-semibold text-textdark uppercase tracking-wider">
-                Destination URL{sidebarForm.destination_urls.length > 1 ? 's' : ''}
+                Website URL{sidebarForm.destination_urls.length > 1 ? 's' : ''}
               </label>
               <div className="space-y-2 mt-1.5">
                 {sidebarForm.destination_urls.map((url, i) => (
@@ -1589,14 +1593,36 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
                   <svg className="w-3 h-3 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                   </svg>
-                  Saving will duplicate this {isFlex ? 'flex ad' : 'ad'} for each extra URL ({sidebarForm.destination_urls.length - 1} duplicate{sidebarForm.destination_urls.length > 2 ? 's' : ''}).
+                  Saving will duplicate this {isFlex ? 'flexible ad' : 'ad'} for each extra URL ({sidebarForm.destination_urls.length - 1} duplicate{sidebarForm.destination_urls.length > 2 ? 's' : ''}).
                 </p>
               )}
             </div>
 
-            {/* ─── CTA Button ─── */}
+            {/* ─── Display Link ─── */}
             <div>
-              <label className="text-[11px] font-semibold text-textdark uppercase tracking-wider">CTA Button</label>
+              <label className="flex items-center gap-2 cursor-pointer select-none">
+                <input
+                  type="checkbox"
+                  checked={sidebarForm.display_link !== ''}
+                  onChange={(e) => setSidebarForm(prev => ({ ...prev, display_link: e.target.checked ? (prev.display_link || ' ') : '' }))}
+                  className="rounded border-navy/30 text-navy focus:ring-navy/20 w-3.5 h-3.5"
+                />
+                <span className="text-[11px] font-semibold text-textdark uppercase tracking-wider">Use a Display Link</span>
+              </label>
+              {sidebarForm.display_link !== '' && (
+                <input
+                  type="text"
+                  value={sidebarForm.display_link.trim()}
+                  onChange={(e) => setSidebarForm(prev => ({ ...prev, display_link: e.target.value }))}
+                  className="input-apple text-[12px] w-full mt-1.5"
+                  placeholder="e.g. yourbrand.com/offer"
+                />
+              )}
+            </div>
+
+            {/* ─── Call to Action ─── */}
+            <div>
+              <label className="text-[11px] font-semibold text-textdark uppercase tracking-wider">Call to Action</label>
               <select
                 value={sidebarForm.cta_button}
                 onChange={(e) => setSidebarForm(prev => ({ ...prev, cta_button: e.target.value }))}
@@ -1621,9 +1647,9 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
               <p className="text-[10px] text-textmid mt-1">The Facebook Page this ad will be posted from.</p>
             </div>
 
-            {/* ─── Schedule Ad ─── */}
+            {/* ─── Start Date ─── */}
             <div>
-              <label className="text-[11px] font-semibold text-textdark uppercase tracking-wider">Schedule Ad</label>
+              <label className="text-[11px] font-semibold text-textdark uppercase tracking-wider">Start Date</label>
               <select
                 value={sidebarForm.planned_date ? 'scheduled' : 'immediately'}
                 onChange={(e) => {
@@ -1675,12 +1701,12 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
                   </div>
                   <div>
                     <p className="text-[12px] font-semibold text-textdark">
-                      Duplicate {isFlex ? 'flex ad' : 'ad'} for {duplicateConfirm.urls.length} URLs?
+                      Duplicate {isFlex ? 'flexible ad' : 'ad'} for {duplicateConfirm.urls.length} URLs?
                     </p>
                     <p className="text-[11px] text-textmid mt-1">
                       {isFlex
-                        ? `This will save the current flex ad with the first URL, then duplicate all ${sidebarData?.deps?.length || 0} child ads for each extra URL — creating ${duplicateConfirm.urls.length - 1} new flex ad${duplicateConfirm.urls.length > 2 ? 's' : ''} in the same ad set:`
-                        : `This will save the current ad with the first URL, then create ${duplicateConfirm.urls.length - 1} duplicate${duplicateConfirm.urls.length > 2 ? 's' : ''} in the same ad set — each with a different destination URL:`
+                        ? `This will save the current flexible ad with the first URL, then duplicate all ${sidebarData?.deps?.length || 0} child ads for each extra URL — creating ${duplicateConfirm.urls.length - 1} new flexible ad${duplicateConfirm.urls.length > 2 ? 's' : ''} in the same ad set:`
+                        : `This will save the current ad with the first URL, then create ${duplicateConfirm.urls.length - 1} duplicate${duplicateConfirm.urls.length > 2 ? 's' : ''} in the same ad set — each with a different website URL:`
                       }
                     </p>
                     <ul className="mt-2 space-y-1">
@@ -1735,93 +1761,88 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
   }
 
   return (
-    <div className="space-y-6">
-      {/* ═══════════ Unplanned Section ═══════════ */}
-      <div
-        className={`card p-5 transition-all ${
-          dropTarget === 'unplanned' ? 'ring-2 ring-gold bg-gold/5' : ''
-        }`}
-        onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; setDropTarget('unplanned'); }}
-        onDragLeave={handleDragLeave}
-        onDrop={handleDropOnUnplanned}
-      >
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-2">
-            {unplannedDeps.length > 0 && (
-              <button
-                onClick={toggleSelectAllUnplanned}
-                className={`w-[14px] h-[14px] rounded flex-shrink-0 flex items-center justify-center transition-colors ${
-                  selectedUnplanned.size === unplannedDeps.length && unplannedDeps.length > 0
-                    ? 'bg-navy'
-                    : selectedUnplanned.size > 0
-                      ? 'bg-navy/50'
-                      : 'border-[1.5px] border-textlight/60 hover:border-navy/40'
-                }`}
-              >
-                {selectedUnplanned.size > 0 && (
-                  <svg className="w-2 h-2 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d={
-                      selectedUnplanned.size === unplannedDeps.length ? "M5 13l4 4L19 7" : "M5 12h14"
-                    } />
-                  </svg>
-                )}
-              </button>
-            )}
-            <div>
+    <div>
+      {/* ═══════════ Two-Column Layout: Queue (left) | Planner (right) ═══════════ */}
+      <div className="flex gap-5 items-start">
+
+        {/* ─── Left Column: Queue ─── */}
+        <div
+          className={`w-[300px] flex-shrink-0 sticky top-4 card p-4 transition-all max-h-[calc(100vh-120px)] flex flex-col ${
+            dropTarget === 'unplanned' ? 'ring-2 ring-gold bg-gold/5' : ''
+          }`}
+          onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; setDropTarget('unplanned'); }}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDropOnUnplanned}
+        >
+          <div className="mb-3">
+            <div className="flex items-center justify-between">
               <div className="flex items-center gap-2">
+                {unplannedDeps.length > 0 && (
+                  <button
+                    onClick={toggleSelectAllUnplanned}
+                    className={`w-[14px] h-[14px] rounded flex-shrink-0 flex items-center justify-center transition-colors ${
+                      selectedUnplanned.size === unplannedDeps.length && unplannedDeps.length > 0
+                        ? 'bg-navy'
+                        : selectedUnplanned.size > 0
+                          ? 'bg-navy/50'
+                          : 'border-[1.5px] border-textlight/60 hover:border-navy/40'
+                    }`}
+                  >
+                    {selectedUnplanned.size > 0 && (
+                      <svg className="w-2 h-2 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d={
+                          selectedUnplanned.size === unplannedDeps.length ? "M5 13l4 4L19 7" : "M5 12h14"
+                        } />
+                      </svg>
+                    )}
+                  </button>
+                )}
                 <h3 className="text-[13px] font-semibold text-textdark">Queue</h3>
                 <span className="text-[11px] text-textlight bg-black/5 px-2 py-0.5 rounded-full">
                   {unplannedDeps.length}
                 </span>
               </div>
-              <p className="text-[11px] text-textmid mt-0.5">Newly deployed ads land here. Drag them into a campaign ad set to start planning.</p>
             </div>
+            <p className="text-[10px] text-textmid mt-1 leading-relaxed">Newly deployed ads land here. Drag them into a campaign ad set to start planning.</p>
           </div>
-          {selectedUnplanned.size > 0 && (
-            <div className="flex items-center gap-2 text-[11px]">
-              <span className="text-navy font-medium">{selectedUnplanned.size} selected</span>
 
-              {/* Assign to Ad Set dropdown */}
+          {/* Queue selection toolbar */}
+          {selectedUnplanned.size > 0 && (
+            <div className="flex flex-wrap items-center gap-1.5 mb-3 text-[10px]">
+              <span className="text-navy font-medium">{selectedUnplanned.size} selected</span>
               <div className="relative" ref={assignDropdownRef}>
                 <button
                   onClick={() => setAssignDropdown(!assignDropdown)}
-                  className="px-2.5 py-1 rounded-lg bg-navy text-white hover:bg-navy-light transition-colors inline-flex items-center gap-1"
+                  className="px-2 py-0.5 rounded-md bg-navy text-white hover:bg-navy-light transition-colors inline-flex items-center gap-0.5"
                 >
-                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                  </svg>
                   Add to Ad Set
-                  <svg className={`w-3 h-3 transition-transform ${assignDropdown ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <svg className={`w-2.5 h-2.5 transition-transform ${assignDropdown ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
                   </svg>
                 </button>
                 {assignDropdown && (
-                  <div className="absolute right-0 top-full mt-1 w-64 bg-white rounded-xl shadow-lg border border-gray-200 z-50 max-h-[300px] overflow-y-auto">
+                  <div className="absolute left-0 top-full mt-1 w-56 bg-white rounded-xl shadow-lg border border-gray-200 z-50 max-h-[300px] overflow-y-auto">
                     {sortedCampaigns.length === 0 ? (
-                      <div className="p-3 text-[11px] text-textlight text-center">
-                        Create a campaign first
-                      </div>
+                      <div className="p-3 text-[10px] text-textlight text-center">Create a campaign first</div>
                     ) : (
                       sortedCampaigns.map(campaign => {
                         const campaignAS = getCampaignAdSets(campaign.id);
                         return (
                           <div key={campaign.id}>
-                            <div className="px-3 py-2 text-[10px] font-semibold text-textlight uppercase tracking-wider bg-offwhite border-b border-gray-100">
+                            <div className="px-3 py-1.5 text-[9px] font-semibold text-textlight uppercase tracking-wider bg-offwhite border-b border-gray-100">
                               {campaign.name}
                             </div>
                             {campaignAS.length === 0 ? (
-                              <div className="px-3 py-2 text-[10px] text-textlight italic">
-                                No ad sets — create one first
-                              </div>
+                              <div className="px-3 py-1.5 text-[9px] text-textlight italic">No ad sets</div>
                             ) : (
                               campaignAS.map(adSet => (
                                 <button
                                   key={adSet.id}
                                   onClick={() => handleAssignSelectedToAdSet(campaign.id, adSet.id)}
-                                  className="w-full text-left px-4 py-2 text-[11px] text-textdark hover:bg-navy/5 transition-colors"
+                                  className="w-full text-left px-4 py-1.5 text-[10px] text-textdark hover:bg-navy/5 transition-colors"
                                 >
                                   {adSet.name}
-                                  <span className="text-textlight ml-1">({getAdSetDeps(adSet.id).length} ads)</span>
+                                  <span className="text-textlight ml-1">({getAdSetDeps(adSet.id).length})</span>
                                 </button>
                               ))
                             )}
@@ -1832,10 +1853,9 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
                   </div>
                 )}
               </div>
-
               <button
                 onClick={() => setDeleteConfirm({ open: true, ids: [...selectedUnplanned], source: 'unplanned' })}
-                className="px-2.5 py-1 rounded-lg bg-red-50 border border-red-200 text-red-600 hover:bg-red-100 transition-colors"
+                className="px-2 py-0.5 rounded-md bg-red-50 border border-red-200 text-red-600 hover:bg-red-100 transition-colors"
               >
                 Delete
               </button>
@@ -1847,28 +1867,30 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
               </button>
             </div>
           )}
+
+          {/* Queue items — scrollable */}
+          <div className="flex-1 overflow-y-auto scrollbar-thin -mx-1 px-1">
+            {unplannedDeps.length === 0 ? (
+              <div className="py-8 text-center">
+                <p className="text-[11px] text-textlight">
+                  No ads in queue. Deploy ads from Ad Studio to get started.
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-1.5">
+                {unplannedDeps.map(dep => renderDepCard(dep, { isDraggable: true }))}
+              </div>
+            )}
+          </div>
         </div>
 
-        {unplannedDeps.length === 0 ? (
-          <div className="py-6 text-center">
-            <p className="text-[12px] text-textlight">
-              No ads in queue. Deploy ads from Ad Studio to get started.
-            </p>
-          </div>
-        ) : (
-          <div className="space-y-1.5">
-            {unplannedDeps.map(dep => renderDepCard(dep, { isDraggable: true }))}
-          </div>
-        )}
-      </div>
-
-      {/* ═══════════ Campaigns Section ═══════════ */}
-      <div>
-        <div className="flex items-center justify-between mb-4">
-          <div>
-            <h3 className="text-[14px] font-semibold text-textdark">Planner</h3>
-            <p className="text-[11px] text-textmid mt-0.5">Organize ads into campaigns and ad sets. Fill in ad details, then mark them "Ready to Post" when they're ready to go live.</p>
-          </div>
+        {/* ─── Right Column: Planner ─── */}
+        <div className="flex-1 min-w-0">
+          <div className="flex items-center justify-between mb-4">
+            <div>
+              <h3 className="text-[14px] font-semibold text-textdark">Planner</h3>
+              <p className="text-[11px] text-textmid mt-0.5">Organize ads into campaigns and ad sets. Fill in ad details, then mark them "Ready to Post" when they're ready to go live.</p>
+            </div>
           {!creatingCampaign && (
             <button
               onClick={() => setCreatingCampaign(true)}
@@ -2235,7 +2257,8 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
             );
           })}
         </div>
-      </div>
+      </div>{/* end right column (flex-1) */}
+      </div>{/* end flex container */}
 
       {/* ═══════════ Detail Sidebar ═══════════ */}
       {renderSidebar()}

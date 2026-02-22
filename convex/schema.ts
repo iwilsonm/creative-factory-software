@@ -173,9 +173,11 @@ export default defineSchema({
     primary_texts: v.optional(v.string()),       // JSON string array (up to 5)
     headlines: v.optional(v.string()),           // JSON string array (up to 5)
     destination_url: v.optional(v.string()),
+    display_link: v.optional(v.string()),        // Display link (shown instead of destination URL)
     cta_button: v.optional(v.string()),          // Meta CTA type
     facebook_page: v.optional(v.string()),       // Facebook Page name to post from
     planned_date: v.optional(v.string()),        // ISO datetime for scheduled posting
+    posted_by: v.optional(v.string()),           // Who will post this ad (e.g. "Corinne", "Liz")
     created_at: v.string(),
     updated_at: v.string(),
     deleted_at: v.optional(v.string()),           // ISO timestamp for soft delete
@@ -205,8 +207,10 @@ export default defineSchema({
     primary_texts: v.optional(v.string()),       // JSON array of primary text strings
     ad_headlines: v.optional(v.string()),         // JSON array of headline strings
     destination_url: v.optional(v.string()),      // Meta destination URL
+    display_link: v.optional(v.string()),         // Display link (shown instead of destination URL)
     cta_button: v.optional(v.string()),           // Meta CTA type (SHOP_NOW, LEARN_MORE, etc.)
     facebook_page: v.optional(v.string()),        // Facebook Page name to post from
+    posted_by: v.optional(v.string()),            // Who will post this ad (e.g. "Corinne", "Liz")
     created_at: v.string(),
     deleted_at: v.optional(v.string()),           // ISO timestamp for soft delete
   })
