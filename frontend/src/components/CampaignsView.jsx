@@ -538,6 +538,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
 
   const handleGeneratePrimaryText = async () => {
     setGeneratingPrimaryText(true);
+    setPrimaryTextOpen(true); // Auto-expand so user can see results
     try {
       const depId = sidebarData.type === 'single'
         ? sidebarData.deployment.id
@@ -546,7 +547,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
       const direction = primaryTextDirection.trim() || undefined;
       const result = await api.generatePrimaryText(depId, flexAdId, direction);
       setSidebarForm(prev => ({ ...prev, primary_texts: result.primary_texts || [] }));
-      addToast('Primary text generated', 'success');
+      addToast('Primary text generated — edit direction above and regenerate to refine', 'success');
     } catch {
       addToast('Failed to generate primary text', 'error');
     }
@@ -555,6 +556,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
 
   const handleGenerateHeadlines = async () => {
     setGeneratingHeadlines(true);
+    setHeadlinesOpen(true); // Auto-expand so user can see results
     try {
       const depId = sidebarData.type === 'single'
         ? sidebarData.deployment.id
@@ -1099,9 +1101,9 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
 
             {/* ─── Primary Text (collapsible) ─── */}
             <div className="rounded-xl border border-gray-200 overflow-hidden">
-              <button
+              <div
                 onClick={() => setPrimaryTextOpen(!primaryTextOpen)}
-                className="w-full flex items-center justify-between px-4 py-3 bg-offwhite hover:bg-gray-100 transition-colors"
+                className="w-full flex items-center justify-between px-4 py-3 bg-offwhite hover:bg-gray-100 transition-colors cursor-pointer select-none"
               >
                 <div className="flex items-center gap-2">
                   <svg className={`w-3.5 h-3.5 text-textmid transition-transform ${primaryTextOpen ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1130,11 +1132,11 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
                       <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
                       </svg>
-                      Generate
+                      {sidebarForm.primary_texts.filter(t => t.trim()).length > 0 ? 'Regenerate' : 'Generate'}
                     </>
                   )}
                 </button>
-              </button>
+              </div>
               {primaryTextOpen && (
                 <div className="p-4 space-y-3">
                   {/* Creative direction input */}
@@ -1200,9 +1202,9 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
 
             {/* ─── Headlines (collapsible) ─── */}
             <div className="rounded-xl border border-gray-200 overflow-hidden">
-              <button
+              <div
                 onClick={() => setHeadlinesOpen(!headlinesOpen)}
-                className="w-full flex items-center justify-between px-4 py-3 bg-offwhite hover:bg-gray-100 transition-colors"
+                className="w-full flex items-center justify-between px-4 py-3 bg-offwhite hover:bg-gray-100 transition-colors cursor-pointer select-none"
               >
                 <div className="flex items-center gap-2">
                   <svg className={`w-3.5 h-3.5 text-textmid transition-transform ${headlinesOpen ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1232,11 +1234,11 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
                       <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
                       </svg>
-                      Generate
+                      {sidebarForm.ad_headlines.filter(h => h.trim()).length > 0 ? 'Regenerate' : 'Generate'}
                     </>
                   )}
                 </button>
-              </button>
+              </div>
               {headlinesOpen && (
                 <div className="p-4 space-y-2">
                   {sidebarForm.ad_headlines.map((h, i) => (
