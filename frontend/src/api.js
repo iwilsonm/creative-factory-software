@@ -321,7 +321,7 @@ export const api = {
   unassignFromAdSet: (deploymentIds) => request('/deployments/unassign', { method: 'POST', body: JSON.stringify({ deploymentIds }) }),
 
   // Duplicate
-  duplicateDeployment: (id) => request(`/deployments/${id}/duplicate`, { method: 'POST' }),
+  duplicateDeployment: (id, overrides) => request(`/deployments/${id}/duplicate`, { method: 'POST', body: JSON.stringify({ overrides }) }),
 
   // Flex Ads
   getFlexAds: (projectId) => request(`/deployments/flex-ads?projectId=${projectId}`),

@@ -80,6 +80,10 @@ export const createWithoutDedup = mutation({
     local_campaign_id: v.optional(v.string()),
     local_adset_id: v.optional(v.string()),
     flex_ad_id: v.optional(v.string()),
+    destination_url: v.optional(v.string()),
+    cta_button: v.optional(v.string()),
+    primary_texts: v.optional(v.string()),
+    ad_headlines: v.optional(v.string()),
     created_at: v.string(),
   },
   handler: async (ctx, args) => {

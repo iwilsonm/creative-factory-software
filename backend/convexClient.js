@@ -672,7 +672,7 @@ export async function deleteFlexAd(id) {
 }
 
 // Duplicate a deployment (skips dedup guard)
-export async function createDeploymentDuplicate({ id, ad_id, project_id, status, ad_name, local_campaign_id, local_adset_id, flex_ad_id }) {
+export async function createDeploymentDuplicate({ id, ad_id, project_id, status, ad_name, local_campaign_id, local_adset_id, flex_ad_id, destination_url, cta_button, primary_texts, ad_headlines, planned_date }) {
   return await mutationWithRetry(api.ad_deployments.createWithoutDedup, {
     externalId: id,
     ad_id,
@@ -682,6 +682,11 @@ export async function createDeploymentDuplicate({ id, ad_id, project_id, status,
     ...(local_campaign_id ? { local_campaign_id } : {}),
     ...(local_adset_id ? { local_adset_id } : {}),
     ...(flex_ad_id ? { flex_ad_id } : {}),
+    ...(destination_url ? { destination_url } : {}),
+    ...(cta_button ? { cta_button } : {}),
+    ...(primary_texts ? { primary_texts } : {}),
+    ...(ad_headlines ? { ad_headlines } : {}),
+    ...(planned_date ? { planned_date } : {}),
     created_at: new Date().toISOString(),
   });
 }

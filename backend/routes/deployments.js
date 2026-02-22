@@ -517,10 +517,12 @@ router.post('/deployments/unassign', async (req, res) => {
 
 /**
  * POST /deployments/:id/duplicate — Clone a deployment (same ad_id, same ad set)
+ * Body (optional): { overrides?: { ad_name?, destination_url?, cta_button?, primary_texts?, ad_headlines?, planned_date? } }
  */
 router.post('/deployments/:id/duplicate', async (req, res) => {
   try {
     const { id } = req.params;
+    const { overrides } = req.body || {};
     // Look up source deployment
     const allDeps = await getAllDeployments();
     const source = allDeps.find(d => d.externalId === id);
@@ -531,9 +533,9 @@ router.post('/deployments/:id/duplicate', async (req, res) => {
     try { ad = await getAd(source.ad_id); } catch {}
 
     const newId = crypto.randomUUID();
-    const adName = (source.ad_name || ad?.headline || ad?.angle || 'Ad') + ' (Copy)';
+    const adName = overrides?.ad_name || (source.ad_name || ad?.headline || ad?.angle || 'Ad') + ' (Copy)';
 
-    await createDeploymentDuplicate({
+    const dupFields = {
       id: newId,
       ad_id: source.ad_id,
       project_id: source.project_id,
@@ -541,7 +543,15 @@ router.post('/deployments/:id/duplicate', async (req, res) => {
       ad_name: adName,
       local_campaign_id: source.local_campaign_id,
       local_adset_id: source.local_adset_id,
-    });
+    };
+    // Apply any additional overrides to the duplicate
+    if (overrides?.destination_url !== undefined) dupFields.destination_url = overrides.destination_url;
+    if (overrides?.cta_button !== undefined) dupFields.cta_button = overrides.cta_button;
+    if (overrides?.primary_texts !== undefined) dupFields.primary_texts = overrides.primary_texts;
+    if (overrides?.ad_headlines !== undefined) dupFields.ad_headlines = overrides.ad_headlines;
+    if (overrides?.planned_date !== undefined) dupFields.planned_date = overrides.planned_date;
+
+    await createDeploymentDuplicate(dupFields);
 
     res.json({ success: true, id: newId });
   } catch (err) {
