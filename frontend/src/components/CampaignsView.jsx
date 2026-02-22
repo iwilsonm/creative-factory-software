@@ -168,7 +168,6 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
   const handleDragStart = (e, depId, fromAdSet = false) => {
     let ids;
     if (fromAdSet) {
-      // If dragging from within an ad set, check per-adset selection
       const dep = deployments.find(d => d.id === depId);
       const asId = dep?.local_adset_id;
       const sel = selectedInAdSet[asId];
@@ -179,8 +178,15 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
         : [depId];
     }
     setDragIds(ids);
-    e.dataTransfer.setData('text/plain', JSON.stringify({ deploymentIds: ids }));
     e.dataTransfer.effectAllowed = 'move';
+    e.dataTransfer.setData('text/plain', JSON.stringify({ deploymentIds: ids }));
+    // Create a drag image label
+    const badge = document.createElement('div');
+    badge.textContent = `${ids.length} ad${ids.length > 1 ? 's' : ''}`;
+    badge.style.cssText = 'position:fixed;top:-100px;left:-100px;background:#1B2A4A;color:white;padding:4px 10px;border-radius:8px;font-size:12px;font-weight:600;white-space:nowrap;';
+    document.body.appendChild(badge);
+    e.dataTransfer.setDragImage(badge, badge.offsetWidth / 2, badge.offsetHeight / 2);
+    requestAnimationFrame(() => document.body.removeChild(badge));
   };
 
   const handleDragEnd = () => {
@@ -442,7 +448,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
   };
 
   // ─── DepCard ────────────────────────────────────────────────────────────
-  const DepCard = ({ dep, draggable = false, inAdSet = false, adsetId = null }) => {
+  const DepCard = ({ dep, draggable: isDraggable = false, inAdSet = false, adsetId = null }) => {
     const name = dep.ad?.headline || dep.ad?.angle || dep.ad_name || `Ad ${(dep.id || '').slice(0, 6)}`;
     const thumbUrl = dep.imageUrl;
     const isDragging = dragIds?.includes(dep.id);
@@ -452,19 +458,14 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
 
     return (
       <div
-        draggable={draggable}
-        onDragStart={draggable ? (e) => {
-          // Prevent drag from being blocked by child elements
+        draggable={isDraggable}
+        onDragStart={isDraggable ? (e) => {
           handleDragStart(e, dep.id, inAdSet);
         } : undefined}
-        onDragEnd={draggable ? handleDragEnd : undefined}
-        onClick={(e) => {
-          // Only open sidebar on click in ad sets (not when clicking buttons)
-          if (inAdSet && e.target === e.currentTarget) {
-            openSidebar({ type: 'single', deployment: dep, ad: dep.ad });
-          }
-        }}
-        className={`relative group flex items-center gap-2.5 p-2 rounded-xl border transition-all cursor-grab active:cursor-grabbing select-none ${
+        onDragEnd={isDraggable ? handleDragEnd : undefined}
+        className={`relative group flex items-center gap-2.5 p-2 rounded-xl border transition-all select-none ${
+          isDraggable ? 'cursor-grab active:cursor-grabbing' : ''
+        } ${
           isDragging ? 'opacity-40 border-navy/30 bg-navy/5' :
           isSelected ? 'border-navy/40 bg-navy/5' :
           'border-gray-200 bg-white hover:border-navy/20 hover:shadow-sm'
@@ -472,7 +473,8 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
       >
         {/* Checkbox */}
         <button
-          draggable={false}
+          onMouseDown={(e) => e.stopPropagation()}
+          onDragStart={(e) => e.preventDefault()}
           onClick={(e) => {
             e.stopPropagation();
             if (inAdSet) {
@@ -500,14 +502,14 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
           <img
             src={thumbUrl}
             alt=""
-            draggable={false}
-            className="w-10 h-10 object-cover rounded-lg bg-gray-100 flex-shrink-0 pointer-events-none"
+            draggable="false"
+            className="w-10 h-10 object-cover rounded-lg bg-gray-100 flex-shrink-0"
             loading="lazy"
           />
         ) : (
           <div className="w-10 h-10 rounded-lg bg-gray-100 flex-shrink-0" />
         )}
-        <div className="min-w-0 flex-1 pointer-events-none">
+        <div className="min-w-0 flex-1">
           <div className="text-[12px] font-medium text-textdark truncate" title={name}>{name}</div>
           {dep.ad?.body_copy && (
             <div className="text-[10px] text-textlight truncate mt-0.5">{dep.ad.body_copy}</div>
@@ -518,7 +520,8 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
         <div className="opacity-0 group-hover:opacity-100 flex items-center gap-0.5 flex-shrink-0 transition-opacity">
           {inAdSet && (
             <button
-              draggable={false}
+              onMouseDown={(e) => e.stopPropagation()}
+              onDragStart={(e) => e.preventDefault()}
               onClick={(e) => { e.stopPropagation(); openSidebar({ type: 'single', deployment: dep, ad: dep.ad }); }}
               className="p-1 rounded-lg hover:bg-navy/10 text-textlight hover:text-navy transition-colors"
               title="Open details"
@@ -531,7 +534,8 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
           )}
           {inAdSet && (
             <button
-              draggable={false}
+              onMouseDown={(e) => e.stopPropagation()}
+              onDragStart={(e) => e.preventDefault()}
               onClick={(e) => { e.stopPropagation(); handleDuplicate(dep.id); }}
               className="p-1 rounded-lg hover:bg-navy/10 text-textlight hover:text-navy transition-colors"
               title="Duplicate"
@@ -543,7 +547,8 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
           )}
           {inAdSet && (
             <button
-              draggable={false}
+              onMouseDown={(e) => e.stopPropagation()}
+              onDragStart={(e) => e.preventDefault()}
               onClick={(e) => { e.stopPropagation(); handleUnassign([dep.id]); }}
               className="p-1 rounded-lg hover:bg-red-50 text-textlight hover:text-red-500 transition-colors"
               title="Move back to Unplanned"
