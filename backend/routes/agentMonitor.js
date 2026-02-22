@@ -67,9 +67,9 @@ router.get('/status', async (req, res) => {
 
     if (logContent) {
       const stripped = stripAnsi(logContent);
-      // Count patterns — matching fixer.sh show_status() logic
+      // Count patterns — matching fixer.sh log output
       stats.runs = (stripped.match(/Checking:/g) || []).length;
-      stats.fixes = (stripped.match(/\[OK\]/g) || []).length;
+      stats.fixes = (stripped.match(/Fix verified/g) || []).length;
       stats.failures = (stripped.match(/Failed after/g) || []).length;
       stats.resurrections = (stripped.match(/Resurrected/g) || []).length;
 
@@ -77,7 +77,7 @@ router.get('/status', async (req, res) => {
       const lines = logContent.split('\n').filter(l => l.trim());
       const recentLines = lines.slice(-30);
       activity = recentLines
-        .map(parseLogLine)
+        .map(l => parseLogLine(l, 'FIXER'))
         .filter(Boolean)
         .reverse(); // newest first
     }
