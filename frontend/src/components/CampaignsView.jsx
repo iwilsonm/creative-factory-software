@@ -77,9 +77,11 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
   const [primaryTextDirection, setPrimaryTextDirection] = useState('');
   const [primaryTextThread, setPrimaryTextThread] = useState([]); // conversation history for iterative refinement
   const [primaryTextDirectionHistory, setPrimaryTextDirectionHistory] = useState([]); // past creative directions
+  const [primaryTextRoundHistory, setPrimaryTextRoundHistory] = useState([]); // stack of { texts, thread, directionHistory } for undo
   const [headlineDirection, setHeadlineDirection] = useState('');
   const [headlineThread, setHeadlineThread] = useState([]); // conversation history for headline refinement
   const [headlineDirectionHistory, setHeadlineDirectionHistory] = useState([]); // past headline directions
+  const [headlineRoundHistory, setHeadlineRoundHistory] = useState([]); // stack of { headlines, thread, directionHistory } for undo
   const [sidebarSaving, setSidebarSaving] = useState(false);
   const [primaryTextOpen, setPrimaryTextOpen] = useState(false);
   const [headlinesOpen, setHeadlinesOpen] = useState(false);
@@ -511,9 +513,11 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
     setPrimaryTextThread([]); // Fresh conversation for each sidebar open
     setPrimaryTextDirection('');
     setPrimaryTextDirectionHistory([]);
+    setPrimaryTextRoundHistory([]);
     setHeadlineDirection('');
     setHeadlineThread([]);
     setHeadlineDirectionHistory([]);
+    setHeadlineRoundHistory([]);
     let form;
     if (data.type === 'single') {
       const dep = data.deployment;
@@ -597,6 +601,14 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
         : sidebarData.deps[0]?.id;
       const flexAdId = sidebarData.type === 'flex' ? sidebarData.flexAd.id : undefined;
       const direction = primaryTextDirection.trim() || undefined;
+      // Snapshot current round before replacing (for undo)
+      if (sidebarForm.primary_texts.filter(t => t.trim()).length > 0) {
+        setPrimaryTextRoundHistory(prev => [...prev, {
+          texts: [...sidebarForm.primary_texts],
+          thread: [...primaryTextThread],
+          directionHistory: [...primaryTextDirectionHistory],
+        }]);
+      }
       const result = await api.generatePrimaryText(depId, flexAdId, direction, primaryTextThread);
       setSidebarForm(prev => ({ ...prev, primary_texts: result.primary_texts || [] }));
       setPrimaryTextThread(result.messages || []);
@@ -617,6 +629,16 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
     setGeneratingPrimaryText(false);
   };
 
+  const handleUndoPrimaryText = () => {
+    if (primaryTextRoundHistory.length === 0) return;
+    const prev = primaryTextRoundHistory[primaryTextRoundHistory.length - 1];
+    setSidebarForm(f => ({ ...f, primary_texts: prev.texts }));
+    setPrimaryTextThread(prev.thread);
+    setPrimaryTextDirectionHistory(prev.directionHistory);
+    setPrimaryTextRoundHistory(h => h.slice(0, -1));
+    addToast('Restored previous round', 'info');
+  };
+
   const handleGenerateHeadlines = async () => {
     setGeneratingHeadlines(true);
     setHeadlinesOpen(true); // Auto-expand so user can see results
@@ -626,6 +648,14 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
         : sidebarData.deps[0]?.id;
       const flexAdId = sidebarData.type === 'flex' ? sidebarData.flexAd.id : undefined;
       const direction = headlineDirection.trim() || undefined;
+      // Snapshot current round before replacing (for undo)
+      if (sidebarForm.ad_headlines.filter(h => h.trim()).length > 0) {
+        setHeadlineRoundHistory(prev => [...prev, {
+          headlines: [...sidebarForm.ad_headlines],
+          thread: [...headlineThread],
+          directionHistory: [...headlineDirectionHistory],
+        }]);
+      }
       const result = await api.generateAdHeadlines(depId, sidebarForm.primary_texts, flexAdId, direction, headlineThread);
       setSidebarForm(prev => ({ ...prev, ad_headlines: result.headlines || [] }));
       setHeadlineThread(result.messages || []);
@@ -644,6 +674,16 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
       addToast('Failed to generate headlines', 'error');
     }
     setGeneratingHeadlines(false);
+  };
+
+  const handleUndoHeadlines = () => {
+    if (headlineRoundHistory.length === 0) return;
+    const prev = headlineRoundHistory[headlineRoundHistory.length - 1];
+    setSidebarForm(f => ({ ...f, ad_headlines: prev.headlines }));
+    setHeadlineThread(prev.thread);
+    setHeadlineDirectionHistory(prev.directionHistory);
+    setHeadlineRoundHistory(h => h.slice(0, -1));
+    addToast('Restored previous headlines', 'info');
   };
 
   const handleSaveSidebar = async () => {
@@ -1270,6 +1310,18 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
                         </>
                       )}
                     </button>
+                    {/* Undo — go back to previous round */}
+                    {primaryTextRoundHistory.length > 0 && !generatingPrimaryText && (
+                      <button
+                        onClick={handleUndoPrimaryText}
+                        className="mt-1.5 w-full py-1.5 rounded-lg border border-gray-200 text-[10px] text-textmid hover:text-navy hover:border-navy/30 hover:bg-navy/5 transition-colors inline-flex items-center justify-center gap-1"
+                      >
+                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a5 5 0 015 5v2M3 10l4-4M3 10l4 4" />
+                        </svg>
+                        Previous round
+                      </button>
+                    )}
                   </div>
 
                   {/* Divider */}
@@ -1410,6 +1462,18 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
                         </>
                       )}
                     </button>
+                    {/* Undo — go back to previous round */}
+                    {headlineRoundHistory.length > 0 && !generatingHeadlines && (
+                      <button
+                        onClick={handleUndoHeadlines}
+                        className="mt-1.5 w-full py-1.5 rounded-lg border border-gray-200 text-[10px] text-textmid hover:text-navy hover:border-navy/30 hover:bg-navy/5 transition-colors inline-flex items-center justify-center gap-1"
+                      >
+                        <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a5 5 0 015 5v2M3 10l4-4M3 10l4 4" />
+                        </svg>
+                        Previous round
+                      </button>
+                    )}
                   </div>
 
                   {/* Divider */}
