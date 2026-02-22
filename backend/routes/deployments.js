@@ -198,7 +198,7 @@ router.put('/deployments/:id/status', async (req, res) => {
     const { id } = req.params;
     const { status } = req.body;
 
-    const validStatuses = ['selected', 'scheduled', 'posted', 'analyzing'];
+    const validStatuses = ['selected', 'ready_to_post', 'posted', 'analyzing'];
     if (!validStatuses.includes(status)) {
       return res.status(400).json({ error: `Invalid status. Must be one of: ${validStatuses.join(', ')}` });
     }
@@ -579,7 +579,7 @@ router.post('/deployments/flex-ads', async (req, res) => {
 router.put('/deployments/flex-ads/:id', async (req, res) => {
   try {
     const { id } = req.params;
-    const allowed = ['name', 'child_deployment_ids', 'primary_texts', 'headlines', 'destination_url', 'cta_button'];
+    const allowed = ['name', 'child_deployment_ids', 'primary_texts', 'headlines', 'destination_url', 'cta_button', 'planned_date'];
     const fields = {};
     for (const key of allowed) {
       if (req.body[key] !== undefined) fields[key] = req.body[key];

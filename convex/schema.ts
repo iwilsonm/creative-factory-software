@@ -174,6 +174,7 @@ export default defineSchema({
     headlines: v.optional(v.string()),           // JSON string array (up to 5)
     destination_url: v.optional(v.string()),
     cta_button: v.optional(v.string()),          // Meta CTA type
+    planned_date: v.optional(v.string()),        // ISO datetime for scheduled posting
     created_at: v.string(),
     updated_at: v.string(),
   })

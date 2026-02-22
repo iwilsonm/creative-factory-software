@@ -42,6 +42,7 @@ export const create = mutation({
     headlines: v.optional(v.string()),
     destination_url: v.optional(v.string()),
     cta_button: v.optional(v.string()),
+    planned_date: v.optional(v.string()),
     created_at: v.string(),
     updated_at: v.string(),
   },
@@ -60,6 +61,7 @@ export const update = mutation({
       headlines: v.optional(v.string()),
       destination_url: v.optional(v.string()),
       cta_button: v.optional(v.string()),
+      planned_date: v.optional(v.string()),
     }),
   },
   handler: async (ctx, args) => {

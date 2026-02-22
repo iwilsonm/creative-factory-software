@@ -4,13 +4,14 @@ import { api } from '../api';
 import { useToast } from '../components/Toast';
 import { useAsyncData } from '../hooks/useAsyncData';
 import CampaignsView from '../components/CampaignsView';
+import ReadyToPostView from '../components/ReadyToPostView';
 
-const STATUS_ORDER = ['selected', 'scheduled', 'posted', 'analyzing'];
+const STATUS_ORDER = ['selected', 'ready_to_post', 'posted', 'analyzing'];
 const STATUS_META = {
-  selected:  { label: 'Unposted',  color: 'bg-black/5 text-textmid',      dot: 'bg-textlight' },
-  scheduled: { label: 'Scheduled', color: 'bg-navy/10 text-navy',         dot: 'bg-navy' },
-  posted:    { label: 'Posted',    color: 'bg-teal/10 text-teal',         dot: 'bg-teal' },
-  analyzing: { label: 'Analyzing', color: 'bg-gold/10 text-gold',         dot: 'bg-gold' },
+  selected:      { label: 'Unposted',      color: 'bg-black/5 text-textmid',      dot: 'bg-textlight' },
+  ready_to_post: { label: 'Ready to Post', color: 'bg-navy/10 text-navy',         dot: 'bg-navy' },
+  posted:        { label: 'Posted',        color: 'bg-teal/10 text-teal',         dot: 'bg-teal' },
+  analyzing:     { label: 'Analyzing',     color: 'bg-gold/10 text-gold',         dot: 'bg-gold' },
 };
 
 
@@ -85,6 +86,24 @@ export default function AdTracker({ projectId }) {
       }).catch(() => {});
     }
   }, []);
+
+  // One-time migration: rename 'scheduled' → 'ready_to_post' status
+  useEffect(() => {
+    const migrationKey = 'status_migration_scheduled_to_ready_v1';
+    if (!localStorage.getItem(migrationKey) && deployments && deployments.length > 0) {
+      const scheduledDeps = deployments.filter(d => d.status === 'scheduled');
+      if (scheduledDeps.length > 0) {
+        Promise.all(scheduledDeps.map(d => api.updateDeploymentStatus(d.id, 'ready_to_post')))
+          .then(() => {
+            localStorage.setItem(migrationKey, Date.now().toString());
+            loadDeployments();
+          })
+          .catch(() => {});
+      } else {
+        localStorage.setItem(migrationKey, Date.now().toString());
+      }
+    }
+  }, [deployments]);
 
   // Focus input when editing cell changes
   useEffect(() => {
@@ -660,7 +679,7 @@ export default function AdTracker({ projectId }) {
         >
           Unposted ({statusCounts['selected'] || 0})
         </button>
-        {/* Campaigns */}
+        {/* Planner */}
         <button
           onClick={() => { setActiveView('campaigns'); setSelectedIds(new Set()); }}
           className={`px-3 py-1.5 rounded-full text-[12px] font-medium transition-colors ${
@@ -669,10 +688,21 @@ export default function AdTracker({ projectId }) {
               : 'bg-navy/10 text-navy hover:opacity-80'
           }`}
         >
-          Campaigns ({campaignsDeps.length})
+          Planner ({campaignsDeps.length})
         </button>
-        {/* Scheduled / Posted / Analyzing */}
-        {STATUS_ORDER.slice(1).map(status => {
+        {/* Ready to Post */}
+        <button
+          onClick={() => { setActiveView('ready_to_post'); setSelectedIds(new Set()); }}
+          className={`px-3 py-1.5 rounded-full text-[12px] font-medium transition-colors ${
+            activeView === 'ready_to_post'
+              ? 'bg-gray-900 text-white'
+              : 'bg-navy/10 text-navy hover:opacity-80'
+          }`}
+        >
+          Ready to Post ({statusCounts['ready_to_post'] || 0})
+        </button>
+        {/* Posted / Analyzing (skip ready_to_post since it has its own pill) */}
+        {STATUS_ORDER.slice(1).filter(s => s !== 'ready_to_post').map(status => {
           const meta = STATUS_META[status];
           const count = statusCounts[status] || 0;
           return (
@@ -701,9 +731,20 @@ export default function AdTracker({ projectId }) {
         </button>
       </div>
 
-      {/* ═══════════ Campaigns View ═══════════ */}
+      {/* ═══════════ Planner View (was Campaigns) ═══════════ */}
       {activeView === 'campaigns' && (
         <CampaignsView
+          projectId={projectId}
+          deployments={deployments}
+          setDeployments={setDeployments}
+          addToast={addToast}
+          loadDeployments={loadDeployments}
+        />
+      )}
+
+      {/* ═══════════ Ready to Post View ═══════════ */}
+      {activeView === 'ready_to_post' && (
+        <ReadyToPostView
           projectId={projectId}
           deployments={deployments}
           setDeployments={setDeployments}

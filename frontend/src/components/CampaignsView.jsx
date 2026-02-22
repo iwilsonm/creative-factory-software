@@ -63,7 +63,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
   // Detail sidebar
   const [sidebarData, setSidebarData] = useState(null);
   const [sidebarForm, setSidebarForm] = useState({
-    ad_name: '', destination_url: '', cta_button: 'LEARN_MORE', primary_texts: [], ad_headlines: [],
+    ad_name: '', destination_url: '', cta_button: 'LEARN_MORE', primary_texts: [], ad_headlines: [], planned_date: '',
   });
   const [generatingPrimaryText, setGeneratingPrimaryText] = useState(false);
   const [generatingHeadlines, setGeneratingHeadlines] = useState(false);
@@ -329,6 +329,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
         cta_button: dep.cta_button || 'LEARN_MORE',
         primary_texts: dep.primary_texts ? JSON.parse(dep.primary_texts) : [],
         ad_headlines: dep.ad_headlines ? JSON.parse(dep.ad_headlines) : [],
+        planned_date: dep.planned_date || '',
       });
     } else {
       const flex = data.flexAd;
@@ -338,6 +339,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
         cta_button: flex.cta_button || 'LEARN_MORE',
         primary_texts: flex.primary_texts ? JSON.parse(flex.primary_texts) : [],
         ad_headlines: flex.headlines ? JSON.parse(flex.headlines) : [],
+        planned_date: flex.planned_date || '',
       });
     }
   };
@@ -409,6 +411,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
           ad_headlines: JSON.stringify(sidebarForm.ad_headlines),
           destination_url: sidebarForm.destination_url,
           cta_button: sidebarForm.cta_button,
+          planned_date: sidebarForm.planned_date || null,
         });
       } else {
         await api.updateFlexAd(sidebarData.flexAd.id, {
@@ -417,6 +420,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
           headlines: JSON.stringify(sidebarForm.ad_headlines),
           destination_url: sidebarForm.destination_url,
           cta_button: sidebarForm.cta_button,
+          planned_date: sidebarForm.planned_date || null,
         });
       }
       await loadDeployments();
@@ -1008,6 +1012,17 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
                   <option key={cta} value={cta}>{cta.replace(/_/g, ' ')}</option>
                 ))}
               </select>
+            </div>
+
+            {/* ─── Scheduled Post Date & Time ─── */}
+            <div>
+              <label className="text-[11px] font-semibold text-textdark uppercase tracking-wider">Scheduled Post Date & Time</label>
+              <input
+                type="datetime-local"
+                value={sidebarForm.planned_date}
+                onChange={(e) => setSidebarForm(prev => ({ ...prev, planned_date: e.target.value }))}
+                className="input-apple text-[12px] w-full mt-1.5"
+              />
             </div>
 
             {/* ─── Save ─── */}
