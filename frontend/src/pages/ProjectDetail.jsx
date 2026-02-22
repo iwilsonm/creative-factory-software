@@ -1,6 +1,7 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useContext } from 'react';
 import { useParams, useNavigate, Link, useSearchParams } from 'react-router-dom';
 import { api } from '../api';
+import { AuthContext } from '../App';
 import Layout from '../components/Layout';
 import FoundationalDocs from '../components/FoundationalDocs';
 import TemplateImages from '../components/TemplateImages';
@@ -26,12 +27,13 @@ export default function ProjectDetail() {
   const navigate = useNavigate();
   const [searchParams, setSearchParams] = useSearchParams();
   const toast = useToast();
+  const { user } = useContext(AuthContext);
   const [project, setProject] = useState(null);
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState({});
   const [saving, setSaving] = useState(false);
-  const [tab, setTab] = useState('ads');
+  const [tab, setTab] = useState(user?.role === 'poster' ? 'tracker' : 'ads');
   const [projectCosts, setProjectCosts] = useState(null);
   const [costsLoading, setCostsLoading] = useState(false);
 
@@ -316,7 +318,7 @@ export default function ProjectDetail() {
     );
   }
 
-  const tabs = [
+  const allTabs = [
     { id: 'quotes', label: 'Copywriter', tooltip: 'Mine quotes, generate headlines, and turn them into ads.' },
     { id: 'ads', label: 'Ad Studio', tooltip: 'Generate individual ads or run batch generation.' },
     { id: 'tracker', label: 'Ad Pipeline', tooltip: 'Plan, organize, and deploy ads to campaigns and ad sets.' },
@@ -325,6 +327,11 @@ export default function ProjectDetail() {
     { id: 'docs', label: 'Foundational Docs', tooltip: 'Core research documents that guide ad generation.' },
     { id: 'templates', label: 'Template Library', tooltip: 'Reference images synced from Drive or uploaded directly.' }
   ];
+
+  // Poster only sees Ad Pipeline tab
+  const tabs = user?.role === 'poster'
+    ? allTabs.filter(t => t.id === 'tracker')
+    : allTabs;
 
   const status = STATUS_CONFIG[project.status] || { label: project.status, bg: 'bg-gray-100', text: 'text-textmid' };
 
@@ -901,7 +908,7 @@ export default function ProjectDetail() {
         )}
         {tab === 'tracker' && (
           <ErrorBoundary level="tab" key="tracker">
-            <AdTracker projectId={id} />
+            <AdTracker projectId={id} userRole={user?.role} />
           </ErrorBoundary>
         )}
         {tab === 'lpgen' && (

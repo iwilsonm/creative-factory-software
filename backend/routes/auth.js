@@ -1,8 +1,9 @@
 import { Router } from 'express';
 import bcrypt from 'bcrypt';
+import { v4 as uuidv4 } from 'uuid';
 import rateLimit from 'express-rate-limit';
-import { getSetting, setSetting } from '../convexClient.js';
-import { isSetupComplete } from '../auth.js';
+import { getUserByUsername, getUserByExternalId, createUser, updateUserPassword, getUserCount } from '../convexClient.js';
+import { requireAuth, isSetupComplete } from '../auth.js';
 
 const router = Router();
 
@@ -15,14 +16,28 @@ const loginLimiter = rateLimit({
 // Check session status + whether setup is done
 router.get('/session', async (req, res) => {
   const setupDone = await isSetupComplete();
-  res.json({
-    authenticated: !!(req.session && req.session.authenticated),
-    username: req.session?.username || null,
-    setupComplete: setupDone
-  });
+  if (req.session && req.session.userId) {
+    res.json({
+      authenticated: true,
+      username: req.session.username || null,
+      user: {
+        username: req.session.username,
+        role: req.session.role,
+        displayName: req.session.displayName,
+      },
+      setupComplete: setupDone
+    });
+  } else {
+    res.json({
+      authenticated: false,
+      username: null,
+      user: null,
+      setupComplete: setupDone
+    });
+  }
 });
 
-// First-run setup — create account
+// First-run setup — create initial admin account (only when 0 users exist)
 router.post('/setup', async (req, res) => {
   if (await isSetupComplete()) {
     return res.status(400).json({ error: 'Setup already completed' });
@@ -36,37 +51,65 @@ router.post('/setup', async (req, res) => {
   }
 
   const hash = await bcrypt.hash(password, 12);
-  await setSetting('auth_username', username);
-  await setSetting('auth_password_hash', hash);
+  const userId = uuidv4();
+  await createUser({
+    externalId: userId,
+    username,
+    display_name: username,
+    password_hash: hash,
+    role: 'admin',
+    is_active: true,
+  });
 
-  req.session.authenticated = true;
+  req.session.userId = userId;
   req.session.username = username;
+  req.session.role = 'admin';
+  req.session.displayName = username;
 
-  res.json({ success: true });
+  res.json({
+    success: true,
+    user: { username, role: 'admin', displayName: username }
+  });
 });
 
-// Login
+// Login — multi-user: lookup from users table
 router.post('/login', loginLimiter, async (req, res) => {
   if (!(await isSetupComplete())) {
     return res.status(400).json({ error: 'Setup not completed. Please run setup first.' });
   }
   const { username, password } = req.body;
-  const storedUsername = await getSetting('auth_username');
-  const storedHash = await getSetting('auth_password_hash');
+  if (!username || !password) {
+    return res.status(400).json({ error: 'Username and password required' });
+  }
 
-  if (username !== storedUsername) {
+  const user = await getUserByUsername(username);
+  if (!user) {
     return res.status(401).json({ error: 'Invalid credentials' });
   }
 
-  const match = await bcrypt.compare(password, storedHash);
+  if (!user.is_active) {
+    return res.status(401).json({ error: 'Account is deactivated. Contact your administrator.' });
+  }
+
+  const match = await bcrypt.compare(password, user.password_hash);
   if (!match) {
     return res.status(401).json({ error: 'Invalid credentials' });
   }
 
-  req.session.authenticated = true;
-  req.session.username = username;
+  req.session.userId = user.externalId;
+  req.session.username = user.username;
+  req.session.role = user.role;
+  req.session.displayName = user.display_name;
 
-  res.json({ success: true, username });
+  res.json({
+    success: true,
+    username: user.username,
+    user: {
+      username: user.username,
+      role: user.role,
+      displayName: user.display_name,
+    }
+  });
 });
 
 // Logout
@@ -78,11 +121,8 @@ router.post('/logout', (req, res) => {
   });
 });
 
-// Change password
-router.put('/password', async (req, res) => {
-  if (!req.session?.authenticated) {
-    return res.status(401).json({ error: 'Not authenticated' });
-  }
+// Change own password (any authenticated user)
+router.put('/password', requireAuth, async (req, res) => {
   const { currentPassword, newPassword } = req.body;
   if (!currentPassword || !newPassword) {
     return res.status(400).json({ error: 'Current and new password required' });
@@ -91,14 +131,18 @@ router.put('/password', async (req, res) => {
     return res.status(400).json({ error: 'New password must be at least 6 characters' });
   }
 
-  const storedHash = await getSetting('auth_password_hash');
-  const match = await bcrypt.compare(currentPassword, storedHash);
+  const user = await getUserByExternalId(req.user.id);
+  if (!user) {
+    return res.status(404).json({ error: 'User not found' });
+  }
+
+  const match = await bcrypt.compare(currentPassword, user.password_hash);
   if (!match) {
     return res.status(401).json({ error: 'Current password is incorrect' });
   }
 
   const hash = await bcrypt.hash(newPassword, 12);
-  await setSetting('auth_password_hash', hash);
+  await updateUserPassword(user.externalId, hash);
 
   res.json({ success: true });
 });

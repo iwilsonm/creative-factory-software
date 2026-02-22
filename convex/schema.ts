@@ -380,6 +380,28 @@ export default defineSchema({
     .index("by_externalId", ["externalId"])
     .index("by_project", ["project_id"]),
 
+  users: defineTable({
+    externalId: v.string(),
+    username: v.string(),
+    display_name: v.string(),
+    password_hash: v.string(),
+    role: v.string(),              // 'admin' | 'manager' | 'poster'
+    is_active: v.boolean(),
+    created_by: v.optional(v.string()),
+    created_at: v.string(),
+    updated_at: v.string(),
+  })
+    .index("by_externalId", ["externalId"])
+    .index("by_username", ["username"]),
+
+  sessions: defineTable({
+    sid: v.string(),
+    session_data: v.string(),
+    expires_at: v.number(),
+  })
+    .index("by_sid", ["sid"])
+    .index("by_expires_at", ["expires_at"]),
+
   landing_page_versions: defineTable({
     externalId: v.string(),
     landing_page_id: v.string(),         // → landing_pages.externalId

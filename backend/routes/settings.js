@@ -1,11 +1,11 @@
 import { Router } from 'express';
-import { requireAuth } from '../auth.js';
+import { requireAuth, requireRole } from '../auth.js';
 import { getSetting, setSetting, getAllSettings, getDashboardTodos, replaceDashboardTodos } from '../convexClient.js';
 import { getDriveClient } from './drive.js';
 import { refreshGeminiRates } from '../services/costTracker.js';
 
 const router = Router();
-router.use(requireAuth);
+router.use(requireAuth, requireRole('admin'));
 
 // Sensitive keys that should be masked when returning
 const SENSITIVE_KEYS = ['auth_password_hash', 'session_secret'];

@@ -188,6 +188,306 @@ function HeadlineGeneratorRefsSection() {
   );
 }
 
+// ─── User Management Card ─────────────────────────────────────────────
+const ROLE_OPTIONS = [
+  { value: 'admin', label: 'Admin', description: 'Full access to everything' },
+  { value: 'manager', label: 'Manager', description: 'All features except Settings & User Management' },
+  { value: 'poster', label: 'Poster', description: 'Ready to Post + Posted only' },
+];
+
+const ROLE_COLORS = {
+  admin: 'bg-gold/15 text-gold',
+  manager: 'bg-navy/10 text-navy',
+  poster: 'bg-teal/10 text-teal',
+};
+
+function UserManagementCard() {
+  const toast = useToast();
+  const [users, setUsers] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [showCreate, setShowCreate] = useState(false);
+  const [createForm, setCreateForm] = useState({ username: '', display_name: '', password: '', role: 'poster' });
+  const [creating, setCreating] = useState(false);
+  const [editingId, setEditingId] = useState(null);
+  const [editForm, setEditForm] = useState({});
+  const [resetPasswordId, setResetPasswordId] = useState(null);
+  const [newPassword, setNewPassword] = useState('');
+  const [resettingPassword, setResettingPassword] = useState(false);
+
+  useEffect(() => { loadUsers(); }, []);
+
+  const loadUsers = async () => {
+    try {
+      const data = await api.getUsers();
+      setUsers(data);
+    } catch (err) {
+      console.error('Failed to load users:', err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const handleCreate = async (e) => {
+    e.preventDefault();
+    if (!createForm.username || !createForm.password || !createForm.role) {
+      toast.error('All fields are required');
+      return;
+    }
+    setCreating(true);
+    try {
+      await api.createUser(createForm);
+      toast.success(`User "${createForm.username}" created`);
+      setCreateForm({ username: '', display_name: '', password: '', role: 'poster' });
+      setShowCreate(false);
+      await loadUsers();
+    } catch (err) {
+      toast.error(err.message || 'Failed to create user');
+    } finally {
+      setCreating(false);
+    }
+  };
+
+  const handleUpdate = async (userId) => {
+    try {
+      await api.updateUser(userId, editForm);
+      toast.success('User updated');
+      setEditingId(null);
+      await loadUsers();
+    } catch (err) {
+      toast.error(err.message || 'Failed to update user');
+    }
+  };
+
+  const handleToggleActive = async (user) => {
+    try {
+      await api.updateUser(user.id, { is_active: !user.is_active });
+      toast.success(user.is_active ? 'User deactivated' : 'User activated');
+      await loadUsers();
+    } catch (err) {
+      toast.error(err.message || 'Failed to update user');
+    }
+  };
+
+  const handleResetPassword = async (userId) => {
+    if (!newPassword || newPassword.length < 6) {
+      toast.error('Password must be at least 6 characters');
+      return;
+    }
+    setResettingPassword(true);
+    try {
+      await api.resetUserPassword(userId, newPassword);
+      toast.success('Password reset successfully');
+      setResetPasswordId(null);
+      setNewPassword('');
+    } catch (err) {
+      toast.error(err.message || 'Failed to reset password');
+    } finally {
+      setResettingPassword(false);
+    }
+  };
+
+  const handleDelete = async (user) => {
+    if (!confirm(`Delete user "${user.username}"? This cannot be undone.`)) return;
+    try {
+      await api.deleteUser(user.id);
+      toast.success(`User "${user.username}" deleted`);
+      await loadUsers();
+    } catch (err) {
+      toast.error(err.message || 'Failed to delete user');
+    }
+  };
+
+  return (
+    <div className="card p-6">
+      <div className="flex items-center justify-between mb-4">
+        <h2 className="text-[15px] font-semibold text-textdark tracking-tight flex items-center gap-2">
+          <svg className="w-4 h-4 text-textmid" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4.354a4 4 0 110 5.292M15 21H3v-1a6 6 0 0112 0v1zm0 0h6v-1a6 6 0 00-9-5.197m0 0V21" />
+          </svg>
+          User Management
+        </h2>
+        <button
+          onClick={() => setShowCreate(!showCreate)}
+          className="btn-primary text-[11px] px-3 py-1.5"
+        >
+          {showCreate ? 'Cancel' : '+ New User'}
+        </button>
+      </div>
+
+      {/* Create user form */}
+      {showCreate && (
+        <form onSubmit={handleCreate} className="bg-offwhite rounded-xl p-4 mb-4 space-y-3 border border-black/5">
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-[11px] font-medium text-textmid mb-1">Username</label>
+              <input
+                type="text"
+                value={createForm.username}
+                onChange={e => setCreateForm(prev => ({ ...prev, username: e.target.value }))}
+                className="input-apple text-[12px]"
+                required
+              />
+            </div>
+            <div>
+              <label className="block text-[11px] font-medium text-textmid mb-1">Display Name</label>
+              <input
+                type="text"
+                value={createForm.display_name}
+                onChange={e => setCreateForm(prev => ({ ...prev, display_name: e.target.value }))}
+                className="input-apple text-[12px]"
+                placeholder="Optional"
+              />
+            </div>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-[11px] font-medium text-textmid mb-1">Password</label>
+              <input
+                type="password"
+                value={createForm.password}
+                onChange={e => setCreateForm(prev => ({ ...prev, password: e.target.value }))}
+                className="input-apple text-[12px]"
+                required
+                minLength={6}
+              />
+            </div>
+            <div>
+              <label className="block text-[11px] font-medium text-textmid mb-1">Role</label>
+              <select
+                value={createForm.role}
+                onChange={e => setCreateForm(prev => ({ ...prev, role: e.target.value }))}
+                className="input-apple text-[12px]"
+              >
+                {ROLE_OPTIONS.map(r => (
+                  <option key={r.value} value={r.value}>{r.label} — {r.description}</option>
+                ))}
+              </select>
+            </div>
+          </div>
+          <button type="submit" disabled={creating} className="btn-primary text-[11px] px-4 py-1.5 disabled:opacity-50">
+            {creating ? 'Creating...' : 'Create User'}
+          </button>
+        </form>
+      )}
+
+      {/* User list */}
+      {loading ? (
+        <div className="text-[12px] text-textlight py-4 text-center">Loading users...</div>
+      ) : users.length === 0 ? (
+        <div className="text-[12px] text-textlight py-4 text-center">No users found</div>
+      ) : (
+        <div className="space-y-2">
+          {users.map(user => (
+            <div key={user.id} className={`rounded-xl border p-3 transition-colors ${user.is_active ? 'border-black/10 bg-white' : 'border-red-200/50 bg-red-50/30'}`}>
+              {editingId === user.id ? (
+                /* Edit mode */
+                <div className="space-y-2">
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="block text-[10px] font-medium text-textmid mb-0.5">Display Name</label>
+                      <input
+                        type="text"
+                        value={editForm.display_name || ''}
+                        onChange={e => setEditForm(prev => ({ ...prev, display_name: e.target.value }))}
+                        className="input-apple text-[12px]"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[10px] font-medium text-textmid mb-0.5">Role</label>
+                      <select
+                        value={editForm.role || ''}
+                        onChange={e => setEditForm(prev => ({ ...prev, role: e.target.value }))}
+                        className="input-apple text-[12px]"
+                      >
+                        {ROLE_OPTIONS.map(r => (
+                          <option key={r.value} value={r.value}>{r.label}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <button onClick={() => handleUpdate(user.id)} className="btn-primary text-[10px] px-3 py-1">Save</button>
+                    <button onClick={() => setEditingId(null)} className="btn-secondary text-[10px] px-3 py-1">Cancel</button>
+                  </div>
+                </div>
+              ) : resetPasswordId === user.id ? (
+                /* Reset password mode */
+                <div className="space-y-2">
+                  <div className="flex items-center gap-2">
+                    <span className="text-[12px] font-medium text-textdark">Reset password for {user.username}</span>
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <input
+                      type="password"
+                      value={newPassword}
+                      onChange={e => setNewPassword(e.target.value)}
+                      placeholder="New password (min 6 chars)"
+                      className="input-apple text-[12px] flex-1"
+                      minLength={6}
+                    />
+                    <button onClick={() => handleResetPassword(user.id)} disabled={resettingPassword} className="btn-primary text-[10px] px-3 py-1 disabled:opacity-50">
+                      {resettingPassword ? '...' : 'Reset'}
+                    </button>
+                    <button onClick={() => { setResetPasswordId(null); setNewPassword(''); }} className="btn-secondary text-[10px] px-3 py-1">Cancel</button>
+                  </div>
+                </div>
+              ) : (
+                /* Display mode */
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-3">
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <span className="text-[13px] font-medium text-textdark">{user.display_name || user.username}</span>
+                        {user.display_name && user.display_name !== user.username && (
+                          <span className="text-[10px] text-textlight">@{user.username}</span>
+                        )}
+                        <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${ROLE_COLORS[user.role] || 'bg-navy/10 text-navy'}`}>
+                          {user.role}
+                        </span>
+                        {!user.is_active && (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-red-100 text-red-600">
+                            Inactive
+                          </span>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <button
+                      onClick={() => { setEditingId(user.id); setEditForm({ display_name: user.display_name, role: user.role }); }}
+                      className="text-[10px] px-2 py-1 rounded-lg text-textmid hover:bg-black/5 transition-colors"
+                    >
+                      Edit
+                    </button>
+                    <button
+                      onClick={() => { setResetPasswordId(user.id); setNewPassword(''); }}
+                      className="text-[10px] px-2 py-1 rounded-lg text-textmid hover:bg-black/5 transition-colors"
+                    >
+                      Reset Pwd
+                    </button>
+                    <button
+                      onClick={() => handleToggleActive(user)}
+                      className={`text-[10px] px-2 py-1 rounded-lg transition-colors ${user.is_active ? 'text-red-500 hover:bg-red-50' : 'text-teal hover:bg-teal/10'}`}
+                    >
+                      {user.is_active ? 'Deactivate' : 'Activate'}
+                    </button>
+                    <button
+                      onClick={() => handleDelete(user)}
+                      className="text-[10px] px-2 py-1 rounded-lg text-red-500 hover:bg-red-50 transition-colors"
+                    >
+                      Delete
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 export default function Settings() {
   const toast = useToast();
   const [settings, setSettings] = useState({});
@@ -369,6 +669,9 @@ export default function Settings() {
       </div>
 
       <div className="space-y-5 max-w-2xl fade-in">
+        {/* User Management */}
+        <UserManagementCard />
+
         {/* API Keys */}
         <div className="card p-6">
           <h2 className="text-[15px] font-semibold text-textdark tracking-tight mb-4 flex items-center gap-1">API Keys <InfoTooltip text="API keys for OpenAI (document generation, creative direction) and Gemini (image generation). Required for the platform to function." position="right" /></h2>

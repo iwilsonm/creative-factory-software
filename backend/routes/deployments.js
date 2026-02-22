@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import crypto from 'crypto';
-import { requireAuth } from '../auth.js';
+import { requireAuth, requireRole } from '../auth.js';
 import {
   getAllDeployments,
   getDeploymentsByProject,
@@ -106,7 +106,7 @@ router.get('/deployments', async (req, res) => {
  * POST /deployments — Bulk create deployments from ad IDs
  * Body: { adIds: string[], projectId?: string }
  */
-router.post('/deployments', async (req, res) => {
+router.post('/deployments', requireRole('admin', 'manager'), async (req, res) => {
   try {
     const { adIds } = req.body;
     if (!Array.isArray(adIds) || adIds.length === 0) {
@@ -197,7 +197,7 @@ router.get('/deployments/deleted', async (req, res) => {
 /**
  * PUT /deployments/:id — Update deployment fields
  */
-router.put('/deployments/:id', async (req, res) => {
+router.put('/deployments/:id', requireRole('admin', 'manager'), async (req, res) => {
   try {
     const { id } = req.params;
     const allowedFields = [
@@ -252,7 +252,7 @@ router.put('/deployments/:id/status', async (req, res) => {
 /**
  * DELETE /deployments/:id — Remove a deployment
  */
-router.delete('/deployments/:id', async (req, res) => {
+router.delete('/deployments/:id', requireRole('admin', 'manager'), async (req, res) => {
   try {
     await deleteDeployment(req.params.id);
     res.json({ success: true });
@@ -265,7 +265,7 @@ router.delete('/deployments/:id', async (req, res) => {
 /**
  * POST /deployments/:id/restore — Restore a soft-deleted deployment
  */
-router.post('/deployments/:id/restore', async (req, res) => {
+router.post('/deployments/:id/restore', requireRole('admin', 'manager'), async (req, res) => {
   try {
     await restoreDeployment(req.params.id);
     res.json({ success: true });
@@ -278,7 +278,7 @@ router.post('/deployments/:id/restore', async (req, res) => {
 /**
  * POST /deployments/rename-all — Rename all deployments to headline-based naming
  */
-router.post('/deployments/rename-all', async (req, res) => {
+router.post('/deployments/rename-all', requireRole('admin', 'manager'), async (req, res) => {
   try {
     const deployments = await getAllDeployments();
     let renamed = 0;
@@ -308,7 +308,7 @@ router.post('/deployments/rename-all', async (req, res) => {
 /**
  * POST /deployments/backfill-headlines — Extract headlines from existing ads that don't have one
  */
-router.post('/deployments/backfill-headlines', async (req, res) => {
+router.post('/deployments/backfill-headlines', requireRole('admin', 'manager'), async (req, res) => {
   try {
     const { extractHeadlineAndBody } = await import('../services/adGenerator.js');
     const ads = await getAllAds();
@@ -357,7 +357,7 @@ router.get('/deployments/campaigns', async (req, res) => {
  * POST /deployments/campaigns — Create campaign
  * Body: { projectId, name }
  */
-router.post('/deployments/campaigns', async (req, res) => {
+router.post('/deployments/campaigns', requireRole('admin', 'manager'), async (req, res) => {
   try {
     const { projectId, name } = req.body;
     if (!projectId || !name) return res.status(400).json({ error: 'projectId and name required' });
@@ -374,7 +374,7 @@ router.post('/deployments/campaigns', async (req, res) => {
 /**
  * PUT /deployments/campaigns/:id — Update campaign
  */
-router.put('/deployments/campaigns/:id', async (req, res) => {
+router.put('/deployments/campaigns/:id', requireRole('admin', 'manager'), async (req, res) => {
   try {
     const { id } = req.params;
     const allowed = ['name', 'sort_order'];
@@ -395,7 +395,7 @@ router.put('/deployments/campaigns/:id', async (req, res) => {
  * DELETE /deployments/campaigns/:id — Delete campaign + cascade
  * Unassigns all deployments, deletes all ad sets, then deletes campaign
  */
-router.delete('/deployments/campaigns/:id', async (req, res) => {
+router.delete('/deployments/campaigns/:id', requireRole('admin', 'manager'), async (req, res) => {
   try {
     const { id } = req.params;
     // Get all ad sets for this campaign
@@ -424,7 +424,7 @@ router.delete('/deployments/campaigns/:id', async (req, res) => {
  * POST /deployments/campaigns/:id/adsets — Create ad set in campaign
  * Body: { name, projectId }
  */
-router.post('/deployments/campaigns/:campaignId/adsets', async (req, res) => {
+router.post('/deployments/campaigns/:campaignId/adsets', requireRole('admin', 'manager'), async (req, res) => {
   try {
     const { campaignId } = req.params;
     const { name, projectId } = req.body;
@@ -442,7 +442,7 @@ router.post('/deployments/campaigns/:campaignId/adsets', async (req, res) => {
 /**
  * PUT /deployments/adsets/:id — Update ad set
  */
-router.put('/deployments/adsets/:id', async (req, res) => {
+router.put('/deployments/adsets/:id', requireRole('admin', 'manager'), async (req, res) => {
   try {
     const { id } = req.params;
     const allowed = ['name', 'sort_order', 'campaign_id'];
@@ -462,7 +462,7 @@ router.put('/deployments/adsets/:id', async (req, res) => {
 /**
  * DELETE /deployments/adsets/:id — Delete ad set, unassign deployments back to unplanned
  */
-router.delete('/deployments/adsets/:id', async (req, res) => {
+router.delete('/deployments/adsets/:id', requireRole('admin', 'manager'), async (req, res) => {
   try {
     const { id } = req.params;
     // Unassign all deployments in this ad set
@@ -483,7 +483,7 @@ router.delete('/deployments/adsets/:id', async (req, res) => {
  * POST /deployments/move-to-unplanned — Move deployments to Campaigns (Unplanned section)
  * Body: { deploymentIds: string[] }
  */
-router.post('/deployments/move-to-unplanned', async (req, res) => {
+router.post('/deployments/move-to-unplanned', requireRole('admin', 'manager'), async (req, res) => {
   try {
     const { deploymentIds } = req.body;
     if (!deploymentIds?.length) return res.status(400).json({ error: 'deploymentIds required' });
@@ -507,7 +507,7 @@ router.post('/deployments/move-to-unplanned', async (req, res) => {
  * POST /deployments/assign-to-adset — Assign deployments to a campaign + ad set
  * Body: { deploymentIds: string[], campaignId: string, adsetId: string }
  */
-router.post('/deployments/assign-to-adset', async (req, res) => {
+router.post('/deployments/assign-to-adset', requireRole('admin', 'manager'), async (req, res) => {
   try {
     const { deploymentIds, campaignId, adsetId } = req.body;
     if (!deploymentIds?.length || !campaignId || !adsetId) {
@@ -542,7 +542,7 @@ router.post('/deployments/assign-to-adset', async (req, res) => {
  * POST /deployments/unassign — Move deployments back to Unplanned
  * Body: { deploymentIds: string[] }
  */
-router.post('/deployments/unassign', async (req, res) => {
+router.post('/deployments/unassign', requireRole('admin', 'manager'), async (req, res) => {
   try {
     const { deploymentIds } = req.body;
     if (!deploymentIds?.length) return res.status(400).json({ error: 'deploymentIds required' });
@@ -570,7 +570,7 @@ router.post('/deployments/unassign', async (req, res) => {
  * POST /deployments/:id/duplicate — Clone a deployment (same ad_id, same ad set)
  * Body (optional): { overrides?: { ad_name?, destination_url?, cta_button?, primary_texts?, ad_headlines?, planned_date? } }
  */
-router.post('/deployments/:id/duplicate', async (req, res) => {
+router.post('/deployments/:id/duplicate', requireRole('admin', 'manager'), async (req, res) => {
   try {
     const { id } = req.params;
     const { overrides } = req.body || {};
@@ -634,7 +634,7 @@ router.get('/deployments/flex-ads', async (req, res) => {
  * POST /deployments/flex-ads — Create flex ad
  * Body: { projectId, adSetId, name, deploymentIds: string[] }
  */
-router.post('/deployments/flex-ads', async (req, res) => {
+router.post('/deployments/flex-ads', requireRole('admin', 'manager'), async (req, res) => {
   try {
     const { projectId, adSetId, name, deploymentIds } = req.body;
     if (!projectId || !adSetId || !deploymentIds?.length) {
@@ -664,7 +664,7 @@ router.post('/deployments/flex-ads', async (req, res) => {
 /**
  * PUT /deployments/flex-ads/:id — Update flex ad fields
  */
-router.put('/deployments/flex-ads/:id', async (req, res) => {
+router.put('/deployments/flex-ads/:id', requireRole('admin', 'manager'), async (req, res) => {
   try {
     const { id } = req.params;
     const allowed = ['name', 'child_deployment_ids', 'primary_texts', 'headlines', 'destination_url', 'display_link', 'cta_button', 'facebook_page', 'planned_date', 'posted_by'];
@@ -687,7 +687,7 @@ router.put('/deployments/flex-ads/:id', async (req, res) => {
 /**
  * DELETE /deployments/flex-ads/:id — Delete flex ad (clears flex_ad_id from children)
  */
-router.delete('/deployments/flex-ads/:id', async (req, res) => {
+router.delete('/deployments/flex-ads/:id', requireRole('admin', 'manager'), async (req, res) => {
   try {
     const { id } = req.params;
     const flexAd = await getFlexAd(id);
@@ -710,7 +710,7 @@ router.delete('/deployments/flex-ads/:id', async (req, res) => {
 /**
  * POST /deployments/flex-ads/:id/restore — Restore a soft-deleted flex ad
  */
-router.post('/deployments/flex-ads/:id/restore', async (req, res) => {
+router.post('/deployments/flex-ads/:id/restore', requireRole('admin', 'manager'), async (req, res) => {
   try {
     await restoreFlexAd(req.params.id);
     res.json({ success: true });
@@ -728,7 +728,7 @@ router.post('/deployments/flex-ads/:id/restore', async (req, res) => {
  * POST /deployments/:id/generate-primary-text — AI-generate primary text
  * Body: { flexAdId?: string, direction?: string }
  */
-router.post('/deployments/:id/generate-primary-text', async (req, res) => {
+router.post('/deployments/:id/generate-primary-text', requireRole('admin', 'manager'), async (req, res) => {
   try {
     const { id } = req.params;
     const { flexAdId, direction, messages: threadMessages } = req.body;
@@ -953,7 +953,7 @@ Write 5 NEW refined variations that incorporate this feedback while keeping what
  * POST /deployments/:id/generate-ad-headlines — AI-generate headlines from primary text
  * Body: { primaryTexts: string[], flexAdId?: string, direction?: string, messages?: array }
  */
-router.post('/deployments/:id/generate-ad-headlines', async (req, res) => {
+router.post('/deployments/:id/generate-ad-headlines', requireRole('admin', 'manager'), async (req, res) => {
   try {
     const { id } = req.params;
     const { primaryTexts, flexAdId, direction, messages: threadMessages } = req.body;

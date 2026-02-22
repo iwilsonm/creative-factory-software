@@ -1,5 +1,7 @@
+import { useContext } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api';
+import { AuthContext } from '../App';
 import Layout from '../components/Layout';
 import InfoTooltip from '../components/InfoTooltip';
 import { useToast } from '../components/Toast';
@@ -21,6 +23,8 @@ const STATUS_COLORS = {
 
 export default function Projects() {
   const toast = useToast();
+  const { user } = useContext(AuthContext);
+  const canCreate = user?.role === 'admin' || user?.role === 'manager';
   const { data: projects, loading } = useAsyncData(
     () => api.getProjects(),
     []
@@ -46,9 +50,11 @@ export default function Projects() {
             </div>
             <p className="text-[13px] text-textmid mt-0.5">Manage your ad creative projects</p>
           </div>
-          <Link to="/projects/new" className="btn-primary text-[13px]">
-            New Project
-          </Link>
+          {canCreate && (
+            <Link to="/projects/new" className="btn-primary text-[13px]">
+              New Project
+            </Link>
+          )}
         </div>
       </div>
 
@@ -78,10 +84,12 @@ export default function Projects() {
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 4.5v15m7.5-7.5h-15" />
               </svg>
             </div>
-            <p className="text-textmid text-sm mb-4">No projects yet. Create your first project to get started.</p>
-            <Link to="/projects/new" className="btn-primary inline-block">
-              Create Project
-            </Link>
+            <p className="text-textmid text-sm mb-4">{canCreate ? 'No projects yet. Create your first project to get started.' : 'No projects available.'}</p>
+            {canCreate && (
+              <Link to="/projects/new" className="btn-primary inline-block">
+                Create Project
+              </Link>
+            )}
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 fade-in">

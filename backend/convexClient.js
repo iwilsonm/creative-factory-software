@@ -38,11 +38,11 @@ function convexShouldRetry(err) {
 }
 
 // Retry-wrapped Convex calls — handles transient ECONNRESET + Server Error from VPS → Convex cloud
-async function queryWithRetry(fnRef, args) {
+export async function queryWithRetry(fnRef, args) {
   return withRetry(() => client.query(fnRef, args), { maxRetries: 3, baseDelayMs: 2000, shouldRetry: convexShouldRetry, label: 'Convex query' });
 }
 
-async function mutationWithRetry(fnRef, args) {
+export async function mutationWithRetry(fnRef, args) {
   return withRetry(() => client.mutation(fnRef, args), { maxRetries: 3, baseDelayMs: 2000, shouldRetry: convexShouldRetry, label: 'Convex mutation' });
 }
 
@@ -1022,6 +1022,84 @@ export async function createLandingPageVersion({ id, landing_page_id, version, c
 
 export async function getLandingPageVersion(externalId) {
   return await queryWithRetry(api.landingPageVersions.getByExternalId, { externalId });
+}
+
+// =============================================
+// User helpers
+// =============================================
+
+export async function getUserByUsername(username) {
+  return await queryWithRetry(api.users.getByUsername, { username });
+}
+
+export async function getUserByExternalId(externalId) {
+  return await queryWithRetry(api.users.getByExternalId, { externalId });
+}
+
+export async function getAllUsers() {
+  return await queryWithRetry(api.users.getAll, {});
+}
+
+export async function getUserCount() {
+  return await queryWithRetry(api.users.count, {});
+}
+
+export async function createUser({ externalId, username, display_name, password_hash, role, is_active, created_by }) {
+  await mutationWithRetry(api.users.create, {
+    externalId,
+    username,
+    display_name,
+    password_hash,
+    role,
+    is_active: is_active !== false,
+    created_by: created_by || undefined,
+    created_at: new Date().toISOString(),
+    updated_at: new Date().toISOString(),
+  });
+}
+
+export async function updateUser(externalId, updates) {
+  await mutationWithRetry(api.users.update, {
+    externalId,
+    ...updates,
+    updated_at: new Date().toISOString(),
+  });
+}
+
+export async function updateUserPassword(externalId, password_hash) {
+  await mutationWithRetry(api.users.updatePassword, {
+    externalId,
+    password_hash,
+    updated_at: new Date().toISOString(),
+  });
+}
+
+export async function deleteUser(externalId) {
+  await mutationWithRetry(api.users.remove, { externalId });
+}
+
+// =============================================
+// Session store helpers (for ConvexSessionStore)
+// =============================================
+
+export async function getSession(sid) {
+  return await queryWithRetry(api.sessions.get, { sid });
+}
+
+export async function setSession(sid, sessionData, expiresAt) {
+  await mutationWithRetry(api.sessions.set, {
+    sid,
+    session_data: sessionData,
+    expires_at: expiresAt,
+  });
+}
+
+export async function destroySession(sid) {
+  await mutationWithRetry(api.sessions.destroy, { sid });
+}
+
+export async function cleanupExpiredSessions() {
+  return await mutationWithRetry(api.sessions.cleanupExpired, {});
 }
 
 // =============================================

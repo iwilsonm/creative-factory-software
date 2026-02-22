@@ -9,7 +9,7 @@ A single-tenant web application for direct response copywriters and e-commerce b
 1. **Foundational Document Generation** — An 8-step research pipeline (based on the Mark Builds Brands SOP) that uses GPT-4.1 and o3-deep-research to produce customer avatars, offer briefs, and belief documents from a product's sales page.
 2. **Quote Mining & Headline Generation** — A dual-engine system using Perplexity Sonar Pro and Claude Opus 4.6 to extract emotional first-person quotes from online communities, then generates headlines using Claude Sonnet 4.6 with 3 reference copywriting docs.
 3. **Static Image Ad Generation** — Uses GPT-5.2 as a creative director (2-message conversation flow) and Google Gemini 3 Pro Image ("Nano Banana Pro") to generate ad creatives, either one at a time or in automated batches on a cron schedule.
-4. **Ad Deployment & Meta Ads Integration** — Track generated ads through a deployment pipeline (selected → scheduled → posted → analyzing) with per-project Meta Ads OAuth for performance data syncing.
+4. **Ad Pipeline & Meta Ads Integration** — Track generated ads through a deployment pipeline (Planner → Ready to Post → Posted) with a 3-level campaign hierarchy, flex ads, per-project Meta Ads OAuth for performance data syncing, and role-based access for Poster users.
 5. **Landing Page Generation** — Generate landing page copy and responsive HTML from foundational docs via Claude Sonnet, with a split-panel editor, CTA link management, and one-click publishing to Cloudflare Pages.
 
 **Live at**: `daciaautomation.com` (VPS: `76.13.183.219`)
@@ -32,7 +32,7 @@ A single-tenant web application for direct response copywriters and e-commerce b
 | LLM (images) | Google Gemini 3 Pro Image Preview via `@google/genai` SDK |
 | External | Google Drive API v3 (service account auth) for inspiration sync + ad upload; Meta Marketing API v21.0 for per-project Ads Manager integration |
 | Web Scraping | Puppeteer (headless Chrome) for LP Gen swipe page fetching |
-| Auth | bcrypt + express-session (single shared account, not multi-user) |
+| Auth | bcrypt + express-session + multi-user role-based access (Admin/Manager/Poster), Convex-backed session store |
 | Scheduling | node-cron for recurring batch jobs + scheduler service polling Gemini Batch API |
 | Process Manager | PM2 (production) |
 | Reverse Proxy | Nginx with Let's Encrypt SSL |
@@ -45,10 +45,12 @@ A single-tenant web application for direct response copywriters and e-commerce b
 ad-platform/
 ├── backend/
 │   ├── server.js                    # Express entry point (port 3001)
-│   ├── auth.js                      # requireAuth middleware + isSetupComplete
+│   ├── auth.js                      # requireAuth + requireRole middleware, isSetupComplete, migrateToMultiUser
 │   ├── convexClient.js              # Convex HTTP client with retry wrapper (100+ helpers)
+│   ├── ConvexSessionStore.js        # Custom express-session store backed by Convex sessions table
 │   ├── routes/
-│   │   ├── auth.js                  # Login/setup/session (rate-limited 5/min)
+│   │   ├── auth.js                  # Multi-user login/setup/session/password change (rate-limited 5/min)
+│   │   ├── users.js                 # User management CRUD (admin only)
 │   │   ├── projects.js              # CRUD + product image upload (multer)
 │   │   ├── documents.js             # Foundational doc generation (SSE), upload, corrections, reversion
 │   │   ├── ads.js                   # Ad generation (Mode 1/2) + prompt editing + tagging + angle/headline/body generation
@@ -57,8 +59,8 @@ ad-platform/
 │   │   ├── drive.js                 # Google Drive sync + folder browsing + service account upload
 │   │   ├── templates.js             # Template image management + Drive sync + AI analysis
 │   │   ├── upload.js                # File upload + text extraction (PDF, DOCX, EPUB, MOBI, Excel, Markdown, HTML, code, config files)
-│   │   ├── settings.js              # API keys, rates, headline reference docs, app config
-│   │   ├── deployments.js           # Ad deployment tracking (Meta/Facebook pipeline)
+│   │   ├── settings.js              # API keys, rates, headline reference docs, app config (admin only)
+│   │   ├── deployments.js           # Ad deployment tracking (Ad Pipeline: Planner → Ready to Post → Posted)
 │   │   ├── quoteMining.js           # Quote mining runs, suggestions, headline generation, quote bank operations
 │   │   ├── chat.js                  # Copywriter Chat widget (Claude Sonnet 4.6, foundational docs as context, multimodal: images + PDFs)
 │   │   ├── landingPages.js          # Landing page CRUD, copy generation (SSE), HTML generation, publishing
@@ -85,26 +87,27 @@ ad-platform/
 │
 ├── frontend/
 │   ├── src/
-│   │   ├── App.jsx                  # Router + ProtectedRoute + AuthContext + lazy-loaded pages
+│   │   ├── App.jsx                  # Router + ProtectedRoute (role-based) + AuthContext (user object) + lazy-loaded pages
 │   │   ├── main.jsx                 # React entry (BrowserRouter)
 │   │   ├── api.js                   # Fetch wrapper + SSE streaming helpers (100+ API methods)
 │   │   ├── index.css                # Tailwind layers + custom component classes
 │   │   ├── pages/
-│   │   │   ├── Login.jsx            # Auth + first-run setup
+│   │   │   ├── Login.jsx            # Multi-user auth + first-run admin setup
 │   │   │   ├── Dashboard.jsx        # Cost cards + bar chart + recurring cost estimates + image rates + roadmap
-│   │   │   ├── Projects.jsx         # Project grid with embedded stats
+│   │   │   ├── Projects.jsx         # Project grid with embedded stats (role-filtered: poster can't create)
 │   │   │   ├── ProjectSetup.jsx     # New project wizard
-│   │   │   ├── ProjectDetail.jsx    # Tabbed project hub (Copywriter, Ad Studio, Performance Tracker, Overview, Foundational Docs, Template Library)
-│   │   │   ├── Settings.jsx         # API keys, Drive, rates, headline reference docs, password, Meta setup
-│   │   │   └── AdTracker.jsx        # Ad deployment tracking + Meta integration (rendered as tab within ProjectDetail)
+│   │   │   ├── ProjectDetail.jsx    # Tabbed project hub (role-filtered: poster sees only Ad Pipeline tab)
+│   │   │   ├── Settings.jsx         # API keys, Drive, rates, headline reference docs, password, Meta setup, User Management (admin)
+│   │   │   └── AdTracker.jsx        # Ad Pipeline tracking (Planner → Ready to Post → Posted) + Meta integration
 │   │   └── components/
-│   │       ├── Layout.jsx           # Glass navbar + segmented control navigation
+│   │       ├── Layout.jsx           # Glass navbar + segmented control + role-based nav links + user badge
 │   │       ├── AdStudio.jsx         # Full ad generation UI + gallery with tags, favorites, bulk actions, list view
 │   │       ├── BatchManager.jsx     # Batch job management (~2500 lines): multi-template, multi-angle, scheduling, progress bars
 │   │       ├── FoundationalDocs.jsx # Doc generation with SSE progress, upload, manual research, copy correction, correction history
 │   │       ├── TemplateImages.jsx   # Template upload/management + Drive sync + AI analysis
 │   │       ├── QuoteMiner.jsx       # Quote mining, auto-suggest, headline generation, quote bank, Notion-style filtering
 │   │       ├── CopywriterChat.jsx   # Copywriter assistant (Claude Sonnet 4.6, foundational docs context, multimodal file attachments with drag-and-drop)
+│   │       ├── ReadyToPostView.jsx   # Ready to Post side-by-side layout (role-aware: poster can't send back)
 │   │       ├── LPGen.jsx            # Landing page generator (copy, design, HTML preview, CTA editor, publishing)
 │   │       ├── InspirationFolder.jsx # Drive inspiration image sync
 │   │       ├── CostSummaryCards.jsx # Dashboard cost widgets (expandable details, operation-level breakdown)
@@ -118,23 +121,30 @@ ad-platform/
 │   └── package.json
 │
 ├── convex/
-│   ├── schema.ts                    # Full database schema (16 tables)
+│   ├── schema.ts                    # Full database schema (24 tables)
 │   ├── settings.ts                  # Key-value settings queries/mutations
 │   ├── projects.ts                  # Projects CRUD + Meta OAuth fields + stats aggregation
 │   ├── foundationalDocs.ts          # Docs CRUD with versioning
 │   ├── adCreatives.ts              # Ad CRUD with storage URL resolution + favorite toggle
 │   ├── batchJobs.ts                 # Batch job state machine + pipeline state tracking
 │   ├── apiCosts.ts                  # Cost logging + aggregation + daily history + recalculation
-│   ├── ad_deployments.ts            # Deployment tracking (selected/scheduled/posted/analyzing)
+│   ├── campaigns.ts                # Campaign CRUD (Planner hierarchy)
+│   ├── adSets.ts                   # Ad set CRUD within campaigns
+│   ├── flexAds.ts                  # Flexible ad groups (multiple images per ad)
+│   ├── ad_deployments.ts            # Deployment tracking (Planner → Ready to Post → Posted)
 │   ├── templateImages.ts            # Template storage management + analysis
 │   ├── inspirationImages.ts         # Drive-synced inspiration images (dedup guard on create)
 │   ├── quote_mining_runs.ts         # Mining run records + quotes array + headlines
 │   ├── quote_bank.ts                # Individual quotes with emotions, tags, headlines per quote
 │   ├── chatThreads.ts              # Chat conversations with Claude
 │   ├── chatMessages.ts             # Chat messages (user + assistant) + context hiding (note: filename is camelCase but referenced as chat_messages in schema)
+│   ├── correction_history.ts       # Copy correction history tracking
 │   ├── metaPerformance.ts          # Meta ad performance data (impressions, clicks, spend, ROAS)
 │   ├── dashboard_todos.ts           # Roadmap todos CRUD (dedicated table with priority support)
 │   ├── landingPages.ts              # Landing page CRUD + version management
+│   ├── landingPageVersions.ts      # Landing page version snapshots
+│   ├── users.ts                    # Multi-user CRUD (username, role, password hash)
+│   ├── sessions.ts                 # Convex-backed session store (get, set, destroy, cleanup)
 │   └── fileStorage.ts               # Storage URL generation helpers
 │
 ├── deploy/
@@ -150,7 +160,7 @@ ad-platform/
 
 ## Database Schema (Convex)
 
-All tables live in Convex cloud. Schema is enforced via `convex/schema.ts`. 16 tables total.
+All tables live in Convex cloud. Schema is enforced via `convex/schema.ts`. 24 tables total.
 
 | Table | Purpose | Key Fields |
 |-------|---------|------------|
@@ -160,16 +170,23 @@ All tables live in Convex cloud. Schema is enforced via `convex/schema.ts`. 16 t
 | `ad_creatives` | Generated ads | `project_id`, `generation_mode`, `angle`, `headline`, `body_copy`, `image_prompt`, `gpt_creative_output`, `storageId`, `drive_file_id`, `drive_url`, `aspect_ratio`, `status`, `auto_generated`, `parent_ad_id`, `tags`, `is_favorite`, `source_quote_id` |
 | `batch_jobs` | Scheduled + on-demand batches | `project_id`, `generation_mode`, `batch_size`, `angle`, `angles` (JSON), `aspect_ratio`, `template_image_id`, `template_image_ids` (JSON), `inspiration_image_ids` (JSON), `product_image_storageId`, `gemini_batch_job`, `gpt_prompts` (JSON), `status`, `scheduled`, `schedule_cron`, `completed_count`, `failed_count`, `run_count`, `retry_count`, `used_template_ids` (JSON), `batch_stats`, `pipeline_state` (JSON), `started_at`, `completed_at` |
 | `api_costs` | Cost tracking per operation | `service` (gemini/openai/anthropic/perplexity), `operation`, `cost_usd`, `rate_used`, `image_count`, `resolution`, `source` (calculated/billing_api), `period_date` |
+| `campaigns` | Ad Pipeline campaign hierarchy (Planner) | `externalId`, `project_id`, `name`, `sort_order` |
+| `ad_sets` | Ad sets within campaigns | `externalId`, `campaign_id`, `project_id`, `name`, `sort_order` |
+| `flex_ads` | Flexible ad groups (multi-image ads) | `externalId`, `project_id`, `ad_set_id`, `name`, `child_deployment_ids` (JSON), `primary_texts` (JSON), `headlines` (JSON), `destination_url`, `display_link`, `cta_button`, `facebook_page`, `planned_date`, `posted_by`, `deleted_at` |
+| `ad_deployments` | Ad deployment tracking | `externalId`, `ad_id`, `project_id`, `status` (selected/scheduled/posted/analyzing), `campaign_name`, `ad_set_name`, `ad_name`, `landing_page_url`, `notes`, `planned_date`, `posted_date`, `local_campaign_id`, `local_adset_id`, `flex_ad_id`, `primary_texts` (JSON), `ad_headlines` (JSON), `destination_url`, `display_link`, `cta_button`, `facebook_page`, `posted_by`, `meta_campaign_id`, `meta_adset_id`, `meta_ad_id`, `deleted_at` |
 | `template_images` | Uploaded ad templates | `project_id`, `filename`, `storageId`, `description`, `analysis` |
 | `inspiration_images` | Drive-synced reference images | `project_id`, `drive_file_id`, `filename`, `storageId`, `mimeType`, `modifiedTime`, `size` |
-| `ad_deployments` | Ad deployment tracking | `ad_id`, `project_id`, `status` (selected/scheduled/posted/analyzing), `campaign_name`, `ad_set_name`, `ad_name`, `landing_page_url`, `notes`, `planned_date`, `posted_date`, `meta_campaign_id`, `meta_adset_id`, `meta_ad_id` |
 | `quote_mining_runs` | Quote mining execution records | `project_id`, `status` (running/completed/failed), `target_demographic`, `problem`, `root_cause`, `keywords` (JSON), `subreddits` (JSON), `forums` (JSON), `facebook_groups` (JSON), `num_quotes`, `quotes` (JSON), `perplexity_raw`, `claude_raw`, `sources_used`, `quote_count`, `error_message`, `duration_ms`, `headlines` (JSON), `headlines_generated_at` |
 | `quote_bank` | Individual quotes (denormalized from runs) | `project_id`, `quote`, `source`, `source_url`, `emotion`, `emotional_intensity`, `context`, `run_id`, `problem` (denormalized), `tags`, `is_favorite`, `headlines` (JSON), `headlines_generated_at` |
 | `chat_threads` | Copywriter chat conversations | `project_id`, `title`, `status` (active/archived) |
 | `chat_messages` | Chat messages within threads | `thread_id`, `project_id`, `role` (user/assistant), `content`, `is_context_message` (hides priming message) |
+| `correction_history` | Copy correction audit trail | `project_id`, `instruction`, `corrections` (JSON), `before_docs` (JSON), `after_docs` (JSON) |
 | `meta_performance` | Meta ad performance data | `deployment_id`, `meta_ad_id`, `date`, `impressions`, `clicks`, `spend`, `reach`, `ctr`, `cpc`, `cpm`, `conversions`, `conversion_value`, `frequency` |
 | `dashboard_todos` | Roadmap to-do items (dedicated table) | `externalId`, `text`, `done`, `author`, `notes`, `priority` (1-4), `sort_order` |
 | `landing_pages` | Generated landing pages | `externalId`, `project_id`, `name`, `slug`, `status` (draft/published/unpublished), `target_audience`, `page_goal`, `tone`, `swipe_url`, `swipe_screenshot_storageId`, `copy_sections` (JSON), `design_analysis`, `image_slots` (JSON), `html_template`, `assembled_html`, `cta_links` (JSON), `published_url`, `published_at`, `hosting_metadata`, `final_html`, `current_version` |
+| `landing_page_versions` | Landing page version snapshots | `landing_page_id`, `version`, `html`, `copy_sections` (JSON) |
+| `users` | Multi-user accounts | `externalId`, `username`, `display_name`, `password_hash`, `role` (admin/manager/poster), `is_active`, `created_by` |
+| `sessions` | Convex-backed express sessions | `sid`, `session_data` (JSON string), `expires_at` (Unix timestamp) |
 
 **Important**: Foreign keys use `externalId` (UUID strings), not Convex `_id`. The `externalId` pattern was carried over from the SQLite-to-Convex migration. All cross-table references use `project_id` → `projects.externalId`.
 
@@ -180,7 +197,7 @@ All tables live in Convex cloud. Schema is enforced via `convex/schema.ts`. 16 t
 ### Backend
 
 - **Express middleware stack**: compression → helmet (CSP off) → CORS → JSON parser (50MB limit) → sessions → routes
-- **Authentication**: Single shared account. Session-based via `req.session.authenticated`. Rate-limited login (5/min). Bcrypt with 12 salt rounds. Session secret auto-generated and stored in Convex settings.
+- **Authentication**: Multi-user with role-based access (Admin/Manager/Poster). Session-based via `req.session.userId`. Rate-limited login (5/min). Bcrypt with 12 salt rounds. Session secret auto-generated and stored in Convex settings. Sessions stored in Convex via custom `ConvexSessionStore` (survives server restarts). `requireAuth` middleware attaches `req.user` object with `{ id, username, role, displayName }`. `requireRole(...roles)` middleware factory for route-level access control. Auto-migration on first start creates admin user from legacy credentials.
 - **Convex client**: `convexClient.js` wraps `ConvexHttpClient` with auto-retry (3 retries, exponential backoff, 2000ms base). Provides 100+ helper functions covering all tables.
 - **SSE streaming**: Doc generation, ad generation, quote mining, headline generation, and chat all stream progress events via Server-Sent Events. Pattern: `res.writeHead(200, { 'Content-Type': 'text/event-stream' })` then `res.write(`data: ${JSON.stringify(event)}\n\n`)`.
 - **File uploads**: Multer saves to temp dir → uploaded to Convex storage → temp file deleted. Product images, templates, and inspiration images all stored in Convex.
@@ -190,9 +207,9 @@ All tables live in Convex cloud. Schema is enforced via `convex/schema.ts`. 16 t
 
 ### Frontend
 
-- **State management**: React hooks only (useState, useEffect, useRef, useCallback, useMemo). No Redux or external state library. ToastContext for global notifications. AuthContext for session state.
+- **State management**: React hooks only (useState, useEffect, useRef, useCallback, useMemo). No Redux or external state library. ToastContext for global notifications. AuthContext for session state (includes user object with role, displayName for role-based UI filtering).
 - **API layer**: `api.js` exports a single `api` object with 100+ methods for every endpoint. `request()` is the base fetch wrapper (auto-redirects to /login on 401). `streamSSE()` and `streamSSEWithBody()` handle Server-Sent Events.
-- **Routing**: React Router 6 with `ProtectedRoute` wrapper that checks `api.getSession()` before rendering. Pages lazy-loaded via `React.lazy()` + `Suspense`.
+- **Routing**: React Router 6 with `ProtectedRoute` wrapper that checks `api.getSession()` before rendering. Supports optional `roles` prop for role-based page access (redirects unauthorized users). Pages lazy-loaded via `React.lazy()` + `Suspense`.
 - **Component pattern**: Pages are in `pages/`, reusable UI in `components/`. Large features (AdStudio, BatchManager, QuoteMiner, FoundationalDocs) are single-file components with extensive local state.
 - **Form pattern**: Controlled inputs with spread-operator state updates: `setForm(prev => ({ ...prev, field: value }))`.
 - **Debounced auto-save**: Prompt guidelines use 1.5s debounce with useRef timer.
@@ -341,13 +358,14 @@ Same flow as Mode 1 but template image used instead of random inspiration. Promp
 
 **Dashboard displays**: Today/Week/Month summaries, 30-day stacked bar chart (by service), recurring batch cost estimates, cost per ad (project-scoped), current Gemini per-image rates.
 
-### 6. Ad Deployment & Meta Integration
+### 6. Ad Pipeline & Meta Integration
 
-**Deployment Pipeline**:
-1. **Selected** — User selects ads in gallery → creates deployments
-2. **Scheduled** — User fills in campaign name, ad set, landing page, planned date
-3. **Posted** — User marks as posted or syncs with Meta
-4. **Analyzing** — Performance data synced from Meta
+**Ad Pipeline** (3 views within the Ad Pipeline tab):
+1. **Planner** — 3-level hierarchy: campaigns → ad sets → flex ads. Drag ads from gallery to build ad groups with shared copy, CTA buttons, Facebook Page, and planned dates. Supports single-image and flex (multi-image) ads.
+2. **Ready to Post** — Side-by-side layout showing ad image preview alongside deployment details (campaign, ad set, ad name, destination URL, display link, CTA button, primary texts, headlines, Facebook Page, posted by). Mark individual or bulk ads as posted.
+3. **Posted** — History of posted ads with posted date, posted-by attribution. Admin/Manager can send back to Ready to Post; Poster sees read-only view.
+
+**Deployment Fields**: `campaign_name`, `ad_set_name`, `ad_name`, `destination_url`, `display_link`, `cta_button`, `facebook_page`, `posted_by`, `primary_texts` (JSON), `ad_headlines` (JSON), `planned_date`, `posted_date`.
 
 **Per-Project Meta Ads**:
 - Each project has its own Meta App ID, App Secret, OAuth token
@@ -399,11 +417,20 @@ Same flow as Mode 1 but template image used instead of random inspiration. Promp
 ### Auth
 | Method | Path | Purpose |
 |--------|------|---------|
-| GET | `/api/auth/session` | Check auth status + setup completion |
-| POST | `/api/auth/setup` | First-run account creation |
-| POST | `/api/auth/login` | Login (rate-limited: 5/min) |
+| GET | `/api/auth/session` | Check auth status + setup completion + user info (role, displayName) |
+| POST | `/api/auth/setup` | First-run admin account creation (only when 0 users exist) |
+| POST | `/api/auth/login` | Multi-user login from users table (rate-limited: 5/min) |
 | POST | `/api/auth/logout` | Destroy session |
-| PUT | `/api/auth/password` | Change password |
+| PUT | `/api/auth/password` | Change own password (any authenticated user) |
+
+### Users (Admin Only)
+| Method | Path | Purpose |
+|--------|------|---------|
+| GET | `/api/users` | List all users (excludes password_hash) |
+| POST | `/api/users` | Create user (username, display_name, password, role) |
+| PUT | `/api/users/:id` | Update user (display_name, role, is_active) |
+| PUT | `/api/users/:id/reset-password` | Admin resets user's password |
+| DELETE | `/api/users/:id` | Delete user (cannot delete self) |
 
 ### Projects
 | Method | Path | Purpose |
@@ -515,16 +542,30 @@ Same flow as Mode 1 but template image used instead of random inspiration. Promp
 | GET | `/api/projects/:id/costs` | Project-scoped costs + cost per ad |
 | POST | `/api/costs/sync` | Manual trigger for OpenAI billing API sync |
 
-### Deployments
+### Deployments (Ad Pipeline)
 | Method | Path | Purpose |
 |--------|------|---------|
-| GET | `/api/deployments` | List deployments (optional `?projectId=` filter) |
+| GET | `/api/deployments` | List deployments (optional `?projectId=` filter, excludes soft-deleted) |
 | POST | `/api/deployments` | Bulk create deployments from ad IDs |
 | PUT | `/api/deployments/:id` | Update deployment fields |
-| PUT | `/api/deployments/:id/status` | Update deployment status |
-| DELETE | `/api/deployments/:id` | Remove deployment |
+| PUT | `/api/deployments/:id/status` | Update deployment status (poster can mark as posted) |
+| DELETE | `/api/deployments/:id` | Soft-delete deployment |
+| POST | `/api/deployments/:id/restore` | Restore soft-deleted deployment |
 | POST | `/api/deployments/rename-all` | Batch rename deployments |
 | POST | `/api/deployments/backfill-headlines` | Backfill headlines from ads |
+| GET | `/api/projects/:id/campaigns` | List campaigns for project |
+| POST | `/api/projects/:id/campaigns` | Create campaign |
+| PUT | `/api/projects/:id/campaigns/:campaignId` | Update campaign |
+| DELETE | `/api/projects/:id/campaigns/:campaignId` | Delete campaign |
+| GET | `/api/projects/:id/campaigns/:campaignId/adsets` | List ad sets |
+| POST | `/api/projects/:id/campaigns/:campaignId/adsets` | Create ad set |
+| PUT | `/api/projects/:id/adsets/:adsetId` | Update ad set |
+| DELETE | `/api/projects/:id/adsets/:adsetId` | Delete ad set |
+| POST | `/api/projects/:id/adsets/:adsetId/flex-ads` | Create flex ad |
+| PUT | `/api/projects/:id/flex-ads/:flexAdId` | Update flex ad |
+| DELETE | `/api/projects/:id/flex-ads/:flexAdId` | Soft-delete flex ad |
+| POST | `/api/projects/:id/flex-ads/:flexAdId/restore` | Restore soft-deleted flex ad |
+| POST | `/api/projects/:id/flex-ads/:flexAdId/generate` | Generate deployments for flex ad from selected ads |
 
 ### Meta Ads Integration
 | Method | Path | Purpose |
@@ -600,26 +641,26 @@ Same flow as Mode 1 but template image used instead of random inspiration. Promp
 
 ## Frontend Routes
 
-| Path | Page | Description |
-|------|------|-------------|
-| `/login` | Login | Auth + first-run setup |
-| `/` | Dashboard | Cost cards, bar chart, recurring estimates, image rates, roadmap |
-| `/projects` | Projects | Project grid with stats |
-| `/projects/new` | ProjectSetup | New project wizard |
-| `/projects/:id` | ProjectDetail | Tabbed hub — see tabs below |
-| `/settings` | Settings | API keys, Drive, rates, headline references, Meta setup |
+| Path | Page | Roles | Description |
+|------|------|-------|-------------|
+| `/login` | Login | — | Multi-user auth + first-run admin setup |
+| `/` | Dashboard | Admin, Manager | Cost cards, bar chart, recurring estimates, image rates, roadmap |
+| `/projects` | Projects | All | Project grid with stats (poster can't create projects) |
+| `/projects/new` | ProjectSetup | Admin, Manager | New project wizard |
+| `/projects/:id` | ProjectDetail | All | Tabbed hub — tabs filtered by role (see below) |
+| `/settings` | Settings | Admin | API keys, Drive, rates, headline references, Meta setup, User Management |
 
 ### ProjectDetail Tabs
 
-| Tab ID | Label | Component | Description |
-|--------|-------|-----------|-------------|
-| `quotes` | Copywriter | QuoteMiner + CopywriterChat | Mine quotes, generate headlines, chat with AI copywriter |
-| `ads` | Ad Studio | AdStudio + BatchManager | Generate ads, manage batches, ad gallery |
-| `tracker` | Performance Tracker | AdTracker | Deployment pipeline + Meta performance |
-| `lp` | LP Gen | LPGen | Landing page generation, editing, publishing |
-| `overview` | Overview | (inline) | Project settings, cost tracking, product image, Drive folders |
-| `docs` | Foundational Docs | FoundationalDocs | Core research docs, correction history |
-| `templates` | Template Library | TemplateImages + InspirationFolder | Reference images from Drive or uploaded |
+| Tab ID | Label | Component | Roles | Description |
+|--------|-------|-----------|-------|-------------|
+| `quotes` | Copywriter | QuoteMiner + CopywriterChat | Admin, Manager | Mine quotes, generate headlines, chat with AI copywriter |
+| `ads` | Ad Studio | AdStudio + BatchManager | Admin, Manager | Generate ads, manage batches, ad gallery |
+| `tracker` | Ad Pipeline | AdTracker | All | Ad deployment pipeline: Planner → Ready to Post → Posted (poster sees Ready to Post + Posted only) |
+| `lp` | LP Gen | LPGen | Admin, Manager | Landing page generation, editing, publishing |
+| `overview` | Overview | (inline) | Admin, Manager | Project settings, cost tracking, product image, Drive folders |
+| `docs` | Foundational Docs | FoundationalDocs | Admin, Manager | Core research docs, correction history |
+| `templates` | Template Library | TemplateImages + InspirationFolder | Admin, Manager | Reference images from Drive or uploaded |
 
 ---
 
@@ -676,7 +717,7 @@ ssh root@76.13.183.219 "cd /opt/ad-platform && npx convex deploy -y"
 - `anthropic_api_key` — Anthropic Claude API key
 - `gemini_rate_1k`, `gemini_rate_2k`, `gemini_rate_4k` — Image generation rates by resolution
 - `gemini_rates_updated_at` — Timestamp of last Gemini rate scrape
-- `auth_username`, `auth_password_hash` — Login credentials (hash is bcrypt)
+- `auth_username`, `auth_password_hash` — Legacy login credentials (migrated to `users` table on first multi-user start, kept for reference)
 - `session_secret` — Auto-generated session encryption key
 - `default_drive_folder_id` — Default Google Drive output folder
 - `cloudflare_account_id` — Cloudflare account ID for Pages deployment
@@ -701,7 +742,7 @@ ssh root@76.13.183.219 "cd /opt/ad-platform && npx convex deploy -y"
 
 3. **Gemini Batch API for batches**: Batch jobs use Gemini's async batch API rather than sequential calls. This is more cost-effective and avoids rate limits. The scheduler polls for results every 5 minutes.
 
-4. **Session-based auth (not JWT)**: Single-user app doesn't need token-based auth. Sessions are simpler and stored server-side with Convex-backed persistence.
+4. **Session-based auth (not JWT)**: Sessions are simpler and stored server-side with Convex-backed persistence via custom `ConvexSessionStore`. Sessions survive server restarts (no more in-memory MemoryStore).
 
 5. **No global state library**: React hooks + prop drilling + context (for toasts and auth only). The app's state is largely server-driven — most components fetch on mount and re-render.
 
@@ -733,6 +774,16 @@ ssh root@76.13.183.219 "cd /opt/ad-platform && npx convex deploy -y"
 
 19. **LP Gen URL-based swipe input with Puppeteer**: Landing page generation uses Puppeteer headless browser to fetch swipe page content from a URL — extracting text and capturing a full-page screenshot. The screenshot is sent to Claude for design analysis while the text is used for copy generation. PDF upload is supported as an alternative, with the PDF sent as a native document block for design analysis. This replaced the original PDF-only approach for better UX.
 
+20. **Multi-user with role-based access**: Three roles (Admin, Manager, Poster) with route-level and UI-level enforcement. Admin: full access including Settings and User Management. Manager: all project features but no Settings. Poster: only sees Ad Pipeline tab (Ready to Post + Posted sub-tabs), can mark ads as posted but cannot access Planner, send back ads, create projects, or access Dashboard/Settings. Backend uses `requireRole()` middleware factory. Frontend filters nav links, project tabs, and action buttons by role.
+
+21. **Convex-backed session store**: Custom `ConvexSessionStore` class extends `express-session.Store` with `get/set/destroy` methods backed by Convex `sessions` table. Automatically cleans expired sessions every hour. Eliminates the MemoryStore warning and ensures sessions persist across PM2 restarts and deploys.
+
+22. **Auto-migration from single-user to multi-user**: On server start, `migrateToMultiUser()` checks if the `users` table is empty. If so, reads legacy `auth_username` + `auth_password_hash` from Convex settings and creates an admin user. This ensures zero-downtime upgrade — the existing admin can log in immediately after the code deploys.
+
+23. **Ad Pipeline hierarchy (campaigns → ad sets → flex ads)**: The Planner view uses a 3-level hierarchy: campaigns contain ad sets, ad sets contain flex ads (multi-image ad groups). Flex ads have `child_deployment_ids` linking to individual deployments. This models Meta Ads structure for organized ad planning before posting.
+
+24. **Soft-delete for deployments and flex ads**: Deployments and flex ads use `deleted_at` timestamp for soft deletion rather than hard delete. This allows restore functionality and prevents accidental data loss. Queries filter out soft-deleted items by default.
+
 ---
 
 ## Gotchas & Edge Cases
@@ -760,6 +811,11 @@ ssh root@76.13.183.219 "cd /opt/ad-platform && npx convex deploy -y"
 - **VPS dependency installation**: `package.json` is excluded from rsync in `deploy.sh`. New npm dependencies (e.g., `puppeteer`, `xlsx`) must be installed manually on the VPS via SSH: `ssh root@76.13.183.219 "cd /opt/ad-platform/backend && npm install <package>"` then restart PM2.
 - **Puppeteer on VPS**: Puppeteer requires Chromium. On first install, it downloads ~300MB of Chromium. If disk space is low, use `PUPPETEER_SKIP_DOWNLOAD=true` and install system Chromium separately.
 - **Chat multimodal content blocks**: The chat backend builds multimodal content blocks only for the current (last) user message. Previous messages in the conversation history are stored as text-only (with `[filename]` markers for images). This means Claude can only "see" images/PDFs from the current message, not from earlier in the thread.
+- **Session store migration**: Sessions moved from in-memory `MemoryStore` to Convex-backed `ConvexSessionStore`. All existing sessions are lost on first deploy (one-time reset). After upgrade, sessions persist across PM2 restarts.
+- **Multi-user migration**: `migrateToMultiUser()` runs on every server start. It's idempotent — only creates admin user if `users` table is empty. Legacy `auth_username`/`auth_password_hash` settings are preserved but no longer read after migration.
+- **Poster role restrictions**: Poster users can only access the `tracker` tab (Ad Pipeline) within projects. They see Ready to Post + Posted sub-tabs (not Planner). They can mark ads as posted but cannot send ads back to Planner. Backend enforces this via `requireRole('admin', 'manager')` on write routes.
+- **Soft-deleted deployments**: Deployments use `deleted_at` for soft delete. All GET queries filter out soft-deleted items. The restore endpoint clears `deleted_at` to undelete.
+- **Ad Pipeline terminology**: The deployment tracking tab was renamed from "Performance Tracker" to "Ad Pipeline". The first sub-tab was renamed from "Campaigns" to "Planner". Status labels use "Ready to Post" / "Posted" (not "scheduled"/"posted").
 
 ---
 
@@ -778,7 +834,7 @@ ssh root@76.13.183.219 "cd /opt/ad-platform && npx convex deploy -y"
 
 ## What's Built & Production
 
-- Full auth system (login, setup, session management)
+- Multi-user auth system with role-based access (Admin/Manager/Poster), Convex-backed sessions, auto-migration from legacy single-user
 - Project CRUD with product image management
 - 8-step foundational document generation pipeline (with deep research)
 - Copy correction (AI-powered fact-checking with before/after history + reversion)
@@ -810,7 +866,12 @@ ssh root@76.13.183.219 "cd /opt/ad-platform && npx convex deploy -y"
 - Project-level product image (auto-injected into all generations, per-ad override)
 - Ad gallery (grid + list view, timestamps, tag management, favorites, source quotes)
 - Multi-select bulk actions (download ZIP, delete, deploy, bulk tag)
-- Ad deployment tracking pipeline (selected → scheduled → posted → analyzing)
+- Ad Pipeline with 3-level Planner hierarchy (campaigns → ad sets → flex ads)
+- Ad deployment tracking (Planner → Ready to Post → Posted) with soft-delete and restore
+- Side-by-side Ready to Post view with ad preview and deployment details
+- Flex ads (multi-image ad groups with shared copy, CTA, Facebook Page settings)
+- Display link, Facebook Page, Posted By fields on deployments
+- User Management card in Settings (admin: create users, assign roles, reset passwords, deactivate)
 - Per-project Meta Ads integration (OAuth, campaign/adset/ad browsing, performance sync)
 - Meta performance data (impressions, clicks, spend, CPC, CPM, ROAS)
 - Headline reference document uploads (3 docs: Headline Engine, 100 Greatest, 349 Swipe File)

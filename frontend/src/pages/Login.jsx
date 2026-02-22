@@ -5,7 +5,7 @@ import { AuthContext } from '../App';
 
 export default function Login() {
   const navigate = useNavigate();
-  const { setAuthenticated } = useContext(AuthContext);
+  const { setUser } = useContext(AuthContext);
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [error, setError] = useState('');
@@ -15,8 +15,9 @@ export default function Login() {
 
   useEffect(() => {
     api.getSession().then(data => {
-      if (data.authenticated) {
-        navigate('/');
+      if (data.authenticated && data.user) {
+        setUser(data.user);
+        navigateByRole(data.user.role);
       } else {
         setIsSetup(!data.setupComplete);
       }
@@ -24,19 +25,28 @@ export default function Login() {
     }).catch(() => setCheckingSession(false));
   }, [navigate]);
 
+  const navigateByRole = (role) => {
+    if (role === 'poster') {
+      navigate('/projects');
+    } else {
+      navigate('/');
+    }
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
     setLoading(true);
 
     try {
+      let result;
       if (isSetup) {
-        await api.setup(username, password);
+        result = await api.setup(username, password);
       } else {
-        await api.login(username, password);
+        result = await api.login(username, password);
       }
-      setAuthenticated(true);
-      navigate('/');
+      setUser(result.user);
+      navigateByRole(result.user.role);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -60,7 +70,7 @@ export default function Login() {
           <div className="text-center mb-6">
             <img src="/logo.png" alt="Dacia Automation" className="h-14 mx-auto mb-4" />
             <p className="text-[13px] text-textmid mt-1">
-              {isSetup ? 'Create your account to get started' : 'Sign in to continue'}
+              {isSetup ? 'Create your admin account to get started' : 'Sign in to continue'}
             </p>
           </div>
 
@@ -97,7 +107,7 @@ export default function Login() {
               disabled={loading}
               className="btn-primary w-full py-2.5"
             >
-              {loading ? 'Please wait...' : isSetup ? 'Create Account' : 'Sign In'}
+              {loading ? 'Please wait...' : isSetup ? 'Create Admin Account' : 'Sign In'}
             </button>
           </form>
         </div>

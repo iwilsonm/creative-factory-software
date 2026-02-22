@@ -4,7 +4,7 @@ import multer from 'multer';
 import path from 'path';
 import fs from 'fs';
 import os from 'os';
-import { requireAuth } from '../auth.js';
+import { requireAuth, requireRole } from '../auth.js';
 import {
   createProject,
   getProject,
@@ -60,7 +60,7 @@ router.get('/:id', async (req, res) => {
 });
 
 // Create project
-router.post('/', async (req, res) => {
+router.post('/', requireRole('admin', 'manager'), async (req, res) => {
   const { name, brand_name, niche, product_description, sales_page_content, drive_folder_id, inspiration_folder_id } = req.body;
   if (!name) return res.status(400).json({ error: 'Project name is required' });
 
@@ -81,7 +81,7 @@ router.post('/', async (req, res) => {
 });
 
 // Update project
-router.put('/:id', async (req, res) => {
+router.put('/:id', requireRole('admin', 'manager'), async (req, res) => {
   const project = await getProject(req.params.id);
   if (!project) return res.status(404).json({ error: 'Project not found' });
 
@@ -91,7 +91,7 @@ router.put('/:id', async (req, res) => {
 });
 
 // Delete project
-router.delete('/:id', async (req, res) => {
+router.delete('/:id', requireRole('admin', 'manager'), async (req, res) => {
   const project = await getProject(req.params.id);
   if (!project) return res.status(404).json({ error: 'Project not found' });
 
@@ -100,7 +100,7 @@ router.delete('/:id', async (req, res) => {
 });
 
 // Upload / replace project product image
-router.post('/:id/product-image', imgUpload.single('image'), async (req, res) => {
+router.post('/:id/product-image', requireRole('admin', 'manager'), imgUpload.single('image'), async (req, res) => {
   const project = await getProject(req.params.id);
   if (!project) return res.status(404).json({ error: 'Project not found' });
   if (!req.file) return res.status(400).json({ error: 'No image file provided' });
@@ -126,7 +126,7 @@ router.post('/:id/product-image', imgUpload.single('image'), async (req, res) =>
 });
 
 // Delete project product image
-router.delete('/:id/product-image', async (req, res) => {
+router.delete('/:id/product-image', requireRole('admin', 'manager'), async (req, res) => {
   const project = await getProject(req.params.id);
   if (!project) return res.status(404).json({ error: 'Project not found' });
 

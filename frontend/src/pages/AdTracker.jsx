@@ -21,12 +21,13 @@ function displayName(dep) {
   return parts.length > 0 ? parts.join(' — ') : `Ad ${(dep.id || '').slice(0, 6)}`;
 }
 
-export default function AdTracker({ projectId }) {
+export default function AdTracker({ projectId, userRole }) {
+  const isPoster = userRole === 'poster';
   const { data: deployments, setData: setDeployments, loading, refetch: loadDeployments } = useAsyncData(
     () => api.getProjectDeployments(projectId).then(d => d.deployments || []),
     [projectId]
   );
-  const [activeView, setActiveView] = useState('campaigns'); // 'campaigns' | 'status' | 'ready_to_post'
+  const [activeView, setActiveView] = useState(isPoster ? 'ready_to_post' : 'campaigns'); // 'campaigns' | 'status' | 'ready_to_post'
   const [statusFilter, setStatusFilter] = useState('posted');
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [bulkEditOpen, setBulkEditOpen] = useState(false);
@@ -714,24 +715,26 @@ export default function AdTracker({ projectId }) {
     <div>
       {/* Pipeline tabs */}
       <div className="flex items-center gap-2 mb-5">
-        {/* 1. Planner */}
-        <button
-          onClick={() => { setActiveView('campaigns'); setSelectedIds(new Set()); }}
-          className={`px-3.5 py-1.5 rounded-full text-[12px] font-semibold transition-colors inline-flex items-center gap-1.5 ${
-            activeView === 'campaigns'
-              ? 'bg-navy text-white shadow-sm'
-              : 'bg-navy/10 text-navy hover:bg-navy/15'
-          }`}
-        >
-          <span className={`w-[18px] h-[18px] rounded-full text-[10px] font-bold inline-flex items-center justify-center ${
-            activeView === 'campaigns' ? 'bg-white/20 text-white' : 'bg-navy/15 text-navy'
-          }`}>1</span>
-          Planner
-          <span className={`text-[10px] font-normal ${activeView === 'campaigns' ? 'text-white/70' : 'text-navy/50'}`}>
-            {campaignsDeps.length}
-          </span>
-        </button>
-        {/* 2. Ready to Post */}
+        {/* 1. Planner — hidden for Poster role */}
+        {!isPoster && (
+          <button
+            onClick={() => { setActiveView('campaigns'); setSelectedIds(new Set()); }}
+            className={`px-3.5 py-1.5 rounded-full text-[12px] font-semibold transition-colors inline-flex items-center gap-1.5 ${
+              activeView === 'campaigns'
+                ? 'bg-navy text-white shadow-sm'
+                : 'bg-navy/10 text-navy hover:bg-navy/15'
+            }`}
+          >
+            <span className={`w-[18px] h-[18px] rounded-full text-[10px] font-bold inline-flex items-center justify-center ${
+              activeView === 'campaigns' ? 'bg-white/20 text-white' : 'bg-navy/15 text-navy'
+            }`}>1</span>
+            Planner
+            <span className={`text-[10px] font-normal ${activeView === 'campaigns' ? 'text-white/70' : 'text-navy/50'}`}>
+              {campaignsDeps.length}
+            </span>
+          </button>
+        )}
+        {/* 2. Ready to Post (numbered 1 for Poster) */}
         <button
           onClick={() => { setActiveView('ready_to_post'); setSelectedIds(new Set()); }}
           className={`px-3.5 py-1.5 rounded-full text-[12px] font-semibold transition-colors inline-flex items-center gap-1.5 ${
@@ -742,13 +745,13 @@ export default function AdTracker({ projectId }) {
         >
           <span className={`w-[18px] h-[18px] rounded-full text-[10px] font-bold inline-flex items-center justify-center ${
             activeView === 'ready_to_post' ? 'bg-white/20 text-white' : 'bg-gold/15 text-gold'
-          }`}>2</span>
+          }`}>{isPoster ? 1 : 2}</span>
           Ready to Post
           <span className={`text-[10px] font-normal ${activeView === 'ready_to_post' ? 'text-white/70' : 'text-gold/50'}`}>
             {readyToPostCardCount}
           </span>
         </button>
-        {/* 3. Posted */}
+        {/* 3. Posted (numbered 2 for Poster) */}
         <button
           onClick={() => { setActiveView('status'); setStatusFilter('posted'); setSelectedIds(new Set()); }}
           className={`px-3.5 py-1.5 rounded-full text-[12px] font-semibold transition-colors inline-flex items-center gap-1.5 ${
@@ -759,7 +762,7 @@ export default function AdTracker({ projectId }) {
         >
           <span className={`w-[18px] h-[18px] rounded-full text-[10px] font-bold inline-flex items-center justify-center ${
             activeView === 'status' && statusFilter === 'posted' ? 'bg-white/20 text-white' : 'bg-teal/15 text-teal'
-          }`}>3</span>
+          }`}>{isPoster ? 2 : 3}</span>
           Posted
           <span className={`text-[10px] font-normal ${activeView === 'status' && statusFilter === 'posted' ? 'text-white/70' : 'text-teal/50'}`}>
             {statusCounts['posted'] || 0}
@@ -787,6 +790,7 @@ export default function AdTracker({ projectId }) {
           addToast={addToast}
           loadDeployments={loadDeployments}
           onSwitchToPlanner={() => { setActiveView('campaigns'); setSelectedIds(new Set()); }}
+          isPoster={isPoster}
         />
       )}
 
@@ -1309,8 +1313,8 @@ export default function AdTracker({ projectId }) {
                       {/* Actions */}
                       <td className="px-3 py-2.5">
                         <div className="flex items-center gap-1 justify-end">
-                          {/* Send Back to Ready to Post — only for posted ads */}
-                          {dep.status === 'posted' && (
+                          {/* Send Back to Ready to Post — only for posted ads, hidden for Poster role */}
+                          {dep.status === 'posted' && !isPoster && (
                             <button
                               onClick={() => handleStatusChange(dep.id, 'ready_to_post')}
                               className="text-[9px] px-2 py-1 rounded-lg text-gold border border-gold/30 hover:bg-gold/10 transition-colors whitespace-nowrap"

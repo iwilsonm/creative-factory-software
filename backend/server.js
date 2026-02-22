@@ -8,7 +8,10 @@ import { fileURLToPath } from 'url';
 import crypto from 'crypto';
 
 import { getSetting, setSetting } from './convexClient.js';
+import ConvexSessionStore from './ConvexSessionStore.js';
+import { requireAuth, requireRole, migrateToMultiUser } from './auth.js';
 import authRoutes from './routes/auth.js';
+import userRoutes from './routes/users.js';
 import projectRoutes from './routes/projects.js';
 import settingsRoutes from './routes/settings.js';
 import documentRoutes from './routes/documents.js';
@@ -63,8 +66,9 @@ process.on('uncaughtException', (err) => {
   }));
   app.use(express.json({ limit: '50mb' }));
 
-  // Session
+  // Session — stored in Convex (persists across PM2 restarts)
   app.use(session({
+    store: new ConvexSessionStore(),
     secret: sessionSecret,
     resave: false,
     saveUninitialized: false,
@@ -79,23 +83,31 @@ process.on('uncaughtException', (err) => {
   // NOTE: Generated images are no longer served from local disk.
   // They are served via 302 redirect to Convex storage URLs in the ads route.
 
-  // Routes
+  // Migrate legacy single-user auth to multi-user (runs once, idempotent)
+  await migrateToMultiUser();
+
+  // Routes — auth (no role restriction)
   app.use('/api/auth', authRoutes);
-  app.use('/api/projects', projectRoutes);
-  app.use('/api/projects', documentRoutes);
+  // Routes — admin only
+  app.use('/api/users', userRoutes);
   app.use('/api/settings', settingsRoutes);
-  app.use('/api/upload', uploadRoutes);
-  app.use('/api/drive', driveRoutes);
-  app.use('/api/projects', inspirationRouter);
-  app.use('/api/projects', templateRoutes);
-  app.use('/api/projects', adRoutes);
-  app.use('/api/projects', batchRoutes);
-  app.use('/api', costsRoutes);
+  // Routes — projects (all roles can list/view projects for navigation)
+  app.use('/api/projects', projectRoutes);
+  // Routes — admin/manager only
+  app.use('/api/projects', requireAuth, requireRole('admin', 'manager'), documentRoutes);
+  app.use('/api/upload', requireAuth, requireRole('admin', 'manager'), uploadRoutes);
+  app.use('/api/drive', requireAuth, requireRole('admin', 'manager'), driveRoutes);
+  app.use('/api/projects', requireAuth, requireRole('admin', 'manager'), inspirationRouter);
+  app.use('/api/projects', requireAuth, requireRole('admin', 'manager'), templateRoutes);
+  app.use('/api/projects', requireAuth, requireRole('admin', 'manager'), adRoutes);
+  app.use('/api/projects', requireAuth, requireRole('admin', 'manager'), batchRoutes);
+  app.use('/api', requireAuth, requireRole('admin', 'manager'), costsRoutes);
+  app.use('/api/projects', requireAuth, requireRole('admin', 'manager'), quoteMiningRoutes);
+  app.use('/api/projects', requireAuth, requireRole('admin', 'manager'), chatRoutes);
+  app.use('/api', requireAuth, requireRole('admin', 'manager'), metaRoutes);
+  app.use('/api/projects', requireAuth, requireRole('admin', 'manager'), landingPageRoutes);
+  // Routes — deployments (poster has limited access — controlled per-route inside)
   app.use('/api', deploymentRoutes);
-  app.use('/api/projects', quoteMiningRoutes);
-  app.use('/api/projects', chatRoutes);
-  app.use('/api', metaRoutes);
-  app.use('/api/projects', landingPageRoutes);
 
   // Health check — real connectivity + operational checks
   app.get('/api/health', async (req, res) => {

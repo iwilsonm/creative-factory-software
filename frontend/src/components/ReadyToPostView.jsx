@@ -11,7 +11,7 @@ import { api } from '../api';
  *
  * Props: projectId, deployments, setDeployments, addToast, loadDeployments, onSwitchToPlanner
  */
-export default function ReadyToPostView({ projectId, deployments, setDeployments, addToast, loadDeployments, onSwitchToPlanner }) {
+export default function ReadyToPostView({ projectId, deployments, setDeployments, addToast, loadDeployments, onSwitchToPlanner, isPoster }) {
   const [campaigns, setCampaigns] = useState([]);
   const [adSets, setAdSets] = useState([]);
   const [flexAds, setFlexAds] = useState([]);
@@ -606,14 +606,16 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
 
         {/* Actions — always visible */}
         <div className="px-5 py-3.5 border-t border-black/[0.08] bg-offwhite/50 flex items-center justify-between">
-          <button onClick={() => handleSendBack(dep.id)} disabled={isSendingBack}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium text-textmid hover:text-textdark hover:bg-black/[0.04] transition-colors disabled:opacity-50"
-          >
-            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
-            </svg>
-            {isSendingBack ? 'Sending...' : 'Send Back to Planner'}
-          </button>
+          {!isPoster ? (
+            <button onClick={() => handleSendBack(dep.id)} disabled={isSendingBack}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium text-textmid hover:text-textdark hover:bg-black/[0.04] transition-colors disabled:opacity-50"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
+              </svg>
+              {isSendingBack ? 'Sending...' : 'Send Back to Planner'}
+            </button>
+          ) : <div />}
           {confirmPosted === dep.id ? (
             <div className="flex items-center gap-2">
               <button onClick={() => setConfirmPosted(null)} className="px-2.5 py-1.5 rounded-lg text-[11px] text-textmid hover:bg-white transition-colors">Cancel</button>
@@ -815,14 +817,16 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
 
         {/* Actions — always visible */}
         <div className="px-5 py-3.5 border-t border-black/[0.08] bg-offwhite/50 flex items-center justify-between">
-          <button onClick={() => handleSendBackFlex(flexAd)} disabled={isSendingBack}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium text-textmid hover:text-textdark hover:bg-black/[0.04] transition-colors disabled:opacity-50"
-          >
-            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
-            </svg>
-            {isSendingBack ? 'Sending...' : 'Send Back to Planner'}
-          </button>
+          {!isPoster ? (
+            <button onClick={() => handleSendBackFlex(flexAd)} disabled={isSendingBack}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium text-textmid hover:text-textdark hover:bg-black/[0.04] transition-colors disabled:opacity-50"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
+              </svg>
+              {isSendingBack ? 'Sending...' : 'Send Back to Planner'}
+            </button>
+          ) : <div />}
           {confirmPosted === flexId ? (
             <div className="flex items-center gap-2">
               <span className="text-[11px] text-textmid">{childDeps.length} ad{childDeps.length !== 1 ? 's' : ''}</span>

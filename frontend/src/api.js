@@ -139,6 +139,13 @@ export const api = {
   logout: () => request('/auth/logout', { method: 'POST' }),
   changePassword: (currentPassword, newPassword) => request('/auth/password', { method: 'PUT', body: JSON.stringify({ currentPassword, newPassword }) }),
 
+  // User Management (admin only)
+  getUsers: () => request('/users'),
+  createUser: (data) => request('/users', { method: 'POST', body: JSON.stringify(data) }),
+  updateUser: (id, data) => request(`/users/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
+  resetUserPassword: (id, newPassword) => request(`/users/${id}/reset-password`, { method: 'PUT', body: JSON.stringify({ newPassword }) }),
+  deleteUser: (id) => request(`/users/${id}`, { method: 'DELETE' }),
+
   // Projects
   getProjects: () => request('/projects'),
   getProject: (id) => request(`/projects/${id}`),

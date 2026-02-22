@@ -1,10 +1,24 @@
-import { useState } from 'react';
+import { useState, useContext } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { api } from '../api';
+import { AuthContext } from '../App';
+
+const ROLE_LABELS = {
+  admin: 'Admin',
+  manager: 'Manager',
+  poster: 'Poster',
+};
+
+const ROLE_COLORS = {
+  admin: 'bg-gold/15 text-gold',
+  manager: 'bg-navy/10 text-navy',
+  poster: 'bg-teal/10 text-teal',
+};
 
 export default function Layout({ children }) {
   const navigate = useNavigate();
   const location = useLocation();
+  const { user } = useContext(AuthContext);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const handleLogout = async () => {
@@ -12,11 +26,15 @@ export default function Layout({ children }) {
     navigate('/login');
   };
 
-  const navLinks = [
-    { to: '/', label: 'Dashboard' },
-    { to: '/projects', label: 'Projects' },
-    { to: '/settings', label: 'Settings' }
-  ];
+  // Build nav links based on role
+  const navLinks = [];
+  if (user?.role === 'admin' || user?.role === 'manager') {
+    navLinks.push({ to: '/', label: 'Dashboard' });
+  }
+  navLinks.push({ to: '/projects', label: 'Projects' });
+  if (user?.role === 'admin') {
+    navLinks.push({ to: '/settings', label: 'Settings' });
+  }
 
   // Check if we're on any project-specific page (e.g. /projects/abc-123)
   const isProjectSubPage = location.pathname.startsWith('/projects/');
@@ -28,7 +46,7 @@ export default function Layout({ children }) {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between h-14">
             <div className="flex items-center gap-8">
-              <Link to="/" className="flex items-center">
+              <Link to={user?.role === 'poster' ? '/projects' : '/'} className="flex items-center">
                 <img src="/logo.png" alt="Dacia Automation" className="h-11" />
               </Link>
               <div className="segmented-control hidden md:inline-flex">
@@ -48,7 +66,16 @@ export default function Layout({ children }) {
                 })}
               </div>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-3">
+              {/* User info */}
+              {user && (
+                <div className="hidden md:flex items-center gap-2">
+                  <span className="text-[11px] text-textmid">{user.displayName || user.username}</span>
+                  <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${ROLE_COLORS[user.role] || 'bg-navy/10 text-navy'}`}>
+                    {ROLE_LABELS[user.role] || user.role}
+                  </span>
+                </div>
+              )}
               <button
                 onClick={handleLogout}
                 className="text-[13px] text-textlight hover:text-textdark transition-colors duration-200 hidden md:block"
@@ -78,6 +105,15 @@ export default function Layout({ children }) {
         {mobileMenuOpen && (
           <div className="md:hidden border-t border-black/5 bg-white fade-in">
             <div className="px-4 py-3 space-y-1">
+              {/* User info (mobile) */}
+              {user && (
+                <div className="flex items-center gap-2 px-3 py-2 mb-1">
+                  <span className="text-[12px] text-textmid font-medium">{user.displayName || user.username}</span>
+                  <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${ROLE_COLORS[user.role] || 'bg-navy/10 text-navy'}`}>
+                    {ROLE_LABELS[user.role] || user.role}
+                  </span>
+                </div>
+              )}
               {navLinks.map(link => {
                 const isActive = link.to === '/projects'
                   ? isProjectsActive
