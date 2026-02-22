@@ -57,6 +57,7 @@ export const create = mutation({
     notes: v.optional(v.string()),
     planned_date: v.optional(v.string()),
     posted_date: v.optional(v.string()),
+    local_campaign_id: v.optional(v.string()),
     created_at: v.string(),
   },
   handler: async (ctx, args) => {

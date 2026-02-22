@@ -484,13 +484,14 @@ export async function getDeploymentByAdId(adId) {
   return await queryWithRetry(api.ad_deployments.getByAdId, { adId });
 }
 
-export async function createDeployment({ id, ad_id, project_id, status, ad_name }) {
+export async function createDeployment({ id, ad_id, project_id, status, ad_name, local_campaign_id }) {
   return await mutationWithRetry(api.ad_deployments.create, {
     externalId: id,
     ad_id,
     project_id,
     status,
     ...(ad_name ? { ad_name } : {}),
+    ...(local_campaign_id ? { local_campaign_id } : {}),
     created_at: new Date().toISOString(),
   });
 }
