@@ -116,6 +116,8 @@ export const update = mutation({
     pipeline_state: v.optional(v.string()),
     failed_count: v.optional(v.number()),
     run_count: v.optional(v.number()),
+    filter_processed: v.optional(v.boolean()),
+    filter_processed_at: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const batch = await ctx.db
@@ -171,6 +173,29 @@ export const updateStatus = mutation({
     if (args.error_message !== undefined) updates.error_message = args.error_message;
     if (args.retry_count !== undefined) updates.retry_count = args.retry_count;
     await ctx.db.patch(batch._id, updates);
+  },
+});
+
+// Used by Dacia Creative Filter — patch arbitrary fields on a batch
+export const patch = mutation({
+  args: {
+    externalId: v.string(),
+    filter_processed: v.optional(v.boolean()),
+    filter_processed_at: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const batch = await ctx.db
+      .query("batch_jobs")
+      .withIndex("by_externalId", (q) => q.eq("externalId", args.externalId))
+      .first();
+    if (!batch) throw new Error("Batch job not found");
+
+    const { externalId, ...updates } = args;
+    const filtered: Record<string, any> = {};
+    for (const [key, value] of Object.entries(updates)) {
+      if (value !== undefined) filtered[key] = value;
+    }
+    await ctx.db.patch(batch._id, filtered);
   },
 });
 

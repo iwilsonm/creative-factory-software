@@ -28,6 +28,13 @@ export default defineSchema({
     meta_user_name: v.optional(v.string()),
     meta_user_id: v.optional(v.string()),
     meta_last_sync_at: v.optional(v.string()),
+    // Creative Filter (Dacia Recursive Agent #2) — per-project config
+    scout_enabled: v.optional(v.boolean()),
+    scout_default_campaign: v.optional(v.string()),
+    scout_cta: v.optional(v.string()),
+    scout_display_link: v.optional(v.string()),
+    scout_facebook_page: v.optional(v.string()),
+    scout_score_threshold: v.optional(v.number()),
     created_at: v.string(),
     updated_at: v.string(),
   }).index("by_externalId", ["externalId"]),
@@ -80,12 +87,14 @@ export default defineSchema({
     tags: v.optional(v.array(v.string())),
     is_favorite: v.optional(v.boolean()),    // Heart/favorite toggle in gallery
     source_quote_id: v.optional(v.string()), // → quote_bank.externalId (ad created from quote)
+    batch_job_id: v.optional(v.string()),    // → batch_jobs.externalId (batch that generated this ad)
     copy_framework: v.optional(v.string()),  // Legacy: from removed diversity features
     sub_angle: v.optional(v.string()),       // Legacy: from removed diversity features
     created_at: v.string(),
   })
     .index("by_externalId", ["externalId"])
-    .index("by_project", ["project_id"]),
+    .index("by_project", ["project_id"])
+    .index("by_batch_job", ["batch_job_id"]),
 
   batch_jobs: defineTable({
     externalId: v.string(),
@@ -113,6 +122,8 @@ export default defineSchema({
     used_template_ids: v.optional(v.string()),  // JSON array of template IDs used across runs
     batch_stats: v.optional(v.nullable(v.string())),
     pipeline_state: v.optional(v.string()),  // JSON: { stage, brief_packet, headlines, body_copies }
+    filter_processed: v.optional(v.boolean()),    // Creative Filter has evaluated this batch
+    filter_processed_at: v.optional(v.string()),  // When filter processed it
     created_at: v.string(),
     started_at: v.optional(v.string()),
     completed_at: v.optional(v.string()),

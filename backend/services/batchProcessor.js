@@ -559,6 +559,7 @@ async function processBatchResults(batchId, job) {
         status: 'completed',
         auto_generated: true,
         template_image_id: batch.template_image_id || undefined,
+        batch_job_id: batchId,
       });
 
       savedCount++;

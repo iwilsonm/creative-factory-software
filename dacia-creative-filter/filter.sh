@@ -1,0 +1,823 @@
+#!/bin/bash
+# ============================================================
+# DACIA CREATIVE FILTER
+# ============================================================
+# Part of the Dacia Recursive Agents team — Agent #2
+# Role: Score batch output, group into flex ads, deploy to Ready to Post
+#
+# Flow per completed batch:
+#   1. Score each ad individually (Sonnet 4.6) — ~$0.02/ad
+#   2. Filter: keep ads scoring >= threshold
+#   3. Group passing ads into 2 flex ads of 10 images (Sonnet 4.6) — ~$0.04
+#   4. Create ad set in Planner: "[Brand] Filter - YYYY-MM-DD"
+#   5. Create 2 flex ad deployments with shared copy
+#   6. Set status: Ready to Post
+#
+# Usage:
+#   ./filter.sh                    # Process any unprocessed batches
+#   ./filter.sh --daemon           # Run continuously
+#   ./filter.sh --status           # Show today's stats
+#   ./filter.sh --dry-run          # Score but don't deploy
+# ============================================================
+
+set -euo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+source "${SCRIPT_DIR}/config/filter.conf"
+
+# --- Colors ---
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[1;33m'
+BLUE='\033[0;34m'
+MAGENTA='\033[0;35m'
+NC='\033[0m'
+
+# --- Mode ---
+DRY_RUN=false
+
+# --- Logging ---
+mkdir -p "$LOG_DIR"
+TODAY=$(date +%Y-%m-%d)
+LOG_FILE="${LOG_DIR}/filter_${TODAY}.log"
+SPEND_FILE="${LOG_DIR}/spend_${TODAY}.txt"
+
+log() {
+  local level="$1"; shift
+  local msg="[$(date '+%H:%M:%S')] [FILTER] [$level] $*"
+  echo -e "$msg" | tee -a "$LOG_FILE"
+}
+log_info()  { log "INFO"   "$@"; }
+log_warn()  { log "WARN"   "${YELLOW}$*${NC}"; }
+log_ok()    { log "OK"     "${GREEN}$*${NC}"; }
+log_err()   { log "ERROR"  "${RED}$*${NC}"; }
+log_score() { log "SCORE"  "${MAGENTA}$*${NC}"; }
+
+# --- Cost Tracking ---
+init_spend_tracker() {
+  if [[ ! -f "$SPEND_FILE" ]]; then
+    echo "0" > "$SPEND_FILE"
+  fi
+}
+
+get_daily_spend() {
+  cat "$SPEND_FILE" 2>/dev/null || echo "0"
+}
+
+add_spend() {
+  local cost_cents="$1"
+  local current; current=$(get_daily_spend)
+  echo "$current + $cost_cents" | bc > "$SPEND_FILE"
+}
+
+check_budget() {
+  local current; current=$(get_daily_spend)
+  if (( $(echo "$current >= $DAILY_BUDGET_CENTS" | bc -l) )); then
+    log_warn "Daily budget reached (${current}¢ / ${DAILY_BUDGET_CENTS}¢). Skipping."
+    return 1
+  fi
+  return 0
+}
+
+# --- Notifications ---
+send_notification() {
+  local title="$1" message="$2"
+  case "$NOTIFY_METHOD" in
+    slack)
+      if [[ -n "${SLACK_WEBHOOK_URL:-}" ]]; then
+        curl -s -X POST "$SLACK_WEBHOOK_URL" \
+          -H 'Content-type: application/json' \
+          -d "{\"text\": \"*${title}*\n${message}\"}" > /dev/null 2>&1 || true
+      fi
+      ;;
+    webhook)
+      if [[ -n "${WEBHOOK_URL:-}" ]]; then
+        curl -s -X POST "$WEBHOOK_URL" \
+          -H 'Content-type: application/json' \
+          -d "{\"title\": \"${title}\", \"message\": \"${message}\"}" > /dev/null 2>&1 || true
+      fi
+      ;;
+    none) ;;
+  esac
+}
+
+# --- Auth ---
+get_session_cookie() {
+  if [[ -f "${FILTER_DIR}/config/.session_cookie" ]]; then
+    cat "${FILTER_DIR}/config/.session_cookie"
+    return
+  fi
+  local login_response
+  login_response=$(curl -s -c - -X POST "http://localhost:3001/api/auth/login" \
+    -H "Content-Type: application/json" \
+    -d "{
+      \"username\": \"${FILTER_USERNAME:-filter}\",
+      \"password\": \"${FILTER_PASSWORD:-}\"
+    }" 2>/dev/null)
+  echo "$login_response" | grep -oP 'connect\.sid\s+\K\S+' || echo ""
+}
+
+# ============================================================
+# STEP 1: Find unprocessed completed batches
+# ============================================================
+
+get_unprocessed_batches() {
+  log_info "Checking for completed batches to process..."
+
+  # Query Convex for completed batches
+  local batches
+  batches=$(curl -s "${CONVEX_URL}/api/query" \
+    -H "Content-Type: application/json" \
+    -d "{
+      \"path\": \"batch_jobs:list\",
+      \"args\": {}
+    }" 2>/dev/null) || {
+    log_warn "Could not query Convex for batches"
+    echo "[]"
+    return
+  }
+
+  # Filter: completed + not yet processed by filter
+  # We mark processed batches with filter_processed=true
+  echo "$batches" | jq '[.value[]? | select(.status == "completed" and (.filter_processed == null or .filter_processed == false))]' 2>/dev/null || echo "[]"
+}
+
+# ============================================================
+# STEP 2: Get ads from a batch
+# ============================================================
+
+get_batch_ads() {
+  local batch_id="$1"
+
+  local ads
+  ads=$(curl -s "${CONVEX_URL}/api/query" \
+    -H "Content-Type: application/json" \
+    -d "{
+      \"path\": \"ad_creatives:getByBatch\",
+      \"args\": {\"batchId\": \"${batch_id}\"}
+    }" 2>/dev/null) || {
+    log_warn "Could not fetch ads for batch $batch_id"
+    echo "[]"
+    return
+  }
+
+  echo "$ads" | jq '.value // []' 2>/dev/null || echo "[]"
+}
+
+# ============================================================
+# STEP 3: Get project config (defaults for deployment)
+# ============================================================
+
+get_project_config() {
+  local project_id="$1"
+
+  local project
+  project=$(curl -s "${CONVEX_URL}/api/query" \
+    -H "Content-Type: application/json" \
+    -d "{
+      \"path\": \"projects:get\",
+      \"args\": {\"externalId\": \"${project_id}\"}
+    }" 2>/dev/null) || {
+    log_warn "Could not fetch project $project_id"
+    echo "{}"
+    return
+  }
+
+  echo "$project" | jq '.value // {}' 2>/dev/null || echo "{}"
+}
+
+# ============================================================
+# STEP 4: Get top performers for comparison context
+# ============================================================
+
+get_top_performers() {
+  local project_id="$1"
+
+  # Pull ads with best Meta performance data (lowest CPC, highest ROAS)
+  local performers
+  performers=$(curl -s "http://localhost:3001/api/projects/${project_id}/meta/top-performers" \
+    -H "Cookie: $(get_session_cookie)" \
+    2>/dev/null) || {
+    # Fallback: return empty if endpoint doesn't exist yet
+    echo "No historical performance data available yet."
+    return
+  }
+
+  # Format top performers as context string
+  echo "$performers" | jq -r '.[] | "Headline: \(.headline) | Primary: \(.primary_text) | CPC: $\(.cpc) | ROAS: \(.roas)"' 2>/dev/null || \
+    echo "No historical performance data available yet."
+}
+
+# ============================================================
+# STEP 5: Score all ads in a batch
+# ============================================================
+
+score_batch_ads() {
+  local ads_json="$1"
+  local top_performers="$2"
+  local ad_count
+  ad_count=$(echo "$ads_json" | jq 'length')
+
+  log_info "Scoring $ad_count ads..."
+
+  local scored_ads="[]"
+  local pass_count=0
+  local fail_count=0
+
+  for i in $(seq 0 $((ad_count - 1))); do
+    check_budget || {
+      log_warn "Budget hit during scoring at ad $((i+1))/$ad_count"
+      break
+    }
+
+    local ad
+    ad=$(echo "$ads_json" | jq ".[$i]")
+    local ad_id
+    ad_id=$(echo "$ad" | jq -r '.externalId // ._id // "unknown"')
+
+    log_score "Scoring ad $((i+1))/$ad_count: $ad_id"
+
+    local score_result
+    score_result=$(bash "${SCRIPT_DIR}/agents/score.sh" "$ad" "$top_performers")
+    add_spend 2  # ~$0.02 per ad
+
+    local passed
+    passed=$(echo "$score_result" | jq -r '.pass // false')
+    local overall
+    overall=$(echo "$score_result" | jq -r '.overall_score // 0')
+
+    if [[ "$passed" == "true" ]]; then
+      pass_count=$((pass_count + 1))
+      log_score "  ✓ PASS (${overall}/10) — $ad_id"
+    else
+      fail_count=$((fail_count + 1))
+      log_score "  ✗ FAIL (${overall}/10) — $ad_id"
+    fi
+
+    # Merge score into ad object
+    local merged
+    merged=$(echo "$ad" | jq --argjson score "$score_result" '. + $score')
+    scored_ads=$(echo "$scored_ads" | jq --argjson ad "$merged" '. + [$ad]')
+  done
+
+  log_info "Scoring complete: $pass_count passed, $fail_count failed"
+  echo "$scored_ads"
+}
+
+# ============================================================
+# STEP 6: Group passing ads into flex ads
+# ============================================================
+
+group_into_flex_ads() {
+  local scored_ads="$1"
+  local project_name="$2"
+
+  # Filter to passing ads only
+  local passing
+  passing=$(echo "$scored_ads" | jq '[.[] | select(.pass == true)]')
+  local pass_count
+  pass_count=$(echo "$passing" | jq 'length')
+
+  if [[ "$pass_count" -lt "$TOTAL_WINNERS" ]]; then
+    log_warn "Only $pass_count passing ads, need $TOTAL_WINNERS for ${FLEX_AD_COUNT} flex ads"
+    if [[ "$pass_count" -lt "$IMAGES_PER_FLEX" ]]; then
+      log_err "Not enough passing ads for even 1 flex ad. Skipping grouping."
+      echo "{\"flex_ads\": [], \"error\": \"insufficient_ads\"}"
+      return
+    fi
+    log_info "Will create as many flex ads as possible with $pass_count ads"
+  fi
+
+  log_info "Grouping $pass_count passing ads into flex ads..."
+
+  local group_result
+  group_result=$(bash "${SCRIPT_DIR}/agents/group.sh" "$passing" "$project_name")
+  add_spend 4  # ~$0.04 per grouping call
+
+  echo "$group_result"
+}
+
+# ============================================================
+# STEP 7: Deploy flex ads to Ready to Post
+# ============================================================
+
+deploy_flex_ads() {
+  local flex_ads_json="$1"
+  local project_id="$2"
+  local project_config="$3"
+  local batch_id="$4"
+
+  local flex_count
+  flex_count=$(echo "$flex_ads_json" | jq '.flex_ads | length')
+
+  if [[ "$flex_count" -eq 0 ]]; then
+    log_warn "No flex ads to deploy"
+    return 1
+  fi
+
+  # Read project defaults
+  local default_campaign
+  default_campaign=$(echo "$project_config" | jq -r '.scout_default_campaign // ""')
+  local cta
+  cta=$(echo "$project_config" | jq -r '.scout_cta // "Shop Now"')
+  local display_link
+  display_link=$(echo "$project_config" | jq -r '.scout_display_link // ""')
+  local facebook_page
+  facebook_page=$(echo "$project_config" | jq -r '.scout_facebook_page // ""')
+  local project_name
+  project_name=$(echo "$project_config" | jq -r '.name // "Unknown"')
+
+  if [[ -z "$default_campaign" ]]; then
+    log_err "No scout_default_campaign set for project. Cannot deploy."
+    return 1
+  fi
+
+  # Create ad set for today's batch
+  local ad_set_name="${project_name} Filter - ${TODAY}"
+  log_info "Creating ad set: $ad_set_name"
+
+  local ad_set_response
+  ad_set_response=$(curl -s -X POST "http://localhost:3001/api/deployments/adsets" \
+    -H "Content-Type: application/json" \
+    -H "Cookie: $(get_session_cookie)" \
+    -d "{
+      \"campaign_id\": \"${default_campaign}\",
+      \"name\": \"${ad_set_name}\",
+      \"project_id\": \"${project_id}\"
+    }" 2>/dev/null) || {
+    log_err "Failed to create ad set"
+    return 1
+  }
+
+  local ad_set_id
+  ad_set_id=$(echo "$ad_set_response" | jq -r '.externalId // .id // ""')
+
+  # Deploy each flex ad
+  for i in $(seq 0 $((flex_count - 1))); do
+    local flex_ad
+    flex_ad=$(echo "$flex_ads_json" | jq ".flex_ads[$i]")
+
+    local angle
+    angle=$(echo "$flex_ad" | jq -r '.angle_theme')
+    local headlines
+    headlines=$(echo "$flex_ad" | jq '[.headlines[].text]')
+    local primary_texts
+    primary_texts=$(echo "$flex_ad" | jq '[.primary_texts[].text]')
+    local image_ids
+    image_ids=$(echo "$flex_ad" | jq '.image_ad_ids')
+    local headline_count
+    headline_count=$(echo "$flex_ad" | jq '.headline_count')
+    local primary_text_count
+    primary_text_count=$(echo "$flex_ad" | jq '.primary_text_count')
+    local meets_minimum
+    meets_minimum=$(echo "$flex_ad" | jq -r '.meets_minimum // false')
+
+    # Skip flex ads that don't meet minimum requirements
+    if [[ "$meets_minimum" != "true" ]]; then
+      log_warn "Flex ad $((i+1)) ($angle) doesn't meet minimum 3 headlines + 3 primary texts. Skipping."
+      continue
+    fi
+
+    log_info "Deploying flex ad $((i+1)): $angle ($headline_count headlines, $primary_text_count primary texts, ${IMAGES_PER_FLEX} images)"
+
+    if [[ "$DRY_RUN" == "true" ]]; then
+      log_info "[DRY RUN] Would deploy flex ad: $angle"
+      log_info "  Headlines ($headline_count): $(echo "$headlines" | jq -r '.[0]') ..."
+      log_info "  Primary texts ($primary_text_count): $(echo "$primary_texts" | jq -r '.[0][:60]') ..."
+      log_info "  Images: $image_ids"
+      continue
+    fi
+
+    # Create flex ad deployment with multiple headlines and primary texts
+    local deploy_response
+    deploy_response=$(curl -s -X POST "http://localhost:3001/api/deployments/flex" \
+      -H "Content-Type: application/json" \
+      -H "Cookie: $(get_session_cookie)" \
+      -d "$(jq -n \
+        --arg ad_set_id "$ad_set_id" \
+        --argjson headlines "$headlines" \
+        --argjson primary_texts "$primary_texts" \
+        --arg cta "$cta" \
+        --arg display_link "$display_link" \
+        --arg facebook_page "$facebook_page" \
+        --argjson image_ad_ids "$image_ids" \
+        --arg project_id "$project_id" \
+        --arg name "Filter - ${angle}" \
+        '{
+          "ad_set_id": $ad_set_id,
+          "name": $name,
+          "headlines": $headlines,
+          "primary_texts": $primary_texts,
+          "cta": $cta,
+          "display_link": $display_link,
+          "facebook_page": $facebook_page,
+          "ad_ids": $image_ad_ids,
+          "project_id": $project_id,
+          "status": "ready"
+        }')" 2>/dev/null) || {
+      log_err "Failed to deploy flex ad: $angle"
+      continue
+    }
+
+    log_ok "Deployed flex ad $((i+1)): $angle → Ready to Post ($headline_count headlines × $primary_text_count texts × ${IMAGES_PER_FLEX} images)"
+  done
+
+  log_ok "All flex ads deployed under: $ad_set_name"
+}
+
+# ============================================================
+# STEP 8: Mark batch as processed + tag ads
+# ============================================================
+
+mark_processed() {
+  local batch_id="$1"
+  local scored_ads="$2"
+
+  # Mark batch as processed by filter
+  curl -s "${CONVEX_URL}/api/mutation" \
+    -H "Content-Type: application/json" \
+    -d "{
+      \"path\": \"batch_jobs:patch\",
+      \"args\": {
+        \"externalId\": \"${batch_id}\",
+        \"filter_processed\": true,
+        \"filter_processed_at\": \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"
+      }
+    }" > /dev/null 2>&1
+
+  if [[ "$TAG_REJECTED" == "true" || "$TAG_WINNERS" == "true" ]]; then
+    # Tag individual ads
+    local ad_count
+    ad_count=$(echo "$scored_ads" | jq 'length')
+
+    for i in $(seq 0 $((ad_count - 1))); do
+      local ad_id pass
+      ad_id=$(echo "$scored_ads" | jq -r ".[$i].externalId // .[$i]._id // \"\"")
+      pass=$(echo "$scored_ads" | jq -r ".[$i].pass // false")
+      [[ -z "$ad_id" ]] && continue
+
+      local tag
+      if [[ "$pass" == "true" && "$TAG_WINNERS" == "true" ]]; then
+        tag="Filter Approved"
+      elif [[ "$pass" != "true" && "$TAG_REJECTED" == "true" ]]; then
+        tag="Filter Rejected"
+      else
+        continue
+      fi
+
+      curl -s -X POST "http://localhost:3001/api/ads/${ad_id}/tag" \
+        -H "Content-Type: application/json" \
+        -H "Cookie: $(get_session_cookie)" \
+        -d "{\"tag\": \"${tag}\"}" > /dev/null 2>&1
+    done
+  fi
+
+  log_info "Batch $batch_id marked as processed"
+}
+
+# ============================================================
+# MAIN: Process a single batch
+# ============================================================
+
+process_batch() {
+  local batch="$1"
+  local batch_id
+  batch_id=$(echo "$batch" | jq -r '.externalId // ._id')
+  local project_id
+  project_id=$(echo "$batch" | jq -r '.project_id')
+
+  log_info "━━━ Processing batch: $batch_id ━━━"
+
+  # Get project config
+  local project_config
+  project_config=$(get_project_config "$project_id")
+  local project_name
+  project_name=$(echo "$project_config" | jq -r '.name // "Unknown"')
+
+  # Check if Scout is enabled for this project
+  local scout_enabled
+  scout_enabled=$(echo "$project_config" | jq -r '.scout_enabled // "true"')
+  if [[ "$scout_enabled" == "false" ]]; then
+    log_info "Creative Filter disabled for project: $project_name. Skipping."
+    mark_processed "$batch_id" "[]"
+    return 0
+  fi
+
+  log_info "Project: $project_name"
+
+  # Get ads from batch
+  local ads
+  ads=$(get_batch_ads "$batch_id")
+  local ad_count
+  ad_count=$(echo "$ads" | jq 'length')
+
+  if [[ "$ad_count" -eq 0 ]]; then
+    log_warn "No ads in batch $batch_id"
+    mark_processed "$batch_id" "[]"
+    return 0
+  fi
+
+  log_info "Found $ad_count ads to evaluate"
+
+  # Get top performers for comparison
+  local top_performers
+  top_performers=$(get_top_performers "$project_id")
+
+  # Score all ads
+  local scored_ads
+  scored_ads=$(score_batch_ads "$ads" "$top_performers")
+
+  # Group into flex ads
+  local flex_result
+  flex_result=$(group_into_flex_ads "$scored_ads" "$project_name")
+
+  local flex_count
+  flex_count=$(echo "$flex_result" | jq '.flex_ads | length' 2>/dev/null || echo 0)
+
+  # === REGENERATION LOOP ===
+  # For each flex ad, check if it has enough headlines and primary texts.
+  # If not, regenerate + validate until minimums are met or max rounds hit.
+
+  if [[ "$flex_count" -gt 0 ]]; then
+    flex_result=$(regeneration_loop "$flex_result" "$top_performers" "$project_name")
+    flex_count=$(echo "$flex_result" | jq '.flex_ads | length' 2>/dev/null || echo 0)
+  fi
+
+  if [[ "$flex_count" -gt 0 && "$AUTO_DEPLOY" == "true" ]]; then
+    deploy_flex_ads "$flex_result" "$project_id" "$project_config" "$batch_id"
+
+    local total_deployed=$((flex_count * IMAGES_PER_FLEX))
+    send_notification "🎯 Dacia Creative Filter: Flex Ads Deployed" \
+      "Project: $project_name\n${flex_count} flex ads → Ready to Post\nReview and launch when ready."
+  fi
+
+  mark_processed "$batch_id" "$scored_ads"
+  log_ok "Batch $batch_id processing complete"
+}
+
+# ============================================================
+# REGENERATION LOOP
+# ============================================================
+# Ensures every flex ad has at least HEADLINES_MIN headlines
+# and PRIMARY_TEXTS_MIN primary texts. Regenerates and validates
+# copy until minimums are met or MAX_REGEN_ROUNDS is hit.
+# ============================================================
+
+MAX_REGEN_ROUNDS=3
+
+regeneration_loop() {
+  local flex_result="$1"
+  local top_performers="$2"
+  local project_name="$3"
+
+  local flex_count
+  flex_count=$(echo "$flex_result" | jq '.flex_ads | length')
+
+  for i in $(seq 0 $((flex_count - 1))); do
+    local flex_ad
+    flex_ad=$(echo "$flex_result" | jq ".flex_ads[$i]")
+    local angle
+    angle=$(echo "$flex_ad" | jq -r '.angle_theme')
+
+    log_info "Checking copy completeness for flex ad $((i+1)): $angle"
+
+    # --- HEADLINE REGENERATION ---
+    local headline_count
+    headline_count=$(echo "$flex_ad" | jq '.headlines | length')
+
+    local regen_round=0
+    while [[ "$headline_count" -lt "$HEADLINES_MIN" && "$regen_round" -lt "$MAX_REGEN_ROUNDS" ]]; do
+      check_budget || break
+      regen_round=$((regen_round + 1))
+      local needed=$((HEADLINES_TARGET - headline_count))
+      [[ "$needed" -lt 1 ]] && needed=1
+
+      log_info "  Headlines: $headline_count/${HEADLINES_MIN} min (${HEADLINES_TARGET} target). Regenerating $needed... (round $regen_round/$MAX_REGEN_ROUNDS)"
+
+      local existing_headlines
+      existing_headlines=$(echo "$flex_ad" | jq '[.headlines[].text]')
+
+      # Generate new headlines
+      local new_headlines
+      new_headlines=$(bash "${SCRIPT_DIR}/agents/regenerate.sh" \
+        "headlines" "$needed" "$angle" "$existing_headlines" "$top_performers" "$project_name")
+      add_spend 4  # ~$0.04
+
+      # Validate them
+      local candidates
+      candidates=$(echo "$new_headlines" | jq '[.headlines[].text]' 2>/dev/null || echo "[]")
+      local candidate_count
+      candidate_count=$(echo "$candidates" | jq 'length')
+
+      if [[ "$candidate_count" -gt 0 ]]; then
+        local validation
+        validation=$(bash "${SCRIPT_DIR}/agents/validate.sh" "headlines" "$candidates" "$angle")
+        add_spend 1  # ~$0.01
+
+        # Add passing headlines to the flex ad
+        local passing
+        passing=$(echo "$validation" | jq '[.results[] | select(.pass == true)]' 2>/dev/null || echo "[]")
+        local pass_count
+        pass_count=$(echo "$passing" | jq 'length')
+
+        if [[ "$pass_count" -gt 0 ]]; then
+          # Merge new headlines into flex ad
+          for j in $(seq 0 $((pass_count - 1))); do
+            local new_hl_text
+            new_hl_text=$(echo "$passing" | jq -r ".[$j].text")
+            local new_hl_obj
+            new_hl_obj=$(jq -n --arg text "$new_hl_text" '{text: $text, source_ad_id: "regenerated", spelling_clean: true}')
+            flex_ad=$(echo "$flex_ad" | jq --argjson hl "$new_hl_obj" '.headlines += [$hl]')
+          done
+          log_info "  +$pass_count headlines passed validation"
+        else
+          log_warn "  Regenerated headlines all failed validation"
+        fi
+      fi
+
+      headline_count=$(echo "$flex_ad" | jq '.headlines | length')
+    done
+
+    # --- PRIMARY TEXT REGENERATION ---
+    local pt_count
+    pt_count=$(echo "$flex_ad" | jq '.primary_texts | length')
+
+    regen_round=0
+    while [[ "$pt_count" -lt "$PRIMARY_TEXTS_MIN" && "$regen_round" -lt "$MAX_REGEN_ROUNDS" ]]; do
+      check_budget || break
+      regen_round=$((regen_round + 1))
+      local needed=$((PRIMARY_TEXTS_TARGET - pt_count))
+      [[ "$needed" -lt 1 ]] && needed=1
+
+      log_info "  Primary texts: $pt_count/${PRIMARY_TEXTS_MIN} min (${PRIMARY_TEXTS_TARGET} target). Regenerating $needed... (round $regen_round/$MAX_REGEN_ROUNDS)"
+
+      local existing_pts
+      existing_pts=$(echo "$flex_ad" | jq '[.primary_texts[].text]')
+
+      # Generate new primary texts
+      local new_pts
+      new_pts=$(bash "${SCRIPT_DIR}/agents/regenerate.sh" \
+        "primary_texts" "$needed" "$angle" "$existing_pts" "$top_performers" "$project_name")
+      add_spend 4  # ~$0.04
+
+      # Validate them
+      local candidates
+      candidates=$(echo "$new_pts" | jq '[.primary_texts[].text]' 2>/dev/null || echo "[]")
+      local candidate_count
+      candidate_count=$(echo "$candidates" | jq 'length')
+
+      if [[ "$candidate_count" -gt 0 ]]; then
+        local validation
+        validation=$(bash "${SCRIPT_DIR}/agents/validate.sh" "primary_texts" "$candidates" "$angle")
+        add_spend 1  # ~$0.01
+
+        local passing
+        passing=$(echo "$validation" | jq '[.results[] | select(.pass == true)]' 2>/dev/null || echo "[]")
+        local pass_count
+        pass_count=$(echo "$passing" | jq 'length')
+
+        if [[ "$pass_count" -gt 0 ]]; then
+          for j in $(seq 0 $((pass_count - 1))); do
+            local new_pt_text
+            new_pt_text=$(echo "$passing" | jq -r ".[$j].text")
+            local new_pt_obj
+            new_pt_obj=$(jq -n --arg text "$new_pt_text" '{text: $text, source_ad_id: "regenerated", first_line_hook_strong: true, has_cta_at_end: true, spelling_clean: true}')
+            flex_ad=$(echo "$flex_ad" | jq --argjson pt "$new_pt_obj" '.primary_texts += [$pt]')
+          done
+          log_info "  +$pass_count primary texts passed validation"
+        else
+          log_warn "  Regenerated primary texts all failed validation"
+        fi
+      fi
+
+      pt_count=$(echo "$flex_ad" | jq '.primary_texts | length')
+    done
+
+    # --- UPDATE COUNTS AND CHECK MINIMUMS ---
+    headline_count=$(echo "$flex_ad" | jq '.headlines | length')
+    pt_count=$(echo "$flex_ad" | jq '.primary_texts | length')
+
+    # Cap at target (trim extras, keep highest quality)
+    if [[ "$headline_count" -gt "$HEADLINES_TARGET" ]]; then
+      flex_ad=$(echo "$flex_ad" | jq ".headlines = .headlines[:${HEADLINES_TARGET}]")
+      headline_count=$HEADLINES_TARGET
+    fi
+    if [[ "$pt_count" -gt "$PRIMARY_TEXTS_TARGET" ]]; then
+      flex_ad=$(echo "$flex_ad" | jq ".primary_texts = .primary_texts[:${PRIMARY_TEXTS_TARGET}]")
+      pt_count=$PRIMARY_TEXTS_TARGET
+    fi
+
+    # Update counts
+    flex_ad=$(echo "$flex_ad" | jq \
+      --argjson hc "$headline_count" \
+      --argjson ptc "$pt_count" \
+      '.headline_count = $hc | .primary_text_count = $ptc | .meets_minimum = ($hc >= 3 and $ptc >= 3)')
+
+    local meets
+    meets=$(echo "$flex_ad" | jq -r '.meets_minimum')
+
+    if [[ "$meets" == "true" ]]; then
+      log_ok "  Flex ad $((i+1)) complete: $headline_count headlines, $pt_count primary texts ✓"
+    else
+      log_err "  Flex ad $((i+1)) still short after $MAX_REGEN_ROUNDS rounds: $headline_count headlines, $pt_count primary texts"
+    fi
+
+    # Write updated flex ad back
+    flex_result=$(echo "$flex_result" | jq --argjson fa "$flex_ad" ".flex_ads[$i] = \$fa")
+  done
+
+  # Remove any flex ads that still don't meet minimums
+  local before_count
+  before_count=$(echo "$flex_result" | jq '.flex_ads | length')
+  flex_result=$(echo "$flex_result" | jq '.flex_ads = [.flex_ads[] | select(.meets_minimum == true)]')
+  local after_count
+  after_count=$(echo "$flex_result" | jq '.flex_ads | length')
+
+  if [[ "$after_count" -lt "$before_count" ]]; then
+    log_warn "Removed $((before_count - after_count)) flex ad(s) that couldn't meet copy minimums after regeneration"
+  fi
+
+  echo "$flex_result"
+}
+
+# ============================================================
+# STATUS
+# ============================================================
+
+show_status() {
+  echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo -e "${BLUE}  DACIA CREATIVE FILTER — Recursive Agent #2  ${NC}"
+  echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+  echo "Date:    $TODAY"
+  echo "Budget:  ${DAILY_BUDGET_CENTS}¢/day (\$$(echo "scale=2; $DAILY_BUDGET_CENTS / 100" | bc)/day)"
+  echo "Spent:   $(get_daily_spend)¢"
+  echo "Log:     $LOG_FILE"
+  echo ""
+  if [[ -f "$LOG_FILE" ]]; then
+    local batches_processed; batches_processed=$(grep -c "processing complete" "$LOG_FILE" 2>/dev/null || echo 0)
+    local ads_scored; ads_scored=$(grep -c "PASS\|FAIL" "$LOG_FILE" 2>/dev/null || echo 0)
+    local ads_passed; ads_passed=$(grep -c "✓ PASS" "$LOG_FILE" 2>/dev/null || echo 0)
+    local ads_failed; ads_failed=$(grep -c "✗ FAIL" "$LOG_FILE" 2>/dev/null || echo 0)
+    local flex_deployed; flex_deployed=$(grep -c "Deployed flex ad" "$LOG_FILE" 2>/dev/null || echo 0)
+
+    echo "Batches processed: $batches_processed"
+    echo "Ads scored:        $ads_scored"
+    echo -e "  Passed:          ${GREEN}$ads_passed${NC}"
+    echo -e "  Failed:          ${RED}$ads_failed${NC}"
+    echo -e "Flex ads deployed: ${MAGENTA}$flex_deployed${NC}"
+  fi
+  echo -e "${BLUE}━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━${NC}"
+}
+
+# ============================================================
+# ENTRY POINT
+# ============================================================
+
+main() {
+  init_spend_tracker
+
+  case "${1:-}" in
+    --status)  show_status; exit 0 ;;
+    --dry-run) DRY_RUN=true; log_info "DRY RUN MODE" ;;
+    --daemon)
+      log_info "Dacia Creative Filter starting (interval: ${CHECK_INTERVAL}s)"
+      while true; do
+        local batches
+        batches=$(get_unprocessed_batches)
+        local count
+        count=$(echo "$batches" | jq 'length' 2>/dev/null || echo 0)
+
+        if [[ "$count" -gt 0 ]]; then
+          log_info "Found $count unprocessed batch(es)"
+          for i in $(seq 0 $((count - 1))); do
+            local batch
+            batch=$(echo "$batches" | jq ".[$i]")
+            process_batch "$batch" || true
+          done
+        else
+          log_info "No unprocessed batches"
+        fi
+
+        sleep "$CHECK_INTERVAL"
+      done
+      ;;
+    *)
+      local batches
+      batches=$(get_unprocessed_batches)
+      local count
+      count=$(echo "$batches" | jq 'length' 2>/dev/null || echo 0)
+
+      if [[ "$count" -gt 0 ]]; then
+        for i in $(seq 0 $((count - 1))); do
+          local batch
+          batch=$(echo "$batches" | jq ".[$i]")
+          process_batch "$batch" || true
+        done
+      else
+        log_info "No unprocessed batches to filter"
+      fi
+      ;;
+  esac
+}
+
+main "$@"

@@ -43,10 +43,15 @@ logs/
 # Dacia Fixer
 dacia-fixer/logs/
 dacia-fixer/config/.session_cookie
+
+# Dacia Creative Filter
+dacia-creative-filter/logs/
+dacia-creative-filter/config/.session_cookie
 *.zip
 
 # Instruction files (one-time setup docs)
 FIXER_INSTRUCTIONS.md
+CREATIVE_FILTER_INSTRUCTIONS.md
 WATCHDOG_INSTRUCTIONS.md
 
 # Claude

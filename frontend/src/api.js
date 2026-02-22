@@ -305,10 +305,14 @@ export const api = {
   getTodos: () => request('/settings/todos'),
   saveTodos: (todos) => request('/settings/todos', { method: 'PUT', body: JSON.stringify({ todos }) }),
 
-  // Agent Monitor (Dacia Fixer)
+  // Agent Monitor (Dacia Fixer — Agent #1)
   getAgentMonitorStatus: () => request('/agent-monitor/status'),
   runAgentFixer: () => request('/agent-monitor/run', { method: 'POST' }),
   runAgentResurrect: () => request('/agent-monitor/resurrect', { method: 'POST' }),
+  // Agent Monitor (Creative Filter — Agent #2)
+  getFilterStatus: () => request('/agent-monitor/filter/status'),
+  runFilterDryRun: () => request('/agent-monitor/filter/run', { method: 'POST' }),
+  runFilterLive: () => request('/agent-monitor/filter/run-live', { method: 'POST' }),
 
   // Performance Tracker / Deployments
   getDeployments: () => request('/deployments'),

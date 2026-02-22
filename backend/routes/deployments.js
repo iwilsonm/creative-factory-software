@@ -721,6 +721,147 @@ router.post('/deployments/flex-ads/:id/restore', requireRole('admin', 'manager')
 });
 
 // =============================================
+// Creative Filter convenience endpoints
+// =============================================
+
+/**
+ * POST /deployments/adsets — Create ad set (convenience for Creative Filter)
+ * Body: { campaign_id, name, project_id }
+ * Returns: { success: true, id, externalId }
+ */
+router.post('/deployments/adsets', requireRole('admin', 'manager'), async (req, res) => {
+  try {
+    const { campaign_id, name, project_id } = req.body;
+    if (!campaign_id || !name || !project_id) {
+      return res.status(400).json({ error: 'campaign_id, name, and project_id required' });
+    }
+    const existing = await getAdSetsByCampaign(campaign_id);
+    const id = crypto.randomUUID();
+    await createAdSet({ id, campaign_id, project_id, name, sort_order: existing.length });
+    res.json({ success: true, id, externalId: id });
+  } catch (err) {
+    console.error('Failed to create ad set (filter):', err);
+    res.status(500).json({ error: 'Failed to create ad set' });
+  }
+});
+
+/**
+ * POST /deployments/flex — Create flex ad with deployments (convenience for Creative Filter)
+ * Body: { ad_set_id, name, headlines: [], primary_texts: [], cta, display_link, facebook_page, ad_ids: [], project_id, status }
+ * Creates: flex ad + individual deployments for each ad_id, all linked to the flex ad
+ * Status "ready" maps to "ready_to_post" in the deployment system
+ */
+router.post('/deployments/flex', requireRole('admin', 'manager'), async (req, res) => {
+  try {
+    const { ad_set_id, name, headlines, primary_texts, cta, display_link, facebook_page, ad_ids, project_id, status } = req.body;
+
+    if (!ad_set_id || !project_id || !ad_ids?.length) {
+      return res.status(400).json({ error: 'ad_set_id, project_id, and ad_ids required' });
+    }
+
+    // Create individual deployments for each ad
+    const deploymentIds = [];
+    const depStatus = status === 'ready' ? 'ready_to_post' : (status || 'selected');
+    const ptJson = JSON.stringify(primary_texts || []);
+    const hlJson = JSON.stringify(headlines || []);
+
+    for (const adId of ad_ids) {
+      const depId = crypto.randomUUID();
+      let ad;
+      try { ad = await getAd(adId); } catch {}
+
+      const shortCode = adId.slice(0, 4).toUpperCase();
+      const adName = ad?.headline
+        ? `${ad.headline} — ${shortCode}`
+        : ad?.angle
+          ? `${ad.angle} — ${shortCode}`
+          : `Ad ${shortCode}`;
+
+      await createDeploymentDuplicate({
+        id: depId,
+        ad_id: adId,
+        project_id,
+        status: depStatus,
+        ad_name: adName,
+        local_campaign_id: 'unplanned',
+        local_adset_id: ad_set_id,
+        primary_texts: ptJson,
+        ad_headlines: hlJson,
+        destination_url: '',
+        cta_button: cta || '',
+      });
+
+      // Set display_link and facebook_page via update (not in createDeploymentDuplicate)
+      if (display_link || facebook_page) {
+        await updateDeployment(depId, {
+          ...(display_link ? { display_link } : {}),
+          ...(facebook_page ? { facebook_page } : {}),
+        });
+      }
+
+      deploymentIds.push(depId);
+    }
+
+    // Create the flex ad grouping them
+    const flexId = crypto.randomUUID();
+    await createFlexAd({
+      id: flexId,
+      project_id,
+      ad_set_id,
+      name: name || `Filter Flex Ad (${ad_ids.length} images)`,
+      child_deployment_ids: deploymentIds,
+      primary_texts: primary_texts || [],
+      headlines: headlines || [],
+      display_link: display_link || '',
+      cta_button: cta || '',
+      facebook_page: facebook_page || '',
+    });
+
+    // Link each deployment to the flex ad
+    for (const depId of deploymentIds) {
+      await updateDeployment(depId, { flex_ad_id: flexId });
+    }
+
+    res.json({ success: true, flexAdId: flexId, deploymentIds });
+  } catch (err) {
+    console.error('Failed to create flex ad (filter):', err);
+    res.status(500).json({ error: 'Failed to create flex ad' });
+  }
+});
+
+/**
+ * POST /ads/:adId/tag — Add/set a tag on an ad creative (convenience for Creative Filter)
+ * Body: { tag }
+ * Appends the tag to existing tags (deduplicates)
+ */
+router.post('/ads/:adId/tag', requireRole('admin', 'manager'), async (req, res) => {
+  try {
+    const { adId } = req.params;
+    const { tag } = req.body;
+    if (!tag) return res.status(400).json({ error: 'tag required' });
+
+    // Get current ad to read existing tags
+    let ad;
+    try { ad = await getAd(adId); } catch {}
+    if (!ad) return res.status(404).json({ error: 'Ad not found' });
+
+    const existing = ad.tags || [];
+    const tagStr = String(tag).trim();
+    const updated = existing.includes(tagStr) ? existing : [...existing, tagStr];
+
+    await convexClient.mutation(api.adCreatives.update, {
+      externalId: adId,
+      tags: updated,
+    });
+
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Failed to tag ad:', err);
+    res.status(500).json({ error: 'Failed to tag ad' });
+  }
+});
+
+// =============================================
 // AI Generation: Primary Text & Headlines
 // =============================================
 

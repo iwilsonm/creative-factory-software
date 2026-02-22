@@ -889,6 +889,7 @@ ssh root@76.13.183.219 "cd /opt/ad-platform && npx convex deploy -y"
 - Landing page publishing to Cloudflare Pages (Direct Upload API)
 - Navy-gold-teal design system (migrated from Apple/macOS blue palette)
 - Dacia Fixer (Recursive Agent #1): automated batch testing, self-healing, and batch resurrection
+- Dacia Creative Filter (Recursive Agent #2): batch ad scoring, flex ad grouping, auto-deployment to Ready to Post
 
 ---
 
@@ -911,3 +912,27 @@ When working on Dacia Fixer:
 - Test changes: `./dacia-fixer/fixer.sh batch_creation`
 - New suites go in fixer.conf (suite name, test_cmd, context files)
 - Do not remove the daily budget cap
+
+### Agent #2: Dacia Creative Filter
+- **Location:** `/dacia-creative-filter`
+- **Role:** Score batch ads (Sonnet 4.6), group into flex ads, deploy to Ready to Post
+- **Schedule:** Every 30 minutes via cron (processes completed batches)
+- **Budget:** $31/month (~$1.04/batch of 50 ads)
+- **Config:** `dacia-creative-filter/config/filter.conf`
+- **Commands:** `./dacia-creative-filter/filter.sh [--daemon|--status|--dry-run]`
+- **Model:** Claude Sonnet 4.6 (scoring + grouping + regeneration + validation)
+- **Logs:** `dacia-creative-filter/logs/`
+- **Per-project config required:** scout_default_campaign, scout_cta, scout_display_link, scout_facebook_page
+- **Output:** 2 flex ads x 10 images x 3-5 headlines x 3-5 primary texts each, deployed to Ready to Post
+- **Minimum to execute:** 3 headlines + 3 primary texts per flex ad (target: 5 each)
+- **Regeneration:** If batch copy isn't good enough, Sonnet generates new headlines/texts until minimums met (max 3 rounds)
+- **Guarantee:** Flex ads always complete — never skipped
+
+When working on Creative Filter:
+- Do not remove the daily budget cap
+- Do not auto-post to Meta — only deploy to Ready to Post status
+- Tag rejected ads as "Filter Rejected" and winners as "Filter Approved"
+- Each batch creates a NEW ad set: "[Brand] Filter - YYYY-MM-DD"
+- Flex ads must have exactly 10 images each with shared headlines + primary texts
+- Mock external calls in any tests to avoid LLM costs
+- Per-project settings are in the Overview tab under "Creative Filter"

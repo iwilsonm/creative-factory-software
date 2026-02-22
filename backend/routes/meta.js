@@ -320,6 +320,63 @@ router.get('/projects/:projectId/meta/performance/summary', async (req, res) => 
   }
 });
 
+// ══════════════════════════════════════════════════════════════════════════════
+// Top Performers — used by Creative Filter (Agent #2) as scoring context
+// ══════════════════════════════════════════════════════════════════════════════
+
+router.get('/projects/:projectId/meta/top-performers', async (req, res) => {
+  try {
+    const { projectId } = req.params;
+    const allDeps = await getAllDeployments();
+    const linkedDeps = allDeps.filter(d => d.meta_ad_id && d.project_id === projectId);
+
+    if (linkedDeps.length === 0) {
+      return res.json([]);
+    }
+
+    const seenMetaAds = new Set();
+    const adSummaries = [];
+
+    for (const dep of linkedDeps) {
+      if (seenMetaAds.has(dep.meta_ad_id)) continue;
+      seenMetaAds.add(dep.meta_ad_id);
+
+      const rows = await getMetaPerformanceByMetaAdId(dep.meta_ad_id);
+      if (!rows.length) continue;
+
+      const totals = { impressions: 0, clicks: 0, spend: 0, conversions: 0, conversionValue: 0 };
+      for (const r of rows) {
+        totals.impressions += r.impressions;
+        totals.clicks += r.clicks;
+        totals.spend += r.spend;
+        totals.conversions += r.conversions;
+        totals.conversionValue += r.conversion_value;
+      }
+
+      adSummaries.push({
+        deployment_id: dep.externalId,
+        headline: dep.ad_headlines ? (JSON.parse(dep.ad_headlines)?.[0] || dep.ad_name || '') : (dep.ad_name || ''),
+        primary_text: dep.primary_texts ? (JSON.parse(dep.primary_texts)?.[0] || '') : '',
+        ...totals,
+        cpc: totals.clicks > 0 ? +(totals.spend / totals.clicks).toFixed(2) : 0,
+        roas: totals.spend > 0 ? +(totals.conversionValue / totals.spend).toFixed(2) : 0,
+      });
+    }
+
+    // Sort by ROAS descending, then by CPC ascending (best performers first)
+    adSummaries.sort((a, b) => {
+      if (b.roas !== a.roas) return b.roas - a.roas;
+      return a.cpc - b.cpc;
+    });
+
+    // Return top 10
+    res.json(adSummaries.slice(0, 10));
+  } catch (err) {
+    console.error('[Meta] Top performers error:', err.message);
+    res.json([]); // Graceful fallback — don't block filter
+  }
+});
+
 router.post('/projects/:projectId/meta/sync', async (req, res) => {
   try {
     const result = await metaAds.syncMetaPerformance(req.params.projectId);

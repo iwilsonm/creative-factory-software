@@ -13,6 +13,7 @@ import CopywriterChat from '../components/CopywriterChat';
 import InfoTooltip from '../components/InfoTooltip';
 import LPGen from '../components/LPGen';
 import ErrorBoundary from '../components/ErrorBoundary';
+import CreativeFilterSettings from '../components/CreativeFilterSettings';
 import { useToast } from '../components/Toast';
 
 const STATUS_CONFIG = {
@@ -888,6 +889,9 @@ export default function ProjectDetail() {
               </div>
             ) : null}
           </div>
+
+          {/* Creative Filter Settings (Dacia Recursive Agent #2) */}
+          <CreativeFilterSettings projectId={id} project={project} onSave={loadProject} />
           </>
         )}
 

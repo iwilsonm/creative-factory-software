@@ -61,6 +61,13 @@ export const update = mutation({
     meta_user_name: v.optional(v.string()),
     meta_user_id: v.optional(v.string()),
     meta_last_sync_at: v.optional(v.string()),
+    // Creative Filter (Dacia Recursive Agent #2)
+    scout_enabled: v.optional(v.boolean()),
+    scout_default_campaign: v.optional(v.string()),
+    scout_cta: v.optional(v.string()),
+    scout_display_link: v.optional(v.string()),
+    scout_facebook_page: v.optional(v.string()),
+    scout_score_threshold: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     const project = await ctx.db

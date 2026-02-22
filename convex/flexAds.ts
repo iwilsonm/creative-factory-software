@@ -47,6 +47,7 @@ export const create = mutation({
     destination_url: v.optional(v.string()),
     display_link: v.optional(v.string()),
     cta_button: v.optional(v.string()),
+    facebook_page: v.optional(v.string()),
     planned_date: v.optional(v.string()),
     created_at: v.string(),
     updated_at: v.string(),

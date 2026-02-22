@@ -667,7 +667,7 @@ export async function getFlexAd(id) {
   };
 }
 
-export async function createFlexAd({ id, project_id, ad_set_id, name, child_deployment_ids }) {
+export async function createFlexAd({ id, project_id, ad_set_id, name, child_deployment_ids, primary_texts, headlines, display_link, cta_button, facebook_page }) {
   const now = new Date().toISOString();
   return await mutationWithRetry(api.flexAds.create, {
     externalId: id,
@@ -675,6 +675,11 @@ export async function createFlexAd({ id, project_id, ad_set_id, name, child_depl
     ad_set_id,
     name,
     child_deployment_ids: JSON.stringify(child_deployment_ids),
+    ...(primary_texts ? { primary_texts: JSON.stringify(primary_texts) } : {}),
+    ...(headlines ? { headlines: JSON.stringify(headlines) } : {}),
+    ...(display_link ? { display_link } : {}),
+    ...(cta_button ? { cta_button } : {}),
+    ...(facebook_page ? { facebook_page } : {}),
     created_at: now,
     updated_at: now,
   });
