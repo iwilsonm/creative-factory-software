@@ -507,6 +507,22 @@ export async function deleteDeployment(id) {
   return await mutationWithRetry(api.ad_deployments.remove, { externalId: id });
 }
 
+export async function restoreDeployment(id) {
+  return await mutationWithRetry(api.ad_deployments.restore, { externalId: id });
+}
+
+export async function getDeletedDeployments(projectId) {
+  const results = await queryWithRetry(api.ad_deployments.getDeleted, { projectId: projectId || undefined });
+  return results.map(d => ({
+    ...d,
+    id: d.externalId,
+  }));
+}
+
+export async function purgeDeletedDeployments(olderThanDays = 30) {
+  return await mutationWithRetry(api.ad_deployments.purgeDeleted, { olderThanDays });
+}
+
 // =============================================
 // Campaign helpers (local campaign organization)
 // =============================================
@@ -669,6 +685,14 @@ export async function updateFlexAd(id, fields) {
 
 export async function deleteFlexAd(id) {
   return await mutationWithRetry(api.flexAds.remove, { externalId: id });
+}
+
+export async function restoreFlexAd(id) {
+  return await mutationWithRetry(api.flexAds.restore, { externalId: id });
+}
+
+export async function purgeDeletedFlexAds(olderThanDays = 30) {
+  return await mutationWithRetry(api.flexAds.purgeDeleted, { olderThanDays });
 }
 
 // Duplicate a deployment (skips dedup guard)

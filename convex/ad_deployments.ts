@@ -4,37 +4,43 @@ import { v } from "convex/values";
 export const getAll = query({
   args: {},
   handler: async (ctx) => {
-    return await ctx.db.query("ad_deployments").collect();
+    const all = await ctx.db.query("ad_deployments").collect();
+    return all.filter((d) => !d.deleted_at);
   },
 });
 
 export const getByProject = query({
   args: { projectId: v.string() },
   handler: async (ctx, args) => {
-    return await ctx.db
+    const all = await ctx.db
       .query("ad_deployments")
       .withIndex("by_project", (q) => q.eq("project_id", args.projectId))
       .collect();
+    return all.filter((d) => !d.deleted_at);
   },
 });
 
 export const getByStatus = query({
   args: { status: v.string() },
   handler: async (ctx, args) => {
-    return await ctx.db
+    const all = await ctx.db
       .query("ad_deployments")
       .withIndex("by_status", (q) => q.eq("status", args.status))
       .collect();
+    return all.filter((d) => !d.deleted_at);
   },
 });
 
 export const getByAdId = query({
   args: { adId: v.string() },
   handler: async (ctx, args) => {
-    return await ctx.db
+    const all = await ctx.db
       .query("ad_deployments")
       .withIndex("by_ad_id", (q) => q.eq("ad_id", args.adId))
-      .first();
+      .collect();
+    // Only return active (non-deleted) deployments for dedup checks
+    const active = all.filter((d) => !d.deleted_at);
+    return active[0] || null;
   },
 });
 
@@ -54,12 +60,13 @@ export const create = mutation({
     created_at: v.string(),
   },
   handler: async (ctx, args) => {
-    // Dedup guard: skip if this ad is already deployed
+    // Dedup guard: skip if this ad is already deployed (ignore soft-deleted)
     const existing = await ctx.db
       .query("ad_deployments")
       .withIndex("by_ad_id", (q) => q.eq("ad_id", args.ad_id))
-      .first();
-    if (existing) return null;
+      .collect();
+    const active = existing.filter((d) => !d.deleted_at);
+    if (active.length > 0) return null;
     return await ctx.db.insert("ad_deployments", args);
   },
 });
@@ -145,6 +152,7 @@ export const updateStatus = mutation({
   },
 });
 
+// Soft delete — sets deleted_at instead of removing
 export const remove = mutation({
   args: { externalId: v.string() },
   handler: async (ctx, args) => {
@@ -152,7 +160,55 @@ export const remove = mutation({
       .query("ad_deployments")
       .withIndex("by_externalId", (q) => q.eq("externalId", args.externalId))
       .first();
+    if (!doc) return; // Already deleted — no-op
+    await ctx.db.patch(doc._id, { deleted_at: new Date().toISOString() });
+  },
+});
+
+// Restore a soft-deleted deployment
+export const restore = mutation({
+  args: { externalId: v.string() },
+  handler: async (ctx, args) => {
+    const doc = await ctx.db
+      .query("ad_deployments")
+      .withIndex("by_externalId", (q) => q.eq("externalId", args.externalId))
+      .first();
     if (!doc) throw new Error("Deployment not found");
-    await ctx.db.delete(doc._id);
+    await ctx.db.patch(doc._id, { deleted_at: "" });
+  },
+});
+
+// Get soft-deleted deployments (for recovery UI)
+export const getDeleted = query({
+  args: { projectId: v.optional(v.string()) },
+  handler: async (ctx, args) => {
+    let results;
+    if (args.projectId) {
+      results = await ctx.db
+        .query("ad_deployments")
+        .withIndex("by_project", (q) => q.eq("project_id", args.projectId))
+        .collect();
+    } else {
+      results = await ctx.db.query("ad_deployments").collect();
+    }
+    return results.filter((d) => !!d.deleted_at);
+  },
+});
+
+// Hard delete records soft-deleted more than N days ago
+export const purgeDeleted = mutation({
+  args: { olderThanDays: v.number() },
+  handler: async (ctx, args) => {
+    const cutoff = new Date(
+      Date.now() - args.olderThanDays * 24 * 60 * 60 * 1000
+    ).toISOString();
+    const all = await ctx.db.query("ad_deployments").collect();
+    const toPurge = all.filter((d) => d.deleted_at && d.deleted_at < cutoff);
+    let purged = 0;
+    for (const doc of toPurge) {
+      await ctx.db.delete(doc._id);
+      purged++;
+    }
+    return purged;
   },
 });

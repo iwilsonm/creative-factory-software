@@ -177,6 +177,7 @@ export default defineSchema({
     planned_date: v.optional(v.string()),        // ISO datetime for scheduled posting
     created_at: v.string(),
     updated_at: v.string(),
+    deleted_at: v.optional(v.string()),           // ISO timestamp for soft delete
   })
     .index("by_externalId", ["externalId"])
     .index("by_project", ["project_id"])
@@ -205,6 +206,7 @@ export default defineSchema({
     destination_url: v.optional(v.string()),      // Meta destination URL
     cta_button: v.optional(v.string()),           // Meta CTA type (SHOP_NOW, LEARN_MORE, etc.)
     created_at: v.string(),
+    deleted_at: v.optional(v.string()),           // ISO timestamp for soft delete
   })
     .index("by_externalId", ["externalId"])
     .index("by_ad_id", ["ad_id"])

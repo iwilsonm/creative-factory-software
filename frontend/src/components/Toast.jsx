@@ -6,18 +6,20 @@ export function ToastProvider({ children }) {
   const [toasts, setToasts] = useState([]);
   const idRef = useRef(0);
 
-  const addToast = useCallback((message, type = 'success', duration = 4000) => {
+  const addToast = useCallback((message, type = 'success', duration = 4000, action = null) => {
     const id = ++idRef.current;
-    setToasts(prev => [...prev, { id, message, type }]);
+    setToasts(prev => [...prev, { id, message, type, action }]);
     setTimeout(() => {
       setToasts(prev => prev.filter(t => t.id !== id));
-    }, duration);
+    }, action ? 8000 : duration);
   }, []);
 
   const toast = {
     success: (msg) => addToast(msg, 'success'),
     error: (msg) => addToast(msg, 'error', 6000),
     info: (msg, duration = 4000) => addToast(msg, 'info', duration),
+    undo: (msg, onUndo) => addToast(msg, 'success', 8000, { label: 'Undo', onClick: onUndo }),
+    addToast, // Backward compat for AdTracker's const { addToast } = useToast()
   };
 
   return (
@@ -50,7 +52,19 @@ export function ToastProvider({ children }) {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                 </svg>
               )}
-              <span>{t.message}</span>
+              <span className="flex-1">{t.message}</span>
+              {t.action && (
+                <button
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    t.action.onClick();
+                    setToasts(prev => prev.filter(toast => toast.id !== t.id));
+                  }}
+                  className="ml-2 underline font-semibold hover:opacity-80 whitespace-nowrap"
+                >
+                  {t.action.label}
+                </button>
+              )}
             </div>
           </div>
         ))}

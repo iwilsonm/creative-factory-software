@@ -443,7 +443,17 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
         await api.deleteFlexAd(flexAdId);
         await Promise.all(ownedChildIds.map(id => api.deleteDeployment(id)));
         await loadCampaignData(true);
-        addToast(`Removed ${ownedChildIds.length} ad${ownedChildIds.length !== 1 ? 's' : ''} from planner`, 'success');
+        addToast(`Removed ${ownedChildIds.length} ad${ownedChildIds.length !== 1 ? 's' : ''} from planner`, 'success', 8000, {
+          label: 'Undo',
+          onClick: async () => {
+            try {
+              await api.restoreFlexAd(flexAdId);
+              await Promise.all(ownedChildIds.map(id => api.restoreDeployment(id)));
+              await Promise.all([loadCampaignData(true), loadDeployments()]);
+              addToast('Restored flex ad', 'success');
+            } catch { addToast('Failed to restore', 'error'); }
+          },
+        });
       } catch {
         addToast('Failed to remove from planner', 'error');
         await Promise.all([loadCampaignData(true), loadDeployments()]);
@@ -705,7 +715,16 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
           return next;
         });
       }
-      addToast(`${ids.length} removed from tracker`, 'success');
+      addToast(`${ids.length} removed from tracker`, 'success', 8000, {
+        label: 'Undo',
+        onClick: async () => {
+          try {
+            await Promise.all(ids.map(id => api.restoreDeployment(id)));
+            await loadDeployments();
+            addToast(`Restored ${ids.length} deployment${ids.length !== 1 ? 's' : ''}`, 'success');
+          } catch { addToast('Failed to restore', 'error'); }
+        },
+      });
     } catch {
       addToast('Failed to delete some deployments', 'error');
     }

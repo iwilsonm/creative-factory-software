@@ -1,5 +1,5 @@
 import cron from 'node-cron';
-import { getActiveBatchJobs, getScheduledBatchJobs, getBatchJob, updateBatchJob, getMetaEnabledProjects } from '../convexClient.js';
+import { getActiveBatchJobs, getScheduledBatchJobs, getBatchJob, updateBatchJob, getMetaEnabledProjects, purgeDeletedDeployments, purgeDeletedFlexAds } from '../convexClient.js';
 import { runBatch, pollBatchJob } from './batchProcessor.js';
 import { syncOpenAICosts, refreshGeminiRates } from './costTracker.js';
 import { syncMetaPerformance, refreshMetaTokenIfNeeded } from './metaAds.js';
@@ -38,6 +38,17 @@ export async function initScheduler() {
       await syncOpenAICosts();
       lastCostSyncAt = new Date().toISOString();
     } catch (e) { console.error('[Scheduler] OpenAI cost sync error:', e.message); }
+  });
+
+  // Purge soft-deleted records older than 30 days (daily at 1:00 AM)
+  cron.schedule('0 1 * * *', async () => {
+    try {
+      const depsPurged = await purgeDeletedDeployments(30);
+      const flexPurged = await purgeDeletedFlexAds(30);
+      if (depsPurged > 0 || flexPurged > 0) {
+        console.log(`[Scheduler] Purged ${depsPurged} deployments + ${flexPurged} flex ads (>30 days deleted)`);
+      }
+    } catch (e) { console.error('[Scheduler] Soft delete purge error:', e.message); }
   });
 
   // Refresh Gemini rates daily at midnight

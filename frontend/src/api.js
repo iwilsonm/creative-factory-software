@@ -305,6 +305,8 @@ export const api = {
   updateDeployment: (id, fields) => request(`/deployments/${id}`, { method: 'PUT', body: JSON.stringify(fields) }),
   updateDeploymentStatus: (id, status) => request(`/deployments/${id}/status`, { method: 'PUT', body: JSON.stringify({ status }) }),
   deleteDeployment: (id) => request(`/deployments/${id}`, { method: 'DELETE' }),
+  restoreDeployment: (id) => request(`/deployments/${id}/restore`, { method: 'POST' }),
+  getDeletedDeployments: (projectId) => request(`/deployments/deleted${projectId ? `?projectId=${projectId}` : ''}`),
   renameAllDeployments: () => request('/deployments/rename-all', { method: 'POST' }),
   backfillHeadlines: () => request('/deployments/backfill-headlines', { method: 'POST' }),
 
@@ -331,6 +333,8 @@ export const api = {
     request(`/deployments/flex-ads/${id}`, { method: 'PUT', body: JSON.stringify(fields) }),
   deleteFlexAd: (id) =>
     request(`/deployments/flex-ads/${id}`, { method: 'DELETE' }),
+  restoreFlexAd: (id) =>
+    request(`/deployments/flex-ads/${id}/restore`, { method: 'POST' }),
 
   // Primary Text & Headline Generation (sidebar)
   generatePrimaryText: (deploymentId, flexAdId, direction) =>

@@ -4,30 +4,34 @@ import { v } from "convex/values";
 export const getByProject = query({
   args: { projectId: v.string() },
   handler: async (ctx, args) => {
-    return await ctx.db
+    const all = await ctx.db
       .query("flex_ads")
       .withIndex("by_project", (q) => q.eq("project_id", args.projectId))
       .collect();
+    return all.filter((f) => !f.deleted_at);
   },
 });
 
 export const getByAdSet = query({
   args: { adSetId: v.string() },
   handler: async (ctx, args) => {
-    return await ctx.db
+    const all = await ctx.db
       .query("flex_ads")
       .withIndex("by_ad_set", (q) => q.eq("ad_set_id", args.adSetId))
       .collect();
+    return all.filter((f) => !f.deleted_at);
   },
 });
 
 export const getByExternalId = query({
   args: { externalId: v.string() },
   handler: async (ctx, args) => {
-    return await ctx.db
+    const doc = await ctx.db
       .query("flex_ads")
       .withIndex("by_externalId", (q) => q.eq("externalId", args.externalId))
       .first();
+    if (!doc || doc.deleted_at) return null;
+    return doc;
   },
 });
 
@@ -75,6 +79,7 @@ export const update = mutation({
   },
 });
 
+// Soft delete — sets deleted_at instead of removing
 export const remove = mutation({
   args: { externalId: v.string() },
   handler: async (ctx, args) => {
@@ -83,6 +88,37 @@ export const remove = mutation({
       .withIndex("by_externalId", (q) => q.eq("externalId", args.externalId))
       .first();
     if (!doc) return; // Already deleted — no-op
-    await ctx.db.delete(doc._id);
+    await ctx.db.patch(doc._id, { deleted_at: new Date().toISOString() });
+  },
+});
+
+// Restore a soft-deleted flex ad
+export const restore = mutation({
+  args: { externalId: v.string() },
+  handler: async (ctx, args) => {
+    const doc = await ctx.db
+      .query("flex_ads")
+      .withIndex("by_externalId", (q) => q.eq("externalId", args.externalId))
+      .first();
+    if (!doc) throw new Error("Flex ad not found");
+    await ctx.db.patch(doc._id, { deleted_at: "" });
+  },
+});
+
+// Hard delete records soft-deleted more than N days ago
+export const purgeDeleted = mutation({
+  args: { olderThanDays: v.number() },
+  handler: async (ctx, args) => {
+    const cutoff = new Date(
+      Date.now() - args.olderThanDays * 24 * 60 * 60 * 1000
+    ).toISOString();
+    const all = await ctx.db.query("flex_ads").collect();
+    const toPurge = all.filter((f) => f.deleted_at && f.deleted_at < cutoff);
+    let purged = 0;
+    for (const doc of toPurge) {
+      await ctx.db.delete(doc._id);
+      purged++;
+    }
+    return purged;
   },
 });

@@ -28,6 +28,9 @@ import {
   createFlexAd,
   updateFlexAd,
   deleteFlexAd,
+  restoreDeployment,
+  getDeletedDeployments,
+  restoreFlexAd,
   convexClient,
   api,
 } from '../convexClient.js';
@@ -158,6 +161,36 @@ router.post('/deployments', async (req, res) => {
 });
 
 /**
+ * GET /deployments/deleted — List soft-deleted deployments (for recovery)
+ */
+router.get('/deployments/deleted', async (req, res) => {
+  try {
+    const { projectId } = req.query;
+    const deleted = await getDeletedDeployments(projectId);
+    // Enrich with ad data + image URLs (same pattern as main GET /deployments)
+    const enriched = await Promise.all(
+      deleted.map(async (dep) => {
+        let ad = null;
+        let imageUrl = null;
+        try {
+          ad = await getAd(dep.ad_id);
+          if (ad?.storageId) imageUrl = await getAdImageUrl(dep.ad_id);
+        } catch { /* ignore */ }
+        return {
+          ...dep,
+          ad: ad ? { angle: ad.angle, headline: ad.headline, body_copy: ad.body_copy, tags: ad.tags || [] } : null,
+          imageUrl,
+        };
+      })
+    );
+    res.json({ deployments: enriched });
+  } catch (err) {
+    console.error('Failed to list deleted deployments:', err);
+    res.status(500).json({ error: 'Failed to list deleted deployments' });
+  }
+});
+
+/**
  * PUT /deployments/:id — Update deployment fields
  */
 router.put('/deployments/:id', async (req, res) => {
@@ -221,6 +254,19 @@ router.delete('/deployments/:id', async (req, res) => {
   } catch (err) {
     console.error('Failed to delete deployment:', err);
     res.status(500).json({ error: 'Failed to delete deployment' });
+  }
+});
+
+/**
+ * POST /deployments/:id/restore — Restore a soft-deleted deployment
+ */
+router.post('/deployments/:id/restore', async (req, res) => {
+  try {
+    await restoreDeployment(req.params.id);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Failed to restore deployment:', err);
+    res.status(500).json({ error: 'Failed to restore deployment' });
   }
 });
 
@@ -650,6 +696,19 @@ router.delete('/deployments/flex-ads/:id', async (req, res) => {
   } catch (err) {
     console.error('Failed to delete flex ad:', err);
     res.status(500).json({ error: 'Failed to delete flex ad' });
+  }
+});
+
+/**
+ * POST /deployments/flex-ads/:id/restore — Restore a soft-deleted flex ad
+ */
+router.post('/deployments/flex-ads/:id/restore', async (req, res) => {
+  try {
+    await restoreFlexAd(req.params.id);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Failed to restore flex ad:', err);
+    res.status(500).json({ error: 'Failed to restore flex ad' });
   }
 });
 

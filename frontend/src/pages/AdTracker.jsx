@@ -317,7 +317,16 @@ export default function AdTracker({ projectId }) {
       await api.deleteDeployment(id);
       setDeployments(prev => prev.filter(d => d.id !== id));
       setDeleteConfirmId(null);
-      addToast('Deployment removed', 'success');
+      addToast('Deployment removed', 'success', 8000, {
+        label: 'Undo',
+        onClick: async () => {
+          try {
+            await api.restoreDeployment(id);
+            loadDeployments();
+            addToast('Deployment restored', 'success');
+          } catch { addToast('Failed to restore', 'error'); }
+        },
+      });
     } catch (err) {
       addToast('Failed to delete', 'error');
     }
@@ -424,7 +433,16 @@ export default function AdTracker({ projectId }) {
       setDeployments(prev => prev.filter(d => !ids.includes(d.id)));
       setSelectedIds(new Set());
       setBulkEditOpen(false);
-      addToast(`${ids.length} removed`, 'success');
+      addToast(`${ids.length} removed`, 'success', 8000, {
+        label: 'Undo',
+        onClick: async () => {
+          try {
+            await Promise.all(ids.map(id => api.restoreDeployment(id)));
+            loadDeployments();
+            addToast(`Restored ${ids.length} deployment${ids.length !== 1 ? 's' : ''}`, 'success');
+          } catch { addToast('Failed to restore', 'error'); }
+        },
+      });
     } catch (err) {
       addToast('Failed to delete some deployments', 'error');
     }
