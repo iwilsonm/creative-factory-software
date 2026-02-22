@@ -139,6 +139,7 @@ router.post('/deployments', async (req, res) => {
         project_id: ad.project_id,
         status: 'selected',
         ad_name: adName,
+        local_campaign_id: 'unplanned', // Go straight to Planner queue
       });
 
       // result is null if dedup guard caught it (already deployed)

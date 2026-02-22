@@ -11,11 +11,11 @@ const CTA_OPTIONS = [
  * CampaignsView — Organises deployments into campaigns and ad sets.
  *
  * Layout:
- *   Top:    "Unplanned" holding area (deployments with local_campaign_id === 'unplanned')
+ *   Top:    "Queue" holding area (deployments with local_campaign_id === 'unplanned')
  *   Bottom: Campaigns list with nested ad sets (each ad set is a drop zone)
  *
  * Features:
- *   - Drag & drop from Unplanned → ad sets
+ *   - Drag & drop from Queue → ad sets
  *   - Duplicate ads within ad sets
  *   - Combine multiple ads into Flex ads
  *   - Detail sidebar with AI-generated primary text + headlines, destination URL, CTA
@@ -333,7 +333,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
       }
       // Only refresh campaign data — deployment state is already correct from optimistic update
       await loadCampaignData(true);
-      addToast(`Moved ${allDepIds.length} ad${allDepIds.length !== 1 ? 's' : ''} to unplanned`, 'success');
+      addToast(`Moved ${allDepIds.length} ad${allDepIds.length !== 1 ? 's' : ''} to queue`, 'success');
     } catch {
       addToast('Failed to unassign', 'error');
       // Revert on error: reload everything
@@ -360,7 +360,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
     try {
       await api.unassignFromAdSet(ids);
     } catch {
-      addToast('Failed to move to unplanned — retrying...', 'error');
+      addToast('Failed to move to queue — retrying...', 'error');
       try { await api.unassignFromAdSet(ids); } catch { loadDeployments(); }
     }
   };
@@ -453,7 +453,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
         const dep = deployments.find(d => d.id === id);
         return dep && dep.flex_ad_id === flexAdId;
       });
-      // Optimistic: remove flex ad, move owned children to unplanned
+      // Optimistic: remove flex ad, move owned children to queue
       setFlexAds(prev => prev.filter(f => f.id !== flexAdId));
       if (ownedChildIds.length > 0) {
         setDeployments(prev => prev.map(d =>
@@ -466,9 +466,9 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
           await api.unassignFromAdSet(ownedChildIds);
         }
         await loadCampaignData(true);
-        addToast(`Moved ${ownedChildIds.length} ad${ownedChildIds.length !== 1 ? 's' : ''} to unplanned`, 'success');
+        addToast(`Moved ${ownedChildIds.length} ad${ownedChildIds.length !== 1 ? 's' : ''} to queue`, 'success');
       } catch {
-        addToast('Failed to move to unplanned', 'error');
+        addToast('Failed to move to queue', 'error');
         await Promise.all([loadCampaignData(true), loadDeployments()]);
       }
     } else if (action === 'remove') {
@@ -972,7 +972,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
               onDragStart={(e) => e.preventDefault()}
               onClick={(e) => { e.stopPropagation(); handleUnassign([dep.id]); }}
               className="p-1 rounded-lg hover:bg-red-50 text-textlight hover:text-red-500 transition-colors"
-              title="Move back to Unplanned"
+              title="Move back to Queue"
             >
               <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -1038,7 +1038,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
         {flexActionConfirm?.id === flexAd.id ? (
           <div className="flex items-center gap-1 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
             <span className="text-[10px] text-textmid">
-              {flexActionConfirm.action === 'ungroup' ? 'Ungroup?' : flexActionConfirm.action === 'unplan' ? 'Move to unplanned?' : 'Remove from planner?'}
+              {flexActionConfirm.action === 'ungroup' ? 'Ungroup?' : flexActionConfirm.action === 'unplan' ? 'Move to queue?' : 'Remove from planner?'}
             </span>
             <button
               onClick={() => handleFlexAction(flexAd.id, flexActionConfirm.action)}
@@ -1071,7 +1071,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
             <button
               onClick={(e) => { e.stopPropagation(); setFlexActionConfirm({ id: flexAd.id, action: 'unplan' }); }}
               className="p-1 rounded-lg hover:bg-gold/10 text-textlight hover:text-gold transition-colors"
-              title="Move to unplanned"
+              title="Move to queue"
             >
               <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
@@ -1749,7 +1749,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
                 )}
               </button>
             )}
-            <h3 className="text-[13px] font-semibold text-textdark">Unplanned</h3>
+            <h3 className="text-[13px] font-semibold text-textdark">Queue</h3>
             <span className="text-[11px] text-textlight bg-black/5 px-2 py-0.5 rounded-full">
               {unplannedDeps.length}
             </span>
@@ -1829,7 +1829,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
         {unplannedDeps.length === 0 ? (
           <div className="py-6 text-center">
             <p className="text-[12px] text-textlight">
-              No unplanned ads. Move ads here from the Unposted tab.
+              No ads in queue. Deploy ads from Ad Studio to get started.
             </p>
           </div>
         ) : (
@@ -2186,7 +2186,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
                                 isDropHover ? 'bg-gold/10' : ''
                               }`}>
                                 <p className="text-[11px] text-textlight">
-                                  {isDropHover ? 'Drop ads here' : 'Drag ads from Unplanned to assign'}
+                                  {isDropHover ? 'Drop ads here' : 'Drag ads from Queue to assign'}
                                 </p>
                               </div>
                             ) : (
