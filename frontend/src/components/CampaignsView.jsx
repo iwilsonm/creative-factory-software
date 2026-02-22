@@ -37,8 +37,9 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
   const [addingAdSetFor, setAddingAdSetFor] = useState(null);
   const [newAdSetName, setNewAdSetName] = useState('');
 
-  // Drag state
-  const [dragIds, setDragIds] = useState(null);
+  // Drag state — dragIds uses a ref to avoid re-renders that kill the drag
+  const dragIdsRef = useRef(null);
+  const [dragVisual, setDragVisual] = useState(null);  // only for visual feedback (opacity)
   const [dropTarget, setDropTarget] = useState(null);
 
   // Selection for unplanned
@@ -177,20 +178,17 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
         ? [...selectedUnplanned]
         : [depId];
     }
-    setDragIds(ids);
+    // Store in ref (no re-render) so the drag isn't killed
+    dragIdsRef.current = ids;
     e.dataTransfer.effectAllowed = 'move';
     e.dataTransfer.setData('text/plain', JSON.stringify({ deploymentIds: ids }));
-    // Create a drag image label
-    const badge = document.createElement('div');
-    badge.textContent = `${ids.length} ad${ids.length > 1 ? 's' : ''}`;
-    badge.style.cssText = 'position:fixed;top:-100px;left:-100px;background:#1B2A4A;color:white;padding:4px 10px;border-radius:8px;font-size:12px;font-weight:600;white-space:nowrap;';
-    document.body.appendChild(badge);
-    e.dataTransfer.setDragImage(badge, badge.offsetWidth / 2, badge.offsetHeight / 2);
-    requestAnimationFrame(() => document.body.removeChild(badge));
+    // Schedule visual update for next frame (after drag is established)
+    requestAnimationFrame(() => setDragVisual(ids));
   };
 
   const handleDragEnd = () => {
-    setDragIds(null);
+    dragIdsRef.current = null;
+    setDragVisual(null);
     setDropTarget(null);
   };
 
@@ -225,7 +223,8 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
       Object.keys(next).forEach(k => { next[k] = new Set([...next[k]].filter(id => !ids.includes(id))); });
       return next;
     });
-    setDragIds(null);
+    dragIdsRef.current = null;
+    setDragVisual(null);
 
     try {
       await api.assignToAdSet(ids, campaignId, adsetId);
@@ -260,7 +259,8 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
     setDeployments(prev => prev.map(d =>
       ids.includes(d.id) ? { ...d, local_campaign_id: 'unplanned', local_adset_id: undefined, flex_ad_id: null } : d
     ));
-    setDragIds(null);
+    dragIdsRef.current = null;
+    setDragVisual(null);
 
     try {
       await api.unassignFromAdSet(ids);
@@ -447,21 +447,20 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
     }
   };
 
-  // ─── DepCard ────────────────────────────────────────────────────────────
-  const DepCard = ({ dep, draggable: isDraggable = false, inAdSet = false, adsetId = null }) => {
+  // ─── renderDepCard (render function, NOT a component — avoids unmount on re-render) ──
+  const renderDepCard = (dep, { isDraggable = false, inAdSet = false, adsetId = null } = {}) => {
     const name = dep.ad?.headline || dep.ad?.angle || dep.ad_name || `Ad ${(dep.id || '').slice(0, 6)}`;
     const thumbUrl = dep.imageUrl;
-    const isDragging = dragIds?.includes(dep.id);
+    const isDragging = dragVisual?.includes(dep.id);
     const isSelectedUnplanned = selectedUnplanned.has(dep.id);
     const isSelectedInAdSet = inAdSet && selectedInAdSet[adsetId]?.has(dep.id);
     const isSelected = inAdSet ? isSelectedInAdSet : isSelectedUnplanned;
 
     return (
       <div
+        key={dep.id}
         draggable={isDraggable}
-        onDragStart={isDraggable ? (e) => {
-          handleDragStart(e, dep.id, inAdSet);
-        } : undefined}
+        onDragStart={isDraggable ? (e) => handleDragStart(e, dep.id, inAdSet) : undefined}
         onDragEnd={isDraggable ? handleDragEnd : undefined}
         className={`relative group flex items-center gap-2.5 p-2 rounded-xl border transition-all select-none ${
           isDraggable ? 'cursor-grab active:cursor-grabbing' : ''
@@ -563,13 +562,14 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
     );
   };
 
-  // ─── FlexAdCard ─────────────────────────────────────────────────────────
-  const FlexAdCard = ({ flexAd }) => {
+  // ─── renderFlexAdCard (render function, NOT a component) ──────────────
+  const renderFlexAdCard = (flexAd) => {
     const childIds = JSON.parse(flexAd.child_deployment_ids || '[]');
     const childDeps = childIds.map(id => deployments.find(d => d.id === id)).filter(Boolean);
 
     return (
       <div
+        key={flexAd.id}
         onClick={() => openSidebar({ type: 'flex', flexAd, deps: childDeps })}
         className="relative group p-2.5 rounded-xl border border-navy/20 bg-navy/5 hover:border-navy/30 hover:shadow-sm transition-all cursor-pointer"
       >
@@ -579,11 +579,11 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
           <span className="text-[10px] text-textlight">{childDeps.length} img{childDeps.length !== 1 ? 's' : ''}</span>
         </div>
         <div className="grid grid-cols-3 gap-1">
-          {childDeps.slice(0, 6).map(dep => (
-            dep.imageUrl ? (
-              <img key={dep.id} src={dep.imageUrl} alt="" className="w-full aspect-square object-cover rounded-md bg-gray-100" loading="lazy" />
+          {childDeps.slice(0, 6).map(d => (
+            d.imageUrl ? (
+              <img key={d.id} src={d.imageUrl} alt="" className="w-full aspect-square object-cover rounded-md bg-gray-100" loading="lazy" />
             ) : (
-              <div key={dep.id} className="w-full aspect-square rounded-md bg-gray-200" />
+              <div key={d.id} className="w-full aspect-square rounded-md bg-gray-200" />
             )
           ))}
           {childDeps.length > 6 && (
@@ -950,9 +950,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
           </div>
         ) : (
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2.5">
-            {unplannedDeps.map(dep => (
-              <DepCard key={dep.id} dep={dep} draggable />
-            ))}
+            {unplannedDeps.map(dep => renderDepCard(dep, { isDraggable: true }))}
           </div>
         )}
       </div>
@@ -1185,13 +1183,9 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
                             ) : (
                               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-2">
                                 {/* Flex ads */}
-                                {adSetFlexList.map(flexAd => (
-                                  <FlexAdCard key={flexAd.id} flexAd={flexAd} />
-                                ))}
+                                {adSetFlexList.map(flexAd => renderFlexAdCard(flexAd))}
                                 {/* Standalone (non-flex) deployments */}
-                                {standaloneDeps.map(dep => (
-                                  <DepCard key={dep.id} dep={dep} inAdSet draggable adsetId={adSet.id} />
-                                ))}
+                                {standaloneDeps.map(dep => renderDepCard(dep, { isDraggable: true, inAdSet: true, adsetId: adSet.id }))}
                               </div>
                             )}
                           </div>
