@@ -17,7 +17,7 @@ const FIXER_SCRIPT = path.join(FIXER_DIR, 'fixer.sh');
 const DAILY_BUDGET_CENTS = 133;
 const CHECK_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 
-// --- Creative Filter (Agent #2) ---
+// --- Dacia Creative Filter (Agent #2) ---
 const FILTER_DIR = path.join(__dirname, '..', '..', 'dacia-creative-filter');
 const FILTER_LOGS_DIR = path.join(FILTER_DIR, 'logs');
 const FILTER_SCRIPT = path.join(FILTER_DIR, 'filter.sh');
@@ -149,7 +149,7 @@ router.post('/resurrect', async (req, res) => {
 });
 
 // =============================================
-// Creative Filter (Agent #2) endpoints
+// Dacia Creative Filter (Agent #2) endpoints
 // =============================================
 
 // GET /api/agent-monitor/filter/status
@@ -236,7 +236,7 @@ router.post('/filter/run', async (req, res) => {
       if (error) console.error('[AgentMonitor] Filter run error:', error.message);
       if (stdout) console.log('[AgentMonitor] Filter run output:', stdout.slice(0, 500));
     });
-    res.json({ ok: true, message: 'Creative Filter run triggered (dry-run)' });
+    res.json({ ok: true, message: 'Dacia Creative Filter run triggered (dry-run)' });
   } catch (err) {
     console.error('[AgentMonitor] Filter run trigger error:', err.message);
     res.status(500).json({ error: err.message });
@@ -255,7 +255,7 @@ router.post('/filter/run-live', async (req, res) => {
       if (error) console.error('[AgentMonitor] Filter live run error:', error.message);
       if (stdout) console.log('[AgentMonitor] Filter live run output:', stdout.slice(0, 500));
     });
-    res.json({ ok: true, message: 'Creative Filter run triggered' });
+    res.json({ ok: true, message: 'Dacia Creative Filter run triggered' });
   } catch (err) {
     console.error('[AgentMonitor] Filter live trigger error:', err.message);
     res.status(500).json({ error: err.message });

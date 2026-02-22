@@ -28,7 +28,7 @@ export default defineSchema({
     meta_user_name: v.optional(v.string()),
     meta_user_id: v.optional(v.string()),
     meta_last_sync_at: v.optional(v.string()),
-    // Creative Filter (Dacia Recursive Agent #2) — per-project config
+    // Dacia Creative Filter (Recursive Agent #2) — per-project config
     scout_enabled: v.optional(v.boolean()),
     scout_default_campaign: v.optional(v.string()),
     scout_cta: v.optional(v.string()),
@@ -122,7 +122,7 @@ export default defineSchema({
     used_template_ids: v.optional(v.string()),  // JSON array of template IDs used across runs
     batch_stats: v.optional(v.nullable(v.string())),
     pipeline_state: v.optional(v.string()),  // JSON: { stage, brief_packet, headlines, body_copies }
-    filter_processed: v.optional(v.boolean()),    // Creative Filter has evaluated this batch
+    filter_processed: v.optional(v.boolean()),    // Dacia Creative Filter has evaluated this batch
     filter_processed_at: v.optional(v.string()),  // When filter processed it
     created_at: v.string(),
     started_at: v.optional(v.string()),

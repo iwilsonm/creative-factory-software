@@ -309,7 +309,7 @@ export const api = {
   getAgentMonitorStatus: () => request('/agent-monitor/status'),
   runAgentFixer: () => request('/agent-monitor/run', { method: 'POST' }),
   runAgentResurrect: () => request('/agent-monitor/resurrect', { method: 'POST' }),
-  // Agent Monitor (Creative Filter — Agent #2)
+  // Agent Monitor (Dacia Creative Filter — Agent #2)
   getFilterStatus: () => request('/agent-monitor/filter/status'),
   runFilterDryRun: () => request('/agent-monitor/filter/run', { method: 'POST' }),
   runFilterLive: () => request('/agent-monitor/filter/run-live', { method: 'POST' }),

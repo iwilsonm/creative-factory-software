@@ -928,11 +928,11 @@ When working on Dacia Fixer:
 - **Regeneration:** If batch copy isn't good enough, Sonnet generates new headlines/texts until minimums met (max 3 rounds)
 - **Guarantee:** Flex ads always complete — never skipped
 
-When working on Creative Filter:
+When working on Dacia Creative Filter:
 - Do not remove the daily budget cap
 - Do not auto-post to Meta — only deploy to Ready to Post status
 - Tag rejected ads as "Filter Rejected" and winners as "Filter Approved"
 - Each batch creates a NEW ad set: "[Brand] Filter - YYYY-MM-DD"
 - Flex ads must have exactly 10 images each with shared headlines + primary texts
 - Mock external calls in any tests to avoid LLM costs
-- Per-project settings are in the Overview tab under "Creative Filter"
+- Per-project settings are in the Overview tab under "Dacia Creative Filter"

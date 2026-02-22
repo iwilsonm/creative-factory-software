@@ -721,11 +721,11 @@ router.post('/deployments/flex-ads/:id/restore', requireRole('admin', 'manager')
 });
 
 // =============================================
-// Creative Filter convenience endpoints
+// Dacia Creative Filter convenience endpoints
 // =============================================
 
 /**
- * POST /deployments/adsets — Create ad set (convenience for Creative Filter)
+ * POST /deployments/adsets — Create ad set (convenience for Dacia Creative Filter)
  * Body: { campaign_id, name, project_id }
  * Returns: { success: true, id, externalId }
  */
@@ -746,7 +746,7 @@ router.post('/deployments/adsets', requireRole('admin', 'manager'), async (req, 
 });
 
 /**
- * POST /deployments/flex — Create flex ad with deployments (convenience for Creative Filter)
+ * POST /deployments/flex — Create flex ad with deployments (convenience for Dacia Creative Filter)
  * Body: { ad_set_id, name, headlines: [], primary_texts: [], cta, display_link, facebook_page, ad_ids: [], project_id, status }
  * Creates: flex ad + individual deployments for each ad_id, all linked to the flex ad
  * Status "ready" maps to "ready_to_post" in the deployment system
@@ -830,7 +830,7 @@ router.post('/deployments/flex', requireRole('admin', 'manager'), async (req, re
 });
 
 /**
- * POST /ads/:adId/tag — Add/set a tag on an ad creative (convenience for Creative Filter)
+ * POST /ads/:adId/tag — Add/set a tag on an ad creative (convenience for Dacia Creative Filter)
  * Body: { tag }
  * Appends the tag to existing tags (deduplicates)
  */

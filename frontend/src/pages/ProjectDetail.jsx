@@ -890,7 +890,7 @@ export default function ProjectDetail() {
             ) : null}
           </div>
 
-          {/* Creative Filter Settings (Dacia Recursive Agent #2) */}
+          {/* Dacia Creative Filter Settings (Recursive Agent #2) */}
           <CreativeFilterSettings projectId={id} project={project} onSave={loadProject} />
           </>
         )}

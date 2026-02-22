@@ -61,7 +61,7 @@ export const update = mutation({
     meta_user_name: v.optional(v.string()),
     meta_user_id: v.optional(v.string()),
     meta_last_sync_at: v.optional(v.string()),
-    // Creative Filter (Dacia Recursive Agent #2)
+    // Dacia Creative Filter (Recursive Agent #2)
     scout_enabled: v.optional(v.boolean()),
     scout_default_campaign: v.optional(v.string()),
     scout_cta: v.optional(v.string()),

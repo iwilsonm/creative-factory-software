@@ -321,7 +321,7 @@ router.get('/projects/:projectId/meta/performance/summary', async (req, res) => 
 });
 
 // ══════════════════════════════════════════════════════════════════════════════
-// Top Performers — used by Creative Filter (Agent #2) as scoring context
+// Top Performers — used by Dacia Creative Filter (Agent #2) as scoring context
 // ══════════════════════════════════════════════════════════════════════════════
 
 router.get('/projects/:projectId/meta/top-performers', async (req, res) => {

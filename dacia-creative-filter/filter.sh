@@ -498,7 +498,7 @@ process_batch() {
   local scout_enabled
   scout_enabled=$(echo "$project_config" | jq -r '.scout_enabled // "true"')
   if [[ "$scout_enabled" == "false" ]]; then
-    log_info "Creative Filter disabled for project: $project_name. Skipping."
+    log_info "Dacia Creative Filter disabled for project: $project_name. Skipping."
     mark_processed "$batch_id" "[]"
     return 0
   fi

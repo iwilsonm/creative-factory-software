@@ -57,7 +57,7 @@ export default function CreativeFilterSettings({ projectId, project, onSave }) {
       };
       await api.updateProject(projectId, updates);
       if (onSave) await onSave();
-      toast.success('Creative Filter settings saved');
+      toast.success('Dacia Creative Filter settings saved');
     } catch (err) {
       toast.error(err.message || 'Failed to save');
     } finally {
@@ -76,7 +76,7 @@ export default function CreativeFilterSettings({ projectId, project, onSave }) {
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
             </svg>
           </div>
-          <h2 className="text-[15px] font-semibold text-textdark tracking-tight">Creative Filter</h2>
+          <h2 className="text-[15px] font-semibold text-textdark tracking-tight">Dacia Creative Filter</h2>
           {isConfigured ? (
             <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${
               project.scout_enabled !== false ? 'bg-teal/10 text-teal' : 'bg-gray-100 text-textmid'
@@ -111,7 +111,7 @@ export default function CreativeFilterSettings({ projectId, project, onSave }) {
           {/* Enable/Disable toggle */}
           <div className="flex items-center justify-between">
             <div>
-              <p className="text-[13px] font-medium text-textdark">Enable Creative Filter</p>
+              <p className="text-[13px] font-medium text-textdark">Enable Dacia Creative Filter</p>
               <p className="text-[11px] text-textlight">Automatically score and deploy completed batches</p>
             </div>
             <button
