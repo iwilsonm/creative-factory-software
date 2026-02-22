@@ -54,14 +54,22 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
   // Assign dropdown (Unplanned → Ad Set picker)
   const [assignDropdown, setAssignDropdown] = useState(false);
 
+  // Delete confirmation modal
+  const [deleteConfirm, setDeleteConfirm] = useState({ open: false, ids: [], source: 'unplanned' });
+
+  // Image preview lightbox (for flex ad thumbnails)
+  const [previewImage, setPreviewImage] = useState(null);
+
   // Detail sidebar
   const [sidebarData, setSidebarData] = useState(null);
   const [sidebarForm, setSidebarForm] = useState({
-    destination_url: '', cta_button: 'LEARN_MORE', primary_texts: [], ad_headlines: [],
+    ad_name: '', destination_url: '', cta_button: 'LEARN_MORE', primary_texts: [], ad_headlines: [],
   });
   const [generatingPrimaryText, setGeneratingPrimaryText] = useState(false);
   const [generatingHeadlines, setGeneratingHeadlines] = useState(false);
   const [sidebarSaving, setSidebarSaving] = useState(false);
+  const [primaryTextOpen, setPrimaryTextOpen] = useState(false);
+  const [headlinesOpen, setHeadlinesOpen] = useState(false);
 
   const campaignInputRef = useRef(null);
   const adSetInputRef = useRef(null);
@@ -309,9 +317,12 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
   // ─── Sidebar ────────────────────────────────────────────────────────────
   const openSidebar = (data) => {
     setSidebarData(data);
+    setPrimaryTextOpen(false);
+    setHeadlinesOpen(false);
     if (data.type === 'single') {
       const dep = data.deployment;
       setSidebarForm({
+        ad_name: dep.ad_name || dep.ad?.headline || dep.ad?.angle || '',
         destination_url: dep.destination_url || dep.landing_page_url || '',
         cta_button: dep.cta_button || 'LEARN_MORE',
         primary_texts: dep.primary_texts ? JSON.parse(dep.primary_texts) : [],
@@ -320,6 +331,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
     } else {
       const flex = data.flexAd;
       setSidebarForm({
+        ad_name: flex.name || '',
         destination_url: flex.destination_url || '',
         cta_button: flex.cta_button || 'LEARN_MORE',
         primary_texts: flex.primary_texts ? JSON.parse(flex.primary_texts) : [],
@@ -334,6 +346,8 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
   useEffect(() => {
     const handleKeyDown = (e) => {
       if (e.key === 'Escape') {
+        if (previewImage) { setPreviewImage(null); return; }
+        if (deleteConfirm.open) { setDeleteConfirm({ open: false, ids: [], source: 'unplanned' }); return; }
         if (sidebarData) closeSidebar();
         if (assignDropdown) setAssignDropdown(false);
       }
@@ -349,7 +363,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
       document.removeEventListener('keydown', handleKeyDown);
       document.removeEventListener('mousedown', handleClickOutside);
     };
-  }, [sidebarData, assignDropdown]);
+  }, [sidebarData, assignDropdown, deleteConfirm.open, previewImage]);
 
   const handleGeneratePrimaryText = async () => {
     setGeneratingPrimaryText(true);
@@ -388,6 +402,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
     try {
       if (sidebarData.type === 'single') {
         await api.updateDeployment(sidebarData.deployment.id, {
+          ad_name: sidebarForm.ad_name,
           primary_texts: JSON.stringify(sidebarForm.primary_texts),
           ad_headlines: JSON.stringify(sidebarForm.ad_headlines),
           destination_url: sidebarForm.destination_url,
@@ -395,6 +410,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
         });
       } else {
         await api.updateFlexAd(sidebarData.flexAd.id, {
+          name: sidebarForm.ad_name,
           primary_texts: JSON.stringify(sidebarForm.primary_texts),
           headlines: JSON.stringify(sidebarForm.ad_headlines),
           destination_url: sidebarForm.destination_url,
@@ -424,6 +440,51 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
       if (current.has(depId)) current.delete(depId); else current.add(depId);
       return { ...prev, [adsetId]: current };
     });
+  };
+
+  // ─── Select All helpers ────────────────────────────────────────────────
+  const toggleSelectAllUnplanned = () => {
+    if (selectedUnplanned.size === unplannedDeps.length && unplannedDeps.length > 0) {
+      setSelectedUnplanned(new Set());
+    } else {
+      setSelectedUnplanned(new Set(unplannedDeps.map(d => d.id)));
+    }
+  };
+
+  const toggleSelectAllInAdSet = (adsetId, standaloneDeps, adSetFlexList = []) => {
+    const allIds = [...standaloneDeps.map(d => d.id), ...adSetFlexList.map(f => f.id)];
+    setSelectedInAdSet(prev => {
+      const current = new Set(prev[adsetId] || []);
+      if (current.size === allIds.length && allIds.length > 0) {
+        return { ...prev, [adsetId]: new Set() };
+      }
+      return { ...prev, [adsetId]: new Set(allIds) };
+    });
+  };
+
+  // ─── Bulk delete with confirmation ─────────────────────────────────────
+  const handleConfirmDelete = async () => {
+    const ids = deleteConfirm.ids;
+    try {
+      await Promise.all(ids.map(id => api.deleteDeployment(id)));
+      setDeployments(prev => prev.filter(d => !ids.includes(d.id)));
+      // Clear relevant selection
+      if (deleteConfirm.source === 'unplanned') {
+        setSelectedUnplanned(new Set());
+      } else {
+        setSelectedInAdSet(prev => {
+          const next = { ...prev };
+          Object.keys(next).forEach(k => {
+            next[k] = new Set([...next[k]].filter(id => !ids.includes(id)));
+          });
+          return next;
+        });
+      }
+      addToast(`${ids.length} removed from tracker`, 'success');
+    } catch {
+      addToast('Failed to delete some deployments', 'error');
+    }
+    setDeleteConfirm({ open: false, ids: [], source: 'unplanned' });
   };
 
   // ─── Assign selected unplanned to a specific ad set ──────────────────
@@ -555,40 +616,59 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
   };
 
   // ─── renderFlexAdCard (render function, NOT a component) ──────────────
-  const renderFlexAdCard = (flexAd) => {
+  const renderFlexAdCard = (flexAd, { adsetId = null } = {}) => {
     const childIds = JSON.parse(flexAd.child_deployment_ids || '[]');
     const childDeps = childIds.map(id => deployments.find(d => d.id === id)).filter(Boolean);
+    const isSelected = adsetId && selectedInAdSet[adsetId]?.has(flexAd.id);
 
     return (
       <div
         key={flexAd.id}
         onClick={() => openSidebar({ type: 'flex', flexAd, deps: childDeps })}
-        className="relative group p-2.5 rounded-xl border border-navy/20 bg-navy/5 hover:border-navy/30 hover:shadow-sm transition-all cursor-pointer"
+        className={`relative group flex items-center gap-2.5 p-2 rounded-xl border transition-all cursor-pointer ${
+          isSelected ? 'border-navy/40 bg-navy/10' : 'border-navy/20 bg-navy/5 hover:border-navy/30 hover:shadow-sm'
+        }`}
       >
-        <div className="flex items-center gap-2 mb-2">
-          <span className="text-[9px] font-bold text-white bg-navy px-1.5 py-0.5 rounded tracking-wide">FLEX</span>
-          <span className="text-[12px] font-medium text-textdark truncate flex-1">{flexAd.name}</span>
-          <span className="text-[10px] text-textlight">{childDeps.length} img{childDeps.length !== 1 ? 's' : ''}</span>
-        </div>
-        <div className="grid grid-cols-3 gap-1">
-          {childDeps.slice(0, 6).map(d => (
+        {/* Checkbox */}
+        {adsetId && (
+          <button
+            onClick={(e) => { e.stopPropagation(); toggleAdSetSelect(adsetId, flexAd.id); }}
+            className={`w-[14px] h-[14px] rounded flex-shrink-0 flex items-center justify-center transition-colors ${
+              isSelected ? 'bg-navy' : 'border-[1.5px] border-textlight/60 hover:border-navy/40'
+            }`}
+          >
+            {isSelected && (
+              <svg className="w-2 h-2 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+              </svg>
+            )}
+          </button>
+        )}
+        <span className="text-[9px] font-bold text-white bg-navy px-1.5 py-0.5 rounded tracking-wide flex-shrink-0">FLEX</span>
+        <div className="flex items-center gap-1 flex-shrink-0">
+          {childDeps.slice(0, 4).map(d => (
             d.imageUrl ? (
-              <img key={d.id} src={d.imageUrl} alt="" className="w-full aspect-square object-cover rounded-md bg-gray-100" loading="lazy" />
+              <img key={d.id} src={d.imageUrl} alt="" className="w-11 h-11 object-cover rounded-lg bg-gray-100" loading="lazy" />
             ) : (
-              <div key={d.id} className="w-full aspect-square rounded-md bg-gray-200" />
+              <div key={d.id} className="w-11 h-11 rounded-lg bg-gray-200" />
             )
           ))}
-          {childDeps.length > 6 && (
-            <div className="w-full aspect-square rounded-md bg-gray-200 flex items-center justify-center text-[10px] text-textlight">
-              +{childDeps.length - 6}
+          {childDeps.length > 4 && (
+            <div className="w-11 h-11 rounded-lg bg-gray-200 flex items-center justify-center text-[10px] text-textlight">
+              +{childDeps.length - 4}
             </div>
           )}
         </div>
+        <div className="min-w-0 flex-1">
+          <div className="text-[12px] font-medium text-textdark truncate">{flexAd.name}</div>
+          <div className="text-[10px] text-textlight">{childDeps.length} image{childDeps.length !== 1 ? 's' : ''}</div>
+        </div>
+
         {/* Hover actions */}
-        <div className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 flex items-center gap-1 transition-opacity">
+        <div className="opacity-0 group-hover:opacity-100 flex items-center gap-1 flex-shrink-0 transition-opacity">
           <button
             onClick={(e) => { e.stopPropagation(); handleDeleteFlexAd(flexAd.id); }}
-            className="p-1 rounded-lg bg-white/80 hover:bg-red-50 text-textlight hover:text-red-500 transition-colors shadow-sm"
+            className="p-1 rounded-lg hover:bg-red-50 text-textlight hover:text-red-500 transition-colors"
             title="Ungroup Flex Ad"
           >
             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -633,12 +713,18 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
           <div className="p-5 space-y-5">
             {/* Image section */}
             {isFlex ? (
-              <div className="grid grid-cols-3 gap-2">
+              <div className="grid grid-cols-4 gap-1.5">
                 {childDeps.map(d => (
                   d.imageUrl ? (
-                    <img key={d.id} src={d.imageUrl} alt="" className="w-full aspect-square object-cover rounded-xl bg-gray-100" />
+                    <img
+                      key={d.id}
+                      src={d.imageUrl}
+                      alt=""
+                      className="w-full aspect-square object-cover rounded-lg bg-gray-100 cursor-pointer hover:ring-2 hover:ring-navy/30 transition-all"
+                      onClick={(e) => { e.stopPropagation(); setPreviewImage(d.imageUrl); }}
+                    />
                   ) : (
-                    <div key={d.id} className="w-full aspect-square rounded-xl bg-gray-200" />
+                    <div key={d.id} className="w-full aspect-square rounded-lg bg-gray-200" />
                   )
                 ))}
               </div>
@@ -647,6 +733,18 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
                 <img src={dep.imageUrl} alt="" className="w-full rounded-xl bg-gray-100" />
               )
             )}
+
+            {/* ─── Ad Name ─── */}
+            <div>
+              <label className="text-[11px] font-semibold text-textdark uppercase tracking-wider">Ad Name</label>
+              <input
+                type="text"
+                value={sidebarForm.ad_name}
+                onChange={(e) => setSidebarForm(prev => ({ ...prev, ad_name: e.target.value }))}
+                className="input-apple text-[12px] w-full mt-1.5"
+                placeholder="Enter ad name..."
+              />
+            </div>
 
             {/* Ad info (single ad only) */}
             {!isFlex && dep?.ad && (
@@ -672,12 +770,23 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
               </div>
             )}
 
-            {/* ─── Primary Text ─── */}
-            <div>
-              <div className="flex items-center justify-between mb-2">
-                <label className="text-[11px] font-semibold text-textdark uppercase tracking-wider">Primary Text</label>
+            {/* ─── Primary Text (collapsible) ─── */}
+            <div className="rounded-xl border border-gray-200 overflow-hidden">
+              <button
+                onClick={() => setPrimaryTextOpen(!primaryTextOpen)}
+                className="w-full flex items-center justify-between px-4 py-3 bg-offwhite hover:bg-gray-100 transition-colors"
+              >
+                <div className="flex items-center gap-2">
+                  <svg className={`w-3.5 h-3.5 text-textmid transition-transform ${primaryTextOpen ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                  </svg>
+                  <span className="text-[11px] font-semibold text-textdark uppercase tracking-wider">Primary Text</span>
+                  <span className="text-[10px] text-textlight bg-black/5 px-1.5 py-0.5 rounded-full">
+                    {sidebarForm.primary_texts.filter(t => t.trim()).length}/5
+                  </span>
+                </div>
                 <button
-                  onClick={handleGeneratePrimaryText}
+                  onClick={(e) => { e.stopPropagation(); handleGeneratePrimaryText(); }}
                   disabled={generatingPrimaryText}
                   className="text-[10px] px-2.5 py-1 rounded-lg bg-navy text-white hover:bg-navy-light transition-colors disabled:opacity-50 inline-flex items-center gap-1"
                 >
@@ -698,47 +807,74 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
                     </>
                   )}
                 </button>
-              </div>
-              {sidebarForm.primary_texts.length === 0 && !generatingPrimaryText && (
-                <p className="text-[11px] text-textlight italic">No primary text yet. Click Generate to create variations.</p>
-              )}
-              {sidebarForm.primary_texts.map((text, i) => (
-                <div key={i} className="mb-2">
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="text-[10px] text-textlight">Variation {i + 1}</span>
+              </button>
+              {primaryTextOpen && (
+                <div className="p-4 space-y-3">
+                  {Array.from({ length: Math.max(sidebarForm.primary_texts.length, 0) }, (_, i) => i).map(i => (
+                    <div key={i}>
+                      <div className="flex items-center justify-between mb-1">
+                        <span className="text-[10px] text-textlight font-medium">Variation {i + 1}</span>
+                        <button
+                          onClick={() => setSidebarForm(prev => ({
+                            ...prev,
+                            primary_texts: prev.primary_texts.filter((_, idx) => idx !== i),
+                          }))}
+                          className="text-[10px] text-textlight hover:text-red-500 transition-colors"
+                        >
+                          Remove
+                        </button>
+                      </div>
+                      <textarea
+                        value={sidebarForm.primary_texts[i] || ''}
+                        onChange={(e) => {
+                          const updated = [...sidebarForm.primary_texts];
+                          updated[i] = e.target.value;
+                          setSidebarForm(prev => ({ ...prev, primary_texts: updated }));
+                        }}
+                        className="input-apple text-[12px] w-full"
+                        rows={4}
+                        placeholder={`Primary text variation ${i + 1}...`}
+                      />
+                    </div>
+                  ))}
+                  {sidebarForm.primary_texts.length < 5 && (
                     <button
-                      onClick={() => setSidebarForm(prev => ({
-                        ...prev,
-                        primary_texts: prev.primary_texts.filter((_, idx) => idx !== i),
-                      }))}
-                      className="text-[10px] text-textlight hover:text-red-500 transition-colors"
+                      onClick={() => setSidebarForm(prev => ({ ...prev, primary_texts: [...prev.primary_texts, ''] }))}
+                      className="w-full py-2 rounded-lg border border-dashed border-gray-300 text-[11px] text-textmid hover:border-navy/30 hover:text-navy hover:bg-navy/5 transition-colors inline-flex items-center justify-center gap-1"
                     >
-                      Remove
+                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                      </svg>
+                      Add Variation
                     </button>
-                  </div>
-                  <textarea
-                    value={text}
-                    onChange={(e) => {
-                      const updated = [...sidebarForm.primary_texts];
-                      updated[i] = e.target.value;
-                      setSidebarForm(prev => ({ ...prev, primary_texts: updated }));
-                    }}
-                    className="input-apple text-[12px] w-full"
-                    rows={3}
-                  />
+                  )}
+                  {sidebarForm.primary_texts.length === 0 && (
+                    <p className="text-[11px] text-textlight italic text-center py-2">No primary text yet. Click Generate or Add Variation.</p>
+                  )}
                 </div>
-              ))}
+              )}
             </div>
 
-            {/* ─── Headlines ─── */}
-            <div>
-              <div className="flex items-center justify-between mb-2">
-                <label className="text-[11px] font-semibold text-textdark uppercase tracking-wider">Headlines</label>
+            {/* ─── Headlines (collapsible) ─── */}
+            <div className="rounded-xl border border-gray-200 overflow-hidden">
+              <button
+                onClick={() => setHeadlinesOpen(!headlinesOpen)}
+                className="w-full flex items-center justify-between px-4 py-3 bg-offwhite hover:bg-gray-100 transition-colors"
+              >
+                <div className="flex items-center gap-2">
+                  <svg className={`w-3.5 h-3.5 text-textmid transition-transform ${headlinesOpen ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                  </svg>
+                  <span className="text-[11px] font-semibold text-textdark uppercase tracking-wider">Headlines</span>
+                  <span className="text-[10px] text-textlight bg-black/5 px-1.5 py-0.5 rounded-full">
+                    {sidebarForm.ad_headlines.filter(h => h.trim()).length}/5
+                  </span>
+                </div>
                 <button
-                  onClick={handleGenerateHeadlines}
-                  disabled={generatingHeadlines || sidebarForm.primary_texts.length === 0}
+                  onClick={(e) => { e.stopPropagation(); handleGenerateHeadlines(); }}
+                  disabled={generatingHeadlines || sidebarForm.primary_texts.filter(t => t.trim()).length === 0}
                   className="text-[10px] px-2.5 py-1 rounded-lg bg-navy text-white hover:bg-navy-light transition-colors disabled:opacity-50 inline-flex items-center gap-1"
-                  title={sidebarForm.primary_texts.length === 0 ? 'Generate primary text first' : ''}
+                  title={sidebarForm.primary_texts.filter(t => t.trim()).length === 0 ? 'Generate primary text first' : ''}
                 >
                   {generatingHeadlines ? (
                     <>
@@ -757,39 +893,56 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
                     </>
                   )}
                 </button>
-              </div>
-              {sidebarForm.ad_headlines.length === 0 && !generatingHeadlines && (
-                <p className="text-[11px] text-textlight italic">
-                  {sidebarForm.primary_texts.length === 0
-                    ? 'Generate primary text first, then generate headlines.'
-                    : 'No headlines yet. Click Generate to create variations.'}
-                </p>
-              )}
-              {sidebarForm.ad_headlines.map((h, i) => (
-                <div key={i} className="flex items-center gap-2 mb-1.5">
-                  <input
-                    type="text"
-                    value={h}
-                    onChange={(e) => {
-                      const updated = [...sidebarForm.ad_headlines];
-                      updated[i] = e.target.value;
-                      setSidebarForm(prev => ({ ...prev, ad_headlines: updated }));
-                    }}
-                    className="input-apple text-[12px] flex-1"
-                  />
-                  <button
-                    onClick={() => setSidebarForm(prev => ({
-                      ...prev,
-                      ad_headlines: prev.ad_headlines.filter((_, idx) => idx !== i),
-                    }))}
-                    className="text-textlight hover:text-red-500 transition-colors flex-shrink-0"
-                  >
-                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                    </svg>
-                  </button>
+              </button>
+              {headlinesOpen && (
+                <div className="p-4 space-y-2">
+                  {sidebarForm.ad_headlines.map((h, i) => (
+                    <div key={i} className="flex items-center gap-2">
+                      <span className="text-[10px] text-textlight font-medium w-4 flex-shrink-0">{i + 1}.</span>
+                      <input
+                        type="text"
+                        value={h}
+                        onChange={(e) => {
+                          const updated = [...sidebarForm.ad_headlines];
+                          updated[i] = e.target.value;
+                          setSidebarForm(prev => ({ ...prev, ad_headlines: updated }));
+                        }}
+                        className="input-apple text-[12px] flex-1"
+                        placeholder={`Headline ${i + 1}...`}
+                      />
+                      <button
+                        onClick={() => setSidebarForm(prev => ({
+                          ...prev,
+                          ad_headlines: prev.ad_headlines.filter((_, idx) => idx !== i),
+                        }))}
+                        className="text-textlight hover:text-red-500 transition-colors flex-shrink-0"
+                      >
+                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                        </svg>
+                      </button>
+                    </div>
+                  ))}
+                  {sidebarForm.ad_headlines.length < 5 && (
+                    <button
+                      onClick={() => setSidebarForm(prev => ({ ...prev, ad_headlines: [...prev.ad_headlines, ''] }))}
+                      className="w-full py-2 rounded-lg border border-dashed border-gray-300 text-[11px] text-textmid hover:border-navy/30 hover:text-navy hover:bg-navy/5 transition-colors inline-flex items-center justify-center gap-1"
+                    >
+                      <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                      </svg>
+                      Add Headline
+                    </button>
+                  )}
+                  {sidebarForm.ad_headlines.length === 0 && (
+                    <p className="text-[11px] text-textlight italic text-center py-2">
+                      {sidebarForm.primary_texts.filter(t => t.trim()).length === 0
+                        ? 'Generate primary text first, then generate headlines.'
+                        : 'No headlines yet. Click Generate or Add Headline.'}
+                    </p>
+                  )}
                 </div>
-              ))}
+              )}
             </div>
 
             {/* ─── Destination URL ─── */}
@@ -863,6 +1016,26 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
       >
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-2">
+            {unplannedDeps.length > 0 && (
+              <button
+                onClick={toggleSelectAllUnplanned}
+                className={`w-[14px] h-[14px] rounded flex-shrink-0 flex items-center justify-center transition-colors ${
+                  selectedUnplanned.size === unplannedDeps.length && unplannedDeps.length > 0
+                    ? 'bg-navy'
+                    : selectedUnplanned.size > 0
+                      ? 'bg-navy/50'
+                      : 'border-[1.5px] border-textlight/60 hover:border-navy/40'
+                }`}
+              >
+                {selectedUnplanned.size > 0 && (
+                  <svg className="w-2 h-2 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d={
+                      selectedUnplanned.size === unplannedDeps.length ? "M5 13l4 4L19 7" : "M5 12h14"
+                    } />
+                  </svg>
+                )}
+              </button>
+            )}
             <h3 className="text-[13px] font-semibold text-textdark">Unplanned</h3>
             <span className="text-[11px] text-textlight bg-black/5 px-2 py-0.5 rounded-full">
               {unplannedDeps.length}
@@ -924,6 +1097,12 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
                 )}
               </div>
 
+              <button
+                onClick={() => setDeleteConfirm({ open: true, ids: [...selectedUnplanned], source: 'unplanned' })}
+                className="px-2.5 py-1 rounded-lg bg-red-50 border border-red-200 text-red-600 hover:bg-red-100 transition-colors"
+              >
+                Delete
+              </button>
               <button
                 onClick={() => setSelectedUnplanned(new Set())}
                 className="text-textlight hover:text-textmid"
@@ -1117,6 +1296,28 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
                         >
                           {/* Ad set header */}
                           <div className="flex items-center gap-2 px-4 py-2.5 border-b border-gray-100">
+                            {/* Select All checkbox */}
+                            {(standaloneDeps.length > 0 || adSetFlexList.length > 0) && (
+                              <button
+                                onClick={() => toggleSelectAllInAdSet(adSet.id, standaloneDeps, adSetFlexList)}
+                                className={`w-[14px] h-[14px] rounded flex-shrink-0 flex items-center justify-center transition-colors ${
+                                  selCount === (standaloneDeps.length + adSetFlexList.length) && (standaloneDeps.length + adSetFlexList.length) > 0
+                                    ? 'bg-navy'
+                                    : selCount > 0
+                                      ? 'bg-navy/50'
+                                      : 'border-[1.5px] border-textlight/60 hover:border-navy/40'
+                                }`}
+                              >
+                                {selCount > 0 && (
+                                  <svg className="w-2 h-2 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d={
+                                      selCount === (standaloneDeps.length + adSetFlexList.length) ? "M5 13l4 4L19 7" : "M5 12h14"
+                                    } />
+                                  </svg>
+                                )}
+                              </button>
+                            )}
+
                             {editingAdSet?.id === adSet.id ? (
                               <input
                                 autoFocus
@@ -1137,17 +1338,44 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
                               </span>
                             )}
 
-                            {/* Combine button */}
-                            {selCount >= 2 && (
-                              <button
-                                onClick={() => handleCombineIntoFlex(adSet.id)}
-                                className="text-[10px] px-2 py-1 rounded-lg bg-navy text-white hover:bg-navy-light transition-colors inline-flex items-center gap-1"
-                              >
-                                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2z" />
-                                </svg>
-                                Combine as Flex Ad
-                              </button>
+                            {/* Bulk actions when ads selected */}
+                            {selCount >= 1 && (
+                              <div className="flex items-center gap-1.5">
+                                <span className="text-[10px] text-navy font-medium">{selCount} selected</span>
+                                {selCount >= 2 && (
+                                  <button
+                                    onClick={() => handleCombineIntoFlex(adSet.id)}
+                                    className="text-[10px] px-2 py-1 rounded-lg bg-navy text-white hover:bg-navy-light transition-colors inline-flex items-center gap-1"
+                                  >
+                                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2z" />
+                                    </svg>
+                                    Flex
+                                  </button>
+                                )}
+                                <button
+                                  onClick={() => {
+                                    const depId = [...(selectedInAdSet[adSet.id] || [])][0];
+                                    const dep = deployments.find(d => d.id === depId);
+                                    if (dep) openSidebar({ type: 'single', deployment: dep, ad: dep.ad });
+                                  }}
+                                  className="text-[10px] px-2 py-1 rounded-lg bg-white border border-gray-200 text-textmid hover:bg-gray-50 transition-colors"
+                                >
+                                  Edit
+                                </button>
+                                <button
+                                  onClick={() => handleUnassign([...(selectedInAdSet[adSet.id] || [])])}
+                                  className="text-[10px] px-2 py-1 rounded-lg bg-white border border-gray-200 text-textmid hover:bg-gray-50 transition-colors"
+                                >
+                                  Unplan
+                                </button>
+                                <button
+                                  onClick={() => setDeleteConfirm({ open: true, ids: [...(selectedInAdSet[adSet.id] || [])], source: 'adset' })}
+                                  className="text-[10px] px-2 py-1 rounded-lg bg-red-50 border border-red-200 text-red-600 hover:bg-red-100 transition-colors"
+                                >
+                                  Delete
+                                </button>
+                              </div>
                             )}
 
                             <span className="text-[10px] text-textlight">{deps.length} ad{deps.length !== 1 ? 's' : ''}</span>
@@ -1175,7 +1403,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
                             ) : (
                               <div className="space-y-1.5">
                                 {/* Flex ads */}
-                                {adSetFlexList.map(flexAd => renderFlexAdCard(flexAd))}
+                                {adSetFlexList.map(flexAd => renderFlexAdCard(flexAd, { adsetId: adSet.id }))}
                                 {/* Standalone (non-flex) deployments */}
                                 {standaloneDeps.map(dep => renderDepCard(dep, { isDraggable: true, inAdSet: true, adsetId: adSet.id }))}
                               </div>
@@ -1194,6 +1422,68 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
 
       {/* ═══════════ Detail Sidebar ═══════════ */}
       {renderSidebar()}
+
+      {/* ═══════════ Delete Confirmation Modal ═══════════ */}
+      {deleteConfirm.open && (
+        <>
+          <div className="fixed inset-0 bg-black/30 z-50" onClick={() => setDeleteConfirm({ open: false, ids: [], source: 'unplanned' })} />
+          <div className="fixed inset-0 z-50 flex items-center justify-center pointer-events-none">
+            <div className="bg-white rounded-2xl shadow-xl p-6 max-w-sm w-full mx-4 pointer-events-auto">
+              <div className="flex items-center gap-3 mb-3">
+                <div className="w-10 h-10 rounded-xl bg-red-50 flex items-center justify-center flex-shrink-0">
+                  <svg className="w-5 h-5 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
+                  </svg>
+                </div>
+                <h3 className="text-[15px] font-semibold text-textdark">
+                  Delete {deleteConfirm.ids.length} ad{deleteConfirm.ids.length !== 1 ? 's' : ''} from tracker?
+                </h3>
+              </div>
+              <p className="text-[12px] text-textmid mb-5 ml-[52px]">
+                This will remove the selected ads from the Performance Tracker. The original ad creatives will remain in Ad Studio.
+              </p>
+              <div className="flex items-center justify-end gap-2">
+                <button
+                  onClick={() => setDeleteConfirm({ open: false, ids: [], source: 'unplanned' })}
+                  className="text-[12px] px-4 py-2 rounded-xl bg-white border border-gray-200 text-textmid hover:bg-gray-50 transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={handleConfirmDelete}
+                  className="text-[12px] px-4 py-2 rounded-xl bg-red-500 text-white hover:bg-red-600 transition-colors"
+                >
+                  Delete
+                </button>
+              </div>
+            </div>
+          </div>
+        </>
+      )}
+
+      {/* ═══════════ Image Preview Lightbox ═══════════ */}
+      {previewImage && (
+        <>
+          <div className="fixed inset-0 bg-black/70 z-50" onClick={() => setPreviewImage(null)} />
+          <div className="fixed inset-0 z-50 flex items-center justify-center pointer-events-none">
+            <div className="relative pointer-events-auto">
+              <img
+                src={previewImage}
+                alt=""
+                className="max-h-[85vh] max-w-[90vw] rounded-xl shadow-2xl object-contain"
+              />
+              <button
+                onClick={() => setPreviewImage(null)}
+                className="absolute top-3 right-3 p-1.5 rounded-xl bg-black/50 text-white hover:bg-black/70 transition-colors"
+              >
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+          </div>
+        </>
+      )}
     </div>
   );
 }

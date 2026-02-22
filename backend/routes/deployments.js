@@ -709,15 +709,20 @@ ${beliefsSnippet ? `NECESSARY BELIEFS (excerpt):\n${beliefsSnippet}\n` : ''}
 AD CREATIVE INFO:
 ${creativeContext}
 
-Write 3 variations of Facebook ad primary text. Each should:
-- Be 2-4 sentences long
-- Sound conversational and natural, not like marketing copy
-- Hook the reader in the first sentence
-- Speak directly to the target audience's pain points and desires
-- Create curiosity that drives clicks to learn more
-- ${flexAdId ? 'Work well with multiple creative images that rotate' : 'Align with the specific ad creative described above'}
+Write 5 variations of Facebook ad primary text. Each MUST follow this structure:
 
-Return ONLY a JSON object: { "primary_texts": ["text1", "text2", "text3"] }`,
+FIRST LINE (HOOK): The very first line must be an attention-grabbing hook that stops the scroll. Use a bold claim, surprising fact, provocative question, or pattern interrupt. This line is the most important — if it doesn't grab attention, nothing else matters.
+
+MIDDLE: 2-4 sentences that speak directly to the target audience's pain points and desires. Build curiosity and emotional connection. Sound conversational and natural, not like marketing copy.
+
+LAST LINE (CTA): The final line must be a clear call to action that drives the click. Examples: "Tap the button to learn more.", "Click to see how it works.", "See what's possible →", "Find out how — tap the button." NEVER say "link below" or "tap the link" — always reference a button. Make it feel like the natural next step, not pushy.
+
+Additional rules:
+- ${flexAdId ? 'Work well with multiple creative images that rotate' : 'Align with the specific ad creative described above'}
+- IMPORTANT: Split each variation into short, readable paragraphs. Each distinct thought or idea should be its own paragraph (separated by \\n\\n). Do NOT write dense blocks of text — break it up so it's easy to scan on mobile.
+
+Return ONLY a JSON object: { "primary_texts": ["text1", "text2", "text3", "text4", "text5"] }
+Remember to use \\n\\n between paragraphs within each text variation.`,
     }], 'claude-sonnet-4-6', {
       max_tokens: 2048,
       operation: 'primary_text_generation',
