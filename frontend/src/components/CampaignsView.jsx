@@ -60,6 +60,9 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
   // Campaign/Ad Set delete confirmation
   const [entityDeleteConfirm, setEntityDeleteConfirm] = useState(null); // { type: 'campaign'|'adset', id, name }
 
+  // Flex ad delete confirmation
+  const [flexDeleteConfirm, setFlexDeleteConfirm] = useState(null); // flexAdId or null
+
   // Image preview lightbox (for flex ad thumbnails)
   const [previewImage, setPreviewImage] = useState(null);
 
@@ -242,8 +245,9 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
     try {
       await api.assignToAdSet(ids, campaignId, adsetId);
     } catch {
-      addToast('Failed to assign ads', 'error');
-      loadDeployments();
+      // Backend uses allSettled + retry, so this only fires on total failure
+      addToast('Failed to assign ads — retrying...', 'error');
+      try { await api.assignToAdSet(ids, campaignId, adsetId); } catch { loadDeployments(); }
     }
   };
 
@@ -270,6 +274,10 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
         allDepIds.includes(d.id) ? { ...d, local_campaign_id: 'unplanned', local_adset_id: '', flex_ad_id: '' } : d
       ));
     }
+    // Optimistic update for flex ads (remove dissolved ones)
+    if (flexAdIds.length > 0) {
+      setFlexAds(prev => prev.filter(f => !flexAdIds.includes(f.id)));
+    }
 
     try {
       // Delete flex ads first (dissolves the grouping)
@@ -278,11 +286,13 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
       if (allDepIds.length > 0) {
         await api.unassignFromAdSet(allDepIds);
       }
-      await Promise.all([loadCampaignData(), loadDeployments()]);
+      // Only refresh campaign data — deployment state is already correct from optimistic update
+      await loadCampaignData();
+      addToast(`Moved ${allDepIds.length} ad${allDepIds.length !== 1 ? 's' : ''} to unplanned`, 'success');
     } catch {
       addToast('Failed to unassign', 'error');
-      loadDeployments();
-      loadCampaignData();
+      // Revert on error: reload everything
+      await Promise.all([loadCampaignData(), loadDeployments()]);
     }
   };
 
@@ -305,8 +315,8 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
     try {
       await api.unassignFromAdSet(ids);
     } catch {
-      addToast('Failed to move to unplanned', 'error');
-      loadDeployments();
+      addToast('Failed to move to unplanned — retrying...', 'error');
+      try { await api.unassignFromAdSet(ids); } catch { loadDeployments(); }
     }
   };
 
@@ -354,20 +364,40 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
       }
       await api.createFlexAd(projectId, adSetId, name, allDepIds);
       setSelectedInAdSet(prev => ({ ...prev, [adSetId]: new Set() }));
+      // Refresh both — flex ads are created server-side, need to fetch new IDs
+      // Use silentRefetch to avoid overwriting deployment state with loading spinner
       await Promise.all([loadCampaignData(), loadDeployments()]);
       addToast('Flex ad created', 'success');
     } catch {
       addToast('Failed to create flex ad', 'error');
+      await Promise.all([loadCampaignData(), loadDeployments()]);
     }
   };
 
   const handleDeleteFlexAd = async (flexAdId) => {
+    // Optimistic: remove flex ad from local state and clear flex_ad_id on its children
+    const flex = flexAds.find(f => f.id === flexAdId);
+    let childIds = [];
+    if (flex) {
+      try { childIds = JSON.parse(flex.child_deployment_ids || '[]'); } catch { /* ignore */ }
+    }
+    setFlexAds(prev => prev.filter(f => f.id !== flexAdId));
+    if (childIds.length > 0) {
+      setDeployments(prev => prev.map(d =>
+        childIds.includes(d.id) ? { ...d, flex_ad_id: '' } : d
+      ));
+    }
+    setFlexDeleteConfirm(null);
+
     try {
       await api.deleteFlexAd(flexAdId);
-      await Promise.all([loadCampaignData(), loadDeployments()]);
+      // Refresh campaign data only (deployments already updated optimistically)
+      await loadCampaignData();
       addToast('Flex ad ungrouped', 'success');
     } catch {
-      addToast('Failed to delete flex ad', 'error');
+      addToast('Failed to ungroup flex ad', 'error');
+      // Revert on error
+      await Promise.all([loadCampaignData(), loadDeployments()]);
     }
   };
 
@@ -565,9 +595,9 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
     if (!ids.length) return;
     setAssignDropdown(false);
 
-    // Optimistic
+    // Optimistic — also clear flex_ad_id for consistency
     setDeployments(prev => prev.map(d =>
-      ids.includes(d.id) ? { ...d, local_campaign_id: campaignId, local_adset_id: adsetId } : d
+      ids.includes(d.id) ? { ...d, local_campaign_id: campaignId, local_adset_id: adsetId, flex_ad_id: '' } : d
     ));
     setSelectedUnplanned(new Set());
 
@@ -575,8 +605,10 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
       await api.assignToAdSet(ids, campaignId, adsetId);
       addToast(`Assigned ${ids.length} ad${ids.length > 1 ? 's' : ''} to ad set`, 'success');
     } catch {
-      addToast('Failed to assign ads', 'error');
-      loadDeployments();
+      // Backend uses allSettled + retry, so this only fires if the entire request fails
+      addToast('Failed to assign ads — retrying...', 'error');
+      // Don't revert optimistic state — retry in background
+      try { await api.assignToAdSet(ids, campaignId, adsetId); } catch { loadDeployments(); }
     }
   };
 
@@ -737,18 +769,36 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
           <div className="text-[10px] text-textlight">{childDeps.length} image{childDeps.length !== 1 ? 's' : ''}</div>
         </div>
 
-        {/* Hover actions */}
-        <div className="opacity-0 group-hover:opacity-100 flex items-center gap-1 flex-shrink-0 transition-opacity">
-          <button
-            onClick={(e) => { e.stopPropagation(); handleDeleteFlexAd(flexAd.id); }}
-            className="p-1 rounded-lg hover:bg-red-50 text-textlight hover:text-red-500 transition-colors"
-            title="Ungroup Flex Ad"
-          >
-            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-            </svg>
-          </button>
-        </div>
+        {/* Hover actions / Confirmation */}
+        {flexDeleteConfirm === flexAd.id ? (
+          <div className="flex items-center gap-1 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
+            <span className="text-[10px] text-textmid">Ungroup?</span>
+            <button
+              onClick={() => handleDeleteFlexAd(flexAd.id)}
+              className="text-[10px] px-1.5 py-0.5 rounded bg-red-500 text-white hover:bg-red-600 transition-colors"
+            >
+              Confirm
+            </button>
+            <button
+              onClick={() => setFlexDeleteConfirm(null)}
+              className="text-[10px] px-1.5 py-0.5 rounded text-textmid hover:bg-gray-100 transition-colors"
+            >
+              Cancel
+            </button>
+          </div>
+        ) : (
+          <div className="opacity-0 group-hover:opacity-100 flex items-center gap-1 flex-shrink-0 transition-opacity">
+            <button
+              onClick={(e) => { e.stopPropagation(); setFlexDeleteConfirm(flexAd.id); }}
+              className="p-1 rounded-lg hover:bg-red-50 text-textlight hover:text-red-500 transition-colors"
+              title="Ungroup Flex Ad"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+              </svg>
+            </button>
+          </div>
+        )}
       </div>
     );
   };

@@ -436,9 +436,15 @@ router.post('/deployments/move-to-unplanned', async (req, res) => {
   try {
     const { deploymentIds } = req.body;
     if (!deploymentIds?.length) return res.status(400).json({ error: 'deploymentIds required' });
-    await Promise.all(deploymentIds.map(id =>
+    const results = await Promise.allSettled(deploymentIds.map(id =>
       updateDeployment(id, { local_campaign_id: 'unplanned', local_adset_id: '', flex_ad_id: '' })
     ));
+    // Retry any failures sequentially
+    for (const [i, result] of results.entries()) {
+      if (result.status === 'rejected') {
+        try { await updateDeployment(deploymentIds[i], { local_campaign_id: 'unplanned', local_adset_id: '', flex_ad_id: '' }); } catch { /* logged below */ }
+      }
+    }
     res.json({ success: true, count: deploymentIds.length });
   } catch (err) {
     console.error('Failed to move to unplanned:', err);
@@ -456,9 +462,24 @@ router.post('/deployments/assign-to-adset', async (req, res) => {
     if (!deploymentIds?.length || !campaignId || !adsetId) {
       return res.status(400).json({ error: 'deploymentIds, campaignId, and adsetId required' });
     }
-    await Promise.all(deploymentIds.map(id =>
+    // Use allSettled to avoid partial failure causing total rollback
+    const results = await Promise.allSettled(deploymentIds.map(id =>
       updateDeployment(id, { local_campaign_id: campaignId, local_adset_id: adsetId })
     ));
+    const failed = results.filter(r => r.status === 'rejected');
+    if (failed.length > 0) {
+      console.error(`Assign to ad set: ${failed.length}/${deploymentIds.length} failed`, failed[0].reason);
+      // Retry failures once sequentially
+      for (const [i, result] of results.entries()) {
+        if (result.status === 'rejected') {
+          try {
+            await updateDeployment(deploymentIds[i], { local_campaign_id: campaignId, local_adset_id: adsetId });
+          } catch (retryErr) {
+            console.error(`Retry failed for ${deploymentIds[i]}:`, retryErr);
+          }
+        }
+      }
+    }
     res.json({ success: true, count: deploymentIds.length });
   } catch (err) {
     console.error('Failed to assign to ad set:', err);
@@ -474,9 +495,15 @@ router.post('/deployments/unassign', async (req, res) => {
   try {
     const { deploymentIds } = req.body;
     if (!deploymentIds?.length) return res.status(400).json({ error: 'deploymentIds required' });
-    await Promise.all(deploymentIds.map(id =>
+    const results = await Promise.allSettled(deploymentIds.map(id =>
       updateDeployment(id, { local_campaign_id: 'unplanned', local_adset_id: '', flex_ad_id: '' })
     ));
+    // Retry any failures sequentially
+    for (const [i, result] of results.entries()) {
+      if (result.status === 'rejected') {
+        try { await updateDeployment(deploymentIds[i], { local_campaign_id: 'unplanned', local_adset_id: '', flex_ad_id: '' }); } catch { /* logged below */ }
+      }
+    }
     res.json({ success: true, count: deploymentIds.length });
   } catch (err) {
     console.error('Failed to unassign:', err);

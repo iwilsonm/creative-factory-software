@@ -8,7 +8,7 @@ import ReadyToPostView from '../components/ReadyToPostView';
 
 const STATUS_ORDER = ['selected', 'ready_to_post', 'posted', 'analyzing'];
 const STATUS_META = {
-  selected:      { label: 'Unposted',      color: 'bg-black/5 text-textmid',      dot: 'bg-textlight' },
+  selected:      { label: 'Queue',          color: 'bg-black/5 text-textmid',      dot: 'bg-textlight' },
   ready_to_post: { label: 'Ready to Post', color: 'bg-navy/10 text-navy',         dot: 'bg-navy' },
   posted:        { label: 'Posted',        color: 'bg-teal/10 text-teal',         dot: 'bg-teal' },
   analyzing:     { label: 'Analyzing',     color: 'bg-gold/10 text-gold',         dot: 'bg-gold' },
@@ -88,20 +88,26 @@ export default function AdTracker({ projectId }) {
   }, []);
 
   // One-time migration: rename 'scheduled' → 'ready_to_post' status
+  // Runs once after initial data loads (uses ref to avoid re-triggering on every state change)
+  const migrationRanRef = useRef(false);
   useEffect(() => {
     const migrationKey = 'status_migration_scheduled_to_ready_v1';
-    if (!localStorage.getItem(migrationKey) && deployments && deployments.length > 0) {
-      const scheduledDeps = deployments.filter(d => d.status === 'scheduled');
-      if (scheduledDeps.length > 0) {
-        Promise.all(scheduledDeps.map(d => api.updateDeploymentStatus(d.id, 'ready_to_post')))
-          .then(() => {
-            localStorage.setItem(migrationKey, Date.now().toString());
-            loadDeployments();
-          })
-          .catch(() => {});
-      } else {
-        localStorage.setItem(migrationKey, Date.now().toString());
-      }
+    if (migrationRanRef.current || localStorage.getItem(migrationKey)) {
+      if (!localStorage.getItem(migrationKey)) localStorage.setItem(migrationKey, Date.now().toString());
+      return;
+    }
+    if (!deployments || deployments.length === 0) return;
+    migrationRanRef.current = true;
+    const scheduledDeps = deployments.filter(d => d.status === 'scheduled');
+    if (scheduledDeps.length > 0) {
+      Promise.all(scheduledDeps.map(d => api.updateDeploymentStatus(d.id, 'ready_to_post')))
+        .then(() => {
+          localStorage.setItem(migrationKey, Date.now().toString());
+          loadDeployments();
+        })
+        .catch(() => {});
+    } else {
+      localStorage.setItem(migrationKey, Date.now().toString());
     }
   }, [deployments]);
 
