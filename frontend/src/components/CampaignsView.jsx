@@ -325,9 +325,34 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
   const handleCombineIntoFlex = async (adSetId) => {
     const selected = [...(selectedInAdSet[adSetId] || [])];
     if (selected.length < 2) return;
-    const name = `Flex Ad (${selected.length} images)`;
+
+    // Separate selected IDs into standalone deployment IDs and flex ad IDs
+    const standaloneDepIds = selected.filter(id => deployments.some(d => d.id === id));
+    const selectedFlexIds = selected.filter(id => flexAds.some(f => f.id === id));
+
+    // Resolve flex ad IDs to their child deployment IDs
+    const resolvedChildIds = [];
+    for (const fid of selectedFlexIds) {
+      const flex = flexAds.find(f => f.id === fid);
+      if (flex) {
+        try { resolvedChildIds.push(...JSON.parse(flex.child_deployment_ids || '[]')); } catch { /* ignore */ }
+      }
+    }
+
+    // All deployment IDs for the new flex: standalone + children from old flex ads
+    const allDepIds = [...new Set([...standaloneDepIds, ...resolvedChildIds])];
+    if (allDepIds.length < 2) {
+      addToast('Need at least 2 ads to create a Flex', 'info');
+      return;
+    }
+
+    const name = `Flex Ad (${allDepIds.length} images)`;
     try {
-      await api.createFlexAd(projectId, adSetId, name, selected);
+      // Delete old flex ads first (dissolve them)
+      if (selectedFlexIds.length > 0) {
+        await Promise.all(selectedFlexIds.map(id => api.deleteFlexAd(id)));
+      }
+      await api.createFlexAd(projectId, adSetId, name, allDepIds);
       setSelectedInAdSet(prev => ({ ...prev, [adSetId]: new Set() }));
       await Promise.all([loadCampaignData(), loadDeployments()]);
       addToast('Flex ad created', 'success');
