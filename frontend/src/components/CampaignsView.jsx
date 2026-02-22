@@ -1636,20 +1636,13 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
             </div>
 
             {/* ─── Save ─── */}
-            <div className="flex items-center gap-2 pt-3 pb-6">
+            <div className="pt-3 pb-6">
               <button
                 onClick={() => handleSaveSidebar({ closeAfter: true })}
                 disabled={sidebarSaving}
-                className="btn-primary flex-1 text-[12px] py-2.5 disabled:opacity-50"
+                className="btn-primary w-full text-[12px] py-2.5 disabled:opacity-50"
               >
                 {sidebarSaving ? 'Saving...' : 'Save & Close'}
-              </button>
-              <button
-                onClick={() => handleSaveSidebar()}
-                disabled={sidebarSaving}
-                className="text-[11px] px-4 py-2.5 rounded-xl border border-gray-200 text-textmid hover:bg-gray-50 hover:border-navy/30 hover:text-navy transition-colors disabled:opacity-50 whitespace-nowrap"
-              >
-                {sidebarSaving ? 'Saving...' : 'Save'}
               </button>
             </div>
 
