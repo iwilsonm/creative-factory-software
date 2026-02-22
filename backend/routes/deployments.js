@@ -819,9 +819,58 @@ Additional rules:
 ALWAYS return ONLY a JSON object: { "primary_texts": ["text1", "text2", "text3", "text4", "text5"] }
 Remember to use \\n\\n between paragraphs within each text variation.`;
 
+    // ── Auto-detect and fetch URLs in the creative direction ──
+    let fetchedPageContent = '';
+    if (direction) {
+      const urlRegex = /https?:\/\/[^\s"'<>]+/gi;
+      const urls = direction.match(urlRegex);
+      if (urls && urls.length > 0) {
+        for (const url of urls.slice(0, 2)) { // Limit to 2 URLs max
+          try {
+            const fetchModule = await import('node-fetch');
+            const fetchFn = fetchModule.default;
+            const response = await fetchFn(url, {
+              headers: { 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36' },
+              timeout: 15000,
+              redirect: 'follow',
+            });
+            if (response.ok) {
+              const html = await response.text();
+              // Extract text: strip script/style/tags, collapse whitespace
+              const text = html
+                .replace(/<script[\s\S]*?<\/script>/gi, '')
+                .replace(/<style[\s\S]*?<\/style>/gi, '')
+                .replace(/<nav[\s\S]*?<\/nav>/gi, '')
+                .replace(/<footer[\s\S]*?<\/footer>/gi, '')
+                .replace(/<header[\s\S]*?<\/header>/gi, '')
+                .replace(/<[^>]+>/g, ' ')
+                .replace(/&nbsp;/g, ' ')
+                .replace(/&amp;/g, '&')
+                .replace(/&lt;/g, '<')
+                .replace(/&gt;/g, '>')
+                .replace(/&#?\w+;/g, ' ')
+                .replace(/\s+/g, ' ')
+                .trim()
+                .slice(0, 4000); // Cap at 4000 chars
+              if (text.length > 100) {
+                fetchedPageContent += `\n\n--- REFERENCED PAGE: ${url} ---\n${text}\n--- END PAGE ---`;
+              }
+            }
+          } catch (e) {
+            console.log(`[PrimaryText] Failed to fetch URL ${url}: ${e.message}`);
+          }
+        }
+      }
+    }
+
     // ── Build conversation messages ──
     // Thread-based: each refinement round builds on the previous conversation
     const conversationMessages = [{ role: 'system', content: systemPrompt }];
+
+    // Build user direction with fetched page content if any
+    const directionWithPages = direction
+      ? (fetchedPageContent ? `${direction}\n${fetchedPageContent}` : direction)
+      : '';
 
     if (threadMessages && threadMessages.length > 0) {
       // Continuation: replay previous user/assistant exchanges, then add new direction
@@ -833,7 +882,7 @@ Remember to use \\n\\n between paragraphs within each text variation.`;
         role: 'user',
         content: `The advertiser wants refinements to the primary text variations you just wrote.
 
-Their feedback: "${direction || 'Generate new variations with a different approach.'}"
+Their feedback: "${directionWithPages || 'Generate new variations with a different approach.'}"
 
 Write 5 NEW refined variations that incorporate this feedback while keeping what worked from the previous versions. Return ONLY a JSON object: { "primary_texts": ["text1", "text2", "text3", "text4", "text5"] }`,
       });
@@ -841,8 +890,8 @@ Write 5 NEW refined variations that incorporate this feedback while keeping what
       // First generation — include creative direction in the initial user message
       conversationMessages.push({
         role: 'user',
-        content: direction
-          ? `Write 5 variations of Facebook ad primary text.\n\nCREATIVE DIRECTION FROM THE ADVERTISER — follow this closely:\n"${direction}"\n\nThis is the most important instruction. Shape every variation around this direction. If it specifies a hook angle, tone, length, or structure, follow it exactly.`
+        content: directionWithPages
+          ? `Write 5 variations of Facebook ad primary text.\n\nCREATIVE DIRECTION FROM THE ADVERTISER — follow this closely:\n"${directionWithPages}"\n\nThis is the most important instruction. Shape every variation around this direction. If it specifies a hook angle, tone, length, or structure, follow it exactly.`
           : 'Write 5 variations of Facebook ad primary text based on the brand context and ad creative info provided.',
       });
     }
