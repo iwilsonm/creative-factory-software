@@ -174,6 +174,7 @@ export default defineSchema({
     headlines: v.optional(v.string()),           // JSON string array (up to 5)
     destination_url: v.optional(v.string()),
     cta_button: v.optional(v.string()),          // Meta CTA type
+    facebook_page: v.optional(v.string()),       // Facebook Page name to post from
     planned_date: v.optional(v.string()),        // ISO datetime for scheduled posting
     created_at: v.string(),
     updated_at: v.string(),
@@ -205,6 +206,7 @@ export default defineSchema({
     ad_headlines: v.optional(v.string()),         // JSON array of headline strings
     destination_url: v.optional(v.string()),      // Meta destination URL
     cta_button: v.optional(v.string()),           // Meta CTA type (SHOP_NOW, LEARN_MORE, etc.)
+    facebook_page: v.optional(v.string()),        // Facebook Page name to post from
     created_at: v.string(),
     deleted_at: v.optional(v.string()),           // ISO timestamp for soft delete
   })

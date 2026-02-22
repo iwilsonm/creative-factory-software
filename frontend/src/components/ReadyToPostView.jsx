@@ -377,6 +377,24 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
     );
   };
 
+  // Facebook Page section — which page to post from
+  const FacebookPageSection = ({ page }) => {
+    if (!page) return null;
+    return (
+      <div className="border-2 border-purple-200 bg-purple-50/50 rounded-xl p-4">
+        <div className="flex items-start justify-between gap-3">
+          <div className="flex-1 min-w-0">
+            <span className="inline-block px-2 py-0.5 rounded bg-purple-100 text-purple-700 text-[10px] font-bold uppercase tracking-widest mb-1">Facebook Page</span>
+            <p className="text-[11px] text-textmid mb-2">Make sure you are posting from the correct Facebook Page. Select <strong>"{page}"</strong> as your Page identity in Ads Manager.</p>
+            <div className="bg-white rounded-lg px-3 py-2 border border-purple-200">
+              <span className="text-[14px] font-bold text-textdark">{page}</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  };
+
   // ── Card Renderers ──────────────────────────────────────────────────────
 
   // Single ad card
@@ -394,6 +412,7 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
 
         <div className="p-5 space-y-4">
           <PostInSection campaignName={campaignName} adSetName={adSetName} />
+          <FacebookPageSection page={dep.facebook_page} />
 
           {/* Image */}
           {thumbUrl && (
@@ -487,6 +506,7 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
 
         <div className="p-5 space-y-4">
           <PostInSection campaignName={campaignName} adSetName={adSetName} />
+          <FacebookPageSection page={flexAd.facebook_page} />
 
           {/* Ad Creatives with download */}
           <div className="border border-black/[0.06] rounded-xl p-4 bg-white">

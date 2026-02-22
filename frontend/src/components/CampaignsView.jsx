@@ -69,7 +69,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
   // Detail sidebar
   const [sidebarData, setSidebarData] = useState(null);
   const [sidebarForm, setSidebarForm] = useState({
-    ad_name: '', destination_urls: [''], cta_button: 'LEARN_MORE', primary_texts: [], ad_headlines: [], planned_date: '',
+    ad_name: '', destination_urls: [''], cta_button: 'LEARN_MORE', primary_texts: [], ad_headlines: [], planned_date: '', facebook_page: '',
   });
   const [duplicateConfirm, setDuplicateConfirm] = useState(null); // { urls: string[] } when pending
   const [generatingPrimaryText, setGeneratingPrimaryText] = useState(false);
@@ -529,6 +529,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
         primary_texts: (() => { try { return dep.primary_texts ? JSON.parse(dep.primary_texts) : []; } catch { return []; } })(),
         ad_headlines: (() => { try { return dep.ad_headlines ? JSON.parse(dep.ad_headlines) : []; } catch { return []; } })(),
         planned_date: dep.planned_date || '',
+        facebook_page: dep.facebook_page || '',
       };
     } else {
       const flex = data.flexAd;
@@ -540,6 +541,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
         primary_texts: (() => { try { return flex.primary_texts ? JSON.parse(flex.primary_texts) : []; } catch { return []; } })(),
         ad_headlines: (() => { try { return flex.headlines ? JSON.parse(flex.headlines) : []; } catch { return []; } })(),
         planned_date: flex.planned_date || '',
+        facebook_page: flex.facebook_page || '',
       };
     }
     setSidebarForm(form);
@@ -708,6 +710,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
           ad_headlines: JSON.stringify(sidebarForm.ad_headlines),
           destination_url: primaryUrl,
           cta_button: sidebarForm.cta_button,
+          facebook_page: sidebarForm.facebook_page || null,
           planned_date: sidebarForm.planned_date || null,
         });
 
@@ -730,6 +733,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
           headlines: JSON.stringify(sidebarForm.ad_headlines),
           destination_url: primaryUrl,
           cta_button: sidebarForm.cta_button,
+          facebook_page: sidebarForm.facebook_page || null,
           planned_date: sidebarForm.planned_date || null,
         });
 
@@ -1603,6 +1607,19 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
               </select>
             </div>
 
+            {/* ─── Facebook Page ─── */}
+            <div>
+              <label className="text-[11px] font-semibold text-textdark uppercase tracking-wider">Facebook Page</label>
+              <input
+                type="text"
+                value={sidebarForm.facebook_page}
+                onChange={(e) => setSidebarForm(prev => ({ ...prev, facebook_page: e.target.value }))}
+                placeholder="e.g. My Brand Page"
+                className="input-apple text-[12px] w-full mt-1.5"
+              />
+              <p className="text-[10px] text-textmid mt-1">The Facebook Page this ad will be posted from.</p>
+            </div>
+
             {/* ─── Schedule Ad ─── */}
             <div>
               <label className="text-[11px] font-semibold text-textdark uppercase tracking-wider">Schedule Ad</label>
@@ -1842,7 +1859,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
       {/* ═══════════ Campaigns Section ═══════════ */}
       <div>
         <div className="flex items-center justify-between mb-4">
-          <h3 className="text-[14px] font-semibold text-textdark">Campaigns</h3>
+          <h3 className="text-[14px] font-semibold text-textdark">Planner</h3>
           {!creatingCampaign && (
             <button
               onClick={() => setCreatingCampaign(true)}
