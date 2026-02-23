@@ -174,10 +174,10 @@ All tables live in Convex cloud. Schema is enforced via `convex/schema.ts`. 24 t
 | Table | Purpose | Key Fields |
 |-------|---------|------------|
 | `settings` | App config (key-value) | `key`, `value` |
-| `projects` | Products/brands being advertised | `externalId`, `name`, `brand_name`, `niche`, `product_description`, `sales_page_content`, `drive_folder_id`, `inspiration_folder_id`, `prompt_guidelines`, `product_image_storageId`, `meta_app_id`, `meta_app_secret`, `meta_access_token`, `meta_token_expires_at`, `meta_ad_account_id`, `meta_user_name`, `meta_user_id`, `meta_last_sync_at`, `scout_default_campaign`, `scout_cta`, `scout_display_link`, `scout_facebook_page`, `scout_score_threshold`, `scout_enabled` |
+| `projects` | Products/brands being advertised | `externalId`, `name`, `brand_name`, `niche`, `product_description`, `sales_page_content`, `drive_folder_id`, `inspiration_folder_id`, `prompt_guidelines`, `product_image_storageId`, `meta_app_id`, `meta_app_secret`, `meta_access_token`, `meta_token_expires_at`, `meta_ad_account_id`, `meta_user_name`, `meta_user_id`, `meta_last_sync_at`, `scout_default_campaign`, `scout_cta`, `scout_display_link`, `scout_facebook_page`, `scout_score_threshold`, `scout_daily_flex_ads`, `scout_enabled` |
 | `foundational_docs` | Generated research docs | `project_id`, `doc_type` (research/avatar/offer_brief/necessary_beliefs), `content`, `version`, `approved`, `source` (generated/uploaded/manual_research) |
 | `ad_creatives` | Generated ads | `project_id`, `generation_mode`, `angle`, `headline`, `body_copy`, `image_prompt`, `gpt_creative_output`, `storageId`, `drive_file_id`, `drive_url`, `aspect_ratio`, `status`, `auto_generated`, `parent_ad_id`, `tags`, `is_favorite`, `source_quote_id`, `batch_job_id` |
-| `batch_jobs` | Scheduled + on-demand batches | `project_id`, `generation_mode`, `batch_size`, `angle`, `angles` (JSON), `aspect_ratio`, `template_image_id`, `template_image_ids` (JSON), `inspiration_image_ids` (JSON), `product_image_storageId`, `gemini_batch_job`, `gpt_prompts` (JSON), `status`, `scheduled`, `schedule_cron`, `completed_count`, `failed_count`, `run_count`, `retry_count`, `used_template_ids` (JSON), `batch_stats`, `pipeline_state` (JSON), `started_at`, `completed_at`, `filter_processed`, `filter_processed_at` |
+| `batch_jobs` | Scheduled + on-demand batches | `project_id`, `generation_mode`, `batch_size`, `angle`, `angles` (JSON), `aspect_ratio`, `template_image_id`, `template_image_ids` (JSON), `inspiration_image_ids` (JSON), `product_image_storageId`, `gemini_batch_job`, `gpt_prompts` (JSON), `status`, `scheduled`, `schedule_cron`, `completed_count`, `failed_count`, `run_count`, `retry_count`, `used_template_ids` (JSON), `batch_stats`, `pipeline_state` (JSON), `started_at`, `completed_at`, `filter_assigned`, `filter_processed`, `filter_processed_at` |
 | `api_costs` | Cost tracking per operation | `service` (gemini/openai/anthropic/perplexity), `operation`, `cost_usd`, `rate_used`, `image_count`, `resolution`, `source` (calculated/billing_api), `period_date` |
 | `campaigns` | Ad Pipeline campaign hierarchy (Planner) | `externalId`, `project_id`, `name`, `sort_order` |
 | `ad_sets` | Ad sets within campaigns | `externalId`, `campaign_id`, `project_id`, `name`, `sort_order` |
@@ -682,6 +682,8 @@ All LLM costs are logged automatically inside each wrapper function. Callers pas
 | GET | `/api/agent-monitor/filter/status` | Dacia Creative Filter status |
 | POST | `/api/agent-monitor/filter/run` | Trigger filter dry-run |
 | POST | `/api/agent-monitor/filter/run-live` | Trigger filter live run |
+| GET | `/api/agent-monitor/filter/volumes` | Per-project flex ad volume settings + today's count |
+| PUT | `/api/agent-monitor/filter/volumes/:projectId` | Update project daily flex ad cap (1-10) |
 
 ### Agent Cost (No Auth — Localhost Only)
 | Method | Path | Purpose |
@@ -960,8 +962,8 @@ ssh root@76.13.183.219 "cd /opt/ad-platform && npx convex deploy -y"
 - Landing page publishing to Cloudflare Pages (Direct Upload API)
 - Navy-gold-teal design system (migrated from Apple/macOS blue palette)
 - Dacia Fixer (Recursive Agent #1): automated batch testing, self-healing, and batch resurrection
-- Dacia Creative Filter (Recursive Agent #2): batch ad scoring, flex ad grouping, auto-deployment to Ready to Post
-- Agent Dashboard (unified Fixer + Filter monitoring card with status, budget, stats, activity, run triggers)
+- Dacia Creative Filter (Recursive Agent #2): batch ad scoring, flex ad grouping, auto-deployment to Ready to Post, opt-in batch assignment, per-brand daily volume control
+- Agent Dashboard (unified Fixer + Filter monitoring card with status, budget, stats, activity, run triggers, per-brand volume controls)
 - AI-generated primary text and headlines for Ad Pipeline deployments (Claude Sonnet 4.6, 5 variations each)
 - Landing page image slot management (regenerate, upload, revert per slot)
 - Landing page version history (save/restore with auto-save safety)
@@ -1014,14 +1016,17 @@ When working on Dacia Fixer:
 ### Agent #2: Dacia Creative Filter
 - **Location:** `/dacia-creative-filter`
 - **Role:** Score batch ads (Sonnet 4.6), group into flex ads, deploy to Ready to Post
-- **Schedule:** Every 30 minutes via cron (processes completed batches)
+- **Schedule:** Every 30 minutes via cron (processes completed, filter-assigned batches only)
 - **Budget:** $31/month (~$1.04/batch of 50 ads)
 - **Config:** `dacia-creative-filter/config/filter.conf`
 - **Commands:** `./dacia-creative-filter/filter.sh [--daemon|--status|--dry-run]`
 - **Model:** Claude Sonnet 4.6 (scoring + grouping + regeneration + validation)
 - **Logs:** `dacia-creative-filter/logs/`
 - **Per-project config required:** scout_default_campaign, scout_cta, scout_display_link, scout_facebook_page
-- **Output:** 2 flex ads x 10 images x 3-5 headlines x 3-5 primary texts each, deployed to Ready to Post
+- **Opt-in batch assignment:** Only processes batches with `filter_assigned=true` (set via BatchManager checkbox)
+- **Per-brand volume control:** `scout_daily_flex_ads` (1-10, default 2) configurable from Agent Dashboard
+- **Daily cap enforcement:** Counts today's deployed flex ads per project from log; skips if cap reached
+- **Output:** N flex ads x 10 images x 3-5 headlines x 3-5 primary texts each, deployed to Ready to Post (N = remaining daily cap)
 - **Minimum to execute:** 3 headlines + 3 primary texts per flex ad (target: 5 each)
 - **Regeneration:** If batch copy isn't good enough, Sonnet generates new headlines/texts until minimums met (max 3 rounds)
 - **Guarantee:** Flex ads always complete — never skipped
@@ -1034,3 +1039,6 @@ When working on Dacia Creative Filter:
 - Flex ads must have exactly 10 images each with shared headlines + primary texts
 - Mock external calls in any tests to avoid LLM costs
 - Per-project settings are in the Overview tab under "Dacia Creative Filter"
+- Batches must have `filter_assigned=true` to be processed (opt-in model)
+- Per-brand daily flex ad cap is read from `scout_daily_flex_ads` on the project (default: 2, range: 1-10)
+- Volume controls are in Agent Dashboard → Creative Filter panel → "Daily Flex Ad Volume" section
