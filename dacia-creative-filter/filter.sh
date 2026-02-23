@@ -476,10 +476,20 @@ mark_processed() {
         continue
       fi
 
-      curl -s -X POST "http://localhost:3001/api/ads/${ad_id}/tag" \
+      # Get current tags, add new tag, update via PATCH
+      local current_tags
+      current_tags=$(echo "$scored_ads" | jq -r ".[$i].tags // \"[]\"" 2>/dev/null)
+      [[ "$current_tags" == "null" || -z "$current_tags" ]] && current_tags="[]"
+      local new_tags
+      new_tags=$(echo "$current_tags" | jq --arg t "$tag" '. + [$t] | unique' 2>/dev/null || echo "[\"$tag\"]")
+
+      local project_id_for_tag
+      project_id_for_tag=$(echo "$scored_ads" | jq -r ".[$i].project_id // \"\"")
+
+      curl -s -X PATCH "http://localhost:3001/api/projects/${project_id_for_tag}/ads/${ad_id}/tags" \
         -H "Content-Type: application/json" \
         -H "Cookie: $(get_session_cookie)" \
-        -d "{\"tag\": \"${tag}\"}" > /dev/null 2>&1
+        -d "{\"tags\": ${new_tags}}" > /dev/null 2>&1
     done
   fi
 
