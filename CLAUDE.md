@@ -64,7 +64,8 @@ ad-platform/
 │   │   ├── quoteMining.js           # Quote mining runs, suggestions, headline generation, quote bank operations
 │   │   ├── chat.js                  # Copywriter Chat widget (Claude Sonnet 4.6, foundational docs as context, multimodal: images + PDFs)
 │   │   ├── landingPages.js          # Landing page CRUD, copy generation (SSE), HTML generation, publishing
-│   │   └── meta.js                  # Meta OAuth, per-project ad account/campaign/adset management, performance sync
+│   │   ├── meta.js                  # Meta OAuth, per-project ad account/campaign/adset management, performance sync
+│   │   └── agentMonitor.js           # Agent Dashboard: Dacia Fixer + Creative Filter status, run triggers
 │   └── services/
 │       ├── openai.js                # GPT-5.2, GPT-4.1, GPT-4.1-mini, o3-deep-research wrappers; streaming support
 │       ├── anthropic.js             # Claude Opus 4.6 + Sonnet 4.6 wrappers; JSON mode; cost logging; PDF document blocks
@@ -83,7 +84,12 @@ ad-platform/
 │       ├── quoteDedup.js            # Quote deduplication before adding to quote bank
 │       ├── lpGenerator.js           # Landing page copy + HTML generation via Claude Sonnet
 │       ├── lpSwipeFetcher.js        # Headless browser (Puppeteer) swipe page fetching + screenshot capture
-│       └── lpPublisher.js           # Cloudflare Pages deployment (publish/unpublish landing pages)
+│       ├── lpPublisher.js           # Cloudflare Pages deployment (publish/unpublish landing pages)
+│       ├── correctionHistory.js     # Correction history service (log, apply, revert corrections)
+│       └── quoteBankService.js      # Quote bank orchestration (import, headlines, backfill)
+│   └── utils/
+│       ├── sseHelper.js             # Shared SSE stream setup (createSSEStream, streamService)
+│       └── adImages.js              # Product image loading, ad enrichment, thumbnail generation
 │
 ├── frontend/
 │   ├── src/
@@ -115,7 +121,10 @@ ad-platform/
 │   │       ├── DragDropUpload.jsx   # Reusable file upload component
 │   │       ├── DriveFolderPicker.jsx # Drive folder browser modal
 │   │       ├── Toast.jsx            # Toast notification context + component
-│   │       └── InfoTooltip.jsx      # Pure CSS hover tooltip
+│   │       ├── InfoTooltip.jsx      # Pure CSS hover tooltip
+│   │       ├── AgentMonitor.jsx    # Agent Dashboard: side-by-side Fixer + Filter status panels
+│   │       ├── CreativeFilterSettings.jsx # Per-project Dacia Creative Filter config (Overview tab)
+│   │       └── batchUtils.js       # Batch constants, cron helpers, status labels
 │   ├── vite.config.js               # Dev proxy → localhost:3001
 │   ├── tailwind.config.js           # Apple font stack, custom shadows/radii
 │   └── package.json
@@ -165,10 +174,10 @@ All tables live in Convex cloud. Schema is enforced via `convex/schema.ts`. 24 t
 | Table | Purpose | Key Fields |
 |-------|---------|------------|
 | `settings` | App config (key-value) | `key`, `value` |
-| `projects` | Products/brands being advertised | `externalId`, `name`, `brand_name`, `niche`, `product_description`, `sales_page_content`, `drive_folder_id`, `inspiration_folder_id`, `prompt_guidelines`, `product_image_storageId`, `meta_app_id`, `meta_app_secret`, `meta_access_token`, `meta_token_expires_at`, `meta_ad_account_id`, `meta_user_name`, `meta_user_id`, `meta_last_sync_at` |
+| `projects` | Products/brands being advertised | `externalId`, `name`, `brand_name`, `niche`, `product_description`, `sales_page_content`, `drive_folder_id`, `inspiration_folder_id`, `prompt_guidelines`, `product_image_storageId`, `meta_app_id`, `meta_app_secret`, `meta_access_token`, `meta_token_expires_at`, `meta_ad_account_id`, `meta_user_name`, `meta_user_id`, `meta_last_sync_at`, `scout_default_campaign`, `scout_cta`, `scout_display_link`, `scout_facebook_page`, `scout_score_threshold`, `scout_enabled` |
 | `foundational_docs` | Generated research docs | `project_id`, `doc_type` (research/avatar/offer_brief/necessary_beliefs), `content`, `version`, `approved`, `source` (generated/uploaded/manual_research) |
-| `ad_creatives` | Generated ads | `project_id`, `generation_mode`, `angle`, `headline`, `body_copy`, `image_prompt`, `gpt_creative_output`, `storageId`, `drive_file_id`, `drive_url`, `aspect_ratio`, `status`, `auto_generated`, `parent_ad_id`, `tags`, `is_favorite`, `source_quote_id` |
-| `batch_jobs` | Scheduled + on-demand batches | `project_id`, `generation_mode`, `batch_size`, `angle`, `angles` (JSON), `aspect_ratio`, `template_image_id`, `template_image_ids` (JSON), `inspiration_image_ids` (JSON), `product_image_storageId`, `gemini_batch_job`, `gpt_prompts` (JSON), `status`, `scheduled`, `schedule_cron`, `completed_count`, `failed_count`, `run_count`, `retry_count`, `used_template_ids` (JSON), `batch_stats`, `pipeline_state` (JSON), `started_at`, `completed_at` |
+| `ad_creatives` | Generated ads | `project_id`, `generation_mode`, `angle`, `headline`, `body_copy`, `image_prompt`, `gpt_creative_output`, `storageId`, `drive_file_id`, `drive_url`, `aspect_ratio`, `status`, `auto_generated`, `parent_ad_id`, `tags`, `is_favorite`, `source_quote_id`, `batch_job_id` |
+| `batch_jobs` | Scheduled + on-demand batches | `project_id`, `generation_mode`, `batch_size`, `angle`, `angles` (JSON), `aspect_ratio`, `template_image_id`, `template_image_ids` (JSON), `inspiration_image_ids` (JSON), `product_image_storageId`, `gemini_batch_job`, `gpt_prompts` (JSON), `status`, `scheduled`, `schedule_cron`, `completed_count`, `failed_count`, `run_count`, `retry_count`, `used_template_ids` (JSON), `batch_stats`, `pipeline_state` (JSON), `started_at`, `completed_at`, `filter_processed`, `filter_processed_at` |
 | `api_costs` | Cost tracking per operation | `service` (gemini/openai/anthropic/perplexity), `operation`, `cost_usd`, `rate_used`, `image_count`, `resolution`, `source` (calculated/billing_api), `period_date` |
 | `campaigns` | Ad Pipeline campaign hierarchy (Planner) | `externalId`, `project_id`, `name`, `sort_order` |
 | `ad_sets` | Ad sets within campaigns | `externalId`, `campaign_id`, `project_id`, `name`, `sort_order` |
@@ -180,11 +189,11 @@ All tables live in Convex cloud. Schema is enforced via `convex/schema.ts`. 24 t
 | `quote_bank` | Individual quotes (denormalized from runs) | `project_id`, `quote`, `source`, `source_url`, `emotion`, `emotional_intensity`, `context`, `run_id`, `problem` (denormalized), `tags`, `is_favorite`, `headlines` (JSON), `headlines_generated_at` |
 | `chat_threads` | Copywriter chat conversations | `project_id`, `title`, `status` (active/archived) |
 | `chat_messages` | Chat messages within threads | `thread_id`, `project_id`, `role` (user/assistant), `content`, `is_context_message` (hides priming message) |
-| `correction_history` | Copy correction audit trail | `project_id`, `instruction`, `corrections` (JSON), `before_docs` (JSON), `after_docs` (JSON) |
+| `correction_history` | Copy correction audit trail | `externalId`, `project_id`, `correction`, `timestamp`, `manual` (boolean), `changes` (JSON: doc_type, doc_id, old_text, new_text, before_content, after_content) |
 | `meta_performance` | Meta ad performance data | `deployment_id`, `meta_ad_id`, `date`, `impressions`, `clicks`, `spend`, `reach`, `ctr`, `cpc`, `cpm`, `conversions`, `conversion_value`, `frequency` |
 | `dashboard_todos` | Roadmap to-do items (dedicated table) | `externalId`, `text`, `done`, `author`, `notes`, `priority` (1-4), `sort_order` |
-| `landing_pages` | Generated landing pages | `externalId`, `project_id`, `name`, `slug`, `status` (draft/published/unpublished), `target_audience`, `page_goal`, `tone`, `swipe_url`, `swipe_screenshot_storageId`, `copy_sections` (JSON), `design_analysis`, `image_slots` (JSON), `html_template`, `assembled_html`, `cta_links` (JSON), `published_url`, `published_at`, `hosting_metadata`, `final_html`, `current_version` |
-| `landing_page_versions` | Landing page version snapshots | `landing_page_id`, `version`, `html`, `copy_sections` (JSON) |
+| `landing_pages` | Generated landing pages | `externalId`, `project_id`, `name`, `slug`, `status` (draft/published/unpublished), `angle`, `word_count`, `additional_direction`, `swipe_url`, `swipe_text`, `swipe_filename`, `swipe_screenshot_storageId`, `swipe_design_analysis` (JSON), `copy_sections` (JSON), `image_slots` (JSON), `html_template`, `assembled_html`, `cta_links` (JSON), `published_url`, `published_at`, `hosting_metadata` (JSON), `final_html`, `current_version`, `error_message` |
+| `landing_page_versions` | Landing page version snapshots | `landing_page_id`, `version`, `source`, `copy_sections` (JSON), `image_slots` (JSON), `cta_links` (JSON), `html_template`, `assembled_html` |
 | `users` | Multi-user accounts | `externalId`, `username`, `display_name`, `password_hash`, `role` (admin/manager/poster), `is_active`, `created_by` |
 | `sessions` | Convex-backed express sessions | `sid`, `session_data` (JSON string), `expires_at` (Unix timestamp) |
 
@@ -202,7 +211,7 @@ All tables live in Convex cloud. Schema is enforced via `convex/schema.ts`. 24 t
 - **SSE streaming**: Doc generation, ad generation, quote mining, headline generation, and chat all stream progress events via Server-Sent Events. Pattern: `res.writeHead(200, { 'Content-Type': 'text/event-stream' })` then `res.write(`data: ${JSON.stringify(event)}\n\n`)`.
 - **File uploads**: Multer saves to temp dir → uploaded to Convex storage → temp file deleted. Product images, templates, and inspiration images all stored in Convex.
 - **Retry utility**: `withRetry(fn, options)` in `services/retry.js` — 5 retries, exponential backoff with jitter, rate-limit-aware (15s base delay for 429 errors), Retry-After header support, 120s max delay.
-- **Rate limiter**: `withGptRateLimit(fn, label)` in `services/rateLimiter.js` — AsyncSemaphore-based concurrency limiter (concurrency=2, 2s minimum gap between calls). Wraps all GPT-5.2 calls to prevent 429 errors.
+- **Rate limiters**: Two AsyncSemaphore-based limiters in `services/rateLimiter.js`: (1) `withHeavyLLMLimit()` (alias `withGptRateLimit()`) — concurrency=2, 2s minimum gap, wraps GPT-5.2 and heavy Claude Opus/Sonnet calls. (2) `withGeminiLimit()` — concurrency=3, wraps all Gemini image generation calls. Both prevent 429 errors.
 - **Cost logging**: Fire-and-forget pattern — `logAnthropicCost().catch(() => {})`. Anthropic/Perplexity costs calculated from token counts. Gemini costs logged immediately by rate. OpenAI synced hourly from billing API.
 
 ### Frontend
@@ -487,6 +496,7 @@ Same flow as Mode 1 but template image used instead of random inspiration. Promp
 | DELETE | `/api/projects/:id/batches/:batchId` | Delete/cancel batch |
 | POST | `/api/projects/:id/batches/:batchId/run` | Manually trigger batch |
 | POST | `/api/projects/:id/batches/:batchId/cancel` | Cancel active batch |
+| POST | `/api/batches/retry/:batchId` | Retry failed batch (flat mount for Dacia Fixer) |
 
 ### Quote Mining & Quote Bank
 | Method | Path | Purpose |
@@ -522,15 +532,20 @@ Same flow as Mode 1 but template image used instead of random inspiration. Promp
 | Method | Path | Purpose |
 |--------|------|---------|
 | GET | `/api/projects/:id/landing-pages` | List all landing pages for project |
-| POST | `/api/projects/:id/landing-pages` | Create new landing page |
+| GET | `/api/projects/:id/landing-pages-check` | Check foundational docs readiness |
 | GET | `/api/projects/:id/landing-pages/:pageId` | Get single landing page |
+| POST | `/api/projects/:id/landing-pages/generate` | Full generation pipeline (SSE: fetch → design → copy → images → HTML → assemble) |
 | PUT | `/api/projects/:id/landing-pages/:pageId` | Update landing page fields |
-| DELETE | `/api/projects/:id/landing-pages/:pageId` | Delete landing page |
-| POST | `/api/projects/:id/landing-pages/:pageId/generate-copy` | Generate copy sections (SSE stream) |
-| POST | `/api/projects/:id/landing-pages/:pageId/generate-design` | Generate design analysis (SSE stream) |
-| POST | `/api/projects/:id/landing-pages/:pageId/generate-html` | Generate HTML template (SSE stream) |
-| POST | `/api/projects/:id/landing-pages/:pageId/publish` | Publish to Cloudflare Pages |
+| POST | `/api/projects/:id/landing-pages/:pageId/regenerate-image` | Regenerate single image slot (SSE) |
+| POST | `/api/projects/:id/landing-pages/:pageId/upload-image` | Upload image for specific slot (multipart) |
+| POST | `/api/projects/:id/landing-pages/:pageId/revert-image` | Revert image slot to original |
+| GET | `/api/projects/:id/landing-pages/:pageId/versions` | List all version snapshots |
+| POST | `/api/projects/:id/landing-pages/:pageId/versions` | Save new version snapshot |
+| POST | `/api/projects/:id/landing-pages/:pageId/versions/:versionId/restore` | Restore version (auto-saves current first) |
+| POST | `/api/projects/:id/landing-pages/:pageId/publish` | Publish to Cloudflare Pages (SSE) |
 | POST | `/api/projects/:id/landing-pages/:pageId/unpublish` | Remove from Cloudflare Pages |
+| DELETE | `/api/projects/:id/landing-pages/:pageId` | Delete landing page |
+| POST | `/api/projects/:id/landing-pages/:pageId/duplicate` | Duplicate landing page config |
 
 ### Costs
 | Method | Path | Purpose |
@@ -553,6 +568,13 @@ Same flow as Mode 1 but template image used instead of random inspiration. Promp
 | POST | `/api/deployments/:id/restore` | Restore soft-deleted deployment |
 | POST | `/api/deployments/rename-all` | Batch rename deployments |
 | POST | `/api/deployments/backfill-headlines` | Backfill headlines from ads |
+| GET | `/api/deployments/deleted` | List soft-deleted deployments (for recovery) |
+| POST | `/api/deployments/:id/duplicate` | Clone a deployment |
+| POST | `/api/deployments/move-to-unplanned` | Bulk move deployments to unplanned |
+| POST | `/api/deployments/assign-to-adset` | Assign deployments to campaign + ad set |
+| POST | `/api/deployments/unassign` | Move deployments back to unplanned |
+| POST | `/api/deployments/:id/generate-primary-text` | AI-generate 5 primary text variations (Claude Sonnet) |
+| POST | `/api/deployments/:id/generate-ad-headlines` | AI-generate 5 headlines from primary text (Claude Sonnet) |
 | GET | `/api/projects/:id/campaigns` | List campaigns for project |
 | POST | `/api/projects/:id/campaigns` | Create campaign |
 | PUT | `/api/projects/:id/campaigns/:campaignId` | Update campaign |
@@ -584,6 +606,7 @@ Same flow as Mode 1 but template image used instead of random inspiration. Promp
 | GET | `/api/projects/:id/meta/performance/:deploymentId` | Get performance data |
 | GET | `/api/projects/:id/meta/performance/summary` | Aggregated performance summary |
 | POST | `/api/projects/:id/meta/sync` | Manual Meta performance sync |
+| GET | `/api/projects/:id/meta/top-performers` | Top 10 ads by ROAS (used by Dacia Creative Filter) |
 
 ### Settings
 | Method | Path | Purpose |
@@ -616,6 +639,7 @@ Same flow as Mode 1 but template image used instead of random inspiration. Promp
 |--------|------|---------|
 | GET | `/api/projects/:id/inspiration` | List Drive-synced inspiration images |
 | POST | `/api/projects/:id/inspiration/sync` | Sync folder with Drive (dedup guard) |
+| GET | `/api/projects/:id/inspiration/:fileId/thumbnail` | Redirect to Convex image URL |
 
 ### Drive
 | Method | Path | Purpose |
@@ -623,6 +647,7 @@ Same flow as Mode 1 but template image used instead of random inspiration. Promp
 | GET | `/api/drive/status` | Check if Drive is configured |
 | POST | `/api/drive/upload-service-account` | Upload service account JSON |
 | POST | `/api/drive/test` | Test Drive connection |
+| GET | `/api/drive/shared-drives` | List shared Google Drives |
 | GET | `/api/drive/folders` | List Drive folders (optional `?parentId=` for browsing) |
 | GET | `/api/drive/folders/:folderId` | Get folder info |
 
@@ -636,6 +661,16 @@ Same flow as Mode 1 but template image used instead of random inspiration. Promp
 | Method | Path | Purpose |
 |--------|------|---------|
 | GET | `/api/health` | Health check (status: ok) |
+
+### Agent Monitor (Admin Only)
+| Method | Path | Purpose |
+|--------|------|---------|
+| GET | `/api/agent-monitor/status` | Dacia Fixer status (budget, stats, activity) |
+| POST | `/api/agent-monitor/run` | Trigger fixer run (batch_creation) |
+| POST | `/api/agent-monitor/resurrect` | Trigger batch resurrection |
+| GET | `/api/agent-monitor/filter/status` | Dacia Creative Filter status |
+| POST | `/api/agent-monitor/filter/run` | Trigger filter dry-run |
+| POST | `/api/agent-monitor/filter/run-live` | Trigger filter live run |
 
 ---
 
@@ -762,7 +797,7 @@ ssh root@76.13.183.219 "cd /opt/ad-platform && npx convex deploy -y"
 
 13. **4-stage batch pipeline**: Batch jobs process in 4 stages (brief → headlines → body copies → image prompts) before Gemini submission. This allows the pipeline to fail/resume at any stage and generates richer ad metadata.
 
-14. **Correction history in Convex settings**: Correction history (with before/after snapshots) is stored as a JSON array in Convex settings. When exceeding size limit, older entries are trimmed.
+14. **Correction history in dedicated table**: Correction history (with before/after doc snapshots) is stored in a dedicated `correction_history` Convex table with each correction as its own row. Supports both AI corrections and manual edit logging. The `correctionHistory.js` service manages log/apply/revert operations.
 
 15. **Thumbnail disk cache (fire-and-forget)**: Backend generates thumbnails on-demand, caches them locally at `.thumb-cache/{adId}.jpg`, but doesn't block the response. Fallback redirects to full Convex image.
 
@@ -783,6 +818,20 @@ ssh root@76.13.183.219 "cd /opt/ad-platform && npx convex deploy -y"
 23. **Ad Pipeline hierarchy (campaigns → ad sets → flex ads)**: The Planner view uses a 3-level hierarchy: campaigns contain ad sets, ad sets contain flex ads (multi-image ad groups). Flex ads have `child_deployment_ids` linking to individual deployments. This models Meta Ads structure for organized ad planning before posting.
 
 24. **Soft-delete for deployments and flex ads**: Deployments and flex ads use `deleted_at` timestamp for soft deletion rather than hard delete. This allows restore functionality and prevents accidental data loss. Queries filter out soft-deleted items by default.
+
+25. **Dual rate limiter system**: Two independent AsyncSemaphore-based limiters in `rateLimiter.js`: `withHeavyLLMLimit()` (concurrency=2, 2s gap) for GPT-5.2 and heavy Claude calls, and `withGeminiLimit()` (concurrency=3) for image generation. Both have queue position logging and stats exposed via `/api/health`.
+
+26. **SSE helper utilities**: `backend/utils/sseHelper.js` provides `createSSEStream()` (sets headers, keepalive, disconnect tracking) and `streamService()` (wraps async service with SSE lifecycle). Eliminates copy-pasted SSE setup across route files.
+
+27. **Scheduler runs 6 automated tasks**: (1) Poll active batches every 5 min + auto-retry up to 3x. (2) Sync OpenAI costs hourly from billing API. (3) Purge soft-deleted records >30 days old (deployments + flex ads) daily at 1am. (4) Refresh Gemini rates from pricing page daily at midnight. (5) Sync Meta performance data every 30 min per-project. (6) Refresh Meta tokens weekly on Monday 3am if near expiry. Plus manages user-defined cron schedules for recurring batches.
+
+28. **AI-generated primary texts and headlines in Ad Pipeline**: Deployments can generate 5 variations of Facebook primary text and 5 ad headlines via Claude Sonnet 4.6 directly from the Ready to Post sidebar. Uses thread-based refinement for quality. Auto-fetches URLs from creative direction for context.
+
+29. **Unified LP generation pipeline**: Landing page generation uses a single SSE endpoint (`POST /generate`) that runs all phases sequentially: URL fetch (Puppeteer) or PDF parse → design analysis → copy generation → image slot generation → HTML template → final assembly. Individual phases are not exposed as separate endpoints.
+
+30. **Landing page image slot lifecycle**: Landing pages support per-slot image management: regenerate individual slots (Gemini), upload custom images (multer), and revert to original generated images. Images are processed via sharp before deployment.
+
+31. **Landing page version snapshots**: Full version history with save/restore. Restoring a version auto-saves the current state first (safety net). Versions capture copy_sections, image_slots, cta_links, html_template, and assembled_html.
 
 ---
 
@@ -816,6 +865,12 @@ ssh root@76.13.183.219 "cd /opt/ad-platform && npx convex deploy -y"
 - **Poster role restrictions**: Poster users can only access the `tracker` tab (Ad Pipeline) within projects. They see Ready to Post + Posted sub-tabs (not Planner). They can mark ads as posted but cannot send ads back to Planner. Backend enforces this via `requireRole('admin', 'manager')` on write routes.
 - **Soft-deleted deployments**: Deployments use `deleted_at` for soft delete. All GET queries filter out soft-deleted items. The restore endpoint clears `deleted_at` to undelete.
 - **Ad Pipeline terminology**: The deployment tracking tab was renamed from "Performance Tracker" to "Ad Pipeline". The first sub-tab was renamed from "Campaigns" to "Planner". Status labels use "Ready to Post" / "Posted" (not "scheduled"/"posted").
+- **Soft-delete purge cron**: Scheduler purges deployments and flex ads with `deleted_at` older than 30 days, daily at 1am. This is automatic — no manual cleanup needed.
+- **Landing page unified pipeline**: The CLAUDE.md historically described 5 separate LP generation endpoints, but the actual implementation uses a single `POST /generate` SSE endpoint that runs all phases sequentially. There are no separate `/generate-copy`, `/generate-design`, `/generate-html` endpoints.
+- **Correction history moved to table**: Correction history migrated from a JSON array in Convex settings to a dedicated `correction_history` table. Each correction is its own row with `externalId`. The old settings-based storage no longer exists.
+- **`inspiration_images` table has no `externalId`**: Unlike all other data tables, `inspiration_images` uses `project_id` + `drive_file_id` as its composite identifier instead of `externalId`.
+- **Convex uses queries + mutations only**: No Convex actions are used. All LLM calls, file processing, and external API work happens in the Express backend. The Convex layer is purely data access.
+- **JSON arrays stored as strings**: Complex nested arrays (`batch_jobs.angles`, `flex_ads.child_deployment_ids`, `ad_deployments.primary_texts`, `quote_mining_runs.quotes`, `quote_bank.headlines`) are stored as JSON-encoded strings in Convex using `v.string()`, not native array types.
 
 ---
 
@@ -890,6 +945,15 @@ ssh root@76.13.183.219 "cd /opt/ad-platform && npx convex deploy -y"
 - Navy-gold-teal design system (migrated from Apple/macOS blue palette)
 - Dacia Fixer (Recursive Agent #1): automated batch testing, self-healing, and batch resurrection
 - Dacia Creative Filter (Recursive Agent #2): batch ad scoring, flex ad grouping, auto-deployment to Ready to Post
+- Agent Dashboard (unified Fixer + Filter monitoring card with status, budget, stats, activity, run triggers)
+- AI-generated primary text and headlines for Ad Pipeline deployments (Claude Sonnet 4.6, 5 variations each)
+- Landing page image slot management (regenerate, upload, revert per slot)
+- Landing page version history (save/restore with auto-save safety)
+- Landing page duplication
+- Deployment duplication and bulk move/assign/unassign
+- Automated soft-delete purge (30-day retention, daily cron)
+- Dual rate limiter system (heavy LLM + Gemini image generation)
+- SSE helper utilities (shared stream setup across all SSE routes)
 
 ---
 
