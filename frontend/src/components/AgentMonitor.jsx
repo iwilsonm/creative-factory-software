@@ -11,9 +11,10 @@ const LEVEL_CONFIG = {
 };
 
 const STATUS_CONFIG = {
-  online:  { color: 'text-teal',    dot: 'bg-teal',    label: 'Online',  pulse: true },
-  warning: { color: 'text-gold',    dot: 'bg-gold',    label: 'Delayed', pulse: true },
-  offline: { color: 'text-red-400', dot: 'bg-red-400', label: 'Offline', pulse: false },
+  online:  { color: 'text-teal',      dot: 'bg-teal',      label: 'Online',  pulse: true },
+  warning: { color: 'text-gold',      dot: 'bg-gold',      label: 'Delayed', pulse: true },
+  offline: { color: 'text-red-400',   dot: 'bg-red-400',   label: 'Offline', pulse: false },
+  paused:  { color: 'text-textlight', dot: 'bg-textlight', label: 'Paused',  pulse: false },
 };
 
 function timeAgo(dateStr) {
@@ -155,7 +156,7 @@ export default function AgentMonitor() {
 // =============================================
 // Agent Panel Wrapper
 // =============================================
-function AgentPanel({ children, icon, name, subtitle, status }) {
+function AgentPanel({ children, icon, name, subtitle, status, paused, onTogglePause, togglingPause }) {
   const statusCfg = STATUS_CONFIG[status] || STATUS_CONFIG.offline;
 
   return (
@@ -171,9 +172,23 @@ function AgentPanel({ children, icon, name, subtitle, status }) {
             <p className="text-[10px] text-textlight">{subtitle}</p>
           </div>
         </div>
-        <div className="flex items-center gap-1.5">
-          <span className={`w-1.5 h-1.5 rounded-full ${statusCfg.dot} ${statusCfg.pulse ? 'animate-pulse' : ''}`} />
-          <span className={`text-[10px] font-medium ${statusCfg.color}`}>{statusCfg.label}</span>
+        <div className="flex items-center gap-3">
+          {/* Pause/Resume toggle */}
+          <button
+            onClick={onTogglePause}
+            disabled={togglingPause}
+            className="group flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
+            title={paused ? 'Resume agent' : 'Pause agent'}
+          >
+            <div className={`relative w-7 h-4 rounded-full transition-colors duration-200 ${paused ? 'bg-black/10' : 'bg-teal/30'}`}>
+              <div className={`absolute top-0.5 w-3 h-3 rounded-full transition-all duration-200 shadow-sm ${paused ? 'left-0.5 bg-textlight' : 'left-3.5 bg-teal'}`} />
+            </div>
+          </button>
+          {/* Status dot + label */}
+          <div className="flex items-center gap-1.5">
+            <span className={`w-1.5 h-1.5 rounded-full ${statusCfg.dot} ${statusCfg.pulse ? 'animate-pulse' : ''}`} />
+            <span className={`text-[10px] font-medium ${statusCfg.color}`}>{statusCfg.label}</span>
+          </div>
         </div>
       </div>
       {children}
@@ -187,6 +202,7 @@ function AgentPanel({ children, icon, name, subtitle, status }) {
 function FixerPanel({ data, onRefresh }) {
   const [expanded, setExpanded] = useState(false);
   const [runningAction, setRunningAction] = useState(null);
+  const [togglingPause, setTogglingPause] = useState(false);
 
   const handleRun = async () => {
     setRunningAction('run');
@@ -206,6 +222,15 @@ function FixerPanel({ data, onRefresh }) {
     finally { setRunningAction(null); }
   };
 
+  const handleTogglePause = async () => {
+    setTogglingPause(true);
+    try {
+      await api.toggleFixerPause();
+      await onRefresh();
+    } catch { /* ignore */ }
+    finally { setTogglingPause(false); }
+  };
+
   const budgetPct = data.budget.daily_budget_cents > 0
     ? (data.budget.spent_cents / data.budget.daily_budget_cents) * 100
     : 0;
@@ -216,6 +241,9 @@ function FixerPanel({ data, onRefresh }) {
       name="Dacia Fixer"
       subtitle="Runs every 5 min — tests batch code, auto-fixes failures, resurrects stuck jobs"
       status={data.status}
+      paused={data.paused}
+      onTogglePause={handleTogglePause}
+      togglingPause={togglingPause}
       icon={
         <svg className="w-3 h-3 text-navy" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
@@ -242,12 +270,14 @@ function FixerPanel({ data, onRefresh }) {
       {/* Last run / next run */}
       <p className="text-[10px] text-textmid mb-2.5">
         Last: <span className="font-medium text-textdark">{timeAgo(data.lastRun)}</span>
-        {data.nextRun && (
+        {data.paused ? (
+          <span className="text-textlight ml-1">{'\u00B7'} Paused</span>
+        ) : data.nextRun ? (
           <>
             {' \u00B7 '}
             Next: <span className="font-medium text-textdark">{timeUntil(data.nextRun)}</span>
           </>
-        )}
+        ) : null}
       </p>
 
       {/* Control buttons */}
@@ -292,6 +322,7 @@ function FixerPanel({ data, onRefresh }) {
 function FilterPanel({ data, onRefresh }) {
   const [expanded, setExpanded] = useState(false);
   const [runningAction, setRunningAction] = useState(null);
+  const [togglingPause, setTogglingPause] = useState(false);
 
   const handleDryRun = async () => {
     setRunningAction('dry');
@@ -311,6 +342,15 @@ function FilterPanel({ data, onRefresh }) {
     finally { setRunningAction(null); }
   };
 
+  const handleTogglePause = async () => {
+    setTogglingPause(true);
+    try {
+      await api.toggleFilterPause();
+      await onRefresh();
+    } catch { /* ignore */ }
+    finally { setTogglingPause(false); }
+  };
+
   const budgetPct = data.budget.daily_budget_cents > 0
     ? (data.budget.spent_cents / data.budget.daily_budget_cents) * 100
     : 0;
@@ -321,6 +361,9 @@ function FilterPanel({ data, onRefresh }) {
       name="Dacia Creative Filter"
       subtitle="Runs every 30 min — scores batch ads, groups winners into flex ads, deploys to Ready to Post"
       status={data.status}
+      paused={data.paused}
+      onTogglePause={handleTogglePause}
+      togglingPause={togglingPause}
       icon={
         <svg className="w-3 h-3 text-navy" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
@@ -347,12 +390,14 @@ function FilterPanel({ data, onRefresh }) {
       {/* Last run / next run */}
       <p className="text-[10px] text-textmid mb-2.5">
         Last: <span className="font-medium text-textdark">{timeAgo(data.lastRun)}</span>
-        {data.nextRun && (
+        {data.paused ? (
+          <span className="text-textlight ml-1">{'\u00B7'} Paused</span>
+        ) : data.nextRun ? (
           <>
             {' \u00B7 '}
             Next: <span className="font-medium text-textdark">{timeUntil(data.nextRun)}</span>
           </>
-        )}
+        ) : null}
       </p>
 
       {/* Control buttons */}

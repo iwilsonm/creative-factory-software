@@ -50,7 +50,9 @@ log_res()   { log "RESURRECT" "${CYAN}$*${NC}"; }
 
 # --- Cost Tracking ---
 init_spend_tracker() {
-  [[ ! -f "$SPEND_FILE" ]] && echo "0" > "$SPEND_FILE"
+  if [[ ! -f "$SPEND_FILE" ]]; then
+    echo "0" > "$SPEND_FILE"
+  fi
 }
 
 get_daily_spend() {
@@ -667,7 +669,14 @@ show_status() {
 main() {
   init_spend_tracker
   init_ledger
-  
+
+  # Check pause file — if paused, skip execution (status/resurrect still work)
+  local pause_file="${FIXER_DIR}/.paused"
+  if [[ -f "$pause_file" ]] && [[ "${1:-}" != "--status" ]] && [[ "${1:-}" != "--resurrect" ]]; then
+    log_info "Dacia Fixer is PAUSED (${pause_file} exists). Skipping run."
+    exit 0
+  fi
+
   case "${1:-}" in
     --status)    show_status; exit 0 ;;
     --resurrect) resurrect_failed_batches; exit 0 ;;
@@ -685,7 +694,7 @@ main() {
         process_suite "$suite" || true
       done
       ;;
-    *)  process_suite "$1" ;;
+    *)  process_suite "$1" || true ;;
   esac
 }
 

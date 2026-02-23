@@ -19,14 +19,27 @@ const FIXER_SCRIPT = path.join(FIXER_DIR, 'fixer.sh');
 const DAILY_BUDGET_CENTS = 133;
 const CHECK_INTERVAL_MS = 5 * 60 * 1000; // 5 minutes
 
+// --- Pause files ---
+const FIXER_PAUSE_FILE = path.join(FIXER_DIR, '.paused');
+
 // --- Dacia Creative Filter (Agent #2) ---
 const FILTER_DIR = path.join(__dirname, '..', '..', 'dacia-creative-filter');
 const FILTER_LOGS_DIR = path.join(FILTER_DIR, 'logs');
 const FILTER_SCRIPT = path.join(FILTER_DIR, 'filter.sh');
 const FILTER_BUDGET_CENTS = 133;
 const FILTER_INTERVAL_MS = 30 * 60 * 1000; // 30 minutes
+const FILTER_PAUSE_FILE = path.join(FILTER_DIR, '.paused');
 
 const stripAnsi = (str) => str.replace(/\x1b\[[0-9;]*m/g, '');
+
+async function isAgentPaused(pauseFile) {
+  try {
+    await fs.access(pauseFile);
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 function getToday() {
   return new Date().toISOString().split('T')[0];
@@ -84,9 +97,12 @@ router.get('/status', async (req, res) => {
         .reverse(); // newest first
     }
 
+    // Check if agent is paused
+    const paused = await isAgentPaused(FIXER_PAUSE_FILE);
+
     // Determine agent status from last run time
-    let status = 'offline';
-    if (lastRunAt) {
+    let status = paused ? 'paused' : 'offline';
+    if (!paused && lastRunAt) {
       const elapsed = Date.now() - new Date(lastRunAt).getTime();
       if (elapsed < 10 * 60 * 1000) status = 'online';
       else if (elapsed < 30 * 60 * 1000) status = 'warning';
@@ -94,12 +110,13 @@ router.get('/status', async (req, res) => {
 
     // Compute next run estimate
     let nextRun = null;
-    if (lastRunAt) {
+    if (!paused && lastRunAt) {
       nextRun = new Date(new Date(lastRunAt).getTime() + CHECK_INTERVAL_MS).toISOString();
     }
 
     res.json({
       status,
+      paused,
       budget: { spent_cents: spentCents, daily_budget_cents: DAILY_BUDGET_CENTS },
       stats,
       lastRun: lastRunAt,
@@ -146,6 +163,23 @@ router.post('/resurrect', async (req, res) => {
     res.json({ ok: true, message: 'Resurrection triggered' });
   } catch (err) {
     console.error('[AgentMonitor] Resurrect trigger error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/agent-monitor/pause  — Toggle fixer pause state
+router.post('/pause', async (req, res) => {
+  try {
+    const paused = await isAgentPaused(FIXER_PAUSE_FILE);
+    if (paused) {
+      await fs.unlink(FIXER_PAUSE_FILE);
+      res.json({ ok: true, paused: false, message: 'Dacia Fixer resumed' });
+    } else {
+      await fs.writeFile(FIXER_PAUSE_FILE, new Date().toISOString(), 'utf-8');
+      res.json({ ok: true, paused: true, message: 'Dacia Fixer paused' });
+    }
+  } catch (err) {
+    console.error('[AgentMonitor] Pause toggle error:', err.message);
     res.status(500).json({ error: err.message });
   }
 });
@@ -198,9 +232,12 @@ router.get('/filter/status', async (req, res) => {
         .reverse();
     }
 
+    // Check if agent is paused
+    const paused = await isAgentPaused(FILTER_PAUSE_FILE);
+
     // Determine agent status from last run time (30-min interval)
-    let status = 'offline';
-    if (lastRunAt) {
+    let status = paused ? 'paused' : 'offline';
+    if (!paused && lastRunAt) {
       const elapsed = Date.now() - new Date(lastRunAt).getTime();
       if (elapsed < 35 * 60 * 1000) status = 'online';
       else if (elapsed < 65 * 60 * 1000) status = 'warning';
@@ -208,12 +245,13 @@ router.get('/filter/status', async (req, res) => {
 
     // Compute next run estimate
     let nextRun = null;
-    if (lastRunAt) {
+    if (!paused && lastRunAt) {
       nextRun = new Date(new Date(lastRunAt).getTime() + FILTER_INTERVAL_MS).toISOString();
     }
 
     res.json({
       status,
+      paused,
       budget: { spent_cents: spentCents, daily_budget_cents: FILTER_BUDGET_CENTS },
       stats,
       lastRun: lastRunAt,
@@ -260,6 +298,23 @@ router.post('/filter/run-live', async (req, res) => {
     res.json({ ok: true, message: 'Dacia Creative Filter run triggered' });
   } catch (err) {
     console.error('[AgentMonitor] Filter live trigger error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// POST /api/agent-monitor/filter/pause  — Toggle filter pause state
+router.post('/filter/pause', async (req, res) => {
+  try {
+    const paused = await isAgentPaused(FILTER_PAUSE_FILE);
+    if (paused) {
+      await fs.unlink(FILTER_PAUSE_FILE);
+      res.json({ ok: true, paused: false, message: 'Dacia Creative Filter resumed' });
+    } else {
+      await fs.writeFile(FILTER_PAUSE_FILE, new Date().toISOString(), 'utf-8');
+      res.json({ ok: true, paused: true, message: 'Dacia Creative Filter paused' });
+    }
+  } catch (err) {
+    console.error('[AgentMonitor] Filter pause toggle error:', err.message);
     res.status(500).json({ error: err.message });
   }
 });

@@ -784,6 +784,13 @@ show_status() {
 main() {
   init_spend_tracker
 
+  # Check pause file — if paused, skip execution (status still works)
+  local pause_file="${FILTER_DIR}/.paused"
+  if [[ -f "$pause_file" ]] && [[ "${1:-}" != "--status" ]]; then
+    log_info "Dacia Creative Filter is PAUSED (${pause_file} exists). Skipping run."
+    exit 0
+  fi
+
   case "${1:-}" in
     --status)  show_status; exit 0 ;;
     --dry-run) DRY_RUN=true; log_info "DRY RUN MODE" ;;
