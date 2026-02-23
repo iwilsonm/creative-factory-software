@@ -152,7 +152,18 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
   const getCampaignAdSets = (campaignId) =>
     adSets.filter(a => a.campaign_id === campaignId).sort((a, b) => a.sort_order - b.sort_order);
   const sortedCampaigns = [...campaigns].sort((a, b) => a.sort_order - b.sort_order);
-  const getAdSetFlexAds = (adsetId) => flexAds.filter(f => f.ad_set_id === adsetId);
+  const getAdSetFlexAds = (adsetId) => flexAds.filter(f => {
+    if (f.ad_set_id !== adsetId) return false;
+    // Hide flex ads whose children have ALL been moved to ready_to_post or posted
+    let childIds = [];
+    try { childIds = JSON.parse(f.child_deployment_ids || '[]'); } catch { /* ignore */ }
+    if (childIds.length === 0) return true;
+    const hasVisibleChild = childIds.some(id => {
+      const dep = deployments.find(d => d.id === id);
+      return dep && dep.status !== 'ready_to_post' && dep.status !== 'posted';
+    });
+    return hasVisibleChild;
+  });
 
   // ─── Campaign CRUD ──────────────────────────────────────────────────────
   const handleCreateCampaign = async () => {
@@ -400,6 +411,10 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
       addToast('Need at least 2 ads to create a Flex', 'info');
       return;
     }
+    if (allDepIds.length > 10) {
+      addToast(`Maximum 10 ads per Flex ad (you selected ${allDepIds.length}). Deselect some ads and try again.`, 'error');
+      return;
+    }
 
     const name = `Flexible Ad (${allDepIds.length} images)`;
     try {
@@ -412,8 +427,8 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
       // Refresh both — flex ads are created server-side, need to fetch new IDs
       await Promise.all([loadCampaignData(true), loadDeployments()]);
       addToast('Flexible ad created', 'success');
-    } catch {
-      addToast('Failed to create flexible ad', 'error');
+    } catch (err) {
+      addToast(err.message || 'Failed to create flexible ad', 'error');
       await Promise.all([loadCampaignData(true), loadDeployments()]);
     }
   };
