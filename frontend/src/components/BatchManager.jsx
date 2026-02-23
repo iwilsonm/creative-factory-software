@@ -56,6 +56,9 @@ export default function BatchManager({ projectId, project, onBatchComplete }) {
   const [skipProductImage, setSkipProductImage] = useState(false);
   const batchProductInputRef = useRef(null);
 
+  // Creative Filter assignment
+  const [filterAssigned, setFilterAssigned] = useState(false);
+
   // Derive effective cron expression from preset or custom interval
   const getEffectiveCron = () => {
     if (cronPreset === 'custom') return intervalToCron(intervalAmount, intervalUnit);
@@ -185,7 +188,8 @@ export default function BatchManager({ projectId, project, onBatchComplete }) {
       aspect_ratio: batchAspectRatio,
       scheduled: isScheduled,
       schedule_cron: isScheduled ? getEffectiveCron() : undefined,
-      run_immediately: !isScheduled
+      run_immediately: !isScheduled,
+      filter_assigned: filterAssigned
     };
 
     if (templateSource === TEMPLATE_SELECT && selectedTemplates.length > 0) {
@@ -297,6 +301,7 @@ export default function BatchManager({ projectId, project, onBatchComplete }) {
       // Reset form
       setBatchAngle('');
       setIsScheduled(false);
+      setFilterAssigned(false);
       await loadBatches();
     } catch (err) {
       setCreateError(err.message);
@@ -390,11 +395,13 @@ export default function BatchManager({ projectId, project, onBatchComplete }) {
       templateSource,
       templateLabel: getTemplateLabel(),
       selectedTemplates: selectedTemplates.length > 0 ? [...selectedTemplates] : [],
-      uploadedFile: templateSource === TEMPLATE_UPLOAD ? uploadedFile : null
+      uploadedFile: templateSource === TEMPLATE_UPLOAD ? uploadedFile : null,
+      filter_assigned: filterAssigned
     };
     setQueue(prev => [...prev, config]);
     setBatchAngle('');
     setIsScheduled(false);
+    setFilterAssigned(false);
   };
 
   const handleRemoveFromQueue = (tempId) => {
@@ -431,6 +438,7 @@ export default function BatchManager({ projectId, project, onBatchComplete }) {
 
     if (item.templateSource) setTemplateSource(item.templateSource);
     if (item.selectedTemplate) setSelectedTemplate(item.selectedTemplate);
+    setFilterAssigned(!!item.filter_assigned);
 
     // Remove from queue
     setQueue(prev => prev.filter(q => q.id !== tempId));
@@ -988,6 +996,21 @@ export default function BatchManager({ projectId, project, onBatchComplete }) {
                 </p>
               </div>
             )}
+
+            {/* Creative Filter assignment toggle */}
+            <div className="flex items-center gap-3 mb-3">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={filterAssigned}
+                  onChange={e => setFilterAssigned(e.target.checked)}
+                  disabled={creating}
+                  className="w-4 h-4 rounded border-black/10 text-teal focus:ring-teal/20"
+                />
+                <span className="text-[12px] text-textmid font-medium">Assign to Creative Filter</span>
+              </label>
+              <span className="text-[10px] text-textlight">Scores ads and deploys winners to Ready to Post</span>
+            </div>
 
             {/* Error */}
             {createError && (

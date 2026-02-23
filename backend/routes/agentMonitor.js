@@ -5,7 +5,7 @@ import path from 'path';
 import { exec } from 'child_process';
 import { fileURLToPath } from 'url';
 import { v4 as uuidv4 } from 'uuid';
-import { logCost } from '../convexClient.js';
+import { logCost, getAllProjects, updateProject, convexClient, api } from '../convexClient.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -315,6 +315,58 @@ router.post('/filter/pause', async (req, res) => {
     }
   } catch (err) {
     console.error('[AgentMonitor] Filter pause toggle error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// =============================================
+// Creative Filter — Per-Brand Volume Controls
+// =============================================
+
+// GET /api/agent-monitor/filter/volumes
+// Returns all projects with their daily flex ad cap and today's count
+router.get('/filter/volumes', async (req, res) => {
+  try {
+    const projects = await getAllProjects();
+    const today = getToday();
+
+    const volumes = await Promise.all(projects.map(async (p) => {
+      let todayCount = 0;
+      try {
+        const flexAds = await convexClient.query(api.flexAds.getByProject, { projectId: p.id });
+        todayCount = (flexAds || []).filter(fa =>
+          fa.created_at && fa.created_at.startsWith(today) &&
+          fa.name && fa.name.startsWith('Filter')
+        ).length;
+      } catch { /* no flex ads table or query error */ }
+
+      return {
+        id: p.id,
+        name: p.name,
+        brand_name: p.brand_name,
+        scout_enabled: p.scout_enabled,
+        scout_daily_flex_ads: p.scout_daily_flex_ads ?? 2,
+        today_flex_ads: todayCount,
+      };
+    }));
+
+    res.json({ projects: volumes });
+  } catch (err) {
+    console.error('[AgentMonitor] Filter volumes error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// PUT /api/agent-monitor/filter/volumes/:projectId
+// Update a project's daily flex ad cap
+router.put('/filter/volumes/:projectId', async (req, res) => {
+  try {
+    const { scout_daily_flex_ads } = req.body;
+    const value = Math.max(1, Math.min(10, parseInt(scout_daily_flex_ads) || 2));
+    await updateProject(req.params.projectId, { scout_daily_flex_ads: value });
+    res.json({ ok: true, scout_daily_flex_ads: value });
+  } catch (err) {
+    console.error('[AgentMonitor] Update volume error:', err.message);
     res.status(500).json({ error: err.message });
   }
 });

@@ -17,6 +17,7 @@ export const create = mutation({
     product_image_storageId: v.optional(v.id("_storage")),
     scheduled: v.optional(v.boolean()),
     schedule_cron: v.optional(v.string()),
+    filter_assigned: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     const now = new Date().toISOString();
@@ -116,6 +117,7 @@ export const update = mutation({
     pipeline_state: v.optional(v.string()),
     failed_count: v.optional(v.number()),
     run_count: v.optional(v.number()),
+    filter_assigned: v.optional(v.boolean()),
     filter_processed: v.optional(v.boolean()),
     filter_processed_at: v.optional(v.string()),
   },
@@ -180,6 +182,7 @@ export const updateStatus = mutation({
 export const patch = mutation({
   args: {
     externalId: v.string(),
+    filter_assigned: v.optional(v.boolean()),
     filter_processed: v.optional(v.boolean()),
     filter_processed_at: v.optional(v.string()),
   },

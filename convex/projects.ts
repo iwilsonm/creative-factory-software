@@ -68,6 +68,7 @@ export const update = mutation({
     scout_display_link: v.optional(v.string()),
     scout_facebook_page: v.optional(v.string()),
     scout_score_threshold: v.optional(v.number()),
+    scout_daily_flex_ads: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     const project = await ctx.db

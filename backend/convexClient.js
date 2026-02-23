@@ -102,7 +102,7 @@ export async function getAllProjectsWithStats() {
 }
 
 export async function updateProject(id, fields) {
-  const allowed = ['name', 'brand_name', 'niche', 'product_description', 'sales_page_content', 'drive_folder_id', 'inspiration_folder_id', 'prompt_guidelines', 'status', 'meta_app_id', 'meta_app_secret', 'meta_access_token', 'meta_token_expires_at', 'meta_ad_account_id', 'meta_user_name', 'meta_user_id', 'meta_last_sync_at'];
+  const allowed = ['name', 'brand_name', 'niche', 'product_description', 'sales_page_content', 'drive_folder_id', 'inspiration_folder_id', 'prompt_guidelines', 'status', 'meta_app_id', 'meta_app_secret', 'meta_access_token', 'meta_token_expires_at', 'meta_ad_account_id', 'meta_user_name', 'meta_user_id', 'meta_last_sync_at', 'scout_enabled', 'scout_default_campaign', 'scout_cta', 'scout_display_link', 'scout_facebook_page', 'scout_score_threshold', 'scout_daily_flex_ads'];
   const updates = { externalId: id };
   for (const key of allowed) {
     if (fields[key] !== undefined) {
@@ -137,6 +137,14 @@ function convexProjectToRow(p) {
     meta_user_name: p.meta_user_name || null,
     meta_user_id: p.meta_user_id || null,
     meta_last_sync_at: p.meta_last_sync_at || null,
+    // Dacia Creative Filter per-project config
+    scout_enabled: p.scout_enabled ?? null,
+    scout_default_campaign: p.scout_default_campaign || null,
+    scout_cta: p.scout_cta || null,
+    scout_display_link: p.scout_display_link || null,
+    scout_facebook_page: p.scout_facebook_page || null,
+    scout_score_threshold: p.scout_score_threshold ?? null,
+    scout_daily_flex_ads: p.scout_daily_flex_ads ?? null,
     created_at: p.created_at,
     updated_at: p.updated_at,
   };
@@ -244,7 +252,7 @@ export async function getProjectStats(projectId) {
 // Batch job helpers
 // =============================================
 
-export async function createBatchJob({ id, project_id, generation_mode, batch_size, angle, angles, aspect_ratio, template_image_id, template_image_ids, inspiration_image_id, inspiration_image_ids, product_image_storageId, scheduled, schedule_cron }) {
+export async function createBatchJob({ id, project_id, generation_mode, batch_size, angle, angles, aspect_ratio, template_image_id, template_image_ids, inspiration_image_id, inspiration_image_ids, product_image_storageId, scheduled, schedule_cron, filter_assigned }) {
   await mutationWithRetry(api.batchJobs.create, {
     externalId: id,
     project_id,
@@ -260,6 +268,7 @@ export async function createBatchJob({ id, project_id, generation_mode, batch_si
     product_image_storageId: product_image_storageId || undefined,
     scheduled: !!scheduled,
     schedule_cron: schedule_cron || undefined,
+    filter_assigned: filter_assigned ? true : undefined,
   });
 }
 
@@ -289,7 +298,7 @@ export async function getAllScheduledBatchesForCost() {
 }
 
 export async function updateBatchJob(id, fields) {
-  const allowed = ['status', 'gemini_batch_job', 'gpt_prompts', 'error_message', 'started_at', 'completed_at', 'completed_count', 'failed_count', 'run_count', 'scheduled', 'schedule_cron', 'retry_count', 'batch_stats', 'pipeline_state', 'angle', 'angles', 'batch_size', 'aspect_ratio', 'used_template_ids'];
+  const allowed = ['status', 'gemini_batch_job', 'gpt_prompts', 'error_message', 'started_at', 'completed_at', 'completed_count', 'failed_count', 'run_count', 'scheduled', 'schedule_cron', 'retry_count', 'batch_stats', 'pipeline_state', 'angle', 'angles', 'batch_size', 'aspect_ratio', 'used_template_ids', 'filter_assigned'];
   const updates = { externalId: id };
   for (const key of allowed) {
     if (fields[key] !== undefined) {
@@ -333,6 +342,8 @@ function convexBatchToRow(b) {
     used_template_ids: b.used_template_ids || null,
     batch_stats: b.batch_stats || null,
     pipeline_state: b.pipeline_state || null,
+    filter_assigned: !!b.filter_assigned,
+    filter_processed: !!b.filter_processed,
     created_at: b.created_at,
     started_at: b.started_at || null,
     completed_at: b.completed_at || null,

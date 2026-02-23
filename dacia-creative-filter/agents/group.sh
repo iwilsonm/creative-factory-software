@@ -22,6 +22,7 @@ source "${SCRIPT_DIR}/config/filter.conf"
 
 SCORED_ADS="$1"
 PROJECT_NAME="$2"
+FLEX_AD_COUNT="${3:-$FLEX_AD_COUNT}"  # Per-project override or config default
 
 PROMPT="You are a media buyer assembling flex ads (multi-image ad groups) for Meta advertising.
 
@@ -67,7 +68,7 @@ RULES:
 - Each flex ad must have exactly ${IMAGES_PER_FLEX} images
 - Each flex ad gets 3-5 headlines AND 3-5 primary texts (target 5, minimum 3)
 - If a cluster cannot produce at least 3 quality headlines AND 3 quality primary texts, skip it and try the next best cluster
-- The 2 flex ads should target DIFFERENT angles for audience variety
+- The ${FLEX_AD_COUNT} flex ads should target DIFFERENT angles for audience variety
 - Prefer ads with higher overall_score within each cluster
 - If two ads in the same cluster are nearly identical, prefer the one with higher copy_strength
 - Do not include any copy from compliance-flagged ads

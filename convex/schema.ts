@@ -35,6 +35,7 @@ export default defineSchema({
     scout_display_link: v.optional(v.string()),
     scout_facebook_page: v.optional(v.string()),
     scout_score_threshold: v.optional(v.number()),
+    scout_daily_flex_ads: v.optional(v.number()),  // Max flex ads/day from Creative Filter (default 2)
     created_at: v.string(),
     updated_at: v.string(),
   }).index("by_externalId", ["externalId"]),
@@ -122,6 +123,7 @@ export default defineSchema({
     used_template_ids: v.optional(v.string()),  // JSON array of template IDs used across runs
     batch_stats: v.optional(v.nullable(v.string())),
     pipeline_state: v.optional(v.string()),  // JSON: { stage, brief_packet, headlines, body_copies }
+    filter_assigned: v.optional(v.boolean()),      // Opt-in: batch assigned to Creative Filter
     filter_processed: v.optional(v.boolean()),    // Dacia Creative Filter has evaluated this batch
     filter_processed_at: v.optional(v.string()),  // When filter processed it
     created_at: v.string(),

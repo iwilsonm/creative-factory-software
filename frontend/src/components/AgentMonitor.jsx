@@ -323,6 +323,32 @@ function FilterPanel({ data, onRefresh }) {
   const [expanded, setExpanded] = useState(false);
   const [runningAction, setRunningAction] = useState(null);
   const [togglingPause, setTogglingPause] = useState(false);
+  const [volumes, setVolumes] = useState(null);
+  const [loadingVolumes, setLoadingVolumes] = useState(false);
+  const [savingVolume, setSavingVolume] = useState(null);
+
+  // Load per-brand volume settings
+  const loadVolumes = useCallback(async () => {
+    setLoadingVolumes(true);
+    try {
+      const res = await api.getFilterVolumes();
+      setVolumes(res.projects || []);
+    } catch { /* ignore */ }
+    finally { setLoadingVolumes(false); }
+  }, []);
+
+  useEffect(() => { loadVolumes(); }, [loadVolumes]);
+
+  const handleVolumeChange = async (projectId, newValue) => {
+    setSavingVolume(projectId);
+    try {
+      await api.updateFilterVolume(projectId, newValue);
+      setVolumes(prev => prev.map(p =>
+        p.id === projectId ? { ...p, scout_daily_flex_ads: newValue } : p
+      ));
+    } catch { /* ignore */ }
+    finally { setSavingVolume(null); }
+  };
 
   const handleDryRun = async () => {
     setRunningAction('dry');
@@ -424,6 +450,44 @@ function FilterPanel({ data, onRefresh }) {
             <><span className="text-[9px]">{'\u2699'}</span> Dry Run</>
           )}
         </button>
+      </div>
+
+      {/* Per-Brand Daily Volume Controls */}
+      <div className="border-t border-black/5 pt-2.5 mb-2.5">
+        <p className="text-[11px] font-medium text-textmid mb-1.5">Daily Flex Ad Volume</p>
+        <p className="text-[9px] text-textlight mb-2">
+          Flex ads created per day per brand. Each flex ad = 10 images.
+        </p>
+        {loadingVolumes ? (
+          <div className="text-[10px] text-textlight py-2">Loading projects...</div>
+        ) : volumes && volumes.length > 0 ? (
+          <div className="space-y-1">
+            {volumes.filter(p => p.scout_enabled !== false).map(project => (
+              <div key={project.id} className="flex items-center justify-between gap-2 py-1.5 px-2.5 rounded-lg bg-white/60">
+                <div className="flex-1 min-w-0">
+                  <p className="text-[11px] font-medium text-textdark truncate">
+                    {project.brand_name || project.name}
+                  </p>
+                  <p className="text-[9px] text-textlight">
+                    Today: {project.today_flex_ads}/{project.scout_daily_flex_ads} flex ads ({project.today_flex_ads * 10}/{project.scout_daily_flex_ads * 10} images)
+                  </p>
+                </div>
+                <select
+                  value={project.scout_daily_flex_ads}
+                  onChange={e => handleVolumeChange(project.id, parseInt(e.target.value))}
+                  disabled={savingVolume === project.id}
+                  className="text-[11px] text-textdark bg-offwhite border border-black/10 rounded-lg px-2 py-1 w-14 cursor-pointer"
+                >
+                  {[1, 2, 3, 4, 5, 6, 8, 10].map(n => (
+                    <option key={n} value={n}>{n}</option>
+                  ))}
+                </select>
+              </div>
+            ))}
+          </div>
+        ) : (
+          <p className="text-[10px] text-textlight py-1.5">No projects configured.</p>
+        )}
       </div>
 
       {/* Activity log */}

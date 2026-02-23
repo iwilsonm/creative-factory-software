@@ -145,9 +145,9 @@ get_unprocessed_batches() {
     return
   }
 
-  # Filter: completed + not yet processed by filter
-  # We mark processed batches with filter_processed=true
-  echo "$batches" | jq '[.value[]? | select(.status == "completed" and (.filter_processed == null or .filter_processed == false))]' 2>/dev/null || echo "[]"
+  # Filter: completed + assigned to filter + not yet processed
+  # Only batches explicitly assigned via filter_assigned=true are processed
+  echo "$batches" | jq '[.value[]? | select(.status == "completed" and (.filter_processed == null or .filter_processed == false) and .filter_assigned == true)]' 2>/dev/null || echo "[]"
 }
 
 # ============================================================
@@ -279,6 +279,8 @@ score_batch_ads() {
 group_into_flex_ads() {
   local scored_ads="$1"
   local project_name="$2"
+  local flex_count_target="${3:-$FLEX_AD_COUNT}"
+  local total_needed=$((flex_count_target * IMAGES_PER_FLEX))
 
   # Filter to passing ads only
   local passing
@@ -286,8 +288,8 @@ group_into_flex_ads() {
   local pass_count
   pass_count=$(echo "$passing" | jq 'length')
 
-  if [[ "$pass_count" -lt "$TOTAL_WINNERS" ]]; then
-    log_warn "Only $pass_count passing ads, need $TOTAL_WINNERS for ${FLEX_AD_COUNT} flex ads"
+  if [[ "$pass_count" -lt "$total_needed" ]]; then
+    log_warn "Only $pass_count passing ads, need $total_needed for ${flex_count_target} flex ads"
     if [[ "$pass_count" -lt "$IMAGES_PER_FLEX" ]]; then
       log_err "Not enough passing ads for even 1 flex ad. Skipping grouping."
       echo "{\"flex_ads\": [], \"error\": \"insufficient_ads\"}"
@@ -296,10 +298,10 @@ group_into_flex_ads() {
     log_info "Will create as many flex ads as possible with $pass_count ads"
   fi
 
-  log_info "Grouping $pass_count passing ads into flex ads..."
+  log_info "Grouping $pass_count passing ads into ${flex_count_target} flex ads..."
 
   local group_result
-  group_result=$(bash "${SCRIPT_DIR}/agents/group.sh" "$passing" "$project_name")
+  group_result=$(bash "${SCRIPT_DIR}/agents/group.sh" "$passing" "$project_name" "$flex_count_target")
   add_spend 4 "grouping" "$GROUP_MODEL" "anthropic"  # ~$0.04 per grouping call
 
   echo "$group_result"
@@ -513,6 +515,28 @@ process_batch() {
 
   log_info "Project: $project_name"
 
+  # Read per-project flex ad daily cap (default to config FLEX_AD_COUNT)
+  local project_flex_cap
+  project_flex_cap=$(echo "$project_config" | jq -r '.scout_daily_flex_ads // "'"$FLEX_AD_COUNT"'"')
+  project_flex_cap=$((project_flex_cap + 0))
+  if [[ "$project_flex_cap" -lt 1 ]]; then
+    project_flex_cap=$FLEX_AD_COUNT
+  fi
+
+  # Check daily cap — count flex ads deployed today for this project from log
+  local today_flex_count=0
+  if [[ -f "$LOG_FILE" ]]; then
+    today_flex_count=$(grep -c "Deployed flex ad.*$project_name" "$LOG_FILE" 2>/dev/null || echo 0)
+  fi
+
+  local remaining=$((project_flex_cap - today_flex_count))
+  if [[ "$remaining" -le 0 ]]; then
+    log_info "Daily flex ad cap reached for $project_name ($today_flex_count/$project_flex_cap). Skipping."
+    mark_processed "$batch_id" "[]"
+    return 0
+  fi
+  log_info "Flex ad budget: $today_flex_count/$project_flex_cap used today ($remaining remaining)"
+
   # Get ads from batch
   local ads
   ads=$(get_batch_ads "$batch_id")
@@ -535,9 +559,9 @@ process_batch() {
   local scored_ads
   scored_ads=$(score_batch_ads "$ads" "$top_performers")
 
-  # Group into flex ads
+  # Group into flex ads (use remaining count as cap)
   local flex_result
-  flex_result=$(group_into_flex_ads "$scored_ads" "$project_name")
+  flex_result=$(group_into_flex_ads "$scored_ads" "$project_name" "$remaining")
 
   local flex_count
   flex_count=$(echo "$flex_result" | jq '.flex_ads | length' 2>/dev/null || echo 0)
