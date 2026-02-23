@@ -336,7 +336,7 @@ resurrect_failed_batches() {
   failed_batches=$(curl -s "${CONVEX_URL}/api/query" \
     -H "Content-Type: application/json" \
     -d "{
-      \"path\": \"batch_jobs:getByStatus\",
+      \"path\": \"batchJobs:getByStatus\",
       \"args\": {\"status\": \"failed\"}
     }" 2>/dev/null) || {
     log_warn "Could not query Convex for failed batches"
@@ -347,7 +347,7 @@ resurrect_failed_batches() {
     failed_batches=$(curl -s "${CONVEX_URL}/api/query" \
       -H "Content-Type: application/json" \
       -d "{
-        \"path\": \"batch_jobs:list\",
+        \"path\": \"batchJobs:list\",
         \"args\": {}
       }" 2>/dev/null) || {
       log_warn "Could not query Convex for batch jobs"
@@ -378,7 +378,7 @@ resurrect_failed_batches() {
       reset_response=$(curl -s "${CONVEX_URL}/api/mutation" \
         -H "Content-Type: application/json" \
         -d "{
-          \"path\": \"batch_jobs:updateStatus\",
+          \"path\": \"batchJobs:updateStatus\",
           \"args\": {
             \"externalId\": \"${batch_id}\",
             \"status\": \"pending\",
@@ -431,7 +431,7 @@ check_stuck_batches() {
   all_batches=$(curl -s "${CONVEX_URL}/api/query" \
     -H "Content-Type: application/json" \
     -d "{
-      \"path\": \"batch_jobs:list\",
+      \"path\": \"batchJobs:list\",
       \"args\": {}
     }" 2>/dev/null) || {
     log_warn "Could not query batch status"

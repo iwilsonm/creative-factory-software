@@ -137,7 +137,7 @@ get_unprocessed_batches() {
   batches=$(curl -s "${CONVEX_URL}/api/query" \
     -H "Content-Type: application/json" \
     -d "{
-      \"path\": \"batch_jobs:list\",
+      \"path\": \"batchJobs:list\",
       \"args\": {}
     }" 2>/dev/null) || {
     log_warn "Could not query Convex for batches"
@@ -161,7 +161,7 @@ get_batch_ads() {
   ads=$(curl -s "${CONVEX_URL}/api/query" \
     -H "Content-Type: application/json" \
     -d "{
-      \"path\": \"ad_creatives:getByBatch\",
+      \"path\": \"adCreatives:getByBatch\",
       \"args\": {\"batchId\": \"${batch_id}\"}
     }" 2>/dev/null) || {
     log_warn "Could not fetch ads for batch $batch_id"
@@ -447,7 +447,7 @@ mark_processed() {
   curl -s "${CONVEX_URL}/api/mutation" \
     -H "Content-Type: application/json" \
     -d "{
-      \"path\": \"batch_jobs:patch\",
+      \"path\": \"batchJobs:patch\",
       \"args\": {
         \"externalId\": \"${batch_id}\",
         \"filter_processed\": true,

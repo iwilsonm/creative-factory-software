@@ -98,7 +98,8 @@ router.post('/:projectId/batches', async (req, res) => {
 
   } catch (err) {
     console.error('[Batches API] Create error:', err.message);
-    res.status(500).json({ error: err.message });
+    console.error('[Batches API] Create error details:', err.stack || err);
+    res.status(500).json({ error: 'Failed to create batch job. Please try again.' });
   }
 });
 
