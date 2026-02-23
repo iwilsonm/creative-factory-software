@@ -2,7 +2,6 @@ import { v4 as uuidv4 } from 'uuid';
 import { chat, chatWithImage, chatWithImages } from './openai.js';
 import { chat as claudeChat, chatWithImage as claudeChatWithImage } from './anthropic.js';
 import { generateImage } from './gemini.js';
-import { logGeminiCost } from './costTracker.js';
 import { withHeavyLLMLimit } from './rateLimiter.js';
 import {
   getProject, getLatestDoc, uploadBuffer, downloadToBuffer,
@@ -97,7 +96,7 @@ Return ONLY valid JSON, no markdown.`
         role: 'user',
         content: imagePrompt
       }
-    ], 'gpt-4.1-mini', { response_format: { type: 'json_object' } });
+    ], 'gpt-4.1-mini', { response_format: { type: 'json_object' }, operation: 'ad_headline_extraction' });
 
     const parsed = JSON.parse(result);
     return {
@@ -137,7 +136,7 @@ Rules:
       }
     ];
 
-    const revisedPrompt = await chat(reviewMessages, 'gpt-4.1-mini');
+    const revisedPrompt = await chat(reviewMessages, 'gpt-4.1-mini', { operation: 'prompt_guideline_review' });
     return revisedPrompt.trim();
   } catch (err) {
     console.warn('[AdGenerator] Prompt guidelines review failed, using original prompt:', err.message);
@@ -183,7 +182,7 @@ Your job:
   ];
 
   try {
-    const revisedPrompt = await chat(messages, 'gpt-4.1-mini');
+    const revisedPrompt = await chat(messages, 'gpt-4.1-mini', { operation: 'prompt_edit' });
     return revisedPrompt.trim();
   } catch (err) {
     console.error('[AdGenerator] Prompt edit failed:', err.message);
@@ -448,7 +447,8 @@ export async function generateAd(projectId, options = {}) {
       const creativeDirectorPrompt_inner = buildCreativeDirectorPrompt(project, docs);
       const acknowledgment = await chat(
         [{ role: 'user', content: creativeDirectorPrompt_inner }],
-        'gpt-5.2'
+        'gpt-5.2',
+        { operation: 'ad_creative_director', projectId }
       );
 
       // Message 2: Inspiration image + optional product image + instructions
@@ -471,7 +471,8 @@ export async function generateAd(projectId, options = {}) {
             { base64: inspiration.base64, mimeType: inspiration.mimeType },
             { base64: productImageBase64, mimeType: productImageMimeType }
           ],
-          'gpt-5.2'
+          'gpt-5.2',
+          { operation: 'ad_generation_mode1', projectId }
         );
       } else {
         prompt = await chatWithImage(
@@ -479,7 +480,8 @@ export async function generateAd(projectId, options = {}) {
           imageRequestText_inner,
           inspiration.base64,
           inspiration.mimeType,
-          'gpt-5.2'
+          'gpt-5.2',
+          { operation: 'ad_generation_mode1', projectId }
         );
       }
 
@@ -499,7 +501,8 @@ export async function generateAd(projectId, options = {}) {
 
           prompt = await chat(
             [...conversationWithMsg2, { role: 'user', content: msg3 }],
-            'gpt-5.2'
+            'gpt-5.2',
+            { operation: 'ad_headline_juicer', projectId }
           );
         }
       }
@@ -568,12 +571,11 @@ async function generateAndSaveImage({ adId, projectId, project, imagePrompt, asp
     ? 'Generating image with Nano Banana Pro (with product reference)...'
     : 'Generating image with Nano Banana Pro...', progress: 70 });
 
-  const { imageBuffer, mimeType: imgMime } = await generateImage(imagePrompt, aspectRatio, productImage);
+  const { imageBuffer, mimeType: imgMime } = await generateImage(imagePrompt, aspectRatio, productImage, {
+    projectId, operation: 'ad_image_generation',
+  });
 
   emit({ type: 'status', status: 'generating_image', message: 'Uploading image...', progress: 90 });
-
-  // Log Gemini cost (fire-and-forget)
-  try { await logGeminiCost(projectId, 1, '2K', false); } catch {}
 
   // Upload image to Convex storage
   const storageId = await uploadBuffer(imageBuffer, imgMime);
@@ -688,7 +690,8 @@ export async function generateAdMode2(projectId, options = {}) {
       const creativeDirectorPrompt_inner = buildCreativeDirectorPrompt(project, docs);
       const acknowledgment = await chat(
         [{ role: 'user', content: creativeDirectorPrompt_inner }],
-        'gpt-5.2'
+        'gpt-5.2',
+        { operation: 'ad_creative_director', projectId }
       );
 
       // Message 2: Template image + optional product image + instructions
@@ -711,7 +714,8 @@ export async function generateAdMode2(projectId, options = {}) {
             { base64: template.base64, mimeType: template.mimeType },
             { base64: productImageBase64, mimeType: productImageMimeType }
           ],
-          'gpt-5.2'
+          'gpt-5.2',
+          { operation: 'ad_generation_mode2', projectId }
         );
       } else {
         prompt = await chatWithImage(
@@ -719,7 +723,8 @@ export async function generateAdMode2(projectId, options = {}) {
           imageRequestText_inner,
           template.base64,
           template.mimeType,
-          'gpt-5.2'
+          'gpt-5.2',
+          { operation: 'ad_generation_mode2', projectId }
         );
       }
 
@@ -739,7 +744,8 @@ export async function generateAdMode2(projectId, options = {}) {
 
           prompt = await chat(
             [...conversationWithMsg2, { role: 'user', content: msg3 }],
-            'gpt-5.2'
+            'gpt-5.2',
+            { operation: 'ad_headline_juicer', projectId }
           );
         }
       }

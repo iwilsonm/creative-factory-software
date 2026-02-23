@@ -11,8 +11,6 @@
  * Uses the same Anthropic wrapper (services/anthropic.js) as the rest of the platform.
  */
 
-import { logGeminiCost } from './costTracker.js';
-
 import { chat, chatWithMultipleImages } from './anthropic.js';
 import { generateImage } from './gemini.js';
 import { getDocsByProject, uploadBuffer, getStorageUrl } from '../convexClient.js';
@@ -463,14 +461,13 @@ IMPORTANT:
     }
 
     try {
-      const { imageBuffer, mimeType } = await generateImage(imagePrompt, aspectRatio);
+      const { imageBuffer, mimeType } = await generateImage(imagePrompt, aspectRatio, null, {
+        projectId, operation: 'lp_image_generation',
+      });
 
       // Upload to Convex storage
       const storageId = await uploadBuffer(imageBuffer, mimeType);
       const storageUrl = await getStorageUrl(storageId);
-
-      // Log Gemini cost (fire-and-forget)
-      logGeminiCost(projectId, 1, '2K', false, 'lp_image_generation').catch(() => {});
 
       results.push({
         ...slot,

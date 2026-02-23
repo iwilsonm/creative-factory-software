@@ -67,7 +67,7 @@ Suggest:
 
 Return JSON: { "keywords": [...], "subreddits": [...], "forums": [...], "facebook_groups": [...] }`
     }
-  ], 'gpt-4.1-mini', { response_format: { type: 'json_object' } });
+  ], 'gpt-4.1-mini', { response_format: { type: 'json_object' }, operation: 'quote_mining_suggestions' });
 
   return JSON.parse(result);
 }
@@ -313,7 +313,7 @@ Return ONLY valid JSON, no extra text.`;
   const result = await chat(
     [{ role: 'user', content: mergePrompt }],
     'gpt-4.1',
-    { response_format: { type: 'json_object' } }
+    { response_format: { type: 'json_object' }, operation: 'quote_merge_rank' }
   );
 
   // Parse GPT-4.1 response

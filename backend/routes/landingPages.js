@@ -18,7 +18,6 @@ import {
   getStorageUrl,
   uploadBuffer,
 } from '../convexClient.js';
-import { logGeminiCost } from '../services/costTracker.js';
 import {
   generateLandingPageCopy,
   checkDocsReady,
@@ -392,7 +391,9 @@ router.post('/:projectId/landing-pages/:pageId/regenerate-image', async (req, re
     try {
       sse.sendEvent({ type: 'progress', message: `Generating image for slot ${slot_index + 1}...` });
 
-      const result = await generateImage(prompt, aspect_ratio || '1:1');
+      const result = await generateImage(prompt, aspect_ratio || '1:1', null, {
+        projectId: req.params.projectId, operation: 'lp_image_generation',
+      });
 
       if (!result?.imageBuffer) {
         throw new Error('Image generation returned no image');
@@ -401,9 +402,6 @@ router.post('/:projectId/landing-pages/:pageId/regenerate-image', async (req, re
       // Upload to Convex storage
       const storageId = await uploadBuffer(result.imageBuffer, result.mimeType || 'image/png');
       const storageUrl = await getStorageUrl(storageId);
-
-      // Log Gemini cost (fire-and-forget)
-      logGeminiCost(req.params.projectId, 1, '2K', false, 'lp_image_generation').catch(() => {});
 
       // Preserve original storageId for revert
       if (!imageSlots[slot_index].original_storageId) {

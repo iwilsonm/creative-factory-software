@@ -54,7 +54,7 @@ PROBLEM: ${problem}
 
 Generate body copy in the "${styleKey}" style that would appear below the headline in a static image ad.`
     }
-  ], 'gpt-4.1-mini');
+  ], 'gpt-4.1-mini', { operation: 'body_copy_generation' });
 
   return result.trim();
 }

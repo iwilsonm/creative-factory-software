@@ -125,13 +125,18 @@ export default function AgentMonitor() {
             </div>
             <div>
               <h2 className="text-[15px] font-semibold text-textdark tracking-tight">Agent Dashboard</h2>
-              <p className="text-[11px] text-textlight">Dacia Recursive Agents — autonomous monitoring & deployment</p>
+              <p className="text-[11px] text-textlight">Autonomous AI agents running on cron — no manual intervention needed</p>
             </div>
           </div>
           <span className="text-[11px] text-textmid font-medium">
             {agentsOnline}/{agentsTotal} online
           </span>
         </div>
+
+        {/* Context description */}
+        <p className="text-[11px] text-textmid leading-relaxed mb-4 -mt-2">
+          These agents run automatically on the VPS server. The <span className="font-medium text-textdark">Fixer</span> keeps the platform healthy by testing code and recovering failed batch jobs. The <span className="font-medium text-textdark">Creative Filter</span> reviews completed batches, scores each ad for quality, and deploys the best ones to your Ad Pipeline.
+        </p>
 
         {/* Agent panels side by side */}
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
@@ -209,7 +214,7 @@ function FixerPanel({ data, onRefresh }) {
   return (
     <AgentPanel
       name="Dacia Fixer"
-      subtitle="Recursive Agent #1 — test, heal, resurrect"
+      subtitle="Runs every 5 min — tests batch code, auto-fixes failures, resurrects stuck jobs"
       status={data.status}
       icon={
         <svg className="w-3 h-3 text-navy" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -314,7 +319,7 @@ function FilterPanel({ data, onRefresh }) {
   return (
     <AgentPanel
       name="Dacia Creative Filter"
-      subtitle="Recursive Agent #2 — score, group, deploy"
+      subtitle="Runs every 30 min — scores batch ads, groups winners into flex ads, deploys to Ready to Post"
       status={data.status}
       icon={
         <svg className="w-3 h-3 text-navy" fill="none" stroke="currentColor" viewBox="0 0 24 24">

@@ -12,6 +12,7 @@ import {
 import { getAnthropicClient } from '../services/quoteMiner.js';
 import { createSSEStream } from '../utils/sseHelper.js';
 import { withRetry } from '../services/retry.js';
+import { logAnthropicCost } from '../services/costTracker.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -130,6 +131,16 @@ ${docs.necessary_beliefs}`;
         { label: '[Chat Ack]' }
       );
 
+      // Log cost for acknowledgment call (fire-and-forget)
+      if (ackResponse.usage) {
+        logAnthropicCost({
+          model: 'claude-sonnet-4-6', operation: 'copywriter_chat_init',
+          inputTokens: ackResponse.usage.input_tokens || 0,
+          outputTokens: ackResponse.usage.output_tokens || 0,
+          projectId,
+        }).catch(() => {});
+      }
+
       const ackText = ackResponse.content[0]?.text || 'I\'ve reviewed all four documents. Ready to help with your copywriting.';
 
       // Save Claude's acknowledgment (also hidden in UI)
@@ -236,6 +247,19 @@ ${docs.necessary_beliefs}`;
         sse.sendEvent({ type: 'token', text });
       }
     }
+
+    // Log cost for streaming chat response (fire-and-forget)
+    try {
+      const finalMsg = await stream.finalMessage();
+      if (finalMsg?.usage) {
+        logAnthropicCost({
+          model: 'claude-sonnet-4-6', operation: 'copywriter_chat',
+          inputTokens: finalMsg.usage.input_tokens || 0,
+          outputTokens: finalMsg.usage.output_tokens || 0,
+          projectId,
+        }).catch(() => {});
+      }
+    } catch { /* stream may already be consumed */ }
 
     // 6. Save assistant's full response
     await createChatMessage({

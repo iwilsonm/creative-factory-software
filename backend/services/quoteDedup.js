@@ -116,7 +116,7 @@ Return ONLY valid JSON, no explanation.`;
     const result = await chat(
       [{ role: 'user', content: prompt }],
       'gpt-4.1-mini',
-      { response_format: { type: 'json_object' } }
+      { response_format: { type: 'json_object' }, operation: 'quote_deduplication' }
     );
 
     try {

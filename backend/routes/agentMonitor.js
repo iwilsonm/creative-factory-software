@@ -4,6 +4,8 @@ import { statSync } from 'fs';
 import path from 'path';
 import { exec } from 'child_process';
 import { fileURLToPath } from 'url';
+import { v4 as uuidv4 } from 'uuid';
+import { logCost } from '../convexClient.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -262,4 +264,50 @@ router.post('/filter/run-live', async (req, res) => {
   }
 });
 
+// =============================================
+// Agent Cost Logging (shared by both agents)
+// =============================================
+// Separate router — mounted WITHOUT auth so agents can call from localhost
+// =============================================
+
+const costRouter = Router();
+
+// POST /api/agent-cost/log
+// Called by agent shell scripts to log LLM costs to Convex api_costs table
+// No auth required — only accessible from localhost via curl
+costRouter.post('/log', async (req, res) => {
+  try {
+    const { agent, operation, cost_cents, model, service } = req.body;
+
+    if (!agent || !operation || !cost_cents) {
+      return res.status(400).json({ error: 'Missing required fields: agent, operation, cost_cents' });
+    }
+
+    const costUsd = (parseFloat(cost_cents) || 0) / 100;
+    if (costUsd <= 0) {
+      return res.json({ ok: true, message: 'Zero cost, skipped' });
+    }
+
+    const record = {
+      id: uuidv4(),
+      project_id: undefined,
+      service: service || 'anthropic',
+      operation: `${agent}_${operation}`,
+      cost_usd: Math.round(costUsd * 1000000) / 1000000,
+      rate_used: undefined,
+      image_count: undefined,
+      resolution: undefined,
+      source: 'calculated',
+      period_date: new Date().toISOString().split('T')[0],
+    };
+
+    await logCost(record);
+    res.json({ ok: true, cost_usd: record.cost_usd });
+  } catch (err) {
+    console.error('[AgentMonitor] Log cost error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+export { costRouter as agentCostRouter };
 export default router;

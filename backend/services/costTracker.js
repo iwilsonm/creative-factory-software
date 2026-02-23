@@ -10,6 +10,18 @@ const ANTHROPIC_RATES = {
   'claude-haiku-3-5':  { input: 0.80, output: 4.00 },     // $0.80/M in, $4/M out
 };
 
+// ── OpenAI GPT pricing (per million tokens) ─────────────────────────────────
+// Source: https://platform.openai.com/docs/pricing
+// Note: per-call calculated logging complements the hourly billing API sync.
+// Calculated records use source='calculated', billing API uses source='billing_api'.
+const OPENAI_RATES = {
+  'gpt-5.2':            { input: 2.00, output: 8.00 },
+  'gpt-4.1':            { input: 2.00, output: 8.00 },
+  'gpt-4.1-mini':       { input: 0.40, output: 1.60 },
+  'gpt-4o-mini':        { input: 0.15, output: 0.60 },
+  'o3-deep-research':   { input: 0, output: 0 },      // billed via billing API only
+};
+
 // ── Perplexity pricing (per million tokens) ────────────────────────────────────
 // Source: https://docs.perplexity.ai/docs/pricing
 const PERPLEXITY_RATES = {
@@ -54,6 +66,48 @@ export async function logAnthropicCost({ model, operation, inputTokens, outputTo
     return record;
   } catch (err) {
     console.error('[CostTracker] Failed to log Anthropic cost:', err.message);
+    return null;
+  }
+}
+
+/**
+ * Log an OpenAI GPT API cost (fire-and-forget).
+ * Uses token counts from the API response to calculate exact cost.
+ * Complements the hourly billing API sync with per-operation granularity.
+ *
+ * @param {object} params
+ * @param {string} params.model - e.g. 'gpt-5.2', 'gpt-4.1-mini'
+ * @param {string} params.operation - e.g. 'ad_creative_director', 'foundational_docs'
+ * @param {number} params.inputTokens - input/prompt tokens used
+ * @param {number} params.outputTokens - output/completion tokens used
+ * @param {string|null} [params.projectId] - project ID if applicable
+ */
+export async function logOpenAICost({ model, operation, inputTokens, outputTokens, projectId = null }) {
+  try {
+    const rates = OPENAI_RATES[model] || OPENAI_RATES['gpt-4.1'];
+    const inputCost = (inputTokens / 1_000_000) * rates.input;
+    const outputCost = (outputTokens / 1_000_000) * rates.output;
+    const totalCost = inputCost + outputCost;
+
+    if (totalCost <= 0) return null;
+
+    const record = {
+      id: uuidv4(),
+      project_id: projectId,
+      service: 'openai',
+      operation,
+      cost_usd: Math.round(totalCost * 1000000) / 1000000,
+      rate_used: null,
+      image_count: null,
+      resolution: null,
+      source: 'calculated',
+      period_date: new Date().toISOString().split('T')[0]
+    };
+
+    await logCost(record);
+    return record;
+  } catch (err) {
+    console.error('[CostTracker] Failed to log OpenAI cost:', err.message);
     return null;
   }
 }

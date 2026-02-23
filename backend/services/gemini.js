@@ -2,6 +2,7 @@ import { GoogleGenAI } from '@google/genai';
 import { getSetting } from '../convexClient.js';
 import { withRetry } from './retry.js';
 import { withGeminiLimit } from './rateLimiter.js';
+import { logGeminiCost } from './costTracker.js';
 
 let client = null;
 let lastApiKey = null;
@@ -19,8 +20,15 @@ async function getClient() {
 
 /**
  * Generate an image using Nano Banana Pro (Gemini 3 Pro Image Preview).
+ * Cost is auto-logged to Convex api_costs table.
+ *
+ * @param {string} prompt
+ * @param {string} aspectRatio
+ * @param {object|null} productImage - { base64, mimeType }
+ * @param {object} [options] - { projectId, operation, isBatch } for cost tracking
  */
-export async function generateImage(prompt, aspectRatio = '1:1', productImage = null) {
+export async function generateImage(prompt, aspectRatio = '1:1', productImage = null, options = {}) {
+  const { projectId = null, operation = 'image_generation', isBatch = false } = options;
   const ai = await getClient();
 
   try {
@@ -91,6 +99,9 @@ export async function generateImage(prompt, aspectRatio = '1:1', productImage = 
   if (!imageBuffer) {
     throw new Error('Gemini did not return an image. The model may have refused the prompt or encountered an error.');
   }
+
+  // Auto-log Gemini cost (fire-and-forget)
+  logGeminiCost(projectId, 1, '2K', isBatch, operation).catch(() => {});
 
   return { imageBuffer, mimeType, textResponse };
   } catch (err) {

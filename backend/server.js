@@ -26,7 +26,7 @@ import quoteMiningRoutes from './routes/quoteMining.js';
 import chatRoutes from './routes/chat.js';
 import metaRoutes from './routes/meta.js';
 import landingPageRoutes from './routes/landingPages.js';
-import agentMonitorRoutes from './routes/agentMonitor.js';
+import agentMonitorRoutes, { agentCostRouter } from './routes/agentMonitor.js';
 import { initScheduler, getSchedulerStatus } from './services/scheduler.js';
 import { getRateLimiterStats } from './services/rateLimiter.js';
 
@@ -89,6 +89,8 @@ process.on('uncaughtException', (err) => {
 
   // Routes — auth (no role restriction)
   app.use('/api/auth', authRoutes);
+  // Routes — agent cost logging (no auth — called by agent scripts from localhost via curl)
+  app.use('/api/agent-cost', agentCostRouter);
   // Routes — admin only
   app.use('/api/users', userRoutes);
   app.use('/api/settings', settingsRoutes);

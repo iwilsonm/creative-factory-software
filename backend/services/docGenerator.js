@@ -468,7 +468,7 @@ export async function generateAllDocs(projectId, onEvent) {
 
         const fullResponse = await chatStream(messages, (chunk) => {
           onEvent({ type: 'chunk', step: step.id, text: chunk });
-        });
+        }, 'gpt-4.1', { operation: 'foundational_docs', projectId });
 
         if (!useIsolatedContext) {
           chatMessages.push({ role: 'assistant', content: fullResponse });
@@ -516,6 +516,8 @@ Include specific URLs and sources for all claims. The research should be organiz
 
         const result = await deepResearch(researchPrompt, {
           instructions,
+          operation: 'deep_research',
+          projectId,
           onProgress: (progress) => {
             onEvent({
               type: 'deep_research_progress',
@@ -594,7 +596,7 @@ export async function regenerateDoc(projectId, docType, onEvent) {
       chatMessages.push({ role: 'assistant', content: 'I have studied the research methodology framework. Ready to proceed.' });
       chatMessages.push({ role: 'user', content: prompt3_GenerateResearchPrompt(project.name) });
 
-      const step3Response = await chatStream(chatMessages, () => {});
+      const step3Response = await chatStream(chatMessages, () => {}, 'gpt-4.1', { operation: 'foundational_docs', projectId });
 
       const instructions = `You are a world-class market research analyst specializing in direct response copywriting research. Conduct exhaustive web research with VERBATIM consumer quotes. Output a 6+ page research document covering: demographics, psychographics, existing solutions, historical angles, and corruption narratives.`;
 
@@ -609,6 +611,8 @@ export async function regenerateDoc(projectId, docType, onEvent) {
 
       const result = await deepResearch(step3Response, {
         instructions,
+        operation: 'deep_research',
+        projectId,
         onProgress: (progress) => {
           onEvent({ type: 'deep_research_progress', step: targetStep.id, ...progress });
         }
@@ -677,7 +681,7 @@ export async function regenerateDoc(projectId, docType, onEvent) {
 
       const fullResponse = await chatStream(messages, (chunk) => {
         onEvent({ type: 'chunk', step: targetStep.id, text: chunk });
-      });
+      }, 'gpt-4.1', { operation: 'foundational_docs', projectId });
 
       await saveDoc(projectId, targetStep.savedAs, fullResponse);
       onEvent({ type: 'step_complete', step: targetStep.id, label: targetStep.label, savedAs: targetStep.savedAs });
@@ -814,7 +818,7 @@ export async function generateFromManualResearch(projectId, researchContent, onE
 
       const fullResponse = await chatStream(messages, (chunk) => {
         onEvent({ type: 'chunk', step: step.id, text: chunk });
-      });
+      }, 'gpt-4.1', { operation: 'foundational_docs', projectId });
 
       if (!useIsolatedContext) {
         chatMessages.push({ role: 'assistant', content: fullResponse });

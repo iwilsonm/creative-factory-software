@@ -59,8 +59,16 @@ get_daily_spend() {
 
 add_spend() {
   local cost_cents="$1"
+  local operation="${2:-unknown}"
+  local model="${3:-}"
+  local service="${4:-anthropic}"
   local current; current=$(get_daily_spend)
   echo "$current + $cost_cents" | bc > "$SPEND_FILE"
+  # Log to Convex api_costs via backend (fire-and-forget)
+  curl -s -X POST "http://localhost:3001/api/agent-cost/log" \
+    -H "Content-Type: application/json" \
+    -d "{\"agent\":\"fixer\",\"operation\":\"${operation}\",\"cost_cents\":${cost_cents},\"service\":\"${service}\"}" \
+    > /dev/null 2>&1 &
 }
 
 check_budget() {
@@ -288,7 +296,10 @@ run_tests() {
 build_context() {
   local suite="$1"
   local context_var="${suite}_context[@]"
-  local context_files=("${!context_var}" 2>/dev/null || true)
+  local context_files=()
+  if [[ -n "${!context_var+x}" ]]; then
+    context_files=("${!context_var}")
+  fi
   local context=""
   
   for file in "${context_files[@]}"; do
@@ -490,13 +501,13 @@ run_fix_pipeline() {
   log_info "Agent 1/2: Diagnosing with $DIAGNOSIS_MODEL..."
   local diagnosis
   diagnosis=$(bash "${SCRIPT_DIR}/agents/diagnose.sh" "$test_output" "$context" "$suite")
-  add_spend 1
-  
+  add_spend 1 "diagnosis" "$DIAGNOSIS_MODEL" "$DIAGNOSIS_PROVIDER"
+
   # Agent 2: Fix (Claude Sonnet — ~$0.05)
   log_info "Agent 2/2: Fixing with $FIX_MODEL..."
   local fix_output
   fix_output=$(bash "${SCRIPT_DIR}/agents/fix.sh" "$diagnosis" "$context" "$test_output" "$suite")
-  add_spend 5
+  add_spend 5 "fix" "$FIX_MODEL" "anthropic"
   
   # Track which files were changed
   local files_changed

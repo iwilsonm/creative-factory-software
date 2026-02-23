@@ -212,7 +212,7 @@ All tables live in Convex cloud. Schema is enforced via `convex/schema.ts`. 24 t
 - **File uploads**: Multer saves to temp dir → uploaded to Convex storage → temp file deleted. Product images, templates, and inspiration images all stored in Convex.
 - **Retry utility**: `withRetry(fn, options)` in `services/retry.js` — 5 retries, exponential backoff with jitter, rate-limit-aware (15s base delay for 429 errors), Retry-After header support, 120s max delay.
 - **Rate limiters**: Two AsyncSemaphore-based limiters in `services/rateLimiter.js`: (1) `withHeavyLLMLimit()` (alias `withGptRateLimit()`) — concurrency=2, 2s minimum gap, wraps GPT-5.2 and heavy Claude Opus/Sonnet calls. (2) `withGeminiLimit()` — concurrency=3, wraps all Gemini image generation calls. Both prevent 429 errors.
-- **Cost logging**: Fire-and-forget pattern — `logAnthropicCost().catch(() => {})`. Anthropic/Perplexity costs calculated from token counts. Gemini costs logged immediately by rate. OpenAI synced hourly from billing API.
+- **Cost logging**: Centralized auto-logging inside each LLM wrapper — every API call is automatically tracked. Fire-and-forget pattern (`.catch(() => {})`). OpenAI: `logOpenAICost()` in `openai.js` (all 5 functions). Anthropic: `logCostFromResponse()` in `anthropic.js`. Gemini: `logGeminiCost()` inside `generateImage()`. Perplexity: manual in `quoteMiner.js`. Chat route: manual `logAnthropicCost()` for streaming + priming. Shell agents: `POST /api/agent-cost/log` (no-auth, localhost-only). Callers pass `{ operation, projectId }` via options. OpenAI billing API also synced hourly as ground truth (`source: 'billing_api'` vs per-call `source: 'calculated'`).
 
 ### Frontend
 
@@ -347,14 +347,25 @@ Same flow as Mode 1 but template image used instead of random inspiration. Promp
 
 **Auto-retry**: Failed batches automatically retry up to 3 times before being marked permanently failed.
 
-### 5. Cost Tracking (4 Services)
+### 5. Cost Tracking (5 Services — Centralized Auto-Logging)
 
-| Service | Method | Timing |
-|---------|--------|--------|
-| Gemini | Rate × image count | Logged immediately after generation |
-| OpenAI | Organization Costs billing API | Synced hourly by scheduler |
-| Anthropic | Token count × rate table | Calculated immediately (fire-and-forget) |
-| Perplexity | Token count × rate table | Calculated immediately (fire-and-forget) |
+All LLM costs are logged automatically inside each wrapper function. Callers pass `{ operation, projectId }` via options — new features built on the wrappers get cost tracking for free.
+
+| Service | Method | Where | Timing |
+|---------|--------|-------|--------|
+| OpenAI | Token count × rate table | Inside `openai.js` (all 5 functions) | Per-call, auto-logged (`source: 'calculated'`) |
+| OpenAI | Organization Costs billing API | Scheduler hourly sync | Hourly (`source: 'billing_api'`) |
+| Anthropic | Token count × rate table | Inside `anthropic.js` wrapper | Per-call, auto-logged |
+| Gemini | Rate × image count | Inside `gemini.js` `generateImage()` | Per-call, auto-logged |
+| Perplexity | Token count × rate table | Manual in `quoteMiner.js` | Per-call |
+| Chat (Anthropic) | Token count × rate table | Manual in `chat.js` route | Per-call (streaming + priming) |
+| Shell Agents | Cost in cents via HTTP | `POST /api/agent-cost/log` (no-auth) | Per-call from bash scripts |
+
+**OpenAI Rates** (per million tokens):
+- GPT-5.2: $2 input / $8 output
+- GPT-4.1: $2 input / $8 output
+- GPT-4.1-mini: $0.40 input / $1.60 output
+- o3-deep-research: billed via billing API only
 
 **Anthropic Rates** (per million tokens):
 - Claude Opus 4.6: $5 input / $25 output
@@ -672,6 +683,11 @@ Same flow as Mode 1 but template image used instead of random inspiration. Promp
 | POST | `/api/agent-monitor/filter/run` | Trigger filter dry-run |
 | POST | `/api/agent-monitor/filter/run-live` | Trigger filter live run |
 
+### Agent Cost (No Auth — Localhost Only)
+| Method | Path | Purpose |
+|--------|------|---------|
+| POST | `/api/agent-cost/log` | Log agent LLM cost to Convex (used by shell scripts via curl) |
+
 ---
 
 ## Frontend Routes
@@ -783,7 +799,7 @@ ssh root@76.13.183.219 "cd /opt/ad-platform && npx convex deploy -y"
 
 6. **Image storage in Convex, not disk**: Generated images are stored in Convex blob storage and served via pre-signed CDN URLs. Thumbnails are disk-cached locally for performance.
 
-7. **Cost tracking 4-service**: Gemini costs calculated immediately (rate × count). OpenAI synced hourly from billing API. Anthropic and Perplexity calculated from response token counts. Dashboard shows all services with operation-level breakdowns.
+7. **Cost tracking — centralized auto-logging**: Every LLM wrapper auto-logs costs internally so callers can't forget. OpenAI: per-call token-based logging (`logOpenAICost` in all 5 `openai.js` functions) + hourly billing API sync as ground truth. Anthropic: per-call auto-logging via `logCostFromResponse()` in `anthropic.js`. Gemini: per-call logging inside `generateImage()`. Perplexity: manual in `quoteMiner.js`. Chat route: manual `logAnthropicCost()`. Shell agents: `POST /api/agent-cost/log`. Per-call records use `source: 'calculated'`, billing API uses `source: 'billing_api'`. Dashboard shows all services with operation-level breakdowns.
 
 8. **Product image hierarchy**: Project-level product image auto-injects into all generations. Per-ad or per-batch uploads override it. This avoids re-uploading the same product photo for every ad.
 

@@ -66,8 +66,16 @@ get_daily_spend() {
 
 add_spend() {
   local cost_cents="$1"
+  local operation="${2:-unknown}"
+  local model="${3:-}"
+  local service="${4:-anthropic}"
   local current; current=$(get_daily_spend)
   echo "$current + $cost_cents" | bc > "$SPEND_FILE"
+  # Log to Convex api_costs via backend (fire-and-forget)
+  curl -s -X POST "http://localhost:3001/api/agent-cost/log" \
+    -H "Content-Type: application/json" \
+    -d "{\"agent\":\"filter\",\"operation\":\"${operation}\",\"cost_cents\":${cost_cents},\"service\":\"${service}\"}" \
+    > /dev/null 2>&1 &
 }
 
 check_budget() {
@@ -239,7 +247,7 @@ score_batch_ads() {
 
     local score_result
     score_result=$(bash "${SCRIPT_DIR}/agents/score.sh" "$ad" "$top_performers")
-    add_spend 2  # ~$0.02 per ad
+    add_spend 2 "scoring" "$SCORE_MODEL" "anthropic"  # ~$0.02 per ad
 
     local passed
     passed=$(echo "$score_result" | jq -r '.pass // false')
@@ -292,7 +300,7 @@ group_into_flex_ads() {
 
   local group_result
   group_result=$(bash "${SCRIPT_DIR}/agents/group.sh" "$passing" "$project_name")
-  add_spend 4  # ~$0.04 per grouping call
+  add_spend 4 "grouping" "$GROUP_MODEL" "anthropic"  # ~$0.04 per grouping call
 
   echo "$group_result"
 }
@@ -601,7 +609,7 @@ regeneration_loop() {
       local new_headlines
       new_headlines=$(bash "${SCRIPT_DIR}/agents/regenerate.sh" \
         "headlines" "$needed" "$angle" "$existing_headlines" "$top_performers" "$project_name")
-      add_spend 4  # ~$0.04
+      add_spend 4 "headline_regen" "$SCORE_MODEL" "anthropic"  # ~$0.04
 
       # Validate them
       local candidates
@@ -612,7 +620,7 @@ regeneration_loop() {
       if [[ "$candidate_count" -gt 0 ]]; then
         local validation
         validation=$(bash "${SCRIPT_DIR}/agents/validate.sh" "headlines" "$candidates" "$angle")
-        add_spend 1  # ~$0.01
+        add_spend 1 "headline_validation" "$SCORE_MODEL" "anthropic"  # ~$0.01
 
         # Add passing headlines to the flex ad
         local passing
@@ -658,7 +666,7 @@ regeneration_loop() {
       local new_pts
       new_pts=$(bash "${SCRIPT_DIR}/agents/regenerate.sh" \
         "primary_texts" "$needed" "$angle" "$existing_pts" "$top_performers" "$project_name")
-      add_spend 4  # ~$0.04
+      add_spend 4 "text_regen" "$SCORE_MODEL" "anthropic"  # ~$0.04
 
       # Validate them
       local candidates
@@ -669,7 +677,7 @@ regeneration_loop() {
       if [[ "$candidate_count" -gt 0 ]]; then
         local validation
         validation=$(bash "${SCRIPT_DIR}/agents/validate.sh" "primary_texts" "$candidates" "$angle")
-        add_spend 1  # ~$0.01
+        add_spend 1 "text_validation" "$SCORE_MODEL" "anthropic"  # ~$0.01
 
         local passing
         passing=$(echo "$validation" | jq '[.results[] | select(.pass == true)]' 2>/dev/null || echo "[]")

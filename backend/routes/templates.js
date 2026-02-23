@@ -199,7 +199,8 @@ router.post('/:projectId/templates/:templateId/analyze', async (req, res) => {
       'Analyze this ad template image and return the JSON analysis.',
       base64,
       'image/jpeg',
-      'gpt-4.1-mini'
+      'gpt-4.1-mini',
+      { operation: 'template_analysis', projectId: req.params.projectId }
     );
 
     // Parse response — strip markdown fences if present
