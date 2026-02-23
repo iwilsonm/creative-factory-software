@@ -45,7 +45,8 @@ SPEND_FILE="${LOG_DIR}/spend_${TODAY}.txt"
 log() {
   local level="$1"; shift
   local msg="[$(date '+%H:%M:%S')] [FILTER] [$level] $*"
-  echo -e "$msg" | tee -a "$LOG_FILE"
+  echo -e "$msg" >> "$LOG_FILE"
+  echo -e "$msg" >&2
 }
 log_info()  { log "INFO"   "$@"; }
 log_warn()  { log "WARN"   "${YELLOW}$*${NC}"; }
@@ -183,7 +184,7 @@ get_project_config() {
   project=$(curl -s "${CONVEX_URL}/api/query" \
     -H "Content-Type: application/json" \
     -d "{
-      \"path\": \"projects:get\",
+      \"path\": \"projects:getByExternalId\",
       \"args\": {\"externalId\": \"${project_id}\"}
     }" 2>/dev/null) || {
     log_warn "Could not fetch project $project_id"
@@ -526,7 +527,7 @@ process_batch() {
   # Check daily cap — count flex ads deployed today for this project from log
   local today_flex_count=0
   if [[ -f "$LOG_FILE" ]]; then
-    today_flex_count=$(grep -c "Deployed flex ad.*$project_name" "$LOG_FILE" 2>/dev/null || echo 0)
+    today_flex_count=$(grep -c "Deployed flex ad.*$project_name" "$LOG_FILE" 2>/dev/null) || today_flex_count=0
   fi
 
   local remaining=$((project_flex_cap - today_flex_count))
