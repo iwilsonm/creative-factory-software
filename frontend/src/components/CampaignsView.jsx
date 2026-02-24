@@ -54,7 +54,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
   const [sidebarData, setSidebarData] = useState(null);
   const [sidebarForm, setSidebarForm] = useState({
     ad_name: '', destination_urls: [''], display_link: '', cta_button: 'LEARN_MORE', primary_texts: [], ad_headlines: [], planned_date: '', facebook_page: '',
-    campaign_id: '', new_campaign_name: '', ad_set_name: '', duplicate_adset_name: '',
+    campaign_id: '', new_campaign_name: '', ad_set_name: '', duplicate_adset_name: '', notes: '',
   });
   const [duplicateConfirm, setDuplicateConfirm] = useState(null); // { urls: string[] } when pending
   const [generatingPrimaryText, setGeneratingPrimaryText] = useState(false);
@@ -619,6 +619,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
         ad_headlines: (() => { try { return dep.ad_headlines ? JSON.parse(dep.ad_headlines) : []; } catch { return []; } })(),
         planned_date: dep.planned_date || '',
         facebook_page: dep.facebook_page || '',
+        notes: dep.notes || '',
         // Campaign/ad set assignment
         campaign_id: dep.local_campaign_id && dep.local_campaign_id !== 'planned' && dep.local_campaign_id !== 'unplanned'
           ? dep.local_campaign_id : '',
@@ -641,6 +642,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
         ad_headlines: (() => { try { return flex.headlines ? JSON.parse(flex.headlines) : []; } catch { return []; } })(),
         planned_date: flex.planned_date || '',
         facebook_page: flex.facebook_page || '',
+        notes: flex.notes || '',
         // Campaign/ad set assignment for flex
         campaign_id: (() => {
           const adSet = adSets.find(a => a.id === flex.ad_set_id);
@@ -817,6 +819,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
           facebook_page: sidebarForm.facebook_page || null,
           planned_date: sidebarForm.planned_date || null,
           duplicate_adset_name: sidebarForm.duplicate_adset_name || '',
+          notes: sidebarForm.notes || '',
         });
 
         // Duplicate for each additional URL
@@ -842,6 +845,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
           facebook_page: sidebarForm.facebook_page || null,
           planned_date: sidebarForm.planned_date || null,
           duplicate_adset_name: sidebarForm.duplicate_adset_name || '',
+          notes: sidebarForm.notes || '',
         });
 
         // For each extra URL: duplicate all child deployments, then create a new flex ad
@@ -908,7 +912,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
         }
       }
 
-      await Promise.all([loadDeployments(), loadCampaignData(true)]);
+      // Show toast and close immediately — don't wait for data refresh
       if (extraUrls.length > 0) {
         addToast(`Saved + created ${extraUrls.length} duplicate${extraUrls.length > 1 ? 's' : ''} with different URL${extraUrls.length > 1 ? 's' : ''}`, 'success');
       } else {
@@ -924,6 +928,11 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
         setSidebarData(null);
         sidebarInitialFormRef.current = null;
       }
+      setSidebarSaving(false);
+
+      // Refresh data in the background (non-blocking)
+      Promise.all([loadDeployments(), loadCampaignData(true)]).catch(() => {});
+      return;
     } catch {
       addToast('Failed to save', 'error');
     }
@@ -1010,13 +1019,17 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
     }
     const allDepIds = [...new Set([...standaloneDepIds, ...flexChildDepIds])];
     if (allDepIds.length === 0) { addToast('Select ads to mark as ready', 'info'); return; }
+
+    // Optimistic UI update — immediate feedback
+    setDeployments(prev => prev.map(d => allDepIds.includes(d.id) ? { ...d, status: 'ready_to_post' } : d));
+    setSelectedInStaging(new Set());
+    addToast(`${allDepIds.length} ad${allDepIds.length !== 1 ? 's' : ''} ready to post`, 'success');
+
     try {
       await Promise.all(allDepIds.map(id => api.updateDeploymentStatus(id, 'ready_to_post')));
-      setDeployments(prev => prev.map(d => allDepIds.includes(d.id) ? { ...d, status: 'ready_to_post' } : d));
-      setSelectedInStaging(new Set());
-      addToast(`${allDepIds.length} ad${allDepIds.length !== 1 ? 's' : ''} ready to post`, 'success');
     } catch {
-      addToast('Failed to update status', 'error');
+      addToast('Failed to update status — refreshing...', 'error');
+      loadDeployments();
     }
   };
 
@@ -1834,6 +1847,18 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
                   className="input-apple text-[12px] w-full mt-2"
                 />
               )}
+            </div>
+
+            {/* ─── Notes ─── */}
+            <div className="border-t border-gray-100 pt-4 mt-4">
+              <label className="text-[11px] text-textmid font-medium block mb-1">Notes <span className="text-textlight">(optional)</span></label>
+              <textarea
+                value={sidebarForm.notes}
+                onChange={e => setSidebarForm(f => ({ ...f, notes: e.target.value }))}
+                placeholder="Internal notes about this ad..."
+                className="input-apple text-[12px] w-full mt-1 resize-none"
+                rows={3}
+              />
             </div>
 
             {/* ─── Campaign & Placement ─── */}
