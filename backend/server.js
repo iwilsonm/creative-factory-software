@@ -96,6 +96,11 @@ process.on('uncaughtException', (err) => {
   app.use('/api/settings', settingsRoutes);
   // Routes — projects (all roles can list/view projects for navigation)
   app.use('/api/projects', projectRoutes);
+  // Routes — deployments (poster has limited access — controlled per-route inside)
+  // IMPORTANT: Must be mounted BEFORE broad /api routes with requireRole('admin', 'manager')
+  // because Express runs middleware in order and those broad /api mounts would block poster users
+  // from reaching deployment routes (costsRoutes and metaRoutes are mounted on /api prefix)
+  app.use('/api', deploymentRoutes);
   // Routes — admin/manager only
   app.use('/api/projects', requireAuth, requireRole('admin', 'manager'), documentRoutes);
   app.use('/api/upload', requireAuth, requireRole('admin', 'manager'), uploadRoutes);
@@ -112,8 +117,6 @@ process.on('uncaughtException', (err) => {
   app.use('/api/projects', requireAuth, requireRole('admin', 'manager'), landingPageRoutes);
   // Routes — agent monitor (admin only)
   app.use('/api/agent-monitor', requireAuth, requireRole('admin'), agentMonitorRoutes);
-  // Routes — deployments (poster has limited access — controlled per-route inside)
-  app.use('/api', deploymentRoutes);
 
   // Health check — real connectivity + operational checks
   app.get('/api/health', async (req, res) => {

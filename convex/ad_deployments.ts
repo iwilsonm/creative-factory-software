@@ -126,6 +126,7 @@ export const update = mutation({
       cta_button: v.optional(v.string()),
       facebook_page: v.optional(v.string()),
       posted_by: v.optional(v.string()),
+      duplicate_adset_name: v.optional(v.string()),
     }),
   },
   handler: async (ctx, args) => {

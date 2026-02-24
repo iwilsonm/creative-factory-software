@@ -224,7 +224,8 @@ router.put('/deployments/:id', requireRole('admin', 'manager'), async (req, res)
     await updateDeployment(id, fields);
     res.json({ success: true });
   } catch (err) {
-    console.error('Failed to update deployment:', err);
+    console.error('Failed to update deployment:', err.message || err);
+    console.error('Failed to update deployment — full body was:', JSON.stringify(req.body));
     res.status(500).json({ error: 'Failed to update deployment' });
   }
 });
@@ -680,7 +681,8 @@ router.put('/deployments/flex-ads/:id', requireRole('admin', 'manager'), async (
     await updateFlexAd(id, fields);
     res.json({ success: true });
   } catch (err) {
-    console.error('Failed to update flex ad:', err);
+    console.error('Failed to update flex ad:', err.message || err);
+    console.error('Failed to update flex ad — full body was:', JSON.stringify(req.body));
     res.status(500).json({ error: 'Failed to update flex ad' });
   }
 });
