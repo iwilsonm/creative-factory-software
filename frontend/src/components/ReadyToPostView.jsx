@@ -461,27 +461,36 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
   };
 
   // Website URL section — big, clear, prominent
-  const WebsiteUrlSection = ({ url }) => {
+  const WebsiteUrlSection = ({ url, cardKey }) => {
     if (!url) return null;
+    const itemKey = `${cardKey}-url`;
+    const isCopied = copiedItems.has(itemKey);
+    const handleCopy = () => {
+      copyToClipboard(url, 'Website URL');
+      setCopiedItems(prev => new Set(prev).add(itemKey));
+    };
     return (
-      <div className="border-2 border-gold/25 bg-gold/5 rounded-xl p-4">
+      <div className={`border-2 rounded-xl p-4 transition-all duration-300 ${isCopied ? 'border-teal/25 bg-teal/5' : 'border-gold/25 bg-gold/5'}`}>
         <div className="flex items-start justify-between gap-3">
           <div className="flex-1 min-w-0">
-            <span className="inline-block px-2 py-0.5 rounded bg-gold/20 text-gold text-[10px] font-bold uppercase tracking-widest mb-1">Website URL</span>
+            <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-widest mb-1 transition-colors duration-300 ${isCopied ? 'bg-teal/15 text-teal' : 'bg-gold/20 text-gold'}`}>Website URL</span>
             <p className="text-[11px] text-textmid mb-2">Paste this into the <strong>"Website URL"</strong> field in Ads Manager.</p>
-            <div className="bg-white rounded-lg px-3 py-2 border border-gold/20">
+            <div className={`bg-white rounded-lg px-3 py-2 border transition-all duration-300 ${isCopied ? 'border-teal/20' : 'border-gold/20'}`}>
               <a href={url} target="_blank" rel="noopener noreferrer"
-                className="text-[13px] text-gold font-medium hover:underline break-all"
+                className={`text-[13px] font-medium hover:underline break-all transition-all duration-300 ${isCopied ? 'line-through text-textmid/60 decoration-teal/40' : 'text-gold'}`}
               >{url}</a>
             </div>
           </div>
-          <button onClick={() => copyToClipboard(url, 'Website URL')}
-            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-gold text-white text-[11px] font-bold hover:bg-gold/90 transition-colors flex-shrink-0 shadow-sm"
+          <button onClick={handleCopy}
+            className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-white text-[11px] font-bold transition-colors flex-shrink-0 shadow-sm ${isCopied ? 'bg-teal hover:bg-teal/90' : 'bg-gold hover:bg-gold/90'}`}
           >
             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+              {isCopied
+                ? <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                : <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+              }
             </svg>
-            Copy URL
+            {isCopied ? 'Copied' : 'Copy URL'}
           </button>
         </div>
       </div>
@@ -503,25 +512,34 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
   };
 
   // Display Link section — shown instead of website URL in ad
-  const DisplayLinkSection = ({ displayLink }) => {
+  const DisplayLinkSection = ({ displayLink, cardKey }) => {
     if (!displayLink || !displayLink.trim()) return null;
+    const itemKey = `${cardKey}-displaylink`;
+    const isCopied = copiedItems.has(itemKey);
+    const handleCopy = () => {
+      copyToClipboard(displayLink, 'Display Link');
+      setCopiedItems(prev => new Set(prev).add(itemKey));
+    };
     return (
-      <div className="border-2 border-navy/15 bg-navy/5 rounded-xl p-4">
+      <div className={`border-2 rounded-xl p-4 transition-all duration-300 ${isCopied ? 'border-teal/15 bg-teal/5' : 'border-navy/15 bg-navy/5'}`}>
         <div className="flex items-start justify-between gap-3">
           <div className="flex-1 min-w-0">
-            <span className="inline-block px-2 py-0.5 rounded bg-navy/10 text-navy text-[10px] font-bold uppercase tracking-widest mb-1">Display Link</span>
+            <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-widest mb-1 transition-colors duration-300 ${isCopied ? 'bg-teal/15 text-teal' : 'bg-navy/10 text-navy'}`}>Display Link</span>
             <p className="text-[11px] text-textmid mb-2">Enter this into the <strong>"Display Link"</strong> field in Ads Manager (under the Website URL).</p>
-            <div className="bg-white rounded-lg px-3 py-2 border border-navy/15">
-              <span className="text-[13px] text-navy font-medium break-all">{displayLink}</span>
+            <div className={`bg-white rounded-lg px-3 py-2 border transition-all duration-300 ${isCopied ? 'border-teal/15' : 'border-navy/15'}`}>
+              <span className={`text-[13px] font-medium break-all transition-all duration-300 ${isCopied ? 'line-through text-textmid/60 decoration-teal/40' : 'text-navy'}`}>{displayLink}</span>
             </div>
           </div>
-          <button onClick={() => copyToClipboard(displayLink, 'Display Link')}
-            className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-navy text-white text-[11px] font-bold hover:bg-navy-light transition-colors flex-shrink-0 shadow-sm"
+          <button onClick={handleCopy}
+            className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-white text-[11px] font-bold transition-colors flex-shrink-0 shadow-sm ${isCopied ? 'bg-teal hover:bg-teal/90' : 'bg-navy hover:bg-navy-light'}`}
           >
             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+              {isCopied
+                ? <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                : <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+              }
             </svg>
-            Copy
+            {isCopied ? 'Copied' : 'Copy'}
           </button>
         </div>
       </div>
@@ -655,8 +673,8 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
               dep.id, 'headline'
             )}
 
-            <WebsiteUrlSection url={dep.destination_url} />
-            <DisplayLinkSection displayLink={dep.display_link} />
+            <WebsiteUrlSection url={dep.destination_url} cardKey={dep.id} />
+            <DisplayLinkSection displayLink={dep.display_link} cardKey={dep.id} />
             <CallToActionSection cta={dep.cta_button} />
           </div>
         )}
@@ -868,8 +886,8 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
               flexId, 'headline'
             )}
 
-            <WebsiteUrlSection url={flexAd.destination_url} />
-            <DisplayLinkSection displayLink={flexAd.display_link} />
+            <WebsiteUrlSection url={flexAd.destination_url} cardKey={flexId} />
+            <DisplayLinkSection displayLink={flexAd.display_link} cardKey={flexId} />
             <CallToActionSection cta={flexAd.cta_button} />
           </div>
         )}
