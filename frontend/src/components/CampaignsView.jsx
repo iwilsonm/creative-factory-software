@@ -72,6 +72,10 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
   const [headlinesOpen, setHeadlinesOpen] = useState(false);
   const [expandedFlexChild, setExpandedFlexChild] = useState(null);
 
+  // ─── Undo system ───────────────────────────────────────────────────────
+  const [undoState, setUndoState] = useState(null);
+  // Shape: { label, deploymentsSnapshot, flexAdsSnapshot, serverUndo, timestamp }
+
   const sidebarInitialFormRef = useRef(null);
   const autosaveTimerRef = useRef(null);
   const lastAutosavedRef = useRef(null); // JSON string of last autosaved { primary_texts, ad_headlines }
@@ -127,6 +131,67 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
     } catch { /* ignore */ }
     if (!silent) setLoading(false);
   };
+
+  // ─── Undo helpers ────────────────────────────────────────────────────────
+  const snapshotForUndo = useCallback((label, serverUndoFn) => {
+    setUndoState({
+      label,
+      deploymentsSnapshot: [...deployments],
+      flexAdsSnapshot: [...flexAds],
+      serverUndo: serverUndoFn,
+      timestamp: Date.now(),
+    });
+  }, [deployments, flexAds]);
+
+  const handleUndo = useCallback(async () => {
+    if (!undoState) return;
+    if (Date.now() - undoState.timestamp > 60000) {
+      addToast('Undo expired', 'warning');
+      setUndoState(null);
+      return;
+    }
+    // Optimistic restore
+    setDeployments(undoState.deploymentsSnapshot);
+    setFlexAds(undoState.flexAdsSnapshot);
+    // Close sidebar if open (data is now stale)
+    setSidebarData(null);
+    sidebarInitialFormRef.current = null;
+    // Clear undo state immediately (prevent double-fire)
+    const serverUndo = undoState.serverUndo;
+    setUndoState(null);
+    // Server-side reversal
+    try {
+      await serverUndo();
+      addToast('Undone', 'success');
+    } catch (err) {
+      console.error('Undo server error:', err);
+      addToast('Undo failed — refreshing...', 'error');
+      await Promise.all([loadCampaignData(true), loadDeployments()]);
+    }
+  }, [undoState, addToast, loadDeployments, setDeployments]);
+
+  // Auto-expire undo after 60 seconds
+  useEffect(() => {
+    if (!undoState) return;
+    const timer = setTimeout(() => setUndoState(null), 60000);
+    return () => clearTimeout(timer);
+  }, [undoState]);
+
+  // Cmd+Z / Ctrl+Z keyboard shortcut
+  useEffect(() => {
+    const handler = (e) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'z' && !e.shiftKey) {
+        const tag = document.activeElement?.tagName;
+        if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+        if (undoState) {
+          e.preventDefault();
+          handleUndo();
+        }
+      }
+    };
+    document.addEventListener('keydown', handler);
+    return () => document.removeEventListener('keydown', handler);
+  }, [undoState, handleUndo]);
 
   // ─── Derived data ───────────────────────────────────────────────────────
   const unplannedDeps = deployments.filter(d => d.local_campaign_id === 'unplanned' && d.status !== 'ready_to_post' && d.status !== 'posted');
@@ -232,6 +297,11 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
     } catch { return; }
     if (!ids?.length) return;
 
+    // Snapshot for undo
+    snapshotForUndo(`move ${ids.length}`, async () => {
+      await api.unassignFromAdSet(ids);
+    });
+
     setDeployments(prev => prev.map(d =>
       ids.includes(d.id) ? { ...d, local_campaign_id: 'planned', local_adset_id: '', flex_ad_id: '' } : d
     ));
@@ -254,15 +324,30 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
 
     // For flex ads: collect their child deployment IDs, then delete the flex ad
     const flexChildDepIds = [];
+    const flexSnapshots = []; // Save flex ad data for undo
     for (const flexId of flexAdIds) {
       const flex = flexAds.find(f => f.id === flexId);
       if (flex) {
+        flexSnapshots.push({ ...flex });
         try { const childIds = JSON.parse(flex.child_deployment_ids || '[]'); flexChildDepIds.push(...childIds); } catch { /* ignore */ }
       }
     }
 
     // All deployment IDs to unassign: standalone + flex children
     const allDepIds = [...new Set([...standaloneDepIds, ...flexChildDepIds])];
+
+    // Snapshot for undo
+    snapshotForUndo(`move ${allDepIds.length}`, async () => {
+      // Re-assign deps back to staging
+      if (allDepIds.length > 0) {
+        await api.assignToAdSet(allDepIds, 'planned', '');
+      }
+      // Restore flex ads
+      for (const fSnap of flexSnapshots) {
+        await api.restoreFlexAd(fSnap.id);
+      }
+      await loadCampaignData(true);
+    });
 
     // Optimistic update for deployments
     if (allDepIds.length > 0) {
@@ -298,6 +383,11 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
       ids = data.deploymentIds;
     } catch { return; }
     if (!ids?.length) return;
+
+    // Snapshot for undo
+    snapshotForUndo(`move ${ids.length}`, async () => {
+      await api.assignToAdSet(ids, 'planned', '');
+    });
 
     setDeployments(prev => prev.map(d =>
       ids.includes(d.id) ? { ...d, local_campaign_id: 'unplanned', local_adset_id: '', flex_ad_id: '' } : d
@@ -359,6 +449,26 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
 
     const name = `Flexible Ad (${allDepIds.length} images)`;
 
+    // Snapshot for undo — capture state of dissolved flex ads for restoration
+    const dissolvedFlexSnapshots = selectedFlexIds.map(id => flexAds.find(f => f.id === id)).filter(Boolean);
+    snapshotForUndo('combine', async () => {
+      // The new flex ad will have been created by now — we need to find it and delete it
+      // Refresh to find the real flex ad that was created
+      const freshData = await api.getFlexAds(projectId);
+      const newFlex = (freshData.flexAds || []).find(f => {
+        try {
+          const cIds = JSON.parse(f.child_deployment_ids || '[]');
+          return allDepIds.every(id => cIds.includes(id)) && cIds.length === allDepIds.length;
+        } catch { return false; }
+      });
+      if (newFlex) await api.deleteFlexAd(newFlex.id);
+      // Restore dissolved flex ads
+      for (const fSnap of dissolvedFlexSnapshots) {
+        await api.restoreFlexAd(fSnap.id);
+      }
+      await loadCampaignData(true);
+    });
+
     // Optimistic: create a temporary flex ad in state so UI updates immediately
     const tempFlexId = `temp-${Date.now()}`;
     setFlexAds(prev => [
@@ -401,6 +511,11 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
         const dep = deployments.find(d => d.id === id);
         return dep && dep.flex_ad_id === flexAdId;
       });
+      // Snapshot for undo
+      snapshotForUndo('ungroup', async () => {
+        await api.restoreFlexAd(flexAdId);
+        await loadCampaignData(true);
+      });
       // Optimistic: remove flex ad, clear flex_ad_id on owned children (children stay in staging)
       setFlexAds(prev => prev.filter(f => f.id !== flexAdId));
       if (ownedChildIds.length > 0) {
@@ -421,6 +536,14 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
       const ownedChildIds = childIds.filter(id => {
         const dep = deployments.find(d => d.id === id);
         return dep && dep.flex_ad_id === flexAdId;
+      });
+      // Snapshot for undo
+      snapshotForUndo('unplan', async () => {
+        await api.restoreFlexAd(flexAdId);
+        if (ownedChildIds.length > 0) {
+          await api.assignToAdSet(ownedChildIds, 'planned', '');
+        }
+        await loadCampaignData(true);
       });
       // Optimistic: remove flex ad, move owned children to queue
       setFlexAds(prev => prev.filter(f => f.id !== flexAdId));
@@ -446,22 +569,18 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
         const dep = deployments.find(d => d.id === id);
         return dep && dep.flex_ad_id === flexAdId;
       });
+      // Snapshot for undo
+      snapshotForUndo('remove', async () => {
+        await api.restoreFlexAd(flexAdId);
+        await Promise.all(ownedChildIds.map(id => api.restoreDeployment(id)));
+        await loadCampaignData(true);
+      });
       // Optimistic: remove flex ad + delete owned child deployments
       setFlexAds(prev => prev.filter(f => f.id !== flexAdId));
       if (ownedChildIds.length > 0) {
         setDeployments(prev => prev.filter(d => !ownedChildIds.includes(d.id)));
       }
-      addToast(`Removed ${ownedChildIds.length} ad${ownedChildIds.length !== 1 ? 's' : ''} from planner`, 'success', 8000, {
-        label: 'Undo',
-        onClick: async () => {
-          try {
-            await api.restoreFlexAd(flexAdId);
-            await Promise.all(ownedChildIds.map(id => api.restoreDeployment(id)));
-            await Promise.all([loadCampaignData(true), loadDeployments()]);
-            addToast('Restored flexible ad', 'success');
-          } catch { addToast('Failed to restore', 'error'); }
-        },
-      });
+      addToast(`Removed ${ownedChildIds.length} ad${ownedChildIds.length !== 1 ? 's' : ''} from planner`, 'success');
       try {
         await api.deleteFlexAd(flexAdId);
         await Promise.all(ownedChildIds.map(id => api.deleteDeployment(id)));
@@ -838,6 +957,15 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
     }
     const allDepIds = [...new Set([...depIds, ...flexChildDepIds])];
 
+    // Snapshot for undo
+    snapshotForUndo(`delete ${allDepIds.length}`, async () => {
+      await Promise.all([
+        ...flexAdIds.map(id => api.restoreFlexAd(id)),
+        ...allDepIds.map(id => api.restoreDeployment(id)),
+      ]);
+      await loadCampaignData(true);
+    });
+
     // Optimistic UI update — remove immediately
     if (allDepIds.length > 0) {
       setDeployments(prev => prev.filter(d => !allDepIds.includes(d.id)));
@@ -861,19 +989,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
         ...flexAdIds.map(id => api.deleteFlexAd(id)),
         ...allDepIds.map(id => api.deleteDeployment(id)),
       ]);
-      addToast(`${totalRemoved} removed from tracker`, 'success', 8000, {
-        label: 'Undo',
-        onClick: async () => {
-          try {
-            await Promise.all([
-              ...flexAdIds.map(id => api.restoreFlexAd(id)),
-              ...allDepIds.map(id => api.restoreDeployment(id)),
-            ]);
-            await Promise.all([loadCampaignData(true), loadDeployments()]);
-            addToast(`Restored ${totalRemoved} deployment${totalRemoved !== 1 ? 's' : ''}`, 'success');
-          } catch { addToast('Failed to restore', 'error'); }
-        },
-      });
+      addToast(`${totalRemoved} removed from tracker`, 'success');
     } catch {
       addToast('Failed to delete some deployments', 'error');
       await Promise.all([loadCampaignData(true), loadDeployments()]);
@@ -1950,9 +2066,23 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
         >
           {/* Header */}
           <div className="flex items-center justify-between mb-4">
-            <div>
-              <h3 className="text-[14px] font-semibold text-textdark">Planner</h3>
-              <p className="text-[11px] text-textmid mt-0.5">Drag ads here to start planning. Click to fill in details and assign a campaign.</p>
+            <div className="flex items-center gap-2">
+              <div>
+                <h3 className="text-[14px] font-semibold text-textdark">Planner</h3>
+                <p className="text-[11px] text-textmid mt-0.5">Drag ads here to start planning. Click to fill in details and assign a campaign.</p>
+              </div>
+              {undoState && (
+                <button
+                  onClick={handleUndo}
+                  className="ml-2 px-3 py-1 text-[11px] font-medium bg-navy/5 hover:bg-navy/10 text-navy rounded-full transition-colors flex items-center gap-1.5 whitespace-nowrap"
+                  title="Undo (Cmd+Z)"
+                >
+                  <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                    <path strokeLinecap="round" strokeLinejoin="round" d="M3 10h10a5 5 0 015 5v2M3 10l4-4M3 10l4 4" />
+                  </svg>
+                  Undo {undoState.label}
+                </button>
+              )}
             </div>
             <span className="text-[11px] text-textlight bg-black/5 px-2 py-0.5 rounded-full">
               {stagingItemCount} item{stagingItemCount !== 1 ? 's' : ''}
