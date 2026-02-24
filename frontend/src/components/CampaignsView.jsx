@@ -45,6 +45,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
 
   // Flex ad action confirmation: { id: flexAdId, action: 'ungroup'|'unplan'|'remove' } or null
   const [flexActionConfirm, setFlexActionConfirm] = useState(null);
+  const [combiningFlex, setCombiningFlex] = useState(false);
 
   // Image preview lightbox (for flex ad thumbnails)
   const [previewImage, setPreviewImage] = useState(null);
@@ -325,8 +326,10 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
 
   // ─── Flex Ad operations ─────────────────────────────────────────────────
   const handleCombineIntoFlex = async () => {
+    if (combiningFlex) return; // Prevent double-click
     const selected = [...selectedInStaging];
     if (selected.length < 2) return;
+    setCombiningFlex(true);
 
     // Separate selected IDs into standalone deployment IDs and flex ad IDs
     const standaloneDepIds = selected.filter(id => deployments.some(d => d.id === id));
@@ -367,6 +370,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
       addToast(err.message || 'Failed to create flexible ad', 'error');
       await Promise.all([loadCampaignData(true), loadDeployments()]);
     }
+    setCombiningFlex(false);
   };
 
   const handleFlexAction = async (flexAdId, action) => {
@@ -919,6 +923,25 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
           {placement && (
             <div className="text-[9px] text-gold truncate mt-0.5">
               {placement.campaignName}{placement.adSetName ? ` \u203A ${placement.adSetName}` : ''}
+            </div>
+          )}
+          {dep.created_at && (
+            <div className="text-[9px] text-textlight mt-0.5">
+              Added {(() => {
+                try {
+                  const d = new Date(dep.created_at);
+                  const now = new Date();
+                  const diffMs = now - d;
+                  const diffMins = Math.floor(diffMs / 60000);
+                  if (diffMins < 1) return 'just now';
+                  if (diffMins < 60) return `${diffMins}m ago`;
+                  const diffHrs = Math.floor(diffMins / 60);
+                  if (diffHrs < 24) return `${diffHrs}h ago`;
+                  const diffDays = Math.floor(diffHrs / 24);
+                  if (diffDays < 7) return `${diffDays}d ago`;
+                  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                } catch { return ''; }
+              })()}
             </div>
           )}
         </div>
@@ -1926,12 +1949,13 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
               {selectedInStaging.size >= 2 && (
                 <button
                   onClick={handleCombineIntoFlex}
-                  className="px-2 py-1 rounded-lg bg-navy text-white hover:bg-navy-light transition-colors inline-flex items-center gap-1"
+                  disabled={combiningFlex}
+                  className="px-2 py-1 rounded-lg bg-navy text-white hover:bg-navy-light transition-colors inline-flex items-center gap-1 disabled:opacity-50"
                 >
                   <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2z" />
                   </svg>
-                  Flex
+                  {combiningFlex ? 'Creating...' : 'Flex'}
                 </button>
               )}
               <button
