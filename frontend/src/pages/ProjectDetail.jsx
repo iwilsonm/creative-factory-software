@@ -34,7 +34,21 @@ export default function ProjectDetail() {
   const [editing, setEditing] = useState(false);
   const [form, setForm] = useState({});
   const [saving, setSaving] = useState(false);
-  const [tab, setTab] = useState(user?.role === 'poster' ? 'tracker' : 'ads');
+  // Persist active tab in URL search params so it survives page refresh
+  const validTabs = ['quotes', 'ads', 'tracker', 'lpgen', 'overview', 'docs', 'templates'];
+  const defaultTab = user?.role === 'poster' ? 'tracker' : 'ads';
+  const tabFromUrl = searchParams.get('tab');
+  const [tab, setTabState] = useState(
+    tabFromUrl && validTabs.includes(tabFromUrl) ? tabFromUrl : defaultTab
+  );
+  const setTab = useCallback((newTab) => {
+    setTabState(newTab);
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev);
+      next.set('tab', newTab);
+      return next;
+    }, { replace: true });
+  }, [setSearchParams]);
   const [projectCosts, setProjectCosts] = useState(null);
   const [costsLoading, setCostsLoading] = useState(false);
 

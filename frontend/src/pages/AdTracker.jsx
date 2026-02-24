@@ -24,11 +24,23 @@ function displayName(dep) {
 
 export default function AdTracker({ projectId, userRole }) {
   const isPoster = userRole === 'poster';
-  const { data: deployments, setData: setDeployments, loading, error: deploymentsError, refetch: loadDeployments } = useAsyncData(
+  const { data: deployments, setData: setDeployments, loading, error: deploymentsError, refetch: loadDeployments, silentRefetch: silentLoadDeployments } = useAsyncData(
     () => api.getProjectDeployments(projectId).then(d => d.deployments || []),
     [projectId]
   );
-  const [activeView, setActiveView] = useState(isPoster ? 'ready_to_post' : 'campaigns'); // 'campaigns' | 'status' | 'ready_to_post'
+  // Persist activeView in sessionStorage so it survives page refresh
+  const [activeView, setActiveViewState] = useState(() => {
+    if (isPoster) return 'ready_to_post';
+    try {
+      const saved = sessionStorage.getItem(`adtracker_view_${projectId}`);
+      if (saved && ['campaigns', 'status', 'ready_to_post'].includes(saved)) return saved;
+    } catch {}
+    return 'campaigns';
+  }); // 'campaigns' | 'status' | 'ready_to_post'
+  const setActiveView = useCallback((v) => {
+    setActiveViewState(v);
+    try { sessionStorage.setItem(`adtracker_view_${projectId}`, v); } catch {}
+  }, [projectId]);
   const [statusFilter, setStatusFilter] = useState('posted');
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [bulkEditOpen, setBulkEditOpen] = useState(false);
@@ -66,6 +78,7 @@ export default function AdTracker({ projectId, userRole }) {
   }, [projectId]);
 
   // One-time migration: backfill headlines on existing ads, then rename deployments
+  // Uses silentLoadDeployments to avoid briefly flashing empty state
   useEffect(() => {
     const backfillKey = 'headline_backfill_v1';
     const renameKey = 'deployment_rename_v2';
@@ -78,12 +91,12 @@ export default function AdTracker({ projectId, userRole }) {
         return api.renameAllDeployments();
       }).then(() => {
         localStorage.setItem(renameKey, Date.now().toString());
-        loadDeployments();
+        silentLoadDeployments();
       }).catch(() => {});
     } else if (needsRename) {
       api.renameAllDeployments().then(() => {
         localStorage.setItem(renameKey, Date.now().toString());
-        loadDeployments();
+        silentLoadDeployments();
       }).catch(() => {});
     }
   }, []);
@@ -104,7 +117,7 @@ export default function AdTracker({ projectId, userRole }) {
       Promise.all(scheduledDeps.map(d => api.updateDeploymentStatus(d.id, 'ready_to_post')))
         .then(() => {
           localStorage.setItem(migrationKey, Date.now().toString());
-          loadDeployments();
+          silentLoadDeployments();
         })
         .catch(() => {});
     } else {

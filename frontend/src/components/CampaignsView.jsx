@@ -930,16 +930,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
               Added {(() => {
                 try {
                   const d = new Date(dep.created_at);
-                  const now = new Date();
-                  const diffMs = now - d;
-                  const diffMins = Math.floor(diffMs / 60000);
-                  if (diffMins < 1) return 'just now';
-                  if (diffMins < 60) return `${diffMins}m ago`;
-                  const diffHrs = Math.floor(diffMins / 60);
-                  if (diffHrs < 24) return `${diffHrs}h ago`;
-                  const diffDays = Math.floor(diffHrs / 24);
-                  if (diffDays < 7) return `${diffDays}d ago`;
-                  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+                  return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) + ' at ' + d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
                 } catch { return ''; }
               })()}
             </div>
@@ -950,8 +941,10 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
             src={thumbUrl}
             alt=""
             draggable="false"
-            className="w-10 h-10 object-cover rounded-lg bg-gray-100 flex-shrink-0"
+            className="w-10 h-10 object-cover rounded-lg bg-gray-100 flex-shrink-0 cursor-zoom-in hover:ring-2 hover:ring-navy/30 transition-all"
             loading="lazy"
+            onClick={(e) => { e.stopPropagation(); setPreviewImage(thumbUrl); }}
+            title="Click to preview"
           />
         ) : (
           <div className="w-10 h-10 rounded-lg bg-gray-100 flex-shrink-0" />
@@ -1035,7 +1028,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
         <div className="flex items-center gap-1 flex-shrink-0">
           {childDeps.slice(0, 4).map(d => (
             d.imageUrl ? (
-              <img key={d.id} src={d.imageUrl} alt="" className="w-11 h-11 object-cover rounded-lg bg-gray-100" loading="lazy" />
+              <img key={d.id} src={d.imageUrl} alt="" className="w-11 h-11 object-cover rounded-lg bg-gray-100 cursor-zoom-in hover:ring-2 hover:ring-navy/30 transition-all" loading="lazy" onClick={(e) => { e.stopPropagation(); setPreviewImage(d.imageUrl); }} title="Click to preview" />
             ) : (
               <div key={d.id} className="w-11 h-11 rounded-lg bg-gray-200" />
             )
