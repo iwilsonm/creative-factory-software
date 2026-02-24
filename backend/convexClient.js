@@ -643,6 +643,7 @@ export async function getFlexAdsByProject(projectId) {
     planned_date: f.planned_date || null,
     posted_by: f.posted_by || null,
     duplicate_adset_name: f.duplicate_adset_name || null,
+    notes: f.notes || null,
     created_at: f.created_at,
     updated_at: f.updated_at,
   }));
@@ -688,6 +689,7 @@ export async function getFlexAd(id) {
     planned_date: f.planned_date || null,
     posted_by: f.posted_by || null,
     duplicate_adset_name: f.duplicate_adset_name || null,
+    notes: f.notes || null,
     created_at: f.created_at,
     updated_at: f.updated_at,
   };

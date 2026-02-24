@@ -27,6 +27,9 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
   const [expandedCards, setExpandedCards] = useState(new Set());
   const [loadError, setLoadError] = useState(null);
   const [copiedItems, setCopiedItems] = useState(new Set()); // Track copied primary texts / headlines by "cardKey-section-index"
+  const [editingNotes, setEditingNotes] = useState(null); // cardKey of the card whose notes are being edited
+  const [notesValue, setNotesValue] = useState(''); // current textarea value
+  const [savingNotes, setSavingNotes] = useState(false);
 
   const toggleCardExpanded = (key) => {
     setExpandedCards(prev => {
@@ -98,6 +101,31 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
 
   const parseCount = (jsonStr) => {
     try { return JSON.parse(jsonStr).filter(Boolean).length; } catch { return 0; }
+  };
+
+  // ── Notes ──────────────────────────────────────────────────────────────
+
+  const startEditingNotes = (cardKey, currentNotes) => {
+    setEditingNotes(cardKey);
+    setNotesValue(currentNotes || '');
+  };
+
+  const saveNotes = async (id, isFlexCard = false) => {
+    setSavingNotes(true);
+    try {
+      if (isFlexCard) {
+        await api.updateFlexAd(id, { notes: notesValue.trim() || '' });
+        setFlexAds(prev => prev.map(f => f.id === id ? { ...f, notes: notesValue.trim() || '' } : f));
+      } else {
+        await api.updateDeployment(id, { notes: notesValue.trim() || '' });
+        setDeployments(prev => prev.map(d => d.id === id ? { ...d, notes: notesValue.trim() || '' } : d));
+      }
+      addToast('Notes saved', 'success');
+    } catch {
+      addToast('Failed to save notes', 'error');
+    }
+    setSavingNotes(false);
+    setEditingNotes(null);
   };
 
   // ── Actions ──────────────────────────────────────────────────────────────
@@ -564,6 +592,63 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
     );
   };
 
+  // Notes section — editable textarea at the bottom of cards
+  const NotesSection = ({ notes, cardKey, depId, isFlexCard = false }) => {
+    const isEditing = editingNotes === cardKey;
+    return (
+      <div className="border border-black/[0.06] rounded-xl p-4 bg-white">
+        <div className="flex items-center justify-between mb-2">
+          <span className="inline-block px-2 py-0.5 rounded bg-black/[0.04] text-textmid text-[10px] font-bold uppercase tracking-widest">Notes</span>
+          {!isEditing && (
+            <button
+              onClick={() => startEditingNotes(cardKey, notes)}
+              className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-medium text-textmid hover:text-textdark hover:bg-black/[0.04] transition-colors"
+            >
+              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+              </svg>
+              Edit
+            </button>
+          )}
+        </div>
+        {isEditing ? (
+          <div>
+            <textarea
+              value={notesValue}
+              onChange={e => setNotesValue(e.target.value)}
+              placeholder="Add notes..."
+              rows={3}
+              className="w-full text-[13px] text-textdark bg-offwhite border border-black/10 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-navy/20 resize-y"
+              autoFocus
+            />
+            <div className="flex items-center justify-end gap-2 mt-2">
+              <button
+                onClick={() => setEditingNotes(null)}
+                className="px-2.5 py-1 rounded-md text-[11px] text-textmid hover:bg-black/[0.04] transition-colors"
+              >Cancel</button>
+              <button
+                onClick={() => saveNotes(depId, isFlexCard)}
+                disabled={savingNotes}
+                className="px-3 py-1 rounded-md text-[11px] font-semibold bg-navy text-white hover:bg-navy-light transition-colors disabled:opacity-50"
+              >{savingNotes ? 'Saving...' : 'Save'}</button>
+            </div>
+          </div>
+        ) : (
+          <div
+            onClick={() => startEditingNotes(cardKey, notes)}
+            className="cursor-pointer rounded-lg px-3 py-2 bg-offwhite min-h-[2.5rem] hover:bg-navy/5 transition-colors"
+          >
+            {notes ? (
+              <p className="text-[13px] text-textdark whitespace-pre-wrap">{notes}</p>
+            ) : (
+              <p className="text-[12px] text-textlight italic">Click to add notes...</p>
+            )}
+          </div>
+        )}
+      </div>
+    );
+  };
+
   const PostedByDropdown = ({ value, onChange }) => (
     <div className="flex items-center gap-2">
       <span className="text-[11px] font-medium text-textmid">Posted by:</span>
@@ -676,6 +761,9 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
             <WebsiteUrlSection url={dep.destination_url} cardKey={dep.id} />
             <DisplayLinkSection displayLink={dep.display_link} cardKey={dep.id} />
             <CallToActionSection cta={dep.cta_button} />
+
+            {/* Notes */}
+            <NotesSection notes={dep.notes} cardKey={dep.id} depId={dep.id} />
           </div>
         )}
 
@@ -889,6 +977,9 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
             <WebsiteUrlSection url={flexAd.destination_url} cardKey={flexId} />
             <DisplayLinkSection displayLink={flexAd.display_link} cardKey={flexId} />
             <CallToActionSection cta={flexAd.cta_button} />
+
+            {/* Notes */}
+            <NotesSection notes={flexAd.notes} cardKey={flexId} depId={flexAd.id} isFlexCard />
           </div>
         )}
 
