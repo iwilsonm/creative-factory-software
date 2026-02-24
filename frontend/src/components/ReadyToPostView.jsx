@@ -446,17 +446,13 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
             <span className="text-[15px] font-bold text-textdark">{campaignName}</span>
           </div>
           <div className="flex items-center gap-3">
-            <span className="inline-block px-2 py-0.5 rounded bg-navy/10 text-navy text-[10px] font-bold uppercase tracking-wider w-20 text-center flex-shrink-0">Ad Set</span>
+            <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider text-center flex-shrink-0 ${duplicateAdSetName ? 'bg-gold/15 text-gold' : 'bg-navy/10 text-navy w-20'}`} style={duplicateAdSetName ? { minWidth: '5rem' } : undefined}>{duplicateAdSetName ? 'Duplicate This Ad Set' : 'Ad Set'}</span>
             <span className="text-[15px] font-bold text-textdark">{adSetName}</span>
           </div>
           {duplicateAdSetName && (
-            <div className="mt-1">
-              <p className="text-[11px] text-gold font-semibold mb-1">Duplicate the ad set above</p>
-              <p className="text-[11px] text-textmid mb-1.5">Rename the copy to this name</p>
-              <div className="flex items-center gap-3">
-                <span className="inline-block px-2 py-0.5 rounded bg-gold/15 text-gold text-[10px] font-bold uppercase tracking-wider flex-shrink-0" style={{ minWidth: '5rem', textAlign: 'center' }}>New Ad Set</span>
-                <span className="text-[15px] font-bold text-textdark">{duplicateAdSetName}</span>
-              </div>
+            <div className="flex items-center gap-3">
+              <span className="inline-block px-2 py-0.5 rounded bg-gold/15 text-gold text-[10px] font-bold uppercase tracking-wider flex-shrink-0" style={{ minWidth: '5rem', textAlign: 'center' }}>Rename the Duplicated Ad Set</span>
+              <span className="text-[15px] font-bold text-textdark">{duplicateAdSetName}</span>
             </div>
           )}
         </div>
