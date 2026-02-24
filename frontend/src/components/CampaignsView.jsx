@@ -275,6 +275,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
       setFlexAds(prev => prev.filter(f => !flexAdIds.includes(f.id)));
     }
     setSelectedInStaging(new Set());
+    addToast(`Moved ${allDepIds.length} ad${allDepIds.length !== 1 ? 's' : ''} to queue`, 'success');
 
     try {
       await Promise.all(flexAdIds.map(id => api.deleteFlexAd(id)));
@@ -282,7 +283,6 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
         await api.unassignFromAdSet(allDepIds);
       }
       await loadCampaignData(true);
-      addToast(`Moved ${allDepIds.length} ad${allDepIds.length !== 1 ? 's' : ''} to queue`, 'success');
     } catch {
       addToast('Failed to move to queue', 'error');
       await Promise.all([loadCampaignData(true), loadDeployments()]);
@@ -348,24 +348,38 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
     const allDepIds = [...new Set([...standaloneDepIds, ...resolvedChildIds])];
     if (allDepIds.length < 2) {
       addToast('Need at least 2 ads to create a Flex', 'info');
+      setCombiningFlex(false);
       return;
     }
     if (allDepIds.length > 10) {
       addToast(`Maximum 10 ads per Flex ad (you selected ${allDepIds.length}). Deselect some ads and try again.`, 'error');
+      setCombiningFlex(false);
       return;
     }
 
     const name = `Flexible Ad (${allDepIds.length} images)`;
+
+    // Optimistic: create a temporary flex ad in state so UI updates immediately
+    const tempFlexId = `temp-${Date.now()}`;
+    setFlexAds(prev => [
+      ...prev.filter(f => !selectedFlexIds.includes(f.id)), // Remove old flex ads being dissolved
+      { id: tempFlexId, name, child_deployment_ids: JSON.stringify(allDepIds), ad_set_id: '', project_id: projectId }
+    ]);
+    // Mark children as belonging to the temp flex
+    setDeployments(prev => prev.map(d =>
+      allDepIds.includes(d.id) ? { ...d, flex_ad_id: tempFlexId } : d
+    ));
+    setSelectedInStaging(new Set());
+    addToast('Flexible ad created', 'success');
+
     try {
       // Delete old flex ads first (dissolve them)
       if (selectedFlexIds.length > 0) {
         await Promise.all(selectedFlexIds.map(id => api.deleteFlexAd(id)));
       }
       await api.createFlexAd(projectId, '', name, allDepIds);
-      setSelectedInStaging(new Set());
-      // Refresh both — flex ads are created server-side, need to fetch new IDs
+      // Refresh to get real server IDs (replaces temp)
       await Promise.all([loadCampaignData(true), loadDeployments()]);
-      addToast('Flexible ad created', 'success');
     } catch (err) {
       addToast(err.message || 'Failed to create flexible ad', 'error');
       await Promise.all([loadCampaignData(true), loadDeployments()]);
@@ -394,10 +408,10 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
           ownedChildIds.includes(d.id) ? { ...d, flex_ad_id: '' } : d
         ));
       }
+      addToast('Flexible ad ungrouped', 'success');
       try {
         await api.deleteFlexAd(flexAdId);
         await loadCampaignData(true);
-        addToast('Flexible ad ungrouped', 'success');
       } catch {
         addToast('Failed to ungroup flexible ad', 'error');
         await Promise.all([loadCampaignData(true), loadDeployments()]);
@@ -415,13 +429,13 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
           ownedChildIds.includes(d.id) ? { ...d, local_campaign_id: 'unplanned', local_adset_id: '', flex_ad_id: '' } : d
         ));
       }
+      addToast(`Moved ${ownedChildIds.length} ad${ownedChildIds.length !== 1 ? 's' : ''} to queue`, 'success');
       try {
         await api.deleteFlexAd(flexAdId);
         if (ownedChildIds.length > 0) {
           await api.unassignFromAdSet(ownedChildIds);
         }
         await loadCampaignData(true);
-        addToast(`Moved ${ownedChildIds.length} ad${ownedChildIds.length !== 1 ? 's' : ''} to queue`, 'success');
       } catch {
         addToast('Failed to move to queue', 'error');
         await Promise.all([loadCampaignData(true), loadDeployments()]);
@@ -437,21 +451,21 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
       if (ownedChildIds.length > 0) {
         setDeployments(prev => prev.filter(d => !ownedChildIds.includes(d.id)));
       }
+      addToast(`Removed ${ownedChildIds.length} ad${ownedChildIds.length !== 1 ? 's' : ''} from planner`, 'success', 8000, {
+        label: 'Undo',
+        onClick: async () => {
+          try {
+            await api.restoreFlexAd(flexAdId);
+            await Promise.all(ownedChildIds.map(id => api.restoreDeployment(id)));
+            await Promise.all([loadCampaignData(true), loadDeployments()]);
+            addToast('Restored flexible ad', 'success');
+          } catch { addToast('Failed to restore', 'error'); }
+        },
+      });
       try {
         await api.deleteFlexAd(flexAdId);
         await Promise.all(ownedChildIds.map(id => api.deleteDeployment(id)));
         await loadCampaignData(true);
-        addToast(`Removed ${ownedChildIds.length} ad${ownedChildIds.length !== 1 ? 's' : ''} from planner`, 'success', 8000, {
-          label: 'Undo',
-          onClick: async () => {
-            try {
-              await api.restoreFlexAd(flexAdId);
-              await Promise.all(ownedChildIds.map(id => api.restoreDeployment(id)));
-              await Promise.all([loadCampaignData(true), loadDeployments()]);
-              addToast('Restored flexible ad', 'success');
-            } catch { addToast('Failed to restore', 'error'); }
-          },
-        });
       } catch {
         addToast('Failed to remove from planner', 'error');
         await Promise.all([loadCampaignData(true), loadDeployments()]);
@@ -809,32 +823,61 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
   // ─── Bulk delete with confirmation ─────────────────────────────────────
   const handleConfirmDelete = async () => {
     const ids = deleteConfirm.ids;
-    try {
-      await Promise.all(ids.map(id => api.deleteDeployment(id)));
-      setDeployments(prev => prev.filter(d => !ids.includes(d.id)));
-      // Clear relevant selection
-      if (deleteConfirm.source === 'unplanned') {
-        setSelectedUnplanned(new Set());
-      } else {
-        setSelectedInStaging(prev => {
-          const next = new Set([...prev].filter(id => !ids.includes(id)));
-          return next;
-        });
+
+    // Separate flex ad IDs from standalone deployment IDs
+    const flexAdIds = ids.filter(id => flexAds.some(f => f.id === id));
+    const depIds = ids.filter(id => deployments.some(d => d.id === id));
+
+    // Resolve flex ad children to also delete
+    const flexChildDepIds = [];
+    for (const fid of flexAdIds) {
+      const flex = flexAds.find(f => f.id === fid);
+      if (flex) {
+        try { flexChildDepIds.push(...JSON.parse(flex.child_deployment_ids || '[]')); } catch { /* ignore */ }
       }
-      addToast(`${ids.length} removed from tracker`, 'success', 8000, {
+    }
+    const allDepIds = [...new Set([...depIds, ...flexChildDepIds])];
+
+    // Optimistic UI update — remove immediately
+    if (allDepIds.length > 0) {
+      setDeployments(prev => prev.filter(d => !allDepIds.includes(d.id)));
+    }
+    if (flexAdIds.length > 0) {
+      setFlexAds(prev => prev.filter(f => !flexAdIds.includes(f.id)));
+    }
+    // Clear relevant selection
+    if (deleteConfirm.source === 'unplanned') {
+      setSelectedUnplanned(new Set());
+    } else {
+      setSelectedInStaging(new Set());
+    }
+    // Close dialog immediately
+    setDeleteConfirm({ open: false, ids: [], source: 'unplanned' });
+
+    const totalRemoved = allDepIds.length;
+    try {
+      // Delete flex ads and deployments in parallel
+      await Promise.all([
+        ...flexAdIds.map(id => api.deleteFlexAd(id)),
+        ...allDepIds.map(id => api.deleteDeployment(id)),
+      ]);
+      addToast(`${totalRemoved} removed from tracker`, 'success', 8000, {
         label: 'Undo',
         onClick: async () => {
           try {
-            await Promise.all(ids.map(id => api.restoreDeployment(id)));
-            await loadDeployments();
-            addToast(`Restored ${ids.length} deployment${ids.length !== 1 ? 's' : ''}`, 'success');
+            await Promise.all([
+              ...flexAdIds.map(id => api.restoreFlexAd(id)),
+              ...allDepIds.map(id => api.restoreDeployment(id)),
+            ]);
+            await Promise.all([loadCampaignData(true), loadDeployments()]);
+            addToast(`Restored ${totalRemoved} deployment${totalRemoved !== 1 ? 's' : ''}`, 'success');
           } catch { addToast('Failed to restore', 'error'); }
         },
       });
     } catch {
       addToast('Failed to delete some deployments', 'error');
+      await Promise.all([loadCampaignData(true), loadDeployments()]);
     }
-    setDeleteConfirm({ open: false, ids: [], source: 'unplanned' });
   };
 
   // ─── Mark as Ready to Post ─────────────────────────────────────────────
