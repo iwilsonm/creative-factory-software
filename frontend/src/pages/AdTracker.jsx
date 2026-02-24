@@ -5,6 +5,7 @@ import { useToast } from '../components/Toast';
 import { useAsyncData } from '../hooks/useAsyncData';
 import CampaignsView from '../components/CampaignsView';
 import ReadyToPostView from '../components/ReadyToPostView';
+import PostedView from '../components/PostedView';
 
 const STATUS_ORDER = ['selected', 'ready_to_post', 'posted'];
 const STATUS_META = {
@@ -23,7 +24,7 @@ function displayName(dep) {
 
 export default function AdTracker({ projectId, userRole }) {
   const isPoster = userRole === 'poster';
-  const { data: deployments, setData: setDeployments, loading, refetch: loadDeployments } = useAsyncData(
+  const { data: deployments, setData: setDeployments, loading, error: deploymentsError, refetch: loadDeployments } = useAsyncData(
     () => api.getProjectDeployments(projectId).then(d => d.deployments || []),
     [projectId]
   );
@@ -770,6 +771,22 @@ export default function AdTracker({ projectId, userRole }) {
         </button>
       </div>
 
+      {/* Error state for deployment loading */}
+      {deploymentsError && !loading && (
+        <div className="card p-8 text-center mb-4">
+          <div className="w-12 h-12 mx-auto mb-3 rounded-full bg-red-50 flex items-center justify-center">
+            <svg className="w-6 h-6 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
+            </svg>
+          </div>
+          <p className="text-[14px] font-medium text-textdark">Failed to load ads</p>
+          <p className="text-[12px] text-textmid mt-1">There was an error loading your ads. Please try refreshing.</p>
+          <button onClick={loadDeployments} className="mt-4 px-4 py-2 rounded-lg bg-navy text-white text-[12px] font-medium hover:bg-navy-light transition-colors">
+            Retry
+          </button>
+        </div>
+      )}
+
       {/* ═══════════ Planner View (was Campaigns) ═══════════ */}
       {activeView === 'campaigns' && (
         <CampaignsView
@@ -794,8 +811,20 @@ export default function AdTracker({ projectId, userRole }) {
         />
       )}
 
-      {/* ═══════════ Status Table View ═══════════ */}
-      {activeView === 'status' && <>
+      {/* ═══════════ Posted View (flex-aware cards) ═══════════ */}
+      {activeView === 'status' && statusFilter === 'posted' && (
+        <PostedView
+          projectId={projectId}
+          deployments={deployments}
+          setDeployments={setDeployments}
+          addToast={addToast}
+          loadDeployments={loadDeployments}
+          isPoster={isPoster}
+        />
+      )}
+
+      {/* ═══════════ Status Table View (non-posted statuses) ═══════════ */}
+      {activeView === 'status' && statusFilter !== 'posted' && <>
 
       {/* Bulk action bar */}
       {selectedIds.size > 0 && (

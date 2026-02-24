@@ -25,6 +25,8 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
   const [downloadingSelected, setDownloadingSelected] = useState(new Set());
   const [downloadingSingle, setDownloadingSingle] = useState(new Set());
   const [expandedCards, setExpandedCards] = useState(new Set());
+  const [loadError, setLoadError] = useState(null);
+  const [copiedItems, setCopiedItems] = useState(new Set()); // Track copied primary texts / headlines by "cardKey-section-index"
 
   const toggleCardExpanded = (key) => {
     setExpandedCards(prev => {
@@ -38,6 +40,7 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
 
   const loadData = async () => {
     setLoading(true);
+    setLoadError(null);
     try {
       const [campData, flexData] = await Promise.all([
         api.getCampaigns(projectId),
@@ -46,7 +49,10 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
       setCampaigns(campData.campaigns || []);
       setAdSets(campData.adSets || []);
       setFlexAds(flexData.flexAds || []);
-    } catch { /* ignore */ }
+    } catch (err) {
+      console.error('ReadyToPostView loadData error:', err);
+      setLoadError('Failed to load campaign data. Please refresh the page.');
+    }
     setLoading(false);
   };
 
@@ -314,13 +320,27 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
     </div>
   );
 
-  // Render numbered text items
-  const renderNumberedTexts = (jsonStr, sectionLabel, helper) => {
+  // Render numbered text items with copy-tracking strikethrough
+  const renderNumberedTexts = (jsonStr, sectionLabel, helper, cardKey, sectionId) => {
     let items = [];
     try { items = JSON.parse(jsonStr); } catch { return null; }
     items = items.filter(Boolean);
     if (items.length === 0) return null;
     const allText = items.join('\n\n');
+    const allCopied = items.every((_, i) => copiedItems.has(`${cardKey}-${sectionId}-${i}`));
+
+    const handleCopyItem = (text, label, index) => {
+      copyToClipboard(text, label);
+      setCopiedItems(prev => new Set(prev).add(`${cardKey}-${sectionId}-${index}`));
+    };
+
+    const handleCopyAll = () => {
+      copyToClipboard(allText, 'All ' + sectionId);
+      // Mark all items as copied
+      const next = new Set(copiedItems);
+      items.forEach((_, i) => next.add(`${cardKey}-${sectionId}-${i}`));
+      setCopiedItems(next);
+    };
 
     return (
       <div className="border border-black/[0.06] rounded-xl p-4 bg-white">
@@ -329,16 +349,48 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
             <span className="inline-block px-2 py-0.5 rounded bg-navy/10 text-navy text-[10px] font-bold uppercase tracking-widest mb-1">{sectionLabel}</span>
             {helper && <p className="text-[11px] text-textmid mt-0.5 leading-relaxed">{helper}</p>}
           </div>
-          <CopyBtn text={allText} label="Copy All" />
+          <button onClick={(e) => { e.stopPropagation(); handleCopyAll(); }}
+            className={`inline-flex items-center gap-1 rounded-md font-medium hover:bg-navy/10 transition-colors flex-shrink-0 px-2 py-1 text-[10px] ${
+              allCopied ? 'bg-teal/10 text-teal' : 'bg-navy/5 text-navy'
+            }`}>
+            <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              {allCopied ? (
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+              ) : (
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+              )}
+            </svg>
+            {allCopied ? 'All Copied' : 'Copy All'}
+          </button>
         </div>
         <div className="space-y-2">
-          {items.map((text, i) => (
-            <div key={i} className="flex items-start gap-2.5 bg-offwhite rounded-lg p-3">
-              <span className="text-[12px] font-bold text-white bg-navy rounded-full w-6 h-6 flex items-center justify-center flex-shrink-0 mt-0.5">{i + 1}</span>
-              <div className="flex-1 text-[13px] text-textdark whitespace-pre-wrap leading-relaxed">{text}</div>
-              <CopyBtn text={text} label="Copy" small />
-            </div>
-          ))}
+          {items.map((text, i) => {
+            const itemKey = `${cardKey}-${sectionId}-${i}`;
+            const isCopied = copiedItems.has(itemKey);
+            return (
+              <div key={i} className={`flex items-start gap-2.5 rounded-lg p-3 transition-all duration-300 ${isCopied ? 'bg-teal/5 border border-teal/10' : 'bg-offwhite'}`}>
+                <span className={`text-[12px] font-bold rounded-full w-6 h-6 flex items-center justify-center flex-shrink-0 mt-0.5 transition-colors duration-300 ${
+                  isCopied ? 'bg-teal text-white' : 'bg-navy text-white'
+                }`}>{isCopied ? '✓' : i + 1}</span>
+                <div className={`flex-1 text-[13px] whitespace-pre-wrap leading-relaxed transition-all duration-300 ${
+                  isCopied ? 'line-through text-textmid/60 decoration-teal/40' : 'text-textdark'
+                }`}>{text}</div>
+                <button onClick={(e) => { e.stopPropagation(); handleCopyItem(text, 'Copy', i); }}
+                  className={`inline-flex items-center gap-1 rounded-md font-medium transition-colors flex-shrink-0 px-1.5 py-0.5 text-[9px] ${
+                    isCopied ? 'bg-teal/10 text-teal hover:bg-teal/15' : 'bg-navy/5 text-navy hover:bg-navy/10'
+                  }`}>
+                  <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    {isCopied ? (
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                    ) : (
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                    )}
+                  </svg>
+                  {isCopied ? 'Copied' : 'Copy'}
+                </button>
+              </div>
+            );
+          })}
         </div>
       </div>
     );
@@ -370,8 +422,8 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
     </div>
   );
 
-  // "Post in" section: Campaign + Ad Set
-  const PostInSection = ({ campaignName, adSetName }) => {
+  // "Post in" section: Campaign + Ad Set + optional Duplicate Ad Set Name
+  const PostInSection = ({ campaignName, adSetName, duplicateAdSetName }) => {
     if (!campaignName && !adSetName) {
       return (
         <div className="bg-gold/10 border-2 border-gold/30 rounded-xl p-4">
@@ -393,8 +445,17 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
             <span className="inline-block px-2 py-0.5 rounded bg-navy/10 text-navy text-[10px] font-bold uppercase tracking-wider w-20 text-center flex-shrink-0">Campaign</span>
             <span className="text-[15px] font-bold text-textdark">{campaignName}</span>
           </div>
+          {duplicateAdSetName && (
+            <div className="flex items-start gap-3">
+              <span className="inline-block px-2 py-0.5 rounded bg-gold/15 text-gold text-[10px] font-bold uppercase tracking-wider flex-shrink-0" style={{ minWidth: '5rem', textAlign: 'center' }}>Duplicate Ad Set</span>
+              <div>
+                <span className="text-[15px] font-bold text-textdark">{duplicateAdSetName}</span>
+                <p className="text-[10px] text-textmid mt-0.5">Duplicate the ad set below and rename the copy to this name.</p>
+              </div>
+            </div>
+          )}
           <div className="flex items-center gap-3">
-            <span className="inline-block px-2 py-0.5 rounded bg-navy/10 text-navy text-[10px] font-bold uppercase tracking-wider w-20 text-center flex-shrink-0">Ad Set</span>
+            <span className="inline-block px-2 py-0.5 rounded bg-navy/10 text-navy text-[10px] font-bold uppercase tracking-wider w-20 text-center flex-shrink-0">{duplicateAdSetName ? 'New Ad Set' : 'Ad Set'}</span>
             <span className="text-[15px] font-bold text-textdark">{adSetName}</span>
           </div>
         </div>
@@ -538,11 +599,8 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
             )}
           </div>
 
-          {/* Campaign + Ad Set — always visible */}
-          <PostInSection campaignName={campaignName} adSetName={adSetName} />
-
-          {/* Posted by dropdown */}
-          <PostedByDropdown value={dep.posted_by} onChange={(val) => handlePostedByChange(dep.id, val)} />
+          {/* Campaign + Ad Set + Duplicate Ad Set — always visible */}
+          <PostInSection campaignName={campaignName} adSetName={adSetName} duplicateAdSetName={dep.duplicate_adset_name} />
 
           {/* Expand/Collapse toggle */}
           <button
@@ -588,14 +646,16 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
             {renderNumberedTexts(
               dep.primary_texts,
               `Primary Text \u2014 ${parseCount(dep.primary_texts)} Variation${parseCount(dep.primary_texts) !== 1 ? 's' : ''}`,
-              'Upload ALL of these into the "Primary Text" field. Meta will automatically rotate them and show the best-performing version to each person.'
+              'Upload ALL of these into the "Primary Text" field. Meta will automatically rotate them and show the best-performing version to each person.',
+              dep.id, 'primary'
             )}
 
             {/* Headline */}
             {renderNumberedTexts(
               dep.ad_headlines,
               `Headline \u2014 ${parseCount(dep.ad_headlines)} Variation${parseCount(dep.ad_headlines) !== 1 ? 's' : ''}`,
-              'Upload ALL of these into the "Headline" field. Meta will automatically test each one and show the best performer.'
+              'Upload ALL of these into the "Headline" field. Meta will automatically test each one and show the best performer.',
+              dep.id, 'headline'
             )}
 
             <WebsiteUrlSection url={dep.destination_url} />
@@ -616,23 +676,26 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
               {isSendingBack ? 'Sending...' : 'Send Back to Planner'}
             </button>
           ) : <div />}
-          {confirmPosted === dep.id ? (
-            <div className="flex items-center gap-2">
-              <button onClick={() => setConfirmPosted(null)} className="px-2.5 py-1.5 rounded-lg text-[11px] text-textmid hover:bg-white transition-colors">Cancel</button>
-              <button onClick={() => handleMarkPosted(dep.id)} disabled={isMarking}
-                className="px-4 py-2 rounded-lg text-[12px] font-bold bg-teal text-white hover:bg-teal/90 transition-colors disabled:opacity-50"
-              >{isMarking ? 'Updating...' : 'Confirm Posted'}</button>
-            </div>
-          ) : (
-            <button onClick={() => setConfirmPosted(dep.id)}
-              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-[12px] font-bold text-white bg-teal hover:bg-teal/90 transition-colors shadow-sm"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-              </svg>
-              Mark as Posted
-            </button>
-          )}
+          <div className="flex items-center gap-3">
+            <PostedByDropdown value={dep.posted_by} onChange={(val) => handlePostedByChange(dep.id, val)} />
+            {confirmPosted === dep.id ? (
+              <div className="flex items-center gap-2">
+                <button onClick={() => setConfirmPosted(null)} className="px-2.5 py-1.5 rounded-lg text-[11px] text-textmid hover:bg-white transition-colors">Cancel</button>
+                <button onClick={() => handleMarkPosted(dep.id)} disabled={isMarking}
+                  className="px-4 py-2 rounded-lg text-[12px] font-bold bg-teal text-white hover:bg-teal/90 transition-colors disabled:opacity-50"
+                >{isMarking ? 'Updating...' : 'Confirm Posted'}</button>
+              </div>
+            ) : (
+              <button onClick={() => setConfirmPosted(dep.id)}
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-[12px] font-bold text-white bg-teal hover:bg-teal/90 transition-colors shadow-sm"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                </svg>
+                Mark as Posted
+              </button>
+            )}
+          </div>
         </div>
       </div>
     );
@@ -687,11 +750,8 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
             </div>
           </div>
 
-          {/* Campaign + Ad Set — always visible */}
-          <PostInSection campaignName={campaignName} adSetName={adSetName} />
-
-          {/* Posted by dropdown */}
-          <PostedByDropdown value={flexAd.posted_by} onChange={(val) => handlePostedByChange(flexAd.id, val, true)} />
+          {/* Campaign + Ad Set + Duplicate Ad Set — always visible */}
+          <PostInSection campaignName={campaignName} adSetName={adSetName} duplicateAdSetName={flexAd.duplicate_adset_name} />
 
           {/* Expand/Collapse toggle */}
           <button
@@ -799,14 +859,16 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
             {renderNumberedTexts(
               flexAd.primary_texts,
               `Primary Text — ${parseCount(flexAd.primary_texts)} Variation${parseCount(flexAd.primary_texts) !== 1 ? 's' : ''}`,
-              'Upload ALL of these into the "Primary Text" field. Meta will automatically rotate them and show the best-performing version to each person.'
+              'Upload ALL of these into the "Primary Text" field. Meta will automatically rotate them and show the best-performing version to each person.',
+              flexId, 'primary'
             )}
 
             {/* Headline */}
             {renderNumberedTexts(
               flexAd.headlines,
               `Headline — ${parseCount(flexAd.headlines)} Variation${parseCount(flexAd.headlines) !== 1 ? 's' : ''}`,
-              'Upload ALL of these into the "Headline" field. Meta will automatically test each one and show the best performer.'
+              'Upload ALL of these into the "Headline" field. Meta will automatically test each one and show the best performer.',
+              flexId, 'headline'
             )}
 
             <WebsiteUrlSection url={flexAd.destination_url} />
@@ -827,24 +889,27 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
               {isSendingBack ? 'Sending...' : 'Send Back to Planner'}
             </button>
           ) : <div />}
-          {confirmPosted === flexId ? (
-            <div className="flex items-center gap-2">
-              <span className="text-[11px] text-textmid">{childDeps.length} ad{childDeps.length !== 1 ? 's' : ''}</span>
-              <button onClick={() => setConfirmPosted(null)} className="px-2.5 py-1.5 rounded-lg text-[11px] text-textmid hover:bg-white transition-colors">Cancel</button>
-              <button onClick={() => handleMarkFlexPosted(flexAd)} disabled={isMarking}
-                className="px-4 py-2 rounded-lg text-[12px] font-bold bg-teal text-white hover:bg-teal/90 transition-colors disabled:opacity-50"
-              >{isMarking ? 'Updating...' : 'Confirm Posted'}</button>
-            </div>
-          ) : (
-            <button onClick={() => setConfirmPosted(flexId)}
-              className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-[12px] font-bold text-white bg-teal hover:bg-teal/90 transition-colors shadow-sm"
-            >
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-              </svg>
-              Mark as Posted
-            </button>
-          )}
+          <div className="flex items-center gap-3">
+            <PostedByDropdown value={flexAd.posted_by} onChange={(val) => handlePostedByChange(flexAd.id, val, true)} />
+            {confirmPosted === flexId ? (
+              <div className="flex items-center gap-2">
+                <span className="text-[11px] text-textmid">{childDeps.length} ad{childDeps.length !== 1 ? 's' : ''}</span>
+                <button onClick={() => setConfirmPosted(null)} className="px-2.5 py-1.5 rounded-lg text-[11px] text-textmid hover:bg-white transition-colors">Cancel</button>
+                <button onClick={() => handleMarkFlexPosted(flexAd)} disabled={isMarking}
+                  className="px-4 py-2 rounded-lg text-[12px] font-bold bg-teal text-white hover:bg-teal/90 transition-colors disabled:opacity-50"
+                >{isMarking ? 'Updating...' : 'Confirm Posted'}</button>
+              </div>
+            ) : (
+              <button onClick={() => setConfirmPosted(flexId)}
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-[12px] font-bold text-white bg-teal hover:bg-teal/90 transition-colors shadow-sm"
+              >
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                </svg>
+                Mark as Posted
+              </button>
+            )}
+          </div>
         </div>
       </div>
     );
@@ -882,6 +947,23 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
   // ── Render ──────────────────────────────────────────────────────────────
 
   if (loading) return <div className="text-center py-12 text-textmid text-[13px]">Loading...</div>;
+
+  if (loadError) {
+    return (
+      <div className="text-center py-16">
+        <div className="w-12 h-12 mx-auto mb-3 rounded-full bg-red-50 flex items-center justify-center">
+          <svg className="w-6 h-6 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
+          </svg>
+        </div>
+        <p className="text-[14px] font-medium text-textdark">Something went wrong</p>
+        <p className="text-[12px] text-textmid mt-1">{loadError}</p>
+        <button onClick={loadData} className="mt-4 px-4 py-2 rounded-lg bg-navy text-white text-[12px] font-medium hover:bg-navy-light transition-colors">
+          Try Again
+        </button>
+      </div>
+    );
+  }
 
   if (readyDeps.length === 0) {
     return (

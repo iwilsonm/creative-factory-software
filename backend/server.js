@@ -164,11 +164,18 @@ process.on('uncaughtException', (err) => {
       maxAge: '1y',
       immutable: true
     }));
-    // Other static files (index.html, favicon) — short cache to pick up new deploys
+    // Other static files (favicon, etc.) — short cache
     app.use(express.static(frontendDist, {
-      maxAge: '5m'
+      maxAge: '5m',
+      setHeaders: (res, filePath) => {
+        // Never cache index.html — ensures new deploys are picked up immediately
+        if (filePath.endsWith('index.html')) {
+          res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+        }
+      }
     }));
     app.get('*', (req, res) => {
+      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
       res.sendFile(path.join(frontendDist, 'index.html'));
     });
   }

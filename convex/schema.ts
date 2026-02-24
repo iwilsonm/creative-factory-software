@@ -191,6 +191,7 @@ export default defineSchema({
     facebook_page: v.optional(v.string()),       // Facebook Page name to post from
     planned_date: v.optional(v.string()),        // ISO datetime for scheduled posting
     posted_by: v.optional(v.string()),           // Who will post this ad (e.g. "Corinne", "Liz")
+    duplicate_adset_name: v.optional(v.string()), // Name for the duplicated ad set in Ads Manager
     created_at: v.string(),
     updated_at: v.string(),
     deleted_at: v.optional(v.string()),           // ISO timestamp for soft delete
@@ -224,6 +225,7 @@ export default defineSchema({
     cta_button: v.optional(v.string()),           // Meta CTA type (SHOP_NOW, LEARN_MORE, etc.)
     facebook_page: v.optional(v.string()),        // Facebook Page name to post from
     posted_by: v.optional(v.string()),            // Who will post this ad (e.g. "Corinne", "Liz")
+    duplicate_adset_name: v.optional(v.string()), // Name for the duplicated ad set in Ads Manager
     created_at: v.string(),
     deleted_at: v.optional(v.string()),           // ISO timestamp for soft delete
   })

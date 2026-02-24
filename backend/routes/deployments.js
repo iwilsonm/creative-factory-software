@@ -91,6 +91,7 @@ router.get('/deployments', async (req, res) => {
           cta_button: dep.cta_button || null,
           facebook_page: dep.facebook_page || null,
           posted_by: dep.posted_by || null,
+          duplicate_adset_name: dep.duplicate_adset_name || null,
         };
       })
     );
@@ -205,7 +206,7 @@ router.put('/deployments/:id', requireRole('admin', 'manager'), async (req, res)
       'landing_page_url', 'notes', 'planned_date', 'posted_date',
       'local_campaign_id', 'local_adset_id',
       'flex_ad_id', 'primary_texts', 'ad_headlines',
-      'destination_url', 'display_link', 'cta_button', 'facebook_page', 'posted_by',
+      'destination_url', 'display_link', 'cta_button', 'facebook_page', 'posted_by', 'duplicate_adset_name',
     ];
 
     const fields = {};
@@ -510,8 +511,8 @@ router.post('/deployments/move-to-unplanned', requireRole('admin', 'manager'), a
 router.post('/deployments/assign-to-adset', requireRole('admin', 'manager'), async (req, res) => {
   try {
     const { deploymentIds, campaignId, adsetId } = req.body;
-    if (!deploymentIds?.length || !campaignId || !adsetId) {
-      return res.status(400).json({ error: 'deploymentIds, campaignId, and adsetId required' });
+    if (!deploymentIds?.length || !campaignId) {
+      return res.status(400).json({ error: 'deploymentIds and campaignId required' });
     }
     // Use allSettled to avoid partial failure causing total rollback
     const results = await Promise.allSettled(deploymentIds.map(id =>
@@ -637,8 +638,8 @@ router.get('/deployments/flex-ads', async (req, res) => {
 router.post('/deployments/flex-ads', requireRole('admin', 'manager'), async (req, res) => {
   try {
     const { projectId, adSetId, name, deploymentIds } = req.body;
-    if (!projectId || !adSetId || !deploymentIds?.length) {
-      return res.status(400).json({ error: 'projectId, adSetId, and deploymentIds required' });
+    if (!projectId || !deploymentIds?.length) {
+      return res.status(400).json({ error: 'projectId and deploymentIds required' });
     }
     if (deploymentIds.length > 10) {
       return res.status(400).json({ error: 'Maximum 10 ads per Flex ad' });
@@ -667,7 +668,7 @@ router.post('/deployments/flex-ads', requireRole('admin', 'manager'), async (req
 router.put('/deployments/flex-ads/:id', requireRole('admin', 'manager'), async (req, res) => {
   try {
     const { id } = req.params;
-    const allowed = ['name', 'child_deployment_ids', 'primary_texts', 'headlines', 'destination_url', 'display_link', 'cta_button', 'facebook_page', 'planned_date', 'posted_by'];
+    const allowed = ['name', 'child_deployment_ids', 'primary_texts', 'headlines', 'destination_url', 'display_link', 'cta_button', 'facebook_page', 'planned_date', 'posted_by', 'ad_set_id', 'duplicate_adset_name'];
     const fields = {};
     for (const key of allowed) {
       if (req.body[key] !== undefined) {

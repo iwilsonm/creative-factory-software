@@ -63,6 +63,7 @@ export const update = mutation({
     fields: v.object({
       name: v.optional(v.string()),
       child_deployment_ids: v.optional(v.string()),
+      ad_set_id: v.optional(v.string()),
       primary_texts: v.optional(v.string()),
       headlines: v.optional(v.string()),
       destination_url: v.optional(v.string()),

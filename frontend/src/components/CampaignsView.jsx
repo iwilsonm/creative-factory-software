@@ -8,17 +8,17 @@ const CTA_OPTIONS = [
 ];
 
 /**
- * CampaignsView — Organises deployments into campaigns and ad sets.
+ * CampaignsView — Flat staging area for planning ad deployments.
  *
  * Layout:
- *   Top:    "Queue" holding area (deployments with local_campaign_id === 'unplanned')
- *   Bottom: Campaigns list with nested ad sets (each ad set is a drop zone)
+ *   Left:   "Queue" holding area (deployments with local_campaign_id === 'unplanned')
+ *   Right:  Flat staging area (drag ads here, combine into flex, fill details)
  *
  * Features:
- *   - Drag & drop from Queue → ad sets
- *   - Duplicate ads within ad sets
+ *   - Drag & drop from Queue → Staging area
  *   - Combine multiple ads into Flex ads
- *   - Detail sidebar with AI-generated primary text + headlines, destination URL, CTA
+ *   - Detail sidebar with campaign/ad set assignment, AI-generated primary text + headlines, destination URL, CTA
+ *   - Campaign assignment via dropdown (select existing or create new) + ad set name text input
  *
  * Props:
  *   projectId, deployments, setDeployments, addToast, loadDeployments
@@ -29,14 +29,6 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
   const [flexAds, setFlexAds] = useState([]);
   const [loading, setLoading] = useState(true);
 
-  // Inline editing
-  const [editingCampaign, setEditingCampaign] = useState(null);
-  const [editingAdSet, setEditingAdSet] = useState(null);
-  const [newCampaignName, setNewCampaignName] = useState('');
-  const [creatingCampaign, setCreatingCampaign] = useState(false);
-  const [addingAdSetFor, setAddingAdSetFor] = useState(null);
-  const [newAdSetName, setNewAdSetName] = useState('');
-
   // Drag state — dragIds uses a ref to avoid re-renders that kill the drag
   const dragIdsRef = useRef(null);
   const [dragVisual, setDragVisual] = useState(null);  // only for visual feedback (opacity)
@@ -45,20 +37,11 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
   // Selection for unplanned
   const [selectedUnplanned, setSelectedUnplanned] = useState(new Set());
 
-  // Selection within ad sets (for combining into flex)
-  const [selectedInAdSet, setSelectedInAdSet] = useState({});
-
-  // Collapsed campaigns
-  const [collapsed, setCollapsed] = useState(new Set());
-
-  // Assign dropdown (Unplanned → Ad Set picker)
-  const [assignDropdown, setAssignDropdown] = useState(false);
+  // Selection within staging area (for combining into flex, bulk actions)
+  const [selectedInStaging, setSelectedInStaging] = useState(new Set());
 
   // Delete confirmation modal
   const [deleteConfirm, setDeleteConfirm] = useState({ open: false, ids: [], source: 'unplanned' });
-
-  // Campaign/Ad Set delete confirmation
-  const [entityDeleteConfirm, setEntityDeleteConfirm] = useState(null); // { type: 'campaign'|'adset', id, name }
 
   // Flex ad action confirmation: { id: flexAdId, action: 'ungroup'|'unplan'|'remove' } or null
   const [flexActionConfirm, setFlexActionConfirm] = useState(null);
@@ -70,6 +53,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
   const [sidebarData, setSidebarData] = useState(null);
   const [sidebarForm, setSidebarForm] = useState({
     ad_name: '', destination_urls: [''], display_link: '', cta_button: 'LEARN_MORE', primary_texts: [], ad_headlines: [], planned_date: '', facebook_page: '',
+    campaign_id: '', new_campaign_name: '', ad_set_name: '', duplicate_adset_name: '',
   });
   const [duplicateConfirm, setDuplicateConfirm] = useState(null); // { urls: string[] } when pending
   const [generatingPrimaryText, setGeneratingPrimaryText] = useState(false);
@@ -90,9 +74,6 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
   const sidebarInitialFormRef = useRef(null);
   const autosaveTimerRef = useRef(null);
   const lastAutosavedRef = useRef(null); // JSON string of last autosaved { primary_texts, ad_headlines }
-  const campaignInputRef = useRef(null);
-  const adSetInputRef = useRef(null);
-  const assignDropdownRef = useRef(null);
 
   useEffect(() => {
     loadCampaignData();
@@ -148,103 +129,73 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
 
   // ─── Derived data ───────────────────────────────────────────────────────
   const unplannedDeps = deployments.filter(d => d.local_campaign_id === 'unplanned' && d.status !== 'ready_to_post' && d.status !== 'posted');
-  const getAdSetDeps = (adsetId) => deployments.filter(d => d.local_adset_id === adsetId && d.status !== 'ready_to_post' && d.status !== 'posted');
-  const getCampaignAdSets = (campaignId) =>
-    adSets.filter(a => a.campaign_id === campaignId).sort((a, b) => a.sort_order - b.sort_order);
-  const sortedCampaigns = [...campaigns].sort((a, b) => a.sort_order - b.sort_order);
-  const getAdSetFlexAds = (adsetId) => flexAds.filter(f => {
-    if (f.ad_set_id !== adsetId) return false;
-    // Hide flex ads whose children have ALL been moved to ready_to_post or posted
+
+  // Planned deps = everything that's been dragged to staging (not unplanned, not ready/posted)
+  const plannedDeps = deployments.filter(d =>
+    d.local_campaign_id !== 'unplanned' && d.status !== 'ready_to_post' && d.status !== 'posted'
+  );
+
+  // Flex ads with at least one visible (non-ready/posted) child
+  const stagingFlexAds = flexAds.filter(f => {
     let childIds = [];
     try { childIds = JSON.parse(f.child_deployment_ids || '[]'); } catch { /* ignore */ }
     if (childIds.length === 0) return true;
-    const hasVisibleChild = childIds.some(id => {
+    return childIds.some(id => {
       const dep = deployments.find(d => d.id === id);
       return dep && dep.status !== 'ready_to_post' && dep.status !== 'posted';
     });
-    return hasVisibleChild;
   });
 
-  // ─── Campaign CRUD ──────────────────────────────────────────────────────
-  const handleCreateCampaign = async () => {
-    if (!newCampaignName.trim()) return;
-    try {
-      await api.createCampaign(projectId, newCampaignName.trim());
-      setNewCampaignName('');
-      setCreatingCampaign(false);
-      await loadCampaignData(true);
-      addToast('Campaign created', 'success');
-    } catch {
-      addToast('Failed to create campaign', 'error');
-    }
+  // Standalone = planned deps NOT inside any visible flex ad
+  const flexChildIdSet = new Set(stagingFlexAds.flatMap(f => {
+    try { return JSON.parse(f.child_deployment_ids || '[]'); } catch { return []; }
+  }));
+  const standaloneStagingDeps = plannedDeps.filter(d => !flexChildIdSet.has(d.id));
+
+  // Helper to resolve campaign/ad set label for a deployment
+  const resolvePlacement = (dep) => {
+    if (!dep.local_campaign_id || dep.local_campaign_id === 'planned' || dep.local_campaign_id === 'unplanned') return null;
+    const camp = campaigns.find(c => c.id === dep.local_campaign_id);
+    const adSet = dep.local_adset_id ? adSets.find(a => a.id === dep.local_adset_id) : null;
+    if (!camp) return null;
+    return { campaignName: camp.name, adSetName: adSet?.name || null };
   };
 
-  const handleRenameCampaign = async (id, name) => {
-    if (!name.trim()) { setEditingCampaign(null); return; }
-    try {
-      await api.updateCampaign(id, { name: name.trim() });
-      setCampaigns(prev => prev.map(c => c.id === id ? { ...c, name: name.trim() } : c));
-      setEditingCampaign(null);
-    } catch {
-      addToast('Failed to rename campaign', 'error');
-    }
+  // Helper to resolve placement for a flex ad
+  const resolveFlexPlacement = (flexAd) => {
+    if (!flexAd.ad_set_id) return null;
+    const adSet = adSets.find(a => a.id === flexAd.ad_set_id);
+    if (!adSet) return null;
+    const camp = campaigns.find(c => c.id === adSet.campaign_id);
+    if (!camp) return null;
+    return { campaignName: camp.name, adSetName: adSet.name };
   };
 
-  const handleDeleteCampaign = async (id) => {
-    try {
-      await api.deleteCampaign(id);
-      await loadCampaignData(true);
-      await loadDeployments();
-      addToast('Campaign deleted', 'success');
-    } catch {
-      addToast('Failed to delete campaign', 'error');
-    }
+  // ─── Staging selection helpers ────────────────────────────────────────
+  const toggleStagingSelect = (itemId) => {
+    setSelectedInStaging(prev => {
+      const next = new Set(prev);
+      if (next.has(itemId)) next.delete(itemId); else next.add(itemId);
+      return next;
+    });
   };
 
-  // ─── Ad Set CRUD ────────────────────────────────────────────────────────
-  const handleCreateAdSet = async (campaignId) => {
-    if (!newAdSetName.trim()) return;
-    try {
-      await api.createAdSet(campaignId, newAdSetName.trim(), projectId);
-      setNewAdSetName('');
-      setAddingAdSetFor(null);
-      await loadCampaignData(true);
-      addToast('Ad set created', 'success');
-    } catch {
-      addToast('Failed to create ad set', 'error');
-    }
-  };
-
-  const handleRenameAdSet = async (id, name) => {
-    if (!name.trim()) { setEditingAdSet(null); return; }
-    try {
-      await api.updateAdSet(id, { name: name.trim() });
-      setAdSets(prev => prev.map(a => a.id === id ? { ...a, name: name.trim() } : a));
-      setEditingAdSet(null);
-    } catch {
-      addToast('Failed to rename ad set', 'error');
-    }
-  };
-
-  const handleDeleteAdSet = async (id) => {
-    try {
-      await api.deleteAdSet(id);
-      await loadCampaignData(true);
-      await loadDeployments();
-      addToast('Ad set deleted', 'success');
-    } catch {
-      addToast('Failed to delete ad set', 'error');
+  const toggleSelectAllStaging = () => {
+    const allIds = [...standaloneStagingDeps.map(d => d.id), ...stagingFlexAds.map(f => f.id)];
+    if (selectedInStaging.size === allIds.length && allIds.length > 0) {
+      setSelectedInStaging(new Set());
+    } else {
+      setSelectedInStaging(new Set(allIds));
     }
   };
 
   // ─── Drag & Drop ───────────────────────────────────────────────────────
-  const handleDragStart = (e, depId, fromAdSet = false) => {
+  const handleDragStart = (e, depId, fromStaging = false) => {
     let ids;
-    if (fromAdSet) {
-      const dep = deployments.find(d => d.id === depId);
-      const asId = dep?.local_adset_id;
-      const sel = selectedInAdSet[asId];
-      ids = sel?.has(depId) && sel.size > 0 ? [...sel] : [depId];
+    if (fromStaging) {
+      ids = selectedInStaging.has(depId) && selectedInStaging.size > 0
+        ? [...selectedInStaging]
+        : [depId];
     } else {
       ids = selectedUnplanned.has(depId) && selectedUnplanned.size > 0
         ? [...selectedUnplanned]
@@ -264,19 +215,13 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
     setDropTarget(null);
   };
 
-  const handleDragOver = (e, adsetId) => {
-    e.preventDefault();
-    e.dataTransfer.dropEffect = 'move';
-    setDropTarget(adsetId);
-  };
-
   const handleDragLeave = (e) => {
     if (!e.currentTarget.contains(e.relatedTarget)) {
       setDropTarget(null);
     }
   };
 
-  const handleDrop = async (e, campaignId, adsetId) => {
+  const handleDropOnStaging = async (e) => {
     e.preventDefault();
     setDropTarget(null);
     let ids;
@@ -287,27 +232,21 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
     if (!ids?.length) return;
 
     setDeployments(prev => prev.map(d =>
-      ids.includes(d.id) ? { ...d, local_campaign_id: campaignId, local_adset_id: adsetId, flex_ad_id: '' } : d
+      ids.includes(d.id) ? { ...d, local_campaign_id: 'planned', local_adset_id: '', flex_ad_id: '' } : d
     ));
     setSelectedUnplanned(new Set());
-    setSelectedInAdSet(prev => {
-      const next = { ...prev };
-      Object.keys(next).forEach(k => { next[k] = new Set([...next[k]].filter(id => !ids.includes(id))); });
-      return next;
-    });
     dragIdsRef.current = null;
     setDragVisual(null);
 
     try {
-      await api.assignToAdSet(ids, campaignId, adsetId);
+      await api.assignToAdSet(ids, 'planned', '');
     } catch {
-      // Backend uses allSettled + retry, so this only fires on total failure
-      addToast('Failed to assign ads — retrying...', 'error');
-      try { await api.assignToAdSet(ids, campaignId, adsetId); } catch { loadDeployments(); }
+      addToast('Failed to move ads — retrying...', 'error');
+      try { await api.assignToAdSet(ids, 'planned', ''); } catch { loadDeployments(); }
     }
   };
 
-  const handleUnassign = async (ids) => {
+  const handleMoveToQueue = async (ids) => {
     // Separate flex ad IDs from standalone deployment IDs
     const flexAdIds = ids.filter(id => flexAds.some(f => f.id === id));
     const standaloneDepIds = ids.filter(id => deployments.some(d => d.id === id));
@@ -334,20 +273,17 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
     if (flexAdIds.length > 0) {
       setFlexAds(prev => prev.filter(f => !flexAdIds.includes(f.id)));
     }
+    setSelectedInStaging(new Set());
 
     try {
-      // Delete flex ads first (dissolves the grouping)
       await Promise.all(flexAdIds.map(id => api.deleteFlexAd(id)));
-      // Then unassign all deployment IDs
       if (allDepIds.length > 0) {
         await api.unassignFromAdSet(allDepIds);
       }
-      // Only refresh campaign data — deployment state is already correct from optimistic update
       await loadCampaignData(true);
       addToast(`Moved ${allDepIds.length} ad${allDepIds.length !== 1 ? 's' : ''} to queue`, 'success');
     } catch {
-      addToast('Failed to unassign', 'error');
-      // Revert on error: reload everything
+      addToast('Failed to move to queue', 'error');
       await Promise.all([loadCampaignData(true), loadDeployments()]);
     }
   };
@@ -388,8 +324,8 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
   };
 
   // ─── Flex Ad operations ─────────────────────────────────────────────────
-  const handleCombineIntoFlex = async (adSetId) => {
-    const selected = [...(selectedInAdSet[adSetId] || [])];
+  const handleCombineIntoFlex = async () => {
+    const selected = [...selectedInStaging];
     if (selected.length < 2) return;
 
     // Separate selected IDs into standalone deployment IDs and flex ad IDs
@@ -422,8 +358,8 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
       if (selectedFlexIds.length > 0) {
         await Promise.all(selectedFlexIds.map(id => api.deleteFlexAd(id)));
       }
-      await api.createFlexAd(projectId, adSetId, name, allDepIds);
-      setSelectedInAdSet(prev => ({ ...prev, [adSetId]: new Set() }));
+      await api.createFlexAd(projectId, '', name, allDepIds);
+      setSelectedInStaging(new Set());
       // Refresh both — flex ads are created server-side, need to fetch new IDs
       await Promise.all([loadCampaignData(true), loadDeployments()]);
       addToast('Flexible ad created', 'success');
@@ -447,7 +383,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
         const dep = deployments.find(d => d.id === id);
         return dep && dep.flex_ad_id === flexAdId;
       });
-      // Optimistic: remove flex ad, clear flex_ad_id on owned children (children stay in ad set)
+      // Optimistic: remove flex ad, clear flex_ad_id on owned children (children stay in staging)
       setFlexAds(prev => prev.filter(f => f.id !== flexAdId));
       if (ownedChildIds.length > 0) {
         setDeployments(prev => prev.map(d =>
@@ -546,6 +482,15 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
         ad_headlines: (() => { try { return dep.ad_headlines ? JSON.parse(dep.ad_headlines) : []; } catch { return []; } })(),
         planned_date: dep.planned_date || '',
         facebook_page: dep.facebook_page || '',
+        // Campaign/ad set assignment
+        campaign_id: dep.local_campaign_id && dep.local_campaign_id !== 'planned' && dep.local_campaign_id !== 'unplanned'
+          ? dep.local_campaign_id : '',
+        new_campaign_name: '',
+        ad_set_name: (() => {
+          const adSet = adSets.find(a => a.id === dep.local_adset_id);
+          return adSet?.name || '';
+        })(),
+        duplicate_adset_name: dep.duplicate_adset_name || '',
       };
     } else {
       const flex = data.flexAd;
@@ -559,6 +504,18 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
         ad_headlines: (() => { try { return flex.headlines ? JSON.parse(flex.headlines) : []; } catch { return []; } })(),
         planned_date: flex.planned_date || '',
         facebook_page: flex.facebook_page || '',
+        // Campaign/ad set assignment for flex
+        campaign_id: (() => {
+          const adSet = adSets.find(a => a.id === flex.ad_set_id);
+          if (!adSet) return '';
+          return adSet.campaign_id || '';
+        })(),
+        new_campaign_name: '',
+        ad_set_name: (() => {
+          const adSet = adSets.find(a => a.id === flex.ad_set_id);
+          return adSet?.name || '';
+        })(),
+        duplicate_adset_name: flex.duplicate_adset_name || '',
       };
     }
     setSidebarForm(form);
@@ -588,28 +545,20 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
     }
   }, [sidebarData, previewImage]);
 
-  // Close sidebar on Escape, close assign dropdown on Escape/outside click
+  // Close sidebar on Escape
   useEffect(() => {
     const handleKeyDown = (e) => {
       if (e.key === 'Escape') {
         if (previewImage) { setPreviewImage(null); return; }
         if (deleteConfirm.open) { setDeleteConfirm({ open: false, ids: [], source: 'unplanned' }); return; }
         if (sidebarData) closeSidebar();
-        if (assignDropdown) setAssignDropdown(false);
-      }
-    };
-    const handleClickOutside = (e) => {
-      if (assignDropdown && assignDropdownRef.current && !assignDropdownRef.current.contains(e.target)) {
-        setAssignDropdown(false);
       }
     };
     document.addEventListener('keydown', handleKeyDown);
-    document.addEventListener('mousedown', handleClickOutside);
     return () => {
       document.removeEventListener('keydown', handleKeyDown);
-      document.removeEventListener('mousedown', handleClickOutside);
     };
-  }, [sidebarData, assignDropdown, deleteConfirm.open, previewImage]);
+  }, [sidebarData, deleteConfirm.open, previewImage]);
 
   const handleGeneratePrimaryText = async () => {
     setGeneratingPrimaryText(true);
@@ -730,6 +679,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
           cta_button: sidebarForm.cta_button,
           facebook_page: sidebarForm.facebook_page || null,
           planned_date: sidebarForm.planned_date || null,
+          duplicate_adset_name: sidebarForm.duplicate_adset_name || '',
         });
 
         // Duplicate for each additional URL
@@ -754,6 +704,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
           cta_button: sidebarForm.cta_button,
           facebook_page: sidebarForm.facebook_page || null,
           planned_date: sidebarForm.planned_date || null,
+          duplicate_adset_name: sidebarForm.duplicate_adset_name || '',
         });
 
         // For each extra URL: duplicate all child deployments, then create a new flex ad
@@ -776,11 +727,47 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
             const flexAd = sidebarData.flexAd;
             await api.createFlexAd(
               flexAd.project_id,
-              flexAd.ad_set_id,
+              flexAd.ad_set_id || '',
               (sidebarForm.ad_name || flexAd.name || 'Flex Ad') + ` (${url.replace(/^https?:\/\//, '').slice(0, 30)})`,
               newChildIds,
             );
           }
+        }
+      }
+
+      // ── Campaign/Ad Set assignment ──
+      let resolvedCampaignId = sidebarForm.campaign_id;
+      const adSetName = sidebarForm.ad_set_name.trim();
+
+      // Create new campaign if needed
+      if (resolvedCampaignId === '__new__' && sidebarForm.new_campaign_name.trim()) {
+        const result = await api.createCampaign(projectId, sidebarForm.new_campaign_name.trim());
+        resolvedCampaignId = result.id;
+      }
+
+      // If campaign selected and ad set name provided, find-or-create ad set
+      if (resolvedCampaignId && resolvedCampaignId !== '__new__' && adSetName) {
+        // Reload latest ad sets for this campaign
+        const campData = await api.getCampaigns(projectId);
+        const allAdSets = campData.adSets || [];
+        let targetAdSet = allAdSets.find(
+          a => a.campaign_id === resolvedCampaignId && a.name.trim().toLowerCase() === adSetName.toLowerCase()
+        );
+        if (!targetAdSet) {
+          const result = await api.createAdSet(resolvedCampaignId, adSetName, projectId);
+          targetAdSet = { id: result.id };
+        }
+
+        // Assign deployment(s) to this campaign + ad set
+        if (sidebarData.type === 'single') {
+          await api.assignToAdSet([sidebarData.deployment.id], resolvedCampaignId, targetAdSet.id);
+        } else {
+          // Flex ad: assign all child deployments + update flex ad's ad_set_id
+          const childIds = sidebarData.deps.map(d => d.id);
+          if (childIds.length > 0) {
+            await api.assignToAdSet(childIds, resolvedCampaignId, targetAdSet.id);
+          }
+          await api.updateFlexAd(sidebarData.flexAd.id, { ad_set_id: targetAdSet.id });
         }
       }
 
@@ -806,23 +793,6 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
     setSidebarSaving(false);
   };
 
-  // Focus inputs when they appear
-  useEffect(() => {
-    if (creatingCampaign && campaignInputRef.current) campaignInputRef.current.focus();
-  }, [creatingCampaign]);
-  useEffect(() => {
-    if (addingAdSetFor && adSetInputRef.current) adSetInputRef.current.focus();
-  }, [addingAdSetFor]);
-
-  // ─── Toggle ad set selection ────────────────────────────────────────────
-  const toggleAdSetSelect = (adsetId, depId) => {
-    setSelectedInAdSet(prev => {
-      const current = new Set(prev[adsetId] || []);
-      if (current.has(depId)) current.delete(depId); else current.add(depId);
-      return { ...prev, [adsetId]: current };
-    });
-  };
-
   // ─── Select All helpers ────────────────────────────────────────────────
   const toggleSelectAllUnplanned = () => {
     if (selectedUnplanned.size === unplannedDeps.length && unplannedDeps.length > 0) {
@@ -830,17 +800,6 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
     } else {
       setSelectedUnplanned(new Set(unplannedDeps.map(d => d.id)));
     }
-  };
-
-  const toggleSelectAllInAdSet = (adsetId, standaloneDeps, adSetFlexList = []) => {
-    const allIds = [...standaloneDeps.map(d => d.id), ...adSetFlexList.map(f => f.id)];
-    setSelectedInAdSet(prev => {
-      const current = new Set(prev[adsetId] || []);
-      if (current.size === allIds.length && allIds.length > 0) {
-        return { ...prev, [adsetId]: new Set() };
-      }
-      return { ...prev, [adsetId]: new Set(allIds) };
-    });
   };
 
   // ─── Bulk delete with confirmation ─────────────────────────────────────
@@ -853,11 +812,8 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
       if (deleteConfirm.source === 'unplanned') {
         setSelectedUnplanned(new Set());
       } else {
-        setSelectedInAdSet(prev => {
-          const next = { ...prev };
-          Object.keys(next).forEach(k => {
-            next[k] = new Set([...next[k]].filter(id => !ids.includes(id)));
-          });
+        setSelectedInStaging(prev => {
+          const next = new Set([...prev].filter(id => !ids.includes(id)));
           return next;
         });
       }
@@ -877,49 +833,51 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
     setDeleteConfirm({ open: false, ids: [], source: 'unplanned' });
   };
 
-  // ─── Assign selected unplanned to a specific ad set ──────────────────
-  const handleAssignSelectedToAdSet = async (campaignId, adsetId) => {
-    const ids = [...selectedUnplanned];
-    if (!ids.length) return;
-    setAssignDropdown(false);
-
-    // Optimistic — also clear flex_ad_id for consistency
-    setDeployments(prev => prev.map(d =>
-      ids.includes(d.id) ? { ...d, local_campaign_id: campaignId, local_adset_id: adsetId, flex_ad_id: '' } : d
-    ));
-    setSelectedUnplanned(new Set());
-
+  // ─── Mark as Ready to Post ─────────────────────────────────────────────
+  const handleMarkReadyToPost = async (ids) => {
+    // Resolve flex ad IDs to their child deployment IDs
+    const standaloneDepIds = ids.filter(id => deployments.some(d => d.id === id));
+    const flexAdIds = ids.filter(id => flexAds.some(f => f.id === id));
+    const flexChildDepIds = [];
+    for (const fid of flexAdIds) {
+      const flex = flexAds.find(f => f.id === fid);
+      if (flex) {
+        try { flexChildDepIds.push(...JSON.parse(flex.child_deployment_ids || '[]')); } catch { /* ignore */ }
+      }
+    }
+    const allDepIds = [...new Set([...standaloneDepIds, ...flexChildDepIds])];
+    if (allDepIds.length === 0) { addToast('Select ads to mark as ready', 'info'); return; }
     try {
-      await api.assignToAdSet(ids, campaignId, adsetId);
-      addToast(`Assigned ${ids.length} ad${ids.length > 1 ? 's' : ''} to ad set`, 'success');
+      await Promise.all(allDepIds.map(id => api.updateDeploymentStatus(id, 'ready_to_post')));
+      setDeployments(prev => prev.map(d => allDepIds.includes(d.id) ? { ...d, status: 'ready_to_post' } : d));
+      setSelectedInStaging(new Set());
+      addToast(`${allDepIds.length} ad${allDepIds.length !== 1 ? 's' : ''} ready to post`, 'success');
     } catch {
-      // Backend uses allSettled + retry, so this only fires if the entire request fails
-      addToast('Failed to assign ads — retrying...', 'error');
-      // Don't revert optimistic state — retry in background
-      try { await api.assignToAdSet(ids, campaignId, adsetId); } catch { loadDeployments(); }
+      addToast('Failed to update status', 'error');
     }
   };
 
   // ─── renderDepCard (render function, NOT a component — avoids unmount on re-render) ──
-  const renderDepCard = (dep, { isDraggable = false, inAdSet = false, adsetId = null } = {}) => {
+  const renderDepCard = (dep, { isDraggable = false, inStaging = false } = {}) => {
     const name = dep.ad?.headline || dep.ad?.angle || dep.ad_name || `Ad ${(dep.id || '').slice(0, 6)}`;
     const thumbUrl = dep.imageUrl;
     const isDragging = dragVisual?.includes(dep.id);
     const isSelectedUnplanned = selectedUnplanned.has(dep.id);
-    const isSelectedInAdSet = inAdSet && selectedInAdSet[adsetId]?.has(dep.id);
-    const isSelected = inAdSet ? isSelectedInAdSet : isSelectedUnplanned;
+    const isSelectedStaging = inStaging && selectedInStaging.has(dep.id);
+    const isSelected = inStaging ? isSelectedStaging : isSelectedUnplanned;
+    const placement = inStaging ? resolvePlacement(dep) : null;
 
     return (
       <div
         key={dep.id}
         draggable={isDraggable}
-        onDragStart={isDraggable ? (e) => handleDragStart(e, dep.id, inAdSet) : undefined}
+        onDragStart={isDraggable ? (e) => handleDragStart(e, dep.id, inStaging) : undefined}
         onDragEnd={isDraggable ? handleDragEnd : undefined}
-        onClick={inAdSet ? () => openSidebar({ type: 'single', deployment: dep, ad: dep.ad }) : undefined}
+        onClick={inStaging ? () => openSidebar({ type: 'single', deployment: dep, ad: dep.ad }) : undefined}
         className={`relative group flex items-center gap-2.5 p-2 rounded-xl border transition-all select-none ${
-          isDraggable && !inAdSet ? 'cursor-grab active:cursor-grabbing' : ''
+          isDraggable && !inStaging ? 'cursor-grab active:cursor-grabbing' : ''
         } ${
-          inAdSet ? 'cursor-pointer' : ''
+          inStaging ? 'cursor-pointer' : ''
         } ${
           isDragging ? 'opacity-40 border-navy/30 bg-navy/5' :
           isSelected ? 'border-navy/40 bg-navy/5' :
@@ -932,8 +890,8 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
           onDragStart={(e) => e.preventDefault()}
           onClick={(e) => {
             e.stopPropagation();
-            if (inAdSet) {
-              toggleAdSetSelect(adsetId, dep.id);
+            if (inStaging) {
+              toggleStagingSelect(dep.id);
             } else {
               setSelectedUnplanned(prev => {
                 const next = new Set(prev);
@@ -958,6 +916,11 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
           {dep.ad?.body_copy && (
             <div className="text-[10px] text-textlight truncate mt-0.5">{dep.ad.body_copy}</div>
           )}
+          {placement && (
+            <div className="text-[9px] text-gold truncate mt-0.5">
+              {placement.campaignName}{placement.adSetName ? ` \u203A ${placement.adSetName}` : ''}
+            </div>
+          )}
         </div>
         {thumbUrl ? (
           <img
@@ -974,10 +937,10 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
 
         {/* Action buttons on hover */}
         <div className="opacity-0 group-hover:opacity-100 flex items-center gap-0.5 flex-shrink-0 transition-opacity">
-          {inAdSet && (
+          {inStaging && (
             <span className="text-[10px] text-navy font-medium mr-1">Edit</span>
           )}
-          {inAdSet && (
+          {inStaging && (
             <button
               onMouseDown={(e) => e.stopPropagation()}
               onDragStart={(e) => e.preventDefault()}
@@ -990,11 +953,11 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
               </svg>
             </button>
           )}
-          {inAdSet && (
+          {inStaging && (
             <button
               onMouseDown={(e) => e.stopPropagation()}
               onDragStart={(e) => e.preventDefault()}
-              onClick={(e) => { e.stopPropagation(); handleUnassign([dep.id]); }}
+              onClick={(e) => { e.stopPropagation(); handleMoveToQueue([dep.id]); }}
               className="p-1 rounded-lg hover:bg-red-50 text-textlight hover:text-red-500 transition-colors"
               title="Move back to Queue"
             >
@@ -1009,11 +972,12 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
   };
 
   // ─── renderFlexAdCard (render function, NOT a component) ──────────────
-  const renderFlexAdCard = (flexAd, { adsetId = null } = {}) => {
+  const renderFlexAdCard = (flexAd) => {
     let childIds = [];
     try { childIds = JSON.parse(flexAd.child_deployment_ids || '[]'); } catch { /* ignore */ }
     const childDeps = childIds.map(id => deployments.find(d => d.id === id)).filter(Boolean);
-    const isSelected = adsetId && selectedInAdSet[adsetId]?.has(flexAd.id);
+    const isSelected = selectedInStaging.has(flexAd.id);
+    const placement = resolveFlexPlacement(flexAd);
 
     return (
       <div
@@ -1024,23 +988,26 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
         }`}
       >
         {/* Checkbox */}
-        {adsetId && (
-          <button
-            onClick={(e) => { e.stopPropagation(); toggleAdSetSelect(adsetId, flexAd.id); }}
-            className={`w-[14px] h-[14px] rounded flex-shrink-0 flex items-center justify-center transition-colors ${
-              isSelected ? 'bg-navy' : 'border-[1.5px] border-textlight/60 hover:border-navy/40'
-            }`}
-          >
-            {isSelected && (
-              <svg className="w-2 h-2 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-              </svg>
-            )}
-          </button>
-        )}
+        <button
+          onClick={(e) => { e.stopPropagation(); toggleStagingSelect(flexAd.id); }}
+          className={`w-[14px] h-[14px] rounded flex-shrink-0 flex items-center justify-center transition-colors ${
+            isSelected ? 'bg-navy' : 'border-[1.5px] border-textlight/60 hover:border-navy/40'
+          }`}
+        >
+          {isSelected && (
+            <svg className="w-2 h-2 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+            </svg>
+          )}
+        </button>
         <div className="min-w-0 flex-1">
           <div className="text-[12px] font-medium text-textdark truncate">{flexAd.name}</div>
           <div className="text-[10px] text-textlight">{childDeps.length} image{childDeps.length !== 1 ? 's' : ''}</div>
+          {placement && (
+            <div className="text-[9px] text-gold truncate">
+              {placement.campaignName}{placement.adSetName ? ` \u203A ${placement.adSetName}` : ''}
+            </div>
+          )}
         </div>
         <div className="flex items-center gap-1 flex-shrink-0">
           {childDeps.slice(0, 4).map(d => (
@@ -1694,6 +1661,61 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
               )}
             </div>
 
+            {/* ─── Campaign & Placement ─── */}
+            <div className="border-t border-gray-100 pt-4 mt-4">
+              <h4 className="text-[11px] font-bold text-textmid uppercase tracking-wider mb-3">Campaign & Placement</h4>
+
+              {/* Campaign dropdown */}
+              <label className="text-[11px] text-textmid font-medium">Campaign</label>
+              <select
+                value={sidebarForm.campaign_id}
+                onChange={e => setSidebarForm(f => ({ ...f, campaign_id: e.target.value, new_campaign_name: '' }))}
+                className="input-apple text-[12px] w-full mt-1"
+              >
+                <option value="">— Select Campaign —</option>
+                {campaigns.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+                <option value="__new__">+ New Campaign</option>
+              </select>
+
+              {/* New campaign name (conditional) */}
+              {sidebarForm.campaign_id === '__new__' && (
+                <input
+                  type="text"
+                  placeholder="New campaign name..."
+                  value={sidebarForm.new_campaign_name}
+                  onChange={e => setSidebarForm(f => ({ ...f, new_campaign_name: e.target.value }))}
+                  className="input-apple text-[12px] w-full mt-2"
+                  autoFocus
+                />
+              )}
+
+              {/* Ad Set text input */}
+              <label className="text-[11px] text-textmid font-medium mt-3 block">Ad Set</label>
+              <input
+                type="text"
+                placeholder="Ad set name..."
+                value={sidebarForm.ad_set_name}
+                onChange={e => setSidebarForm(f => ({ ...f, ad_set_name: e.target.value }))}
+                className="input-apple text-[12px] w-full mt-1"
+              />
+              <p className="text-[9px] text-textlight mt-1">
+                If an ad set with this name already exists in the selected campaign, the ad will be added to it. Otherwise a new ad set will be created.
+              </p>
+
+              {/* Duplicate Ad Set Name — optional field shown to employee in Ready to Post */}
+              <label className="text-[11px] text-textmid font-medium mt-3 block">Duplicate Ad Set Called <span className="text-textlight">(optional)</span></label>
+              <input
+                type="text"
+                placeholder="e.g. LAL Purchasers — New Creative"
+                value={sidebarForm.duplicate_adset_name}
+                onChange={e => setSidebarForm(f => ({ ...f, duplicate_adset_name: e.target.value }))}
+                className="input-apple text-[12px] w-full mt-1"
+              />
+              <p className="text-[9px] text-textlight mt-1">
+                If set, the employee will be told to duplicate the ad set above and rename the copy to this name. Useful when reusing an ad set's targeting settings with a new name.
+              </p>
+            </div>
+
             {/* ─── Save ─── */}
             <div className="pt-3 pb-6">
               <button
@@ -1720,8 +1742,8 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
                     </p>
                     <p className="text-[11px] text-textmid mt-1">
                       {isFlex
-                        ? `This will save the current flexible ad with the first URL, then duplicate all ${sidebarData?.deps?.length || 0} child ads for each extra URL — creating ${duplicateConfirm.urls.length - 1} new flexible ad${duplicateConfirm.urls.length > 2 ? 's' : ''} in the same ad set:`
-                        : `This will save the current ad with the first URL, then create ${duplicateConfirm.urls.length - 1} duplicate${duplicateConfirm.urls.length > 2 ? 's' : ''} in the same ad set — each with a different website URL:`
+                        ? `This will save the current flexible ad with the first URL, then duplicate all ${sidebarData?.deps?.length || 0} child ads for each extra URL — creating ${duplicateConfirm.urls.length - 1} new flexible ad${duplicateConfirm.urls.length > 2 ? 's' : ''}:`
+                        : `This will save the current ad with the first URL, then create ${duplicateConfirm.urls.length - 1} duplicate${duplicateConfirm.urls.length > 2 ? 's' : ''} — each with a different website URL:`
                       }
                     </p>
                     <ul className="mt-2 space-y-1">
@@ -1775,9 +1797,11 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
     );
   }
 
+  const stagingItemCount = standaloneStagingDeps.length + stagingFlexAds.length;
+
   return (
     <div>
-      {/* ═══════════ Two-Column Layout: Queue (left) | Planner (right) ═══════════ */}
+      {/* ═══════════ Two-Column Layout: Queue (left) | Staging (right) ═══════════ */}
       <div className="flex gap-5 items-start">
 
         {/* ─── Left Column: Queue ─── */}
@@ -1818,56 +1842,13 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
                 </span>
               </div>
             </div>
-            <p className="text-[10px] text-textmid mt-1 leading-relaxed">Newly deployed ads land here. Drag them into a campaign ad set to start planning.</p>
+            <p className="text-[10px] text-textmid mt-1 leading-relaxed">Newly deployed ads land here. Drag them to the staging area to start planning.</p>
           </div>
 
           {/* Queue selection toolbar */}
           {selectedUnplanned.size > 0 && (
             <div className="flex flex-wrap items-center gap-1.5 mb-3 text-[10px]">
               <span className="text-navy font-medium">{selectedUnplanned.size} selected</span>
-              <div className="relative" ref={assignDropdownRef}>
-                <button
-                  onClick={() => setAssignDropdown(!assignDropdown)}
-                  className="px-2 py-0.5 rounded-md bg-navy text-white hover:bg-navy-light transition-colors inline-flex items-center gap-0.5"
-                >
-                  Add to Ad Set
-                  <svg className={`w-2.5 h-2.5 transition-transform ${assignDropdown ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                  </svg>
-                </button>
-                {assignDropdown && (
-                  <div className="absolute left-0 top-full mt-1 w-56 bg-white rounded-xl shadow-lg border border-gray-200 z-50 max-h-[300px] overflow-y-auto">
-                    {sortedCampaigns.length === 0 ? (
-                      <div className="p-3 text-[10px] text-textlight text-center">Create a campaign first</div>
-                    ) : (
-                      sortedCampaigns.map(campaign => {
-                        const campaignAS = getCampaignAdSets(campaign.id);
-                        return (
-                          <div key={campaign.id}>
-                            <div className="px-3 py-1.5 text-[9px] font-semibold text-textlight uppercase tracking-wider bg-offwhite border-b border-gray-100">
-                              {campaign.name}
-                            </div>
-                            {campaignAS.length === 0 ? (
-                              <div className="px-3 py-1.5 text-[9px] text-textlight italic">No ad sets</div>
-                            ) : (
-                              campaignAS.map(adSet => (
-                                <button
-                                  key={adSet.id}
-                                  onClick={() => handleAssignSelectedToAdSet(campaign.id, adSet.id)}
-                                  className="w-full text-left px-4 py-1.5 text-[10px] text-textdark hover:bg-navy/5 transition-colors"
-                                >
-                                  {adSet.name}
-                                  <span className="text-textlight ml-1">({getAdSetDeps(adSet.id).length})</span>
-                                </button>
-                              ))
-                            )}
-                          </div>
-                        );
-                      })
-                    )}
-                  </div>
-                )}
-              </div>
               <button
                 onClick={() => setDeleteConfirm({ open: true, ids: [...selectedUnplanned], source: 'unplanned' })}
                 className="px-2 py-0.5 rounded-md bg-red-50 border border-red-200 text-red-600 hover:bg-red-100 transition-colors"
@@ -1899,380 +1880,113 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
           </div>
         </div>
 
-        {/* ─── Right Column: Planner ─── */}
-        <div className="flex-1 min-w-0">
+        {/* ─── Right Column: Staging Area ─── */}
+        <div
+          className={`flex-1 min-w-0 card p-4 transition-all ${
+            dropTarget === 'staging' ? 'ring-2 ring-gold bg-gold/5' : ''
+          }`}
+          onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; setDropTarget('staging'); }}
+          onDragLeave={handleDragLeave}
+          onDrop={handleDropOnStaging}
+        >
+          {/* Header */}
           <div className="flex items-center justify-between mb-4">
             <div>
               <h3 className="text-[14px] font-semibold text-textdark">Planner</h3>
-              <p className="text-[11px] text-textmid mt-0.5">Organize ads into campaigns and ad sets. Fill in ad details, then mark them "Ready to Post" when they're ready to go live.</p>
+              <p className="text-[11px] text-textmid mt-0.5">Drag ads here to start planning. Click to fill in details and assign a campaign.</p>
             </div>
-          {!creatingCampaign && (
-            <button
-              onClick={() => setCreatingCampaign(true)}
-              className="text-[11px] px-3 py-1.5 rounded-lg bg-navy text-white hover:bg-navy-light transition-colors inline-flex items-center gap-1"
-            >
-              <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-              </svg>
-              New Campaign
-            </button>
+            <span className="text-[11px] text-textlight bg-black/5 px-2 py-0.5 rounded-full">
+              {stagingItemCount} item{stagingItemCount !== 1 ? 's' : ''}
+            </span>
+          </div>
+
+          {/* Staging toolbar — when items selected */}
+          {selectedInStaging.size > 0 && (
+            <div className="flex flex-wrap items-center gap-1.5 mb-3 text-[10px] p-2.5 rounded-xl bg-navy/5 border border-navy/10">
+              {/* Select All */}
+              <button
+                onClick={toggleSelectAllStaging}
+                className={`w-[14px] h-[14px] rounded flex-shrink-0 flex items-center justify-center transition-colors ${
+                  selectedInStaging.size === stagingItemCount && stagingItemCount > 0
+                    ? 'bg-navy'
+                    : selectedInStaging.size > 0
+                      ? 'bg-navy/50'
+                      : 'border-[1.5px] border-textlight/60 hover:border-navy/40'
+                }`}
+              >
+                {selectedInStaging.size > 0 && (
+                  <svg className="w-2 h-2 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d={
+                      selectedInStaging.size === stagingItemCount ? "M5 13l4 4L19 7" : "M5 12h14"
+                    } />
+                  </svg>
+                )}
+              </button>
+              <span className="text-navy font-medium">{selectedInStaging.size} selected</span>
+              {selectedInStaging.size >= 2 && (
+                <button
+                  onClick={handleCombineIntoFlex}
+                  className="px-2 py-1 rounded-lg bg-navy text-white hover:bg-navy-light transition-colors inline-flex items-center gap-1"
+                >
+                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2z" />
+                  </svg>
+                  Flex
+                </button>
+              )}
+              <button
+                onClick={() => handleMarkReadyToPost([...selectedInStaging])}
+                className="px-2 py-1 rounded-lg bg-teal/10 border border-teal/30 text-teal font-medium hover:bg-teal/20 transition-colors inline-flex items-center gap-1"
+              >
+                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                </svg>
+                Ready to Post
+              </button>
+              <button
+                onClick={() => handleMoveToQueue([...selectedInStaging])}
+                className="px-2 py-1 rounded-lg bg-white border border-gray-200 text-textmid hover:bg-gray-50 transition-colors"
+              >
+                Move to Queue
+              </button>
+              <button
+                onClick={() => setDeleteConfirm({ open: true, ids: [...selectedInStaging], source: 'staging' })}
+                className="px-2 py-1 rounded-lg bg-red-50 border border-red-200 text-red-600 hover:bg-red-100 transition-colors"
+              >
+                Delete
+              </button>
+              <button
+                onClick={() => setSelectedInStaging(new Set())}
+                className="text-textlight hover:text-textmid ml-1"
+              >
+                Clear
+              </button>
+            </div>
+          )}
+
+          {/* Staging content */}
+          {stagingItemCount === 0 ? (
+            <div className={`py-12 text-center rounded-xl border-2 border-dashed transition-colors ${
+              dropTarget === 'staging' ? 'border-gold bg-gold/10' : 'border-gray-200'
+            }`}>
+              <div className="w-12 h-12 rounded-2xl bg-navy/5 flex items-center justify-center mx-auto mb-3">
+                <svg className="w-6 h-6 text-textlight" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
+                </svg>
+              </div>
+              <p className="text-[13px] text-textlight">
+                {dropTarget === 'staging' ? 'Drop ads here' : 'Drag ads from Queue to start planning'}
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-1.5">
+              {/* Flex ads first */}
+              {stagingFlexAds.map(flexAd => renderFlexAdCard(flexAd))}
+              {/* Standalone deployments */}
+              {standaloneStagingDeps.map(dep => renderDepCard(dep, { isDraggable: true, inStaging: true }))}
+            </div>
           )}
         </div>
-
-        {/* Create campaign form */}
-        {creatingCampaign && (
-          <div className="card p-4 mb-4 fade-in">
-            <div className="flex items-center gap-2">
-              <input
-                ref={campaignInputRef}
-                type="text"
-                value={newCampaignName}
-                onChange={(e) => setNewCampaignName(e.target.value)}
-                onKeyDown={(e) => { if (e.key === 'Enter') handleCreateCampaign(); if (e.key === 'Escape') { setCreatingCampaign(false); setNewCampaignName(''); } }}
-                placeholder="Campaign name..."
-                className="input-apple text-[13px] flex-1"
-              />
-              <button onClick={handleCreateCampaign} className="btn-primary text-[11px] px-3 py-2">
-                Create
-              </button>
-              <button onClick={() => { setCreatingCampaign(false); setNewCampaignName(''); }} className="text-[11px] px-2 py-2 text-textlight hover:text-textmid">
-                Cancel
-              </button>
-            </div>
-          </div>
-        )}
-
-        {/* Campaign list */}
-        {sortedCampaigns.length === 0 && !creatingCampaign && (
-          <div className="card p-8 text-center">
-            <div className="w-12 h-12 rounded-2xl bg-navy/5 flex items-center justify-center mx-auto mb-3">
-              <svg className="w-6 h-6 text-textlight" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
-              </svg>
-            </div>
-            <p className="text-[13px] text-textlight">No campaigns yet. Create one to start organizing your ads.</p>
-          </div>
-        )}
-
-        <div className="space-y-4">
-          {sortedCampaigns.map(campaign => {
-            const campaignAdSets = getCampaignAdSets(campaign.id);
-            const isCollapsed = collapsed.has(campaign.id);
-            const totalAds = campaignAdSets.reduce((sum, as) => sum + getAdSetDeps(as.id).length, 0);
-
-            return (
-              <div key={campaign.id} className="card overflow-hidden">
-                {/* Campaign header */}
-                <div className="flex items-center gap-3 px-5 py-3.5 bg-offwhite border-b border-black/5">
-                  <button
-                    onClick={() => setCollapsed(prev => {
-                      const next = new Set(prev);
-                      if (next.has(campaign.id)) next.delete(campaign.id); else next.add(campaign.id);
-                      return next;
-                    })}
-                    className="text-textlight hover:text-textdark transition-colors"
-                  >
-                    <svg className={`w-4 h-4 transition-transform ${isCollapsed ? '' : 'rotate-90'}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                    </svg>
-                  </button>
-
-                  <span className="text-[9px] font-bold text-navy/60 bg-navy/10 px-1.5 py-0.5 rounded tracking-wider flex-shrink-0">CAMPAIGN</span>
-                  {editingCampaign?.id === campaign.id ? (
-                    <input
-                      autoFocus
-                      type="text"
-                      value={editingCampaign.name}
-                      onChange={(e) => setEditingCampaign({ ...editingCampaign, name: e.target.value })}
-                      onBlur={() => handleRenameCampaign(campaign.id, editingCampaign.name)}
-                      onKeyDown={(e) => { if (e.key === 'Enter') handleRenameCampaign(campaign.id, editingCampaign.name); if (e.key === 'Escape') setEditingCampaign(null); }}
-                      className="input-apple text-[13px] font-semibold py-1 px-2 -ml-2 flex-1"
-                    />
-                  ) : (
-                    <h4
-                      className="text-[13px] font-semibold text-textdark flex-1 cursor-pointer hover:text-navy transition-colors"
-                      onClick={() => setEditingCampaign({ id: campaign.id, name: campaign.name })}
-                      title="Click to rename"
-                    >
-                      {campaign.name}
-                    </h4>
-                  )}
-
-                  <span className="text-[10px] text-textlight bg-black/5 px-2 py-0.5 rounded-full">
-                    {campaignAdSets.length} ad set{campaignAdSets.length !== 1 ? 's' : ''} · {totalAds} ad{totalAds !== 1 ? 's' : ''}
-                  </span>
-
-                  <button
-                    onClick={() => { setAddingAdSetFor(campaign.id); setNewAdSetName(''); }}
-                    className="text-[10px] px-2 py-1 rounded-lg bg-white border border-gray-200 text-textmid hover:bg-gray-50 transition-colors"
-                  >
-                    + Ad Set
-                  </button>
-
-                  {entityDeleteConfirm?.type === 'campaign' && entityDeleteConfirm.id === campaign.id ? (
-                    <div className="flex items-center gap-1">
-                      <span className="text-[10px] text-textmid">Delete?</span>
-                      <button
-                        onClick={() => { handleDeleteCampaign(campaign.id); setEntityDeleteConfirm(null); }}
-                        className="text-[10px] px-1.5 py-0.5 rounded bg-red-500 text-white hover:bg-red-600 transition-colors"
-                      >
-                        Confirm
-                      </button>
-                      <button
-                        onClick={() => setEntityDeleteConfirm(null)}
-                        className="text-[10px] px-1.5 py-0.5 rounded text-textmid hover:bg-gray-100 transition-colors"
-                      >
-                        Cancel
-                      </button>
-                    </div>
-                  ) : (
-                    <button
-                      onClick={() => setEntityDeleteConfirm({ type: 'campaign', id: campaign.id, name: campaign.name })}
-                      className="p-1 rounded-lg hover:bg-red-50 text-textlight hover:text-red-500 transition-colors"
-                      title="Delete campaign"
-                    >
-                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                      </svg>
-                    </button>
-                  )}
-                </div>
-
-                {/* Campaign body */}
-                {!isCollapsed && (
-                  <div className="p-4 space-y-3">
-                    {/* Add ad set form */}
-                    {addingAdSetFor === campaign.id && (
-                      <div className="flex items-center gap-2 mb-2 fade-in">
-                        <input
-                          ref={adSetInputRef}
-                          type="text"
-                          value={newAdSetName}
-                          onChange={(e) => setNewAdSetName(e.target.value)}
-                          onKeyDown={(e) => { if (e.key === 'Enter') handleCreateAdSet(campaign.id); if (e.key === 'Escape') { setAddingAdSetFor(null); setNewAdSetName(''); } }}
-                          placeholder="Ad set name..."
-                          className="input-apple text-[12px] flex-1"
-                        />
-                        <button onClick={() => handleCreateAdSet(campaign.id)} className="btn-primary text-[10px] px-3 py-1.5">
-                          Add
-                        </button>
-                        <button onClick={() => { setAddingAdSetFor(null); setNewAdSetName(''); }} className="text-[10px] text-textlight hover:text-textmid px-1">
-                          Cancel
-                        </button>
-                      </div>
-                    )}
-
-                    {/* Ad sets */}
-                    {campaignAdSets.length === 0 && addingAdSetFor !== campaign.id && (
-                      <p className="text-[11px] text-textlight py-3 text-center">
-                        No ad sets yet. Click "+ Ad Set" to create one.
-                      </p>
-                    )}
-
-                    {campaignAdSets.map(adSet => {
-                      const deps = getAdSetDeps(adSet.id);
-                      const adSetFlexList = getAdSetFlexAds(adSet.id);
-                      const flexChildIds = new Set(adSetFlexList.flatMap(f => JSON.parse(f.child_deployment_ids || '[]')));
-                      const standaloneDeps = deps.filter(d => !flexChildIds.has(d.id));
-                      const isDropHover = dropTarget === adSet.id;
-                      const selCount = selectedInAdSet[adSet.id]?.size || 0;
-
-                      return (
-                        <div
-                          key={adSet.id}
-                          onDragOver={(e) => handleDragOver(e, adSet.id)}
-                          onDragLeave={handleDragLeave}
-                          onDrop={(e) => handleDrop(e, campaign.id, adSet.id)}
-                          className={`rounded-xl border-2 border-dashed transition-all ${
-                            isDropHover
-                              ? 'border-gold bg-gold/5 shadow-sm'
-                              : 'border-gray-200 bg-white'
-                          }`}
-                        >
-                          {/* Ad set header */}
-                          <div className="flex items-center gap-2 px-4 py-2.5 border-b border-gray-100">
-                            {/* Select All checkbox */}
-                            {(standaloneDeps.length > 0 || adSetFlexList.length > 0) && (
-                              <button
-                                onClick={() => toggleSelectAllInAdSet(adSet.id, standaloneDeps, adSetFlexList)}
-                                className={`w-[14px] h-[14px] rounded flex-shrink-0 flex items-center justify-center transition-colors ${
-                                  selCount === (standaloneDeps.length + adSetFlexList.length) && (standaloneDeps.length + adSetFlexList.length) > 0
-                                    ? 'bg-navy'
-                                    : selCount > 0
-                                      ? 'bg-navy/50'
-                                      : 'border-[1.5px] border-textlight/60 hover:border-navy/40'
-                                }`}
-                              >
-                                {selCount > 0 && (
-                                  <svg className="w-2 h-2 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d={
-                                      selCount === (standaloneDeps.length + adSetFlexList.length) ? "M5 13l4 4L19 7" : "M5 12h14"
-                                    } />
-                                  </svg>
-                                )}
-                              </button>
-                            )}
-
-                            <span className="text-[9px] font-bold text-textmid bg-black/5 px-1.5 py-0.5 rounded tracking-wider flex-shrink-0">AD SET</span>
-                            {editingAdSet?.id === adSet.id ? (
-                              <input
-                                autoFocus
-                                type="text"
-                                value={editingAdSet.name}
-                                onChange={(e) => setEditingAdSet({ ...editingAdSet, name: e.target.value })}
-                                onBlur={() => handleRenameAdSet(adSet.id, editingAdSet.name)}
-                                onKeyDown={(e) => { if (e.key === 'Enter') handleRenameAdSet(adSet.id, editingAdSet.name); if (e.key === 'Escape') setEditingAdSet(null); }}
-                                className="input-apple text-[12px] font-medium py-0.5 px-1.5 -ml-1.5 flex-1"
-                              />
-                            ) : (
-                              <span
-                                className="text-[12px] font-medium text-textdark flex-1 cursor-pointer hover:text-navy transition-colors"
-                                onClick={() => setEditingAdSet({ id: adSet.id, name: adSet.name })}
-                                title="Click to rename"
-                              >
-                                {adSet.name}
-                              </span>
-                            )}
-
-                            {/* Bulk actions when ads selected */}
-                            {selCount >= 1 && (
-                              <div className="flex items-center gap-1.5">
-                                <span className="text-[10px] text-navy font-medium">{selCount} selected</span>
-                                {selCount >= 2 && (
-                                  <button
-                                    onClick={() => handleCombineIntoFlex(adSet.id)}
-                                    className="text-[10px] px-2 py-1 rounded-lg bg-navy text-white hover:bg-navy-light transition-colors inline-flex items-center gap-1"
-                                  >
-                                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2z" />
-                                    </svg>
-                                    Flex
-                                  </button>
-                                )}
-                                <button
-                                  onClick={() => {
-                                    const firstId = [...(selectedInAdSet[adSet.id] || [])][0];
-                                    // Check if it's a flex ad or a deployment
-                                    const flex = flexAds.find(f => f.id === firstId);
-                                    if (flex) {
-                                      let childIds = [];
-                                      try { childIds = JSON.parse(flex.child_deployment_ids || '[]'); } catch { /* ignore */ }
-                                      const childDeps = childIds.map(id => deployments.find(d => d.id === id)).filter(Boolean);
-                                      openSidebar({ type: 'flex', flexAd: flex, deps: childDeps });
-                                    } else {
-                                      const dep = deployments.find(d => d.id === firstId);
-                                      if (dep) openSidebar({ type: 'single', deployment: dep, ad: dep.ad });
-                                    }
-                                  }}
-                                  className="text-[10px] px-2 py-1 rounded-lg bg-white border border-gray-200 text-textmid hover:bg-gray-50 transition-colors"
-                                >
-                                  Edit
-                                </button>
-                                <button
-                                  onClick={() => handleUnassign([...(selectedInAdSet[adSet.id] || [])])}
-                                  className="text-[10px] px-2 py-1 rounded-lg bg-white border border-gray-200 text-textmid hover:bg-gray-50 transition-colors"
-                                >
-                                  Unplan
-                                </button>
-                                <button
-                                  onClick={async () => {
-                                    const ids = [...(selectedInAdSet[adSet.id] || [])];
-                                    // Resolve flex ad IDs to their child deployment IDs
-                                    const standaloneDepIds = ids.filter(id => deployments.some(d => d.id === id));
-                                    const flexAdIds = ids.filter(id => flexAds.some(f => f.id === id));
-                                    const flexChildDepIds = [];
-                                    for (const fid of flexAdIds) {
-                                      const flex = flexAds.find(f => f.id === fid);
-                                      if (flex) {
-                                        try { flexChildDepIds.push(...JSON.parse(flex.child_deployment_ids || '[]')); } catch { /* ignore */ }
-                                      }
-                                    }
-                                    const allDepIds = [...new Set([...standaloneDepIds, ...flexChildDepIds])];
-                                    if (allDepIds.length === 0) { addToast('Select ads to mark as ready', 'info'); return; }
-                                    try {
-                                      await Promise.all(allDepIds.map(id => api.updateDeploymentStatus(id, 'ready_to_post')));
-                                      setDeployments(prev => prev.map(d => allDepIds.includes(d.id) ? { ...d, status: 'ready_to_post' } : d));
-                                      setSelectedInAdSet(prev => ({ ...prev, [adSet.id]: new Set() }));
-                                      addToast(`${allDepIds.length} ad${allDepIds.length !== 1 ? 's' : ''} ready to post`, 'success');
-                                    } catch {
-                                      addToast('Failed to update status', 'error');
-                                    }
-                                  }}
-                                  className="text-[10px] px-2 py-1 rounded-lg bg-teal/10 border border-teal/30 text-teal font-medium hover:bg-teal/20 transition-colors inline-flex items-center gap-1"
-                                >
-                                  <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                                  </svg>
-                                  Ready to Post
-                                </button>
-                                <button
-                                  onClick={() => setDeleteConfirm({ open: true, ids: [...(selectedInAdSet[adSet.id] || [])], source: 'adset' })}
-                                  className="text-[10px] px-2 py-1 rounded-lg bg-red-50 border border-red-200 text-red-600 hover:bg-red-100 transition-colors"
-                                >
-                                  Delete
-                                </button>
-                              </div>
-                            )}
-
-                            <span className="text-[10px] text-textlight">{deps.length} ad{deps.length !== 1 ? 's' : ''}</span>
-                            {entityDeleteConfirm?.type === 'adset' && entityDeleteConfirm.id === adSet.id ? (
-                              <div className="flex items-center gap-1">
-                                <span className="text-[10px] text-textmid">Delete?</span>
-                                <button
-                                  onClick={() => { handleDeleteAdSet(adSet.id); setEntityDeleteConfirm(null); }}
-                                  className="text-[10px] px-1.5 py-0.5 rounded bg-red-500 text-white hover:bg-red-600 transition-colors"
-                                >
-                                  Confirm
-                                </button>
-                                <button
-                                  onClick={() => setEntityDeleteConfirm(null)}
-                                  className="text-[10px] px-1.5 py-0.5 rounded text-textmid hover:bg-gray-100 transition-colors"
-                                >
-                                  Cancel
-                                </button>
-                              </div>
-                            ) : (
-                              <button
-                                onClick={() => setEntityDeleteConfirm({ type: 'adset', id: adSet.id, name: adSet.name })}
-                                className="p-1 rounded hover:bg-red-50 text-textlight hover:text-red-500 transition-colors"
-                                title="Delete ad set"
-                              >
-                                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-                                </svg>
-                              </button>
-                            )}
-                          </div>
-
-                          {/* Ad set body — drop zone */}
-                          <div className="p-3 min-h-[60px]">
-                            {deps.length === 0 && adSetFlexList.length === 0 ? (
-                              <div className={`py-4 text-center rounded-lg transition-colors ${
-                                isDropHover ? 'bg-gold/10' : ''
-                              }`}>
-                                <p className="text-[11px] text-textlight">
-                                  {isDropHover ? 'Drop ads here' : 'Drag ads from Queue to assign'}
-                                </p>
-                              </div>
-                            ) : (
-                              <div className="space-y-1.5">
-                                {/* Flex ads */}
-                                {adSetFlexList.map(flexAd => renderFlexAdCard(flexAd, { adsetId: adSet.id }))}
-                                {/* Standalone (non-flex) deployments */}
-                                {standaloneDeps.map(dep => renderDepCard(dep, { isDraggable: true, inAdSet: true, adsetId: adSet.id }))}
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      </div>{/* end right column (flex-1) */}
       </div>{/* end flex container */}
 
       {/* ═══════════ Detail Sidebar ═══════════ */}
@@ -2295,7 +2009,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
                 </h3>
               </div>
               <p className="text-[12px] text-textmid mb-5 ml-[52px]">
-                This will remove the selected ads from the Performance Tracker. The original ad creatives will remain in Ad Studio.
+                This will remove the selected ads from the Ad Pipeline. The original ad creatives will remain in Ad Studio.
               </p>
               <div className="flex items-center justify-end gap-2">
                 <button

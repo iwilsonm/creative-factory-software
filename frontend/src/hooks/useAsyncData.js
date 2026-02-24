@@ -8,12 +8,13 @@ import { useState, useEffect, useRef, useCallback } from 'react';
  * @param {object} [options]
  * @param {any} [options.initialData=[]] - Initial value for data.
  * @param {boolean} [options.enabled=true] - When false, skip the fetch and set loading to false.
- * @returns {{ data: any, setData: Function, loading: boolean, refetch: () => Promise<void>, silentRefetch: () => Promise<void> }}
+ * @returns {{ data: any, setData: Function, loading: boolean, error: string|null, refetch: () => Promise<void>, silentRefetch: () => Promise<void> }}
  */
 export function useAsyncData(fetchFn, deps = [], options = {}) {
   const { initialData = [], enabled = true } = options;
   const [data, setData] = useState(initialData);
   const [loading, setLoading] = useState(enabled);
+  const [error, setError] = useState(null);
 
   // Store fetchFn in a ref so refetch/silentRefetch never go stale
   const fetchRef = useRef(fetchFn);
@@ -29,9 +30,15 @@ export function useAsyncData(fetchFn, deps = [], options = {}) {
     if (!silent) setLoading(true);
     try {
       const result = await fetchRef.current();
-      if (mountedRef.current) setData(result);
+      if (mountedRef.current) {
+        setData(result);
+        setError(null);
+      }
     } catch (err) {
       console.error('useAsyncData fetch error:', err);
+      if (mountedRef.current) {
+        setError(err.message || 'Failed to load data');
+      }
     } finally {
       if (mountedRef.current) setLoading(false);
     }
@@ -50,5 +57,5 @@ export function useAsyncData(fetchFn, deps = [], options = {}) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [...deps, enabled]);
 
-  return { data, setData, loading, refetch, silentRefetch };
+  return { data, setData, loading, error, refetch, silentRefetch };
 }
