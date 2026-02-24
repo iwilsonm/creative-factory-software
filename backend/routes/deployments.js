@@ -11,6 +11,7 @@ import {
   deleteDeployment,
   getAd,
   getAllAds,
+  getAdsByProject,
   getAdImageUrl,
   getProject,
   getLatestDoc,
@@ -50,24 +51,55 @@ router.get('/deployments', async (req, res) => {
       ? await getDeploymentsByProject(projectId)
       : await getAllDeployments();
 
-    // Resolve ad creative and project data for each deployment
+    // ── Batch-fetch ads and project data to avoid N+1 queries ──
+    // When filtering by project, bulk-fetch all ads for that project at once
+    // instead of making individual getAd + getAdImageUrl calls per deployment
+    let adsMap = new Map();   // ad_id → { ad, imageUrl }
+    let projectName = null;
+
+    if (projectId && deployments.length > 0) {
+      // Single project fetch (instead of per-deployment)
+      try {
+        const project = await getProject(projectId);
+        projectName = project?.name || null;
+      } catch {}
+
+      // Bulk-fetch all ads for this project (1 query instead of N)
+      try {
+        const allAds = await getAdsByProject(projectId);
+        for (const ad of allAds) {
+          adsMap.set(ad.id, { ad, imageUrl: ad.resolvedImageUrl || null });
+        }
+      } catch {}
+    }
+
     const enriched = await Promise.all(
       deployments.map(async (dep) => {
         let ad = null;
         let imageUrl = null;
-        let projectName = null;
+        let depProjectName = projectName;
 
-        try {
-          ad = await getAd(dep.ad_id);
-          if (ad?.storageId) {
-            imageUrl = await getAdImageUrl(dep.ad_id);
-          }
-        } catch {}
+        // Try batch cache first, fall back to individual fetch
+        const cached = adsMap.get(dep.ad_id);
+        if (cached) {
+          ad = cached.ad;
+          imageUrl = cached.imageUrl;
+        } else {
+          // Fallback for ads not in the batch (e.g. cross-project or no projectId filter)
+          try {
+            ad = await getAd(dep.ad_id);
+            if (ad?.storageId) {
+              imageUrl = await getAdImageUrl(dep.ad_id);
+            }
+          } catch {}
+        }
 
-        try {
-          const project = await getProject(dep.project_id);
-          projectName = project?.name || null;
-        } catch {}
+        if (!depProjectName) {
+          try {
+            const project = await getProject(dep.project_id);
+            depProjectName = project?.name || null;
+          } catch {}
+        }
 
         return {
           ...dep,
@@ -82,7 +114,7 @@ router.get('/deployments', async (req, res) => {
             tags: ad.tags || [],
           } : null,
           imageUrl,
-          projectName,
+          projectName: depProjectName,
           flex_ad_id: dep.flex_ad_id || null,
           primary_texts: dep.primary_texts || null,
           ad_headlines: dep.ad_headlines || null,

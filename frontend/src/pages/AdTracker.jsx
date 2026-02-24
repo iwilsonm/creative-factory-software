@@ -784,6 +784,22 @@ export default function AdTracker({ projectId, userRole }) {
         </button>
       </div>
 
+      {/* Loading state — only show skeleton on initial load (no cached data yet) */}
+      {loading && deployments.length === 0 && !deploymentsError && (
+        <div className="space-y-4">
+          {[0, 1, 2].map(i => (
+            <div key={i} className="card p-6 animate-pulse">
+              <div className="h-3 w-32 bg-gray-200 rounded mb-4" />
+              <div className="flex gap-3">
+                {[0, 1, 2].map(j => (
+                  <div key={j} className="w-24 h-16 bg-gray-100 rounded-lg" />
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+
       {/* Error state for deployment loading */}
       {deploymentsError && !loading && (
         <div className="card p-8 text-center mb-4">
@@ -801,7 +817,7 @@ export default function AdTracker({ projectId, userRole }) {
       )}
 
       {/* ═══════════ Planner View (was Campaigns) ═══════════ */}
-      {activeView === 'campaigns' && (
+      {activeView === 'campaigns' && !(loading && deployments.length === 0) && (
         <CampaignsView
           projectId={projectId}
           deployments={deployments}
@@ -812,7 +828,7 @@ export default function AdTracker({ projectId, userRole }) {
       )}
 
       {/* ═══════════ Ready to Post View ═══════════ */}
-      {activeView === 'ready_to_post' && (
+      {activeView === 'ready_to_post' && !(loading && deployments.length === 0) && (
         <ReadyToPostView
           projectId={projectId}
           deployments={deployments}
@@ -825,7 +841,7 @@ export default function AdTracker({ projectId, userRole }) {
       )}
 
       {/* ═══════════ Posted View (flex-aware cards) ═══════════ */}
-      {activeView === 'status' && statusFilter === 'posted' && (
+      {activeView === 'status' && statusFilter === 'posted' && !(loading && deployments.length === 0) && (
         <PostedView
           projectId={projectId}
           deployments={deployments}
