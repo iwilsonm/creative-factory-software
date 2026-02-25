@@ -30,6 +30,9 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
   const [editingNotes, setEditingNotes] = useState(null); // cardKey of the card whose notes are being edited
   const [notesValue, setNotesValue] = useState(''); // current textarea value
   const [savingNotes, setSavingNotes] = useState(false);
+  const [editingCard, setEditingCard] = useState(null); // cardKey of card being edited (admin only)
+  const [editFields, setEditFields] = useState({}); // temp edit values
+  const [savingEdit, setSavingEdit] = useState(false);
 
   const toggleCardExpanded = (key) => {
     setExpandedCards(prev => {
@@ -261,6 +264,111 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
       addToast('Failed to save', 'error');
     }
   };
+
+  // ── Admin Edit Helpers ──────────────────────────────────────────────────────
+
+  const startEditing = (cardKey, data, isFlex = false) => {
+    // Resolve current campaign ID from the ad set
+    let currentCampaignId = '';
+    if (isFlex) {
+      const adSet = adSets.find(a => a.id === data.ad_set_id);
+      if (adSet) currentCampaignId = campaigns.find(c => adSets.filter(a => a.campaign_id === c.id).some(a => a.id === data.ad_set_id))?.id || '';
+    } else {
+      currentCampaignId = data.local_campaign_id || '';
+    }
+
+    const fields = isFlex
+      ? {
+          name: data.name || '',
+          _campaign_id: currentCampaignId,
+          ad_set_id: data.ad_set_id || '',
+          destination_url: data.destination_url || '',
+          display_link: data.display_link || '',
+          cta_button: data.cta_button || '',
+          facebook_page: data.facebook_page || '',
+          duplicate_adset_name: data.duplicate_adset_name || '',
+          primary_texts: (() => { try { return JSON.parse(data.primary_texts || '[]').filter(Boolean); } catch { return []; } })(),
+          headlines: (() => { try { return JSON.parse(data.headlines || '[]').filter(Boolean); } catch { return []; } })(),
+        }
+      : {
+          ad_name: data.ad_name || data.ad?.headline || '',
+          local_campaign_id: currentCampaignId,
+          local_adset_id: data.local_adset_id || '',
+          destination_url: data.destination_url || '',
+          display_link: data.display_link || '',
+          cta_button: data.cta_button || '',
+          facebook_page: data.facebook_page || '',
+          duplicate_adset_name: data.duplicate_adset_name || '',
+          primary_texts: (() => { try { return JSON.parse(data.primary_texts || '[]').filter(Boolean); } catch { return []; } })(),
+          ad_headlines: (() => { try { return JSON.parse(data.ad_headlines || '[]').filter(Boolean); } catch { return []; } })(),
+        };
+    setEditFields(fields);
+    setEditingCard(cardKey);
+  };
+
+  const saveEditing = async (id, isFlex = false) => {
+    setSavingEdit(true);
+    try {
+      const payload = { ...editFields };
+      // Remove helper field that's not a real DB field
+      delete payload._campaign_id;
+      // Serialize arrays back to JSON strings
+      if (isFlex) {
+        payload.primary_texts = JSON.stringify(payload.primary_texts.filter(Boolean));
+        payload.headlines = JSON.stringify(payload.headlines.filter(Boolean));
+      } else {
+        payload.primary_texts = JSON.stringify(payload.primary_texts.filter(Boolean));
+        payload.ad_headlines = JSON.stringify(payload.ad_headlines.filter(Boolean));
+      }
+      if (isFlex) {
+        await api.updateFlexAd(id, payload);
+        setFlexAds(prev => prev.map(f => f.id === id ? { ...f, ...payload } : f));
+      } else {
+        await api.updateDeployment(id, payload);
+        setDeployments(prev => prev.map(d => d.id === id ? { ...d, ...payload } : d));
+      }
+      addToast('Changes saved', 'success');
+      setEditingCard(null);
+      setEditFields({});
+    } catch {
+      addToast('Failed to save changes', 'error');
+    }
+    setSavingEdit(false);
+  };
+
+  const updateEditField = (key, value) => {
+    setEditFields(prev => ({ ...prev, [key]: value }));
+  };
+
+  const updateEditArrayItem = (key, index, value) => {
+    setEditFields(prev => {
+      const arr = [...(prev[key] || [])];
+      arr[index] = value;
+      return { ...prev, [key]: arr };
+    });
+  };
+
+  const addEditArrayItem = (key) => {
+    setEditFields(prev => ({ ...prev, [key]: [...(prev[key] || []), ''] }));
+  };
+
+  const removeEditArrayItem = (key, index) => {
+    setEditFields(prev => {
+      const arr = [...(prev[key] || [])];
+      arr.splice(index, 1);
+      return { ...prev, [key]: arr };
+    });
+  };
+
+  // Pencil icon for edit button
+  const EditPencilIcon = () => (
+    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
+    </svg>
+  );
+
+  // CTA options for dropdown
+  const ctaOptions = ['SHOP_NOW', 'LEARN_MORE', 'SIGN_UP', 'SUBSCRIBE', 'DOWNLOAD', 'GET_OFFER', 'ORDER_NOW', 'BUY_NOW', 'BOOK_NOW', 'CONTACT_US', 'APPLY_NOW', 'GET_QUOTE', 'WATCH_MORE', 'SEND_MESSAGE', 'NO_BUTTON'];
 
   // ── Download Helpers ──────────────────────────────────────────────────────
 
@@ -669,6 +777,178 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
     </div>
   );
 
+  // ── Admin Edit Panel ──────────────────────────────────────────────────────
+
+  const EditPanel = ({ cardKey, id, isFlex = false }) => {
+    if (editingCard !== cardKey || isPoster) return null;
+    const nameKey = isFlex ? 'name' : 'ad_name';
+    const headlineKey = isFlex ? 'headlines' : 'ad_headlines';
+
+    return (
+      <div className="border-2 border-gold/30 bg-gold/5 rounded-xl p-4 space-y-3">
+        <div className="flex items-center justify-between mb-1">
+          <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-gold/20 text-gold text-[10px] font-bold uppercase tracking-widest">
+            <EditPencilIcon /> Edit Ad Details
+          </span>
+          <div className="flex items-center gap-2">
+            <button onClick={() => { setEditingCard(null); setEditFields({}); }}
+              className="px-2.5 py-1 rounded-md text-[11px] text-textmid hover:bg-black/[0.04] transition-colors">Cancel</button>
+            <button onClick={() => saveEditing(id, isFlex)} disabled={savingEdit}
+              className="px-3 py-1 rounded-md text-[11px] font-semibold bg-navy text-white hover:bg-navy-light transition-colors disabled:opacity-50">
+              {savingEdit ? 'Saving...' : 'Save Changes'}
+            </button>
+          </div>
+        </div>
+
+        {/* Ad Name */}
+        <div>
+          <label className="text-[10px] text-textmid font-medium block mb-1">Ad Name</label>
+          <input type="text" value={editFields[nameKey] || ''} onChange={e => updateEditField(nameKey, e.target.value)}
+            className="w-full text-[12px] text-textdark bg-white border border-black/10 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-navy/20" />
+        </div>
+
+        {/* Campaign */}
+        <div>
+          <label className="text-[10px] text-textmid font-medium block mb-1">Campaign</label>
+          <select
+            value={isFlex ? (editFields._campaign_id || '') : (editFields.local_campaign_id || '')}
+            onChange={e => {
+              const campId = e.target.value;
+              if (isFlex) {
+                updateEditField('_campaign_id', campId);
+                // Reset ad set when campaign changes
+                updateEditField('ad_set_id', '');
+              } else {
+                updateEditField('local_campaign_id', campId);
+                updateEditField('local_adset_id', '');
+              }
+            }}
+            className="w-full text-[12px] text-textdark bg-white border border-black/10 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-navy/20 cursor-pointer"
+          >
+            <option value="">Select a campaign...</option>
+            {campaigns.map(c => (
+              <option key={c.id} value={c.id}>{c.name}</option>
+            ))}
+          </select>
+        </div>
+
+        {/* Ad Set */}
+        <div>
+          <label className="text-[10px] text-textmid font-medium block mb-1">Ad Set</label>
+          {(() => {
+            const selectedCampId = isFlex ? (editFields._campaign_id || '') : (editFields.local_campaign_id || '');
+            const filteredAdSets = selectedCampId ? adSets.filter(a => a.campaign_id === selectedCampId) : adSets;
+            const adSetKey = isFlex ? 'ad_set_id' : 'local_adset_id';
+            return (
+              <select
+                value={editFields[adSetKey] || ''}
+                onChange={e => updateEditField(adSetKey, e.target.value)}
+                className="w-full text-[12px] text-textdark bg-white border border-black/10 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-navy/20 cursor-pointer"
+              >
+                <option value="">Select an ad set...</option>
+                {filteredAdSets.map(a => (
+                  <option key={a.id} value={a.id}>{a.name}</option>
+                ))}
+              </select>
+            );
+          })()}
+        </div>
+
+        {/* Website URL */}
+        <div>
+          <label className="text-[10px] text-textmid font-medium block mb-1">Website URL</label>
+          <input type="text" value={editFields.destination_url || ''} onChange={e => updateEditField('destination_url', e.target.value)}
+            className="w-full text-[12px] text-textdark bg-white border border-black/10 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-navy/20" placeholder="https://..." />
+        </div>
+
+        {/* Display Link */}
+        <div>
+          <label className="text-[10px] text-textmid font-medium block mb-1">Display Link</label>
+          <input type="text" value={editFields.display_link || ''} onChange={e => updateEditField('display_link', e.target.value)}
+            className="w-full text-[12px] text-textdark bg-white border border-black/10 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-navy/20" placeholder="e.g. yourbrand.com" />
+        </div>
+
+        {/* CTA */}
+        <div>
+          <label className="text-[10px] text-textmid font-medium block mb-1">Call to Action</label>
+          <select value={editFields.cta_button || ''} onChange={e => updateEditField('cta_button', e.target.value)}
+            className="w-full text-[12px] text-textdark bg-white border border-black/10 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-navy/20 cursor-pointer">
+            <option value="">None</option>
+            {ctaOptions.map(opt => <option key={opt} value={opt}>{opt.replace(/_/g, ' ')}</option>)}
+          </select>
+        </div>
+
+        {/* Facebook Page */}
+        <div>
+          <label className="text-[10px] text-textmid font-medium block mb-1">Facebook Page</label>
+          <input type="text" value={editFields.facebook_page || ''} onChange={e => updateEditField('facebook_page', e.target.value)}
+            className="w-full text-[12px] text-textdark bg-white border border-black/10 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-navy/20" />
+        </div>
+
+        {/* Duplicate Ad Set Name */}
+        <div>
+          <label className="text-[10px] text-textmid font-medium block mb-1">Duplicate Ad Set Name</label>
+          <input type="text" value={editFields.duplicate_adset_name || ''} onChange={e => updateEditField('duplicate_adset_name', e.target.value)}
+            className="w-full text-[12px] text-textdark bg-white border border-black/10 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-navy/20" />
+        </div>
+
+        {/* Primary Texts */}
+        <div>
+          <div className="flex items-center justify-between mb-1">
+            <label className="text-[10px] text-textmid font-medium">Primary Texts</label>
+            <button onClick={() => addEditArrayItem('primary_texts')}
+              className="text-[10px] text-navy font-medium hover:text-gold transition-colors">+ Add</button>
+          </div>
+          {(editFields.primary_texts || []).map((text, i) => (
+            <div key={i} className="flex items-start gap-2 mb-1.5">
+              <span className="text-[10px] text-textlight font-bold mt-2 w-4 text-right flex-shrink-0">{i + 1}</span>
+              <textarea value={text} onChange={e => updateEditArrayItem('primary_texts', i, e.target.value)} rows={2}
+                className="flex-1 text-[12px] text-textdark bg-white border border-black/10 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-navy/20 resize-y" />
+              <button onClick={() => removeEditArrayItem('primary_texts', i)}
+                className="text-red-400 hover:text-red-600 mt-1.5 flex-shrink-0" title="Remove">
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+          ))}
+        </div>
+
+        {/* Headlines */}
+        <div>
+          <div className="flex items-center justify-between mb-1">
+            <label className="text-[10px] text-textmid font-medium">Headlines</label>
+            <button onClick={() => addEditArrayItem(headlineKey)}
+              className="text-[10px] text-navy font-medium hover:text-gold transition-colors">+ Add</button>
+          </div>
+          {(editFields[headlineKey] || []).map((text, i) => (
+            <div key={i} className="flex items-start gap-2 mb-1.5">
+              <span className="text-[10px] text-textlight font-bold mt-2 w-4 text-right flex-shrink-0">{i + 1}</span>
+              <input type="text" value={text} onChange={e => updateEditArrayItem(headlineKey, i, e.target.value)}
+                className="flex-1 text-[12px] text-textdark bg-white border border-black/10 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-navy/20" />
+              <button onClick={() => removeEditArrayItem(headlineKey, i)}
+                className="text-red-400 hover:text-red-600 mt-1.5 flex-shrink-0" title="Remove">
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                </svg>
+              </button>
+            </div>
+          ))}
+        </div>
+
+        {/* Save/Cancel bottom */}
+        <div className="flex items-center justify-end gap-2 pt-2 border-t border-gold/20">
+          <button onClick={() => { setEditingCard(null); setEditFields({}); }}
+            className="px-3 py-1.5 rounded-md text-[11px] text-textmid hover:bg-black/[0.04] transition-colors">Cancel</button>
+          <button onClick={() => saveEditing(id, isFlex)} disabled={savingEdit}
+            className="px-4 py-1.5 rounded-md text-[11px] font-semibold bg-navy text-white hover:bg-navy-light transition-colors disabled:opacity-50">
+            {savingEdit ? 'Saving...' : 'Save Changes'}
+          </button>
+        </div>
+      </div>
+    );
+  };
+
   // ── Card Renderers ──────────────────────────────────────────────────────
 
   // Single ad card — collapsed by default, shows name + campaign + ad set at top
@@ -767,6 +1047,9 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
             <DisplayLinkSection displayLink={dep.display_link} cardKey={dep.id} />
             <CallToActionSection cta={dep.cta_button} />
 
+            {/* Admin Edit Panel */}
+            <EditPanel cardKey={dep.id} id={dep.id} isFlex={false} />
+
             {/* Notes */}
             <NotesSection notes={dep.notes} cardKey={dep.id} depId={dep.id} />
           </div>
@@ -774,16 +1057,26 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
 
         {/* Actions — always visible */}
         <div className="px-5 py-3.5 border-t border-black/[0.08] bg-offwhite/50 flex items-center justify-between">
-          {!isPoster ? (
-            <button onClick={() => handleSendBack(dep.id)} disabled={isSendingBack}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium text-textmid hover:text-textdark hover:bg-black/[0.04] transition-colors disabled:opacity-50"
-            >
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
-              </svg>
-              {isSendingBack ? 'Sending...' : 'Send Back to Planner'}
-            </button>
-          ) : <div />}
+          <div className="flex items-center gap-2">
+            {!isPoster && (
+              <button onClick={() => handleSendBack(dep.id)} disabled={isSendingBack}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium text-textmid hover:text-textdark hover:bg-black/[0.04] transition-colors disabled:opacity-50"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
+                </svg>
+                {isSendingBack ? 'Sending...' : 'Send Back to Planner'}
+              </button>
+            )}
+            {!isPoster && editingCard !== dep.id && (
+              <button onClick={() => { if (!expandedCards.has(dep.id)) toggleCardExpanded(dep.id); startEditing(dep.id, dep, false); }}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium text-gold hover:text-gold/80 hover:bg-gold/[0.06] transition-colors"
+              >
+                <EditPencilIcon />
+                Edit
+              </button>
+            )}
+          </div>
           <div className="flex items-center gap-3">
             <PostedByDropdown value={dep.posted_by} onChange={(val) => handlePostedByChange(dep.id, val)} />
             {confirmPosted === dep.id ? (
@@ -983,6 +1276,9 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
             <DisplayLinkSection displayLink={flexAd.display_link} cardKey={flexId} />
             <CallToActionSection cta={flexAd.cta_button} />
 
+            {/* Admin Edit Panel */}
+            <EditPanel cardKey={flexId} id={flexAd.id} isFlex />
+
             {/* Notes */}
             <NotesSection notes={flexAd.notes} cardKey={flexId} depId={flexAd.id} isFlexCard />
           </div>
@@ -990,16 +1286,26 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
 
         {/* Actions — always visible */}
         <div className="px-5 py-3.5 border-t border-black/[0.08] bg-offwhite/50 flex items-center justify-between">
-          {!isPoster ? (
-            <button onClick={() => handleSendBackFlex(flexAd)} disabled={isSendingBack}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium text-textmid hover:text-textdark hover:bg-black/[0.04] transition-colors disabled:opacity-50"
-            >
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
-              </svg>
-              {isSendingBack ? 'Sending...' : 'Send Back to Planner'}
-            </button>
-          ) : <div />}
+          <div className="flex items-center gap-2">
+            {!isPoster && (
+              <button onClick={() => handleSendBackFlex(flexAd)} disabled={isSendingBack}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium text-textmid hover:text-textdark hover:bg-black/[0.04] transition-colors disabled:opacity-50"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
+                </svg>
+                {isSendingBack ? 'Sending...' : 'Send Back to Planner'}
+              </button>
+            )}
+            {!isPoster && editingCard !== flexId && (
+              <button onClick={() => { if (!expandedCards.has(flexId)) toggleCardExpanded(flexId); startEditing(flexId, flexAd, true); }}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium text-gold hover:text-gold/80 hover:bg-gold/[0.06] transition-colors"
+              >
+                <EditPencilIcon />
+                Edit
+              </button>
+            )}
+          </div>
           <div className="flex items-center gap-3">
             <PostedByDropdown value={flexAd.posted_by} onChange={(val) => handlePostedByChange(flexAd.id, val, true)} />
             {confirmPosted === flexId ? (

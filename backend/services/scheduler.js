@@ -15,6 +15,7 @@ let lastCostSyncAt = null;
 let lastRateRefreshAt = null;
 let lastMetaSyncAt = null;
 let lastMetaTokenRefreshAt = null;
+let lastDirectorRunAt = null;
 
 /**
  * Initialize the scheduler on server startup.
@@ -89,8 +90,39 @@ export async function initScheduler() {
     } catch (e) { console.error('[Scheduler] Meta token refresh error:', e.message); }
   });
 
+  // ── Dacia Creative Director cron jobs ──────────────────────────────────────
+  // Director runs at 7 AM, 7 PM, and 1 AM ICT (UTC+7) = 0:00, 12:00, 18:00 UTC
+  // Active Saturday through Thursday (off Friday ICT)
+
+  // 7 AM ICT = 0:00 UTC — runs Sun-Fri (ICT Sun-Thu 7 AM + opening new posting days)
+  cron.schedule('0 0 * * 0-5', async () => {
+    try {
+      const { runDirectorCycle } = await import('./conductorEngine.js');
+      await runDirectorCycle('planning');
+      lastDirectorRunAt = new Date().toISOString();
+    } catch (e) { console.error('[Scheduler] Director 7AM run error:', e.message); }
+  });
+
+  // 7 PM ICT = 12:00 UTC — runs Sat-Thu (opens new production windows)
+  cron.schedule('0 12 * * 0-5', async () => {
+    try {
+      const { runDirectorCycle } = await import('./conductorEngine.js');
+      await runDirectorCycle('planning');
+      lastDirectorRunAt = new Date().toISOString();
+    } catch (e) { console.error('[Scheduler] Director 7PM run error:', e.message); }
+  });
+
+  // 1 AM ICT = 18:00 UTC (previous day) — final verification before deadline
+  cron.schedule('0 18 * * 0-5', async () => {
+    try {
+      const { runDirectorCycle } = await import('./conductorEngine.js');
+      await runDirectorCycle('verification');
+      lastDirectorRunAt = new Date().toISOString();
+    } catch (e) { console.error('[Scheduler] Director 1AM verification error:', e.message); }
+  });
+
   schedulerInitialized = true;
-  console.log('[Scheduler] Active. Polling every 5 minutes for batch completion. Cost sync hourly, rate refresh daily. Meta sync every 30 min.');
+  console.log('[Scheduler] Active. Polling every 5 minutes for batch completion. Cost sync hourly, rate refresh daily. Meta sync every 30 min. Director runs 3x/day.');
 }
 
 /**
@@ -238,5 +270,6 @@ export function getSchedulerStatus() {
     lastRateRefreshAt,
     lastMetaSyncAt,
     lastMetaTokenRefreshAt,
+    lastDirectorRunAt,
   };
 }

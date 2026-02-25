@@ -292,6 +292,7 @@ export const api = {
   getRecurringCosts: () => request('/costs/recurring'),
   getCostRates: () => request('/costs/rates'),
   syncCosts: () => request('/costs/sync', { method: 'POST' }),
+  getAgentCosts: (days = 30) => request(`/costs/agents?days=${days}`),
 
   // Settings
   getSettings: () => request('/settings'),
@@ -304,6 +305,23 @@ export const api = {
   // Dashboard Todos
   getTodos: () => request('/settings/todos'),
   saveTodos: (todos) => request('/settings/todos', { method: 'PUT', body: JSON.stringify({ todos }) }),
+
+  // Conductor (Dacia Creative Director)
+  getConductorConfig: (projectId) => request(`/conductor/config/${projectId}`),
+  updateConductorConfig: (projectId, data) => request(`/conductor/config/${projectId}`, { method: 'PUT', body: JSON.stringify(data) }),
+  getAllConductorConfigs: () => request('/conductor/configs'),
+  getConductorAngles: (projectId) => request(`/conductor/angles/${projectId}`),
+  createConductorAngle: (projectId, data) => request(`/conductor/angles/${projectId}`, { method: 'POST', body: JSON.stringify(data) }),
+  updateConductorAngle: (projectId, angleId, data) => request(`/conductor/angles/${projectId}/${angleId}`, { method: 'PUT', body: JSON.stringify(data) }),
+  deleteConductorAngle: (projectId, angleId) => request(`/conductor/angles/${projectId}/${angleId}`, { method: 'DELETE' }),
+  getConductorRuns: (projectId, limit) => request(`/conductor/runs/${projectId}${limit ? `?limit=${limit}` : ''}`),
+  triggerConductorRun: (projectId) => request(`/conductor/run/${projectId}`, { method: 'POST' }),
+  getConductorPlaybooks: (projectId) => request(`/conductor/playbooks/${projectId}`),
+  getConductorPlaybook: (projectId, angleName) => request(`/conductor/playbooks/${projectId}/${encodeURIComponent(angleName)}`),
+  triggerLearningStep: (projectId, angleName, scoredAds) => request('/conductor/learn', { method: 'POST', body: JSON.stringify({ projectId, angleName, scoredAds }) }),
+  getConductorPipelineStatus: () => request('/conductor/pipeline-status'),
+  getConductorHealth: (limit) => request(`/conductor/health${limit ? `?limit=${limit}` : ''}`),
+  getFixerPlaybooks: () => request('/conductor/fixer-playbooks'),
 
   // Agent Monitor (Dacia Fixer — Agent #1)
   getAgentMonitorStatus: () => request('/agent-monitor/status'),
@@ -347,6 +365,7 @@ export const api = {
 
   // Flex Ads
   getFlexAds: (projectId) => request(`/deployments/flex-ads?projectId=${projectId}`),
+  getFlexAdCount: (projectId, angleName) => request(`/deployments/flex-ads/count?projectId=${projectId}${angleName ? `&angleName=${encodeURIComponent(angleName)}` : ''}`),
   createFlexAd: (projectId, adSetId, name, deploymentIds) =>
     request('/deployments/flex-ads', { method: 'POST', body: JSON.stringify({ projectId, adSetId, name, deploymentIds }) }),
   updateFlexAd: (id, fields) =>

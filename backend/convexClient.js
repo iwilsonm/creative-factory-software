@@ -102,7 +102,7 @@ export async function getAllProjectsWithStats() {
 }
 
 export async function updateProject(id, fields) {
-  const allowed = ['name', 'brand_name', 'niche', 'product_description', 'sales_page_content', 'drive_folder_id', 'inspiration_folder_id', 'prompt_guidelines', 'status', 'meta_app_id', 'meta_app_secret', 'meta_access_token', 'meta_token_expires_at', 'meta_ad_account_id', 'meta_user_name', 'meta_user_id', 'meta_last_sync_at', 'scout_enabled', 'scout_default_campaign', 'scout_cta', 'scout_display_link', 'scout_facebook_page', 'scout_score_threshold', 'scout_daily_flex_ads'];
+  const allowed = ['name', 'brand_name', 'niche', 'product_description', 'sales_page_content', 'drive_folder_id', 'inspiration_folder_id', 'prompt_guidelines', 'status', 'meta_app_id', 'meta_app_secret', 'meta_access_token', 'meta_token_expires_at', 'meta_ad_account_id', 'meta_user_name', 'meta_user_id', 'meta_last_sync_at', 'scout_enabled', 'scout_default_campaign', 'scout_cta', 'scout_display_link', 'scout_facebook_page', 'scout_score_threshold', 'scout_daily_flex_ads', 'scout_destination_url', 'scout_duplicate_adset_name'];
   const updates = { externalId: id };
   for (const key of allowed) {
     if (fields[key] !== undefined) {
@@ -145,6 +145,8 @@ function convexProjectToRow(p) {
     scout_facebook_page: p.scout_facebook_page || null,
     scout_score_threshold: p.scout_score_threshold ?? null,
     scout_daily_flex_ads: p.scout_daily_flex_ads ?? null,
+    scout_destination_url: p.scout_destination_url || null,
+    scout_duplicate_adset_name: p.scout_duplicate_adset_name || null,
     created_at: p.created_at,
     updated_at: p.updated_at,
   };
@@ -252,7 +254,7 @@ export async function getProjectStats(projectId) {
 // Batch job helpers
 // =============================================
 
-export async function createBatchJob({ id, project_id, generation_mode, batch_size, angle, angles, aspect_ratio, template_image_id, template_image_ids, inspiration_image_id, inspiration_image_ids, product_image_storageId, scheduled, schedule_cron, filter_assigned }) {
+export async function createBatchJob({ id, project_id, generation_mode, batch_size, angle, angles, aspect_ratio, template_image_id, template_image_ids, inspiration_image_id, inspiration_image_ids, product_image_storageId, scheduled, schedule_cron, filter_assigned, posting_day, conductor_run_id, angle_name, angle_prompt }) {
   await mutationWithRetry(api.batchJobs.create, {
     externalId: id,
     project_id,
@@ -269,6 +271,10 @@ export async function createBatchJob({ id, project_id, generation_mode, batch_si
     scheduled: !!scheduled,
     schedule_cron: schedule_cron || undefined,
     filter_assigned: filter_assigned ? true : undefined,
+    posting_day: posting_day || undefined,
+    conductor_run_id: conductor_run_id || undefined,
+    angle_name: angle_name || undefined,
+    angle_prompt: angle_prompt || undefined,
   });
 }
 
@@ -298,7 +304,7 @@ export async function getAllScheduledBatchesForCost() {
 }
 
 export async function updateBatchJob(id, fields) {
-  const allowed = ['status', 'gemini_batch_job', 'gpt_prompts', 'error_message', 'started_at', 'completed_at', 'completed_count', 'failed_count', 'run_count', 'scheduled', 'schedule_cron', 'retry_count', 'batch_stats', 'pipeline_state', 'angle', 'angles', 'batch_size', 'aspect_ratio', 'used_template_ids', 'filter_assigned'];
+  const allowed = ['status', 'gemini_batch_job', 'gpt_prompts', 'error_message', 'started_at', 'completed_at', 'completed_count', 'failed_count', 'run_count', 'scheduled', 'schedule_cron', 'retry_count', 'batch_stats', 'pipeline_state', 'angle', 'angles', 'batch_size', 'aspect_ratio', 'used_template_ids', 'filter_assigned', 'filter_processed', 'filter_processed_at', 'posting_day', 'conductor_run_id', 'angle_name', 'angle_prompt'];
   const updates = { externalId: id };
   for (const key of allowed) {
     if (fields[key] !== undefined) {
@@ -344,6 +350,11 @@ function convexBatchToRow(b) {
     pipeline_state: b.pipeline_state || null,
     filter_assigned: !!b.filter_assigned,
     filter_processed: !!b.filter_processed,
+    filter_processed_at: b.filter_processed_at || null,
+    posting_day: b.posting_day || null,
+    conductor_run_id: b.conductor_run_id || null,
+    angle_name: b.angle_name || null,
+    angle_prompt: b.angle_prompt || null,
     created_at: b.created_at,
     started_at: b.started_at || null,
     completed_at: b.completed_at || null,
@@ -375,6 +386,10 @@ export async function getCostAggregates(startDate, endDate, projectId = null) {
     endDate,
     projectId: projectId || undefined,
   });
+}
+
+export async function getAgentCosts(startDate, endDate) {
+  return await queryWithRetry(api.apiCosts.getAgentCosts, { startDate, endDate });
 }
 
 export async function getDailyCostHistory(days = 30, projectId = null) {
@@ -575,6 +590,20 @@ export async function deleteCampaign(id) {
 // Ad Set helpers (local ad set organization)
 // =============================================
 
+export async function getAdSet(id) {
+  const adSet = await queryWithRetry(api.adSets.getByExternalId, { externalId: id });
+  if (!adSet) return null;
+  return {
+    id: adSet.externalId,
+    campaign_id: adSet.campaign_id,
+    project_id: adSet.project_id,
+    name: adSet.name,
+    sort_order: adSet.sort_order,
+    created_at: adSet.created_at,
+    updated_at: adSet.updated_at,
+  };
+}
+
 export async function getAdSetsByProject(projectId) {
   const adSets = await queryWithRetry(api.adSets.getByProject, { projectId });
   return adSets.map(a => ({
@@ -644,6 +673,8 @@ export async function getFlexAdsByProject(projectId) {
     posted_by: f.posted_by || null,
     duplicate_adset_name: f.duplicate_adset_name || null,
     notes: f.notes || null,
+    posting_day: f.posting_day || null,
+    angle_name: f.angle_name || null,
     created_at: f.created_at,
     updated_at: f.updated_at,
   }));
@@ -690,12 +721,14 @@ export async function getFlexAd(id) {
     posted_by: f.posted_by || null,
     duplicate_adset_name: f.duplicate_adset_name || null,
     notes: f.notes || null,
+    posting_day: f.posting_day || null,
+    angle_name: f.angle_name || null,
     created_at: f.created_at,
     updated_at: f.updated_at,
   };
 }
 
-export async function createFlexAd({ id, project_id, ad_set_id, name, child_deployment_ids, primary_texts, headlines, display_link, cta_button, facebook_page }) {
+export async function createFlexAd({ id, project_id, ad_set_id, name, child_deployment_ids, primary_texts, headlines, display_link, cta_button, facebook_page, destination_url, duplicate_adset_name, posting_day, angle_name }) {
   const now = new Date().toISOString();
   return await mutationWithRetry(api.flexAds.create, {
     externalId: id,
@@ -708,6 +741,10 @@ export async function createFlexAd({ id, project_id, ad_set_id, name, child_depl
     ...(display_link ? { display_link } : {}),
     ...(cta_button ? { cta_button } : {}),
     ...(facebook_page ? { facebook_page } : {}),
+    ...(destination_url ? { destination_url } : {}),
+    ...(duplicate_adset_name ? { duplicate_adset_name } : {}),
+    ...(posting_day ? { posting_day } : {}),
+    ...(angle_name ? { angle_name } : {}),
     created_at: now,
     updated_at: now,
   });
@@ -1133,6 +1170,118 @@ export async function destroySession(sid) {
 
 export async function cleanupExpiredSessions() {
   return await mutationWithRetry(api.sessions.cleanupExpired, {});
+}
+
+// =============================================
+// Conductor Config helpers (Dacia Creative Director)
+// =============================================
+
+export async function getConductorConfig(projectId) {
+  return await queryWithRetry(api.conductor.getConfig, { projectId });
+}
+
+export async function upsertConductorConfig(projectId, fields) {
+  await mutationWithRetry(api.conductor.upsertConfig, { project_id: projectId, ...fields });
+}
+
+export async function getAllConductorConfigs() {
+  return await queryWithRetry(api.conductor.getAllConfigs, {});
+}
+
+// =============================================
+// Conductor Angles helpers
+// =============================================
+
+export async function getConductorAngles(projectId) {
+  return await queryWithRetry(api.conductor.getAngles, { projectId });
+}
+
+export async function getActiveConductorAngles(projectId) {
+  return await queryWithRetry(api.conductor.getActiveAngles, { projectId });
+}
+
+export async function createConductorAngle({ id, project_id, name, description, prompt_hints, source, status }) {
+  await mutationWithRetry(api.conductor.createAngle, {
+    externalId: id,
+    project_id,
+    name,
+    description,
+    prompt_hints: prompt_hints || undefined,
+    source: source || 'manual',
+    status: status || 'active',
+  });
+}
+
+export async function updateConductorAngle(id, fields) {
+  await mutationWithRetry(api.conductor.updateAngle, { externalId: id, ...fields });
+}
+
+export async function deleteConductorAngle(id) {
+  await mutationWithRetry(api.conductor.deleteAngle, { externalId: id });
+}
+
+// =============================================
+// Conductor Runs helpers (audit log)
+// =============================================
+
+export async function getConductorRuns(projectId, limit = 50) {
+  return await queryWithRetry(api.conductor.getRuns, { projectId, limit });
+}
+
+export async function createConductorRun(fields) {
+  await mutationWithRetry(api.conductor.createRun, fields);
+}
+
+export async function updateConductorRun(id, fields) {
+  await mutationWithRetry(api.conductor.updateRun, { externalId: id, ...fields });
+}
+
+// =============================================
+// Conductor Health helpers (Fixer monitoring)
+// =============================================
+
+export async function getConductorHealth(limit = 50) {
+  return await queryWithRetry(api.conductor.getHealth, { limit });
+}
+
+export async function getConductorHealthByAgent(agent, limit = 20) {
+  return await queryWithRetry(api.conductor.getHealthByAgent, { agent, limit });
+}
+
+export async function createConductorHealth(fields) {
+  await mutationWithRetry(api.conductor.createHealth, fields);
+}
+
+// =============================================
+// Conductor Playbooks helpers (per-angle learning)
+// =============================================
+
+export async function getConductorPlaybooks(projectId) {
+  return await queryWithRetry(api.conductor.getPlaybooks, { projectId });
+}
+
+export async function getConductorPlaybook(projectId, angleName) {
+  return await queryWithRetry(api.conductor.getPlaybook, { projectId, angleName });
+}
+
+export async function upsertConductorPlaybook(fields) {
+  await mutationWithRetry(api.conductor.upsertPlaybook, fields);
+}
+
+// =============================================
+// Fixer Playbook helpers (Fixer learning memory)
+// =============================================
+
+export async function getFixerPlaybooks() {
+  return await queryWithRetry(api.conductor.getFixerPlaybooks, {});
+}
+
+export async function getFixerPlaybook(issueCategory) {
+  return await queryWithRetry(api.conductor.getFixerPlaybook, { issueCategory });
+}
+
+export async function upsertFixerPlaybook(fields) {
+  await mutationWithRetry(api.conductor.upsertFixerPlaybook, fields);
 }
 
 // =============================================

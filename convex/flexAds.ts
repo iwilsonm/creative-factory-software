@@ -49,6 +49,9 @@ export const create = mutation({
     cta_button: v.optional(v.string()),
     facebook_page: v.optional(v.string()),
     planned_date: v.optional(v.string()),
+    // Dacia Creative Director fields
+    posting_day: v.optional(v.string()),
+    angle_name: v.optional(v.string()),
     created_at: v.string(),
     updated_at: v.string(),
   },
@@ -74,6 +77,9 @@ export const update = mutation({
       posted_by: v.optional(v.string()),
       duplicate_adset_name: v.optional(v.string()),
       notes: v.optional(v.string()),
+      // Dacia Creative Director fields
+      posting_day: v.optional(v.string()),
+      angle_name: v.optional(v.string()),
     }),
   },
   handler: async (ctx, args) => {

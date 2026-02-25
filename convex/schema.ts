@@ -36,6 +36,8 @@ export default defineSchema({
     scout_facebook_page: v.optional(v.string()),
     scout_score_threshold: v.optional(v.number()),
     scout_daily_flex_ads: v.optional(v.number()),  // Max flex ads/day from Creative Filter (default 2)
+    scout_destination_url: v.optional(v.string()),        // Default website/landing page URL
+    scout_duplicate_adset_name: v.optional(v.string()),   // Default "duplicate this ad set" name for Meta
     created_at: v.string(),
     updated_at: v.string(),
   }).index("by_externalId", ["externalId"]),
@@ -126,6 +128,11 @@ export default defineSchema({
     filter_assigned: v.optional(v.boolean()),      // Opt-in: batch assigned to Creative Filter
     filter_processed: v.optional(v.boolean()),    // Dacia Creative Filter has evaluated this batch
     filter_processed_at: v.optional(v.string()),  // When filter processed it
+    // Dacia Creative Director fields
+    posting_day: v.optional(v.string()),           // YYYY-MM-DD posting day this batch produces ads for
+    conductor_run_id: v.optional(v.string()),      // → conductor_runs.externalId that created this batch
+    angle_name: v.optional(v.string()),            // Which angle this batch targets
+    angle_prompt: v.optional(v.string()),          // Full angle prompt injected into generation
     created_at: v.string(),
     started_at: v.optional(v.string()),
     completed_at: v.optional(v.string()),
@@ -193,6 +200,9 @@ export default defineSchema({
     posted_by: v.optional(v.string()),           // Who will post this ad (e.g. "Corinne", "Liz")
     duplicate_adset_name: v.optional(v.string()), // Name for the duplicated ad set in Ads Manager
     notes: v.optional(v.string()),               // Free-text notes for poster employees
+    // Dacia Creative Director fields
+    posting_day: v.optional(v.string()),           // YYYY-MM-DD posting day this flex ad is for
+    angle_name: v.optional(v.string()),            // Inherited from batch that produced its ads
     created_at: v.string(),
     updated_at: v.string(),
     deleted_at: v.optional(v.string()),           // ISO timestamp for soft delete
@@ -432,4 +442,109 @@ export default defineSchema({
   })
     .index("by_externalId", ["externalId"])
     .index("by_landing_page", ["landing_page_id"]),
+
+  // =============================================
+  // Dacia Creative Director — Agent Team tables
+  // =============================================
+
+  conductor_config: defineTable({
+    project_id: v.string(),              // → projects.externalId
+    enabled: v.boolean(),
+    daily_flex_target: v.number(),       // flex ads per day (1-20, default 5)
+    ads_per_batch: v.number(),           // raw ads per batch (default 18)
+    angle_mode: v.string(),             // "manual" | "auto" | "mixed"
+    explore_ratio: v.number(),           // for mixed mode, % testing new angles (0.0-1.0)
+    angle_rotation: v.string(),         // "round_robin" | "weighted" | "random"
+    headline_style: v.optional(v.string()),      // freeform prompt guidance
+    primary_text_style: v.optional(v.string()),  // freeform prompt guidance
+    meta_campaign_name: v.optional(v.string()),  // default campaign name template
+    meta_adset_defaults: v.optional(v.string()), // JSON: default adset settings
+    default_campaign_id: v.optional(v.string()),  // → campaigns.externalId for auto-deployed flex ads
+    run_schedule: v.string(),           // "auto" | "manual_only"
+    last_planning_run: v.optional(v.number()),   // timestamp
+    last_verify_run: v.optional(v.number()),     // timestamp
+    created_at: v.number(),
+    updated_at: v.number(),
+  })
+    .index("by_project", ["project_id"]),
+
+  conductor_angles: defineTable({
+    externalId: v.string(),
+    project_id: v.string(),              // → projects.externalId
+    name: v.string(),                    // short label
+    description: v.string(),             // detailed angle for prompt injection
+    prompt_hints: v.optional(v.string()), // specific creative direction
+    source: v.string(),                  // "manual" | "auto_generated"
+    status: v.string(),                  // "active" | "testing" | "retired"
+    times_used: v.number(),
+    last_used_at: v.optional(v.number()),
+    performance_note: v.optional(v.string()),
+    created_at: v.number(),
+    updated_at: v.number(),
+  })
+    .index("by_externalId", ["externalId"])
+    .index("by_project", ["project_id"])
+    .index("by_project_and_status", ["project_id", "status"]),
+
+  conductor_runs: defineTable({
+    externalId: v.string(),
+    project_id: v.string(),              // → projects.externalId
+    run_type: v.string(),                // "planning" | "verification" | "manual" | "emergency"
+    run_at: v.number(),                  // timestamp
+    posting_days: v.optional(v.string()), // JSON array of posting day objects checked
+    batches_created: v.optional(v.string()), // JSON array of batch info
+    angles_generated: v.optional(v.string()), // JSON array of new angles
+    decisions: v.optional(v.string()),   // LLM reasoning
+    status: v.string(),                  // "completed" | "partial" | "failed"
+    error: v.optional(v.string()),
+    duration_ms: v.optional(v.number()),
+    created_at: v.number(),
+  })
+    .index("by_externalId", ["externalId"])
+    .index("by_project", ["project_id"]),
+
+  conductor_health: defineTable({
+    externalId: v.string(),
+    agent: v.string(),                   // "creative_director" | "creative_filter"
+    check_at: v.number(),                // timestamp
+    status: v.string(),                  // "healthy" | "stalled" | "failed" | "recovered"
+    details: v.optional(v.string()),
+    action_taken: v.optional(v.string()),
+    batches_stuck: v.optional(v.number()),
+    batches_recovered: v.optional(v.number()),
+  })
+    .index("by_externalId", ["externalId"])
+    .index("by_agent", ["agent"]),
+
+  conductor_playbooks: defineTable({
+    project_id: v.string(),              // → projects.externalId
+    angle_name: v.string(),              // matches conductor_angles.name
+    version: v.number(),
+    total_scored: v.number(),
+    total_passed: v.number(),
+    pass_rate: v.number(),               // 0.0-1.0
+    visual_patterns: v.optional(v.string()),
+    copy_patterns: v.optional(v.string()),
+    avoid_patterns: v.optional(v.string()),
+    generation_hints: v.optional(v.string()),
+    raw_analysis: v.optional(v.string()),
+    last_updated: v.number(),
+    created_at: v.number(),
+  })
+    .index("by_project", ["project_id"])
+    .index("by_project_and_angle", ["project_id", "angle_name"]),
+
+  fixer_playbook: defineTable({
+    issue_category: v.string(),          // "batch_stuck" | "filter_stalled" | etc.
+    occurrences: v.number(),
+    last_occurred: v.number(),
+    root_causes: v.optional(v.string()),
+    resolution_steps: v.optional(v.string()),
+    prevention_hints: v.optional(v.string()),
+    avg_resolution_ms: v.optional(v.number()),
+    auto_resolved: v.number(),
+    escalated: v.number(),
+    last_updated: v.number(),
+  })
+    .index("by_category", ["issue_category"]),
 });

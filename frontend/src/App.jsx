@@ -48,6 +48,7 @@ const Projects = lazyWithRetry(() => import('./pages/Projects'));
 const ProjectSetup = lazyWithRetry(() => import('./pages/ProjectSetup'));
 const ProjectDetail = lazyWithRetry(() => import('./pages/ProjectDetail'));
 const Settings = lazyWithRetry(() => import('./pages/Settings'));
+const AgentDashboard = lazyWithRetry(() => import('./pages/AgentDashboard'));
 
 // ─── Auth Context ─────────────────────────────────────────────────────────────
 // Checks session once on app mount, then shares state across all routes.
@@ -132,6 +133,7 @@ export default function App() {
               <Route path="/projects" element={<ProtectedRoute><Projects /></ProtectedRoute>} />
               <Route path="/projects/new" element={<ProtectedRoute roles={['admin', 'manager']}><ProjectSetup /></ProtectedRoute>} />
               <Route path="/projects/:id" element={<ProtectedRoute><ProjectDetail /></ProtectedRoute>} />
+              <Route path="/agents" element={<ProtectedRoute roles={['admin', 'manager']}><AgentDashboard /></ProtectedRoute>} />
               <Route path="/settings" element={<ProtectedRoute roles={['admin']}><Settings /></ProtectedRoute>} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>

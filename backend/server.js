@@ -27,6 +27,7 @@ import chatRoutes from './routes/chat.js';
 import metaRoutes from './routes/meta.js';
 import landingPageRoutes from './routes/landingPages.js';
 import agentMonitorRoutes, { agentCostRouter } from './routes/agentMonitor.js';
+import conductorRoutes from './routes/conductor.js';
 import { initScheduler, getSchedulerStatus } from './services/scheduler.js';
 import { getRateLimiterStats } from './services/rateLimiter.js';
 
@@ -117,6 +118,7 @@ process.on('uncaughtException', (err) => {
   app.use('/api/projects', requireAuth, requireRole('admin', 'manager'), landingPageRoutes);
   // Routes — agent monitor (admin only)
   app.use('/api/agent-monitor', requireAuth, requireRole('admin'), agentMonitorRoutes);
+  app.use('/api/conductor', requireAuth, requireRole('admin', 'manager'), conductorRoutes);
 
   // Health check — real connectivity + operational checks
   app.get('/api/health', async (req, res) => {

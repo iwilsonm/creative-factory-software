@@ -26,6 +26,7 @@ import {
   deleteAdSet,
   getFlexAdsByProject,
   getFlexAd,
+  getAdSet,
   createFlexAd,
   updateFlexAd,
   deleteFlexAd,
@@ -703,7 +704,7 @@ router.post('/deployments/flex-ads', requireRole('admin', 'manager'), async (req
 router.put('/deployments/flex-ads/:id', requireRole('admin', 'manager'), async (req, res) => {
   try {
     const { id } = req.params;
-    const allowed = ['name', 'child_deployment_ids', 'primary_texts', 'headlines', 'destination_url', 'display_link', 'cta_button', 'facebook_page', 'planned_date', 'posted_by', 'ad_set_id', 'duplicate_adset_name', 'notes'];
+    const allowed = ['name', 'child_deployment_ids', 'primary_texts', 'headlines', 'destination_url', 'display_link', 'cta_button', 'facebook_page', 'planned_date', 'posted_by', 'ad_set_id', 'duplicate_adset_name', 'notes', 'posting_day', 'angle_name'];
     const fields = {};
     for (const key of allowed) {
       if (req.body[key] !== undefined) {
@@ -790,11 +791,18 @@ router.post('/deployments/adsets', requireRole('admin', 'manager'), async (req, 
  */
 router.post('/deployments/flex', requireRole('admin', 'manager'), async (req, res) => {
   try {
-    const { ad_set_id, name, headlines, primary_texts, cta, display_link, facebook_page, ad_ids, project_id, status } = req.body;
+    const { ad_set_id, name, headlines, primary_texts, cta, display_link, facebook_page, ad_ids, project_id, status, posting_day, angle_name, destination_url, duplicate_adset_name } = req.body;
 
     if (!ad_set_id || !project_id || !ad_ids?.length) {
       return res.status(400).json({ error: 'ad_set_id, project_id, and ad_ids required' });
     }
+
+    // Look up the ad set to get its parent campaign
+    let campaignId = 'unplanned';
+    try {
+      const adSet = await getAdSet(ad_set_id);
+      if (adSet?.campaign_id) campaignId = adSet.campaign_id;
+    } catch {}
 
     // Create individual deployments for each ad
     const deploymentIds = [];
@@ -820,20 +828,21 @@ router.post('/deployments/flex', requireRole('admin', 'manager'), async (req, re
         project_id,
         status: depStatus,
         ad_name: adName,
-        local_campaign_id: 'unplanned',
+        local_campaign_id: campaignId,
         local_adset_id: ad_set_id,
         primary_texts: ptJson,
         ad_headlines: hlJson,
-        destination_url: '',
+        destination_url: destination_url || '',
         cta_button: cta || '',
       });
 
-      // Set display_link and facebook_page via update (not in createDeploymentDuplicate)
-      if (display_link || facebook_page) {
-        await updateDeployment(depId, {
-          ...(display_link ? { display_link } : {}),
-          ...(facebook_page ? { facebook_page } : {}),
-        });
+      // Set display_link, facebook_page, duplicate_adset_name via update
+      const extraFields = {};
+      if (display_link) extraFields.display_link = display_link;
+      if (facebook_page) extraFields.facebook_page = facebook_page;
+      if (duplicate_adset_name) extraFields.duplicate_adset_name = duplicate_adset_name;
+      if (Object.keys(extraFields).length > 0) {
+        await updateDeployment(depId, extraFields);
       }
 
       deploymentIds.push(depId);
@@ -849,9 +858,13 @@ router.post('/deployments/flex', requireRole('admin', 'manager'), async (req, re
       child_deployment_ids: deploymentIds,
       primary_texts: primary_texts || [],
       headlines: headlines || [],
+      destination_url: destination_url || '',
       display_link: display_link || '',
       cta_button: cta || '',
       facebook_page: facebook_page || '',
+      duplicate_adset_name: duplicate_adset_name || '',
+      posting_day: posting_day || '',
+      angle_name: angle_name || '',
     });
 
     // Link each deployment to the flex ad
@@ -863,6 +876,28 @@ router.post('/deployments/flex', requireRole('admin', 'manager'), async (req, re
   } catch (err) {
     console.error('Failed to create flex ad (filter):', err);
     res.status(500).json({ error: 'Failed to create flex ad' });
+  }
+});
+
+/**
+ * GET /deployments/flex-ads/count — Count non-deleted flex ads by project and optional angle
+ * Query: projectId, angleName (optional)
+ * Used by the Creative Filter to compute incrementing flex ad numbers per angle
+ */
+router.get('/deployments/flex-ads/count', requireAuth, async (req, res) => {
+  try {
+    const { projectId, angleName } = req.query;
+    if (!projectId) return res.status(400).json({ error: 'projectId required' });
+
+    const flexAds = await getFlexAdsByProject(projectId);
+    if (angleName) {
+      const filtered = flexAds.filter(f => f.angle_name === angleName);
+      return res.json({ count: filtered.length });
+    }
+    res.json({ count: flexAds.length });
+  } catch (err) {
+    console.error('Failed to count flex ads:', err);
+    res.status(500).json({ error: err.message });
   }
 });
 

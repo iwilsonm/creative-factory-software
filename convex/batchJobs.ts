@@ -18,6 +18,11 @@ export const create = mutation({
     scheduled: v.optional(v.boolean()),
     schedule_cron: v.optional(v.string()),
     filter_assigned: v.optional(v.boolean()),
+    // Dacia Creative Director fields
+    posting_day: v.optional(v.string()),
+    conductor_run_id: v.optional(v.string()),
+    angle_name: v.optional(v.string()),
+    angle_prompt: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const now = new Date().toISOString();
@@ -120,6 +125,11 @@ export const update = mutation({
     filter_assigned: v.optional(v.boolean()),
     filter_processed: v.optional(v.boolean()),
     filter_processed_at: v.optional(v.string()),
+    // Dacia Creative Director fields
+    posting_day: v.optional(v.string()),
+    conductor_run_id: v.optional(v.string()),
+    angle_name: v.optional(v.string()),
+    angle_prompt: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const batch = await ctx.db

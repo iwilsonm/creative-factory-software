@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { requireAuth } from '../auth.js';
-import { getProject, getProjectStats, getSetting } from '../convexClient.js';
+import { getProject, getProjectStats, getSetting, getAgentCosts } from '../convexClient.js';
 import { getCostSummary, getCostHistoryData, syncOpenAICosts, getRecurringBatchCostEstimate } from '../services/costTracker.js';
 
 const router = Router();
@@ -105,6 +105,22 @@ router.post('/costs/sync', async (req, res) => {
     res.json(result);
   } catch (err) {
     console.error('[Costs API] Sync error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+/**
+ * GET /costs/agents — Agent-grouped cost breakdown (Director, Filter, Fixer, Pipeline, Other)
+ */
+router.get('/costs/agents', async (req, res) => {
+  try {
+    const days = parseInt(req.query.days) || 30;
+    const endDate = new Date().toISOString().split('T')[0];
+    const startDate = new Date(Date.now() - days * 86400000).toISOString().split('T')[0];
+    const data = await getAgentCosts(startDate, endDate);
+    res.json(data);
+  } catch (err) {
+    console.error('[Costs API] Agent costs error:', err.message);
     res.status(500).json({ error: err.message });
   }
 });

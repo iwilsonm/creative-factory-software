@@ -317,6 +317,8 @@ deploy_flex_ads() {
   local project_id="$2"
   local project_config="$3"
   local batch_id="$4"
+  local posting_day="${5:-}"
+  local angle_name="${6:-}"
 
   local flex_count
   flex_count=$(echo "$flex_ads_json" | jq '.flex_ads | length')
@@ -335,35 +337,29 @@ deploy_flex_ads() {
   display_link=$(echo "$project_config" | jq -r '.scout_display_link // ""')
   local facebook_page
   facebook_page=$(echo "$project_config" | jq -r '.scout_facebook_page // ""')
+  local destination_url
+  destination_url=$(echo "$project_config" | jq -r '.scout_destination_url // ""')
+  local duplicate_adset_name
+  duplicate_adset_name=$(echo "$project_config" | jq -r '.scout_duplicate_adset_name // ""')
   local project_name
   project_name=$(echo "$project_config" | jq -r '.name // "Unknown"')
 
+  # Check conductor config for default_campaign_id (overrides scout_default_campaign)
+  local conductor_config
+  conductor_config=$(curl -s "http://localhost:3001/api/conductor/config?projectId=${project_id}" \
+    -H "Cookie: $(get_session_cookie)" 2>/dev/null) || true
+  local conductor_campaign
+  conductor_campaign=$(echo "$conductor_config" | jq -r '.default_campaign_id // ""' 2>/dev/null) || true
+  if [[ -n "$conductor_campaign" ]]; then
+    default_campaign="$conductor_campaign"
+  fi
+
   if [[ -z "$default_campaign" ]]; then
-    log_err "No scout_default_campaign set for project. Cannot deploy."
+    log_err "No default campaign set for project. Cannot deploy."
     return 1
   fi
 
-  # Create ad set for today's batch
-  local ad_set_name="${project_name} Filter - ${TODAY}"
-  log_info "Creating ad set: $ad_set_name"
-
-  local ad_set_response
-  ad_set_response=$(curl -s -X POST "http://localhost:3001/api/deployments/adsets" \
-    -H "Content-Type: application/json" \
-    -H "Cookie: $(get_session_cookie)" \
-    -d "{
-      \"campaign_id\": \"${default_campaign}\",
-      \"name\": \"${ad_set_name}\",
-      \"project_id\": \"${project_id}\"
-    }" 2>/dev/null) || {
-    log_err "Failed to create ad set"
-    return 1
-  }
-
-  local ad_set_id
-  ad_set_id=$(echo "$ad_set_response" | jq -r '.externalId // .id // ""')
-
-  # Deploy each flex ad
+  # Deploy each flex ad (each gets its own ad set)
   for i in $(seq 0 $((flex_count - 1))); do
     local flex_ad
     flex_ad=$(echo "$flex_ads_json" | jq ".flex_ads[$i]")
@@ -376,6 +372,8 @@ deploy_flex_ads() {
     primary_texts=$(echo "$flex_ad" | jq '[.primary_texts[].text]')
     local image_ids
     image_ids=$(echo "$flex_ad" | jq '.image_ad_ids')
+    local image_count
+    image_count=$(echo "$flex_ad" | jq '.image_ad_ids | length')
     local headline_count
     headline_count=$(echo "$flex_ad" | jq '.headline_count')
     local primary_text_count
@@ -389,17 +387,56 @@ deploy_flex_ads() {
       continue
     fi
 
-    log_info "Deploying flex ad $((i+1)): $angle ($headline_count headlines, $primary_text_count primary texts, ${IMAGES_PER_FLEX} images)"
+    # Use angle_name from batch if available, else use the scoring angle_theme
+    local effective_angle="${angle_name:-$angle}"
+
+    # Get the next flex ad number for this angle
+    local flex_num=1
+    local count_response
+    count_response=$(curl -s "http://localhost:3001/api/deployments/flex-ads/count?projectId=${project_id}&angleName=$(echo "$effective_angle" | jq -sRr @uri)" \
+      -H "Cookie: $(get_session_cookie)" 2>/dev/null) || true
+    local existing_count
+    existing_count=$(echo "$count_response" | jq -r '.count // 0' 2>/dev/null) || true
+    flex_num=$((existing_count + 1))
+
+    # Naming: Ad set = "{Angle} — Flex #{N}", Flex ad = "Flex — {Angle} #{N} (M images)"
+    local ad_set_name="${effective_angle} — Flex #${flex_num}"
+    local flex_ad_name="Flex — ${effective_angle} #${flex_num} (${image_count} images)"
+
+    log_info "Deploying: $flex_ad_name ($headline_count headlines, $primary_text_count primary texts)"
 
     if [[ "$DRY_RUN" == "true" ]]; then
-      log_info "[DRY RUN] Would deploy flex ad: $angle"
+      log_info "[DRY RUN] Would deploy flex ad: $flex_ad_name"
+      log_info "  Ad set: $ad_set_name"
       log_info "  Headlines ($headline_count): $(echo "$headlines" | jq -r '.[0]') ..."
       log_info "  Primary texts ($primary_text_count): $(echo "$primary_texts" | jq -r '.[0][:60]') ..."
       log_info "  Images: $image_ids"
       continue
     fi
 
-    # Create flex ad deployment with multiple headlines and primary texts
+    # Create ad set for this flex ad
+    local ad_set_response
+    ad_set_response=$(curl -s -X POST "http://localhost:3001/api/deployments/adsets" \
+      -H "Content-Type: application/json" \
+      -H "Cookie: $(get_session_cookie)" \
+      -d "{
+        \"campaign_id\": \"${default_campaign}\",
+        \"name\": $(echo "$ad_set_name" | jq -Rs .),
+        \"project_id\": \"${project_id}\"
+      }" 2>/dev/null) || {
+      log_err "Failed to create ad set: $ad_set_name"
+      continue
+    }
+
+    local ad_set_id
+    ad_set_id=$(echo "$ad_set_response" | jq -r '.externalId // .id // ""')
+
+    if [[ -z "$ad_set_id" ]]; then
+      log_err "Failed to get ad set ID for: $ad_set_name"
+      continue
+    fi
+
+    # Create flex ad deployment with all defaults
     local deploy_response
     deploy_response=$(curl -s -X POST "http://localhost:3001/api/deployments/flex" \
       -H "Content-Type: application/json" \
@@ -411,9 +448,13 @@ deploy_flex_ads() {
         --arg cta "$cta" \
         --arg display_link "$display_link" \
         --arg facebook_page "$facebook_page" \
+        --arg destination_url "$destination_url" \
+        --arg duplicate_adset_name "$duplicate_adset_name" \
         --argjson image_ad_ids "$image_ids" \
         --arg project_id "$project_id" \
-        --arg name "Filter - ${angle}" \
+        --arg name "$flex_ad_name" \
+        --arg posting_day "${posting_day:-}" \
+        --arg angle_name "${effective_angle}" \
         '{
           "ad_set_id": $ad_set_id,
           "name": $name,
@@ -422,18 +463,22 @@ deploy_flex_ads() {
           "cta": $cta,
           "display_link": $display_link,
           "facebook_page": $facebook_page,
+          "destination_url": $destination_url,
+          "duplicate_adset_name": $duplicate_adset_name,
           "ad_ids": $image_ad_ids,
           "project_id": $project_id,
-          "status": "ready"
+          "status": "ready",
+          "posting_day": $posting_day,
+          "angle_name": $angle_name
         }')" 2>/dev/null) || {
-      log_err "Failed to deploy flex ad: $angle"
+      log_err "Failed to deploy flex ad: $flex_ad_name"
       continue
     }
 
-    log_ok "Deployed flex ad $((i+1)): $angle → Ready to Post ($headline_count headlines × $primary_text_count texts × ${IMAGES_PER_FLEX} images)"
+    log_ok "Deployed: $flex_ad_name → Ready to Post ($headline_count headlines × $primary_text_count texts × ${image_count} images)"
   done
 
-  log_ok "All flex ads deployed under: $ad_set_name"
+  log_ok "All flex ads deployed for: $project_name"
 }
 
 # ============================================================
@@ -507,7 +552,16 @@ process_batch() {
   local project_id
   project_id=$(echo "$batch" | jq -r '.project_id')
 
+  # Extract Director metadata (posting_day, angle_name) if present
+  local posting_day
+  posting_day=$(echo "$batch" | jq -r '.posting_day // ""')
+  local angle_name
+  angle_name=$(echo "$batch" | jq -r '.angle_name // ""')
+
   log_info "━━━ Processing batch: $batch_id ━━━"
+  if [[ -n "$posting_day" ]]; then
+    log_info "Director metadata: posting_day=$posting_day angle=$angle_name"
+  fi
 
   # Get project config
   local project_config
@@ -526,12 +580,21 @@ process_batch() {
 
   log_info "Project: $project_name"
 
-  # Read per-project flex ad daily cap (default to config FLEX_AD_COUNT)
+  # Read per-project flex ad daily cap
+  # Priority: conductor_config.daily_flex_target > project.scout_daily_flex_ads > config FLEX_AD_COUNT
   local project_flex_cap
-  project_flex_cap=$(echo "$project_config" | jq -r '.scout_daily_flex_ads // "'"$FLEX_AD_COUNT"'"')
-  project_flex_cap=$((project_flex_cap + 0))
-  if [[ "$project_flex_cap" -lt 1 ]]; then
-    project_flex_cap=$FLEX_AD_COUNT
+  local conductor_cap=""
+  conductor_cap=$(curl -s "http://localhost:3001/api/conductor/config?projectId=${project_id}" \
+    -H "Cookie: $(get_session_cookie)" 2>/dev/null | jq -r '.daily_flex_target // ""') || conductor_cap=""
+  if [[ -n "$conductor_cap" && "$conductor_cap" != "null" && "$conductor_cap" -gt 0 ]] 2>/dev/null; then
+    project_flex_cap=$conductor_cap
+    log_info "Using Director daily_flex_target: $project_flex_cap"
+  else
+    project_flex_cap=$(echo "$project_config" | jq -r '.scout_daily_flex_ads // "'"$FLEX_AD_COUNT"'"')
+    project_flex_cap=$((project_flex_cap + 0))
+    if [[ "$project_flex_cap" -lt 1 ]]; then
+      project_flex_cap=$FLEX_AD_COUNT
+    fi
   fi
 
   # Check daily cap — count flex ads deployed today for this project from log
@@ -587,7 +650,7 @@ process_batch() {
   fi
 
   if [[ "$flex_count" -gt 0 && "$AUTO_DEPLOY" == "true" ]]; then
-    deploy_flex_ads "$flex_result" "$project_id" "$project_config" "$batch_id"
+    deploy_flex_ads "$flex_result" "$project_id" "$project_config" "$batch_id" "$posting_day" "$angle_name"
 
     local total_deployed=$((flex_count * IMAGES_PER_FLEX))
     send_notification "🎯 Dacia Creative Filter: Flex Ads Deployed" \
@@ -595,6 +658,22 @@ process_batch() {
   fi
 
   mark_processed "$batch_id" "$scored_ads"
+
+  # Trigger learning step if this batch has an angle_name (Director-managed)
+  if [[ -n "$angle_name" ]]; then
+    log_info "Triggering learning step for angle: $angle_name"
+    # Build scored ads payload for the learning endpoint
+    local learn_payload
+    learn_payload=$(echo "$scored_ads" | jq --arg pid "$project_id" --arg aname "$angle_name" \
+      '{projectId: $pid, angleName: $aname, scoredAds: [.[] | {ad_id: .ad_id, score: (.score // 0), reasoning: (.reasoning // ""), headline: (.headline // ""), body: (.body // ""), image_prompt: (.image_prompt // "")}]}')
+    curl -s -X POST "http://localhost:3001/api/conductor/learn" \
+      -H "Content-Type: application/json" \
+      -H "Cookie: $(get_session_cookie)" \
+      -d "$learn_payload" > /dev/null 2>&1 && \
+      log_ok "Learning step triggered for angle: $angle_name" || \
+      log_warn "Learning step call failed (non-critical)"
+  fi
+
   log_ok "Batch $batch_id processing complete"
 }
 

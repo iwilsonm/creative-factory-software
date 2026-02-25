@@ -461,6 +461,132 @@ check_stuck_batches() {
 }
 
 # ============================================================
+# AGENT TEAM HEALTH MONITORING
+# ============================================================
+# Monitors the Creative Director and Creative Filter agents.
+# Runs on each cycle to ensure the agent team is operational.
+
+check_agent_health() {
+  log_info "Checking agent team health..."
+
+  local health_status="ok"
+  local details=""
+
+  # --- Check 1: Creative Director last run ---
+  # Director should run at 7 AM, 7 PM, 1 AM ICT (0:00, 12:00, 18:00 UTC)
+  local configs
+  configs=$(curl -s "http://localhost:3001/api/conductor/configs" \
+    -H "Cookie: $(get_session_cookie)" 2>/dev/null) || configs=""
+
+  if [[ -n "$configs" ]] && echo "$configs" | jq -e '.configs' > /dev/null 2>&1; then
+    local enabled_count
+    enabled_count=$(echo "$configs" | jq '.configs | [.[] | select(.enabled == true)] | length' 2>/dev/null || echo 0)
+
+    if [[ "$enabled_count" -gt 0 ]]; then
+      # Check each enabled project's last run
+      local now_ms
+      now_ms=$(date +%s)000
+
+      echo "$configs" | jq -c '.configs[] | select(.enabled == true)' 2>/dev/null | while IFS= read -r cfg; do
+        local pid
+        pid=$(echo "$cfg" | jq -r '.project_id // ""')
+        local last_run
+        last_run=$(echo "$cfg" | jq -r '.last_planning_run // 0')
+
+        if [[ -n "$pid" && "$last_run" != "null" && "$last_run" != "0" ]]; then
+          # Check if last run was more than 14 hours ago (should run every 12h minimum)
+          local age_ms=$(( $(date +%s)000 - last_run ))
+          local age_hours=$(( age_ms / 3600000 ))
+          if [[ "$age_hours" -gt 14 ]]; then
+            log_warn "Director: project ${pid:0:8} last ran ${age_hours}h ago (expected within 12h)"
+            health_status="degraded"
+            details="${details}Director late for ${pid:0:8}. "
+          fi
+        fi
+      done
+
+      details="${details}Director: ${enabled_count} project(s) enabled. "
+    else
+      details="${details}Director: no projects enabled. "
+    fi
+  else
+    log_info "Director: no conductor configs found (not yet configured)"
+  fi
+
+  # --- Check 2: Creative Filter process liveness ---
+  # Check if the filter log has recent activity (within 45 min during active window)
+  local filter_log="/opt/ad-platform/dacia-creative-filter/logs/filter_$(date +%Y-%m-%d).log"
+  if [[ -f "$filter_log" ]]; then
+    local last_line_time
+    last_line_time=$(tail -1 "$filter_log" 2>/dev/null | grep -oP '\d{2}:\d{2}:\d{2}' | head -1)
+    if [[ -n "$last_line_time" ]]; then
+      details="${details}Filter: last log at ${last_line_time}. "
+    fi
+  else
+    details="${details}Filter: no log today (may not have run yet). "
+  fi
+
+  # --- Check 3: Batch pipeline health (stuck batches with timeout) ---
+  local stuck_batches
+  stuck_batches=$(curl -s "${CONVEX_URL}/api/query" \
+    -H "Content-Type: application/json" \
+    -d "{
+      \"path\": \"batchJobs:list\",
+      \"args\": {}
+    }" 2>/dev/null) || stuck_batches=""
+
+  if [[ -n "$stuck_batches" ]] && echo "$stuck_batches" | jq -e '.value' > /dev/null 2>&1; then
+    local stuck_count=0
+    local now_epoch=$(date +%s)
+
+    # Find batches stuck in processing states for more than 60 minutes
+    stuck_count=$(echo "$stuck_batches" | jq "[.value[]? | select(
+      (.status == \"processing\" or .status == \"generating_prompts\" or .status == \"submitting\") and
+      (.started_at != null)
+    )] | length" 2>/dev/null || echo 0)
+
+    if [[ "$stuck_count" -gt 0 ]]; then
+      details="${details}Pipeline: ${stuck_count} batch(es) in processing. "
+    else
+      details="${details}Pipeline: healthy. "
+    fi
+  fi
+
+  # --- Log health check result ---
+  local check_id
+  check_id=$(uuidv4 2>/dev/null || cat /proc/sys/kernel/random/uuid 2>/dev/null || echo "hc-$(date +%s)")
+
+  # Log to conductor_health via API (fire-and-forget)
+  curl -s -X POST "http://localhost:3001/api/conductor/health" \
+    -H "Content-Type: application/json" \
+    -H "Cookie: $(get_session_cookie)" \
+    -d "$(jq -n \
+      --arg eid "$check_id" \
+      --arg status "$health_status" \
+      --arg details "$details" \
+      '{
+        externalId: $eid,
+        agent: "fixer",
+        check_at: (now * 1000 | floor),
+        status: $status,
+        details: $details
+      }')" > /dev/null 2>&1 || true
+
+  if [[ "$health_status" == "ok" ]]; then
+    log_ok "Agent team health: OK"
+  else
+    log_warn "Agent team health: $health_status — $details"
+  fi
+}
+
+# UUID generator fallback for systems without uuidgen
+uuidv4() {
+  python3 -c 'import uuid; print(uuid.uuid4())' 2>/dev/null || \
+  cat /proc/sys/kernel/random/uuid 2>/dev/null || \
+  echo "$(date +%s)-$$-$(shuf -i 1000-9999 -n1)"
+}
+
+# ============================================================
 # FIX PIPELINE
 # ============================================================
 
@@ -560,8 +686,9 @@ run_fix_pipeline() {
 process_suite() {
   local suite="$1"
   log_info "━━━ Checking: $suite ━━━"
-  
+
   check_stuck_batches
+  check_agent_health
   
   local test_output test_exit=0
   test_output=$(run_tests "$suite") || test_exit=$?

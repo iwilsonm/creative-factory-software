@@ -109,6 +109,63 @@ export const getDailyHistory = query({
   },
 });
 
+// Agent-grouped cost aggregation for the Agent Dashboard.
+// Groups costs by agent based on operation prefix.
+export const getAgentCosts = query({
+  args: {
+    startDate: v.string(),
+    endDate: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const costs = await ctx.db
+      .query("api_costs")
+      .withIndex("by_period", (q) =>
+        q.gte("period_date", args.startDate).lte("period_date", args.endDate)
+      )
+      .collect();
+
+    const agents: Record<string, { total: number; operations: Record<string, number> }> = {
+      director: { total: 0, operations: {} },
+      filter: { total: 0, operations: {} },
+      fixer: { total: 0, operations: {} },
+      pipeline: { total: 0, operations: {} },
+      other: { total: 0, operations: {} },
+    };
+
+    for (const c of costs) {
+      const op = c.operation || "unknown";
+      let agent = "other";
+
+      if (op.startsWith("conductor_")) agent = "director";
+      else if (op.startsWith("filter_")) agent = "filter";
+      else if (op.startsWith("fixer_")) agent = "fixer";
+      else if (op.startsWith("batch_") || op === "image_generation_batch") agent = "pipeline";
+
+      agents[agent].total += c.cost_usd;
+      agents[agent].operations[op] = (agents[agent].operations[op] || 0) + c.cost_usd;
+    }
+
+    // Also compute daily breakdown by agent for the bar chart
+    const daily: Record<string, Record<string, number>> = {};
+    for (const c of costs) {
+      if (!daily[c.period_date]) daily[c.period_date] = { director: 0, filter: 0, fixer: 0, pipeline: 0, other: 0 };
+      const op = c.operation || "unknown";
+      let agent = "other";
+      if (op.startsWith("conductor_")) agent = "director";
+      else if (op.startsWith("filter_")) agent = "filter";
+      else if (op.startsWith("fixer_")) agent = "fixer";
+      else if (op.startsWith("batch_") || op === "image_generation_batch") agent = "pipeline";
+      daily[c.period_date][agent] += c.cost_usd;
+    }
+
+    const dailyHistory = Object.entries(daily)
+      .map(([date, data]) => ({ date, ...data }))
+      .sort((a, b) => a.date.localeCompare(b.date));
+
+    return { agents, dailyHistory };
+  },
+});
+
 /**
  * One-time migration: recalculate cost_usd for all Gemini records that used
  * incorrect rates (e.g. $18/image instead of $0.134). For each Gemini record,
