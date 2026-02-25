@@ -382,6 +382,27 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
     }
   };
 
+  // Move selected queue items to planner (staging area) via button
+  const handleMoveToPlanner = async (ids) => {
+    if (!ids?.length) return;
+
+    snapshotForUndo(`move ${ids.length}`, async () => {
+      await api.unassignFromAdSet(ids);
+    });
+
+    setDeployments(prev => prev.map(d =>
+      ids.includes(d.id) ? { ...d, local_campaign_id: 'planned', local_adset_id: '', flex_ad_id: '' } : d
+    ));
+    setSelectedUnplanned(new Set());
+
+    try {
+      await api.assignToAdSet(ids, 'planned', '');
+    } catch {
+      addToast('Failed to move ads — retrying...', 'error');
+      try { await api.assignToAdSet(ids, 'planned', ''); } catch { loadDeployments(); }
+    }
+  };
+
   const handleMoveToQueue = async (ids) => {
     // Separate flex ad IDs from standalone deployment IDs
     const flexAdIds = ids.filter(id => flexAds.some(f => f.id === id));
@@ -2126,8 +2147,14 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
 
           {/* Queue selection toolbar */}
           {selectedUnplanned.size > 0 && (
-            <div className="flex flex-wrap items-center gap-1.5 mb-3 text-[10px]">
+            <div className="flex flex-wrap items-center gap-1.5 mb-3 text-[10px] p-2.5 rounded-xl bg-navy/5 border border-navy/10">
               <span className="text-navy font-medium">{selectedUnplanned.size} selected</span>
+              <button
+                onClick={() => handleMoveToPlanner([...selectedUnplanned])}
+                className="px-2 py-0.5 rounded-md bg-teal/10 border border-teal/20 text-teal font-medium hover:bg-teal/20 transition-colors"
+              >
+                Move to Planner
+              </button>
               <button
                 onClick={() => setDeleteConfirm({ open: true, ids: [...selectedUnplanned], source: 'unplanned' })}
                 className="px-2 py-0.5 rounded-md bg-red-50 border border-red-200 text-red-600 hover:bg-red-100 transition-colors"
