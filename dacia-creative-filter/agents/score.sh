@@ -28,9 +28,9 @@ PRIMARY_TEXT=$(echo "$AD_JSON" | jq -r '.body_copy // .primary_text // ""')
 ANGLE=$(echo "$AD_JSON" | jq -r '.angle // ""')
 AD_ID=$(echo "$AD_JSON" | jq -r '.externalId // ._id // "unknown"')
 
-PROMPT="You are a senior direct response creative director evaluating ad creatives for Meta (Facebook/Instagram) advertising.
+PROMPT="You are a senior direct response creative director evaluating ad creatives for Meta (Facebook/Instagram) advertising. You specialize in health, wellness, and e-commerce brands.
 
-Score this ad creative. Be critical — only genuinely strong ads should score 7+.
+Score this ad creative. Be critical but fair — only genuinely strong ads should score 7+.
 
 AD CREATIVE:
 Headline: ${HEADLINE}
@@ -44,7 +44,12 @@ ${TOP_PERFORMERS}
 
 These are non-negotiable. If ANY of these fail, the ad MUST score 0 and pass=false:
 
-1. SPELLING & GRAMMAR: Every word must be spelled correctly. Grammar must be clean and professional. No typos, no awkward phrasing, no missing punctuation. One spelling error = auto-fail.
+1. SPELLING & GRAMMAR: Actual misspelled words or broken grammar. This means REAL typos (e.g. \"teh\" instead of \"the\", \"recieve\" instead of \"receive\") and genuinely ungrammatical sentences. IMPORTANT: The following are NOT spelling or grammar errors — do NOT flag these:
+   - Numbers without dollar signs or commas (e.g. \"4300\" or \"149\" are fine in ad copy — this is a common style choice)
+   - Informal/conversational tone (sentence fragments, starting with \"And\" or \"But\", casual phrasing — this is direct response style)
+   - Intentional stylistic choices like em dashes, ellipses, ALL CAPS for emphasis
+   - Missing Oxford commas (style preference, not an error)
+   Only flag ACTUAL misspellings and genuinely broken grammar that would make the ad look unprofessional.
 
 2. FIRST LINE HOOK: The very first line of the primary text MUST be a strong hook — a pattern interrupt, curiosity gap, bold claim, or emotional opener that stops the scroll. If the first line is weak, generic, or forgettable, auto-fail.
 
@@ -66,10 +71,11 @@ These are non-negotiable. If ANY of these fail, the ad MUST score 0 and pass=fal
 2. META COMPLIANCE (30% weight)
 - Any income or earnings claims (explicit or implied)?
 - Any before/after implications?
-- Any health claims that guarantee outcomes (\"cure\", \"fix\", \"eliminate\")?
-- Any \"this one trick\" / \"doctors hate this\" style claims?
-- Any use of \"you\" in ways that imply personal attributes?
-- Would this survive Meta's ad review without rejection?
+- Any health claims that GUARANTEE specific outcomes (e.g. \"this will cure your...\" or \"eliminates pain 100%\")?
+- IMPORTANT: General wellness claims are acceptable on Meta. Phrases like \"reduce inflammation\", \"support recovery\", \"improve sleep quality\", \"natural pain relief\" are compliant and commonly approved. Only flag claims that guarantee specific medical outcomes or diagnose/treat/cure diseases.
+- Any \"this one trick\" / \"doctors hate this\" style clickbait?
+- Any use of \"you\" in ways that call out personal attributes (e.g. \"Are you overweight?\", \"Is your credit score low?\")?
+- Would this realistically survive Meta's ad review? (Meta approves most health/wellness product ads that don't make guarantee claims)
 
 3. OVERALL EFFECTIVENESS (20% weight)
 - Would this actually convert? Is there a reason to click?
