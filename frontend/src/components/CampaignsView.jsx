@@ -76,6 +76,19 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
   const [undoState, setUndoState] = useState(null);
   // Shape: { label, deploymentsSnapshot, flexAdsSnapshot, serverUndo, timestamp }
 
+  // ─── Sticky field defaults — persist across sidebar opens ──────────────
+  const stickyFieldsRef = useRef({
+    destination_url: '',
+    display_link: '',
+    facebook_page: '',
+    campaign_id: '',
+    ad_set_name: '',
+    duplicate_adset_name: '',
+  });
+
+  // Queue for auto-generating copy after flex ad creation
+  const autoGenFlexRef = useRef(null); // { allDepIds: string[] } when pending
+
   const sidebarInitialFormRef = useRef(null);
   const autosaveTimerRef = useRef(null);
   const lastAutosavedRef = useRef(null); // JSON string of last autosaved { primary_texts, ad_headlines }
@@ -117,6 +130,58 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
     }, 10000);
     return () => clearInterval(autosaveTimerRef.current);
   }, [sidebarData, sidebarForm.primary_texts, sidebarForm.ad_headlines]);
+
+  // ─── Auto-generate copy after flex ad creation ──────────────────────────
+  useEffect(() => {
+    if (combiningFlex || !autoGenFlexRef.current) return;
+    const { allDepIds } = autoGenFlexRef.current;
+    autoGenFlexRef.current = null;
+
+    // Find the newly created flex ad by matching its child deployment IDs
+    const newFlex = flexAds.find(f => {
+      try {
+        const cIds = JSON.parse(f.child_deployment_ids || '[]');
+        return cIds.length === allDepIds.length && allDepIds.every(id => cIds.includes(id));
+      } catch { return false; }
+    });
+    if (!newFlex) return;
+
+    // Get child deployments for the sidebar
+    let childIds = [];
+    try { childIds = JSON.parse(newFlex.child_deployment_ids || '[]'); } catch { /* ignore */ }
+    const childDeps = childIds.map(id => deployments.find(d => d.id === id)).filter(Boolean);
+
+    // Open sidebar for the new flex ad
+    openSidebar({ type: 'flex', flexAd: newFlex, deps: childDeps });
+
+    // Auto-generate primary texts, then headlines
+    const autoGenerate = async () => {
+      const depId = childDeps[0]?.id;
+      if (!depId) return;
+      try {
+        setGeneratingPrimaryText(true);
+        setPrimaryTextOpen(true);
+        const ptResult = await api.generatePrimaryText(depId, newFlex.id);
+        setSidebarForm(prev => ({ ...prev, primary_texts: ptResult.primary_texts || [] }));
+        setPrimaryTextThread(ptResult.messages || []);
+
+        // Now generate headlines from the primary texts
+        setGeneratingHeadlines(true);
+        setHeadlinesOpen(true);
+        const hlResult = await api.generateAdHeadlines(depId, ptResult.primary_texts || [], newFlex.id);
+        setSidebarForm(prev => ({ ...prev, ad_headlines: hlResult.headlines || [] }));
+        setHeadlineThread(hlResult.messages || []);
+
+        addToast('Primary texts & headlines auto-generated — refine or save', 'success');
+      } catch {
+        addToast('Auto-generation failed — generate manually from the sidebar', 'error');
+      }
+      setGeneratingPrimaryText(false);
+      setGeneratingHeadlines(false);
+    };
+    // Kick off auto-generation (don't await — runs in background while sidebar is open)
+    autoGenerate();
+  }, [combiningFlex, flexAds, deployments]);
 
   const loadCampaignData = async (silent = false) => {
     if (!silent) setLoading(true);
@@ -490,6 +555,8 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
       await api.createFlexAd(projectId, '', name, allDepIds);
       // Refresh to get real server IDs (replaces temp)
       await Promise.all([loadCampaignData(true), loadDeployments()]);
+      // Queue auto-generation of primary texts + headlines for the new flex ad
+      autoGenFlexRef.current = { allDepIds };
     } catch (err) {
       addToast(err.message || 'Failed to create flexible ad', 'error');
       await Promise.all([loadCampaignData(true), loadDeployments()]);
@@ -606,55 +673,58 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
     setHeadlineThread([]);
     setHeadlineDirectionHistory([]);
     setHeadlineRoundHistory([]);
+    const sticky = stickyFieldsRef.current;
     let form;
     if (data.type === 'single') {
       const dep = data.deployment;
       const url = dep.destination_url || dep.landing_page_url || '';
+      const depCampaignId = dep.local_campaign_id && dep.local_campaign_id !== 'planned' && dep.local_campaign_id !== 'unplanned'
+        ? dep.local_campaign_id : '';
       form = {
         ad_name: dep.ad_name || dep.ad?.headline || dep.ad?.angle || '',
-        destination_urls: url ? [url] : [''],
-        display_link: dep.display_link || '',
+        destination_urls: url ? [url] : (sticky.destination_url ? [sticky.destination_url] : ['']),
+        display_link: dep.display_link || sticky.display_link || '',
         cta_button: dep.cta_button || 'LEARN_MORE',
         primary_texts: (() => { try { return dep.primary_texts ? JSON.parse(dep.primary_texts) : []; } catch { return []; } })(),
         ad_headlines: (() => { try { return dep.ad_headlines ? JSON.parse(dep.ad_headlines) : []; } catch { return []; } })(),
         planned_date: dep.planned_date || '',
-        facebook_page: dep.facebook_page || '',
+        facebook_page: dep.facebook_page || sticky.facebook_page || '',
         notes: dep.notes || '',
-        // Campaign/ad set assignment
-        campaign_id: dep.local_campaign_id && dep.local_campaign_id !== 'planned' && dep.local_campaign_id !== 'unplanned'
-          ? dep.local_campaign_id : '',
+        // Campaign/ad set assignment — use sticky defaults when not already set
+        campaign_id: depCampaignId || sticky.campaign_id || '',
         new_campaign_name: '',
         ad_set_name: (() => {
           const adSet = adSets.find(a => a.id === dep.local_adset_id);
-          return adSet?.name || '';
+          return adSet?.name || sticky.ad_set_name || '';
         })(),
-        duplicate_adset_name: dep.duplicate_adset_name || '',
+        duplicate_adset_name: dep.duplicate_adset_name || sticky.duplicate_adset_name || '',
       };
     } else {
       const flex = data.flexAd;
       const url = flex.destination_url || '';
+      const flexCampaignId = (() => {
+        const adSet = adSets.find(a => a.id === flex.ad_set_id);
+        if (!adSet) return '';
+        return adSet.campaign_id || '';
+      })();
       form = {
         ad_name: flex.name || '',
-        destination_urls: url ? [url] : [''],
-        display_link: flex.display_link || '',
+        destination_urls: url ? [url] : (sticky.destination_url ? [sticky.destination_url] : ['']),
+        display_link: flex.display_link || sticky.display_link || '',
         cta_button: flex.cta_button || 'LEARN_MORE',
         primary_texts: (() => { try { return flex.primary_texts ? JSON.parse(flex.primary_texts) : []; } catch { return []; } })(),
         ad_headlines: (() => { try { return flex.headlines ? JSON.parse(flex.headlines) : []; } catch { return []; } })(),
         planned_date: flex.planned_date || '',
-        facebook_page: flex.facebook_page || '',
+        facebook_page: flex.facebook_page || sticky.facebook_page || '',
         notes: flex.notes || '',
-        // Campaign/ad set assignment for flex
-        campaign_id: (() => {
-          const adSet = adSets.find(a => a.id === flex.ad_set_id);
-          if (!adSet) return '';
-          return adSet.campaign_id || '';
-        })(),
+        // Campaign/ad set assignment for flex — use sticky defaults when not already set
+        campaign_id: flexCampaignId || sticky.campaign_id || '',
         new_campaign_name: '',
         ad_set_name: (() => {
           const adSet = adSets.find(a => a.id === flex.ad_set_id);
-          return adSet?.name || '';
+          return adSet?.name || sticky.ad_set_name || '';
         })(),
-        duplicate_adset_name: flex.duplicate_adset_name || '',
+        duplicate_adset_name: flex.duplicate_adset_name || sticky.duplicate_adset_name || '',
       };
     }
     setSidebarForm(form);
@@ -803,6 +873,17 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
     setDuplicateConfirm(null);
     setSidebarSaving(true);
 
+    // Persist sticky field defaults for future sidebar opens
+    const primaryUrlForSticky = urls[0] || '';
+    if (primaryUrlForSticky) stickyFieldsRef.current.destination_url = primaryUrlForSticky;
+    if (sidebarForm.display_link) stickyFieldsRef.current.display_link = sidebarForm.display_link;
+    if (sidebarForm.facebook_page) stickyFieldsRef.current.facebook_page = sidebarForm.facebook_page;
+    if (sidebarForm.duplicate_adset_name) stickyFieldsRef.current.duplicate_adset_name = sidebarForm.duplicate_adset_name;
+    // Campaign/ad set — only persist real campaign IDs (not '__new__')
+    const saveCampaignId = sidebarForm.campaign_id && sidebarForm.campaign_id !== '__new__' ? sidebarForm.campaign_id : '';
+    if (saveCampaignId) stickyFieldsRef.current.campaign_id = saveCampaignId;
+    if (sidebarForm.ad_set_name) stickyFieldsRef.current.ad_set_name = sidebarForm.ad_set_name;
+
     try {
       const primaryUrl = urls[0] || '';
       const extraUrls = urls.slice(1);
@@ -884,6 +965,8 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
       if (resolvedCampaignId === '__new__' && sidebarForm.new_campaign_name.trim()) {
         const result = await api.createCampaign(projectId, sidebarForm.new_campaign_name.trim());
         resolvedCampaignId = result.id;
+        // Update sticky ref with the newly created campaign ID
+        stickyFieldsRef.current.campaign_id = resolvedCampaignId;
       }
 
       // If campaign selected and ad set name provided, find-or-create ad set
