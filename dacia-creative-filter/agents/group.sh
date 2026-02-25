@@ -111,6 +111,14 @@ Respond ONLY with this exact JSON format:
   \"skipped_clusters\": [\"any angle clusters that were skipped because they couldn't meet the minimum 3 headlines + 3 primary texts requirement\"]
 }"
 
+DEBUG_LOG="${SCRIPT_DIR}/logs/group_debug.log"
+
+# Log input stats
+echo "[$(date -u +%Y-%m-%dT%H:%M:%SZ)] group.sh called" >> "$DEBUG_LOG"
+echo "  Input ad count: $(echo "$SCORED_ADS" | jq 'length' 2>/dev/null || echo 'PARSE_ERROR')" >> "$DEBUG_LOG"
+echo "  Project: $PROJECT_NAME, Target flex ads: $FLEX_AD_COUNT" >> "$DEBUG_LOG"
+echo "  Prompt length: ${#PROMPT} chars" >> "$DEBUG_LOG"
+
 RESPONSE=$(curl -s "https://api.anthropic.com/v1/messages" \
   -H "Content-Type: application/json" \
   -H "x-api-key: ${ANTHROPIC_API_KEY}" \
@@ -123,7 +131,59 @@ RESPONSE=$(curl -s "https://api.anthropic.com/v1/messages" \
       "max_tokens": 4096,
       "temperature": 0,
       "messages": [{"role": "user", "content": $prompt}]
-    }')")
+    }')") || {
+  echo "  curl FAILED with exit code $?" >> "$DEBUG_LOG"
+  echo '{"flex_ads": [], "error": "curl_failed"}'
+  exit 0
+}
 
-echo "$RESPONSE" | jq -r '.content[0].text // "{\"error\": \"No grouping generated\"}"' | \
-  sed 's/```json//g; s/```//g' | tr -d '\n' | jq '.'
+# Log API response metadata
+echo "  API response type: $(echo "$RESPONSE" | jq -r '.type // "unknown"' 2>/dev/null)" >> "$DEBUG_LOG"
+echo "  Stop reason: $(echo "$RESPONSE" | jq -r '.stop_reason // "unknown"' 2>/dev/null)" >> "$DEBUG_LOG"
+echo "  Model: $(echo "$RESPONSE" | jq -r '.model // "unknown"' 2>/dev/null)" >> "$DEBUG_LOG"
+echo "  Input tokens: $(echo "$RESPONSE" | jq -r '.usage.input_tokens // "unknown"' 2>/dev/null)" >> "$DEBUG_LOG"
+echo "  Output tokens: $(echo "$RESPONSE" | jq -r '.usage.output_tokens // "unknown"' 2>/dev/null)" >> "$DEBUG_LOG"
+
+# Check for API error
+API_ERROR=$(echo "$RESPONSE" | jq -r '.error.message // empty' 2>/dev/null)
+if [[ -n "$API_ERROR" ]]; then
+  echo "  API ERROR: $API_ERROR" >> "$DEBUG_LOG"
+  echo '{"flex_ads": [], "error": "api_error", "message": "'"$API_ERROR"'"}'
+  exit 0
+fi
+
+# Extract text content
+RAW_TEXT=$(echo "$RESPONSE" | jq -r '.content[0].text // ""' 2>/dev/null)
+
+if [[ -z "$RAW_TEXT" ]]; then
+  echo "  ERROR: No text in API response" >> "$DEBUG_LOG"
+  echo "  Full response: $(echo "$RESPONSE" | head -c 500)" >> "$DEBUG_LOG"
+  echo '{"flex_ads": [], "error": "no_text_in_response"}'
+  exit 0
+fi
+
+echo "  Raw text length: ${#RAW_TEXT} chars" >> "$DEBUG_LOG"
+
+# Clean markdown fences and parse JSON
+CLEANED=$(echo "$RAW_TEXT" | sed 's/```json//g; s/```//g' | tr -d '\n')
+PARSED=$(echo "$CLEANED" | jq '.' 2>/dev/null) || {
+  echo "  ERROR: Failed to parse JSON from Claude response" >> "$DEBUG_LOG"
+  echo "  Raw text (first 500 chars): $(echo "$RAW_TEXT" | head -c 500)" >> "$DEBUG_LOG"
+  echo '{"flex_ads": [], "error": "json_parse_failed"}'
+  exit 0
+}
+
+# Log result
+FLEX_COUNT=$(echo "$PARSED" | jq '.flex_ads | length' 2>/dev/null || echo 0)
+echo "  Flex ads returned: $FLEX_COUNT" >> "$DEBUG_LOG"
+
+if [[ "$FLEX_COUNT" -eq 0 ]]; then
+  SKIPPED=$(echo "$PARSED" | jq -r '.skipped_clusters // []' 2>/dev/null)
+  echo "  Skipped clusters: $SKIPPED" >> "$DEBUG_LOG"
+  REJECTED=$(echo "$PARSED" | jq -r '.rejected_from_grouping | length // 0' 2>/dev/null)
+  echo "  Rejected ad count: $REJECTED" >> "$DEBUG_LOG"
+fi
+
+echo "---" >> "$DEBUG_LOG"
+
+echo "$PARSED"

@@ -73,7 +73,7 @@ add_spend() {
   local current; current=$(get_daily_spend)
   echo "$current + $cost_cents" | bc > "$SPEND_FILE"
   # Log to Convex api_costs via backend (fire-and-forget)
-  curl -s -X POST "http://localhost:3001/api/agent-cost/log" \
+  curl -s -X POST "${BACKEND_URL}/api/agent-cost/log" \
     -H "Content-Type: application/json" \
     -d "{\"agent\":\"filter\",\"operation\":\"${operation}\",\"cost_cents\":${cost_cents},\"service\":\"${service}\"}" \
     > /dev/null 2>&1 &
@@ -112,18 +112,34 @@ send_notification() {
 
 # --- Auth ---
 get_session_cookie() {
+  # Return cached cookie if it exists
   if [[ -f "${FILTER_DIR}/config/.session_cookie" ]]; then
     cat "${FILTER_DIR}/config/.session_cookie"
     return
   fi
-  local login_response
-  login_response=$(curl -s -c - -X POST "http://localhost:3001/api/auth/login" \
+
+  # Login and capture Set-Cookie header
+  local cookie_jar="/tmp/filter_cookies_$$.txt"
+  curl -s -c "$cookie_jar" -X POST "${BACKEND_URL}/api/auth/login" \
     -H "Content-Type: application/json" \
     -d "{
       \"username\": \"${FILTER_USERNAME:-filter}\",
       \"password\": \"${FILTER_PASSWORD:-}\"
-    }" 2>/dev/null)
-  echo "$login_response" | grep -oP 'connect\.sid\s+\K\S+' || echo ""
+    }" > /dev/null 2>&1
+
+  # Extract connect.sid value from cookie jar and build Cookie header
+  local sid
+  sid=$(grep 'connect.sid' "$cookie_jar" 2>/dev/null | awk '{print $NF}') || true
+  rm -f "$cookie_jar"
+
+  if [[ -n "$sid" ]]; then
+    local cookie_header="connect.sid=${sid}"
+    echo "$cookie_header" > "${FILTER_DIR}/config/.session_cookie"
+    echo "$cookie_header"
+  else
+    log_warn "Login failed — no session cookie returned"
+    echo ""
+  fi
 }
 
 # ============================================================
@@ -204,7 +220,7 @@ get_top_performers() {
 
   # Pull ads with best Meta performance data (lowest CPC, highest ROAS)
   local performers
-  performers=$(curl -s "http://localhost:3001/api/projects/${project_id}/meta/top-performers" \
+  performers=$(curl -s "${BACKEND_URL}/api/projects/${project_id}/meta/top-performers" \
     -H "Cookie: $(get_session_cookie)" \
     2>/dev/null) || {
     # Fallback: return empty if endpoint doesn't exist yet
@@ -302,8 +318,27 @@ group_into_flex_ads() {
   log_info "Grouping $pass_count passing ads into ${flex_count_target} flex ads..."
 
   local group_result
-  group_result=$(bash "${SCRIPT_DIR}/agents/group.sh" "$passing" "$project_name" "$flex_count_target")
+  group_result=$(bash "${SCRIPT_DIR}/agents/group.sh" "$passing" "$project_name" "$flex_count_target" 2>&1) || {
+    log_err "group.sh exited with error code $?"
+    log_err "group.sh output: $(echo "$group_result" | head -c 300)"
+    echo "{\"flex_ads\": [], \"error\": \"group_script_failed\"}"
+    return
+  }
   add_spend 4 "grouping" "$GROUP_MODEL" "anthropic"  # ~$0.04 per grouping call
+
+  # Log grouping result summary
+  local result_flex_count
+  result_flex_count=$(echo "$group_result" | jq '.flex_ads | length' 2>/dev/null || echo "PARSE_FAIL")
+  log_info "Grouping result: $result_flex_count flex ads returned"
+
+  if [[ "$result_flex_count" == "0" || "$result_flex_count" == "PARSE_FAIL" ]]; then
+    local group_error
+    group_error=$(echo "$group_result" | jq -r '.error // empty' 2>/dev/null || true)
+    [[ -n "$group_error" ]] && log_warn "Grouping error: $group_error"
+    local skipped
+    skipped=$(echo "$group_result" | jq -r '.skipped_clusters[]? // empty' 2>/dev/null || true)
+    [[ -n "$skipped" ]] && log_warn "Skipped clusters: $skipped"
+  fi
 
   echo "$group_result"
 }
@@ -346,7 +381,7 @@ deploy_flex_ads() {
 
   # Check conductor config for default_campaign_id (overrides scout_default_campaign)
   local conductor_config
-  conductor_config=$(curl -s "http://localhost:3001/api/conductor/config?projectId=${project_id}" \
+  conductor_config=$(curl -s "${BACKEND_URL}/api/conductor/config?projectId=${project_id}" \
     -H "Cookie: $(get_session_cookie)" 2>/dev/null) || true
   local conductor_campaign
   conductor_campaign=$(echo "$conductor_config" | jq -r '.default_campaign_id // ""' 2>/dev/null) || true
@@ -393,15 +428,17 @@ deploy_flex_ads() {
     # Get the next flex ad number for this angle
     local flex_num=1
     local count_response
-    count_response=$(curl -s "http://localhost:3001/api/deployments/flex-ads/count?projectId=${project_id}&angleName=$(echo "$effective_angle" | jq -sRr @uri)" \
+    count_response=$(curl -s "${BACKEND_URL}/api/deployments/flex-ads/count?projectId=${project_id}&angleName=$(echo "$effective_angle" | jq -sRr @uri)" \
       -H "Cookie: $(get_session_cookie)" 2>/dev/null) || true
     local existing_count
     existing_count=$(echo "$count_response" | jq -r '.count // 0' 2>/dev/null) || true
     flex_num=$((existing_count + 1))
 
     # Naming: Ad set = "{Angle} — Flex #{N}", Flex ad = "Flex — {Angle} #{N} (M images)"
-    local ad_set_name="${effective_angle} — Flex #${flex_num}"
-    local flex_ad_name="Flex — ${effective_angle} #${flex_num} (${image_count} images)"
+    local ad_set_name
+    ad_set_name=$(echo "${effective_angle} — Flex #${flex_num}" | tr -d '\n\r')
+    local flex_ad_name
+    flex_ad_name=$(echo "Flex — ${effective_angle} #${flex_num} (${image_count} images)" | tr -d '\n\r')
 
     log_info "Deploying: $flex_ad_name ($headline_count headlines, $primary_text_count primary texts)"
 
@@ -416,7 +453,7 @@ deploy_flex_ads() {
 
     # Create ad set for this flex ad
     local ad_set_response
-    ad_set_response=$(curl -s -X POST "http://localhost:3001/api/deployments/adsets" \
+    ad_set_response=$(curl -s -X POST "${BACKEND_URL}/api/deployments/adsets" \
       -H "Content-Type: application/json" \
       -H "Cookie: $(get_session_cookie)" \
       -d "{
@@ -438,7 +475,7 @@ deploy_flex_ads() {
 
     # Create flex ad deployment with all defaults
     local deploy_response
-    deploy_response=$(curl -s -X POST "http://localhost:3001/api/deployments/flex" \
+    deploy_response=$(curl -s -X POST "${BACKEND_URL}/api/deployments/flex" \
       -H "Content-Type: application/json" \
       -H "Cookie: $(get_session_cookie)" \
       -d "$(jq -n \
@@ -531,7 +568,7 @@ mark_processed() {
       local project_id_for_tag
       project_id_for_tag=$(echo "$scored_ads" | jq -r ".[$i].project_id // \"\"")
 
-      curl -s -X PATCH "http://localhost:3001/api/projects/${project_id_for_tag}/ads/${ad_id}/tags" \
+      curl -s -X PATCH "${BACKEND_URL}/api/projects/${project_id_for_tag}/ads/${ad_id}/tags" \
         -H "Content-Type: application/json" \
         -H "Cookie: $(get_session_cookie)" \
         -d "{\"tags\": ${new_tags}}" > /dev/null 2>&1
@@ -584,7 +621,7 @@ process_batch() {
   # Priority: conductor_config.daily_flex_target > project.scout_daily_flex_ads > config FLEX_AD_COUNT
   local project_flex_cap
   local conductor_cap=""
-  conductor_cap=$(curl -s "http://localhost:3001/api/conductor/config?projectId=${project_id}" \
+  conductor_cap=$(curl -s "${BACKEND_URL}/api/conductor/config?projectId=${project_id}" \
     -H "Cookie: $(get_session_cookie)" 2>/dev/null | jq -r '.daily_flex_target // ""') || conductor_cap=""
   if [[ -n "$conductor_cap" && "$conductor_cap" != "null" && "$conductor_cap" -gt 0 ]] 2>/dev/null; then
     project_flex_cap=$conductor_cap
@@ -639,6 +676,7 @@ process_batch() {
 
   local flex_count
   flex_count=$(echo "$flex_result" | jq '.flex_ads | length' 2>/dev/null || echo 0)
+  log_info "Post-grouping flex_count: $flex_count"
 
   # === REGENERATION LOOP ===
   # For each flex ad, check if it has enough headlines and primary texts.
@@ -647,6 +685,9 @@ process_batch() {
   if [[ "$flex_count" -gt 0 ]]; then
     flex_result=$(regeneration_loop "$flex_result" "$top_performers" "$project_name")
     flex_count=$(echo "$flex_result" | jq '.flex_ads | length' 2>/dev/null || echo 0)
+    log_info "Post-regeneration flex_count: $flex_count"
+  else
+    log_warn "No flex ads from grouping — skipping regeneration and deployment"
   fi
 
   if [[ "$flex_count" -gt 0 && "$AUTO_DEPLOY" == "true" ]]; then
@@ -666,7 +707,7 @@ process_batch() {
     local learn_payload
     learn_payload=$(echo "$scored_ads" | jq --arg pid "$project_id" --arg aname "$angle_name" \
       '{projectId: $pid, angleName: $aname, scoredAds: [.[] | {ad_id: .ad_id, score: (.score // 0), reasoning: (.reasoning // ""), headline: (.headline // ""), body: (.body // ""), image_prompt: (.image_prompt // "")}]}')
-    curl -s -X POST "http://localhost:3001/api/conductor/learn" \
+    curl -s -X POST "${BACKEND_URL}/api/conductor/learn" \
       -H "Content-Type: application/json" \
       -H "Cookie: $(get_session_cookie)" \
       -d "$learn_payload" > /dev/null 2>&1 && \

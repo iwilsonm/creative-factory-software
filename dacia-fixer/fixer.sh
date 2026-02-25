@@ -594,6 +594,31 @@ uuidv4() {
 # queries and log file reads — no LLM calls.
 # ============================================================
 
+# Helper: Check if the Creative Filter's daily budget is exhausted
+# Returns 0 (true) if budget is exhausted, 1 (false) if budget remains
+is_filter_budget_exhausted() {
+  local filter_spend_file="${FILTER_LOG_DIR}/spend_${TODAY}.txt"
+  if [[ ! -f "$filter_spend_file" ]]; then
+    return 1  # No spend file = no budget used
+  fi
+  local current_spend
+  current_spend=$(cat "$filter_spend_file" 2>/dev/null | tr -d '[:space:]')
+  current_spend=${current_spend:-0}
+
+  # Read filter's budget from its config
+  local filter_budget=400
+  if [[ -f "${FILTER_DIR_PATH}/config/filter.conf" ]]; then
+    local conf_budget
+    conf_budget=$(grep -oP 'DAILY_BUDGET_CENTS=\K[0-9]+' "${FILTER_DIR_PATH}/config/filter.conf" 2>/dev/null || echo "")
+    [[ -n "$conf_budget" ]] && filter_budget="$conf_budget"
+  fi
+
+  if (( $(echo "$current_spend >= $filter_budget" | bc -l 2>/dev/null || echo 0) )); then
+    return 0  # Budget exhausted
+  fi
+  return 1  # Budget remains
+}
+
 # --- Probe A: Filter Scoring Quality ---
 # Catches the exact scenario where all ads score 0/10 due to
 # overly strict scoring criteria or broken scoring prompts.
@@ -629,8 +654,20 @@ probe_filter_scoring() {
     pass_rate=$(( (pass_count * 100) / total ))
   fi
 
-  # === 0% PASS RATE — DEFINITELY BROKEN ===
+  # === 0% PASS RATE — CHECK IF BUDGET-RELATED ===
   if [[ "$pass_count" -eq 0 && "$fail_count" -gt 0 ]]; then
+    # Check if the filter log shows budget exhaustion (not a scoring bug)
+    local budget_hits=0
+    budget_hits=$(echo "$clean_log" | grep -c "Daily budget reached" 2>/dev/null || echo 0)
+    budget_hits=$(echo "$budget_hits" | tr -d '[:space:]')
+
+    if [[ "$budget_hits" -gt 0 ]] || is_filter_budget_exhausted; then
+      log_warn "Probe [filter_scoring]: 0% pass rate caused by BUDGET EXHAUSTION, not scoring bug"
+      log_info "  Filter budget is spent — batches will be re-scored tomorrow when budget resets"
+      log_info "  NOT resetting batches (would cause infinite reset-score-budget loop)"
+      return 0
+    fi
+
     log_err "Probe [filter_scoring]: ALL $fail_count ads scored 0/10 — FIXING"
 
     # FIX 1: Reset all filter-processed batches so they get re-scored
@@ -997,9 +1034,13 @@ probe_deployment_pipeline() {
   pass_count=$(echo "$pass_count" | tr -d '[:space:]')
   pass_count=${pass_count:-0}
 
-  # No passes, no deployments — probe_filter_scoring handles this
+  # No passes, no deployments — check if budget-related before deferring
   if [[ "$pass_count" -eq 0 ]]; then
-    log_info "Probe [deployment_pipeline]: 0 ads passed scoring (handled by filter_scoring probe)"
+    if is_filter_budget_exhausted; then
+      log_info "Probe [deployment_pipeline]: 0 ads passed (filter budget exhausted — not a pipeline issue)"
+    else
+      log_info "Probe [deployment_pipeline]: 0 ads passed scoring (handled by filter_scoring probe)"
+    fi
     return 0
   fi
 

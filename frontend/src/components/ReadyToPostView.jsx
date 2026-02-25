@@ -33,6 +33,8 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
   const [editingCard, setEditingCard] = useState(null); // cardKey of card being edited (admin only)
   const [editFields, setEditFields] = useState({}); // temp edit values
   const [savingEdit, setSavingEdit] = useState(false);
+  const [newAdSetName, setNewAdSetName] = useState(''); // for inline ad set creation
+  const [creatingAdSet, setCreatingAdSet] = useState(false);
 
   const toggleCardExpanded = (key) => {
     setExpandedCards(prev => {
@@ -304,14 +306,19 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
         };
     setEditFields(fields);
     setEditingCard(cardKey);
+    setNewAdSetName('');
   };
 
   const saveEditing = async (id, isFlex = false) => {
     setSavingEdit(true);
     try {
       const payload = { ...editFields };
+      const newCampaignId = payload._campaign_id;
       // Remove helper field that's not a real DB field
       delete payload._campaign_id;
+      // Don't save __new__ as an actual ad set ID
+      if (payload.ad_set_id === '__new__') payload.ad_set_id = '';
+      if (payload.local_adset_id === '__new__') payload.local_adset_id = '';
       // Serialize arrays back to JSON strings
       if (isFlex) {
         payload.primary_texts = JSON.stringify(payload.primary_texts.filter(Boolean));
@@ -320,6 +327,16 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
         payload.primary_texts = JSON.stringify(payload.primary_texts.filter(Boolean));
         payload.ad_headlines = JSON.stringify(payload.ad_headlines.filter(Boolean));
       }
+
+      // For flex ads, if the campaign changed, update the ad set's campaign_id too
+      if (isFlex && newCampaignId && payload.ad_set_id) {
+        const adSet = adSets.find(a => a.id === payload.ad_set_id);
+        if (adSet && adSet.campaign_id !== newCampaignId) {
+          await api.updateAdSet(payload.ad_set_id, { campaign_id: newCampaignId });
+          setAdSets(prev => prev.map(a => a.id === payload.ad_set_id ? { ...a, campaign_id: newCampaignId } : a));
+        }
+      }
+
       if (isFlex) {
         await api.updateFlexAd(id, payload);
         setFlexAds(prev => prev.map(f => f.id === id ? { ...f, ...payload } : f));
@@ -328,6 +345,13 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
         setDeployments(prev => prev.map(d => d.id === id ? { ...d, ...payload } : d));
       }
       addToast('Changes saved', 'success');
+      // Collapse the card after saving
+      setExpandedCards(prev => {
+        const next = new Set(prev);
+        const cardKey = isFlex ? `flex-${id}` : id;
+        next.delete(cardKey);
+        return next;
+      });
       setEditingCard(null);
       setEditFields({});
     } catch {
@@ -588,12 +612,12 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
           </div>
           <div className="flex items-center gap-3">
             <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider text-center flex-shrink-0 ${duplicateAdSetName ? 'bg-gold/15 text-gold' : 'bg-navy/10 text-navy w-20'}`} style={duplicateAdSetName ? { minWidth: '5rem' } : undefined}>{duplicateAdSetName ? 'Duplicate This Ad Set' : 'Ad Set'}</span>
-            <span className="text-[15px] font-bold text-textdark">{adSetName}</span>
+            <span className="text-[15px] font-bold text-textdark">{duplicateAdSetName || adSetName}</span>
           </div>
           {duplicateAdSetName && (
             <div className="flex items-center gap-3">
               <span className="inline-block px-2 py-0.5 rounded bg-gold/15 text-gold text-[10px] font-bold uppercase tracking-wider flex-shrink-0" style={{ minWidth: '5rem', textAlign: 'center' }}>Rename the Duplicated Ad Set</span>
-              <span className="text-[15px] font-bold text-textdark">{duplicateAdSetName}</span>
+              <span className="text-[15px] font-bold text-textdark">{adSetName}</span>
             </div>
           )}
         </div>
@@ -840,16 +864,60 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
             const filteredAdSets = selectedCampId ? adSets.filter(a => a.campaign_id === selectedCampId) : adSets;
             const adSetKey = isFlex ? 'ad_set_id' : 'local_adset_id';
             return (
-              <select
-                value={editFields[adSetKey] || ''}
-                onChange={e => updateEditField(adSetKey, e.target.value)}
-                className="w-full text-[12px] text-textdark bg-white border border-black/10 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-navy/20 cursor-pointer"
-              >
-                <option value="">Select an ad set...</option>
-                {filteredAdSets.map(a => (
-                  <option key={a.id} value={a.id}>{a.name}</option>
-                ))}
-              </select>
+              <>
+                <select
+                  value={editFields[adSetKey] || ''}
+                  onChange={e => {
+                    if (e.target.value === '__new__') {
+                      updateEditField(adSetKey, '__new__');
+                      setNewAdSetName('');
+                    } else {
+                      updateEditField(adSetKey, e.target.value);
+                      setNewAdSetName('');
+                    }
+                  }}
+                  className="w-full text-[12px] text-textdark bg-white border border-black/10 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-navy/20 cursor-pointer"
+                >
+                  <option value="">Select an ad set...</option>
+                  {filteredAdSets.map(a => (
+                    <option key={a.id} value={a.id}>{a.name}</option>
+                  ))}
+                  {selectedCampId && <option value="__new__">+ Create New Ad Set...</option>}
+                </select>
+                {editFields[adSetKey] === '__new__' && (
+                  <div className="flex items-center gap-2 mt-1.5">
+                    <input
+                      type="text"
+                      value={newAdSetName}
+                      onChange={e => setNewAdSetName(e.target.value)}
+                      placeholder="New ad set name..."
+                      className="flex-1 text-[12px] text-textdark bg-white border border-gold/30 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-gold/20"
+                      autoFocus
+                    />
+                    <button
+                      onClick={async () => {
+                        if (!newAdSetName.trim() || !selectedCampId) return;
+                        setCreatingAdSet(true);
+                        try {
+                          const result = await api.createAdSet(selectedCampId, newAdSetName.trim(), projectId);
+                          const newId = result.id;
+                          setAdSets(prev => [...prev, { id: newId, name: newAdSetName.trim(), campaign_id: selectedCampId, project_id: projectId }]);
+                          updateEditField(adSetKey, newId);
+                          setNewAdSetName('');
+                          addToast('Ad set created', 'success');
+                        } catch {
+                          addToast('Failed to create ad set', 'error');
+                        }
+                        setCreatingAdSet(false);
+                      }}
+                      disabled={creatingAdSet || !newAdSetName.trim()}
+                      className="px-3 py-1.5 rounded-lg text-[11px] font-semibold bg-gold text-white hover:bg-gold/90 transition-colors disabled:opacity-50"
+                    >
+                      {creatingAdSet ? '...' : 'Create'}
+                    </button>
+                  </div>
+                )}
+              </>
             );
           })()}
         </div>
