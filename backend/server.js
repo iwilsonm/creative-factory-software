@@ -30,6 +30,7 @@ import agentMonitorRoutes, { agentCostRouter } from './routes/agentMonitor.js';
 import conductorRoutes from './routes/conductor.js';
 import { initScheduler, getSchedulerStatus } from './services/scheduler.js';
 import { getRateLimiterStats } from './services/rateLimiter.js';
+import { syncOpenAICosts, refreshGeminiRates } from './services/costTracker.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -88,39 +89,7 @@ process.on('uncaughtException', (err) => {
   // Migrate legacy single-user auth to multi-user (runs once, idempotent)
   await migrateToMultiUser();
 
-  // Routes — auth (no role restriction)
-  app.use('/api/auth', authRoutes);
-  // Routes — agent cost logging (no auth — called by agent scripts from localhost via curl)
-  app.use('/api/agent-cost', agentCostRouter);
-  // Routes — admin only
-  app.use('/api/users', userRoutes);
-  app.use('/api/settings', settingsRoutes);
-  // Routes — projects (all roles can list/view projects for navigation)
-  app.use('/api/projects', projectRoutes);
-  // Routes — deployments (poster has limited access — controlled per-route inside)
-  // IMPORTANT: Must be mounted BEFORE broad /api routes with requireRole('admin', 'manager')
-  // because Express runs middleware in order and those broad /api mounts would block poster users
-  // from reaching deployment routes (costsRoutes and metaRoutes are mounted on /api prefix)
-  app.use('/api', deploymentRoutes);
-  // Routes — admin/manager only
-  app.use('/api/projects', requireAuth, requireRole('admin', 'manager'), documentRoutes);
-  app.use('/api/upload', requireAuth, requireRole('admin', 'manager'), uploadRoutes);
-  app.use('/api/drive', requireAuth, requireRole('admin', 'manager'), driveRoutes);
-  app.use('/api/projects', requireAuth, requireRole('admin', 'manager'), inspirationRouter);
-  app.use('/api/projects', requireAuth, requireRole('admin', 'manager'), templateRoutes);
-  app.use('/api/projects', requireAuth, requireRole('admin', 'manager'), adRoutes);
-  app.use('/api/projects', requireAuth, requireRole('admin', 'manager'), batchRoutes);
-  app.use('/api/batches', requireAuth, batchRoutes);  // Flat mount for Dacia Fixer retry endpoint
-  app.use('/api', requireAuth, requireRole('admin', 'manager'), costsRoutes);
-  app.use('/api/projects', requireAuth, requireRole('admin', 'manager'), quoteMiningRoutes);
-  app.use('/api/projects', requireAuth, requireRole('admin', 'manager'), chatRoutes);
-  app.use('/api', requireAuth, requireRole('admin', 'manager'), metaRoutes);
-  app.use('/api/projects', requireAuth, requireRole('admin', 'manager'), landingPageRoutes);
-  // Routes — agent monitor (admin only)
-  app.use('/api/agent-monitor', requireAuth, requireRole('admin'), agentMonitorRoutes);
-  app.use('/api/conductor', requireAuth, requireRole('admin', 'manager'), conductorRoutes);
-
-  // Health check — real connectivity + operational checks
+  // Health check — no auth required (used by Dacia Fixer health probes)
   app.get('/api/health', async (req, res) => {
     const checks = {};
 
@@ -149,9 +118,72 @@ process.on('uncaughtException', (err) => {
     // Uptime
     checks.uptime_seconds = Math.round(process.uptime());
 
+    // Disk usage (Linux)
+    try {
+      const { execSync } = await import('child_process');
+      const df = execSync("df -h /opt/ad-platform 2>/dev/null | awk 'NR==2 {print $5}'", { encoding: 'utf8', timeout: 3000 }).trim();
+      checks.disk_usage_pct = parseInt(df) || null;
+    } catch { checks.disk_usage_pct = null; }
+
+    // Nginx process check
+    try {
+      const { execSync } = await import('child_process');
+      const count = execSync('pgrep -c nginx 2>/dev/null || echo 0', { encoding: 'utf8', timeout: 2000 }).trim();
+      checks.nginx = parseInt(count) > 0 ? 'ok' : 'down';
+    } catch { checks.nginx = 'unknown'; }
+
     const overall = checks.convex === 'ok' ? 'ok' : 'degraded';
     res.json({ status: overall, timestamp: new Date().toISOString(), checks });
   });
+
+  // Routes — auth (no role restriction)
+  app.use('/api/auth', authRoutes);
+  // Routes — agent cost logging (no auth — called by agent scripts from localhost via curl)
+  app.use('/api/agent-cost', agentCostRouter);
+  // Agent-triggered endpoints (no auth — safe, localhost-only operations)
+  app.post('/api/agent-cost/sync-openai', async (req, res) => {
+    try {
+      await syncOpenAICosts();
+      res.json({ success: true });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+  app.post('/api/agent-cost/refresh-gemini-rates', async (req, res) => {
+    try {
+      const result = await refreshGeminiRates();
+      res.json({ success: true, refreshed: result.refreshed });
+    } catch (err) {
+      res.status(500).json({ error: err.message });
+    }
+  });
+  // Routes — admin only
+  app.use('/api/users', userRoutes);
+  app.use('/api/settings', settingsRoutes);
+  // Routes — projects (all roles can list/view projects for navigation)
+  app.use('/api/projects', projectRoutes);
+  // Routes — deployments (poster has limited access — controlled per-route inside)
+  // IMPORTANT: Must be mounted BEFORE broad /api routes with requireRole('admin', 'manager')
+  // because Express runs middleware in order and those broad /api mounts would block poster users
+  // from reaching deployment routes (costsRoutes and metaRoutes are mounted on /api prefix)
+  app.use('/api', deploymentRoutes);
+  // Routes — admin/manager only
+  app.use('/api/projects', requireAuth, requireRole('admin', 'manager'), documentRoutes);
+  app.use('/api/upload', requireAuth, requireRole('admin', 'manager'), uploadRoutes);
+  app.use('/api/drive', requireAuth, requireRole('admin', 'manager'), driveRoutes);
+  app.use('/api/projects', requireAuth, requireRole('admin', 'manager'), inspirationRouter);
+  app.use('/api/projects', requireAuth, requireRole('admin', 'manager'), templateRoutes);
+  app.use('/api/projects', requireAuth, requireRole('admin', 'manager'), adRoutes);
+  app.use('/api/projects', requireAuth, requireRole('admin', 'manager'), batchRoutes);
+  app.use('/api/batches', requireAuth, batchRoutes);  // Flat mount for Dacia Fixer retry endpoint
+  app.use('/api', requireAuth, requireRole('admin', 'manager'), costsRoutes);
+  app.use('/api/projects', requireAuth, requireRole('admin', 'manager'), quoteMiningRoutes);
+  app.use('/api/projects', requireAuth, requireRole('admin', 'manager'), chatRoutes);
+  app.use('/api', requireAuth, requireRole('admin', 'manager'), metaRoutes);
+  app.use('/api/projects', requireAuth, requireRole('admin', 'manager'), landingPageRoutes);
+  // Routes — agent monitor (admin only)
+  app.use('/api/agent-monitor', requireAuth, requireRole('admin'), agentMonitorRoutes);
+  app.use('/api/conductor', requireAuth, requireRole('admin', 'manager'), conductorRoutes);
 
   // Catch-all error handler
   app.use((err, req, res, _next) => {

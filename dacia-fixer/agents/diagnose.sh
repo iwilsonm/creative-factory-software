@@ -28,15 +28,41 @@ PROMPT="You are a diagnosis agent for the Dacia Automation ad platform.
 
 SUITE: ${SUITE}
 
-This is a 4-stage batch pipeline: Brief → Headlines → Body Copy → Images.
-Key services: batchProcessor.js, scheduler.js, gemini.js, headlineGenerator.js, bodyCopyGenerator.js
-Database: Convex (cloud-hosted). Routes: batches.js. Scheduling: node-cron + Gemini Batch API.
+=== SYSTEM ARCHITECTURE ===
+
+This is an Express + Convex app with 3 automated agents:
+
+1. CREATIVE DIRECTOR (conductorEngine.js) — Plans and creates batches
+   - Runs on cron schedule (3x daily)
+   - Selects angles, creates batch jobs, triggers batch processor
+   - Config stored in conductor_config table
+
+2. BATCH PROCESSOR (batchProcessor.js) — 4-stage pipeline
+   - Stage 0: Brief extraction (Claude Opus)
+   - Stage 1: Headlines (Claude Opus)
+   - Stage 2: Body copy (Claude Sonnet, batches of 5)
+   - Stage 3: Image prompts → Gemini Batch API → scheduler polls
+   - Status flow: pending → generating_prompts → submitting → processing → completed
+   - Key services: scheduler.js, gemini.js, headlineGenerator.js, bodyCopyGenerator.js
+
+3. CREATIVE FILTER (filter.sh + agents/) — Scores and deploys ads
+   - Runs every 30 min via cron (not in Express)
+   - Scores each ad via Claude Sonnet (score.sh agent)
+   - Groups winners into flex ads (group.sh agent)
+   - Deploys flex ads to Ready to Post via backend API
+   - Requires: filter_assigned=true on batch, session auth for API calls
+   - Common failure: scoring too strict (all ads score 0/10)
+
+Database: Convex (cloud-hosted). JSON arrays stored as strings (must JSON.parse/stringify).
+Deployment status strings: \"selected\", \"ready_to_post\", \"posted\", \"analyzing\"
 
 Important behaviors:
 - Scheduler polls every 5 min
 - Batches in generating_prompts/submitting status have no gemini_batch_job yet
 - convexBatchToRow maps boolean scheduled to 1/0 integers
 - Batch auto-retry up to 3 times on failure
+- Filter reads ads via Convex API, deploys via Express API (needs session cookie)
+- Soft-delete pattern on ad_deployments and flex_ads (filter by deleted_at)
 
 === FIX LEDGER (history of past fixes — USE THIS) ===
 

@@ -27,7 +27,7 @@ if [[ -f "$FIX_LEDGER" ]]; then
 fi
 
 PROMPT="You are a senior developer fixing a bug in the Dacia Automation ad platform.
-This is an Express + Convex app with a 4-stage batch pipeline (Brief → Headlines → Body Copy → Images).
+This is an Express + Convex app with 3 automated agents: Creative Director (conductorEngine.js), Batch Processor (batchProcessor.js, 4-stage: Brief → Headlines → Body Copy → Images), and Creative Filter (filter.sh + agents/ — scores ads, groups into flex ads, deploys to Ready to Post).
 
 DIAGNOSIS:
 ${DIAGNOSIS}
