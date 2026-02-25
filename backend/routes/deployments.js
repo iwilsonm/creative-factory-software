@@ -58,19 +58,19 @@ router.get('/deployments', async (req, res) => {
     let projectName = null;
 
     if (projectId && deployments.length > 0) {
-      // Single project fetch (instead of per-deployment)
-      try {
-        const project = await getProject(projectId);
-        projectName = project?.name || null;
-      } catch {}
-
-      // Bulk-fetch all ads for this project (1 query instead of N)
-      try {
-        const allAds = await getAdsByProject(projectId);
-        for (const ad of allAds) {
+      // Parallel fetch: project name + all ads for this project (2 queries instead of N+1)
+      const [projectResult, adsResult] = await Promise.allSettled([
+        getProject(projectId),
+        getAdsByProject(projectId),
+      ]);
+      if (projectResult.status === 'fulfilled' && projectResult.value) {
+        projectName = projectResult.value.name || null;
+      }
+      if (adsResult.status === 'fulfilled' && adsResult.value) {
+        for (const ad of adsResult.value) {
           adsMap.set(ad.id, { ad, imageUrl: ad.resolvedImageUrl || null });
         }
-      } catch {}
+      }
     }
 
     const enriched = await Promise.all(
@@ -378,8 +378,10 @@ router.get('/deployments/campaigns', async (req, res) => {
   try {
     const { projectId } = req.query;
     if (!projectId) return res.status(400).json({ error: 'projectId required' });
-    const campaigns = await getCampaignsByProject(projectId);
-    const adSets = await getAdSetsByProject(projectId);
+    const [campaigns, adSets] = await Promise.all([
+      getCampaignsByProject(projectId),
+      getAdSetsByProject(projectId),
+    ]);
     res.json({ campaigns, adSets });
   } catch (err) {
     console.error('Failed to list campaigns:', err);

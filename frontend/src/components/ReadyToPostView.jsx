@@ -131,101 +131,106 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
   // ── Actions ──────────────────────────────────────────────────────────────
 
   const handleMarkPosted = async (depId) => {
-    setMarkingPostedIds(prev => new Set(prev).add(depId));
+    // Optimistic UI update — immediate feedback
+    const dep = readyDeps.find(d => d.id === depId);
+    const { campaignName, adSetName } = dep ? resolveLocation(dep) : {};
+    setDeployments(prev => prev.map(d => {
+      if (d.id !== depId) return d;
+      return {
+        ...d,
+        status: 'posted',
+        posted_date: new Date().toISOString(),
+        ...(campaignName ? { campaign_name: campaignName } : {}),
+        ...(adSetName ? { ad_set_name: adSetName } : {}),
+        ...(dep?.destination_url ? { landing_page_url: dep.destination_url } : {}),
+      };
+    }));
+    addToast('Marked as posted', 'success');
+    setConfirmPosted(null);
+
+    // API calls in background
     try {
-      // Find this deployment and resolve campaign/ad set names to carry over
-      const dep = readyDeps.find(d => d.id === depId);
-      if (dep) {
-        const { campaignName, adSetName } = resolveLocation(dep);
-        const carryOverFields = {};
-        if (campaignName) carryOverFields.campaign_name = campaignName;
-        if (adSetName) carryOverFields.ad_set_name = adSetName;
-        if (dep.destination_url) carryOverFields.landing_page_url = dep.destination_url;
-        if (Object.keys(carryOverFields).length > 0) {
-          await api.updateDeployment(depId, carryOverFields);
-        }
-      }
-      await api.updateDeploymentStatus(depId, 'posted');
-      setDeployments(prev => prev.map(d => {
-        if (d.id !== depId) return d;
-        const dep = readyDeps.find(rd => rd.id === depId);
-        const { campaignName, adSetName } = dep ? resolveLocation(dep) : {};
-        return {
-          ...d,
-          status: 'posted',
-          posted_date: new Date().toISOString(),
-          ...(campaignName ? { campaign_name: campaignName } : {}),
-          ...(adSetName ? { ad_set_name: adSetName } : {}),
-          ...(dep?.destination_url ? { landing_page_url: dep.destination_url } : {}),
-        };
-      }));
-      addToast('Marked as posted', 'success');
-      setConfirmPosted(null);
-    } catch { addToast('Failed to update status', 'error'); }
-    setMarkingPostedIds(prev => { const next = new Set(prev); next.delete(depId); return next; });
+      const carryOverFields = {};
+      if (campaignName) carryOverFields.campaign_name = campaignName;
+      if (adSetName) carryOverFields.ad_set_name = adSetName;
+      if (dep?.destination_url) carryOverFields.landing_page_url = dep.destination_url;
+      // Fire both calls in parallel
+      await Promise.all([
+        Object.keys(carryOverFields).length > 0 ? api.updateDeployment(depId, carryOverFields) : Promise.resolve(),
+        api.updateDeploymentStatus(depId, 'posted'),
+      ]);
+    } catch {
+      addToast('Failed to save posted status — refreshing...', 'error');
+      loadDeployments();
+    }
   };
 
   const handleMarkFlexPosted = async (flexAd) => {
-    const flexId = `flex-${flexAd.id}`;
-    setMarkingPostedIds(prev => new Set(prev).add(flexId));
+    // Optimistic UI update — immediate feedback
+    const childDeps = getFlexChildDeps(flexAd);
+    const { campaignName, adSetName } = resolveFlexLocation(flexAd);
+    let childIds = [];
+    try { childIds = flexAd.child_deployment_ids ? JSON.parse(flexAd.child_deployment_ids) : []; } catch { /* ignore */ }
+    setDeployments(prev => prev.map(d => {
+      if (!childIds.includes(d.id)) return d;
+      return {
+        ...d,
+        status: 'posted',
+        posted_date: new Date().toISOString(),
+        ...(campaignName ? { campaign_name: campaignName } : {}),
+        ...(adSetName ? { ad_set_name: adSetName } : {}),
+        ...(flexAd.destination_url ? { landing_page_url: flexAd.destination_url } : {}),
+      };
+    }));
+    addToast(`${childDeps.length} ads marked as posted`, 'success');
+    setConfirmPosted(null);
+
+    // API calls in background — all in parallel
     try {
-      const childDeps = getFlexChildDeps(flexAd);
-      const { campaignName, adSetName } = resolveFlexLocation(flexAd);
       const carryOverFields = {};
       if (campaignName) carryOverFields.campaign_name = campaignName;
       if (adSetName) carryOverFields.ad_set_name = adSetName;
       if (flexAd.destination_url) carryOverFields.landing_page_url = flexAd.destination_url;
-      // Update each child deployment with campaign/ad set/landing page data, then mark posted
-      await Promise.all(childDeps.map(async (d) => {
-        if (Object.keys(carryOverFields).length > 0) {
-          await api.updateDeployment(d.id, carryOverFields);
-        }
-        await api.updateDeploymentStatus(d.id, 'posted');
-      }));
-      let childIds = [];
-      try { childIds = flexAd.child_deployment_ids ? JSON.parse(flexAd.child_deployment_ids) : []; } catch { /* ignore */ }
-      setDeployments(prev => prev.map(d => {
-        if (!childIds.includes(d.id)) return d;
-        return {
-          ...d,
-          status: 'posted',
-          posted_date: new Date().toISOString(),
-          ...(campaignName ? { campaign_name: campaignName } : {}),
-          ...(adSetName ? { ad_set_name: adSetName } : {}),
-          ...(flexAd.destination_url ? { landing_page_url: flexAd.destination_url } : {}),
-        };
-      }));
-      addToast(`${childDeps.length} ads marked as posted`, 'success');
-      setConfirmPosted(null);
-    } catch { addToast('Failed to update status', 'error'); }
-    setMarkingPostedIds(prev => { const next = new Set(prev); next.delete(flexId); return next; });
+      await Promise.all(childDeps.map(d =>
+        Promise.all([
+          Object.keys(carryOverFields).length > 0 ? api.updateDeployment(d.id, carryOverFields) : Promise.resolve(),
+          api.updateDeploymentStatus(d.id, 'posted'),
+        ])
+      ));
+    } catch {
+      addToast('Failed to save posted status — refreshing...', 'error');
+      loadDeployments();
+    }
   };
 
   const handleSendBack = async (depId) => {
-    setSendingBackIds(prev => new Set(prev).add(depId));
+    // Optimistic UI update
+    setDeployments(prev => prev.map(d => d.id === depId ? { ...d, status: 'selected' } : d));
+    addToast('Sent back to Planner', 'success');
     try {
       await api.updateDeploymentStatus(depId, 'selected');
-      setDeployments(prev => prev.map(d => d.id === depId ? { ...d, status: 'selected' } : d));
-      addToast('Sent back to Planner', 'success');
-    } catch { addToast('Failed to send back', 'error'); }
-    setSendingBackIds(prev => { const next = new Set(prev); next.delete(depId); return next; });
+    } catch {
+      addToast('Failed to send back — refreshing...', 'error');
+      loadDeployments();
+    }
   };
 
   const handleSendBackFlex = async (flexAd) => {
-    const flexId = `flex-${flexAd.id}`;
-    setSendingBackIds(prev => new Set(prev).add(flexId));
+    // Optimistic UI update
+    let childIds = [];
+    try { childIds = flexAd.child_deployment_ids ? JSON.parse(flexAd.child_deployment_ids) : []; } catch { /* ignore */ }
+    setDeployments(prev => prev.map(d => {
+      if (childIds.includes(d.id)) return { ...d, status: 'selected' };
+      return d;
+    }));
+    addToast('Sent back to Planner', 'success');
     try {
       const childDeps = getFlexChildDeps(flexAd);
       await Promise.all(childDeps.map(d => api.updateDeploymentStatus(d.id, 'selected')));
-      setDeployments(prev => prev.map(d => {
-        let childIds = [];
-        try { childIds = flexAd.child_deployment_ids ? JSON.parse(flexAd.child_deployment_ids) : []; } catch { /* ignore */ }
-        if (childIds.includes(d.id)) return { ...d, status: 'selected' };
-        return d;
-      }));
-      addToast('Sent back to Planner', 'success');
-    } catch { addToast('Failed to send back', 'error'); }
-    setSendingBackIds(prev => { const next = new Set(prev); next.delete(flexId); return next; });
+    } catch {
+      addToast('Failed to send back — refreshing...', 'error');
+      loadDeployments();
+    }
   };
 
   const handleBulkMarkAllPosted = async () => {

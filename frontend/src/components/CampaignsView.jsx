@@ -957,45 +957,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
         }
       }
 
-      // ── Campaign/Ad Set assignment ──
-      let resolvedCampaignId = sidebarForm.campaign_id;
-      const adSetName = sidebarForm.ad_set_name.trim();
-
-      // Create new campaign if needed
-      if (resolvedCampaignId === '__new__' && sidebarForm.new_campaign_name.trim()) {
-        const result = await api.createCampaign(projectId, sidebarForm.new_campaign_name.trim());
-        resolvedCampaignId = result.id;
-        // Update sticky ref with the newly created campaign ID
-        stickyFieldsRef.current.campaign_id = resolvedCampaignId;
-      }
-
-      // If campaign selected and ad set name provided, find-or-create ad set
-      if (resolvedCampaignId && resolvedCampaignId !== '__new__' && adSetName) {
-        // Reload latest ad sets for this campaign
-        const campData = await api.getCampaigns(projectId);
-        const allAdSets = campData.adSets || [];
-        let targetAdSet = allAdSets.find(
-          a => a.campaign_id === resolvedCampaignId && a.name.trim().toLowerCase() === adSetName.toLowerCase()
-        );
-        if (!targetAdSet) {
-          const result = await api.createAdSet(resolvedCampaignId, adSetName, projectId);
-          targetAdSet = { id: result.id };
-        }
-
-        // Assign deployment(s) to this campaign + ad set
-        if (sidebarData.type === 'single') {
-          await api.assignToAdSet([sidebarData.deployment.id], resolvedCampaignId, targetAdSet.id);
-        } else {
-          // Flex ad: assign all child deployments + update flex ad's ad_set_id
-          const childIds = sidebarData.deps.map(d => d.id);
-          if (childIds.length > 0) {
-            await api.assignToAdSet(childIds, resolvedCampaignId, targetAdSet.id);
-          }
-          await api.updateFlexAd(sidebarData.flexAd.id, { ad_set_id: targetAdSet.id });
-        }
-      }
-
-      // Show toast and close immediately — don't wait for data refresh
+      // Show toast and close immediately — campaign assignment runs in background
       if (extraUrls.length > 0) {
         addToast(`Saved + created ${extraUrls.length} duplicate${extraUrls.length > 1 ? 's' : ''} with different URL${extraUrls.length > 1 ? 's' : ''}`, 'success');
       } else {
@@ -1013,8 +975,42 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
       }
       setSidebarSaving(false);
 
-      // Refresh data in the background (non-blocking)
-      Promise.all([loadDeployments(), loadCampaignData(true)]).catch(() => {});
+      // ── Campaign/Ad Set assignment + data refresh (non-blocking background) ──
+      const campaignId = sidebarForm.campaign_id;
+      const adSetName = sidebarForm.ad_set_name.trim();
+      const sidebarDataCopy = { ...sidebarData, deps: sidebarData.deps ? [...sidebarData.deps] : [] };
+      (async () => {
+        try {
+          let resolvedCampaignId = campaignId;
+          if (resolvedCampaignId === '__new__' && sidebarForm.new_campaign_name.trim()) {
+            const result = await api.createCampaign(projectId, sidebarForm.new_campaign_name.trim());
+            resolvedCampaignId = result.id;
+            stickyFieldsRef.current.campaign_id = resolvedCampaignId;
+          }
+          if (resolvedCampaignId && resolvedCampaignId !== '__new__' && adSetName) {
+            const campData = await api.getCampaigns(projectId);
+            const allAdSets = campData.adSets || [];
+            let targetAdSet = allAdSets.find(
+              a => a.campaign_id === resolvedCampaignId && a.name.trim().toLowerCase() === adSetName.toLowerCase()
+            );
+            if (!targetAdSet) {
+              const result = await api.createAdSet(resolvedCampaignId, adSetName, projectId);
+              targetAdSet = { id: result.id };
+            }
+            if (sidebarDataCopy.type === 'single') {
+              await api.assignToAdSet([sidebarDataCopy.deployment.id], resolvedCampaignId, targetAdSet.id);
+            } else {
+              const childIds = sidebarDataCopy.deps.map(d => d.id);
+              if (childIds.length > 0) {
+                await api.assignToAdSet(childIds, resolvedCampaignId, targetAdSet.id);
+              }
+              await api.updateFlexAd(sidebarDataCopy.flexAd.id, { ad_set_id: targetAdSet.id });
+            }
+          }
+        } catch { /* campaign assignment failed silently — user can retry */ }
+        // Refresh data in background
+        Promise.all([loadDeployments(), loadCampaignData(true)]).catch(() => {});
+      })();
       return;
     } catch {
       addToast('Failed to save', 'error');
