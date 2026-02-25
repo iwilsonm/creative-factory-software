@@ -5,12 +5,49 @@ import { ToastProvider } from './components/Toast';
 import ErrorBoundary from './components/ErrorBoundary';
 import Login from './pages/Login';
 
+// ─── Lazy Import with Retry ─────────────────────────────────────────────────
+// After a deploy, old chunk hashes no longer exist on the server.
+// If a user's browser still has the old index.html cached (or an open tab),
+// dynamic imports will 404. This wrapper retries once, then forces a full
+// page reload so the browser fetches the new index.html with correct hashes.
+function lazyWithRetry(importFn) {
+  return lazy(() =>
+    importFn().catch((err) => {
+      // Only handle chunk load failures, not other import errors
+      const isChunkError =
+        err.message?.includes('Failed to fetch dynamically imported module') ||
+        err.message?.includes('Importing a module script failed') ||
+        err.message?.includes('error loading dynamically imported module') ||
+        err.name === 'ChunkLoadError';
+
+      if (!isChunkError) throw err;
+
+      // Check if we already tried reloading (prevent infinite reload loops)
+      const reloadKey = 'chunk-reload-' + Date.now().toString().slice(0, -4); // ~10s window
+      const lastReload = sessionStorage.getItem('chunk-reload-ts');
+      const now = Date.now();
+
+      if (lastReload && now - parseInt(lastReload, 10) < 10000) {
+        // Already reloaded within the last 10 seconds — don't loop
+        throw err;
+      }
+
+      // Mark that we're reloading and do a hard refresh
+      sessionStorage.setItem('chunk-reload-ts', now.toString());
+      window.location.reload();
+
+      // Return a never-resolving promise so React doesn't try to render
+      return new Promise(() => {});
+    })
+  );
+}
+
 // Lazy-load all pages — only the visited page's code is downloaded
-const Dashboard = lazy(() => import('./pages/Dashboard'));
-const Projects = lazy(() => import('./pages/Projects'));
-const ProjectSetup = lazy(() => import('./pages/ProjectSetup'));
-const ProjectDetail = lazy(() => import('./pages/ProjectDetail'));
-const Settings = lazy(() => import('./pages/Settings'));
+const Dashboard = lazyWithRetry(() => import('./pages/Dashboard'));
+const Projects = lazyWithRetry(() => import('./pages/Projects'));
+const ProjectSetup = lazyWithRetry(() => import('./pages/ProjectSetup'));
+const ProjectDetail = lazyWithRetry(() => import('./pages/ProjectDetail'));
+const Settings = lazyWithRetry(() => import('./pages/Settings'));
 
 // ─── Auth Context ─────────────────────────────────────────────────────────────
 // Checks session once on app mount, then shares state across all routes.
