@@ -12,7 +12,7 @@ export default function BatchRow({ batch, onRunNow, onCancel, onDelete, onEdit, 
   const canCancel = isActive;
   const isPaused = !batch.scheduled && !!batch.schedule_cron;
   const canPause = !!batch.scheduled && !!batch.schedule_cron;
-  const canEdit = !isActive || batch.scheduled;
+  const canEdit = !isActive || !!batch.scheduled;
 
   const [editing, setEditing] = useState(false);
   const [editSize, setEditSize] = useState(batch.batch_size);

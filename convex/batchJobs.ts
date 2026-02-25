@@ -221,7 +221,11 @@ export const remove = mutation({
       .first();
     if (!batch) throw new Error("Batch job not found");
     if (batch.product_image_storageId) {
-      await ctx.storage.delete(batch.product_image_storageId);
+      try {
+        await ctx.storage.delete(batch.product_image_storageId);
+      } catch {
+        // Storage blob may already be deleted or invalid — continue with batch deletion
+      }
     }
     await ctx.db.delete(batch._id);
   },
