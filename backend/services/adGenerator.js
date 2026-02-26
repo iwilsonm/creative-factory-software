@@ -41,39 +41,6 @@ const EXT_TO_MIME = {
 };
 
 /**
- * Build the Headline Juicer Message 3 content.
- * Loads the 3 headline reference docs (Headline Engine, 100 Greatest Headlines, 349 Swipe File)
- * and sends them as combined reference material for GPT to select a technique.
- * Returns null if no reference docs are uploaded.
- */
-export async function buildHeadlineJuicerMessage() {
-  const [engine, greatest, swipe] = await Promise.all([
-    getSetting('headline_ref_engine'),
-    getSetting('headline_ref_greatest'),
-    getSetting('headline_ref_swipe'),
-  ]);
-
-  const loadedCount = [engine, greatest, swipe].filter(Boolean).length;
-  if (loadedCount === 0) return null;
-
-  console.log(`[HeadlineJuicer] Loaded ${loadedCount}/3 headline reference docs`);
-
-  let refSection = '';
-  if (engine) refSection += '\n=== HEADLINE ENGINE (Methodology & Rules) ===\n' + engine + '\n';
-  if (greatest) refSection += '\n=== 100 GREATEST HEADLINES EVER USED ===\n' + greatest + '\n';
-  if (swipe) refSection += '\n=== 349 GREAT HEADLINES / HALBERT SWIPE FILE ===\n' + swipe + '\n';
-
-  return `Here are headline reference documents containing proven headline techniques, patterns, and examples from the world's best direct response copywriters. Study them carefully, then select ONE specific headline technique or pattern from these references and revise the image prompt you just created to use a headline that follows that technique.
-
-Choose a technique that best fits this particular ad's angle and audience. The headline should be original and tailored to this brand — do not copy examples verbatim, but follow the same pattern and approach. Adjust the body copy so it naturally supports and reinforces the new headline. Keep everything else about the prompt the same — the visual style, layout, and creative direction.
-
-HEADLINE REFERENCE DOCUMENTS:
-${refSection}
-
-Output ONLY the revised image prompt with the new headline and aligned body copy. No explanation, just the prompt.`;
-}
-
-/**
  * Extract headline and body copy from a freeform image generation prompt.
  * Uses GPT-4.1-mini with JSON response format for reliable parsing.
  * Non-blocking — returns nulls if extraction fails.
@@ -382,7 +349,7 @@ export async function selectTemplateImage(templateImageId) {
  * @returns {Promise<object>} The completed ad creative record
  */
 export async function generateAd(projectId, options = {}) {
-  const { angle, aspectRatio = '1:1', inspirationImageId, uploadedImageBase64, uploadedImageMimeType, productImageBase64, productImageMimeType, headline, bodyCopy, headlineJuicer, sourceQuoteId, onEvent } = options;
+  const { angle, aspectRatio = '1:1', inspirationImageId, uploadedImageBase64, uploadedImageMimeType, productImageBase64, productImageMimeType, headline, bodyCopy, sourceQuoteId, onEvent } = options;
 
   const emit = (event) => {
     if (onEvent) {
@@ -483,28 +450,6 @@ export async function generateAd(projectId, options = {}) {
           'gpt-5.2',
           { operation: 'ad_generation_mode1', projectId }
         );
-      }
-
-      // Message 3 (Headline Juicer): Load headline reference docs and ask GPT
-      // to select a technique and revise the prompt with a new headline
-      if (headlineJuicer) {
-        emit({ type: 'status', status: 'generating_copy', message: 'Applying Headline Juicer — selecting headline technique...', progress: 50 });
-
-        const msg3 = await buildHeadlineJuicerMessage();
-        if (msg3) {
-          const conversationWithMsg2 = [
-            { role: 'user', content: creativeDirectorPrompt_inner },
-            { role: 'assistant', content: acknowledgment },
-            { role: 'user', content: imageRequestText_inner },
-            { role: 'assistant', content: prompt }
-          ];
-
-          prompt = await chat(
-            [...conversationWithMsg2, { role: 'user', content: msg3 }],
-            'gpt-5.2',
-            { operation: 'ad_headline_juicer', projectId }
-          );
-        }
       }
 
       return prompt;
@@ -633,7 +578,7 @@ async function generateAndSaveImage({ adId, projectId, project, imagePrompt, asp
  * @returns {Promise<object>} The completed ad creative record
  */
 export async function generateAdMode2(projectId, options = {}) {
-  const { templateImageId, angle, aspectRatio = '1:1', productImageBase64, productImageMimeType, headline, bodyCopy, headlineJuicer, sourceQuoteId, onEvent } = options;
+  const { templateImageId, angle, aspectRatio = '1:1', productImageBase64, productImageMimeType, headline, bodyCopy, sourceQuoteId, onEvent } = options;
 
   const emit = (event) => {
     if (onEvent) {
@@ -726,28 +671,6 @@ export async function generateAdMode2(projectId, options = {}) {
           'gpt-5.2',
           { operation: 'ad_generation_mode2', projectId }
         );
-      }
-
-      // Message 3 (Headline Juicer): Load headline reference docs and ask GPT
-      // to select a technique and revise the prompt with a new headline
-      if (headlineJuicer) {
-        emit({ type: 'status', status: 'generating_copy', message: 'Applying Headline Juicer — selecting headline technique...', progress: 50 });
-
-        const msg3 = await buildHeadlineJuicerMessage();
-        if (msg3) {
-          const conversationWithMsg2 = [
-            { role: 'user', content: creativeDirectorPrompt_inner },
-            { role: 'assistant', content: acknowledgment },
-            { role: 'user', content: imageRequestText_inner },
-            { role: 'assistant', content: prompt }
-          ];
-
-          prompt = await chat(
-            [...conversationWithMsg2, { role: 'user', content: msg3 }],
-            'gpt-5.2',
-            { operation: 'ad_headline_juicer', projectId }
-          );
-        }
       }
 
       return prompt;

@@ -121,10 +121,6 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
   // Template source
   const [templateSource, setTemplateSource] = useState(TEMPLATE_RANDOM);
 
-  // Headline Juicer
-  const [headlineJuicerOn, setHeadlineJuicerOn] = useState(false);
-  const [hasHeadlineDoc, setHasHeadlineDoc] = useState(false);
-
   // Upload one-off image
   const [uploadedFile, setUploadedFile] = useState(null);
   const [uploadedPreview, setUploadedPreview] = useState(null);
@@ -193,13 +189,6 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
     setOptionalOpen(false);
     setPromptGuidelines(project?.prompt_guidelines || '');
   }, [projectId]);
-
-  // Check if headline reference docs exist (for Headline Juicer toggle)
-  useEffect(() => {
-    api.getHeadlineReferences().then(data => {
-      setHasHeadlineDoc(!!(data && (data.engine || data.greatest || data.swipe)));
-    }).catch(() => setHasHeadlineDoc(false));
-  }, []);
 
   // Restore in-progress ads to the queue on mount
   useEffect(() => {
@@ -870,7 +859,6 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
         angle: angle || undefined,
         headline: headline || undefined,
         body_copy: bodyCopy || undefined,
-        headline_juicer: headlineJuicerOn || undefined,
         source_quote_id: sourceQuoteId || undefined,
         skip_product_image: skipProductImage || undefined
       };
@@ -895,7 +883,6 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
         angle: angle || undefined,
         headline: headline || undefined,
         body_copy: bodyCopy || undefined,
-        headline_juicer: headlineJuicerOn || undefined,
         source_quote_id: sourceQuoteId || undefined,
         skip_product_image: skipProductImage || undefined
       };
@@ -1201,7 +1188,6 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
         angle: ad.angle || undefined,
         headline: ad.headline || undefined,
         body_copy: ad.body_copy || undefined,
-        headline_juicer: headlineJuicerOn || undefined,
       }, handleEvent);
     } else {
       // Standard mode1 ads: regenerate with random inspiration
@@ -1212,7 +1198,6 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
         angle: ad.angle || undefined,
         headline: ad.headline || undefined,
         body_copy: ad.body_copy || undefined,
-        headline_juicer: headlineJuicerOn || undefined,
       }, handleEvent);
     }
 
@@ -1869,43 +1854,6 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
             className="hidden"
           />
         </div>
-
-        {/* ── HEADLINE JUICER TOGGLE ── */}
-        {!isCustomPromptMode && (
-          <div className={`my-4 flex items-center gap-3 p-3 rounded-xl ${
-            hasHeadlineDoc
-              ? 'bg-orange-50/50 border border-orange-200/60'
-              : 'bg-offwhite border border-black/5 opacity-60'
-          }`}>
-            <button
-              onClick={() => hasHeadlineDoc && setHeadlineJuicerOn(prev => !prev)}
-              disabled={!hasHeadlineDoc}
-              className={`relative w-10 h-[22px] rounded-full transition-colors flex-shrink-0 ${
-                headlineJuicerOn && hasHeadlineDoc ? 'bg-orange-500' : 'bg-textlight'
-              } ${!hasHeadlineDoc ? 'cursor-not-allowed' : 'cursor-pointer'}`}
-            >
-              <span className={`absolute top-[3px] left-[3px] w-4 h-4 bg-white rounded-full shadow transition-transform ${
-                headlineJuicerOn && hasHeadlineDoc ? 'translate-x-[18px]' : ''
-              }`} />
-            </button>
-            <div className="flex-1 min-w-0">
-              <div className="flex items-center gap-2">
-                <p className={`text-[13px] font-semibold ${hasHeadlineDoc ? 'text-textdark' : 'text-textmid'}`}>
-                  Headline Juicer
-                </p>
-                {headlineJuicerOn && hasHeadlineDoc && (
-                  <span className="text-[10px] font-medium px-1.5 py-0.5 rounded-full bg-orange-100 text-orange-700">Active</span>
-                )}
-                <InfoTooltip text="When enabled, your headline reference documents (Headline Engine, 100 Greatest Headlines, Swipe File) are sent to the AI as creative inspiration. Headlines will be more varied and punchy. Upload reference docs in Settings → Headline Generator Reference Docs." />
-              </div>
-              <p className={`text-[11px] ${hasHeadlineDoc ? 'text-textmid' : 'text-textlight'}`}>
-                {hasHeadlineDoc
-                  ? 'Use your headline reference documents as creative fuel for more diverse headlines'
-                  : 'Upload headline reference documents in Settings to enable this'}
-              </p>
-            </div>
-          </div>
-        )}
 
         {/* ── OPTIONAL FIELDS (collapsible) ── */}
         <div className="my-6 -mx-6">

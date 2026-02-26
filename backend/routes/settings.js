@@ -195,7 +195,7 @@ router.post('/refresh-gemini-rates', async (req, res) => {
 
 // =============================================
 // =============================================
-// Headline Generator Reference Docs (3 documents — powers Copywriter + Ad Studio Headline Juicer)
+// Headline Generator Reference Docs (3 documents — powers Copywriter headline generation)
 // =============================================
 
 const HEADLINE_REF_KEYS = {
