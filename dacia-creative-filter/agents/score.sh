@@ -16,6 +16,9 @@
 
 set -euo pipefail
 
+# Clean up temp files on exit (prevents /tmp accumulation on crash/interrupt)
+trap 'rm -f /tmp/filter_img_$$.bin /tmp/filter_b64_$$.txt /tmp/filter_body_$$.json /tmp/filter_resp_$$.json 2>/dev/null' EXIT INT TERM
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "${SCRIPT_DIR}/config/filter.conf"
 

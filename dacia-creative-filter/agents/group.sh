@@ -17,6 +17,9 @@
 
 set -euo pipefail
 
+# Clean up temp files on exit (prevents /tmp accumulation on crash/interrupt)
+trap 'rm -f /tmp/filter_group_prompt_$$.txt /tmp/filter_group_body_$$.json /tmp/group_resp_$$.json 2>/dev/null' EXIT INT TERM
+
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "${SCRIPT_DIR}/config/filter.conf"
 
@@ -170,7 +173,7 @@ for attempt in $(seq 1 $MAX_RETRIES); do
     exit 0
   fi
 done
-rm -f "$TEMP_BODY"
+rm -f "$TEMP_BODY" "$TEMP_PROMPT"
 
 # Log API response metadata
 echo "  API response type: $(echo "$RESPONSE" | jq -r '.type // "unknown"' 2>/dev/null)" >> "$DEBUG_LOG"

@@ -63,7 +63,8 @@ acquire_lock() {
     fi
   fi
   echo $$ > "$LOCK_FILE"
-  trap 'rm -f "$LOCK_FILE"' EXIT INT TERM
+  # Clean up lock file + spend lock on exit (prevents /tmp accumulation)
+  trap 'rm -f "$LOCK_FILE" "${SPEND_FILE}.lock" 2>/dev/null' EXIT INT TERM
 }
 
 # --- Cost Tracking ---
@@ -74,7 +75,11 @@ init_spend_tracker() {
 }
 
 get_daily_spend() {
-  cat "$SPEND_FILE" 2>/dev/null || echo "0"
+  # Use flock for consistent reads (prevents reading mid-write)
+  (
+    flock -s -w 2 200 2>/dev/null || true
+    cat "$SPEND_FILE" 2>/dev/null || echo "0"
+  ) 200>"${SPEND_FILE}.lock"
 }
 
 add_spend() {
@@ -82,8 +87,12 @@ add_spend() {
   local operation="${2:-unknown}"
   local model="${3:-}"
   local service="${4:-anthropic}"
-  local current; current=$(get_daily_spend)
-  echo "$current + $cost_cents" | bc > "$SPEND_FILE"
+  # Use flock to prevent race conditions on concurrent spend file writes
+  (
+    flock -w 5 200 2>/dev/null || true
+    local current; current=$(cat "$SPEND_FILE" 2>/dev/null || echo "0")
+    echo "$current + $cost_cents" | bc > "$SPEND_FILE"
+  ) 200>"${SPEND_FILE}.lock"
   # Log to Convex api_costs via backend (fire-and-forget)
   curl -s -X POST "http://localhost:3001/api/agent-cost/log" \
     -H "Content-Type: application/json" \
