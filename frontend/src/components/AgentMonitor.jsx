@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { api } from '../api';
 
 const LEVEL_CONFIG = {
@@ -311,14 +311,22 @@ function DirectorTab({ onRefresh }) {
     })();
   }, [selectedProject]);
 
-  const handleSaveConfig = async (updates) => {
-    setSaving(true);
-    try {
-      const res = await api.updateConductorConfig(selectedProject, updates);
-      setConfig(res?.config || { ...config, ...updates });
-    } catch { /* ignore */ }
-    finally { setSaving(false); }
-  };
+  const debounceRef = useRef(null);
+
+  const handleSaveConfig = useCallback((updates) => {
+    // Apply optimistic local update immediately for responsive UI
+    setConfig(prev => ({ ...prev, ...updates }));
+    // Debounce the actual API save (500ms) to avoid saving on every keystroke
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+    debounceRef.current = setTimeout(async () => {
+      setSaving(true);
+      try {
+        const res = await api.updateConductorConfig(selectedProject, updates);
+        setConfig(res?.config || (prev => ({ ...prev, ...updates })));
+      } catch { /* ignore */ }
+      finally { setSaving(false); }
+    }, 500);
+  }, [selectedProject]);
 
   const handleRunNow = async () => {
     setRunningAction('run');

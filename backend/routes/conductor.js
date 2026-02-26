@@ -56,7 +56,7 @@ router.put('/config/:projectId', async (req, res) => {
     }
     await upsertConductorConfig(req.params.projectId, fields);
     const config = await getConductorConfig(req.params.projectId);
-    res.json({ ok: true, config });
+    res.json({ success: true, config });
   } catch (err) {
     console.error('[Conductor] Update config error:', err.message);
     res.status(500).json({ error: err.message });
@@ -106,7 +106,7 @@ router.post('/angles/:projectId', async (req, res) => {
       source: source || 'manual',
       status: status || 'active',
     });
-    res.json({ ok: true, id });
+    res.json({ success: true, id });
   } catch (err) {
     console.error('[Conductor] Create angle error:', err.message);
     res.status(500).json({ error: err.message });
@@ -123,7 +123,7 @@ router.put('/angles/:projectId/:angleId', async (req, res) => {
       if (req.body[key] !== undefined) fields[key] = req.body[key];
     }
     await updateConductorAngle(req.params.angleId, fields);
-    res.json({ ok: true });
+    res.json({ success: true });
   } catch (err) {
     console.error('[Conductor] Update angle error:', err.message);
     res.status(500).json({ error: err.message });
@@ -135,7 +135,7 @@ router.delete('/angles/:projectId/:angleId', async (req, res) => {
   try {
     // Retire instead of hard delete (preserves history)
     await updateConductorAngle(req.params.angleId, { status: 'retired' });
-    res.json({ ok: true });
+    res.json({ success: true });
   } catch (err) {
     console.error('[Conductor] Retire angle error:', err.message);
     res.status(500).json({ error: err.message });
@@ -164,7 +164,7 @@ router.post('/run/:projectId', async (req, res) => {
     // Lazy-import to avoid circular deps — conductorEngine imports convexClient
     const { runDirectorForProject } = await import('../services/conductorEngine.js');
     const result = await runDirectorForProject(req.params.projectId, 'manual');
-    res.json({ ok: true, result });
+    res.json({ success: true, result });
   } catch (err) {
     console.error('[Conductor] Manual run error:', err.message);
     res.status(500).json({ error: err.message });
@@ -211,7 +211,7 @@ router.post('/learn', async (req, res) => {
     // Lazy import to avoid loading anthropic at route registration
     const { runLearningStep } = await import('../services/conductorLearning.js');
     const result = await runLearningStep(projectId, angleName, scoredAds || []);
-    res.json({ ok: true, result });
+    res.json({ success: true, result });
   } catch (err) {
     console.error('[Conductor] Learning step error:', err.message);
     res.status(500).json({ error: err.message });
@@ -302,7 +302,7 @@ router.post('/health', async (req, res) => {
       batches_stuck: batches_stuck || 0,
       batches_recovered: batches_recovered || 0,
     });
-    res.json({ ok: true });
+    res.json({ success: true });
   } catch (err) {
     console.error('[Conductor] Create health error:', err.message);
     res.status(500).json({ error: err.message });
@@ -342,7 +342,7 @@ router.post('/fixer-playbooks', async (req, res) => {
       auto_resolved: auto_resolved || 0,
       escalated: escalated || 0,
     });
-    res.json({ ok: true });
+    res.json({ success: true });
   } catch (err) {
     console.error('[Conductor] Upsert fixer playbook error:', err.message);
     res.status(500).json({ error: err.message });

@@ -10,6 +10,7 @@ import {
 } from '../convexClient.js';
 import sharp from 'sharp';
 import fs from 'fs';
+import os from 'os';
 import path from 'path';
 import { fileURLToPath } from 'url';
 // Drive upload removed — ads are stored in Convex only
@@ -289,12 +290,41 @@ export async function selectInspirationImage(projectId, inspirationImageId, excl
     throw new Error('Inspiration image has no stored file. Re-sync your inspiration folder.');
   }
 
-  // Download from Convex storage to get base64
+  // Download from Convex storage
   const buffer = await downloadToBuffer(selected.storageId);
   const mimeType = selected.mimeType || 'image/jpeg';
-  const base64 = buffer.toString('base64');
 
-  return { base64, mimeType, fileId: selected.drive_file_id };
+  // Write to temp file to avoid holding large base64 strings in memory
+  const ext = mimeType.includes('png') ? '.png' : mimeType.includes('webp') ? '.webp' : '.jpg';
+  const tmpPath = path.join(os.tmpdir(), `insp_${Date.now()}_${Math.random().toString(36).slice(2)}${ext}`);
+  fs.writeFileSync(tmpPath, buffer);
+
+  return { tmpPath, mimeType, fileId: selected.drive_file_id };
+}
+
+/**
+ * Read base64 from imageData — supports both temp file (batch mode) and inline base64 (single ad mode).
+ * After reading from a temp file, the file is deleted to free disk space.
+ * @param {{ tmpPath?: string, base64?: string }} imageData
+ * @returns {string} base64-encoded image data
+ */
+export function readImageBase64(imageData) {
+  if (imageData.base64) return imageData.base64;
+  if (imageData.tmpPath) {
+    const buffer = fs.readFileSync(imageData.tmpPath);
+    return buffer.toString('base64');
+  }
+  throw new Error('imageData has no base64 or tmpPath');
+}
+
+/**
+ * Clean up temp file from imageData if it exists. Called after image is no longer needed.
+ * @param {{ tmpPath?: string }} imageData
+ */
+export function cleanupImageData(imageData) {
+  if (imageData?.tmpPath) {
+    try { fs.unlinkSync(imageData.tmpPath); } catch { /* already deleted */ }
+  }
 }
 
 /**
@@ -326,9 +356,13 @@ export async function selectTemplateImage(templateImageId) {
   // Download from Convex storage
   const buffer = await downloadToBuffer(template.storageId);
   const mimeType = template.mimeType || 'image/jpeg';
-  const base64 = buffer.toString('base64');
 
-  return { base64, mimeType, fileId: template.externalId };
+  // Write to temp file to avoid holding large base64 strings in memory
+  const ext = mimeType.includes('png') ? '.png' : mimeType.includes('webp') ? '.webp' : '.jpg';
+  const tmpPath = path.join(os.tmpdir(), `tmpl_${Date.now()}_${Math.random().toString(36).slice(2)}${ext}`);
+  fs.writeFileSync(tmpPath, buffer);
+
+  return { tmpPath, mimeType, fileId: template.externalId };
 }
 
 /**
@@ -429,13 +463,14 @@ export async function generateAd(projectId, options = {}) {
         { role: 'assistant', content: acknowledgment }
       ];
 
+      const inspirationBase64 = readImageBase64(inspiration);
       let prompt;
       if (hasProductImage) {
         prompt = await chatWithImages(
           conversationSoFar,
           imageRequestText_inner,
           [
-            { base64: inspiration.base64, mimeType: inspiration.mimeType },
+            { base64: inspirationBase64, mimeType: inspiration.mimeType },
             { base64: productImageBase64, mimeType: productImageMimeType }
           ],
           'gpt-5.2',
@@ -445,12 +480,15 @@ export async function generateAd(projectId, options = {}) {
         prompt = await chatWithImage(
           conversationSoFar,
           imageRequestText_inner,
-          inspiration.base64,
+          inspirationBase64,
           inspiration.mimeType,
           'gpt-5.2',
           { operation: 'ad_generation_mode1', projectId }
         );
       }
+
+      // Clean up temp file — no longer needed after GPT call
+      cleanupImageData(inspiration);
 
       return prompt;
     }, `[Mode1 Ad ${adId.slice(0, 8)}]`);
@@ -650,13 +688,14 @@ export async function generateAdMode2(projectId, options = {}) {
         { role: 'assistant', content: acknowledgment }
       ];
 
+      const templateBase64 = readImageBase64(template);
       let prompt;
       if (hasProductImage) {
         prompt = await chatWithImages(
           conversationSoFar,
           imageRequestText_inner,
           [
-            { base64: template.base64, mimeType: template.mimeType },
+            { base64: templateBase64, mimeType: template.mimeType },
             { base64: productImageBase64, mimeType: productImageMimeType }
           ],
           'gpt-5.2',
@@ -666,12 +705,15 @@ export async function generateAdMode2(projectId, options = {}) {
         prompt = await chatWithImage(
           conversationSoFar,
           imageRequestText_inner,
-          template.base64,
+          templateBase64,
           template.mimeType,
           'gpt-5.2',
           { operation: 'ad_generation_mode2', projectId }
         );
       }
+
+      // Clean up temp file — no longer needed after GPT call
+      cleanupImageData(template);
 
       return prompt;
     }, `[Mode2 Ad ${adId.slice(0, 8)}]`);
@@ -1246,11 +1288,12 @@ CRITICAL: The headline and body copy are FINAL. Do not rewrite, shorten, improve
 
 Output the image generation prompt as a single text block ready to paste into the image generation tool.`;
 
+  const imageBase64 = readImageBase64(imageData);
   const imagePrompt = await withHeavyLLMLimit(async () => {
     return await claudeChatWithImage(
       [],
       promptText,
-      imageData.base64,
+      imageBase64,
       imageData.mimeType,
       'claude-sonnet-4-6',
       { operation: 'batch_image_prompt', projectId: project?.id || null }

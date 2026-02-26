@@ -62,6 +62,25 @@ export const remove = mutation({
       .withIndex("by_externalId", (q) => q.eq("externalId", args.externalId))
       .first();
     if (!doc) throw new Error("Campaign not found");
+
+    // Cascade: delete child ad sets and soft-delete their child flex ads
+    const adSets = await ctx.db
+      .query("ad_sets")
+      .withIndex("by_campaign", (q) => q.eq("campaign_id", args.externalId))
+      .collect();
+    for (const adSet of adSets) {
+      const flexAds = await ctx.db
+        .query("flex_ads")
+        .withIndex("by_ad_set", (q) => q.eq("ad_set_id", adSet.externalId))
+        .collect();
+      for (const fa of flexAds) {
+        if (!fa.deleted_at) {
+          await ctx.db.patch(fa._id, { deleted_at: new Date().toISOString() });
+        }
+      }
+      await ctx.db.delete(adSet._id);
+    }
+
     await ctx.db.delete(doc._id);
   },
 });

@@ -8,6 +8,8 @@ import {
   selectInspirationImage,
   selectTemplateImage,
   reviewPromptWithGuidelines,
+  readImageBase64,
+  cleanupImageData,
 } from './adGenerator.js';
 import {
   getProject, getLatestDoc, getBatchJob, updateBatchJob,
@@ -134,7 +136,7 @@ export async function runBatch(batchId, onProgress) {
  * @param {object} project - The project record
  * @param {{ research?: string, avatar?: string, offer_brief?: string, necessary_beliefs?: string }} docs
  * @param {(event: { type: string, [key: string]: any }) => void} [onProgress]
- * @returns {Promise<Array<{ prompt: string, headline: string, body_copy: string, inspirationBase64?: string, inspirationMimeType?: string, templateFileId?: string }>>}
+ * @returns {Promise<Array<{ prompt: string, headline: string, body_copy: string, inspirationTmpPath?: string, inspirationMimeType?: string, templateFileId?: string }>>}
  */
 async function generateBatchPrompts(batch, project, docs, onProgress) {
   const emit = (event) => { if (onProgress) try { onProgress(event); } catch {} };
@@ -292,7 +294,7 @@ async function generateBatchPrompts(batch, project, docs, onProgress) {
           prompt: imagePrompt,
           headline: copy.headline,
           body_copy: copy.body_copy,
-          inspirationBase64: imageData.base64,
+          inspirationTmpPath: imageData.tmpPath,
           inspirationMimeType: imageData.mimeType,
           templateFileId: imageData.fileId || null,
         });
@@ -340,7 +342,7 @@ async function generateBatchPrompts(batch, project, docs, onProgress) {
 /**
  * Submit prompts to Gemini Batch API.
  * @param {string} batchId
- * @param {Array<{ prompt: string, inspirationBase64?: string, inspirationMimeType?: string }>} prompts
+ * @param {Array<{ prompt: string, inspirationTmpPath?: string, inspirationMimeType?: string }>} prompts
  * @param {string} aspectRatio - e.g. '1:1', '9:16'
  * @param {string} projectName - Used in the batch job display name
  * @param {{ base64: string, mimeType: string }|null} [productImageData]
@@ -350,18 +352,21 @@ async function submitGeminiBatch(batchId, prompts, aspectRatio, projectName, pro
   const ai = await getClient();
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 16);
 
-  // Build inline requests (with inspiration image + optional product image)
+  // Build inline requests — read images from temp files one at a time to reduce peak memory
   const inlineRequests = prompts.map(promptObj => {
     const parts = [{ text: promptObj.prompt }];
 
     // Include inspiration image so Gemini can reference the visual style
-    if (promptObj.inspirationBase64) {
+    if (promptObj.inspirationTmpPath) {
+      const base64 = readImageBase64({ tmpPath: promptObj.inspirationTmpPath });
       parts.push({
         inlineData: {
-          data: promptObj.inspirationBase64,
+          data: base64,
           mimeType: promptObj.inspirationMimeType || 'image/jpeg'
         }
       });
+      // Clean up temp file immediately after reading
+      cleanupImageData({ tmpPath: promptObj.inspirationTmpPath });
     }
 
     // Include product image if configured

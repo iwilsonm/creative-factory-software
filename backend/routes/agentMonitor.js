@@ -141,7 +141,7 @@ router.post('/run', async (req, res) => {
       if (error) console.error('[AgentMonitor] Run error:', error.message);
       if (stdout) console.log('[AgentMonitor] Run output:', stdout.slice(0, 500));
     });
-    res.json({ ok: true, message: 'Fixer run triggered' });
+    res.json({ success: true, message: 'Fixer run triggered' });
   } catch (err) {
     console.error('[AgentMonitor] Run trigger error:', err.message);
     res.status(500).json({ error: err.message });
@@ -160,7 +160,7 @@ router.post('/resurrect', async (req, res) => {
       if (error) console.error('[AgentMonitor] Resurrect error:', error.message);
       if (stdout) console.log('[AgentMonitor] Resurrect output:', stdout.slice(0, 500));
     });
-    res.json({ ok: true, message: 'Resurrection triggered' });
+    res.json({ success: true, message: 'Resurrection triggered' });
   } catch (err) {
     console.error('[AgentMonitor] Resurrect trigger error:', err.message);
     res.status(500).json({ error: err.message });
@@ -173,10 +173,10 @@ router.post('/pause', async (req, res) => {
     const paused = await isAgentPaused(FIXER_PAUSE_FILE);
     if (paused) {
       await fs.unlink(FIXER_PAUSE_FILE);
-      res.json({ ok: true, paused: false, message: 'Dacia Fixer resumed' });
+      res.json({ success: true, paused: false, message: 'Dacia Fixer resumed' });
     } else {
       await fs.writeFile(FIXER_PAUSE_FILE, new Date().toISOString(), 'utf-8');
-      res.json({ ok: true, paused: true, message: 'Dacia Fixer paused' });
+      res.json({ success: true, paused: true, message: 'Dacia Fixer paused' });
     }
   } catch (err) {
     console.error('[AgentMonitor] Pause toggle error:', err.message);
@@ -276,7 +276,7 @@ router.post('/filter/run', async (req, res) => {
       if (error) console.error('[AgentMonitor] Filter run error:', error.message);
       if (stdout) console.log('[AgentMonitor] Filter run output:', stdout.slice(0, 500));
     });
-    res.json({ ok: true, message: 'Dacia Creative Filter run triggered (dry-run)' });
+    res.json({ success: true, message: 'Dacia Creative Filter run triggered (dry-run)' });
   } catch (err) {
     console.error('[AgentMonitor] Filter run trigger error:', err.message);
     res.status(500).json({ error: err.message });
@@ -295,7 +295,7 @@ router.post('/filter/run-live', async (req, res) => {
       if (error) console.error('[AgentMonitor] Filter live run error:', error.message);
       if (stdout) console.log('[AgentMonitor] Filter live run output:', stdout.slice(0, 500));
     });
-    res.json({ ok: true, message: 'Dacia Creative Filter run triggered' });
+    res.json({ success: true, message: 'Dacia Creative Filter run triggered' });
   } catch (err) {
     console.error('[AgentMonitor] Filter live trigger error:', err.message);
     res.status(500).json({ error: err.message });
@@ -308,10 +308,10 @@ router.post('/filter/pause', async (req, res) => {
     const paused = await isAgentPaused(FILTER_PAUSE_FILE);
     if (paused) {
       await fs.unlink(FILTER_PAUSE_FILE);
-      res.json({ ok: true, paused: false, message: 'Dacia Creative Filter resumed' });
+      res.json({ success: true, paused: false, message: 'Dacia Creative Filter resumed' });
     } else {
       await fs.writeFile(FILTER_PAUSE_FILE, new Date().toISOString(), 'utf-8');
-      res.json({ ok: true, paused: true, message: 'Dacia Creative Filter paused' });
+      res.json({ success: true, paused: true, message: 'Dacia Creative Filter paused' });
     }
   } catch (err) {
     console.error('[AgentMonitor] Filter pause toggle error:', err.message);
@@ -364,7 +364,7 @@ router.put('/filter/volumes/:projectId', async (req, res) => {
     const { scout_daily_flex_ads } = req.body;
     const value = Math.max(1, Math.min(10, parseInt(scout_daily_flex_ads) || 2));
     await updateProject(req.params.projectId, { scout_daily_flex_ads: value });
-    res.json({ ok: true, scout_daily_flex_ads: value });
+    res.json({ success: true, scout_daily_flex_ads: value });
   } catch (err) {
     console.error('[AgentMonitor] Update volume error:', err.message);
     res.status(500).json({ error: err.message });
@@ -392,7 +392,7 @@ costRouter.post('/log', async (req, res) => {
 
     const costUsd = (parseFloat(cost_cents) || 0) / 100;
     if (costUsd <= 0) {
-      return res.json({ ok: true, message: 'Zero cost, skipped' });
+      return res.json({ success: true, message: 'Zero cost, skipped' });
     }
 
     const record = {
@@ -409,7 +409,7 @@ costRouter.post('/log', async (req, res) => {
     };
 
     await logCost(record);
-    res.json({ ok: true, cost_usd: record.cost_usd });
+    res.json({ success: true, cost_usd: record.cost_usd });
   } catch (err) {
     console.error('[AgentMonitor] Log cost error:', err.message);
     res.status(500).json({ error: err.message });

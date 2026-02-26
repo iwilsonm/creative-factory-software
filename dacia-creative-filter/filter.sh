@@ -130,35 +130,77 @@ send_notification() {
 }
 
 # --- Auth ---
-get_session_cookie() {
-  # Return cached cookie if it exists
-  if [[ -f "${FILTER_DIR}/config/.session_cookie" ]]; then
-    cat "${FILTER_DIR}/config/.session_cookie"
-    return
-  fi
+SESSION_COOKIE_FILE="${FILTER_DIR}/config/.session_cookie"
+SESSION_COOKIE_MAX_AGE=$((24 * 60 * 60))  # 24 hours — re-auth before 30-day server expiry
 
-  # Login and capture Set-Cookie header
+_do_login() {
   local cookie_jar="/tmp/filter_cookies_$$.txt"
   curl -s -c "$cookie_jar" -X POST "${BACKEND_URL}/api/auth/login" \
     -H "Content-Type: application/json" \
-    -d "{
-      \"username\": \"${FILTER_USERNAME:-filter}\",
-      \"password\": \"${FILTER_PASSWORD:-}\"
-    }" > /dev/null 2>&1
+    -d "$(jq -n --arg u "${FILTER_USERNAME:-filter}" --arg p "${FILTER_PASSWORD:-}" \
+      '{username: $u, password: $p}')" > /dev/null 2>&1
 
-  # Extract connect.sid value from cookie jar and build Cookie header
   local sid
   sid=$(grep 'connect.sid' "$cookie_jar" 2>/dev/null | awk '{print $NF}') || true
   rm -f "$cookie_jar"
 
   if [[ -n "$sid" ]]; then
     local cookie_header="connect.sid=${sid}"
-    echo "$cookie_header" > "${FILTER_DIR}/config/.session_cookie"
+    echo "$cookie_header" > "$SESSION_COOKIE_FILE"
+    # Write timestamp alongside cookie for expiry tracking
+    date +%s > "${SESSION_COOKIE_FILE}.ts"
     echo "$cookie_header"
   else
     log_warn "Login failed — no session cookie returned"
     echo ""
   fi
+}
+
+get_session_cookie() {
+  # Check if cached cookie exists and is not expired
+  if [[ -f "$SESSION_COOKIE_FILE" ]]; then
+    local ts_file="${SESSION_COOKIE_FILE}.ts"
+    if [[ -f "$ts_file" ]]; then
+      local created_at; created_at=$(cat "$ts_file" 2>/dev/null || echo "0")
+      local now; now=$(date +%s)
+      local age=$((now - created_at))
+      if [[ "$age" -ge "$SESSION_COOKIE_MAX_AGE" ]]; then
+        log_info "Session cookie expired ($age s old). Re-authenticating."
+        rm -f "$SESSION_COOKIE_FILE" "$ts_file"
+        _do_login
+        return
+      fi
+    fi
+    cat "$SESSION_COOKIE_FILE"
+    return
+  fi
+
+  # No cached cookie — login fresh
+  _do_login
+}
+
+# Re-authenticate and retry a curl command that returned 401
+curl_with_auth_retry() {
+  local url="$1"; shift
+  # First attempt
+  local http_code
+  local response
+  response=$(curl -s -w "\n%{http_code}" "$url" \
+    -H "Cookie: $(get_session_cookie)" "$@" 2>/dev/null) || true
+  http_code=$(echo "$response" | tail -1)
+  local body; body=$(echo "$response" | sed '$d')
+
+  if [[ "$http_code" == "401" ]]; then
+    log_info "Got 401 — re-authenticating and retrying..."
+    rm -f "$SESSION_COOKIE_FILE" "${SESSION_COOKIE_FILE}.ts"
+    response=$(curl -s -w "\n%{http_code}" "$url" \
+      -H "Cookie: $(get_session_cookie)" "$@" 2>/dev/null) || true
+    http_code=$(echo "$response" | tail -1)
+    body=$(echo "$response" | sed '$d')
+  fi
+
+  echo "$body"
+}
 }
 
 # ============================================================

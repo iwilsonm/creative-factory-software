@@ -50,10 +50,26 @@ export const bulkCreate = mutation({
   },
   handler: async (ctx, args) => {
     const quotes = JSON.parse(args.quotes);
+    const requiredFields = ["externalId", "project_id", "quote", "run_id", "created_at"];
+    const allowedFields = [
+      "externalId", "project_id", "quote", "source", "source_url",
+      "emotion", "emotional_intensity", "context", "run_id", "problem",
+      "tags", "is_favorite", "headlines", "headlines_generated_at", "created_at",
+    ];
+    let inserted = 0;
     for (const quote of quotes) {
-      await ctx.db.insert("quote_bank", quote);
+      // Validate required fields exist
+      const missing = requiredFields.filter(f => !quote[f]);
+      if (missing.length > 0) continue; // skip invalid entries
+      // Whitelist fields to prevent arbitrary data insertion
+      const clean: Record<string, any> = {};
+      for (const key of allowedFields) {
+        if (quote[key] !== undefined) clean[key] = quote[key];
+      }
+      await ctx.db.insert("quote_bank", clean as any);
+      inserted++;
     }
-    return { inserted: quotes.length };
+    return { inserted };
   },
 });
 
@@ -89,16 +105,28 @@ export const bulkUpdate = mutation({
   },
   handler: async (ctx, args) => {
     const items = JSON.parse(args.updates);
+    const allowedUpdateFields = [
+      "is_favorite", "headlines", "headlines_generated_at",
+      "problem", "tags", "emotion", "quote",
+    ];
     let patched = 0;
     for (const item of items) {
-      const { externalId, ...fields } = item;
+      const { externalId } = item;
+      if (!externalId) continue;
       const doc = await ctx.db
         .query("quote_bank")
         .withIndex("by_externalId", (q: any) => q.eq("externalId", externalId))
         .first();
       if (doc) {
-        await ctx.db.patch(doc._id, fields);
-        patched++;
+        // Whitelist fields to prevent arbitrary data modification
+        const clean: Record<string, any> = {};
+        for (const key of allowedUpdateFields) {
+          if (item[key] !== undefined) clean[key] = item[key];
+        }
+        if (Object.keys(clean).length > 0) {
+          await ctx.db.patch(doc._id, clean);
+          patched++;
+        }
       }
     }
     return { patched };

@@ -11,7 +11,7 @@ import mammoth from 'mammoth';
 import EPub from 'epub';
 import XLSX from 'xlsx';
 import { requireAuth } from '../auth.js';
-import { getSetting } from '../convexClient.js';
+import { chat as openaiChat } from '../services/openai.js';
 
 const uploadDir = os.tmpdir();
 
@@ -126,41 +126,23 @@ router.post('/auto-describe', async (req, res) => {
   const { sales_page_content } = req.body;
   if (!sales_page_content) return res.status(400).json({ error: 'Sales page content is required' });
 
-  const apiKey = await getSetting('openai_api_key');
-  if (!apiKey) return res.status(400).json({ error: 'OpenAI API key not configured. Set it in Settings first.' });
-
   try {
-    const response = await fetch('https://api.openai.com/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${apiKey}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        model: 'gpt-4o-mini',
-        messages: [
-          {
-            role: 'system',
-            content: 'You are a concise product analyst. Given sales page content, write a clear 2-3 sentence product description covering: what the product is, who it\'s for, and what problem it solves. Be factual and direct. Do not use marketing language.'
-          },
-          {
-            role: 'user',
-            content: `Based on this sales page content, write a concise product description:\n\n${sales_page_content.slice(0, 8000)}`
-          }
-        ],
-        max_tokens: 300
-      })
-    });
+    const description = await openaiChat(
+      [
+        {
+          role: 'system',
+          content: 'You are a concise product analyst. Given sales page content, write a clear 2-3 sentence product description covering: what the product is, who it\'s for, and what problem it solves. Be factual and direct. Do not use marketing language.'
+        },
+        {
+          role: 'user',
+          content: `Based on this sales page content, write a concise product description:\n\n${sales_page_content.slice(0, 8000)}`
+        }
+      ],
+      'gpt-4.1-mini',
+      { max_tokens: 300, operation: 'auto_describe' }
+    );
 
-    if (!response.ok) {
-      const err = await response.json().catch(() => ({}));
-      return res.status(500).json({ error: `OpenAI error: ${err.error?.message || response.status}` });
-    }
-
-    const data = await response.json();
-    const description = data.choices[0].message.content.trim();
-
-    res.json({ description });
+    res.json({ description: description.trim() });
   } catch (err) {
     res.status(500).json({ error: `Auto-describe failed: ${err.message}` });
   }
