@@ -342,6 +342,7 @@ export const api = {
   createDeployments: (adIds) => request('/deployments', { method: 'POST', body: JSON.stringify({ adIds }) }),
   updateDeployment: (id, fields) => request(`/deployments/${id}`, { method: 'PUT', body: JSON.stringify(fields) }),
   updateDeploymentStatus: (id, status) => request(`/deployments/${id}/status`, { method: 'PUT', body: JSON.stringify({ status }) }),
+  updateDeploymentPostedBy: (id, posted_by) => request(`/deployments/${id}/posted-by`, { method: 'PUT', body: JSON.stringify({ posted_by }) }),
   deleteDeployment: (id) => request(`/deployments/${id}`, { method: 'DELETE' }),
   restoreDeployment: (id) => request(`/deployments/${id}/restore`, { method: 'POST' }),
   getDeletedDeployments: (projectId) => request(`/deployments/deleted${projectId ? `?projectId=${projectId}` : ''}`),
@@ -370,6 +371,8 @@ export const api = {
     request('/deployments/flex-ads', { method: 'POST', body: JSON.stringify({ projectId, adSetId, name, deploymentIds }) }),
   updateFlexAd: (id, fields) =>
     request(`/deployments/flex-ads/${id}`, { method: 'PUT', body: JSON.stringify(fields) }),
+  updateFlexAdPostedBy: (id, posted_by) =>
+    request(`/deployments/flex-ads/${id}/posted-by`, { method: 'PUT', body: JSON.stringify({ posted_by }) }),
   deleteFlexAd: (id) =>
     request(`/deployments/flex-ads/${id}`, { method: 'DELETE' }),
   restoreFlexAd: (id) =>

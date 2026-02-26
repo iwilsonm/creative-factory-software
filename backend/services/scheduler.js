@@ -212,9 +212,42 @@ async function pollActiveBatches() {
   console.log(`[Scheduler] Polling ${active.length} active batch job(s)...`);
   let completed = 0;
   let failed = 0;
+  const STALE_THRESHOLD_MS = 30 * 60 * 1000; // 30 minutes
 
   for (const batch of active) {
     try {
+      // Detect orphaned generating_prompts batches (process died, server restarted)
+      if (batch.status === 'generating_prompts' && !batch.gemini_batch_job) {
+        const startedAt = batch.started_at ? new Date(batch.started_at).getTime() : 0;
+        const elapsed = Date.now() - startedAt;
+        if (elapsed > STALE_THRESHOLD_MS) {
+          console.log(`[Scheduler] Batch ${batch.id.slice(0, 8)}: stale generating_prompts (${Math.round(elapsed / 60000)}min), auto-retrying...`);
+          const retryCount = batch.retry_count || 0;
+          if (retryCount < 3) {
+            await updateBatchJob(batch.id, {
+              status: 'pending',
+              error_message: null,
+              retry_count: retryCount + 1
+            });
+            setTimeout(async () => {
+              try {
+                await runBatch(batch.id);
+              } catch (err) {
+                console.error(`[Scheduler] Stale batch retry failed for ${batch.id.slice(0, 8)}:`, err.message);
+              }
+            }, 5000);
+          } else {
+            await updateBatchJob(batch.id, {
+              status: 'failed',
+              error_message: 'Pipeline process died — retries exhausted'
+            });
+            console.log(`[Scheduler] Batch ${batch.id.slice(0, 8)}: stale batch failed permanently (${retryCount}/3 retries exhausted)`);
+          }
+          failed++;
+          continue;
+        }
+      }
+
       const result = await pollBatchJob(batch.id);
       if (result === 'completed') completed++;
       if (result === 'failed') {

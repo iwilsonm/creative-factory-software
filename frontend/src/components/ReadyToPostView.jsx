@@ -254,10 +254,10 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
   const handlePostedByChange = async (depId, value, isFlex = false) => {
     try {
       if (isFlex) {
-        await api.updateFlexAd(depId, { posted_by: value || '' });
+        await api.updateFlexAdPostedBy(depId, value || '');
         setFlexAds(prev => prev.map(f => f.id === depId ? { ...f, posted_by: value } : f));
       } else {
-        await api.updateDeployment(depId, { posted_by: value || '' });
+        await api.updateDeploymentPostedBy(depId, value || '');
         setDeployments(prev => prev.map(d => d.id === depId ? { ...d, posted_by: value } : d));
       }
     } catch {

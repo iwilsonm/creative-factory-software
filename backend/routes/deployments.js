@@ -285,6 +285,34 @@ router.put('/deployments/:id/status', async (req, res) => {
 });
 
 /**
+ * PUT /deployments/:id/posted-by — Set who posted this ad (poster-accessible)
+ */
+router.put('/deployments/:id/posted-by', async (req, res) => {
+  try {
+    const { posted_by } = req.body;
+    await updateDeployment(req.params.id, { posted_by: posted_by || '' });
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Failed to update posted_by:', err);
+    res.status(500).json({ error: 'Failed to update posted_by' });
+  }
+});
+
+/**
+ * PUT /deployments/flex-ads/:id/posted-by — Set who posted this flex ad (poster-accessible)
+ */
+router.put('/deployments/flex-ads/:id/posted-by', async (req, res) => {
+  try {
+    const { posted_by } = req.body;
+    await updateFlexAd(req.params.id, { posted_by: posted_by || '' });
+    res.json({ success: true });
+  } catch (err) {
+    console.error('Failed to update posted_by:', err);
+    res.status(500).json({ error: 'Failed to update posted_by' });
+  }
+});
+
+/**
  * DELETE /deployments/:id — Remove a deployment
  */
 router.delete('/deployments/:id', requireRole('admin', 'manager'), async (req, res) => {
