@@ -198,6 +198,8 @@ router.post('/:projectId/landing-pages/generate', async (req, res) => {
 
           // Extract text from PDF for copy guidance
           try {
+            const { createRequire } = await import('module');
+            const require = createRequire(import.meta.url);
             const pdfParse = require('pdf-parse');
             const pdfData = await pdfParse(pdfBuffer);
             swipeText = pdfData.text || '';

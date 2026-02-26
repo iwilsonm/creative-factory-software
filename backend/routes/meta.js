@@ -42,18 +42,13 @@ router.get('/meta/callback', async (req, res) => {
       return res.redirect(`${redirectBase}?meta=error&message=${encodeURIComponent(oauthError)}`);
     }
 
-    // Verify CSRF state
-    const savedState = await getSetting('meta_oauth_state');
-    if (state && savedState && state !== savedState) {
-      return res.redirect(`${redirectBase}?meta=error&message=Invalid+state+parameter`);
-    }
-
     if (!projectId) {
       return res.redirect('/settings?meta=error&message=Missing+project+context');
     }
 
     const redirectUri = getRedirectUri(req);
-    await metaAds.handleOAuthCallback(code, redirectUri, projectId);
+    // Pass state param for CSRF validation inside handleOAuthCallback
+    await metaAds.handleOAuthCallback(code, redirectUri, projectId, state);
 
     res.redirect(`${redirectBase}?meta=connected`);
   } catch (err) {

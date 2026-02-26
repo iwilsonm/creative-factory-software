@@ -229,11 +229,31 @@ fi
 
 TEMP_BODY="/tmp/filter_body_$$.json"
 echo "$API_BODY" > "$TEMP_BODY"
-RESPONSE=$(curl -s --max-time 120 "https://api.anthropic.com/v1/messages" \
-  -H "Content-Type: application/json" \
-  -H "x-api-key: ${ANTHROPIC_API_KEY}" \
-  -H "anthropic-version: 2023-06-01" \
-  -d "@${TEMP_BODY}")
+
+# Retry loop for Anthropic API (handles 429, 529, transient failures)
+MAX_RETRIES=3
+RETRY_DELAY=15
+RESPONSE=""
+for attempt in $(seq 1 $MAX_RETRIES); do
+  HTTP_CODE=$(curl -s -w "\n%{http_code}" --max-time 120 "https://api.anthropic.com/v1/messages" \
+    -H "Content-Type: application/json" \
+    -H "x-api-key: ${ANTHROPIC_API_KEY}" \
+    -H "anthropic-version: 2023-06-01" \
+    -d "@${TEMP_BODY}" -o /tmp/filter_resp_$$.json 2>/dev/null) || HTTP_CODE="000"
+  HTTP_CODE=$(echo "$HTTP_CODE" | tail -1)
+  RESPONSE=$(cat /tmp/filter_resp_$$.json 2>/dev/null || echo "")
+  rm -f /tmp/filter_resp_$$.json
+
+  if [[ "$HTTP_CODE" == "200" ]]; then
+    break
+  elif [[ "$HTTP_CODE" == "429" || "$HTTP_CODE" == "529" || "$HTTP_CODE" == "000" ]]; then
+    if [[ "$attempt" -lt "$MAX_RETRIES" ]]; then
+      sleep $((RETRY_DELAY * attempt))
+    fi
+  else
+    break  # Non-retryable error
+  fi
+done
 rm -f "$TEMP_BODY"
 
 # Extract and clean JSON

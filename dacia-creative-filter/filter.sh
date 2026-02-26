@@ -54,6 +54,24 @@ log_ok()    { log "OK"     "${GREEN}$*${NC}"; }
 log_err()   { log "ERROR"  "${RED}$*${NC}"; }
 log_score() { log "SCORE"  "${MAGENTA}$*${NC}"; }
 
+# --- Lock File (prevent concurrent execution) ---
+LOCK_FILE="/tmp/dacia-filter.lock"
+
+acquire_lock() {
+  if [[ -f "$LOCK_FILE" ]]; then
+    local lock_pid; lock_pid=$(cat "$LOCK_FILE" 2>/dev/null)
+    if [[ -n "$lock_pid" ]] && kill -0 "$lock_pid" 2>/dev/null; then
+      log_warn "Another filter instance is running (PID $lock_pid). Exiting."
+      exit 0
+    else
+      log_info "Stale lock file found (PID $lock_pid not running). Removing."
+      rm -f "$LOCK_FILE"
+    fi
+  fi
+  echo $$ > "$LOCK_FILE"
+  trap 'rm -f "$LOCK_FILE"' EXIT INT TERM
+}
+
 # --- Cost Tracking ---
 init_spend_tracker() {
   if [[ ! -f "$SPEND_FILE" ]]; then
@@ -72,10 +90,11 @@ add_spend() {
   local service="${4:-anthropic}"
   local current; current=$(get_daily_spend)
   echo "$current + $cost_cents" | bc > "$SPEND_FILE"
-  # Log to Convex api_costs via backend (fire-and-forget)
+  # Log to Convex api_costs via backend (fire-and-forget, safe JSON via jq)
   curl -s -X POST "${BACKEND_URL}/api/agent-cost/log" \
     -H "Content-Type: application/json" \
-    -d "{\"agent\":\"filter\",\"operation\":\"${operation}\",\"cost_cents\":${cost_cents},\"service\":\"${service}\"}" \
+    -d "$(jq -n --arg op "$operation" --argjson cost "$cost_cents" --arg svc "$service" \
+      '{agent: "filter", operation: $op, cost_cents: $cost, service: $svc}')" \
     > /dev/null 2>&1 &
 }
 
@@ -96,14 +115,14 @@ send_notification() {
       if [[ -n "${SLACK_WEBHOOK_URL:-}" ]]; then
         curl -s -X POST "$SLACK_WEBHOOK_URL" \
           -H 'Content-type: application/json' \
-          -d "{\"text\": \"*${title}*\n${message}\"}" > /dev/null 2>&1 || true
+          -d "$(jq -n --arg t "$title" --arg m "$message" '{text: ("*" + $t + "*\n" + $m)}')" > /dev/null 2>&1 || true
       fi
       ;;
     webhook)
       if [[ -n "${WEBHOOK_URL:-}" ]]; then
         curl -s -X POST "$WEBHOOK_URL" \
           -H 'Content-type: application/json' \
-          -d "{\"title\": \"${title}\", \"message\": \"${message}\"}" > /dev/null 2>&1 || true
+          -d "$(jq -n --arg t "$title" --arg m "$message" '{title: $t, message: $m}')" > /dev/null 2>&1 || true
       fi
       ;;
     none) ;;
@@ -636,7 +655,7 @@ process_batch() {
   # Check daily cap — count flex ads deployed today for this project from log
   local today_flex_count=0
   if [[ -f "$LOG_FILE" ]]; then
-    today_flex_count=$(grep -c "Deployed flex ad.*$project_name" "$LOG_FILE" 2>/dev/null) || today_flex_count=0
+    today_flex_count=$(grep -c "Deployed:.*$project_name\|Deployed flex ad.*$project_name" "$LOG_FILE" 2>/dev/null) || today_flex_count=0
   fi
 
   local remaining=$((project_flex_cap - today_flex_count))
@@ -1046,6 +1065,7 @@ show_status() {
 # ============================================================
 
 main() {
+  acquire_lock
   init_spend_tracker
 
   # Check pause file — if paused, skip execution (status still works)

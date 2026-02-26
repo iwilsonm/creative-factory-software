@@ -217,17 +217,31 @@ async function pollActiveBatches() {
   for (const batch of active) {
     try {
       // Detect orphaned generating_prompts batches (process died, server restarted)
+      // Two-phase detection: first poll marks stale_detected_at, second poll (5+ min later) retries.
+      // This prevents double-execution when a batch is just slow, not actually dead.
       if (batch.status === 'generating_prompts' && !batch.gemini_batch_job) {
         const startedAt = batch.started_at ? new Date(batch.started_at).getTime() : 0;
         const elapsed = Date.now() - startedAt;
         if (elapsed > STALE_THRESHOLD_MS) {
-          console.log(`[Scheduler] Batch ${batch.id.slice(0, 8)}: stale generating_prompts (${Math.round(elapsed / 60000)}min), auto-retrying...`);
+          const staleDetectedAt = batch.stale_detected_at ? new Date(batch.stale_detected_at).getTime() : 0;
+          if (!staleDetectedAt) {
+            // First detection — mark it but don't retry yet (batch may still be alive)
+            console.log(`[Scheduler] Batch ${batch.id.slice(0, 8)}: possibly stale generating_prompts (${Math.round(elapsed / 60000)}min), marking for next poll...`);
+            await updateBatchJob(batch.id, { stale_detected_at: new Date().toISOString() });
+            continue;
+          }
+          // Second detection (5+ min later) — safe to consider truly orphaned
+          const staleDuration = Date.now() - staleDetectedAt;
+          if (staleDuration < 4 * 60 * 1000) continue; // Wait at least 4 more minutes
+
+          console.log(`[Scheduler] Batch ${batch.id.slice(0, 8)}: confirmed stale (${Math.round(elapsed / 60000)}min), auto-retrying...`);
           const retryCount = batch.retry_count || 0;
           if (retryCount < 3) {
             await updateBatchJob(batch.id, {
               status: 'pending',
               error_message: null,
-              retry_count: retryCount + 1
+              retry_count: retryCount + 1,
+              stale_detected_at: null
             });
             setTimeout(async () => {
               try {
@@ -239,7 +253,8 @@ async function pollActiveBatches() {
           } else {
             await updateBatchJob(batch.id, {
               status: 'failed',
-              error_message: 'Pipeline process died — retries exhausted'
+              error_message: 'Pipeline process died — retries exhausted',
+              stale_detected_at: null
             });
             console.log(`[Scheduler] Batch ${batch.id.slice(0, 8)}: stale batch failed permanently (${retryCount}/3 retries exhausted)`);
           }

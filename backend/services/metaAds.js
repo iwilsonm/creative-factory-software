@@ -352,9 +352,10 @@ export async function getOAuthUrl(projectId, redirectUri) {
   if (!appId) throw new Error('Meta App ID not configured for this project. Enter it in the project Overview tab.');
 
   // Include projectId in state for the callback to extract
+  // Use per-project key to avoid race conditions with concurrent OAuth flows
   const stateObj = { csrf: uuidv4(), projectId };
   const state = Buffer.from(JSON.stringify(stateObj)).toString('base64url');
-  await setSetting('meta_oauth_state', state);
+  await setSetting(`meta_oauth_state_${projectId}`, state);
 
   return `https://www.facebook.com/v21.0/dialog/oauth?client_id=${appId}&redirect_uri=${encodeURIComponent(redirectUri)}&scope=ads_read&state=${state}`;
 }
@@ -366,7 +367,15 @@ export async function getOAuthUrl(projectId, redirectUri) {
  * @param {string} projectId
  * @returns {Promise<{ userName: string, expiresAt: string }>}
  */
-export async function handleOAuthCallback(code, redirectUri, projectId) {
+export async function handleOAuthCallback(code, redirectUri, projectId, stateParam) {
+  // Validate CSRF state parameter
+  const storedState = await getSetting(`meta_oauth_state_${projectId}`);
+  if (!storedState || storedState !== stateParam) {
+    throw new Error('OAuth state mismatch — possible CSRF attack. Please try connecting again.');
+  }
+  // Clear the state after validation (one-time use)
+  await setSetting(`meta_oauth_state_${projectId}`, '');
+
   const project = await getProject(projectId);
   const appId = project?.meta_app_id;
   const appSecret = project?.meta_app_secret;

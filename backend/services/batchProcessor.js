@@ -524,8 +524,8 @@ async function processBatchResults(batchId, job) {
         console.log(`[BatchProcessor] Batch ${batchId.slice(0, 8)}: No image in response ${i}, retrying with direct Gemini call...`);
         try {
           const retryResult = await generateImage(promptText, batch.aspect_ratio || '1:1', productImageData);
-          if (retryResult && retryResult.buffer) {
-            imageBuffer = retryResult.buffer;
+          if (retryResult && retryResult.imageBuffer) {
+            imageBuffer = retryResult.imageBuffer;
             mimeType = retryResult.mimeType || 'image/png';
             console.log(`[BatchProcessor] Batch ${batchId.slice(0, 8)}: Retry succeeded for response ${i}`);
           }

@@ -437,7 +437,7 @@ export default function BatchManager({ projectId, project, onBatchComplete }) {
     }
 
     if (item.templateSource) setTemplateSource(item.templateSource);
-    if (item.selectedTemplate) setSelectedTemplate(item.selectedTemplate);
+    if (item.selectedTemplate) setSelectedTemplates(Array.isArray(item.selectedTemplate) ? item.selectedTemplate : [item.selectedTemplate]);
     setFilterAssigned(!!item.filter_assigned);
 
     // Remove from queue

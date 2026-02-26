@@ -28,6 +28,7 @@ import metaRoutes from './routes/meta.js';
 import landingPageRoutes from './routes/landingPages.js';
 import agentMonitorRoutes, { agentCostRouter } from './routes/agentMonitor.js';
 import conductorRoutes from './routes/conductor.js';
+import rateLimit from 'express-rate-limit';
 import { initScheduler, getSchedulerStatus } from './services/scheduler.js';
 import { getRateLimiterStats } from './services/rateLimiter.js';
 import { syncOpenAICosts, refreshGeminiRates } from './services/costTracker.js';
@@ -62,7 +63,21 @@ process.on('uncaughtException', (err) => {
 
   // Middleware
   app.use(compression());
-  app.use(helmet({ contentSecurityPolicy: false }));
+  app.use(helmet({
+    contentSecurityPolicy: {
+      directives: {
+        defaultSrc: ["'self'"],
+        scriptSrc: ["'self'", "'unsafe-inline'"],
+        styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
+        fontSrc: ["'self'", "https://fonts.gstatic.com"],
+        imgSrc: ["'self'", "data:", "blob:", "https://*.convex.cloud", "https://*.googleapis.com", "https://*.fbcdn.net"],
+        connectSrc: ["'self'", "https://*.convex.cloud", "https://api.anthropic.com", "https://api.openai.com"],
+        frameSrc: ["'none'"],
+        objectSrc: ["'none'"],
+        baseUri: ["'self'"],
+      },
+    },
+  }));
   app.use(cors({
     origin: process.env.FRONTEND_URL || 'http://localhost:5173',
     credentials: true
@@ -82,6 +97,26 @@ process.on('uncaughtException', (err) => {
       maxAge: 30 * 24 * 60 * 60 * 1000 // 30 days
     }
   }));
+
+  // Rate limiting for expensive/LLM-triggering endpoints
+  const llmRateLimit = rateLimit({
+    windowMs: 60 * 1000, // 1 minute
+    max: 10, // 10 requests per minute per user
+    keyGenerator: (req) => req.session?.userId || req.ip,
+    message: { error: 'Too many requests. Please wait a moment before trying again.' },
+    standardHeaders: true,
+    legacyHeaders: false,
+  });
+  // Apply to generation-heavy routes
+  app.use('/api/projects/:id/generate-docs', llmRateLimit);
+  app.use('/api/projects/:id/generate-ad', llmRateLimit);
+  app.use('/api/projects/:id/generate-landing-page', llmRateLimit);
+  app.use('/api/deployments/generate-ad-copy', llmRateLimit);
+  app.use('/api/deployments/generate-ad-headlines', llmRateLimit);
+  app.use('/api/deployments/filter/generate-copy', llmRateLimit);
+  app.use('/api/quote-mining/start', llmRateLimit);
+  app.use('/api/conductor/run', llmRateLimit);
+  app.use('/api/conductor/learn', llmRateLimit);
 
   // NOTE: Generated images are no longer served from local disk.
   // They are served via 302 redirect to Convex storage URLs in the ads route.
@@ -138,10 +173,16 @@ process.on('uncaughtException', (err) => {
 
   // Routes — auth (no role restriction)
   app.use('/api/auth', authRoutes);
-  // Routes — agent cost logging (no auth — called by agent scripts from localhost via curl)
-  app.use('/api/agent-cost', agentCostRouter);
-  // Agent-triggered endpoints (no auth — safe, localhost-only operations)
-  app.post('/api/agent-cost/sync-openai', async (req, res) => {
+  // Localhost-only guard — agent scripts call these via curl from the VPS
+  const localhostOnly = (req, res, next) => {
+    const ip = req.ip || req.connection?.remoteAddress;
+    if (['127.0.0.1', '::1', '::ffff:127.0.0.1'].includes(ip)) return next();
+    res.status(403).json({ error: 'Forbidden' });
+  };
+  // Routes — agent cost logging (localhost only)
+  app.use('/api/agent-cost', localhostOnly, agentCostRouter);
+  // Agent-triggered endpoints (localhost only)
+  app.post('/api/agent-cost/sync-openai', localhostOnly, async (req, res) => {
     try {
       await syncOpenAICosts();
       res.json({ success: true });
@@ -149,7 +190,7 @@ process.on('uncaughtException', (err) => {
       res.status(500).json({ error: err.message });
     }
   });
-  app.post('/api/agent-cost/refresh-gemini-rates', async (req, res) => {
+  app.post('/api/agent-cost/refresh-gemini-rates', localhostOnly, async (req, res) => {
     try {
       const result = await refreshGeminiRates();
       res.json({ success: true, refreshed: result.refreshed });
@@ -175,7 +216,7 @@ process.on('uncaughtException', (err) => {
   app.use('/api/projects', requireAuth, requireRole('admin', 'manager'), templateRoutes);
   app.use('/api/projects', requireAuth, requireRole('admin', 'manager'), adRoutes);
   app.use('/api/projects', requireAuth, requireRole('admin', 'manager'), batchRoutes);
-  app.use('/api/batches', requireAuth, batchRoutes);  // Flat mount for Dacia Fixer retry endpoint
+  app.use('/api/batches', requireAuth, requireRole('admin', 'manager'), batchRoutes);  // Flat mount for Dacia Fixer retry endpoint
   app.use('/api', requireAuth, requireRole('admin', 'manager'), costsRoutes);
   app.use('/api/projects', requireAuth, requireRole('admin', 'manager'), quoteMiningRoutes);
   app.use('/api/projects', requireAuth, requireRole('admin', 'manager'), chatRoutes);

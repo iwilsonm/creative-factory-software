@@ -21,104 +21,119 @@ router.use(requireAuth);
 
 // List all docs for a project
 router.get('/:projectId/docs', async (req, res) => {
-  const project = await getProject(req.params.projectId);
-  if (!project) return res.status(404).json({ error: 'Project not found' });
+  try {
+    const project = await getProject(req.params.projectId);
+    if (!project) return res.status(404).json({ error: 'Project not found' });
 
-  const docs = await getDocsByProject(req.params.projectId);
+    const docs = await getDocsByProject(req.params.projectId);
 
-  // Group by doc_type, return only latest version of each
-  const latest = {};
-  for (const doc of docs) {
-    if (!latest[doc.doc_type] || doc.version > latest[doc.doc_type].version) {
-      latest[doc.doc_type] = doc;
+    // Group by doc_type, return only latest version of each
+    const latest = {};
+    for (const doc of docs) {
+      if (!latest[doc.doc_type] || doc.version > latest[doc.doc_type].version) {
+        latest[doc.doc_type] = doc;
+      }
     }
-  }
 
-  res.json({
-    docs: Object.values(latest),
-    steps: STEPS.map(s => ({ id: s.id, label: s.label, savedAs: s.savedAs, mode: s.mode }))
-  });
+    res.json({
+      docs: Object.values(latest),
+      steps: STEPS.map(s => ({ id: s.id, label: s.label, savedAs: s.savedAs, mode: s.mode }))
+    });
+  } catch (err) {
+    console.error('[Docs] List docs error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // Get pre-populated research prompts for manual research flow
 router.get('/:projectId/research-prompts', async (req, res) => {
-  const project = await getProject(req.params.projectId);
-  if (!project) return res.status(404).json({ error: 'Project not found' });
+  try {
+    const project = await getProject(req.params.projectId);
+    if (!project) return res.status(404).json({ error: 'Project not found' });
 
-  const prompts = [
-    {
-      step: 1,
-      title: 'Step 1: Analyze Your Sales Page',
-      instruction: 'Start a new conversation in ChatGPT or Claude. Copy and paste this entire prompt. It sends your sales page content for initial analysis.',
-      prompt: prompt1_AnalyzeSalesPage(
-        project.product_description,
-        project.sales_page_content || 'No sales page content provided.'
-      )
-    },
-    {
-      step: 2,
-      title: 'Step 2: Teach the Research Methodology',
-      instruction: 'After getting the response from Step 1, send this second prompt in the SAME conversation. This teaches the AI the 4-layer research framework.',
-      prompt: prompt2_ResearchMethodology()
-    },
-    {
-      step: 3,
-      title: 'Step 3: Generate Your Research Prompt',
-      instruction: 'After getting the response from Step 2, send this final prompt in the SAME conversation. The AI will produce a detailed, specific research prompt for your product. Copy that output and use it to conduct deep research — either paste it into a new ChatGPT Deep Research session, or research the topics manually.',
-      prompt: prompt3_GenerateResearchPrompt(project.name)
-    }
-  ];
+    const prompts = [
+      {
+        step: 1,
+        title: 'Step 1: Analyze Your Sales Page',
+        instruction: 'Start a new conversation in ChatGPT or Claude. Copy and paste this entire prompt. It sends your sales page content for initial analysis.',
+        prompt: prompt1_AnalyzeSalesPage(
+          project.product_description,
+          project.sales_page_content || 'No sales page content provided.'
+        )
+      },
+      {
+        step: 2,
+        title: 'Step 2: Teach the Research Methodology',
+        instruction: 'After getting the response from Step 1, send this second prompt in the SAME conversation. This teaches the AI the 4-layer research framework.',
+        prompt: prompt2_ResearchMethodology()
+      },
+      {
+        step: 3,
+        title: 'Step 3: Generate Your Research Prompt',
+        instruction: 'After getting the response from Step 2, send this final prompt in the SAME conversation. The AI will produce a detailed, specific research prompt for your product. Copy that output and use it to conduct deep research — either paste it into a new ChatGPT Deep Research session, or research the topics manually.',
+        prompt: prompt3_GenerateResearchPrompt(project.name)
+      }
+    ];
 
-  res.json({ prompts });
+    res.json({ prompts });
+  } catch (err) {
+    console.error('[Docs] Research prompts error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // Upload existing foundational documents directly (bypass all generation)
 router.post('/:projectId/upload-docs', async (req, res) => {
-  const project = await getProject(req.params.projectId);
-  if (!project) return res.status(404).json({ error: 'Project not found' });
+  try {
+    const project = await getProject(req.params.projectId);
+    if (!project) return res.status(404).json({ error: 'Project not found' });
 
-  const { docs } = req.body;
-  if (!docs || typeof docs !== 'object') {
-    return res.status(400).json({ error: 'docs object is required' });
+    const { docs } = req.body;
+    if (!docs || typeof docs !== 'object') {
+      return res.status(400).json({ error: 'docs object is required' });
+    }
+
+    const validTypes = ['research', 'avatar', 'offer_brief', 'necessary_beliefs'];
+    const saved = [];
+
+    for (const [docType, content] of Object.entries(docs)) {
+      if (!validTypes.includes(docType)) continue;
+      if (!content || content.trim().length === 0) continue;
+
+      const existing = await getLatestDoc(req.params.projectId, docType);
+      const version = existing ? existing.version + 1 : 1;
+      const id = uuidv4();
+
+      await convexClient.mutation(api.foundationalDocs.create, {
+        externalId: id,
+        project_id: req.params.projectId,
+        doc_type: docType,
+        content: content.trim(),
+        version,
+        source: 'uploaded',
+      });
+
+      saved.push({ id, doc_type: docType, version });
+    }
+
+    if (saved.length === 0) {
+      return res.status(400).json({ error: 'No documents with content were provided' });
+    }
+
+    // Update project status if we have all 4 docs now
+    const allDocs = await getDocsByProject(req.params.projectId);
+    const types = new Set(allDocs.map(d => d.doc_type));
+    if (validTypes.every(t => types.has(t))) {
+      await updateProject(req.params.projectId, { status: 'docs_ready' });
+    } else {
+      await updateProject(req.params.projectId, { status: 'setup' });
+    }
+
+    res.json({ saved, count: saved.length });
+  } catch (err) {
+    console.error('[Docs] Upload docs error:', err.message);
+    res.status(500).json({ error: err.message });
   }
-
-  const validTypes = ['research', 'avatar', 'offer_brief', 'necessary_beliefs'];
-  const saved = [];
-
-  for (const [docType, content] of Object.entries(docs)) {
-    if (!validTypes.includes(docType)) continue;
-    if (!content || content.trim().length === 0) continue;
-
-    const existing = await getLatestDoc(req.params.projectId, docType);
-    const version = existing ? existing.version + 1 : 1;
-    const id = uuidv4();
-
-    await convexClient.mutation(api.foundationalDocs.create, {
-      externalId: id,
-      project_id: req.params.projectId,
-      doc_type: docType,
-      content: content.trim(),
-      version,
-      source: 'uploaded',
-    });
-
-    saved.push({ id, doc_type: docType, version });
-  }
-
-  if (saved.length === 0) {
-    return res.status(400).json({ error: 'No documents with content were provided' });
-  }
-
-  // Update project status if we have all 4 docs now
-  const allDocs = await getDocsByProject(req.params.projectId);
-  const types = new Set(allDocs.map(d => d.doc_type));
-  if (validTypes.every(t => types.has(t))) {
-    await updateProject(req.params.projectId, { status: 'docs_ready' });
-  } else {
-    await updateProject(req.params.projectId, { status: 'setup' });
-  }
-
-  res.json({ saved, count: saved.length });
 });
 
 // Generate synthesis docs from manually-uploaded research (SSE streaming)

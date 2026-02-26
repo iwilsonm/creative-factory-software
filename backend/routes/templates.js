@@ -38,25 +38,30 @@ const EXT_TO_MIME = {
 
 // List all template images for a project
 router.get('/:projectId/templates', async (req, res) => {
-  const project = await getProject(req.params.projectId);
-  if (!project) return res.status(404).json({ error: 'Project not found' });
+  try {
+    const project = await getProject(req.params.projectId);
+    if (!project) return res.status(404).json({ error: 'Project not found' });
 
-  const templates = await convexClient.query(api.templateImages.getByProject, {
-    projectId: req.params.projectId,
-  });
+    const templates = await convexClient.query(api.templateImages.getByProject, {
+      projectId: req.params.projectId,
+    });
 
-  // Add thumbnail URLs + analysis cache
-  const withUrls = templates.map(t => ({
-    id: t.externalId,
-    project_id: t.project_id,
-    filename: t.filename,
-    description: t.description || '',
-    analysis: t.analysis || null,
-    created_at: t.created_at,
-    thumbnailUrl: `/api/projects/${req.params.projectId}/templates/${t.externalId}/file`
-  }));
+    // Add thumbnail URLs + analysis cache
+    const withUrls = templates.map(t => ({
+      id: t.externalId,
+      project_id: t.project_id,
+      filename: t.filename,
+      description: t.description || '',
+      analysis: t.analysis || null,
+      created_at: t.created_at,
+      thumbnailUrl: `/api/projects/${req.params.projectId}/templates/${t.externalId}/file`
+    }));
 
-  res.json({ templates: withUrls, total: withUrls.length });
+    res.json({ templates: withUrls, total: withUrls.length });
+  } catch (err) {
+    console.error('[Templates] List error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // Upload a new template image
@@ -106,55 +111,70 @@ router.post('/:projectId/templates', upload.single('image'), async (req, res) =>
 
 // Update template description
 router.put('/:projectId/templates/:imageId', async (req, res) => {
-  const template = await convexClient.query(api.templateImages.getByExternalId, {
-    externalId: req.params.imageId,
-  });
-  if (!template || template.project_id !== req.params.projectId) {
-    return res.status(404).json({ error: 'Template not found' });
+  try {
+    const template = await convexClient.query(api.templateImages.getByExternalId, {
+      externalId: req.params.imageId,
+    });
+    if (!template || template.project_id !== req.params.projectId) {
+      return res.status(404).json({ error: 'Template not found' });
+    }
+
+    const { description } = req.body;
+    if (description === undefined) return res.status(400).json({ error: 'Description is required' });
+
+    await convexClient.mutation(api.templateImages.update, {
+      externalId: req.params.imageId,
+      description,
+    });
+
+    res.json({
+      id: template.externalId,
+      project_id: template.project_id,
+      filename: template.filename,
+      description,
+      created_at: template.created_at,
+      thumbnailUrl: `/api/projects/${req.params.projectId}/templates/${template.externalId}/file`
+    });
+  } catch (err) {
+    console.error('[Templates] Update error:', err.message);
+    res.status(500).json({ error: err.message });
   }
-
-  const { description } = req.body;
-  if (description === undefined) return res.status(400).json({ error: 'Description is required' });
-
-  await convexClient.mutation(api.templateImages.update, {
-    externalId: req.params.imageId,
-    description,
-  });
-
-  res.json({
-    id: template.externalId,
-    project_id: template.project_id,
-    filename: template.filename,
-    description,
-    created_at: template.created_at,
-    thumbnailUrl: `/api/projects/${req.params.projectId}/templates/${template.externalId}/file`
-  });
 });
 
 // Delete a template image
 router.delete('/:projectId/templates/:imageId', async (req, res) => {
-  const template = await convexClient.query(api.templateImages.getByExternalId, {
-    externalId: req.params.imageId,
-  });
-  if (!template || template.project_id !== req.params.projectId) {
-    return res.status(404).json({ error: 'Template not found' });
+  try {
+    const template = await convexClient.query(api.templateImages.getByExternalId, {
+      externalId: req.params.imageId,
+    });
+    if (!template || template.project_id !== req.params.projectId) {
+      return res.status(404).json({ error: 'Template not found' });
+    }
+
+    // Delete from Convex (also deletes storage file)
+    await convexClient.mutation(api.templateImages.remove, {
+      externalId: req.params.imageId,
+    });
+
+    res.json({ success: true, id: req.params.imageId });
+  } catch (err) {
+    console.error('[Templates] Delete error:', err.message);
+    res.status(500).json({ error: err.message });
   }
-
-  // Delete from Convex (also deletes storage file)
-  await convexClient.mutation(api.templateImages.remove, {
-    externalId: req.params.imageId,
-  });
-
-  res.json({ success: true, id: req.params.imageId });
 });
 
 // Serve template image file (redirect to Convex storage URL)
 router.get('/:projectId/templates/:imageId/file', async (req, res) => {
-  const url = await getTemplateImageUrl(req.params.imageId);
-  if (!url) {
-    return res.status(404).json({ error: 'Image file not found' });
+  try {
+    const url = await getTemplateImageUrl(req.params.imageId);
+    if (!url) {
+      return res.status(404).json({ error: 'Image file not found' });
+    }
+    res.redirect(url);
+  } catch (err) {
+    console.error('[Templates] Serve file error:', err.message);
+    res.status(500).json({ error: err.message });
   }
-  res.redirect(url);
 });
 
 // ── Analyze template image with GPT-4.1-mini vision ─────────────────────────

@@ -42,6 +42,25 @@ export async function fetchSwipePage(url, sendEvent) {
     throw new Error(`Invalid URL: "${url}". Please enter a valid web address.`);
   }
 
+  // Block private/internal IPs to prevent SSRF
+  const { hostname } = parsedUrl;
+  const blockedPatterns = [
+    /^localhost$/i,
+    /^127\./,
+    /^10\./,
+    /^172\.(1[6-9]|2\d|3[01])\./,
+    /^192\.168\./,
+    /^169\.254\./,
+    /^0\./,
+    /^\[?::1\]?$/,
+    /^\[?fe80:/i,
+    /^\[?fc00:/i,
+    /^\[?fd/i,
+  ];
+  if (blockedPatterns.some(p => p.test(hostname))) {
+    throw new Error('URLs pointing to internal/private addresses are not allowed.');
+  }
+
   sendEvent({ type: 'progress', step: 'fetch_loading', message: 'Loading swipe page...' });
 
   let browser;

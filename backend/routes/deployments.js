@@ -1074,7 +1074,15 @@ Remember to use \\n\\n between paragraphs within each text variation.`;
       const urlRegex = /https?:\/\/[^\s"'<>]+/gi;
       const urls = direction.match(urlRegex);
       if (urls && urls.length > 0) {
-        for (const url of urls.slice(0, 2)) { // Limit to 2 URLs max
+        // Block private/internal IPs to prevent SSRF
+        const blockedPatterns = [
+          /^localhost$/i, /^127\./, /^10\./, /^172\.(1[6-9]|2\d|3[01])\./,
+          /^192\.168\./, /^169\.254\./, /^0\./, /^\[?::1\]?$/, /^\[?fe80:/i, /^\[?fc00:/i, /^\[?fd/i,
+        ];
+        const safeUrls = urls.filter(u => {
+          try { return !blockedPatterns.some(p => p.test(new URL(u).hostname)); } catch { return false; }
+        });
+        for (const url of safeUrls.slice(0, 2)) { // Limit to 2 URLs max
           try {
             const fetchModule = await import('node-fetch');
             const fetchFn = fetchModule.default;

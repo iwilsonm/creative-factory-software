@@ -44,7 +44,16 @@ router.get('/config/:projectId', async (req, res) => {
 // PUT /api/conductor/config/:projectId
 router.put('/config/:projectId', async (req, res) => {
   try {
-    const fields = req.body;
+    // Whitelist allowed fields to prevent arbitrary field injection
+    const allowedConfigFields = [
+      'enabled', 'daily_flex_target', 'ads_per_batch', 'angle_mode',
+      'angle_rotation', 'explore_ratio', 'run_schedule', 'posting_days',
+      'score_threshold', 'auto_learn',
+    ];
+    const fields = {};
+    for (const key of allowedConfigFields) {
+      if (req.body[key] !== undefined) fields[key] = req.body[key];
+    }
     await upsertConductorConfig(req.params.projectId, fields);
     const config = await getConductorConfig(req.params.projectId);
     res.json({ ok: true, config });
@@ -107,7 +116,12 @@ router.post('/angles/:projectId', async (req, res) => {
 // PUT /api/conductor/angles/:projectId/:angleId
 router.put('/angles/:projectId/:angleId', async (req, res) => {
   try {
-    const fields = req.body;
+    // Whitelist allowed fields to prevent arbitrary field injection
+    const allowedAngleFields = ['name', 'description', 'prompt_hints', 'status', 'source'];
+    const fields = {};
+    for (const key of allowedAngleFields) {
+      if (req.body[key] !== undefined) fields[key] = req.body[key];
+    }
     await updateConductorAngle(req.params.angleId, fields);
     res.json({ ok: true });
   } catch (err) {

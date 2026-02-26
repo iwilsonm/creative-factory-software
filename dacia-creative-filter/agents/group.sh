@@ -137,16 +137,39 @@ jq -n \
   }' > "$TEMP_BODY"
 rm -f "$TEMP_PROMPT"
 
-RESPONSE=$(curl -s --max-time 120 "https://api.anthropic.com/v1/messages" \
-  -H "Content-Type: application/json" \
-  -H "x-api-key: ${ANTHROPIC_API_KEY}" \
-  -H "anthropic-version: 2023-06-01" \
-  -d "@${TEMP_BODY}") || {
-  echo "  curl FAILED with exit code $?" >> "$DEBUG_LOG"
-  rm -f "$TEMP_BODY"
-  echo '{"flex_ads": [], "error": "curl_failed"}'
-  exit 0
-}
+# Retry loop for Anthropic API (handles 429, 529, transient failures)
+MAX_RETRIES=3
+RETRY_DELAY=15
+RESPONSE=""
+for attempt in $(seq 1 $MAX_RETRIES); do
+  HTTP_CODE=$(curl -s -w "\n%{http_code}" --max-time 120 "https://api.anthropic.com/v1/messages" \
+    -H "Content-Type: application/json" \
+    -H "x-api-key: ${ANTHROPIC_API_KEY}" \
+    -H "anthropic-version: 2023-06-01" \
+    -d "@${TEMP_BODY}" -o /tmp/group_resp_$$.json 2>/dev/null) || HTTP_CODE="000"
+  HTTP_CODE=$(echo "$HTTP_CODE" | tail -1)
+  RESPONSE=$(cat /tmp/group_resp_$$.json 2>/dev/null || echo "")
+  rm -f /tmp/group_resp_$$.json
+
+  if [[ "$HTTP_CODE" == "200" ]]; then
+    break
+  elif [[ "$HTTP_CODE" == "429" || "$HTTP_CODE" == "529" || "$HTTP_CODE" == "000" ]]; then
+    echo "  API returned $HTTP_CODE on attempt $attempt/$MAX_RETRIES, retrying in $((RETRY_DELAY * attempt))s..." >> "$DEBUG_LOG"
+    if [[ "$attempt" -lt "$MAX_RETRIES" ]]; then
+      sleep $((RETRY_DELAY * attempt))
+    else
+      echo "  All retries exhausted" >> "$DEBUG_LOG"
+      rm -f "$TEMP_BODY"
+      echo '{"flex_ads": [], "error": "api_retries_exhausted"}'
+      exit 0
+    fi
+  else
+    echo "  curl FAILED with HTTP $HTTP_CODE on attempt $attempt" >> "$DEBUG_LOG"
+    rm -f "$TEMP_BODY"
+    echo '{"flex_ads": [], "error": "curl_failed"}'
+    exit 0
+  fi
+done
 rm -f "$TEMP_BODY"
 
 # Log API response metadata

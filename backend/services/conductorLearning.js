@@ -117,12 +117,15 @@ Return ONLY a JSON object, no other text:
 }`;
 
   try {
-    const response = await anthropicChat(prompt, {
-      model: 'claude-sonnet-4-5-20250929',
-      maxTokens: 1500,
-      operation: 'conductor_learning_analysis',
-      projectId,
-    });
+    const response = await anthropicChat(
+      [{ role: 'user', content: prompt }],
+      'claude-sonnet-4-6',
+      {
+        maxTokens: 1500,
+        operation: 'conductor_learning_analysis',
+        projectId,
+      }
+    );
 
     // Parse response
     let analysis;

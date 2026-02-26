@@ -48,6 +48,24 @@ log_ok()    { log "OK"    "${GREEN}$*${NC}"; }
 log_err()   { log "ERROR" "${RED}$*${NC}"; }
 log_res()   { log "RESURRECT" "${CYAN}$*${NC}"; }
 
+# --- Lock File (prevent concurrent execution) ---
+LOCK_FILE="/tmp/dacia-fixer.lock"
+
+acquire_lock() {
+  if [[ -f "$LOCK_FILE" ]]; then
+    local lock_pid; lock_pid=$(cat "$LOCK_FILE" 2>/dev/null)
+    if [[ -n "$lock_pid" ]] && kill -0 "$lock_pid" 2>/dev/null; then
+      log_warn "Another fixer instance is running (PID $lock_pid). Exiting."
+      exit 0
+    else
+      log_info "Stale lock file found (PID $lock_pid not running). Removing."
+      rm -f "$LOCK_FILE"
+    fi
+  fi
+  echo $$ > "$LOCK_FILE"
+  trap 'rm -f "$LOCK_FILE"' EXIT INT TERM
+}
+
 # --- Cost Tracking ---
 init_spend_tracker() {
   if [[ ! -f "$SPEND_FILE" ]]; then
@@ -231,9 +249,14 @@ commit_to_fixer_branch() {
     # Branch exists — switch to it and rebase on current branch
     git checkout "$FIXER_BRANCH" > /dev/null 2>&1
     git rebase "$current_branch" > /dev/null 2>&1 || {
-      log_warn "Rebase conflict — resetting fixer branch to $current_branch"
+      log_warn "Rebase conflict — aborting rebase (fixer branch history preserved)"
       git rebase --abort > /dev/null 2>&1
-      git reset --hard "$current_branch" > /dev/null 2>&1
+      # Merge instead of reset --hard to preserve fixer branch commit history
+      git merge "$current_branch" --no-edit > /dev/null 2>&1 || {
+        log_warn "Merge also conflicted — resetting fixer branch to $current_branch"
+        git merge --abort > /dev/null 2>&1
+        git reset --hard "$current_branch" > /dev/null 2>&1
+      }
     }
   else
     # Create new fixer branch from current
@@ -247,8 +270,15 @@ commit_to_fixer_branch() {
     return 1
   }
 
-  # Commit on fixer branch
-  git add -A > /dev/null 2>&1
+  # Commit on fixer branch — only stage the specific files that were changed
+  if [[ -n "$files_changed" ]]; then
+    for f in $files_changed; do
+      git add "$f" > /dev/null 2>&1 || true
+    done
+  else
+    # Fallback: stage tracked changes only (no untracked files)
+    git add -u > /dev/null 2>&1
+  fi
   git commit -m "$commit_msg" > /dev/null 2>&1 || {
     log_warn "Nothing to commit"
   }
@@ -288,8 +318,8 @@ run_tests() {
   
   log_info "Running tests: $suite"
   cd "$PROJECT_DIR"
-  local output; output=$(eval "$test_cmd" 2>&1) || true
-  local exit_code=${PIPESTATUS[0]:-$?}
+  local exit_code=0
+  local output; output=$(eval "$test_cmd" 2>&1) || exit_code=$?
   echo "$output"
   return "$exit_code"
 }
@@ -356,25 +386,36 @@ resurrect_failed_batches() {
   fi
   
   local count=0
-  local batch_ids
-  batch_ids=$(echo "$failed_batches" | jq -r '.value[]? | select(.status == "failed") | .externalId // ._id' 2>/dev/null)
-  
-  if [[ -z "$batch_ids" ]]; then
+  local MAX_RESURRECT_RETRIES=3
+  local batch_entries
+  batch_entries=$(echo "$failed_batches" | jq -c '.value[]? | select(.status == "failed") | {id: (.externalId // ._id), retry_count: (.retry_count // 0)}' 2>/dev/null)
+
+  if [[ -z "$batch_entries" ]]; then
     log_res "No failed batches found ✓"
     return 0
   fi
-  
-  while IFS= read -r batch_id; do
-    [[ -z "$batch_id" ]] && continue
-    
-    log_res "Resurrecting batch: $batch_id"
-    
+
+  while IFS= read -r entry; do
+    [[ -z "$entry" ]] && continue
+
+    local batch_id; batch_id=$(echo "$entry" | jq -r '.id')
+    local retry_count; retry_count=$(echo "$entry" | jq -r '.retry_count // 0')
+    [[ -z "$batch_id" || "$batch_id" == "null" ]] && continue
+
+    # Skip batches that have already been retried too many times
+    if [[ "$retry_count" -ge "$MAX_RESURRECT_RETRIES" ]]; then
+      log_res "Skipping batch $batch_id — already retried $retry_count times (max $MAX_RESURRECT_RETRIES)"
+      continue
+    fi
+
+    log_res "Resurrecting batch: $batch_id (retry $((retry_count + 1))/$MAX_RESURRECT_RETRIES)"
+
     local reset_response
     reset_response=$(curl -s -X POST "http://localhost:3001/api/batches/${batch_id}/retry" \
       -H "Content-Type: application/json" \
       -H "Cookie: $(get_session_cookie)" \
       2>/dev/null) || {
-      
+
       reset_response=$(curl -s "${CONVEX_URL}/api/mutation" \
         -H "Content-Type: application/json" \
         -d "{
@@ -383,18 +424,18 @@ resurrect_failed_batches() {
             \"externalId\": \"${batch_id}\",
             \"status\": \"pending\",
             \"error\": null,
-            \"retry_count\": 0
+            \"retry_count\": $((retry_count + 1))
           }
         }" 2>/dev/null) || {
         log_warn "Failed to resurrect batch $batch_id"
         continue
       }
     }
-    
+
     count=$((count + 1))
-    log_res "Batch $batch_id reset to pending"
-    
-  done <<< "$batch_ids"
+    log_res "Batch $batch_id reset to pending (retry $((retry_count + 1)))"
+
+  done <<< "$batch_entries"
   
   if [[ "$count" -gt 0 ]]; then
     log_ok "Resurrected $count failed batch(es)"
@@ -1734,7 +1775,13 @@ run_fix_pipeline() {
   else
     log_warn "Fix didn't resolve the issue"
     cd "$PROJECT_DIR"
-    git checkout -- . 2>/dev/null || true
+    # Only revert the specific files that were changed, not the entire working tree
+    if [[ -n "$files_changed" ]]; then
+      for f in $files_changed; do
+        git checkout -- "$f" 2>/dev/null || true
+      done
+      log_info "Reverted changed files: $files_changed"
+    fi
     return 1
   fi
 }
@@ -1867,6 +1914,7 @@ show_status() {
 
 # --- Entry Point ---
 main() {
+  acquire_lock
   init_spend_tracker
   init_ledger
 

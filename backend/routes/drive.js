@@ -114,7 +114,9 @@ router.get('/folders', async (req, res) => {
     const allFolders = [];
 
     if (parentId) {
-      const query = `mimeType = 'application/vnd.google-apps.folder' and trashed = false and '${parentId}' in parents`;
+      // Sanitize parentId to prevent query injection (Drive IDs are alphanumeric + hyphens/underscores)
+      const sanitizedParentId = parentId.replace(/[^a-zA-Z0-9_-]/g, '');
+      const query = `mimeType = 'application/vnd.google-apps.folder' and trashed = false and '${sanitizedParentId}' in parents`;
       const response = await drive.files.list({
         q: query,
         fields: 'files(id, name, parents)',
