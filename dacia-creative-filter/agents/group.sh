@@ -20,7 +20,9 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 source "${SCRIPT_DIR}/config/filter.conf"
 
-SCORED_ADS="$1"
+# $1 is now a file path containing the scored ads JSON (avoids ARG_MAX limit)
+SCORED_ADS_FILE="$1"
+SCORED_ADS=$(cat "$SCORED_ADS_FILE")
 PROJECT_NAME="$2"
 FLEX_AD_COUNT="${3:-$FLEX_AD_COUNT}"  # Per-project override or config default
 
@@ -119,23 +121,33 @@ echo "  Input ad count: $(echo "$SCORED_ADS" | jq 'length' 2>/dev/null || echo '
 echo "  Project: $PROJECT_NAME, Target flex ads: $FLEX_AD_COUNT" >> "$DEBUG_LOG"
 echo "  Prompt length: ${#PROMPT} chars" >> "$DEBUG_LOG"
 
-RESPONSE=$(curl -s "https://api.anthropic.com/v1/messages" \
+# Write prompt to temp file to avoid ARG_MAX on large ad payloads
+TEMP_PROMPT="/tmp/filter_group_prompt_$$.txt"
+echo -n "$PROMPT" > "$TEMP_PROMPT"
+
+TEMP_BODY="/tmp/filter_group_body_$$.json"
+jq -n \
+  --arg model "$GROUP_MODEL" \
+  --rawfile prompt "$TEMP_PROMPT" \
+  '{
+    "model": $model,
+    "max_tokens": 4096,
+    "temperature": 0,
+    "messages": [{"role": "user", "content": $prompt}]
+  }' > "$TEMP_BODY"
+rm -f "$TEMP_PROMPT"
+
+RESPONSE=$(curl -s --max-time 120 "https://api.anthropic.com/v1/messages" \
   -H "Content-Type: application/json" \
   -H "x-api-key: ${ANTHROPIC_API_KEY}" \
   -H "anthropic-version: 2023-06-01" \
-  -d "$(jq -n \
-    --arg model "$GROUP_MODEL" \
-    --arg prompt "$PROMPT" \
-    '{
-      "model": $model,
-      "max_tokens": 4096,
-      "temperature": 0,
-      "messages": [{"role": "user", "content": $prompt}]
-    }')") || {
+  -d "@${TEMP_BODY}") || {
   echo "  curl FAILED with exit code $?" >> "$DEBUG_LOG"
+  rm -f "$TEMP_BODY"
   echo '{"flex_ads": [], "error": "curl_failed"}'
   exit 0
 }
+rm -f "$TEMP_BODY"
 
 # Log API response metadata
 echo "  API response type: $(echo "$RESPONSE" | jq -r '.type // "unknown"' 2>/dev/null)" >> "$DEBUG_LOG"

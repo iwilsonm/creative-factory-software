@@ -317,13 +317,19 @@ group_into_flex_ads() {
 
   log_info "Grouping $pass_count passing ads into ${flex_count_target} flex ads..."
 
+  # Write passing ads to temp file to avoid ARG_MAX limit on large payloads
+  local temp_ads="/tmp/filter_group_ads_$$.json"
+  echo "$passing" > "$temp_ads"
+
   local group_result
-  group_result=$(bash "${SCRIPT_DIR}/agents/group.sh" "$passing" "$project_name" "$flex_count_target" 2>&1) || {
+  group_result=$(bash "${SCRIPT_DIR}/agents/group.sh" "$temp_ads" "$project_name" "$flex_count_target" 2>&1) || {
     log_err "group.sh exited with error code $?"
     log_err "group.sh output: $(echo "$group_result" | head -c 300)"
+    rm -f "$temp_ads"
     echo "{\"flex_ads\": [], \"error\": \"group_script_failed\"}"
     return
   }
+  rm -f "$temp_ads"
   add_spend 4 "grouping" "$GROUP_MODEL" "anthropic"  # ~$0.04 per grouping call
 
   # Log grouping result summary
