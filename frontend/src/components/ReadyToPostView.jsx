@@ -1034,15 +1034,22 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
                 {plannedDate && (
                   <span className="inline-block px-2 py-0.5 rounded bg-teal/10 text-teal text-[9px] font-bold uppercase tracking-wider">Start Date: {plannedDate}</span>
                 )}
-                {formatAddedDate(dep.created_at) && (
-                  <span className="text-[10px] text-textlight">Added {formatAddedDate(dep.created_at)}</span>
-                )}
               </div>
             </div>
             {thumbUrl && (
               <img src={thumbUrl} alt="" className="w-14 h-14 object-cover rounded-xl bg-gray-100 flex-shrink-0" loading="lazy" />
             )}
           </div>
+
+          {/* Added to Ready to Post timestamp */}
+          {formatAddedDate(dep.created_at) && (
+            <div className="flex items-center gap-1.5 text-[11px] text-textmid">
+              <svg className="w-3.5 h-3.5 text-textlight flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              Added to Ready to Post: {formatAddedDate(dep.created_at)}
+            </div>
+          )}
 
           {/* Campaign + Ad Set + Duplicate Ad Set — always visible */}
           <PostInSection campaignName={campaignName} adSetName={adSetName} duplicateAdSetName={dep.duplicate_adset_name} />
@@ -1197,9 +1204,6 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
                 {plannedDate && (
                   <span className="inline-block px-2 py-0.5 rounded bg-teal/10 text-teal text-[9px] font-bold uppercase tracking-wider">Start Date: {plannedDate}</span>
                 )}
-                {formatAddedDate(flexAd.created_at) && (
-                  <span className="text-[10px] text-textlight">Added {formatAddedDate(flexAd.created_at)}</span>
-                )}
               </div>
             </div>
             <div className="flex gap-1 flex-shrink-0">
@@ -1213,6 +1217,16 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
               )}
             </div>
           </div>
+
+          {/* Added to Ready to Post timestamp */}
+          {formatAddedDate(flexAd.created_at) && (
+            <div className="flex items-center gap-1.5 text-[11px] text-textmid">
+              <svg className="w-3.5 h-3.5 text-textlight flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
+              </svg>
+              Added to Ready to Post: {formatAddedDate(flexAd.created_at)}
+            </div>
+          )}
 
           {/* Campaign + Ad Set + Duplicate Ad Set — always visible */}
           <PostInSection campaignName={campaignName} adSetName={adSetName} duplicateAdSetName={flexAd.duplicate_adset_name} />
