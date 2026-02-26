@@ -623,22 +623,15 @@ process_batch() {
 
   log_info "Project: $project_name"
 
-  # Read per-project flex ad daily cap
-  # Priority: conductor_config.daily_flex_target > project.scout_daily_flex_ads > config FLEX_AD_COUNT
+  # Read per-project flex ad daily cap from the Filter's own setting (scout_daily_flex_ads)
+  # The Director's daily_flex_target is a separate production goal and does not cap the Filter.
   local project_flex_cap
-  local conductor_cap=""
-  conductor_cap=$(curl -s "${BACKEND_URL}/api/conductor/config?projectId=${project_id}" \
-    -H "Cookie: $(get_session_cookie)" 2>/dev/null | jq -r '.daily_flex_target // ""') || conductor_cap=""
-  if [[ -n "$conductor_cap" && "$conductor_cap" != "null" && "$conductor_cap" -gt 0 ]] 2>/dev/null; then
-    project_flex_cap=$conductor_cap
-    log_info "Using Director daily_flex_target: $project_flex_cap"
-  else
-    project_flex_cap=$(echo "$project_config" | jq -r '.scout_daily_flex_ads // "'"$FLEX_AD_COUNT"'"')
-    project_flex_cap=$((project_flex_cap + 0))
-    if [[ "$project_flex_cap" -lt 1 ]]; then
-      project_flex_cap=$FLEX_AD_COUNT
-    fi
+  project_flex_cap=$(echo "$project_config" | jq -r '.scout_daily_flex_ads // "'"$FLEX_AD_COUNT"'"')
+  project_flex_cap=$((project_flex_cap + 0))
+  if [[ "$project_flex_cap" -lt 1 ]]; then
+    project_flex_cap=$FLEX_AD_COUNT
   fi
+  log_info "Filter daily flex cap: $project_flex_cap (from scout_daily_flex_ads)"
 
   # Check daily cap — count flex ads deployed today for this project from log
   local today_flex_count=0
