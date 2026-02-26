@@ -229,7 +229,7 @@ fi
 
 TEMP_BODY="/tmp/filter_body_$$.json"
 echo "$API_BODY" > "$TEMP_BODY"
-RESPONSE=$(curl -s "https://api.anthropic.com/v1/messages" \
+RESPONSE=$(curl -s --max-time 120 "https://api.anthropic.com/v1/messages" \
   -H "Content-Type: application/json" \
   -H "x-api-key: ${ANTHROPIC_API_KEY}" \
   -H "anthropic-version: 2023-06-01" \

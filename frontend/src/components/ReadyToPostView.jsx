@@ -102,6 +102,15 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
     } catch { return dateStr; }
   };
 
+  const formatAddedDate = (dateStr) => {
+    if (!dateStr) return null;
+    try {
+      const d = new Date(dateStr);
+      return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }) +
+        ' at ' + d.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+    } catch { return null; }
+  };
+
   const parseCount = (jsonStr) => {
     try { return JSON.parse(jsonStr).filter(Boolean).length; } catch { return 0; }
   };
@@ -1020,10 +1029,13 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
                 <span className="text-textmid font-medium">Ad Name: </span>
                 <span className="font-bold text-textdark">{name}</span>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <span className="inline-block px-2 py-0.5 rounded bg-purple-100 text-purple-700 text-[9px] font-bold uppercase tracking-wider">Ad Format: Single Image</span>
                 {plannedDate && (
                   <span className="inline-block px-2 py-0.5 rounded bg-teal/10 text-teal text-[9px] font-bold uppercase tracking-wider">Start Date: {plannedDate}</span>
+                )}
+                {formatAddedDate(dep.created_at) && (
+                  <span className="text-[10px] text-textlight">Added {formatAddedDate(dep.created_at)}</span>
                 )}
               </div>
             </div>
@@ -1180,10 +1192,13 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
                 <span className="text-textmid font-medium">Ad Name: </span>
                 <span className="font-bold text-textdark">{flexAd.name || 'Flex Ad'}</span>
               </div>
-              <div className="flex items-center gap-2">
+              <div className="flex items-center gap-2 flex-wrap">
                 <span className="inline-block px-2 py-0.5 rounded bg-purple-100 text-purple-700 text-[9px] font-bold uppercase tracking-wider">Ad Format: Flexible</span>
                 {plannedDate && (
                   <span className="inline-block px-2 py-0.5 rounded bg-teal/10 text-teal text-[9px] font-bold uppercase tracking-wider">Start Date: {plannedDate}</span>
+                )}
+                {formatAddedDate(flexAd.created_at) && (
+                  <span className="text-[10px] text-textlight">Added {formatAddedDate(flexAd.created_at)}</span>
                 )}
               </div>
             </div>
