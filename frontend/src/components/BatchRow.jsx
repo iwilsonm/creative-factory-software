@@ -129,7 +129,13 @@ export default function BatchRow({ batch, onRunNow, onCancel, onDelete, onEdit, 
                 : (STATUS_LABELS[batch.status] || batch.status)}
             </span>
             {batch.filter_assigned && (
-              <span className="badge bg-teal/10 text-teal text-[10px]">Filter</span>
+              batch.filter_processed ? (
+                <span className="badge bg-teal/10 text-teal text-[10px]">Filtered</span>
+              ) : batch.status === 'completed' ? (
+                <span className="badge bg-gold/10 text-gold text-[10px]">Awaiting Filter</span>
+              ) : (
+                <span className="badge bg-navy/10 text-navy text-[10px]">Filter</span>
+              )
             )}
             {batch.schedule_cron ? (
               batch.scheduled ? (

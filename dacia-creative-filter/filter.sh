@@ -678,16 +678,17 @@ process_batch() {
   flex_count=$(echo "$flex_result" | jq '.flex_ads | length' 2>/dev/null || echo 0)
   log_info "Post-grouping flex_count: $flex_count"
 
-  # === REGENERATION LOOP ===
-  # For each flex ad, check if it has enough headlines and primary texts.
-  # If not, regenerate + validate until minimums are met or max rounds hit.
+  # === PLANNER-QUALITY COPY GENERATION ===
+  # For each flex ad, generate fresh primary text + headlines using the same
+  # system the Planner uses (Claude Sonnet 4.6 + foundational docs + exact prompts).
+  # This replaces the old regeneration loop that had thin context.
 
   if [[ "$flex_count" -gt 0 ]]; then
-    flex_result=$(regeneration_loop "$flex_result" "$top_performers" "$project_name")
+    flex_result=$(generate_planner_copy "$flex_result" "$project_id" "$scored_ads")
     flex_count=$(echo "$flex_result" | jq '.flex_ads | length' 2>/dev/null || echo 0)
-    log_info "Post-regeneration flex_count: $flex_count"
+    log_info "Post-copy-generation flex_count: $flex_count"
   else
-    log_warn "No flex ads from grouping — skipping regeneration and deployment"
+    log_warn "No flex ads from grouping — skipping copy generation and deployment"
   fi
 
   if [[ "$flex_count" -gt 0 && "$AUTO_DEPLOY" == "true" ]]; then
@@ -719,7 +720,116 @@ process_batch() {
 }
 
 # ============================================================
-# REGENERATION LOOP
+# PLANNER-QUALITY COPY GENERATION
+# ============================================================
+# Calls the backend API to generate primary texts and headlines
+# using the exact same system as the Planner (Claude Sonnet 4.6
+# + foundational docs + Planner prompts). Replaces group.sh's
+# copy selections with freshly generated Planner-quality copy.
+# ============================================================
+
+generate_planner_copy() {
+  local flex_result="$1"
+  local project_id="$2"
+  local scored_ads="$3"
+
+  local flex_count
+  flex_count=$(echo "$flex_result" | jq '.flex_ads | length')
+
+  for i in $(seq 0 $((flex_count - 1))); do
+    local flex_ad
+    flex_ad=$(echo "$flex_result" | jq ".flex_ads[$i]")
+    local angle
+    angle=$(echo "$flex_ad" | jq -r '.angle_theme')
+    local image_ids
+    image_ids=$(echo "$flex_ad" | jq '.image_ad_ids')
+
+    log_info "Generating Planner-quality copy for flex ad $((i+1)): $angle"
+
+    # Build ad_creatives from the selected image ads
+    local ad_creatives="[]"
+    local ad_id
+    for ad_id in $(echo "$image_ids" | jq -r '.[]'); do
+      local ad
+      ad=$(echo "$scored_ads" | jq --arg id "$ad_id" '[.[] | select(.externalId == $id or ._id == $id)] | .[0] // empty')
+      if [[ -n "$ad" && "$ad" != "null" ]]; then
+        local creative
+        creative=$(echo "$ad" | jq '{headline: (.headline // ""), body_copy: (.body_copy // ""), angle: (.angle // "")}')
+        ad_creatives=$(echo "$ad_creatives" | jq --argjson c "$creative" '. + [$c]')
+      fi
+    done
+
+    # Call backend API to generate copy with Planner prompts + foundational docs
+    local response
+    response=$(curl -s --max-time 120 -X POST "${BACKEND_URL}/api/deployments/filter/generate-copy" \
+      -H "Content-Type: application/json" \
+      -H "Cookie: $(get_session_cookie)" \
+      -d "$(jq -n \
+        --arg project_id "$project_id" \
+        --arg angle_theme "$angle" \
+        --argjson ad_creatives "$ad_creatives" \
+        '{project_id: $project_id, angle_theme: $angle_theme, ad_creatives: $ad_creatives}')" 2>/dev/null) || {
+      log_warn "  API call failed for flex ad $((i+1)). Keeping original copy."
+      continue
+    }
+
+    # Check for API error
+    local api_error
+    api_error=$(echo "$response" | jq -r '.error // empty' 2>/dev/null)
+    if [[ -n "$api_error" ]]; then
+      log_warn "  API error: $api_error. Keeping original copy."
+      continue
+    fi
+
+    # Extract results
+    local new_primary_texts
+    new_primary_texts=$(echo "$response" | jq '.primary_texts // []' 2>/dev/null)
+    local new_headlines
+    new_headlines=$(echo "$response" | jq '.headlines // []' 2>/dev/null)
+    local pt_count
+    pt_count=$(echo "$new_primary_texts" | jq 'length' 2>/dev/null || echo 0)
+    local hl_count
+    hl_count=$(echo "$new_headlines" | jq 'length' 2>/dev/null || echo 0)
+
+    if [[ "$pt_count" -ge 3 && "$hl_count" -ge 3 ]]; then
+      # Replace copy in flex ad with Planner-generated copy
+      flex_ad=$(echo "$flex_ad" | jq \
+        --argjson pts "$new_primary_texts" \
+        --argjson hls "$new_headlines" \
+        --argjson ptc "$pt_count" \
+        --argjson hlc "$hl_count" \
+        '.primary_texts = [$pts[] | {text: ., source_ad_id: "planner-generated", first_line_hook_strong: true, has_cta_at_end: true, spelling_clean: true}] |
+         .headlines = [$hls[] | {text: ., source_ad_id: "planner-generated", spelling_clean: true}] |
+         .primary_text_count = $ptc |
+         .headline_count = $hlc |
+         .meets_minimum = true')
+
+      add_spend 8 "planner_copy_generation" "claude-sonnet-4-6" "anthropic"  # ~$0.06-0.08 for 2 LLM calls
+
+      log_ok "  Generated Planner-quality copy: $hl_count headlines, $pt_count primary texts"
+    else
+      log_warn "  Copy generation returned insufficient results ($hl_count headlines, $pt_count texts). Keeping original."
+    fi
+
+    flex_result=$(echo "$flex_result" | jq --argjson fa "$flex_ad" ".flex_ads[$i] = \$fa")
+  done
+
+  # Remove any flex ads that don't meet minimums (shouldn't happen with Planner generation, but safety check)
+  local before_count
+  before_count=$(echo "$flex_result" | jq '.flex_ads | length')
+  flex_result=$(echo "$flex_result" | jq '.flex_ads = [.flex_ads[] | select(.meets_minimum == true)]')
+  local after_count
+  after_count=$(echo "$flex_result" | jq '.flex_ads | length')
+
+  if [[ "$after_count" -lt "$before_count" ]]; then
+    log_warn "Removed $((before_count - after_count)) flex ad(s) that couldn't meet copy minimums"
+  fi
+
+  echo "$flex_result"
+}
+
+# ============================================================
+# REGENERATION LOOP (LEGACY — kept as backup, no longer called)
 # ============================================================
 # Ensures every flex ad has at least HEADLINES_MIN headlines
 # and PRIMARY_TEXTS_MIN primary texts. Regenerates and validates

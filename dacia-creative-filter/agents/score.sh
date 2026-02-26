@@ -183,10 +183,13 @@ Respond ONLY with this exact JSON format, nothing else:
 
 if [[ "$HAS_IMAGE" == "true" ]]; then
   # Vision request: image + text in content array
+  # Use --rawfile for base64 data to avoid "Argument list too long" on large images
+  TEMP_B64="/tmp/filter_b64_$$.txt"
+  echo -n "$IMAGE_BASE64" > "$TEMP_B64"
   API_BODY=$(jq -n \
     --arg model "$SCORE_MODEL" \
     --arg prompt "$PROMPT" \
-    --arg img_data "$IMAGE_BASE64" \
+    --rawfile img_data "$TEMP_B64" \
     --arg img_mime "$IMAGE_MIME" \
     '{
       "model": $model,
@@ -210,6 +213,7 @@ if [[ "$HAS_IMAGE" == "true" ]]; then
         ]
       }]
     }')
+  rm -f "$TEMP_B64"
 else
   # Text-only request (fallback if image unavailable)
   API_BODY=$(jq -n \
@@ -223,11 +227,14 @@ else
     }')
 fi
 
+TEMP_BODY="/tmp/filter_body_$$.json"
+echo "$API_BODY" > "$TEMP_BODY"
 RESPONSE=$(curl -s "https://api.anthropic.com/v1/messages" \
   -H "Content-Type: application/json" \
   -H "x-api-key: ${ANTHROPIC_API_KEY}" \
   -H "anthropic-version: 2023-06-01" \
-  -d "$API_BODY")
+  -d "@${TEMP_BODY}")
+rm -f "$TEMP_BODY"
 
 # Extract and clean JSON
 echo "$RESPONSE" | jq -r '.content[0].text // "{\"error\": \"No score generated\"}"' | \

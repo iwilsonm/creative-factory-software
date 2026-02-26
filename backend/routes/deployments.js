@@ -1310,4 +1310,177 @@ Write 5 NEW refined headlines that incorporate this feedback while keeping what 
   }
 });
 
+// ─── Filter Copy Generation ─────────────────────────────────────────────────
+// Used by the Creative Filter agent to generate Planner-quality primary text
+// and headlines for flex ads. Uses the exact same prompts and model as the
+// Planner's manual generation endpoints.
+// ─────────────────────────────────────────────────────────────────────────────
+
+router.post('/deployments/filter/generate-copy', async (req, res) => {
+  try {
+    const { project_id, angle_theme, ad_creatives } = req.body;
+
+    if (!project_id) return res.status(400).json({ error: 'project_id required' });
+    if (!angle_theme) return res.status(400).json({ error: 'angle_theme required' });
+
+    const project = await getProject(project_id);
+    if (!project) return res.status(404).json({ error: 'Project not found' });
+
+    // Load foundational docs (same as Planner)
+    const [avatar, offer_brief, research, beliefs] = await Promise.all([
+      getLatestDoc(project_id, 'avatar'),
+      getLatestDoc(project_id, 'offer_brief'),
+      getLatestDoc(project_id, 'research'),
+      getLatestDoc(project_id, 'necessary_beliefs'),
+    ]);
+
+    const avatarSnippet = (avatar?.content || '').slice(0, 2000);
+    const offerSnippet = (offer_brief?.content || '').slice(0, 1500);
+    const researchSnippet = (research?.content || '').slice(0, 1500);
+    const beliefsSnippet = (beliefs?.content || '').slice(0, 1000);
+
+    if (!avatarSnippet && !offerSnippet) {
+      return res.status(400).json({ error: 'Generate foundational docs first.' });
+    }
+
+    // Build creative context from ad creatives (same format as Planner flex ad context)
+    let creativeContext = '';
+    if (ad_creatives && ad_creatives.length > 0) {
+      creativeContext = ad_creatives.map((ad, i) => `
+IMAGE ${i + 1}:
+Angle: ${ad.angle || 'N/A'}
+Headline: ${ad.headline || 'N/A'}
+Body Copy: ${ad.body_copy || 'N/A'}`).join('\n');
+    }
+
+    // ── Step 1: Generate Primary Texts (identical to Planner system prompt) ──
+    const primaryTextSystemPrompt = `You are a world-class direct response copywriter writing Facebook ad primary text (the text that appears ABOVE the ad image).
+
+BRAND: ${project.brand_name || project.name}
+PRODUCT: ${project.product_description || ''}
+
+AVATAR (excerpt):
+${avatarSnippet}
+
+OFFER BRIEF (excerpt):
+${offerSnippet}
+
+${researchSnippet ? `RESEARCH (excerpt):\n${researchSnippet}\n` : ''}
+${beliefsSnippet ? `NECESSARY BELIEFS (excerpt):\n${beliefsSnippet}\n` : ''}
+
+AD CREATIVE INFO:
+${creativeContext}
+
+ANGLE/THEME FOR THIS AD SET: ${angle_theme}
+
+Your task is to write 5 variations of Facebook ad primary text. Each MUST follow this structure:
+
+FIRST LINE (HOOK): The very first line must be an attention-grabbing hook that stops the scroll. Use a bold claim, surprising fact, provocative question, or pattern interrupt. This line is the most important — if it doesn't grab attention, nothing else matters.
+
+MIDDLE: 2-4 sentences that speak directly to the target audience's pain points and desires. Build curiosity and emotional connection. Sound conversational and natural, not like marketing copy.
+
+LAST LINE (CTA): The final line must be a clear call to action that drives the click. Examples: "Tap the button to learn more.", "Click to see how it works.", "See what's possible →", "Find out how — tap the button." NEVER say "link below" or "tap the link" — always reference a button. Make it feel like the natural next step, not pushy.
+
+Additional rules:
+- Work well with multiple creative images that rotate
+- All 5 variations should speak to the angle/theme: ${angle_theme}
+- IMPORTANT: Split each variation into short, readable paragraphs. Each distinct thought or idea should be its own paragraph (separated by \\n\\n). Do NOT write dense blocks of text — break it up so it's easy to scan on mobile.
+
+ALWAYS return ONLY a JSON object: { "primary_texts": ["text1", "text2", "text3", "text4", "text5"] }
+Remember to use \\n\\n between paragraphs within each text variation.`;
+
+    const ptResult = await claudeChat(
+      [
+        { role: 'system', content: primaryTextSystemPrompt },
+        { role: 'user', content: 'Write 5 variations of Facebook ad primary text based on the brand context and ad creative info provided. Focus on the angle/theme specified.' },
+      ],
+      'claude-sonnet-4-6',
+      { max_tokens: 2048, operation: 'filter_primary_text_generation', projectId: project_id }
+    );
+
+    // Parse primary texts
+    let primaryTexts = [];
+    try {
+      const parsed = JSON.parse(ptResult);
+      primaryTexts = parsed.primary_texts || [];
+    } catch {
+      const match = ptResult.match(/\{[\s\S]*"primary_texts"[\s\S]*\}/);
+      if (match) {
+        try {
+          const parsed = JSON.parse(match[0]);
+          primaryTexts = parsed.primary_texts || [];
+        } catch {}
+      }
+      if (primaryTexts.length === 0) {
+        primaryTexts = [ptResult.trim()];
+      }
+    }
+
+    // ── Step 2: Generate Headlines (identical to Planner headline system prompt) ──
+    const headlineAvatarSnippet = (avatar?.content || '').slice(0, 1500);
+    const headlineOfferSnippet = (offer_brief?.content || '').slice(0, 1000);
+
+    const primaryTextList = primaryTexts.map((pt, i) => `${i + 1}. ${pt}`).join('\n');
+
+    const headlineSystemPrompt = `You are a world-class direct response copywriter writing Facebook ad headlines (the short text that appears BELOW the ad image in the link preview area).
+
+BRAND: ${project.brand_name || project.name}
+
+AVATAR (excerpt):
+${headlineAvatarSnippet}
+
+OFFER BRIEF (excerpt):
+${headlineOfferSnippet}
+
+PRIMARY TEXT VARIATIONS (what appears above the image):
+${primaryTextList}
+
+ANGLE/THEME FOR THIS AD SET: ${angle_theme}
+
+Your task is to write 5 punchy headlines that:
+- Are under 10 words each
+- Align with and complement the primary text above
+- Drive curiosity and clicks
+- Sound natural, not salesy
+- Each has a different angle or emphasis
+- All speak to the angle/theme: ${angle_theme}
+
+ALWAYS return ONLY a JSON object: { "headlines": ["h1", "h2", "h3", "h4", "h5"] }`;
+
+    const hlResult = await claudeChat(
+      [
+        { role: 'system', content: headlineSystemPrompt },
+        { role: 'user', content: 'Write 5 punchy Facebook ad headlines based on the brand context and primary text provided. Return ONLY a JSON object: { "headlines": ["h1", "h2", "h3", "h4", "h5"] }' },
+      ],
+      'claude-sonnet-4-6',
+      { max_tokens: 1024, operation: 'filter_headline_generation', projectId: project_id }
+    );
+
+    // Parse headlines
+    let headlines = [];
+    try {
+      const parsed = JSON.parse(hlResult);
+      headlines = parsed.headlines || [];
+    } catch {
+      const match = hlResult.match(/\{[\s\S]*"headlines"[\s\S]*\}/);
+      if (match) {
+        try {
+          const parsed = JSON.parse(match[0]);
+          headlines = parsed.headlines || [];
+        } catch {}
+      }
+      if (headlines.length === 0) {
+        headlines = [hlResult.trim()];
+      }
+    }
+
+    console.log(`[FilterCopy] Generated ${primaryTexts.length} primary texts + ${headlines.length} headlines for ${project.name} (${angle_theme})`);
+
+    res.json({ primary_texts: primaryTexts, headlines });
+  } catch (err) {
+    console.error('Failed to generate filter copy:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 export default router;

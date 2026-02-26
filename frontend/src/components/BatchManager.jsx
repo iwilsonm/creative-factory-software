@@ -494,8 +494,13 @@ export default function BatchManager({ projectId, project, onBatchComplete }) {
     ['generating_prompts', 'submitting', 'processing', 'pending'].includes(b.status)
     || !!b.schedule_cron  // Include all scheduled/paused batches in active section
   );
+  const awaitingFilterBatches = batches.filter(b =>
+    b.status === 'completed' && b.filter_assigned && !b.filter_processed && !b.schedule_cron
+  );
+  const awaitingFilterAdCount = awaitingFilterBatches.reduce((sum, b) => sum + (b.completed_count || 0), 0);
   const completedBatches = batches.filter(b =>
     ['completed', 'failed'].includes(b.status) && !b.schedule_cron
+    && !(b.status === 'completed' && b.filter_assigned && !b.filter_processed)
   );
 
   return (
@@ -526,6 +531,11 @@ export default function BatchManager({ projectId, project, onBatchComplete }) {
           {activeBatches.length > 0 && (
             <span className="badge bg-navy/10 text-navy">
               {activeBatches.length} active
+            </span>
+          )}
+          {awaitingFilterBatches.length > 0 && (
+            <span className="badge bg-gold/10 text-gold">
+              {awaitingFilterBatches.length} awaiting filter
             </span>
           )}
           <svg
@@ -1143,6 +1153,31 @@ export default function BatchManager({ projectId, project, onBatchComplete }) {
                   </h4>
                   <div className="space-y-2">
                     {activeBatches.map(batch => (
+                      <BatchRow
+                        key={batch.id}
+                        batch={batch}
+                        onRunNow={handleRunNow}
+                        onCancel={handleCancel}
+                        onDelete={handleDelete}
+                        onEdit={handleEditBatch}
+                        onPause={handlePause}
+                        onResume={handleResume}
+                      />
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {awaitingFilterBatches.length > 0 && (
+                <div className="p-5">
+                  <h4 className="text-[12px] font-semibold text-textmid uppercase tracking-wider mb-1">
+                    Awaiting Filter
+                  </h4>
+                  <p className="text-[11px] text-textlight mb-3">
+                    {awaitingFilterBatches.length} batch{awaitingFilterBatches.length !== 1 ? 'es' : ''} · {awaitingFilterAdCount} ad{awaitingFilterAdCount !== 1 ? 's' : ''} awaiting scoring
+                  </p>
+                  <div className="space-y-2">
+                    {awaitingFilterBatches.map(batch => (
                       <BatchRow
                         key={batch.id}
                         batch={batch}
