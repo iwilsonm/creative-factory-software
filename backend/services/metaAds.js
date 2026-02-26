@@ -8,7 +8,7 @@
 
 import fetch from 'node-fetch';
 import { v4 as uuidv4 } from 'uuid';
-import { setSetting, getProject, updateProject, getAllDeployments, upsertMetaPerformance } from '../convexClient.js';
+import { getSetting, setSetting, getProject, updateProject, getAllDeployments, upsertMetaPerformance } from '../convexClient.js';
 import { withRetry } from './retry.js';
 
 const META_GRAPH_URL = 'https://graph.facebook.com/v21.0';

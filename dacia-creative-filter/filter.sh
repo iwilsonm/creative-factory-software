@@ -210,7 +210,6 @@ curl_with_auth_retry() {
 
   echo "$body"
 }
-}
 
 # ============================================================
 # STEP 1: Find unprocessed completed batches
