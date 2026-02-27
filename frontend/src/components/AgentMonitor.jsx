@@ -328,10 +328,10 @@ function DirectorTab({ onRefresh }) {
     }, 500);
   }, [selectedProject]);
 
-  const handleRunNow = async () => {
+  const handleTestRun = async () => {
     setRunningAction('run');
     try {
-      await api.triggerConductorRun(selectedProject);
+      await api.triggerConductorTestRun(selectedProject);
       setTimeout(async () => {
         const runRes = await api.getConductorRuns(selectedProject, 20);
         setRuns(runRes?.runs || []);
@@ -403,11 +403,11 @@ function DirectorTab({ onRefresh }) {
         </label>
 
         <button
-          onClick={handleRunNow}
+          onClick={handleTestRun}
           disabled={!!runningAction}
           className="btn-primary text-[11px] px-3 py-1.5 flex items-center gap-1 disabled:opacity-50 ml-auto"
         >
-          {runningAction === 'run' ? <><Spinner /> Running...</> : <>{'\u25B6'} Run Now</>}
+          {runningAction === 'run' ? <><Spinner /> Running...</> : <>Test Run</>}
         </button>
       </div>
 

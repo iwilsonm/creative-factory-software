@@ -380,6 +380,109 @@ function distributeAngles(angles, count, rotation) {
   }
 }
 
+/**
+ * Run a single test batch for a project — bypasses production windows and deficit checks.
+ * Creates one full batch, fires it, and lets the Filter pick it up end-to-end.
+ * @param {string} projectId
+ */
+export async function runTestBatch(projectId) {
+  const startMs = Date.now();
+  const runId = uuidv4();
+
+  const config = await getConductorConfig(projectId);
+  if (!config) {
+    throw new Error('No conductor config for this project. Create one first.');
+  }
+
+  const project = await getProject(projectId);
+  if (!project) {
+    throw new Error('Project not found');
+  }
+
+  await createConductorRun({
+    externalId: runId,
+    project_id: projectId,
+    run_type: 'test',
+    run_at: startMs,
+    status: 'running',
+  });
+
+  try {
+    // Pick an angle using the project's rotation strategy
+    const angles = await selectAngles(projectId, config, 1);
+    const angleInfo = angles[0];
+
+    const batchSize = config.ads_per_batch || 18;
+    const batchId = uuidv4();
+
+    // Build angle prompt with playbook context (same as normal runs)
+    let anglePrompt = angleInfo.description;
+    if (angleInfo.prompt_hints) {
+      anglePrompt += `\n\nCREATIVE DIRECTION:\n${angleInfo.prompt_hints}`;
+    }
+
+    const playbook = await getConductorPlaybook(projectId, angleInfo.name);
+    if (playbook && playbook.version > 0) {
+      anglePrompt += `\n\nCREATIVE DIRECTION FROM PREVIOUS ROUNDS:`;
+      if (playbook.visual_patterns) anglePrompt += `\n- Visual approach: ${playbook.visual_patterns}`;
+      if (playbook.copy_patterns) anglePrompt += `\n- Copy approach: ${playbook.copy_patterns}`;
+      if (playbook.avoid_patterns) anglePrompt += `\n- AVOID: ${playbook.avoid_patterns}`;
+      if (playbook.generation_hints) anglePrompt += `\n- Key hints: ${playbook.generation_hints}`;
+      anglePrompt += `\n\nCurrent pass rate for this angle: ${Math.round((playbook.pass_rate || 0) * 100)}%`;
+      anglePrompt += `\nFollow these patterns to maximize quality.`;
+    }
+
+    await createBatchJob({
+      id: batchId,
+      project_id: projectId,
+      generation_mode: 'batch',
+      batch_size: batchSize,
+      angle: anglePrompt,
+      aspect_ratio: '1:1',
+      product_image_storageId: project.product_image_storageId || undefined,
+      filter_assigned: true,
+      posting_day: 'test',
+      conductor_run_id: runId,
+      angle_name: angleInfo.name,
+      angle_prompt: anglePrompt,
+    });
+
+    if (angleInfo.externalId !== 'fallback') {
+      await updateConductorAngle(angleInfo.externalId, {
+        times_used: (angleInfo.times_used || 0) + 1,
+        last_used_at: Date.now(),
+      });
+    }
+
+    const batchInfo = [{ batch_id: batchId, angle_name: angleInfo.name, ad_count: batchSize, posting_day: 'test' }];
+
+    await updateConductorRun(runId, {
+      status: 'completed',
+      posting_days: JSON.stringify([{ date: 'test', action: 'Test batch created' }]),
+      batches_created: JSON.stringify(batchInfo),
+      decisions: `Test run: created 1 batch (${batchSize} ads) with angle "${angleInfo.name}".`,
+      duration_ms: Date.now() - startMs,
+    });
+
+    console.log(`[Director] Test run for ${projectId.slice(0, 8)}: Created 1 batch (${batchSize} ads, angle: ${angleInfo.name}) in ${Date.now() - startMs}ms`);
+
+    // Fire-and-forget: start the batch
+    runBatch(batchId).catch(err => {
+      console.error(`[Director] Test batch ${batchId.slice(0, 8)} failed:`, err.message);
+    });
+
+    return { runId, batches_created: 1, batch_id: batchId, angle: angleInfo.name, ad_count: batchSize };
+
+  } catch (err) {
+    await updateConductorRun(runId, {
+      status: 'failed',
+      error: err.message,
+      duration_ms: Date.now() - startMs,
+    });
+    throw err;
+  }
+}
+
 // ── Date helpers ─────────────────────────────────────────────────────────────
 
 /**

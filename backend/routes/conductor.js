@@ -171,6 +171,18 @@ router.post('/run/:projectId', async (req, res) => {
   }
 });
 
+// POST /api/conductor/test-run/:projectId — test batch (bypasses windows/deficit)
+router.post('/test-run/:projectId', async (req, res) => {
+  try {
+    const { runTestBatch } = await import('../services/conductorEngine.js');
+    const result = await runTestBatch(req.params.projectId);
+    res.json({ success: true, result });
+  } catch (err) {
+    console.error('[Conductor] Test run error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // =============================================
 // Conductor Playbooks — per-angle learning memory
 // =============================================

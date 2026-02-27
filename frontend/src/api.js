@@ -316,6 +316,7 @@ export const api = {
   deleteConductorAngle: (projectId, angleId) => request(`/conductor/angles/${projectId}/${angleId}`, { method: 'DELETE' }),
   getConductorRuns: (projectId, limit) => request(`/conductor/runs/${projectId}${limit ? `?limit=${limit}` : ''}`),
   triggerConductorRun: (projectId) => request(`/conductor/run/${projectId}`, { method: 'POST' }),
+  triggerConductorTestRun: (projectId) => request(`/conductor/test-run/${projectId}`, { method: 'POST' }),
   getConductorPlaybooks: (projectId) => request(`/conductor/playbooks/${projectId}`),
   getConductorPlaybook: (projectId, angleName) => request(`/conductor/playbooks/${projectId}/${encodeURIComponent(angleName)}`),
   triggerLearningStep: (projectId, angleName, scoredAds) => request('/conductor/learn', { method: 'POST', body: JSON.stringify({ projectId, angleName, scoredAds }) }),
