@@ -383,7 +383,7 @@ export async function selectTemplateImage(templateImageId) {
  * @returns {Promise<object>} The completed ad creative record
  */
 export async function generateAd(projectId, options = {}) {
-  const { angle, aspectRatio = '1:1', inspirationImageId, uploadedImageBase64, uploadedImageMimeType, productImageBase64, productImageMimeType, headline, bodyCopy, sourceQuoteId, onEvent } = options;
+  const { angle, aspectRatio = '1:1', imageModel, inspirationImageId, uploadedImageBase64, uploadedImageMimeType, productImageBase64, productImageMimeType, headline, bodyCopy, sourceQuoteId, onEvent } = options;
 
   const emit = (event) => {
     if (onEvent) {
@@ -528,7 +528,7 @@ export async function generateAd(projectId, options = {}) {
       : null;
     const ad = await generateAndSaveImage({
       adId, projectId, project, imagePrompt, aspectRatio, angle,
-      productImage, emit
+      productImage, imageModel, emit
     });
 
     return ad;
@@ -548,14 +548,15 @@ export async function generateAd(projectId, options = {}) {
  * Shared helper: Gemini image generation → upload to Convex storage → upload to Drive → finalize record.
  * Used by both generateAd() (full pipeline) and regenerateImageOnly() (prompt-only).
  */
-async function generateAndSaveImage({ adId, projectId, project, imagePrompt, aspectRatio, angle, productImage, emit, modeLabel = 'Mode1' }) {
-  // Nano Banana Pro: Generate image
+async function generateAndSaveImage({ adId, projectId, project, imagePrompt, aspectRatio, angle, productImage, imageModel, emit, modeLabel = 'Mode1' }) {
+  // Gemini image generation
+  const modelLabel = imageModel === 'nano-banana-2' ? 'Nano Banana 2' : 'Nano Banana Pro';
   emit({ type: 'status', status: 'generating_image', message: productImage
-    ? 'Generating image with Nano Banana Pro (with product reference)...'
-    : 'Generating image with Nano Banana Pro...', progress: 70 });
+    ? `Generating image with ${modelLabel} (with product reference)...`
+    : `Generating image with ${modelLabel}...`, progress: 70 });
 
   const { imageBuffer, mimeType: imgMime } = await generateImage(imagePrompt, aspectRatio, productImage, {
-    projectId, operation: 'ad_image_generation',
+    projectId, operation: 'ad_image_generation', imageModel,
   });
 
   emit({ type: 'status', status: 'generating_image', message: 'Uploading image...', progress: 90 });
@@ -616,7 +617,7 @@ async function generateAndSaveImage({ adId, projectId, project, imagePrompt, asp
  * @returns {Promise<object>} The completed ad creative record
  */
 export async function generateAdMode2(projectId, options = {}) {
-  const { templateImageId, angle, aspectRatio = '1:1', productImageBase64, productImageMimeType, headline, bodyCopy, sourceQuoteId, onEvent } = options;
+  const { templateImageId, angle, aspectRatio = '1:1', imageModel, productImageBase64, productImageMimeType, headline, bodyCopy, sourceQuoteId, onEvent } = options;
 
   const emit = (event) => {
     if (onEvent) {
@@ -753,7 +754,7 @@ export async function generateAdMode2(projectId, options = {}) {
       : null;
     const ad = await generateAndSaveImage({
       adId, projectId, project, imagePrompt, aspectRatio, angle,
-      productImage, emit, modeLabel: 'Mode2'
+      productImage, imageModel, emit, modeLabel: 'Mode2'
     });
 
     return ad;
@@ -1304,7 +1305,7 @@ Output the image generation prompt as a single text block ready to paste into th
 }
 
 export async function regenerateImageOnly(projectId, options = {}) {
-  const { imagePrompt, aspectRatio = '1:1', parentAdId, productImageBase64, productImageMimeType, angle, headline, bodyCopy, onEvent } = options;
+  const { imagePrompt, aspectRatio = '1:1', imageModel, parentAdId, productImageBase64, productImageMimeType, angle, headline, bodyCopy, onEvent } = options;
 
   const emit = (event) => {
     if (onEvent) {
@@ -1361,7 +1362,7 @@ export async function regenerateImageOnly(projectId, options = {}) {
     const ad = await generateAndSaveImage({
       adId, projectId, project,
       imagePrompt: finalPrompt,
-      aspectRatio, angle, productImage, emit,
+      aspectRatio, angle, productImage, imageModel, emit,
       modeLabel: 'Regen'
     });
 

@@ -18,18 +18,28 @@ async function getClient() {
   return client;
 }
 
+// Model name mapping
+const GEMINI_MODELS = {
+  'nano-banana-pro': 'gemini-3-pro-image-preview',
+  'nano-banana-2': 'gemini-3.1-flash-image-preview',
+};
+
 /**
- * Generate an image using Nano Banana Pro (Gemini 3 Pro Image Preview).
+ * Generate an image using Nano Banana Pro or Nano Banana 2.
  * Cost is auto-logged to Convex api_costs table.
  *
  * @param {string} prompt
  * @param {string} aspectRatio
  * @param {object|null} productImage - { base64, mimeType }
- * @param {object} [options] - { projectId, operation, isBatch } for cost tracking
+ * @param {object} [options] - { projectId, operation, isBatch, imageModel } for cost tracking + model selection
  */
 export async function generateImage(prompt, aspectRatio = '1:1', productImage = null, options = {}) {
-  const { projectId = null, operation = 'image_generation', isBatch = false } = options;
+  const { projectId = null, operation = 'image_generation', isBatch = false, imageModel } = options;
   const ai = await getClient();
+
+  // Resolve model name — default to Nano Banana Pro
+  const modelId = GEMINI_MODELS[imageModel] || GEMINI_MODELS['nano-banana-pro'];
+  const modelLabel = imageModel === 'nano-banana-2' ? 'Nano Banana 2' : 'Nano Banana Pro';
 
   try {
   let contents;
@@ -65,7 +75,7 @@ export async function generateImage(prompt, aspectRatio = '1:1', productImage = 
   const response = await withGeminiLimit(
     () => withRetry(
       () => ai.models.generateContent({
-        model: 'gemini-3-pro-image-preview',
+        model: modelId,
         contents,
         config: {
           responseModalities: ['TEXT', 'IMAGE'],
@@ -75,9 +85,9 @@ export async function generateImage(prompt, aspectRatio = '1:1', productImage = 
           }
         }
       }),
-      { label: '[Gemini generateImage]', maxRetries: 3, shouldRetry: shouldRetryGemini, baseDelayMs: 2000 }
+      { label: `[Gemini ${modelLabel}]`, maxRetries: 3, shouldRetry: shouldRetryGemini, baseDelayMs: 2000 }
     ),
-    `[Gemini ${aspectRatio || '1:1'}]`
+    `[Gemini ${modelLabel} ${aspectRatio || '1:1'}]`
   );
 
   let imageBuffer = null;
@@ -97,7 +107,7 @@ export async function generateImage(prompt, aspectRatio = '1:1', productImage = 
   }
 
   if (!imageBuffer) {
-    throw new Error('Gemini did not return an image. The model may have refused the prompt or encountered an error.');
+    throw new Error(`${modelLabel} did not return an image. The model may have refused the prompt or encountered an error.`);
   }
 
   // Auto-log Gemini cost (fire-and-forget)

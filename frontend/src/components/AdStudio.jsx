@@ -139,6 +139,9 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
   const [analyzingTemplate, setAnalyzingTemplate] = useState(false);
   const [skipProductImage, setSkipProductImage] = useState(false);
 
+  // Image generation model
+  const [imageModel, setImageModel] = useState('nano-banana-pro');
+
   // Product image
   const [productFile, setProductFile] = useState(null);
   const [productPreview, setProductPreview] = useState(null);
@@ -832,6 +835,7 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
       const options = {
         image_prompt: customPrompt.trim(),
         aspect_ratio: aspectRatio,
+        image_model: imageModel,
         parent_ad_id: parentAdId || undefined,
         angle: angle || undefined,
         headline: headline || undefined,
@@ -856,6 +860,7 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
 
       const options = {
         aspect_ratio: aspectRatio,
+        image_model: imageModel,
         angle: angle || undefined,
         headline: headline || undefined,
         body_copy: bodyCopy || undefined,
@@ -880,6 +885,7 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
       const options = {
         mode: 'mode1',
         aspect_ratio: aspectRatio,
+        image_model: imageModel,
         angle: angle || undefined,
         headline: headline || undefined,
         body_copy: bodyCopy || undefined,
@@ -1853,6 +1859,26 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
             onChange={e => { if (e.target.files?.[0]) handleProductFileSelected(e.target.files[0]); }}
             className="hidden"
           />
+        </div>
+
+        {/* Image model selector */}
+        <div className="mb-5">
+          <label className="block text-[11px] font-medium text-textmid mb-1.5">
+            Image Generator
+          </label>
+          <select
+            value={imageModel}
+            onChange={e => setImageModel(e.target.value)}
+            className="text-[12px] text-textdark bg-offwhite border border-black/10 rounded-lg px-3 py-2 w-full cursor-pointer hover:border-navy/30 transition-colors"
+          >
+            <option value="nano-banana-pro">Nano Banana Pro (Gemini 3 Pro)</option>
+            <option value="nano-banana-2">Nano Banana 2 (Gemini 3.1 Flash)</option>
+          </select>
+          <p className="text-[10px] text-textlight mt-1">
+            {imageModel === 'nano-banana-pro'
+              ? 'Current default — high-fidelity image generation'
+              : 'Faster generation, improved text rendering, up to 4K resolution'}
+          </p>
         </div>
 
         {/* ── OPTIONAL FIELDS (collapsible) ── */}

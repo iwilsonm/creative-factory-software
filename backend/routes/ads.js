@@ -26,7 +26,7 @@ router.post('/:projectId/generate-ad', async (req, res) => {
   const project = await getProject(req.params.projectId);
   if (!project) return res.status(404).json({ error: 'Project not found' });
 
-  let { mode = 'mode1', aspect_ratio, angle, inspiration_image_id, uploaded_image, uploaded_image_mime, product_image, product_image_mime, headline, body_copy, template_image_id, source_quote_id, skip_product_image } = req.body;
+  let { mode = 'mode1', aspect_ratio, angle, inspiration_image_id, uploaded_image, uploaded_image_mime, product_image, product_image_mime, headline, body_copy, template_image_id, source_quote_id, skip_product_image, image_model } = req.body;
 
   // Auto-inject project-level product image if none provided (and not explicitly skipped)
   if (!product_image && !skip_product_image && project.product_image_storageId) {
@@ -51,6 +51,7 @@ router.post('/:projectId/generate-ad', async (req, res) => {
         templateImageId: template_image_id,
         angle,
         aspectRatio: aspect_ratio || '1:1',
+        imageModel: image_model || undefined,
         productImageBase64: product_image || undefined,
         productImageMimeType: product_image_mime || undefined,
         headline: headline || undefined,
@@ -62,6 +63,7 @@ router.post('/:projectId/generate-ad', async (req, res) => {
       await generateAd(req.params.projectId, {
         angle,
         aspectRatio: aspect_ratio || '1:1',
+        imageModel: image_model || undefined,
         inspirationImageId: inspiration_image_id,
         uploadedImageBase64: uploaded_image || undefined,
         uploadedImageMimeType: uploaded_image_mime || undefined,
@@ -81,7 +83,7 @@ router.post('/:projectId/regenerate-image', async (req, res) => {
   const project = await getProject(req.params.projectId);
   if (!project) return res.status(404).json({ error: 'Project not found' });
 
-  let { image_prompt, aspect_ratio, parent_ad_id, product_image, product_image_mime, angle, headline, body_copy, skip_product_image } = req.body;
+  let { image_prompt, aspect_ratio, parent_ad_id, product_image, product_image_mime, angle, headline, body_copy, skip_product_image, image_model } = req.body;
 
   // Auto-inject project-level product image if none provided (and not explicitly skipped)
   if (!product_image && !skip_product_image && project.product_image_storageId) {
@@ -100,6 +102,7 @@ router.post('/:projectId/regenerate-image', async (req, res) => {
     await regenerateImageOnly(req.params.projectId, {
       imagePrompt: image_prompt.trim(),
       aspectRatio: aspect_ratio || '1:1',
+      imageModel: image_model || undefined,
       parentAdId: parent_ad_id || undefined,
       productImageBase64: product_image || undefined,
       productImageMimeType: product_image_mime || undefined,
