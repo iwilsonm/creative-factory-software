@@ -688,7 +688,7 @@ function DirectorTab({ onRefresh }) {
       {subTab === 'history' && (
         <div>
           {runs.length === 0 ? (
-            <p className="text-[11px] text-textlight py-4">No runs yet. Click "Run Now" to trigger the Director, or wait for the next scheduled run.</p>
+            <p className="text-[11px] text-textlight py-4">No runs yet. Click "Test Run" to trigger the Director, or wait for the next scheduled run.</p>
           ) : (
             <div className="space-y-2">
               {runs.map(run => (
