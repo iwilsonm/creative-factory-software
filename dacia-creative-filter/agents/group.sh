@@ -134,7 +134,7 @@ jq -n \
   --rawfile prompt "$TEMP_PROMPT" \
   '{
     "model": $model,
-    "max_tokens": 4096,
+    "max_tokens": 8192,
     "temperature": 0,
     "messages": [{"role": "user", "content": $prompt}]
   }' > "$TEMP_BODY"
@@ -190,6 +190,12 @@ if [[ -n "$API_ERROR" ]]; then
   exit 0
 fi
 
+# Warn on truncation (max_tokens hit)
+STOP_REASON=$(echo "$RESPONSE" | jq -r '.stop_reason // "unknown"' 2>/dev/null)
+if [[ "$STOP_REASON" == "max_tokens" ]]; then
+  echo "  WARNING: Response truncated (max_tokens reached) — JSON may be incomplete" >> "$DEBUG_LOG"
+fi
+
 # Extract text content
 RAW_TEXT=$(echo "$RESPONSE" | jq -r '.content[0].text // ""' 2>/dev/null)
 
@@ -202,13 +208,31 @@ fi
 
 echo "  Raw text length: ${#RAW_TEXT} chars" >> "$DEBUG_LOG"
 
-# Clean markdown fences and parse JSON
-CLEANED=$(echo "$RAW_TEXT" | sed 's/```json//g; s/```//g' | tr -d '\n')
+# Clean markdown fences and extract JSON block
+# Claude sometimes writes reasoning text before JSON — extract the first { ... } block
+CLEANED=$(echo "$RAW_TEXT" | sed 's/```json//g; s/```//g')
+
+# Try parsing cleaned text directly first
 PARSED=$(echo "$CLEANED" | jq '.' 2>/dev/null) || {
-  echo "  ERROR: Failed to parse JSON from Claude response" >> "$DEBUG_LOG"
-  echo "  Raw text (first 500 chars): $(echo "$RAW_TEXT" | head -c 500)" >> "$DEBUG_LOG"
-  echo '{"flex_ads": [], "error": "json_parse_failed"}'
-  exit 0
+  # If direct parse fails, extract the first JSON object (handles preamble text)
+  echo "  Direct parse failed, attempting JSON extraction..." >> "$DEBUG_LOG"
+  # Use python/perl to extract first balanced JSON object if available
+  JSON_BLOCK=$(echo "$CLEANED" | perl -0777 -ne 'if (/(\{(?:[^{}]|(?:\{(?:[^{}]|(?:\{[^{}]*\}))*\}))*\})/s) { print $1 }' 2>/dev/null) || JSON_BLOCK=""
+  if [[ -n "$JSON_BLOCK" ]]; then
+    PARSED=$(echo "$JSON_BLOCK" | jq '.' 2>/dev/null) || {
+      echo "  ERROR: Extracted JSON block also failed to parse" >> "$DEBUG_LOG"
+      echo "  Extracted block (first 500 chars): $(echo "$JSON_BLOCK" | head -c 500)" >> "$DEBUG_LOG"
+      echo "  Raw text (first 500 chars): $(echo "$RAW_TEXT" | head -c 500)" >> "$DEBUG_LOG"
+      echo '{"flex_ads": [], "error": "json_parse_failed"}'
+      exit 0
+    }
+    echo "  JSON extraction succeeded (had preamble text)" >> "$DEBUG_LOG"
+  else
+    echo "  ERROR: No JSON object found in response" >> "$DEBUG_LOG"
+    echo "  Raw text (first 500 chars): $(echo "$RAW_TEXT" | head -c 500)" >> "$DEBUG_LOG"
+    echo '{"flex_ads": [], "error": "json_parse_failed"}'
+    exit 0
+  fi
 }
 
 # Log result

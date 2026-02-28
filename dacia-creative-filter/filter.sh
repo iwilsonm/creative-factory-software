@@ -692,29 +692,8 @@ process_batch() {
 
   log_info "Project: $project_name"
 
-  # Read per-project flex ad daily cap from the Filter's own setting (scout_daily_flex_ads)
-  # The Director's daily_flex_target is a separate production goal and does not cap the Filter.
-  local project_flex_cap
-  project_flex_cap=$(echo "$project_config" | jq -r '.scout_daily_flex_ads // "'"$FLEX_AD_COUNT"'"')
-  project_flex_cap=$((project_flex_cap + 0))
-  if [[ "$project_flex_cap" -lt 1 ]]; then
-    project_flex_cap=$FLEX_AD_COUNT
-  fi
-  log_info "Filter daily flex cap: $project_flex_cap (from scout_daily_flex_ads)"
-
-  # Check daily cap — count flex ads deployed today for this project from log
-  local today_flex_count=0
-  if [[ -f "$LOG_FILE" ]]; then
-    today_flex_count=$(grep -c "Deployed:.*$project_name\|Deployed flex ad.*$project_name" "$LOG_FILE" 2>/dev/null) || today_flex_count=0
-  fi
-
-  local remaining=$((project_flex_cap - today_flex_count))
-  if [[ "$remaining" -le 0 ]]; then
-    log_info "Daily flex ad cap reached for $project_name ($today_flex_count/$project_flex_cap). Skipping."
-    mark_processed "$batch_id" "[]"
-    return 0
-  fi
-  log_info "Flex ad budget: $today_flex_count/$project_flex_cap used today ($remaining remaining)"
+  # The Director controls how many batches to create. The Filter processes every
+  # assigned batch and produces exactly 1 flex ad per batch — no independent capping.
 
   # Get ads from batch
   local ads
@@ -738,9 +717,9 @@ process_batch() {
   local scored_ads
   scored_ads=$(score_batch_ads "$ads" "$top_performers")
 
-  # Group into flex ads (use remaining count as cap)
+  # 1 flex ad per batch — Director controls how many batches are created
   local flex_result
-  flex_result=$(group_into_flex_ads "$scored_ads" "$project_name" "$remaining")
+  flex_result=$(group_into_flex_ads "$scored_ads" "$project_name" "1")
 
   local flex_count
   flex_count=$(echo "$flex_result" | jq '.flex_ads | length' 2>/dev/null || echo 0)
