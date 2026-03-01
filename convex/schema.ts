@@ -476,6 +476,7 @@ export default defineSchema({
     prompt_hints: v.optional(v.string()), // specific creative direction
     source: v.string(),                  // "manual" | "auto_generated"
     status: v.string(),                  // "active" | "testing" | "retired"
+    focused: v.optional(v.boolean()),    // When true + active, Director only uses focused angles
     times_used: v.number(),
     last_used_at: v.optional(v.number()),
     performance_note: v.optional(v.string()),

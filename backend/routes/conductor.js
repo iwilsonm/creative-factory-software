@@ -117,7 +117,7 @@ router.post('/angles/:projectId', async (req, res) => {
 router.put('/angles/:projectId/:angleId', async (req, res) => {
   try {
     // Whitelist allowed fields to prevent arbitrary field injection
-    const allowedAngleFields = ['name', 'description', 'prompt_hints', 'status', 'source'];
+    const allowedAngleFields = ['name', 'description', 'prompt_hints', 'status', 'source', 'focused'];
     const fields = {};
     for (const key of allowedAngleFields) {
       if (req.body[key] !== undefined) fields[key] = req.body[key];

@@ -321,16 +321,20 @@ async function selectAngles(projectId, config, count) {
     });
   }
 
+  // Focus mode: if any active angles are focused, only use those
+  const focusedAngles = activeAngles.filter(a => a.focused);
+  const anglesToUse = focusedAngles.length > 0 ? focusedAngles : activeAngles;
+
   const mode = config.angle_mode || 'manual';
   const rotation = config.angle_rotation || 'round_robin';
 
   if (mode === 'manual' || mode === 'mixed') {
-    return distributeAngles(activeAngles, count, rotation);
+    return distributeAngles(anglesToUse, count, rotation);
   }
 
   // Auto mode — for now, use existing angles with round robin
   // (angle auto-generation will be handled by conductorAngles.js in Phase 4)
-  return distributeAngles(activeAngles, count, rotation);
+  return distributeAngles(anglesToUse, count, rotation);
 }
 
 /**
