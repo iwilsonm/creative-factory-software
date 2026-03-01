@@ -33,6 +33,7 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
   const [editingCard, setEditingCard] = useState(null); // cardKey of card being edited (admin only)
   const [editFields, setEditFields] = useState({}); // temp edit values
   const [savingEdit, setSavingEdit] = useState(false);
+  const [sortBy, setSortBy] = useState('newest');
 
   const toggleCardExpanded = (key) => {
     setExpandedCards(prev => {
@@ -1420,20 +1421,38 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
     readyDeps.forEach(dep => {
       if (flexChildIds.has(dep.id)) return;
       const { campaignName, adSetName } = resolveLocation(dep);
-      cards.push({ type: 'single', dep, campaignName: campaignName || '', adSetName: adSetName || '', plannedDate: dep.planned_date || '', key: dep.id });
+      cards.push({ type: 'single', dep, campaignName: campaignName || '', adSetName: adSetName || '', plannedDate: dep.planned_date || '', createdAt: dep.created_at || '', name: dep.ad_name || '', key: dep.id });
     });
     flexAds.forEach(fa => {
       if (!flexHasReadyChildren(fa)) return;
       const { campaignName, adSetName } = resolveFlexLocation(fa);
-      cards.push({ type: 'flex', flexAd: fa, campaignName: campaignName || '', adSetName: adSetName || '', plannedDate: fa.planned_date || '', key: `flex-${fa.id}` });
+      cards.push({ type: 'flex', flexAd: fa, campaignName: campaignName || '', adSetName: adSetName || '', plannedDate: fa.planned_date || '', createdAt: fa.created_at || '', name: fa.name || '', key: `flex-${fa.id}` });
     });
+    // Sort based on selected sort option
     cards.sort((a, b) => {
-      const aU = !a.campaignName, bU = !b.campaignName;
-      if (aU !== bU) return aU ? -1 : 1;
-      if (a.campaignName !== b.campaignName) return a.campaignName.localeCompare(b.campaignName);
-      if (a.adSetName !== b.adSetName) return a.adSetName.localeCompare(b.adSetName);
-      if (a.plannedDate && b.plannedDate) return a.plannedDate.localeCompare(b.plannedDate);
-      if (a.plannedDate) return -1; if (b.plannedDate) return 1; return 0;
+      switch (sortBy) {
+        case 'newest':
+          return (b.createdAt || '').localeCompare(a.createdAt || '');
+        case 'oldest':
+          return (a.createdAt || '').localeCompare(b.createdAt || '');
+        case 'campaign': {
+          const aU = !a.campaignName, bU = !b.campaignName;
+          if (aU !== bU) return aU ? -1 : 1;
+          if (a.campaignName !== b.campaignName) return a.campaignName.localeCompare(b.campaignName);
+          if (a.adSetName !== b.adSetName) return a.adSetName.localeCompare(b.adSetName);
+          if (a.plannedDate && b.plannedDate) return a.plannedDate.localeCompare(b.plannedDate);
+          if (a.plannedDate) return -1; if (b.plannedDate) return 1; return 0;
+        }
+        case 'planned_date': {
+          if (a.plannedDate && b.plannedDate) return a.plannedDate.localeCompare(b.plannedDate);
+          if (a.plannedDate) return -1; if (b.plannedDate) return 1;
+          return (b.createdAt || '').localeCompare(a.createdAt || '');
+        }
+        case 'name':
+          return a.name.localeCompare(b.name);
+        default:
+          return (b.createdAt || '').localeCompare(a.createdAt || '');
+      }
     });
     return cards;
   };
@@ -1477,13 +1496,26 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
 
   return (
     <div className="space-y-5">
-      {/* Summary */}
-      <div>
-        <div className="text-[14px]">
-          <span className="font-bold text-textdark">{cardList.length}</span>
-          <span className="text-textmid ml-1.5">ad{cardList.length !== 1 ? 's' : ''} ready to post</span>
+      {/* Summary + Sort */}
+      <div className="flex items-start justify-between gap-4">
+        <div>
+          <div className="text-[14px]">
+            <span className="font-bold text-textdark">{cardList.length}</span>
+            <span className="text-textmid ml-1.5">ad{cardList.length !== 1 ? 's' : ''} ready to post</span>
+          </div>
+          <p className="text-[11px] text-textmid mt-0.5">These ads are ready to be posted in Meta Ads Manager. Expand each card to see the full details and copy the content.</p>
         </div>
-        <p className="text-[11px] text-textmid mt-0.5">These ads are ready to be posted in Meta Ads Manager. Expand each card to see the full details and copy the content.</p>
+        <select
+          value={sortBy}
+          onChange={e => setSortBy(e.target.value)}
+          className="text-[12px] text-textdark bg-offwhite border border-black/10 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-navy/20 cursor-pointer shrink-0"
+        >
+          <option value="newest">Newest First</option>
+          <option value="oldest">Oldest First</option>
+          <option value="campaign">Campaign → Ad Set</option>
+          <option value="planned_date">Planned Date</option>
+          <option value="name">Name (A-Z)</option>
+        </select>
       </div>
 
       {/* Cards */}
