@@ -31,6 +31,8 @@ export default function LPAgentSettings({ projectId }) {
   const [testForm, setTestForm] = useState({ template_id: '', narrative_frame: 'testimonial', angle: '' });
   const [generating, setGenerating] = useState(false);
   const [genPhase, setGenPhase] = useState('');
+  const [genProgress, setGenProgress] = useState(0);
+  const genStartRef = useRef(null);
   const genAbortRef = useRef(null);
 
   // Recent generations
@@ -122,6 +124,27 @@ export default function LPAgentSettings({ projectId }) {
   }, [projectId]);
 
   // ── Test LP generation ──
+  // Map SSE step names to progress percentages (roughly weighted by time)
+  const STEP_PROGRESS = {
+    // Setup phase: 0-8%
+    'auto_loading': 2, 'product_image_loading': 5,
+    // Copy generation: 8-35%
+    'auto_copy': 8, 'loading_docs': 10, 'generating': 12, 'calling_api': 15, 'parsing': 32, 'copy_complete': 35,
+    // Editorial pass: 35-55%
+    'editorial_starting': 36, 'editorial_complete': 55, 'editorial_skipped': 55, 'editorial_failed': 55,
+    // Image generation: 55-80%
+    'images_starting': 56, 'image_generating': 60, 'images_skipped': 80,
+    // HTML generation: 80-95%
+    'html_generating': 81, 'html_complete': 95,
+    // Assembly + publish: 95-100%
+    'auto_complete': 97,
+  };
+  // Separate handler for phase-level events from lpAgent.js route
+  const PHASE_PROGRESS = {
+    'copy_generation': 8,
+    'publishing': 97, 'verifying': 99,
+  };
+
   const handleGenerateTest = () => {
     if (!testForm.template_id || !testForm.angle.trim()) {
       toast.error('Select a template and enter an angle');
@@ -130,25 +153,49 @@ export default function LPAgentSettings({ projectId }) {
 
     setGenerating(true);
     setGenPhase('Starting generation...');
+    setGenProgress(0);
+    genStartRef.current = Date.now();
 
     const { abort, done } = api.generateTestLP(projectId, {
       template_id: testForm.template_id,
       narrative_frame: testForm.narrative_frame,
       angle_description: testForm.angle.trim(),
     }, (event) => {
-      if (event.type === 'phase' || event.type === 'progress') {
+      if (event.type === 'progress') {
+        setGenPhase(event.message || '');
+        // Map step to progress percentage
+        if (event.step && STEP_PROGRESS[event.step] !== undefined) {
+          setGenProgress(STEP_PROGRESS[event.step]);
+        }
+        // Handle per-image progress (images are 55-80% of total)
+        if (event.imageProgress) {
+          const { current, total } = event.imageProgress;
+          const imgPercent = 56 + Math.round((current / total) * 24);
+          setGenProgress(imgPercent);
+        }
+      } else if (event.type === 'phase') {
         setGenPhase(event.message || event.phase || '');
+        if (event.phase && PHASE_PROGRESS[event.phase] !== undefined) {
+          setGenProgress(PHASE_PROGRESS[event.phase]);
+        }
       } else if (event.type === 'complete') {
-        setGenerating(false);
-        setGenPhase('');
-        const msg = event.published_url
-          ? 'LP generated and published!'
-          : 'LP generated successfully!';
-        toast.success(msg);
-        refreshRecentGenerations();
+        setGenProgress(100);
+        setTimeout(() => {
+          setGenerating(false);
+          setGenPhase('');
+          setGenProgress(0);
+          genStartRef.current = null;
+          const msg = event.published_url
+            ? 'LP generated and published!'
+            : 'LP generated successfully!';
+          toast.success(msg);
+          refreshRecentGenerations();
+        }, 500);
       } else if (event.type === 'error') {
         setGenerating(false);
         setGenPhase('');
+        setGenProgress(0);
+        genStartRef.current = null;
         toast.error(event.message || 'Generation failed');
       }
     });
@@ -159,9 +206,23 @@ export default function LPAgentSettings({ projectId }) {
       if (err.name !== 'AbortError') {
         setGenerating(false);
         setGenPhase('');
+        setGenProgress(0);
+        genStartRef.current = null;
         toast.error(err.message || 'Generation failed');
       }
     });
+  };
+
+  // Estimate time remaining based on elapsed time and progress
+  const getTimeEstimate = () => {
+    if (!genStartRef.current || genProgress < 5) return null;
+    const elapsed = (Date.now() - genStartRef.current) / 1000;
+    const rate = genProgress / elapsed;
+    if (rate <= 0) return null;
+    const remaining = Math.round((100 - genProgress) / rate);
+    if (remaining < 5) return 'Almost done';
+    if (remaining < 60) return `~${remaining}s remaining`;
+    return `~${Math.ceil(remaining / 60)}m remaining`;
   };
 
   // ── Derived state ──
@@ -564,12 +625,35 @@ export default function LPAgentSettings({ projectId }) {
                 {generating ? 'Generating...' : 'Generate'}
               </button>
             </div>
-            {generating && genPhase && (
-              <div className="flex items-center gap-2">
-                <svg className="w-3.5 h-3.5 text-navy animate-spin flex-shrink-0" viewBox="0 0 24 24" fill="none">
-                  <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" strokeDasharray="31.4 31.4" strokeLinecap="round" />
-                </svg>
-                <span className="text-[11px] text-textmid">{genPhase}</span>
+            {generating && (
+              <div className="space-y-1.5 mt-1">
+                {/* Progress bar */}
+                <div className="w-full bg-black/5 rounded-full h-2 overflow-hidden">
+                  <div
+                    className="h-full rounded-full transition-all duration-700 ease-out"
+                    style={{
+                      width: `${Math.max(genProgress, 2)}%`,
+                      background: genProgress >= 100
+                        ? '#2A9D8F'
+                        : 'linear-gradient(90deg, #0B1D3A, #132B52)',
+                    }}
+                  />
+                </div>
+                {/* Status line */}
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-1.5 min-w-0">
+                    <svg className="w-3 h-3 text-navy animate-spin flex-shrink-0" viewBox="0 0 24 24" fill="none">
+                      <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" strokeDasharray="31.4 31.4" strokeLinecap="round" />
+                    </svg>
+                    <span className="text-[10px] text-textmid truncate">{genPhase || 'Starting...'}</span>
+                  </div>
+                  <div className="flex items-center gap-2 flex-shrink-0 ml-2">
+                    <span className="text-[10px] font-medium text-navy">{genProgress}%</span>
+                    {getTimeEstimate() && (
+                      <span className="text-[9px] text-textlight">{getTimeEstimate()}</span>
+                    )}
+                  </div>
+                </div>
               </div>
             )}
             <p className="text-[10px] text-textlight mt-1">
