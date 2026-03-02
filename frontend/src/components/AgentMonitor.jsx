@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { api } from '../api';
 import LPAgentSettings from './LPAgentSettings';
 
@@ -43,11 +44,26 @@ function timeUntil(dateStr) {
   return `~${mins} min`;
 }
 
+const VALID_AGENT_TABS = ['director', 'lp_agent', 'filter', 'fixer'];
+
 export default function AgentMonitor() {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [fixerData, setFixerData] = useState(null);
   const [filterData, setFilterData] = useState(null);
   const [pipelineStatus, setPipelineStatus] = useState(null);
-  const [activeTab, setActiveTab] = useState('director');
+  // Persist active tab in URL search params so it survives page refresh
+  const tabFromUrl = searchParams.get('tab');
+  const [activeTab, setActiveTabState] = useState(
+    tabFromUrl && VALID_AGENT_TABS.includes(tabFromUrl) ? tabFromUrl : 'director'
+  );
+  const setActiveTab = useCallback((newTab) => {
+    setActiveTabState(newTab);
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev);
+      next.set('tab', newTab);
+      return next;
+    }, { replace: true });
+  }, [setSearchParams]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState(false);
 

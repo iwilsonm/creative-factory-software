@@ -926,7 +926,7 @@ export default function ProjectDetail() {
         )}
         {tab === 'tracker' && (
           <ErrorBoundary level="tab" key="tracker">
-            <AdTracker projectId={id} userRole={user?.role} />
+            <AdTracker projectId={id} userRole={user?.role} searchParams={searchParams} setSearchParams={setSearchParams} />
           </ErrorBoundary>
         )}
         {tab === 'lpgen' && (

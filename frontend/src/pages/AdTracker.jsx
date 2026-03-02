@@ -22,25 +22,30 @@ function displayName(dep) {
   return parts.length > 0 ? parts.join(' — ') : `Ad ${(dep.id || '').slice(0, 6)}`;
 }
 
-export default function AdTracker({ projectId, userRole }) {
+const VALID_VIEWS = ['campaigns', 'status', 'ready_to_post'];
+
+export default function AdTracker({ projectId, userRole, searchParams, setSearchParams }) {
   const isPoster = userRole === 'poster';
   const { data: deployments, setData: setDeployments, loading, error: deploymentsError, refetch: loadDeployments, silentRefetch: silentLoadDeployments } = useAsyncData(
     () => api.getProjectDeployments(projectId).then(d => d.deployments || []),
     [projectId]
   );
-  // Persist activeView in sessionStorage so it survives page refresh
-  const [activeView, setActiveViewState] = useState(() => {
-    if (isPoster) return 'ready_to_post';
-    try {
-      const saved = sessionStorage.getItem(`adtracker_view_${projectId}`);
-      if (saved && ['campaigns', 'status', 'ready_to_post'].includes(saved)) return saved;
-    } catch {}
-    return 'campaigns';
-  }); // 'campaigns' | 'status' | 'ready_to_post'
+  // Persist activeView in URL search params so it survives page refresh
+  const viewFromUrl = searchParams?.get('view');
+  const defaultView = isPoster ? 'ready_to_post' : 'campaigns';
+  const [activeView, setActiveViewState] = useState(
+    viewFromUrl && VALID_VIEWS.includes(viewFromUrl) ? viewFromUrl : defaultView
+  ); // 'campaigns' | 'status' | 'ready_to_post'
   const setActiveView = useCallback((v) => {
     setActiveViewState(v);
-    try { sessionStorage.setItem(`adtracker_view_${projectId}`, v); } catch {}
-  }, [projectId]);
+    if (setSearchParams) {
+      setSearchParams(prev => {
+        const next = new URLSearchParams(prev);
+        next.set('view', v);
+        return next;
+      }, { replace: true });
+    }
+  }, [setSearchParams]);
   const [statusFilter, setStatusFilter] = useState('posted');
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [bulkEditOpen, setBulkEditOpen] = useState(false);
