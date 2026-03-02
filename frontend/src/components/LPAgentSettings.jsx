@@ -126,22 +126,23 @@ export default function LPAgentSettings({ projectId }) {
   // ── Test LP generation ──
   // Map SSE step names to progress percentages (roughly weighted by time)
   const STEP_PROGRESS = {
-    // Setup phase: 0-8%
-    'auto_loading': 2, 'product_image_loading': 5,
-    // Copy generation: 8-35%
-    'auto_copy': 8, 'loading_docs': 10, 'generating': 12, 'calling_api': 15, 'parsing': 32, 'copy_complete': 35,
-    // Editorial pass: 35-55%
+    // Route-level setup: 0-5%
+    'initializing': 1, 'validating': 2, 'creating_record': 3,
+    // Pipeline setup: 5-10%
+    'auto_loading': 5, 'product_image_loading': 7,
+    // Copy generation: 10-35%
+    'auto_copy': 10, 'loading_docs': 12, 'generating': 14, 'calling_api': 16, 'parsing': 32, 'copy_complete': 35,
+    // Editorial pass: 36-55%
     'editorial_starting': 36, 'editorial_complete': 55, 'editorial_skipped': 55, 'editorial_failed': 55,
-    // Image generation: 55-80%
-    'images_starting': 56, 'image_generating': 60, 'images_skipped': 80,
-    // HTML generation: 80-95%
+    // Image generation: 56-80%
+    'images_starting': 56, 'image_generating': 60, 'image_complete': 70, 'images_complete': 80, 'images_skipped': 80,
+    // HTML generation: 81-95%
     'html_generating': 81, 'html_complete': 95,
-    // Assembly + publish: 95-100%
+    // Assembly + publish: 97-100%
     'auto_complete': 97,
   };
   // Separate handler for phase-level events from lpAgent.js route
   const PHASE_PROGRESS = {
-    'copy_generation': 8,
     'publishing': 97, 'verifying': 99,
   };
 
@@ -163,20 +164,23 @@ export default function LPAgentSettings({ projectId }) {
     }, (event) => {
       if (event.type === 'progress') {
         setGenPhase(event.message || '');
-        // Map step to progress percentage
+        // Map step to progress percentage — never go backwards
         if (event.step && STEP_PROGRESS[event.step] !== undefined) {
-          setGenProgress(STEP_PROGRESS[event.step]);
+          setGenProgress(prev => Math.max(prev, STEP_PROGRESS[event.step]));
         }
-        // Handle per-image progress (images are 55-80% of total)
+        // Handle per-image progress (images are 56-80% of total)
         if (event.imageProgress) {
-          const { current, total } = event.imageProgress;
-          const imgPercent = 56 + Math.round((current / total) * 24);
-          setGenProgress(imgPercent);
+          const { current, total, done: imgDone } = event.imageProgress;
+          // Each image spans its portion of the 56-80% range
+          const imgPercent = imgDone
+            ? 56 + Math.round((current / total) * 24)
+            : 56 + Math.round(((current - 1) / total) * 24) + Math.round((1 / total) * 12);
+          setGenProgress(prev => Math.max(prev, imgPercent));
         }
       } else if (event.type === 'phase') {
         setGenPhase(event.message || event.phase || '');
         if (event.phase && PHASE_PROGRESS[event.phase] !== undefined) {
-          setGenProgress(PHASE_PROGRESS[event.phase]);
+          setGenProgress(prev => Math.max(prev, PHASE_PROGRESS[event.phase]));
         }
       } else if (event.type === 'complete') {
         setGenProgress(100);
@@ -215,8 +219,9 @@ export default function LPAgentSettings({ projectId }) {
 
   // Estimate time remaining based on elapsed time and progress
   const getTimeEstimate = () => {
-    if (!genStartRef.current || genProgress < 5) return null;
+    if (!genStartRef.current || genProgress < 3) return null;
     const elapsed = (Date.now() - genStartRef.current) / 1000;
+    if (elapsed < 5) return null; // Wait at least 5s before estimating
     const rate = genProgress / elapsed;
     if (rate <= 0) return null;
     const remaining = Math.round((100 - genProgress) / rate);

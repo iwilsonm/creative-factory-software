@@ -224,12 +224,12 @@ router.post('/:id/lp-agent/generate-test', async (req, res) => {
   // Open SSE stream IMMEDIATELY — prevents nginx 504 timeouts.
   // All subsequent errors are sent as SSE error events, not HTTP status codes.
   const { sendEvent, end, isClosed } = createSSEStream(req, res);
-  sendEvent({ type: 'progress', message: 'Initializing...' });
+  sendEvent({ type: 'progress', step: 'initializing', message: 'Initializing...' });
   console.log(`[LP Agent] generate-test: SSE stream open`);
 
   try {
     // Validate template exists and is ready
-    sendEvent({ type: 'progress', message: 'Validating template...' });
+    sendEvent({ type: 'progress', step: 'validating', message: 'Validating template...' });
     const template = await getLPTemplate(template_id);
     if (!template || template.status !== 'ready') {
       sendEvent({ type: 'error', message: 'Template not found or not ready' });
@@ -241,7 +241,7 @@ router.post('/:id/lp-agent/generate-test', async (req, res) => {
     const agentConfig = await getLPAgentConfig(projectId).catch(() => null);
 
     // Create LP record
-    sendEvent({ type: 'progress', message: 'Creating landing page record...' });
+    sendEvent({ type: 'progress', step: 'creating_record', message: 'Creating landing page record...' });
     const lpId = uuidv4();
     await createLandingPage({
       id: lpId,
@@ -260,7 +260,6 @@ router.post('/:id/lp-agent/generate-test', async (req, res) => {
     console.log(`[LP Agent] generate-test: LP record created (${lpId.slice(0, 8)}), starting pipeline...`);
 
     // Generate using the same pipeline as the Director
-    sendEvent({ type: 'phase', phase: 'copy_generation', message: 'Generating copy...' });
     const result = await generateAutoLP({
       projectId,
       templateId: template_id,
