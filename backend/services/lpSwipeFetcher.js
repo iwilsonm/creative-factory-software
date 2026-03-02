@@ -19,8 +19,8 @@ import { uploadBuffer } from '../convexClient.js';
 const USER_AGENT =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36';
 
-const MAX_SCREENSHOT_HEIGHT = 10000;
-const NAVIGATION_TIMEOUT = 30000;
+const MAX_SCREENSHOT_HEIGHT = 7900; // Claude API rejects images >8000px in any dimension
+const NAVIGATION_TIMEOUT = 45000;
 
 /**
  * Fetch a swipe page URL using a headless browser.
@@ -82,17 +82,18 @@ export async function fetchSwipePage(url, sendEvent) {
     await page.setUserAgent(USER_AGENT);
     await page.setViewport({ width: 1440, height: 900 });
 
-    // Navigate to URL
+    // Navigate to URL — try networkidle2 first (allows 2 outstanding connections),
+    // fall back to domcontentloaded + manual wait if that times out.
+    // networkidle0 is too strict — modern sites with analytics/tracking never reach zero connections.
+    let usedFallback = false;
     try {
       await page.goto(url, {
-        waitUntil: 'networkidle0',
+        waitUntil: 'networkidle2',
         timeout: NAVIGATION_TIMEOUT,
       });
     } catch (navErr) {
       const msg = navErr.message || '';
-      if (msg.includes('timeout') || msg.includes('TimeoutError')) {
-        throw new Error(`Page took too long to load (>${NAVIGATION_TIMEOUT / 1000}s). The site may be slow or blocking automated access. Try a different URL.`);
-      }
+      // Non-timeout errors — rethrow with friendly messages
       if (msg.includes('net::ERR_NAME_NOT_RESOLVED')) {
         throw new Error(`Could not resolve domain "${parsedUrl.hostname}". Check the URL and try again.`);
       }
@@ -102,11 +103,30 @@ export async function fetchSwipePage(url, sendEvent) {
       if (msg.includes('net::ERR_SSL')) {
         throw new Error(`SSL error connecting to "${parsedUrl.hostname}". The site may have certificate issues.`);
       }
-      throw new Error(`Failed to load page: ${msg}`);
+      // Timeout — fall back to domcontentloaded + manual wait
+      if (msg.includes('timeout') || msg.includes('TimeoutError')) {
+        sendEvent({ type: 'progress', step: 'fetch_loading', message: 'Page loading slowly, retrying with fallback...' });
+        try {
+          await page.goto(url, {
+            waitUntil: 'domcontentloaded',
+            timeout: NAVIGATION_TIMEOUT,
+          });
+          usedFallback = true;
+        } catch (fallbackErr) {
+          const fbMsg = fallbackErr.message || '';
+          if (fbMsg.includes('timeout') || fbMsg.includes('TimeoutError')) {
+            throw new Error(`Page took too long to load (>${NAVIGATION_TIMEOUT / 1000}s). The site may be slow or blocking automated access. Try a different URL.`);
+          }
+          throw new Error(`Failed to load page: ${fbMsg}`);
+        }
+      } else {
+        throw new Error(`Failed to load page: ${msg}`);
+      }
     }
 
-    // Wait a bit for any lazy-loaded content
-    await page.evaluate(() => new Promise(r => setTimeout(r, 1500)));
+    // Wait for lazy-loaded content — longer wait if we used the fallback strategy
+    const contentWaitMs = usedFallback ? 5000 : 2000;
+    await page.evaluate((ms) => new Promise(r => setTimeout(r, ms)), contentWaitMs);
 
     sendEvent({ type: 'progress', step: 'fetch_capturing', message: 'Taking screenshot and extracting text...' });
 
@@ -114,14 +134,14 @@ export async function fetchSwipePage(url, sendEvent) {
     const bodyHeight = await page.evaluate(() => document.body.scrollHeight);
     const cappedHeight = Math.min(bodyHeight, MAX_SCREENSHOT_HEIGHT);
 
-    // Resize viewport to full width at capped height so fullPage screenshot works
+    // Resize viewport to capped height — screenshot captures only the viewport (no fullPage)
     await page.setViewport({ width: 1440, height: cappedHeight });
 
-    // Take full-page screenshot as JPEG
+    // Take viewport-only screenshot as JPEG (NOT fullPage — that ignores the height cap)
     const screenshotBuffer = await page.screenshot({
-      fullPage: true,
       type: 'jpeg',
       quality: 90,
+      clip: { x: 0, y: 0, width: 1440, height: cappedHeight },
     });
 
     // Extract visible text

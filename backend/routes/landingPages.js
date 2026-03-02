@@ -851,7 +851,7 @@ router.post('/:projectId/landing-pages/generate-auto', async (req, res) => {
   }
 
   // Start SSE stream
-  const { sendEvent, close } = createSSEStream(req, res);
+  const { sendEvent, end } = createSSEStream(req, res);
   sendEvent({ type: 'started', page_id: lpId });
 
   try {
@@ -906,7 +906,7 @@ router.post('/:projectId/landing-pages/generate-auto', async (req, res) => {
     await updateLandingPage(lpId, { status: 'failed' }).catch(() => {});
     sendEvent({ type: 'error', message: err.message });
   } finally {
-    close();
+    end();
   }
 });
 
