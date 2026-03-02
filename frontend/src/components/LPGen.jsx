@@ -1873,7 +1873,7 @@ export default function LPGen({ projectId, project }) {
                     </div>
                     <div className="flex items-center gap-3 mt-1">
                       <span className="text-[11px] text-textlight">
-                        {new Date(page.created_at).toLocaleDateString(undefined, { month: 'short', day: 'numeric' })}
+                        {new Date(page.created_at).toLocaleString(undefined, { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })}
                       </span>
                       {(page.status === 'completed' || isPublished) && (
                         <>

@@ -277,9 +277,20 @@ function PipelineOverview({ data, fixerData, filterData }) {
 // LP Agent Tab
 // =============================================
 function LPAgentTab() {
+  const [searchParams, setSearchParams] = useSearchParams();
   const [projects, setProjects] = useState([]);
-  const [selectedProject, setSelectedProject] = useState('');
+  const [selectedProject, setSelectedProjectState] = useState('');
   const [loading, setLoading] = useState(true);
+
+  const setSelectedProject = useCallback((projectId) => {
+    setSelectedProjectState(projectId);
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev);
+      if (projectId) next.set('project', projectId);
+      else next.delete('project');
+      return next;
+    }, { replace: true });
+  }, [setSearchParams]);
 
   useEffect(() => {
     (async () => {
@@ -287,7 +298,12 @@ function LPAgentTab() {
         const res = await api.getProjects();
         const list = res.projects || res || [];
         setProjects(list);
-        if (list.length > 0) setSelectedProject(list[0].id);
+        const projectFromUrl = searchParams.get('project');
+        if (projectFromUrl && list.some(p => p.id === projectFromUrl)) {
+          setSelectedProjectState(projectFromUrl);
+        } else if (list.length > 0) {
+          setSelectedProject(list[0].id);
+        }
       } catch { /* ignore */ }
       finally { setLoading(false); }
     })();

@@ -688,16 +688,9 @@ export default function LPAgentSettings({ projectId }) {
               if (isPublished) { badgeClass = 'bg-teal/10 text-teal'; badgeText = 'Published'; }
               if (isFailed) { badgeClass = 'bg-red-50 text-red-600'; badgeText = 'Failed'; }
 
-              // Relative time
+              // Full timestamp
               const createdAt = lp.created_at ? new Date(lp.created_at) : null;
-              let timeAgo = '';
-              if (createdAt) {
-                const diffMin = Math.round((Date.now() - createdAt.getTime()) / 60000);
-                if (diffMin < 1) timeAgo = 'just now';
-                else if (diffMin < 60) timeAgo = `${diffMin}m ago`;
-                else if (diffMin < 1440) timeAgo = `${Math.round(diffMin / 60)}h ago`;
-                else timeAgo = `${Math.round(diffMin / 1440)}d ago`;
-              }
+              const timestamp = createdAt ? createdAt.toLocaleString(undefined, { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' }) : '';
 
               return (
                 <div
@@ -729,8 +722,8 @@ export default function LPAgentSettings({ projectId }) {
                         View live
                       </a>
                     )}
-                    {timeAgo && (
-                      <span className="text-[9px] text-textlight">{timeAgo}</span>
+                    {timestamp && (
+                      <span className="text-[9px] text-textlight">{timestamp}</span>
                     )}
                     <svg className="w-3.5 h-3.5 text-textlight" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
                       <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
