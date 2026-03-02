@@ -113,6 +113,7 @@ process.on('uncaughtException', (err) => {
   app.use('/api/projects/:id/generate-docs', llmRateLimit);
   app.use('/api/projects/:id/generate-ad', llmRateLimit);
   app.use('/api/projects/:id/generate-landing-page', llmRateLimit);
+  app.use('/api/projects/:id/landing-pages/generate-auto', llmRateLimit);
   app.use('/api/projects/:id/lp-templates', llmRateLimit);
   app.use('/api/deployments/generate-ad-copy', llmRateLimit);
   app.use('/api/deployments/generate-ad-headlines', llmRateLimit);

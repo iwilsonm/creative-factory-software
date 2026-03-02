@@ -492,6 +492,8 @@ export const api = {
   checkLandingPageDocs: (projectId) => request(`/projects/${projectId}/landing-pages-check`),
   generateLandingPage: (projectId, body, onEvent) =>
     streamSSEWithBody(`/projects/${projectId}/landing-pages/generate`, body, onEvent),
+  generateAutoLP: (projectId, body, onEvent) =>
+    streamSSEWithBody(`/projects/${projectId}/landing-pages/generate-auto`, body, onEvent),
   updateLandingPage: (projectId, pageId, data) =>
     request(`/projects/${projectId}/landing-pages/${pageId}`, { method: 'PUT', body: JSON.stringify(data) }),
   deleteLandingPage: (projectId, pageId) =>

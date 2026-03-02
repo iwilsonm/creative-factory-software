@@ -17,6 +17,8 @@ import {
   getLandingPageVersion,
   getStorageUrl,
   uploadBuffer,
+  getLPTemplate,
+  getConductorConfig,
 } from '../convexClient.js';
 import {
   generateLandingPageCopy,
@@ -25,11 +27,13 @@ import {
   generateSlotImages,
   generateHtmlTemplate,
   assembleLandingPage,
+  generateAutoLP,
+  NARRATIVE_FRAMES,
 } from '../services/lpGenerator.js';
 import { fetchSwipePage } from '../services/lpSwipeFetcher.js';
 import { generateImage } from '../services/gemini.js';
 import { createSSEStream } from '../utils/sseHelper.js';
-import { publishToShopify, unpublishFromShopify } from '../services/lpPublisher.js';
+import { publishToShopify, unpublishFromShopify, verifyLive } from '../services/lpPublisher.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -800,5 +804,110 @@ function createDefaultDesignSpec(copySections) {
     style_notes: 'Clean, professional direct response landing page with strong typography and clear CTAs.',
   };
 }
+
+// ── Generate Test LP (auto pipeline, manual trigger) ──
+router.post('/:projectId/landing-pages/generate-auto', async (req, res) => {
+  const { projectId } = req.params;
+  const { template_id, narrative_frame, angle_description } = req.body;
+
+  if (!template_id || !narrative_frame || !angle_description) {
+    return res.status(400).json({ error: 'template_id, narrative_frame, and angle_description are required' });
+  }
+
+  // Validate narrative frame
+  const frame = NARRATIVE_FRAMES.find(f => f.id === narrative_frame);
+  if (!frame) {
+    return res.status(400).json({ error: `Invalid narrative_frame. Must be one of: ${NARRATIVE_FRAMES.map(f => f.id).join(', ')}` });
+  }
+
+  // Validate template exists and is ready
+  let template;
+  try {
+    template = await getLPTemplate(template_id);
+    if (!template || template.status !== 'ready') {
+      return res.status(400).json({ error: 'Template not found or not ready' });
+    }
+  } catch (err) {
+    return res.status(400).json({ error: `Failed to load template: ${err.message}` });
+  }
+
+  // Create LP record
+  const lpId = uuidv4();
+  try {
+    await createLandingPage({
+      id: lpId,
+      project_id: projectId,
+      name: `Test LP — ${frame.name}: ${angle_description.slice(0, 60)}`,
+      angle: angle_description,
+      word_count: 1200,
+      status: 'generating',
+      auto_generated: true,
+      batch_job_id: null,
+      narrative_frame: frame.id,
+      template_id,
+    });
+  } catch (err) {
+    return res.status(500).json({ error: `Failed to create LP record: ${err.message}` });
+  }
+
+  // Start SSE stream
+  const { sendEvent, close } = createSSEStream(req, res);
+  sendEvent({ type: 'started', page_id: lpId });
+
+  try {
+    // Generate using the same pipeline as the Director
+    sendEvent({ type: 'phase', phase: 'copy_generation', message: 'Generating copy...' });
+    const result = await generateAutoLP({
+      projectId,
+      templateId: template_id,
+      angle: angle_description,
+      narrativeFrame: frame.instruction,
+      batchJobId: null,
+    }, sendEvent);
+
+    // Update LP with generated content
+    const updateFields = {
+      status: 'draft',
+      copy_sections: JSON.stringify(result.copySections || []),
+      image_slots: JSON.stringify(result.imageSlots || []),
+      html_template: result.htmlTemplate || '',
+      assembled_html: result.assembledHtml || '',
+    };
+    if (result.designAnalysis) {
+      updateFields.swipe_design_analysis = JSON.stringify(result.designAnalysis);
+    }
+    await updateLandingPage(lpId, updateFields);
+
+    // Auto-publish if Shopify is connected
+    let publishedUrl = null;
+    try {
+      const config = await getConductorConfig(projectId);
+      if (config?.shopify_access_token && config?.shopify_store_domain) {
+        sendEvent({ type: 'phase', phase: 'publishing', message: 'Publishing to Shopify...' });
+        const pubResult = await publishToShopify(lpId, projectId);
+        publishedUrl = pubResult.published_url;
+
+        sendEvent({ type: 'phase', phase: 'verifying', message: 'Verifying live...' });
+        await verifyLive(publishedUrl);
+      }
+    } catch (pubErr) {
+      console.warn('[LP Generate Auto] Publish failed (non-fatal):', pubErr.message);
+      sendEvent({ type: 'progress', message: `Publish warning: ${pubErr.message}` });
+    }
+
+    sendEvent({
+      type: 'complete',
+      page_id: lpId,
+      name: `Test LP — ${frame.name}: ${angle_description.slice(0, 60)}`,
+      published_url: publishedUrl,
+    });
+  } catch (err) {
+    console.error('[LP Generate Auto] Error:', err.message);
+    await updateLandingPage(lpId, { status: 'failed' }).catch(() => {});
+    sendEvent({ type: 'error', message: err.message });
+  } finally {
+    close();
+  }
+});
 
 export default router;
