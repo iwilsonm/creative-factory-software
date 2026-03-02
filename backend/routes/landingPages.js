@@ -4,6 +4,7 @@ import multer from 'multer';
 import os from 'os';
 import fs from 'fs';
 import path from 'path';
+import puppeteer from 'puppeteer';
 import { requireAuth } from '../auth.js';
 import {
   getProject,
@@ -108,6 +109,62 @@ router.get('/:projectId/landing-pages/:pageId', async (req, res) => {
   }
 
   res.json(page);
+});
+
+// ─── Download landing page as PDF ────────────────────────────────────────────
+router.get('/:projectId/landing-pages/:pageId/download-pdf', async (req, res) => {
+  let browser;
+  try {
+    const page = await getLandingPage(req.params.pageId);
+    if (!page || page.project_id !== req.params.projectId) {
+      return res.status(404).json({ error: 'Landing page not found' });
+    }
+
+    const html = page.assembled_html;
+    if (!html) {
+      return res.status(400).json({ error: 'Landing page has no assembled HTML yet' });
+    }
+
+    // Launch headless Chromium (same config as lpSwipeFetcher.js)
+    browser = await puppeteer.launch({
+      headless: 'new',
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-gpu',
+        '--disable-software-rasterizer',
+        '--single-process',
+      ],
+    });
+
+    const browserPage = await browser.newPage();
+    await browserPage.setViewport({ width: 1440, height: 900 });
+    await browserPage.setContent(html, { waitUntil: 'networkidle2', timeout: 30000 });
+
+    const pdfBuffer = await browserPage.pdf({
+      format: 'A4',
+      printBackground: true,
+      margin: { top: '0.5cm', bottom: '0.5cm', left: '0.5cm', right: '0.5cm' },
+    });
+
+    // Sanitize filename
+    const safeName = (page.name || 'Landing-Page').replace(/[^a-zA-Z0-9_\- ]/g, '').slice(0, 80).trim();
+
+    res.setHeader('Content-Type', 'application/pdf');
+    res.setHeader('Content-Disposition', `attachment; filename="${safeName}.pdf"`);
+    res.setHeader('Content-Length', pdfBuffer.length);
+    res.send(pdfBuffer);
+  } catch (err) {
+    console.error('[LandingPages] PDF download error:', err.message);
+    if (!res.headersSent) {
+      res.status(500).json({ error: 'Failed to generate PDF' });
+    }
+  } finally {
+    if (browser) {
+      try { await browser.close(); } catch {}
+    }
+  }
 });
 
 // ─── Check docs readiness ────────────────────────────────────────────────────

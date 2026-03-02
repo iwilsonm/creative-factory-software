@@ -31,6 +31,9 @@ export default function LPAgentSettings({ projectId }) {
   const [genPhase, setGenPhase] = useState('');
   const genAbortRef = useRef(null);
 
+  // Recent generations
+  const [recentGenerations, setRecentGenerations] = useState([]);
+
   // Debounced save
   const saveTimerRef = useRef(null);
 
@@ -39,10 +42,11 @@ export default function LPAgentSettings({ projectId }) {
     if (!projectId) return;
     setLoading(true);
     try {
-      const [cfgRes, shopRes, tplRes] = await Promise.allSettled([
+      const [cfgRes, shopRes, tplRes, statusRes] = await Promise.allSettled([
         api.getLPAgentConfig(projectId),
         api.getLPAgentShopifyStatus(projectId),
         api.getLPTemplates(projectId),
+        api.getLPAgentStatus(projectId),
       ]);
       if (cfgRes.status === 'fulfilled') setConfig(cfgRes.value?.config || null);
       if (shopRes.status === 'fulfilled') {
@@ -52,6 +56,7 @@ export default function LPAgentSettings({ projectId }) {
         }
       }
       if (tplRes.status === 'fulfilled') setTemplates(tplRes.value?.templates || []);
+      if (statusRes.status === 'fulfilled') setRecentGenerations(statusRes.value?.recent_generations || []);
     } catch (err) {
       console.error('[LPAgentSettings] Load error:', err);
     } finally {
@@ -106,6 +111,14 @@ export default function LPAgentSettings({ projectId }) {
     }
   };
 
+  // ── Refresh recent generations ──
+  const refreshRecentGenerations = useCallback(async () => {
+    try {
+      const status = await api.getLPAgentStatus(projectId);
+      setRecentGenerations(status?.recent_generations || []);
+    } catch { /* ignore */ }
+  }, [projectId]);
+
   // ── Test LP generation ──
   const handleGenerateTest = () => {
     if (!testForm.template_id || !testForm.angle.trim()) {
@@ -128,8 +141,9 @@ export default function LPAgentSettings({ projectId }) {
         setGenPhase('');
         const msg = event.published_url
           ? 'LP generated and published!'
-          : 'LP generated! Open it in the Landing Pages tab to publish.';
+          : 'LP generated successfully!';
         toast.success(msg);
+        refreshRecentGenerations();
       } else if (event.type === 'error') {
         setGenerating(false);
         setGenPhase('');
@@ -524,6 +538,80 @@ export default function LPAgentSettings({ projectId }) {
             <p className="text-[10px] text-textlight mt-1">
               Test the LP pipeline: pick a template and narrative frame, enter an angle, and generate a landing page.
             </p>
+          </div>
+        )}
+      </div>
+
+      {/* ── 7. Recent Generations ── */}
+      <div className="card p-5">
+        <h3 className="text-[13px] font-semibold text-textdark mb-3 flex items-center gap-2">
+          <svg className="w-4 h-4 text-textmid" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 6v6h4.5m4.5 0a9 9 0 11-18 0 9 9 0 0118 0z" />
+          </svg>
+          Recent Generations
+        </h3>
+
+        {recentGenerations.length === 0 ? (
+          <p className="text-[12px] text-textmid text-center py-3">No test generations yet.</p>
+        ) : (
+          <div className="space-y-2">
+            {recentGenerations.map(lp => {
+              const isGenerating = lp.status === 'generating';
+              const isPublished = lp.status === 'published';
+              const isFailed = lp.status === 'failed' || lp.status === 'error';
+              const isDraft = !isGenerating && !isPublished && !isFailed;
+
+              let badgeClass = 'bg-navy/10 text-navy';
+              let badgeText = 'Draft';
+              if (isGenerating) { badgeClass = 'bg-gold/10 text-gold'; badgeText = 'Generating'; }
+              if (isPublished) { badgeClass = 'bg-teal/10 text-teal'; badgeText = 'Published'; }
+              if (isFailed) { badgeClass = 'bg-red-50 text-red-600'; badgeText = 'Failed'; }
+
+              // Relative time
+              const createdAt = lp.created_at ? new Date(lp.created_at) : null;
+              let timeAgo = '';
+              if (createdAt) {
+                const diffMin = Math.round((Date.now() - createdAt.getTime()) / 60000);
+                if (diffMin < 1) timeAgo = 'just now';
+                else if (diffMin < 60) timeAgo = `${diffMin}m ago`;
+                else if (diffMin < 1440) timeAgo = `${Math.round(diffMin / 60)}h ago`;
+                else timeAgo = `${Math.round(diffMin / 1440)}d ago`;
+              }
+
+              return (
+                <div key={lp.id} className="flex items-center justify-between bg-offwhite rounded-lg px-3 py-2">
+                  <div className="flex items-center gap-2 min-w-0 flex-1">
+                    {isGenerating && (
+                      <svg className="w-3 h-3 text-gold animate-spin flex-shrink-0" viewBox="0 0 24 24" fill="none">
+                        <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" strokeDasharray="31.4 31.4" strokeLinecap="round" />
+                      </svg>
+                    )}
+                    <span className="text-[11px] text-textdark truncate">{lp.name}</span>
+                    <span className={`text-[9px] font-medium px-1.5 py-0.5 rounded-full flex-shrink-0 ${badgeClass}`}>
+                      {badgeText}
+                    </span>
+                  </div>
+                  <div className="flex items-center gap-2 flex-shrink-0 ml-2">
+                    {isPublished && lp.published_url && (
+                      <a
+                        href={lp.published_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-[10px] text-gold hover:text-gold/80 transition-colors"
+                      >
+                        View live
+                      </a>
+                    )}
+                    {isDraft && (
+                      <span className="text-[10px] text-textlight">Landing Pages tab</span>
+                    )}
+                    {timeAgo && (
+                      <span className="text-[9px] text-textlight">{timeAgo}</span>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
           </div>
         )}
       </div>

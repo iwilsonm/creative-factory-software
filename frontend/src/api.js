@@ -535,6 +535,9 @@ export const api = {
     request(`/projects/${projectId}/landing-pages/${pageId}/versions/${versionId}/restore`, { method: 'POST' }),
 
   // LP Editor — Publishing (Shopify)
+  downloadLandingPagePdf: (projectId, pageId) => {
+    window.open(`${API_BASE}/projects/${projectId}/landing-pages/${pageId}/download-pdf`, '_blank');
+  },
   publishLandingPage: (projectId, pageId) =>
     request(`/projects/${projectId}/landing-pages/${pageId}/publish`, { method: 'POST' }),
   unpublishLandingPage: (projectId, pageId) =>

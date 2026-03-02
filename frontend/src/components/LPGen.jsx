@@ -682,6 +682,12 @@ function LPEditor({ page: initialPage, onBack, onDelete, projectId }) {
             </button>
           )}
           <button
+            onClick={() => api.downloadLandingPagePdf(projectId, initialPage.externalId)}
+            className="text-[11px] px-3 py-1.5 rounded-lg font-medium bg-navy/10 text-navy hover:bg-navy/15 transition-colors"
+          >
+            Download PDF
+          </button>
+          <button
             onClick={handleDelete}
             disabled={deleting}
             className="text-[11px] text-red-400 hover:text-red-500 transition-colors disabled:opacity-50"

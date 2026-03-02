@@ -208,34 +208,40 @@ router.get('/:id/lp-agent/shopify/status', async (req, res) => {
 router.post('/:id/lp-agent/generate-test', async (req, res) => {
   const projectId = req.params.id;
   const { template_id, narrative_frame, angle_description } = req.body;
+  console.log(`[LP Agent] generate-test: project=${projectId?.slice(0, 8)}, template=${template_id?.slice(0, 8)}, frame=${narrative_frame}`);
 
   if (!template_id || !narrative_frame || !angle_description) {
     return res.status(400).json({ error: 'template_id, narrative_frame, and angle_description are required' });
   }
 
-  // Validate narrative frame
+  // Validate narrative frame (synchronous — safe before SSE)
   const frame = NARRATIVE_FRAMES.find(f => f.id === narrative_frame);
   if (!frame) {
     return res.status(400).json({ error: `Invalid narrative_frame. Must be one of: ${NARRATIVE_FRAMES.map(f => f.id).join(', ')}` });
   }
 
-  // Validate template exists and is ready
-  let template;
+  // Open SSE stream IMMEDIATELY — prevents nginx 504 timeouts.
+  // All subsequent errors are sent as SSE error events, not HTTP status codes.
+  const { sendEvent, end, isClosed } = createSSEStream(req, res);
+  sendEvent({ type: 'progress', message: 'Initializing...' });
+  console.log(`[LP Agent] generate-test: SSE stream open`);
+
   try {
-    template = await getLPTemplate(template_id);
+    // Validate template exists and is ready
+    sendEvent({ type: 'progress', message: 'Validating template...' });
+    const template = await getLPTemplate(template_id);
     if (!template || template.status !== 'ready') {
-      return res.status(400).json({ error: 'Template not found or not ready' });
+      sendEvent({ type: 'error', message: 'Template not found or not ready' });
+      end();
+      return;
     }
-  } catch (err) {
-    return res.status(400).json({ error: `Failed to load template: ${err.message}` });
-  }
 
-  // Load agent config for settings
-  const agentConfig = await getLPAgentConfig(projectId).catch(() => null);
+    // Load agent config for settings
+    const agentConfig = await getLPAgentConfig(projectId).catch(() => null);
 
-  // Create LP record
-  const lpId = uuidv4();
-  try {
+    // Create LP record
+    sendEvent({ type: 'progress', message: 'Creating landing page record...' });
+    const lpId = uuidv4();
     await createLandingPage({
       id: lpId,
       project_id: projectId,
@@ -248,15 +254,10 @@ router.post('/:id/lp-agent/generate-test', async (req, res) => {
       narrative_frame: frame.id,
       template_id,
     });
-  } catch (err) {
-    return res.status(500).json({ error: `Failed to create LP record: ${err.message}` });
-  }
 
-  // Start SSE stream
-  const { sendEvent, end } = createSSEStream(req, res);
-  sendEvent({ type: 'started', page_id: lpId });
+    sendEvent({ type: 'started', page_id: lpId });
+    console.log(`[LP Agent] generate-test: LP record created (${lpId.slice(0, 8)}), starting pipeline...`);
 
-  try {
     // Generate using the same pipeline as the Director
     sendEvent({ type: 'phase', phase: 'copy_generation', message: 'Generating copy...' });
     const result = await generateAutoLP({
@@ -305,9 +306,9 @@ router.post('/:id/lp-agent/generate-test', async (req, res) => {
       name: `Test LP — ${frame.name}: ${angle_description.slice(0, 60)}`,
       published_url: publishedUrl,
     });
+    console.log(`[LP Agent] generate-test: complete (${lpId.slice(0, 8)})`);
   } catch (err) {
     console.error('[LP Agent] Generate test error:', err.message);
-    await updateLandingPage(lpId, { status: 'failed' }).catch(() => {});
     sendEvent({ type: 'error', message: err.message });
   } finally {
     end();
