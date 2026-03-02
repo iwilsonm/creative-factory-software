@@ -151,7 +151,9 @@ export default function LPAgentSettings({ projectId }) {
   // ── Derived state ──
   const enabledFrames = (() => {
     try {
-      return JSON.parse(config?.default_narrative_frames || '[]');
+      const parsed = JSON.parse(config?.default_narrative_frames || '[]');
+      // Default to all frames if none are saved yet
+      return parsed.length > 0 ? parsed : NARRATIVE_FRAMES.map(f => f.id);
     } catch {
       return NARRATIVE_FRAMES.map(f => f.id);
     }
