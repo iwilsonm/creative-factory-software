@@ -356,6 +356,41 @@ export default function LPAgentSettings({ projectId }) {
         </div>
       </div>
 
+      {/* ── 3b. Page Metadata ── */}
+      <div className="card p-5">
+        <h3 className="text-[13px] font-semibold text-textdark mb-3 flex items-center gap-2">
+          <svg className="w-4 h-4 text-textmid" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15.75 6a3.75 3.75 0 11-7.5 0 3.75 3.75 0 017.5 0zM4.501 20.118a7.5 7.5 0 0114.998 0A17.933 17.933 0 0112 21.75c-2.676 0-5.216-.584-7.499-1.632z" />
+          </svg>
+          Page Metadata
+        </h3>
+        <div className="space-y-3">
+          <div>
+            <label className="text-[11px] text-textmid font-medium block mb-1">Author Name</label>
+            <input
+              type="text"
+              placeholder="Health Desk"
+              value={config?.default_author_name || ''}
+              onChange={e => handleSaveConfig({ default_author_name: e.target.value })}
+              className="input-apple w-full text-[12px]"
+            />
+          </div>
+          <div>
+            <label className="text-[11px] text-textmid font-medium block mb-1">Author Title</label>
+            <input
+              type="text"
+              placeholder="Senior Health Correspondent"
+              value={config?.default_author_title || ''}
+              onChange={e => handleSaveConfig({ default_author_title: e.target.value })}
+              className="input-apple w-full text-[12px]"
+            />
+          </div>
+          <p className="text-[9px] text-textlight">
+            These appear as byline metadata on generated landing pages. Leave blank for defaults.
+          </p>
+        </div>
+      </div>
+
       {/* ── 4. Generation Settings ── */}
       <div className="card p-5">
         <h3 className="text-[13px] font-semibold text-textdark mb-3 flex items-center gap-2">

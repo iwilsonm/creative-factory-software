@@ -42,6 +42,7 @@ router.put('/:id/lp-agent/config', async (req, res) => {
       'enabled', 'pdp_url', 'default_narrative_frames', 'template_selection_mode',
       'editorial_pass_enabled', 'auto_publish', 'daily_budget_cents',
       'use_product_reference_images', 'lifestyle_image_style',
+      'default_author_name', 'default_author_title',
     ];
     const fields = {};
     for (const key of allowedFields) {
@@ -268,6 +269,7 @@ router.post('/:id/lp-agent/generate-test', async (req, res) => {
       batchJobId: null,
       editorialPassEnabled: agentConfig?.editorial_pass_enabled !== false,
       useProductReferenceImages: agentConfig?.use_product_reference_images !== false,
+      agentConfig,
     }, sendEvent);
 
     // Update LP with generated content

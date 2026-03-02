@@ -598,6 +598,9 @@ export default defineSchema({
     // Images
     use_product_reference_images: v.optional(v.boolean()),
     lifestyle_image_style: v.optional(v.string()),
+    // Page metadata defaults
+    default_author_name: v.optional(v.string()),
+    default_author_title: v.optional(v.string()),
     // Timestamps
     created_at: v.optional(v.string()),
     updated_at: v.optional(v.string()),

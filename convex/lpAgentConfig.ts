@@ -37,6 +37,9 @@ export const upsertConfig = mutation({
     // Images
     use_product_reference_images: v.optional(v.boolean()),
     lifestyle_image_style: v.optional(v.string()),
+    // Page metadata defaults
+    default_author_name: v.optional(v.string()),
+    default_author_title: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const existing = await ctx.db
@@ -69,6 +72,8 @@ export const upsertConfig = mutation({
         daily_budget_cents: args.daily_budget_cents,
         use_product_reference_images: args.use_product_reference_images ?? true,
         lifestyle_image_style: args.lifestyle_image_style,
+        default_author_name: args.default_author_name,
+        default_author_title: args.default_author_title,
         created_at: now,
         updated_at: now,
       });

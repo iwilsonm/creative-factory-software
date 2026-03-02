@@ -92,6 +92,7 @@ export async function triggerLPGeneration(batchJobId, projectId, angle) {
         sendEvent: makeLogger('Primary'),
         editorialPassEnabled: config.editorial_pass_enabled !== false,
         useProductReferenceImages: config.use_product_reference_images !== false,
+        agentConfig: config,
       });
 
       await updateBatchJob(batchJobId, {
@@ -120,6 +121,7 @@ export async function triggerLPGeneration(batchJobId, projectId, angle) {
         sendEvent: makeLogger('Secondary'),
         editorialPassEnabled: config.editorial_pass_enabled !== false,
         useProductReferenceImages: config.use_product_reference_images !== false,
+        agentConfig: config,
       });
 
       await updateBatchJob(batchJobId, {
@@ -156,7 +158,7 @@ export async function triggerLPGeneration(batchJobId, projectId, angle) {
  * Generate a single LP, publish to Shopify, and verify live.
  * @returns {{ lpId, publishedUrl, verified }}
  */
-async function generateAndPublishLP({ projectId, batchJobId, angle, template, frame, label, sendEvent, editorialPassEnabled = true, useProductReferenceImages = true }) {
+async function generateAndPublishLP({ projectId, batchJobId, angle, template, frame, label, sendEvent, editorialPassEnabled = true, useProductReferenceImages = true, agentConfig = null }) {
   const lpId = uuidv4();
   const lpName = `${angle.slice(0, 50)} — ${frame.name} (Auto)`;
 
@@ -183,6 +185,7 @@ async function generateAndPublishLP({ projectId, batchJobId, angle, template, fr
       batchJobId,
       editorialPassEnabled,
       useProductReferenceImages,
+      agentConfig,
     }, sendEvent);
 
     // Save generated content to the LP record
