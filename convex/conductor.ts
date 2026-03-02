@@ -32,6 +32,7 @@ export const upsertConfig = mutation({
     // Shopify LP pipeline config
     shopify_store_domain: v.optional(v.string()),
     shopify_access_token: v.optional(v.string()),
+    shopify_client_id: v.optional(v.string()),
     shopify_lander_template: v.optional(v.string()),
     pdp_url: v.optional(v.string()),
     lp_auto_enabled: v.optional(v.boolean()),

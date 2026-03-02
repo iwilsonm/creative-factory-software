@@ -501,6 +501,7 @@ export default defineSchema({
     // Shopify LP pipeline config
     shopify_store_domain: v.optional(v.string()),    // e.g., "heal-naturally.myshopify.com"
     shopify_access_token: v.optional(v.string()),    // Admin API token with write_content scope
+    shopify_client_id: v.optional(v.string()),        // Client ID of connected Shopify app (reference only)
     shopify_lander_template: v.optional(v.string()), // Template suffix, default "lander"
     pdp_url: v.optional(v.string()),                 // Product detail page URL for CTA links
     lp_auto_enabled: v.optional(v.boolean()),        // Enable/disable auto LP generation

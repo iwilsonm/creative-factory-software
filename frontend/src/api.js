@@ -310,6 +310,12 @@ export const api = {
   getConductorConfig: (projectId) => request(`/conductor/config/${projectId}`),
   updateConductorConfig: (projectId, data) => request(`/conductor/config/${projectId}`, { method: 'PUT', body: JSON.stringify(data) }),
   getAllConductorConfigs: () => request('/conductor/configs'),
+
+  // Shopify connection
+  connectShopify: (projectId, data) => request(`/projects/${projectId}/shopify/connect`, { method: 'POST', body: JSON.stringify(data) }),
+  disconnectShopify: (projectId) => request(`/projects/${projectId}/shopify/disconnect`, { method: 'POST' }),
+  getShopifyStatus: (projectId) => request(`/projects/${projectId}/shopify/status`),
+
   getConductorAngles: (projectId) => request(`/conductor/angles/${projectId}`),
   createConductorAngle: (projectId, data) => request(`/conductor/angles/${projectId}`, { method: 'POST', body: JSON.stringify(data) }),
   updateConductorAngle: (projectId, angleId, data) => request(`/conductor/angles/${projectId}/${angleId}`, { method: 'PUT', body: JSON.stringify(data) }),
