@@ -127,16 +127,20 @@ function validateForPublish(page) {
 }
 
 /**
- * Generate a URL-safe slug with a 4-char random suffix.
+ * Generate a Shopify page handle in the format: lp{4-digit number}-{slugified-headline}
+ * The "lp" prefix is required for URL pattern matching (e.g. excluding pop-ups on LPs).
  */
 function generateSlug(name) {
-  const base = name
+  const num = String(Math.floor(1000 + Math.random() * 9000)); // 4-digit, 1000-9999
+  const slugified = name
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
-    .replace(/^-|-$/g, '')
-    .slice(0, 50);
-  const suffix = uuidv4().slice(0, 4);
-  return `${base}-${suffix}`;
+    .replace(/^-+|-+$/g, '')
+    .replace(/-{2,}/g, '-');
+  const prefix = `lp${num}-`;
+  const maxHeadlineLen = 255 - prefix.length;
+  const headline = slugified.slice(0, maxHeadlineLen).replace(/-$/, '');
+  return `${prefix}${headline}`;
 }
 
 /**
