@@ -311,10 +311,15 @@ export const api = {
   updateConductorConfig: (projectId, data) => request(`/conductor/config/${projectId}`, { method: 'PUT', body: JSON.stringify(data) }),
   getAllConductorConfigs: () => request('/conductor/configs'),
 
-  // Shopify connection
-  connectShopify: (projectId, data) => request(`/projects/${projectId}/shopify/connect`, { method: 'POST', body: JSON.stringify(data) }),
-  disconnectShopify: (projectId) => request(`/projects/${projectId}/shopify/disconnect`, { method: 'POST' }),
-  getShopifyStatus: (projectId) => request(`/projects/${projectId}/shopify/status`),
+  // LP Agent config
+  getLPAgentConfig: (projectId) => request(`/projects/${projectId}/lp-agent/config`),
+  updateLPAgentConfig: (projectId, data) => request(`/projects/${projectId}/lp-agent/config`, { method: 'PUT', body: JSON.stringify(data) }),
+  connectLPAgentShopify: (projectId, data) => request(`/projects/${projectId}/lp-agent/shopify/connect`, { method: 'POST', body: JSON.stringify(data) }),
+  disconnectLPAgentShopify: (projectId) => request(`/projects/${projectId}/lp-agent/shopify/disconnect`, { method: 'POST' }),
+  getLPAgentShopifyStatus: (projectId) => request(`/projects/${projectId}/lp-agent/shopify/status`),
+  generateTestLP: (projectId, body, onEvent) =>
+    streamSSEWithBody(`/projects/${projectId}/lp-agent/generate-test`, body, onEvent),
+  getLPAgentStatus: (projectId) => request(`/projects/${projectId}/lp-agent/status`),
 
   getConductorAngles: (projectId) => request(`/conductor/angles/${projectId}`),
   createConductorAngle: (projectId, data) => request(`/conductor/angles/${projectId}`, { method: 'POST', body: JSON.stringify(data) }),
@@ -492,8 +497,6 @@ export const api = {
   checkLandingPageDocs: (projectId) => request(`/projects/${projectId}/landing-pages-check`),
   generateLandingPage: (projectId, body, onEvent) =>
     streamSSEWithBody(`/projects/${projectId}/landing-pages/generate`, body, onEvent),
-  generateAutoLP: (projectId, body, onEvent) =>
-    streamSSEWithBody(`/projects/${projectId}/landing-pages/generate-auto`, body, onEvent),
   updateLandingPage: (projectId, pageId, data) =>
     request(`/projects/${projectId}/landing-pages/${pageId}`, { method: 'PUT', body: JSON.stringify(data) }),
   deleteLandingPage: (projectId, pageId) =>

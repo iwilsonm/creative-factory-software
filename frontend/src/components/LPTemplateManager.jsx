@@ -103,7 +103,7 @@ export default function LPTemplateManager({ projectId }) {
     setGenerating(true);
     setGenPhase('Starting generation...');
 
-    const { abort, done } = api.generateAutoLP(projectId, {
+    const { abort, done } = api.generateTestLP(projectId, {
       template_id: testForm.template_id,
       narrative_frame: testForm.narrative_frame,
       angle_description: testForm.angle.trim(),

@@ -13,7 +13,7 @@
 
 import { chat, chatWithMultipleImages } from './anthropic.js';
 import { generateImage } from './gemini.js';
-import { getDocsByProject, uploadBuffer, getStorageUrl, getLPTemplate } from '../convexClient.js';
+import { getDocsByProject, uploadBuffer, getStorageUrl, getLPTemplate, getProject, downloadToBuffer } from '../convexClient.js';
 
 // ─── Narrative Frame Library ─────────────────────────────────────────────────
 
@@ -418,6 +418,156 @@ Important:
   return { sections: validSections };
 }
 
+// ─── Opus Editorial Intelligence Layer ──────────────────────────────────────
+
+/**
+ * Run Opus 4.6 editorial pass on generated copy sections.
+ * Acts as a senior direct response creative director reviewing the LP holistically.
+ *
+ * @param {object} params
+ * @param {Array} params.copySections - Generated copy sections from Phase B
+ * @param {object} params.designAnalysis - Design spec from Phase 2A
+ * @param {string} params.angle - The marketing angle
+ * @param {string} params.narrativeFrame - Narrative frame name
+ * @param {object} params.foundationalDocs - { research, avatar, offer_brief, necessary_beliefs }
+ * @param {string} params.pdpUrl - Product page URL
+ * @param {string} params.projectId - For cost logging
+ * @param {(event: object) => void} sendEvent - SSE event callback
+ * @returns {Promise<object|null>} Editorial plan JSON or null on failure
+ */
+export async function runEditorialPass({
+  copySections,
+  designAnalysis,
+  angle,
+  narrativeFrame,
+  foundationalDocs,
+  pdpUrl,
+  projectId,
+}, sendEvent) {
+  sendEvent({ type: 'progress', step: 'editorial_starting', message: 'Opus editorial review starting...' });
+
+  const sectionsSummary = copySections
+    .map(s => `## ${s.type}\n${s.content}`)
+    .join('\n\n---\n\n');
+
+  const docsContext = [
+    foundationalDocs?.avatar ? `CUSTOMER AVATAR:\n${foundationalDocs.avatar.slice(0, 2000)}` : null,
+    foundationalDocs?.offer_brief ? `OFFER BRIEF:\n${foundationalDocs.offer_brief.slice(0, 2000)}` : null,
+    foundationalDocs?.necessary_beliefs ? `NECESSARY BELIEFS:\n${foundationalDocs.necessary_beliefs.slice(0, 1500)}` : null,
+  ].filter(Boolean).join('\n\n');
+
+  const sectionTypes = (designAnalysis?.sections || []).map(s => s.type || s.id).join(', ');
+  const imageSlotDescs = (designAnalysis?.image_slots || []).map((s, i) => `image_${i + 1}: ${s.description}`).join('\n');
+
+  const systemPrompt = `You are a senior direct response creative director with 20+ years of experience writing high-converting advertorial landing pages. You are reviewing a draft landing page to make strategic editorial decisions that will maximize conversion rate.
+
+Your job is NOT to rewrite the copy — it's to make high-level strategic decisions about:
+1. What the headline and subheadline should be (concise, punchy, curiosity-driven)
+2. Whether to add a top banner text (urgency/scarcity)
+3. How to reorder or restructure sections for maximum impact
+4. Where to add callout boxes (testimonial snippets, stat highlights, trust badges)
+5. Which paragraphs deserve visual emphasis (bold, highlight, pullquote treatment)
+6. Whether any sections should be cut entirely
+7. Updated image direction if the editorial plan changes the focus
+8. Where CTAs should appear (after which sections)
+
+You think in terms of: hook → story → mechanism → proof → offer → urgency → CTA.`;
+
+  const userPrompt = `Review this landing page draft and provide your editorial plan.
+
+MARKETING ANGLE: ${angle}
+NARRATIVE FRAME: ${narrativeFrame || 'general'}
+PDP URL: ${pdpUrl || 'not set'}
+PAGE SECTIONS: ${sectionTypes}
+
+${docsContext ? `FOUNDATIONAL DOCS:\n${docsContext}\n` : ''}
+IMAGE SLOTS:
+${imageSlotDescs || 'No image slots defined'}
+
+---
+
+CURRENT COPY SECTIONS:
+
+${sectionsSummary}
+
+---
+
+Respond with a JSON object containing your editorial plan:
+
+{
+  "headline": "Your optimized headline (max 15 words, curiosity-driven)",
+  "subheadline": "Supporting subheadline (max 25 words)",
+  "top_banner_text": "Urgency/scarcity banner text or null if not needed",
+  "sections_order": ["section_type_1", "section_type_2", ...],
+  "sections_emphasis": {
+    "section_type": "high" | "medium" | "low"
+  },
+  "callouts": [
+    { "after_section": "section_type", "type": "stat" | "testimonial" | "trust", "content": "The callout text" }
+  ],
+  "paragraph_emphasis": [
+    { "section": "section_type", "keyword_or_phrase": "phrase to emphasize", "treatment": "bold" | "highlight" | "pullquote" }
+  ],
+  "sections_to_cut": ["section_type_to_remove"],
+  "image_direction_updates": [
+    { "slot": "image_1", "updated_direction": "New direction based on editorial plan" }
+  ],
+  "cta_positions": ["after_hero", "after_benefits", "after_testimonials"],
+  "editorial_notes": "Brief explanation of your strategic reasoning"
+}`;
+
+  try {
+    const response = await chat(
+      [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt },
+      ],
+      'claude-opus-4-6',
+      {
+        max_tokens: 16384,
+        timeout: 180000,
+        response_format: { type: 'json_object' },
+        operation: 'lp_editorial_pass',
+        projectId,
+      }
+    );
+
+    // Parse the editorial plan
+    let editorialPlan;
+    try {
+      editorialPlan = JSON.parse(response);
+    } catch {
+      // The anthropic wrapper auto-extracts JSON, so response might already be an object
+      if (typeof response === 'object' && response !== null) {
+        editorialPlan = response;
+      } else {
+        console.warn('[LPGen] Editorial pass returned non-JSON response, skipping');
+        sendEvent({ type: 'progress', step: 'editorial_skipped', message: 'Editorial review returned invalid format — proceeding without it' });
+        return null;
+      }
+    }
+
+    // Validate minimum shape
+    if (!editorialPlan.headline && !editorialPlan.sections_order) {
+      console.warn('[LPGen] Editorial plan missing required fields, skipping');
+      sendEvent({ type: 'progress', step: 'editorial_skipped', message: 'Editorial plan incomplete — proceeding without it' });
+      return null;
+    }
+
+    sendEvent({
+      type: 'progress',
+      step: 'editorial_complete',
+      message: `Editorial review complete: ${editorialPlan.callouts?.length || 0} callouts, ${editorialPlan.sections_to_cut?.length || 0} cuts`,
+    });
+
+    return editorialPlan;
+  } catch (err) {
+    console.warn('[LPGen] Editorial pass failed (non-fatal):', err.message);
+    sendEvent({ type: 'progress', step: 'editorial_failed', message: `Editorial review failed — proceeding without it: ${err.message}` });
+    return null;
+  }
+}
+
 // ─── Phase 2C: Image generation via Gemini ──────────────────────────────────
 
 /**
@@ -436,7 +586,7 @@ export async function generateSlotImages({
   copySections,
   angle,
   projectId,
-  autoContext,  // { narrativeFrame } — only in auto mode, for angle-specific image direction
+  autoContext,  // { narrativeFrame, productImageData, editorialPlan } — in auto mode
 }, sendEvent) {
   if (!imageSlots || imageSlots.length === 0) {
     sendEvent({ type: 'progress', step: 'images_skipped', message: 'No image slots defined — skipping image generation.' });
@@ -444,11 +594,22 @@ export async function generateSlotImages({
   }
 
   const totalSlots = imageSlots.length;
+  const hasProductRef = !!autoContext?.productImageData;
   sendEvent({
     type: 'progress',
     step: 'images_starting',
-    message: `Generating ${totalSlots} image${totalSlots > 1 ? 's' : ''} via Gemini...`,
+    message: `Generating ${totalSlots} image${totalSlots > 1 ? 's' : ''} via Gemini${hasProductRef ? ' (with product reference)' : ''}...`,
   });
+
+  // Build editorial image direction updates lookup
+  const editorialImageUpdates = {};
+  if (autoContext?.editorialPlan?.image_direction_updates) {
+    for (const update of autoContext.editorialPlan.image_direction_updates) {
+      if (update.slot && update.updated_direction) {
+        editorialImageUpdates[update.slot] = update.updated_direction;
+      }
+    }
+  }
 
   // Build brief context from copy sections for prompt enrichment
   const copyContext = copySections
@@ -461,12 +622,13 @@ export async function generateSlotImages({
   for (let i = 0; i < imageSlots.length; i++) {
     const slot = imageSlots[i];
     const slotNum = i + 1;
+    const slotId = slot.slot_id || `image_${slotNum}`;
 
     sendEvent({
       type: 'progress',
       step: 'image_generating',
-      message: `Generating image ${slotNum}/${totalSlots}: ${slot.description || slot.slot_id}...`,
-      imageProgress: { current: slotNum, total: totalSlots, slotId: slot.slot_id },
+      message: `Generating image ${slotNum}/${totalSlots}: ${slot.description || slotId}...`,
+      imageProgress: { current: slotNum, total: totalSlots, slotId },
     });
 
     // Build a rich prompt for Gemini from the slot description + context
@@ -474,11 +636,17 @@ export async function generateSlotImages({
       ? `\nNARRATIVE STYLE: The landing page uses a "${autoContext.narrativeFrame}" approach. Match the image mood to this storytelling style.`
       : '';
 
+    // Apply editorial direction update if available
+    const editorialDirection = editorialImageUpdates[slotId];
+    const editorialHint = editorialDirection
+      ? `\nEDITORIAL DIRECTION: ${editorialDirection}`
+      : '';
+
     const imagePrompt = `Create a professional, high-quality image for a landing page.
 
 IMAGE PURPOSE: ${slot.description || 'Product/lifestyle image for landing page'}
 SECTION: ${slot.location || 'Landing page section'}
-MARKETING ANGLE: ${angle}${narrativeImageHint}
+MARKETING ANGLE: ${angle}${narrativeImageHint}${editorialHint}
 
 CONTEXT FROM THE LANDING PAGE COPY:
 ${copyContext}
@@ -500,8 +668,13 @@ IMPORTANT:
       }
     }
 
+    // Determine if this slot should get the product reference image
+    const slotDesc = (slot.description || slot.type || slot.slot_id || '').toLowerCase();
+    const isProductSlot = slotDesc.includes('product') || slotDesc.includes('hero');
+    const referenceImage = (isProductSlot && autoContext?.productImageData) ? autoContext.productImageData : null;
+
     try {
-      const { imageBuffer, mimeType } = await generateImage(imagePrompt, aspectRatio, null, {
+      const { imageBuffer, mimeType } = await generateImage(imagePrompt, aspectRatio, referenceImage, {
         projectId, operation: 'lp_image_generation',
       });
 
@@ -573,7 +746,7 @@ export async function generateHtmlTemplate({
   imageSlots,
   ctaElements,
   projectId,
-  autoContext,  // { skeletonHtml } — only in auto mode, provides a pre-built HTML skeleton
+  autoContext,  // { skeletonHtml, editorialPlan } — in auto mode
 }, sendEvent) {
   sendEvent({ type: 'progress', step: 'html_generating', message: 'Claude is generating the HTML template...' });
 
@@ -591,6 +764,7 @@ export async function generateHtmlTemplate({
     .join('\n');
 
   const hasSkeletonHtml = autoContext?.skeletonHtml;
+  const editorialPlan = autoContext?.editorialPlan;
 
   const systemPrompt = hasSkeletonHtml
     ? `You are an expert HTML/CSS developer specializing in high-converting landing pages. You adapt existing HTML templates by ensuring all placeholder tokens are correctly placed and the layout accommodates the provided copy sections.
@@ -612,6 +786,31 @@ ${ctaPlaceholders || '  (No CTA elements defined)'}
 
 IMPORTANT: Use the EXACT placeholder token format shown above. The system will search for and replace these tokens.`;
 
+  // Build editorial plan section if available
+  let editorialInstructions = '';
+  if (editorialPlan) {
+    const parts = [];
+    if (editorialPlan.headline) parts.push(`HEADLINE: Use "${editorialPlan.headline}" as the main H1 headline.`);
+    if (editorialPlan.subheadline) parts.push(`SUBHEADLINE: Use "${editorialPlan.subheadline}" as the subheadline below the H1.`);
+    if (editorialPlan.top_banner_text) parts.push(`TOP BANNER: Add a sticky/fixed banner at the top of the page with text: "${editorialPlan.top_banner_text}". Style it with high contrast (e.g., accent color background, white text, small text size).`);
+    if (editorialPlan.sections_order?.length > 0) parts.push(`SECTION ORDER: Arrange sections in this order: ${editorialPlan.sections_order.join(' → ')}`);
+    if (editorialPlan.callouts?.length > 0) {
+      parts.push(`CALLOUT BOXES: Insert these callout boxes at the specified positions:
+${editorialPlan.callouts.map(c => `  - After "${c.after_section}" section: [${c.type}] "${c.content}"`).join('\n')}
+Style callouts as visually distinct boxes (border-left accent, background tint, or icon).`);
+    }
+    if (editorialPlan.paragraph_emphasis?.length > 0) {
+      parts.push(`EMPHASIS: Apply visual emphasis to these elements:
+${editorialPlan.paragraph_emphasis.map(p => `  - In "${p.section}": "${p.keyword_or_phrase}" → ${p.treatment}`).join('\n')}`);
+    }
+    if (editorialPlan.sections_to_cut?.length > 0) parts.push(`OMIT SECTIONS: Do NOT include these sections: ${editorialPlan.sections_to_cut.join(', ')}`);
+    if (editorialPlan.cta_positions?.length > 0) parts.push(`CTA PLACEMENT: Place CTA buttons after these sections: ${editorialPlan.cta_positions.join(', ')}`);
+
+    if (parts.length > 0) {
+      editorialInstructions = `\n\nEDITORIAL PLAN (from senior creative director — follow these strategic decisions):\n${parts.join('\n')}`;
+    }
+  }
+
   const htmlPrompt = hasSkeletonHtml
     ? `Adapt this existing HTML template to work with the placeholder system below. Keep the existing layout, styling, colors, and structure. Ensure every copy section, image slot, and CTA has a corresponding placeholder token in the HTML. If the template already has placeholders, update them to match the list below.
 
@@ -620,19 +819,19 @@ ${autoContext.skeletonHtml}
 
 DESIGN SPECIFICATION (for reference):
 ${JSON.stringify(designAnalysis, null, 2)}
-${placeholderRef}
+${placeholderRef}${editorialInstructions}
 
 REQUIREMENTS:
 1. Output a COMPLETE HTML document starting with <!DOCTYPE html>
 2. Preserve the existing CSS, layout, colors, fonts, and structure from the template
 3. Ensure all copy section placeholders are placed in the correct sections
 4. The page must remain mobile-responsive
-5. Add any missing sections if the copy requires them, matching the template's style`
+5. Add any missing sections if the copy requires them, matching the template's style${editorialPlan ? '\n6. Follow ALL editorial plan instructions above — they override default section ordering and layout decisions' : ''}`
     : `Generate a complete, self-contained HTML landing page based on this design specification and placeholder system.
 
 DESIGN SPECIFICATION:
 ${JSON.stringify(designAnalysis, null, 2)}
-${placeholderRef}
+${placeholderRef}${editorialInstructions}
 
 REQUIREMENTS:
 1. Output a COMPLETE HTML document starting with <!DOCTYPE html>
@@ -649,7 +848,7 @@ REQUIREMENTS:
 12. Images should have max-width: 100% and height: auto
 13. CTA buttons should be prominently styled per the design spec
 14. Add a viewport meta tag for mobile
-15. Target a professional, premium look — clean spacing, readable typography`;
+15. Target a professional, premium look — clean spacing, readable typography${editorialPlan ? '\n16. Follow ALL editorial plan instructions above — they override default section ordering and layout decisions' : ''}`;
 
   const messages = [
     { role: 'system', content: systemPrompt },
@@ -755,12 +954,16 @@ export function assembleLandingPage({
 
 /**
  * Generate a landing page automatically using a pre-extracted template.
- * This is the auto mode entry point called by lpAutoGenerator.
+ * This is the auto mode entry point called by lpAutoGenerator and lpAgent generate-test.
  *
- * 1. Load template from lp_templates (design_brief, slot_definitions, skeleton_html)
- * 2. Normalize template data into same shape as analyzeSwipeDesign output
- * 3. Call existing steps 2-4 with autoContext
- * 4. Return same shape as manual flow
+ * Pipeline:
+ * 1. Load template (design_brief, slot_definitions, skeleton_html)
+ * 2. Load product image for reference (if enabled)
+ * 3. Generate copy via Claude Sonnet
+ * 4. Run Opus editorial pass (if enabled) — strategic headline, section ordering, callouts
+ * 5. Generate images via Gemini (with product reference + editorial direction)
+ * 6. Generate HTML via Claude Sonnet (with editorial plan)
+ * 7. Assemble final HTML
  *
  * @param {object} params
  * @param {string} params.projectId
@@ -768,10 +971,16 @@ export function assembleLandingPage({
  * @param {string} params.angle - The marketing angle/hook
  * @param {string} params.narrativeFrame - Narrative frame instruction text
  * @param {string} params.batchJobId - Associated batch job
+ * @param {boolean} [params.editorialPassEnabled=true] - Whether to run Opus editorial review
+ * @param {boolean} [params.useProductReferenceImages=true] - Whether to use product image as reference
  * @param {(event: object) => void} sendEvent - SSE/progress callback
- * @returns {Promise<object>} { copySections, imageSlots, htmlTemplate, assembledHtml }
+ * @returns {Promise<object>} { copySections, imageSlots, htmlTemplate, assembledHtml, designAnalysis, editorialPlan }
  */
-export async function generateAutoLP({ projectId, templateId, angle, narrativeFrame, batchJobId }, sendEvent) {
+export async function generateAutoLP({
+  projectId, templateId, angle, narrativeFrame, batchJobId,
+  editorialPassEnabled = true,
+  useProductReferenceImages = true,
+}, sendEvent) {
   sendEvent({ type: 'progress', step: 'auto_loading', message: 'Loading template for auto-generation...' });
 
   // 1. Load the template
@@ -794,7 +1003,6 @@ export async function generateAutoLP({ projectId, templateId, angle, narrativeFr
   }
 
   // Normalize template data into the shape expected by generateHtmlTemplate
-  // (same shape as analyzeSwipeDesign output)
   const designAnalysis = {
     layout: { max_width: '800px', alignment: 'center' },
     typography: {
@@ -831,6 +1039,21 @@ export async function generateAutoLP({ projectId, templateId, angle, narrativeFr
     style_notes: designBrief.overall_style || 'Professional landing page',
   };
 
+  // 2b. Load product image for reference (if enabled and available)
+  let productImageData = null;
+  if (useProductReferenceImages) {
+    try {
+      const project = await getProject(projectId);
+      if (project?.product_image_storageId) {
+        sendEvent({ type: 'progress', step: 'product_image_loading', message: 'Loading product reference image...' });
+        const buffer = await downloadToBuffer(project.product_image_storageId);
+        productImageData = { base64: buffer.toString('base64'), mimeType: 'image/jpeg' };
+      }
+    } catch (err) {
+      console.warn('[LPGen] Failed to load product image (non-fatal):', err.message);
+    }
+  }
+
   sendEvent({ type: 'progress', step: 'auto_copy', message: 'Generating angle-specific copy...' });
 
   // 3. Generate copy (Step 2) with autoContext
@@ -844,7 +1067,22 @@ export async function generateAutoLP({ projectId, templateId, angle, narrativeFr
     },
   }, sendEvent);
 
-  // 4. Generate images (Step 3) with autoContext
+  // 3b. Run Opus editorial pass (if enabled)
+  let editorialPlan = null;
+  if (editorialPassEnabled) {
+    const foundationalDocs = await getFoundationalDocs(projectId).catch(() => ({}));
+    editorialPlan = await runEditorialPass({
+      copySections,
+      designAnalysis,
+      angle,
+      narrativeFrame,
+      foundationalDocs,
+      pdpUrl: null, // Will be set by publisher
+      projectId,
+    }, sendEvent);
+  }
+
+  // 4. Generate images (Step 3) with product reference + editorial direction
   const imageSlots = await generateSlotImages({
     imageSlots: designAnalysis.image_slots,
     copySections,
@@ -852,10 +1090,12 @@ export async function generateAutoLP({ projectId, templateId, angle, narrativeFr
     projectId,
     autoContext: {
       narrativeFrame,
+      productImageData,
+      editorialPlan,
     },
   }, sendEvent);
 
-  // 5. Generate HTML (Step 4) with skeleton template
+  // 5. Generate HTML (Step 4) with skeleton template + editorial plan
   const htmlTemplate = await generateHtmlTemplate({
     designAnalysis,
     copySections,
@@ -864,6 +1104,7 @@ export async function generateAutoLP({ projectId, templateId, angle, narrativeFr
     projectId,
     autoContext: {
       skeletonHtml: template.skeleton_html,
+      editorialPlan,
     },
   }, sendEvent);
 
@@ -883,5 +1124,6 @@ export async function generateAutoLP({ projectId, templateId, angle, narrativeFr
     htmlTemplate,
     assembledHtml,
     designAnalysis,
+    editorialPlan,
   };
 }

@@ -498,13 +498,6 @@ export default defineSchema({
     meta_campaign_name: v.optional(v.string()),  // default campaign name template
     meta_adset_defaults: v.optional(v.string()), // JSON: default adset settings
     default_campaign_id: v.optional(v.string()),  // → campaigns.externalId for auto-deployed flex ads
-    // Shopify LP pipeline config
-    shopify_store_domain: v.optional(v.string()),    // e.g., "heal-naturally.myshopify.com"
-    shopify_access_token: v.optional(v.string()),    // Admin API token with write_content scope
-    shopify_client_id: v.optional(v.string()),        // Client ID of connected Shopify app (reference only)
-    shopify_lander_template: v.optional(v.string()), // Template suffix, default "lander"
-    pdp_url: v.optional(v.string()),                 // Product detail page URL for CTA links
-    lp_auto_enabled: v.optional(v.boolean()),        // Enable/disable auto LP generation
     run_schedule: v.string(),           // "auto" | "manual_only"
     last_planning_run: v.optional(v.number()),   // timestamp
     last_verify_run: v.optional(v.number()),     // timestamp
@@ -579,6 +572,38 @@ export default defineSchema({
   })
     .index("by_project", ["project_id"])
     .index("by_project_and_angle", ["project_id", "angle_name"]),
+
+  // =============================================
+  // Landing Page Agent — Agent #3 config
+  // =============================================
+
+  lp_agent_config: defineTable({
+    externalId: v.string(),
+    project_id: v.string(),              // → projects.externalId
+    enabled: v.optional(v.boolean()),
+    // Shopify connection
+    shopify_store_domain: v.optional(v.string()),
+    shopify_access_token: v.optional(v.string()),
+    shopify_client_id: v.optional(v.string()),
+    shopify_connected: v.optional(v.boolean()),
+    // Product page
+    pdp_url: v.optional(v.string()),
+    // Generation settings
+    default_narrative_frames: v.optional(v.string()), // JSON array of enabled frame IDs
+    template_selection_mode: v.optional(v.string()),   // "random" | "weighted"
+    editorial_pass_enabled: v.optional(v.boolean()),
+    auto_publish: v.optional(v.boolean()),
+    // Budget
+    daily_budget_cents: v.optional(v.number()),
+    // Images
+    use_product_reference_images: v.optional(v.boolean()),
+    lifestyle_image_style: v.optional(v.string()),
+    // Timestamps
+    created_at: v.optional(v.string()),
+    updated_at: v.optional(v.string()),
+  })
+    .index("by_project", ["project_id"])
+    .index("by_externalId", ["externalId"]),
 
   fixer_playbook: defineTable({
     issue_category: v.string(),          // "batch_stuck" | "filter_stalled" | etc.

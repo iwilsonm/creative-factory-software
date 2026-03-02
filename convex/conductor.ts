@@ -29,13 +29,6 @@ export const upsertConfig = mutation({
     meta_campaign_name: v.optional(v.string()),
     meta_adset_defaults: v.optional(v.string()),
     default_campaign_id: v.optional(v.string()),
-    // Shopify LP pipeline config
-    shopify_store_domain: v.optional(v.string()),
-    shopify_access_token: v.optional(v.string()),
-    shopify_client_id: v.optional(v.string()),
-    shopify_lander_template: v.optional(v.string()),
-    pdp_url: v.optional(v.string()),
-    lp_auto_enabled: v.optional(v.boolean()),
     run_schedule: v.optional(v.string()),
     last_planning_run: v.optional(v.number()),
     last_verify_run: v.optional(v.number()),

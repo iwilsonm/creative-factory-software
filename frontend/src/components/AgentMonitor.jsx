@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { api } from '../api';
+import LPAgentSettings from './LPAgentSettings';
 
 const LEVEL_CONFIG = {
   OK:        { color: 'text-teal',       icon: '\u2713', bg: 'bg-teal/10' },
@@ -114,6 +115,7 @@ export default function AgentMonitor() {
 
   const tabs = [
     { id: 'director', label: 'Creative Director' },
+    { id: 'lp_agent', label: 'LP Agent' },
     { id: 'filter', label: 'Creative Filter' },
     { id: 'fixer', label: 'Fixer' },
   ];
@@ -160,6 +162,7 @@ export default function AgentMonitor() {
         </div>
 
         {activeTab === 'director' && <DirectorTab onRefresh={loadStatus} />}
+        {activeTab === 'lp_agent' && <LPAgentTab />}
         {activeTab === 'filter' && filterData && <FilterPanel data={filterData} onRefresh={loadStatus} />}
         {activeTab === 'fixer' && fixerData && <FixerPanel data={fixerData} onRefresh={loadStatus} />}
       </div>
@@ -255,6 +258,56 @@ function PipelineOverview({ data, fixerData, filterData }) {
 }
 
 // =============================================
+// LP Agent Tab
+// =============================================
+function LPAgentTab() {
+  const [projects, setProjects] = useState([]);
+  const [selectedProject, setSelectedProject] = useState('');
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    (async () => {
+      try {
+        const res = await api.getProjects();
+        const list = res.projects || res || [];
+        setProjects(list);
+        if (list.length > 0) setSelectedProject(list[0].id);
+      } catch { /* ignore */ }
+      finally { setLoading(false); }
+    })();
+  }, []);
+
+  if (loading) {
+    return <div className="py-4 text-center text-[12px] text-textmid">Loading...</div>;
+  }
+
+  return (
+    <div>
+      {/* Project selector */}
+      {projects.length > 1 && (
+        <div className="mb-4">
+          <select
+            value={selectedProject}
+            onChange={e => setSelectedProject(e.target.value)}
+            className="input-apple text-[12px]"
+          >
+            {projects.map(p => (
+              <option key={p.id} value={p.id}>{p.name}</option>
+            ))}
+          </select>
+        </div>
+      )}
+
+      {selectedProject ? (
+        <LPAgentSettings projectId={selectedProject} />
+      ) : (
+        <div className="py-6 text-center text-[12px] text-textmid">No projects found. Create a project first.</div>
+      )}
+    </div>
+  );
+}
+
+// =============================================
 // Creative Director Tab
 // =============================================
 function DirectorTab({ onRefresh }) {
@@ -270,11 +323,6 @@ function DirectorTab({ onRefresh }) {
   const [saving, setSaving] = useState(false);
 
   const [campaigns, setCampaigns] = useState([]);
-
-  // Shopify connection state
-  const [shopifyStatus, setShopifyStatus] = useState(null);
-  const [shopifyConnecting, setShopifyConnecting] = useState(false);
-  const [shopifyForm, setShopifyForm] = useState({ store_domain: '', client_id: '', client_secret: '' });
 
   // New angle form
   const [showAddAngle, setShowAddAngle] = useState(false);
@@ -300,23 +348,18 @@ function DirectorTab({ onRefresh }) {
     if (!selectedProject) return;
     (async () => {
       try {
-        const [cfgRes, angRes, runRes, pbRes, campRes, shopRes] = await Promise.allSettled([
+        const [cfgRes, angRes, runRes, pbRes, campRes] = await Promise.allSettled([
           api.getConductorConfig(selectedProject),
           api.getConductorAngles(selectedProject),
           api.getConductorRuns(selectedProject, 20),
           api.getConductorPlaybooks(selectedProject),
           api.getCampaigns(selectedProject),
-          api.getShopifyStatus(selectedProject),
         ]);
         if (cfgRes.status === 'fulfilled') setConfig(cfgRes.value?.config || null);
         if (angRes.status === 'fulfilled') setAngles(angRes.value?.angles || []);
         if (runRes.status === 'fulfilled') setRuns(runRes.value?.runs || []);
         if (pbRes.status === 'fulfilled') setPlaybooks(pbRes.value?.playbooks || []);
         if (campRes.status === 'fulfilled') setCampaigns(campRes.value?.campaigns || []);
-        if (shopRes.status === 'fulfilled') {
-          setShopifyStatus(shopRes.value);
-          if (shopRes.value?.store_domain) setShopifyForm(f => ({ ...f, store_domain: shopRes.value.store_domain }));
-        }
       } catch { /* ignore */ }
     })();
   }, [selectedProject]);
@@ -706,135 +749,6 @@ function DirectorTab({ onRefresh }) {
               <p className="text-[11px] text-textlight">No campaigns found — create one in the project's Creative Filter settings or Ad Pipeline tab first.</p>
             )}
             <p className="text-[9px] text-textlight mt-0.5">Flex ads from the Director pipeline will auto-deploy to this campaign</p>
-          </div>
-
-          {/* ── Shopify LP Publishing ── */}
-          <div className="mt-6 pt-4 border-t border-black/5">
-            <h4 className="text-[12px] font-semibold text-textdark mb-3">Shopify LP Publishing</h4>
-            <div className="space-y-3">
-
-              {/* Connection flow */}
-              {shopifyStatus?.connected ? (
-                <div className="flex items-center justify-between bg-teal/5 rounded-lg px-3 py-2.5">
-                  <div className="flex items-center gap-2">
-                    <span className="w-2 h-2 rounded-full bg-teal" />
-                    <span className="text-[11px] font-medium text-teal">Connected to {shopifyStatus.store_domain}</span>
-                  </div>
-                  <button
-                    onClick={async () => {
-                      try {
-                        await api.disconnectShopify(selectedProject);
-                        setShopifyStatus({ connected: false, store_domain: shopifyStatus.store_domain });
-                      } catch (err) {
-                        alert(err.message || 'Failed to disconnect');
-                      }
-                    }}
-                    className="text-[10px] text-textlight hover:text-red-400 transition-colors"
-                  >
-                    Disconnect
-                  </button>
-                </div>
-              ) : (
-                <div className="space-y-2">
-                  <div>
-                    <label className="text-[11px] text-textmid font-medium block mb-1">Store Domain</label>
-                    <input
-                      type="text"
-                      placeholder="your-store.myshopify.com"
-                      value={shopifyForm.store_domain}
-                      onChange={e => setShopifyForm(f => ({ ...f, store_domain: e.target.value }))}
-                      disabled={shopifyConnecting}
-                      className="input-apple w-full text-[12px]"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-[11px] text-textmid font-medium block mb-1">Client ID</label>
-                    <input
-                      type="text"
-                      placeholder="App Client ID"
-                      value={shopifyForm.client_id}
-                      onChange={e => setShopifyForm(f => ({ ...f, client_id: e.target.value }))}
-                      disabled={shopifyConnecting}
-                      className="input-apple w-full text-[12px]"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-[11px] text-textmid font-medium block mb-1">Client Secret</label>
-                    <input
-                      type="password"
-                      placeholder="App Client Secret"
-                      value={shopifyForm.client_secret}
-                      onChange={e => setShopifyForm(f => ({ ...f, client_secret: e.target.value }))}
-                      disabled={shopifyConnecting}
-                      className="input-apple w-full text-[12px]"
-                    />
-                  </div>
-                  <button
-                    onClick={async () => {
-                      if (!shopifyForm.store_domain || !shopifyForm.client_id || !shopifyForm.client_secret) return;
-                      setShopifyConnecting(true);
-                      try {
-                        const res = await api.connectShopify(selectedProject, shopifyForm);
-                        setShopifyStatus({ connected: true, store_domain: res.store_domain });
-                        setShopifyForm(f => ({ ...f, client_id: '', client_secret: '' }));
-                      } catch (err) {
-                        alert(err.message || 'Connection failed');
-                      } finally {
-                        setShopifyConnecting(false);
-                      }
-                    }}
-                    disabled={shopifyConnecting || !shopifyForm.store_domain || !shopifyForm.client_id || !shopifyForm.client_secret}
-                    className="btn-primary w-full text-[11px] py-2 disabled:opacity-50"
-                  >
-                    {shopifyConnecting ? (
-                      <span className="flex items-center justify-center gap-2">
-                        <svg className="animate-spin h-3.5 w-3.5" viewBox="0 0 24 24"><circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" fill="none" /><path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" /></svg>
-                        Connecting to Shopify...
-                      </span>
-                    ) : 'Connect to Shopify'}
-                  </button>
-                  <p className="text-[9px] text-textlight">Create a custom app in your Shopify Partners Dashboard with <code className="bg-black/5 px-1 rounded text-[9px]">write_content</code> and <code className="bg-black/5 px-1 rounded text-[9px]">read_content</code> scopes, then enter the credentials here.</p>
-                </div>
-              )}
-
-              {/* Settings that remain visible regardless of connection state */}
-              <div>
-                <label className="text-[11px] text-textmid font-medium block mb-1">Lander Template (optional)</label>
-                <input
-                  type="text"
-                  placeholder="lander"
-                  value={config.shopify_lander_template || ''}
-                  onChange={e => handleSaveConfig({ shopify_lander_template: e.target.value })}
-                  className="input-apple w-full text-[12px]"
-                />
-                <p className="text-[9px] text-textlight mt-0.5">Shopify page template suffix (leave blank for default)</p>
-              </div>
-              <div>
-                <label className="text-[11px] text-textmid font-medium block mb-1">PDP URL (CTA destination)</label>
-                <input
-                  type="text"
-                  placeholder="https://your-store.com/products/your-product"
-                  value={config.pdp_url || ''}
-                  onChange={e => handleSaveConfig({ pdp_url: e.target.value })}
-                  className="input-apple w-full text-[12px]"
-                />
-                <p className="text-[9px] text-textlight mt-0.5">All CTA buttons on published LPs will link here</p>
-              </div>
-              <div className="flex items-center gap-2">
-                <button
-                  type="button"
-                  role="switch"
-                  aria-checked={!!config.lp_auto_enabled}
-                  onClick={() => handleSaveConfig({ lp_auto_enabled: !config.lp_auto_enabled })}
-                  className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${config.lp_auto_enabled ? 'bg-navy' : 'bg-gray-200'}`}
-                >
-                  <span className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${config.lp_auto_enabled ? 'translate-x-4' : 'translate-x-0'}`} />
-                </button>
-                <span className="text-[11px] text-textdark cursor-pointer" onClick={() => handleSaveConfig({ lp_auto_enabled: !config.lp_auto_enabled })}>
-                  Auto-generate landing pages with Director batches
-                </span>
-              </div>
-            </div>
           </div>
 
           {saving && <p className="text-[10px] text-textlight">Saving...</p>}

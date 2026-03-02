@@ -18,7 +18,7 @@ import {
   createLandingPageVersion,
   getStorageUrl,
   downloadToBuffer,
-  getConductorConfig,
+  getLPAgentConfig,
 } from '../convexClient.js';
 import { v4 as uuidv4 } from 'uuid';
 import { withRetry } from './retry.js';
@@ -29,18 +29,18 @@ import fetch from 'node-fetch';
 // =============================================
 
 /**
- * Get Shopify credentials from conductor_config for the project.
+ * Get Shopify credentials from lp_agent_config for the project.
  */
 async function getShopifyConfig(projectId) {
-  const config = await getConductorConfig(projectId);
+  const config = await getLPAgentConfig(projectId);
   if (!config) {
-    throw new Error('Director config not found for this project. Configure Shopify settings in the Agent Dashboard.');
+    throw new Error('LP Agent config not found for this project. Configure Shopify settings in the Agent Dashboard → LP Agent.');
   }
 
-  const { shopify_store_domain, shopify_access_token, shopify_lander_template } = config;
+  const { shopify_store_domain, shopify_access_token } = config;
 
   if (!shopify_store_domain || !shopify_access_token) {
-    throw new Error('Shopify credentials not configured. Set Store Domain and Access Token in Agent Dashboard → Director Settings.');
+    throw new Error('Shopify credentials not configured. Connect Shopify in Agent Dashboard → LP Agent Settings.');
   }
 
   // Normalize domain — strip protocol and trailing slash
@@ -49,7 +49,7 @@ async function getShopifyConfig(projectId) {
   return {
     domain,
     accessToken: shopify_access_token,
-    templateSuffix: shopify_lander_template || '',
+    templateSuffix: 'lander',
     pdpUrl: config.pdp_url || '#',
   };
 }

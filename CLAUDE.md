@@ -170,11 +170,14 @@ Status flow: `"selected"` → `"ready_to_post"` → `"posted"` → `"analyzing"`
 **5. Quote Mining** (SSE stream)
 `QuoteMiner.jsx` → `api.startQuoteMining()` → `routes/quoteMining.js` → `quoteBankService.js` → parallel: Perplexity Sonar Pro + Claude Opus 4.6 → merge + dedup → `quote_bank` → per-quote headline generation (Claude Sonnet)
 
-**6. Landing Page** (SSE stream)
-`LPGen.jsx` → `api.generateLandingPage()` → `routes/landingPages.js` → `lpGenerator.js` → design analysis + copy gen + image gen + HTML template (all Claude Sonnet) → assembly → `landing_pages` → [publish: sharp optimization → Cloudflare Pages]
+**6. Landing Page** (SSE stream, manual)
+`LPGen.jsx` → `api.generateLandingPage()` → `routes/landingPages.js` → `lpGenerator.js` → design analysis + copy gen + image gen + HTML template (all Claude Sonnet) → assembly → `landing_pages` → [publish: Shopify Pages]
+
+**6b. Landing Page Auto-Generation** (SSE stream, Agent Dashboard or Director-triggered)
+`LPAgentSettings.jsx` → `api.generateTestLP()` → `routes/lpAgent.js` → `lpGenerator.js:generateAutoLP()` → template load → copy gen (Claude Sonnet) → **Opus editorial pass** (Claude Opus 4.6) → image gen with product reference (Gemini) → HTML template (Claude Sonnet + editorial plan) → assembly → `landing_pages` → [auto-publish: Shopify Pages]
 
 **7. Agent Pipeline** (autonomous, cron-triggered)
-Director (scheduler, 3×/day) → creates batches with angle prompts → batch pipeline runs → Filter (cron, every 30min) → scores completed batch ads → groups into flex ads → deploys to Ready to Post → triggers learning step → Fixer (cron, every 5min) → tests, diagnoses failures, auto-fixes, resurrects batches
+Director (scheduler, 3×/day) → creates batches with angle prompts → batch pipeline runs → **LP Agent** (auto-generates 2 advertorials per batch) → Filter (cron, every 30min) → scores completed batch ads → groups into flex ads → deploys to Ready to Post → triggers learning step → Fixer (cron, every 5min) → tests, diagnoses failures, auto-fixes, resurrects batches
 
 ### Paths That Must Stay in Sync
 
@@ -212,19 +215,22 @@ Director (scheduler, 3×/day) → creates batches with angle prompts → batch p
 | `routes/deployments.js` | `/api/deployments` | `requireAuth` | varies per route |
 | `routes/agentMonitor.js` | `/api/agent-monitor` | `requireAuth` | `admin` |
 | `routes/conductor.js` | `/api/conductor` | `requireAuth` | `admin`, `manager` |
+| `routes/lpAgent.js` | `/api/projects` | `requireAuth` | `admin`, `manager` |
 | Agent cost router | `/api/agent-cost` | `localhostOnly` | None |
 
-Rate-limited endpoints (10 req/min per user): `/generate-docs`, `/generate-ad`, `/generate-landing-page`, `/generate-ad-copy`, `/generate-ad-headlines`, `/filter/generate-copy`, `/quote-mining/start`, `/conductor/run`, `/conductor/learn`
+Rate-limited endpoints (10 req/min per user): `/generate-docs`, `/generate-ad`, `/generate-landing-page`, `/generate-ad-copy`, `/generate-ad-headlines`, `/filter/generate-copy`, `/quote-mining/start`, `/conductor/run`, `/conductor/learn`, `/lp-agent/generate-test`, `/lp-agent/shopify/connect`
 
 ### Agent System
 
 **Director** (`backend/services/conductorEngine.js`) — Plans batches and selects angles. Runs via scheduler at 7 AM, 7 PM, 1 AM ICT. Config in `conductor_config` table per project. Supports focus mode: when any active angle has `focused=true`, only focused angles are selected.
 
+**LP Agent** (`backend/services/lpAutoGenerator.js`, `backend/services/lpGenerator.js`) — Generates two advertorials per batch with different narrative frames. Uses Opus 4.6 editorial pass for strategic content decisions (headline, section ordering, callouts, emphasis). Passes project product images as reference for hero/product image slots. Publishes to Shopify. Config in `lp_agent_config` table per project. Triggered by Director after batch creation. Settings panel in Agent Dashboard → LP Agent tab.
+
 **Creative Filter** (`dacia-creative-filter/filter.sh`) — Scores completed batch ads via Claude Sonnet vision, groups winners into flex ads (1 per batch), deploys to Ready to Post. Runs every 30 min via VPS cron. Budget: $20/day. Opt-in per batch (`filter_assigned=true`).
 
 **Fixer** (`dacia-fixer/fixer.sh`) — Runs test suite, diagnoses failures via Gemini Flash, fixes via Claude Sonnet, resurrects failed batches. Health probes: backend health, filter liveness, pass rate, disk space. Runs every 5 min via VPS cron. Budget: $1.33/day.
 
-Both agents use: lock files (`/tmp/dacia-{agent}.lock` with PID check), `flock` for atomic spend file reads/writes, session cookie auth with 24h expiry + auto-re-auth, daily log rotation.
+Filter and Fixer agents use: lock files (`/tmp/dacia-{agent}.lock` with PID check), `flock` for atomic spend file reads/writes, session cookie auth with 24h expiry + auto-re-auth, daily log rotation.
 
 ### Scheduler (6 Automated Tasks)
 
@@ -495,8 +501,10 @@ Every shared module imported by 2+ production files. Test files excluded. Organi
 → `backend/routes/ads.js`
 → `backend/routes/quoteMining.js`
 
-**`backend/services/lpGenerator.js`** — LP copy + design + HTML generation (Claude Sonnet)
+**`backend/services/lpGenerator.js`** — LP copy + design + HTML generation (Claude Sonnet + Opus editorial pass)
 → `backend/routes/landingPages.js`
+→ `backend/routes/lpAgent.js`
+→ `backend/services/lpAutoGenerator.js`
 → `backend/services/lpPublisher.js`
 
 **`backend/services/lpSwipeFetcher.js`** — Puppeteer page capture + SSRF protection
@@ -577,7 +585,7 @@ Rules that must never be violated. Breaking these causes silent failures or data
 
 7. **Dedup guards**. `ad_deployments.create()` checks if `ad_id` already deployed (active only) — returns null if duplicate. `createWithoutDedup()` skips this. `inspiration_images.create()` skips if `(project_id, drive_file_id)` already exists.
 
-8. **Upsert operations**. `meta_performance.upsert()` by `(meta_ad_id, date)`. `conductor_config.upsertConfig()` by `project_id`. `conductor_playbooks.upsertPlaybook()` by `(project_id, angle_name)`. `fixer_playbook.upsertFixerPlaybook()` by `issue_category`. `settings.set()` by `key`.
+8. **Upsert operations**. `meta_performance.upsert()` by `(meta_ad_id, date)`. `conductor_config.upsertConfig()` by `project_id`. `lp_agent_config.upsertConfig()` by `project_id`. `conductor_playbooks.upsertPlaybook()` by `(project_id, angle_name)`. `fixer_playbook.upsertFixerPlaybook()` by `issue_category`. `settings.set()` by `key`.
 
 ### API Contracts
 
@@ -633,7 +641,8 @@ projects
   ├── conductor_config (project_id, PK)
   ├── conductor_angles (project_id)
   ├── conductor_runs (project_id)
-  └── conductor_playbooks (project_id)
+  ├── conductor_playbooks (project_id)
+  └── lp_agent_config (project_id, PK)
 ```
 
 Standalone tables: `settings`, `users`, `sessions`, `api_costs`, `dashboard_todos`, `conductor_health`, `fixer_playbook`, `file_storage`
@@ -738,7 +747,8 @@ ad-platform/
 │   │   ├── landingPages.js          # LP CRUD + publishing
 │   │   ├── meta.js                  # Meta OAuth + performance
 │   │   ├── agentMonitor.js          # Agent Dashboard
-│   │   └── conductor.js             # Director config + angles
+│   │   ├── conductor.js             # Director config + angles
+│   │   └── lpAgent.js               # LP Agent config, Shopify, test gen
 │   ├── services/                    # 23 service files
 │   │   ├── openai.js                # GPT-5.2, GPT-4.1, o3-deep-research
 │   │   ├── anthropic.js             # Claude Opus 4.6, Sonnet 4.6
@@ -756,8 +766,9 @@ ad-platform/
 │   │   ├── metaAds.js               # Meta Ads integration
 │   │   ├── rateLimiter.js           # Concurrency control
 │   │   ├── retry.js                 # Exponential backoff
-│   │   ├── lpGenerator.js           # Landing page generation
-│   │   ├── lpPublisher.js           # Cloudflare Pages deploy
+│   │   ├── lpGenerator.js           # LP generation + Opus editorial pass
+│   │   ├── lpAutoGenerator.js       # Director-triggered LP auto-generation
+│   │   ├── lpPublisher.js           # Shopify page deploy
 │   │   ├── lpSwipeFetcher.js        # Puppeteer page capture
 │   │   ├── correctionHistory.js     # Doc correction audit
 │   │   ├── conductorEngine.js       # Director orchestrator
@@ -789,7 +800,9 @@ ad-platform/
 │   │   ├── ReadyToPostView.jsx      # Ready to Post view
 │   │   ├── PostedView.jsx           # Posted history
 │   │   ├── LPGen.jsx                # Landing page generator
-│   │   ├── AgentMonitor.jsx         # Agent Dashboard
+│   │   ├── AgentMonitor.jsx         # Agent Dashboard (4 tabs: Director, LP Agent, Filter, Fixer)
+│   │   ├── LPAgentSettings.jsx     # LP Agent settings panel
+│   │   ├── LPTemplateManager.jsx   # LP template extraction + management
 │   │   ├── CreativeFilterSettings.jsx # Per-project Filter config
 │   │   ├── CopywriterChat.jsx       # Chat widget
 │   │   ├── TemplateImages.jsx       # Template management
@@ -814,7 +827,7 @@ ad-platform/
 │   ├── quote_mining_runs.ts, quote_bank.ts, chatThreads.ts
 │   ├── correction_history.ts, dashboard_todos.ts, metaPerformance.ts
 │   ├── landingPages.ts, landingPageVersions.ts
-│   ├── users.ts, sessions.ts, fileStorage.ts, conductor.ts
+│   ├── users.ts, sessions.ts, fileStorage.ts, conductor.ts, lpAgentConfig.ts
 │
 ├── dacia-fixer/                     # Agent: auto-test, self-heal, resurrect
 │   ├── fixer.sh                     # Main script (~1200 lines)

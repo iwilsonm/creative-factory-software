@@ -13,7 +13,7 @@
 
 import { v4 as uuidv4 } from 'uuid';
 import {
-  getConductorConfig,
+  getLPAgentConfig,
   getLPTemplatesByProject,
   createLandingPage,
   updateLandingPage,
@@ -32,8 +32,8 @@ import { publishToShopify, verifyLive } from './lpPublisher.js';
 export async function triggerLPGeneration(batchJobId, projectId, angle) {
   try {
     // 1. Check if LP auto-generation is enabled
-    const config = await getConductorConfig(projectId);
-    if (!config || !config.lp_auto_enabled) {
+    const config = await getLPAgentConfig(projectId);
+    if (!config || !config.enabled) {
       console.log(`[LPAuto] LP auto-generation disabled for project ${projectId.slice(0, 8)} — skipping`);
       return;
     }
@@ -52,8 +52,16 @@ export async function triggerLPGeneration(batchJobId, projectId, angle) {
     const template1 = shuffledTemplates[0];
     const template2 = shuffledTemplates.length > 1 ? shuffledTemplates[1] : shuffledTemplates[0];
 
-    // 4. Select 2 different narrative frames (random, no repeat)
-    const shuffledFrames = [...NARRATIVE_FRAMES].sort(() => Math.random() - 0.5);
+    // 4. Select narrative frames from enabled set (default: all 5)
+    let enabledFrames = NARRATIVE_FRAMES;
+    if (config.default_narrative_frames) {
+      try {
+        const enabledIds = JSON.parse(config.default_narrative_frames);
+        const filtered = NARRATIVE_FRAMES.filter(f => enabledIds.includes(f.id));
+        if (filtered.length >= 2) enabledFrames = filtered;
+      } catch {}
+    }
+    const shuffledFrames = [...enabledFrames].sort(() => Math.random() - 0.5);
     const frame1 = shuffledFrames[0];
     const frame2 = shuffledFrames[1];
 
@@ -82,6 +90,8 @@ export async function triggerLPGeneration(batchJobId, projectId, angle) {
         frame: frame1,
         label: 'Primary',
         sendEvent: makeLogger('Primary'),
+        editorialPassEnabled: config.editorial_pass_enabled !== false,
+        useProductReferenceImages: config.use_product_reference_images !== false,
       });
 
       await updateBatchJob(batchJobId, {
@@ -108,6 +118,8 @@ export async function triggerLPGeneration(batchJobId, projectId, angle) {
         frame: frame2,
         label: 'Secondary',
         sendEvent: makeLogger('Secondary'),
+        editorialPassEnabled: config.editorial_pass_enabled !== false,
+        useProductReferenceImages: config.use_product_reference_images !== false,
       });
 
       await updateBatchJob(batchJobId, {
@@ -144,7 +156,7 @@ export async function triggerLPGeneration(batchJobId, projectId, angle) {
  * Generate a single LP, publish to Shopify, and verify live.
  * @returns {{ lpId, publishedUrl, verified }}
  */
-async function generateAndPublishLP({ projectId, batchJobId, angle, template, frame, label, sendEvent }) {
+async function generateAndPublishLP({ projectId, batchJobId, angle, template, frame, label, sendEvent, editorialPassEnabled = true, useProductReferenceImages = true }) {
   const lpId = uuidv4();
   const lpName = `${angle.slice(0, 50)} — ${frame.name} (Auto)`;
 
@@ -169,6 +181,8 @@ async function generateAndPublishLP({ projectId, batchJobId, angle, template, fr
       angle,
       narrativeFrame: frame.instruction,
       batchJobId,
+      editorialPassEnabled,
+      useProductReferenceImages,
     }, sendEvent);
 
     // Save generated content to the LP record

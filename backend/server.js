@@ -29,7 +29,7 @@ import landingPageRoutes from './routes/landingPages.js';
 import lpTemplateRoutes from './routes/lpTemplates.js';
 import agentMonitorRoutes, { agentCostRouter } from './routes/agentMonitor.js';
 import conductorRoutes from './routes/conductor.js';
-import shopifyRoutes from './routes/shopify.js';
+import lpAgentRoutes from './routes/lpAgent.js';
 import rateLimit from 'express-rate-limit';
 import { initScheduler, getSchedulerStatus } from './services/scheduler.js';
 import { getRateLimiterStats } from './services/rateLimiter.js';
@@ -113,7 +113,8 @@ process.on('uncaughtException', (err) => {
   app.use('/api/projects/:id/generate-docs', llmRateLimit);
   app.use('/api/projects/:id/generate-ad', llmRateLimit);
   app.use('/api/projects/:id/generate-landing-page', llmRateLimit);
-  app.use('/api/projects/:id/landing-pages/generate-auto', llmRateLimit);
+  app.use('/api/projects/:id/lp-agent/generate-test', llmRateLimit);
+  app.use('/api/projects/:id/lp-agent/shopify/connect', llmRateLimit);
   app.use('/api/projects/:id/lp-templates', llmRateLimit);
   app.use('/api/deployments/generate-ad-copy', llmRateLimit);
   app.use('/api/deployments/generate-ad-headlines', llmRateLimit);
@@ -230,7 +231,7 @@ process.on('uncaughtException', (err) => {
   // Routes — agent monitor (admin only)
   app.use('/api/agent-monitor', requireAuth, requireRole('admin'), agentMonitorRoutes);
   app.use('/api/conductor', requireAuth, requireRole('admin', 'manager'), conductorRoutes);
-  app.use('/api/projects', requireAuth, requireRole('admin', 'manager'), shopifyRoutes);
+  app.use('/api/projects', requireAuth, requireRole('admin', 'manager'), lpAgentRoutes);
 
   // Catch-all error handler
   app.use((err, req, res, _next) => {

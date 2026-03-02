@@ -1270,6 +1270,22 @@ export async function getAllConductorConfigs() {
 }
 
 // =============================================
+// LP Agent Config helpers (Landing Page Agent)
+// =============================================
+
+export async function getLPAgentConfig(projectId) {
+  return await queryWithRetry(api.lpAgentConfig.getByProject, { projectId });
+}
+
+export async function upsertLPAgentConfig(projectId, fields) {
+  await mutationWithRetry(api.lpAgentConfig.upsertConfig, { project_id: projectId, ...fields });
+}
+
+export async function getAllLPAgentConfigs() {
+  return await queryWithRetry(api.lpAgentConfig.getAllConfigs, {});
+}
+
+// =============================================
 // Conductor Angles helpers
 // =============================================
 

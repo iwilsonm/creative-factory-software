@@ -49,8 +49,8 @@ router.put('/config/:projectId', async (req, res) => {
       'enabled', 'daily_flex_target', 'ads_per_batch', 'angle_mode',
       'angle_rotation', 'explore_ratio', 'run_schedule', 'posting_days',
       'score_threshold', 'auto_learn',
-      'shopify_store_domain', 'shopify_access_token', 'shopify_client_id',
-      'shopify_lander_template', 'pdp_url', 'lp_auto_enabled',
+      'headline_style', 'primary_text_style', 'meta_campaign_name',
+      'meta_adset_defaults', 'default_campaign_id',
     ];
     const fields = {};
     for (const key of allowedConfigFields) {
