@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { api } from '../api';
 import InfoTooltip from './InfoTooltip';
 import { useToast } from './Toast';
@@ -1190,11 +1191,13 @@ import LPTemplateManager from './LPTemplateManager';
 
 export default function LPGen({ projectId, project }) {
   const toast = useToast();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [view, setView] = useState('list'); // list | configure | editor | generating
   const [subTab, setSubTab] = useState('pages'); // pages | templates
   const [pages, setPages] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedPage, setSelectedPage] = useState(null);
+  const deepLinkHandled = useRef(false);
 
   // Docs readiness
   const [docsReady, setDocsReady] = useState(null); // null = loading, object = result
@@ -1232,6 +1235,25 @@ export default function LPGen({ projectId, project }) {
     loadPages();
     checkDocs();
   }, [projectId]);
+
+  // Deep-link: auto-open a specific LP from ?lp=externalId
+  useEffect(() => {
+    if (deepLinkHandled.current || loading || pages.length === 0) return;
+    const lpId = searchParams.get('lp');
+    if (!lpId) return;
+    const target = pages.find(p => p.externalId === lpId);
+    if (target) {
+      setSelectedPage(target);
+      setView('editor');
+      deepLinkHandled.current = true;
+      // Clean the lp param from URL so back/refresh goes to list
+      setSearchParams(prev => {
+        const next = new URLSearchParams(prev);
+        next.delete('lp');
+        return next;
+      }, { replace: true });
+    }
+  }, [pages, loading, searchParams]);
 
   const loadPages = async () => {
     try {

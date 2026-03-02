@@ -703,8 +703,8 @@ export default function LPAgentSettings({ projectId }) {
                 <div
                   key={lp.id}
                   className="flex items-center justify-between bg-offwhite rounded-lg px-3 py-2 cursor-pointer hover:bg-navy/5 transition-colors"
-                  onClick={() => navigate(`/projects/${projectId}?tab=lpgen`)}
-                  title="Open in LP Gen tab"
+                  onClick={() => navigate(`/projects/${projectId}?tab=lpgen&lp=${lp.id}`)}
+                  title="View this landing page"
                 >
                   <div className="flex items-center gap-2 min-w-0 flex-1">
                     {isGenerating && (
