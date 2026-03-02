@@ -303,7 +303,13 @@ export async function generateLandingPageCopy({
 
 You have been trained on the foundational research documents for this product. You understand the customer avatar, their beliefs, the offer positioning, and the research that backs it all up.
 
-CRITICAL: You must respond with a valid JSON object containing an array of copy sections. Each section has a "type" and "content" field. Do not include any text outside the JSON.`;
+CRITICAL: You must respond with a valid JSON object containing an array of copy sections. Each section has a "type" and "content" field. Do not include any text outside the JSON.
+
+IMPORTANT: Generate content ONLY for the slots defined in the template. Do not suggest or create content for elements that don't have a corresponding slot in the template. If there is no banner slot in the template, do not generate banner copy. The template defines the page structure — your job is to fill its slots, not invent new ones.
+
+IMPORTANT: For any callout, data box, stat highlight, or highlighted section that has SEPARATE heading and body slots — the heading slot contains ONLY the title or label. The body slot contains ONLY the supporting content. Do NOT start the body text with the heading text. They render as distinct elements on the page, so repeating the heading in the body will cause duplicate text.
+Example — CORRECT: heading="USDA DATA", body="42.7% of organic produce samples tested positive..."
+WRONG: heading="USDA DATA", body="USDA DATA: 42.7% of organic produce samples tested positive..."`;
 
   const docsMessage = `Here are the foundational research documents for this product:
 
@@ -468,7 +474,7 @@ export async function runEditorialPass({
 
 Your job is NOT to rewrite the copy — it's to make high-level strategic decisions about:
 1. What the headline and subheadline should be (concise, punchy, curiosity-driven)
-2. Whether to add a top banner text (urgency/scarcity)
+2. Whether to add a top banner text (urgency/scarcity) — ONLY if the template skeleton already has a banner element
 3. How to reorder or restructure sections for maximum impact
 4. Where to add callout boxes (testimonial snippets, stat highlights, trust badges)
 5. Which paragraphs deserve visual emphasis (bold, highlight, pullquote treatment)
@@ -477,6 +483,10 @@ Your job is NOT to rewrite the copy — it's to make high-level strategic decisi
 8. Where CTAs should appear (after which sections)
 
 You think in terms of: hook → story → mechanism → proof → offer → urgency → CTA.
+
+TEMPLATE FIDELITY: Your editorial plan must work within the template structure. You can reorder sections, adjust emphasis, insert callout blocks at specified positions, and refine copy — but you CANNOT add entirely new structural elements that don't exist in the template skeleton. For example, do NOT add a sticky urgency banner if the template doesn't have one. Do NOT add floating CTAs, countdown timers, notification bars, or any other conversion elements unless they already exist in the template. The template is the blueprint — optimize within it, don't expand beyond it. Set "top_banner_text" to null if the template has no banner element.
+
+DUPLICATE HEADING CHECK: Check all callout blocks and data boxes for duplicate heading text. If a callout's body paragraph begins with the same text as its heading label (e.g., heading="USDA DATA" and body starts with "USDA DATA:"), remove the duplicate from the body.
 
 CRITICAL: Also scan the copy for any remaining {{placeholder}} template tags (e.g., {{author_name}}, {{publish_date}}, {{TRENDING_CATEGORY}}). If you find any, provide replacement text in the "placeholder_fills" field of your response.`;
 
@@ -777,6 +787,8 @@ export async function generateHtmlTemplate({
   const systemPrompt = hasSkeletonHtml
     ? `You are an expert HTML/CSS developer specializing in high-converting landing pages. You adapt existing HTML templates by ensuring all placeholder tokens are correctly placed and the layout accommodates the provided copy sections.
 
+CRITICAL TEMPLATE FIDELITY RULE: You MUST strictly follow the template skeleton structure. The skeleton defines exactly which elements appear on the page, in what order, and with what layout. Your job is to populate the content slots and apply styling — NOT to add new structural elements. Do NOT invent or add any elements that are not present in the template skeleton, including but not limited to: urgency banners, sticky bars, notification bars, floating CTAs, countdown timers, or any other conversion elements unless they exist in the template. The template is the blueprint. If an element isn't in the template, it does not go on the page.
+
 You must respond with ONLY the complete HTML document — no markdown fences, no explanations. Start with <!DOCTYPE html> and end with </html>.`
     : `You are an expert HTML/CSS developer specializing in high-converting landing pages. You create clean, semantic, mobile-responsive HTML with embedded CSS. Your pages are self-contained — no external CSS frameworks, only Google Fonts as the external dependency.
 
@@ -800,7 +812,9 @@ IMPORTANT: Use the EXACT placeholder token format shown above. The system will s
     const parts = [];
     if (editorialPlan.headline) parts.push(`HEADLINE: Use "${editorialPlan.headline}" as the main H1 headline.`);
     if (editorialPlan.subheadline) parts.push(`SUBHEADLINE: Use "${editorialPlan.subheadline}" as the subheadline below the H1.`);
-    if (editorialPlan.top_banner_text) parts.push(`TOP BANNER: Add a sticky/fixed banner at the top of the page with text: "${editorialPlan.top_banner_text}". Style it with high contrast (e.g., accent color background, white text, small text size).`);
+    if (editorialPlan.top_banner_text && hasSkeletonHtml && autoContext.skeletonHtml.includes('banner')) {
+      parts.push(`TOP BANNER: The template already has a banner element — populate it with text: "${editorialPlan.top_banner_text}".`);
+    }
     if (editorialPlan.sections_order?.length > 0) parts.push(`SECTION ORDER: Arrange sections in this order: ${editorialPlan.sections_order.join(' → ')}`);
     if (editorialPlan.callouts?.length > 0) {
       parts.push(`CALLOUT BOXES: Insert these callout boxes at the specified positions:
@@ -834,7 +848,7 @@ REQUIREMENTS:
 2. Preserve the existing CSS, layout, colors, fonts, and structure from the template
 3. Ensure all copy section placeholders are placed in the correct sections
 4. The page must remain mobile-responsive
-5. Add any missing sections if the copy requires them, matching the template's style${editorialPlan ? '\n6. Follow ALL editorial plan instructions above — they override default section ordering and layout decisions' : ''}`
+5. Do NOT add any structural elements that are not in the template skeleton — no urgency banners, sticky bars, floating CTAs, countdown timers, notification bars, or any other elements the template doesn't already contain. The template defines the page structure; you populate it.${editorialPlan ? '\n6. Follow editorial plan instructions for section ordering, emphasis, and callout placement — but do NOT add structural elements the template doesn\'t have, even if the editorial plan suggests them' : ''}`
     : `Generate a complete, self-contained HTML landing page based on this design specification and placeholder system.
 
 DESIGN SPECIFICATION:
@@ -1048,12 +1062,78 @@ function applyMetadataReplacements(html, metadataMap) {
  */
 function validateNoPlaceholders(html) {
   const remaining = [...html.matchAll(/\{\{([^}]+)\}\}/g)];
+  const warnings = [];
   if (remaining.length > 0) {
     const names = [...new Set(remaining.map(m => m[1].trim()))];
     console.warn(`[LPGen] Stripping ${remaining.length} unfilled placeholder(s): ${names.join(', ')}`);
-    return html.replace(/\{\{[^}]+\}\}/g, '');
+    warnings.push(...names);
+    return { html: html.replace(/\{\{[^}]+\}\}/g, ''), warnings };
   }
-  return html;
+  return { html, warnings };
+}
+
+/**
+ * Fix duplicate heading text in callout blocks.
+ * Matches patterns where a heading element (h1-h6, strong) is followed by a body element
+ * (p, div, span) whose text starts with the same heading text (optionally followed by a colon).
+ *
+ * Example fix:
+ *   <h3>USDA DATA</h3><p>USDA DATA: 42.7% of samples...</p>
+ *   → <h3>USDA DATA</h3><p>42.7% of samples...</p>
+ */
+function fixDuplicateCalloutHeadings(html) {
+  // Match: heading element → optional whitespace/tags → body element starting with same text
+  return html.replace(
+    /(<(?:h[1-6]|strong)[^>]*>)\s*([^<]+?)\s*(<\/(?:h[1-6]|strong)>)([\s\S]*?)(<(?:p|div|span)[^>]*>)\s*\2\s*[:—–-]?\s*/gi,
+    (match, openTag, headingText, closeTag, between, bodyOpenTag) => {
+      console.log(`[LPGen] Fixed duplicate callout heading: "${headingText.trim()}"`);
+      return `${openTag}${headingText}${closeTag}${between}${bodyOpenTag}`;
+    }
+  );
+}
+
+/**
+ * Consolidated post-processing pipeline for assembled LP HTML.
+ * Runs after HTML assembly and before storing the final LP.
+ *
+ * Steps:
+ * 1. Populate metadata (author, date, product name)
+ * 2. Apply editorial placeholder fills (if any)
+ * 3. Strip unfilled placeholders (zero-tolerance)
+ * 4. Fix duplicate callout headings
+ *
+ * @param {string} html - Assembled HTML
+ * @param {object} options
+ * @param {object} [options.project] - Project data (for metadata)
+ * @param {object} [options.agentConfig] - LP agent config (for author name/title)
+ * @param {string} [options.angle] - Marketing angle
+ * @param {object} [options.editorialPlan] - Opus editorial plan (for placeholder_fills)
+ * @returns {{ html: string, warnings: string[] }} Processed HTML and any warnings
+ */
+export function postProcessLP(html, { project = null, agentConfig = null, angle = '', editorialPlan = null } = {}) {
+  let processed = html;
+
+  // 1. Populate metadata placeholders (publish_date, author_name, etc.)
+  const metadataMap = buildMetadataMap({ project, agentConfig, angle });
+  processed = applyMetadataReplacements(processed, metadataMap);
+
+  // 2. Apply editorial placeholder fills if the Opus pass caught any remaining
+  if (editorialPlan?.placeholder_fills && typeof editorialPlan.placeholder_fills === 'object') {
+    for (const [key, value] of Object.entries(editorialPlan.placeholder_fills)) {
+      if (value) {
+        processed = processed.replaceAll(`{{${key}}}`, value);
+      }
+    }
+  }
+
+  // 3. Strip unfilled placeholders (zero-tolerance)
+  const validation = validateNoPlaceholders(processed);
+  processed = validation.html;
+
+  // 4. Fix duplicate callout headings
+  processed = fixDuplicateCalloutHeadings(processed);
+
+  return { html: processed, warnings: validation.warnings };
 }
 
 // ─── Auto Mode: Generate LP from template + angle ────────────────────────────
@@ -1228,28 +1308,23 @@ export async function generateAutoLP({
   }, sendEvent);
 
   // 6. Assemble final HTML
-  let assembledHtml = assembleLandingPage({
+  const rawAssembledHtml = assembleLandingPage({
     htmlTemplate,
     copySections,
     imageSlots,
     ctaElements: designAnalysis.cta_elements,
   });
 
-  // 6b. Auto-populate metadata slots (publish_date, author_name, product_name, etc.)
-  const metadataMap = buildMetadataMap({ project, agentConfig, angle });
-  assembledHtml = applyMetadataReplacements(assembledHtml, metadataMap);
-
-  // 6c. Apply editorial placeholder fills if the Opus pass caught any remaining
-  if (editorialPlan?.placeholder_fills && typeof editorialPlan.placeholder_fills === 'object') {
-    for (const [key, value] of Object.entries(editorialPlan.placeholder_fills)) {
-      if (value) {
-        assembledHtml = assembledHtml.replaceAll(`{{${key}}}`, value);
-      }
-    }
+  // 7. Post-process: metadata → editorial fills → strip placeholders → fix duplicate headings
+  const { html: assembledHtml, warnings } = postProcessLP(rawAssembledHtml, {
+    project,
+    agentConfig,
+    angle,
+    editorialPlan,
+  });
+  if (warnings.length > 0) {
+    console.warn(`[LPGen] Post-processing stripped ${warnings.length} placeholder(s): ${warnings.join(', ')}`);
   }
-
-  // 6d. Zero-tolerance validation — strip ANY remaining {{...}} placeholders
-  assembledHtml = validateNoPlaceholders(assembledHtml);
 
   sendEvent({ type: 'progress', step: 'auto_complete', message: 'Auto-generated landing page complete' });
 

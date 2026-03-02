@@ -27,6 +27,7 @@ import {
   generateSlotImages,
   generateHtmlTemplate,
   assembleLandingPage,
+  postProcessLP,
   generateAutoLP,
   NARRATIVE_FRAMES,
 } from '../services/lpGenerator.js';
@@ -355,12 +356,15 @@ router.post('/:projectId/landing-pages/generate', async (req, res) => {
 
       // ── Phase 2E: Assemble final HTML ──
       sse.sendEvent({ type: 'phase', phase: 'assembling', message: 'Assembling final landing page...' });
-      const assembledHtml = assembleLandingPage({
+      const rawAssembledHtml = assembleLandingPage({
         htmlTemplate,
         copySections: copyResult.sections,
         imageSlots: populatedImageSlots,
         ctaElements,
       });
+
+      // Post-process: metadata → strip placeholders → fix duplicate headings
+      const { html: assembledHtml } = postProcessLP(rawAssembledHtml);
 
       // Save everything
       await updateLandingPage(pageId, {
@@ -483,12 +487,13 @@ router.post('/:projectId/landing-pages/:pageId/regenerate-image', async (req, re
       const ctaLinks = page.cta_links ? JSON.parse(page.cta_links) : [];
       const ctaElements = ctaLinks.length > 0 ? ctaLinks : (page.swipe_design_analysis ? JSON.parse(page.swipe_design_analysis).cta_elements || [] : []);
 
-      const assembledHtml = assembleLandingPage({
+      const rawAssembledHtml = assembleLandingPage({
         htmlTemplate: page.html_template || '',
         copySections,
         imageSlots,
         ctaElements: ctaLinks.length > 0 ? ctaLinks : ctaElements,
       });
+      const { html: assembledHtml } = postProcessLP(rawAssembledHtml);
 
       // Save everything
       await updateLandingPage(req.params.pageId, {
@@ -556,12 +561,13 @@ router.post('/:projectId/landing-pages/:pageId/upload-image', imageUpload.single
     const ctaLinks = page.cta_links ? JSON.parse(page.cta_links) : [];
     const ctaElements = ctaLinks.length > 0 ? ctaLinks : (page.swipe_design_analysis ? JSON.parse(page.swipe_design_analysis).cta_elements || [] : []);
 
-    const assembledHtml = assembleLandingPage({
+    const rawAssembledHtml = assembleLandingPage({
       htmlTemplate: page.html_template || '',
       copySections,
       imageSlots,
       ctaElements: ctaLinks.length > 0 ? ctaLinks : ctaElements,
     });
+    const { html: assembledHtml } = postProcessLP(rawAssembledHtml);
 
     await updateLandingPage(req.params.pageId, {
       image_slots: JSON.stringify(imageSlots),
@@ -608,12 +614,13 @@ router.post('/:projectId/landing-pages/:pageId/revert-image', async (req, res) =
   const ctaLinks = page.cta_links ? JSON.parse(page.cta_links) : [];
   const ctaElements = ctaLinks.length > 0 ? ctaLinks : (page.swipe_design_analysis ? JSON.parse(page.swipe_design_analysis).cta_elements || [] : []);
 
-  const assembledHtml = assembleLandingPage({
+  const rawAssembledHtml = assembleLandingPage({
     htmlTemplate: page.html_template || '',
     copySections,
     imageSlots,
     ctaElements: ctaLinks.length > 0 ? ctaLinks : ctaElements,
   });
+  const { html: assembledHtml } = postProcessLP(rawAssembledHtml);
 
   await updateLandingPage(req.params.pageId, {
     image_slots: JSON.stringify(imageSlots),
