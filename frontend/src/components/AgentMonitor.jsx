@@ -218,7 +218,7 @@ function PipelineOverview({ data, fixerData, filterData }) {
           <p className="text-[10px] text-textlight font-medium uppercase tracking-wider mb-1.5">{day.label}</p>
           {projects.map(project => {
             const produced = project.flex_by_day?.[day.date] || 0;
-            const target = project.daily_flex_target || 5;
+            const target = project.daily_flex_target ?? 5;
             const activeBatches = project.active_batches_by_day?.[day.date] || 0;
             const pct = Math.min((produced / target) * 100, 100);
             const isMet = produced >= target;
@@ -420,7 +420,7 @@ function DirectorTab({ onRefresh }) {
 
       {/* Quick stats */}
       <div className="grid grid-cols-4 gap-2 mb-4">
-        <StatCell value={config?.daily_flex_target || 5} label="Daily Target" color="text-textdark" />
+        <StatCell value={config?.daily_flex_target ?? 5} label="Daily Target" color="text-textdark" />
         <StatCell value={config?.ads_per_batch || 18} label="Ads/Batch" color="text-textdark" />
         <StatCell value={activeAngles.length} label="Angles" color="text-navy" />
         <StatCell value={runs.length > 0 ? runs.filter(r => r.status === 'completed').length : 0} label="Runs" color="text-teal" />
@@ -587,10 +587,10 @@ function DirectorTab({ onRefresh }) {
               <label className="text-[11px] text-textmid font-medium block mb-1">Daily Flex Ad Target</label>
               <input
                 type="number"
-                min="1"
+                min="0"
                 max="20"
-                value={config.daily_flex_target || 5}
-                onChange={e => handleSaveConfig({ daily_flex_target: parseInt(e.target.value) || 5 })}
+                value={config.daily_flex_target ?? 5}
+                onChange={e => handleSaveConfig({ daily_flex_target: parseInt(e.target.value) ?? 5 })}
                 className="input-apple w-full text-[12px]"
               />
             </div>
@@ -746,16 +746,18 @@ function DirectorTab({ onRefresh }) {
                 <p className="text-[9px] text-textlight mt-0.5">All CTA buttons on published LPs will link here</p>
               </div>
               <div className="flex items-center gap-2">
-                <input
-                  type="checkbox"
-                  id="lp_auto_enabled"
-                  checked={!!config.lp_auto_enabled}
-                  onChange={e => handleSaveConfig({ lp_auto_enabled: e.target.checked })}
-                  className="accent-navy"
-                />
-                <label htmlFor="lp_auto_enabled" className="text-[11px] text-textdark cursor-pointer">
+                <button
+                  type="button"
+                  role="switch"
+                  aria-checked={!!config.lp_auto_enabled}
+                  onClick={() => handleSaveConfig({ lp_auto_enabled: !config.lp_auto_enabled })}
+                  className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${config.lp_auto_enabled ? 'bg-navy' : 'bg-gray-200'}`}
+                >
+                  <span className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${config.lp_auto_enabled ? 'translate-x-4' : 'translate-x-0'}`} />
+                </button>
+                <span className="text-[11px] text-textdark cursor-pointer" onClick={() => handleSaveConfig({ lp_auto_enabled: !config.lp_auto_enabled })}>
                   Auto-generate landing pages with Director batches
-                </label>
+                </span>
               </div>
             </div>
           </div>
