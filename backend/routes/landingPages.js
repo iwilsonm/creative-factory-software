@@ -142,11 +142,14 @@ router.get('/:projectId/landing-pages/:pageId/download-pdf', async (req, res) =>
     await browserPage.setViewport({ width: 1440, height: 900 });
     await browserPage.setContent(html, { waitUntil: 'networkidle2', timeout: 30000 });
 
-    const pdfBuffer = await browserPage.pdf({
+    const pdfData = await browserPage.pdf({
       format: 'A4',
       printBackground: true,
       margin: { top: '0.5cm', bottom: '0.5cm', left: '0.5cm', right: '0.5cm' },
     });
+
+    // Puppeteer returns Uint8Array — must convert to Buffer for Express
+    const pdfBuffer = Buffer.from(pdfData);
 
     // Sanitize filename
     const safeName = (page.name || 'Landing-Page').replace(/[^a-zA-Z0-9_\- ]/g, '').slice(0, 80).trim();
@@ -154,7 +157,7 @@ router.get('/:projectId/landing-pages/:pageId/download-pdf', async (req, res) =>
     res.setHeader('Content-Type', 'application/pdf');
     res.setHeader('Content-Disposition', `attachment; filename="${safeName}.pdf"`);
     res.setHeader('Content-Length', pdfBuffer.length);
-    res.send(pdfBuffer);
+    res.end(pdfBuffer);
   } catch (err) {
     console.error('[LandingPages] PDF download error:', err.message);
     if (!res.headersSent) {
