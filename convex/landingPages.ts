@@ -34,6 +34,11 @@ export const create = mutation({
     swipe_url: v.optional(v.string()),
     swipe_screenshot_storageId: v.optional(v.string()),
     status: v.string(),
+    // Auto-generation fields
+    auto_generated: v.optional(v.boolean()),
+    batch_job_id: v.optional(v.string()),
+    narrative_frame: v.optional(v.string()),
+    template_id: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const now = new Date().toISOString();
@@ -49,6 +54,10 @@ export const create = mutation({
       swipe_url: args.swipe_url,
       swipe_screenshot_storageId: args.swipe_screenshot_storageId,
       status: args.status,
+      auto_generated: args.auto_generated,
+      batch_job_id: args.batch_job_id,
+      narrative_frame: args.narrative_frame,
+      template_id: args.template_id,
       created_at: now,
       updated_at: now,
     });
@@ -82,6 +91,13 @@ export const update = mutation({
     published_at: v.optional(v.string()),
     final_html: v.optional(v.string()),
     hosting_metadata: v.optional(v.string()),
+    // Auto-generation fields
+    auto_generated: v.optional(v.boolean()),
+    batch_job_id: v.optional(v.string()),
+    narrative_frame: v.optional(v.string()),
+    template_id: v.optional(v.string()),
+    shopify_page_id: v.optional(v.string()),
+    shopify_handle: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const doc = await ctx.db
@@ -113,6 +129,12 @@ export const update = mutation({
     if (args.published_at !== undefined) updates.published_at = args.published_at;
     if (args.final_html !== undefined) updates.final_html = args.final_html;
     if (args.hosting_metadata !== undefined) updates.hosting_metadata = args.hosting_metadata;
+    if (args.auto_generated !== undefined) updates.auto_generated = args.auto_generated;
+    if (args.batch_job_id !== undefined) updates.batch_job_id = args.batch_job_id;
+    if (args.narrative_frame !== undefined) updates.narrative_frame = args.narrative_frame;
+    if (args.template_id !== undefined) updates.template_id = args.template_id;
+    if (args.shopify_page_id !== undefined) updates.shopify_page_id = args.shopify_page_id;
+    if (args.shopify_handle !== undefined) updates.shopify_handle = args.shopify_handle;
     await ctx.db.patch(doc._id, updates);
   },
 });

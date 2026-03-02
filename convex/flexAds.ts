@@ -53,6 +53,9 @@ export const create = mutation({
     // Dacia Creative Director fields
     posting_day: v.optional(v.string()),
     angle_name: v.optional(v.string()),
+    // LP URLs
+    lp_primary_url: v.optional(v.string()),
+    lp_secondary_url: v.optional(v.string()),
     created_at: v.string(),
     updated_at: v.string(),
   },
@@ -81,6 +84,9 @@ export const update = mutation({
       // Dacia Creative Director fields
       posting_day: v.optional(v.string()),
       angle_name: v.optional(v.string()),
+      // LP URLs
+      lp_primary_url: v.optional(v.string()),
+      lp_secondary_url: v.optional(v.string()),
     }),
   },
   handler: async (ctx, args) => {

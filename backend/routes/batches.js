@@ -259,4 +259,36 @@ router.post('/retry/:batchId', async (req, res) => {
   }
 });
 
+/**
+ * POST /:batchId/retry-lp — Retry failed LP generation for a batch
+ * Called by Creative Filter LP gate when LPs have failed.
+ * Mounted at /api/batches/:batchId/retry-lp (flat, no project nesting)
+ */
+router.post('/:batchId/retry-lp', async (req, res) => {
+  try {
+    const batch = await getBatchJob(req.params.batchId);
+    if (!batch) {
+      return res.status(404).json({ error: 'Batch job not found' });
+    }
+
+    const { which = 'both' } = req.body;
+    if (!['primary', 'secondary', 'both'].includes(which)) {
+      return res.status(400).json({ error: 'which must be primary, secondary, or both' });
+    }
+
+    // Dynamic import to avoid circular dependency
+    const { retryLP } = await import('../services/lpAutoGenerator.js');
+
+    // Fire-and-forget — retry runs in background
+    retryLP(req.params.batchId, which).catch(err => {
+      console.error(`[Batches API] LP retry error for ${req.params.batchId.slice(0, 8)}:`, err.message);
+    });
+
+    res.json({ success: true, message: `LP retry triggered (${which})` });
+  } catch (err) {
+    console.error('[Batches API] LP retry error:', err);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 export default router;

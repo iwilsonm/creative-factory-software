@@ -133,6 +133,18 @@ export default defineSchema({
     conductor_run_id: v.optional(v.string()),      // → conductor_runs.externalId that created this batch
     angle_name: v.optional(v.string()),            // Which angle this batch targets
     angle_prompt: v.optional(v.string()),          // Full angle prompt injected into generation
+    // LP auto-generation tracking
+    lp_primary_id: v.optional(v.string()),           // → landing_pages.externalId
+    lp_primary_url: v.optional(v.string()),          // Published URL
+    lp_primary_status: v.optional(v.string()),       // generating | published | live | failed
+    lp_primary_error: v.optional(v.string()),
+    lp_primary_retry_count: v.optional(v.float64()),
+    lp_secondary_id: v.optional(v.string()),         // → landing_pages.externalId
+    lp_secondary_url: v.optional(v.string()),
+    lp_secondary_status: v.optional(v.string()),
+    lp_secondary_error: v.optional(v.string()),
+    lp_secondary_retry_count: v.optional(v.float64()),
+    lp_narrative_frames: v.optional(v.string()),     // JSON array of narrative frame IDs
     created_at: v.string(),
     started_at: v.optional(v.string()),
     completed_at: v.optional(v.string()),
@@ -203,6 +215,9 @@ export default defineSchema({
     // Dacia Creative Director fields
     posting_day: v.optional(v.string()),           // YYYY-MM-DD posting day this flex ad is for
     angle_name: v.optional(v.string()),            // Inherited from batch that produced its ads
+    // LP URLs for auto-generated landing pages
+    lp_primary_url: v.optional(v.string()),
+    lp_secondary_url: v.optional(v.string()),
     created_at: v.string(),
     updated_at: v.string(),
     deleted_at: v.optional(v.string()),           // ISO timestamp for soft delete
@@ -398,10 +413,33 @@ export default defineSchema({
     // Phase 4 publishing fields
     published_url: v.optional(v.string()),           // Live URL after publishing
     published_at: v.optional(v.string()),            // ISO timestamp of last publish
-    final_html: v.optional(v.string()),              // Baked HTML sent to Cloudflare
-    hosting_metadata: v.optional(v.string()),        // JSON: Cloudflare deployment info
+    final_html: v.optional(v.string()),              // Baked HTML sent to hosting
+    hosting_metadata: v.optional(v.string()),        // JSON: hosting deployment info
+    // Auto-generation fields (LP pipeline)
+    auto_generated: v.optional(v.boolean()),         // True if created by automated pipeline
+    batch_job_id: v.optional(v.string()),            // → batch_jobs.externalId
+    narrative_frame: v.optional(v.string()),          // Which narrative frame was used
+    template_id: v.optional(v.string()),             // → lp_templates.externalId
+    shopify_page_id: v.optional(v.string()),         // Shopify page ID for updates/deletion
+    shopify_handle: v.optional(v.string()),          // Shopify URL handle
     created_at: v.string(),
     updated_at: v.string(),
+  })
+    .index("by_externalId", ["externalId"])
+    .index("by_project", ["project_id"]),
+
+  lp_templates: defineTable({
+    externalId: v.string(),
+    project_id: v.string(),              // → projects.externalId
+    source_url: v.string(),              // Original URL template was extracted from
+    name: v.string(),                    // User-editable display name
+    skeleton_html: v.string(),           // HTML template with placeholder slot markers
+    design_brief: v.string(),            // JSON: styling patterns, colors, typography, spacing
+    slot_definitions: v.string(),        // JSON: array of slot objects with id, type, position, content_type
+    screenshot_storage_id: v.optional(v.string()), // Convex storage ID for captured screenshot
+    status: v.string(),                  // extracting | ready | failed
+    error_message: v.optional(v.string()),
+    created_at: v.string(),
   })
     .index("by_externalId", ["externalId"])
     .index("by_project", ["project_id"]),
@@ -460,6 +498,12 @@ export default defineSchema({
     meta_campaign_name: v.optional(v.string()),  // default campaign name template
     meta_adset_defaults: v.optional(v.string()), // JSON: default adset settings
     default_campaign_id: v.optional(v.string()),  // → campaigns.externalId for auto-deployed flex ads
+    // Shopify LP pipeline config
+    shopify_store_domain: v.optional(v.string()),    // e.g., "heal-naturally.myshopify.com"
+    shopify_access_token: v.optional(v.string()),    // Admin API token with write_content scope
+    shopify_lander_template: v.optional(v.string()), // Template suffix, default "lander"
+    pdp_url: v.optional(v.string()),                 // Product detail page URL for CTA links
+    lp_auto_enabled: v.optional(v.boolean()),        // Enable/disable auto LP generation
     run_schedule: v.string(),           // "auto" | "manual_only"
     last_planning_run: v.optional(v.number()),   // timestamp
     last_verify_run: v.optional(v.number()),     // timestamp

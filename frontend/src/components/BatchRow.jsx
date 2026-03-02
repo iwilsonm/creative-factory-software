@@ -6,6 +6,26 @@ import {
   getNextRun, formatNextRun, formatDate, formatDuration
 } from './batchUtils';
 
+const LP_STATUS_STYLES = {
+  generating: 'bg-gold/10 text-gold',
+  published: 'bg-navy/10 text-navy',
+  live: 'bg-teal/10 text-teal',
+  failed: 'bg-red-50 text-red-500',
+};
+
+function LPBadge({ label, status, url }) {
+  const style = LP_STATUS_STYLES[status] || LP_STATUS_STYLES.generating;
+  const text = `${label}: ${status.charAt(0).toUpperCase() + status.slice(1)}`;
+  if (url && (status === 'live' || status === 'published')) {
+    return (
+      <a href={url} target="_blank" rel="noopener noreferrer" className={`badge text-[10px] ${style} hover:opacity-80`} title={url}>
+        {text} ↗
+      </a>
+    );
+  }
+  return <span className={`badge text-[10px] ${style}`}>{text}</span>;
+}
+
 export default function BatchRow({ batch, onRunNow, onCancel, onDelete, onEdit, onPause, onResume }) {
   const isActive = ['generating_prompts', 'submitting', 'processing'].includes(batch.status);
   const canRun = ['pending', 'completed', 'failed'].includes(batch.status);
@@ -152,6 +172,12 @@ export default function BatchRow({ batch, onRunNow, onCancel, onDelete, onEdit, 
               <span className="badge bg-gold/10 text-gold text-[10px]">
                 {batch.retry_count}/3 retries
               </span>
+            )}
+            {batch.lp_primary_status && (
+              <LPBadge label="LP1" status={batch.lp_primary_status} url={batch.lp_primary_url} />
+            )}
+            {batch.lp_secondary_status && (
+              <LPBadge label="LP2" status={batch.lp_secondary_status} url={batch.lp_secondary_url} />
             )}
           </div>
           <div className="flex items-center gap-2 mt-0.5 flex-wrap">

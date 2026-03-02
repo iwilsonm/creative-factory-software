@@ -523,11 +523,27 @@ export const api = {
   restoreLPVersion: (projectId, pageId, versionId) =>
     request(`/projects/${projectId}/landing-pages/${pageId}/versions/${versionId}/restore`, { method: 'POST' }),
 
-  // LP Editor — Publishing
-  publishLandingPage: (projectId, pageId, slug, onEvent) =>
-    streamSSEWithBody(`/projects/${projectId}/landing-pages/${pageId}/publish`, { slug }, onEvent),
+  // LP Editor — Publishing (Shopify)
+  publishLandingPage: (projectId, pageId) =>
+    request(`/projects/${projectId}/landing-pages/${pageId}/publish`, { method: 'POST' }),
   unpublishLandingPage: (projectId, pageId) =>
     request(`/projects/${projectId}/landing-pages/${pageId}/unpublish`, { method: 'POST' }),
   duplicateLandingPage: (projectId, pageId) =>
     request(`/projects/${projectId}/landing-pages/${pageId}/duplicate`, { method: 'POST' }),
+
+  // LP Templates
+  getLPTemplates: (projectId) =>
+    request(`/projects/${projectId}/lp-templates`),
+  getLPTemplate: (projectId, templateId) =>
+    request(`/projects/${projectId}/lp-templates/${templateId}`),
+  extractLPTemplate: (projectId, url, onEvent) =>
+    streamSSEWithBody(`/projects/${projectId}/lp-templates`, { url }, onEvent),
+  updateLPTemplate: (projectId, templateId, data) =>
+    request(`/projects/${projectId}/lp-templates/${templateId}`, { method: 'PUT', body: JSON.stringify(data), headers: { 'Content-Type': 'application/json' } }),
+  deleteLPTemplate: (projectId, templateId) =>
+    request(`/projects/${projectId}/lp-templates/${templateId}`, { method: 'DELETE' }),
+
+  // LP retry
+  retryBatchLP: (batchId, options = {}) =>
+    request(`/batches/${batchId}/retry-lp`, { method: 'POST', body: JSON.stringify(options), headers: { 'Content-Type': 'application/json' } }),
 };

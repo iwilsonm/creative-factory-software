@@ -319,13 +319,12 @@ function LPEditor({ page: initialPage, onBack, onDelete, projectId }) {
   // ── Publishing state ──
   const [publishing, setPublishing] = useState(false);
   const [publishProgress, setPublishProgress] = useState('');
-  const [showPublishModal, setShowPublishModal] = useState(false);
-  const [publishSlug, setPublishSlug] = useState('');
+  // (showPublishModal and publishSlug removed — Shopify publish is single-click)
   const [unpublishing, setUnpublishing] = useState(false);
   const [publishedUrl, setPublishedUrl] = useState(initialPage.published_url || '');
   const [pageStatus, setPageStatus] = useState(initialPage.status);
   const [copiedUrl, setCopiedUrl] = useState(false);
-  const [cfConfigured, setCfConfigured] = useState(true); // assume configured until checked
+  const [shopifyHandle, setShopifyHandle] = useState(initialPage.shopify_handle || '');
 
   // ── Image tab state ──
   const [regeneratingSlot, setRegeneratingSlot] = useState(null); // index
@@ -359,12 +358,7 @@ function LPEditor({ page: initialPage, onBack, onDelete, projectId }) {
     }
   }, []);
 
-  // ── Check Cloudflare config ──
-  useEffect(() => {
-    api.getSettings().then(s => {
-      setCfConfigured(!!(s.cloudflare_account_id && s.cloudflare_api_token));
-    }).catch(() => {});
-  }, []);
+  // (Cloudflare config check removed — publishing now uses Shopify via Director config)
 
   // ── Load versions when Settings tab is selected ──
   useEffect(() => {
@@ -553,55 +547,34 @@ function LPEditor({ page: initialPage, onBack, onDelete, projectId }) {
     setDeleting(false);
   };
 
-  // ── Publish handler ──
-  const handlePublish = () => {
-    setPublishSlug(slug);
-    setShowPublishModal(true);
-  };
-
-  const handleConfirmPublish = async () => {
-    if (!publishSlug.trim()) {
-      toast.error('Please enter a URL slug');
-      return;
-    }
-    setShowPublishModal(false);
+  // ── Publish handler (Shopify) ──
+  const handlePublish = async () => {
     setPublishing(true);
-    setPublishProgress('Starting publish...');
-
-    const { abort, done } = api.publishLandingPage(projectId, initialPage.externalId, publishSlug.trim(), (event) => {
-      if (event.type === 'phase' || event.type === 'progress') {
-        setPublishProgress(event.message || '');
-      } else if (event.type === 'completed') {
-        setPublishProgress('');
-        setPublishing(false);
-        setPublishedUrl(event.published_url);
-        setPageStatus('published');
-        setSlug(publishSlug.trim());
-        toast.success('Landing page published!');
-      } else if (event.type === 'error') {
-        setPublishProgress('');
-        setPublishing(false);
-        toast.error(event.message || 'Publish failed');
-      }
-    });
-
-    done.catch((err) => {
-      if (err.name !== 'AbortError') {
-        setPublishing(false);
-        setPublishProgress('');
-        toast.error(err.message || 'Publish failed');
-      }
-    });
+    setPublishProgress('Publishing to Shopify...');
+    try {
+      const result = await api.publishLandingPage(projectId, initialPage.externalId);
+      setPublishProgress('');
+      setPublishing(false);
+      setPublishedUrl(result.published_url);
+      setShopifyHandle(result.shopify_handle || '');
+      setPageStatus('published');
+      toast.success('Landing page published to Shopify!');
+    } catch (err) {
+      setPublishProgress('');
+      setPublishing(false);
+      toast.error(err.message || 'Publish failed');
+    }
   };
 
   // ── Unpublish handler ──
   const handleUnpublish = async () => {
-    if (!confirm('Unpublish this landing page? It will be removed from Cloudflare.')) return;
+    if (!confirm('Unpublish this landing page? It will be removed from Shopify.')) return;
     setUnpublishing(true);
     try {
       await api.unpublishLandingPage(projectId, initialPage.externalId);
       setPageStatus('unpublished');
       setPublishedUrl('');
+      setShopifyHandle('');
       toast.success('Landing page unpublished');
     } catch (err) {
       toast.error(err.message || 'Failed to unpublish');
@@ -689,22 +662,6 @@ function LPEditor({ page: initialPage, onBack, onDelete, projectId }) {
           )}
         </div>
         <div className="flex items-center gap-2">
-          {!cfConfigured && !publishing && (
-            <span className="text-red-500 text-[10px] flex items-center gap-1" title="Configure Cloudflare in Settings first">
-              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126z" />
-              </svg>
-              No Cloudflare
-            </span>
-          )}
-          {hasMissingCtaUrl && !publishing && (
-            <span className="text-gold text-[10px] flex items-center gap-1" title="Some CTA links need URLs">
-              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126z" />
-              </svg>
-              CTA links
-            </span>
-          )}
           {publishing ? (
             <span className="text-[11px] text-navy flex items-center gap-1.5">
               <svg className="w-3.5 h-3.5 animate-spin" viewBox="0 0 24 24" fill="none">
@@ -715,15 +672,13 @@ function LPEditor({ page: initialPage, onBack, onDelete, projectId }) {
           ) : (
             <button
               onClick={handlePublish}
-              disabled={hasMissingCtaUrl || !cfConfigured}
               className={`text-[11px] px-3 py-1.5 rounded-lg font-medium transition-colors ${
                 pageStatus === 'published'
                   ? 'bg-navy/10 text-navy hover:bg-navy/15'
                   : 'btn-primary'
-              } ${(hasMissingCtaUrl || !cfConfigured) ? 'opacity-50 cursor-not-allowed' : ''}`}
-              title={!cfConfigured ? 'Configure Cloudflare in Settings first' : hasMissingCtaUrl ? 'Fix CTA links before publishing' : ''}
+              }`}
             >
-              {pageStatus === 'published' ? 'Re-publish' : 'Publish'}
+              {pageStatus === 'published' ? 'Re-publish' : 'Publish to Shopify'}
             </button>
           )}
           <button
@@ -1134,71 +1089,7 @@ function LPEditor({ page: initialPage, onBack, onDelete, projectId }) {
         </div>
       )}
 
-      {/* ── Publish Confirmation Modal ── */}
-      {showPublishModal && (
-        <div className="fixed inset-0 bg-black/50 flex items-center justify-center z-50" onClick={() => setShowPublishModal(false)}>
-          <div className="bg-white rounded-2xl shadow-xl w-[440px] overflow-hidden" onClick={e => e.stopPropagation()}>
-            <div className="px-6 py-4 border-b border-black/5">
-              <h3 className="text-[15px] font-semibold text-textdark">
-                {pageStatus === 'published' ? 'Re-publish Landing Page' : 'Publish Landing Page'}
-              </h3>
-              <p className="text-[12px] text-textmid mt-0.5">
-                Deploy to Cloudflare Pages
-              </p>
-            </div>
-            <div className="px-6 py-4 space-y-4">
-              <div>
-                <label className="text-[12px] font-medium text-textdark block mb-1.5">URL Slug</label>
-                <input
-                  type="text"
-                  value={publishSlug}
-                  onChange={(e) => setPublishSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''))}
-                  className="input-apple text-[12px] w-full"
-                  placeholder="landing-page-slug"
-                  autoFocus
-                />
-                <p className="text-[10px] text-textlight mt-1 font-mono bg-offwhite px-2 py-1 rounded">
-                  your-project.pages.dev/<span className="text-navy">{publishSlug || '...'}</span>
-                </p>
-              </div>
-
-              {hasMissingCtaUrl && (
-                <div className="p-3 bg-gold/5 border border-gold/15 rounded-xl">
-                  <p className="text-[11px] text-gold font-medium flex items-center gap-1">
-                    <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M12 9v3.75m-9.303 3.376c-.866 1.5.217 3.374 1.948 3.374h14.71c1.73 0 2.813-1.874 1.948-3.374L13.949 3.378c-.866-1.5-3.032-1.5-3.898 0L2.697 16.126z" />
-                    </svg>
-                    Some CTA links are missing URLs
-                  </p>
-                </div>
-              )}
-
-              {pageStatus === 'published' && (
-                <div className="p-3 bg-navy/5 border border-navy/10 rounded-xl">
-                  <p className="text-[10px] text-navy/70">
-                    Re-publishing will replace the current live version with the latest edits.
-                  </p>
-                </div>
-              )}
-            </div>
-            <div className="px-6 py-4 border-t border-black/5 flex items-center justify-end gap-2">
-              <button
-                onClick={() => setShowPublishModal(false)}
-                className="btn-secondary text-[12px]"
-              >
-                Cancel
-              </button>
-              <button
-                onClick={handleConfirmPublish}
-                disabled={!publishSlug.trim() || hasMissingCtaUrl}
-                className="btn-primary text-[12px] disabled:opacity-50 disabled:cursor-not-allowed"
-              >
-                {pageStatus === 'published' ? 'Re-publish' : 'Publish Now'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      {/* Publish modal removed — Shopify publish is a single-click action */}
     </div>
   );
 }
@@ -1289,9 +1180,12 @@ const STATUS_CONFIG = {
 // ═══════════════════════════════════════════════════════════════════════════
 // Main LPGen Component
 // ═══════════════════════════════════════════════════════════════════════════
+import LPTemplateManager from './LPTemplateManager';
+
 export default function LPGen({ projectId, project }) {
   const toast = useToast();
   const [view, setView] = useState('list'); // list | configure | editor | generating
+  const [subTab, setSubTab] = useState('pages'); // pages | templates
   const [pages, setPages] = useState([]);
   const [loading, setLoading] = useState(true);
   const [selectedPage, setSelectedPage] = useState(null);
@@ -1845,22 +1739,44 @@ export default function LPGen({ projectId, project }) {
   return (
     <div>
       <div className="flex items-center justify-between mb-5">
-        <div>
-          <h2 className="text-[15px] font-semibold text-textdark tracking-tight">Landing Pages</h2>
-          <p className="text-[12px] text-textmid mt-0.5">
-            Generate long-form landing page copy from your foundational research.
-          </p>
+        <div className="flex items-center gap-4">
+          <div className="flex gap-1 p-0.5 bg-offwhite rounded-lg">
+            <button
+              onClick={() => setSubTab('pages')}
+              className={`px-3 py-1.5 rounded-md text-[12px] font-medium transition-all ${
+                subTab === 'pages' ? 'bg-navy text-white shadow-sm' : 'text-textmid hover:text-textdark'
+              }`}
+            >
+              Landing Pages
+            </button>
+            <button
+              onClick={() => setSubTab('templates')}
+              className={`px-3 py-1.5 rounded-md text-[12px] font-medium transition-all ${
+                subTab === 'templates' ? 'bg-navy text-white shadow-sm' : 'text-textmid hover:text-textdark'
+              }`}
+            >
+              Templates
+            </button>
+          </div>
         </div>
-        <button
-          onClick={() => setView('configure')}
-          className="btn-primary text-[13px] inline-flex items-center gap-1.5"
-        >
-          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
-          </svg>
-          New Landing Page
-        </button>
+        {subTab === 'pages' && (
+          <button
+            onClick={() => setView('configure')}
+            className="btn-primary text-[13px] inline-flex items-center gap-1.5"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M12 4.5v15m7.5-7.5h-15" />
+            </svg>
+            New Landing Page
+          </button>
+        )}
       </div>
+
+      {subTab === 'templates' ? (
+        <LPTemplateManager projectId={projectId} />
+      ) : (
+        <>
+      {/* Landing Pages list content */}
 
       {loading ? (
         <div className="space-y-3">
@@ -1919,6 +1835,11 @@ export default function LPGen({ projectId, project }) {
                       {hasHtml && !isPublished && (
                         <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-teal/5 text-teal">
                           HTML
+                        </span>
+                      )}
+                      {page.auto_generated && (
+                        <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-navy/10 text-navy">
+                          Auto
                         </span>
                       )}
                     </div>
@@ -1992,6 +1913,8 @@ export default function LPGen({ projectId, project }) {
             );
           })}
         </div>
+      )}
+        </>
       )}
     </div>
   );

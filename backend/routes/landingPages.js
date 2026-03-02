@@ -29,7 +29,7 @@ import {
 import { fetchSwipePage } from '../services/lpSwipeFetcher.js';
 import { generateImage } from '../services/gemini.js';
 import { createSSEStream } from '../utils/sseHelper.js';
-import { publishLandingPage, unpublishLandingPage } from '../services/lpPublisher.js';
+import { publishToShopify, unpublishFromShopify } from '../services/lpPublisher.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -660,46 +660,28 @@ router.post('/:projectId/landing-pages/:pageId/versions/:versionId/restore', asy
   res.json(updated);
 });
 
-// ─── Publish landing page (SSE stream) ────────────────────────────────────────
+// ─── Publish landing page to Shopify ──────────────────────────────────────────
 router.post('/:projectId/landing-pages/:pageId/publish', async (req, res) => {
   const page = await getLandingPage(req.params.pageId);
   if (!page || page.project_id !== req.params.projectId) {
     return res.status(404).json({ error: 'Landing page not found' });
   }
 
-  const { slug } = req.body;
-  if (!slug || !slug.trim()) {
-    return res.status(400).json({ error: 'Slug is required for publishing' });
+  try {
+    const result = await publishToShopify(req.params.pageId, req.params.projectId);
+    res.json({
+      success: true,
+      published_url: result.published_url,
+      shopify_page_id: result.shopify_page_id,
+      shopify_handle: result.shopify_handle,
+    });
+  } catch (err) {
+    console.error('[LPPublish] Publish error:', err.message);
+    res.status(500).json({ error: err.message });
   }
-
-  const sse = createSSEStream(req, res);
-  sse.sendEvent({ type: 'started', message: 'Starting publish...' });
-
-  (async () => {
-    try {
-      const result = await publishLandingPage(
-        req.params.pageId,
-        slug.trim(),
-        req.params.projectId,
-        sse.sendEvent
-      );
-
-      sse.sendEvent({
-        type: 'completed',
-        published_url: result.published_url,
-        deployment: result.deployment,
-        version: result.version,
-      });
-      sse.end();
-    } catch (err) {
-      console.error('[LPPublish] Publish error:', err.message);
-      sse.sendEvent({ type: 'error', message: err.message });
-      sse.end();
-    }
-  })();
 });
 
-// ─── Unpublish landing page ───────────────────────────────────────────────────
+// ─── Unpublish landing page from Shopify ──────────────────────────────────────
 router.post('/:projectId/landing-pages/:pageId/unpublish', async (req, res) => {
   const page = await getLandingPage(req.params.pageId);
   if (!page || page.project_id !== req.params.projectId) {
@@ -707,7 +689,7 @@ router.post('/:projectId/landing-pages/:pageId/unpublish', async (req, res) => {
   }
 
   try {
-    await unpublishLandingPage(req.params.pageId);
+    await unpublishFromShopify(req.params.pageId, req.params.projectId);
     res.json({ success: true });
   } catch (err) {
     console.error('[LPPublish] Unpublish error:', err.message);

@@ -26,6 +26,7 @@ import quoteMiningRoutes from './routes/quoteMining.js';
 import chatRoutes from './routes/chat.js';
 import metaRoutes from './routes/meta.js';
 import landingPageRoutes from './routes/landingPages.js';
+import lpTemplateRoutes from './routes/lpTemplates.js';
 import agentMonitorRoutes, { agentCostRouter } from './routes/agentMonitor.js';
 import conductorRoutes from './routes/conductor.js';
 import rateLimit from 'express-rate-limit';
@@ -111,6 +112,7 @@ process.on('uncaughtException', (err) => {
   app.use('/api/projects/:id/generate-docs', llmRateLimit);
   app.use('/api/projects/:id/generate-ad', llmRateLimit);
   app.use('/api/projects/:id/generate-landing-page', llmRateLimit);
+  app.use('/api/projects/:id/lp-templates', llmRateLimit);
   app.use('/api/deployments/generate-ad-copy', llmRateLimit);
   app.use('/api/deployments/generate-ad-headlines', llmRateLimit);
   app.use('/api/deployments/filter/generate-copy', llmRateLimit);
@@ -222,6 +224,7 @@ process.on('uncaughtException', (err) => {
   app.use('/api/projects', requireAuth, requireRole('admin', 'manager'), chatRoutes);
   app.use('/api', requireAuth, requireRole('admin', 'manager'), metaRoutes);
   app.use('/api/projects', requireAuth, requireRole('admin', 'manager'), landingPageRoutes);
+  app.use('/api/projects', requireAuth, requireRole('admin', 'manager'), lpTemplateRoutes);
   // Routes — agent monitor (admin only)
   app.use('/api/agent-monitor', requireAuth, requireRole('admin'), agentMonitorRoutes);
   app.use('/api/conductor', requireAuth, requireRole('admin', 'manager'), conductorRoutes);

@@ -1232,6 +1232,22 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
           {/* Campaign + Ad Set + Duplicate Ad Set — always visible */}
           <PostInSection campaignName={campaignName} adSetName={adSetName} duplicateAdSetName={flexAd.duplicate_adset_name} />
 
+          {/* LP URLs — show when auto-generated landing pages are attached */}
+          {(flexAd.lp_primary_url || flexAd.lp_secondary_url) && (
+            <div className="flex items-center gap-3 text-[11px]">
+              {flexAd.lp_primary_url && (
+                <a href={flexAd.lp_primary_url} target="_blank" rel="noopener noreferrer" className="text-gold hover:text-gold/80 underline underline-offset-2">
+                  Primary LP ↗
+                </a>
+              )}
+              {flexAd.lp_secondary_url && (
+                <a href={flexAd.lp_secondary_url} target="_blank" rel="noopener noreferrer" className="text-gold hover:text-gold/80 underline underline-offset-2">
+                  Secondary LP ↗
+                </a>
+              )}
+            </div>
+          )}
+
           {/* Admin Edit Panel — always visible when editing (not inside collapsible) */}
           <EditPanel cardKey={flexId} id={flexAd.id} isFlex />
 

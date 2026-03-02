@@ -698,6 +698,68 @@ function DirectorTab({ onRefresh }) {
             <p className="text-[9px] text-textlight mt-0.5">Flex ads from the Director pipeline will auto-deploy to this campaign</p>
           </div>
 
+          {/* ── Shopify LP Publishing ── */}
+          <div className="mt-6 pt-4 border-t border-black/5">
+            <h4 className="text-[12px] font-semibold text-textdark mb-3">Shopify LP Publishing</h4>
+            <div className="space-y-3">
+              <div>
+                <label className="text-[11px] text-textmid font-medium block mb-1">Store Domain</label>
+                <input
+                  type="text"
+                  placeholder="your-store.myshopify.com"
+                  value={config.shopify_store_domain || ''}
+                  onChange={e => handleSaveConfig({ shopify_store_domain: e.target.value })}
+                  className="input-apple w-full text-[12px]"
+                />
+              </div>
+              <div>
+                <label className="text-[11px] text-textmid font-medium block mb-1">Access Token</label>
+                <input
+                  type="password"
+                  placeholder="shpat_..."
+                  value={config.shopify_access_token || ''}
+                  onChange={e => handleSaveConfig({ shopify_access_token: e.target.value })}
+                  className="input-apple w-full text-[12px]"
+                />
+                <p className="text-[9px] text-textlight mt-0.5">Shopify Admin API access token with write_pages scope</p>
+              </div>
+              <div>
+                <label className="text-[11px] text-textmid font-medium block mb-1">Lander Template (optional)</label>
+                <input
+                  type="text"
+                  placeholder="lander"
+                  value={config.shopify_lander_template || ''}
+                  onChange={e => handleSaveConfig({ shopify_lander_template: e.target.value })}
+                  className="input-apple w-full text-[12px]"
+                />
+                <p className="text-[9px] text-textlight mt-0.5">Shopify page template suffix (leave blank for default)</p>
+              </div>
+              <div>
+                <label className="text-[11px] text-textmid font-medium block mb-1">PDP URL (CTA destination)</label>
+                <input
+                  type="text"
+                  placeholder="https://your-store.com/products/your-product"
+                  value={config.pdp_url || ''}
+                  onChange={e => handleSaveConfig({ pdp_url: e.target.value })}
+                  className="input-apple w-full text-[12px]"
+                />
+                <p className="text-[9px] text-textlight mt-0.5">All CTA buttons on published LPs will link here</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <input
+                  type="checkbox"
+                  id="lp_auto_enabled"
+                  checked={!!config.lp_auto_enabled}
+                  onChange={e => handleSaveConfig({ lp_auto_enabled: e.target.checked })}
+                  className="accent-navy"
+                />
+                <label htmlFor="lp_auto_enabled" className="text-[11px] text-textdark cursor-pointer">
+                  Auto-generate landing pages with Director batches
+                </label>
+              </div>
+            </div>
+          </div>
+
           {saving && <p className="text-[10px] text-textlight">Saving...</p>}
         </div>
       )}

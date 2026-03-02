@@ -1296,6 +1296,16 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
               {placement.campaignName}{placement.adSetName ? ` \u203A ${placement.adSetName}` : ''}
             </div>
           )}
+          {(flexAd.lp_primary_url || flexAd.lp_secondary_url) && (
+            <div className="flex items-center gap-2 text-[9px]">
+              {flexAd.lp_primary_url && (
+                <a href={flexAd.lp_primary_url} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className="text-teal hover:text-teal/80 underline underline-offset-2">LP1</a>
+              )}
+              {flexAd.lp_secondary_url && (
+                <a href={flexAd.lp_secondary_url} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className="text-teal hover:text-teal/80 underline underline-offset-2">LP2</a>
+              )}
+            </div>
+          )}
         </div>
         <div className="flex items-center gap-1 flex-shrink-0">
           {childDeps.slice(0, 4).map(d => (

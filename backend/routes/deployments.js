@@ -819,7 +819,7 @@ router.post('/deployments/adsets', requireRole('admin', 'manager'), async (req, 
  */
 router.post('/deployments/flex', requireRole('admin', 'manager'), async (req, res) => {
   try {
-    const { ad_set_id, name, headlines, primary_texts, cta, display_link, facebook_page, ad_ids, project_id, status, posting_day, angle_name, destination_url, duplicate_adset_name } = req.body;
+    const { ad_set_id, name, headlines, primary_texts, cta, display_link, facebook_page, ad_ids, project_id, status, posting_day, angle_name, destination_url, duplicate_adset_name, lp_primary_url, lp_secondary_url } = req.body;
 
     if (!ad_set_id || !project_id || !ad_ids?.length) {
       return res.status(400).json({ error: 'ad_set_id, project_id, and ad_ids required' });
@@ -893,6 +893,8 @@ router.post('/deployments/flex', requireRole('admin', 'manager'), async (req, re
       duplicate_adset_name: duplicate_adset_name || '',
       posting_day: posting_day || '',
       angle_name: angle_name || '',
+      lp_primary_url: lp_primary_url || '',
+      lp_secondary_url: lp_secondary_url || '',
     });
 
     // Link each deployment to the flex ad

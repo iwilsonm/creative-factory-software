@@ -1,15 +1,16 @@
 /**
- * LP Publisher — Publish/unpublish landing pages to Cloudflare Pages.
+ * LP Publisher — Publish/unpublish landing pages to Shopify.
  *
- * Uses the Cloudflare Pages Direct Upload API to deploy self-contained HTML
- * landing pages with optimized images.
+ * Uses the Shopify Admin REST API to create/update/delete pages.
+ * Images are embedded as Convex storage URLs in body_html.
  *
  * Flows:
- *   publish(page, slug, projectId)   — Validate, bake HTML, optimize images, deploy
- *   unpublish(page)                  — Delete deployment from Cloudflare
+ *   publishToShopify(pageId, projectId)    — Validate, bake HTML, create/update Shopify page
+ *   updateOnShopify(pageId, projectId)     — Update an existing Shopify page
+ *   unpublishFromShopify(pageId, projectId) — Delete page from Shopify
+ *   verifyLive(url)                        — Verify a published URL is live
  */
 
-import { getSetting } from '../convexClient.js';
 import {
   getLandingPage,
   getLandingPagesByProject,
@@ -17,56 +18,102 @@ import {
   createLandingPageVersion,
   getStorageUrl,
   downloadToBuffer,
+  getConductorConfig,
 } from '../convexClient.js';
 import { v4 as uuidv4 } from 'uuid';
-import { assembleLandingPage } from './lpGenerator.js';
+import { withRetry } from './retry.js';
+import fetch from 'node-fetch';
+
+// =============================================
+// Shopify API helpers
+// =============================================
 
 /**
- * Get Cloudflare credentials from settings.
+ * Get Shopify credentials from conductor_config for the project.
  */
-async function getCloudflareConfig() {
-  const accountId = await getSetting('cloudflare_account_id');
-  const apiToken = await getSetting('cloudflare_api_token');
-  const projectsJson = await getSetting('cloudflare_pages_projects');
-
-  if (!accountId || !apiToken) {
-    throw new Error('Cloudflare credentials not configured. Set Account ID and API Token in Settings.');
+async function getShopifyConfig(projectId) {
+  const config = await getConductorConfig(projectId);
+  if (!config) {
+    throw new Error('Director config not found for this project. Configure Shopify settings in the Agent Dashboard.');
   }
 
-  let projects = [];
-  if (projectsJson) {
-    try { projects = JSON.parse(projectsJson); } catch {}
+  const { shopify_store_domain, shopify_access_token, shopify_lander_template } = config;
+
+  if (!shopify_store_domain || !shopify_access_token) {
+    throw new Error('Shopify credentials not configured. Set Store Domain and Access Token in Agent Dashboard → Director Settings.');
   }
 
-  return { accountId, apiToken, projects };
+  // Normalize domain — strip protocol and trailing slash
+  const domain = shopify_store_domain.replace(/^https?:\/\//, '').replace(/\/$/, '');
+
+  return {
+    domain,
+    accessToken: shopify_access_token,
+    templateSuffix: shopify_lander_template || '',
+    pdpUrl: config.pdp_url || '#',
+  };
 }
 
 /**
- * Find the Cloudflare Pages project name for a given project.
+ * Make a Shopify Admin REST API call with retry.
  */
-async function getCfProjectName(projectId, cfConfig) {
-  // Look for a project mapping
-  const mapping = cfConfig.projects.find(p => p.projectId === projectId);
-  if (mapping?.cfProjectName) return mapping.cfProjectName;
+async function shopifyApi(domain, accessToken, method, path, body) {
+  return withRetry(async () => {
+    const url = `https://${domain}/admin/api/2024-01${path}`;
+    const options = {
+      method,
+      headers: {
+        'Content-Type': 'application/json',
+        'X-Shopify-Access-Token': accessToken,
+      },
+    };
+    if (body) {
+      options.body = JSON.stringify(body);
+    }
 
-  // If only one project configured, use it
-  if (cfConfig.projects.length === 1) return cfConfig.projects[0].cfProjectName;
+    const response = await fetch(url, options);
 
-  // Fall back to first project
-  if (cfConfig.projects.length > 0) return cfConfig.projects[0].cfProjectName;
+    if (!response.ok) {
+      const text = await response.text().catch(() => '');
+      const status = response.status;
 
-  throw new Error('No Cloudflare Pages project configured. Add one in Settings.');
+      if (status === 401 || status === 403) {
+        throw new Error(`Shopify authentication failed (${status}). Check your access token.`);
+      }
+      if (status === 404) {
+        throw new Error(`Shopify resource not found (404). ${text}`);
+      }
+      if (status === 429) {
+        const err = new Error(`Shopify rate limited (429). ${text}`);
+        err.status = 429;
+        throw err;
+      }
+      if (status === 422) {
+        throw new Error(`Shopify validation error (422): ${text}`);
+      }
+      throw new Error(`Shopify API error ${status}: ${text}`);
+    }
+
+    // DELETE returns 200 with empty body
+    if (method === 'DELETE') return { success: true };
+
+    return await response.json();
+  }, {
+    maxRetries: 3,
+    baseDelayMs: 2000,
+    label: '[Shopify API]',
+  });
 }
+
+// =============================================
+// HTML preparation
+// =============================================
 
 /**
  * Validate a landing page is ready for publishing.
  */
-function validateForPublish(page, slug) {
+function validateForPublish(page) {
   const errors = [];
-
-  if (!slug || !slug.trim()) {
-    errors.push('Slug is required for publishing.');
-  }
 
   if (!page.html_template) {
     errors.push('No HTML template generated. Regenerate the landing page first.');
@@ -76,35 +123,27 @@ function validateForPublish(page, slug) {
     errors.push('No copy sections generated.');
   }
 
-  // Validate CTA links
-  const ctaLinks = page.cta_links ? JSON.parse(page.cta_links) : [];
-  const missingUrls = ctaLinks.filter(c => !c.url || c.url === '#order' || c.url === '#');
-  if (missingUrls.length > 0) {
-    errors.push(`${missingUrls.length} CTA link(s) missing URLs: ${missingUrls.map((_, i) => `CTA ${i + 1}`).join(', ')}`);
-  }
-
   return errors;
 }
 
 /**
- * Check if a slug conflicts with another published LP in the same CF project.
+ * Generate a URL-safe slug with a 4-char random suffix.
  */
-async function checkSlugConflict(slug, pageId, projectId) {
-  const allPages = await getLandingPagesByProject(projectId);
-  const conflict = allPages.find(p =>
-    p.slug === slug &&
-    p.externalId !== pageId &&
-    (p.status === 'published')
-  );
-  return conflict ? conflict.name : null;
+function generateSlug(name) {
+  const base = name
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, '-')
+    .replace(/^-|-$/g, '')
+    .slice(0, 50);
+  const suffix = uuidv4().slice(0, 4);
+  return `${base}-${suffix}`;
 }
 
 /**
  * Bake the final HTML — replace all placeholders with actual content.
- * This is similar to assembleLandingPage but produces the final published version
- * with local image paths (images will be co-deployed).
+ * Images use Convex storage URLs directly.
  */
-function bakeFinalHtml(page, slug, imageFiles) {
+async function bakeFinalHtml(page, pdpUrl) {
   const htmlTemplate = page.html_template || '';
   const copySections = page.copy_sections ? JSON.parse(page.copy_sections) : [];
   const ctaLinks = page.cta_links ? JSON.parse(page.cta_links) : [];
@@ -127,231 +166,69 @@ function bakeFinalHtml(page, slug, imageFiles) {
     html = html.replaceAll(placeholder, htmlContent);
   }
 
-  // Replace image placeholders with local paths
+  // Replace image placeholders with Convex storage URLs
   for (let i = 0; i < imageSlots.length; i++) {
+    const slot = imageSlots[i];
     const placeholder = `{{image_${i + 1}}}`;
-    const imageFile = imageFiles.find(f => f.slotIndex === i);
-    if (imageFile) {
-      // Use relative path within the deployment
-      html = html.replaceAll(placeholder, `images/${imageFile.filename}`);
-    } else {
-      // Fallback to storage URL or placeholder
-      const slot = imageSlots[i];
-      const url = slot.storageUrl || `https://placehold.co/${slot.suggested_size || '800x400'}/e2e8f0/64748b?text=Image+${i + 1}`;
-      html = html.replaceAll(placeholder, url);
+
+    let imageUrl = `https://placehold.co/${slot.suggested_size || '800x400'}/e2e8f0/64748b?text=Image+${i + 1}`;
+    if (slot.storageId) {
+      try {
+        const url = await getStorageUrl(slot.storageId);
+        if (url) imageUrl = url;
+      } catch (err) {
+        console.warn(`[LPPublish] Failed to get storage URL for slot ${i + 1}:`, err.message);
+      }
+    } else if (slot.storageUrl) {
+      imageUrl = slot.storageUrl;
     }
 
-    // Replace alt text placeholder if it exists
+    html = html.replaceAll(placeholder, imageUrl);
+
+    // Replace alt text placeholder
     const altPlaceholder = `{{image_${i + 1}_alt}}`;
-    const slot = imageSlots[i];
     html = html.replaceAll(altPlaceholder, slot.description || `Image ${i + 1}`);
   }
 
-  // Replace CTA placeholders
+  // Replace CTA placeholders — use pdpUrl from config if CTA URLs are missing/placeholder
   for (let i = 0; i < ctaLinks.length; i++) {
     const urlPlaceholder = `{{cta_${i + 1}_url}}`;
     const textPlaceholder = `{{cta_${i + 1}_text}}`;
     const cta = ctaLinks[i];
-    html = html.replaceAll(urlPlaceholder, cta.url || '#');
+    const ctaUrl = (!cta.url || cta.url === '#order' || cta.url === '#') ? pdpUrl : cta.url;
+    html = html.replaceAll(urlPlaceholder, ctaUrl);
     html = html.replaceAll(textPlaceholder, cta.text || cta.text_suggestion || 'Order Now');
   }
 
   return html;
 }
 
-/**
- * Download and optionally optimize images from Convex storage.
- * Returns array of { slotIndex, filename, buffer, mimeType }.
- */
-async function prepareImages(imageSlots, sendEvent) {
-  const imageFiles = [];
-  let sharp = null;
-
-  // Try to load sharp for image optimization
-  try {
-    sharp = (await import('sharp')).default;
-  } catch {
-    console.log('[LPPublish] sharp not available, using original images');
-  }
-
-  for (let i = 0; i < imageSlots.length; i++) {
-    const slot = imageSlots[i];
-    if (!slot.storageId) continue;
-
-    if (sendEvent) {
-      sendEvent({ type: 'progress', message: `Processing image ${i + 1} of ${imageSlots.length}...` });
-    }
-
-    try {
-      let buffer = await downloadToBuffer(slot.storageId);
-      let mimeType = 'image/jpeg';
-      let filename = `image-${i + 1}.jpg`;
-
-      if (sharp) {
-        // Resize and compress with sharp
-        const metadata = await sharp(buffer).metadata();
-        let sharpInstance = sharp(buffer);
-
-        // Resize if image is larger than needed
-        const maxWidth = parseInt(slot.suggested_size?.split('x')[0]) || 1200;
-        if (metadata.width > maxWidth) {
-          sharpInstance = sharpInstance.resize(maxWidth, null, { withoutEnlargement: true });
-        }
-
-        buffer = await sharpInstance.jpeg({ quality: 85 }).toBuffer();
-      }
-
-      imageFiles.push({
-        slotIndex: i,
-        filename,
-        buffer,
-        mimeType,
-      });
-    } catch (err) {
-      console.error(`[LPPublish] Failed to process image ${i + 1}:`, err.message);
-      // Continue without this image
-    }
-  }
-
-  return imageFiles;
-}
+// =============================================
+// Public API
+// =============================================
 
 /**
- * Deploy files to Cloudflare Pages using Direct Upload API.
- *
- * Steps:
- * 1. Create a new deployment with form data containing all files
- * 2. Each file is added as a form field with the path as the key
- */
-async function deployToCloudflare(accountId, apiToken, cfProjectName, slug, htmlContent, imageFiles, sendEvent) {
-  if (sendEvent) {
-    sendEvent({ type: 'progress', message: 'Uploading to Cloudflare Pages...' });
-  }
-
-  // Build multipart form data with all files
-  // Cloudflare Pages Direct Upload expects files as form fields
-  const FormData = (await import('form-data')).default;
-  const form = new FormData();
-
-  // Add HTML file
-  const htmlBuffer = Buffer.from(htmlContent, 'utf-8');
-  form.append(`/${slug}/index.html`, htmlBuffer, {
-    filename: 'index.html',
-    contentType: 'text/html',
-  });
-
-  // Add image files
-  for (const img of imageFiles) {
-    form.append(`/${slug}/images/${img.filename}`, img.buffer, {
-      filename: img.filename,
-      contentType: img.mimeType,
-    });
-  }
-
-  const url = `https://api.cloudflare.com/client/v4/accounts/${accountId}/pages/projects/${cfProjectName}/deployments`;
-
-  const response = await fetch(url, {
-    method: 'POST',
-    headers: {
-      'Authorization': `Bearer ${apiToken}`,
-      ...form.getHeaders(),
-    },
-    body: form,
-  });
-
-  const result = await response.json();
-
-  if (!result.success) {
-    const errors = result.errors || [];
-    const errorMsg = errors.map(e => e.message).join(', ') || 'Unknown Cloudflare error';
-    const errorCode = errors[0]?.code;
-
-    // Map known error codes to user-friendly messages
-    if (errorCode === 8000000 || errorMsg.includes('authentication') || errorMsg.includes('Authorization')) {
-      throw new Error('Cloudflare authentication failed. Check your API token in Settings.');
-    }
-    if (errorCode === 8000007 || errorMsg.includes('not found')) {
-      throw new Error(`Cloudflare Pages project "${cfProjectName}" not found. Verify the project name in Settings.`);
-    }
-    if (errorMsg.includes('quota') || errorMsg.includes('limit') || errorMsg.includes('rate')) {
-      throw new Error(`Cloudflare deployment quota or rate limit exceeded. ${errorMsg}`);
-    }
-
-    throw new Error(`Cloudflare deployment failed: ${errorMsg}`);
-  }
-
-  return {
-    deploymentId: result.result?.id,
-    url: result.result?.url,
-    projectName: cfProjectName,
-    environment: result.result?.environment || 'production',
-    createdOn: result.result?.created_on,
-  };
-}
-
-/**
- * Delete a deployment from Cloudflare Pages.
- */
-async function deleteFromCloudflare(accountId, apiToken, cfProjectName, deploymentId) {
-  const url = `https://api.cloudflare.com/client/v4/accounts/${accountId}/pages/projects/${cfProjectName}/deployments/${deploymentId}`;
-
-  const response = await fetch(url, {
-    method: 'DELETE',
-    headers: {
-      'Authorization': `Bearer ${apiToken}`,
-    },
-    body: JSON.stringify({ force: true }),
-  });
-
-  const result = await response.json();
-
-  if (!result.success) {
-    // Don't throw on 404 — deployment may already be gone
-    const is404 = result.errors?.some(e => e.code === 8000007 || e.message?.includes('not found'));
-    if (!is404) {
-      const errorMsg = result.errors?.map(e => e.message).join(', ') || 'Unknown error';
-      throw new Error(`Cloudflare delete failed: ${errorMsg}`);
-    }
-  }
-
-  return true;
-}
-
-/**
- * Publish a landing page to Cloudflare Pages.
+ * Publish a landing page to Shopify.
+ * Creates a new Shopify page or updates an existing one.
  *
  * @param {string} pageId - Landing page externalId
- * @param {string} slug - URL slug for the deployment
- * @param {string} projectId - Project externalId (for CF project mapping)
- * @param {Function} sendEvent - SSE event sender
- * @returns {object} - { published_url, deployment }
+ * @param {string} projectId - Project externalId
+ * @returns {object} - { published_url, shopify_page_id, shopify_handle }
  */
-export async function publishLandingPage(pageId, slug, projectId, sendEvent) {
-  // Get page data
+export async function publishToShopify(pageId, projectId) {
   const page = await getLandingPage(pageId);
   if (!page) throw new Error('Landing page not found');
 
   // Validate
-  const validationErrors = validateForPublish(page, slug);
+  const validationErrors = validateForPublish(page);
   if (validationErrors.length > 0) {
     throw new Error(`Validation failed: ${validationErrors.join(' ')}`);
   }
 
-  // Check slug conflict
-  const conflict = await checkSlugConflict(slug, pageId, projectId);
-  if (conflict) {
-    throw new Error(`Slug "${slug}" is already used by "${conflict}". Choose a different slug.`);
-  }
+  // Get Shopify config
+  const shopify = await getShopifyConfig(projectId);
 
-  // Get Cloudflare config
-  const cfConfig = await getCloudflareConfig();
-  const cfProjectName = await getCfProjectName(projectId, cfConfig);
-
-  if (sendEvent) {
-    sendEvent({ type: 'phase', phase: 'version_save', message: 'Saving version snapshot...' });
-  }
-
-  // Save current state as a version
+  // Save pre-publish version
   const currentVersion = page.current_version || 1;
   const newVersion = currentVersion + 1;
   const versionId = uuidv4();
@@ -368,71 +245,97 @@ export async function publishLandingPage(pageId, slug, projectId, sendEvent) {
   });
   await updateLandingPage(pageId, { current_version: newVersion });
 
-  // Prepare images
-  if (sendEvent) {
-    sendEvent({ type: 'phase', phase: 'images', message: 'Processing images...' });
-  }
-  const imageSlots = page.image_slots ? JSON.parse(page.image_slots) : [];
-  const imageFiles = await prepareImages(imageSlots, sendEvent);
+  // Bake final HTML with Convex storage URLs
+  const finalHtml = await bakeFinalHtml(page, shopify.pdpUrl);
 
-  // Bake final HTML
-  if (sendEvent) {
-    sendEvent({ type: 'phase', phase: 'baking', message: 'Baking final HTML...' });
-  }
-  const finalHtml = bakeFinalHtml(page, slug, imageFiles);
+  // Determine slug
+  const slug = page.slug || generateSlug(page.name || 'lp');
 
-  // Deploy to Cloudflare
-  if (sendEvent) {
-    sendEvent({ type: 'phase', phase: 'deploying', message: 'Deploying to Cloudflare Pages...' });
-  }
-  const deployment = await deployToCloudflare(
-    cfConfig.accountId,
-    cfConfig.apiToken,
-    cfProjectName,
-    slug,
-    finalHtml,
-    imageFiles,
-    sendEvent
-  );
+  let shopifyPageId = page.shopify_page_id;
+  let shopifyHandle;
 
-  // Build the published URL
-  // Cloudflare Pages projects get a *.pages.dev domain
-  // The custom domain mapping is handled in Cloudflare dashboard
-  const publishedUrl = deployment.url
-    ? `${deployment.url}/${slug}/`
-    : `https://${cfProjectName}.pages.dev/${slug}/`;
+  if (shopifyPageId) {
+    // Update existing Shopify page
+    const result = await shopifyApi(shopify.domain, shopify.accessToken, 'PUT', `/pages/${shopifyPageId}.json`, {
+      page: {
+        id: parseInt(shopifyPageId, 10),
+        title: page.name,
+        body_html: finalHtml,
+        published: true,
+      },
+    });
+    shopifyHandle = result.page?.handle;
+  } else {
+    // Create new Shopify page
+    const pagePayload = {
+      page: {
+        title: page.name,
+        handle: slug,
+        body_html: finalHtml,
+        published: true,
+      },
+    };
+    if (shopify.templateSuffix) {
+      pagePayload.page.template_suffix = shopify.templateSuffix;
+    }
+
+    const result = await shopifyApi(shopify.domain, shopify.accessToken, 'POST', '/pages.json', pagePayload);
+    shopifyPageId = String(result.page?.id);
+    shopifyHandle = result.page?.handle;
+  }
+
+  const publishedUrl = `https://${shopify.domain}/pages/${shopifyHandle || slug}`;
 
   // Update landing page record
   await updateLandingPage(pageId, {
     status: 'published',
-    slug,
+    slug: shopifyHandle || slug,
     published_url: publishedUrl,
     published_at: new Date().toISOString(),
     final_html: finalHtml,
+    shopify_page_id: shopifyPageId,
+    shopify_handle: shopifyHandle || slug,
     hosting_metadata: JSON.stringify({
-      deploymentId: deployment.deploymentId,
-      cfProjectName,
-      environment: deployment.environment,
-      deploymentUrl: deployment.url,
-      createdOn: deployment.createdOn,
+      shopify_page_id: shopifyPageId,
+      shopify_handle: shopifyHandle || slug,
+      shopify_domain: shopify.domain,
     }),
   });
 
   return {
     published_url: publishedUrl,
-    deployment,
-    versionId,
-    version: newVersion,
+    shopify_page_id: shopifyPageId,
+    shopify_handle: shopifyHandle || slug,
   };
 }
 
 /**
- * Unpublish a landing page — remove from Cloudflare.
+ * Update an existing Shopify page (re-publish with latest content).
  *
  * @param {string} pageId - Landing page externalId
+ * @param {string} projectId - Project externalId
+ * @returns {object} - { published_url, shopify_page_id, shopify_handle }
+ */
+export async function updateOnShopify(pageId, projectId) {
+  const page = await getLandingPage(pageId);
+  if (!page) throw new Error('Landing page not found');
+
+  if (!page.shopify_page_id) {
+    throw new Error('Landing page has no Shopify page ID. Publish it first.');
+  }
+
+  // This always does a PUT (update) via publishToShopify which checks shopify_page_id
+  return publishToShopify(pageId, projectId);
+}
+
+/**
+ * Unpublish a landing page — delete from Shopify.
+ *
+ * @param {string} pageId - Landing page externalId
+ * @param {string} projectId - Project externalId
  * @returns {boolean}
  */
-export async function unpublishLandingPage(pageId) {
+export async function unpublishFromShopify(pageId, projectId) {
   const page = await getLandingPage(pageId);
   if (!page) throw new Error('Landing page not found');
 
@@ -440,26 +343,53 @@ export async function unpublishLandingPage(pageId) {
     throw new Error('Landing page is not currently published.');
   }
 
-  // Get hosting metadata
-  let metadata = {};
-  try {
-    metadata = page.hosting_metadata ? JSON.parse(page.hosting_metadata) : {};
-  } catch {}
-
-  if (metadata.deploymentId && metadata.cfProjectName) {
-    const cfConfig = await getCloudflareConfig();
-    await deleteFromCloudflare(
-      cfConfig.accountId,
-      cfConfig.apiToken,
-      metadata.cfProjectName,
-      metadata.deploymentId
-    );
+  const shopifyPageId = page.shopify_page_id;
+  if (shopifyPageId) {
+    const shopify = await getShopifyConfig(projectId);
+    try {
+      await shopifyApi(shopify.domain, shopify.accessToken, 'DELETE', `/pages/${shopifyPageId}.json`);
+    } catch (err) {
+      // Don't throw on 404 — page may already be gone
+      if (!err.message.includes('404')) {
+        throw err;
+      }
+    }
   }
 
-  // Update status
   await updateLandingPage(pageId, {
     status: 'unpublished',
   });
 
   return true;
+}
+
+/**
+ * Verify a published URL is live (returns HTTP 200 with content).
+ *
+ * @param {string} url - The published URL to verify
+ * @returns {object} - { verified: boolean, error?: string }
+ */
+export async function verifyLive(url) {
+  try {
+    const response = await fetch(url, {
+      method: 'GET',
+      headers: { 'User-Agent': 'DaciaAutomation/1.0' },
+      redirect: 'follow',
+      timeout: 15000,
+    });
+
+    if (!response.ok) {
+      return { verified: false, error: `HTTP ${response.status}` };
+    }
+
+    const body = await response.text();
+    // Verify page has meaningful content (not an empty or error page)
+    if (body.length < 200) {
+      return { verified: false, error: 'Page content too short — may not have rendered correctly' };
+    }
+
+    return { verified: true };
+  } catch (err) {
+    return { verified: false, error: err.message };
+  }
 }

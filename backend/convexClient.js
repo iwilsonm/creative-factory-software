@@ -304,7 +304,7 @@ export async function getAllScheduledBatchesForCost() {
 }
 
 export async function updateBatchJob(id, fields) {
-  const allowed = ['status', 'gemini_batch_job', 'gpt_prompts', 'error_message', 'started_at', 'completed_at', 'completed_count', 'failed_count', 'run_count', 'scheduled', 'schedule_cron', 'retry_count', 'batch_stats', 'pipeline_state', 'angle', 'angles', 'batch_size', 'aspect_ratio', 'used_template_ids', 'filter_assigned', 'filter_processed', 'filter_processed_at', 'posting_day', 'conductor_run_id', 'angle_name', 'angle_prompt'];
+  const allowed = ['status', 'gemini_batch_job', 'gpt_prompts', 'error_message', 'started_at', 'completed_at', 'completed_count', 'failed_count', 'run_count', 'scheduled', 'schedule_cron', 'retry_count', 'batch_stats', 'pipeline_state', 'angle', 'angles', 'batch_size', 'aspect_ratio', 'used_template_ids', 'filter_assigned', 'filter_processed', 'filter_processed_at', 'posting_day', 'conductor_run_id', 'angle_name', 'angle_prompt', 'lp_primary_id', 'lp_primary_url', 'lp_primary_status', 'lp_primary_error', 'lp_primary_retry_count', 'lp_secondary_id', 'lp_secondary_url', 'lp_secondary_status', 'lp_secondary_error', 'lp_secondary_retry_count', 'lp_narrative_frames'];
   const updates = { externalId: id };
   for (const key of allowed) {
     if (fields[key] !== undefined) {
@@ -355,6 +355,17 @@ function convexBatchToRow(b) {
     conductor_run_id: b.conductor_run_id || null,
     angle_name: b.angle_name || null,
     angle_prompt: b.angle_prompt || null,
+    lp_primary_id: b.lp_primary_id || null,
+    lp_primary_url: b.lp_primary_url || null,
+    lp_primary_status: b.lp_primary_status || null,
+    lp_primary_error: b.lp_primary_error || null,
+    lp_primary_retry_count: b.lp_primary_retry_count || 0,
+    lp_secondary_id: b.lp_secondary_id || null,
+    lp_secondary_url: b.lp_secondary_url || null,
+    lp_secondary_status: b.lp_secondary_status || null,
+    lp_secondary_error: b.lp_secondary_error || null,
+    lp_secondary_retry_count: b.lp_secondary_retry_count || 0,
+    lp_narrative_frames: b.lp_narrative_frames || null,
     created_at: b.created_at,
     started_at: b.started_at || null,
     completed_at: b.completed_at || null,
@@ -675,6 +686,8 @@ export async function getFlexAdsByProject(projectId) {
     notes: f.notes || null,
     posting_day: f.posting_day || null,
     angle_name: f.angle_name || null,
+    lp_primary_url: f.lp_primary_url || null,
+    lp_secondary_url: f.lp_secondary_url || null,
     created_at: f.created_at,
     updated_at: f.updated_at,
   }));
@@ -697,6 +710,8 @@ export async function getFlexAdsByAdSet(adSetId) {
     planned_date: f.planned_date || null,
     posted_by: f.posted_by || null,
     duplicate_adset_name: f.duplicate_adset_name || null,
+    lp_primary_url: f.lp_primary_url || null,
+    lp_secondary_url: f.lp_secondary_url || null,
     created_at: f.created_at,
     updated_at: f.updated_at,
   }));
@@ -723,12 +738,14 @@ export async function getFlexAd(id) {
     notes: f.notes || null,
     posting_day: f.posting_day || null,
     angle_name: f.angle_name || null,
+    lp_primary_url: f.lp_primary_url || null,
+    lp_secondary_url: f.lp_secondary_url || null,
     created_at: f.created_at,
     updated_at: f.updated_at,
   };
 }
 
-export async function createFlexAd({ id, project_id, ad_set_id, name, child_deployment_ids, primary_texts, headlines, display_link, cta_button, facebook_page, destination_url, duplicate_adset_name, posting_day, angle_name }) {
+export async function createFlexAd({ id, project_id, ad_set_id, name, child_deployment_ids, primary_texts, headlines, display_link, cta_button, facebook_page, destination_url, duplicate_adset_name, posting_day, angle_name, lp_primary_url, lp_secondary_url }) {
   const now = new Date().toISOString();
   return await mutationWithRetry(api.flexAds.create, {
     externalId: id,
@@ -745,6 +762,8 @@ export async function createFlexAd({ id, project_id, ad_set_id, name, child_depl
     ...(duplicate_adset_name ? { duplicate_adset_name } : {}),
     ...(posting_day ? { posting_day } : {}),
     ...(angle_name ? { angle_name } : {}),
+    ...(lp_primary_url ? { lp_primary_url } : {}),
+    ...(lp_secondary_url ? { lp_secondary_url } : {}),
     created_at: now,
     updated_at: now,
   });
@@ -1043,7 +1062,7 @@ export async function getLandingPage(externalId) {
   return await queryWithRetry(api.landingPages.getByExternalId, { externalId });
 }
 
-export async function createLandingPage({ id, project_id, name, angle, word_count, additional_direction, swipe_text, swipe_filename, swipe_url, swipe_screenshot_storageId, status }) {
+export async function createLandingPage({ id, project_id, name, angle, word_count, additional_direction, swipe_text, swipe_filename, swipe_url, swipe_screenshot_storageId, status, auto_generated, batch_job_id, narrative_frame, template_id }) {
   await mutationWithRetry(api.landingPages.create, {
     externalId: id,
     project_id,
@@ -1056,6 +1075,10 @@ export async function createLandingPage({ id, project_id, name, angle, word_coun
     swipe_url: swipe_url || undefined,
     swipe_screenshot_storageId: swipe_screenshot_storageId || undefined,
     status: status || 'draft',
+    auto_generated: auto_generated || undefined,
+    batch_job_id: batch_job_id || undefined,
+    narrative_frame: narrative_frame || undefined,
+    template_id: template_id || undefined,
   });
 }
 
@@ -1092,6 +1115,64 @@ export async function createLandingPageVersion({ id, landing_page_id, version, c
 
 export async function getLandingPageVersion(externalId) {
   return await queryWithRetry(api.landingPageVersions.getByExternalId, { externalId });
+}
+
+// =============================================
+// LP Template helpers
+// =============================================
+
+function convexLPTemplateToRow(t) {
+  return {
+    id: t.externalId,
+    project_id: t.project_id || null,
+    source_url: t.source_url || null,
+    name: t.name || null,
+    skeleton_html: t.skeleton_html || null,
+    design_brief: t.design_brief || null,
+    slot_definitions: t.slot_definitions || null,
+    screenshot_storage_id: t.screenshot_storage_id || null,
+    status: t.status || null,
+    error_message: t.error_message || null,
+    created_at: t.created_at || null,
+  };
+}
+
+export async function getLPTemplatesByProject(projectId) {
+  const templates = await queryWithRetry(api.lpTemplates.getByProject, { projectId });
+  return templates.map(convexLPTemplateToRow);
+}
+
+export async function getLPTemplate(externalId) {
+  const t = await queryWithRetry(api.lpTemplates.getByExternalId, { externalId });
+  if (!t) return null;
+  return convexLPTemplateToRow(t);
+}
+
+export async function createLPTemplate({ id, project_id, source_url, name, skeleton_html, design_brief, slot_definitions, screenshot_storage_id, status }) {
+  await mutationWithRetry(api.lpTemplates.create, {
+    externalId: id,
+    project_id,
+    source_url,
+    name,
+    skeleton_html,
+    design_brief,
+    slot_definitions,
+    screenshot_storage_id: screenshot_storage_id || undefined,
+    status: status || 'extracting',
+  });
+}
+
+export async function updateLPTemplate(externalId, fields) {
+  const allowed = ['name', 'skeleton_html', 'design_brief', 'slot_definitions', 'screenshot_storage_id', 'status', 'error_message'];
+  const filtered = {};
+  for (const key of allowed) {
+    if (fields[key] !== undefined) filtered[key] = fields[key];
+  }
+  await mutationWithRetry(api.lpTemplates.update, { externalId, ...filtered });
+}
+
+export async function deleteLPTemplate(externalId) {
+  await mutationWithRetry(api.lpTemplates.remove, { externalId });
 }
 
 // =============================================

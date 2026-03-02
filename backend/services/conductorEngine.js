@@ -21,6 +21,7 @@ import {
 } from '../convexClient.js';
 import { getAdaptiveBatchSize } from './conductorLearning.js';
 import { runBatch } from './batchProcessor.js';
+import { triggerLPGeneration } from './lpAutoGenerator.js';
 
 /**
  * Run the Director cycle for ALL enabled projects.
@@ -207,6 +208,13 @@ export async function runDirectorForProject(projectId, runType = 'manual') {
     for (const b of allBatchesCreated) {
       runBatch(b.batch_id).catch(err => {
         console.error(`[Director] Background batch ${b.batch_id.slice(0, 8)} failed:`, err.message);
+      });
+    }
+
+    // Fire-and-forget: trigger LP generation per batch
+    for (const b of allBatchesCreated) {
+      triggerLPGeneration(b.batch_id, projectId, b.angle_name).catch(err => {
+        console.warn(`[Director] LP trigger for batch ${b.batch_id.slice(0, 8)} failed:`, err.message);
       });
     }
 
@@ -473,6 +481,11 @@ export async function runTestBatch(projectId) {
     // Fire-and-forget: start the batch
     runBatch(batchId).catch(err => {
       console.error(`[Director] Test batch ${batchId.slice(0, 8)} failed:`, err.message);
+    });
+
+    // Fire-and-forget: trigger LP generation for test batch
+    triggerLPGeneration(batchId, projectId, angleInfo.name).catch(err => {
+      console.warn(`[Director] LP trigger for test batch ${batchId.slice(0, 8)} failed:`, err.message);
     });
 
     return { runId, batches_created: 1, batch_id: batchId, angle: angleInfo.name, ad_count: batchSize };

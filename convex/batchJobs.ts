@@ -130,6 +130,18 @@ export const update = mutation({
     conductor_run_id: v.optional(v.string()),
     angle_name: v.optional(v.string()),
     angle_prompt: v.optional(v.string()),
+    // LP auto-generation tracking
+    lp_primary_id: v.optional(v.string()),
+    lp_primary_url: v.optional(v.string()),
+    lp_primary_status: v.optional(v.string()),
+    lp_primary_error: v.optional(v.string()),
+    lp_primary_retry_count: v.optional(v.float64()),
+    lp_secondary_id: v.optional(v.string()),
+    lp_secondary_url: v.optional(v.string()),
+    lp_secondary_status: v.optional(v.string()),
+    lp_secondary_error: v.optional(v.string()),
+    lp_secondary_retry_count: v.optional(v.float64()),
+    lp_narrative_frames: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const batch = await ctx.db

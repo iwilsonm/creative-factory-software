@@ -13,7 +13,37 @@
 
 import { chat, chatWithMultipleImages } from './anthropic.js';
 import { generateImage } from './gemini.js';
-import { getDocsByProject, uploadBuffer, getStorageUrl } from '../convexClient.js';
+import { getDocsByProject, uploadBuffer, getStorageUrl, getLPTemplate } from '../convexClient.js';
+
+// ─── Narrative Frame Library ─────────────────────────────────────────────────
+
+export const NARRATIVE_FRAMES = [
+  {
+    id: 'testimonial',
+    name: 'Testimonial Journey',
+    instruction: 'Write this as a first-person testimonial story. The narrator is a real customer describing their journey from struggling with the problem to discovering the product and experiencing results. Use vivid, emotional language. Include specific details like timeframes, before/after descriptions, and moments of doubt overcome by results.',
+  },
+  {
+    id: 'mechanism',
+    name: 'Mechanism Deep-Dive',
+    instruction: 'Write this as an educational explanation of the unique mechanism behind the product. Lead with curiosity and a surprising scientific or clinical insight. Explain WHY traditional approaches fail, then reveal the specific mechanism that makes this product different. Use simple analogies to make complex concepts accessible.',
+  },
+  {
+    id: 'problem_agitation',
+    name: 'Problem Agitation',
+    instruction: 'Lead with the customer\'s deepest pain points and frustrations. Agitate the problem by describing how it affects every area of their life — relationships, confidence, daily routines, future outlook. Make the reader feel deeply understood before presenting the solution. Use "you" language extensively.',
+  },
+  {
+    id: 'myth_busting',
+    name: 'Myth Busting',
+    instruction: 'Challenge 3-5 common beliefs or myths about the problem/solution category. Start with a provocative statement that contradicts conventional wisdom. For each myth, explain why most people believe it, then reveal the truth with evidence. Position the product as the solution that aligns with the real truth.',
+  },
+  {
+    id: 'listicle',
+    name: 'Listicle',
+    instruction: 'Structure the page as a numbered list of key reasons, benefits, or discoveries (e.g., "7 Reasons Why..." or "5 Things Nobody Tells You About..."). Each item should have a compelling sub-headline and 1-2 paragraphs of supporting copy. Build momentum so the most powerful reason comes last, leading directly into the offer.',
+  },
+];
 
 // ─── Phase 2A: Screenshot-based Claude vision design analysis ────────────────
 
@@ -245,6 +275,7 @@ export async function generateLandingPageCopy({
   swipeText,
   wordCount = 1200,
   additionalDirection,
+  autoContext,  // { narrativeFrame, foundationalDocs } — only in auto mode
 }, sendEvent) {
   sendEvent({ type: 'progress', step: 'loading_docs', message: 'Loading foundational documents...' });
 
@@ -291,13 +322,17 @@ ${docs.research}
 Study these documents carefully. You will use them to write a landing page in the next message.`;
 
   // ── Message 2: Swipe reference + generation instructions ──
+  const narrativeInstruction = autoContext?.narrativeFrame
+    ? `\nNARRATIVE FRAME INSTRUCTION:\n${autoContext.narrativeFrame}\n\nYou MUST write the entire landing page using this narrative frame. The frame dictates the overall voice, structure, and storytelling approach. Every section should reflect this frame.\n`
+    : '';
+
   const generateMessage = `Now write a landing page using the product knowledge from the documents above.
 
 MARKETING ANGLE / HOOK:
 ${angle}
 
 TARGET WORD COUNT: approximately ${wordCount} words
-
+${narrativeInstruction}
 ${swipeText ? `SWIPE FILE REFERENCE (use this as structural and tonal inspiration — do NOT copy it verbatim):
 ${swipeText.slice(0, 15000)}
 ${swipeText.length > 15000 ? '\n[... swipe text truncated for context length ...]' : ''}` : 'No swipe file provided — use your own best judgment for structure and flow.'}
@@ -401,6 +436,7 @@ export async function generateSlotImages({
   copySections,
   angle,
   projectId,
+  autoContext,  // { narrativeFrame } — only in auto mode, for angle-specific image direction
 }, sendEvent) {
   if (!imageSlots || imageSlots.length === 0) {
     sendEvent({ type: 'progress', step: 'images_skipped', message: 'No image slots defined — skipping image generation.' });
@@ -434,11 +470,15 @@ export async function generateSlotImages({
     });
 
     // Build a rich prompt for Gemini from the slot description + context
+    const narrativeImageHint = autoContext?.narrativeFrame
+      ? `\nNARRATIVE STYLE: The landing page uses a "${autoContext.narrativeFrame}" approach. Match the image mood to this storytelling style.`
+      : '';
+
     const imagePrompt = `Create a professional, high-quality image for a landing page.
 
 IMAGE PURPOSE: ${slot.description || 'Product/lifestyle image for landing page'}
 SECTION: ${slot.location || 'Landing page section'}
-MARKETING ANGLE: ${angle}
+MARKETING ANGLE: ${angle}${narrativeImageHint}
 
 CONTEXT FROM THE LANDING PAGE COPY:
 ${copyContext}
@@ -533,6 +573,7 @@ export async function generateHtmlTemplate({
   imageSlots,
   ctaElements,
   projectId,
+  autoContext,  // { skeletonHtml } — only in auto mode, provides a pre-built HTML skeleton
 }, sendEvent) {
   sendEvent({ type: 'progress', step: 'html_generating', message: 'Claude is generating the HTML template...' });
 
@@ -549,15 +590,17 @@ export async function generateHtmlTemplate({
     .map((cta, i) => `  {{cta_${i + 1}_url}} — URL for ${cta.location || 'CTA'}\n  {{cta_${i + 1}_text}} — Button text for ${cta.location || 'CTA'}`)
     .join('\n');
 
-  const systemPrompt = `You are an expert HTML/CSS developer specializing in high-converting landing pages. You create clean, semantic, mobile-responsive HTML with embedded CSS. Your pages are self-contained — no external CSS frameworks, only Google Fonts as the external dependency.
+  const hasSkeletonHtml = autoContext?.skeletonHtml;
+
+  const systemPrompt = hasSkeletonHtml
+    ? `You are an expert HTML/CSS developer specializing in high-converting landing pages. You adapt existing HTML templates by ensuring all placeholder tokens are correctly placed and the layout accommodates the provided copy sections.
+
+You must respond with ONLY the complete HTML document — no markdown fences, no explanations. Start with <!DOCTYPE html> and end with </html>.`
+    : `You are an expert HTML/CSS developer specializing in high-converting landing pages. You create clean, semantic, mobile-responsive HTML with embedded CSS. Your pages are self-contained — no external CSS frameworks, only Google Fonts as the external dependency.
 
 You must respond with ONLY the complete HTML document — no markdown fences, no explanations. Start with <!DOCTYPE html> and end with </html>.`;
 
-  const htmlPrompt = `Generate a complete, self-contained HTML landing page based on this design specification and placeholder system.
-
-DESIGN SPECIFICATION:
-${JSON.stringify(designAnalysis, null, 2)}
-
+  const placeholderRef = `
 COPY SECTION PLACEHOLDERS (use these exact tokens in the HTML — they will be replaced with actual copy):
 ${sectionPlaceholders}
 
@@ -566,6 +609,30 @@ ${imagePlaceholders || '  (No image slots defined)'}
 
 CTA PLACEHOLDERS (use these for href and button text — they will be replaced with actual values):
 ${ctaPlaceholders || '  (No CTA elements defined)'}
+
+IMPORTANT: Use the EXACT placeholder token format shown above. The system will search for and replace these tokens.`;
+
+  const htmlPrompt = hasSkeletonHtml
+    ? `Adapt this existing HTML template to work with the placeholder system below. Keep the existing layout, styling, colors, and structure. Ensure every copy section, image slot, and CTA has a corresponding placeholder token in the HTML. If the template already has placeholders, update them to match the list below.
+
+EXISTING TEMPLATE HTML:
+${autoContext.skeletonHtml}
+
+DESIGN SPECIFICATION (for reference):
+${JSON.stringify(designAnalysis, null, 2)}
+${placeholderRef}
+
+REQUIREMENTS:
+1. Output a COMPLETE HTML document starting with <!DOCTYPE html>
+2. Preserve the existing CSS, layout, colors, fonts, and structure from the template
+3. Ensure all copy section placeholders are placed in the correct sections
+4. The page must remain mobile-responsive
+5. Add any missing sections if the copy requires them, matching the template's style`
+    : `Generate a complete, self-contained HTML landing page based on this design specification and placeholder system.
+
+DESIGN SPECIFICATION:
+${JSON.stringify(designAnalysis, null, 2)}
+${placeholderRef}
 
 REQUIREMENTS:
 1. Output a COMPLETE HTML document starting with <!DOCTYPE html>
@@ -582,9 +649,7 @@ REQUIREMENTS:
 12. Images should have max-width: 100% and height: auto
 13. CTA buttons should be prominently styled per the design spec
 14. Add a viewport meta tag for mobile
-15. Target a professional, premium look — clean spacing, readable typography
-
-IMPORTANT: Use the EXACT placeholder token format shown above. The system will search for and replace these tokens.`;
+15. Target a professional, premium look — clean spacing, readable typography`;
 
   const messages = [
     { role: 'system', content: systemPrompt },
@@ -684,4 +749,139 @@ export function assembleLandingPage({
   }
 
   return html;
+}
+
+// ─── Auto Mode: Generate LP from template + angle ────────────────────────────
+
+/**
+ * Generate a landing page automatically using a pre-extracted template.
+ * This is the auto mode entry point called by lpAutoGenerator.
+ *
+ * 1. Load template from lp_templates (design_brief, slot_definitions, skeleton_html)
+ * 2. Normalize template data into same shape as analyzeSwipeDesign output
+ * 3. Call existing steps 2-4 with autoContext
+ * 4. Return same shape as manual flow
+ *
+ * @param {object} params
+ * @param {string} params.projectId
+ * @param {string} params.templateId - lp_templates externalId
+ * @param {string} params.angle - The marketing angle/hook
+ * @param {string} params.narrativeFrame - Narrative frame instruction text
+ * @param {string} params.batchJobId - Associated batch job
+ * @param {(event: object) => void} sendEvent - SSE/progress callback
+ * @returns {Promise<object>} { copySections, imageSlots, htmlTemplate, assembledHtml }
+ */
+export async function generateAutoLP({ projectId, templateId, angle, narrativeFrame, batchJobId }, sendEvent) {
+  sendEvent({ type: 'progress', step: 'auto_loading', message: 'Loading template for auto-generation...' });
+
+  // 1. Load the template
+  const template = await getLPTemplate(templateId);
+  if (!template || template.status !== 'ready') {
+    throw new Error(`Template ${templateId} is not ready (status: ${template?.status || 'not found'})`);
+  }
+
+  // 2. Parse template data
+  let designBrief, slotDefs;
+  try {
+    designBrief = JSON.parse(template.design_brief || '{}');
+  } catch {
+    designBrief = {};
+  }
+  try {
+    slotDefs = JSON.parse(template.slot_definitions || '[]');
+  } catch {
+    slotDefs = [];
+  }
+
+  // Normalize template data into the shape expected by generateHtmlTemplate
+  // (same shape as analyzeSwipeDesign output)
+  const designAnalysis = {
+    layout: { max_width: '800px', alignment: 'center' },
+    typography: {
+      heading_font: designBrief.heading_font || designBrief.font_family || 'sans-serif',
+      body_font: designBrief.font_family || 'sans-serif',
+      heading_color: designBrief.primary_color || '#1a1a2e',
+      body_color: designBrief.text_color || '#333333',
+    },
+    colors: {
+      primary: designBrief.primary_color || '#0B1D3A',
+      secondary: designBrief.secondary_color || '#C4975A',
+      background: designBrief.background_color || '#ffffff',
+      text: designBrief.text_color || '#333333',
+      accent: designBrief.accent_color || '#2A9D8F',
+    },
+    sections: (designBrief.sections_order || ['hero', 'problem', 'solution', 'benefits', 'testimonials', 'cta']).map(id => ({
+      id,
+      type: id,
+      notes: `${id} section from template`,
+    })),
+    image_slots: slotDefs.filter(s => s.type === 'image').map((s, i) => ({
+      slot_id: `image_${i + 1}`,
+      location: s.description || `Section with ${s.name}`,
+      description: s.description || s.name,
+      suggested_size: s.suggested_size || '800x600',
+      aspect_ratio: '16:9',
+    })),
+    cta_elements: slotDefs.filter(s => s.name?.startsWith('cta')).map((s, i) => ({
+      cta_id: `cta_${i + 1}`,
+      location: s.description || 'CTA section',
+      style: 'button',
+      text_suggestion: 'Order Now',
+    })),
+    style_notes: designBrief.overall_style || 'Professional landing page',
+  };
+
+  sendEvent({ type: 'progress', step: 'auto_copy', message: 'Generating angle-specific copy...' });
+
+  // 3. Generate copy (Step 2) with autoContext
+  const { sections: copySections } = await generateLandingPageCopy({
+    projectId,
+    angle,
+    swipeText: '', // No swipe text in auto mode — template provides structure
+    wordCount: 1200,
+    autoContext: {
+      narrativeFrame,
+    },
+  }, sendEvent);
+
+  // 4. Generate images (Step 3) with autoContext
+  const imageSlots = await generateSlotImages({
+    imageSlots: designAnalysis.image_slots,
+    copySections,
+    angle,
+    projectId,
+    autoContext: {
+      narrativeFrame,
+    },
+  }, sendEvent);
+
+  // 5. Generate HTML (Step 4) with skeleton template
+  const htmlTemplate = await generateHtmlTemplate({
+    designAnalysis,
+    copySections,
+    imageSlots,
+    ctaElements: designAnalysis.cta_elements,
+    projectId,
+    autoContext: {
+      skeletonHtml: template.skeleton_html,
+    },
+  }, sendEvent);
+
+  // 6. Assemble final HTML
+  const assembledHtml = assembleLandingPage({
+    htmlTemplate,
+    copySections,
+    imageSlots,
+    ctaElements: designAnalysis.cta_elements,
+  });
+
+  sendEvent({ type: 'progress', step: 'auto_complete', message: 'Auto-generated landing page complete' });
+
+  return {
+    copySections,
+    imageSlots,
+    htmlTemplate,
+    assembledHtml,
+    designAnalysis,
+  };
 }

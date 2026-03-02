@@ -419,6 +419,69 @@ group_into_flex_ads() {
 }
 
 # ============================================================
+# STEP 6b: LP Gate — check if auto-generated LPs are ready
+# ============================================================
+
+check_lp_gate() {
+  local batch_id="$1"
+  local project_id="$2"
+
+  # Check if project has LP auto-generation enabled
+  local lp_enabled
+  lp_enabled=$(curl -s "${BACKEND_URL}/api/conductor/config?projectId=${project_id}" \
+    -H "Cookie: $(get_session_cookie)" 2>/dev/null | jq -r '.lp_auto_enabled // false') || true
+
+  if [[ "$lp_enabled" != "true" ]]; then
+    echo "pass"  # No LP gate for projects without auto-LP
+    return
+  fi
+
+  # Read LP statuses from batch record
+  local batch_data
+  batch_data=$(curl -s "${BACKEND_URL}/api/batches/${batch_id}" \
+    -H "Cookie: $(get_session_cookie)" 2>/dev/null) || true
+
+  local primary_status secondary_status
+  primary_status=$(echo "$batch_data" | jq -r '.lp_primary_status // "none"' 2>/dev/null) || true
+  secondary_status=$(echo "$batch_data" | jq -r '.lp_secondary_status // "none"' 2>/dev/null) || true
+
+  if [[ "$primary_status" == "live" && "$secondary_status" == "live" ]]; then
+    echo "pass"
+  elif [[ "$primary_status" == "published" && "$secondary_status" == "published" ]]; then
+    echo "pass"  # Published is also acceptable — verification may not have confirmed yet
+  elif [[ "$primary_status" == "failed" || "$secondary_status" == "failed" ]]; then
+    echo "retry"
+  elif [[ "$primary_status" == "none" && "$secondary_status" == "none" ]]; then
+    echo "pass"  # No LP tracking at all — pre-existing batch without LP auto-gen
+  else
+    echo "wait"  # Still generating — hold for next cycle
+  fi
+}
+
+trigger_lp_retry() {
+  local batch_id="$1"
+  local project_id="$2"
+  local primary_status="$3"
+  local secondary_status="$4"
+
+  local which="both"
+  if [[ "$primary_status" == "failed" && "$secondary_status" != "failed" ]]; then
+    which="primary"
+  elif [[ "$secondary_status" == "failed" && "$primary_status" != "failed" ]]; then
+    which="secondary"
+  fi
+
+  log_info "Triggering LP retry for batch ${batch_id:0:8}: which=$which"
+
+  curl -s -X POST "${BACKEND_URL}/api/batches/${batch_id}/retry-lp" \
+    -H "Content-Type: application/json" \
+    -H "Cookie: $(get_session_cookie)" \
+    -d "{\"which\": \"$which\"}" 2>/dev/null || {
+    log_err "Failed to trigger LP retry for batch ${batch_id:0:8}"
+  }
+}
+
+# ============================================================
 # STEP 7: Deploy flex ads to Ready to Post
 # ============================================================
 
@@ -500,6 +563,14 @@ deploy_flex_ads() {
     # Use angle_name from batch if available, else use the scoring angle_theme
     local effective_angle="${angle_name:-$angle}"
 
+    # Read LP URLs from batch if available
+    local batch_data_for_lp
+    batch_data_for_lp=$(curl -s "${BACKEND_URL}/api/batches/${batch_id}" \
+      -H "Cookie: $(get_session_cookie)" 2>/dev/null) || true
+    local lp_primary_url lp_secondary_url
+    lp_primary_url=$(echo "$batch_data_for_lp" | jq -r '.lp_primary_url // ""' 2>/dev/null) || true
+    lp_secondary_url=$(echo "$batch_data_for_lp" | jq -r '.lp_secondary_url // ""' 2>/dev/null) || true
+
     # Get the next flex ad number for this angle
     local flex_num=1
     local count_response
@@ -567,6 +638,8 @@ deploy_flex_ads() {
         --arg name "$flex_ad_name" \
         --arg posting_day "${posting_day:-}" \
         --arg angle_name "${effective_angle}" \
+        --arg lp_primary_url "${lp_primary_url:-}" \
+        --arg lp_secondary_url "${lp_secondary_url:-}" \
         '{
           "ad_set_id": $ad_set_id,
           "name": $name,
@@ -581,7 +654,9 @@ deploy_flex_ads() {
           "project_id": $project_id,
           "status": "ready",
           "posting_day": $posting_day,
-          "angle_name": $angle_name
+          "angle_name": $angle_name,
+          "lp_primary_url": $lp_primary_url,
+          "lp_secondary_url": $lp_secondary_url
         }')" 2>/dev/null) || {
       log_err "Failed to deploy flex ad: $flex_ad_name"
       continue
@@ -739,11 +814,33 @@ process_batch() {
   fi
 
   if [[ "$flex_count" -gt 0 && "$AUTO_DEPLOY" == "true" ]]; then
-    deploy_flex_ads "$flex_result" "$project_id" "$project_config" "$batch_id" "$posting_day" "$angle_name"
+    # LP Gate check — ensure auto-generated LPs are ready before deploying
+    local lp_gate
+    lp_gate=$(check_lp_gate "$batch_id" "$project_id")
 
-    local total_deployed=$((flex_count * IMAGES_PER_FLEX))
-    send_notification "🎯 Dacia Creative Filter: Flex Ads Deployed" \
-      "Project: $project_name\n${flex_count} flex ads → Ready to Post\nReview and launch when ready."
+    if [[ "$lp_gate" == "pass" ]]; then
+      deploy_flex_ads "$flex_result" "$project_id" "$project_config" "$batch_id" "$posting_day" "$angle_name"
+
+      local total_deployed=$((flex_count * IMAGES_PER_FLEX))
+      send_notification "🎯 Dacia Creative Filter: Flex Ads Deployed" \
+        "Project: $project_name\n${flex_count} flex ads → Ready to Post\nReview and launch when ready."
+    elif [[ "$lp_gate" == "wait" ]]; then
+      log_info "LP gate: holding batch ${batch_id:0:8} — LPs still generating. Will re-check next cycle."
+      # Don't mark as processed — Filter will re-check next cycle
+      return 0
+    elif [[ "$lp_gate" == "retry" ]]; then
+      # Read current LP statuses for retry targeting
+      local batch_lp_data
+      batch_lp_data=$(curl -s "${BACKEND_URL}/api/batches/${batch_id}" \
+        -H "Cookie: $(get_session_cookie)" 2>/dev/null) || true
+      local ps ss
+      ps=$(echo "$batch_lp_data" | jq -r '.lp_primary_status // "none"' 2>/dev/null) || true
+      ss=$(echo "$batch_lp_data" | jq -r '.lp_secondary_status // "none"' 2>/dev/null) || true
+      trigger_lp_retry "$batch_id" "$project_id" "$ps" "$ss"
+      log_warn "LP gate: batch ${batch_id:0:8} has failed LPs. Retry triggered."
+      # Don't mark as processed — will re-check after retry
+      return 0
+    fi
   fi
 
   mark_processed "$batch_id" "$scored_ads"
