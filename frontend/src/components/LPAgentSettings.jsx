@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { api } from '../api';
 import { useToast } from './Toast';
 import LPTemplateManager from './LPTemplateManager';
@@ -13,6 +14,7 @@ const NARRATIVE_FRAMES = [
 
 export default function LPAgentSettings({ projectId }) {
   const toast = useToast();
+  const navigate = useNavigate();
 
   // Config state
   const [config, setConfig] = useState(null);
@@ -614,7 +616,12 @@ export default function LPAgentSettings({ projectId }) {
               }
 
               return (
-                <div key={lp.id} className="flex items-center justify-between bg-offwhite rounded-lg px-3 py-2">
+                <div
+                  key={lp.id}
+                  className="flex items-center justify-between bg-offwhite rounded-lg px-3 py-2 cursor-pointer hover:bg-navy/5 transition-colors"
+                  onClick={() => navigate(`/projects/${projectId}?tab=lpgen`)}
+                  title="Open in LP Gen tab"
+                >
                   <div className="flex items-center gap-2 min-w-0 flex-1">
                     {isGenerating && (
                       <svg className="w-3 h-3 text-gold animate-spin flex-shrink-0" viewBox="0 0 24 24" fill="none">
@@ -632,17 +639,18 @@ export default function LPAgentSettings({ projectId }) {
                         href={lp.published_url}
                         target="_blank"
                         rel="noopener noreferrer"
+                        onClick={(e) => e.stopPropagation()}
                         className="text-[10px] text-gold hover:text-gold/80 transition-colors"
                       >
                         View live
                       </a>
                     )}
-                    {isDraft && (
-                      <span className="text-[10px] text-textlight">Landing Pages tab</span>
-                    )}
                     {timeAgo && (
                       <span className="text-[9px] text-textlight">{timeAgo}</span>
                     )}
+                    <svg className="w-3.5 h-3.5 text-textlight" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+                    </svg>
                   </div>
                 </div>
               );
