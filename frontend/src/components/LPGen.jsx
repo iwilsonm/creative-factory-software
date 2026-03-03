@@ -247,6 +247,47 @@ function assembleHtmlClient(htmlTemplate, copySections, imageSlots, ctaLinks) {
   html = html.replace(/\{\{[\s]*TRENDING_CATEGORY[\s]*\}\}/gi, 'Health & Wellness');
   html = html.replace(/\{\{[^}]+\}\}/g, ''); // strip ALL remaining {{...}} placeholders
 
+  // ── Contrast safety CSS — ensure white text on dark backgrounds ──
+  // Simplified version of backend injectContrastSafetyCSS(); full version runs on backend save
+  if (!html.includes('data-safety="contrast"')) {
+    const darkPrefixes = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'a', 'b'];
+    const sel = darkPrefixes.map(p => `[style*="background-color: #${p}"]`).join(', ');
+    const childSel = darkPrefixes.map(p => `[style*="background-color: #${p}"] *`).join(', ');
+    const linkSel = darkPrefixes.map(p => `[style*="background-color: #${p}"] a`).join(', ');
+    const contrastCSS = `<style data-safety="contrast">
+  ${sel} { color: #FFFFFF !important; }
+  ${childSel} { color: #FFFFFF !important; }
+  ${linkSel} { color: #FFD700 !important; }
+  [style*="background-color: rgb(0"], [style*="background-color: rgb(1"],
+  [style*="background-color: rgb(2"], [style*="background-color: rgb(3"],
+  [style*="background-color: rgb(4"], [style*="background-color: rgb(5"],
+  [style*="background-color: rgb(6"], [style*="background-color: rgb(7"],
+  [style*="background-color: rgb(8"], [style*="background-color: rgb(9"] { color: #FFFFFF !important; }
+  [style*="background-color: rgb(0"] *, [style*="background-color: rgb(1"] *,
+  [style*="background-color: rgb(2"] *, [style*="background-color: rgb(3"] *,
+  [style*="background-color: rgb(4"] *, [style*="background-color: rgb(5"] *,
+  [style*="background-color: rgb(6"] *, [style*="background-color: rgb(7"] *,
+  [style*="background-color: rgb(8"] *, [style*="background-color: rgb(9"] * { color: #FFFFFF !important; }
+  [style*="background-color: #f"], [style*="background-color: #F"],
+  [style*="background-color: #e"], [style*="background-color: #E"],
+  [style*="background-color: #d"], [style*="background-color: #D"],
+  [style*="background-color: white"], [style*="background-color: #fff"],
+  [style*="background-color: rgb(255"] { color: inherit !important; }
+  [style*="background-color: #f"] *, [style*="background-color: #F"] *,
+  [style*="background-color: #e"] *, [style*="background-color: #E"] *,
+  [style*="background-color: #d"] *, [style*="background-color: #D"] *,
+  [style*="background-color: white"] *, [style*="background-color: #fff"] *,
+  [style*="background-color: rgb(255"] * { color: inherit !important; }
+</style>`;
+    if (html.includes('</head>')) {
+      html = html.replace('</head>', contrastCSS + '\n</head>');
+    } else if (html.includes('<body')) {
+      html = html.replace('<body', contrastCSS + '\n<body');
+    } else {
+      html = contrastCSS + html;
+    }
+  }
+
   return html;
 }
 

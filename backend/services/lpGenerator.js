@@ -1193,93 +1193,83 @@ function fixGenericTestimonialAttribution(html) {
 }
 
 /**
- * Deduplicate testimonial quotes that appear more than once on the page.
- * Finds quoted strings (50-300 chars) inside the HTML, and if the same quote
- * appears again, removes the second occurrence's containing <blockquote> or <div>.
- * Only removes the SECOND occurrence — keeps the first.
+ * Deduplicate testimonial text that appears more than once on the page.
+ * Uses text-content extraction (strips HTML tags) to find duplicate sentences,
+ * then removes the second occurrence's containing element in the original HTML.
+ * This catches duplicates regardless of whether they're quoted or unquoted.
  */
 function deduplicateTestimonials(html) {
-  // Find all quoted strings between 50-300 characters (using typographic or straight quotes)
-  const quotePatterns = [
-    /["""]([^"""]{50,300})["""]/g,    // Straight & typographic double quotes
-    /['']([^'']{50,300})['']/g,       // Typographic single quotes
-  ];
+  // Strip HTML to get plain text for sentence extraction
+  const plainText = html
+    .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, '')
+    .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, '')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/&[a-z]+;/gi, ' ')
+    .replace(/&#\d+;/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
 
-  const seenQuotes = new Map(); // normalized text → first occurrence index
-  const duplicateQuotes = [];
+  // Split into sentences (period/exclamation/question followed by space or end)
+  const sentences = plainText
+    .split(/(?<=[.!?])\s+/)
+    .map(s => s.trim())
+    .filter(s => s.length >= 50);
 
-  for (const pattern of quotePatterns) {
-    let match;
-    while ((match = pattern.exec(html)) !== null) {
-      const quoteText = match[1].trim().toLowerCase().replace(/\s+/g, ' ');
-      if (quoteText.length < 40) continue; // skip short after normalization
+  // Normalize for comparison: lowercase, strip all quote chars, collapse whitespace
+  const normalize = (s) => s.toLowerCase().replace(/[""''"""'\u2018\u2019\u201C\u201D]/g, '').replace(/\s+/g, ' ').trim();
 
-      // Check for exact or substring duplicates
-      let isDuplicate = false;
-      for (const [seen] of seenQuotes) {
-        if (seen === quoteText || seen.includes(quoteText) || quoteText.includes(seen)) {
-          isDuplicate = true;
-          break;
-        }
-      }
-
-      if (isDuplicate) {
-        duplicateQuotes.push({ text: match[1], index: match.index, fullMatch: match[0] });
-      } else {
-        seenQuotes.set(quoteText, match.index);
-      }
-    }
+  // Count occurrences of each normalized sentence
+  const sentenceCounts = new Map();
+  for (const sentence of sentences) {
+    const norm = normalize(sentence);
+    if (norm.length < 40) continue;
+    sentenceCounts.set(norm, (sentenceCounts.get(norm) || 0) + 1);
   }
 
-  if (duplicateQuotes.length === 0) return html;
+  // Collect duplicates (appear 2+ times)
+  const duplicates = [];
+  for (const [norm, count] of sentenceCounts) {
+    if (count > 1) duplicates.push(norm);
+  }
+
+  if (duplicates.length === 0) return html;
 
   let result = html;
-  for (const dup of duplicateQuotes) {
-    const shortPreview = dup.text.slice(0, 60).replace(/\n/g, ' ');
-    console.log(`[LP-FIX] Removed duplicate testimonial: "${shortPreview}..."`);
+  for (const dupNorm of duplicates) {
+    // Find the original (non-normalized) sentence for regex matching
+    const origSentence = sentences.find(s => normalize(s) === dupNorm);
+    if (!origSentence) continue;
 
-    // Try to remove containing <blockquote> first
-    const escapedQuote = dup.text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').slice(0, 80);
-    const blockquoteRegex = new RegExp(
-      `<blockquote[^>]*>[\\s\\S]*?${escapedQuote}[\\s\\S]*?</blockquote>`,
-      'i'
-    );
+    const shortPreview = origSentence.slice(0, 60).replace(/\n/g, ' ');
+    console.log(`[LP-FIX] Found duplicate testimonial text: "${shortPreview}..."`);
 
-    // Find the SECOND occurrence (skip the first)
-    const firstIdx = result.search(blockquoteRegex);
-    if (firstIdx !== -1) {
-      const afterFirst = result.slice(firstIdx + 1);
-      const secondMatch = afterFirst.match(blockquoteRegex);
-      if (secondMatch) {
-        const secondIdx = firstIdx + 1 + afterFirst.indexOf(secondMatch[0]);
-        result = result.slice(0, secondIdx) + result.slice(secondIdx + secondMatch[0].length);
-        continue;
+    // Escape for regex, use first 80 chars to keep regex manageable
+    const escapedFragment = origSentence.slice(0, 80).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+    // Try to find and remove the SECOND container holding this text
+    // Priority: blockquote > div > p (most specific testimonial wrapper first)
+    const containerTags = ['blockquote', 'div', 'p'];
+    let removed = false;
+
+    for (const tag of containerTags) {
+      const containerRegex = new RegExp(
+        `<${tag}[^>]*>[\\s\\S]*?${escapedFragment}[\\s\\S]*?<\\/${tag}>`,
+        'gi'
+      );
+
+      const allMatches = [...result.matchAll(containerRegex)];
+      if (allMatches.length >= 2) {
+        // Remove the SECOND occurrence only — keep the first
+        const secondMatch = allMatches[1];
+        result = result.slice(0, secondMatch.index) + result.slice(secondMatch.index + secondMatch[0].length);
+        console.log(`[LP-FIX] Removed duplicate in <${tag}> (${secondMatch[0].length} chars)`);
+        removed = true;
+        break;
       }
     }
 
-    // Fallback: try removing containing <div> with the quote
-    const divRegex = new RegExp(
-      `<div[^>]*>[\\s\\S]*?${escapedQuote}[\\s\\S]*?</div>`,
-      'i'
-    );
-    const firstDivIdx = result.search(divRegex);
-    if (firstDivIdx !== -1) {
-      const afterFirstDiv = result.slice(firstDivIdx + 1);
-      const secondDivMatch = afterFirstDiv.match(divRegex);
-      if (secondDivMatch) {
-        const secondDivIdx = firstDivIdx + 1 + afterFirstDiv.indexOf(secondDivMatch[0]);
-        result = result.slice(0, secondDivIdx) + result.slice(secondDivIdx + secondDivMatch[0].length);
-        continue;
-      }
-    }
-
-    // Last resort: just blank out the second occurrence of the quoted text itself
-    const quoteIdx1 = result.indexOf(dup.fullMatch);
-    if (quoteIdx1 !== -1) {
-      const quoteIdx2 = result.indexOf(dup.fullMatch, quoteIdx1 + dup.fullMatch.length);
-      if (quoteIdx2 !== -1) {
-        result = result.slice(0, quoteIdx2) + result.slice(quoteIdx2 + dup.fullMatch.length);
-      }
+    if (!removed) {
+      console.log(`[LP-FIX] Could not find removable container for duplicate — skipping`);
     }
   }
 
@@ -1291,7 +1281,7 @@ function deduplicateTestimonials(html) {
  * on dark backgrounds. Broader coverage: hex #0-#b, rgb(0-9), plus inline style fix.
  * Idempotent: checks for data-safety="contrast" marker.
  */
-function injectContrastSafetyCSS(html) {
+export function injectContrastSafetyCSS(html) {
   // Don't inject if already present (idempotency)
   if (html.includes('data-safety="contrast"')) return html;
 
