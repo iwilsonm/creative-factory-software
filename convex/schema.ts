@@ -434,6 +434,9 @@ export default defineSchema({
     smoke_test_status: v.optional(v.string()),        // passed | failed | pending
     smoke_test_report: v.optional(v.string()),        // JSON
     smoke_test_at: v.optional(v.string()),            // ISO timestamp
+    // Audit trail fields
+    audit_trail: v.optional(v.string()),              // JSON: generation audit trail entries
+    editorial_plan: v.optional(v.string()),           // JSON: Opus editorial plan
     created_at: v.string(),
     updated_at: v.string(),
   })

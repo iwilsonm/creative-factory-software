@@ -110,6 +110,9 @@ export const update = mutation({
     smoke_test_status: v.optional(v.string()),
     smoke_test_report: v.optional(v.string()),
     smoke_test_at: v.optional(v.string()),
+    // Audit trail fields
+    audit_trail: v.optional(v.string()),
+    editorial_plan: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const doc = await ctx.db
@@ -157,6 +160,8 @@ export const update = mutation({
     if (args.smoke_test_status !== undefined) updates.smoke_test_status = args.smoke_test_status;
     if (args.smoke_test_report !== undefined) updates.smoke_test_report = args.smoke_test_report;
     if (args.smoke_test_at !== undefined) updates.smoke_test_at = args.smoke_test_at;
+    if (args.audit_trail !== undefined) updates.audit_trail = args.audit_trail;
+    if (args.editorial_plan !== undefined) updates.editorial_plan = args.editorial_plan;
     await ctx.db.patch(doc._id, updates);
   },
 });

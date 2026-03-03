@@ -305,6 +305,10 @@ router.post('/:id/lp-agent/generate-test', async (req, res) => {
       updateFields.swipe_design_analysis = JSON.stringify(result.designAnalysis);
     }
 
+    // Persist audit trail + editorial plan
+    if (result.auditTrail) updateFields.audit_trail = JSON.stringify(result.auditTrail);
+    if (result.editorialPlan) updateFields.editorial_plan = JSON.stringify(result.editorialPlan);
+
     // Save QA results
     if (qaReport) {
       let qaScreenshotStorageId = null;

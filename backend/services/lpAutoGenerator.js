@@ -218,6 +218,10 @@ async function generateAndPublishLP({ projectId, batchJobId, angle, template, fr
       fix_attempts: fixAttempts,
     };
 
+    // Persist audit trail + editorial plan
+    if (result.auditTrail) updateFields.audit_trail = JSON.stringify(result.auditTrail);
+    if (result.editorialPlan) updateFields.editorial_plan = JSON.stringify(result.editorialPlan);
+
     if (qaReport) {
       let qaScreenshotStorageId = null;
       if (qaReport.screenshotBuffer) {

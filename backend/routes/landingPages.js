@@ -280,6 +280,13 @@ router.post('/:projectId/landing-pages/generate', async (req, res) => {
         }
       }
 
+      // ── Audit trail for manual generation ──
+      const auditTrail = [];
+      const audit = (step, action, detail) => {
+        auditTrail.push({ timestamp: new Date().toISOString(), step, action, detail });
+      };
+      audit('init', 'started', `Manual generation — angle: "${(angle || '').slice(0, 50)}", wordCount: ${wordCountNum || 'default'}`);
+
       // ── Phase 2A: Design Analysis (only if we have a screenshot) ──
       let designAnalysis = null;
       if (screenshotBuffer) {
@@ -301,6 +308,9 @@ router.post('/:projectId/landing-pages/generate', async (req, res) => {
           designAnalysis = null;
         }
       }
+      if (designAnalysis) {
+        audit('design', 'analyzed', `${designAnalysis.image_slots?.length || 0} image slots, ${designAnalysis.cta_elements?.length || 0} CTAs`);
+      }
 
       // ── Phase B: Copy Generation ──
       sse.sendEvent({ type: 'phase', phase: 'copy_generation', message: 'Generating landing page copy...' });
@@ -316,6 +326,7 @@ router.post('/:projectId/landing-pages/generate', async (req, res) => {
       await updateLandingPage(pageId, {
         copy_sections: copySectionsJson,
       });
+      audit('copy', 'generated', `${copyResult.sections?.length || 0} sections`);
 
       // ── Phase 2C: Image Generation (if design analysis has image slots) ──
       let imageSlots = designAnalysis?.image_slots || [];
@@ -334,6 +345,7 @@ router.post('/:projectId/landing-pages/generate', async (req, res) => {
         await updateLandingPage(pageId, {
           image_slots: JSON.stringify(populatedImageSlots),
         });
+        audit('images', 'generated', `${populatedImageSlots.filter(s => s.generated).length}/${imageSlots.length} images generated`);
       }
 
       // ── Phase 2D: HTML Generation ──
@@ -364,13 +376,18 @@ router.post('/:projectId/landing-pages/generate', async (req, res) => {
         ctaElements,
       });
 
+      audit('html', 'generated', `HTML template: ${htmlTemplate.length} chars, assembled: ${rawAssembledHtml.length} chars`);
+
       // Post-process: metadata → strip placeholders → fix duplicate headings → testimonial attribution
       const { html: assembledHtml } = postProcessLP(rawAssembledHtml, { project });
+      audit('postprocess', 'applied', `Post-processed: ${rawAssembledHtml.length} → ${assembledHtml.length} chars`);
+      audit('complete', 'finished', `Final LP: ${assembledHtml.length} chars`);
 
       // Save everything
       await updateLandingPage(pageId, {
         status: 'completed',
         assembled_html: assembledHtml,
+        audit_trail: JSON.stringify(auditTrail),
       });
 
       // Create version 1

@@ -533,8 +533,11 @@ Respond with a JSON object containing your editorial plan:
   ],
   "cta_positions": ["after_hero", "after_benefits", "after_testimonials"],
   "placeholder_fills": { "placeholder_name": "actual text to replace the {{placeholder_name}} tag" },
+  "decisions": ["plain language decision 1 — be specific about what you changed and why", "decision 2"],
   "editorial_notes": "Brief explanation of your strategic reasoning"
-}`;
+}
+
+Along with your editorial plan, return a "decisions" array — a list of plain-language strings describing each significant editorial choice you made. Examples: "Moved USDA stat from paragraph 4 to opening callout for maximum impact", "Cut redundant vinegar anecdote", "Elevated social proof before mechanism reveal". Be specific — these appear in the editor audit trail.`;
 
   try {
     const response = await chat(
@@ -850,7 +853,8 @@ REQUIREMENTS:
 2. Preserve the existing CSS, layout, colors, fonts, and structure from the template
 3. Ensure all copy section placeholders are placed in the correct sections
 4. The page must remain mobile-responsive
-5. Do NOT add any structural elements that are not in the template skeleton — no urgency banners, sticky bars, floating CTAs, countdown timers, notification bars, or any other elements the template doesn't already contain. The template defines the page structure; you populate it.${editorialPlan ? '\n6. Follow editorial plan instructions for section ordering, emphasis, and callout placement — but do NOT add structural elements the template doesn\'t have, even if the editorial plan suggests them' : ''}`
+5. Do NOT add any structural elements that are not in the template skeleton — no urgency banners, sticky bars, floating CTAs, countdown timers, notification bars, or any other elements the template doesn't already contain. The template defines the page structure; you populate it.
+6. CONTRAST SAFETY: Any element with a dark or colored background (green, blue, dark gray, etc.) MUST have white (#FFFFFF) text. Never use dark text on a dark background. Check every colored section, callout, banner, and overlay for sufficient contrast.${editorialPlan ? '\n7. Follow editorial plan instructions for section ordering, emphasis, and callout placement — but do NOT add structural elements the template doesn\'t have, even if the editorial plan suggests them' : ''}`
     : `Generate a complete, self-contained HTML landing page based on this design specification and placeholder system.
 
 DESIGN SPECIFICATION:
@@ -872,7 +876,8 @@ REQUIREMENTS:
 12. Images should have max-width: 100% and height: auto
 13. CTA buttons should be prominently styled per the design spec
 14. Add a viewport meta tag for mobile
-15. Target a professional, premium look — clean spacing, readable typography${editorialPlan ? '\n16. Follow ALL editorial plan instructions above — they override default section ordering and layout decisions' : ''}`;
+15. Target a professional, premium look — clean spacing, readable typography
+16. CONTRAST SAFETY: Any element with a dark or colored background (green, blue, dark gray, etc.) MUST have white (#FFFFFF) text. Never use dark text on a dark background. Check every colored section, callout, banner, and overlay for sufficient contrast.${editorialPlan ? '\n17. Follow ALL editorial plan instructions above — they override default section ordering and layout decisions' : ''}`;
 
   const messages = [
     { role: 'system', content: systemPrompt },
@@ -1087,23 +1092,58 @@ function validateNoPlaceholders(html) {
 }
 
 /**
- * Fix duplicate heading text in callout blocks.
- * Matches patterns where a heading element (h1-h6, strong) is followed by a body element
- * (p, div, span) whose text starts with the same heading text (optionally followed by a colon).
+ * Fix duplicate heading text in callout blocks — conservative per-heading approach.
+ *
+ * Strategy:
+ * 1. Collect all headings first (without modifying HTML)
+ * 2. For each heading, find body elements that start with the same text
+ * 3. Only strip the duplicate prefix from body — never touch the heading
+ * 4. Require body to continue with actual content after prefix ([A-Z0-9] guard)
  *
  * Example fix:
  *   <h3>USDA DATA</h3><p>USDA DATA: 42.7% of samples...</p>
  *   → <h3>USDA DATA</h3><p>42.7% of samples...</p>
  */
 function fixDuplicateCalloutHeadings(html) {
-  // Match: heading element → optional whitespace/tags → body element starting with same text
-  return html.replace(
-    /(<(?:h[1-6]|strong)[^>]*>)\s*([^<]+?)\s*(<\/(?:h[1-6]|strong)>)([\s\S]*?)(<(?:p|div|span)[^>]*>)\s*\2\s*[:—–-]?\s*/gi,
-    (match, openTag, headingText, closeTag, between, bodyOpenTag) => {
-      console.log(`[LPGen] Fixed duplicate callout heading: "${headingText.trim()}"`);
-      return `${openTag}${headingText}${closeTag}${between}${bodyOpenTag}`;
+  let result = html;
+  let fixCount = 0;
+
+  // Phase 1: Collect all headings with their text (read-only scan)
+  const headingRegex = /<(h[1-6]|strong|b|li|dt)[^>]*>([\s\S]*?)<\/\1>/gi;
+  const headings = [];
+  let match;
+  while ((match = headingRegex.exec(html)) !== null) {
+    // Strip inner HTML tags to get plain text
+    const text = match[2].replace(/<[^>]*>/g, '').trim();
+    if (text.length >= 2 && text.length <= 80) {
+      headings.push({ text, tag: match[1] });
     }
-  );
+  }
+
+  // Phase 2: For each heading, find and fix body elements that duplicate the heading text
+  for (const heading of headings) {
+    const escapedText = escapeRegex(heading.text);
+    // Match: closing heading tag → gap (up to 300 chars) → body opening tag → duplicate prefix → real content guard
+    const bodyDupRegex = new RegExp(
+      `(<\\/(?:${escapeRegex(heading.tag)}|h[1-6]|strong|b|li|dt)>)` +  // closing heading tag
+      `([\\s\\S]{0,300}?)` +                                              // gap between heading and body
+      `(<(?:p|div|span|dd)[^>]*>)` +                                      // body opening tag
+      `(\\s*)${escapedText}\\s*[:—–\\-]?\\s*` +                           // duplicate prefix + separator
+      `([A-Z0-9])`,                                                        // guard: body must continue with real content
+      'gi'
+    );
+
+    result = result.replace(bodyDupRegex, (m, closeTag, gap, bodyOpen, ws, firstChar) => {
+      fixCount++;
+      console.log(`[LP-FIX] Fixed duplicate heading prefix: "${heading.text.slice(0, 40)}"`);
+      return `${closeTag}${gap}${bodyOpen}${firstChar}`;
+    });
+  }
+
+  if (fixCount > 0) {
+    console.log(`[LP-FIX] fixDuplicateCalloutHeadings: fixed ${fixCount} duplicate(s)`);
+  }
+  return result;
 }
 
 /**
@@ -1147,6 +1187,106 @@ function fixGenericTestimonialAttribution(html) {
 }
 
 /**
+ * Proactive contrast safety net — inject CSS rules that ensure text is readable
+ * on dark backgrounds. Broader coverage: hex #0-#b, rgb(0-9), plus inline style fix.
+ * Idempotent: checks for data-safety="contrast" marker.
+ */
+function injectContrastSafetyCSS(html) {
+  // Don't inject if already present (idempotency)
+  if (html.includes('data-safety="contrast"')) return html;
+
+  // Build hex selectors for #0 through #b (dark range)
+  const darkHexPrefixes = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'a', 'b'];
+  const hexSel = darkHexPrefixes.map(p => `[style*="background-color: #${p}"]`).join(', ');
+  const hexChildSel = darkHexPrefixes.map(p => `[style*="background-color: #${p}"] *`).join(', ');
+  const hexLinkSel = darkHexPrefixes.map(p => `[style*="background-color: #${p}"] a`).join(', ');
+
+  const safetyCSS = `<style data-safety="contrast">
+  /* Proactive contrast safety: hex dark backgrounds #0-#b */
+  ${hexSel} { color: #FFFFFF !important; }
+  ${hexChildSel} { color: #FFFFFF !important; }
+  ${hexLinkSel} { color: #FFD700 !important; }
+  /* RGB dark backgrounds (r < 100) */
+  [style*="background-color: rgb(0"], [style*="background-color: rgb(1"],
+  [style*="background-color: rgb(2"], [style*="background-color: rgb(3"],
+  [style*="background-color: rgb(4"], [style*="background-color: rgb(5"],
+  [style*="background-color: rgb(6"], [style*="background-color: rgb(7"],
+  [style*="background-color: rgb(8"], [style*="background-color: rgb(9"] { color: #FFFFFF !important; }
+  [style*="background-color: rgb(0"] *, [style*="background-color: rgb(1"] *,
+  [style*="background-color: rgb(2"] *, [style*="background-color: rgb(3"] *,
+  [style*="background-color: rgb(4"] *, [style*="background-color: rgb(5"] *,
+  [style*="background-color: rgb(6"] *, [style*="background-color: rgb(7"] *,
+  [style*="background-color: rgb(8"] *, [style*="background-color: rgb(9"] * { color: #FFFFFF !important; }
+  /* Exclude light backgrounds — restore to inherit */
+  [style*="background-color: #f"], [style*="background-color: #F"],
+  [style*="background-color: #e"], [style*="background-color: #E"],
+  [style*="background-color: #d"], [style*="background-color: #D"],
+  [style*="background-color: white"], [style*="background-color: #fff"],
+  [style*="background-color: rgb(255"] { color: inherit !important; }
+  [style*="background-color: #f"] *, [style*="background-color: #F"] *,
+  [style*="background-color: #e"] *, [style*="background-color: #E"] *,
+  [style*="background-color: #d"] *, [style*="background-color: #D"] *,
+  [style*="background-color: white"] *, [style*="background-color: #fff"] *,
+  [style*="background-color: rgb(255"] * { color: inherit !important; }
+</style>`;
+
+  // Inject CSS into <head> or before <body>
+  let result;
+  if (html.includes('</head>')) {
+    result = html.replace('</head>', `${safetyCSS}\n</head>`);
+  } else if (html.includes('<body')) {
+    result = html.replace('<body', `${safetyCSS}\n<body`);
+  } else {
+    result = safetyCSS + html;
+  }
+
+  // Inline style pass: directly fix dark-on-dark inline style combos
+  let inlineFixCount = 0;
+  result = result.replace(
+    /style="([^"]*background-color:\s*(?:#[0-9a-bA-B][0-9a-fA-F]{2,5}|rgb\(\s*[0-9]{1,2}\s*,)[^"]*?)"/gi,
+    (fullMatch, styleContent) => {
+      // Skip light backgrounds
+      if (/background-color:\s*(?:#[d-fD-F]|white|#fff|rgb\(\s*2[0-5][0-9])/i.test(styleContent)) {
+        return fullMatch;
+      }
+      // Check if there's a dark text color in the same style
+      if (/;\s*color:\s*(?:#[0-3][0-9a-fA-F]{2,5}|#000|black|rgb\(\s*[0-5][0-9])/i.test(styleContent)) {
+        const fixed = styleContent
+          .replace(/color:\s*(?:#[0-3][0-9a-fA-F]{2,5}|#000|black|rgb\([^)]*\))/gi, 'color: #FFFFFF');
+        inlineFixCount++;
+        return `style="${fixed}"`;
+      }
+      return fullMatch;
+    }
+  );
+  if (inlineFixCount > 0) {
+    console.log(`[LP-FIX] Fixed ${inlineFixCount} dark-on-dark inline style(s)`);
+  }
+
+  return result;
+}
+
+/**
+ * Remove empty elements left behind after placeholder stripping.
+ * Targets: <span></span>, <p></p>, <div></div>, <strong></strong>, etc.
+ * Repeats until stable (nested empty elements may need multiple passes).
+ */
+function cleanupEmptyElements(html) {
+  let result = html;
+  let prev;
+  do {
+    prev = result.length;
+    result = result.replace(/<(span|p|div|strong|em|b|i|h[1-6]|li|dt|dd|a)([^>]*)>\s*<\/\1>/gi, '');
+  } while (result.length !== prev);
+
+  const removed = html.length - result.length;
+  if (removed > 0) {
+    console.log(`[LP-FIX] Cleaned up empty elements: removed ${removed} characters of empty markup`);
+  }
+  return result;
+}
+
+/**
  * Consolidated post-processing pipeline for assembled LP HTML.
  * Runs after HTML assembly and before storing the final LP.
  *
@@ -1154,8 +1294,10 @@ function fixGenericTestimonialAttribution(html) {
  * 1. Populate metadata (author, date, product name)
  * 2. Apply editorial placeholder fills (if any)
  * 3. Strip unfilled placeholders (zero-tolerance)
+ * 3b. Clean up empty elements left by stripping
  * 4. Fix duplicate callout headings
  * 5. Fix generic testimonial attributions
+ * 6. Inject proactive contrast safety CSS
  *
  * @param {string} html - Assembled HTML
  * @param {object} options
@@ -1168,12 +1310,28 @@ function fixGenericTestimonialAttribution(html) {
 export function postProcessLP(html, { project = null, agentConfig = null, angle = '', editorialPlan = null } = {}) {
   let processed = html;
 
+  console.log(`[LP-FIX] postProcessLP() called. HTML length: ${html.length}, project: ${project ? project.name || project.externalId : 'NULL'}, agentConfig: ${agentConfig ? 'loaded' : 'NULL'}, angle: "${(angle || '').slice(0, 40)}"`);
+
+  if (!project) {
+    console.warn('[LP-FIX] WARNING: project is null — metadata placeholders will use fallback values');
+  }
+  if (!agentConfig) {
+    console.warn('[LP-FIX] WARNING: agentConfig is null — author_name, author_title, warning_text will use hardcoded defaults');
+  }
+
   // 1. Populate metadata placeholders (publish_date, author_name, etc.)
   const metadataMap = buildMetadataMap({ project, agentConfig, angle });
+  console.log(`[LP-FIX] Metadata map: ${Object.entries(metadataMap).map(([k, v]) => `${k}="${(v || '').slice(0, 30)}"`).join(', ')}`);
+
+  const preMetaCount = (processed.match(/\{\{[^}]+\}\}/g) || []).length;
   processed = applyMetadataReplacements(processed, metadataMap);
+  const postMetaCount = (processed.match(/\{\{[^}]+\}\}/g) || []).length;
+  console.log(`[LP-FIX] Metadata replacement: ${preMetaCount} placeholders before → ${postMetaCount} after (${preMetaCount - postMetaCount} replaced)`);
 
   // 2. Apply editorial placeholder fills if the Opus pass caught any remaining
   if (editorialPlan?.placeholder_fills && typeof editorialPlan.placeholder_fills === 'object') {
+    const fills = Object.keys(editorialPlan.placeholder_fills);
+    console.log(`[LP-FIX] Editorial placeholder fills: ${fills.join(', ')}`);
     for (const [key, value] of Object.entries(editorialPlan.placeholder_fills)) {
       if (value) {
         const regex = new RegExp(`\\{\\{\\s*${escapeRegex(key)}\\s*\\}\\}`, 'gi');
@@ -1186,12 +1344,22 @@ export function postProcessLP(html, { project = null, agentConfig = null, angle 
   const validation = validateNoPlaceholders(processed);
   processed = validation.html;
 
+  // 3b. Clean up empty elements left by stripped placeholders
+  processed = cleanupEmptyElements(processed);
+
+  const finalPlaceholderCount = (processed.match(/\{\{[^}]+\}\}/g) || []).length;
+  console.log(`[LP-FIX] Final placeholder count after all passes: ${finalPlaceholderCount}`);
+
   // 4. Fix duplicate callout headings
   processed = fixDuplicateCalloutHeadings(processed);
 
   // 5. Replace generic testimonial attributions with realistic names
   processed = fixGenericTestimonialAttribution(processed);
 
+  // 6. Inject proactive contrast safety CSS
+  processed = injectContrastSafetyCSS(processed);
+
+  console.log(`[LP-FIX] postProcessLP() complete. Output HTML length: ${processed.length}`);
   return { html: processed, warnings: validation.warnings };
 }
 
@@ -1219,7 +1387,7 @@ export function postProcessLP(html, { project = null, agentConfig = null, angle 
  * @param {boolean} [params.editorialPassEnabled=true] - Whether to run Opus editorial review
  * @param {boolean} [params.useProductReferenceImages=true] - Whether to use product image as reference
  * @param {(event: object) => void} sendEvent - SSE/progress callback
- * @returns {Promise<object>} { copySections, imageSlots, htmlTemplate, assembledHtml, designAnalysis, editorialPlan }
+ * @returns {Promise<object>} { copySections, imageSlots, htmlTemplate, assembledHtml, designAnalysis, editorialPlan, auditTrail }
  */
 export async function generateAutoLP({
   projectId, templateId, angle, narrativeFrame, batchJobId,
@@ -1227,6 +1395,13 @@ export async function generateAutoLP({
   useProductReferenceImages = true,
   agentConfig = null,
 }, sendEvent) {
+  // Audit trail — collect entries at each generation phase
+  const auditTrail = [];
+  const audit = (step, action, detail, extra = {}) => {
+    auditTrail.push({ timestamp: new Date().toISOString(), step, action, detail, ...extra });
+  };
+
+  audit('init', 'started', `Angle: "${(angle || '').slice(0, 60)}", template: ${templateId?.slice(0, 8) || 'none'}`);
   sendEvent({ type: 'progress', step: 'auto_loading', message: 'Loading template for auto-generation...' });
 
   // 1. Load the template
@@ -1297,6 +1472,8 @@ export async function generateAutoLP({
     console.log(`[LPGen] Metadata slots to auto-fill: ${placeholders.metadata.join(', ')}`);
   }
 
+  audit('template', 'loaded', `Template: ${template.name || templateId}, slots: ${slotDefs.length}, copy slots: ${placeholders.templateCopy.length}`);
+
   // 2b. Load project data (needed for metadata + product image)
   let project = null;
   let productImageData = null;
@@ -1310,6 +1487,9 @@ export async function generateAutoLP({
   } catch (err) {
     console.warn('[LPGen] Failed to load project/product image (non-fatal):', err.message);
   }
+
+  audit('project', project ? 'loaded' : 'warning',
+    project ? `Project: ${project.name || projectId}, product image: ${!!productImageData}` : 'Project data is null — metadata defaults will be used');
 
   sendEvent({ type: 'progress', step: 'auto_copy', message: 'Generating angle-specific copy...' });
 
@@ -1325,6 +1505,8 @@ export async function generateAutoLP({
     },
   }, sendEvent);
 
+  audit('copy', 'generated', `${copySections.length} sections: ${copySections.map(s => s.type).join(', ')}`);
+
   // 3b. Run Opus editorial pass (if enabled)
   let editorialPlan = null;
   if (editorialPassEnabled) {
@@ -1338,6 +1520,16 @@ export async function generateAutoLP({
       pdpUrl: null, // Will be set by publisher
       projectId,
     }, sendEvent);
+
+    if (editorialPlan) {
+      audit('editorial', 'completed',
+        `Headline: "${(editorialPlan.headline || '').slice(0, 60)}", callouts: ${editorialPlan.callouts?.length || 0}, cuts: ${editorialPlan.sections_to_cut?.length || 0}`,
+        { decisions: editorialPlan.decisions || [] });
+    } else {
+      audit('editorial', 'skipped', 'Editorial pass returned null or was not run');
+    }
+  } else {
+    audit('editorial', 'disabled', 'Editorial pass disabled by config');
   }
 
   // 4. Generate images (Step 3) with product reference + editorial direction
@@ -1353,6 +1545,8 @@ export async function generateAutoLP({
     },
   }, sendEvent);
 
+  audit('images', 'generated', `${imageSlots.filter(s => s.generated).length}/${imageSlots.length} images generated`);
+
   // 5. Generate HTML (Step 4) with skeleton template + editorial plan
   const htmlTemplate = await generateHtmlTemplate({
     designAnalysis,
@@ -1365,6 +1559,8 @@ export async function generateAutoLP({
       editorialPlan,
     },
   }, sendEvent);
+
+  audit('html', 'generated', `HTML template: ${htmlTemplate.length} chars`);
 
   // 6. Assemble final HTML
   const rawAssembledHtml = assembleLandingPage({
@@ -1383,8 +1579,12 @@ export async function generateAutoLP({
   });
   if (warnings.length > 0) {
     console.warn(`[LPGen] Post-processing stripped ${warnings.length} placeholder(s): ${warnings.join(', ')}`);
+    audit('postprocess', 'warnings', `Stripped ${warnings.length} placeholder(s): ${warnings.join(', ')}`, { issues: warnings });
+  } else {
+    audit('postprocess', 'clean', 'No unfilled placeholders found');
   }
 
+  audit('complete', 'finished', `Final HTML: ${assembledHtml.length} chars`);
   sendEvent({ type: 'progress', step: 'auto_complete', message: 'Auto-generated landing page complete' });
 
   return {
@@ -1394,6 +1594,7 @@ export async function generateAutoLP({
     assembledHtml,
     designAnalysis,
     editorialPlan,
+    auditTrail,
   };
 }
 
@@ -1611,6 +1812,17 @@ export async function generateAndValidateLP(params, sendEvent, options = {}) {
         return { result: { ...result, assembledHtml: currentHtml }, qaReport: null, fixLog, generationAttempts, fixAttempts: totalFixAttempts };
       }
 
+      // Append QA result to audit trail
+      if (result?.auditTrail) {
+        result.auditTrail.push({
+          timestamp: new Date().toISOString(),
+          step: 'qa',
+          action: qaReport.passed ? 'passed' : 'failed',
+          detail: `Score: ${qaReport.score}/100, issues: ${qaReport.issues?.length || 0}${fixAttempt > 0 ? ` (after fix #${fixAttempt})` : ''}`,
+          issues: qaReport.issues?.filter(i => i.severity === 'critical').map(i => `${i.severity}: ${i.description}`) || [],
+        });
+      }
+
       // Check if passed
       if (qaReport.passed && qaReport.score >= 80) {
         const passMsg = fixAttempt > 0
@@ -1653,6 +1865,16 @@ export async function generateAndValidateLP(params, sendEvent, options = {}) {
 
         fixLog.push(...fixResult.fixes);
         currentHtml = fixResult.html;
+
+        // Append auto-fix to audit trail
+        if (result?.auditTrail) {
+          result.auditTrail.push({
+            timestamp: new Date().toISOString(),
+            step: 'autofix',
+            action: 'applied',
+            detail: `Applied ${fixResult.fixes.length} fix(es): ${fixResult.fixes.map(f => f.type).join(', ')}`,
+          });
+        }
       } catch (fixErr) {
         console.error('[LP Pipeline] Auto-fix failed:', fixErr.message);
         // Continue to next QA check with unfixed HTML — it will fail and trigger regen

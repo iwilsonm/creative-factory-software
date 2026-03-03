@@ -19,10 +19,12 @@ import {
   getStorageUrl,
   downloadToBuffer,
   getLPAgentConfig,
+  getProject,
 } from '../convexClient.js';
 import { v4 as uuidv4 } from 'uuid';
 import { withRetry } from './retry.js';
 import fetch from 'node-fetch';
+import { postProcessLP } from './lpGenerator.js';
 
 // =============================================
 // Shopify API helpers
@@ -144,6 +146,33 @@ function generateSlug(name) {
 }
 
 /**
+ * Extract the best headline text for slug generation.
+ * Priority: headline from copy_sections → angle → name (stripped of "Test LP" prefix).
+ */
+function extractHeadlineForSlug(page) {
+  // Try to get headline from copy_sections
+  if (page.copy_sections) {
+    try {
+      const sections = JSON.parse(page.copy_sections);
+      const headlineSection = sections.find(s => s.type === 'headline');
+      if (headlineSection?.content) {
+        const text = headlineSection.content.replace(/<[^>]*>/g, '').trim();
+        if (text.length > 5) return text.slice(0, 80);
+      }
+    } catch { /* ignore parse errors */ }
+  }
+  // Fallback to angle
+  if (page.angle) {
+    return page.angle.slice(0, 80);
+  }
+  // Fallback to name, stripped of "Test LP — FrameName: " prefix
+  const name = (page.name || 'lp')
+    .replace(/^Test LP\s*[—–-]\s*[^:]+:\s*/i, '')  // "Test LP — Testimonial Journey: ..." → "..."
+    .replace(/^Test LP\s*[—–-]\s*/i, '');            // "Test LP — ..." → "..."
+  return name.slice(0, 80);
+}
+
+/**
  * Bake the final HTML — replace all placeholders with actual content.
  * Images use Convex storage URLs directly.
  */
@@ -250,10 +279,21 @@ export async function publishToShopify(pageId, projectId) {
   await updateLandingPage(pageId, { current_version: newVersion });
 
   // Bake final HTML with Convex storage URLs
-  const finalHtml = await bakeFinalHtml(page, shopify.pdpUrl);
+  let finalHtml = await bakeFinalHtml(page, shopify.pdpUrl);
 
-  // Determine slug
-  const slug = page.slug || generateSlug(page.name || 'lp');
+  // Post-process: fill metadata placeholders, strip remaining, fix duplicate headings, inject contrast CSS
+  // This is critical — bakeFinalHtml() rebuilds from html_template which still has {{publish_date}} etc.
+  const project = await getProject(projectId);
+  const agentConfig = await getLPAgentConfig(projectId).catch(() => null);
+  const { html: processedHtml } = postProcessLP(finalHtml, {
+    project,
+    agentConfig,
+    angle: page.angle || '',
+  });
+  finalHtml = processedHtml;
+
+  // Determine slug — use headline from copy, not full LP name
+  const slug = page.slug || generateSlug(extractHeadlineForSlug(page));
 
   let shopifyPageId = page.shopify_page_id;
   let shopifyHandle;

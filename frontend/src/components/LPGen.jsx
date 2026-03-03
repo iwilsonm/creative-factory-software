@@ -635,10 +635,22 @@ function LPEditor({ page: initialPage, onBack, onDelete, projectId }) {
   const displayHtml = useMemo(() => injectImageOverlays(previewHtml), [previewHtml]);
 
   // Tab config
+  // Parse audit data
+  const auditTrail = useMemo(() => {
+    try { return initialPage.audit_trail ? JSON.parse(initialPage.audit_trail) : []; }
+    catch { return []; }
+  }, [initialPage.audit_trail]);
+
+  const editorialPlan = useMemo(() => {
+    try { return initialPage.editorial_plan ? JSON.parse(initialPage.editorial_plan) : null; }
+    catch { return null; }
+  }, [initialPage.editorial_plan]);
+
   const TABS = [
     { id: 'copy', label: 'Copy' },
     { id: 'images', label: 'Images', count: imageSlots.length },
     { id: 'links', label: 'Links', count: ctaLinks.length },
+    { id: 'details', label: 'Details', count: auditTrail.length || undefined },
     { id: 'settings', label: 'Settings' },
   ];
 
@@ -1041,6 +1053,156 @@ function LPEditor({ page: initialPage, onBack, onDelete, projectId }) {
                 <p className="text-[10px] text-navy/70">
                   CTA links are embedded in the published HTML. Set the URL to your checkout or order page before publishing.
                 </p>
+              </div>
+            </div>
+          )}
+
+          {/* ──── DETAILS TAB ──── */}
+          {activeTab === 'details' && (
+            <div className="space-y-5">
+              {/* Editorial Plan Summary */}
+              {editorialPlan && (
+                <div className="p-3 bg-[#7C6DCD]/5 border border-[#7C6DCD]/15 rounded-xl">
+                  <p className="text-[11px] font-semibold text-[#7C6DCD] mb-2">Editorial Plan (Opus)</p>
+                  {editorialPlan.headline && (
+                    <p className="text-[12px] font-medium text-textdark mb-1">{editorialPlan.headline}</p>
+                  )}
+                  {editorialPlan.editorial_notes && (
+                    <p className="text-[11px] text-textmid mb-2">{editorialPlan.editorial_notes}</p>
+                  )}
+                  {editorialPlan.decisions?.length > 0 && (
+                    <div className="mt-2 pt-2 border-t border-[#7C6DCD]/10">
+                      <p className="text-[10px] font-medium text-[#7C6DCD]/80 mb-1">Decisions</p>
+                      <ul className="space-y-0.5">
+                        {editorialPlan.decisions.map((d, i) => (
+                          <li key={i} className="text-[10px] text-textmid flex gap-1.5">
+                            <span className="text-[#7C6DCD]/60 flex-shrink-0">&bull;</span>
+                            <span>{d}</span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Audit Trail Timeline */}
+              {auditTrail.length > 0 ? (
+                <div>
+                  <p className="text-[11px] font-medium text-textdark mb-2">Audit Trail</p>
+                  <div className="relative pl-4 border-l-2 border-navy/10 space-y-3">
+                    {auditTrail.map((entry, i) => {
+                      const stepLabels = {
+                        init: 'Initialization', template: 'Template', project: 'Project Data',
+                        copy: 'Copy Generation', editorial: 'Editorial Pass', images: 'Image Generation',
+                        html: 'HTML Generation', assembly: 'Assembly', postprocess: 'Post-Processing',
+                        qa: 'Visual QA', autofix: 'Auto-Fix', complete: 'Complete',
+                        design: 'Design Analysis',
+                      };
+                      const stepColors = {
+                        init: 'bg-navy/10 text-navy', template: 'bg-navy/10 text-navy',
+                        project: 'bg-navy/10 text-navy', copy: 'bg-gold/10 text-gold',
+                        editorial: 'bg-[#7C6DCD]/10 text-[#7C6DCD]', images: 'bg-teal/10 text-teal',
+                        html: 'bg-navy/10 text-navy', assembly: 'bg-navy/10 text-navy',
+                        postprocess: 'bg-gold/10 text-gold', qa: 'bg-teal/10 text-teal',
+                        autofix: 'bg-red-50 text-red-600', complete: 'bg-teal/10 text-teal',
+                        design: 'bg-gold/10 text-gold',
+                      };
+                      const label = stepLabels[entry.step] || entry.step;
+                      const color = stepColors[entry.step] || 'bg-black/5 text-textmid';
+                      const dotColor = entry.step === 'complete' ? 'bg-teal' :
+                        entry.action === 'failed' ? 'bg-red-500' :
+                        entry.step === 'editorial' ? 'bg-[#7C6DCD]' : 'bg-navy/40';
+
+                      return (
+                        <div key={i} className="relative">
+                          <div className={`absolute -left-[21px] top-1 w-2.5 h-2.5 rounded-full ${dotColor}`} />
+                          <div className="flex items-start gap-2">
+                            <span className={`text-[9px] font-medium px-1.5 py-0.5 rounded-full flex-shrink-0 ${color}`}>
+                              {label}
+                            </span>
+                            <span className="text-[10px] text-textlight font-mono flex-shrink-0">
+                              {new Date(entry.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                            </span>
+                          </div>
+                          <p className="text-[10px] text-textmid mt-0.5">{entry.detail}</p>
+                          {/* Editorial decisions sub-list */}
+                          {entry.decisions?.length > 0 && (
+                            <ul className="mt-1 space-y-0.5 ml-2">
+                              {entry.decisions.map((d, j) => (
+                                <li key={j} className="text-[10px] text-[#7C6DCD]/80 flex gap-1">
+                                  <span className="flex-shrink-0">&#8227;</span>
+                                  <span>{d}</span>
+                                </li>
+                              ))}
+                            </ul>
+                          )}
+                          {/* QA issues sub-list */}
+                          {entry.issues?.length > 0 && (
+                            <ul className="mt-1 space-y-0.5 ml-2">
+                              {entry.issues.map((issue, j) => (
+                                <li key={j} className="text-[10px] text-red-500 flex gap-1">
+                                  <span className="flex-shrink-0">!</span>
+                                  <span>{issue}</span>
+                                </li>
+                              ))}
+                            </ul>
+                          )}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              ) : (
+                <div className="p-4 bg-offwhite rounded-xl border border-black/5 text-center">
+                  <p className="text-[11px] text-textlight">No audit trail available for this page.</p>
+                  <p className="text-[10px] text-textlight/60 mt-1">Audit trails are recorded for pages generated after this feature was added.</p>
+                </div>
+              )}
+
+              {/* Generation Metadata */}
+              <div className="p-3 bg-offwhite rounded-xl border border-black/5">
+                <p className="text-[11px] font-medium text-textmid mb-2">Generation Metadata</p>
+                <div className="grid grid-cols-2 gap-2 text-[10px]">
+                  {initialPage.narrative_frame && (
+                    <div>
+                      <span className="text-textlight">Narrative Frame</span>
+                      <p className="text-textmid font-medium">{initialPage.narrative_frame}</p>
+                    </div>
+                  )}
+                  {initialPage.auto_generated && (
+                    <div>
+                      <span className="text-textlight">Source</span>
+                      <p className="text-teal font-medium">Auto-generated</p>
+                    </div>
+                  )}
+                  {initialPage.generation_attempts > 0 && (
+                    <div>
+                      <span className="text-textlight">Generation Attempts</span>
+                      <p className="text-textmid font-medium">{initialPage.generation_attempts}</p>
+                    </div>
+                  )}
+                  {initialPage.fix_attempts > 0 && (
+                    <div>
+                      <span className="text-textlight">Fix Attempts</span>
+                      <p className="text-textmid font-medium">{initialPage.fix_attempts}</p>
+                    </div>
+                  )}
+                  {initialPage.qa_status && (
+                    <div>
+                      <span className="text-textlight">QA Status</span>
+                      <p className={`font-medium ${initialPage.qa_status === 'passed' ? 'text-teal' : 'text-red-600'}`}>
+                        {initialPage.qa_status}{initialPage.qa_score != null ? ` (${initialPage.qa_score}/100)` : ''}
+                      </p>
+                    </div>
+                  )}
+                  {initialPage.template_id && (
+                    <div>
+                      <span className="text-textlight">Template</span>
+                      <p className="text-textmid font-medium font-mono text-[9px]">{initialPage.template_id.slice(0, 8)}...</p>
+                    </div>
+                  )}
+                </div>
               </div>
             </div>
           )}
