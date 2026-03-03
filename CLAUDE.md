@@ -216,13 +216,13 @@ This pipeline runs on every LP save (backend PUT endpoint) and during generation
 
 1. **Metadata replacement** — Fill `{{author_name}}`, `{{publish_date}}`, `{{warning_text}}`, `{{batch_angle}}` from project/agent config
 2. **Catch-all placeholder strip** — Remove any remaining `{{...}}` placeholders
-3. **Contrast safety CSS injection** — `injectContrastSafetyCSS()` adds `<style data-safety="contrast">` block ensuring white text on dark backgrounds (idempotent, checks for marker)
+3. **Contrast safety CSS injection** — `injectContrastSafetyCSS()` adds `<style data-safety="contrast">` block ensuring white text on dark backgrounds. Three-layer approach: (1) CSS attribute selectors for inline `background-color:` and `background:` shorthand, (2) parses `<style>` blocks to find class-based dark backgrounds and generates override rules, (3) inline style pass to fix dark-on-dark elements. Idempotent: checks for `data-safety="contrast"` marker.
 4. **Duplicate callout heading fix** — Removes duplicate `<h2>` from `<aside>` elements
 5. **Generic testimonial attribution fix** — Replaces generic "Customer" names with project author_name
 6. **Testimonial deduplication** — Text-content-based: strips HTML, splits into sentences, finds duplicates >= 50 chars, removes second occurrence's container
 7. **Empty element cleanup** — Removes empty `<p>`, `<div>`, etc.
 
-**Critical**: The frontend `assembleHtmlClient()` in `LPGen.jsx` rebuilds HTML from raw `htmlTemplate` + copy sections, which strips all post-processing. The backend PUT endpoint re-applies contrast CSS via `injectContrastSafetyCSS()`. The frontend also injects a simplified contrast CSS for editor preview.
+**Critical**: The frontend `assembleHtmlClient()` in `LPGen.jsx` rebuilds HTML from raw `htmlTemplate` + copy sections, which strips all post-processing. The backend PUT endpoint strips any existing contrast CSS then re-applies via `injectContrastSafetyCSS()`. The frontend also injects a simplified contrast CSS for editor preview.
 
 ### Paths That Must Stay in Sync
 
@@ -675,7 +675,7 @@ Rules that must never be violated. Breaking these causes silent failures or data
 
 ### LP Pipeline
 
-17. **`injectContrastSafetyCSS` is idempotent**. Checks for `data-safety="contrast"` marker before injecting. Safe to call multiple times. Exported from `lpGenerator.js`, called in: `postProcessLP()`, `landingPages.js` PUT endpoint, `landingPages.js` version restore endpoint.
+17. **`injectContrastSafetyCSS` is idempotent**. Checks for `data-safety="contrast"` marker before injecting. Safe to call multiple times. Three-layer approach: (1) CSS attribute selectors for inline styles, (2) `<style>` block parsing for class-based dark backgrounds, (3) inline style fix. Exported from `lpGenerator.js`, called in: `postProcessLP()`, `landingPages.js` PUT endpoint (strips old CSS first), `landingPages.js` version restore endpoint (strips old CSS first).
 
 18. **Frontend `assembleHtmlClient()` strips all post-processing**. The function rebuilds HTML from raw `htmlTemplate` + copy sections. The backend PUT endpoint re-applies contrast CSS. The frontend also injects a simplified contrast CSS version for editor preview. Any new post-processing added to `postProcessLP()` may need a corresponding safety net in the PUT endpoint.
 

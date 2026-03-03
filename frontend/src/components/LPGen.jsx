@@ -249,35 +249,39 @@ function assembleHtmlClient(htmlTemplate, copySections, imageSlots, ctaLinks) {
 
   // ── Contrast safety CSS — ensure white text on dark backgrounds ──
   // Simplified version of backend injectContrastSafetyCSS(); full version runs on backend save
+  // Covers BOTH background-color: AND background: shorthand
   if (!html.includes('data-safety="contrast"')) {
     const darkPrefixes = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'a', 'b'];
-    const sel = darkPrefixes.map(p => `[style*="background-color: #${p}"]`).join(', ');
-    const childSel = darkPrefixes.map(p => `[style*="background-color: #${p}"] *`).join(', ');
-    const linkSel = darkPrefixes.map(p => `[style*="background-color: #${p}"] a`).join(', ');
+    const bgProps = ['background-color', 'background'];
+    const darkSels = [];
+    const darkChildSels = [];
+    const darkLinkSels = [];
+    const lightSels = [];
+    const lightChildSels = [];
+    for (const prop of bgProps) {
+      for (const p of darkPrefixes) {
+        darkSels.push(`[style*="${prop}: #${p}"]`);
+        darkChildSels.push(`[style*="${prop}: #${p}"] *`);
+        darkLinkSels.push(`[style*="${prop}: #${p}"] a`);
+      }
+      for (let i = 0; i < 10; i++) {
+        darkSels.push(`[style*="${prop}: rgb(${i}"]`);
+        darkChildSels.push(`[style*="${prop}: rgb(${i}"] *`);
+        darkLinkSels.push(`[style*="${prop}: rgb(${i}"] a`);
+      }
+      for (const p of ['#f', '#F', '#e', '#E', '#d', '#D']) {
+        lightSels.push(`[style*="${prop}: ${p}"]`);
+        lightChildSels.push(`[style*="${prop}: ${p}"] *`);
+      }
+      lightSels.push(`[style*="${prop}: white"]`, `[style*="${prop}: #fff"]`, `[style*="${prop}: rgb(255"]`);
+      lightChildSels.push(`[style*="${prop}: white"] *`, `[style*="${prop}: #fff"] *`, `[style*="${prop}: rgb(255"] *`);
+    }
     const contrastCSS = `<style data-safety="contrast">
-  ${sel} { color: #FFFFFF !important; }
-  ${childSel} { color: #FFFFFF !important; }
-  ${linkSel} { color: #FFD700 !important; }
-  [style*="background-color: rgb(0"], [style*="background-color: rgb(1"],
-  [style*="background-color: rgb(2"], [style*="background-color: rgb(3"],
-  [style*="background-color: rgb(4"], [style*="background-color: rgb(5"],
-  [style*="background-color: rgb(6"], [style*="background-color: rgb(7"],
-  [style*="background-color: rgb(8"], [style*="background-color: rgb(9"] { color: #FFFFFF !important; }
-  [style*="background-color: rgb(0"] *, [style*="background-color: rgb(1"] *,
-  [style*="background-color: rgb(2"] *, [style*="background-color: rgb(3"] *,
-  [style*="background-color: rgb(4"] *, [style*="background-color: rgb(5"] *,
-  [style*="background-color: rgb(6"] *, [style*="background-color: rgb(7"] *,
-  [style*="background-color: rgb(8"] *, [style*="background-color: rgb(9"] * { color: #FFFFFF !important; }
-  [style*="background-color: #f"], [style*="background-color: #F"],
-  [style*="background-color: #e"], [style*="background-color: #E"],
-  [style*="background-color: #d"], [style*="background-color: #D"],
-  [style*="background-color: white"], [style*="background-color: #fff"],
-  [style*="background-color: rgb(255"] { color: inherit !important; }
-  [style*="background-color: #f"] *, [style*="background-color: #F"] *,
-  [style*="background-color: #e"] *, [style*="background-color: #E"] *,
-  [style*="background-color: #d"] *, [style*="background-color: #D"] *,
-  [style*="background-color: white"] *, [style*="background-color: #fff"] *,
-  [style*="background-color: rgb(255"] * { color: inherit !important; }
+  ${darkSels.join(', ')} { color: #FFFFFF !important; }
+  ${darkChildSels.join(', ')} { color: #FFFFFF !important; }
+  ${darkLinkSels.join(', ')} { color: #FFD700 !important; }
+  ${lightSels.join(', ')} { color: inherit !important; }
+  ${lightChildSels.join(', ')} { color: inherit !important; }
 </style>`;
     if (html.includes('</head>')) {
       html = html.replace('</head>', contrastCSS + '\n</head>');

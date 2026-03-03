@@ -1276,48 +1276,188 @@ function deduplicateTestimonials(html) {
   return result;
 }
 
+// ─── Contrast detection helpers ─────────────────────────────────────────────
+
+/**
+ * Perceived brightness using ITU-R BT.601 formula (0 = black, 255 = white).
+ */
+function perceivedBrightness(r, g, b) {
+  return (r * 299 + g * 587 + b * 114) / 1000;
+}
+
+/**
+ * Check if a color value represents a "dark" color (perceived brightness < 128).
+ * Handles hex (#rgb, #rrggbb), rgb(), rgba(), and common named colors.
+ */
+function isDarkColor(colorStr) {
+  if (!colorStr) return false;
+  const c = colorStr.trim().toLowerCase();
+
+  // Hex (#rgb, #rrggbb, #rrggbbaa)
+  const hexMatch = c.match(/^#([0-9a-f]{3,8})$/);
+  if (hexMatch) {
+    let hex = hexMatch[1];
+    if (hex.length === 3) hex = hex[0] + hex[0] + hex[1] + hex[1] + hex[2] + hex[2];
+    if (hex.length >= 6) {
+      const r = parseInt(hex.slice(0, 2), 16);
+      const g = parseInt(hex.slice(2, 4), 16);
+      const b = parseInt(hex.slice(4, 6), 16);
+      return perceivedBrightness(r, g, b) < 128;
+    }
+  }
+
+  // rgb(r, g, b) or rgba(r, g, b, a)
+  const rgbMatch = c.match(/rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/);
+  if (rgbMatch) {
+    return perceivedBrightness(parseInt(rgbMatch[1]), parseInt(rgbMatch[2]), parseInt(rgbMatch[3])) < 128;
+  }
+
+  // Known dark named colors
+  const darkNames = new Set([
+    'black', 'darkgreen', 'darkblue', 'darkred', 'darkgray', 'darkgrey',
+    'darkslategray', 'darkslategrey', 'navy', 'maroon', 'olive', 'purple', 'teal', 'green',
+    'indigo', 'midnightblue', 'darkslateblue', 'darkcyan', 'darkmagenta', 'darkolivegreen',
+    'darkviolet', 'forestgreen', 'saddlebrown', 'sienna', 'dimgray', 'dimgrey', 'slategray',
+    'slategrey', 'steelblue', 'brown', 'firebrick', 'seagreen', 'olivedrab',
+  ]);
+  return darkNames.has(c);
+}
+
+/**
+ * Extract a color value from a CSS background shorthand.
+ * e.g. "url(img.jpg) #2a6041" -> "#2a6041", "#2a6041" -> "#2a6041"
+ */
+function extractColorFromBackground(bgValue) {
+  if (!bgValue) return null;
+
+  // Direct hex color
+  const hexMatch = bgValue.match(/#[0-9a-f]{3,8}\b/i);
+  if (hexMatch) return hexMatch[0];
+
+  // RGB/RGBA
+  const rgbMatch = bgValue.match(/rgba?\([^)]+\)/i);
+  if (rgbMatch) return rgbMatch[0];
+
+  // Named color (first word if it looks like a color name)
+  const firstWord = bgValue.trim().split(/\s+/)[0].toLowerCase();
+  const notColors = new Set(['url', 'inherit', 'initial', 'unset', 'transparent', 'none', 'linear-gradient', 'radial-gradient', 'var']);
+  if (/^[a-z]+$/.test(firstWord) && !notColors.has(firstWord)) {
+    return firstWord;
+  }
+
+  return null;
+}
+
+/**
+ * Parse <style> blocks in the HTML and find CSS selectors that set dark backgrounds.
+ * Returns CSS override rules to force white text on those selectors.
+ * Skips our own injected style blocks (data-safety, data-autofix).
+ */
+function extractDarkBackgroundOverrides(html) {
+  const styleRegex = /<style(?![^>]*data-(?:safety|autofix))[^>]*>([\s\S]*?)<\/style>/gi;
+  const overrides = [];
+  let match;
+
+  while ((match = styleRegex.exec(html)) !== null) {
+    let css = match[1].replace(/\/\*[\s\S]*?\*\//g, ''); // strip comments
+
+    // Flatten @media blocks — remove the @media wrapper but keep inner rules
+    css = css.replace(/@media[^{]*\{/g, '');
+
+    // Find all rule blocks: selector { properties }
+    const ruleRegex = /([^{};]+?)\s*\{([^}]*)\}/g;
+    let ruleMatch;
+
+    while ((ruleMatch = ruleRegex.exec(css)) !== null) {
+      const selector = ruleMatch[1].trim();
+      const props = ruleMatch[2];
+
+      // Skip @-rules, keyframes, empty selectors
+      if (!selector || selector.startsWith('@') || /^(from|to|\d+%)/.test(selector)) continue;
+
+      // Check for background or background-color property
+      const bgPropMatch = props.match(/background(?:-color)?\s*:\s*([^;!]+)/i);
+      if (!bgPropMatch) continue;
+
+      const bgValue = bgPropMatch[1].trim();
+      const color = extractColorFromBackground(bgValue);
+      if (!color || !isDarkColor(color)) continue;
+
+      // This selector sets a dark background — generate contrast overrides
+      const sels = selector.split(',').map(s => s.trim()).filter(s => s && !s.startsWith('@'));
+      for (const sel of sels) {
+        overrides.push(`${sel} { color: #FFFFFF !important; }`);
+        overrides.push(`${sel} * { color: #FFFFFF !important; }`);
+        overrides.push(`${sel} a { color: #FFD700 !important; }`);
+      }
+    }
+  }
+
+  // Deduplicate
+  return [...new Set(overrides)].join('\n  ');
+}
+
 /**
  * Proactive contrast safety net — inject CSS rules that ensure text is readable
- * on dark backgrounds. Broader coverage: hex #0-#b, rgb(0-9), plus inline style fix.
+ * on dark backgrounds. Three-layer approach:
+ *   1. CSS attribute selectors for inline styles (both background-color: and background: shorthand)
+ *   2. Parse <style> blocks to find class-based dark backgrounds and generate override rules
+ *   3. Inline style pass to directly fix dark-on-dark style combos on individual elements
  * Idempotent: checks for data-safety="contrast" marker.
  */
 export function injectContrastSafetyCSS(html) {
   // Don't inject if already present (idempotency)
   if (html.includes('data-safety="contrast"')) return html;
 
-  // Build hex selectors for #0 through #b (dark range)
+  // ── Layer 1: CSS attribute selectors for inline dark backgrounds ──
+  // Match BOTH background-color: AND background: (shorthand)
   const darkHexPrefixes = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'a', 'b'];
-  const hexSel = darkHexPrefixes.map(p => `[style*="background-color: #${p}"]`).join(', ');
-  const hexChildSel = darkHexPrefixes.map(p => `[style*="background-color: #${p}"] *`).join(', ');
-  const hexLinkSel = darkHexPrefixes.map(p => `[style*="background-color: #${p}"] a`).join(', ');
+  const bgProps = ['background-color', 'background'];
 
+  const darkSel = [];
+  const darkChildSel = [];
+  const darkLinkSel = [];
+
+  for (const prop of bgProps) {
+    for (const p of darkHexPrefixes) {
+      darkSel.push(`[style*="${prop}: #${p}"]`);
+      darkChildSel.push(`[style*="${prop}: #${p}"] *`);
+      darkLinkSel.push(`[style*="${prop}: #${p}"] a`);
+    }
+    for (let i = 0; i < 10; i++) {
+      darkSel.push(`[style*="${prop}: rgb(${i}"]`);
+      darkChildSel.push(`[style*="${prop}: rgb(${i}"] *`);
+      darkLinkSel.push(`[style*="${prop}: rgb(${i}"] a`);
+    }
+  }
+
+  // Light background exclusions — restore to inherited color
+  const lightSel = [];
+  const lightChildSel = [];
+  for (const prop of bgProps) {
+    for (const p of ['#f', '#F', '#e', '#E', '#d', '#D']) {
+      lightSel.push(`[style*="${prop}: ${p}"]`);
+      lightChildSel.push(`[style*="${prop}: ${p}"] *`);
+    }
+    lightSel.push(`[style*="${prop}: white"]`, `[style*="${prop}: #fff"]`, `[style*="${prop}: rgb(255"]`);
+    lightChildSel.push(`[style*="${prop}: white"] *`, `[style*="${prop}: #fff"] *`, `[style*="${prop}: rgb(255"] *`);
+  }
+
+  // ── Layer 2: Parse <style> blocks for class-based dark backgrounds ──
+  const classOverrides = extractDarkBackgroundOverrides(html);
+  const classOverrideBlock = classOverrides
+    ? `\n  /* Class-based dark background overrides from page styles */\n  ${classOverrides}`
+    : '';
+
+  // ── Build the combined safety CSS ──
   const safetyCSS = `<style data-safety="contrast">
-  /* Proactive contrast safety: hex dark backgrounds #0-#b */
-  ${hexSel} { color: #FFFFFF !important; }
-  ${hexChildSel} { color: #FFFFFF !important; }
-  ${hexLinkSel} { color: #FFD700 !important; }
-  /* RGB dark backgrounds (r < 100) */
-  [style*="background-color: rgb(0"], [style*="background-color: rgb(1"],
-  [style*="background-color: rgb(2"], [style*="background-color: rgb(3"],
-  [style*="background-color: rgb(4"], [style*="background-color: rgb(5"],
-  [style*="background-color: rgb(6"], [style*="background-color: rgb(7"],
-  [style*="background-color: rgb(8"], [style*="background-color: rgb(9"] { color: #FFFFFF !important; }
-  [style*="background-color: rgb(0"] *, [style*="background-color: rgb(1"] *,
-  [style*="background-color: rgb(2"] *, [style*="background-color: rgb(3"] *,
-  [style*="background-color: rgb(4"] *, [style*="background-color: rgb(5"] *,
-  [style*="background-color: rgb(6"] *, [style*="background-color: rgb(7"] *,
-  [style*="background-color: rgb(8"] *, [style*="background-color: rgb(9"] * { color: #FFFFFF !important; }
-  /* Exclude light backgrounds — restore to inherit */
-  [style*="background-color: #f"], [style*="background-color: #F"],
-  [style*="background-color: #e"], [style*="background-color: #E"],
-  [style*="background-color: #d"], [style*="background-color: #D"],
-  [style*="background-color: white"], [style*="background-color: #fff"],
-  [style*="background-color: rgb(255"] { color: inherit !important; }
-  [style*="background-color: #f"] *, [style*="background-color: #F"] *,
-  [style*="background-color: #e"] *, [style*="background-color: #E"] *,
-  [style*="background-color: #d"] *, [style*="background-color: #D"] *,
-  [style*="background-color: white"] *, [style*="background-color: #fff"] *,
-  [style*="background-color: rgb(255"] * { color: inherit !important; }
+  /* Inline dark backgrounds — both background-color: and background: shorthand */
+  ${darkSel.join(',\n  ')} { color: #FFFFFF !important; }
+  ${darkChildSel.join(',\n  ')} { color: #FFFFFF !important; }
+  ${darkLinkSel.join(',\n  ')} { color: #FFD700 !important; }
+  /* Light background exclusions — restore to inherit */
+  ${lightSel.join(',\n  ')} { color: inherit !important; }
+  ${lightChildSel.join(',\n  ')} { color: inherit !important; }${classOverrideBlock}
 </style>`;
 
   // Inject CSS into <head> or before <body>
@@ -1330,27 +1470,44 @@ export function injectContrastSafetyCSS(html) {
     result = safetyCSS + html;
   }
 
-  // Inline style pass: directly fix dark-on-dark inline style combos
+  // ── Layer 3: Inline style pass — directly fix dark-on-dark combos ──
+  // Matches ANY element with a dark background in its style attribute and ensures
+  // the text color is white. Handles both background: and background-color:,
+  // and adds color: #FFFFFF even when no explicit color property exists.
   let inlineFixCount = 0;
   result = result.replace(
-    /style="([^"]*background-color:\s*(?:#[0-9a-bA-B][0-9a-fA-F]{2,5}|rgb\(\s*[0-9]{1,2}\s*,)[^"]*?)"/gi,
+    /style="([^"]*)"/gi,
     (fullMatch, styleContent) => {
-      // Skip light backgrounds
-      if (/background-color:\s*(?:#[d-fD-F]|white|#fff|rgb\(\s*2[0-5][0-9])/i.test(styleContent)) {
-        return fullMatch;
+      // Check if element has a dark background (either shorthand or longhand)
+      const bgMatch = styleContent.match(/background(?:-color)?\s*:\s*([^;!]+)/i);
+      if (!bgMatch) return fullMatch;
+
+      const bgValue = bgMatch[1].trim();
+      const color = extractColorFromBackground(bgValue);
+      if (!color || !isDarkColor(color)) return fullMatch;
+
+      // This element has a dark background — ensure text color is white
+      const props = styleContent.split(';').map(p => p.trim()).filter(p => p);
+      let hasStandaloneColor = false;
+      const fixedProps = props.map(prop => {
+        // Match standalone color: (not background-color: or border-color:)
+        if (/^color\s*:/i.test(prop)) {
+          hasStandaloneColor = true;
+          return 'color: #FFFFFF';
+        }
+        return prop;
+      });
+
+      if (!hasStandaloneColor) {
+        fixedProps.push('color: #FFFFFF');
       }
-      // Check if there's a dark text color in the same style
-      if (/;\s*color:\s*(?:#[0-3][0-9a-fA-F]{2,5}|#000|black|rgb\(\s*[0-5][0-9])/i.test(styleContent)) {
-        const fixed = styleContent
-          .replace(/color:\s*(?:#[0-3][0-9a-fA-F]{2,5}|#000|black|rgb\([^)]*\))/gi, 'color: #FFFFFF');
-        inlineFixCount++;
-        return `style="${fixed}"`;
-      }
-      return fullMatch;
+
+      inlineFixCount++;
+      return `style="${fixedProps.join('; ')}"`;
     }
   );
   if (inlineFixCount > 0) {
-    console.log(`[LP-FIX] Fixed ${inlineFixCount} dark-on-dark inline style(s)`);
+    console.log(`[LP-FIX] Fixed ${inlineFixCount} inline dark-background element(s) to white text`);
   }
 
   return result;
@@ -1757,15 +1914,23 @@ You must respond with ONLY a valid JSON object — no markdown, no prose.`;
 
     const qaPrompt = `Inspect this landing page screenshot carefully and identify any visual quality issues.
 
-CHECK FOR THESE SPECIFIC ISSUES:
+PRIORITY CHECK — TEXT LEGIBILITY / CONTRAST (type: "contrast_failure"):
+Before checking anything else, scan EVERY section of the page from top to bottom and verify that ALL text is easily readable against its background. Specifically look for:
+- Dark text (black, dark gray, dark green, navy) on dark backgrounds (green, dark blue, dark gray, brown)
+- Light text on light backgrounds (white text on cream/beige)
+- Text on colored sections (CTA areas, product highlights, banners, callout boxes) that blends into the background
+- Button text that is hard to read against the button color
+- Any section where you have to squint or look carefully to read the text
+For EACH legibility issue, report what the background color looks like, what the text color looks like, the section location, and mark severity as "critical".
+
+ALSO CHECK FOR THESE ISSUES:
 1. **Placeholder text** (type: "placeholder_text"): Any visible {{placeholder}} tags, Lorem ipsum, "TODO", "[INSERT]", or clearly fake/template text
 2. **Gray box / broken images** (type: "gray_box_image" or "broken_image"): Missing images showing alt text, broken icons, gray/colored placeholder boxes, or obvious AI artifacts
 3. **Layout problems** (type: "layout_overlap" or "empty_section"): Overlapping text, cut-off content, completely empty sections, extremely wide/narrow columns
 4. **Generic attribution** (type: "generic_attribution"): Testimonial quotes attributed to "Verified Buyer", "Happy Customer", "Anonymous", etc.
 5. **CTA issues** (type: "cta_broken"): Buttons with placeholder text, broken styles, obviously fake URLs like "#" or "example.com"
 6. **Typography problems** (type: "typography_mismatch"): Mismatched fonts, unreadable text sizes
-7. **Color/contrast issues** (type: "contrast_failure"): Text unreadable against its background, dark text on dark background
-8. **Content problems** (type: "duplicate_content" or "truncated_content"): Duplicate visible sections, obviously cut-off sentences
+7. **Content problems** (type: "duplicate_content" or "truncated_content"): Duplicate visible sections, obviously cut-off sentences
 
 RESPOND WITH A JSON OBJECT:
 {

@@ -8,7 +8,7 @@
 import { chat } from './anthropic.js';
 import { generateImage } from './gemini.js';
 import { uploadBuffer, getStorageUrl } from '../convexClient.js';
-import { postProcessLP } from './lpGenerator.js';
+import { postProcessLP, injectContrastSafetyCSS } from './lpGenerator.js';
 
 /**
  * Attempt to auto-fix issues identified by Visual QA.
@@ -57,7 +57,12 @@ export async function autoFixLP(html, qaReport, context) {
     }
   }
 
-  // Fix 2: Contrast issues — inject CSS overrides
+  // Fix 2: Deterministic contrast scan — always runs, regardless of QA findings
+  const deterministicResult = deterministicContrastFix(fixedHtml);
+  fixedHtml = deterministicResult.html;
+  allFixes.push(...deterministicResult.fixes);
+
+  // Fix 3: Contrast issues from QA findings — inject CSS overrides + re-run safety CSS
   const contrastResult = fixContrast(fixedHtml, allIssues);
   fixedHtml = contrastResult.html;
   allFixes.push(...contrastResult.fixes);
@@ -66,7 +71,7 @@ export async function autoFixLP(html, qaReport, context) {
   // PHASE 2: LLM-POWERED FIXES (costs tokens)
   // =============================================
 
-  // Fix 3: Broken/gray-box images — regenerate via Gemini
+  // Fix 4: Broken/gray-box images — regenerate via Gemini
   try {
     const imageResult = await fixBrokenImages(fixedHtml, allIssues, context);
     fixedHtml = imageResult.html;
@@ -75,7 +80,7 @@ export async function autoFixLP(html, qaReport, context) {
     console.warn('[LP AutoFixer] Image fix failed (non-fatal):', err.message);
   }
 
-  // Fix 4: Layout/CSS issues — targeted CSS fix via Claude Sonnet
+  // Fix 5: Layout/CSS issues — targeted CSS fix via Claude Sonnet
   try {
     const layoutResult = await fixLayoutCSS(fixedHtml, allIssues, context);
     fixedHtml = layoutResult.html;
@@ -93,37 +98,72 @@ export async function autoFixLP(html, qaReport, context) {
 // ─────────────────────────────────────────────
 
 /**
- * Inject CSS overrides for contrast failures.
+ * Deterministic contrast fix — always runs, zero LLM cost.
+ * Re-applies the full contrast safety CSS pipeline (injectContrastSafetyCSS)
+ * which now handles inline styles, background: shorthand, AND class-based backgrounds.
+ * This catches contrast issues that the initial postProcessLP pass may have missed
+ * (e.g., if HTML was modified after postProcessLP ran).
+ */
+function deterministicContrastFix(html) {
+  // Strip existing contrast safety CSS so injectContrastSafetyCSS re-evaluates from scratch
+  let cleaned = html.replace(/<style[^>]*data-safety="contrast"[^>]*>[\s\S]*?<\/style>/gi, '');
+
+  // Re-inject with the enhanced contrast safety CSS (now includes <style> block parsing)
+  const fixed = injectContrastSafetyCSS(cleaned);
+
+  const wasChanged = fixed !== html;
+  const fixes = wasChanged ? [{
+    type: 'contrast_failure',
+    method: 'deterministic_contrast_reinject',
+    description: 'Re-applied enhanced contrast safety CSS (inline + class-based backgrounds)',
+  }] : [];
+
+  if (wasChanged) {
+    console.log('[LP AutoFixer] Deterministic contrast fix applied (re-injected enhanced safety CSS)');
+  }
+
+  return { html: fixed, fixes };
+}
+
+/**
+ * Inject CSS overrides for contrast failures identified by Visual QA.
+ * Uses selector hints from the QA report for targeted fixes,
+ * plus a comprehensive safety net covering all dark background patterns.
  */
 function fixContrast(html, issues) {
   const contrastIssues = issues.filter(i => i.type === 'contrast_failure');
   if (contrastIssues.length === 0) return { html, fixes: [] };
 
-  console.log(`[LP AutoFixer] Fixing ${contrastIssues.length} contrast issue(s)`);
+  console.log(`[LP AutoFixer] Fixing ${contrastIssues.length} contrast issue(s) from QA findings`);
 
-  // Build targeted CSS rules from selector hints, plus generic safety net
+  // Build targeted CSS rules from QA selector hints
   const rules = [];
 
   for (const issue of contrastIssues) {
     if (issue.css_selector_hint) {
-      // Use the hint to target specific elements
       rules.push(`${issue.css_selector_hint} { color: #FFFFFF !important; text-shadow: 0 1px 2px rgba(0,0,0,0.3) !important; }`);
       rules.push(`${issue.css_selector_hint} * { color: #FFFFFF !important; }`);
+      rules.push(`${issue.css_selector_hint} a { color: #FFD700 !important; }`);
     }
   }
 
-  // Generic safety net for dark backgrounds
-  rules.push(`
-    /* Generic contrast safety net */
-    [style*="background-color: #2"] *, [style*="background-color: #3"] *,
-    [style*="background-color: #4"] *, [style*="background-color: #1"] * {
-      color: #FFFFFF !important;
+  // Comprehensive safety net — covers all dark background patterns
+  // Both background-color: and background: shorthand
+  const darkHexPrefixes = ['0', '1', '2', '3', '4', '5', '6', '7', '8', '9', 'a', 'b'];
+  const bgProps = ['background-color', 'background'];
+  const safetySelectors = [];
+  const safetyChildSelectors = [];
+
+  for (const prop of bgProps) {
+    for (const p of darkHexPrefixes) {
+      safetySelectors.push(`[style*="${prop}: #${p}"]`);
+      safetyChildSelectors.push(`[style*="${prop}: #${p}"] *`);
     }
-    [style*="background-color: #2"], [style*="background-color: #3"],
-    [style*="background-color: #4"], [style*="background-color: #1"] {
-      color: #FFFFFF !important;
-    }
-  `);
+  }
+
+  rules.push(`/* Comprehensive dark background safety net */`);
+  rules.push(`${safetySelectors.join(', ')} { color: #FFFFFF !important; }`);
+  rules.push(`${safetyChildSelectors.join(', ')} { color: #FFFFFF !important; }`);
 
   const styleBlock = `<style data-autofix="contrast">\n${rules.join('\n')}\n</style>`;
   let fixed;

@@ -458,7 +458,8 @@ router.put('/:projectId/landing-pages/:pageId', async (req, res) => {
     updates.assembled_html = updates.assembled_html.replace(/\{\{[\s]*warning_box_text[\s]*\}\}/gi, 'The following article discusses findings that may change how you think about the products you use every day.');
     updates.assembled_html = updates.assembled_html.replace(/\{\{[\s]*TRENDING_CATEGORY[\s]*\}\}/gi, 'Health & Wellness');
     updates.assembled_html = updates.assembled_html.replace(/\{\{[^}]+\}\}/g, '');
-    // Re-inject contrast safety CSS (stripped by frontend assembleHtmlClient rebuild)
+    // Strip existing contrast safety CSS (may be outdated) then re-inject fresh
+    updates.assembled_html = updates.assembled_html.replace(/<style[^>]*data-safety="contrast"[^>]*>[\s\S]*?<\/style>/gi, '');
     updates.assembled_html = injectContrastSafetyCSS(updates.assembled_html);
   }
 
@@ -816,7 +817,8 @@ router.post('/:projectId/landing-pages/:pageId/versions/:versionId/restore', asy
     updates.assembled_html = updates.assembled_html.replace(/\{\{[\s]*warning_box_text[\s]*\}\}/gi, 'The following article discusses findings that may change how you think about the products you use every day.');
     updates.assembled_html = updates.assembled_html.replace(/\{\{[\s]*TRENDING_CATEGORY[\s]*\}\}/gi, 'Health & Wellness');
     updates.assembled_html = updates.assembled_html.replace(/\{\{[^}]+\}\}/g, '');
-    // Re-inject contrast safety CSS (may be missing from old versions)
+    // Strip existing contrast safety CSS (may be outdated) then re-inject fresh
+    updates.assembled_html = updates.assembled_html.replace(/<style[^>]*data-safety="contrast"[^>]*>[\s\S]*?<\/style>/gi, '');
     updates.assembled_html = injectContrastSafetyCSS(updates.assembled_html);
   }
 
