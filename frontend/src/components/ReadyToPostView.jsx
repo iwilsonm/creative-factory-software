@@ -160,6 +160,7 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
     }));
     addToast('Marked as posted', 'success');
     setConfirmPosted(null);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
 
     // API calls in background
     try {
@@ -197,6 +198,7 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
     }));
     addToast(`${childDeps.length} ads marked as posted`, 'success');
     setConfirmPosted(null);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
 
     // API calls in background — all in parallel
     try {
@@ -638,8 +640,33 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
     </div>
   );
 
-  // "Post in" section: Campaign + Ad Set + optional Duplicate Ad Set Name
-  const PostInSection = ({ campaignName, adSetName, duplicateAdSetName }) => {
+  // Copy button with crossout tracking — for ad set name, rename, and ad name rows
+  const CopyTrackBtn = ({ itemKey, text, label }) => {
+    const isCopied = copiedItems.has(itemKey);
+    const handleCopy = (e) => {
+      e.stopPropagation();
+      copyToClipboard(text, label);
+      setCopiedItems(prev => new Set(prev).add(itemKey));
+    };
+    return (
+      <button onClick={handleCopy}
+        className={`inline-flex items-center gap-1 rounded-md font-medium transition-colors flex-shrink-0 px-1.5 py-0.5 text-[9px] ${
+          isCopied ? 'bg-teal/10 text-teal hover:bg-teal/15' : 'bg-navy/5 text-navy hover:bg-navy/10'
+        }`}>
+        <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          {isCopied ? (
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+          ) : (
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+          )}
+        </svg>
+        {isCopied ? 'Copied' : 'Copy'}
+      </button>
+    );
+  };
+
+  // "Post in" section: Campaign + Ad Set + optional Duplicate Ad Set Name + Ad Name
+  const PostInSection = ({ campaignName, adSetName, duplicateAdSetName, adName, cardKey }) => {
     if (!campaignName && !adSetName) {
       return (
         <div className="bg-gold/10 border-2 border-gold/30 rounded-xl p-4">
@@ -653,6 +680,14 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
         </div>
       );
     }
+
+    const adsetKey = `${cardKey}-adset`;
+    const renameKey = `${cardKey}-adset-rename`;
+    const adnameKey = `${cardKey}-adname`;
+    const adsetCopied = copiedItems.has(adsetKey);
+    const renameCopied = copiedItems.has(renameKey);
+    const adnameCopied = copiedItems.has(adnameKey);
+
     return (
       <div className="bg-navy/5 border-2 border-navy/15 rounded-xl p-4">
         <span className="inline-block px-2 py-0.5 rounded bg-navy text-white text-[10px] font-bold uppercase tracking-widest mb-3">Post This Ad In</span>
@@ -663,12 +698,21 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
           </div>
           <div className="flex items-center gap-3">
             <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider text-center flex-shrink-0 ${duplicateAdSetName ? 'bg-gold/15 text-gold' : 'bg-navy/10 text-navy w-20'}`} style={duplicateAdSetName ? { minWidth: '5rem' } : undefined}>{duplicateAdSetName ? 'Duplicate This Ad Set' : 'Ad Set'}</span>
-            <span className="text-[15px] font-bold text-textdark">{duplicateAdSetName || adSetName}</span>
+            <span className={`text-[15px] font-bold flex-1 transition-all duration-300 ${adsetCopied ? 'line-through text-textmid/60 decoration-teal/40' : 'text-textdark'}`}>{duplicateAdSetName || adSetName}</span>
+            <CopyTrackBtn itemKey={adsetKey} text={duplicateAdSetName || adSetName} label="Ad Set Name" />
           </div>
           {duplicateAdSetName && (
             <div className="flex items-center gap-3">
               <span className="inline-block px-2 py-0.5 rounded bg-gold/15 text-gold text-[10px] font-bold uppercase tracking-wider flex-shrink-0" style={{ minWidth: '5rem', textAlign: 'center' }}>Rename the Duplicated Ad Set</span>
-              <span className="text-[15px] font-bold text-textdark">{adSetName}</span>
+              <span className={`text-[15px] font-bold flex-1 transition-all duration-300 ${renameCopied ? 'line-through text-textmid/60 decoration-teal/40' : 'text-textdark'}`}>{adSetName}</span>
+              <CopyTrackBtn itemKey={renameKey} text={adSetName} label="Rename Ad Set" />
+            </div>
+          )}
+          {adName && (
+            <div className="flex items-center gap-3">
+              <span className="inline-block px-2 py-0.5 rounded bg-navy/10 text-navy text-[10px] font-bold uppercase tracking-wider w-20 text-center flex-shrink-0">Ad Name</span>
+              <span className={`text-[15px] font-bold flex-1 transition-all duration-300 ${adnameCopied ? 'line-through text-textmid/60 decoration-teal/40' : 'text-textdark'}`}>{adName}</span>
+              <CopyTrackBtn itemKey={adnameKey} text={adName} label="Ad Name" />
             </div>
           )}
         </div>
@@ -848,6 +892,7 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
         <option value="">Select...</option>
         <option value="Corinne">Corinne</option>
         <option value="Liz">Liz</option>
+        <option value="Ian">Ian</option>
       </select>
     </div>
   );
@@ -1053,7 +1098,7 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
           )}
 
           {/* Campaign + Ad Set + Duplicate Ad Set — always visible */}
-          <PostInSection campaignName={campaignName} adSetName={adSetName} duplicateAdSetName={dep.duplicate_adset_name} />
+          <PostInSection campaignName={campaignName} adSetName={adSetName} duplicateAdSetName={dep.duplicate_adset_name} adName={name} cardKey={dep.id} />
 
           {/* Admin Edit Panel — always visible when editing (not inside collapsible) */}
           <EditPanel cardKey={dep.id} id={dep.id} isFlex={false} />
@@ -1230,7 +1275,7 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
           )}
 
           {/* Campaign + Ad Set + Duplicate Ad Set — always visible */}
-          <PostInSection campaignName={campaignName} adSetName={adSetName} duplicateAdSetName={flexAd.duplicate_adset_name} />
+          <PostInSection campaignName={campaignName} adSetName={adSetName} duplicateAdSetName={flexAd.duplicate_adset_name} adName={flexAd.name || 'Flex Ad'} cardKey={flexId} />
 
           {/* Dual Destination — LP URLs + PDP URL with copy buttons */}
           {(flexAd.lp_primary_url || flexAd.lp_secondary_url) && (
