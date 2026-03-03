@@ -360,6 +360,13 @@ function DirectorTab({ onRefresh }) {
   const [showAddAngle, setShowAddAngle] = useState(false);
   const [newAngle, setNewAngle] = useState({ name: '', description: '', prompt_hints: '' });
 
+  // Import angles
+  const [showImport, setShowImport] = useState(false);
+  const [importDragOver, setImportDragOver] = useState(false);
+  const [importResult, setImportResult] = useState(null); // { newAngles: [], skipped: [] }
+  const [importing, setImporting] = useState(false);
+  const importFileRef = useRef(null);
+
   // Load projects list
   useEffect(() => {
     (async () => {
@@ -457,6 +464,115 @@ function DirectorTab({ onRefresh }) {
     } catch { /* ignore */ }
   };
 
+  // --- Export angles as markdown ---
+  const handleDownloadAngles = () => {
+    if (angles.length === 0) return;
+    const grouped = { active: [], testing: [], retired: [] };
+    angles.forEach(a => {
+      const bucket = grouped[a.status] || grouped.active;
+      bucket.push(a);
+    });
+
+    let md = '# Angles\n\n';
+    const writeSection = (list) => {
+      list.forEach(a => {
+        md += `## ${a.name}\n`;
+        md += `- **Status**: ${a.status || 'active'}\n`;
+        md += `- **Source**: ${a.source || 'manual'}\n`;
+        md += `- **Focused**: ${a.focused ? 'yes' : 'no'}\n`;
+        if (a.prompt_hints) md += `- **Prompt Hints**: ${a.prompt_hints}\n`;
+        if (a.performance_note) md += `- **Performance Note**: ${a.performance_note}\n`;
+        md += `\n${a.description || ''}\n\n---\n\n`;
+      });
+    };
+    if (grouped.active.length) { md += '<!-- Active -->\n\n'; writeSection(grouped.active); }
+    if (grouped.testing.length) { md += '<!-- Testing -->\n\n'; writeSection(grouped.testing); }
+    if (grouped.retired.length) { md += '<!-- Retired -->\n\n'; writeSection(grouped.retired); }
+
+    const blob = new Blob([md.trim() + '\n'], { type: 'text/markdown' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = 'angles-export.md';
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    URL.revokeObjectURL(url);
+  };
+
+  // --- Parse markdown into angle objects ---
+  const parseAnglesMarkdown = (text) => {
+    const sections = text.split(/\n## /).slice(1); // split on ## headings, skip preamble
+    const parsed = [];
+    for (const section of sections) {
+      const lines = section.split('\n');
+      const name = lines[0].trim();
+      if (!name) continue;
+
+      let status = 'active', source = 'manual', focused = false, promptHints = '', performanceNote = '';
+      const descLines = [];
+      let pastMeta = false;
+
+      for (let i = 1; i < lines.length; i++) {
+        const line = lines[i];
+        const metaMatch = line.match(/^- \*\*(.+?)\*\*:\s*(.+)/);
+        if (metaMatch && !pastMeta) {
+          const key = metaMatch[1].toLowerCase();
+          const val = metaMatch[2].trim();
+          if (key === 'status') status = val.toLowerCase();
+          else if (key === 'source') source = val.toLowerCase();
+          else if (key === 'focused') focused = val.toLowerCase() === 'yes';
+          else if (key === 'prompt hints') promptHints = val;
+          else if (key === 'performance note') performanceNote = val;
+        } else {
+          pastMeta = true;
+          if (line.trim() !== '---') descLines.push(line);
+        }
+      }
+      const description = descLines.join('\n').trim();
+      if (!description) continue; // skip angles with no description
+
+      parsed.push({ name, description, status, source, focused, prompt_hints: promptHints, performance_note: performanceNote });
+    }
+    return parsed;
+  };
+
+  // --- Handle file read for import ---
+  const handleImportFile = (file) => {
+    if (!file || !file.name.endsWith('.md')) return;
+    const reader = new FileReader();
+    reader.onload = (e) => {
+      const text = e.target.result;
+      const parsed = parseAnglesMarkdown(text);
+      const existingNames = new Set(angles.map(a => a.name.toLowerCase()));
+      const newAngles = parsed.filter(a => !existingNames.has(a.name.toLowerCase()));
+      const skipped = parsed.filter(a => existingNames.has(a.name.toLowerCase()));
+      setImportResult({ newAngles, skipped });
+    };
+    reader.readAsText(file);
+  };
+
+  const handleConfirmImport = async () => {
+    if (!importResult?.newAngles?.length) return;
+    setImporting(true);
+    try {
+      for (const angle of importResult.newAngles) {
+        await api.createConductorAngle(selectedProject, {
+          name: angle.name,
+          description: angle.description,
+          prompt_hints: angle.prompt_hints || undefined,
+          source: angle.source || 'manual',
+          status: angle.status || 'active',
+        });
+      }
+      const angRes = await api.getConductorAngles(selectedProject);
+      setAngles(angRes?.angles || []);
+      setImportResult(null);
+      setShowImport(false);
+    } catch { /* ignore */ }
+    finally { setImporting(false); }
+  };
+
   if (loading) return <div className="text-[11px] text-textlight py-4">Loading...</div>;
 
   const subTabs = [
@@ -538,6 +654,97 @@ function DirectorTab({ onRefresh }) {
                 <path d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
               </svg>
               <span className="text-[11px] text-gold/90 font-medium">Focus mode — Director will only use focused angles</span>
+            </div>
+          )}
+
+          {/* Export / Import toolbar */}
+          <div className="flex items-center gap-2 mb-3">
+            <button
+              onClick={handleDownloadAngles}
+              disabled={angles.length === 0}
+              className="btn-secondary text-[11px] px-3 py-1.5 flex items-center gap-1.5 disabled:opacity-40"
+            >
+              <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5m0 0l5-5m-5 5V3" /></svg>
+              Export
+            </button>
+            <button
+              onClick={() => { setShowImport(!showImport); setImportResult(null); }}
+              className={`btn-secondary text-[11px] px-3 py-1.5 flex items-center gap-1.5 ${showImport ? 'ring-1 ring-navy/30' : ''}`}
+            >
+              <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M17 8l-5-5m0 0L7 8m5-5v12" /></svg>
+              Import
+            </button>
+          </div>
+
+          {/* Import panel */}
+          {showImport && (
+            <div className="mb-4 rounded-xl bg-offwhite border border-black/10 p-4">
+              {!importResult ? (
+                <>
+                  <p className="text-[12px] font-medium text-textdark mb-2">Import Angles from Markdown</p>
+                  <p className="text-[10px] text-textmid mb-3">Upload a .md file with angles formatted as ## sections. Existing angles (matched by name) will be skipped.</p>
+                  <div
+                    onClick={() => importFileRef.current?.click()}
+                    onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setImportDragOver(true); }}
+                    onDragEnter={(e) => { e.preventDefault(); e.stopPropagation(); setImportDragOver(true); }}
+                    onDragLeave={(e) => { e.preventDefault(); e.stopPropagation(); setImportDragOver(false); }}
+                    onDrop={(e) => {
+                      e.preventDefault(); e.stopPropagation(); setImportDragOver(false);
+                      const file = e.dataTransfer?.files?.[0];
+                      if (file) handleImportFile(file);
+                    }}
+                    className={`border-2 border-dashed rounded-lg p-6 text-center cursor-pointer transition-all ${
+                      importDragOver ? 'border-gold bg-gold/5' : 'border-gray-300 hover:border-gold hover:bg-offwhite'
+                    }`}
+                  >
+                    <div className="text-2xl text-gray-400 mb-2">{importDragOver ? '📂' : '📄'}</div>
+                    <p className={`text-[12px] font-medium ${importDragOver ? 'text-gold' : 'text-textmid'}`}>
+                      {importDragOver ? 'Drop file here' : 'Drop your .md file here, or click to browse'}
+                    </p>
+                    <p className="text-[10px] text-gray-400 mt-1">Markdown files only (.md)</p>
+                  </div>
+                  <input
+                    ref={importFileRef}
+                    type="file"
+                    accept=".md"
+                    onChange={(e) => { const file = e.target.files?.[0]; if (file) handleImportFile(file); e.target.value = ''; }}
+                    className="hidden"
+                  />
+                </>
+              ) : (
+                <>
+                  <p className="text-[12px] font-medium text-textdark mb-2">Import Preview</p>
+                  {importResult.newAngles.length > 0 ? (
+                    <div className="mb-3">
+                      <p className="text-[11px] text-teal font-medium mb-1.5">{importResult.newAngles.length} new angle{importResult.newAngles.length !== 1 ? 's' : ''} to import:</p>
+                      <div className="space-y-1 max-h-40 overflow-y-auto">
+                        {importResult.newAngles.map((a, i) => (
+                          <div key={i} className="text-[11px] text-textdark bg-teal/5 rounded px-2.5 py-1.5 border border-teal/10">
+                            <span className="font-medium">{a.name}</span>
+                            <span className="text-textmid ml-2">{a.description.slice(0, 80)}{a.description.length > 80 ? '...' : ''}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="text-[11px] text-textmid mb-3">No new angles found — all angles in the file already exist.</p>
+                  )}
+                  {importResult.skipped.length > 0 && (
+                    <p className="text-[10px] text-textlight mb-3">{importResult.skipped.length} angle{importResult.skipped.length !== 1 ? 's' : ''} skipped (already exist)</p>
+                  )}
+                  <div className="flex gap-2">
+                    {importResult.newAngles.length > 0 && (
+                      <button onClick={handleConfirmImport} disabled={importing} className="btn-primary text-[11px] px-3 py-1.5 disabled:opacity-50">
+                        {importing ? 'Importing...' : `Import ${importResult.newAngles.length} Angle${importResult.newAngles.length !== 1 ? 's' : ''}`}
+                      </button>
+                    )}
+                    <button onClick={() => { setImportResult(null); setShowImport(false); }} className="btn-secondary text-[11px] px-3 py-1.5">Cancel</button>
+                    {!importing && importResult.newAngles.length === 0 && (
+                      <button onClick={() => setImportResult(null)} className="btn-secondary text-[11px] px-3 py-1.5">Try Another File</button>
+                    )}
+                  </div>
+                </>
+              )}
             </div>
           )}
 
