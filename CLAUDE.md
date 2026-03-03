@@ -16,6 +16,7 @@
 | `backend/services/retry.js` | 12 files | `defaultShouldRetry` does NOT retry 4xx except 429. Changing this affects all LLM calls |
 | `backend/services/costTracker.js` | 11 files | Every LLM wrapper auto-logs costs. Changing the signature breaks all wrappers |
 | `frontend/src/components/Toast.jsx` | 11 files | `ToastProvider` + `useToast` hook consumed across the UI |
+| `frontend/src/components/PipelineProgress.jsx` | 6 files | Shared progress bar — see `.claude/skills/progress-bar-standard/SKILL.md` |
 | `convex/schema.ts` | All Convex functions | Schema changes require a **separate** `npx convex deploy -y` on VPS |
 
 **Rule of thumb**: Grep for any identifier you're about to rename. Trace the full chain:
@@ -379,6 +380,14 @@ Every shared module imported by 2+ production files. Test files excluded. Organi
 → `frontend/src/components/FoundationalDocs.jsx`
 → `frontend/src/components/CreativeFilterSettings.jsx`
 
+**`frontend/src/components/PipelineProgress.jsx`** — Shared progress bar for all long-running SSE pipelines
+→ `frontend/src/components/LPAgentSettings.jsx`
+→ `frontend/src/components/FoundationalDocs.jsx`
+→ `frontend/src/components/GenerationQueue.jsx`
+→ `frontend/src/components/LPGen.jsx`
+→ `frontend/src/components/QuoteMiner.jsx`
+→ `frontend/src/components/BatchRow.jsx`
+
 ### Tier 2: 3–9 Consumers
 
 **`frontend/src/components/InfoTooltip.jsx`** — Pure CSS hover tooltip
@@ -675,6 +684,18 @@ Standalone tables: `settings`, `users`, `sessions`, `api_costs`, `dashboard_todo
 3. Never call APIs directly — wrappers provide retry logic + cost logging
 4. For Claude JSON mode: wrapper auto-strips markdown fences and extracts first `{ ... }` block
 
+### Adding a New Long-Running Process or Progress Bar
+
+**READ the skill file first:** `.claude/skills/progress-bar-standard/SKILL.md`
+
+1. Use `PipelineProgress` component (`frontend/src/components/PipelineProgress.jsx`) — no custom progress bars
+2. Backend: emit `{ type: 'progress', step: 'name', message: '...' }` via `createSSEStream` or `streamService`
+3. Frontend: create `STEP_PROGRESS` map (weighted by wall-clock time) and `STEP_LABELS` map
+4. Use `Math.max(prev, newValue)` for all progress updates (never go backwards)
+5. Set `genStartRef.current = Date.now()` when starting (enables ETA display)
+6. On completion: set 100%, wait 500ms, then reset state
+7. The skill file has the full pattern, anti-patterns, and verification checklist
+
 ---
 
 ## 6. Common Pitfalls
@@ -804,6 +825,7 @@ ad-platform/
 │   │   ├── LPAgentSettings.jsx     # LP Agent settings panel
 │   │   ├── LPTemplateManager.jsx   # LP template extraction + management
 │   │   ├── CreativeFilterSettings.jsx # Per-project Filter config
+│   │   ├── PipelineProgress.jsx     # Shared progress bar (see skill)
 │   │   ├── CopywriterChat.jsx       # Chat widget
 │   │   ├── TemplateImages.jsx       # Template management
 │   │   ├── InspirationFolder.jsx    # Drive inspiration

@@ -452,9 +452,9 @@ router.put('/:projectId/landing-pages/:pageId', async (req, res) => {
   // ── Inline placeholder safety net — never store {{...}} in assembled_html ──
   if (updates.assembled_html) {
     updates.assembled_html = updates.assembled_html.replace(/\{\{[\s]*publish_date[\s]*\}\}/gi, new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }));
-    updates.assembled_html = updates.assembled_html.replace(/\{\{[\s]*author_name[\s]*\}\}/gi, 'Health Desk');
-    updates.assembled_html = updates.assembled_html.replace(/\{\{[\s]*author_title[\s]*\}\}/gi, 'Senior Health Correspondent');
-    updates.assembled_html = updates.assembled_html.replace(/\{\{[\s]*warning_box_text[\s]*\}\}/gi, 'This article is based on scientific research and expert analysis.');
+    updates.assembled_html = updates.assembled_html.replace(/\{\{[\s]*author_name[\s]*\}\}/gi, 'Sarah Mitchell');
+    updates.assembled_html = updates.assembled_html.replace(/\{\{[\s]*author_title[\s]*\}\}/gi, 'Health & Wellness Editor');
+    updates.assembled_html = updates.assembled_html.replace(/\{\{[\s]*warning_box_text[\s]*\}\}/gi, 'The following article discusses findings that may change how you think about the products you use every day.');
     updates.assembled_html = updates.assembled_html.replace(/\{\{[\s]*TRENDING_CATEGORY[\s]*\}\}/gi, 'Health & Wellness');
     updates.assembled_html = updates.assembled_html.replace(/\{\{[^}]+\}\}/g, '');
   }
@@ -808,9 +808,9 @@ router.post('/:projectId/landing-pages/:pageId/versions/:versionId/restore', asy
   // ── Inline placeholder safety net — versions saved before fix may have {{...}} ──
   if (updates.assembled_html) {
     updates.assembled_html = updates.assembled_html.replace(/\{\{[\s]*publish_date[\s]*\}\}/gi, new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }));
-    updates.assembled_html = updates.assembled_html.replace(/\{\{[\s]*author_name[\s]*\}\}/gi, 'Health Desk');
-    updates.assembled_html = updates.assembled_html.replace(/\{\{[\s]*author_title[\s]*\}\}/gi, 'Senior Health Correspondent');
-    updates.assembled_html = updates.assembled_html.replace(/\{\{[\s]*warning_box_text[\s]*\}\}/gi, 'This article is based on scientific research and expert analysis.');
+    updates.assembled_html = updates.assembled_html.replace(/\{\{[\s]*author_name[\s]*\}\}/gi, 'Sarah Mitchell');
+    updates.assembled_html = updates.assembled_html.replace(/\{\{[\s]*author_title[\s]*\}\}/gi, 'Health & Wellness Editor');
+    updates.assembled_html = updates.assembled_html.replace(/\{\{[\s]*warning_box_text[\s]*\}\}/gi, 'The following article discusses findings that may change how you think about the products you use every day.');
     updates.assembled_html = updates.assembled_html.replace(/\{\{[\s]*TRENDING_CATEGORY[\s]*\}\}/gi, 'Health & Wellness');
     updates.assembled_html = updates.assembled_html.replace(/\{\{[^}]+\}\}/g, '');
   }

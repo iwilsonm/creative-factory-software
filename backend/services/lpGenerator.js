@@ -311,7 +311,13 @@ IMPORTANT: For any callout, data box, stat highlight, or highlighted section tha
 Example — CORRECT: heading="USDA DATA", body="42.7% of organic produce samples tested positive..."
 WRONG: heading="USDA DATA", body="USDA DATA: 42.7% of organic produce samples tested positive..."
 
-TESTIMONIAL ATTRIBUTION: When writing testimonials, social proof quotes, or customer reviews, ALWAYS use a realistic first name + last initial (e.g., "Sarah M.", "David R.", "Jennifer K."). NEVER use generic labels like "Verified Buyer", "Verified Customer", "Happy Customer", or "Anonymous". Each testimonial must have a unique, realistic name.`;
+TESTIMONIAL ATTRIBUTION: When writing testimonials, social proof quotes, or customer reviews, ALWAYS use a realistic first name + last initial (e.g., "Sarah M.", "David R.", "Jennifer K."). NEVER use generic labels like "Verified Buyer", "Verified Customer", "Happy Customer", or "Anonymous". Each testimonial must have a unique, realistic name.
+
+TESTIMONIAL UNIQUENESS: Each testimonial quote must be unique. If the template has multiple testimonial slots (e.g., testimonial, section_3_body_2, proof), generate a DIFFERENT testimonial for each one — different person, different quote, different angle on why the product works. Never repeat the same quote verbatim anywhere on the page.
+
+AUTHOR METADATA: If the template has an author_name slot, use a realistic female first and last name — this is a first-person editorial article and the author should sound like a real person, not an editorial desk or department. Example: 'Sarah Mitchell', 'Jennifer Roberts', 'Amanda Chen'. For author_title, use a credible editorial role like 'Health & Wellness Editor', 'Senior Health Correspondent', 'Contributing Health Editor'.
+
+WARNING BOX: If the template has a warning_box_text slot, generate an editorial content advisory that sounds concerned and personal — not institutional. Example: 'The following article discusses findings about pesticide contamination that may change how you think about your family\\'s produce.' Do NOT use phrases like 'based on scientific research', 'expert analysis', or 'reader discretion advised'.`;
 
   const docsMessage = `Here are the foundational research documents for this product:
 
@@ -1041,10 +1047,10 @@ function buildMetadataMap({ project, agentConfig, angle }) {
 
   return {
     publish_date: formattedDate,
-    author_name: agentConfig?.default_author_name || 'Health Desk',
-    author_title: agentConfig?.default_author_title || 'Senior Health Correspondent',
+    author_name: agentConfig?.default_author_name || 'Sarah Mitchell',
+    author_title: agentConfig?.default_author_title || 'Health & Wellness Editor',
     TRENDING_CATEGORY: project?.niche || 'Health & Wellness',
-    warning_box_text: agentConfig?.default_warning_text || 'This article is based on scientific research and expert opinions. Individual results may vary. Consult with a healthcare professional before starting any new health regimen.',
+    warning_box_text: agentConfig?.default_warning_text || 'The following article discusses findings that may change how you think about the products you use every day.',
     product_name: project?.name || project?.brand_name || '',
     product_description: project?.product_description || '',
   };
@@ -1181,6 +1187,100 @@ function fixGenericTestimonialAttribution(html) {
       console.log(`[LPGen] Replaced generic attribution with: "${name}"`);
       return name;
     });
+  }
+
+  return result;
+}
+
+/**
+ * Deduplicate testimonial quotes that appear more than once on the page.
+ * Finds quoted strings (50-300 chars) inside the HTML, and if the same quote
+ * appears again, removes the second occurrence's containing <blockquote> or <div>.
+ * Only removes the SECOND occurrence — keeps the first.
+ */
+function deduplicateTestimonials(html) {
+  // Find all quoted strings between 50-300 characters (using typographic or straight quotes)
+  const quotePatterns = [
+    /["""]([^"""]{50,300})["""]/g,    // Straight & typographic double quotes
+    /['']([^'']{50,300})['']/g,       // Typographic single quotes
+  ];
+
+  const seenQuotes = new Map(); // normalized text → first occurrence index
+  const duplicateQuotes = [];
+
+  for (const pattern of quotePatterns) {
+    let match;
+    while ((match = pattern.exec(html)) !== null) {
+      const quoteText = match[1].trim().toLowerCase().replace(/\s+/g, ' ');
+      if (quoteText.length < 40) continue; // skip short after normalization
+
+      // Check for exact or substring duplicates
+      let isDuplicate = false;
+      for (const [seen] of seenQuotes) {
+        if (seen === quoteText || seen.includes(quoteText) || quoteText.includes(seen)) {
+          isDuplicate = true;
+          break;
+        }
+      }
+
+      if (isDuplicate) {
+        duplicateQuotes.push({ text: match[1], index: match.index, fullMatch: match[0] });
+      } else {
+        seenQuotes.set(quoteText, match.index);
+      }
+    }
+  }
+
+  if (duplicateQuotes.length === 0) return html;
+
+  let result = html;
+  for (const dup of duplicateQuotes) {
+    const shortPreview = dup.text.slice(0, 60).replace(/\n/g, ' ');
+    console.log(`[LP-FIX] Removed duplicate testimonial: "${shortPreview}..."`);
+
+    // Try to remove containing <blockquote> first
+    const escapedQuote = dup.text.replace(/[.*+?^${}()|[\]\\]/g, '\\$&').slice(0, 80);
+    const blockquoteRegex = new RegExp(
+      `<blockquote[^>]*>[\\s\\S]*?${escapedQuote}[\\s\\S]*?</blockquote>`,
+      'i'
+    );
+
+    // Find the SECOND occurrence (skip the first)
+    const firstIdx = result.search(blockquoteRegex);
+    if (firstIdx !== -1) {
+      const afterFirst = result.slice(firstIdx + 1);
+      const secondMatch = afterFirst.match(blockquoteRegex);
+      if (secondMatch) {
+        const secondIdx = firstIdx + 1 + afterFirst.indexOf(secondMatch[0]);
+        result = result.slice(0, secondIdx) + result.slice(secondIdx + secondMatch[0].length);
+        continue;
+      }
+    }
+
+    // Fallback: try removing containing <div> with the quote
+    const divRegex = new RegExp(
+      `<div[^>]*>[\\s\\S]*?${escapedQuote}[\\s\\S]*?</div>`,
+      'i'
+    );
+    const firstDivIdx = result.search(divRegex);
+    if (firstDivIdx !== -1) {
+      const afterFirstDiv = result.slice(firstDivIdx + 1);
+      const secondDivMatch = afterFirstDiv.match(divRegex);
+      if (secondDivMatch) {
+        const secondDivIdx = firstDivIdx + 1 + afterFirstDiv.indexOf(secondDivMatch[0]);
+        result = result.slice(0, secondDivIdx) + result.slice(secondDivIdx + secondDivMatch[0].length);
+        continue;
+      }
+    }
+
+    // Last resort: just blank out the second occurrence of the quoted text itself
+    const quoteIdx1 = result.indexOf(dup.fullMatch);
+    if (quoteIdx1 !== -1) {
+      const quoteIdx2 = result.indexOf(dup.fullMatch, quoteIdx1 + dup.fullMatch.length);
+      if (quoteIdx2 !== -1) {
+        result = result.slice(0, quoteIdx2) + result.slice(quoteIdx2 + dup.fullMatch.length);
+      }
+    }
   }
 
   return result;
@@ -1355,6 +1455,9 @@ export function postProcessLP(html, { project = null, agentConfig = null, angle 
 
   // 5. Replace generic testimonial attributions with realistic names
   processed = fixGenericTestimonialAttribution(processed);
+
+  // 5b. Deduplicate testimonial quotes that appear more than once
+  processed = deduplicateTestimonials(processed);
 
   // 6. Inject proactive contrast safety CSS
   processed = injectContrastSafetyCSS(processed);

@@ -481,7 +481,7 @@ export default function LPAgentSettings({ projectId }) {
             <label className="text-[11px] text-textmid font-medium block mb-1">Author Name</label>
             <input
               type="text"
-              placeholder="Health Desk"
+              placeholder="Sarah Mitchell"
               value={config?.default_author_name || ''}
               onChange={e => handleSaveConfig({ default_author_name: e.target.value })}
               className="input-apple w-full text-[12px]"
@@ -491,7 +491,7 @@ export default function LPAgentSettings({ projectId }) {
             <label className="text-[11px] text-textmid font-medium block mb-1">Author Title</label>
             <input
               type="text"
-              placeholder="Senior Health Correspondent"
+              placeholder="Health & Wellness Editor"
               value={config?.default_author_title || ''}
               onChange={e => handleSaveConfig({ default_author_title: e.target.value })}
               className="input-apple w-full text-[12px]"

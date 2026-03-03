@@ -241,9 +241,9 @@ function assembleHtmlClient(htmlTemplate, copySections, imageSlots, ctaLinks) {
   // ── Metadata placeholder replacement (mirrors backend postProcessLP defaults) ──
   // Without this, the auto-save overwrites correct assembled_html with broken HTML from htmlTemplate
   html = html.replace(/\{\{[\s]*publish_date[\s]*\}\}/gi, new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }));
-  html = html.replace(/\{\{[\s]*author_name[\s]*\}\}/gi, 'Health Desk');
-  html = html.replace(/\{\{[\s]*author_title[\s]*\}\}/gi, 'Senior Health Correspondent');
-  html = html.replace(/\{\{[\s]*warning_box_text[\s]*\}\}/gi, 'This article is based on scientific research and expert analysis.');
+  html = html.replace(/\{\{[\s]*author_name[\s]*\}\}/gi, 'Sarah Mitchell');
+  html = html.replace(/\{\{[\s]*author_title[\s]*\}\}/gi, 'Health & Wellness Editor');
+  html = html.replace(/\{\{[\s]*warning_box_text[\s]*\}\}/gi, 'The following article discusses findings that may change how you think about the products you use every day.');
   html = html.replace(/\{\{[\s]*TRENDING_CATEGORY[\s]*\}\}/gi, 'Health & Wellness');
   html = html.replace(/\{\{[^}]+\}\}/g, ''); // strip ALL remaining {{...}} placeholders
 
