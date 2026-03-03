@@ -327,6 +327,16 @@ function LPEditor({ page: initialPage, onBack, onDelete, projectId }) {
   const [copiedUrl, setCopiedUrl] = useState(false);
   const [shopifyHandle, setShopifyHandle] = useState(initialPage.shopify_handle || '');
 
+  // ── Visual QA state ──
+  const [qaRunning, setQaRunning] = useState(false);
+  const [qaResult, setQaResult] = useState(() => {
+    if (initialPage.qa_report) {
+      try { return JSON.parse(initialPage.qa_report); } catch { return null; }
+    }
+    return null;
+  });
+  const [qaStatus, setQaStatus] = useState(initialPage.qa_status || null);
+
   // ── Image tab state ──
   const [regeneratingSlot, setRegeneratingSlot] = useState(null); // index
   const [uploadingSlot, setUploadingSlot] = useState(null); // index
@@ -591,6 +601,31 @@ function LPEditor({ page: initialPage, onBack, onDelete, projectId }) {
     setTimeout(() => setCopiedUrl(false), 2000);
   };
 
+  // ── Visual QA handler ──
+  const handleRunQA = async () => {
+    setQaRunning(true);
+    setQaStatus('running');
+    try {
+      const result = await api.runLPVisualQA(projectId, initialPage.externalId);
+      setQaResult({
+        passed: result.passed,
+        issues: result.issues,
+        summary: result.summary,
+        score: result.score,
+      });
+      setQaStatus(result.passed ? 'passed' : 'failed');
+      if (result.passed) {
+        toast.success(`QA passed (score: ${result.score}/100)`);
+      } else {
+        toast.error(`QA found ${result.issues_count} issue(s) (score: ${result.score}/100)`);
+      }
+    } catch (err) {
+      toast.error(err.message || 'QA check failed');
+      setQaStatus('failed');
+    }
+    setQaRunning(false);
+  };
+
   // ── Derived values ──
   const totalWords = useMemo(() => copySections.reduce((sum, s) => sum + countWords(s.content), 0), [copySections]);
   const hasMissingCtaUrl = ctaLinks.some(c => !c.url || c.url === '#order' || c.url === '#');
@@ -683,6 +718,31 @@ function LPEditor({ page: initialPage, onBack, onDelete, projectId }) {
             </button>
           )}
           <button
+            onClick={handleRunQA}
+            disabled={qaRunning}
+            className={`text-[11px] px-3 py-1.5 rounded-lg font-medium transition-colors ${
+              qaStatus === 'passed' ? 'bg-teal/10 text-teal hover:bg-teal/15' :
+              qaStatus === 'failed' ? 'bg-red-50 text-red-600 hover:bg-red-100' :
+              'bg-navy/10 text-navy hover:bg-navy/15'
+            }`}
+            title={qaResult?.summary || 'Run visual QA check'}
+          >
+            {qaRunning ? (
+              <span className="flex items-center gap-1">
+                <svg className="w-3 h-3 animate-spin" viewBox="0 0 24 24" fill="none">
+                  <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" strokeDasharray="31.4 31.4" strokeLinecap="round" />
+                </svg>
+                QA...
+              </span>
+            ) : qaStatus === 'passed' ? (
+              `QA Pass (${qaResult?.score || 0})`
+            ) : qaStatus === 'failed' ? (
+              `QA Fail (${qaResult?.issues?.length || 0})`
+            ) : (
+              'Run QA'
+            )}
+          </button>
+          <button
             onClick={() => api.downloadLandingPagePdf(projectId, initialPage.externalId)}
             className="text-[11px] px-3 py-1.5 rounded-lg font-medium bg-navy/10 text-navy hover:bg-navy/15 transition-colors"
           >
@@ -697,6 +757,34 @@ function LPEditor({ page: initialPage, onBack, onDelete, projectId }) {
           </button>
         </div>
       </div>
+
+      {/* ── QA Results Banner ── */}
+      {qaResult && qaStatus === 'failed' && qaResult.issues?.length > 0 && (
+        <div className="bg-red-50 border border-red-200 rounded-lg p-3 mb-3">
+          <div className="flex items-center justify-between mb-2">
+            <span className="text-[12px] font-semibold text-red-700">
+              Visual QA: {qaResult.issues.length} issue(s) found (Score: {qaResult.score}/100)
+            </span>
+            <button onClick={() => setQaResult(null)} className="text-red-400 hover:text-red-600 text-[10px]">Dismiss</button>
+          </div>
+          <p className="text-[11px] text-red-600 mb-2">{qaResult.summary}</p>
+          <div className="space-y-1.5">
+            {qaResult.issues.map((issue, i) => (
+              <div key={i} className="flex items-start gap-2 text-[11px]">
+                <span className={`px-1.5 py-0.5 rounded text-[9px] font-medium flex-shrink-0 ${
+                  issue.severity === 'critical' ? 'bg-red-100 text-red-700' :
+                  issue.severity === 'warning' ? 'bg-gold/10 text-gold' :
+                  'bg-navy/10 text-navy'
+                }`}>
+                  {issue.severity}
+                </span>
+                <span className="text-textdark">{issue.description}</span>
+                {issue.location && <span className="text-textlight ml-auto flex-shrink-0">({issue.location})</span>}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* ── Mobile: Preview/Editor toggle ── */}
       <div className="lg:hidden flex gap-1 p-1 bg-offwhite rounded-lg w-fit mb-3">
@@ -1868,6 +1956,21 @@ export default function LPGen({ projectId, project }) {
                       {page.auto_generated && (
                         <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-navy/10 text-navy">
                           Auto
+                        </span>
+                      )}
+                      {page.qa_status === 'passed' && (
+                        <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-teal/10 text-teal" title="Visual QA passed">
+                          QA Pass
+                        </span>
+                      )}
+                      {page.qa_status === 'failed' && (
+                        <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-red-50 text-red-600" title={`${page.qa_issues_count || 0} issue(s) found`}>
+                          QA {page.qa_issues_count || 0}
+                        </span>
+                      )}
+                      {page.qa_status === 'running' && (
+                        <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-gold/10 text-gold animate-pulse">
+                          QA...
                         </span>
                       )}
                     </div>

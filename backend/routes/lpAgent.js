@@ -10,7 +10,8 @@ import {
   getLandingPagesByProject,
 } from '../convexClient.js';
 import { withRetry } from '../services/retry.js';
-import { generateAutoLP, NARRATIVE_FRAMES } from '../services/lpGenerator.js';
+import { generateAutoLP, runVisualQA, NARRATIVE_FRAMES } from '../services/lpGenerator.js';
+import { uploadBuffer } from '../convexClient.js';
 import { publishToShopify, verifyLive } from '../services/lpPublisher.js';
 import { createSSEStream } from '../utils/sseHelper.js';
 
@@ -42,7 +43,7 @@ router.put('/:id/lp-agent/config', async (req, res) => {
       'enabled', 'pdp_url', 'default_narrative_frames', 'template_selection_mode',
       'editorial_pass_enabled', 'auto_publish', 'daily_budget_cents',
       'use_product_reference_images', 'lifestyle_image_style',
-      'default_author_name', 'default_author_title',
+      'default_author_name', 'default_author_title', 'default_warning_text',
     ];
     const fields = {};
     for (const key of allowedFields) {
@@ -284,6 +285,45 @@ router.post('/:id/lp-agent/generate-test', async (req, res) => {
     }
     await updateLandingPage(lpId, updateFields);
 
+    // Visual QA check (non-fatal — page is still saved even if QA fails)
+    let qaResult = null;
+    if (result.assembledHtml) {
+      try {
+        sendEvent({ type: 'progress', step: 'qa_running', message: 'Running visual QA check...' });
+        qaResult = await runVisualQA(result.assembledHtml, projectId);
+
+        // Upload QA screenshot
+        let qaScreenshotStorageId = null;
+        if (qaResult.screenshotBuffer) {
+          qaScreenshotStorageId = await uploadBuffer(qaResult.screenshotBuffer, 'image/jpeg');
+        }
+
+        const qaReport = JSON.stringify({
+          passed: qaResult.passed,
+          issues: qaResult.issues,
+          summary: qaResult.summary,
+          score: qaResult.score,
+          checked_at: new Date().toISOString(),
+        });
+
+        await updateLandingPage(lpId, {
+          qa_status: qaResult.passed ? 'passed' : 'failed',
+          qa_report: qaReport,
+          qa_issues_count: qaResult.issues.length,
+          qa_screenshot_storageId: qaScreenshotStorageId,
+        });
+
+        const qaMsg = qaResult.passed
+          ? `QA passed (score: ${qaResult.score}/100)`
+          : `QA found ${qaResult.issues.length} issue(s) (score: ${qaResult.score}/100)`;
+        sendEvent({ type: 'progress', step: 'qa_complete', message: qaMsg });
+      } catch (qaErr) {
+        console.warn('[LP Agent] Visual QA failed (non-fatal):', qaErr.message);
+        sendEvent({ type: 'progress', step: 'qa_complete', message: `QA check failed: ${qaErr.message}` });
+        await updateLandingPage(lpId, { qa_status: 'skipped' });
+      }
+    }
+
     // Auto-publish if configured and Shopify is connected
     let publishedUrl = null;
     const shouldAutoPublish = agentConfig?.auto_publish !== false;
@@ -306,6 +346,9 @@ router.post('/:id/lp-agent/generate-test', async (req, res) => {
       page_id: lpId,
       name: `Test LP — ${frame.name}: ${angle_description.slice(0, 60)}`,
       published_url: publishedUrl,
+      qa_passed: qaResult?.passed ?? null,
+      qa_issues_count: qaResult?.issues?.length ?? 0,
+      qa_score: qaResult?.score ?? null,
     });
     console.log(`[LP Agent] generate-test: complete (${lpId.slice(0, 8)})`);
   } catch (err) {

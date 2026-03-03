@@ -526,6 +526,10 @@ export const api = {
       body: JSON.stringify({ slot_index: slotIndex }),
     }),
 
+  // LP Visual QA
+  runLPVisualQA: (projectId, pageId) =>
+    request(`/projects/${projectId}/landing-pages/${pageId}/visual-qa`, { method: 'POST' }),
+
   // LP Editor — Versions
   getLPVersions: (projectId, pageId) =>
     request(`/projects/${projectId}/landing-pages/${pageId}/versions`),

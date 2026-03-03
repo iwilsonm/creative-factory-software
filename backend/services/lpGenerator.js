@@ -11,7 +11,7 @@
  * Uses the same Anthropic wrapper (services/anthropic.js) as the rest of the platform.
  */
 
-import { chat, chatWithMultipleImages } from './anthropic.js';
+import { chat, chatWithImage, chatWithMultipleImages } from './anthropic.js';
 import { generateImage } from './gemini.js';
 import { getDocsByProject, uploadBuffer, getStorageUrl, getLPTemplate, getProject, downloadToBuffer } from '../convexClient.js';
 
@@ -309,7 +309,9 @@ IMPORTANT: Generate content ONLY for the slots defined in the template. Do not s
 
 IMPORTANT: For any callout, data box, stat highlight, or highlighted section that has SEPARATE heading and body slots — the heading slot contains ONLY the title or label. The body slot contains ONLY the supporting content. Do NOT start the body text with the heading text. They render as distinct elements on the page, so repeating the heading in the body will cause duplicate text.
 Example — CORRECT: heading="USDA DATA", body="42.7% of organic produce samples tested positive..."
-WRONG: heading="USDA DATA", body="USDA DATA: 42.7% of organic produce samples tested positive..."`;
+WRONG: heading="USDA DATA", body="USDA DATA: 42.7% of organic produce samples tested positive..."
+
+TESTIMONIAL ATTRIBUTION: When writing testimonials, social proof quotes, or customer reviews, ALWAYS use a realistic first name + last initial (e.g., "Sarah M.", "David R.", "Jennifer K."). NEVER use generic labels like "Verified Buyer", "Verified Customer", "Happy Customer", or "Anonymous". Each testimonial must have a unique, realistic name.`;
 
   const docsMessage = `Here are the foundational research documents for this product:
 
@@ -1037,7 +1039,7 @@ function buildMetadataMap({ project, agentConfig, angle }) {
     author_name: agentConfig?.default_author_name || 'Health Desk',
     author_title: agentConfig?.default_author_title || 'Senior Health Correspondent',
     TRENDING_CATEGORY: project?.niche || 'Health & Wellness',
-    warning_box_text: 'This article is based on scientific research and expert opinions. Individual results may vary. Consult with a healthcare professional before starting any new health regimen.',
+    warning_box_text: agentConfig?.default_warning_text || 'This article is based on scientific research and expert opinions. Individual results may vary. Consult with a healthcare professional before starting any new health regimen.',
     product_name: project?.name || project?.brand_name || '',
     product_description: project?.product_description || '',
   };
@@ -1045,15 +1047,27 @@ function buildMetadataMap({ project, agentConfig, angle }) {
 
 /**
  * Replace metadata placeholders in assembled HTML.
+ * Uses regex to match {{ key }}, {{key}}, {{ key}}, etc. (spaces inside braces).
  */
 function applyMetadataReplacements(html, metadataMap) {
   let result = html;
   for (const [key, value] of Object.entries(metadataMap)) {
     if (value) {
-      result = result.replaceAll(`{{${key}}}`, value);
+      // Match {{key}}, {{ key }}, {{ key}}, {{\tkey\t}}, etc.
+      const regex = new RegExp(`\\{\\{\\s*${escapeRegex(key)}\\s*\\}\\}`, 'gi');
+      const before = result;
+      result = result.replace(regex, value);
+      if (before !== result) {
+        console.log(`[LPGen] Replaced metadata placeholder: {{${key}}} → "${value.slice(0, 50)}${value.length > 50 ? '...' : ''}"`);
+      }
     }
   }
   return result;
+}
+
+/** Escape special regex characters in a string */
+function escapeRegex(str) {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
 /**
@@ -1093,6 +1107,46 @@ function fixDuplicateCalloutHeadings(html) {
 }
 
 /**
+ * Fix generic testimonial attributions like "Verified Buyer", "Happy Customer", etc.
+ * Replaces them with realistic first-name-last-initial attributions.
+ */
+function fixGenericTestimonialAttribution(html) {
+  const genericPatterns = [
+    /Verified\s+Buyer/gi,
+    /Verified\s+Customer/gi,
+    /Verified\s+Purchase/gi,
+    /Happy\s+Customer/gi,
+    /Satisfied\s+Customer/gi,
+    /Real\s+Customer/gi,
+    /Anonymous\s+Buyer/gi,
+    /Anonymous\s+Customer/gi,
+    /Customer\s+Review/gi,
+  ];
+
+  // Pool of realistic first-name + last-initial pairs
+  const realisticNames = [
+    'Sarah M.', 'Jennifer K.', 'Michael T.', 'David R.', 'Lisa P.',
+    'Amanda C.', 'Robert J.', 'Jessica L.', 'Chris W.', 'Rachel B.',
+    'Karen H.', 'James D.', 'Michelle S.', 'Brian F.', 'Angela N.',
+    'Mark A.', 'Stephanie G.', 'Kevin E.', 'Laura V.', 'Daniel O.',
+  ];
+
+  let nameIndex = 0;
+  let result = html;
+
+  for (const pattern of genericPatterns) {
+    result = result.replace(pattern, () => {
+      const name = realisticNames[nameIndex % realisticNames.length];
+      nameIndex++;
+      console.log(`[LPGen] Replaced generic attribution with: "${name}"`);
+      return name;
+    });
+  }
+
+  return result;
+}
+
+/**
  * Consolidated post-processing pipeline for assembled LP HTML.
  * Runs after HTML assembly and before storing the final LP.
  *
@@ -1101,6 +1155,7 @@ function fixDuplicateCalloutHeadings(html) {
  * 2. Apply editorial placeholder fills (if any)
  * 3. Strip unfilled placeholders (zero-tolerance)
  * 4. Fix duplicate callout headings
+ * 5. Fix generic testimonial attributions
  *
  * @param {string} html - Assembled HTML
  * @param {object} options
@@ -1121,7 +1176,8 @@ export function postProcessLP(html, { project = null, agentConfig = null, angle 
   if (editorialPlan?.placeholder_fills && typeof editorialPlan.placeholder_fills === 'object') {
     for (const [key, value] of Object.entries(editorialPlan.placeholder_fills)) {
       if (value) {
-        processed = processed.replaceAll(`{{${key}}}`, value);
+        const regex = new RegExp(`\\{\\{\\s*${escapeRegex(key)}\\s*\\}\\}`, 'gi');
+        processed = processed.replace(regex, value);
       }
     }
   }
@@ -1132,6 +1188,9 @@ export function postProcessLP(html, { project = null, agentConfig = null, angle 
 
   // 4. Fix duplicate callout headings
   processed = fixDuplicateCalloutHeadings(processed);
+
+  // 5. Replace generic testimonial attributions with realistic names
+  processed = fixGenericTestimonialAttribution(processed);
 
   return { html: processed, warnings: validation.warnings };
 }
@@ -1336,4 +1395,144 @@ export async function generateAutoLP({
     designAnalysis,
     editorialPlan,
   };
+}
+
+// ─── Visual QA Check ────────────────────────────────────────────────────────
+
+/**
+ * Render an LP's assembled HTML in headless Puppeteer, take a full-page screenshot,
+ * then send it to Claude Opus 4.6 vision for visual quality assurance.
+ *
+ * Checks for:
+ * - Unfilled placeholder text ({{...}} or Lorem ipsum)
+ * - Broken/missing images (visible alt text, broken icons)
+ * - Layout issues (overlapping elements, cut-off text, empty sections)
+ * - Generic testimonial names ("Verified Buyer", etc.)
+ * - CTA buttons that look broken or have placeholder URLs
+ * - Visual inconsistencies (mismatched fonts, color issues)
+ *
+ * @param {string} assembledHtml - The full assembled HTML to check
+ * @param {string} projectId - For cost logging
+ * @returns {Promise<{ passed: boolean, issues: Array<{severity: string, description: string, location: string}>, summary: string, screenshotBuffer: Buffer }>}
+ */
+export async function runVisualQA(assembledHtml, projectId) {
+  const puppeteer = (await import('puppeteer')).default;
+
+  let browser;
+  try {
+    // 1. Render the HTML in headless Puppeteer
+    browser = await puppeteer.launch({
+      headless: 'new',
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-gpu',
+        '--disable-software-rasterizer',
+        '--single-process',
+      ],
+    });
+
+    const page = await browser.newPage();
+    await page.setViewport({ width: 1280, height: 800 });
+
+    // Load the HTML directly (no network needed)
+    await page.setContent(assembledHtml, { waitUntil: 'networkidle0', timeout: 30000 });
+
+    // Wait a beat for any CSS transitions/animations
+    await new Promise(r => setTimeout(r, 1000));
+
+    // Get actual page height for full-page screenshot
+    const bodyHeight = await page.evaluate(() => document.body.scrollHeight);
+    const screenshotHeight = Math.min(bodyHeight, 7900); // Claude API limit
+
+    // Take full-page screenshot as JPEG
+    const screenshotBuffer = await page.screenshot({
+      type: 'jpeg',
+      quality: 85,
+      clip: { x: 0, y: 0, width: 1280, height: screenshotHeight },
+    });
+
+    await browser.close();
+    browser = null;
+
+    // 2. Send screenshot to Claude Opus for visual QA
+    const systemPrompt = `You are a visual QA specialist for landing pages. You inspect rendered landing page screenshots to find issues that would make the page look unprofessional or broken to real visitors.
+
+You must respond with ONLY a valid JSON object — no markdown, no prose.`;
+
+    const qaPrompt = `Inspect this landing page screenshot carefully and identify any visual quality issues.
+
+CHECK FOR THESE SPECIFIC ISSUES:
+1. **Placeholder text**: Any visible {{placeholder}} tags, Lorem ipsum text, "TODO", "[INSERT]", or clearly fake/template text
+2. **Broken images**: Missing images showing alt text, broken image icons, gray placeholder boxes, or obviously AI-generated artifacts
+3. **Layout problems**: Overlapping text, cut-off content, empty sections with no content, excessively wide/narrow columns, misaligned elements
+4. **Generic attribution**: Testimonial quotes attributed to "Verified Buyer", "Happy Customer", "Anonymous", or other generic labels instead of realistic names
+5. **CTA issues**: Buttons with placeholder text like "Click Here" or "Buy Now" that look unfinished, broken button styles, or obviously fake URLs like "#" or "example.com"
+6. **Typography problems**: Mismatched fonts within the same section, text that's too small to read, inconsistent heading sizes
+7. **Color/contrast issues**: Text that's hard to read against its background, clashing color combinations
+8. **Content problems**: Sections that appear empty, duplicate content visible on the page, obviously nonsensical or cut-off sentences
+
+RESPOND WITH A JSON OBJECT:
+{
+  "passed": true/false,
+  "issues": [
+    {
+      "severity": "critical" | "warning" | "minor",
+      "category": "placeholder" | "image" | "layout" | "attribution" | "cta" | "typography" | "color" | "content",
+      "description": "Clear description of the issue",
+      "location": "Where on the page (e.g., 'hero section', 'third testimonial', 'footer area')"
+    }
+  ],
+  "summary": "One-sentence overall assessment",
+  "score": 0-100
+}
+
+Rules:
+- "passed" = true only if there are ZERO critical issues and at most 1 warning
+- "critical" = issues that make the page look clearly broken or unprofessional (placeholders, broken images, empty sections)
+- "warning" = issues that reduce quality but don't look obviously broken (minor layout quirks, slightly mismatched fonts)
+- "minor" = nitpick suggestions for improvement
+- Be thorough but reasonable — don't flag normal design choices as issues
+- If the page looks clean and professional with no obvious issues, return passed=true with an empty issues array`;
+
+    const qaResponse = await chatWithImage(
+      [{ role: 'system', content: systemPrompt }],
+      qaPrompt,
+      screenshotBuffer.toString('base64'),
+      'image/jpeg',
+      'claude-opus-4-6',
+      {
+        operation: 'lp_visual_qa',
+        projectId,
+        timeout: 120000,
+      }
+    );
+
+    // Parse QA response
+    let qaResult;
+    try {
+      qaResult = JSON.parse(qaResponse);
+    } catch {
+      const jsonMatch = qaResponse.match(/\{[\s\S]*\}/);
+      if (jsonMatch) {
+        qaResult = JSON.parse(jsonMatch[0]);
+      } else {
+        throw new Error('Failed to parse QA response as JSON');
+      }
+    }
+
+    return {
+      passed: qaResult.passed ?? false,
+      issues: qaResult.issues || [],
+      summary: qaResult.summary || '',
+      score: qaResult.score ?? 0,
+      screenshotBuffer,
+    };
+  } catch (err) {
+    if (browser) {
+      try { await browser.close(); } catch {}
+    }
+    throw err;
+  }
 }

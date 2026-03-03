@@ -98,6 +98,11 @@ export const update = mutation({
     template_id: v.optional(v.string()),
     shopify_page_id: v.optional(v.string()),
     shopify_handle: v.optional(v.string()),
+    // Visual QA fields
+    qa_status: v.optional(v.string()),
+    qa_report: v.optional(v.string()),
+    qa_issues_count: v.optional(v.number()),
+    qa_screenshot_storageId: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const doc = await ctx.db
@@ -135,6 +140,10 @@ export const update = mutation({
     if (args.template_id !== undefined) updates.template_id = args.template_id;
     if (args.shopify_page_id !== undefined) updates.shopify_page_id = args.shopify_page_id;
     if (args.shopify_handle !== undefined) updates.shopify_handle = args.shopify_handle;
+    if (args.qa_status !== undefined) updates.qa_status = args.qa_status;
+    if (args.qa_report !== undefined) updates.qa_report = args.qa_report;
+    if (args.qa_issues_count !== undefined) updates.qa_issues_count = args.qa_issues_count;
+    if (args.qa_screenshot_storageId !== undefined) updates.qa_screenshot_storageId = args.qa_screenshot_storageId;
     await ctx.db.patch(doc._id, updates);
   },
 });

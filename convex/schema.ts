@@ -422,6 +422,11 @@ export default defineSchema({
     template_id: v.optional(v.string()),             // → lp_templates.externalId
     shopify_page_id: v.optional(v.string()),         // Shopify page ID for updates/deletion
     shopify_handle: v.optional(v.string()),          // Shopify URL handle
+    // Visual QA fields
+    qa_status: v.optional(v.string()),               // pending | running | passed | failed | skipped
+    qa_report: v.optional(v.string()),               // JSON: full QA report from Claude Opus vision
+    qa_issues_count: v.optional(v.number()),         // Number of issues found
+    qa_screenshot_storageId: v.optional(v.string()), // Convex storage ID for QA screenshot
     created_at: v.string(),
     updated_at: v.string(),
   })
@@ -601,6 +606,7 @@ export default defineSchema({
     // Page metadata defaults
     default_author_name: v.optional(v.string()),
     default_author_title: v.optional(v.string()),
+    default_warning_text: v.optional(v.string()),
     // Timestamps
     created_at: v.optional(v.string()),
     updated_at: v.optional(v.string()),

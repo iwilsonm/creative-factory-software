@@ -40,6 +40,7 @@ export const upsertConfig = mutation({
     // Page metadata defaults
     default_author_name: v.optional(v.string()),
     default_author_title: v.optional(v.string()),
+    default_warning_text: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const existing = await ctx.db
@@ -74,6 +75,7 @@ export const upsertConfig = mutation({
         lifestyle_image_style: args.lifestyle_image_style,
         default_author_name: args.default_author_name,
         default_author_title: args.default_author_title,
+        default_warning_text: args.default_warning_text,
         created_at: now,
         updated_at: now,
       });

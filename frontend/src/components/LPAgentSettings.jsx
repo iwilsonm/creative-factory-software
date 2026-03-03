@@ -136,8 +136,10 @@ export default function LPAgentSettings({ projectId }) {
     'editorial_starting': 36, 'editorial_complete': 55, 'editorial_skipped': 55, 'editorial_failed': 55,
     // Image generation: 56-80%
     'images_starting': 56, 'image_generating': 60, 'image_complete': 70, 'images_complete': 80, 'images_skipped': 80,
-    // HTML generation: 81-95%
-    'html_generating': 81, 'html_complete': 95,
+    // HTML generation: 81-92%
+    'html_generating': 81, 'html_complete': 92,
+    // Visual QA: 93-96%
+    'qa_running': 93, 'qa_complete': 96,
     // Assembly + publish: 97-100%
     'auto_complete': 97,
   };
@@ -165,6 +167,8 @@ export default function LPAgentSettings({ projectId }) {
     'images_skipped': 'Skipping images',
     'html_generating': 'Building HTML page...',
     'html_complete': 'HTML complete',
+    'qa_running': 'Running visual QA...',
+    'qa_complete': null, // Use backend message (has score)
     'auto_complete': 'Finalizing...',
   };
   // Separate handler for phase-level events from lpAgent.js route
@@ -492,6 +496,19 @@ export default function LPAgentSettings({ projectId }) {
           <p className="text-[9px] text-textlight">
             These appear as byline metadata on generated landing pages. Leave blank for defaults.
           </p>
+          <div className="mt-3">
+            <label className="text-[11px] text-textmid font-medium mb-1 block">Warning/Disclaimer Text</label>
+            <textarea
+              placeholder="This article is based on scientific research and expert opinions. Individual results may vary..."
+              value={config?.default_warning_text || ''}
+              onChange={e => handleSaveConfig({ default_warning_text: e.target.value })}
+              className="input-apple w-full text-[12px]"
+              rows={2}
+            />
+            <p className="text-[9px] text-textlight mt-1">
+              Populates the warning/disclaimer box on generated pages. Leave blank for default.
+            </p>
+          </div>
         </div>
       </div>
 
@@ -750,6 +767,21 @@ export default function LPAgentSettings({ projectId }) {
                     <span className={`text-[9px] font-medium px-1.5 py-0.5 rounded-full flex-shrink-0 ${badgeClass}`}>
                       {badgeText}
                     </span>
+                    {lp.qa_status === 'passed' && (
+                      <span className="text-[9px] font-medium px-1.5 py-0.5 rounded-full flex-shrink-0 bg-teal/10 text-teal" title={`QA Score: ${lp.qa_issues_count === 0 ? 'No issues' : `${lp.qa_issues_count} issue(s)`}`}>
+                        QA Pass
+                      </span>
+                    )}
+                    {lp.qa_status === 'failed' && (
+                      <span className="text-[9px] font-medium px-1.5 py-0.5 rounded-full flex-shrink-0 bg-red-50 text-red-600" title={`${lp.qa_issues_count || 0} issue(s) found`}>
+                        QA {lp.qa_issues_count || 0}
+                      </span>
+                    )}
+                    {lp.qa_status === 'running' && (
+                      <span className="text-[9px] font-medium px-1.5 py-0.5 rounded-full flex-shrink-0 bg-gold/10 text-gold animate-pulse">
+                        QA...
+                      </span>
+                    )}
                   </div>
                   <div className="flex items-center gap-2 flex-shrink-0 ml-2">
                     {isPublished && lp.published_url && (

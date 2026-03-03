@@ -29,6 +29,7 @@ import {
   assembleLandingPage,
   postProcessLP,
   generateAutoLP,
+  runVisualQA,
   NARRATIVE_FRAMES,
 } from '../services/lpGenerator.js';
 import { fetchSwipePage } from '../services/lpSwipeFetcher.js';
@@ -363,8 +364,8 @@ router.post('/:projectId/landing-pages/generate', async (req, res) => {
         ctaElements,
       });
 
-      // Post-process: metadata → strip placeholders → fix duplicate headings
-      const { html: assembledHtml } = postProcessLP(rawAssembledHtml);
+      // Post-process: metadata → strip placeholders → fix duplicate headings → testimonial attribution
+      const { html: assembledHtml } = postProcessLP(rawAssembledHtml, { project });
 
       // Save everything
       await updateLandingPage(pageId, {
@@ -458,6 +459,8 @@ router.post('/:projectId/landing-pages/:pageId/regenerate-image', async (req, re
 
   (async () => {
     try {
+      // Load project for post-processing metadata
+      const regenProject = await getProject(req.params.projectId);
       sse.sendEvent({ type: 'progress', message: `Generating image for slot ${slot_index + 1}...` });
 
       const result = await generateImage(prompt, aspect_ratio || '1:1', null, {
@@ -493,7 +496,7 @@ router.post('/:projectId/landing-pages/:pageId/regenerate-image', async (req, re
         imageSlots,
         ctaElements: ctaLinks.length > 0 ? ctaLinks : ctaElements,
       });
-      const { html: assembledHtml } = postProcessLP(rawAssembledHtml);
+      const { html: assembledHtml } = postProcessLP(rawAssembledHtml, { project: regenProject });
 
       // Save everything
       await updateLandingPage(req.params.pageId, {
@@ -556,6 +559,9 @@ router.post('/:projectId/landing-pages/:pageId/upload-image', imageUpload.single
     imageSlots[slotIndex].storageUrl = storageUrl;
     imageSlots[slotIndex].generated = true;
 
+    // Load project for post-processing metadata
+    const uploadProject = await getProject(req.params.projectId);
+
     // Re-assemble HTML
     const copySections = page.copy_sections ? JSON.parse(page.copy_sections) : [];
     const ctaLinks = page.cta_links ? JSON.parse(page.cta_links) : [];
@@ -567,7 +573,7 @@ router.post('/:projectId/landing-pages/:pageId/upload-image', imageUpload.single
       imageSlots,
       ctaElements: ctaLinks.length > 0 ? ctaLinks : ctaElements,
     });
-    const { html: assembledHtml } = postProcessLP(rawAssembledHtml);
+    const { html: assembledHtml } = postProcessLP(rawAssembledHtml, { project: uploadProject });
 
     await updateLandingPage(req.params.pageId, {
       image_slots: JSON.stringify(imageSlots),
@@ -609,6 +615,9 @@ router.post('/:projectId/landing-pages/:pageId/revert-image', async (req, res) =
     slot.storageUrl = null;
   }
 
+  // Load project for post-processing metadata
+  const revertProject = await getProject(req.params.projectId);
+
   // Re-assemble HTML
   const copySections = page.copy_sections ? JSON.parse(page.copy_sections) : [];
   const ctaLinks = page.cta_links ? JSON.parse(page.cta_links) : [];
@@ -620,7 +629,7 @@ router.post('/:projectId/landing-pages/:pageId/revert-image', async (req, res) =
     imageSlots,
     ctaElements: ctaLinks.length > 0 ? ctaLinks : ctaElements,
   });
-  const { html: assembledHtml } = postProcessLP(rawAssembledHtml);
+  const { html: assembledHtml } = postProcessLP(rawAssembledHtml, { project: revertProject });
 
   await updateLandingPage(req.params.pageId, {
     image_slots: JSON.stringify(imageSlots),
@@ -628,6 +637,65 @@ router.post('/:projectId/landing-pages/:pageId/revert-image', async (req, res) =
   });
 
   res.json({ slot: imageSlots[slot_index], assembled_html: assembledHtml });
+});
+
+// ─── Visual QA Check ──────────────────────────────────────────────────────────
+router.post('/:projectId/landing-pages/:pageId/visual-qa', async (req, res) => {
+  const page = await getLandingPage(req.params.pageId);
+  if (!page || page.project_id !== req.params.projectId) {
+    return res.status(404).json({ error: 'Landing page not found' });
+  }
+
+  if (!page.assembled_html) {
+    return res.status(400).json({ error: 'Landing page has no assembled HTML to check' });
+  }
+
+  try {
+    // Mark QA as running
+    await updateLandingPage(req.params.pageId, { qa_status: 'running' });
+
+    // Run the visual QA check
+    const qaResult = await runVisualQA(page.assembled_html, req.params.projectId);
+
+    // Upload QA screenshot to Convex storage
+    let qaScreenshotStorageId = null;
+    if (qaResult.screenshotBuffer) {
+      qaScreenshotStorageId = await uploadBuffer(qaResult.screenshotBuffer, 'image/jpeg');
+    }
+
+    // Save QA results
+    const qaReport = JSON.stringify({
+      passed: qaResult.passed,
+      issues: qaResult.issues,
+      summary: qaResult.summary,
+      score: qaResult.score,
+      checked_at: new Date().toISOString(),
+    });
+
+    await updateLandingPage(req.params.pageId, {
+      qa_status: qaResult.passed ? 'passed' : 'failed',
+      qa_report: qaReport,
+      qa_issues_count: qaResult.issues.length,
+      qa_screenshot_storageId: qaScreenshotStorageId,
+    });
+
+    res.json({
+      success: true,
+      passed: qaResult.passed,
+      issues: qaResult.issues,
+      summary: qaResult.summary,
+      score: qaResult.score,
+      issues_count: qaResult.issues.length,
+      screenshot_storageId: qaScreenshotStorageId,
+    });
+  } catch (err) {
+    console.error('[LPGen] Visual QA error:', err.message);
+    await updateLandingPage(req.params.pageId, {
+      qa_status: 'failed',
+      qa_report: JSON.stringify({ error: err.message, checked_at: new Date().toISOString() }),
+    });
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // ─── Get all versions for a landing page ──────────────────────────────────────
