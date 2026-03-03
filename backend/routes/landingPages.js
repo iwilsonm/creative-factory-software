@@ -449,6 +449,16 @@ router.put('/:projectId/landing-pages/:pageId', async (req, res) => {
   if (req.body.html_template !== undefined) updates.html_template = req.body.html_template;
   if (req.body.current_version !== undefined) updates.current_version = req.body.current_version;
 
+  // ── Inline placeholder safety net — never store {{...}} in assembled_html ──
+  if (updates.assembled_html) {
+    updates.assembled_html = updates.assembled_html.replace(/\{\{[\s]*publish_date[\s]*\}\}/gi, new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }));
+    updates.assembled_html = updates.assembled_html.replace(/\{\{[\s]*author_name[\s]*\}\}/gi, 'Health Desk');
+    updates.assembled_html = updates.assembled_html.replace(/\{\{[\s]*author_title[\s]*\}\}/gi, 'Senior Health Correspondent');
+    updates.assembled_html = updates.assembled_html.replace(/\{\{[\s]*warning_box_text[\s]*\}\}/gi, 'This article is based on scientific research and expert analysis.');
+    updates.assembled_html = updates.assembled_html.replace(/\{\{[\s]*TRENDING_CATEGORY[\s]*\}\}/gi, 'Health & Wellness');
+    updates.assembled_html = updates.assembled_html.replace(/\{\{[^}]+\}\}/g, '');
+  }
+
   await updateLandingPage(req.params.pageId, updates);
   const updated = await getLandingPage(req.params.pageId);
   res.json(updated);
@@ -794,6 +804,16 @@ router.post('/:projectId/landing-pages/:pageId/versions/:versionId/restore', asy
   if (targetVersion.cta_links) updates.cta_links = targetVersion.cta_links;
   if (targetVersion.html_template) updates.html_template = targetVersion.html_template;
   if (targetVersion.assembled_html) updates.assembled_html = targetVersion.assembled_html;
+
+  // ── Inline placeholder safety net — versions saved before fix may have {{...}} ──
+  if (updates.assembled_html) {
+    updates.assembled_html = updates.assembled_html.replace(/\{\{[\s]*publish_date[\s]*\}\}/gi, new Date().toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric' }));
+    updates.assembled_html = updates.assembled_html.replace(/\{\{[\s]*author_name[\s]*\}\}/gi, 'Health Desk');
+    updates.assembled_html = updates.assembled_html.replace(/\{\{[\s]*author_title[\s]*\}\}/gi, 'Senior Health Correspondent');
+    updates.assembled_html = updates.assembled_html.replace(/\{\{[\s]*warning_box_text[\s]*\}\}/gi, 'This article is based on scientific research and expert analysis.');
+    updates.assembled_html = updates.assembled_html.replace(/\{\{[\s]*TRENDING_CATEGORY[\s]*\}\}/gi, 'Health & Wellness');
+    updates.assembled_html = updates.assembled_html.replace(/\{\{[^}]+\}\}/g, '');
+  }
 
   await updateLandingPage(req.params.pageId, updates);
 
