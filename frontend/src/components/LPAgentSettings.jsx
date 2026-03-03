@@ -141,6 +141,32 @@ export default function LPAgentSettings({ projectId }) {
     // Assembly + publish: 97-100%
     'auto_complete': 97,
   };
+  // User-friendly status messages (overrides backend messages for cleaner display)
+  const STEP_LABELS = {
+    'initializing': 'Setting up...',
+    'validating': 'Validating template...',
+    'creating_record': 'Creating page...',
+    'auto_loading': 'Loading template...',
+    'product_image_loading': 'Loading product image...',
+    'auto_copy': 'Writing copy...',
+    'loading_docs': 'Loading research docs...',
+    'generating': 'Preparing copy prompt...',
+    'calling_api': 'Writing copy...',
+    'parsing': 'Processing copy...',
+    'copy_complete': 'Copy complete',
+    'editorial_starting': 'Editorial review (Opus)...',
+    'editorial_complete': 'Editorial review complete',
+    'editorial_skipped': 'Skipping editorial review',
+    'editorial_failed': 'Editorial review skipped',
+    'images_starting': 'Generating images...',
+    'image_generating': null, // Use backend message (has image count)
+    'image_complete': null, // Use backend message
+    'images_complete': 'Images complete',
+    'images_skipped': 'Skipping images',
+    'html_generating': 'Building HTML page...',
+    'html_complete': 'HTML complete',
+    'auto_complete': 'Finalizing...',
+  };
   // Separate handler for phase-level events from lpAgent.js route
   const PHASE_PROGRESS = {
     'publishing': 97, 'verifying': 99,
@@ -162,8 +188,13 @@ export default function LPAgentSettings({ projectId }) {
       narrative_frame: testForm.narrative_frame,
       angle_description: testForm.angle.trim(),
     }, (event) => {
+      console.log('[LP Gen]', event.type, event.step || event.phase || '', event.message || '');
       if (event.type === 'progress') {
-        setGenPhase(event.message || '');
+        // Use friendly label if available, otherwise use backend message
+        const label = (event.step && STEP_LABELS[event.step] !== undefined)
+          ? (STEP_LABELS[event.step] || event.message || '')
+          : (event.message || '');
+        setGenPhase(label);
         // Map step to progress percentage — never go backwards
         if (event.step && STEP_PROGRESS[event.step] !== undefined) {
           setGenProgress(prev => Math.max(prev, STEP_PROGRESS[event.step]));
@@ -171,7 +202,12 @@ export default function LPAgentSettings({ projectId }) {
         // Handle per-image progress (images are 56-80% of total)
         if (event.imageProgress) {
           const { current, total, done: imgDone } = event.imageProgress;
-          // Each image spans its portion of the 56-80% range
+          // Show "Generating image 1 of 3..." style message
+          if (!imgDone) {
+            setGenPhase(`Generating image ${current} of ${total}...`);
+          } else {
+            setGenPhase(`Image ${current} of ${total} complete`);
+          }
           const imgPercent = imgDone
             ? 56 + Math.round((current / total) * 24)
             : 56 + Math.round(((current - 1) / total) * 24) + Math.round((1 / total) * 12);
