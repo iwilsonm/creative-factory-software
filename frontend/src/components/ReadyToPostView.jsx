@@ -1232,18 +1232,58 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
           {/* Campaign + Ad Set + Duplicate Ad Set — always visible */}
           <PostInSection campaignName={campaignName} adSetName={adSetName} duplicateAdSetName={flexAd.duplicate_adset_name} />
 
-          {/* LP URLs — show when auto-generated landing pages are attached */}
+          {/* Dual Destination — LP URLs + PDP URL with copy buttons */}
           {(flexAd.lp_primary_url || flexAd.lp_secondary_url) && (
-            <div className="flex items-center gap-3 text-[11px]">
-              {flexAd.lp_primary_url && (
-                <a href={flexAd.lp_primary_url} target="_blank" rel="noopener noreferrer" className="text-gold hover:text-gold/80 underline underline-offset-2">
-                  Primary LP ↗
-                </a>
+            <div className="bg-offwhite rounded-xl p-3 space-y-1.5">
+              <div className="text-[10px] font-semibold text-navy uppercase tracking-wide">Landing Pages</div>
+
+              {/* PDP URL */}
+              {flexAd.destination_url && (
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] text-textmid w-12 flex-shrink-0">PDP:</span>
+                  <a href={flexAd.destination_url} target="_blank" rel="noopener noreferrer" className="text-[11px] text-navy hover:text-navy/80 underline underline-offset-2 truncate flex-1">
+                    {flexAd.destination_url}
+                  </a>
+                  <button onClick={(e) => { e.stopPropagation(); copyToClipboard(flexAd.destination_url, 'PDP URL'); }}
+                    className="inline-flex items-center px-1.5 py-0.5 rounded bg-navy/5 text-[9px] text-navy hover:bg-navy/10 transition-colors flex-shrink-0">
+                    Copy
+                  </button>
+                </div>
               )}
+
+              {/* Primary LP */}
+              {flexAd.lp_primary_url && (
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] text-textmid w-12 flex-shrink-0">LP 1:</span>
+                  <a href={flexAd.lp_primary_url} target="_blank" rel="noopener noreferrer" className="text-[11px] text-gold hover:text-gold/80 underline underline-offset-2 truncate flex-1">
+                    {flexAd.lp_primary_url}
+                  </a>
+                  <button onClick={(e) => { e.stopPropagation(); copyToClipboard(flexAd.lp_primary_url, 'LP 1 URL'); }}
+                    className="inline-flex items-center px-1.5 py-0.5 rounded bg-navy/5 text-[9px] text-navy hover:bg-navy/10 transition-colors flex-shrink-0">
+                    Copy
+                  </button>
+                </div>
+              )}
+
+              {/* Secondary LP */}
               {flexAd.lp_secondary_url && (
-                <a href={flexAd.lp_secondary_url} target="_blank" rel="noopener noreferrer" className="text-gold hover:text-gold/80 underline underline-offset-2">
-                  Secondary LP ↗
-                </a>
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] text-textmid w-12 flex-shrink-0">LP 2:</span>
+                  <a href={flexAd.lp_secondary_url} target="_blank" rel="noopener noreferrer" className="text-[11px] text-gold hover:text-gold/80 underline underline-offset-2 truncate flex-1">
+                    {flexAd.lp_secondary_url}
+                  </a>
+                  <button onClick={(e) => { e.stopPropagation(); copyToClipboard(flexAd.lp_secondary_url, 'LP 2 URL'); }}
+                    className="inline-flex items-center px-1.5 py-0.5 rounded bg-navy/5 text-[9px] text-navy hover:bg-navy/10 transition-colors flex-shrink-0">
+                    Copy
+                  </button>
+                </div>
+              )}
+
+              {/* Dual-destination posting instruction */}
+              {(flexAd.lp_primary_url || flexAd.lp_secondary_url) && flexAd.destination_url && (
+                <p className="text-[10px] text-textmid italic pt-1">
+                  Post BOTH LP and PDP as separate ads in the same ad set. Meta auto-optimizes.
+                </p>
               )}
             </div>
           )}

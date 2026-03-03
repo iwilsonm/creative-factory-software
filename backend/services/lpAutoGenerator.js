@@ -19,8 +19,9 @@ import {
   updateLandingPage,
   updateBatchJob,
 } from '../convexClient.js';
-import { generateAutoLP, NARRATIVE_FRAMES } from './lpGenerator.js';
-import { publishToShopify, verifyLive } from './lpPublisher.js';
+import { generateAndValidateLP, NARRATIVE_FRAMES } from './lpGenerator.js';
+import { publishAndSmokeTest } from './lpPublisher.js';
+import { uploadBuffer } from '../convexClient.js';
 
 /**
  * Trigger LP generation for a batch. Fire-and-forget — never throws.
@@ -155,7 +156,8 @@ export async function triggerLPGeneration(batchJobId, projectId, angle) {
 }
 
 /**
- * Generate a single LP, publish to Shopify, and verify live.
+ * Generate a single LP with QA validation loop, publish to Shopify, and smoke test.
+ * Only returns a URL if both QA and smoke test pass.
  * @returns {{ lpId, publishedUrl, verified }}
  */
 async function generateAndPublishLP({ projectId, batchJobId, angle, template, frame, label, sendEvent, editorialPassEnabled = true, useProductReferenceImages = true, agentConfig = null }) {
@@ -176,8 +178,9 @@ async function generateAndPublishLP({ projectId, batchJobId, angle, template, fr
   });
 
   try {
-    // Generate LP content using template + angle + narrative frame
-    const result = await generateAutoLP({
+    // Generate with QA validation + auto-fix loop
+    const visualQAEnabled = agentConfig?.visual_qa_enabled !== false;
+    const { result, qaReport, fixLog, generationAttempts, fixAttempts } = await generateAndValidateLP({
       projectId,
       templateId: template.id,
       angle,
@@ -186,39 +189,60 @@ async function generateAndPublishLP({ projectId, batchJobId, angle, template, fr
       editorialPassEnabled,
       useProductReferenceImages,
       agentConfig,
-    }, sendEvent);
+    }, sendEvent, { visualQAEnabled });
 
-    // Save generated content to the LP record
-    await updateLandingPage(lpId, {
+    // Handle failed generation (all QA attempts exhausted)
+    if (!result) {
+      await updateLandingPage(lpId, {
+        status: 'failed',
+        error_message: 'All generation attempts failed visual QA',
+        qa_status: 'failed',
+        qa_report: qaReport ? JSON.stringify({ ...qaReport, screenshotBuffer: undefined }) : undefined,
+        qa_score: qaReport?.score,
+        qa_issues_count: qaReport?.issues?.length ?? 0,
+        generation_attempts: generationAttempts,
+        fix_attempts: fixAttempts,
+      });
+      throw new Error(`${label} LP generation failed QA after ${generationAttempts} attempts`);
+    }
+
+    // Save generated content + QA results
+    const updateFields = {
       status: 'draft',
       copy_sections: JSON.stringify(result.copySections),
       image_slots: JSON.stringify(result.imageSlots),
       html_template: result.htmlTemplate,
       assembled_html: result.assembledHtml,
       swipe_design_analysis: JSON.stringify(result.designAnalysis),
-    });
+      generation_attempts: generationAttempts,
+      fix_attempts: fixAttempts,
+    };
 
-    // Publish to Shopify
-    const publishResult = await publishToShopify(lpId, projectId);
-
-    // Verify live
-    let verified = false;
-    if (publishResult.published_url) {
-      try {
-        const check = await verifyLive(publishResult.published_url);
-        verified = check.verified;
-        if (!verified) {
-          console.warn(`[LPAuto] ${label} LP published but verification failed: ${check.error}`);
-        }
-      } catch (verifyErr) {
-        console.warn(`[LPAuto] ${label} LP verification error: ${verifyErr.message}`);
+    if (qaReport) {
+      let qaScreenshotStorageId = null;
+      if (qaReport.screenshotBuffer) {
+        qaScreenshotStorageId = await uploadBuffer(qaReport.screenshotBuffer, 'image/jpeg');
       }
+      updateFields.qa_status = qaReport.passed ? 'passed' : 'failed';
+      updateFields.qa_score = qaReport.score;
+      updateFields.qa_report = JSON.stringify({ ...qaReport, screenshotBuffer: undefined });
+      updateFields.qa_issues_count = qaReport.issues.length;
+      if (qaScreenshotStorageId) updateFields.qa_screenshot_storageId = qaScreenshotStorageId;
     }
 
+    await updateLandingPage(lpId, updateFields);
+
+    // Publish + smoke test
+    const { publishResult, smokeResult, verified } = await publishAndSmokeTest(lpId, projectId, {
+      pdpUrl: agentConfig?.pdp_url,
+    });
+
+    // Only return URL if smoke test passed (or wasn't run)
+    const smokeOk = !smokeResult || smokeResult.passed;
     return {
       lpId,
-      publishedUrl: publishResult.published_url,
-      verified,
+      publishedUrl: smokeOk ? publishResult.published_url : null,
+      verified: verified && smokeOk,
     };
   } catch (err) {
     // Update LP to failed state

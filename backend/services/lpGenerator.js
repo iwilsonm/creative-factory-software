@@ -1464,24 +1464,28 @@ You must respond with ONLY a valid JSON object — no markdown, no prose.`;
     const qaPrompt = `Inspect this landing page screenshot carefully and identify any visual quality issues.
 
 CHECK FOR THESE SPECIFIC ISSUES:
-1. **Placeholder text**: Any visible {{placeholder}} tags, Lorem ipsum text, "TODO", "[INSERT]", or clearly fake/template text
-2. **Broken images**: Missing images showing alt text, broken image icons, gray placeholder boxes, or obviously AI-generated artifacts
-3. **Layout problems**: Overlapping text, cut-off content, empty sections with no content, excessively wide/narrow columns, misaligned elements
-4. **Generic attribution**: Testimonial quotes attributed to "Verified Buyer", "Happy Customer", "Anonymous", or other generic labels instead of realistic names
-5. **CTA issues**: Buttons with placeholder text like "Click Here" or "Buy Now" that look unfinished, broken button styles, or obviously fake URLs like "#" or "example.com"
-6. **Typography problems**: Mismatched fonts within the same section, text that's too small to read, inconsistent heading sizes
-7. **Color/contrast issues**: Text that's hard to read against its background, clashing color combinations
-8. **Content problems**: Sections that appear empty, duplicate content visible on the page, obviously nonsensical or cut-off sentences
+1. **Placeholder text** (type: "placeholder_text"): Any visible {{placeholder}} tags, Lorem ipsum, "TODO", "[INSERT]", or clearly fake/template text
+2. **Gray box / broken images** (type: "gray_box_image" or "broken_image"): Missing images showing alt text, broken icons, gray/colored placeholder boxes, or obvious AI artifacts
+3. **Layout problems** (type: "layout_overlap" or "empty_section"): Overlapping text, cut-off content, completely empty sections, extremely wide/narrow columns
+4. **Generic attribution** (type: "generic_attribution"): Testimonial quotes attributed to "Verified Buyer", "Happy Customer", "Anonymous", etc.
+5. **CTA issues** (type: "cta_broken"): Buttons with placeholder text, broken styles, obviously fake URLs like "#" or "example.com"
+6. **Typography problems** (type: "typography_mismatch"): Mismatched fonts, unreadable text sizes
+7. **Color/contrast issues** (type: "contrast_failure"): Text unreadable against its background, dark text on dark background
+8. **Content problems** (type: "duplicate_content" or "truncated_content"): Duplicate visible sections, obviously cut-off sentences
 
 RESPOND WITH A JSON OBJECT:
 {
   "passed": true/false,
+  "auto_fixable": true/false,
   "issues": [
     {
+      "type": "placeholder_text" | "gray_box_image" | "broken_image" | "contrast_failure" | "layout_overlap" | "empty_section" | "generic_attribution" | "cta_broken" | "typography_mismatch" | "duplicate_content" | "truncated_content",
       "severity": "critical" | "warning" | "minor",
       "category": "placeholder" | "image" | "layout" | "attribution" | "cta" | "typography" | "color" | "content",
       "description": "Clear description of the issue",
-      "location": "Where on the page (e.g., 'hero section', 'third testimonial', 'footer area')"
+      "location": "Where on the page (e.g., 'hero section', 'third testimonial', 'footer area')",
+      "fix_suggestion": "Specific instruction for fixing this issue",
+      "css_selector_hint": "Approximate CSS selector if identifiable (e.g., '.testimonial:nth-child(3)', '.hero-section img')"
     }
   ],
   "summary": "One-sentence overall assessment",
@@ -1490,6 +1494,7 @@ RESPOND WITH A JSON OBJECT:
 
 Rules:
 - "passed" = true only if there are ZERO critical issues and at most 1 warning
+- "auto_fixable" = true if ALL critical issues are programmatically fixable types (placeholder_text, generic_attribution, contrast_failure, gray_box_image, broken_image). Set false if critical issues require full regeneration (e.g., fundamentally broken layout, nonsensical content).
 - "critical" = issues that make the page look clearly broken or unprofessional (placeholders, broken images, empty sections)
 - "warning" = issues that reduce quality but don't look obviously broken (minor layout quirks, slightly mismatched fonts)
 - "minor" = nitpick suggestions for improvement
@@ -1524,6 +1529,7 @@ Rules:
 
     return {
       passed: qaResult.passed ?? false,
+      autoFixable: qaResult.auto_fixable ?? false,
       issues: qaResult.issues || [],
       summary: qaResult.summary || '',
       score: qaResult.score ?? 0,
@@ -1535,4 +1541,127 @@ Rules:
     }
     throw err;
   }
+}
+
+/**
+ * Generate an LP with QA validation and auto-fix loop.
+ *
+ * Strategy:
+ * - Generate → postProcess (already in generateAutoLP) → QA
+ * - If FAIL + auto_fixable: autoFix → re-postProcess → re-QA (max 2 fix attempts)
+ * - If still FAIL or not auto_fixable: full regenerate (max 2 total generations)
+ * - If all attempts exhausted: return result: null
+ *
+ * @param {object} params - Same params as generateAutoLP
+ * @param {(event: object) => void} sendEvent - Progress callback
+ * @param {object} [options]
+ * @param {boolean} [options.visualQAEnabled=true]
+ * @returns {Promise<{ result: object|null, qaReport: object|null, fixLog: Array, generationAttempts: number, fixAttempts: number }>}
+ */
+export async function generateAndValidateLP(params, sendEvent, options = {}) {
+  const { visualQAEnabled = true } = options;
+  const MAX_GENERATIONS = 2;
+  const MAX_FIX_ATTEMPTS = 2;
+
+  let generationAttempts = 0;
+  let totalFixAttempts = 0;
+  const fixLog = [];
+  let lastQAReport = null;
+
+  for (let gen = 0; gen < MAX_GENERATIONS; gen++) {
+    generationAttempts++;
+
+    if (gen > 0) {
+      sendEvent({ type: 'progress', step: 'generation_reattempt', message: `Regenerating LP from scratch (attempt ${generationAttempts}/${MAX_GENERATIONS})...` });
+    }
+
+    // 1. Generate the LP
+    let result;
+    try {
+      result = await generateAutoLP(params, sendEvent);
+    } catch (genErr) {
+      console.error(`[LP Pipeline] Generation attempt ${generationAttempts} failed:`, genErr.message);
+      if (gen < MAX_GENERATIONS - 1) continue; // Try next generation
+      return { result: null, qaReport: null, fixLog, generationAttempts, fixAttempts: totalFixAttempts };
+    }
+
+    // 2. If QA disabled, return immediately
+    if (!visualQAEnabled) {
+      return { result, qaReport: null, fixLog, generationAttempts, fixAttempts: totalFixAttempts };
+    }
+
+    // 3. QA + Fix loop
+    let currentHtml = result.assembledHtml;
+
+    for (let fixAttempt = 0; fixAttempt <= MAX_FIX_ATTEMPTS; fixAttempt++) {
+      // Run QA
+      if (fixAttempt === 0) {
+        sendEvent({ type: 'progress', step: 'qa_running', message: 'Running visual QA check...' });
+      } else {
+        sendEvent({ type: 'progress', step: 'qa_recheck', message: `Re-checking after fix (attempt ${fixAttempt}/${MAX_FIX_ATTEMPTS})...` });
+      }
+
+      let qaReport;
+      try {
+        qaReport = await runVisualQA(currentHtml, params.projectId);
+        lastQAReport = qaReport;
+      } catch (qaErr) {
+        console.warn('[LP Pipeline] Visual QA error (non-fatal):', qaErr.message);
+        // QA failed to run — return what we have
+        return { result: { ...result, assembledHtml: currentHtml }, qaReport: null, fixLog, generationAttempts, fixAttempts: totalFixAttempts };
+      }
+
+      // Check if passed
+      if (qaReport.passed && qaReport.score >= 80) {
+        const passMsg = fixAttempt > 0
+          ? `QA passed after ${fixAttempt} fix(es) (score: ${qaReport.score}/100)`
+          : `QA passed (score: ${qaReport.score}/100)`;
+        sendEvent({ type: 'progress', step: fixAttempt > 0 ? 'qa_passed_after_fix' : 'qa_complete', message: passMsg });
+        console.log(`[LP Pipeline] QA PASSED (score: ${qaReport.score}) on gen ${generationAttempts}, fix ${fixAttempt}`);
+        return { result: { ...result, assembledHtml: currentHtml }, qaReport, fixLog, generationAttempts, fixAttempts: totalFixAttempts };
+      }
+
+      // Out of fix attempts for this generation
+      if (fixAttempt === MAX_FIX_ATTEMPTS) {
+        console.warn(`[LP Pipeline] Gen ${generationAttempts} failed QA after ${MAX_FIX_ATTEMPTS} fix attempts. Score: ${qaReport.score}`);
+        sendEvent({ type: 'progress', step: 'qa_failed_regen', message: `QA failed after ${MAX_FIX_ATTEMPTS} fixes (score: ${qaReport.score}/100). ${gen < MAX_GENERATIONS - 1 ? 'Regenerating...' : 'All attempts exhausted.'}` });
+        break;
+      }
+
+      // Not auto-fixable — skip to next generation
+      if (!qaReport.autoFixable) {
+        console.warn(`[LP Pipeline] Gen ${generationAttempts} has non-auto-fixable issues. Score: ${qaReport.score}`);
+        sendEvent({ type: 'progress', step: 'qa_failed_regen', message: `QA failed with non-fixable issues (score: ${qaReport.score}/100). ${gen < MAX_GENERATIONS - 1 ? 'Regenerating...' : 'All attempts exhausted.'}` });
+        break;
+      }
+
+      // Auto-fix
+      totalFixAttempts++;
+      sendEvent({ type: 'progress', step: 'autofix_attempt', message: `Auto-fixing ${qaReport.issues.filter(i => i.severity === 'critical').length} issue(s) (attempt ${totalFixAttempts})...` });
+
+      try {
+        const { autoFixLP } = await import('./lpAutoFixer.js');
+        const fixResult = await autoFixLP(currentHtml, qaReport, {
+          project: params._project || null,
+          agentConfig: params.agentConfig || null,
+          angle: params.angle || '',
+          editorialPlan: result.editorialPlan || null,
+          imageSlots: result.imageSlots || [],
+          copySections: result.copySections || [],
+          projectId: params.projectId,
+        });
+
+        fixLog.push(...fixResult.fixes);
+        currentHtml = fixResult.html;
+      } catch (fixErr) {
+        console.error('[LP Pipeline] Auto-fix failed:', fixErr.message);
+        // Continue to next QA check with unfixed HTML — it will fail and trigger regen
+      }
+    }
+  }
+
+  // All attempts exhausted
+  sendEvent({ type: 'progress', step: 'qa_all_failed', message: 'All generation attempts failed QA. LP slot unfilled.' });
+  console.error(`[LP Pipeline] LP generation failed after ${generationAttempts} generations, ${totalFixAttempts} fix attempts.`);
+  return { result: null, qaReport: lastQAReport, fixLog, generationAttempts, fixAttempts: totalFixAttempts };
 }

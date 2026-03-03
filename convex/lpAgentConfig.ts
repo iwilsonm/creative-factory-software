@@ -41,6 +41,7 @@ export const upsertConfig = mutation({
     default_author_name: v.optional(v.string()),
     default_author_title: v.optional(v.string()),
     default_warning_text: v.optional(v.string()),
+    visual_qa_enabled: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     const existing = await ctx.db
@@ -76,6 +77,7 @@ export const upsertConfig = mutation({
         default_author_name: args.default_author_name,
         default_author_title: args.default_author_title,
         default_warning_text: args.default_warning_text,
+        visual_qa_enabled: args.visual_qa_enabled ?? true,
         created_at: now,
         updated_at: now,
       });

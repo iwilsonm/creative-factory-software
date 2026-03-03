@@ -427,6 +427,13 @@ export default defineSchema({
     qa_report: v.optional(v.string()),               // JSON: full QA report from Claude Opus vision
     qa_issues_count: v.optional(v.number()),         // Number of issues found
     qa_screenshot_storageId: v.optional(v.string()), // Convex storage ID for QA screenshot
+    qa_score: v.optional(v.number()),                // 0-100 from visual QA
+    generation_attempts: v.optional(v.number()),      // How many full generation attempts
+    fix_attempts: v.optional(v.number()),             // How many auto-fix passes attempted
+    // Smoke test fields
+    smoke_test_status: v.optional(v.string()),        // passed | failed | pending
+    smoke_test_report: v.optional(v.string()),        // JSON
+    smoke_test_at: v.optional(v.string()),            // ISO timestamp
     created_at: v.string(),
     updated_at: v.string(),
   })
@@ -607,6 +614,7 @@ export default defineSchema({
     default_author_name: v.optional(v.string()),
     default_author_title: v.optional(v.string()),
     default_warning_text: v.optional(v.string()),
+    visual_qa_enabled: v.optional(v.boolean()),       // Toggle visual QA (default true)
     // Timestamps
     created_at: v.optional(v.string()),
     updated_at: v.optional(v.string()),

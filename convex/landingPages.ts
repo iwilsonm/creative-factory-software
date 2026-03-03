@@ -103,6 +103,13 @@ export const update = mutation({
     qa_report: v.optional(v.string()),
     qa_issues_count: v.optional(v.number()),
     qa_screenshot_storageId: v.optional(v.string()),
+    qa_score: v.optional(v.number()),
+    generation_attempts: v.optional(v.number()),
+    fix_attempts: v.optional(v.number()),
+    // Smoke test fields
+    smoke_test_status: v.optional(v.string()),
+    smoke_test_report: v.optional(v.string()),
+    smoke_test_at: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const doc = await ctx.db
@@ -144,6 +151,12 @@ export const update = mutation({
     if (args.qa_report !== undefined) updates.qa_report = args.qa_report;
     if (args.qa_issues_count !== undefined) updates.qa_issues_count = args.qa_issues_count;
     if (args.qa_screenshot_storageId !== undefined) updates.qa_screenshot_storageId = args.qa_screenshot_storageId;
+    if (args.qa_score !== undefined) updates.qa_score = args.qa_score;
+    if (args.generation_attempts !== undefined) updates.generation_attempts = args.generation_attempts;
+    if (args.fix_attempts !== undefined) updates.fix_attempts = args.fix_attempts;
+    if (args.smoke_test_status !== undefined) updates.smoke_test_status = args.smoke_test_status;
+    if (args.smoke_test_report !== undefined) updates.smoke_test_report = args.smoke_test_report;
+    if (args.smoke_test_at !== undefined) updates.smoke_test_at = args.smoke_test_at;
     await ctx.db.patch(doc._id, updates);
   },
 });

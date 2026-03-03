@@ -10,9 +10,9 @@ import {
   getLandingPagesByProject,
 } from '../convexClient.js';
 import { withRetry } from '../services/retry.js';
-import { generateAutoLP, runVisualQA, NARRATIVE_FRAMES } from '../services/lpGenerator.js';
+import { generateAndValidateLP, NARRATIVE_FRAMES } from '../services/lpGenerator.js';
 import { uploadBuffer } from '../convexClient.js';
-import { publishToShopify, verifyLive } from '../services/lpPublisher.js';
+import { publishAndSmokeTest } from '../services/lpPublisher.js';
 import { createSSEStream } from '../utils/sseHelper.js';
 
 const router = Router();
@@ -44,6 +44,7 @@ router.put('/:id/lp-agent/config', async (req, res) => {
       'editorial_pass_enabled', 'auto_publish', 'daily_budget_cents',
       'use_product_reference_images', 'lifestyle_image_style',
       'default_author_name', 'default_author_title', 'default_warning_text',
+      'visual_qa_enabled',
     ];
     const fields = {};
     for (const key of allowedFields) {
@@ -260,8 +261,9 @@ router.post('/:id/lp-agent/generate-test', async (req, res) => {
     sendEvent({ type: 'started', page_id: lpId });
     console.log(`[LP Agent] generate-test: LP record created (${lpId.slice(0, 8)}), starting pipeline...`);
 
-    // Generate using the same pipeline as the Director
-    const result = await generateAutoLP({
+    // Generate with QA validation + auto-fix loop
+    const visualQAEnabled = agentConfig?.visual_qa_enabled !== false;
+    const { result, qaReport, fixLog, generationAttempts, fixAttempts } = await generateAndValidateLP({
       projectId,
       templateId: template_id,
       angle: angle_description,
@@ -270,7 +272,24 @@ router.post('/:id/lp-agent/generate-test', async (req, res) => {
       editorialPassEnabled: agentConfig?.editorial_pass_enabled !== false,
       useProductReferenceImages: agentConfig?.use_product_reference_images !== false,
       agentConfig,
-    }, sendEvent);
+    }, sendEvent, { visualQAEnabled });
+
+    // Handle failed generation (all QA attempts exhausted)
+    if (!result) {
+      await updateLandingPage(lpId, {
+        status: 'failed',
+        error_message: 'All generation attempts failed visual QA',
+        qa_status: 'failed',
+        qa_report: qaReport ? JSON.stringify({ ...qaReport, screenshotBuffer: undefined }) : undefined,
+        qa_score: qaReport?.score,
+        qa_issues_count: qaReport?.issues?.length ?? 0,
+        generation_attempts: generationAttempts,
+        fix_attempts: fixAttempts,
+      });
+      sendEvent({ type: 'error', message: `LP generation failed QA after ${generationAttempts} attempts. No LP produced.` });
+      end();
+      return;
+    }
 
     // Update LP with generated content
     const updateFields = {
@@ -279,62 +298,44 @@ router.post('/:id/lp-agent/generate-test', async (req, res) => {
       image_slots: JSON.stringify(result.imageSlots || []),
       html_template: result.htmlTemplate || '',
       assembled_html: result.assembledHtml || '',
+      generation_attempts: generationAttempts,
+      fix_attempts: fixAttempts,
     };
     if (result.designAnalysis) {
       updateFields.swipe_design_analysis = JSON.stringify(result.designAnalysis);
     }
+
+    // Save QA results
+    if (qaReport) {
+      let qaScreenshotStorageId = null;
+      if (qaReport.screenshotBuffer) {
+        qaScreenshotStorageId = await uploadBuffer(qaReport.screenshotBuffer, 'image/jpeg');
+      }
+      updateFields.qa_status = qaReport.passed ? 'passed' : 'failed';
+      updateFields.qa_score = qaReport.score;
+      updateFields.qa_report = JSON.stringify({ ...qaReport, screenshotBuffer: undefined, checked_at: new Date().toISOString() });
+      updateFields.qa_issues_count = qaReport.issues.length;
+      if (qaScreenshotStorageId) updateFields.qa_screenshot_storageId = qaScreenshotStorageId;
+    }
     await updateLandingPage(lpId, updateFields);
 
-    // Visual QA check (non-fatal — page is still saved even if QA fails)
-    let qaResult = null;
-    if (result.assembledHtml) {
-      try {
-        sendEvent({ type: 'progress', step: 'qa_running', message: 'Running visual QA check...' });
-        qaResult = await runVisualQA(result.assembledHtml, projectId);
-
-        // Upload QA screenshot
-        let qaScreenshotStorageId = null;
-        if (qaResult.screenshotBuffer) {
-          qaScreenshotStorageId = await uploadBuffer(qaResult.screenshotBuffer, 'image/jpeg');
-        }
-
-        const qaReport = JSON.stringify({
-          passed: qaResult.passed,
-          issues: qaResult.issues,
-          summary: qaResult.summary,
-          score: qaResult.score,
-          checked_at: new Date().toISOString(),
-        });
-
-        await updateLandingPage(lpId, {
-          qa_status: qaResult.passed ? 'passed' : 'failed',
-          qa_report: qaReport,
-          qa_issues_count: qaResult.issues.length,
-          qa_screenshot_storageId: qaScreenshotStorageId,
-        });
-
-        const qaMsg = qaResult.passed
-          ? `QA passed (score: ${qaResult.score}/100)`
-          : `QA found ${qaResult.issues.length} issue(s) (score: ${qaResult.score}/100)`;
-        sendEvent({ type: 'progress', step: 'qa_complete', message: qaMsg });
-      } catch (qaErr) {
-        console.warn('[LP Agent] Visual QA failed (non-fatal):', qaErr.message);
-        sendEvent({ type: 'progress', step: 'qa_complete', message: `QA check failed: ${qaErr.message}` });
-        await updateLandingPage(lpId, { qa_status: 'skipped' });
-      }
-    }
-
-    // Auto-publish if configured and Shopify is connected
+    // Auto-publish + smoke test (only if QA passed and Shopify configured)
     let publishedUrl = null;
     const shouldAutoPublish = agentConfig?.auto_publish !== false;
-    if (shouldAutoPublish && agentConfig?.shopify_access_token && agentConfig?.shopify_store_domain) {
+    const qaOk = !qaReport || qaReport.passed;
+    if (shouldAutoPublish && qaOk && agentConfig?.shopify_access_token && agentConfig?.shopify_store_domain) {
       try {
         sendEvent({ type: 'phase', phase: 'publishing', message: 'Publishing to Shopify...' });
-        const pubResult = await publishToShopify(lpId, projectId);
-        publishedUrl = pubResult.published_url;
+        const { publishResult, smokeResult } = await publishAndSmokeTest(lpId, projectId, {
+          pdpUrl: agentConfig?.pdp_url,
+        });
+        publishedUrl = smokeResult?.passed !== false ? publishResult.published_url : null;
 
-        sendEvent({ type: 'phase', phase: 'verifying', message: 'Verifying live...' });
-        await verifyLive(publishedUrl);
+        if (smokeResult && !smokeResult.passed) {
+          sendEvent({ type: 'progress', message: `Smoke test failed (${smokeResult.failedCount} checks). LP reverted to draft.` });
+        } else {
+          sendEvent({ type: 'phase', phase: 'verifying', message: 'Published and verified!' });
+        }
       } catch (pubErr) {
         console.warn('[LP Agent] Publish failed (non-fatal):', pubErr.message);
         sendEvent({ type: 'progress', message: `Publish warning: ${pubErr.message}` });
@@ -346,9 +347,12 @@ router.post('/:id/lp-agent/generate-test', async (req, res) => {
       page_id: lpId,
       name: `Test LP — ${frame.name}: ${angle_description.slice(0, 60)}`,
       published_url: publishedUrl,
-      qa_passed: qaResult?.passed ?? null,
-      qa_issues_count: qaResult?.issues?.length ?? 0,
-      qa_score: qaResult?.score ?? null,
+      qa_passed: qaReport?.passed ?? null,
+      qa_issues_count: qaReport?.issues?.length ?? 0,
+      qa_score: qaReport?.score ?? null,
+      generation_attempts: generationAttempts,
+      fix_attempts: fixAttempts,
+      fix_log: fixLog,
     });
     console.log(`[LP Agent] generate-test: complete (${lpId.slice(0, 8)})`);
   } catch (err) {

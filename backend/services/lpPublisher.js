@@ -397,3 +397,86 @@ export async function verifyLive(url) {
     return { verified: false, error: err.message };
   }
 }
+
+/**
+ * Set a published Shopify page to draft (unpublish without deleting).
+ * Used when a published LP fails smoke testing — softer than unpublishFromShopify which DELETEs.
+ *
+ * @param {string} pageId - Landing page externalId
+ * @param {string} projectId - Project externalId
+ */
+export async function setToDraft(pageId, projectId) {
+  const page = await getLandingPage(pageId);
+  if (!page || !page.shopify_page_id) {
+    console.warn(`[LPPublish] setToDraft: no Shopify page ID for ${pageId}`);
+    return;
+  }
+
+  try {
+    const shopify = await getShopifyConfig(projectId);
+    await shopifyApi(shopify.domain, shopify.accessToken, 'PUT', `/pages/${page.shopify_page_id}.json`, {
+      page: { id: parseInt(page.shopify_page_id, 10), published: false },
+    });
+    console.log(`[LPPublish] Set Shopify page ${page.shopify_page_id} to draft`);
+  } catch (err) {
+    console.error(`[LPPublish] setToDraft failed: ${err.message}`);
+  }
+
+  await updateLandingPage(pageId, { status: 'draft' });
+}
+
+/**
+ * Publish an LP to Shopify, then run a smoke test.
+ * If smoke fails, revert to draft. Returns combined results.
+ *
+ * @param {string} pageId - Landing page externalId
+ * @param {string} projectId - Project externalId
+ * @param {object} [smokeOptions] - { expectedHeadline, pdpUrl }
+ * @returns {Promise<{ publishResult: object, smokeResult: object|null, verified: boolean }>}
+ */
+export async function publishAndSmokeTest(pageId, projectId, smokeOptions = {}) {
+  // 1. Publish to Shopify
+  const publishResult = await publishToShopify(pageId, projectId);
+
+  // 2. Verify it's live
+  const liveCheck = await verifyLive(publishResult.published_url);
+  if (!liveCheck.verified) {
+    console.warn(`[LPPublish] Page not live after publish: ${liveCheck.error}`);
+    await updateLandingPage(pageId, {
+      smoke_test_status: 'failed',
+      smoke_test_report: JSON.stringify({ error: `Page not live: ${liveCheck.error}` }),
+      smoke_test_at: new Date().toISOString(),
+    });
+    return { publishResult, smokeResult: null, verified: false };
+  }
+
+  // 3. Run smoke test
+  let smokeResult;
+  try {
+    const { runSmokeTest } = await import('./lpSmokeTest.js');
+    smokeResult = await runSmokeTest(publishResult.published_url, smokeOptions);
+  } catch (smokeErr) {
+    console.error(`[LPPublish] Smoke test error: ${smokeErr.message}`);
+    await updateLandingPage(pageId, {
+      smoke_test_status: 'failed',
+      smoke_test_report: JSON.stringify({ error: smokeErr.message }),
+      smoke_test_at: new Date().toISOString(),
+    });
+    return { publishResult, smokeResult: null, verified: true };
+  }
+
+  // 4. Update LP with smoke test results
+  await updateLandingPage(pageId, {
+    smoke_test_status: smokeResult.passed ? 'passed' : 'failed',
+    smoke_test_report: JSON.stringify(smokeResult),
+    smoke_test_at: new Date().toISOString(),
+  });
+
+  // 5. If smoke failed, revert to draft
+  if (!smokeResult.passed) {
+    console.warn(`[LPPublish] Smoke test FAILED for ${pageId}. Reverting to draft.`);
+    await setToDraft(pageId, projectId);
+  }
+
+  return { publishResult, smokeResult, verified: true };
+}

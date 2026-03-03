@@ -138,8 +138,12 @@ export default function LPAgentSettings({ projectId }) {
     'images_starting': 56, 'image_generating': 60, 'image_complete': 70, 'images_complete': 80, 'images_skipped': 80,
     // HTML generation: 81-92%
     'html_generating': 81, 'html_complete': 92,
-    // Visual QA: 93-96%
+    // Visual QA + fix loop: 93-96%
     'qa_running': 93, 'qa_complete': 96,
+    'generation_reattempt': 5, 'autofix_attempt': 94, 'qa_recheck': 95,
+    'qa_passed_after_fix': 96, 'qa_failed_regen': 50, 'qa_all_failed': 97,
+    // Smoke test: 97-99%
+    'smoke_testing': 98, 'smoke_passed': 99, 'smoke_failed': 99,
     // Assembly + publish: 97-100%
     'auto_complete': 97,
   };
@@ -169,11 +173,20 @@ export default function LPAgentSettings({ projectId }) {
     'html_complete': 'HTML complete',
     'qa_running': 'Running visual QA...',
     'qa_complete': null, // Use backend message (has score)
+    'generation_reattempt': null, // Use backend message (has attempt number)
+    'autofix_attempt': 'Auto-fixing issues...',
+    'qa_recheck': 'Re-checking after fix...',
+    'qa_passed_after_fix': null, // Use backend message (has score)
+    'qa_failed_regen': 'Fix failed — regenerating...',
+    'qa_all_failed': 'All generation attempts failed QA',
+    'smoke_testing': 'Running smoke test...',
+    'smoke_passed': 'Smoke test passed',
+    'smoke_failed': 'Smoke test failed — reverting to draft',
     'auto_complete': 'Finalizing...',
   };
   // Separate handler for phase-level events from lpAgent.js route
   const PHASE_PROGRESS = {
-    'publishing': 97, 'verifying': 99,
+    'publishing': 97, 'verifying': 98, 'smoke_testing': 99,
   };
 
   const handleGenerateTest = () => {
@@ -229,9 +242,12 @@ export default function LPAgentSettings({ projectId }) {
           setGenPhase('');
           setGenProgress(0);
           genStartRef.current = null;
-          const msg = event.published_url
+          let msg = event.published_url
             ? 'LP generated and published!'
             : 'LP generated successfully!';
+          if (event.generation_attempts > 1 || event.fix_attempts > 0) {
+            msg += ` (${event.generation_attempts || 1} gen${event.generation_attempts > 1 ? 's' : ''}, ${event.fix_attempts || 0} fix${event.fix_attempts !== 1 ? 'es' : ''})`;
+          }
           toast.success(msg);
           refreshRecentGenerations();
         }, 500);
@@ -612,6 +628,24 @@ export default function LPAgentSettings({ projectId }) {
                 }`} />
               </button>
             </div>
+
+            {/* Visual QA toggle */}
+            <div className="flex items-center justify-between">
+              <div>
+                <p className="text-[12px] font-medium text-textdark">Visual QA + Auto-Fix</p>
+                <p className="text-[10px] text-textlight">Screenshot-based QA with automatic fix loop (contrast, images, layout, placeholders)</p>
+              </div>
+              <button
+                onClick={() => handleSaveConfig({ visual_qa_enabled: config?.visual_qa_enabled === false ? true : false })}
+                className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
+                  config?.visual_qa_enabled !== false ? 'bg-navy' : 'bg-gray-200'
+                }`}
+              >
+                <span className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
+                  config?.visual_qa_enabled !== false ? 'translate-x-4' : 'translate-x-0'
+                }`} />
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -780,6 +814,16 @@ export default function LPAgentSettings({ projectId }) {
                     {lp.qa_status === 'running' && (
                       <span className="text-[9px] font-medium px-1.5 py-0.5 rounded-full flex-shrink-0 bg-gold/10 text-gold animate-pulse">
                         QA...
+                      </span>
+                    )}
+                    {lp.smoke_test_status === 'passed' && (
+                      <span className="text-[9px] font-medium px-1.5 py-0.5 rounded-full flex-shrink-0 bg-teal/10 text-teal" title="Smoke test passed">
+                        Smoke ✓
+                      </span>
+                    )}
+                    {lp.smoke_test_status === 'failed' && (
+                      <span className="text-[9px] font-medium px-1.5 py-0.5 rounded-full flex-shrink-0 bg-red-50 text-red-600" title="Smoke test failed">
+                        Smoke ✗
                       </span>
                     )}
                   </div>
