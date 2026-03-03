@@ -17,10 +17,13 @@ export function createSSEStream(req, res) {
 
   res.writeHead(200, {
     'Content-Type': 'text/event-stream',
-    'Cache-Control': 'no-cache',
+    'Cache-Control': 'no-cache, no-transform',
     'Connection': 'keep-alive',
     'X-Accel-Buffering': 'no',
+    'Content-Encoding': 'identity',  // Prevent gzip from buffering SSE
   });
+  // Force flush headers immediately so the client knows the stream is open
+  if (typeof res.flushHeaders === 'function') res.flushHeaders();
 
   let closed = false;
   const keepalive = setInterval(() => {
