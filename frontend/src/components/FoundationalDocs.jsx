@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { api } from '../api';
 import DragDropUpload from './DragDropUpload';
 import InfoTooltip from './InfoTooltip';
+import PipelineProgress from './PipelineProgress';
 import { useToast } from './Toast';
 import { useAsyncData } from '../hooks/useAsyncData';
 import { useSSEStream } from '../hooks/useSSEStream';
@@ -369,6 +370,19 @@ export default function FoundationalDocs({ projectId, projectStatus }) {
   // Deep research progress state (auto mode only)
   const [deepResearchProgress, setDeepResearchProgress] = useState(null);
 
+  // Progress bar state
+  const [genProgress, setGenProgress] = useState(0);
+  const [genProgressMsg, setGenProgressMsg] = useState('');
+  const genStartTimeRef = useRef(null);
+
+  // Step-weighted progress: deep research (step 4) takes ~80% of time
+  const STEP_PROGRESS = { 1: 2, 2: 4, 3: 6, 4: 8, 5: 55, 6: 70, 7: 82, 8: 92 };
+  const STEP_LABELS = {
+    1: 'Analyzing sales page...', 2: 'Extracting product claims...', 3: 'Generating research prompt...',
+    4: 'Deep research in progress...', 5: 'Synthesizing avatar...', 6: 'Writing offer brief...',
+    7: 'Training on methodology...', 8: 'Developing belief documents...',
+  };
+
   // Manual research flow state
   const [manualStep, setManualStep] = useState(1); // 1=prompts, 2=upload, 3=generating
   const [researchPrompts, setResearchPrompts] = useState(null);
@@ -507,6 +521,9 @@ export default function FoundationalDocs({ projectId, projectStatus }) {
     setCurrentStep(null);
     setCompletedSteps(new Set());
     setDeepResearchProgress(null);
+    setGenProgress(0);
+    setGenProgressMsg('');
+    genStartTimeRef.current = Date.now();
 
     startStream(() => api.generateDocs(projectId, (event) => {
       switch (event.type) {
@@ -514,28 +531,53 @@ export default function FoundationalDocs({ projectId, projectStatus }) {
           setCurrentStep(event);
           setStreamContent('');
           setDeepResearchProgress(null);
+          if (STEP_PROGRESS[event.step] !== undefined) {
+            setGenProgress(prev => Math.max(prev, STEP_PROGRESS[event.step]));
+          }
+          setGenProgressMsg(STEP_LABELS[event.step] || event.label || '');
           break;
         case 'chunk':
           setStreamContent(prev => prev + event.text);
           break;
         case 'deep_research_progress':
           setDeepResearchProgress(event);
+          // Interpolate deep research progress: 8% → 50% based on searches
+          if (event.searchesCompleted) {
+            const drProgress = Math.min(8 + Math.round(event.searchesCompleted * 2.5), 50);
+            setGenProgress(prev => Math.max(prev, drProgress));
+            setGenProgressMsg(`Deep research — ${event.searchesCompleted} searches completed...`);
+          }
           break;
         case 'step_complete':
           setCompletedSteps(prev => new Set([...prev, event.step]));
           if (event.savedAs) loadDocs();
+          // Bump progress past the step's start value
+          if (STEP_PROGRESS[event.step] !== undefined) {
+            const nextStep = event.step + 1;
+            const nextVal = STEP_PROGRESS[nextStep] || (STEP_PROGRESS[event.step] + 5);
+            setGenProgress(prev => Math.max(prev, nextVal - 1));
+          }
           break;
         case 'error':
           setGenError(event.message);
           break;
       }
     })).then(() => {
-      setCurrentStep(null);
-      setDeepResearchProgress(null);
-      setGenerationMode(null);
-      loadDocs();
+      setGenProgress(100);
+      setGenProgressMsg('Complete');
+      setTimeout(() => {
+        setCurrentStep(null);
+        setDeepResearchProgress(null);
+        setGenerationMode(null);
+        setGenProgress(0);
+        setGenProgressMsg('');
+        genStartTimeRef.current = null;
+        loadDocs();
+      }, 500);
     }).catch(err => {
       if (err.name !== 'AbortError') setGenError(err.message);
+      setGenProgress(0);
+      genStartTimeRef.current = null;
     });
   };
 
@@ -547,12 +589,19 @@ export default function FoundationalDocs({ projectId, projectStatus }) {
     setStreamContent('');
     setCurrentStep(null);
     setCompletedSteps(new Set([1, 2, 3, 4])); // Steps 1-4 already done manually
+    setGenProgress(50); // Start at 50% since steps 1-4 are done
+    setGenProgressMsg('Starting synthesis...');
+    genStartTimeRef.current = Date.now();
 
     startStream(() => api.generateDocsManual(projectId, manualResearchText, (event) => {
       switch (event.type) {
         case 'step_start':
           setCurrentStep(event);
           setStreamContent('');
+          if (STEP_PROGRESS[event.step] !== undefined) {
+            setGenProgress(prev => Math.max(prev, STEP_PROGRESS[event.step]));
+          }
+          setGenProgressMsg(STEP_LABELS[event.step] || event.label || '');
           break;
         case 'chunk':
           setStreamContent(prev => prev + event.text);
@@ -560,17 +609,28 @@ export default function FoundationalDocs({ projectId, projectStatus }) {
         case 'step_complete':
           setCompletedSteps(prev => new Set([...prev, event.step]));
           if (event.savedAs) loadDocs();
+          if (STEP_PROGRESS[event.step] !== undefined) {
+            const nextStep = event.step + 1;
+            const nextVal = STEP_PROGRESS[nextStep] || (STEP_PROGRESS[event.step] + 5);
+            setGenProgress(prev => Math.max(prev, nextVal - 1));
+          }
           break;
         case 'error':
           setGenError(event.message);
           break;
       }
     })).then(() => {
-      setCurrentStep(null);
-      setGenerationMode(null);
-      setManualStep(1);
-      setManualResearchText('');
-      loadDocs();
+      setGenProgress(100);
+      setGenProgressMsg('Complete');
+      setTimeout(() => {
+        setCurrentStep(null);
+        setGenerationMode(null);
+        setManualStep(1);
+        setManualResearchText('');
+        setGenProgress(0);
+        genStartTimeRef.current = null;
+        loadDocs();
+      }, 500);
     }).catch(err => {
       if (err.name !== 'AbortError') setGenError(err.message);
     });
@@ -1076,6 +1136,16 @@ export default function FoundationalDocs({ projectId, projectStatus }) {
               Cancel
             </button>
           </div>
+
+          {/* Overall progress bar */}
+          {!regenerating && (
+            <PipelineProgress
+              progress={genProgress}
+              message={genProgressMsg}
+              startTime={genStartTimeRef.current}
+              className="mb-4"
+            />
+          )}
 
           {/* Step progress */}
           {steps.length > 0 && !regenerating && (

@@ -76,8 +76,9 @@ export default function BatchManager({ projectId, project, onBatchComplete }) {
     }
   }, [expanded, projectId]);
 
-  // Poll for active batches every 30s when expanded
-  usePolling(() => loadBatches(true), 30000, expanded);
+  // Poll for batches — 10s when any batch is active, 30s otherwise
+  const hasActiveBatches = batches.some(b => ['generating_prompts', 'submitting', 'processing'].includes(b.status));
+  usePolling(() => loadBatches(true), hasActiveBatches ? 10000 : 30000, expanded);
 
   // Load templates when "Pick Template" is selected
   useEffect(() => {

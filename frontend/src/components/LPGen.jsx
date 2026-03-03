@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { api } from '../api';
 import InfoTooltip from './InfoTooltip';
+import PipelineProgress from './PipelineProgress';
 import { useToast } from './Toast';
 
 // ─── Section type labels for display ────────────────────────────────────────
@@ -1307,7 +1308,24 @@ export default function LPGen({ projectId, project }) {
   const [imageProgress, setImageProgress] = useState(null); // { current, total, slotId }
   const [genStartTime, setGenStartTime] = useState(null);
   const [elapsedSeconds, setElapsedSeconds] = useState(0);
+  const [genPercent, setGenPercent] = useState(0);
   const abortRef = useRef(null);
+
+  // Step-weighted progress map (matches LP Agent pattern)
+  const LP_STEP_PROGRESS = {
+    'fetch': 2, 'screenshot': 5,
+    'design_analyzing': 8, 'design_complete': 15,
+    'loading_docs': 18, 'generating': 20, 'calling_api': 22, 'parsing': 35, 'copy_complete': 40,
+    'editorial_starting': 42, 'editorial_complete': 55, 'editorial_skipped': 55, 'editorial_failed': 55,
+    'images_starting': 58, 'image_generating': 62, 'images_complete': 80, 'images_skipped': 80,
+    'html_generating': 82, 'html_complete': 92,
+    'qa_running': 94, 'qa_complete': 97,
+    'assembling': 98,
+  };
+  const LP_PHASE_PROGRESS = {
+    'fetch': 2, 'design_analysis': 8, 'copy_generation': 18,
+    'editorial': 42, 'image_generation': 58, 'html_generation': 82, 'assembling': 98,
+  };
 
   // Elapsed timer during generation
   useEffect(() => {
@@ -1375,6 +1393,7 @@ export default function LPGen({ projectId, project }) {
     setGenStartTime(Date.now());
     setElapsedSeconds(0);
     setGenProgress('Starting...');
+    setGenPercent(0);
     setGenError('');
     setGenResult(null);
     setGenPhases([]);
@@ -1420,19 +1439,35 @@ export default function LPGen({ projectId, project }) {
             return prev;
           });
           setGenProgress(event.message || '');
+          if (LP_PHASE_PROGRESS[event.phase] !== undefined) {
+            setGenPercent(prev => Math.max(prev, LP_PHASE_PROGRESS[event.phase]));
+          }
         } else if (event.type === 'progress') {
           setGenProgress(event.message || event.step || 'Processing...');
+          if (event.step && LP_STEP_PROGRESS[event.step] !== undefined) {
+            setGenPercent(prev => Math.max(prev, LP_STEP_PROGRESS[event.step]));
+          }
           if (event.imageProgress) {
             setImageProgress(event.imageProgress);
+            // Image sub-step progress: 58-80% range
+            const { current, total, done: imgDone } = event.imageProgress;
+            if (total > 0) {
+              const imgPct = imgDone
+                ? 58 + Math.round((current / total) * 22)
+                : 58 + Math.round(((current - 1) / total) * 22) + Math.round((1 / total) * 11);
+              setGenPercent(prev => Math.max(prev, imgPct));
+            }
           }
         } else if (event.type === 'started') {
           setGenProgress('Generation started...');
+          setGenPercent(1);
           if (event.hasSwipeUrl || event.hasSwipePdf) {
             setGenPhases(['fetch', 'design_analysis', 'copy_generation', 'image_generation', 'html_generation', 'assembling']);
           } else {
             setGenPhases(['copy_generation', 'html_generation', 'assembling']);
           }
         } else if (event.type === 'completed') {
+          setGenPercent(100);
           setGenResult(event);
           setGenProgress('');
           setGenerating(false);
@@ -1530,21 +1565,15 @@ export default function LPGen({ projectId, project }) {
         <div className="card p-8">
           {generating ? (
             <div className="text-center">
-              <div className="w-10 h-10 mx-auto mb-4 rounded-full bg-navy/10 flex items-center justify-center">
-                <svg className="w-5 h-5 text-navy animate-spin" viewBox="0 0 24 24" fill="none">
-                  <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" strokeDasharray="31.4 31.4" strokeLinecap="round" />
-                </svg>
-              </div>
-              <p className="text-[14px] font-medium text-textdark mb-2">Building your landing page...</p>
+              <p className="text-[14px] font-medium text-textdark mb-3">Building your landing page...</p>
 
-              {/* Timer + estimate */}
-              <div className="flex items-center justify-center gap-3 text-[11px] text-textlight mb-4">
-                <span>{Math.floor(elapsedSeconds / 60)}:{String(elapsedSeconds % 60).padStart(2, '0')} elapsed</span>
-                {genPhases.length > 0 && (() => {
-                  const rem = estimateRemainingSeconds(genPhases, currentPhase, imageProgress?.total);
-                  return rem !== null ? <span>~{formatTime(rem)} remaining</span> : null;
-                })()}
-              </div>
+              {/* Overall progress bar */}
+              <PipelineProgress
+                progress={genPercent}
+                message={genProgress}
+                startTime={genStartTime}
+                className="mb-4 max-w-md mx-auto"
+              />
 
               {/* Multi-phase progress */}
               {genPhases.length > 0 && (

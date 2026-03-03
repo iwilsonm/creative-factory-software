@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { api } from '../api';
 import { useToast } from './Toast';
+import PipelineProgress from './PipelineProgress';
 import MultiInput from './MultiInput';
 import NotionFilter from './NotionFilter';
 import { useAsyncData } from '../hooks/useAsyncData';
@@ -830,6 +831,29 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
     if (completed) return 'complete';
     if (started) return 'running';
     return 'pending';
+  };
+
+  // ─── Mining progress percentage (derived from events) ──────────────────────
+  const getMiningProgress = () => {
+    if (!mining) return { percent: 0, message: '' };
+    const perplexity = getEngineStatus('perplexity');
+    const claude = getEngineStatus('claude');
+    const merge = getMergeStatus();
+    const bankUpdated = progress.some(e => e.type === 'bank_updated');
+    const headlinesDone = progress.some(e => e.type === 'headlines_saved' || e.type === 'bank_headlines_generated');
+    const saved = progress.some(e => e.type === 'saved');
+
+    if (headlinesDone || bankUpdated) return { percent: 95, message: 'Generating headlines...' };
+    if (saved) return { percent: 85, message: 'Updating quote bank...' };
+    if (merge === 'complete') return { percent: 75, message: 'Saving results...' };
+    if (merge === 'running') return { percent: 60, message: 'Merging & ranking quotes...' };
+    const bothDone = (perplexity === 'complete' || perplexity === 'error') && (claude === 'complete' || claude === 'error');
+    if (bothDone) return { percent: 50, message: 'Both searches complete, preparing merge...' };
+    const oneDone = (perplexity === 'complete' || perplexity === 'error') || (claude === 'complete' || claude === 'error');
+    if (oneDone) return { percent: 30, message: 'Waiting for second search engine...' };
+    const anyRunning = perplexity === 'running' || claude === 'running';
+    if (anyRunning) return { percent: 10, message: 'Searching communities...' };
+    return { percent: 2, message: 'Starting search engines...' };
   };
 
   // ─── Filtered bank quotes (with Notion-style filters) ──────────────────────
@@ -2109,6 +2133,7 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
             </svg>
             <h3 className="text-[14px] font-semibold text-textdark">Mining in Progress...</h3>
           </div>
+          <PipelineProgress progress={50} message="Processing in background..." startTime={miningStartTime} />
           <p className="text-[12px] text-textmid">
             A mining run is still processing in the background. Results will appear automatically when complete.
           </p>
@@ -2169,6 +2194,12 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
               Cancel
             </button>
           </div>
+
+          {/* Overall progress bar */}
+          {(() => {
+            const { percent, message } = getMiningProgress();
+            return <PipelineProgress progress={percent} message={message} startTime={miningStartTime} />;
+          })()}
 
           {/* Engine status indicators */}
           <div className="grid grid-cols-1 md:grid-cols-3 gap-3">

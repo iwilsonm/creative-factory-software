@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { api } from '../api';
 import { useToast } from './Toast';
 import LPTemplateManager from './LPTemplateManager';
+import PipelineProgress from './PipelineProgress';
 
 const NARRATIVE_FRAMES = [
   { id: 'testimonial', name: 'Testimonial Journey' },
@@ -271,19 +272,6 @@ export default function LPAgentSettings({ projectId }) {
         toast.error(err.message || 'Generation failed');
       }
     });
-  };
-
-  // Estimate time remaining based on elapsed time and progress
-  const getTimeEstimate = () => {
-    if (!genStartRef.current || genProgress < 3) return null;
-    const elapsed = (Date.now() - genStartRef.current) / 1000;
-    if (elapsed < 5) return null; // Wait at least 5s before estimating
-    const rate = genProgress / elapsed;
-    if (rate <= 0) return null;
-    const remaining = Math.round((100 - genProgress) / rate);
-    if (remaining < 5) return 'Almost done';
-    if (remaining < 60) return `~${remaining}s remaining`;
-    return `~${Math.ceil(remaining / 60)}m remaining`;
   };
 
   // ── Derived state ──
@@ -718,35 +706,12 @@ export default function LPAgentSettings({ projectId }) {
               </button>
             </div>
             {generating && (
-              <div className="space-y-1.5 mt-1">
-                {/* Progress bar */}
-                <div className="w-full bg-black/5 rounded-full h-2 overflow-hidden">
-                  <div
-                    className="h-full rounded-full transition-all duration-700 ease-out"
-                    style={{
-                      width: `${Math.max(genProgress, 2)}%`,
-                      background: genProgress >= 100
-                        ? '#2A9D8F'
-                        : 'linear-gradient(90deg, #0B1D3A, #132B52)',
-                    }}
-                  />
-                </div>
-                {/* Status line */}
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-1.5 min-w-0">
-                    <svg className="w-3 h-3 text-navy animate-spin flex-shrink-0" viewBox="0 0 24 24" fill="none">
-                      <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" strokeDasharray="31.4 31.4" strokeLinecap="round" />
-                    </svg>
-                    <span className="text-[10px] text-textmid truncate">{genPhase || 'Starting...'}</span>
-                  </div>
-                  <div className="flex items-center gap-2 flex-shrink-0 ml-2">
-                    <span className="text-[10px] font-medium text-navy">{genProgress}%</span>
-                    {getTimeEstimate() && (
-                      <span className="text-[9px] text-textlight">{getTimeEstimate()}</span>
-                    )}
-                  </div>
-                </div>
-              </div>
+              <PipelineProgress
+                progress={genProgress}
+                message={genPhase}
+                startTime={genStartRef.current}
+                className="mt-1"
+              />
             )}
             <p className="text-[10px] text-textlight mt-1">
               Test the LP pipeline: pick a template and narrative frame, enter an angle, and generate a landing page.

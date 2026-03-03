@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import PipelineProgress from './PipelineProgress';
 import {
   CRON_PRESETS, INTERVAL_UNITS, ASPECT_RATIOS,
   STATUS_COLORS, STATUS_LABELS,
@@ -105,6 +106,31 @@ export default function BatchRow({ batch, onRunNow, onCancel, onDelete, onEdit, 
     : pipelineStage === 1 ? 30
     : pipelineStage === 0 ? 10
     : 0;
+
+  // Unified progress percentage for the standard progress bar
+  const getOverallProgress = () => {
+    if (batch.status === 'completed') return { pct: 100, msg: 'Complete' };
+    if (batch.status === 'failed') return { pct: 0, msg: batch.error_message || 'Failed' };
+    if (batch.status === 'generating_prompts' && pipelineState) {
+      // Stages 0-3 map to 5-75%
+      const stagePcts = { 0: 5, 1: 20, 2: 40, 3: 65 };
+      const stageRanges = { 0: [5, 20], 1: [20, 40], 2: [40, 65], 3: [65, 75] };
+      const base = stagePcts[pipelineStage] || 5;
+      const range = stageRanges[pipelineStage];
+      let pct = base;
+      if (range && pipelineTotal > 0) {
+        pct = range[0] + Math.round((pipelineCurrent / pipelineTotal) * (range[1] - range[0]));
+      }
+      return { pct, msg: pipelineState.stage_label || `Stage ${pipelineStage}` };
+    }
+    if (batch.status === 'submitting') return { pct: 80, msg: 'Submitting to image API...' };
+    if (batch.status === 'processing') {
+      // 85-98% range based on batch_stats
+      const pct = progressTotal > 0 ? 85 + Math.round((progressDone / progressTotal) * 13) : 85;
+      return { pct, msg: `${progressDone}/${progressTotal} images generated` };
+    }
+    return { pct: 2, msg: 'Pending...' };
+  };
 
   return (
     <div className="rounded-xl bg-black/[0.02] border border-black/5 hover:bg-black/[0.03] transition-colors">
@@ -409,39 +435,19 @@ export default function BatchRow({ batch, onRunNow, onCancel, onDelete, onEdit, 
         </div>
       )}
 
-      {/* Pipeline progress bar for generating_prompts stage */}
-      {batch.status === 'generating_prompts' && pipelineState && (
-        <div className="px-3 pb-3">
-          <div className="flex items-center gap-2">
-            <div className="flex-1 h-1.5 rounded-full bg-black/10 overflow-hidden">
-              <div
-                className="h-full bg-teal rounded-full transition-all duration-500"
-                style={{ width: `${pipelinePct}%` }}
-              />
-            </div>
-            <span className="text-[10px] text-textlight flex-shrink-0">
-              {pipelineState.stage_label || `Stage ${pipelineStage}`}
-            </span>
+      {/* Progress bar for active batches */}
+      {isActive && (() => {
+        const { pct, msg } = getOverallProgress();
+        return (
+          <div className="px-3 pb-3">
+            <PipelineProgress
+              progress={pct}
+              message={msg}
+              startTime={batch.started_at ? new Date(batch.started_at).getTime() : null}
+            />
           </div>
-        </div>
-      )}
-
-      {/* Progress bar for processing batches */}
-      {batch.status === 'processing' && progressTotal > 0 && (
-        <div className="px-3 pb-3">
-          <div className="flex items-center gap-2">
-            <div className="flex-1 h-1.5 rounded-full bg-black/10 overflow-hidden">
-              <div
-                className="h-full bg-teal rounded-full transition-all duration-500"
-                style={{ width: `${progressPct}%` }}
-              />
-            </div>
-            <span className="text-[10px] text-textlight flex-shrink-0">
-              {progressDone}/{progressTotal} generated
-            </span>
-          </div>
-        </div>
-      )}
+        );
+      })()}
     </div>
   );
 }
