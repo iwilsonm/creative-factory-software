@@ -1761,11 +1761,12 @@ Rules:
  */
 export async function generateAndValidateLP(params, sendEvent, options = {}) {
   const { visualQAEnabled = true } = options;
-  const MAX_GENERATIONS = 2;
+  const MAX_GENERATIONS = 5;
   const MAX_FIX_ATTEMPTS = 2;
 
   let generationAttempts = 0;
   let totalFixAttempts = 0;
+  let consecutiveFailures = 0;
   const fixLog = [];
   let lastQAReport = null;
 
@@ -1780,10 +1781,16 @@ export async function generateAndValidateLP(params, sendEvent, options = {}) {
     let result;
     try {
       result = await generateAutoLP(params, sendEvent);
+      consecutiveFailures = 0; // Reset on successful generation
     } catch (genErr) {
       console.error(`[LP Pipeline] Generation attempt ${generationAttempts} failed:`, genErr.message);
-      if (gen < MAX_GENERATIONS - 1) continue; // Try next generation
-      return { result: null, qaReport: null, fixLog, generationAttempts, fixAttempts: totalFixAttempts };
+      consecutiveFailures++;
+      // If 3 consecutive generation failures (not QA — actual crashes/timeouts), stop
+      if (consecutiveFailures >= 3) {
+        console.error(`[LP Pipeline] 3 consecutive generation failures — giving up.`);
+        return { result: null, qaReport: null, fixLog, generationAttempts, fixAttempts: totalFixAttempts };
+      }
+      continue; // Try next generation
     }
 
     // 2. If QA disabled, return immediately
@@ -1882,8 +1889,8 @@ export async function generateAndValidateLP(params, sendEvent, options = {}) {
     }
   }
 
-  // All attempts exhausted
-  sendEvent({ type: 'progress', step: 'qa_all_failed', message: 'All generation attempts failed QA. LP slot unfilled.' });
+  // All 5 attempts exhausted
+  sendEvent({ type: 'progress', step: 'qa_all_failed', message: `All ${MAX_GENERATIONS} generation attempts failed QA. LP slot unfilled.` });
   console.error(`[LP Pipeline] LP generation failed after ${generationAttempts} generations, ${totalFixAttempts} fix attempts.`);
   return { result: null, qaReport: lastQAReport, fixLog, generationAttempts, fixAttempts: totalFixAttempts };
 }
