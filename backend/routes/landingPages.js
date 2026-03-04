@@ -29,6 +29,8 @@ import {
   assembleLandingPage,
   postProcessLP,
   injectContrastSafetyCSS,
+  ensureMinLightness,
+  enforceBackgroundLightness,
   generateAutoLP,
   runVisualQA,
   NARRATIVE_FRAMES,
@@ -460,6 +462,8 @@ router.put('/:projectId/landing-pages/:pageId', async (req, res) => {
     updates.assembled_html = updates.assembled_html.replace(/\{\{[^}]+\}\}/g, '');
     // Strip existing contrast safety CSS (may be outdated) then re-inject fresh
     updates.assembled_html = updates.assembled_html.replace(/<style[^>]*data-safety="contrast"[^>]*>[\s\S]*?<\/style>/gi, '');
+    // Enforce background lightness floor then re-inject contrast CSS
+    updates.assembled_html = enforceBackgroundLightness(updates.assembled_html).html;
     updates.assembled_html = injectContrastSafetyCSS(updates.assembled_html);
   }
 
@@ -819,6 +823,8 @@ router.post('/:projectId/landing-pages/:pageId/versions/:versionId/restore', asy
     updates.assembled_html = updates.assembled_html.replace(/\{\{[^}]+\}\}/g, '');
     // Strip existing contrast safety CSS (may be outdated) then re-inject fresh
     updates.assembled_html = updates.assembled_html.replace(/<style[^>]*data-safety="contrast"[^>]*>[\s\S]*?<\/style>/gi, '');
+    // Enforce background lightness floor then re-inject contrast CSS
+    updates.assembled_html = enforceBackgroundLightness(updates.assembled_html).html;
     updates.assembled_html = injectContrastSafetyCSS(updates.assembled_html);
   }
 

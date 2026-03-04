@@ -202,7 +202,11 @@ Important:
     message: `Design analysis complete: ${designSpec.sections?.length || 0} sections, ${designSpec.image_slots?.length || 0} image slots, ${designSpec.cta_elements?.length || 0} CTAs`,
   });
 
-  return designSpec;
+  // Lighten any dark background colors extracted from the reference page.
+  // Preserves hue/saturation — just raises lightness to 65% minimum.
+  const lightenedSpec = lightenDesignColors(designSpec);
+
+  return lightenedSpec;
 }
 
 // ─── Foundational Docs helpers ──────────────────────────────────────────────
@@ -314,6 +318,19 @@ WRONG: heading="USDA DATA", body="USDA DATA: 42.7% of organic produce samples te
 TESTIMONIAL ATTRIBUTION: When writing testimonials, social proof quotes, or customer reviews, ALWAYS use a realistic first name + last initial (e.g., "Sarah M.", "David R.", "Jennifer K."). NEVER use generic labels like "Verified Buyer", "Verified Customer", "Happy Customer", or "Anonymous". Each testimonial must have a unique, realistic name.
 
 TESTIMONIAL UNIQUENESS: Each testimonial quote must appear ONLY ONCE on the entire page. If the template has multiple testimonial slots (e.g., testimonial, section_3_body_2, proof), generate a DIFFERENT testimonial for each one — different person, different quote, different angle on why the product works. NEVER include the same person's testimonial in both body text AND a separate testimonial/blockquote section. Each attributed name must appear exactly once across all sections. Never repeat the same quote or paraphrase of the same quote anywhere on the page.
+
+PULLQUOTE / CALLOUT RULE — MANDATORY:
+When you create a styled pullquote, highlight box, callout, stat box, or any visually emphasized text element, that text is REPLACING the equivalent body copy — not supplementing it. Do NOT include the same sentence or phrase in both a styled element AND the body narrative. If a key moment appears as a pullquote or highlight, the body text should continue from AFTER that moment, not repeat it.
+
+Example of what NOT to do:
+  [Highlight: "I woke up at 6:47 AM."]
+  Body: "I woke up at 6:47 AM. I lay there for a moment..."
+
+Correct:
+  [Highlight: "I woke up at 6:47 AM."]
+  Body: "I lay there for a moment, confused..."
+
+The callout carries the moment. The body text picks up where the callout leaves off.
 
 AUTHOR METADATA: If the template has an author_name slot, use a realistic female first and last name — this is a first-person editorial article and the author should sound like a real person, not an editorial desk or department. Example: 'Sarah Mitchell', 'Jennifer Roberts', 'Amanda Chen'. For author_title, use a credible editorial role like 'Health & Wellness Editor', 'Senior Health Correspondent', 'Contributing Health Editor'.
 
@@ -860,7 +877,7 @@ REQUIREMENTS:
 3. Ensure all copy section placeholders are placed in the correct sections
 4. The page must remain mobile-responsive
 5. Do NOT add any structural elements that are not in the template skeleton — no urgency banners, sticky bars, floating CTAs, countdown timers, notification bars, or any other elements the template doesn't already contain. The template defines the page structure; you populate it.
-6. CONTRAST SAFETY: Any element with a dark or colored background (green, blue, dark gray, etc.) MUST have white (#FFFFFF) text. Never use dark text on a dark background. Check every colored section, callout, banner, and overlay for sufficient contrast.${editorialPlan ? '\n7. Follow editorial plan instructions for section ordering, emphasis, and callout placement — but do NOT add structural elements the template doesn\'t have, even if the editorial plan suggests them' : ''}`
+6. BACKGROUND COLOR RULE — MANDATORY: Every section or container background color MUST have an HSL lightness of 60% or above. Text should be dark/black. Allowed: pastels, light tints, cream, soft washes of any color (sage green, mint, pale blue, light gold). NOT allowed: dark green, dark blue, dark teal, dark gray, forest green, navy, charcoal, or any deeply saturated color as a background. Use the reference design's color palette but shift any dark background colors to their light tint equivalents. CTA button backgrounds can be darker (the button text should be white), but section/container backgrounds must be light.${editorialPlan ? '\n7. Follow editorial plan instructions for section ordering, emphasis, and callout placement — but do NOT add structural elements the template doesn\'t have, even if the editorial plan suggests them' : ''}`
     : `Generate a complete, self-contained HTML landing page based on this design specification and placeholder system.
 
 DESIGN SPECIFICATION:
@@ -883,7 +900,7 @@ REQUIREMENTS:
 13. CTA buttons should be prominently styled per the design spec
 14. Add a viewport meta tag for mobile
 15. Target a professional, premium look — clean spacing, readable typography
-16. CONTRAST SAFETY: Any element with a dark or colored background (green, blue, dark gray, etc.) MUST have white (#FFFFFF) text. Never use dark text on a dark background. Check every colored section, callout, banner, and overlay for sufficient contrast.${editorialPlan ? '\n17. Follow ALL editorial plan instructions above — they override default section ordering and layout decisions' : ''}`;
+16. BACKGROUND COLOR RULE — MANDATORY: Every section or container background color MUST have an HSL lightness of 60% or above. Text should be dark/black. Allowed: pastels, light tints, cream, soft washes of any color (sage green, mint, pale blue, light gold). NOT allowed: dark green, dark blue, dark teal, dark gray, forest green, navy, charcoal, or any deeply saturated color as a background. Use the reference design's color palette but shift any dark background colors to their light tint equivalents. CTA button backgrounds can be darker (the button text should be white), but section/container backgrounds must be light.${editorialPlan ? '\n17. Follow ALL editorial plan instructions above — they override default section ordering and layout decisions' : ''}`;
 
   const messages = [
     { role: 'system', content: systemPrompt },
@@ -1430,11 +1447,483 @@ function isLikelyName(str) {
   return !nonNames.has(firstWord);
 }
 
+// ─── Pullquote / Callout Deduplication ──────────────────────────────────────
+
+/**
+ * Remove body text that duplicates styled pullquotes, callouts, highlights,
+ * stat boxes, and other visually-emphasized elements.
+ *
+ * Unlike testimonial dedup (which finds the same sentence anywhere on the page),
+ * this function works locally: for each styled element, it checks whether the
+ * surrounding body paragraphs repeat the same text, and removes the body version
+ * (keeping the styled version).
+ *
+ * @param {string} html - Full LP HTML
+ * @returns {string} HTML with body-text duplicates of styled elements removed
+ */
+function deduplicatePullquotes(html) {
+  if (!html) return html;
+
+  // Step 1: Find all styled elements (pullquotes, callouts, highlights, asides, etc.)
+  const styledRegex = /<(blockquote|aside|div|p|section)(\s+[^>]*class="[^"]*(?:highlight|callout|pullquote|quote|featured|emphasis|stat[-_]callout|data[-_]box)[^"]*"[^>]*)>([\s\S]*?)<\/\1>/gi;
+
+  const styledElements = [];
+  let match;
+  while ((match = styledRegex.exec(html)) !== null) {
+    // Skip elements that are part of testimonial dedup (have attribution names)
+    const names = extractAttributionNames(match[0]);
+    if (names.length > 0) continue;
+
+    styledElements.push({
+      fullMatch: match[0],
+      tag: match[1],
+      innerHtml: match[3],
+      index: match.index,
+      endIndex: match.index + match[0].length,
+    });
+  }
+
+  // Also find <blockquote> elements without a class (plain pullquotes)
+  // but skip ones already captured above or ones with attribution names
+  const blockquoteRegex = /<blockquote(?:\s[^>]*)?>(?![\s\S]*?class="[^"]*(?:highlight|callout|pullquote|quote|featured|emphasis|stat[-_]callout|data[-_]box))([\s\S]*?)<\/blockquote>/gi;
+  while ((match = blockquoteRegex.exec(html)) !== null) {
+    const names = extractAttributionNames(match[0]);
+    if (names.length > 0) continue;
+    // Check if already captured
+    const alreadyCaptured = styledElements.some(e => e.index === match.index);
+    if (alreadyCaptured) continue;
+
+    styledElements.push({
+      fullMatch: match[0],
+      tag: 'blockquote',
+      innerHtml: match[1],
+      index: match.index,
+      endIndex: match.index + match[0].length,
+    });
+  }
+
+  if (styledElements.length === 0) return html;
+
+  console.log(`[LP-FIX] Pullquote dedup: found ${styledElements.length} styled element(s) to check`);
+
+  // Collect all removals (body text segments to remove)
+  const removals = []; // { index, length, reason }
+
+  for (const styled of styledElements) {
+    // Step 2: Extract plain text from the styled element
+    const styledText = styled.innerHtml
+      .replace(/<[^>]+>/g, ' ')    // Strip HTML tags
+      .replace(/&nbsp;/g, ' ')
+      .replace(/&amp;/g, '&')
+      .replace(/&lt;/g, '<')
+      .replace(/&gt;/g, '>')
+      .replace(/&quot;/g, '"')
+      .replace(/&#39;/g, "'")
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    if (styledText.length < 30) continue; // Too short to match meaningfully
+
+    // Step 3: Split into sentences (on .!? boundaries)
+    const sentences = styledText
+      .split(/(?<=[.!?])\s+/)
+      .map(s => s.trim())
+      .filter(s => s.length >= 40); // Only match sentences >= 40 chars
+
+    if (sentences.length === 0) {
+      // If no individual sentence is >= 40 chars, try the full text if >= 40 chars
+      if (styledText.length >= 40) {
+        sentences.push(styledText);
+      } else {
+        continue;
+      }
+    }
+
+    // Step 4: Search surrounding body text within a 2000-char window
+    const windowStart = Math.max(0, styled.index - 2000);
+    const windowEnd = Math.min(html.length, styled.endIndex + 2000);
+    const beforeWindow = html.slice(windowStart, styled.index);
+    const afterWindow = html.slice(styled.endIndex, windowEnd);
+
+    for (const sentence of sentences) {
+      // Normalize the sentence for comparison
+      const normalizedSentence = sentence.toLowerCase().replace(/[""'']/g, "'").replace(/\s+/g, ' ');
+
+      // Search for matching body text in surrounding <p> and <div> elements
+      const bodyContainerRegex = /<(p|div)(\s[^>]*)?>[\s\S]*?<\/\1>/gi;
+
+      // Check both before and after windows
+      for (const window of [
+        { text: beforeWindow, offset: windowStart },
+        { text: afterWindow, offset: styled.endIndex },
+      ]) {
+        let bodyMatch;
+        bodyContainerRegex.lastIndex = 0;
+
+        while ((bodyMatch = bodyContainerRegex.exec(window.text)) !== null) {
+          const bodyTag = bodyMatch[1];
+          const bodyFullMatch = bodyMatch[0];
+          const bodyAbsIndex = window.offset + bodyMatch.index;
+
+          // Skip if this body container IS the styled element itself
+          if (bodyAbsIndex >= styled.index && bodyAbsIndex < styled.endIndex) continue;
+
+          // Skip if this body element has a styled class (it's another callout, not body text)
+          if (/class="[^"]*(?:highlight|callout|pullquote|quote|featured|emphasis|stat[-_]callout|data[-_]box)/i.test(bodyFullMatch)) continue;
+
+          // Extract plain text from the body container
+          const bodyText = bodyFullMatch
+            .replace(/<[^>]+>/g, ' ')
+            .replace(/&nbsp;/g, ' ')
+            .replace(/&amp;/g, '&')
+            .replace(/&lt;/g, '<')
+            .replace(/&gt;/g, '>')
+            .replace(/&quot;/g, '"')
+            .replace(/&#39;/g, "'")
+            .replace(/\s+/g, ' ')
+            .trim();
+
+          const normalizedBody = bodyText.toLowerCase().replace(/[""'']/g, "'").replace(/\s+/g, ' ');
+
+          if (normalizedBody.includes(normalizedSentence)) {
+            // Match found — check if the container is ENTIRELY the duplicated text
+            // or if it has additional content
+            const bodyWithoutDuplicate = normalizedBody.replace(normalizedSentence, '').trim();
+            // Strip residual punctuation/whitespace
+            const residual = bodyWithoutDuplicate.replace(/^[\s.,;:!?—–-]+|[\s.,;:!?—–-]+$/g, '').trim();
+
+            if (residual.length < 20) {
+              // Container is essentially the duplicate — remove entire container
+              // Check this removal doesn't overlap with existing removals
+              const overlaps = removals.some(r =>
+                (bodyAbsIndex >= r.index && bodyAbsIndex < r.index + r.length) ||
+                (r.index >= bodyAbsIndex && r.index < bodyAbsIndex + bodyFullMatch.length)
+              );
+              if (!overlaps) {
+                removals.push({
+                  index: bodyAbsIndex,
+                  length: bodyFullMatch.length,
+                  reason: `Entire <${bodyTag}> duplicates styled element (${sentence.slice(0, 50)}...)`,
+                });
+              }
+            } else {
+              // Container has additional content — remove only the matching sentence
+              // Find the sentence in the original (non-normalized) body HTML
+              // Use a case-insensitive search on the raw text within the container
+              const sentenceEscaped = sentence.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+              const sentenceInBodyRegex = new RegExp(sentenceEscaped.replace(/\s+/g, '\\s+'), 'i');
+              const sentenceMatch = bodyFullMatch.match(sentenceInBodyRegex);
+
+              if (sentenceMatch) {
+                const sentenceStart = bodyAbsIndex + bodyFullMatch.indexOf(sentenceMatch[0]);
+                const overlaps = removals.some(r =>
+                  (sentenceStart >= r.index && sentenceStart < r.index + r.length) ||
+                  (r.index >= sentenceStart && r.index < sentenceStart + sentenceMatch[0].length)
+                );
+                if (!overlaps) {
+                  removals.push({
+                    index: sentenceStart,
+                    length: sentenceMatch[0].length,
+                    reason: `Sentence within <${bodyTag}> duplicates styled element (${sentence.slice(0, 50)}...)`,
+                  });
+                }
+              }
+            }
+          }
+        }
+      }
+    }
+  }
+
+  if (removals.length === 0) {
+    console.log(`[LP-FIX] Pullquote dedup: no duplicates found`);
+    return html;
+  }
+
+  // Apply removals in reverse index order to preserve positions
+  const sortedRemovals = removals.sort((a, b) => b.index - a.index);
+  let result = html;
+  for (const removal of sortedRemovals) {
+    const before = result.slice(0, removal.index);
+    const after = result.slice(removal.index + removal.length);
+    result = before + after;
+    console.log(`[LP-FIX] Pullquote dedup: ${removal.reason}`);
+  }
+
+  // Clean up any empty containers left behind
+  result = result.replace(/<(p|div)(\s[^>]*)?>\s*<\/\1>/gi, '');
+
+  console.log(`[LP-FIX] Pullquote dedup: removed ${removals.length} duplicate(s)`);
+  return result;
+}
+
 // ─── Contrast detection helpers ─────────────────────────────────────────────
 
 /**
  * Perceived brightness using ITU-R BT.601 formula (0 = black, 255 = white).
  */
+// ─── HSL Color Utilities — Background Lightness Enforcement ─────────────────
+
+/**
+ * Parse any CSS color string (hex, rgb, rgba, named) to [r, g, b].
+ * Returns null if unparseable.
+ */
+function parseColorToRGB(colorStr) {
+  if (!colorStr) return null;
+  const c = colorStr.trim().toLowerCase();
+
+  // Hex (#rgb, #rrggbb, #rrggbbaa)
+  const hexMatch = c.match(/^#([0-9a-f]{3,8})$/);
+  if (hexMatch) {
+    let hex = hexMatch[1];
+    if (hex.length === 3) hex = hex[0] + hex[0] + hex[1] + hex[1] + hex[2] + hex[2];
+    if (hex.length >= 6) {
+      return [parseInt(hex.slice(0, 2), 16), parseInt(hex.slice(2, 4), 16), parseInt(hex.slice(4, 6), 16)];
+    }
+  }
+
+  // rgb(r, g, b) or rgba(r, g, b, a)
+  const rgbMatch = c.match(/rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/);
+  if (rgbMatch) {
+    return [parseInt(rgbMatch[1]), parseInt(rgbMatch[2]), parseInt(rgbMatch[3])];
+  }
+
+  // Named colors (common ones that appear in LP backgrounds)
+  const namedColors = {
+    white: [255, 255, 255], black: [0, 0, 0], red: [255, 0, 0], green: [0, 128, 0],
+    blue: [0, 0, 255], navy: [0, 0, 128], teal: [0, 128, 128], maroon: [128, 0, 0],
+    olive: [128, 128, 0], purple: [128, 0, 128], darkgreen: [0, 100, 0],
+    darkblue: [0, 0, 139], forestgreen: [34, 139, 34], darkslategray: [47, 79, 79],
+    dimgray: [105, 105, 105], gray: [128, 128, 128], darkgray: [169, 169, 169],
+    lightgray: [211, 211, 211], whitesmoke: [245, 245, 245], ivory: [255, 255, 240],
+    beige: [245, 245, 220], linen: [250, 240, 230], floralwhite: [255, 250, 240],
+    seashell: [255, 245, 238], cornsilk: [255, 248, 220], mintcream: [245, 255, 250],
+    honeydew: [240, 255, 240], aliceblue: [240, 248, 255], lavender: [230, 230, 250],
+    mistyrose: [255, 228, 225], antiquewhite: [250, 235, 215], oldlace: [253, 245, 230],
+    ghostwhite: [248, 248, 255], snow: [255, 250, 250], azure: [240, 255, 255],
+    midnightblue: [25, 25, 112], indigo: [75, 0, 130], steelblue: [70, 130, 180],
+    slategray: [112, 128, 144], saddlebrown: [139, 69, 19], sienna: [160, 82, 45],
+    darkcyan: [0, 139, 139], darkmagenta: [139, 0, 139], darkolivegreen: [85, 107, 47],
+    darkviolet: [148, 0, 211], firebrick: [178, 34, 34], seagreen: [46, 139, 87],
+    olivedrab: [107, 142, 35], brown: [165, 42, 42], crimson: [220, 20, 60],
+    tomato: [255, 99, 71], coral: [255, 127, 80], salmon: [250, 128, 114],
+    gold: [255, 215, 0], khaki: [240, 230, 140], plum: [221, 160, 221],
+    peru: [205, 133, 63], wheat: [245, 222, 179], tan: [210, 180, 140],
+  };
+  if (namedColors[c]) return namedColors[c];
+
+  return null;
+}
+
+/**
+ * Convert RGB to HSL.
+ * @returns {{ h: number, s: number, l: number }} h: 0-360, s: 0-100, l: 0-100
+ */
+function rgbToHSL(r, g, b) {
+  r /= 255; g /= 255; b /= 255;
+  const max = Math.max(r, g, b), min = Math.min(r, g, b);
+  let h = 0, s = 0;
+  const l = (max + min) / 2;
+
+  if (max !== min) {
+    const d = max - min;
+    s = l > 0.5 ? d / (2 - max - min) : d / (max + min);
+    switch (max) {
+      case r: h = ((g - b) / d + (g < b ? 6 : 0)) / 6; break;
+      case g: h = ((b - r) / d + 2) / 6; break;
+      case b: h = ((r - g) / d + 4) / 6; break;
+    }
+  }
+
+  return { h: Math.round(h * 360), s: Math.round(s * 100), l: Math.round(l * 100) };
+}
+
+/**
+ * Convert HSL to hex color.
+ * @param {number} h - Hue 0-360
+ * @param {number} s - Saturation 0-100
+ * @param {number} l - Lightness 0-100
+ * @returns {string} Hex color like "#aabbcc"
+ */
+function hslToHex(h, s, l) {
+  s /= 100; l /= 100;
+  const c = (1 - Math.abs(2 * l - 1)) * s;
+  const x = c * (1 - Math.abs((h / 60) % 2 - 1));
+  const m = l - c / 2;
+  let r = 0, g = 0, b = 0;
+  if (h < 60) { r = c; g = x; }
+  else if (h < 120) { r = x; g = c; }
+  else if (h < 180) { g = c; b = x; }
+  else if (h < 240) { g = x; b = c; }
+  else if (h < 300) { r = x; b = c; }
+  else { r = c; b = x; }
+
+  const toHex = (v) => Math.round((v + m) * 255).toString(16).padStart(2, '0');
+  return `#${toHex(r)}${toHex(g)}${toHex(b)}`;
+}
+
+/**
+ * Ensure a color has minimum HSL lightness.
+ * If lightness < minLightness, raise it while preserving hue and saturation.
+ *
+ * @param {string} colorStr - Hex, rgb(), or named CSS color
+ * @param {number} [minLightness=60] - Minimum lightness percentage
+ * @returns {string} Original color or lightened hex color
+ */
+export function ensureMinLightness(colorStr, minLightness = 60) {
+  if (!colorStr) return colorStr;
+
+  // Don't touch transparent, gradients, urls, or CSS functions
+  const lower = colorStr.trim().toLowerCase();
+  if (lower === 'transparent' || lower === 'none' || lower === 'inherit' ||
+      lower === 'initial' || lower === 'unset' || lower.includes('gradient') ||
+      lower.includes('url(') || lower.includes('var(')) {
+    return colorStr;
+  }
+
+  const rgb = parseColorToRGB(colorStr);
+  if (!rgb) return colorStr;
+
+  const hsl = rgbToHSL(rgb[0], rgb[1], rgb[2]);
+  if (hsl.l < minLightness) {
+    const newHex = hslToHex(hsl.h, hsl.s, minLightness + 5); // +5 breathing room
+    return newHex;
+  }
+
+  return colorStr;
+}
+
+/**
+ * Process a design analysis object and lighten any dark background colors.
+ * Preserves hue and saturation — just raises lightness to 65%.
+ * Does NOT modify CTA backgrounds, text colors, or primary/accent colors that aren't backgrounds.
+ */
+export function lightenDesignColors(designAnalysis) {
+  if (!designAnalysis) return designAnalysis;
+  const result = JSON.parse(JSON.stringify(designAnalysis)); // deep clone
+
+  // Lighten main background color
+  if (result.colors?.background) {
+    result.colors.background = ensureMinLightness(result.colors.background);
+  }
+  // Lighten layout background
+  if (result.layout?.background_color) {
+    result.layout.background_color = ensureMinLightness(result.layout.background_color);
+  }
+
+  // Lighten section backgrounds (but NOT CTA button backgrounds)
+  if (result.sections) {
+    for (const section of result.sections) {
+      if (section.background) {
+        section.background = ensureMinLightness(section.background);
+      }
+    }
+  }
+
+  // DO NOT lighten: colors.primary, colors.cta_background, colors.accent, cta_elements
+  // These may be dark intentionally (buttons with white text, accent borders, etc.)
+
+  return result;
+}
+
+/**
+ * Lighten dark background colors in assembled HTML.
+ * Scans both inline styles and <style> blocks for background colors with HSL lightness < 60%.
+ * Only modifies BACKGROUNDS — text, buttons, borders, and decorative elements are left alone.
+ *
+ * @param {string} html - Assembled HTML
+ * @returns {{ html: string, fixCount: number }}
+ */
+export function enforceBackgroundLightness(html) {
+  let result = html;
+  let fixCount = 0;
+
+  // ── Pass 1: Fix inline background styles ──
+  result = result.replace(
+    /style="([^"]*)"/gi,
+    (fullMatch, styleContent) => {
+      const bgMatch = styleContent.match(/background(?:-color)?\s*:\s*([^;!]+)/i);
+      if (!bgMatch) return fullMatch;
+
+      const bgValue = bgMatch[1].trim();
+      const color = extractColorFromBackground(bgValue);
+      if (!color) return fullMatch;
+
+      const rgb = parseColorToRGB(color);
+      if (!rgb) return fullMatch;
+
+      const hsl = rgbToHSL(rgb[0], rgb[1], rgb[2]);
+      if (hsl.l >= 60) return fullMatch; // Already light enough
+
+      // Check: is this likely a text-bearing container?
+      // We lighten ALL inline-style backgrounds — buttons will still have their bg set via CSS class
+      const newColor = hslToHex(hsl.h, hsl.s, 65);
+      const newStyle = styleContent.replace(
+        /background(?:-color)?\s*:\s*[^;!]+/i,
+        bgMatch[0].replace(color, newColor)
+      );
+
+      fixCount++;
+      return `style="${newStyle}"`;
+    }
+  );
+
+  // ── Pass 2: Fix <style> block background rules ──
+  // Skip our own injected styles (data-safety, data-autofix, data-lightness)
+  // Skip button/CTA selectors — their dark backgrounds are intentional (white text on colored buttons)
+  const buttonSelectorPattern = /btn|button|cta|\.buy|\.order|\.add-to-cart|\.checkout/i;
+
+  result = result.replace(
+    /<style(?![^>]*data-(?:safety|autofix|lightness))[^>]*>([\s\S]*?)<\/style>/gi,
+    (fullStyleTag, cssContent) => {
+      let newCSS = cssContent;
+      let localFixes = 0;
+
+      // Process rule by rule to check selectors
+      newCSS = newCSS.replace(
+        /([^{}]*?)\{([^}]*)\}/g,
+        (ruleBlock, selector, properties) => {
+          const sel = selector.trim();
+          // Skip @rules, keyframes, button/CTA selectors
+          if (!sel || sel.startsWith('@') || /^(from|to|\d+%)/.test(sel)) return ruleBlock;
+          if (buttonSelectorPattern.test(sel)) return ruleBlock;
+
+          // Find and lighten background-color or background in properties
+          const newProps = properties.replace(
+            /(background(?:-color)?)\s*:\s*([^;!}]+)/gi,
+            (bgRule, prop, value) => {
+              const trimVal = value.trim();
+              const color = extractColorFromBackground(trimVal);
+              if (!color) return bgRule;
+
+              const rgb = parseColorToRGB(color);
+              if (!rgb) return bgRule;
+
+              const hsl = rgbToHSL(rgb[0], rgb[1], rgb[2]);
+              if (hsl.l >= 60) return bgRule; // Already light enough
+
+              const newColor = hslToHex(hsl.h, hsl.s, 65);
+              localFixes++;
+              return bgRule.replace(color, newColor);
+            }
+          );
+
+          return `${selector}{${newProps}}`;
+        }
+      );
+
+      if (localFixes > 0) fixCount += localFixes;
+      return fullStyleTag.replace(cssContent, newCSS);
+    }
+  );
+
+  if (fixCount > 0) {
+    console.log(`[LP-FIX] enforceBackgroundLightness: lightened ${fixCount} dark background(s) to HSL L≥65%`);
+  }
+
+  return { html: result, fixCount };
+}
+
 function perceivedBrightness(r, g, b) {
   return (r * 299 + g * 587 + b * 114) / 1000;
 }
@@ -2019,7 +2508,14 @@ export function postProcessLP(html, { project = null, agentConfig = null, angle 
   // 5b. Deduplicate testimonial quotes that appear more than once
   processed = deduplicateTestimonials(processed);
 
-  // 6. Inject proactive contrast safety CSS
+  // 5c. Deduplicate pullquotes — remove body text that repeats styled callouts
+  processed = deduplicatePullquotes(processed);
+
+  // 6. Enforce background lightness floor — lighten any dark backgrounds to HSL L≥65%
+  const lightnessResult = enforceBackgroundLightness(processed);
+  processed = lightnessResult.html;
+
+  // 7. Inject proactive contrast safety CSS (still needed for edge cases)
   processed = injectContrastSafetyCSS(processed);
 
   console.log(`[LP-FIX] postProcessLP() complete. Output HTML length: ${processed.length}`);
@@ -2123,6 +2619,10 @@ export async function generateAutoLP({
     style_notes: designBrief.overall_style || 'Professional landing page',
   };
 
+  // Lighten any dark background colors from the template's design brief
+  const lightenedDesignAnalysis = lightenDesignColors(designAnalysis);
+  Object.assign(designAnalysis, lightenedDesignAnalysis);
+
   // 2a. Extract and categorize template placeholders from skeleton HTML
   const placeholders = template.skeleton_html
     ? extractTemplatePlaceholders(template.skeleton_html)
@@ -2218,7 +2718,7 @@ export async function generateAutoLP({
     ctaElements: designAnalysis.cta_elements,
     projectId,
     autoContext: {
-      skeletonHtml: template.skeleton_html,
+      skeletonHtml: enforceBackgroundLightness(template.skeleton_html || '').html,
       editorialPlan,
     },
   }, sendEvent);
