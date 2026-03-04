@@ -313,7 +313,7 @@ WRONG: heading="USDA DATA", body="USDA DATA: 42.7% of organic produce samples te
 
 TESTIMONIAL ATTRIBUTION: When writing testimonials, social proof quotes, or customer reviews, ALWAYS use a realistic first name + last initial (e.g., "Sarah M.", "David R.", "Jennifer K."). NEVER use generic labels like "Verified Buyer", "Verified Customer", "Happy Customer", or "Anonymous". Each testimonial must have a unique, realistic name.
 
-TESTIMONIAL UNIQUENESS: Each testimonial quote must be unique. If the template has multiple testimonial slots (e.g., testimonial, section_3_body_2, proof), generate a DIFFERENT testimonial for each one — different person, different quote, different angle on why the product works. Never repeat the same quote verbatim anywhere on the page.
+TESTIMONIAL UNIQUENESS: Each testimonial quote must appear ONLY ONCE on the entire page. If the template has multiple testimonial slots (e.g., testimonial, section_3_body_2, proof), generate a DIFFERENT testimonial for each one — different person, different quote, different angle on why the product works. NEVER include the same person's testimonial in both body text AND a separate testimonial/blockquote section. Each attributed name must appear exactly once across all sections. Never repeat the same quote or paraphrase of the same quote anywhere on the page.
 
 AUTHOR METADATA: If the template has an author_name slot, use a realistic female first and last name — this is a first-person editorial article and the author should sound like a real person, not an editorial desk or department. Example: 'Sarah Mitchell', 'Jennifer Roberts', 'Amanda Chen'. For author_title, use a credible editorial role like 'Health & Wellness Editor', 'Senior Health Correspondent', 'Contributing Health Editor'.
 
@@ -1273,7 +1273,161 @@ function deduplicateTestimonials(html) {
     }
   }
 
+  // Pass 2: Attribution-name deduplication
+  result = deduplicateByAttribution(result);
+
   return result;
+}
+
+/**
+ * Pass 2 of testimonial dedup: match by attribution name.
+ * Catches cases where the same person is quoted in body text AND a blockquote
+ * with different wording. Keeps the styled version (blockquote), removes body text.
+ *
+ * Attribution patterns detected:
+ * - "— Name L." or "– Name L." or "- Name L."
+ * - <cite>Name</cite> or <footer>Name</footer>
+ * - Closing quote followed by name
+ */
+function deduplicateByAttribution(html) {
+  // Find all containers with attribution names
+  const containers = [];
+
+  // Pattern 1: Blockquotes with attribution
+  const blockquoteRegex = /<blockquote[^>]*>([\s\S]*?)<\/blockquote>/gi;
+  let match;
+  while ((match = blockquoteRegex.exec(html)) !== null) {
+    const names = extractAttributionNames(match[0]);
+    if (names.length > 0) {
+      containers.push({
+        type: 'blockquote',
+        isStyled: true,
+        fullMatch: match[0],
+        index: match.index,
+        names,
+      });
+    }
+  }
+
+  // Pattern 2: Divs and paragraphs with attribution
+  const bodyRegex = /<(div|p|section)[^>]*>([\s\S]*?)<\/\1>/gi;
+  while ((match = bodyRegex.exec(html)) !== null) {
+    // Skip if this is inside a blockquote (already captured above)
+    if (match[0].includes('<blockquote')) continue;
+    const names = extractAttributionNames(match[0]);
+    if (names.length > 0) {
+      containers.push({
+        type: match[1],
+        isStyled: false,
+        fullMatch: match[0],
+        index: match.index,
+        names,
+      });
+    }
+  }
+
+  // Build Map<normalizedName, occurrences[]>
+  const nameMap = new Map();
+  for (const container of containers) {
+    for (const name of container.names) {
+      const norm = name.toLowerCase().replace(/\./g, '').trim();
+      if (!nameMap.has(norm)) nameMap.set(norm, []);
+      nameMap.get(norm).push(container);
+    }
+  }
+
+  // Find duplicate names and collect removals
+  const removals = [];
+  for (const [normName, occurrences] of nameMap) {
+    if (occurrences.length < 2) continue;
+
+    console.log(`[LP-FIX] Attribution name "${normName}" appears ${occurrences.length} time(s)`);
+
+    // Keep styled version (blockquote), remove body text version
+    // If both are styled or both unstyled, keep the first
+    const sorted = [...occurrences].sort((a, b) => {
+      if (a.isStyled && !b.isStyled) return -1;
+      if (!a.isStyled && b.isStyled) return 1;
+      return a.index - b.index; // Keep earlier one
+    });
+
+    // Mark all except the first for removal
+    for (let i = 1; i < sorted.length; i++) {
+      if (!removals.includes(sorted[i])) {
+        removals.push(sorted[i]);
+      }
+    }
+  }
+
+  if (removals.length === 0) return html;
+
+  // Apply removals in reverse index order to preserve indices
+  let result = html;
+  const sortedRemovals = removals.sort((a, b) => b.index - a.index);
+  for (const removal of sortedRemovals) {
+    const before = result.slice(0, removal.index);
+    const after = result.slice(removal.index + removal.fullMatch.length);
+    result = before + after;
+    console.log(`[LP-FIX] Removed duplicate attribution for "${removal.names[0]}" from <${removal.type}> (${removal.fullMatch.length} chars)`);
+  }
+
+  return result;
+}
+
+/**
+ * Extract attribution names from a text block.
+ * Matches patterns like:
+ * - "— Sarah M." / "– David R." / "- Jennifer K."
+ * - <cite>Name</cite> / <footer>Name</footer>
+ * - Text ending with "...quote" Name L.
+ *
+ * @param {string} text - HTML text to search
+ * @returns {string[]} Array of extracted names
+ */
+function extractAttributionNames(text) {
+  const names = new Set();
+
+  // Pattern 1: Em/en dash + name (most common testimonial attribution)
+  // Matches: — Sarah M., – David R., - Jennifer K., — Amanda Chen
+  const dashPattern = /[—–\-]\s*([A-Z][a-z]{1,15}(?:\s+[A-Z]\.?)?(?:\s+[A-Z][a-z]{1,15})?)/g;
+  let match;
+  while ((match = dashPattern.exec(text)) !== null) {
+    const name = match[1].trim();
+    // Filter out common false positives
+    if (!isLikelyName(name)) continue;
+    names.add(name);
+  }
+
+  // Pattern 2: <cite> or <footer> content
+  const citePattern = /<(?:cite|footer)[^>]*>\s*[—–\-]?\s*([A-Z][a-z]{1,15}(?:\s+[A-Z]\.?)?(?:\s+[A-Z][a-z]{1,15})?)/gi;
+  while ((match = citePattern.exec(text)) !== null) {
+    const name = match[1].trim();
+    if (isLikelyName(name)) names.add(name);
+  }
+
+  return [...names];
+}
+
+/**
+ * Check if a string looks like a person's name (not a common word).
+ */
+function isLikelyName(str) {
+  if (!str || str.length < 3) return false;
+  const lower = str.toLowerCase();
+  // Common false positives from dash patterns in articles
+  const nonNames = new Set([
+    'the', 'this', 'that', 'these', 'those', 'here', 'there', 'when', 'where',
+    'what', 'which', 'while', 'with', 'from', 'your', 'our', 'their', 'more',
+    'most', 'some', 'many', 'much', 'every', 'each', 'both', 'other', 'another',
+    'but', 'and', 'for', 'not', 'all', 'can', 'had', 'has', 'have', 'her', 'his',
+    'how', 'its', 'may', 'new', 'now', 'old', 'one', 'our', 'out', 'own', 'say',
+    'she', 'too', 'use', 'way', 'who', 'why', 'also', 'just', 'like', 'than',
+    'then', 'them', 'they', 'very', 'been', 'being', 'into', 'over', 'even',
+    'after', 'about', 'right', 'still', 'study', 'research', 'according',
+    'editor', 'health', 'wellness', 'senior', 'contributing', 'verified', 'buyer',
+  ]);
+  const firstWord = lower.split(/\s+/)[0];
+  return !nonNames.has(firstWord);
 }
 
 // ─── Contrast detection helpers ─────────────────────────────────────────────
@@ -1508,6 +1662,265 @@ export function injectContrastSafetyCSS(html) {
   );
   if (inlineFixCount > 0) {
     console.log(`[LP-FIX] Fixed ${inlineFixCount} inline dark-background element(s) to white text`);
+  }
+
+  return result;
+}
+
+// ─── Programmatic WCAG Contrast Audit ──────────────────────────────────────
+
+/**
+ * Run a programmatic WCAG 2.0 contrast audit on a rendered page.
+ * Uses Puppeteer computed styles + WCAG luminance math — zero LLM cost.
+ *
+ * Walks every text node via TreeWalker, gets computed color + effective
+ * background color (walking parentElement chain), computes contrast ratio.
+ * Thresholds: 4.5:1 normal text, 3:1 large text (≥18pt or ≥14pt bold).
+ *
+ * All computation runs inside a single page.evaluate() to avoid round-trips.
+ *
+ * @param {import('puppeteer').Page} page - Puppeteer page with content loaded
+ * @returns {Promise<{ passed: boolean, failures: Array }>}
+ */
+async function runContrastAudit(page) {
+  const result = await page.evaluate(() => {
+    // ── sRGB linearization ──
+    function sRGBtoLinear(c) {
+      const s = c / 255;
+      return s <= 0.03928 ? s / 12.92 : Math.pow((s + 0.055) / 1.055, 2.4);
+    }
+
+    // ── Relative luminance (WCAG 2.0) ──
+    function relativeLuminance(r, g, b) {
+      return 0.2126 * sRGBtoLinear(r) + 0.7152 * sRGBtoLinear(g) + 0.0722 * sRGBtoLinear(b);
+    }
+
+    // ── Contrast ratio ──
+    function contrastRatio(l1, l2) {
+      const lighter = Math.max(l1, l2);
+      const darker = Math.min(l1, l2);
+      return (lighter + 0.05) / (darker + 0.05);
+    }
+
+    // ── Parse CSS color string to [r, g, b, a] ──
+    function parseColor(str) {
+      if (!str) return null;
+      const m = str.match(/rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)(?:\s*,\s*([\d.]+))?\s*\)/);
+      if (m) return [parseInt(m[1]), parseInt(m[2]), parseInt(m[3]), m[4] !== undefined ? parseFloat(m[4]) : 1];
+      return null;
+    }
+
+    // ── Check if color is transparent ──
+    function isTransparent(rgba) {
+      return !rgba || rgba[3] === 0;
+    }
+
+    // ── Walk parent chain for first non-transparent background ──
+    function getEffectiveBgColor(el) {
+      let current = el;
+      while (current && current !== document.documentElement) {
+        const style = window.getComputedStyle(current);
+        const bg = parseColor(style.backgroundColor);
+        if (bg && !isTransparent(bg)) return bg;
+        current = current.parentElement;
+      }
+      return [255, 255, 255, 1]; // default: white
+    }
+
+    // ── Build a CSS selector for an element ──
+    function buildSelector(el) {
+      if (el.id) return `#${el.id}`;
+      let sel = el.tagName.toLowerCase();
+      if (el.className && typeof el.className === 'string') {
+        const classes = el.className.trim().split(/\s+/).slice(0, 2).join('.');
+        if (classes) sel += '.' + classes;
+      }
+      // Add nth-of-type for disambiguation
+      const parent = el.parentElement;
+      if (parent) {
+        const siblings = Array.from(parent.children).filter(c => c.tagName === el.tagName);
+        if (siblings.length > 1) {
+          const idx = siblings.indexOf(el) + 1;
+          sel += `:nth-of-type(${idx})`;
+        }
+      }
+      return sel;
+    }
+
+    // ── Walk all text nodes ──
+    const failures = [];
+    const seenSelectors = new Set(); // Dedupe by parent selector
+    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT, null);
+
+    let textNode;
+    while ((textNode = walker.nextNode())) {
+      const text = textNode.textContent.trim();
+      if (!text || text.length < 2) continue;
+
+      const el = textNode.parentElement;
+      if (!el) continue;
+
+      // Skip invisible elements
+      const style = window.getComputedStyle(el);
+      if (style.display === 'none' || style.visibility === 'hidden' || style.opacity === '0') continue;
+      // Skip zero-size elements
+      const rect = el.getBoundingClientRect();
+      if (rect.width === 0 || rect.height === 0) continue;
+
+      // Get colors
+      const textColor = parseColor(style.color);
+      if (!textColor) continue;
+      const bgColor = getEffectiveBgColor(el);
+
+      // Compute contrast ratio
+      const textLum = relativeLuminance(textColor[0], textColor[1], textColor[2]);
+      const bgLum = relativeLuminance(bgColor[0], bgColor[1], bgColor[2]);
+      const ratio = contrastRatio(textLum, bgLum);
+
+      // Determine if large text (≥18pt or ≥14pt bold)
+      const fontSize = parseFloat(style.fontSize); // in px
+      const fontWeight = parseInt(style.fontWeight) || (style.fontWeight === 'bold' ? 700 : 400);
+      const fontSizePt = fontSize * 0.75; // px to pt (approximate)
+      const isLargeText = fontSizePt >= 18 || (fontSizePt >= 14 && fontWeight >= 700);
+
+      const requiredRatio = isLargeText ? 3.0 : 4.5;
+
+      if (ratio < requiredRatio) {
+        const selector = buildSelector(el);
+        // Dedupe: skip if we already have a failure for this selector's parent container
+        const parentSel = el.parentElement ? buildSelector(el.parentElement) : selector;
+        if (seenSelectors.has(parentSel)) continue;
+        seenSelectors.add(parentSel);
+
+        failures.push({
+          selector,
+          textColor: `rgb(${textColor[0]}, ${textColor[1]}, ${textColor[2]})`,
+          backgroundColor: `rgb(${bgColor[0]}, ${bgColor[1]}, ${bgColor[2]})`,
+          contrastRatio: Math.round(ratio * 100) / 100,
+          textSnippet: text.slice(0, 80),
+          isLargeText,
+          requiredRatio,
+          fontSize: Math.round(fontSize),
+          fontWeight,
+        });
+      }
+    }
+
+    return { passed: failures.length === 0, failures };
+  });
+
+  if (result.failures.length > 0) {
+    console.log(`[Contrast Audit] FAILED: ${result.failures.length} element(s) below WCAG threshold`);
+    for (const f of result.failures.slice(0, 5)) {
+      console.log(`  → ${f.selector}: ratio ${f.contrastRatio}:1 (need ${f.requiredRatio}:1) | text: ${f.textColor} on ${f.backgroundColor} | "${f.textSnippet.slice(0, 40)}..."`);
+    }
+  } else {
+    console.log('[Contrast Audit] PASSED: All text meets WCAG contrast requirements');
+  }
+
+  return result;
+}
+
+// ─── Programmatic Image Load Check ─────────────────────────────────────────
+
+/**
+ * Check all <img> elements for load failures and gray rectangle fills.
+ * Uses naturalWidth/naturalHeight check + canvas pixel sampling.
+ *
+ * @param {import('puppeteer').Page} page - Puppeteer page with content loaded
+ * @returns {Promise<{ passed: boolean, failures: Array }>}
+ */
+async function runImageLoadCheck(page) {
+  const result = await page.evaluate(() => {
+    const failures = [];
+    const imgs = document.querySelectorAll('img');
+
+    for (const img of imgs) {
+      // Skip hidden/zero-size images
+      const rect = img.getBoundingClientRect();
+      if (rect.width === 0 || rect.height === 0) continue;
+      const style = window.getComputedStyle(img);
+      if (style.display === 'none' || style.visibility === 'hidden') continue;
+
+      const src = img.src || img.getAttribute('src') || '';
+
+      // Build selector
+      let selector = 'img';
+      if (img.id) selector = `#${img.id}`;
+      else if (img.className && typeof img.className === 'string') {
+        const cls = img.className.trim().split(/\s+/).slice(0, 2).join('.');
+        if (cls) selector = `img.${cls}`;
+      }
+
+      // Check 1: Failed to load
+      if (!img.complete || img.naturalWidth === 0) {
+        failures.push({
+          src: src.slice(0, 200),
+          selector,
+          position: `${Math.round(rect.top)}px from top`,
+          reason: 'failed_to_load',
+          description: 'Image failed to load (naturalWidth=0)',
+        });
+        continue;
+      }
+
+      // Check 2: Gray rectangle detection via canvas sampling (for loaded images ≥50px)
+      if (img.naturalWidth >= 50 && img.naturalHeight >= 50 && rect.width >= 50) {
+        try {
+          const canvas = document.createElement('canvas');
+          canvas.width = 3;
+          canvas.height = 3;
+          const ctx = canvas.getContext('2d');
+          // Sample 3×3 grid across the image
+          const sw = img.naturalWidth;
+          const sh = img.naturalHeight;
+          ctx.drawImage(img, 0, 0, sw, sh, 0, 0, 3, 3);
+          const data = ctx.getImageData(0, 0, 3, 3).data;
+
+          // Check if all 9 pixels are uniform gray (low saturation, gray value 100-220)
+          let allGray = true;
+          let minVal = 255, maxVal = 0;
+          for (let i = 0; i < 9; i++) {
+            const r = data[i * 4];
+            const g = data[i * 4 + 1];
+            const b = data[i * 4 + 2];
+            // Check saturation: max channel diff < 25
+            const channelDiff = Math.max(r, g, b) - Math.min(r, g, b);
+            const avg = (r + g + b) / 3;
+            if (channelDiff > 25 || avg < 100 || avg > 220) {
+              allGray = false;
+              break;
+            }
+            minVal = Math.min(minVal, avg);
+            maxVal = Math.max(maxVal, avg);
+          }
+
+          // Also check that pixel values are uniform (range < 20)
+          if (allGray && (maxVal - minVal) < 20) {
+            failures.push({
+              src: src.slice(0, 200),
+              selector,
+              position: `${Math.round(rect.top)}px from top`,
+              reason: 'gray_rectangle',
+              description: `Image appears to be a uniform gray rectangle (avg gray value: ${Math.round((minVal + maxVal) / 2)})`,
+            });
+          }
+        } catch {
+          // Canvas operations can fail due to CORS — skip silently
+        }
+      }
+    }
+
+    return { passed: failures.length === 0, failures };
+  });
+
+  if (result.failures.length > 0) {
+    console.log(`[Image Load Check] FAILED: ${result.failures.length} image(s) with issues`);
+    for (const f of result.failures) {
+      console.log(`  → ${f.selector}: ${f.reason} | ${f.description} | at ${f.position}`);
+    }
+  } else {
+    console.log('[Image Load Check] PASSED: All images loaded successfully');
   }
 
   return result;
@@ -1893,6 +2306,22 @@ export async function runVisualQA(assembledHtml, projectId) {
     // Wait a beat for any CSS transitions/animations
     await new Promise(r => setTimeout(r, 1000));
 
+    // 1b. Run programmatic contrast audit (WCAG 2.0 math — zero LLM cost)
+    let contrastAudit = { passed: true, failures: [] };
+    try {
+      contrastAudit = await runContrastAudit(page);
+    } catch (err) {
+      console.warn('[Visual QA] Contrast audit failed (non-fatal):', err.message);
+    }
+
+    // 1c. Run programmatic image load check (naturalWidth + gray rectangle detection)
+    let imageLoadCheck = { passed: true, failures: [] };
+    try {
+      imageLoadCheck = await runImageLoadCheck(page);
+    } catch (err) {
+      console.warn('[Visual QA] Image load check failed (non-fatal):', err.message);
+    }
+
     // Get actual page height for full-page screenshot
     const bodyHeight = await page.evaluate(() => document.body.scrollHeight);
     const screenshotHeight = Math.min(bodyHeight, 7900); // Claude API limit
@@ -1914,16 +2343,9 @@ You must respond with ONLY a valid JSON object — no markdown, no prose.`;
 
     const qaPrompt = `Inspect this landing page screenshot carefully and identify any visual quality issues.
 
-PRIORITY CHECK — TEXT LEGIBILITY / CONTRAST (type: "contrast_failure"):
-Before checking anything else, scan EVERY section of the page from top to bottom and verify that ALL text is easily readable against its background. Specifically look for:
-- Dark text (black, dark gray, dark green, navy) on dark backgrounds (green, dark blue, dark gray, brown)
-- Light text on light backgrounds (white text on cream/beige)
-- Text on colored sections (CTA areas, product highlights, banners, callout boxes) that blends into the background
-- Button text that is hard to read against the button color
-- Any section where you have to squint or look carefully to read the text
-For EACH legibility issue, report what the background color looks like, what the text color looks like, the section location, and mark severity as "critical".
+NOTE: Text contrast/legibility is checked programmatically — you do NOT need to flag contrast issues. Only flag contrast if text is completely invisible (same color as background).
 
-ALSO CHECK FOR THESE ISSUES:
+CHECK FOR THESE ISSUES:
 1. **Placeholder text** (type: "placeholder_text"): Any visible {{placeholder}} tags, Lorem ipsum, "TODO", "[INSERT]", or clearly fake/template text
 2. **Gray box / broken images** (type: "gray_box_image" or "broken_image"): Missing images showing alt text, broken icons, gray/colored placeholder boxes, or obvious AI artifacts
 3. **Layout problems** (type: "layout_overlap" or "empty_section"): Overlapping text, cut-off content, completely empty sections, extremely wide/narrow columns
@@ -1986,12 +2408,78 @@ Rules:
       }
     }
 
+    // 3. Merge programmatic results into vision QA
+    const mergedIssues = [...(qaResult.issues || [])];
+
+    // Add programmatic contrast failures (these are authoritative — not from vision)
+    for (const f of contrastAudit.failures) {
+      mergedIssues.push({
+        type: 'contrast_failure',
+        programmatic: true,
+        severity: 'critical',
+        category: 'color',
+        description: `WCAG contrast failure: ratio ${f.contrastRatio}:1 (need ${f.requiredRatio}:1) — "${f.textSnippet.slice(0, 50)}"`,
+        location: f.selector,
+        css_selector_hint: f.selector,
+        backgroundColor: f.backgroundColor,
+        textColor: f.textColor,
+        contrastRatio: f.contrastRatio,
+        requiredRatio: f.requiredRatio,
+        fix_suggestion: `Fix text color contrast on ${f.selector}`,
+      });
+    }
+
+    // Add programmatic image failures (skip if vision already caught same position)
+    const visionImageIssuePositions = (qaResult.issues || [])
+      .filter(i => i.type === 'gray_box_image' || i.type === 'broken_image')
+      .map(i => (i.location || '').toLowerCase());
+
+    for (const f of imageLoadCheck.failures) {
+      const posKey = f.position.toLowerCase();
+      const alreadyCaught = visionImageIssuePositions.some(v => v.includes(posKey.split('px')[0]));
+      if (!alreadyCaught) {
+        mergedIssues.push({
+          type: f.reason === 'gray_rectangle' ? 'gray_box_image' : 'broken_image',
+          programmatic: true,
+          severity: 'critical',
+          category: 'image',
+          description: f.description,
+          location: f.position,
+          css_selector_hint: f.selector,
+          fix_suggestion: `Regenerate image at ${f.selector}`,
+        });
+      }
+    }
+
+    // Remove vision-reported contrast issues — programmatic audit is authoritative
+    const finalIssues = mergedIssues.filter(i => {
+      if (i.type === 'contrast_failure' && !i.programmatic) return false;
+      return true;
+    });
+
+    // Recalculate passed + score based on merged issues
+    const criticalCount = finalIssues.filter(i => i.severity === 'critical').length;
+    const warningCount = finalIssues.filter(i => i.severity === 'warning').length;
+    const passed = criticalCount === 0 && warningCount <= 1;
+    // Score: start at 100, -15 per critical, -5 per warning, -1 per minor
+    const score = Math.max(0, 100
+      - criticalCount * 15
+      - warningCount * 5
+      - finalIssues.filter(i => i.severity === 'minor').length
+    );
+
+    const autoFixable = criticalCount === 0 || finalIssues
+      .filter(i => i.severity === 'critical')
+      .every(i => ['placeholder_text', 'generic_attribution', 'contrast_failure', 'gray_box_image', 'broken_image'].includes(i.type));
+
+    console.log(`[Visual QA] Merged: ${contrastAudit.failures.length} contrast + ${imageLoadCheck.failures.length} image programmatic issues + ${(qaResult.issues || []).length} vision issues → ${finalIssues.length} total (${criticalCount} critical)`);
+
     return {
-      passed: qaResult.passed ?? false,
-      autoFixable: qaResult.auto_fixable ?? false,
-      issues: qaResult.issues || [],
+      passed,
+      autoFixable,
+      issues: finalIssues,
       summary: qaResult.summary || '',
-      score: qaResult.score ?? 0,
+      score,
       screenshotBuffer,
     };
   } catch (err) {

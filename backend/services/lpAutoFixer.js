@@ -62,6 +62,11 @@ export async function autoFixLP(html, qaReport, context) {
   fixedHtml = deterministicResult.html;
   allFixes.push(...deterministicResult.fixes);
 
+  // Fix 2b: Programmatic contrast failures from WCAG audit (targeted inline style fixes)
+  const progContrastResult = fixContrastFailures(fixedHtml, allIssues);
+  fixedHtml = progContrastResult.html;
+  allFixes.push(...progContrastResult.fixes);
+
   // Fix 3: Contrast issues from QA findings — inject CSS overrides + re-run safety CSS
   const contrastResult = fixContrast(fixedHtml, allIssues);
   fixedHtml = contrastResult.html;
@@ -131,19 +136,28 @@ function deterministicContrastFix(html) {
  * plus a comprehensive safety net covering all dark background patterns.
  */
 function fixContrast(html, issues) {
-  const contrastIssues = issues.filter(i => i.type === 'contrast_failure');
+  // Skip programmatic issues — already handled by fixContrastFailures with proper light/dark logic
+  const contrastIssues = issues.filter(i => i.type === 'contrast_failure' && !i.programmatic);
   if (contrastIssues.length === 0) return { html, fixes: [] };
 
-  console.log(`[LP AutoFixer] Fixing ${contrastIssues.length} contrast issue(s) from QA findings`);
+  console.log(`[LP AutoFixer] Fixing ${contrastIssues.length} vision-reported contrast issue(s) from QA findings`);
 
   // Build targeted CSS rules from QA selector hints
   const rules = [];
 
   for (const issue of contrastIssues) {
     if (issue.css_selector_hint) {
-      rules.push(`${issue.css_selector_hint} { color: #FFFFFF !important; text-shadow: 0 1px 2px rgba(0,0,0,0.3) !important; }`);
-      rules.push(`${issue.css_selector_hint} * { color: #FFFFFF !important; }`);
-      rules.push(`${issue.css_selector_hint} a { color: #FFD700 !important; }`);
+      // Check if the issue description suggests a light or dark background
+      const descLower = (issue.description || '').toLowerCase();
+      const isLightBg = descLower.includes('light') || descLower.includes('white') || descLower.includes('cream') || descLower.includes('beige');
+      if (isLightBg) {
+        rules.push(`${issue.css_selector_hint} { color: #1A1A2E !important; }`);
+        rules.push(`${issue.css_selector_hint} * { color: #1A1A2E !important; }`);
+      } else {
+        rules.push(`${issue.css_selector_hint} { color: #FFFFFF !important; text-shadow: 0 1px 2px rgba(0,0,0,0.3) !important; }`);
+        rules.push(`${issue.css_selector_hint} * { color: #FFFFFF !important; }`);
+        rules.push(`${issue.css_selector_hint} a { color: #FFD700 !important; }`);
+      }
     }
   }
 
@@ -181,6 +195,125 @@ function fixContrast(html, issues) {
       description: `Fixed contrast at ${i.css_selector_hint || i.location || 'unknown'}`,
     })),
   };
+}
+
+/**
+ * Fix contrast failures identified by the programmatic WCAG audit.
+ * Uses css_selector_hint + backgroundColor to build targeted CSS rules.
+ * Only acts on issues with programmatic: true (from runContrastAudit).
+ */
+function fixContrastFailures(html, issues) {
+  const progIssues = issues.filter(i =>
+    i.programmatic === true && i.type === 'contrast_failure'
+  );
+  if (progIssues.length === 0) return { html, fixes: [] };
+
+  console.log(`[LP AutoFixer] Fixing ${progIssues.length} programmatic contrast failure(s)`);
+
+  const rules = [];
+
+  for (const issue of progIssues) {
+    const sel = issue.css_selector_hint;
+    if (!sel) continue;
+
+    const bgBrightness = getBackgroundBrightness(issue.backgroundColor);
+
+    if (bgBrightness < 100) {
+      // Dark background → white text
+      rules.push(`${sel} { color: #FFFFFF !important; text-shadow: 0 1px 2px rgba(0,0,0,0.3) !important; }`);
+      rules.push(`${sel} * { color: #FFFFFF !important; }`);
+      rules.push(`${sel} a { color: #FFD700 !important; }`);
+    } else if (bgBrightness > 180) {
+      // Light background → dark text
+      rules.push(`${sel} { color: #1A1A2E !important; }`);
+      rules.push(`${sel} * { color: #1A1A2E !important; }`);
+      rules.push(`${sel} a { color: #0B1D3A !important; }`);
+    } else {
+      // Medium brightness (100-180) — e.g. colored CTA buttons
+      // Darken the background color and force white text
+      const darkenedBg = darkenColor(issue.backgroundColor, 0.6);
+      rules.push(`${sel} { background-color: ${darkenedBg} !important; color: #FFFFFF !important; }`);
+      rules.push(`${sel} * { color: #FFFFFF !important; }`);
+    }
+  }
+
+  if (rules.length === 0) return { html, fixes: [] };
+
+  const styleBlock = `<style data-autofix="programmatic-contrast">\n/* Programmatic WCAG contrast fixes */\n${rules.join('\n')}\n</style>`;
+  let fixed;
+  if (html.includes('</head>')) {
+    fixed = html.replace('</head>', `${styleBlock}\n</head>`);
+  } else {
+    fixed = styleBlock + html;
+  }
+
+  return {
+    html: fixed,
+    fixes: progIssues.map(i => ({
+      type: 'contrast_failure',
+      method: 'programmatic_contrast_fix',
+      description: `WCAG fix for ${i.css_selector_hint || 'unknown'}: ratio ${i.contrastRatio}:1 → white/dark text`,
+    })),
+  };
+}
+
+/**
+ * Get perceived brightness (0-255) of a background color string.
+ * @param {string} rgbStr - e.g. "rgb(26, 46, 26)" or "#1a2e1a"
+ * @returns {number} Brightness 0 (black) to 255 (white)
+ */
+function getBackgroundBrightness(rgbStr) {
+  if (!rgbStr) return 0; // Default assume dark if unknown
+
+  // Parse rgb(r, g, b)
+  const rgbMatch = rgbStr.match(/rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/);
+  if (rgbMatch) {
+    const r = parseInt(rgbMatch[1]);
+    const g = parseInt(rgbMatch[2]);
+    const b = parseInt(rgbMatch[3]);
+    return (r * 299 + g * 587 + b * 114) / 1000;
+  }
+
+  // Parse hex
+  const hexMatch = rgbStr.match(/#([0-9a-f]{3,8})/i);
+  if (hexMatch) {
+    let hex = hexMatch[1];
+    if (hex.length === 3) hex = hex[0] + hex[0] + hex[1] + hex[1] + hex[2] + hex[2];
+    if (hex.length >= 6) {
+      const r = parseInt(hex.slice(0, 2), 16);
+      const g = parseInt(hex.slice(2, 4), 16);
+      const b = parseInt(hex.slice(4, 6), 16);
+      return (r * 299 + g * 587 + b * 114) / 1000;
+    }
+  }
+
+  return 0; // Default dark if unparseable
+}
+
+/**
+ * Check if an rgb() color string represents a dark background.
+ * @param {string} rgbStr - e.g. "rgb(26, 46, 26)" or "#1a2e1a"
+ * @returns {boolean}
+ */
+function isBackgroundDark(rgbStr) {
+  return getBackgroundBrightness(rgbStr) < 128;
+}
+
+/**
+ * Darken an rgb() color by a factor (0-1).
+ * @param {string} rgbStr - e.g. "rgb(92, 184, 92)"
+ * @param {number} factor - 0.0 = black, 1.0 = original
+ * @returns {string} Darkened rgb() string
+ */
+function darkenColor(rgbStr, factor) {
+  const m = rgbStr.match(/rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/);
+  if (m) {
+    const r = Math.round(parseInt(m[1]) * factor);
+    const g = Math.round(parseInt(m[2]) * factor);
+    const b = Math.round(parseInt(m[3]) * factor);
+    return `rgb(${r}, ${g}, ${b})`;
+  }
+  return rgbStr; // Can't parse — return unchanged
 }
 
 /**
