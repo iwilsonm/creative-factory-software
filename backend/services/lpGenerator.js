@@ -259,6 +259,194 @@ export async function checkDocsReady(projectId) {
   };
 }
 
+// ─── Image Context Extraction ───────────────────────────────────────────────
+
+/**
+ * Extract avatar demographic details from the free-form avatar document.
+ * Pure text parsing — no LLM call. Returns a concise description string
+ * like "woman in her 60s, health-conscious, retired, grandmother".
+ *
+ * @param {string|null} avatarText - Raw avatar document content
+ * @returns {string|null} Concise demographic description, or null
+ */
+function extractAvatarForImages(avatarText) {
+  if (!avatarText || avatarText.length < 20) return null;
+
+  const text = avatarText.slice(0, 3000); // Cap scanning length
+  const parts = [];
+
+  // 1. Gender detection — count gendered words
+  const femaleWords = (text.match(/\b(women|woman|female|she|her|mom|mother|grandmother|grandma|wife|daughter|girl)\b/gi) || []).length;
+  const maleWords = (text.match(/\b(men|man|male|he|his|dad|father|grandfather|grandpa|husband|son|boy)\b/gi) || []).length;
+  let gender = null;
+  if (femaleWords >= maleWords + 3) gender = 'woman';
+  else if (maleWords >= femaleWords + 3) gender = 'man';
+  else if (femaleWords > maleWords) gender = 'woman';
+  else if (maleWords > femaleWords) gender = 'man';
+
+  // 2. Age detection — multiple patterns
+  let ageRange = null;
+
+  // "aged 35-55", "ages 40-60", "age 25 to 45"
+  const ageRangeMatch = text.match(/\bage[ds]?\s+(\d{2})\s*[-–to]+\s*(\d{2})\b/i);
+  if (ageRangeMatch) {
+    ageRange = `${ageRangeMatch[1]}-${ageRangeMatch[2]}`;
+  }
+
+  // "between 35 and 55"
+  if (!ageRange) {
+    const betweenMatch = text.match(/\bbetween\s+(\d{2})\s+and\s+(\d{2})\b/i);
+    if (betweenMatch) ageRange = `${betweenMatch[1]}-${betweenMatch[2]}`;
+  }
+
+  // "in their 60s", "in her 50s"
+  if (!ageRange) {
+    const decadeMatch = text.match(/\bin\s+(?:their|her|his)\s+(?:late\s+)?(\d{2})s\b/i);
+    if (decadeMatch) {
+      const decade = parseInt(decadeMatch[0].includes('late') ? decadeMatch[1] : decadeMatch[1]);
+      ageRange = decadeMatch[0].includes('late') ? `${decade + 5}-${decade + 9}` : `${decade}-${decade + 9}`;
+    }
+  }
+
+  // "in their mid-40s"
+  if (!ageRange) {
+    const midMatch = text.match(/\bin\s+(?:their|her|his)\s+mid[-\s]?(\d{2})s\b/i);
+    if (midMatch) {
+      const decade = parseInt(midMatch[1]);
+      ageRange = `${decade + 3}-${decade + 7}`;
+    }
+  }
+
+  // "55-year-old", "67 year old"
+  if (!ageRange) {
+    const yearOldMatch = text.match(/(\d{2})[-\s]year[-\s]old/i);
+    if (yearOldMatch) {
+      const age = parseInt(yearOldMatch[1]);
+      const decade = Math.floor(age / 10) * 10;
+      ageRange = `${decade}-${decade + 9}`;
+    }
+  }
+
+  // Build the demographic string
+  if (gender && ageRange) {
+    parts.push(`${gender} in the ${ageRange} age range`);
+  } else if (gender) {
+    parts.push(gender);
+  } else if (ageRange) {
+    parts.push(`person in the ${ageRange} age range`);
+  }
+
+  // 3. Lifestyle keywords
+  const lifestylePatterns = [
+    /\b(health[-\s]conscious)\b/i,
+    /\b(busy\s+(?:professional|parent|mom|dad|mother|father))\b/i,
+    /\b(retired|retirement)\b/i,
+    /\b(grandmother|grandfather|grandparent)\b/i,
+    /\b(active\s+lifestyle)\b/i,
+    /\b(wellness[-\s]oriented)\b/i,
+    /\b(eco[-\s]conscious|environmentally\s+aware)\b/i,
+    /\b(budget[-\s]conscious)\b/i,
+    /\b(working\s+(?:professional|parent|mom|mother))\b/i,
+    /\b(stay[-\s]at[-\s]home\s+(?:mom|dad|parent))\b/i,
+    /\b(fitness[-\s]oriented|fitness\s+enthusiast)\b/i,
+    /\b(homeowner|homemaker)\b/i,
+    /\b(suburban|urban|rural)\b/i,
+    /\b(middle[-\s]class|affluent|budget[-\s]minded)\b/i,
+  ];
+
+  const lifestyleHits = [];
+  for (const pattern of lifestylePatterns) {
+    const match = text.match(pattern);
+    if (match) lifestyleHits.push(match[1].toLowerCase());
+  }
+
+  if (lifestyleHits.length > 0) {
+    parts.push(lifestyleHits.slice(0, 3).join(', '));
+  }
+
+  if (parts.length === 0) {
+    // Fallback: return first meaningful sentence from avatar
+    const firstSentence = avatarText.slice(0, 200).split(/[.!?\n]/).filter(s => s.trim().length > 20)[0];
+    return firstSentence ? firstSentence.trim() : null;
+  }
+
+  return parts.join(', ');
+}
+
+/**
+ * Extract product visual description from project data + offer brief.
+ * Returns a concise string describing the product's physical appearance.
+ *
+ * @param {object|null} project - Project object with product_description, name
+ * @param {string|null} offerBrief - Offer brief document content
+ * @returns {string|null} Product description for image prompts
+ */
+function extractProductForImages(project, offerBrief) {
+  // Primary: use project.product_description (user-provided, most reliable)
+  if (project?.product_description && project.product_description.length > 10) {
+    // Truncate to reasonable length for a prompt
+    const desc = project.product_description.slice(0, 500).trim();
+    return desc;
+  }
+
+  // Fallback: scan offer brief for product-describing sentences
+  if (offerBrief) {
+    const brief = offerBrief.slice(0, 2000);
+    // Look for sentences mentioning physical product types
+    const productNouns = /\b(supplement|capsule|pill|tablet|powder|serum|cream|lotion|spray|device|sheet|bedsheet|mat|pad|band|bracelet|drops|oil|patch|mask|cleaner|filter|purifier|bottle|tincture|gummy|gummies)\b/i;
+    const sentences = brief.split(/[.!?\n]/).filter(s => s.trim().length > 20);
+    for (const sentence of sentences) {
+      if (productNouns.test(sentence)) {
+        return sentence.trim().slice(0, 300);
+      }
+    }
+  }
+
+  // Last resort: use project name if it's descriptive enough
+  if (project?.name && project.name.length > 5) {
+    return project.name;
+  }
+
+  return null;
+}
+
+/**
+ * Build image context from pre-loaded foundational docs and project data.
+ * Used in auto mode where these are already available — avoids redundant fetches.
+ *
+ * @param {object} docs - { avatar, offer_brief, research, necessary_beliefs }
+ * @param {object|null} project - Project object
+ * @returns {object} { avatarContext, productContext, brandName, niche }
+ */
+function buildImageContextFromData(docs, project) {
+  return {
+    avatarContext: extractAvatarForImages(docs?.avatar || null),
+    productContext: extractProductForImages(project, docs?.offer_brief || null),
+    brandName: project?.brand_name || project?.name || null,
+    niche: project?.niche || null,
+  };
+}
+
+/**
+ * Load project + foundational docs and extract image generation context.
+ * Used in manual mode where these aren't pre-loaded.
+ *
+ * @param {string} projectId
+ * @returns {object} { avatarContext, productContext, brandName, niche }
+ */
+export async function extractImageContext(projectId) {
+  try {
+    const [docs, project] = await Promise.all([
+      getFoundationalDocs(projectId).catch(() => ({})),
+      getProject(projectId).catch(() => null),
+    ]);
+    return buildImageContextFromData(docs, project);
+  } catch (err) {
+    console.warn('[LPGen] extractImageContext failed (non-fatal):', err.message);
+    return { avatarContext: null, productContext: null, brandName: null, niche: null };
+  }
+}
+
 // ─── Phase B: Multi-message copy generation ─────────────────────────────────
 
 /**
@@ -617,6 +805,131 @@ Along with your editorial plan, return a "decisions" array — a list of plain-l
 // ─── Phase 2C: Image generation via Gemini ──────────────────────────────────
 
 /**
+ * Detect the narrative role of an image slot based on its description and position.
+ * Used to tailor the image prompt to the slot's purpose in the article's story arc.
+ */
+function detectSlotRole(slot, slotIndex, totalSlots) {
+  const desc = (slot.description || '').toLowerCase();
+  const loc = (slot.location || '').toLowerCase();
+  const combined = `${desc} ${loc}`;
+
+  // Explicit matches based on design analysis descriptions
+  if (combined.includes('hero') || (slotIndex === 0 && totalSlots >= 2)) return 'hero';
+  if (combined.includes('product') && (combined.includes('shot') || combined.includes('image') || combined.includes('photo') || combined.includes('in use') || combined.includes('display'))) return 'product';
+  if (combined.includes('before') && combined.includes('after')) return 'transformation';
+  if (combined.includes('result') || combined.includes('transform') || combined.includes('success') || combined.includes('outcome')) return 'results';
+  if (combined.includes('problem') || combined.includes('pain') || combined.includes('struggle') || combined.includes('frustrat')) return 'problem';
+  if (combined.includes('lifestyle') || combined.includes('daily') || combined.includes('natural') || combined.includes('everyday')) return 'lifestyle';
+  if (combined.includes('proof') || combined.includes('testimonial') || combined.includes('review') || combined.includes('customer')) return 'social_proof';
+  if (combined.includes('benefit') || combined.includes('solution') || combined.includes('mechanism') || combined.includes('how it works')) return 'solution';
+  if (combined.includes('product')) return 'product'; // Catch-all for any remaining "product" mentions
+
+  // Position-based fallback for slots without descriptive text
+  if (totalSlots >= 3) {
+    if (slotIndex === totalSlots - 1) return 'lifestyle';
+    if (slotIndex === 1) return 'problem';
+  }
+
+  return 'general';
+}
+
+/** Narrative direction for each slot role — guides the image's mood and content. */
+const SLOT_ROLE_DIRECTIONS = {
+  hero: 'Emotional hook — capture attention immediately. Show the aspirational outcome or the compelling moment that draws the reader in. This is the first image they see.',
+  problem: 'Pain point visualization — show the frustration, struggle, or everyday difficulty the target customer faces BEFORE discovering the product. Evoke empathy and recognition.',
+  product: 'Product in context — show the actual product being used or displayed in a natural, appealing home setting. The product should be clearly visible and identifiable.',
+  solution: 'Mechanism or benefit reveal — show the product in action or visualize the key benefit that makes this product work differently from alternatives.',
+  results: 'Transformation or success — show the positive outcome after using the product. Show relief, confidence, energy, or joy. Contrast with the problem state.',
+  lifestyle: 'Natural lifestyle setting — show the target customer living their best life with the product integrated naturally. Aspirational but believable.',
+  social_proof: 'Trust and credibility — show real-looking people who could be satisfied customers, in a setting that evokes community and shared positive experience.',
+  transformation: 'Before and after — show a clear visual contrast between the problem state and the result state. Make the improvement obvious and compelling.',
+  general: 'Professional lifestyle or product image that supports the article\'s marketing message and matches the target customer demographic.',
+};
+
+/**
+ * Build a rich, context-aware image prompt for Gemini.
+ * Assembles slot role direction + avatar + product + narrative context + constraints.
+ *
+ * @param {object} slot - Image slot definition
+ * @param {string} angle - Marketing angle
+ * @param {string} copyContext - Condensed copy sections for tone matching
+ * @param {object|null} autoContext - { narrativeFrame, editorialPlan, imageContext }
+ * @param {number} slotIndex - 0-based index
+ * @param {number} totalSlots - Total number of image slots
+ * @returns {string} Complete Gemini prompt
+ */
+function buildImagePrompt(slot, angle, copyContext, autoContext, slotIndex, totalSlots) {
+  const imageContext = autoContext?.imageContext || {};
+  const slotRole = detectSlotRole(slot, slotIndex, totalSlots);
+  const roleDirection = SLOT_ROLE_DIRECTIONS[slotRole] || SLOT_ROLE_DIRECTIONS.general;
+
+  // Narrative frame hint
+  const narrativeHint = autoContext?.narrativeFrame
+    ? `\nNARRATIVE STYLE: This landing page uses a "${autoContext.narrativeFrame}" storytelling approach. Match the image mood and energy to this narrative style.`
+    : '';
+
+  // Editorial direction per-slot override
+  const editorialImageUpdates = {};
+  if (autoContext?.editorialPlan?.image_direction_updates) {
+    for (const update of autoContext.editorialPlan.image_direction_updates) {
+      if (update.slot && update.updated_direction) {
+        editorialImageUpdates[update.slot] = update.updated_direction;
+      }
+    }
+  }
+  const slotId = slot.slot_id || `image_${slotIndex + 1}`;
+  const editorialDirection = editorialImageUpdates[slotId];
+  const editorialHint = editorialDirection
+    ? `\nEDITORIAL DIRECTION: ${editorialDirection}`
+    : '';
+
+  // Avatar context block
+  const avatarBlock = imageContext.avatarContext
+    ? `\nTARGET CUSTOMER: ${imageContext.avatarContext}\nAny person shown in this image must visually match this demographic — correct age range, gender, and lifestyle context.`
+    : '';
+
+  // Product context block
+  const productBlock = imageContext.productContext
+    ? `\nPRODUCT: ${imageContext.productContext}${imageContext.brandName ? ` (Brand: ${imageContext.brandName})` : ''}\nIf this image shows the product, it must match this description exactly. Do NOT substitute a different product type or form factor.`
+    : '';
+
+  // Niche context
+  const nicheBlock = imageContext.niche
+    ? `\nCATEGORY: ${imageContext.niche}`
+    : '';
+
+  // Build the constraints block — always strong, with conditional demographic/product rules
+  let constraints = `STRICT REQUIREMENTS:
+- Photorealistic editorial photography — like a real photo in a magazine feature article
+- ABSOLUTELY NO TEXT, WORDS, LETTERS, NUMBERS, WATERMARKS, OR LOGOS anywhere in the image — not on screens, not on products, not on clothing, not on signs, not on labels, nowhere
+- No UI elements, buttons, banners, overlays, or graphic design elements
+- No phones, tablets, laptop screens, or any device displaying text or graphics
+- Warm, natural lighting. Shallow depth of field where appropriate
+- Clean composition, intentional framing, professional color grading
+- If people are shown, they must look natural and authentic — real expressions, real settings, NOT posed stock photography`;
+
+  if (imageContext.avatarContext) {
+    constraints += `\n- People in the image MUST match the target customer demographic described above — correct age range and gender`;
+  }
+  if (imageContext.productContext) {
+    constraints += `\n- Any product shown MUST match the physical description above — correct form factor, shape, and presentation`;
+  }
+
+  return `Create a professional, high-quality editorial photograph for a landing page article.
+
+IMAGE PURPOSE: ${slot.description || 'Product/lifestyle image for landing page'}
+SECTION: ${slot.location || 'Landing page section'}
+IMAGE ROLE: ${slotRole.toUpperCase()} — ${roleDirection}
+MARKETING ANGLE: ${angle}${narrativeHint}${editorialHint}
+${avatarBlock}${productBlock}${nicheBlock}
+
+CONTEXT FROM THE ARTICLE:
+${copyContext}
+
+${constraints}`;
+}
+
+/**
  * Generate images for each slot defined in the design analysis.
  *
  * @param {object} params
@@ -632,7 +945,7 @@ export async function generateSlotImages({
   copySections,
   angle,
   projectId,
-  autoContext,  // { narrativeFrame, productImageData, editorialPlan } — in auto mode
+  autoContext,  // { narrativeFrame, productImageData, editorialPlan, imageContext } — in auto mode
 }, sendEvent) {
   if (!imageSlots || imageSlots.length === 0) {
     sendEvent({ type: 'progress', step: 'images_skipped', message: 'No image slots defined — skipping image generation.' });
@@ -641,21 +954,12 @@ export async function generateSlotImages({
 
   const totalSlots = imageSlots.length;
   const hasProductRef = !!autoContext?.productImageData;
+  const hasImageContext = !!(autoContext?.imageContext?.avatarContext || autoContext?.imageContext?.productContext);
   sendEvent({
     type: 'progress',
     step: 'images_starting',
-    message: `Generating ${totalSlots} image${totalSlots > 1 ? 's' : ''} via Gemini${hasProductRef ? ' (with product reference)' : ''}...`,
+    message: `Generating ${totalSlots} image${totalSlots > 1 ? 's' : ''} via Gemini${hasProductRef ? ' (with product reference)' : ''}${hasImageContext ? ' (with article context)' : ''}...`,
   });
-
-  // Build editorial image direction updates lookup
-  const editorialImageUpdates = {};
-  if (autoContext?.editorialPlan?.image_direction_updates) {
-    for (const update of autoContext.editorialPlan.image_direction_updates) {
-      if (update.slot && update.updated_direction) {
-        editorialImageUpdates[update.slot] = update.updated_direction;
-      }
-    }
-  }
 
   // Build brief context from copy sections for prompt enrichment
   const copyContext = copySections
@@ -677,32 +981,8 @@ export async function generateSlotImages({
       imageProgress: { current: slotNum, total: totalSlots, slotId },
     });
 
-    // Build a rich prompt for Gemini from the slot description + context
-    const narrativeImageHint = autoContext?.narrativeFrame
-      ? `\nNARRATIVE STYLE: The landing page uses a "${autoContext.narrativeFrame}" approach. Match the image mood to this storytelling style.`
-      : '';
-
-    // Apply editorial direction update if available
-    const editorialDirection = editorialImageUpdates[slotId];
-    const editorialHint = editorialDirection
-      ? `\nEDITORIAL DIRECTION: ${editorialDirection}`
-      : '';
-
-    const imagePrompt = `Create a professional, high-quality image for a landing page.
-
-IMAGE PURPOSE: ${slot.description || 'Product/lifestyle image for landing page'}
-SECTION: ${slot.location || 'Landing page section'}
-MARKETING ANGLE: ${angle}${narrativeImageHint}${editorialHint}
-
-CONTEXT FROM THE LANDING PAGE COPY:
-${copyContext}
-
-IMPORTANT:
-- Create a photorealistic, professional image suitable for a direct-to-consumer landing page
-- No text, watermarks, or logos in the image
-- The image should evoke trust, quality, and professionalism
-- Match the mood and tone implied by the marketing angle
-- High contrast, well-lit, commercial photography style`;
+    // Build a rich, context-aware prompt for Gemini
+    const imagePrompt = buildImagePrompt(slot, angle, copyContext, autoContext, i, totalSlots);
 
     // Map slot aspect ratio to Gemini format
     let aspectRatio = '16:9'; // default for landing page images
@@ -2671,9 +2951,17 @@ export async function generateAutoLP({
   audit('copy', 'generated', `${copySections.length} sections: ${copySections.map(s => s.type).join(', ')}`);
 
   // 3b. Run Opus editorial pass (if enabled)
+  // Load foundational docs (needed for editorial pass AND image context)
+  let foundationalDocs = null;
+  try {
+    foundationalDocs = await getFoundationalDocs(projectId);
+  } catch (err) {
+    console.warn('[LPGen] Failed to load foundational docs (non-fatal):', err.message);
+    foundationalDocs = {};
+  }
+
   let editorialPlan = null;
   if (editorialPassEnabled) {
-    const foundationalDocs = await getFoundationalDocs(projectId).catch(() => ({}));
     editorialPlan = await runEditorialPass({
       copySections,
       designAnalysis,
@@ -2695,7 +2983,13 @@ export async function generateAutoLP({
     audit('editorial', 'disabled', 'Editorial pass disabled by config');
   }
 
-  // 4. Generate images (Step 3) with product reference + editorial direction
+  // 3c. Build image context from foundational docs + project data (for avatar/product in image prompts)
+  const imageContext = buildImageContextFromData(foundationalDocs, project);
+  if (imageContext.avatarContext || imageContext.productContext) {
+    console.log(`[LPGen] Image context: avatar="${imageContext.avatarContext || 'none'}", product="${(imageContext.productContext || 'none').slice(0, 80)}"`);
+  }
+
+  // 4. Generate images (Step 3) with product reference + editorial direction + article context
   const imageSlots = await generateSlotImages({
     imageSlots: designAnalysis.image_slots,
     copySections,
@@ -2705,6 +2999,7 @@ export async function generateAutoLP({
       narrativeFrame,
       productImageData,
       editorialPlan,
+      imageContext,
     },
   }, sendEvent);
 

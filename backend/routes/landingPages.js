@@ -31,6 +31,7 @@ import {
   injectContrastSafetyCSS,
   ensureMinLightness,
   enforceBackgroundLightness,
+  extractImageContext,
   generateAutoLP,
   runVisualQA,
   NARRATIVE_FRAMES,
@@ -337,11 +338,14 @@ router.post('/:projectId/landing-pages/generate', async (req, res) => {
 
       if (imageSlots.length > 0) {
         sse.sendEvent({ type: 'phase', phase: 'image_generation', message: `Generating ${imageSlots.length} images...` });
+        // Load avatar/product context for image prompts (non-fatal if missing)
+        const imageContext = await extractImageContext(req.params.projectId);
         populatedImageSlots = await generateSlotImages({
           imageSlots,
           copySections: copyResult.sections,
           angle: angle.trim(),
           projectId: req.params.projectId,
+          autoContext: { imageContext },
         }, sse.sendEvent);
 
         // Save image slots (with storageIds)
