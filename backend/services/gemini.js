@@ -34,7 +34,7 @@ const GEMINI_MODELS = {
  * @param {object} [options] - { projectId, operation, isBatch, imageModel } for cost tracking + model selection
  */
 export async function generateImage(prompt, aspectRatio = '1:1', productImage = null, options = {}) {
-  const { projectId = null, operation = 'image_generation', isBatch = false, imageModel } = options;
+  const { projectId = null, operation = 'image_generation', isBatch = false, imageModel, imageSize } = options;
   const ai = await getClient();
 
   // Resolve model name — default to Nano Banana 2
@@ -81,7 +81,10 @@ export async function generateImage(prompt, aspectRatio = '1:1', productImage = 
           responseModalities: ['TEXT', 'IMAGE'],
           imageConfig: {
             aspectRatio: aspectRatio || '1:1',
-            imageSize: '512'
+            // Caller can request a specific size (e.g. '2K' for ads).
+            // Default: 512 for Nano Banana 2, omit for Pro (defaults to 1K).
+            // Pro only supports 1K/2K/4K; 512 is not valid for Pro.
+            imageSize: imageSize || (imageModel !== 'nano-banana-pro' ? '512' : undefined),
           }
         }
       }),

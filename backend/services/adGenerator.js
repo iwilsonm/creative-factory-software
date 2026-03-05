@@ -556,7 +556,7 @@ async function generateAndSaveImage({ adId, projectId, project, imagePrompt, asp
     : `Generating image with ${modelLabel}...`, progress: 70 });
 
   const { imageBuffer, mimeType: imgMime } = await generateImage(imagePrompt, aspectRatio, productImage, {
-    projectId, operation: 'ad_image_generation', imageModel,
+    projectId, operation: 'ad_image_generation', imageModel, imageSize: '2K',
   });
 
   emit({ type: 'status', status: 'generating_image', message: 'Uploading image...', progress: 90 });
