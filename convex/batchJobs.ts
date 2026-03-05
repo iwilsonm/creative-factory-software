@@ -142,6 +142,7 @@ export const update = mutation({
     lp_secondary_error: v.optional(v.string()),
     lp_secondary_retry_count: v.optional(v.float64()),
     lp_narrative_frames: v.optional(v.string()),
+    gauntlet_lp_urls: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const batch = await ctx.db

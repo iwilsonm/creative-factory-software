@@ -732,7 +732,7 @@ router.post('/deployments/flex-ads', requireRole('admin', 'manager'), async (req
 router.put('/deployments/flex-ads/:id', requireRole('admin', 'manager'), async (req, res) => {
   try {
     const { id } = req.params;
-    const allowed = ['name', 'child_deployment_ids', 'primary_texts', 'headlines', 'destination_url', 'display_link', 'cta_button', 'facebook_page', 'planned_date', 'posted_by', 'ad_set_id', 'duplicate_adset_name', 'notes', 'posting_day', 'angle_name'];
+    const allowed = ['name', 'child_deployment_ids', 'primary_texts', 'headlines', 'destination_url', 'display_link', 'cta_button', 'facebook_page', 'planned_date', 'posted_by', 'ad_set_id', 'duplicate_adset_name', 'notes', 'posting_day', 'angle_name', 'destination_urls_used', 'gauntlet_lp_urls'];
     const fields = {};
     for (const key of allowed) {
       if (req.body[key] !== undefined) {

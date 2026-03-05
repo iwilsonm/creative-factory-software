@@ -304,7 +304,7 @@ export async function getAllScheduledBatchesForCost() {
 }
 
 export async function updateBatchJob(id, fields) {
-  const allowed = ['status', 'gemini_batch_job', 'gpt_prompts', 'error_message', 'started_at', 'completed_at', 'completed_count', 'failed_count', 'run_count', 'scheduled', 'schedule_cron', 'retry_count', 'batch_stats', 'pipeline_state', 'angle', 'angles', 'batch_size', 'aspect_ratio', 'used_template_ids', 'filter_assigned', 'filter_processed', 'filter_processed_at', 'posting_day', 'conductor_run_id', 'angle_name', 'angle_prompt', 'lp_primary_id', 'lp_primary_url', 'lp_primary_status', 'lp_primary_error', 'lp_primary_retry_count', 'lp_secondary_id', 'lp_secondary_url', 'lp_secondary_status', 'lp_secondary_error', 'lp_secondary_retry_count', 'lp_narrative_frames'];
+  const allowed = ['status', 'gemini_batch_job', 'gpt_prompts', 'error_message', 'started_at', 'completed_at', 'completed_count', 'failed_count', 'run_count', 'scheduled', 'schedule_cron', 'retry_count', 'batch_stats', 'pipeline_state', 'angle', 'angles', 'batch_size', 'aspect_ratio', 'used_template_ids', 'filter_assigned', 'filter_processed', 'filter_processed_at', 'posting_day', 'conductor_run_id', 'angle_name', 'angle_prompt', 'lp_primary_id', 'lp_primary_url', 'lp_primary_status', 'lp_primary_error', 'lp_primary_retry_count', 'lp_secondary_id', 'lp_secondary_url', 'lp_secondary_status', 'lp_secondary_error', 'lp_secondary_retry_count', 'lp_narrative_frames', 'gauntlet_lp_urls'];
   const updates = { externalId: id };
   for (const key of allowed) {
     if (fields[key] !== undefined) {
@@ -366,6 +366,7 @@ function convexBatchToRow(b) {
     lp_secondary_error: b.lp_secondary_error || null,
     lp_secondary_retry_count: b.lp_secondary_retry_count || 0,
     lp_narrative_frames: b.lp_narrative_frames || null,
+    gauntlet_lp_urls: b.gauntlet_lp_urls || null,
     created_at: b.created_at,
     started_at: b.started_at || null,
     completed_at: b.completed_at || null,

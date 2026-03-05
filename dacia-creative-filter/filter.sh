@@ -567,9 +567,10 @@ deploy_flex_ads() {
     local batch_data_for_lp
     batch_data_for_lp=$(curl -s "${BACKEND_URL}/api/batches/${batch_id}" \
       -H "Cookie: $(get_session_cookie)" 2>/dev/null) || true
-    local lp_primary_url lp_secondary_url
+    local lp_primary_url lp_secondary_url gauntlet_lp_urls_json
     lp_primary_url=$(echo "$batch_data_for_lp" | jq -r '.lp_primary_url // ""' 2>/dev/null) || true
     lp_secondary_url=$(echo "$batch_data_for_lp" | jq -r '.lp_secondary_url // ""' 2>/dev/null) || true
+    gauntlet_lp_urls_json=$(echo "$batch_data_for_lp" | jq -r '.gauntlet_lp_urls // ""' 2>/dev/null) || true
 
     # Get the next flex ad number for this angle
     local flex_num=1
@@ -640,6 +641,7 @@ deploy_flex_ads() {
         --arg angle_name "${effective_angle}" \
         --arg lp_primary_url "${lp_primary_url:-}" \
         --arg lp_secondary_url "${lp_secondary_url:-}" \
+        --arg gauntlet_lp_urls "${gauntlet_lp_urls_json:-}" \
         '{
           "ad_set_id": $ad_set_id,
           "name": $name,
@@ -656,7 +658,8 @@ deploy_flex_ads() {
           "posting_day": $posting_day,
           "angle_name": $angle_name,
           "lp_primary_url": $lp_primary_url,
-          "lp_secondary_url": $lp_secondary_url
+          "lp_secondary_url": $lp_secondary_url,
+          "gauntlet_lp_urls": $gauntlet_lp_urls
         }')" 2>/dev/null) || {
       log_err "Failed to deploy flex ad: $flex_ad_name"
       continue

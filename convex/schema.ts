@@ -145,6 +145,7 @@ export default defineSchema({
     lp_secondary_error: v.optional(v.string()),
     lp_secondary_retry_count: v.optional(v.float64()),
     lp_narrative_frames: v.optional(v.string()),     // JSON array of narrative frame IDs
+    gauntlet_lp_urls: v.optional(v.string()),        // JSON: [{ frame, frameName, url, score }]
     created_at: v.string(),
     started_at: v.optional(v.string()),
     completed_at: v.optional(v.string()),

@@ -58,6 +58,60 @@ export async function triggerLPGeneration(batchJobId, projectId, angle) {
       return;
     }
 
+    // 2b. If gauntlet enabled, use Gauntlet instead of legacy 2-LP flow
+    if (config.gauntlet_enabled) {
+      console.log(`[LPAuto] Gauntlet enabled for project ${projectId.slice(0, 8)} — running gauntlet for batch ${batchJobId.slice(0, 8)}`);
+      try {
+        await updateBatchJob(batchJobId, {
+          lp_primary_status: 'generating',
+          lp_secondary_status: 'generating',
+        });
+
+        const makeLogger = (event) => {
+          if (event.type === 'progress') {
+            console.log(`[LPAuto:Gauntlet] ${event.message}`);
+          }
+        };
+
+        const report = await runGauntlet(projectId, { dryRun: false }, makeLogger);
+
+        // Store gauntlet LP URLs on the batch for filter.sh to pick up
+        if (report.lpUrls && report.lpUrls.length > 0) {
+          const updates = {
+            gauntlet_lp_urls: JSON.stringify(report.lpUrls),
+            lp_primary_url: report.lpUrls[0]?.url || null,
+            lp_primary_status: 'live',
+            lp_primary_id: report.frames[0]?.lpId || null,
+          };
+          if (report.lpUrls.length > 1) {
+            updates.lp_secondary_url = report.lpUrls[1]?.url || null;
+            updates.lp_secondary_status = 'live';
+            updates.lp_secondary_id = report.frames[1]?.lpId || null;
+          } else {
+            updates.lp_secondary_status = 'skipped';
+          }
+          await updateBatchJob(batchJobId, updates);
+        } else {
+          await updateBatchJob(batchJobId, {
+            lp_primary_status: 'failed',
+            lp_primary_error: 'No LPs passed gauntlet scoring',
+            lp_secondary_status: 'failed',
+          });
+        }
+
+        console.log(`[LPAuto:Gauntlet] Complete for batch ${batchJobId.slice(0, 8)}: ${report.summary.passed}/5 passed, ${report.summary.published} published`);
+      } catch (gErr) {
+        console.error(`[LPAuto:Gauntlet] Failed for batch ${batchJobId.slice(0, 8)}:`, gErr.message);
+        await updateBatchJob(batchJobId, {
+          lp_primary_status: 'failed',
+          lp_primary_error: gErr.message,
+          lp_secondary_status: 'failed',
+          lp_secondary_error: gErr.message,
+        });
+      }
+      return;
+    }
+
     // 3. Select 2 different templates (random, with fallback to reuse if only 1)
     const shuffledTemplates = [...readyTemplates].sort(() => Math.random() - 0.5);
     const template1 = shuffledTemplates[0];
