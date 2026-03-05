@@ -1277,61 +1277,108 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
           {/* Campaign + Ad Set + Duplicate Ad Set — always visible */}
           <PostInSection campaignName={campaignName} adSetName={adSetName} duplicateAdSetName={flexAd.duplicate_adset_name} adName={flexAd.name || 'Flex Ad'} cardKey={flexId} />
 
-          {/* Dual Destination — LP URLs + PDP URL with copy buttons */}
-          {(flexAd.lp_primary_url || flexAd.lp_secondary_url) && (
-            <div className="bg-offwhite rounded-xl p-3 space-y-1.5">
-              <div className="text-[10px] font-semibold text-navy uppercase tracking-wide">Landing Pages</div>
+          {/* Destination URLs Panel — Gauntlet LPs + legacy LPs + PDP */}
+          {(() => {
+            // Parse gauntlet LP URLs
+            let gauntletUrls = [];
+            try { gauntletUrls = JSON.parse(flexAd.gauntlet_lp_urls || '[]'); } catch {}
+            let usedIndices = [];
+            try { usedIndices = JSON.parse(flexAd.destination_urls_used || '[]'); } catch {}
 
-              {/* PDP URL */}
-              {flexAd.destination_url && (
-                <div className="flex items-center gap-2">
-                  <span className="text-[10px] text-textmid w-12 flex-shrink-0">PDP:</span>
-                  <a href={flexAd.destination_url} target="_blank" rel="noopener noreferrer" className="text-[11px] text-navy hover:text-navy/80 underline underline-offset-2 truncate flex-1">
-                    {flexAd.destination_url}
-                  </a>
-                  <button onClick={(e) => { e.stopPropagation(); copyToClipboard(flexAd.destination_url, 'PDP URL'); }}
-                    className="inline-flex items-center px-1.5 py-0.5 rounded bg-navy/5 text-[9px] text-navy hover:bg-navy/10 transition-colors flex-shrink-0">
-                    Copy
-                  </button>
-                </div>
-              )}
+            const hasGauntlet = gauntletUrls.length > 0;
+            const hasLegacy = !hasGauntlet && (flexAd.lp_primary_url || flexAd.lp_secondary_url);
+            const hasAnyLP = hasGauntlet || hasLegacy;
 
-              {/* Primary LP */}
-              {flexAd.lp_primary_url && (
-                <div className="flex items-center gap-2">
-                  <span className="text-[10px] text-textmid w-12 flex-shrink-0">LP 1:</span>
-                  <a href={flexAd.lp_primary_url} target="_blank" rel="noopener noreferrer" className="text-[11px] text-gold hover:text-gold/80 underline underline-offset-2 truncate flex-1">
-                    {flexAd.lp_primary_url}
-                  </a>
-                  <button onClick={(e) => { e.stopPropagation(); copyToClipboard(flexAd.lp_primary_url, 'LP 1 URL'); }}
-                    className="inline-flex items-center px-1.5 py-0.5 rounded bg-navy/5 text-[9px] text-navy hover:bg-navy/10 transition-colors flex-shrink-0">
-                    Copy
-                  </button>
-                </div>
-              )}
+            if (!hasAnyLP) return null;
 
-              {/* Secondary LP */}
-              {flexAd.lp_secondary_url && (
-                <div className="flex items-center gap-2">
-                  <span className="text-[10px] text-textmid w-12 flex-shrink-0">LP 2:</span>
-                  <a href={flexAd.lp_secondary_url} target="_blank" rel="noopener noreferrer" className="text-[11px] text-gold hover:text-gold/80 underline underline-offset-2 truncate flex-1">
-                    {flexAd.lp_secondary_url}
-                  </a>
-                  <button onClick={(e) => { e.stopPropagation(); copyToClipboard(flexAd.lp_secondary_url, 'LP 2 URL'); }}
-                    className="inline-flex items-center px-1.5 py-0.5 rounded bg-navy/5 text-[9px] text-navy hover:bg-navy/10 transition-colors flex-shrink-0">
-                    Copy
-                  </button>
-                </div>
-              )}
+            const handleCopyDestUrl = async (url, label, index) => {
+              copyToClipboard(url, label);
+              // Mark as used (persist cross-out)
+              if (index !== undefined && !usedIndices.includes(index)) {
+                try {
+                  const updated = [...usedIndices, index];
+                  await api.updateFlexAd(flexAd.id, { destination_urls_used: JSON.stringify(updated) });
+                } catch {}
+              }
+            };
 
-              {/* Dual-destination posting instruction */}
-              {(flexAd.lp_primary_url || flexAd.lp_secondary_url) && flexAd.destination_url && (
+            return (
+              <div className="bg-offwhite rounded-xl p-3 space-y-1.5">
+                <div className="text-[10px] font-semibold text-navy uppercase tracking-wide">Destination URLs</div>
+
+                {/* Gauntlet LP URLs */}
+                {hasGauntlet && gauntletUrls.map((lp, i) => {
+                  const isUsed = usedIndices.includes(i);
+                  return (
+                    <div key={i} className={`flex items-center gap-2 ${isUsed ? 'opacity-50' : ''}`}>
+                      <span className="text-[10px] text-textmid w-6 flex-shrink-0">{i + 1}.</span>
+                      <span className="text-[10px] text-textmid flex-shrink-0 w-28 truncate">{lp.frameName || lp.frame}</span>
+                      <span className="text-[10px] text-teal flex-shrink-0">({lp.score}/10)</span>
+                      <a href={lp.url} target="_blank" rel="noopener noreferrer"
+                        className={`text-[11px] text-gold hover:text-gold/80 underline underline-offset-2 truncate flex-1 ${isUsed ? 'line-through' : ''}`}>
+                        {lp.url}
+                      </a>
+                      <button onClick={(e) => { e.stopPropagation(); handleCopyDestUrl(lp.url, `LP ${i + 1}`, i); }}
+                        className="inline-flex items-center px-1.5 py-0.5 rounded bg-navy/5 text-[9px] text-navy hover:bg-navy/10 transition-colors flex-shrink-0">
+                        Copy
+                      </button>
+                    </div>
+                  );
+                })}
+
+                {/* Legacy LP URLs (fallback when no gauntlet) */}
+                {hasLegacy && (
+                  <>
+                    {flexAd.lp_primary_url && (
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] text-textmid w-12 flex-shrink-0">LP 1:</span>
+                        <a href={flexAd.lp_primary_url} target="_blank" rel="noopener noreferrer" className="text-[11px] text-gold hover:text-gold/80 underline underline-offset-2 truncate flex-1">
+                          {flexAd.lp_primary_url}
+                        </a>
+                        <button onClick={(e) => { e.stopPropagation(); copyToClipboard(flexAd.lp_primary_url, 'LP 1 URL'); }}
+                          className="inline-flex items-center px-1.5 py-0.5 rounded bg-navy/5 text-[9px] text-navy hover:bg-navy/10 transition-colors flex-shrink-0">
+                          Copy
+                        </button>
+                      </div>
+                    )}
+                    {flexAd.lp_secondary_url && (
+                      <div className="flex items-center gap-2">
+                        <span className="text-[10px] text-textmid w-12 flex-shrink-0">LP 2:</span>
+                        <a href={flexAd.lp_secondary_url} target="_blank" rel="noopener noreferrer" className="text-[11px] text-gold hover:text-gold/80 underline underline-offset-2 truncate flex-1">
+                          {flexAd.lp_secondary_url}
+                        </a>
+                        <button onClick={(e) => { e.stopPropagation(); copyToClipboard(flexAd.lp_secondary_url, 'LP 2 URL'); }}
+                          className="inline-flex items-center px-1.5 py-0.5 rounded bg-navy/5 text-[9px] text-navy hover:bg-navy/10 transition-colors flex-shrink-0">
+                          Copy
+                        </button>
+                      </div>
+                    )}
+                  </>
+                )}
+
+                {/* PDP URL — always last */}
+                {flexAd.destination_url && (
+                  <div className={`flex items-center gap-2 ${hasGauntlet && usedIndices.includes(gauntletUrls.length) ? 'opacity-50' : ''}`}>
+                    <span className="text-[10px] text-textmid w-6 flex-shrink-0">{hasGauntlet ? `${gauntletUrls.length + 1}.` : 'PDP:'}</span>
+                    {hasGauntlet && <span className="text-[10px] text-textmid flex-shrink-0 w-28">Product Page</span>}
+                    {hasGauntlet && <span className="text-[10px] text-teal flex-shrink-0 invisible">(0/10)</span>}
+                    <a href={flexAd.destination_url} target="_blank" rel="noopener noreferrer"
+                      className={`text-[11px] text-navy hover:text-navy/80 underline underline-offset-2 truncate flex-1 ${hasGauntlet && usedIndices.includes(gauntletUrls.length) ? 'line-through' : ''}`}>
+                      {flexAd.destination_url}
+                    </a>
+                    <button onClick={(e) => { e.stopPropagation(); handleCopyDestUrl(flexAd.destination_url, 'PDP URL', hasGauntlet ? gauntletUrls.length : undefined); }}
+                      className="inline-flex items-center px-1.5 py-0.5 rounded bg-navy/5 text-[9px] text-navy hover:bg-navy/10 transition-colors flex-shrink-0">
+                      Copy
+                    </button>
+                  </div>
+                )}
+
                 <p className="text-[10px] text-textmid italic pt-1">
-                  Post BOTH LP and PDP as separate ads in the same ad set. Meta auto-optimizes.
+                  {hasGauntlet ? 'Copy URLs to use as ad destinations. Used URLs get crossed out.' : 'Post BOTH LP and PDP as separate ads in the same ad set. Meta auto-optimizes.'}
                 </p>
-              )}
-            </div>
-          )}
+              </div>
+            );
+          })()}
 
           {/* Admin Edit Panel — always visible when editing (not inside collapsible) */}
           <EditPanel cardKey={flexId} id={flexAd.id} isFlex />
