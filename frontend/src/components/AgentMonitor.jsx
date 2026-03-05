@@ -591,9 +591,9 @@ function DirectorTab({ onRefresh }) {
   // --- Export angles as markdown ---
   const handleDownloadAngles = () => {
     if (angles.length === 0) return;
-    const grouped = { active: [], testing: [], retired: [] };
+    const grouped = { active: [], testing: [], archived: [] };
     angles.forEach(a => {
-      const bucket = grouped[a.status] || grouped.active;
+      const bucket = a.status === 'retired' ? grouped.archived : (grouped[a.status] || grouped.active);
       bucket.push(a);
     });
 
@@ -611,7 +611,7 @@ function DirectorTab({ onRefresh }) {
     };
     if (grouped.active.length) { md += '<!-- Active -->\n\n'; writeSection(grouped.active); }
     if (grouped.testing.length) { md += '<!-- Testing -->\n\n'; writeSection(grouped.testing); }
-    if (grouped.retired.length) { md += '<!-- Retired -->\n\n'; writeSection(grouped.retired); }
+    if (grouped.archived.length) { md += '<!-- Archived -->\n\n'; writeSection(grouped.archived); }
 
     const blob = new Blob([md.trim() + '\n'], { type: 'text/markdown' });
     const url = URL.createObjectURL(blob);
@@ -708,7 +708,7 @@ function DirectorTab({ onRefresh }) {
 
   const activeAngles = angles.filter(a => a.status === 'active');
   const testingAngles = angles.filter(a => a.status === 'testing');
-  const retiredAngles = angles.filter(a => a.status === 'retired');
+  const archivedAngles = angles.filter(a => a.status === 'archived' || a.status === 'retired');
 
   return (
     <div>
@@ -912,14 +912,23 @@ function DirectorTab({ onRefresh }) {
             </div>
           )}
 
-          {/* Retired */}
-          {retiredAngles.length > 0 && (
+          {/* Archived */}
+          {archivedAngles.length > 0 && (
             <div className="mb-4">
-              <p className="text-[10px] text-textlight font-medium uppercase tracking-wider mb-2">Retired ({retiredAngles.length})</p>
-              <div className="space-y-1">
-                {retiredAngles.map(a => (
-                  <div key={a.externalId} className="text-[11px] text-textlight px-3 py-1.5">
-                    {a.name} <span className="text-[9px]">({'\u2022'} used {a.times_used || 0}x)</span>
+              <p className="text-[10px] text-textlight font-medium uppercase tracking-wider mb-2">Archived ({archivedAngles.length})</p>
+              <div className="space-y-1.5">
+                {archivedAngles.map(a => (
+                  <div key={a.externalId} className="flex items-center justify-between px-3 py-2 rounded-lg bg-black/[0.02] border border-black/5">
+                    <div>
+                      <span className="text-[11px] text-textlight">{a.name}</span>
+                      <span className="text-[9px] text-textlight/60 ml-1.5">used {a.times_used || 0}x</span>
+                    </div>
+                    <button
+                      onClick={() => handleAngleStatusChange(a.externalId, 'active')}
+                      className="text-[10px] text-teal hover:underline"
+                    >
+                      Unarchive
+                    </button>
                   </div>
                 ))}
               </div>
@@ -1217,19 +1226,19 @@ function AngleCard({ angle, playbooks, onStatusChange, onToggleFocus, onToggleLP
               Activate
             </button>
             <button
-              onClick={() => onStatusChange(angle.externalId, 'retired')}
+              onClick={() => onStatusChange(angle.externalId, 'archived')}
               className="text-[10px] text-red-400 hover:underline ml-2"
             >
-              Retire
+              Archive
             </button>
           </div>
         )}
         {!showActions && angle.status === 'active' && (
           <button
-            onClick={() => onStatusChange(angle.externalId, 'retired')}
+            onClick={() => onStatusChange(angle.externalId, 'archived')}
             className="text-[10px] text-textlight hover:text-red-400"
           >
-            Retire
+            Archive
           </button>
         )}
       </div>

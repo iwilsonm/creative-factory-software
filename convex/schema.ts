@@ -544,7 +544,7 @@ export default defineSchema({
     description: v.string(),             // detailed angle for prompt injection
     prompt_hints: v.optional(v.string()), // specific creative direction
     source: v.string(),                  // "manual" | "auto_generated"
-    status: v.string(),                  // "active" | "testing" | "retired"
+    status: v.string(),                  // "active" | "testing" | "archived"
     focused: v.optional(v.boolean()),    // When true + active, Director only uses focused angles
     lp_enabled: v.optional(v.boolean()), // Per-angle LP override: true=always, false=never, null=use project default
     times_used: v.number(),

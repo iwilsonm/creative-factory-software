@@ -135,11 +135,11 @@ router.put('/angles/:projectId/:angleId', async (req, res) => {
 // DELETE /api/conductor/angles/:projectId/:angleId
 router.delete('/angles/:projectId/:angleId', async (req, res) => {
   try {
-    // Retire instead of hard delete (preserves history)
-    await updateConductorAngle(req.params.angleId, { status: 'retired' });
+    // Archive instead of hard delete (preserves history)
+    await updateConductorAngle(req.params.angleId, { status: 'archived' });
     res.json({ success: true });
   } catch (err) {
-    console.error('[Conductor] Retire angle error:', err.message);
+    console.error('[Conductor] Archive angle error:', err.message);
     res.status(500).json({ error: err.message });
   }
 });

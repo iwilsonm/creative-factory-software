@@ -41,7 +41,7 @@ export async function generateAngles(projectId, count = 3) {
   // Load existing angles
   const existingAngles = await getConductorAngles(projectId);
   const activeAngles = existingAngles.filter(a => a.status === 'active' || a.status === 'testing');
-  const retiredAngles = existingAngles.filter(a => a.status === 'retired');
+  const retiredAngles = existingAngles.filter(a => a.status === 'archived' || a.status === 'retired');
 
   // Load top quotes from quote bank (most emotionally intense)
   const quotes = await getQuoteBankByProject(projectId);
@@ -61,7 +61,7 @@ ${activeAngles.length > 0
     ? activeAngles.map(a => `- ${a.name}: ${a.description} (used ${a.times_used}x)`).join('\n')
     : '(none yet)'}
 
-ANGLES ALREADY RETIRED:
+ANGLES ALREADY ARCHIVED:
 ${retiredAngles.length > 0
     ? retiredAngles.map(a => `- ${a.name}: ${a.description}`).join('\n')
     : '(none)'}
