@@ -133,6 +133,7 @@ export const updateAngle = mutation({
     prompt_hints: v.optional(v.string()),
     status: v.optional(v.string()),
     focused: v.optional(v.boolean()),
+    lp_enabled: v.optional(v.boolean()),
     times_used: v.optional(v.number()),
     last_used_at: v.optional(v.number()),
     performance_note: v.optional(v.string()),

@@ -114,6 +114,13 @@ router.get('/:projectId/landing-pages/:pageId', async (req, res) => {
     } catch {}
   }
 
+  // Resolve QA screenshot URL
+  if (page.qa_screenshot_storageId) {
+    try {
+      page.qa_screenshot_url = await getStorageUrl(page.qa_screenshot_storageId);
+    } catch {}
+  }
+
   res.json(page);
 });
 

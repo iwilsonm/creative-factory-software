@@ -48,6 +48,7 @@ router.put('/:id/lp-agent/config', async (req, res) => {
       'default_author_name', 'default_author_title', 'default_warning_text',
       'visual_qa_enabled',
       'gauntlet_score_threshold', 'gauntlet_max_image_retries', 'gauntlet_max_lp_retries',
+      'lp_default_mode',
     ];
     const fields = {};
     for (const key of allowedFields) {

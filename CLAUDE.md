@@ -6,31 +6,13 @@
 
 ## 1. Before You Edit
 
-**Stop and check the dependency map** (Section 4) before modifying any shared module, pipeline stage, or state shape.
-
-| Module | Consumers | Key Risk |
-|--------|-----------|----------|
-| `backend/convexClient.js` | 33 files | Mapper output shape, field whitelists — a missing field silently drops data |
-| `frontend/src/api.js` | 26 files | Renaming a method breaks every page/component that calls it |
-| `backend/auth.js` | 17 files | Changing `req.user` shape (`{ id, username, role, displayName }`) breaks all route handlers |
-| `frontend/src/components/Toast.jsx` | 13 files | `ToastProvider` + `useToast` hook consumed across the UI |
-| `backend/services/anthropic.js` | 12 files | Claude Opus/Sonnet wrapper — retry logic + cost tracking |
-| `backend/services/costTracker.js` | 11 files | Every LLM wrapper auto-logs costs. Changing the signature breaks all wrappers |
-| `frontend/src/components/InfoTooltip.jsx` | 9 files | Pure CSS hover tooltip used on many pages |
-| `backend/services/retry.js` | 9 files | `defaultShouldRetry` does NOT retry 4xx except 429. Changing this affects all LLM calls |
-| `backend/services/openai.js` | 8 files | GPT wrapper — retry logic + cost tracking |
-| `backend/utils/sseHelper.js` | 7 files | SSE stream utilities for all long-running endpoints |
-| `backend/services/gemini.js` | 6 files | Gemini image gen wrapper — rate-limited to concurrency=3 |
-| `frontend/src/hooks/useAsyncData.js` | 6 files | Fetch + loading + error + refetch hook |
-| `frontend/src/components/Layout.jsx` | 6 files | Glass navbar + segmented control + user badge |
-| `frontend/src/components/PipelineProgress.jsx` | 5 files | Shared progress bar — see `.claude/skills/progress-bar-standard/SKILL.md` |
-| `convex/schema.ts` | All Convex functions | Schema changes require a **separate** `npx convex deploy -y` on VPS |
-
-**Rule of thumb**: Grep for any identifier you're about to rename. Trace the full chain:
+**Stop and check the dependency map** (Section 4) before modifying any shared module, pipeline stage, or state shape. Grep for any identifier you're about to rename. Trace the full chain:
 
 ```
 Convex schema → Convex function → convexClient.js mapper + whitelist → route handler → api.js method → React component
 ```
+
+A single renamed field, changed function signature, or modified data shape can silently break 10-40 downstream files. The dependency map tells you exactly which files to check.
 
 ---
 
@@ -125,9 +107,9 @@ On disk (gitignored): `config/service-account.json` (Google Drive service accoun
 
 ### Styling
 
-**Color tokens** (defined in `tailwind.config.js`):
-- `navy` (#0B1D3A) / `navy-light` (#132B52) — Primary brand, navbar, buttons, headings
-- `gold` (#C4975A) — Accent, hover states, links
+**Color tokens** (defined in `frontend/tailwind.config.js`):
+- `navy` (#0B1D3A) / `navy-light` (#132B52) / `navy-mid` (#1A3A6B) — Primary brand, navbar, buttons, headings
+- `gold` (#C4975A) / `gold-light` (#D4AA6A) — Accent, hover states, links
 - `teal` (#2A9D8F) — Success states
 - `offwhite` (#FAFAF8) — Page backgrounds
 - `cream` (#F4F1EB) — Alternative background
@@ -135,7 +117,11 @@ On disk (gitignored): `config/service-account.json` (Google Drive service accoun
 
 **Data viz colors**: OpenAI=#5B8DEF, Anthropic=#7C6DCD, Gemini=#2A9D8F, Perplexity=#C4975A
 
-**CSS classes** (in `index.css`): `.glass-nav`, `.card`, `.btn-primary`, `.btn-secondary`, `.input-apple`, `.segmented-control`, `.badge`, `.info-tooltip`
+**CSS classes** (in `frontend/src/index.css`): `.glass-nav`, `.card`, `.btn-primary`, `.btn-secondary`, `.input-apple`, `.segmented-control`, `.badge`, `.info-tooltip`
+
+**Font**: DM Sans (fallback: system-ui, sans-serif)
+
+**Shadows**: `card` (0 2px 12px), `card-hover` (0 4px 20px), `gold` (gold glow), `nav` (subtle), `pill` (layered)
 
 ---
 
@@ -229,16 +215,19 @@ This pipeline runs on every LP save (backend PUT endpoint) and during generation
 | If you change... | Also update... |
 |------------------|----------------|
 | Convex schema field name | Convex function file, `convexClient.js` mapper + whitelist, route handler, `api.js`, React component |
-| Deployment status values | `ad_deployments.ts`, `convexClient.js`, `routes/deployments.js`, `CampaignsView.jsx`, `ReadyToPostView.jsx`, `PostedView.jsx`, `filter.sh` |
-| `flex_ads` field shape | `flexAds.ts`, `convexClient.js`, `CampaignsView.jsx`, `ReadyToPostView.jsx`, `filter.sh` deploy logic |
+| Deployment status values | `convex/ad_deployments.ts`, `backend/convexClient.js`, `backend/routes/deployments.js`, `frontend/src/components/CampaignsView.jsx`, `frontend/src/components/ReadyToPostView.jsx`, `frontend/src/components/PostedView.jsx`, `dacia-creative-filter/filter.sh` |
+| `flex_ads` field shape | `convex/flexAds.ts`, `backend/convexClient.js`, `frontend/src/components/CampaignsView.jsx`, `frontend/src/components/ReadyToPostView.jsx`, `dacia-creative-filter/filter.sh` |
 | LLM wrapper function signature | Every service that calls it (see dependency map) |
 | `api.js` method name or params | Every frontend file that calls it (see dependency map) |
 | SSE event format | Backend route + frontend `onEvent` handler in the corresponding component |
 | Error response shape | All route handlers use `{ error: msg }` for errors, `{ success: true }` for mutations |
-| Cascade deletion logic | `campaigns.ts`, `adSets.ts` — any new parent-child entity must cascade |
-| Agent authentication flow | `filter.sh` + `fixer.sh` both use session cookie with 24h expiry + auto-re-auth |
-| LP post-processing pipeline | `lpGenerator.js:postProcessLP()`, `landingPages.js` PUT safety net, `LPGen.jsx:assembleHtmlClient()` |
-| LP template slot format | `lpTemplateExtractor.js`, `lpGenerator.js`, `LPGen.jsx` CopySection/ImageSlot structures |
+| Cascade deletion logic | `convex/campaigns.ts`, `convex/adSets.ts` — any new parent-child entity must cascade |
+| Agent authentication flow | `dacia-creative-filter/filter.sh` + `dacia-fixer/fixer.sh` both use session cookie with 24h expiry + auto-re-auth |
+| LP post-processing pipeline | `backend/services/lpGenerator.js:postProcessLP()`, `backend/routes/landingPages.js` PUT safety net, `frontend/src/components/LPGen.jsx:assembleHtmlClient()` |
+| LP template slot format | `backend/services/lpTemplateExtractor.js`, `backend/services/lpGenerator.js`, `frontend/src/components/LPGen.jsx` CopySection/ImageSlot structures |
+| `req.user` shape | `backend/auth.js` populates it; all 17 route files depend on `{ id, username, role, displayName }` |
+| Agent model names | `dacia-fixer/config/fixer.conf`, `dacia-creative-filter/config/filter.conf`, agent scripts |
+| Backend port | `deploy/ecosystem.config.cjs`, `deploy/nginx.conf`, `frontend/vite.config.js` proxy |
 
 ### Route Endpoints
 
@@ -273,11 +262,11 @@ Rate-limited endpoints (10 req/min per user): `/generate-docs`, `/generate-ad`, 
 
 **Director** (`backend/services/conductorEngine.js`) — Plans batches and selects angles. Runs via scheduler at 7 AM, 7 PM, 1 AM ICT. Config in `conductor_config` table per project. Supports focus mode: when any active angle has `focused=true`, only focused angles are selected.
 
-**LP Agent** (`backend/services/lpAutoGenerator.js`, `backend/services/lpGenerator.js`) — Generates two advertorials per batch with different narrative frames. Uses Opus 4.6 editorial pass for strategic content decisions (headline, section ordering, callouts, emphasis). Passes project product images as reference for hero/product image slots. Publishes to Shopify. Visual QA with auto-fix loop (up to 3 attempts). Smoke test (7 automated checks). Config in `lp_agent_config` table per project. Triggered by Director after batch creation. Settings panel in Agent Dashboard -> LP Agent tab.
+**LP Agent** (`backend/services/lpAutoGenerator.js`, `backend/services/lpGenerator.js`) — Generates two advertorials per batch with different narrative frames. Uses Opus 4.6 editorial pass for strategic content decisions. Passes project product images as reference for hero/product image slots. Publishes to Shopify. Visual QA with auto-fix loop (up to 3 attempts). Smoke test (7 automated checks). Config in `lp_agent_config` table per project. Triggered by Director after batch creation.
 
-**Creative Filter** (`dacia-creative-filter/filter.sh`) — Scores completed batch ads via Claude Sonnet vision, groups winners into flex ads (1 per batch), deploys to Ready to Post. Runs every 30 min via VPS cron. Budget: $20/day. Opt-in per batch (`filter_assigned=true`).
+**Creative Filter** (`dacia-creative-filter/filter.sh`) — Scores completed batch ads via Claude Sonnet vision, groups winners into flex ads (1 per batch), deploys to Ready to Post. Runs every 30 min via VPS cron. Budget: $20/day. Opt-in per batch (`filter_assigned=true`). Sub-agents: `score.sh` (vision scoring), `group.sh` (flex ad clustering), `validate.sh` (copy validation), `regenerate.sh` (copy fallback).
 
-**Fixer** (`dacia-fixer/fixer.sh`) — Runs test suite, diagnoses failures via Gemini Flash, fixes via Claude Sonnet, resurrects failed batches. Health probes: backend health, filter liveness, pass rate, disk space. Runs every 5 min via VPS cron. Budget: $1.33/day.
+**Fixer** (`dacia-fixer/fixer.sh`) — Runs test suite, diagnoses failures via Gemini Flash, fixes via Claude Sonnet, resurrects failed batches. Health probes: backend health, filter liveness, pass rate, disk space. Runs every 5 min via VPS cron. Budget: $1.33/day. Commits fixes to `fixer/auto-fixes` branch.
 
 Filter and Fixer agents use: lock files (`/tmp/dacia-{agent}.lock` with PID check), `flock` for atomic spend file reads/writes, session cookie auth with 24h expiry + auto-re-auth, daily log rotation.
 
@@ -292,408 +281,6 @@ Filter and Fixer agents use: lock files (`/tmp/dacia-{agent}.lock` with PID chec
 7. Director runs (7 AM, 7 PM, 1 AM ICT)
 
 Plus user-defined cron schedules for recurring batches.
-
----
-
-## 4. Dependency Map
-
-Every shared module imported by 2+ production files. Test files excluded. Organized by consumer count descending.
-
-### Tier 1: 10+ Consumers
-
-**`backend/convexClient.js`** — Central data layer (100+ helpers, mapper functions: `convexProjectToRow`, `convexAdToRow`, `convexBatchToRow`, `convexDocToRow`)
--> `backend/server.js`
--> `backend/auth.js`
--> `backend/ConvexSessionStore.js`
--> `backend/routes/agentMonitor.js`
--> `backend/routes/auth.js`
--> `backend/routes/conductor.js`
--> `backend/routes/costs.js`
--> `backend/routes/documents.js`
--> `backend/routes/drive.js`
--> `backend/routes/lpAgent.js`
--> `backend/routes/lpTemplates.js`
--> `backend/routes/meta.js`
--> `backend/routes/quoteMining.js`
--> `backend/routes/settings.js`
--> `backend/routes/templates.js`
--> `backend/services/anthropic.js`
--> `backend/services/correctionHistory.js`
--> `backend/services/costTracker.js`
--> `backend/services/gemini.js`
--> `backend/services/headlineGenerator.js`
--> `backend/services/lpAutoFixer.js`
--> `backend/services/lpAutoGenerator.js`
--> `backend/services/lpGenerator.js`
--> `backend/services/lpSwipeFetcher.js`
--> `backend/services/lpTemplateExtractor.js`
--> `backend/services/metaAds.js`
--> `backend/services/openai.js`
--> `backend/services/quoteBankService.js`
--> `backend/services/quoteDedup.js`
--> `backend/services/quoteMiner.js`
--> `backend/services/scheduler.js`
--> `backend/utils/adImages.js`
-
-**`frontend/src/api.js`** — 164 API methods (fetch wrapper + SSE helpers, no imports)
--> `frontend/src/App.jsx`
--> `frontend/src/pages/Login.jsx`
--> `frontend/src/pages/Dashboard.jsx`
--> `frontend/src/pages/Projects.jsx`
--> `frontend/src/pages/ProjectSetup.jsx`
--> `frontend/src/pages/ProjectDetail.jsx`
--> `frontend/src/pages/Settings.jsx`
--> `frontend/src/pages/AdTracker.jsx`
--> `frontend/src/components/Layout.jsx`
--> `frontend/src/components/AdStudio.jsx`
--> `frontend/src/components/BatchManager.jsx`
--> `frontend/src/components/FoundationalDocs.jsx`
--> `frontend/src/components/TemplateImages.jsx`
--> `frontend/src/components/QuoteMiner.jsx`
--> `frontend/src/components/CopywriterChat.jsx`
--> `frontend/src/components/ReadyToPostView.jsx`
--> `frontend/src/components/CampaignsView.jsx`
--> `frontend/src/components/PostedView.jsx`
--> `frontend/src/components/LPGen.jsx`
--> `frontend/src/components/LPAgentSettings.jsx`
--> `frontend/src/components/LPTemplateManager.jsx`
--> `frontend/src/components/InspirationFolder.jsx`
--> `frontend/src/components/DriveFolderPicker.jsx`
--> `frontend/src/components/DragDropUpload.jsx`
--> `frontend/src/components/AgentMonitor.jsx`
--> `frontend/src/components/CreativeFilterSettings.jsx`
-
-**`backend/auth.js`** — Exports: `requireAuth`, `requireRole`, `isSetupComplete`, `migrateToMultiUser`
--> `backend/routes/ads.js`
--> `backend/routes/auth.js`
--> `backend/routes/batches.js`
--> `backend/routes/chat.js`
--> `backend/routes/costs.js`
--> `backend/routes/deployments.js`
--> `backend/routes/documents.js`
--> `backend/routes/drive.js`
--> `backend/routes/landingPages.js`
--> `backend/routes/lpTemplates.js`
--> `backend/routes/meta.js`
--> `backend/routes/projects.js`
--> `backend/routes/quoteMining.js`
--> `backend/routes/settings.js`
--> `backend/routes/templates.js`
--> `backend/routes/upload.js`
--> `backend/routes/users.js`
-
-**`frontend/src/components/Toast.jsx`** — Exports: `ToastProvider`, `useToast`
--> `frontend/src/App.jsx`
--> `frontend/src/pages/Projects.jsx`
--> `frontend/src/pages/ProjectDetail.jsx`
--> `frontend/src/pages/Settings.jsx`
--> `frontend/src/pages/AdTracker.jsx`
--> `frontend/src/components/AdStudio.jsx`
--> `frontend/src/components/BatchManager.jsx`
--> `frontend/src/components/FoundationalDocs.jsx`
--> `frontend/src/components/LPGen.jsx`
--> `frontend/src/components/LPAgentSettings.jsx`
--> `frontend/src/components/LPTemplateManager.jsx`
--> `frontend/src/components/QuoteMiner.jsx`
--> `frontend/src/components/CreativeFilterSettings.jsx`
-
-**`backend/services/anthropic.js`** — Exports: `chat`, `chatWithImage`, `chatWithMultipleImages`
--> `backend/routes/ads.js`
--> `backend/routes/deployments.js`
--> `backend/services/adGenerator.js`
--> `backend/services/conductorAngles.js`
--> `backend/services/conductorLearning.js`
--> `backend/services/docGenerator.js`
--> `backend/services/lpAutoFixer.js`
--> `backend/services/lpGenerator.js`
--> `backend/services/lpTemplateExtractor.js`
-
-**`backend/services/costTracker.js`** — Exports: `logAnthropicCost`, `logOpenAICost`, `logPerplexityCost`, `logGeminiCost`, `syncOpenAICosts`, `refreshGeminiRates`, `getCostSummary`, `getCostHistoryData`, `getRecurringBatchCostEstimate`. Callers pass `{ operation, projectId }`.
--> `backend/server.js`
--> `backend/routes/chat.js`
--> `backend/routes/costs.js`
--> `backend/routes/settings.js`
--> `backend/services/anthropic.js`
--> `backend/services/batchProcessor.js`
--> `backend/services/gemini.js`
--> `backend/services/headlineGenerator.js`
--> `backend/services/openai.js`
--> `backend/services/quoteMiner.js`
--> `backend/services/scheduler.js`
-
-### Tier 2: 5–9 Consumers
-
-**`frontend/src/components/InfoTooltip.jsx`** — Pure CSS hover tooltip
--> `frontend/src/pages/Dashboard.jsx`
--> `frontend/src/pages/Projects.jsx`
--> `frontend/src/pages/ProjectDetail.jsx`
--> `frontend/src/pages/Settings.jsx`
--> `frontend/src/components/AdStudio.jsx`
--> `frontend/src/components/BatchManager.jsx`
--> `frontend/src/components/FoundationalDocs.jsx`
--> `frontend/src/components/LPGen.jsx`
--> `frontend/src/components/TemplateImages.jsx`
-
-**`backend/services/retry.js`** — Exports: `withRetry`, `isRateLimitError`, `defaultShouldRetry`. Does NOT retry 4xx except 429. 429 uses 15s base delay.
--> `backend/services/anthropic.js`
--> `backend/services/batchProcessor.js`
--> `backend/services/costTracker.js`
--> `backend/services/gemini.js`
--> `backend/services/headlineGenerator.js`
--> `backend/services/lpPublisher.js`
--> `backend/services/metaAds.js`
--> `backend/services/openai.js`
--> `backend/services/quoteMiner.js`
-
-**`backend/services/openai.js`** — Exports: `chat`, `chatStream`, `deepResearch`, `chatWithImage`, `chatWithImages`
--> `backend/routes/templates.js`
--> `backend/routes/upload.js`
--> `backend/services/adGenerator.js`
--> `backend/services/bodyCopyGenerator.js`
--> `backend/services/docGenerator.js`
--> `backend/services/quoteDedup.js`
--> `backend/services/quoteMiner.js`
-
-**`backend/utils/sseHelper.js`** — Exports: `createSSEStream`, `streamService`
--> `backend/routes/ads.js`
--> `backend/routes/chat.js`
--> `backend/routes/documents.js`
--> `backend/routes/landingPages.js`
--> `backend/routes/lpAgent.js`
--> `backend/routes/lpTemplates.js`
--> `backend/routes/quoteMining.js`
-
-**`backend/services/gemini.js`** — Exports: `generateImage`, `getClient`. Rate-limited to concurrency=3.
--> `backend/routes/batches.js`
--> `backend/routes/landingPages.js`
--> `backend/services/adGenerator.js`
--> `backend/services/batchProcessor.js`
--> `backend/services/lpAutoFixer.js`
--> `backend/services/lpGenerator.js`
-
-**`frontend/src/hooks/useAsyncData.js`** — Fetch + loading + error + refetch hook
--> `frontend/src/pages/Projects.jsx`
--> `frontend/src/pages/AdTracker.jsx`
--> `frontend/src/components/AdStudio.jsx`
--> `frontend/src/components/FoundationalDocs.jsx`
--> `frontend/src/components/QuoteMiner.jsx`
--> `frontend/src/components/TemplateImages.jsx`
-
-**`frontend/src/components/Layout.jsx`** — Glass navbar + segmented control + user badge
--> `frontend/src/pages/Dashboard.jsx`
--> `frontend/src/pages/Projects.jsx`
--> `frontend/src/pages/ProjectSetup.jsx`
--> `frontend/src/pages/ProjectDetail.jsx`
--> `frontend/src/pages/Settings.jsx`
--> `frontend/src/pages/AgentDashboard.jsx`
-
-**`frontend/src/components/PipelineProgress.jsx`** — Shared progress bar for all long-running SSE pipelines
--> `frontend/src/components/BatchRow.jsx`
--> `frontend/src/components/FoundationalDocs.jsx`
--> `frontend/src/components/LPAgentSettings.jsx`
--> `frontend/src/components/LPGen.jsx`
--> `frontend/src/components/QuoteMiner.jsx`
-
-### Tier 3: 3–4 Consumers
-
-**`backend/services/lpGenerator.js`** — LP copy + design + HTML generation (Claude Sonnet + Opus editorial pass)
--> `backend/routes/lpAgent.js`
--> `backend/services/lpAutoFixer.js`
--> `backend/services/lpAutoGenerator.js`
--> `backend/services/lpPublisher.js`
-
-**`backend/services/quoteMiner.js`** — Exports: `runQuoteMining`, `generateSuggestions`, `getAnthropicClient`
--> `backend/routes/chat.js`
--> `backend/routes/quoteMining.js`
--> `backend/services/headlineGenerator.js`
--> `backend/services/quoteBankService.js`
-
-**`backend/services/batchProcessor.js`** — Exports: `runBatch`, `pollBatchJob`
--> `backend/routes/batches.js`
--> `backend/services/conductorEngine.js`
--> `backend/services/scheduler.js`
-
-**`backend/services/rateLimiter.js`** — Exports: `withHeavyLLMLimit` (concurrency=2), `withGeminiLimit` (concurrency=3), `getRateLimiterStats`
--> `backend/server.js`
--> `backend/services/adGenerator.js`
--> `backend/services/gemini.js`
-
-**`frontend/src/hooks/usePolling.js`** — Interval polling hook
--> `frontend/src/components/AdStudio.jsx`
--> `frontend/src/components/BatchManager.jsx`
--> `frontend/src/components/QuoteMiner.jsx`
-
-**`frontend/src/components/DragDropUpload.jsx`** — Reusable file upload component
--> `frontend/src/pages/ProjectSetup.jsx`
--> `frontend/src/pages/Settings.jsx`
--> `frontend/src/components/FoundationalDocs.jsx`
-
-**`frontend/src/App.jsx`** — Exports: `AuthContext` (consumed via `useContext`)
--> `frontend/src/pages/Login.jsx`
--> `frontend/src/pages/Projects.jsx`
--> `frontend/src/pages/ProjectDetail.jsx`
--> `frontend/src/components/Layout.jsx`
-
-### Tier 4: 2 Consumers
-
-**`backend/services/adGenerator.js`** — Ad generation orchestrator (Mode 1/2)
--> `backend/routes/ads.js`
--> `backend/routes/deployments.js`
-
-**`backend/services/scheduler.js`** — 7 cron tasks + user-defined batch schedules
--> `backend/server.js`
--> `backend/routes/batches.js`
-
-**`backend/services/conductorEngine.js`** — Director batch planning + angle selection
--> `backend/routes/conductor.js`
--> `backend/services/scheduler.js`
-
-**`backend/services/conductorLearning.js`** — Learning from scored ads + adaptive batch sizing (known bug: `messages.filter is not a function`)
--> `backend/routes/conductor.js`
--> `backend/services/conductorEngine.js`
-
-**`backend/services/metaAds.js`** — Meta OAuth, token refresh, performance sync
--> `backend/routes/meta.js`
--> `backend/services/scheduler.js`
-
-**`backend/services/quoteDedup.js`** — Semantic quote deduplication (GPT-4.1-mini)
--> `backend/routes/quoteMining.js`
--> `backend/services/quoteBankService.js`
-
-**`backend/services/bodyCopyGenerator.js`** — Body copy from headline + quote context
--> `backend/routes/ads.js`
--> `backend/routes/quoteMining.js`
-
-**`backend/services/lpSwipeFetcher.js`** — Puppeteer page capture + SSRF protection
--> `backend/routes/landingPages.js`
--> `backend/services/lpTemplateExtractor.js`
-
-**`backend/services/lpPublisher.js`** — Shopify page deploy + smoke test
--> `backend/routes/landingPages.js`
--> `backend/services/lpAutoGenerator.js`
-
-**`backend/services/lpAutoFixer.js`** — Deterministic + LLM-powered Visual QA fixes
--> `backend/services/lpGenerator.js`
-
-**`frontend/src/components/ErrorBoundary.jsx`** — React error boundary (page + tab levels)
--> `frontend/src/App.jsx`
--> `frontend/src/pages/ProjectDetail.jsx`
-
-**`frontend/src/components/batchUtils.js`** — Batch constants, cron helpers, formatters
--> `frontend/src/components/BatchManager.jsx`
--> `frontend/src/components/BatchRow.jsx`
-
-### Third-Party Packages (4+ backend files)
-
-**`uuid` (v4)** — UUID generation for `externalId` fields
--> `backend/auth.js`
--> `backend/routes/agentMonitor.js`
--> `backend/routes/auth.js`
--> `backend/routes/batches.js`
--> `backend/routes/chat.js`
--> `backend/routes/conductor.js`
--> `backend/routes/documents.js`
--> `backend/routes/landingPages.js`
--> `backend/routes/projects.js`
--> `backend/routes/templates.js`
--> `backend/routes/users.js`
--> `backend/services/adGenerator.js`
--> `backend/services/batchProcessor.js`
--> `backend/services/conductorAngles.js`
--> `backend/services/conductorEngine.js`
--> `backend/services/correctionHistory.js`
--> `backend/services/costTracker.js`
--> `backend/services/docGenerator.js`
--> `backend/services/lpAutoGenerator.js`
--> `backend/services/lpPublisher.js`
--> `backend/services/lpTemplateExtractor.js`
--> `backend/services/metaAds.js`
--> `backend/services/quoteBankService.js`
--> `backend/services/quoteDedup.js`
-
-**`multer`** — Multipart file upload middleware
--> `backend/routes/landingPages.js`
--> `backend/routes/projects.js`
--> `backend/routes/templates.js`
--> `backend/routes/upload.js`
-
-### Dead Code
-
-**`backend/services/conductorAngles.js`** — Angle auto-generation service. Exports `generateAngles`. Imported by **zero production files**. Referenced only in a comment in `conductorEngine.js` ("Phase 4"). Also imported by `anthropic.js` for the `chat` function but itself has zero callers.
-
----
-
-## 5. Critical Invariants
-
-Rules that must never be violated. Breaking these causes silent failures or data corruption.
-
-### Data Shape Contracts
-
-1. **`externalId` is the foreign key, not `_id`**. All cross-table references use UUID `externalId` strings. Convex native `_id` is never used for relationships. Exception: `inspiration_images` has no `externalId` — it uses composite key `(project_id, drive_file_id)`.
-
-2. **JSON arrays stored as strings**. These fields look like arrays but are `v.string()` in the schema — you must `JSON.parse()` to read and `JSON.stringify()` to write:
-   - `batch_jobs`: `angles`, `gpt_prompts`, `used_template_ids`, `pipeline_state`, `template_image_ids`, `inspiration_image_ids`
-   - `flex_ads`: `child_deployment_ids`, `primary_texts`, `headlines`
-   - `ad_deployments`: `primary_texts`, `ad_headlines`
-   - `quote_mining_runs`: `quotes`, `keywords`, `subreddits`, `forums`, `facebook_groups`, `headlines`
-   - `quote_bank`: `headlines`, `tags`
-   - `landing_pages`: `copy_sections`, `image_slots`, `cta_links`, `swipe_design_analysis`, `hosting_metadata`
-   - `landing_page_versions`: `copy_sections`, `image_slots`, `cta_links`
-   - `correction_history`: `changes`
-
-3. **Soft-delete pattern**. `ad_deployments` and `flex_ads` use `deleted_at` timestamp. All queries MUST filter out `deleted_at` records. Hard purge runs daily at 1am for records >30 days old.
-
-4. **Cascade deletion**. `campaigns.remove()` -> hard-deletes child ad_sets -> soft-deletes child flex_ads. `adSets.remove()` -> soft-deletes child flex_ads. Any new parent-child entity must cascade.
-
-5. **`convexBatchToRow` converts `scheduled` boolean to 0/1 integer**. Frontend must use `!!batch.scheduled` not bare `batch.scheduled` in JSX to avoid rendering `0`.
-
-6. **Mapper functions + field whitelists**. Every route handler receives Convex data through mappers in `convexClient.js`. If you add a field to the schema, you MUST also add it to the mapper AND the helper's field whitelist or it won't appear in API responses / won't be saved on updates.
-
-7. **Dedup guards**. `ad_deployments.create()` checks if `ad_id` already deployed (active only) — returns null if duplicate. `createWithoutDedup()` skips this. `inspiration_images.create()` skips if `(project_id, drive_file_id)` already exists.
-
-8. **Upsert operations**. `meta_performance.upsert()` by `(meta_ad_id, date)`. `conductor_config.upsertConfig()` by `project_id`. `lp_agent_config.upsertConfig()` by `project_id`. `conductor_playbooks.upsertPlaybook()` by `(project_id, angle_name)`. `fixer_playbook.upsertFixerPlaybook()` by `issue_category`. `settings.set()` by `key`.
-
-### API Contracts
-
-9. **SSE events**: All SSE endpoints emit `data: ${JSON.stringify(event)}\n\n`. Event objects always have a `type` field (`progress`, `step`, `complete`, `error`, `result`). Components parse these in `onEvent` callbacks.
-
-10. **Cost logging is fire-and-forget**. Every LLM wrapper auto-logs costs internally. Callers pass `{ operation, projectId }` via options. The logging call uses `.catch(() => {})` — failures are silently swallowed. Never await cost logging.
-
-11. **Error response shape**. All API errors: `res.status(N).json({ error: err.message })`. All mutation successes: `res.json({ success: true, ... })`. New routes must follow this.
-
-12. **Deployment status strings**. The exact values `"selected"`, `"ready_to_post"`, `"posted"`, `"analyzing"` are hardcoded across the entire stack. No enum — raw strings everywhere.
-
-### Auth & Roles
-
-13. **Three roles: `admin`, `manager`, `poster`**. Poster can ONLY see the Ad Pipeline tab (Ready to Post + Posted). Poster cannot access Planner, create projects, access Dashboard, or Settings. Backend enforces via `requireRole('admin', 'manager')`.
-
-14. **`req.user` shape**: `{ id, username, role, displayName }`. Populated by `requireAuth` middleware from session. Every route handler depends on this shape.
-
-15. **Session secret**: Auto-generated 64-char hex string via `crypto.randomBytes(32)` on first server start. Stored as `session_secret` setting in Convex.
-
-16. **Localhost-only agent endpoints**. `/api/agent-cost` routes use `localhostOnly` middleware checking `req.ip` against `['127.0.0.1', '::1', '::ffff:127.0.0.1']`.
-
-### LP Pipeline
-
-17. **`injectContrastSafetyCSS` is idempotent**. Checks for `data-safety="contrast"` marker before injecting. Safe to call multiple times. Three-layer approach: (1) CSS attribute selectors for inline styles, (2) `<style>` block parsing for class-based dark backgrounds, (3) inline style fix. Exported from `lpGenerator.js`, called in: `postProcessLP()`, `landingPages.js` PUT endpoint (strips old CSS first), `landingPages.js` version restore endpoint (strips old CSS first).
-
-18. **Frontend `assembleHtmlClient()` strips all post-processing**. The function rebuilds HTML from raw `htmlTemplate` + copy sections. The backend PUT endpoint re-applies contrast CSS. The frontend also injects a simplified contrast CSS version for editor preview. Any new post-processing added to `postProcessLP()` may need a corresponding safety net in the PUT endpoint.
-
-19. **LP auto-generation is fire-and-forget**. `triggerLPGeneration()` never throws to caller. All errors are caught internally and set status to `'failed'` + error message on the batch record.
-
-20. **Visual QA loop**: `generateAndValidateLP()` runs up to 3 generation attempts. Each failed attempt triggers `autoFixLP()` which applies deterministic fixes first (free), then LLM-powered fixes (costs tokens). Fix types: contrast CSS injection, broken image regeneration (Gemini), layout CSS fix (Claude Sonnet).
-
-21. **Smoke test checks**: `runSmokeTest()` runs 7 automated checks post-publish: HTTP 200, load time <15s, no raw placeholders, headline present, >=50% images load, valid CTA links, no mobile horizontal overflow at 375px.
-
-### Naming & Conventions
-
-22. **`project_id` everywhere = `projects.externalId`** (UUID string), not the Convex `_id`.
-
-23. **No Convex actions**. Only queries + mutations. All LLM calls, file processing, and external API work happens in Express backend.
-
-24. **File naming**: camelCase for JS/JSX, PascalCase for React components, snake_case for Convex table names and fields.
-
-25. **All LLM calls must go through wrappers**. Never call OpenAI, Anthropic, or Gemini APIs directly. Always use `services/openai.js`, `services/anthropic.js`, or `services/gemini.js` — they provide retry logic and automatic cost tracking.
 
 ### Convex Relationship Map
 
@@ -725,6 +312,615 @@ projects
 ```
 
 Standalone tables: `settings`, `users`, `sessions`, `api_costs`, `dashboard_todos`, `conductor_health`, `fixer_playbook`, `file_storage`
+
+---
+
+## 4. Dependency Map
+
+Every shared module imported by 3+ production files. Every file path listed. Organized by consumer count descending.
+
+### `backend/convexClient.js` — 47 files
+
+Central data layer. 1400+ lines, 140+ helper functions, mapper functions (`convexProjectToRow`, `convexAdToRow`, `convexBatchToRow`, `convexDocToRow`, `convexLPTemplateToRow`), field whitelists for all update operations.
+
+* `backend/convexClient.js` → used by:
+  - `backend/server.js`
+  - `backend/auth.js`
+  - `backend/ConvexSessionStore.js`
+  - `backend/routes/ads.js`
+  - `backend/routes/agentMonitor.js`
+  - `backend/routes/auth.js`
+  - `backend/routes/batches.js`
+  - `backend/routes/chat.js`
+  - `backend/routes/conductor.js`
+  - `backend/routes/costs.js`
+  - `backend/routes/deployments.js`
+  - `backend/routes/documents.js`
+  - `backend/routes/drive.js`
+  - `backend/routes/landingPages.js`
+  - `backend/routes/lpAgent.js`
+  - `backend/routes/lpTemplates.js`
+  - `backend/routes/meta.js`
+  - `backend/routes/projects.js`
+  - `backend/routes/quoteMining.js`
+  - `backend/routes/settings.js`
+  - `backend/routes/templates.js`
+  - `backend/routes/users.js`
+  - `backend/services/adGenerator.js`
+  - `backend/services/anthropic.js`
+  - `backend/services/batchProcessor.js`
+  - `backend/services/conductorAngles.js`
+  - `backend/services/conductorEngine.js`
+  - `backend/services/conductorLearning.js`
+  - `backend/services/correctionHistory.js`
+  - `backend/services/costTracker.js`
+  - `backend/services/docGenerator.js`
+  - `backend/services/gemini.js`
+  - `backend/services/headlineGenerator.js`
+  - `backend/services/lpAutoFixer.js`
+  - `backend/services/lpAutoGenerator.js`
+  - `backend/services/lpGenerator.js`
+  - `backend/services/lpPublisher.js`
+  - `backend/services/lpSwipeFetcher.js`
+  - `backend/services/lpTemplateExtractor.js`
+  - `backend/services/metaAds.js`
+  - `backend/services/openai.js`
+  - `backend/services/quoteBankService.js`
+  - `backend/services/quoteDedup.js`
+  - `backend/services/quoteMiner.js`
+  - `backend/services/scheduler.js`
+  - `backend/utils/adImages.js`
+
+---
+
+### `frontend/src/api.js` — 26 files
+
+164 API methods. Base `request()` fetch wrapper with auto-redirect on 401. `streamSSE()` and `streamSSEWithBody()` for SSE endpoints. No external dependencies.
+
+* `frontend/src/api.js` → used by:
+  - `frontend/src/App.jsx`
+  - `frontend/src/pages/Login.jsx`
+  - `frontend/src/pages/Dashboard.jsx`
+  - `frontend/src/pages/Projects.jsx`
+  - `frontend/src/pages/ProjectSetup.jsx`
+  - `frontend/src/pages/ProjectDetail.jsx`
+  - `frontend/src/pages/Settings.jsx`
+  - `frontend/src/pages/AdTracker.jsx`
+  - `frontend/src/components/Layout.jsx`
+  - `frontend/src/components/AdStudio.jsx`
+  - `frontend/src/components/BatchManager.jsx`
+  - `frontend/src/components/FoundationalDocs.jsx`
+  - `frontend/src/components/TemplateImages.jsx`
+  - `frontend/src/components/QuoteMiner.jsx`
+  - `frontend/src/components/CopywriterChat.jsx`
+  - `frontend/src/components/ReadyToPostView.jsx`
+  - `frontend/src/components/CampaignsView.jsx`
+  - `frontend/src/components/PostedView.jsx`
+  - `frontend/src/components/LPGen.jsx`
+  - `frontend/src/components/LPAgentSettings.jsx`
+  - `frontend/src/components/LPTemplateManager.jsx`
+  - `frontend/src/components/InspirationFolder.jsx`
+  - `frontend/src/components/DriveFolderPicker.jsx`
+  - `frontend/src/components/DragDropUpload.jsx`
+  - `frontend/src/components/AgentMonitor.jsx`
+  - `frontend/src/components/CreativeFilterSettings.jsx`
+
+---
+
+### `backend/auth.js` — 17 files
+
+Exports: `requireAuth`, `requireRole(...roles)`, `isSetupComplete()`, `migrateToMultiUser()`. Populates `req.user` with shape `{ id, username, role, displayName }`.
+
+* `backend/auth.js` → used by:
+  - `backend/routes/ads.js`
+  - `backend/routes/auth.js`
+  - `backend/routes/batches.js`
+  - `backend/routes/chat.js`
+  - `backend/routes/costs.js`
+  - `backend/routes/deployments.js`
+  - `backend/routes/documents.js`
+  - `backend/routes/drive.js`
+  - `backend/routes/landingPages.js`
+  - `backend/routes/lpTemplates.js`
+  - `backend/routes/meta.js`
+  - `backend/routes/projects.js`
+  - `backend/routes/quoteMining.js`
+  - `backend/routes/settings.js`
+  - `backend/routes/templates.js`
+  - `backend/routes/upload.js`
+  - `backend/routes/users.js`
+
+---
+
+### `backend/services/retry.js` — 14 files
+
+Exports: `withRetry`, `isRateLimitError`, `defaultShouldRetry`. Does NOT retry 4xx except 429. 429 uses 15s base delay.
+
+* `backend/services/retry.js` → used by:
+  - `backend/convexClient.js`
+  - `backend/routes/chat.js`
+  - `backend/routes/drive.js`
+  - `backend/routes/lpAgent.js`
+  - `backend/services/anthropic.js`
+  - `backend/services/batchProcessor.js`
+  - `backend/services/costTracker.js`
+  - `backend/services/gemini.js`
+  - `backend/services/headlineGenerator.js`
+  - `backend/services/lpPublisher.js`
+  - `backend/services/metaAds.js`
+  - `backend/services/openai.js`
+  - `backend/services/quoteMiner.js`
+  - `backend/utils/adImages.js`
+
+---
+
+### `frontend/src/components/Toast.jsx` — 13 files
+
+Exports: `ToastProvider`, `useToast()` hook. Methods: `toast.success()`, `toast.error()`, `toast.info()`, `toast.undo(action)`.
+
+* `frontend/src/components/Toast.jsx` → used by:
+  - `frontend/src/App.jsx`
+  - `frontend/src/pages/Projects.jsx`
+  - `frontend/src/pages/ProjectDetail.jsx`
+  - `frontend/src/pages/Settings.jsx`
+  - `frontend/src/pages/AdTracker.jsx`
+  - `frontend/src/components/AdStudio.jsx`
+  - `frontend/src/components/BatchManager.jsx`
+  - `frontend/src/components/FoundationalDocs.jsx`
+  - `frontend/src/components/LPGen.jsx`
+  - `frontend/src/components/LPAgentSettings.jsx`
+  - `frontend/src/components/LPTemplateManager.jsx`
+  - `frontend/src/components/QuoteMiner.jsx`
+  - `frontend/src/components/CreativeFilterSettings.jsx`
+
+---
+
+### `backend/services/costTracker.js` — 11 files
+
+Exports: `logAnthropicCost`, `logOpenAICost`, `logPerplexityCost`, `logGeminiCost`, `syncOpenAICosts`, `refreshGeminiRates`, `getCostSummary`, `getCostHistoryData`, `getRecurringBatchCostEstimate`. Callers pass `{ operation, projectId }`.
+
+* `backend/services/costTracker.js` → used by:
+  - `backend/server.js`
+  - `backend/routes/chat.js`
+  - `backend/routes/costs.js`
+  - `backend/routes/settings.js`
+  - `backend/services/anthropic.js`
+  - `backend/services/batchProcessor.js`
+  - `backend/services/gemini.js`
+  - `backend/services/headlineGenerator.js`
+  - `backend/services/openai.js`
+  - `backend/services/quoteMiner.js`
+  - `backend/services/scheduler.js`
+
+---
+
+### `backend/services/anthropic.js` — 11 files
+
+Exports: `chat`, `chatWithImage`, `chatWithMultipleImages`. Claude Opus 4.6 + Sonnet 4.6 wrapper with retry logic and automatic cost tracking.
+
+* `backend/services/anthropic.js` → used by:
+  - `backend/routes/ads.js`
+  - `backend/routes/deployments.js`
+  - `backend/services/adGenerator.js`
+  - `backend/services/conductorAngles.js`
+  - `backend/services/conductorLearning.js`
+  - `backend/services/docGenerator.js`
+  - `backend/services/lpAutoFixer.js`
+  - `backend/services/lpGenerator.js`
+  - `backend/services/lpTemplateExtractor.js`
+  - `backend/services/quoteMiner.js`
+
+---
+
+### `frontend/src/components/InfoTooltip.jsx` — 9 files
+
+Pure CSS hover tooltip. Props: `text`, `position` (top/bottom/left/right).
+
+* `frontend/src/components/InfoTooltip.jsx` → used by:
+  - `frontend/src/pages/Dashboard.jsx`
+  - `frontend/src/pages/Projects.jsx`
+  - `frontend/src/pages/ProjectDetail.jsx`
+  - `frontend/src/pages/Settings.jsx`
+  - `frontend/src/components/AdStudio.jsx`
+  - `frontend/src/components/BatchManager.jsx`
+  - `frontend/src/components/FoundationalDocs.jsx`
+  - `frontend/src/components/LPGen.jsx`
+  - `frontend/src/components/TemplateImages.jsx`
+
+---
+
+### `backend/services/openai.js` — 8 files
+
+Exports: `chat`, `chatStream`, `deepResearch`, `chatWithImage`, `chatWithImages`. GPT-5.2, GPT-4.1, o3-deep-research wrapper with retry + cost tracking.
+
+* `backend/services/openai.js` → used by:
+  - `backend/routes/templates.js`
+  - `backend/routes/upload.js`
+  - `backend/services/adGenerator.js`
+  - `backend/services/bodyCopyGenerator.js`
+  - `backend/services/docGenerator.js`
+  - `backend/services/quoteDedup.js`
+  - `backend/services/quoteMiner.js`
+
+---
+
+### `backend/utils/sseHelper.js` — 7 files
+
+Exports: `createSSEStream`, `streamService`. SSE stream utilities for all long-running endpoints.
+
+* `backend/utils/sseHelper.js` → used by:
+  - `backend/routes/ads.js`
+  - `backend/routes/chat.js`
+  - `backend/routes/documents.js`
+  - `backend/routes/landingPages.js`
+  - `backend/routes/lpAgent.js`
+  - `backend/routes/lpTemplates.js`
+  - `backend/routes/quoteMining.js`
+
+---
+
+### `backend/services/gemini.js` — 6 files
+
+Exports: `generateImage`, `getClient`. Gemini 3 Pro image generation. Rate-limited to concurrency=3.
+
+* `backend/services/gemini.js` → used by:
+  - `backend/routes/batches.js`
+  - `backend/routes/landingPages.js`
+  - `backend/services/adGenerator.js`
+  - `backend/services/batchProcessor.js`
+  - `backend/services/lpAutoFixer.js`
+  - `backend/services/lpGenerator.js`
+
+---
+
+### `frontend/src/hooks/useAsyncData.js` — 6 files
+
+Fetch + loading + error + refetch hook. Returns `{ data, setData, loading, error, refetch, silentRefetch }`.
+
+* `frontend/src/hooks/useAsyncData.js` → used by:
+  - `frontend/src/pages/Projects.jsx`
+  - `frontend/src/pages/AdTracker.jsx`
+  - `frontend/src/components/AdStudio.jsx`
+  - `frontend/src/components/FoundationalDocs.jsx`
+  - `frontend/src/components/QuoteMiner.jsx`
+  - `frontend/src/components/TemplateImages.jsx`
+
+---
+
+### `frontend/src/components/Layout.jsx` — 6 files
+
+Glass navbar + role-based nav links + user badge + logout. Wraps all pages.
+
+* `frontend/src/components/Layout.jsx` → used by:
+  - `frontend/src/pages/Dashboard.jsx`
+  - `frontend/src/pages/Projects.jsx`
+  - `frontend/src/pages/ProjectSetup.jsx`
+  - `frontend/src/pages/ProjectDetail.jsx`
+  - `frontend/src/pages/Settings.jsx`
+  - `frontend/src/pages/AgentDashboard.jsx`
+
+---
+
+### `frontend/src/components/PipelineProgress.jsx` — 5 files
+
+Shared progress bar for all long-running SSE pipelines. Props: `progress` (0-100), `message`, `startTime`. See `.claude/skills/progress-bar-standard/SKILL.md`.
+
+* `frontend/src/components/PipelineProgress.jsx` → used by:
+  - `frontend/src/components/BatchRow.jsx`
+  - `frontend/src/components/FoundationalDocs.jsx`
+  - `frontend/src/components/LPAgentSettings.jsx`
+  - `frontend/src/components/LPGen.jsx`
+  - `frontend/src/components/QuoteMiner.jsx`
+
+---
+
+### `frontend/src/hooks/usePolling.js` — 5 files
+
+Interval polling hook. Signature: `usePolling(pollFn, intervalMs, enabled)`.
+
+* `frontend/src/hooks/usePolling.js` → used by:
+  - `frontend/src/components/AdStudio.jsx`
+  - `frontend/src/components/BatchManager.jsx`
+  - `frontend/src/components/LPAgentSettings.jsx`
+  - `frontend/src/components/LPGen.jsx`
+  - `frontend/src/components/QuoteMiner.jsx`
+
+---
+
+### `frontend/src/App.jsx` (AuthContext) — 5 files
+
+Exports: `AuthContext`. Tracks `{ authenticated, loading, user, setAuthenticated, setUser }`.
+
+* `frontend/src/App.jsx` → used by:
+  - `frontend/src/pages/Login.jsx`
+  - `frontend/src/pages/Projects.jsx`
+  - `frontend/src/pages/ProjectDetail.jsx`
+  - `frontend/src/components/Layout.jsx`
+
+---
+
+### `backend/services/lpGenerator.js` — 5 files
+
+LP copy + design + HTML generation. Exports: `generateLandingPageCopy`, `generateHtmlTemplate`, `assembleLandingPage`, `postProcessLP`, `injectContrastSafetyCSS`, `runVisualQA`, `autoFixLP`, `generateSlotImages`, `analyzeSwipeDesign`.
+
+* `backend/services/lpGenerator.js` → used by:
+  - `backend/routes/landingPages.js`
+  - `backend/routes/lpAgent.js`
+  - `backend/services/lpAutoFixer.js`
+  - `backend/services/lpAutoGenerator.js`
+  - `backend/services/lpPublisher.js`
+
+---
+
+### `backend/services/quoteMiner.js` — 4 files
+
+Exports: `runQuoteMining`, `generateSuggestions`, `getAnthropicClient`.
+
+* `backend/services/quoteMiner.js` → used by:
+  - `backend/routes/chat.js`
+  - `backend/routes/quoteMining.js`
+  - `backend/services/headlineGenerator.js`
+  - `backend/services/quoteBankService.js`
+
+---
+
+### `backend/services/rateLimiter.js` — 3 files
+
+Exports: `withHeavyLLMLimit` (concurrency=2), `withGeminiLimit` (concurrency=3), `getRateLimiterStats`.
+
+* `backend/services/rateLimiter.js` → used by:
+  - `backend/server.js`
+  - `backend/services/adGenerator.js`
+  - `backend/services/gemini.js`
+
+---
+
+### `backend/services/batchProcessor.js` — 3 files
+
+Exports: `runBatch`, `pollBatchJob`.
+
+* `backend/services/batchProcessor.js` → used by:
+  - `backend/routes/batches.js`
+  - `backend/services/conductorEngine.js`
+  - `backend/services/scheduler.js`
+
+---
+
+### `backend/services/adGenerator.js` — 3 files
+
+Ad generation orchestrator (Mode 1/2). Exports: `generateAd`, `generateAdMode2`.
+
+* `backend/services/adGenerator.js` → used by:
+  - `backend/routes/ads.js`
+  - `backend/routes/deployments.js`
+  - `backend/services/batchProcessor.js`
+
+---
+
+### `backend/services/lpSwipeFetcher.js` — 3 files
+
+Puppeteer page capture + SSRF protection. Exports: `fetchSwipePage`.
+
+* `backend/services/lpSwipeFetcher.js` → used by:
+  - `backend/routes/landingPages.js`
+  - `backend/services/lpGenerator.js`
+  - `backend/services/lpTemplateExtractor.js`
+
+---
+
+### `backend/services/lpPublisher.js` — 3 files
+
+Shopify page deploy + smoke test. Exports: `publishToShopify`, `unpublishFromShopify`.
+
+* `backend/services/lpPublisher.js` → used by:
+  - `backend/routes/landingPages.js`
+  - `backend/routes/lpAgent.js`
+  - `backend/services/lpAutoGenerator.js`
+
+---
+
+### `backend/services/scheduler.js` — 3 files
+
+7 cron tasks + user-defined batch schedules. Exports: `initScheduler`, `getSchedulerStatus`, `registerBatchSchedule`, `unregisterBatchSchedule`.
+
+* `backend/services/scheduler.js` → used by:
+  - `backend/server.js`
+  - `backend/routes/batches.js`
+
+Note: Also imported internally by `conductorEngine.js` for Director scheduling, but scheduler itself imports `conductorEngine.js`.
+
+---
+
+### `backend/services/metaAds.js` — 3 files
+
+Meta OAuth, token refresh, performance sync. Exports: `getAuthUrl`, `exchangeCodeForToken`, `refreshToken`, `getAdAccounts`, `getCampaigns`, `getAdSets`, `getAds`, `getAdInsights`, `syncPerformance`.
+
+* `backend/services/metaAds.js` → used by:
+  - `backend/routes/meta.js`
+  - `backend/services/scheduler.js`
+
+---
+
+### `backend/services/lpAutoGenerator.js` — 3 files
+
+Director-triggered LP auto-generation. Exports: `triggerLPGeneration`.
+
+* `backend/services/lpAutoGenerator.js` → used by:
+  - `backend/routes/lpAgent.js`
+  - `backend/services/conductorEngine.js`
+
+---
+
+### `backend/services/conductorEngine.js` — 3 files
+
+Director batch planning + angle selection. Exports: `runDirector`, `testRunDirector`.
+
+* `backend/services/conductorEngine.js` → used by:
+  - `backend/routes/conductor.js`
+  - `backend/services/scheduler.js`
+
+---
+
+### `backend/services/conductorLearning.js` — 3 files
+
+Learning from scored ads + adaptive batch sizing. Known bug: `messages.filter is not a function`.
+
+* `backend/services/conductorLearning.js` → used by:
+  - `backend/routes/conductor.js`
+  - `backend/services/conductorEngine.js`
+
+---
+
+### `frontend/src/components/DragDropUpload.jsx` — 3 files
+
+Reusable file upload with text extraction. Props: `onTextExtracted`, `disabled`, `label`, `accept`.
+
+* `frontend/src/components/DragDropUpload.jsx` → used by:
+  - `frontend/src/pages/ProjectSetup.jsx`
+  - `frontend/src/pages/Settings.jsx`
+  - `frontend/src/components/FoundationalDocs.jsx`
+
+---
+
+### `multer` (npm) — 4 files
+
+Multipart file upload middleware. 20MB limit.
+
+* `multer` → used by:
+  - `backend/routes/landingPages.js`
+  - `backend/routes/projects.js`
+  - `backend/routes/templates.js`
+  - `backend/routes/upload.js`
+
+---
+
+### `uuid` (npm, v4) — 26 files
+
+UUID generation for `externalId` fields across the entire backend.
+
+* `uuid` → used by:
+  - `backend/auth.js`
+  - `backend/convexClient.js`
+  - `backend/routes/agentMonitor.js`
+  - `backend/routes/auth.js`
+  - `backend/routes/batches.js`
+  - `backend/routes/chat.js`
+  - `backend/routes/conductor.js`
+  - `backend/routes/documents.js`
+  - `backend/routes/landingPages.js`
+  - `backend/routes/lpAgent.js`
+  - `backend/routes/projects.js`
+  - `backend/routes/templates.js`
+  - `backend/routes/users.js`
+  - `backend/services/adGenerator.js`
+  - `backend/services/batchProcessor.js`
+  - `backend/services/conductorAngles.js`
+  - `backend/services/conductorEngine.js`
+  - `backend/services/correctionHistory.js`
+  - `backend/services/costTracker.js`
+  - `backend/services/docGenerator.js`
+  - `backend/services/lpAutoGenerator.js`
+  - `backend/services/lpPublisher.js`
+  - `backend/services/lpTemplateExtractor.js`
+  - `backend/services/metaAds.js`
+  - `backend/services/quoteBankService.js`
+  - `backend/services/quoteDedup.js`
+
+---
+
+### `convex/schema.ts` — All Convex functions
+
+29 tables. Schema changes require a **separate** `npx convex deploy -y` on VPS.
+
+* `convex/schema.ts` → used by:
+  - Every file in `convex/` (26 function files)
+  - Indirectly: `backend/convexClient.js` (all mappers must match schema)
+
+---
+
+### Dead Code
+
+* `backend/services/conductorAngles.js` — Angle auto-generation service. Exports `generateAngles`. Imported by **zero production files**. Referenced only in a comment in `conductorEngine.js`.
+
+---
+
+## 5. Critical Invariants
+
+Rules that must never be violated. Breaking these causes silent failures or data corruption.
+
+### Data Shape Contracts
+
+1. **`externalId` is the foreign key, not `_id`**. All cross-table references use UUID `externalId` strings. Convex native `_id` is never used for relationships. Exception: `inspiration_images` has no `externalId` — it uses composite key `(project_id, drive_file_id)`.
+
+2. **JSON arrays stored as strings**. These fields look like arrays but are `v.string()` in the schema — you must `JSON.parse()` to read and `JSON.stringify()` to write:
+   - `batch_jobs`: `angles`, `gpt_prompts`, `used_template_ids`, `pipeline_state`, `template_image_ids`, `inspiration_image_ids`, `lp_narrative_frames`, `gauntlet_lp_urls`
+   - `flex_ads`: `child_deployment_ids`, `primary_texts`, `headlines`, `gauntlet_lp_urls`, `destination_urls_used`
+   - `ad_deployments`: `primary_texts`, `ad_headlines`
+   - `quote_mining_runs`: `quotes`, `keywords`, `subreddits`, `forums`, `facebook_groups`, `headlines`
+   - `quote_bank`: `headlines`, `tags`
+   - `landing_pages`: `copy_sections`, `image_slots`, `cta_links`, `swipe_design_analysis`, `hosting_metadata`, `audit_trail`, `editorial_plan`
+   - `landing_page_versions`: `copy_sections`, `image_slots`, `cta_links`
+   - `correction_history`: `changes`
+   - `conductor_runs`: `batches_created`, `angles_generated`, `posting_days`
+   - `conductor_playbooks`: `visual_patterns`, `copy_patterns`, `avoid_patterns`
+
+3. **Soft-delete pattern**. `ad_deployments` and `flex_ads` use `deleted_at` timestamp. All queries MUST filter out `deleted_at` records. Hard purge runs daily at 1am for records >30 days old.
+
+4. **Cascade deletion**. `campaigns.remove()` -> hard-deletes child ad_sets -> soft-deletes child flex_ads. `adSets.remove()` -> soft-deletes child flex_ads. Any new parent-child entity must cascade.
+
+5. **`convexBatchToRow` converts `scheduled` boolean to 0/1 integer**. Frontend must use `!!batch.scheduled` not bare `batch.scheduled` in JSX to avoid rendering `0`.
+
+6. **Mapper functions + field whitelists**. Every route handler receives Convex data through mappers in `convexClient.js`. If you add a field to the schema, you MUST also add it to the mapper AND the helper's field whitelist or it won't appear in API responses / won't be saved on updates.
+
+7. **Dedup guards**. `ad_deployments.create()` checks if `ad_id` already deployed (active only) — returns null if duplicate. `createWithoutDedup()` skips this. `inspiration_images.create()` skips if `(project_id, drive_file_id)` already exists.
+
+8. **Upsert operations**. `meta_performance.upsert()` by `(meta_ad_id, date)`. `conductor_config.upsertConfig()` by `project_id`. `lp_agent_config.upsertConfig()` by `project_id`. `conductor_playbooks.upsertPlaybook()` by `(project_id, angle_name)`. `fixer_playbook.upsertFixerPlaybook()` by `issue_category`. `settings.set()` by `key`.
+
+9. **Storage cleanup on delete**. These mutations delete from Convex blob storage when removing records: `projects.setProductImage()` (old image), `templateImages.remove()`, `adCreatives.remove()`, `batchJobs.remove()` (product image), `inspirationImages.removeByProject()` and `dedup()` (orphans).
+
+### API Contracts
+
+10. **SSE events**: All SSE endpoints emit `data: ${JSON.stringify(event)}\n\n`. Event objects always have a `type` field (`progress`, `step`, `complete`, `error`, `result`). Components parse these in `onEvent` callbacks.
+
+11. **Cost logging is fire-and-forget**. Every LLM wrapper auto-logs costs internally. Callers pass `{ operation, projectId }` via options. The logging call uses `.catch(() => {})` — failures are silently swallowed. Never await cost logging.
+
+12. **Error response shape**. All API errors: `res.status(N).json({ error: err.message })`. All mutation successes: `res.json({ success: true, ... })`. New routes must follow this.
+
+13. **Deployment status strings**. The exact values `"selected"`, `"ready_to_post"`, `"posted"`, `"analyzing"` are hardcoded across the entire stack. No enum — raw strings everywhere.
+
+### Auth & Roles
+
+14. **Three roles: `admin`, `manager`, `poster`**. Poster can ONLY see the Ad Pipeline tab (Ready to Post + Posted). Poster cannot access Planner, create projects, access Dashboard, or Settings. Backend enforces via `requireRole('admin', 'manager')`.
+
+15. **`req.user` shape**: `{ id, username, role, displayName }`. Populated by `requireAuth` middleware from session. Every route handler depends on this shape.
+
+16. **Session secret**: Auto-generated 64-char hex string via `crypto.randomBytes(32)` on first server start. Stored as `session_secret` setting in Convex. Session cookie maxAge: 30 days.
+
+17. **Localhost-only agent endpoints**. `/api/agent-cost` routes use `localhostOnly` middleware checking `req.ip` against `['127.0.0.1', '::1', '::ffff:127.0.0.1']`.
+
+### LP Pipeline
+
+18. **`injectContrastSafetyCSS` is idempotent**. Checks for `data-safety="contrast"` marker before injecting. Safe to call multiple times. Exported from `lpGenerator.js`, called in: `postProcessLP()`, `landingPages.js` PUT endpoint (strips old CSS first), `landingPages.js` version restore endpoint (strips old CSS first).
+
+19. **Frontend `assembleHtmlClient()` strips all post-processing**. The function rebuilds HTML from raw `htmlTemplate` + copy sections. The backend PUT endpoint re-applies contrast CSS. The frontend also injects a simplified contrast CSS version for editor preview. Any new post-processing added to `postProcessLP()` may need a corresponding safety net in the PUT endpoint.
+
+20. **LP auto-generation is fire-and-forget**. `triggerLPGeneration()` never throws to caller. All errors are caught internally and set status to `'failed'` + error message on the batch record.
+
+21. **Visual QA loop**: `generateAndValidateLP()` runs up to 3 generation attempts. Each failed attempt triggers `autoFixLP()` which applies deterministic fixes first (free), then LLM-powered fixes (costs tokens). Fix types: contrast CSS injection, broken image regeneration (Gemini), layout CSS fix (Claude Sonnet).
+
+22. **Smoke test checks**: `runSmokeTest()` runs 7 automated checks post-publish: HTTP 200, load time <15s, no raw placeholders, headline present, >=50% images load, valid CTA links, no mobile horizontal overflow at 375px.
+
+### Naming & Conventions
+
+23. **`project_id` everywhere = `projects.externalId`** (UUID string), not the Convex `_id`.
+
+24. **No Convex actions**. Only queries + mutations. All LLM calls, file processing, and external API work happens in Express backend.
+
+25. **File naming**: camelCase for JS/JSX, PascalCase for React components, snake_case for Convex table names and fields.
+
+26. **All LLM calls must go through wrappers**. Never call OpenAI, Anthropic, or Gemini APIs directly. Always use `services/openai.js`, `services/anthropic.js`, or `services/gemini.js` — they provide retry logic and automatic cost tracking.
+
+27. **Timestamp conventions**. Most tables use ISO strings for `created_at`/`updated_at`. Conductor tables use milliseconds (`Date.now()`). Sessions use milliseconds for `expires_at`.
 
 ### Adding a New API Route
 
@@ -814,6 +1010,14 @@ Standalone tables: `settings`, `users`, `sessions`, `api_costs`, `dashboard_todo
 
 22. **Puppeteer memory** — LP Visual QA, smoke tests, and template extraction all launch headless Chromium. On the 2GB VPS, concurrent Puppeteer instances can OOM. The LP auto-generator runs sequentially (not parallel) for this reason.
 
+23. **Convex retry logic** — `convexClient.js` has its own retry predicate (`convexShouldRetry`) separate from the LLM retry logic. It retries on server errors, network failures, and rate limits. 3 retries with 2s base delay.
+
+24. **Agent session expiry** — Both Filter and Fixer use session cookies with 24h expiry. If the backend restarts and session secret changes (shouldn't in production since it's persisted in Convex), agents get 401 and auto-re-auth.
+
+25. **Route mount order matters** — In `server.js`, deployment routes MUST be mounted before broad `/api` routes so the poster role's limited access works correctly.
+
+26. **Express async error patch** — `server.js` patches `Layer.prototype.handle_request` to catch async route handler errors. Without this patch, unhandled promise rejections would crash the process or hang requests.
+
 ---
 
 ## 7. File Structure
@@ -821,49 +1025,49 @@ Standalone tables: `settings`, `users`, `sessions`, `api_costs`, `dashboard_todo
 ```
 ad-platform/
 +-- backend/
-|   +-- server.js                    # Express entry point (port 3001)
-|   +-- auth.js                      # requireAuth + requireRole middleware
-|   +-- convexClient.js              # Central data layer (100+ helpers, mappers)
+|   +-- server.js                    # Express entry point (port 3001), middleware stack, route mounting
+|   +-- auth.js                      # requireAuth + requireRole middleware, req.user shape
+|   +-- convexClient.js              # Central data layer (140+ helpers, mappers, whitelists)
 |   +-- ConvexSessionStore.js        # Convex-backed express-session store
 |   +-- vitest.config.js             # Test config
-|   +-- routes/                      # 20 route files
-|   |   +-- auth.js                  # Login/setup/session
-|   |   +-- users.js                 # User CRUD (admin only)
-|   |   +-- projects.js              # Project CRUD + product image
-|   |   +-- documents.js             # Doc generation (SSE)
-|   |   +-- ads.js                   # Ad generation (Mode 1/2)
-|   |   +-- batches.js               # Batch CRUD + scheduling
-|   |   +-- costs.js                 # Cost aggregation
-|   |   +-- drive.js                 # Google Drive sync + inspiration
-|   |   +-- templates.js             # Template images
-|   |   +-- upload.js                # File upload + text extraction
-|   |   +-- settings.js              # API keys, rates (admin)
-|   |   +-- deployments.js           # Ad Pipeline CRUD (campaigns, ad sets, flex ads, deployments)
-|   |   +-- quoteMining.js           # Quote mining + bank
-|   |   +-- chat.js                  # Copywriter Chat
-|   |   +-- landingPages.js          # LP CRUD + generation + publishing + Visual QA
-|   |   +-- lpTemplates.js           # LP template extraction + management
-|   |   +-- meta.js                  # Meta OAuth + performance
-|   |   +-- agentMonitor.js          # Agent Dashboard status/control
-|   |   +-- conductor.js             # Director config + angles + runs
-|   |   +-- lpAgent.js               # LP Agent config, Shopify, test gen
+|   +-- routes/                      # 20 route files, ~177 endpoints total
+|   |   +-- auth.js                  # Login/setup/session (5 endpoints)
+|   |   +-- users.js                 # User CRUD — admin only (5 endpoints)
+|   |   +-- projects.js              # Project CRUD + product image (7 endpoints)
+|   |   +-- documents.js             # Doc generation SSE + corrections (12 endpoints)
+|   |   +-- ads.js                   # Ad generation Mode 1/2 SSE (14 endpoints)
+|   |   +-- batches.js               # Batch CRUD + scheduling (9 endpoints)
+|   |   +-- costs.js                 # Cost aggregation (7 endpoints)
+|   |   +-- drive.js                 # Google Drive sync + inspiration (9 endpoints)
+|   |   +-- templates.js             # Template images + GPT analysis (6 endpoints)
+|   |   +-- upload.js                # File upload + text extraction (2 endpoints)
+|   |   +-- settings.js              # API keys, rates, references — admin (13 endpoints)
+|   |   +-- deployments.js           # Campaigns, ad sets, flex ads, deployments (23 endpoints)
+|   |   +-- quoteMining.js           # Quote mining + bank SSE (19 endpoints)
+|   |   +-- chat.js                  # Copywriter Chat SSE (3 endpoints)
+|   |   +-- landingPages.js          # LP CRUD + generation + publishing SSE (17 endpoints)
+|   |   +-- lpTemplates.js           # LP template extraction SSE (5 endpoints)
+|   |   +-- meta.js                  # Meta OAuth + performance sync (15 endpoints)
+|   |   +-- agentMonitor.js          # Agent Dashboard status/control (12 endpoints)
+|   |   +-- conductor.js             # Director config + angles + runs (19 endpoints)
+|   |   +-- lpAgent.js               # LP Agent config, Shopify, test gen SSE (9 endpoints)
 |   +-- services/                    # 25 service files
-|   |   +-- openai.js                # GPT-5.2, GPT-4.1, o3-deep-research
-|   |   +-- anthropic.js             # Claude Opus 4.6, Sonnet 4.6
-|   |   +-- gemini.js                # Gemini 3 Pro images
-|   |   +-- adGenerator.js           # Ad generation orchestrator
+|   |   +-- openai.js                # GPT-5.2, GPT-4.1, o3-deep-research wrapper
+|   |   +-- anthropic.js             # Claude Opus 4.6, Sonnet 4.6 wrapper
+|   |   +-- gemini.js                # Gemini 3 Pro images wrapper (concurrency=3)
+|   |   +-- adGenerator.js           # Ad generation orchestrator (Mode 1/2)
 |   |   +-- batchProcessor.js        # 4-stage batch pipeline
 |   |   +-- docGenerator.js          # 8-step doc pipeline
-|   |   +-- quoteMiner.js            # Dual-engine quote search
-|   |   +-- headlineGenerator.js     # Headline generation
-|   |   +-- bodyCopyGenerator.js     # Body copy generation
+|   |   +-- quoteMiner.js            # Dual-engine quote search (Perplexity + Claude)
+|   |   +-- headlineGenerator.js     # Headline generation (Claude Sonnet + 3 ref docs)
+|   |   +-- bodyCopyGenerator.js     # Body copy from headline + quote context
 |   |   +-- quoteBankService.js      # Quote bank orchestration
-|   |   +-- quoteDedup.js            # Quote deduplication
-|   |   +-- costTracker.js           # Cost logging + sync
-|   |   +-- scheduler.js             # 7 cron tasks + schedules
-|   |   +-- metaAds.js               # Meta Ads integration
-|   |   +-- rateLimiter.js           # Concurrency control
-|   |   +-- retry.js                 # Exponential backoff
+|   |   +-- quoteDedup.js            # Semantic quote deduplication (GPT-4.1-mini)
+|   |   +-- costTracker.js           # Cost logging + OpenAI sync + Gemini rates
+|   |   +-- scheduler.js             # 7 cron tasks + user-defined batch schedules
+|   |   +-- metaAds.js               # Meta Ads OAuth, token refresh, performance sync
+|   |   +-- rateLimiter.js           # Concurrency control (heavy=2, Gemini=3)
+|   |   +-- retry.js                 # Exponential backoff (no 4xx retry except 429)
 |   |   +-- lpGenerator.js           # LP generation + Opus editorial + postProcessLP + Visual QA
 |   |   +-- lpAutoGenerator.js       # Director-triggered LP auto-generation (2 per batch)
 |   |   +-- lpAutoFixer.js           # Deterministic + LLM Visual QA fixes
@@ -871,111 +1075,117 @@ ad-platform/
 |   |   +-- lpSmokeTest.js           # 7 automated post-publish checks
 |   |   +-- lpSwipeFetcher.js        # Puppeteer page capture + SSRF protection
 |   |   +-- lpTemplateExtractor.js   # URL -> reusable HTML template
-|   |   +-- correctionHistory.js     # Doc correction audit
-|   |   +-- conductorEngine.js       # Director orchestrator
-|   |   +-- conductorAngles.js       # Angle generation (DEAD CODE)
-|   |   +-- conductorLearning.js     # Learning + adaptive sizing
+|   |   +-- correctionHistory.js     # Doc correction audit trail
+|   |   +-- conductorEngine.js       # Director orchestrator (batch planning + angles)
+|   |   +-- conductorAngles.js       # DEAD CODE — angle generation, zero callers
+|   |   +-- conductorLearning.js     # Learning + adaptive sizing (has known bug)
 |   +-- utils/
-|       +-- sseHelper.js             # SSE stream utilities
-|       +-- adImages.js              # Image loading + thumbnails
+|       +-- sseHelper.js             # SSE stream utilities (createSSEStream, streamService)
+|       +-- adImages.js              # Image loading + thumbnail generation
 |
 +-- frontend/src/
-|   +-- main.jsx                     # React entry (BrowserRouter)
-|   +-- App.jsx                      # Router + AuthContext + lazy loading
-|   +-- api.js                       # 164 API methods
-|   +-- index.css                    # Tailwind + custom classes
+|   +-- main.jsx                     # React entry (BrowserRouter wrapper)
+|   +-- App.jsx                      # Router + AuthContext + lazy loading + ProtectedRoute
+|   +-- api.js                       # 164 API methods (fetch wrapper + SSE helpers)
+|   +-- index.css                    # Tailwind + custom classes (.glass-nav, .card, .btn-*, etc.)
 |   +-- pages/                       # 8 page components
-|   |   +-- Login.jsx                # Auth page
-|   |   +-- Dashboard.jsx            # System overview + costs + todos
-|   |   +-- Projects.jsx             # Project list
-|   |   +-- ProjectSetup.jsx         # Create/edit project
-|   |   +-- ProjectDetail.jsx        # Tabbed project workspace (7 tabs)
-|   |   +-- Settings.jsx             # API keys, rates, references
-|   |   +-- AdTracker.jsx            # Cross-project ad performance
-|   |   +-- AgentDashboard.jsx       # Agent system (4 tabs: Director, LP Agent, Filter, Fixer)
+|   |   +-- Login.jsx                # Auth page (setup mode + login mode)
+|   |   +-- Dashboard.jsx            # System overview + costs + TodoWidget
+|   |   +-- Projects.jsx             # Project list grid with status badges
+|   |   +-- ProjectSetup.jsx         # Create project form + auto-describe
+|   |   +-- ProjectDetail.jsx        # Tabbed project workspace (7 tabs, URL-persisted)
+|   |   +-- Settings.jsx             # API keys, Gemini rates, reference docs — admin
+|   |   +-- AdTracker.jsx            # Cross-project ad pipeline (Planner/Ready/Posted views)
+|   |   +-- AgentDashboard.jsx       # Agent system wrapper (4 tabs)
 |   +-- components/                  # 27 component files
-|   |   +-- Layout.jsx               # Navbar wrapper
-|   |   +-- Toast.jsx                # Toast notifications
-|   |   +-- ErrorBoundary.jsx        # Error boundary
-|   |   +-- InfoTooltip.jsx          # Hover tooltips
-|   |   +-- DragDropUpload.jsx       # File upload
-|   |   +-- PipelineProgress.jsx     # Shared progress bar (see skill)
-|   |   +-- AdStudio.jsx             # Ad generation (~2500 lines)
-|   |   +-- BatchManager.jsx         # Batch management (~2500 lines)
-|   |   +-- BatchRow.jsx             # Single batch row component
-|   |   +-- batchUtils.js            # Batch constants + helpers
-|   |   +-- FoundationalDocs.jsx     # Doc generation
-|   |   +-- QuoteMiner.jsx           # Quote mining + bank
-|   |   +-- CampaignsView.jsx        # Planner view (campaigns, ad sets, deployments)
-|   |   +-- ReadyToPostView.jsx      # Ready to Post view
-|   |   +-- PostedView.jsx           # Posted history
+|   |   +-- Layout.jsx               # Navbar wrapper (role-based nav links)
+|   |   +-- Toast.jsx                # Toast notifications (success/error/info/undo)
+|   |   +-- ErrorBoundary.jsx        # Error boundary (chunk errors + generic)
+|   |   +-- InfoTooltip.jsx          # Pure CSS hover tooltip
+|   |   +-- DragDropUpload.jsx       # File upload with text extraction
+|   |   +-- PipelineProgress.jsx     # Shared progress bar with ETA
+|   |   +-- AdStudio.jsx             # Ad generation UI (~2500 lines)
+|   |   +-- BatchManager.jsx         # Batch management + scheduling (~2500 lines)
+|   |   +-- BatchRow.jsx             # Single batch row with status/progress
+|   |   +-- batchUtils.js            # Batch constants, cron helpers, formatters
+|   |   +-- FoundationalDocs.jsx     # Doc generation + corrections
+|   |   +-- QuoteMiner.jsx           # Quote mining + bank + headlines
+|   |   +-- CampaignsView.jsx        # Planner view (drag-drop, flex ad creation)
+|   |   +-- ReadyToPostView.jsx      # Ready to Post view (copy, download, mark posted)
+|   |   +-- PostedView.jsx           # Posted history view
 |   |   +-- LPGen.jsx                # Landing page generator + editor (~3000 lines)
-|   |   +-- LPAgentSettings.jsx      # LP Agent settings panel
+|   |   +-- LPAgentSettings.jsx      # LP Agent settings + gauntlet
 |   |   +-- LPTemplateManager.jsx    # LP template extraction + management
 |   |   +-- AgentMonitor.jsx         # Agent Dashboard tabs (Director, Filter, Fixer)
-|   |   +-- CreativeFilterSettings.jsx # Per-project Filter config
-|   |   +-- CopywriterChat.jsx       # Chat widget
-|   |   +-- TemplateImages.jsx       # Template management
-|   |   +-- InspirationFolder.jsx    # Drive inspiration
-|   |   +-- CostSummaryCards.jsx     # Cost widgets
-|   |   +-- CostBarChart.jsx         # 30-day chart
-|   |   +-- DriveFolderPicker.jsx    # Drive folder browser
-|   |   +-- GenerationQueue.jsx      # Ad queue display
-|   |   +-- MultiInput.jsx           # Tag input
-|   |   +-- NotionFilter.jsx         # Filter bar
+|   |   +-- CreativeFilterSettings.jsx # Per-project Filter config (scout_* fields)
+|   |   +-- CopywriterChat.jsx       # Chat widget (Claude Sonnet streaming)
+|   |   +-- TemplateImages.jsx       # Template + inspiration image management
+|   |   +-- InspirationFolder.jsx    # Drive inspiration sync + display
+|   |   +-- CostSummaryCards.jsx     # Cost widgets (today/week/month)
+|   |   +-- CostBarChart.jsx         # 30-day stacked bar chart
+|   |   +-- DriveFolderPicker.jsx    # Drive folder browser modal
+|   |   +-- GenerationQueue.jsx      # Ad queue display (forwardRef)
+|   |   +-- MultiInput.jsx           # Tag input (Enter/comma to add)
+|   |   +-- NotionFilter.jsx         # Multi-select filter bar
 |   +-- hooks/
-|       +-- useAsyncData.js          # Fetch + loading + refetch
-|       +-- usePolling.js            # Interval polling
-|       +-- useSSEStream.js          # SSE streaming
+|       +-- useAsyncData.js          # Fetch + loading + error + refetch
+|       +-- usePolling.js            # Interval polling (ref-based)
+|       +-- useSSEStream.js          # SSE streaming (factory pattern)
 |
-+-- convex/                          # 27 function files (29 tables)
-|   +-- schema.ts                    # Full database schema
++-- convex/                          # 26 function files (29 tables)
+|   +-- schema.ts                    # Full database schema (29 tables, all indexes)
 |   +-- settings.ts                  # Key-value config store
-|   +-- projects.ts                  # Project CRUD
+|   +-- projects.ts                  # Project CRUD + stats
 |   +-- foundationalDocs.ts          # Doc CRUD + versioning
-|   +-- adCreatives.ts               # Ad CRUD
-|   +-- batchJobs.ts                 # Batch CRUD + status tracking
-|   +-- apiCosts.ts                  # Cost logging
-|   +-- campaigns.ts                 # Campaign CRUD + cascade delete
-|   +-- adSets.ts                    # Ad set CRUD + cascade delete
-|   +-- flexAds.ts                   # Flex ad CRUD + soft delete
-|   +-- ad_deployments.ts            # Deployment CRUD + dedup + soft delete
-|   +-- templateImages.ts            # Template image CRUD
-|   +-- inspirationImages.ts         # Inspiration sync + composite key
-|   +-- quote_mining_runs.ts         # Mining run CRUD
-|   +-- quote_bank.ts                # Quote bank CRUD
+|   +-- adCreatives.ts               # Ad CRUD + storage cleanup
+|   +-- batchJobs.ts                 # Batch CRUD + status tracking + JSON fields
+|   +-- apiCosts.ts                  # Cost logging + agent grouping
+|   +-- campaigns.ts                 # Campaign CRUD + cascade delete -> ad_sets -> flex_ads
+|   +-- adSets.ts                    # Ad set CRUD + cascade delete -> flex_ads
+|   +-- flexAds.ts                   # Flex ad CRUD + soft delete/restore/purge
+|   +-- ad_deployments.ts            # Deployment CRUD + dedup guard + soft delete
+|   +-- templateImages.ts            # Template image CRUD + storage cleanup
+|   +-- inspirationImages.ts         # Drive sync + composite key dedup
+|   +-- quote_mining_runs.ts         # Mining run CRUD + JSON fields
+|   +-- quote_bank.ts               # Quote CRUD + bulk create/update + backfill
 |   +-- chatThreads.ts              # Chat thread + message CRUD
 |   +-- correction_history.ts        # Correction audit log
 |   +-- dashboard_todos.ts           # Dashboard to-do list (replaceAll is destructive)
-|   +-- metaPerformance.ts           # Meta metrics + upsert
-|   +-- landingPages.ts              # LP CRUD
-|   +-- landingPageVersions.ts       # LP version history
+|   +-- metaPerformance.ts           # Meta metrics + upsert by (meta_ad_id, date)
+|   +-- landingPages.ts              # LP CRUD (40+ whitelisted fields)
+|   +-- landingPageVersions.ts       # LP version history snapshots
 |   +-- lpTemplates.ts               # LP template CRUD
-|   +-- users.ts                     # User CRUD
-|   +-- sessions.ts                  # Session store
-|   +-- fileStorage.ts               # Blob storage helpers
-|   +-- conductor.ts                 # Director config + angles + runs + playbooks + health
+|   +-- users.ts                     # User CRUD + username uniqueness
+|   +-- sessions.ts                  # Session store (upsert, cleanup)
+|   +-- fileStorage.ts               # Blob storage helpers (URL, upload, delete)
+|   +-- conductor.ts                 # Director config + angles + runs + playbooks + health + fixer playbooks
 |   +-- lpAgentConfig.ts             # LP Agent config (upsert by project_id)
 |
 +-- dacia-fixer/                     # Agent: auto-test, self-heal, resurrect
 |   +-- fixer.sh                     # Main script (~1200 lines)
 |   +-- config/fixer.conf            # Budget $1.33/day, models, intervals
-|   +-- fix_ledger.md                # Institutional memory - DO NOT DELETE
+|   +-- fix_ledger.md                # Institutional memory — DO NOT DELETE
 |   +-- logs/                        # Daily log files + spend tracking
 |
 +-- dacia-creative-filter/           # Agent: score ads, create flex ads
 |   +-- filter.sh                    # Main script (~1170 lines)
 |   +-- config/filter.conf           # Budget $20/day, models, thresholds
 |   +-- agents/
-|   |   +-- score.sh                 # Vision-based scoring
-|   |   +-- group.sh                 # Flex ad clustering
+|   |   +-- score.sh                 # Vision-based scoring (Claude Sonnet)
+|   |   +-- group.sh                 # Flex ad clustering (Claude Sonnet)
 |   |   +-- validate.sh              # Copy validation
-|   |   +-- regenerate.sh            # Copy fallback
+|   |   +-- regenerate.sh            # Copy fallback generation
 |   +-- logs/                        # Daily log files + spend tracking
 |
 +-- deploy/
-    +-- deploy.sh                    # Rsync -> npm install -> build -> PM2 restart
-    +-- setup.sh                     # VPS initial setup
-    +-- ecosystem.config.cjs         # PM2 config (port 3001, 2GB max)
-    +-- nginx.conf                   # Reverse proxy + SSL + 300s timeout
+|   +-- deploy.sh                    # Rsync -> npm install -> build -> PM2 restart
+|   +-- setup.sh                     # VPS initial setup (Node 22, PM2, Nginx)
+|   +-- ecosystem.config.cjs         # PM2 config (port 3001, 2GB max, single instance)
+|   +-- nginx.conf                   # Reverse proxy + SSL + 300s timeout + SSE support
+|
++-- frontend/
+    +-- package.json                 # React 18, Vite 5.4, Tailwind 3.4, JSZip
+    +-- vite.config.js               # Dev port 5173, proxy /api -> 3001
+    +-- tailwind.config.js           # Navy/gold/teal color tokens, DM Sans font
+    +-- postcss.config.js            # Tailwind + autoprefixer
 ```

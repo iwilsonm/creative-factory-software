@@ -545,6 +545,7 @@ export default defineSchema({
     source: v.string(),                  // "manual" | "auto_generated"
     status: v.string(),                  // "active" | "testing" | "retired"
     focused: v.optional(v.boolean()),    // When true + active, Director only uses focused angles
+    lp_enabled: v.optional(v.boolean()), // Per-angle LP override: true=always, false=never, null=use project default
     times_used: v.number(),
     last_used_at: v.optional(v.number()),
     performance_note: v.optional(v.string()),
@@ -622,6 +623,7 @@ export default defineSchema({
     default_narrative_frames: v.optional(v.string()), // JSON array of enabled frame IDs
     template_selection_mode: v.optional(v.string()),   // "random" | "weighted"
     editorial_pass_enabled: v.optional(v.boolean()),
+    lp_default_mode: v.optional(v.string()),             // "all" | "opt_in" — default "opt_in"
     auto_publish: v.optional(v.boolean()),
     // Budget
     daily_budget_cents: v.optional(v.number()),

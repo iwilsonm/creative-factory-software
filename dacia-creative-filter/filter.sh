@@ -426,13 +426,16 @@ check_lp_gate() {
   local batch_id="$1"
   local project_id="$2"
 
-  # Check if project has LP auto-generation enabled
+  # Check if project has LP auto-generation enabled via LP Agent config
+  local lp_config
+  lp_config=$(curl -s "${BACKEND_URL}/api/projects/${project_id}/lp-agent/config" \
+    -H "Cookie: $(get_session_cookie)" 2>/dev/null) || true
+
   local lp_enabled
-  lp_enabled=$(curl -s "${BACKEND_URL}/api/conductor/config?projectId=${project_id}" \
-    -H "Cookie: $(get_session_cookie)" 2>/dev/null | jq -r '.lp_auto_enabled // false') || true
+  lp_enabled=$(echo "$lp_config" | jq -r '.config.enabled // false') || true
 
   if [[ "$lp_enabled" != "true" ]]; then
-    echo "pass"  # No LP gate for projects without auto-LP
+    echo "pass"  # No LP gate for projects without LP Agent enabled
     return
   fi
 

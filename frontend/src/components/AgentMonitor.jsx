@@ -569,6 +569,13 @@ function DirectorTab({ onRefresh }) {
     } catch { /* ignore */ }
   };
 
+  const handleToggleLPEnabled = async (angleId, lpEnabled) => {
+    try {
+      await api.updateConductorAngle(selectedProject, angleId, { lp_enabled: lpEnabled });
+      setAngles(prev => prev.map(a => a.externalId === angleId ? { ...a, lp_enabled: lpEnabled } : a));
+    } catch { /* ignore */ }
+  };
+
   // --- Export angles as markdown ---
   const handleDownloadAngles = () => {
     if (angles.length === 0) return;
@@ -859,7 +866,7 @@ function DirectorTab({ onRefresh }) {
               <p className="text-[10px] text-textlight font-medium uppercase tracking-wider mb-2">Active</p>
               <div className="space-y-2">
                 {activeAngles.map(a => (
-                  <AngleCard key={a.externalId} angle={a} playbooks={playbooks} onStatusChange={handleAngleStatusChange} onToggleFocus={handleToggleFocus} />
+                  <AngleCard key={a.externalId} angle={a} playbooks={playbooks} onStatusChange={handleAngleStatusChange} onToggleFocus={handleToggleFocus} onToggleLPEnabled={handleToggleLPEnabled} />
                 ))}
               </div>
             </div>
@@ -1142,7 +1149,7 @@ function DirectorTab({ onRefresh }) {
 // =============================================
 // Angle Card
 // =============================================
-function AngleCard({ angle, playbooks, onStatusChange, onToggleFocus, showActions }) {
+function AngleCard({ angle, playbooks, onStatusChange, onToggleFocus, onToggleLPEnabled, showActions }) {
   const pb = playbooks.find(p => p.angle_name === angle.name);
 
   return (
@@ -1165,6 +1172,17 @@ function AngleCard({ angle, playbooks, onStatusChange, onToggleFocus, showAction
           )}
           <span className="text-[13px] font-medium text-textdark">{angle.name}</span>
           {angle.focused && <span className="text-[9px] font-medium text-gold uppercase tracking-wider">Focused</span>}
+          {onToggleLPEnabled && angle.status === 'active' && (
+            <button
+              onClick={() => onToggleLPEnabled(angle.externalId, !angle.lp_enabled)}
+              title={angle.lp_enabled ? 'Disable LP generation for this angle' : 'Enable LP generation for this angle'}
+              className={`text-[9px] font-medium px-1.5 py-0.5 rounded-full transition-colors ${
+                angle.lp_enabled ? 'bg-teal/10 text-teal' : 'bg-black/5 text-textlight hover:text-textmid'
+              }`}
+            >
+              {angle.lp_enabled ? 'LP \u2713' : 'LP'}
+            </button>
+          )}
           <span className="text-[10px] text-textlight">used {angle.times_used || 0}x</span>
           {pb && (
             <span className="text-[10px] text-textmid">

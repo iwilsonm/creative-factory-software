@@ -18,6 +18,7 @@ import {
   updateLandingPage,
   updateBatchJob,
   getProject,
+  getActiveConductorAngles,
 } from '../convexClient.js';
 import {
   generateAndValidateLP,
@@ -46,6 +47,25 @@ export async function triggerLPGeneration(batchJobId, projectId, angle) {
     const config = await getLPAgentConfig(projectId);
     if (!config || !config.enabled) {
       console.log(`[LPAuto] LP auto-generation disabled for project ${projectId.slice(0, 8)} — skipping`);
+      return;
+    }
+
+    // 1b. Check per-angle LP control
+    const defaultMode = config.lp_default_mode || 'opt_in';
+    const angles = await getActiveConductorAngles(projectId);
+    const matchedAngle = angles.find(a => a.name === angle);
+
+    let shouldGenerateLP;
+    if (matchedAngle && matchedAngle.lp_enabled !== undefined && matchedAngle.lp_enabled !== null) {
+      // Explicit per-angle override
+      shouldGenerateLP = matchedAngle.lp_enabled;
+    } else {
+      // Fall back to project default mode
+      shouldGenerateLP = defaultMode === 'all';
+    }
+
+    if (!shouldGenerateLP) {
+      console.log(`[LPAuto] LP disabled for angle "${angle}" (mode=${defaultMode}, override=${matchedAngle?.lp_enabled ?? 'none'}) — skipping`);
       return;
     }
 

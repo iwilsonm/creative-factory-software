@@ -309,6 +309,30 @@ export default function LPAgentSettings({ projectId }) {
             }`} />
           </button>
         </div>
+
+        {/* LP Default Mode */}
+        {config?.enabled && (
+          <div className="flex items-center justify-between mt-4 pt-4 border-t border-black/5">
+            <div>
+              <p className="text-[13px] font-medium text-textdark">LP Default Mode</p>
+              <p className="text-[11px] text-textlight">
+                {config?.lp_default_mode === 'all'
+                  ? 'All angles generate LPs unless disabled per-angle'
+                  : 'No angles generate LPs unless enabled per-angle'}
+              </p>
+            </div>
+            <button
+              onClick={() => handleSaveConfig({ lp_default_mode: config?.lp_default_mode === 'all' ? 'opt_in' : 'all' })}
+              className={`text-[11px] font-medium px-3 py-1.5 rounded-lg transition-colors ${
+                config?.lp_default_mode === 'all'
+                  ? 'bg-teal/10 text-teal'
+                  : 'bg-navy/10 text-navy'
+              }`}
+            >
+              {config?.lp_default_mode === 'all' ? 'All Angles' : 'Opt-in Only'}
+            </button>
+          </div>
+        )}
       </div>
 
       {/* ── 2. Shopify Connection ── */}

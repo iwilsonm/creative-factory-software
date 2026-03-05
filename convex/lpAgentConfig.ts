@@ -31,6 +31,7 @@ export const upsertConfig = mutation({
     default_narrative_frames: v.optional(v.string()),
     template_selection_mode: v.optional(v.string()),
     editorial_pass_enabled: v.optional(v.boolean()),
+    lp_default_mode: v.optional(v.string()),
     auto_publish: v.optional(v.boolean()),
     // Budget
     daily_budget_cents: v.optional(v.number()),
@@ -77,6 +78,7 @@ export const upsertConfig = mutation({
         default_narrative_frames: args.default_narrative_frames ?? JSON.stringify(["testimonial", "mechanism", "problem_agitation", "myth_busting", "listicle"]),
         template_selection_mode: args.template_selection_mode ?? "random",
         editorial_pass_enabled: args.editorial_pass_enabled ?? true,
+        lp_default_mode: args.lp_default_mode ?? "opt_in",
         auto_publish: args.auto_publish ?? true,
         daily_budget_cents: args.daily_budget_cents,
         use_product_reference_images: args.use_product_reference_images ?? true,

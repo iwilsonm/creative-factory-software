@@ -392,6 +392,12 @@ function LPEditor({ page: initialPage, onBack, onDelete, projectId }) {
     return null;
   });
   const [qaStatus, setQaStatus] = useState(initialPage.qa_status || null);
+  const [smokeResult] = useState(() => {
+    if (initialPage.smoke_test_report) {
+      try { return JSON.parse(initialPage.smoke_test_report); } catch { return null; }
+    }
+    return null;
+  });
 
   // ── Image tab state ──
   const [regeneratingSlot, setRegeneratingSlot] = useState(null); // index
@@ -706,6 +712,7 @@ function LPEditor({ page: initialPage, onBack, onDelete, projectId }) {
     { id: 'images', label: 'Images', count: imageSlots.length },
     { id: 'links', label: 'Links', count: ctaLinks.length },
     { id: 'details', label: 'Details', count: auditTrail.length || undefined },
+    ...((qaResult || smokeResult) ? [{ id: 'qa', label: 'QA Report' }] : []),
     { id: 'settings', label: 'Settings' },
   ];
 
@@ -1259,6 +1266,111 @@ function LPEditor({ page: initialPage, onBack, onDelete, projectId }) {
                   )}
                 </div>
               </div>
+            </div>
+          )}
+
+          {/* ──── QA REPORT TAB ──── */}
+          {activeTab === 'qa' && (
+            <div className="space-y-5">
+              {/* QA Score Header */}
+              {qaResult && (
+                <div className={`p-4 rounded-xl border ${qaResult.passed ? 'bg-teal/5 border-teal/20' : 'bg-red-50 border-red-200'}`}>
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      <span className={`text-[20px] font-bold ${qaResult.passed ? 'text-teal' : 'text-red-600'}`}>
+                        {qaResult.score ?? initialPage.qa_score ?? '—'}/100
+                      </span>
+                      <span className={`text-[11px] font-medium px-2 py-0.5 rounded-full ${
+                        qaResult.passed ? 'bg-teal/10 text-teal' : 'bg-red-100 text-red-600'
+                      }`}>
+                        {qaResult.passed ? 'PASSED' : 'FAILED'}
+                      </span>
+                    </div>
+                    {initialPage.qa_issues_count != null && (
+                      <span className="text-[10px] text-textlight">
+                        {initialPage.qa_issues_count} issue{initialPage.qa_issues_count !== 1 ? 's' : ''} found
+                      </span>
+                    )}
+                  </div>
+                  {qaResult.summary && (
+                    <p className="text-[11px] text-textmid leading-relaxed">{qaResult.summary}</p>
+                  )}
+                </div>
+              )}
+
+              {/* Issues Breakdown */}
+              {qaResult?.issues?.length > 0 && (
+                <div className="p-3 bg-offwhite rounded-xl border border-black/5">
+                  <p className="text-[11px] font-medium text-textmid mb-2">Issues ({qaResult.issues.length})</p>
+                  <div className="space-y-2">
+                    {qaResult.issues.map((issue, i) => (
+                      <div key={i} className="flex gap-2 text-[10px]">
+                        <span className={`flex-shrink-0 font-medium px-1.5 py-0.5 rounded ${
+                          issue.severity === 'critical' ? 'bg-red-100 text-red-700' :
+                          issue.severity === 'warning' ? 'bg-gold/10 text-gold' :
+                          'bg-black/5 text-textmid'
+                        }`}>
+                          {issue.severity}
+                        </span>
+                        <div>
+                          <p className="text-textdark">{issue.description}</p>
+                          {issue.location && (
+                            <p className="text-textlight mt-0.5">{issue.location}</p>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* QA Screenshot */}
+              {initialPage.qa_screenshot_url && (
+                <div className="p-3 bg-offwhite rounded-xl border border-black/5">
+                  <p className="text-[11px] font-medium text-textmid mb-2">QA Screenshot</p>
+                  <img
+                    src={initialPage.qa_screenshot_url}
+                    alt="QA screenshot"
+                    className="w-full rounded-lg border border-black/10"
+                  />
+                </div>
+              )}
+
+              {/* Smoke Test Results */}
+              {smokeResult && (
+                <div className="p-3 bg-offwhite rounded-xl border border-black/5">
+                  <div className="flex items-center justify-between mb-2">
+                    <p className="text-[11px] font-medium text-textmid">Smoke Test</p>
+                    <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${
+                      smokeResult.passed ? 'bg-teal/10 text-teal' : 'bg-red-100 text-red-600'
+                    }`}>
+                      {smokeResult.passed ? 'ALL PASSED' : `${smokeResult.failedCount} FAILED`}
+                    </span>
+                  </div>
+                  <div className="space-y-1.5">
+                    {smokeResult.checks?.map((check, i) => (
+                      <div key={i} className="flex items-start gap-2 text-[10px]">
+                        <span className={`flex-shrink-0 mt-0.5 ${check.passed ? 'text-teal' : 'text-red-500'}`}>
+                          {check.passed ? '\u2713' : '\u2717'}
+                        </span>
+                        <div>
+                          <span className="font-medium text-textdark">{check.name}</span>
+                          {check.detail && (
+                            <p className="text-textlight mt-0.5">{check.detail}</p>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* No data fallback */}
+              {!qaResult && !smokeResult && (
+                <div className="p-4 bg-offwhite rounded-xl border border-black/5 text-center">
+                  <p className="text-[11px] text-textlight">No QA data available for this page.</p>
+                </div>
+              )}
             </div>
           )}
 
