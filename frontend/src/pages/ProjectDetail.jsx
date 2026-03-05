@@ -31,7 +31,6 @@ export default function ProjectDetail() {
   const { user } = useContext(AuthContext);
   const [project, setProject] = useState(null);
   const [loading, setLoading] = useState(true);
-  const [editing, setEditing] = useState(false);
   const [form, setForm] = useState({});
   const [saving, setSaving] = useState(false);
   // Persist active tab in URL search params so it survives page refresh
@@ -272,7 +271,6 @@ export default function ProjectDetail() {
     try {
       await api.updateProject(id, form);
       await loadProject();
-      setEditing(false);
       toast.success('Project saved');
     } catch (err) {
       toast.error(err.message);
@@ -426,255 +424,180 @@ export default function ProjectDetail() {
             <div className="flex justify-between items-start mb-5">
               <h2 className="text-[15px] font-semibold text-textdark tracking-tight">Project Details</h2>
               <div className="flex gap-2">
-                {editing ? (
-                  <>
-                    <button
-                      onClick={handleSave}
-                      disabled={saving}
-                      className="btn-primary text-[13px]"
-                    >
-                      {saving ? 'Saving...' : 'Save'}
-                    </button>
-                    <button
-                      onClick={() => setEditing(false)}
-                      className="btn-secondary text-[13px]"
-                    >
-                      Cancel
-                    </button>
-                  </>
-                ) : (
-                  <>
-                    <button
-                      onClick={() => setEditing(true)}
-                      className="btn-secondary text-[13px]"
-                    >
-                      Edit
-                    </button>
-                    <button
-                      onClick={handleDelete}
-                      className="btn-secondary text-[13px] text-red-500 hover:text-red-600"
-                    >
-                      Delete
-                    </button>
-                  </>
-                )}
+                <button
+                  onClick={handleSave}
+                  disabled={saving}
+                  className="btn-primary text-[13px]"
+                >
+                  {saving ? 'Saving...' : 'Save'}
+                </button>
+                <button
+                  onClick={handleDelete}
+                  className="btn-secondary text-[13px] text-red-500 hover:text-red-600"
+                >
+                  Delete
+                </button>
               </div>
             </div>
 
-            {editing ? (
-              <div className="space-y-4">
+            <div className="space-y-4">
+              <div>
+                <label className="block text-[13px] font-medium text-textmid mb-1.5">Project Name</label>
+                <input
+                  value={form.name}
+                  onChange={e => setForm(p => ({ ...p, name: e.target.value }))}
+                  className="input-apple"
+                />
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="block text-[13px] font-medium text-textmid mb-1.5">Project Name</label>
+                  <label className="block text-[13px] font-medium text-textmid mb-1.5">Brand Name</label>
                   <input
-                    value={form.name}
-                    onChange={e => setForm(p => ({ ...p, name: e.target.value }))}
+                    value={form.brand_name}
+                    onChange={e => setForm(p => ({ ...p, brand_name: e.target.value }))}
                     className="input-apple"
                   />
                 </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <label className="block text-[13px] font-medium text-textmid mb-1.5">Brand Name</label>
-                    <input
-                      value={form.brand_name}
-                      onChange={e => setForm(p => ({ ...p, brand_name: e.target.value }))}
-                      className="input-apple"
-                    />
-                  </div>
-                  <div>
-                    <label className="block text-[13px] font-medium text-textmid mb-1.5">Niche</label>
-                    <input
-                      value={form.niche}
-                      onChange={e => setForm(p => ({ ...p, niche: e.target.value }))}
-                      className="input-apple"
-                    />
-                  </div>
-                </div>
                 <div>
-                  <label className="block text-[13px] font-medium text-textmid mb-1.5">Product Description</label>
-                  <textarea
-                    value={form.product_description}
-                    onChange={e => setForm(p => ({ ...p, product_description: e.target.value }))}
-                    rows={3}
-                    className="input-apple resize-none"
-                  />
-                </div>
-
-                {/* Product Image — edit mode */}
-                <div>
-                  <label className="block text-[13px] font-medium text-textmid mb-1.5">
-                    Product Image
-                    <InfoTooltip text="Stored at the project level — automatically used in every ad so Gemini renders your real product. You can still override per-ad in Ad Studio." position="right" />
-                  </label>
-
-                  {project.productImageUrl ? (
-                    <div className="flex items-center gap-4 p-3 bg-gray-50/50 border border-gray-200/60 rounded-xl">
-                      <img
-                        src={project.productImageUrl}
-                        alt="Product"
-                        className="w-16 h-16 object-cover rounded-lg border border-gray-200/60"
-                      />
-                      <div className="flex-1 min-w-0">
-                        <p className="text-[12px] font-medium text-textdark">Current product image</p>
-                        <p className="text-[10px] text-textlight">Used in all ads unless overridden</p>
-                      </div>
-                      <div className="flex gap-2">
-                        <button
-                          type="button"
-                          onClick={() => productFileInputRef.current?.click()}
-                          disabled={productImageUploading}
-                          className="text-[11px] text-gold hover:text-gold transition-colors"
-                        >
-                          {productImageUploading ? 'Uploading...' : 'Replace'}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={handleProductDelete}
-                          disabled={productImageDeleting || productImageUploading}
-                          className="text-[11px] text-red-400 hover:text-red-500 transition-colors"
-                        >
-                          {productImageDeleting ? 'Removing...' : 'Remove'}
-                        </button>
-                      </div>
-                    </div>
-                  ) : (
-                    <div
-                      onClick={() => !productImageUploading && productFileInputRef.current?.click()}
-                      onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setProductDragOver(true); }}
-                      onDragEnter={(e) => { e.preventDefault(); e.stopPropagation(); setProductDragOver(true); }}
-                      onDragLeave={(e) => { e.preventDefault(); e.stopPropagation(); setProductDragOver(false); }}
-                      onDrop={handleProductDrop}
-                      className={`border-2 border-dashed rounded-xl p-4 text-center cursor-pointer transition-all ${
-                        productDragOver ? 'border-gold bg-gold/5' :
-                        'border-black/10 hover:border-gold hover:bg-offwhite'
-                      }`}
-                    >
-                      <svg className="w-6 h-6 mx-auto mb-1.5 text-textlight/60" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909M3.75 21h16.5a2.25 2.25 0 002.25-2.25V6.75a2.25 2.25 0 00-2.25-2.25H3.75a2.25 2.25 0 00-2.25 2.25v12a2.25 2.25 0 002.25 2.25z" />
-                      </svg>
-                      {productImageUploading ? (
-                        <p className="text-[11px] font-medium text-gold">Uploading...</p>
-                      ) : (
-                        <>
-                          <p className={`text-[11px] font-medium ${productDragOver ? 'text-gold' : 'text-textmid'}`}>
-                            {productDragOver ? 'Drop product image here' : 'Drop a product photo, or click to browse'}
-                          </p>
-                          <p className="text-[10px] text-textlight mt-0.5">Used in every ad — ensures Gemini renders your real product</p>
-                        </>
-                      )}
-                    </div>
-                  )}
+                  <label className="block text-[13px] font-medium text-textmid mb-1.5">Niche</label>
                   <input
-                    ref={productFileInputRef}
-                    type="file"
-                    accept=".jpg,.jpeg,.png,.webp,.gif"
-                    onChange={e => { if (e.target.files?.[0]) { handleProductUpload(e.target.files[0]); e.target.value = ''; } }}
-                    className="hidden"
+                    value={form.niche}
+                    onChange={e => setForm(p => ({ ...p, niche: e.target.value }))}
+                    className="input-apple"
                   />
                 </div>
+              </div>
+              <div>
+                <label className="block text-[13px] font-medium text-textmid mb-1.5">Product Description</label>
+                <textarea
+                  value={form.product_description}
+                  onChange={e => setForm(p => ({ ...p, product_description: e.target.value }))}
+                  rows={3}
+                  className="input-apple resize-none"
+                />
+              </div>
 
+              {/* Product Image */}
+              <div>
+                <label className="block text-[13px] font-medium text-textmid mb-1.5">
+                  Product Image
+                  <InfoTooltip text="Stored at the project level — automatically used in every ad so Gemini renders your real product. You can still override per-ad in Ad Studio." position="right" />
+                </label>
+
+                {project.productImageUrl ? (
+                  <div className="flex items-center gap-4 p-3 bg-gray-50/50 border border-gray-200/60 rounded-xl">
+                    <img
+                      src={project.productImageUrl}
+                      alt="Product"
+                      className="w-16 h-16 object-cover rounded-lg border border-gray-200/60"
+                    />
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[12px] font-medium text-textdark">Current product image</p>
+                      <p className="text-[10px] text-textlight">Used in all ads unless overridden</p>
+                    </div>
+                    <div className="flex gap-2">
+                      <button
+                        type="button"
+                        onClick={() => productFileInputRef.current?.click()}
+                        disabled={productImageUploading}
+                        className="text-[11px] text-gold hover:text-gold transition-colors"
+                      >
+                        {productImageUploading ? 'Uploading...' : 'Replace'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleProductDelete}
+                        disabled={productImageDeleting || productImageUploading}
+                        className="text-[11px] text-red-400 hover:text-red-500 transition-colors"
+                      >
+                        {productImageDeleting ? 'Removing...' : 'Remove'}
+                      </button>
+                    </div>
+                  </div>
+                ) : (
+                  <div
+                    onClick={() => !productImageUploading && productFileInputRef.current?.click()}
+                    onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setProductDragOver(true); }}
+                    onDragEnter={(e) => { e.preventDefault(); e.stopPropagation(); setProductDragOver(true); }}
+                    onDragLeave={(e) => { e.preventDefault(); e.stopPropagation(); setProductDragOver(false); }}
+                    onDrop={handleProductDrop}
+                    className={`border-2 border-dashed rounded-xl p-4 text-center cursor-pointer transition-all ${
+                      productDragOver ? 'border-gold bg-gold/5' :
+                      'border-black/10 hover:border-gold hover:bg-offwhite'
+                    }`}
+                  >
+                    <svg className="w-6 h-6 mx-auto mb-1.5 text-textlight/60" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909M3.75 21h16.5a2.25 2.25 0 002.25-2.25V6.75a2.25 2.25 0 00-2.25-2.25H3.75a2.25 2.25 0 00-2.25 2.25v12a2.25 2.25 0 002.25 2.25z" />
+                    </svg>
+                    {productImageUploading ? (
+                      <p className="text-[11px] font-medium text-gold">Uploading...</p>
+                    ) : (
+                      <>
+                        <p className={`text-[11px] font-medium ${productDragOver ? 'text-gold' : 'text-textmid'}`}>
+                          {productDragOver ? 'Drop product image here' : 'Drop a product photo, or click to browse'}
+                        </p>
+                        <p className="text-[10px] text-textlight mt-0.5">Used in every ad — ensures Gemini renders your real product</p>
+                      </>
+                    )}
+                  </div>
+                )}
+                <input
+                  ref={productFileInputRef}
+                  type="file"
+                  accept=".jpg,.jpeg,.png,.webp,.gif"
+                  onChange={e => { if (e.target.files?.[0]) { handleProductUpload(e.target.files[0]); e.target.value = ''; } }}
+                  className="hidden"
+                />
+              </div>
+
+              <div>
+                <label className="block text-[13px] font-medium text-textmid mb-1.5">Sales Page Content</label>
+                <textarea
+                  value={form.sales_page_content}
+                  onChange={e => setForm(p => ({ ...p, sales_page_content: e.target.value }))}
+                  rows={6}
+                  className="input-apple resize-none"
+                />
+              </div>
+              <div>
+                <label className="block text-[13px] font-medium text-textmid mb-1.5">
+                  Prompt Guidelines
+                </label>
+                <textarea
+                  value={form.prompt_guidelines}
+                  onChange={e => setForm(p => ({ ...p, prompt_guidelines: e.target.value }))}
+                  rows={3}
+                  className="input-apple resize-none"
+                  placeholder='e.g., "Only show one type of produce at a time — never mix fruits/vegetables in the same image"'
+                />
+                <p className="text-[11px] text-textlight mt-1">
+                  Rules that AI will enforce on every generated image prompt. Use this to fix recurring issues in your ads.
+                </p>
+              </div>
+
+              <div className="flex gap-8 pt-3 border-t border-gray-100/80">
                 <div>
-                  <label className="block text-[13px] font-medium text-textmid mb-1.5">Sales Page Content</label>
-                  <textarea
-                    value={form.sales_page_content}
-                    onChange={e => setForm(p => ({ ...p, sales_page_content: e.target.value }))}
-                    rows={6}
-                    className="input-apple resize-none"
-                  />
+                  <p className="text-[12px] text-textlight mb-0.5">Documents</p>
+                  <p className="text-xl font-semibold text-textdark">{project.docCount || 0}</p>
                 </div>
                 <div>
-                  <label className="block text-[13px] font-medium text-textmid mb-1.5">
-                    Prompt Guidelines
-                  </label>
-                  <textarea
-                    value={form.prompt_guidelines}
-                    onChange={e => setForm(p => ({ ...p, prompt_guidelines: e.target.value }))}
-                    rows={3}
-                    className="input-apple resize-none"
-                    placeholder='e.g., "Only show one type of produce at a time — never mix fruits/vegetables in the same image"'
-                  />
-                  <p className="text-[11px] text-textlight mt-1">
-                    Rules that AI will enforce on every generated image prompt. Use this to fix recurring issues in your ads.
+                  <p className="text-[12px] text-textlight mb-0.5">Ads Generated</p>
+                  <p className="text-xl font-semibold text-textdark">{project.adCount || 0}</p>
+                </div>
+                <div>
+                  <p className="text-[12px] text-textlight mb-0.5">API Spend</p>
+                  <p className="text-xl font-semibold text-textdark">
+                    ${projectCosts?.month?.total?.toFixed(2) || '0.00'}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-[12px] text-textlight mb-0.5">Cost per Ad</p>
+                  <p className="text-xl font-semibold text-textdark">
+                    ${projectCosts?.costPerAd?.toFixed(3) || '0.000'}
                   </p>
                 </div>
               </div>
-            ) : (
-              <div className="space-y-4">
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-                  <div>
-                    <p className="text-[12px] text-textlight mb-0.5">Brand Name</p>
-                    <p className="text-[14px] text-textdark">{project.brand_name || '—'}</p>
-                  </div>
-                  <div>
-                    <p className="text-[12px] text-textlight mb-0.5">Niche</p>
-                    <p className="text-[14px] text-textdark">{project.niche || '—'}</p>
-                  </div>
-                </div>
-                <div>
-                  <p className="text-[12px] text-textlight mb-0.5">Product Description</p>
-                  <p className="text-[14px] text-textdark whitespace-pre-wrap">{project.product_description || '—'}</p>
-                </div>
-
-                {/* Product Image — view mode */}
-                <div>
-                  <p className="text-[12px] text-textlight mb-1">Product Image</p>
-                  {project.productImageUrl ? (
-                    <div className="flex items-center gap-3">
-                      <img
-                        src={project.productImageUrl}
-                        alt="Product"
-                        className="w-20 h-20 object-cover rounded-xl border border-gray-200/60 shadow-sm"
-                      />
-                      <div>
-                        <p className="text-[12px] text-textmid">Used in all generated ads</p>
-                        <p className="text-[10px] text-textlight">Override per-ad in Ad Studio</p>
-                      </div>
-                    </div>
-                  ) : (
-                    <p className="text-[13px] text-textlight italic">No product image set — click Edit to upload</p>
-                  )}
-                </div>
-
-                {project.sales_page_content && (
-                  <div>
-                    <p className="text-[12px] text-textlight mb-0.5">Sales Page Content</p>
-                    <p className="text-[13px] text-textmid max-h-40 overflow-y-auto whitespace-pre-wrap scrollbar-thin">
-                      {project.sales_page_content.slice(0, 500)}
-                      {project.sales_page_content.length > 500 ? '...' : ''}
-                    </p>
-                  </div>
-                )}
-                {project.prompt_guidelines && (
-                  <div>
-                    <p className="text-[12px] text-textlight mb-0.5">Prompt Guidelines</p>
-                    <p className="text-[13px] text-textmid whitespace-pre-wrap bg-navy/5 border border-navy/10 rounded-xl p-3">
-                      {project.prompt_guidelines}
-                    </p>
-                  </div>
-                )}
-                <div className="flex gap-8 pt-3 border-t border-gray-100/80">
-                  <div>
-                    <p className="text-[12px] text-textlight mb-0.5">Documents</p>
-                    <p className="text-xl font-semibold text-textdark">{project.docCount || 0}</p>
-                  </div>
-                  <div>
-                    <p className="text-[12px] text-textlight mb-0.5">Ads Generated</p>
-                    <p className="text-xl font-semibold text-textdark">{project.adCount || 0}</p>
-                  </div>
-                  <div>
-                    <p className="text-[12px] text-textlight mb-0.5">API Spend</p>
-                    <p className="text-xl font-semibold text-textdark">
-                      ${projectCosts?.month?.total?.toFixed(2) || '0.00'}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-[12px] text-textlight mb-0.5">Cost per Ad</p>
-                    <p className="text-xl font-semibold text-textdark">
-                      ${projectCosts?.costPerAd?.toFixed(3) || '0.000'}
-                    </p>
-                  </div>
-                </div>
-              </div>
-            )}
+            </div>
           </div>
 
           {/* Project Cost Tracking */}
