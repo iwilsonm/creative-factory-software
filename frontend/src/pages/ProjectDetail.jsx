@@ -69,6 +69,7 @@ export default function ProjectDetail() {
   // Product image state
   const [productImageUploading, setProductImageUploading] = useState(false);
   const [productImageDeleting, setProductImageDeleting] = useState(false);
+  const [settingsSubTab, setSettingsSubTab] = useState('general');
   const [productDragOver, setProductDragOver] = useState(false);
   const productFileInputRef = useRef(null);
 
@@ -338,9 +339,7 @@ export default function ProjectDetail() {
     { id: 'ads', label: 'Ad Studio', tooltip: 'Generate individual ads or run batch generation.' },
     { id: 'lpgen', label: 'LP Generator', tooltip: 'Generate landing page copy from foundational docs + swipe file.' },
     { id: 'tracker', label: 'Ad Pipeline', tooltip: 'Plan, organize, and deploy ads to campaigns and ad sets.' },
-    { id: 'overview', label: 'Overview', tooltip: 'Project settings, cost tracking, and stats.' },
-    { id: 'docs', label: 'Foundational Docs', tooltip: 'Core research documents that guide ad generation.' },
-    { id: 'templates', label: 'Template Library', tooltip: 'Reference images synced from Drive or uploaded directly.' }
+    { id: 'overview', label: 'Project Settings', tooltip: 'Project configuration, foundational docs, and template library.' }
   ];
 
   // Poster only sees Ad Pipeline tab
@@ -390,14 +389,37 @@ export default function ProjectDetail() {
             <span className="text-[12px] text-gold font-medium">
               Foundational documents needed — add research docs to improve ad quality.
             </span>
-            <button onClick={() => setTab('docs')} className="ml-auto text-[11px] text-gold hover:text-gold-light font-medium whitespace-nowrap">
+            <button onClick={() => { setTab('overview'); setSettingsSubTab('docs'); }} className="ml-auto text-[11px] text-gold hover:text-gold-light font-medium whitespace-nowrap">
               Add Docs →
             </button>
           </div>
         )}
 
-        {/* Overview tab */}
+        {/* Project Settings tab */}
         {tab === 'overview' && (
+          <>
+          {/* Sub-tabs */}
+          <div className="flex gap-1 p-0.5 bg-offwhite rounded-lg mb-5">
+            {[
+              { id: 'general', label: 'General' },
+              { id: 'docs', label: 'Foundational Docs' },
+              { id: 'templates', label: 'Template Library' },
+            ].map(st => (
+              <button
+                key={st.id}
+                onClick={() => setSettingsSubTab(st.id)}
+                className={`px-3 py-1.5 rounded-md text-[12px] font-medium transition-all ${
+                  settingsSubTab === st.id
+                    ? 'bg-navy text-white shadow-sm'
+                    : 'text-textmid hover:text-textdark'
+                }`}
+              >
+                {st.label}
+              </button>
+            ))}
+          </div>
+
+          {settingsSubTab === 'general' && (
           <>
           <div className="card p-6">
             <div className="flex justify-between items-start mb-5">
@@ -907,17 +929,19 @@ export default function ProjectDetail() {
           {/* Dacia Creative Filter Settings (Recursive Agent #2) */}
           <CreativeFilterSettings projectId={id} project={project} onSave={loadProject} />
           </>
-        )}
+          )}
 
-        {tab === 'docs' && (
-          <ErrorBoundary level="tab" key="docs">
-            <FoundationalDocs projectId={id} projectStatus={project.status} />
-          </ErrorBoundary>
-        )}
-        {tab === 'templates' && (
-          <ErrorBoundary level="tab" key="templates">
-            <TemplateImages projectId={id} inspirationFolderId={project.inspiration_folder_id} />
-          </ErrorBoundary>
+          {settingsSubTab === 'docs' && (
+            <ErrorBoundary level="tab" key="docs">
+              <FoundationalDocs projectId={id} projectStatus={project.status} />
+            </ErrorBoundary>
+          )}
+          {settingsSubTab === 'templates' && (
+            <ErrorBoundary level="tab" key="templates">
+              <TemplateImages projectId={id} inspirationFolderId={project.inspiration_folder_id} />
+            </ErrorBoundary>
+          )}
+          </>
         )}
         {tab === 'ads' && (
           <ErrorBoundary level="tab" key="ads">
