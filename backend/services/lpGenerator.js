@@ -13,7 +13,8 @@
 
 import { chat, chatWithImage, chatWithMultipleImages } from './anthropic.js';
 import { generateImage } from './gemini.js';
-import { getDocsByProject, uploadBuffer, getStorageUrl, getLPTemplate, getProject, downloadToBuffer } from '../convexClient.js';
+import crypto from 'crypto';
+import { getDocsByProject, uploadBuffer, getStorageUrl, getLPTemplate, getProject, downloadToBuffer, getLPAgentConfig, upsertLPAgentConfig } from '../convexClient.js';
 
 // ─── Narrative Frame Library ─────────────────────────────────────────────────
 
@@ -327,6 +328,51 @@ function extractAvatarForImages(avatarText) {
     }
   }
 
+  // "women over 60", "adults above 55"
+  if (!ageRange) {
+    const overMatch = text.match(/\b(?:women|woman|men|man|adults?|people|individuals?)\s+(?:over|above)\s+(\d{2})\b/i);
+    if (overMatch) {
+      const base = parseInt(overMatch[1]);
+      ageRange = `${base}-${base + 15}`;
+    }
+  }
+
+  // "55+", "60+ years old"
+  if (!ageRange) {
+    const plusMatch = text.match(/(\d{2})\+\s*(?:years?\s*old|year-old|demographic|age)?/i);
+    if (plusMatch) {
+      const base = parseInt(plusMatch[1]);
+      ageRange = `${base}-${base + 15}`;
+    }
+  }
+
+  // "55 to 70 years old", "45 to 65 year old"
+  if (!ageRange) {
+    const toYearsMatch = text.match(/(\d{2})\s+to\s+(\d{2})\s+years?\s*old/i);
+    if (toYearsMatch) ageRange = `${toYearsMatch[1]}-${toYearsMatch[2]}`;
+  }
+
+  // "women 55-70", "adults 45-65" (without "aged" prefix)
+  if (!ageRange) {
+    const demoRangeMatch = text.match(/\b(?:women|woman|men|man|adults?|people)\s+(\d{2})\s*[-–]\s*(\d{2})\b/i);
+    if (demoRangeMatch) ageRange = `${demoRangeMatch[1]}-${demoRangeMatch[2]}`;
+  }
+
+  // "around 60 years old", "approximately 55"
+  if (!ageRange) {
+    const aroundMatch = text.match(/\b(?:around|approximately|roughly|about)\s+(\d{2})\s*(?:years?\s*old)?/i);
+    if (aroundMatch) {
+      const base = parseInt(aroundMatch[1]);
+      ageRange = `${base - 5}-${base + 5}`;
+    }
+  }
+
+  // "primarily 55-70", "typically 45-65"
+  if (!ageRange) {
+    const qualifiedMatch = text.match(/\b(?:primarily|typically|usually|generally|mostly)\s+(\d{2})\s*[-–to]+\s*(\d{2})\b/i);
+    if (qualifiedMatch) ageRange = `${qualifiedMatch[1]}-${qualifiedMatch[2]}`;
+  }
+
   // Build the demographic string
   if (gender && ageRange) {
     parts.push(`${gender} in the ${ageRange} age range`);
@@ -382,22 +428,35 @@ function extractAvatarForImages(avatarText) {
  * @returns {string|null} Product description for image prompts
  */
 function extractProductForImages(project, offerBrief) {
+  const PRODUCT_NOUNS = /\b(bedsheet|bed\s*sheet|sheet|mattress\s*pad|mat|floor\s*mat|grounding\s*mat|supplement|capsule|pill|tablet|powder|serum|cream|lotion|spray|device|band|bracelet|drops|oil|patch|mask|cleaner|filter|purifier|bottle|tincture|gummy|gummies|blanket|pillow|topper|cover|wrap|towel)\b/i;
+
   // Primary: use project.product_description (user-provided, most reliable)
   if (project?.product_description && project.product_description.length > 10) {
-    // Truncate to reasonable length for a prompt
-    const desc = project.product_description.slice(0, 500).trim();
-    return desc;
+    const desc = project.product_description;
+    // Extract the sentence containing the core physical product noun
+    const match = desc.match(PRODUCT_NOUNS);
+    if (match) {
+      const idx = match.index;
+      // Find sentence boundaries around the product noun
+      const start = Math.max(0, desc.lastIndexOf('.', idx - 1) + 1);
+      const dotAfter = desc.indexOf('.', idx + 1);
+      const end = dotAfter > -1 ? dotAfter + 1 : Math.min(desc.length, idx + 100);
+      const snippet = desc.slice(start, end).trim();
+      const prefix = project.brand_name ? `${project.brand_name} ` : '';
+      return `${prefix}${snippet}`.slice(0, 200);
+    }
+    // Fallback: first sentence only (not the full 500-char blob)
+    const firstSentence = desc.split(/[.!?\n]/).filter(s => s.trim().length > 10)[0];
+    return firstSentence ? firstSentence.trim().slice(0, 200) : desc.slice(0, 150);
   }
 
   // Fallback: scan offer brief for product-describing sentences
   if (offerBrief) {
     const brief = offerBrief.slice(0, 2000);
-    // Look for sentences mentioning physical product types
-    const productNouns = /\b(supplement|capsule|pill|tablet|powder|serum|cream|lotion|spray|device|sheet|bedsheet|mat|pad|band|bracelet|drops|oil|patch|mask|cleaner|filter|purifier|bottle|tincture|gummy|gummies)\b/i;
     const sentences = brief.split(/[.!?\n]/).filter(s => s.trim().length > 20);
     for (const sentence of sentences) {
-      if (productNouns.test(sentence)) {
-        return sentence.trim().slice(0, 300);
+      if (PRODUCT_NOUNS.test(sentence)) {
+        return sentence.trim().slice(0, 200);
       }
     }
   }
@@ -410,20 +469,299 @@ function extractProductForImages(project, offerBrief) {
   return null;
 }
 
+// ─── LLM-Powered Visual Context Extraction ──────────────────────────────────
+
 /**
- * Build image context from pre-loaded foundational docs and project data.
- * Used in auto mode where these are already available — avoids redundant fetches.
+ * Extract structured product visual context from Offer Brief using Claude Sonnet.
+ * Returns detailed product identity for image generation prompts.
  *
+ * @param {string} offerBriefContent - Raw offer brief document text
+ * @param {object|null} project - Project with product_description, name, brand_name
+ * @returns {Promise<object|null>} { productName, productType, physicalDescription, usageContext, notThisProduct[] }
+ */
+async function extractProductVisualContext(offerBriefContent, project) {
+  const productDesc = project?.product_description || '';
+  const briefExcerpt = (offerBriefContent || '').slice(0, 4000);
+
+  if (!briefExcerpt && !productDesc) return null;
+
+  const messages = [
+    {
+      role: 'system',
+      content: `You are a product analyst extracting visual details for image generation. Be precise and specific about the physical product. Focus on what the product LOOKS LIKE and how it's USED — not marketing claims.
+
+CRITICAL: You must respond with ONLY a valid JSON object. No markdown fences, no text before or after.`,
+    },
+    {
+      role: 'user',
+      content: `From the documents below, extract visual product details for image generation.
+
+${productDesc ? `PRODUCT DESCRIPTION (from seller):\n${productDesc.slice(0, 1000)}\n` : ''}
+${briefExcerpt ? `OFFER BRIEF:\n${briefExcerpt}\n` : ''}
+
+Extract:
+1. productName — exact brand + product name (e.g., "The Grounding Bedsheet by GroundWell")
+2. productType — the physical category, stated plainly (e.g., "fitted bed sheet", "dietary supplement capsules", "countertop kitchen device")
+3. physicalDescription — what it looks like: color, shape, size, materials, distinguishing features. Be specific. (e.g., "White fitted sheet with thin silver conductive threads woven through the fabric. Includes a thin grounding cord that plugs into the round grounding port of a wall outlet.")
+4. usageContext — where and how it's physically used, stated as a scene description (e.g., "On a bed, in a bedroom. The person sleeps on it like a regular fitted sheet.")
+5. notThisProduct — array of 3-5 similar but WRONG products that an AI image generator might confuse it with (e.g., ["grounding mat", "floor pad", "standing mat", "yoga mat", "exercise mat"])
+
+Return as JSON:
+{
+  "productName": "...",
+  "productType": "...",
+  "physicalDescription": "...",
+  "usageContext": "...",
+  "notThisProduct": ["...", "...", "..."]
+}`,
+    },
+  ];
+
+  try {
+    const response = await chat(messages, 'claude-sonnet-4-6', {
+      max_tokens: 1024,
+      operation: 'lp_image_context_extraction',
+      projectId: project?.externalId || project?.id || null,
+      response_format: { type: 'json_object' },
+      timeout: 30000,
+    });
+
+    const parsed = JSON.parse(response);
+    if (!parsed.productName && !parsed.productType) {
+      console.warn('[LPGen] Product visual extraction returned empty data');
+      return null;
+    }
+    return parsed;
+  } catch (err) {
+    console.warn('[LPGen] Product visual extraction failed (non-fatal):', err.message);
+    return null;
+  }
+}
+
+/**
+ * Extract structured avatar visual context from Avatar Sheet using Claude Sonnet.
+ * Returns detailed demographic/lifestyle details for image generation prompts.
+ *
+ * @param {string} avatarContent - Raw avatar document text
+ * @returns {Promise<object|null>} { gender, ageRange, lifestyle, emotionalState, settingCues, notThisPerson[] }
+ */
+async function extractAvatarVisualContext(avatarContent) {
+  if (!avatarContent || avatarContent.length < 50) return null;
+
+  const excerpt = avatarContent.slice(0, 4000);
+
+  const messages = [
+    {
+      role: 'system',
+      content: `You are a demographic analyst extracting visual details for image generation. Focus on what the target customer LOOKS LIKE, where they LIVE, and what their daily life FEELS LIKE — not marketing segments.
+
+CRITICAL: You must respond with ONLY a valid JSON object. No markdown fences, no text before or after.`,
+    },
+    {
+      role: 'user',
+      content: `From this Customer Avatar document, extract visual details for image generation.
+
+AVATAR DOCUMENT:
+${excerpt}
+
+Extract:
+1. gender — "female", "male", or "mixed" (based on the primary avatar described)
+2. ageRange — specific range like "55-70" or "40-55" (based on the document's demographic data)
+3. lifestyle — 2-3 sentence description of their daily life, roles, activities (e.g., "Retired grandmother, health-conscious but dealing with chronic joint pain. Spends time at home, in the garden, with grandchildren.")
+4. emotionalState — how they feel day-to-day and about trying new products (e.g., "Tired of failed solutions, skeptical but hopeful. Practical, not easily swayed by hype.")
+5. settingCues — typical physical environments they'd be in (e.g., "Suburban home, bedroom, kitchen, garden")
+6. notThisPerson — array of 3-5 demographics that should NOT appear in images based on who the avatar is NOT (e.g., ["men", "anyone under 45", "fitness models", "corporate executives", "teenagers"])
+
+Return as JSON:
+{
+  "gender": "...",
+  "ageRange": "...",
+  "lifestyle": "...",
+  "emotionalState": "...",
+  "settingCues": "...",
+  "notThisPerson": ["...", "...", "..."]
+}`,
+    },
+  ];
+
+  try {
+    const response = await chat(messages, 'claude-sonnet-4-6', {
+      max_tokens: 1024,
+      operation: 'lp_image_context_extraction',
+      timeout: 30000,
+    });
+
+    const parsed = JSON.parse(response);
+    if (!parsed.gender && !parsed.ageRange) {
+      console.warn('[LPGen] Avatar visual extraction returned empty data');
+      return null;
+    }
+    return parsed;
+  } catch (err) {
+    console.warn('[LPGen] Avatar visual extraction failed (non-fatal):', err.message);
+    return null;
+  }
+}
+
+// ─── Image Context Caching Layer ─────────────────────────────────────────────
+
+/**
+ * Compute a content hash for cache invalidation.
+ * Uses first 500 chars of avatar + offer_brief to detect document changes.
+ */
+function computeDocsHash(docs) {
+  const input = (docs?.avatar || '').slice(0, 500) + '|' + (docs?.offer_brief || '').slice(0, 500);
+  return crypto.createHash('md5').update(input).digest('hex');
+}
+
+/**
+ * Get image generation context with LLM-powered extraction and caching.
+ *
+ * Flow:
+ * 1. Check lp_agent_config cache for pre-extracted context
+ * 2. If cache hit + hash matches → return cached data (instant)
+ * 3. If cache miss/stale → extract via Claude Sonnet, cache, return
+ * 4. If no foundational docs → fall back to regex-based extractors
+ *
+ * @param {string} projectId - Project externalId
  * @param {object} docs - { avatar, offer_brief, research, necessary_beliefs }
  * @param {object|null} project - Project object
- * @returns {object} { avatarContext, productContext, brandName, niche }
+ * @returns {Promise<object>} Image context with avatarContext, productContext, brandName, niche, productVisual, avatarVisual
  */
-function buildImageContextFromData(docs, project) {
+async function getCachedImageContext(projectId, docs, project) {
+  const brandName = project?.brand_name || project?.name || null;
+  const niche = project?.niche || null;
+  const hasDocs = !!(docs?.avatar || docs?.offer_brief);
+
+  // If no foundational docs, fall back to regex-based extraction (legacy path)
+  if (!hasDocs) {
+    return {
+      avatarContext: extractAvatarForImages(docs?.avatar || null),
+      productContext: extractProductForImages(project, docs?.offer_brief || null),
+      brandName,
+      niche,
+      productVisual: null,
+      avatarVisual: null,
+    };
+  }
+
+  const currentHash = computeDocsHash(docs);
+
+  // Try to read cache from lp_agent_config
+  let config = null;
+  try {
+    config = await getLPAgentConfig(projectId);
+  } catch (err) {
+    console.warn('[LPGen] Failed to load LP agent config for cache (non-fatal):', err.message);
+  }
+
+  // Check cache validity
+  let cachedProduct = null;
+  let cachedAvatar = null;
+  let cacheHit = false;
+
+  if (config) {
+    try {
+      if (config.cached_product_visual_context) {
+        const parsed = JSON.parse(config.cached_product_visual_context);
+        if (parsed.sourceHash === currentHash && parsed.data) {
+          cachedProduct = parsed.data;
+        }
+      }
+      if (config.cached_avatar_visual_context) {
+        const parsed = JSON.parse(config.cached_avatar_visual_context);
+        if (parsed.sourceHash === currentHash && parsed.data) {
+          cachedAvatar = parsed.data;
+        }
+      }
+      // Cache hit only if BOTH are present and fresh
+      cacheHit = !!(cachedProduct && cachedAvatar);
+    } catch (err) {
+      console.warn('[LPGen] Failed to parse cached image context:', err.message);
+    }
+  }
+
+  if (cacheHit) {
+    console.log(`[LPGen] Using cached image context for project ${projectId.slice(0, 8)}`);
+    return buildContextFromVisuals(cachedProduct, cachedAvatar, project, docs);
+  }
+
+  // Cache miss — extract via Claude Sonnet
+  console.log(`[LPGen] Extracting image context via Claude Sonnet for project ${projectId.slice(0, 8)}...`);
+
+  // Extract in parallel (both are independent Claude calls)
+  const [productVisual, avatarVisual] = await Promise.all([
+    docs.offer_brief ? extractProductVisualContext(docs.offer_brief, project) : Promise.resolve(null),
+    docs.avatar ? extractAvatarVisualContext(docs.avatar) : Promise.resolve(null),
+  ]);
+
+  // Cache the results (fire-and-forget — don't block on cache write)
+  const cachePayload = {};
+  if (productVisual) {
+    cachePayload.cached_product_visual_context = JSON.stringify({
+      sourceHash: currentHash,
+      extractedAt: new Date().toISOString(),
+      data: productVisual,
+    });
+  }
+  if (avatarVisual) {
+    cachePayload.cached_avatar_visual_context = JSON.stringify({
+      sourceHash: currentHash,
+      extractedAt: new Date().toISOString(),
+      data: avatarVisual,
+    });
+  }
+
+  if (Object.keys(cachePayload).length > 0) {
+    upsertLPAgentConfig(projectId, cachePayload).catch(err => {
+      console.warn('[LPGen] Failed to cache image context (non-fatal):', err.message);
+    });
+    console.log(`[LPGen] Extracted and cached image context for project ${projectId.slice(0, 8)}: product=${!!productVisual}, avatar=${!!avatarVisual}`);
+  }
+
+  return buildContextFromVisuals(productVisual, avatarVisual, project, docs);
+}
+
+/**
+ * Build the image context object from LLM-extracted visuals.
+ * Creates backward-compatible avatarContext/productContext strings from the richer data.
+ */
+function buildContextFromVisuals(productVisual, avatarVisual, project, docs) {
+  // Build concise string representations (backward-compatible with old format)
+  let avatarContext = null;
+  if (avatarVisual) {
+    const parts = [];
+    if (avatarVisual.gender === 'female') parts.push('woman');
+    else if (avatarVisual.gender === 'male') parts.push('man');
+    if (avatarVisual.ageRange) parts.push(`in the ${avatarVisual.ageRange} age range`);
+    if (avatarVisual.lifestyle) {
+      // Extract first few key descriptors
+      const shortLifestyle = avatarVisual.lifestyle.split(/[.,]/).slice(0, 2).map(s => s.trim().toLowerCase()).filter(s => s.length > 3).join(', ');
+      if (shortLifestyle) parts.push(shortLifestyle);
+    }
+    avatarContext = parts.join(', ') || null;
+  }
+  // Fall back to regex if LLM extraction didn't produce results
+  if (!avatarContext) {
+    avatarContext = extractAvatarForImages(docs?.avatar || null);
+  }
+
+  let productContext = null;
+  if (productVisual) {
+    productContext = `${productVisual.productName || ''} — ${productVisual.productType || ''}. ${productVisual.physicalDescription || ''}`.trim().slice(0, 300);
+  }
+  // Fall back to regex if LLM extraction didn't produce results
+  if (!productContext) {
+    productContext = extractProductForImages(project, docs?.offer_brief || null);
+  }
+
   return {
-    avatarContext: extractAvatarForImages(docs?.avatar || null),
-    productContext: extractProductForImages(project, docs?.offer_brief || null),
+    avatarContext,
+    productContext,
     brandName: project?.brand_name || project?.name || null,
     niche: project?.niche || null,
+    productVisual: productVisual || null,
+    avatarVisual: avatarVisual || null,
   };
 }
 
@@ -432,7 +770,7 @@ function buildImageContextFromData(docs, project) {
  * Used in manual mode where these aren't pre-loaded.
  *
  * @param {string} projectId
- * @returns {object} { avatarContext, productContext, brandName, niche }
+ * @returns {object} Image context with avatarContext, productContext, brandName, niche, productVisual, avatarVisual
  */
 export async function extractImageContext(projectId) {
   try {
@@ -440,10 +778,10 @@ export async function extractImageContext(projectId) {
       getFoundationalDocs(projectId).catch(() => ({})),
       getProject(projectId).catch(() => null),
     ]);
-    return buildImageContextFromData(docs, project);
+    return getCachedImageContext(projectId, docs, project);
   } catch (err) {
     console.warn('[LPGen] extractImageContext failed (non-fatal):', err.message);
-    return { avatarContext: null, productContext: null, brandName: null, niche: null };
+    return { avatarContext: null, productContext: null, brandName: null, niche: null, productVisual: null, avatarVisual: null };
   }
 }
 
@@ -756,7 +1094,7 @@ Along with your editorial plan, return a "decisions" array — a list of plain-l
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt },
       ],
-      'claude-opus-4-6',
+      'claude-sonnet-4-6',
       {
         max_tokens: 16384,
         timeout: 180000,
@@ -863,9 +1201,46 @@ function buildImagePrompt(slot, angle, copyContext, autoContext, slotIndex, tota
   const slotRole = detectSlotRole(slot, slotIndex, totalSlots);
   const roleDirection = SLOT_ROLE_DIRECTIONS[slotRole] || SLOT_ROLE_DIRECTIONS.general;
 
+  // Pull LLM-extracted visuals if available (richer than regex-based strings)
+  const pv = imageContext.productVisual; // { productName, productType, physicalDescription, usageContext, notThisProduct[] }
+  const av = imageContext.avatarVisual;  // { gender, ageRange, lifestyle, emotionalState, settingCues, notThisPerson[] }
+
+  // ── Build SUBJECT description (WHO + WHAT — the most important part) ──
+  // This goes first so Gemini reads it before anything else
+  let subjectDescription;
+
+  if (slotRole === 'product' && (pv || imageContext.productContext)) {
+    if (pv) {
+      subjectDescription = `${pv.productName || pv.productType}: ${pv.physicalDescription || ''}. Photographed in a natural editorial style — close-up or medium shot showing the product clearly.`;
+    } else {
+      subjectDescription = `A ${imageContext.productContext}, photographed in a natural editorial style. Close-up or medium shot showing the product clearly.`;
+    }
+  } else if ((av || imageContext.avatarContext) && (pv || imageContext.productContext)) {
+    // Person + product scene
+    const personDesc = av
+      ? `A ${av.gender === 'female' ? 'woman' : av.gender === 'male' ? 'man' : 'person'} in ${av.gender === 'female' ? 'her' : av.gender === 'male' ? 'his' : 'their'} ${av.ageRange || '50s-60s'}. ${av.lifestyle ? av.lifestyle.split('.')[0] + '.' : ''} ${av.emotionalState ? av.emotionalState.split('.')[0] + '.' : ''}`
+      : `A ${imageContext.avatarContext}`;
+    const productDesc = pv
+      ? `${pv.productName || pv.productType} (${pv.productType || ''}) — ${pv.physicalDescription || ''}`
+      : imageContext.productContext;
+    subjectDescription = `${personDesc}\nUsing or near: ${productDesc}.\nNatural pose, authentic expression, real setting.`;
+  } else if (av || imageContext.avatarContext) {
+    const personDesc = av
+      ? `A ${av.gender === 'female' ? 'woman' : av.gender === 'male' ? 'man' : 'person'} in ${av.gender === 'female' ? 'her' : av.gender === 'male' ? 'his' : 'their'} ${av.ageRange || '50s-60s'}. ${av.lifestyle ? av.lifestyle.split('.')[0] + '.' : ''}`
+      : `A ${imageContext.avatarContext}`;
+    subjectDescription = `${personDesc}\nNatural pose, authentic setting, genuine expression.`;
+  } else {
+    subjectDescription = slot.description || 'Editorial lifestyle photograph for a health/wellness article';
+  }
+
+  // ── Build SCENE context (secondary — where and why) ──
+  const settingHint = av?.settingCues ? ` Setting: ${av.settingCues}.` : '';
+  const usageHint = pv?.usageContext ? ` Usage: ${pv.usageContext}` : '';
+  const sceneDescription = `${slot.description || 'Lifestyle scene'}. Marketing angle: ${angle}.${settingHint}${usageHint}`;
+
   // Narrative frame hint
   const narrativeHint = autoContext?.narrativeFrame
-    ? `\nNARRATIVE STYLE: This landing page uses a "${autoContext.narrativeFrame}" storytelling approach. Match the image mood and energy to this narrative style.`
+    ? `\nNARRATIVE STYLE: "${autoContext.narrativeFrame}" storytelling approach. Match the image mood to this narrative.`
     : '';
 
   // Editorial direction per-slot override
@@ -883,22 +1258,7 @@ function buildImagePrompt(slot, angle, copyContext, autoContext, slotIndex, tota
     ? `\nEDITORIAL DIRECTION: ${editorialDirection}`
     : '';
 
-  // Avatar context block
-  const avatarBlock = imageContext.avatarContext
-    ? `\nTARGET CUSTOMER: ${imageContext.avatarContext}\nAny person shown in this image must visually match this demographic — correct age range, gender, and lifestyle context.`
-    : '';
-
-  // Product context block
-  const productBlock = imageContext.productContext
-    ? `\nPRODUCT: ${imageContext.productContext}${imageContext.brandName ? ` (Brand: ${imageContext.brandName})` : ''}\nIf this image shows the product, it must match this description exactly. Do NOT substitute a different product type or form factor.`
-    : '';
-
-  // Niche context
-  const nicheBlock = imageContext.niche
-    ? `\nCATEGORY: ${imageContext.niche}`
-    : '';
-
-  // Build the constraints block — always strong, with conditional demographic/product rules
+  // ── Constraints (negative prompting — works best at end for Gemini) ──
   let constraints = `STRICT REQUIREMENTS:
 - Photorealistic editorial photography — like a real photo in a magazine feature article
 - ABSOLUTELY NO TEXT, WORDS, LETTERS, NUMBERS, WATERMARKS, OR LOGOS anywhere in the image — not on screens, not on products, not on clothing, not on signs, not on labels, nowhere
@@ -908,20 +1268,33 @@ function buildImagePrompt(slot, angle, copyContext, autoContext, slotIndex, tota
 - Clean composition, intentional framing, professional color grading
 - If people are shown, they must look natural and authentic — real expressions, real settings, NOT posed stock photography`;
 
-  if (imageContext.avatarContext) {
-    constraints += `\n- People in the image MUST match the target customer demographic described above — correct age range and gender`;
-  }
-  if (imageContext.productContext) {
-    constraints += `\n- Any product shown MUST match the physical description above — correct form factor, shape, and presentation`;
+  // Rich demographic constraints from LLM extraction
+  if (av) {
+    const genderWord = av.gender === 'female' ? 'woman' : av.gender === 'male' ? 'man' : 'person';
+    constraints += `\n- The person MUST be: a ${genderWord}, age ${av.ageRange || '50-70'}`;
+    if (av.notThisPerson && av.notThisPerson.length > 0) {
+      constraints += `\n- Do NOT show: ${av.notThisPerson.join(', ')}`;
+    }
+  } else if (imageContext.avatarContext) {
+    constraints += `\n- People in the image MUST match the target customer demographic: ${imageContext.avatarContext}`;
   }
 
-  return `Create a professional, high-quality editorial photograph for a landing page article.
+  // Rich product constraints from LLM extraction — with "THIS IS NOT" block
+  if (pv) {
+    constraints += `\n- The product MUST be: ${pv.productType || ''} — ${pv.physicalDescription || ''}`;
+    if (pv.notThisProduct && pv.notThisProduct.length > 0) {
+      constraints += `\n- THIS IS NOT: ${pv.notThisProduct.join(', ')}. If the product is a ${pv.productType || 'product'}, show a ${pv.productType || 'product'} — NOT a ${pv.notThisProduct[0]}`;
+    }
+  } else if (imageContext.productContext) {
+    constraints += `\n- Any product shown MUST be: ${imageContext.productContext} — correct form factor, NOT a different product`;
+  }
 
-IMAGE PURPOSE: ${slot.description || 'Product/lifestyle image for landing page'}
-SECTION: ${slot.location || 'Landing page section'}
-IMAGE ROLE: ${slotRole.toUpperCase()} — ${roleDirection}
-MARKETING ANGLE: ${angle}${narrativeHint}${editorialHint}
-${avatarBlock}${productBlock}${nicheBlock}
+  return `Generate a photorealistic editorial photograph.
+
+SUBJECT: ${subjectDescription}
+
+SCENE: ${sceneDescription}
+IMAGE ROLE: ${slotRole.toUpperCase()} — ${roleDirection}${narrativeHint}${editorialHint}
 
 CONTEXT FROM THE ARTICLE:
 ${copyContext}
@@ -1298,6 +1671,7 @@ function extractTemplatePlaceholders(skeletonHtml) {
     'publish_date', 'author_name', 'author_title',
     'TRENDING_CATEGORY', 'warning_box_text',
     'product_name', 'product_description',
+    'top_bar_text',
   ]);
   const STANDARD_COPY_SLOTS = new Set([
     'headline', 'subheadline', 'lead', 'problem', 'solution',
@@ -1350,6 +1724,9 @@ function buildMetadataMap({ project, agentConfig, angle }) {
     warning_box_text: agentConfig?.default_warning_text || 'The following article discusses findings that may change how you think about the products you use every day.',
     product_name: project?.name || project?.brand_name || '',
     product_description: project?.product_description || '',
+    top_bar_text: project?.niche
+      ? `${project.niche.toUpperCase()} | SPECIAL REPORT`
+      : 'HEALTH & WELLNESS | SPECIAL REPORT',
   };
 }
 
@@ -2983,10 +3360,10 @@ export async function generateAutoLP({
     audit('editorial', 'disabled', 'Editorial pass disabled by config');
   }
 
-  // 3c. Build image context from foundational docs + project data (for avatar/product in image prompts)
-  const imageContext = buildImageContextFromData(foundationalDocs, project);
+  // 3c. Build image context from foundational docs + project data (LLM-extracted + cached)
+  const imageContext = await getCachedImageContext(projectId, foundationalDocs, project);
   if (imageContext.avatarContext || imageContext.productContext) {
-    console.log(`[LPGen] Image context: avatar="${imageContext.avatarContext || 'none'}", product="${(imageContext.productContext || 'none').slice(0, 80)}"`);
+    console.log(`[LPGen] Image context: avatar="${imageContext.avatarContext || 'none'}", product="${(imageContext.productContext || 'none').slice(0, 80)}", llm=${!!imageContext.productVisual}`);
   }
 
   // 4. Generate images (Step 3) with product reference + editorial direction + article context
