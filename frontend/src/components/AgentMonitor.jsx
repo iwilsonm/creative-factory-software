@@ -455,6 +455,7 @@ function DirectorTab({ onRefresh }) {
   const [runs, setRuns] = useState([]);
   const [playbooks, setPlaybooks] = useState([]);
   const [subTab, setSubTab] = useState('angles');
+  const [archivedOpen, setArchivedOpen] = useState(false);
   const [loading, setLoading] = useState(true);
   const [runningAction, setRunningAction] = useState(null);
   const [saving, setSaving] = useState(false);
@@ -912,26 +913,25 @@ function DirectorTab({ onRefresh }) {
             </div>
           )}
 
-          {/* Archived */}
+          {/* Archived — collapsible */}
           {archivedAngles.length > 0 && (
             <div className="mb-4">
-              <p className="text-[10px] text-textlight font-medium uppercase tracking-wider mb-2">Archived ({archivedAngles.length})</p>
-              <div className="space-y-1.5">
-                {archivedAngles.map(a => (
-                  <div key={a.externalId} className="flex items-center justify-between px-3 py-2 rounded-lg bg-black/[0.02] border border-black/5">
-                    <div>
-                      <span className="text-[11px] text-textlight">{a.name}</span>
-                      <span className="text-[9px] text-textlight/60 ml-1.5">used {a.times_used || 0}x</span>
-                    </div>
-                    <button
-                      onClick={() => handleAngleStatusChange(a.externalId, 'active')}
-                      className="text-[10px] text-teal hover:underline"
-                    >
-                      Unarchive
-                    </button>
-                  </div>
-                ))}
-              </div>
+              <button
+                onClick={() => setArchivedOpen(v => !v)}
+                className="flex items-center gap-1.5 mb-2 group cursor-pointer"
+              >
+                <svg className={`w-3 h-3 text-textlight transition-transform ${archivedOpen ? 'rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                  <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
+                </svg>
+                <p className="text-[10px] text-textlight font-medium uppercase tracking-wider group-hover:text-textmid transition-colors">Archived ({archivedAngles.length})</p>
+              </button>
+              {archivedOpen && (
+                <div className="space-y-2">
+                  {archivedAngles.map(a => (
+                    <AngleCard key={a.externalId} angle={a} playbooks={playbooks} onStatusChange={handleAngleStatusChange} />
+                  ))}
+                </div>
+              )}
             </div>
           )}
 
@@ -1239,6 +1239,14 @@ function AngleCard({ angle, playbooks, onStatusChange, onToggleFocus, onToggleLP
             className="text-[10px] text-textlight hover:text-red-400"
           >
             Archive
+          </button>
+        )}
+        {!showActions && (angle.status === 'archived' || angle.status === 'retired') && (
+          <button
+            onClick={() => onStatusChange(angle.externalId, 'active')}
+            className="text-[10px] text-teal hover:underline"
+          >
+            Unarchive
           </button>
         )}
       </div>
