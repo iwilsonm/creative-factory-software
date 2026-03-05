@@ -3910,7 +3910,7 @@ Pass ONLY if ALL 5 checks pass. Be strict — a single failed check means passed
  * Pre-score all images in a slot array. For failed images, regenerate and re-score
  * up to maxRetries times per slot.
  */
-export async function preScoreAndRetryImages(imageSlots, angle, autoContext, projectId, sendEvent, maxRetries = 3) {
+export async function preScoreAndRetryImages(imageSlots, angle, autoContext, projectId, sendEvent, maxRetries = 5) {
   const imageContext = autoContext?.imageContext || {};
   const updatedSlots = [...imageSlots];
   let totalAttempts = 0;

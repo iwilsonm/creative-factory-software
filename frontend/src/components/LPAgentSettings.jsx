@@ -622,9 +622,9 @@ export default function LPAgentSettings({ projectId }) {
               <label className="text-[10px] text-textmid">Max image retries</label>
               <input
                 type="number"
-                min={0} max={5}
-                value={config?.gauntlet_max_image_retries ?? 3}
-                onChange={e => handleSaveConfig({ gauntlet_max_image_retries: parseInt(e.target.value) || 3 })}
+                min={0} max={10}
+                value={config?.gauntlet_max_image_retries ?? 5}
+                onChange={e => handleSaveConfig({ gauntlet_max_image_retries: parseInt(e.target.value) || 5 })}
                 className="input-apple text-[12px] w-full"
               />
             </div>

@@ -642,7 +642,7 @@ export default defineSchema({
     // Generation pipeline config
     lp_frame_count: v.optional(v.float64()),                // DEPRECATED — replaced by default_narrative_frames
     gauntlet_score_threshold: v.optional(v.float64()),      // Min score to pass (default 6)
-    gauntlet_max_image_retries: v.optional(v.float64()),    // Max image prescore retries (default 3)
+    gauntlet_max_image_retries: v.optional(v.float64()),    // Max image prescore retries (default 5)
     gauntlet_max_lp_retries: v.optional(v.float64()),       // Max full LP retries (default 2)
     // Timestamps
     created_at: v.optional(v.string()),

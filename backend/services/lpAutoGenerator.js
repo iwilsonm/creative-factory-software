@@ -427,7 +427,7 @@ export async function runGauntlet(projectId, options = {}, sendEventRaw) {
   }
 
   const scoreThreshold = config.gauntlet_score_threshold || 6;
-  const maxImageRetries = config.gauntlet_max_image_retries || 3;
+  const maxImageRetries = config.gauntlet_max_image_retries || 5;
   const maxLPRetries = config.gauntlet_max_lp_retries || 2;
 
   const templates = await getLPTemplatesByProject(projectId);
@@ -508,7 +508,7 @@ export async function runGauntlet(projectId, options = {}, sendEventRaw) {
     sendEvent({
       type: 'progress',
       step: 'gauntlet_frame_start',
-      message: `Frame ${frameNum}/${totalFrames}: ${frame.name}...`,
+      message: `LP ${frameNum} of ${totalFrames} — ${frame.name}...`,
       gauntlet: { frame: frameNum, total: totalFrames, name: frame.name },
     });
 
@@ -526,7 +526,7 @@ export async function runGauntlet(projectId, options = {}, sendEventRaw) {
 
     try {
       // 5a. Generate images for this frame
-      sendEvent({ type: 'progress', step: 'gauntlet_images', message: `Frame ${frameNum}: Generating images...` });
+      sendEvent({ type: 'progress', step: 'gauntlet_images', message: `LP ${frameNum} of ${totalFrames} — Generating images...` });
 
       const angle = frame.instruction || frame.name;
       let imageSlots = await generateSlotImages({
@@ -543,7 +543,7 @@ export async function runGauntlet(projectId, options = {}, sendEventRaw) {
       }, (e) => { /* suppress sub-events */ });
 
       // 5b. Pre-score images
-      sendEvent({ type: 'progress', step: 'gauntlet_prescore', message: `Frame ${frameNum}: Pre-scoring images...` });
+      sendEvent({ type: 'progress', step: 'gauntlet_prescore', message: `LP ${frameNum} of ${totalFrames} — Pre-scoring images...` });
 
       const prescoreResult = await preScoreAndRetryImages(
         imageSlots,
@@ -579,7 +579,7 @@ export async function runGauntlet(projectId, options = {}, sendEventRaw) {
       });
 
       // 5d. Generate LP with pre-generated images + cached template
-      sendEvent({ type: 'progress', step: 'gauntlet_generate', message: `Frame ${frameNum}: Generating LP copy + HTML...` });
+      sendEvent({ type: 'progress', step: 'gauntlet_generate', message: `LP ${frameNum} of ${totalFrames} — Generating copy + HTML...` });
 
       let lpResult;
       let attempt = 0;
@@ -653,7 +653,7 @@ export async function runGauntlet(projectId, options = {}, sendEventRaw) {
         });
 
         // 5f. Score the LP
-        sendEvent({ type: 'progress', step: 'gauntlet_scoring', message: `Frame ${frameNum}: Scoring LP...` });
+        sendEvent({ type: 'progress', step: 'gauntlet_scoring', message: `LP ${frameNum} of ${totalFrames} — Scoring...` });
 
         let scoreResult;
         try {
@@ -674,7 +674,7 @@ export async function runGauntlet(projectId, options = {}, sendEventRaw) {
         sendEvent({
           type: 'progress',
           step: 'gauntlet_score_result',
-          message: `Frame ${frameNum}: Score ${scoreResult.score}/10${hasFatalFlaws ? ` (${scoreResult.fatal_flaws.length} fatal flaw${scoreResult.fatal_flaws.length > 1 ? 's' : ''})` : ''}`,
+          message: `LP ${frameNum} of ${totalFrames} — Score ${scoreResult.score}/10${hasFatalFlaws ? ` (${scoreResult.fatal_flaws.length} fatal flaw${scoreResult.fatal_flaws.length > 1 ? 's' : ''})` : ''}`,
         });
 
         // Check pass
@@ -691,7 +691,7 @@ export async function runGauntlet(projectId, options = {}, sendEventRaw) {
           );
 
           if (imageFlaws.length > 0 && attempt <= maxLPRetries) {
-            sendEvent({ type: 'progress', step: 'gauntlet_image_retry', message: `Frame ${frameNum}: Regenerating ${imageFlaws.length} flagged image(s)...` });
+            sendEvent({ type: 'progress', step: 'gauntlet_image_retry', message: `LP ${frameNum} of ${totalFrames} — Regenerating ${imageFlaws.length} flagged image(s)...` });
 
             const { html: fixedHtml, regeneratedCount } = await regenerateFailedImages(
               lpResult.assembledHtml,
@@ -731,7 +731,7 @@ export async function runGauntlet(projectId, options = {}, sendEventRaw) {
 
         // Full retry on next iteration
         if (attempt <= maxLPRetries) {
-          sendEvent({ type: 'progress', step: 'gauntlet_full_retry', message: `Frame ${frameNum}: Full regeneration (attempt ${attempt + 1})...` });
+          sendEvent({ type: 'progress', step: 'gauntlet_full_retry', message: `LP ${frameNum} of ${totalFrames} — Full regeneration (attempt ${attempt + 1})...` });
           await updateLandingPage(lpId, { gauntlet_retry_type: 'full' });
         }
       }
@@ -755,7 +755,19 @@ export async function runGauntlet(projectId, options = {}, sendEventRaw) {
         })),
         source: 'gauntlet',
         checked_at: new Date().toISOString(),
-      } : null;
+      } : {
+        // Fallback when scoring failed or never ran
+        passed: passed,
+        score: passed ? 60 : 0,
+        summary: passed
+          ? 'Scoring unavailable — LP passed on generation quality'
+          : `LP failed after ${frameResult.attempts || 0} attempt(s)`,
+        categories: null,
+        issues: [],
+        source: 'gauntlet',
+        scoring_error: true,
+        checked_at: new Date().toISOString(),
+      };
 
       await updateLandingPage(lpId, {
         gauntlet_score: lastScore?.score ?? null,
@@ -763,17 +775,15 @@ export async function runGauntlet(projectId, options = {}, sendEventRaw) {
         gauntlet_status: passed ? 'passed' : 'failed',
         gauntlet_image_prescore_attempts: frameResult.imagePrescoreAttempts,
         generation_duration_ms: frameDurationMs,
-        ...(qaEquivalent ? {
-          qa_status: passed ? 'passed' : 'failed',
-          qa_score: qaEquivalent.score,
-          qa_report: JSON.stringify(qaEquivalent),
-          qa_issues_count: qaEquivalent.issues.length,
-        } : {}),
+        qa_status: passed ? 'passed' : 'failed',
+        qa_score: qaEquivalent.score,
+        qa_report: JSON.stringify(qaEquivalent),
+        qa_issues_count: qaEquivalent.issues.length,
       });
 
       // 5i. Publish if passed and not dry run
       if (passed && !dryRun) {
-        sendEvent({ type: 'progress', step: 'gauntlet_publishing', message: `Frame ${frameNum}: Publishing to Shopify...` });
+        sendEvent({ type: 'progress', step: 'gauntlet_publishing', message: `LP ${frameNum} of ${totalFrames} — Publishing to Shopify...` });
 
         try {
           const { publishResult, smokeResult, verified } = await publishAndSmokeTest(lpId, projectId, {
@@ -787,7 +797,7 @@ export async function runGauntlet(projectId, options = {}, sendEventRaw) {
           sendEvent({
             type: 'progress',
             step: 'gauntlet_published',
-            message: `Frame ${frameNum}: ${smokeOk ? 'Published successfully' : 'Smoke test failed'}`,
+            message: `LP ${frameNum} of ${totalFrames} — ${smokeOk ? 'Published successfully' : 'Smoke test failed'}`,
           });
         } catch (pubErr) {
           console.error(`[Gauntlet] Publish failed for frame ${frameNum}:`, pubErr.message);
@@ -811,7 +821,7 @@ export async function runGauntlet(projectId, options = {}, sendEventRaw) {
     sendEvent({
       type: 'progress',
       step: 'gauntlet_frame_done',
-      message: `Frame ${frameNum}/${totalFrames} complete: ${frameResult.status}${frameResult.score != null ? ` (${frameResult.score}/10)` : ''}`,
+      message: `LP ${frameNum} of ${totalFrames} complete: ${frameResult.status}${frameResult.score != null ? ` (${frameResult.score}/10)` : ''}`,
       gauntlet: { frame: frameNum, total: totalFrames, result: frameResult },
     });
   }
