@@ -578,6 +578,16 @@ function DirectorTab({ onRefresh }) {
     }
   };
 
+  const handleToggleAllLP = async (lpEnabled) => {
+    const active = angles.filter(a => a.status === 'active');
+    // Optimistic update
+    setAngles(prev => prev.map(a => a.status === 'active' ? { ...a, lp_enabled: lpEnabled } : a));
+    // Fire all API calls in parallel
+    await Promise.allSettled(
+      active.map(a => api.updateConductorAngle(selectedProject, a.externalId, { lp_enabled: lpEnabled }))
+    );
+  };
+
   // --- Export angles as markdown ---
   const handleDownloadAngles = () => {
     if (angles.length === 0) return;
@@ -865,7 +875,23 @@ function DirectorTab({ onRefresh }) {
           {/* Active angles */}
           {activeAngles.length > 0 && (
             <div className="mb-4">
-              <p className="text-[10px] text-textlight font-medium uppercase tracking-wider mb-2">Active</p>
+              <div className="flex items-center justify-between mb-2">
+                <p className="text-[10px] text-textlight font-medium uppercase tracking-wider">Active</p>
+                <div className="flex items-center gap-2">
+                  <span className="text-[10px] text-textmid">Landing Pages</span>
+                  <button
+                    onClick={() => handleToggleAllLP(!activeAngles.every(a => a.lp_enabled))}
+                    title={activeAngles.every(a => a.lp_enabled) ? 'Disable LPs for all angles' : 'Enable LPs for all angles'}
+                    className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
+                      activeAngles.every(a => a.lp_enabled) ? 'bg-teal' : 'bg-gray-200'
+                    }`}
+                  >
+                    <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${
+                      activeAngles.every(a => a.lp_enabled) ? 'translate-x-[18px]' : 'translate-x-[3px]'
+                    }`} />
+                  </button>
+                </div>
+              </div>
               <div className="space-y-2">
                 {activeAngles.map(a => (
                   <AngleCard key={a.externalId} angle={a} playbooks={playbooks} onStatusChange={handleAngleStatusChange} onToggleFocus={handleToggleFocus} onToggleLPEnabled={handleToggleLPEnabled} />
