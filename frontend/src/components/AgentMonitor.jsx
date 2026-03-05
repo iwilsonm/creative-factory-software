@@ -878,7 +878,7 @@ function DirectorTab({ onRefresh }) {
               <div className="flex items-center justify-between mb-2">
                 <p className="text-[10px] text-textlight font-medium uppercase tracking-wider">Active</p>
                 <div className="flex items-center gap-2">
-                  <span className="text-[10px] text-textmid">Landing Pages</span>
+                  <span className="text-[10px] text-textmid">Generate landing pages for all angles</span>
                   <button
                     onClick={() => handleToggleAllLP(!activeAngles.every(a => a.lp_enabled))}
                     title={activeAngles.every(a => a.lp_enabled) ? 'Disable LPs for all angles' : 'Enable LPs for all angles'}
@@ -1241,7 +1241,7 @@ function AngleCard({ angle, playbooks, onStatusChange, onToggleFocus, onToggleLP
       )}
       {onToggleLPEnabled && angle.status === 'active' && (
         <div className="flex items-center justify-between mt-2 pt-2 border-t border-black/5">
-          <span className="text-[10px] text-textmid">Landing Pages</span>
+          <span className="text-[10px] text-textmid">Generate landing pages</span>
           <button
             onClick={() => onToggleLPEnabled(angle.externalId, !angle.lp_enabled)}
             title={angle.lp_enabled ? 'Disable LP generation for this angle' : 'Enable LP generation for this angle'}
