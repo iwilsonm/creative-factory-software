@@ -403,6 +403,7 @@ export default function ProjectDetail() {
             {[
               { id: 'general', label: 'General' },
               { id: 'docs', label: 'Foundational Docs' },
+              { id: 'filter', label: 'Creative Filter' },
               { id: 'templates', label: 'Template Library' },
             ].map(st => (
               <button
@@ -926,8 +927,6 @@ export default function ProjectDetail() {
             ) : null}
           </div>
 
-          {/* Dacia Creative Filter Settings (Recursive Agent #2) */}
-          <CreativeFilterSettings projectId={id} project={project} onSave={loadProject} />
           </>
           )}
 
@@ -935,6 +934,9 @@ export default function ProjectDetail() {
             <ErrorBoundary level="tab" key="docs">
               <FoundationalDocs projectId={id} projectStatus={project.status} />
             </ErrorBoundary>
+          )}
+          {settingsSubTab === 'filter' && (
+            <CreativeFilterSettings projectId={id} project={project} onSave={loadProject} />
           )}
           {settingsSubTab === 'templates' && (
             <ErrorBoundary level="tab" key="templates">
