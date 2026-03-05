@@ -35,7 +35,7 @@ async function getClient() {
  * Extract the first complete JSON object from a text string.
  * Handles cases where the model wraps JSON in markdown fences or adds prose.
  */
-function extractJSON(text) {
+export function extractJSON(text) {
   // Try direct parse first
   try { return JSON.parse(text.trim()); } catch {}
 

@@ -29,7 +29,7 @@ import {
   regenerateFailedImages,
   NARRATIVE_FRAMES,
 } from './lpGenerator.js';
-import { getCachedImageContext } from './lpGenerator.js';
+import { getCachedImageContext, getFoundationalDocs } from './lpGenerator.js';
 import { publishAndSmokeTest } from './lpPublisher.js';
 import { uploadBuffer, downloadToBuffer } from '../convexClient.js';
 
@@ -488,15 +488,10 @@ export async function runGauntlet(projectId, options = {}, sendEvent) {
 
   sendEvent({ type: 'progress', step: 'gauntlet_config', message: `Template: ${template.name || 'unnamed'}, threshold: ${scoreThreshold}/10, dry run: ${dryRun}` });
 
-  // 2. Get cached image context
+  // 2. Get cached image context (using getFoundationalDocs which returns content strings + latest version)
   let imageContext;
   try {
-    const { getDocsByProject } = await import('../convexClient.js');
-    const docs = await getDocsByProject(projectId);
-    const foundationalDocs = {};
-    for (const doc of docs) {
-      foundationalDocs[doc.doc_type] = doc;
-    }
+    const foundationalDocs = await getFoundationalDocs(projectId);
     imageContext = await getCachedImageContext(projectId, foundationalDocs, project);
   } catch (err) {
     console.warn('[Gauntlet] Failed to get image context:', err.message);

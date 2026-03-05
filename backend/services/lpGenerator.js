@@ -11,7 +11,7 @@
  * Uses the same Anthropic wrapper (services/anthropic.js) as the rest of the platform.
  */
 
-import { chat, chatWithImage, chatWithMultipleImages } from './anthropic.js';
+import { chat, chatWithImage, chatWithMultipleImages, extractJSON } from './anthropic.js';
 import { generateImage } from './gemini.js';
 import crypto from 'crypto';
 import { getDocsByProject, uploadBuffer, getStorageUrl, getLPTemplate, getProject, downloadToBuffer, getLPAgentConfig, upsertLPAgentConfig } from '../convexClient.js';
@@ -217,7 +217,7 @@ Important:
  * Returns an object with { research, avatar, offer_brief, necessary_beliefs }.
  * Only returns approved docs (latest version of each type).
  */
-async function getFoundationalDocs(projectId) {
+export async function getFoundationalDocs(projectId) {
   const docs = await getDocsByProject(projectId);
 
   // Group by doc_type, return only latest version of each
@@ -3873,12 +3873,12 @@ Pass ONLY if ALL 5 checks pass. Be strict — a single failed check means passed
       }
     );
 
-    try {
-      return JSON.parse(response);
-    } catch {
-      // If response isn't valid JSON, treat as failed
-      return { passed: false, issues: ['Failed to parse scoring response'], reasoning: response.slice(0, 200) };
+    const parsed = extractJSON(response);
+    if (parsed && typeof parsed.passed === 'boolean') {
+      return parsed;
     }
+    // extractJSON returned null or result has no passed field — treat as failed
+    return { passed: false, issues: ['Failed to parse scoring response'], reasoning: (response || '').slice(0, 200) };
   } catch (err) {
     console.error('[Gauntlet] Image pre-score error:', err.message);
     return { passed: false, issues: [`Scoring error: ${err.message}`], reasoning: 'Scoring failed' };
@@ -4101,11 +4101,9 @@ RESPOND WITH JSON ONLY:
       }
     );
 
-    let scoreResult;
-    try {
-      scoreResult = JSON.parse(response);
-    } catch {
-      scoreResult = { score: 0, fatal_flaws: [{ type: 'parse_error', description: 'Failed to parse scoring response' }], reasoning: response.slice(0, 200) };
+    let scoreResult = extractJSON(response);
+    if (!scoreResult || typeof scoreResult.score !== 'number') {
+      scoreResult = { score: 0, fatal_flaws: [{ type: 'parse_error', description: 'Failed to parse scoring response' }], reasoning: (response || '').slice(0, 200) };
     }
 
     return { ...scoreResult, screenshotBuffer };
