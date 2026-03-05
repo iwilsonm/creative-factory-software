@@ -633,7 +633,7 @@ export async function runGauntlet(projectId, options = {}, sendEventRaw) {
         // Save LP content + generate slug
         const lpSlugSource = extractHeadlineForSlug({
           copy_sections: JSON.stringify(lpResult.copySections),
-          angle,
+          angle: frameAngle,
           name: lpName,
         });
         const lpSlug = generateSlug(lpSlugSource);
@@ -697,7 +697,7 @@ export async function runGauntlet(projectId, options = {}, sendEventRaw) {
               lpResult.assembledHtml,
               scoreResult.fatal_flaws,
               lpResult.imageSlots || imageSlots,
-              { angle, productImageData, imageContext },
+              { angle: frameAngle, productImageData, imageContext },
               projectId,
               sendEvent,
             );
