@@ -12,6 +12,7 @@ import {
 import { withRetry } from '../services/retry.js';
 import { generateAndValidateLP, NARRATIVE_FRAMES } from '../services/lpGenerator.js';
 import { runGauntlet } from '../services/lpAutoGenerator.js';
+import { getProjectProgress } from '../services/gauntletProgress.js';
 import { uploadBuffer } from '../convexClient.js';
 import { publishAndSmokeTest } from '../services/lpPublisher.js';
 import { createSSEStream } from '../utils/sseHelper.js';
@@ -423,6 +424,18 @@ router.get('/:id/lp-agent/status', async (req, res) => {
     console.error('[LP Agent] Status error:', err.message);
     res.status(500).json({ error: err.message });
   }
+});
+
+// ── Gauntlet Progress (polling) ──
+
+/**
+ * GET /api/projects/:id/lp-agent/gauntlet-progress
+ * Returns current gauntlet progress from in-memory store.
+ * Lightweight — no DB calls, safe to poll every 3s.
+ */
+router.get('/:id/lp-agent/gauntlet-progress', (req, res) => {
+  const progress = getProjectProgress(req.params.id);
+  res.json({ progress: progress || null });
 });
 
 // ── Gauntlet Test ──

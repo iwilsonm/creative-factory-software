@@ -4,6 +4,7 @@ import { api } from '../api';
 import { useToast } from './Toast';
 import LPTemplateManager from './LPTemplateManager';
 import PipelineProgress from './PipelineProgress';
+import { usePolling } from '../hooks/usePolling';
 
 const NARRATIVE_FRAMES = [
   { id: 'testimonial', name: 'Testimonial Journey' },
@@ -37,6 +38,7 @@ export default function LPAgentSettings({ projectId }) {
   const [gauntletReport, setGauntletReport] = useState(null);
   const gauntletStartRef = useRef(null);
   const gauntletAbortRef = useRef(null);
+  const gauntletSSEActive = useRef(false); // true when SSE stream is connected
 
   // Recent generations
   const [recentGenerations, setRecentGenerations] = useState([]);
@@ -72,6 +74,43 @@ export default function LPAgentSettings({ projectId }) {
   }, [projectId]);
 
   useEffect(() => { loadData(); }, [loadData]);
+
+  // ── Mount-time recovery: check for active gauntlet progress ──
+  useEffect(() => {
+    if (!projectId) return;
+    api.getGauntletProgress(projectId).then(progress => {
+      if (progress) {
+        setGauntletRunning(true);
+        setGauntletPhase(progress.message || progress.step || '');
+        setGauntletProgress(progress.percent || 0);
+        if (!gauntletStartRef.current) gauntletStartRef.current = progress.startedAt;
+      }
+    }).catch(() => {});
+  }, [projectId]);
+
+  // ── Polling fallback: update progress when gauntlet running but no SSE ──
+  usePolling(
+    async () => {
+      const progress = await api.getGauntletProgress(projectId);
+      if (progress) {
+        setGauntletPhase(progress.message || progress.step || '');
+        setGauntletProgress(prev => Math.max(prev, progress.percent || 0));
+      } else {
+        // Generation finished while we were polling
+        setGauntletRunning(false);
+        setGauntletProgress(100);
+        setTimeout(() => {
+          setGauntletProgress(0);
+          setGauntletPhase('');
+          gauntletStartRef.current = null;
+        }, 1500);
+        loadData();
+        refreshRecentGenerations();
+      }
+    },
+    3000,
+    gauntletRunning && !gauntletSSEActive.current
+  );
 
   // ── Debounced config save ──
   const handleSaveConfig = useCallback((updates) => {
@@ -133,6 +172,7 @@ export default function LPAgentSettings({ projectId }) {
     setGauntletProgress(0);
     setGauntletReport(null);
     gauntletStartRef.current = Date.now();
+    gauntletSSEActive.current = true;
 
     const { abort, done } = api.runGauntletTest(projectId, { dry_run: dryRun }, (event) => {
       if (event.type === 'progress') {
@@ -152,6 +192,7 @@ export default function LPAgentSettings({ projectId }) {
         }
         if (event.step === 'gauntlet_complete') setGauntletProgress(100);
       } else if (event.type === 'complete') {
+        gauntletSSEActive.current = false;
         setGauntletProgress(100);
         setGauntletReport(event.report);
         setTimeout(() => {
@@ -163,6 +204,7 @@ export default function LPAgentSettings({ projectId }) {
           refreshRecentGenerations();
         }, 500);
       } else if (event.type === 'error') {
+        gauntletSSEActive.current = false;
         setGauntletRunning(false);
         setGauntletPhase('');
         setGauntletProgress(0);
@@ -173,6 +215,7 @@ export default function LPAgentSettings({ projectId }) {
 
     gauntletAbortRef.current = abort;
     done.catch((err) => {
+      gauntletSSEActive.current = false;
       if (err.name !== 'AbortError') {
         setGauntletRunning(false);
         setGauntletPhase('');

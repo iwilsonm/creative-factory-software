@@ -31,6 +31,7 @@ import {
 import { getCachedImageContext, getFoundationalDocs } from './lpGenerator.js';
 import { publishAndSmokeTest } from './lpPublisher.js';
 import { uploadBuffer, downloadToBuffer } from '../convexClient.js';
+import { setProgress, clearProgress } from './gauntletProgress.js';
 
 /**
  * Trigger LP generation for a batch. Fire-and-forget — never throws.
@@ -359,11 +360,43 @@ export async function retryLP(batchJobId, which, { switchTemplate, fullRegenerat
  * @param {(event: object) => void} sendEvent - SSE event callback
  * @returns {Promise<object>} Report with per-frame results + summary
  */
-export async function runGauntlet(projectId, options = {}, sendEvent) {
+export async function runGauntlet(projectId, options = {}, sendEventRaw) {
   const { dryRun = false } = options;
   const gauntletBatchId = uuidv4();
   const startTime = Date.now();
   const batchStartedAt = new Date().toISOString();
+
+  // Sub-step progress weights (same as frontend mapping)
+  const SUB_STEPS = {
+    'gauntlet_init': 0, 'gauntlet_config': 0, 'gauntlet_frame_start': 0,
+    'gauntlet_images': 0.1, 'gauntlet_prescore': 0.3, 'gauntlet_generate': 0.5,
+    'gauntlet_template_cached': 0.55, 'gauntlet_scoring': 0.8, 'gauntlet_score_result': 0.85,
+    'gauntlet_image_retry': 0.85, 'gauntlet_full_retry': 0.5, 'gauntlet_publishing': 0.9,
+    'gauntlet_published': 0.95, 'gauntlet_frame_done': 1, 'gauntlet_complete': 1,
+  };
+
+  // Wrap sendEvent to also write to the in-memory progress store
+  const sendEvent = (data) => {
+    sendEventRaw(data);
+    if (data.type === 'progress') {
+      let percent = 0;
+      if (data.step === 'gauntlet_complete') {
+        percent = 100;
+      } else if (data.gauntlet?.frame && data.gauntlet?.total) {
+        const frameBase = ((data.gauntlet.frame - 1) / data.gauntlet.total) * 100;
+        const frameChunk = 100 / data.gauntlet.total;
+        const sub = SUB_STEPS[data.step] ?? 0.5;
+        percent = Math.round(frameBase + sub * frameChunk);
+      } else {
+        percent = SUB_STEPS[data.step] != null ? Math.round(SUB_STEPS[data.step] * 5) : 0;
+      }
+      setProgress(gauntletBatchId, projectId, {
+        step: data.step || '',
+        message: data.message || '',
+        percent,
+      });
+    }
+  };
 
   sendEvent({ type: 'progress', step: 'gauntlet_init', message: 'Initializing LP generation pipeline...' });
 
@@ -779,6 +812,9 @@ export async function runGauntlet(projectId, options = {}, sendEvent) {
     step: 'gauntlet_complete',
     message: `Generation complete: ${passedFrames.length}/${totalFrames} passed, ${publishedFrames.length} published, avg score ${report.summary.avgScore}/10`,
   });
+
+  // Clear in-memory progress — generation is done
+  clearProgress(gauntletBatchId);
 
   return report;
 }

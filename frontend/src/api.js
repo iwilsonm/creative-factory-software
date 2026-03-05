@@ -322,6 +322,7 @@ export const api = {
   runGauntletTest: (projectId, body, onEvent) =>
     streamSSEWithBody(`/projects/${projectId}/lp-agent/gauntlet-test`, body, onEvent),
   getLPAgentStatus: (projectId) => request(`/projects/${projectId}/lp-agent/status`),
+  getGauntletProgress: (projectId) => request(`/projects/${projectId}/lp-agent/gauntlet-progress`).then(r => r.progress),
 
   getConductorAngles: (projectId) => request(`/conductor/angles/${projectId}`),
   createConductorAngle: (projectId, data) => request(`/conductor/angles/${projectId}`, { method: 'POST', body: JSON.stringify(data) }),

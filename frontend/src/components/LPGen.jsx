@@ -4,6 +4,7 @@ import { api } from '../api';
 import InfoTooltip from './InfoTooltip';
 import PipelineProgress from './PipelineProgress';
 import { useToast } from './Toast';
+import { usePolling } from '../hooks/usePolling';
 
 // ─── Section type labels for display ────────────────────────────────────────
 const SECTION_LABELS = {
@@ -1514,6 +1515,31 @@ export default function LPGen({ projectId, project }) {
   const [expandedBatches, setExpandedBatches] = useState({});
   const deepLinkHandled = useRef(false);
 
+  // Gauntlet (batch generation) progress from server polling
+  const [gauntletProgress, setGauntletProgress] = useState(null); // { step, message, percent, startedAt }
+  const hasGeneratingBatch = useMemo(
+    () => pages.some(p => p.status === 'generating' && p.gauntlet_batch_id),
+    [pages]
+  );
+  usePolling(
+    async () => {
+      try {
+        const progress = await api.getGauntletProgress(projectId);
+        if (progress) {
+          setGauntletProgress({ step: progress.step, message: progress.message, percent: progress.percent, startedAt: progress.startedAt });
+        } else {
+          // Generation finished — clear progress and reload pages
+          if (gauntletProgress) {
+            setGauntletProgress(null);
+            loadPages();
+          }
+        }
+      } catch { /* ignore */ }
+    },
+    3000,
+    hasGeneratingBatch
+  );
+
   // Docs readiness
   const [docsReady, setDocsReady] = useState(null); // null = loading, object = result
 
@@ -2261,11 +2287,19 @@ export default function LPGen({ projectId, project }) {
                               LP Batch — {batchPages.length} landing page{batchPages.length !== 1 ? 's' : ''}
                               {durationStr && <span className="text-textlight font-normal"> — Generated in {durationStr}</span>}
                             </h3>
-                            {!allDone && (
+                            {!allDone && gauntletProgress ? (
+                              <div className="flex-1 max-w-xs ml-2">
+                                <PipelineProgress
+                                  progress={gauntletProgress.percent}
+                                  message={gauntletProgress.message}
+                                  startTime={gauntletProgress.startedAt}
+                                />
+                              </div>
+                            ) : !allDone ? (
                               <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-navy/10 text-navy animate-pulse">
                                 Generating...
                               </span>
-                            )}
+                            ) : null}
                           </div>
                           <div className="flex items-center gap-3 mt-1">
                             <span className="text-[11px] text-textlight">{timeRange}</span>
