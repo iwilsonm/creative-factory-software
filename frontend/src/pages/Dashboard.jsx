@@ -4,7 +4,6 @@ import Layout from '../components/Layout';
 import CostSummaryCards from '../components/CostSummaryCards';
 import CostBarChart from '../components/CostBarChart';
 import InfoTooltip from '../components/InfoTooltip';
-import AgentMonitor from '../components/AgentMonitor';
 
 // ─── Roadmap / To-Do Widget ───────────────────────────────────────────────────
 const AUTHOR_META = {
@@ -594,10 +593,7 @@ export default function Dashboard() {
         </div>
       </div>
 
-      {/* 3. Agent Monitor */}
-      <AgentMonitor />
-
-      {/* 4. Roadmap / To-Do List */}
+      {/* 3. Roadmap / To-Do List */}
       <TodoWidget />
 
     </Layout>

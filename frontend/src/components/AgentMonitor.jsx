@@ -274,7 +274,7 @@ function PipelineOverview({ data, fixerData, filterData }) {
 }
 
 // =============================================
-// Gauntlet Stats Panel
+// LP Generation Stats Panel
 // =============================================
 function GauntletStatsPanel({ projectId }) {
   const [data, setData] = useState(null);
@@ -289,7 +289,7 @@ function GauntletStatsPanel({ projectId }) {
       .finally(() => setLoading(false));
   }, [projectId]);
 
-  if (loading) return <div className="py-2 text-center text-[11px] text-textmid">Loading gauntlet stats...</div>;
+  if (loading) return <div className="py-2 text-center text-[11px] text-textmid">Loading LP stats...</div>;
   if (!data?.hasData) return null;
 
   const s = data.stats;
@@ -303,7 +303,7 @@ function GauntletStatsPanel({ projectId }) {
 
   return (
     <div className="card p-4 space-y-3 mb-4">
-      <h3 className="text-[13px] font-semibold text-navy">Gauntlet Stats</h3>
+      <h3 className="text-[13px] font-semibold text-navy">LP Generation Stats</h3>
 
       {/* Summary grid */}
       <div className="grid grid-cols-4 gap-3">

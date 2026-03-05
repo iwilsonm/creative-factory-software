@@ -450,6 +450,8 @@ export default defineSchema({
     gauntlet_score_reasoning: v.optional(v.string()), // Full scoring reasoning
     gauntlet_status: v.optional(v.string()),          // "pending" | "scoring" | "passed" | "failed" | "retrying"
     gauntlet_image_prescore_attempts: v.optional(v.float64()), // Total image prescore retries
+    gauntlet_batch_started_at: v.optional(v.string()),  // ISO timestamp when batch run began
+    gauntlet_batch_completed_at: v.optional(v.string()), // ISO timestamp when batch run finished
     created_at: v.string(),
     updated_at: v.string(),
   })
@@ -634,8 +636,8 @@ export default defineSchema({
     // Cached image context (LLM-extracted from foundational docs, JSON strings)
     cached_product_visual_context: v.optional(v.string()),  // JSON: { sourceHash, extractedAt, data }
     cached_avatar_visual_context: v.optional(v.string()),   // JSON: { sourceHash, extractedAt, data }
-    // Gauntlet config
-    gauntlet_enabled: v.optional(v.boolean()),              // Enable LP Gauntlet (5 frames per run)
+    // Generation pipeline config
+    lp_frame_count: v.optional(v.float64()),                // DEPRECATED — replaced by default_narrative_frames
     gauntlet_score_threshold: v.optional(v.float64()),      // Min score to pass (default 6)
     gauntlet_max_image_retries: v.optional(v.float64()),    // Max image prescore retries (default 3)
     gauntlet_max_lp_retries: v.optional(v.float64()),       // Max full LP retries (default 2)

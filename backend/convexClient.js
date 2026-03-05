@@ -1079,7 +1079,7 @@ export async function getLandingPage(externalId) {
   return await queryWithRetry(api.landingPages.getByExternalId, { externalId });
 }
 
-export async function createLandingPage({ id, project_id, name, angle, word_count, additional_direction, swipe_text, swipe_filename, swipe_url, swipe_screenshot_storageId, status, auto_generated, batch_job_id, narrative_frame, template_id, gauntlet_batch_id, gauntlet_frame, gauntlet_attempt, gauntlet_status }) {
+export async function createLandingPage({ id, project_id, name, angle, word_count, additional_direction, swipe_text, swipe_filename, swipe_url, swipe_screenshot_storageId, status, auto_generated, batch_job_id, narrative_frame, template_id, gauntlet_batch_id, gauntlet_frame, gauntlet_attempt, gauntlet_status, gauntlet_batch_started_at, gauntlet_batch_completed_at }) {
   await mutationWithRetry(api.landingPages.create, {
     externalId: id,
     project_id,
@@ -1100,6 +1100,8 @@ export async function createLandingPage({ id, project_id, name, angle, word_coun
     gauntlet_frame: gauntlet_frame || undefined,
     gauntlet_attempt: gauntlet_attempt || undefined,
     gauntlet_status: gauntlet_status || undefined,
+    gauntlet_batch_started_at: gauntlet_batch_started_at || undefined,
+    gauntlet_batch_completed_at: gauntlet_batch_completed_at || undefined,
   });
 }
 

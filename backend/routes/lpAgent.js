@@ -46,6 +46,7 @@ router.put('/:id/lp-agent/config', async (req, res) => {
       'use_product_reference_images', 'lifestyle_image_style',
       'default_author_name', 'default_author_title', 'default_warning_text',
       'visual_qa_enabled',
+      'gauntlet_score_threshold', 'gauntlet_max_image_retries', 'gauntlet_max_lp_retries',
     ];
     const fields = {};
     for (const key of allowedFields) {

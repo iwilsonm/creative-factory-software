@@ -3,10 +3,9 @@
  *
  * When the Director creates a batch, this service:
  * 1. Checks if LP auto-generation is enabled for the project
- * 2. Selects 2 different templates and 2 different narrative frames
- * 3. Generates LP #1 and LP #2 sequentially (respecting rate limits)
- * 4. Publishes both to Shopify and verifies they're live
- * 5. Updates the batch record with LP IDs, URLs, and statuses
+ * 2. Runs the generation pipeline (1-5 narrative frames with scoring + retries)
+ * 3. Publishes passing LPs to Shopify and verifies they're live
+ * 4. Updates the batch record with LP IDs, URLs, and statuses
  *
  * All errors are caught — failures set status to 'failed' + error, never throw to caller.
  */
@@ -58,151 +57,56 @@ export async function triggerLPGeneration(batchJobId, projectId, angle) {
       return;
     }
 
-    // 2b. If gauntlet enabled, use Gauntlet instead of legacy 2-LP flow
-    if (config.gauntlet_enabled) {
-      console.log(`[LPAuto] Gauntlet enabled for project ${projectId.slice(0, 8)} — running gauntlet for batch ${batchJobId.slice(0, 8)}`);
-      try {
-        await updateBatchJob(batchJobId, {
-          lp_primary_status: 'generating',
-          lp_secondary_status: 'generating',
-        });
+    // 3. Run the generation pipeline
+    console.log(`[LPAuto] Running LP generation for project ${projectId.slice(0, 8)}, batch ${batchJobId.slice(0, 8)}`);
+    try {
+      await updateBatchJob(batchJobId, {
+        lp_primary_status: 'generating',
+        lp_secondary_status: 'generating',
+      });
 
-        const makeLogger = (event) => {
-          if (event.type === 'progress') {
-            console.log(`[LPAuto:Gauntlet] ${event.message}`);
-          }
-        };
-
-        const report = await runGauntlet(projectId, { dryRun: false }, makeLogger);
-
-        // Store gauntlet LP URLs on the batch for filter.sh to pick up
-        if (report.lpUrls && report.lpUrls.length > 0) {
-          const updates = {
-            gauntlet_lp_urls: JSON.stringify(report.lpUrls),
-            lp_primary_url: report.lpUrls[0]?.url || null,
-            lp_primary_status: 'live',
-            lp_primary_id: report.frames[0]?.lpId || null,
-          };
-          if (report.lpUrls.length > 1) {
-            updates.lp_secondary_url = report.lpUrls[1]?.url || null;
-            updates.lp_secondary_status = 'live';
-            updates.lp_secondary_id = report.frames[1]?.lpId || null;
-          } else {
-            updates.lp_secondary_status = 'skipped';
-          }
-          await updateBatchJob(batchJobId, updates);
-        } else {
-          await updateBatchJob(batchJobId, {
-            lp_primary_status: 'failed',
-            lp_primary_error: 'No LPs passed gauntlet scoring',
-            lp_secondary_status: 'failed',
-          });
+      const makeLogger = (event) => {
+        if (event.type === 'progress') {
+          console.log(`[LPAuto] ${event.message}`);
         }
+      };
 
-        console.log(`[LPAuto:Gauntlet] Complete for batch ${batchJobId.slice(0, 8)}: ${report.summary.passed}/5 passed, ${report.summary.published} published`);
-      } catch (gErr) {
-        console.error(`[LPAuto:Gauntlet] Failed for batch ${batchJobId.slice(0, 8)}:`, gErr.message);
+      const report = await runGauntlet(projectId, { dryRun: false }, makeLogger);
+
+      // Store LP URLs on the batch for filter.sh to pick up
+      if (report.lpUrls && report.lpUrls.length > 0) {
+        const updates = {
+          gauntlet_lp_urls: JSON.stringify(report.lpUrls),
+          lp_primary_url: report.lpUrls[0]?.url || null,
+          lp_primary_status: 'live',
+          lp_primary_id: report.frames[0]?.lpId || null,
+        };
+        if (report.lpUrls.length > 1) {
+          updates.lp_secondary_url = report.lpUrls[1]?.url || null;
+          updates.lp_secondary_status = 'live';
+          updates.lp_secondary_id = report.frames[1]?.lpId || null;
+        } else {
+          updates.lp_secondary_status = 'skipped';
+        }
+        await updateBatchJob(batchJobId, updates);
+      } else {
         await updateBatchJob(batchJobId, {
           lp_primary_status: 'failed',
-          lp_primary_error: gErr.message,
+          lp_primary_error: 'No LPs passed scoring threshold',
           lp_secondary_status: 'failed',
-          lp_secondary_error: gErr.message,
         });
       }
-      return;
-    }
 
-    // 3. Select 2 different templates (random, with fallback to reuse if only 1)
-    const shuffledTemplates = [...readyTemplates].sort(() => Math.random() - 0.5);
-    const template1 = shuffledTemplates[0];
-    const template2 = shuffledTemplates.length > 1 ? shuffledTemplates[1] : shuffledTemplates[0];
-
-    // 4. Select narrative frames from enabled set (default: all 5)
-    let enabledFrames = NARRATIVE_FRAMES;
-    if (config.default_narrative_frames) {
-      try {
-        const enabledIds = JSON.parse(config.default_narrative_frames);
-        const filtered = NARRATIVE_FRAMES.filter(f => enabledIds.includes(f.id));
-        if (filtered.length >= 2) enabledFrames = filtered;
-      } catch {}
-    }
-    const shuffledFrames = [...enabledFrames].sort(() => Math.random() - 0.5);
-    const frame1 = shuffledFrames[0];
-    const frame2 = shuffledFrames[1];
-
-    // 5. Update batch with initial LP state
-    await updateBatchJob(batchJobId, {
-      lp_primary_status: 'generating',
-      lp_secondary_status: 'generating',
-      lp_narrative_frames: JSON.stringify([frame1.id, frame2.id]),
-    });
-
-    // Silent progress logger (no SSE — this runs in background)
-    const makeLogger = (label) => (event) => {
-      if (event.type === 'progress') {
-        console.log(`[LPAuto] ${label}: ${event.message}`);
-      }
-    };
-
-    // 6. Generate LP #1 (Primary)
-    console.log(`[LPAuto] Generating primary LP for batch ${batchJobId.slice(0, 8)} (template: ${template1.name}, frame: ${frame1.name})`);
-    try {
-      const primaryResult = await generateAndPublishLP({
-        projectId,
-        batchJobId,
-        angle,
-        template: template1,
-        frame: frame1,
-        label: 'Primary',
-        sendEvent: makeLogger('Primary'),
-        editorialPassEnabled: config.editorial_pass_enabled !== false,
-        useProductReferenceImages: config.use_product_reference_images !== false,
-        agentConfig: config,
-      });
-
-      await updateBatchJob(batchJobId, {
-        lp_primary_id: primaryResult.lpId,
-        lp_primary_url: primaryResult.publishedUrl,
-        lp_primary_status: primaryResult.verified ? 'live' : 'published',
-      });
-    } catch (err) {
-      console.error(`[LPAuto] Primary LP failed for batch ${batchJobId.slice(0, 8)}:`, err.message);
+      console.log(`[LPAuto] Complete for batch ${batchJobId.slice(0, 8)}: ${report.summary.passed}/${report.summary.total} passed, ${report.summary.published} published`);
+    } catch (gErr) {
+      console.error(`[LPAuto] Failed for batch ${batchJobId.slice(0, 8)}:`, gErr.message);
       await updateBatchJob(batchJobId, {
         lp_primary_status: 'failed',
-        lp_primary_error: err.message,
-      });
-    }
-
-    // 7. Generate LP #2 (Secondary) — sequential to respect rate limits
-    console.log(`[LPAuto] Generating secondary LP for batch ${batchJobId.slice(0, 8)} (template: ${template2.name}, frame: ${frame2.name})`);
-    try {
-      const secondaryResult = await generateAndPublishLP({
-        projectId,
-        batchJobId,
-        angle,
-        template: template2,
-        frame: frame2,
-        label: 'Secondary',
-        sendEvent: makeLogger('Secondary'),
-        editorialPassEnabled: config.editorial_pass_enabled !== false,
-        useProductReferenceImages: config.use_product_reference_images !== false,
-        agentConfig: config,
-      });
-
-      await updateBatchJob(batchJobId, {
-        lp_secondary_id: secondaryResult.lpId,
-        lp_secondary_url: secondaryResult.publishedUrl,
-        lp_secondary_status: secondaryResult.verified ? 'live' : 'published',
-      });
-    } catch (err) {
-      console.error(`[LPAuto] Secondary LP failed for batch ${batchJobId.slice(0, 8)}:`, err.message);
-      await updateBatchJob(batchJobId, {
+        lp_primary_error: gErr.message,
         lp_secondary_status: 'failed',
-        lp_secondary_error: err.message,
+        lp_secondary_error: gErr.message,
       });
     }
-
-    console.log(`[LPAuto] LP generation complete for batch ${batchJobId.slice(0, 8)}`);
   } catch (err) {
     // Top-level catch — never propagate errors to caller
     console.error(`[LPAuto] Fatal error for batch ${batchJobId.slice(0, 8)}:`, err.message);
@@ -447,7 +351,7 @@ export async function retryLP(batchJobId, which, { switchTemplate, fullRegenerat
 // ─── LP Gauntlet ──────────────────────────────────────────────────────────────
 
 /**
- * Run the LP Gauntlet — generate 5 landing pages (one per narrative frame)
+ * Run the LP generation pipeline — generate landing pages (one per narrative frame)
  * with image pre-scoring, template caching, full-page scoring, and targeted retries.
  *
  * @param {string} projectId
@@ -459,8 +363,9 @@ export async function runGauntlet(projectId, options = {}, sendEvent) {
   const { dryRun = false } = options;
   const gauntletBatchId = uuidv4();
   const startTime = Date.now();
+  const batchStartedAt = new Date().toISOString();
 
-  sendEvent({ type: 'progress', step: 'gauntlet_init', message: 'Initializing LP Gauntlet...' });
+  sendEvent({ type: 'progress', step: 'gauntlet_init', message: 'Initializing LP generation pipeline...' });
 
   // 1. Load config, templates, project
   const config = await getLPAgentConfig(projectId);
@@ -475,10 +380,20 @@ export async function runGauntlet(projectId, options = {}, sendEvent) {
   const templates = await getLPTemplatesByProject(projectId);
   const readyTemplates = templates.filter(t => t.status === 'ready');
   if (readyTemplates.length === 0) {
-    throw new Error('No ready templates available for Gauntlet');
+    throw new Error('No ready templates available');
   }
 
-  // Pick a random template (reuse across all 5 frames)
+  // Determine frames to run from config
+  let framesToRun = NARRATIVE_FRAMES;
+  if (config.default_narrative_frames) {
+    try {
+      const enabledIds = JSON.parse(config.default_narrative_frames);
+      const filtered = NARRATIVE_FRAMES.filter(f => enabledIds.includes(f.id));
+      if (filtered.length >= 1) framesToRun = filtered;
+    } catch {}
+  }
+
+  // Pick a random template (reuse across all frames)
   const template = readyTemplates[Math.floor(Math.random() * readyTemplates.length)];
 
   const project = await getProject(projectId);
@@ -530,17 +445,18 @@ export async function runGauntlet(projectId, options = {}, sendEvent) {
   let cachedHtmlTemplate = null;
   let totalImagePrescoreAttempts = 0;
 
-  // 5. Loop through all 5 narrative frames
-  for (let frameIndex = 0; frameIndex < NARRATIVE_FRAMES.length; frameIndex++) {
-    const frame = NARRATIVE_FRAMES[frameIndex];
+  // 5. Loop through selected narrative frames
+  const totalFrames = framesToRun.length;
+  for (let frameIndex = 0; frameIndex < totalFrames; frameIndex++) {
+    const frame = framesToRun[frameIndex];
     const frameNum = frameIndex + 1;
     const frameStart = Date.now();
 
     sendEvent({
       type: 'progress',
       step: 'gauntlet_frame_start',
-      message: `Frame ${frameNum}/5: ${frame.name}...`,
-      gauntlet: { frame: frameNum, total: 5, name: frame.name },
+      message: `Frame ${frameNum}/${totalFrames}: ${frame.name}...`,
+      gauntlet: { frame: frameNum, total: totalFrames, name: frame.name },
     });
 
     let frameResult = {
@@ -591,7 +507,7 @@ export async function runGauntlet(projectId, options = {}, sendEvent) {
       // 5c. Create LP record
       const lpId = uuidv4();
       frameResult.lpId = lpId;
-      const lpName = `Gauntlet — ${frame.name}`;
+      const lpName = `LP Batch — ${frame.name}`;
 
       await createLandingPage({
         id: lpId,
@@ -606,6 +522,7 @@ export async function runGauntlet(projectId, options = {}, sendEvent) {
         gauntlet_frame: frame.id,
         gauntlet_attempt: 1,
         gauntlet_status: 'generating',
+        gauntlet_batch_started_at: batchStartedAt,
       });
 
       // 5d. Generate LP with pre-generated images + cached template
@@ -635,7 +552,7 @@ export async function runGauntlet(projectId, options = {}, sendEvent) {
           }, (e) => {
             // Forward sub-events with frame context
             if (e.type === 'progress') {
-              sendEvent({ ...e, gauntlet: { frame: frameNum, total: 5 } });
+              sendEvent({ ...e, gauntlet: { frame: frameNum, total: totalFrames } });
             }
           });
         } catch (genErr) {
@@ -806,9 +723,23 @@ export async function runGauntlet(projectId, options = {}, sendEvent) {
     sendEvent({
       type: 'progress',
       step: 'gauntlet_frame_done',
-      message: `Frame ${frameNum}/5 complete: ${frameResult.status}${frameResult.score != null ? ` (${frameResult.score}/10)` : ''}`,
-      gauntlet: { frame: frameNum, total: 5, result: frameResult },
+      message: `Frame ${frameNum}/${totalFrames} complete: ${frameResult.status}${frameResult.score != null ? ` (${frameResult.score}/10)` : ''}`,
+      gauntlet: { frame: frameNum, total: totalFrames, result: frameResult },
     });
+  }
+
+  // 5f. Update all LPs in the batch with completion timestamp
+  const batchCompletedAt = new Date().toISOString();
+  for (const result of frameResults) {
+    if (result.lpId) {
+      try {
+        await updateLandingPage(result.lpId, {
+          gauntlet_batch_completed_at: batchCompletedAt,
+        });
+      } catch (err) {
+        console.warn(`[Gauntlet] Failed to set batch_completed_at for LP ${result.lpId}:`, err.message);
+      }
+    }
   }
 
   // 6. Build report
@@ -826,7 +757,7 @@ export async function runGauntlet(projectId, options = {}, sendEvent) {
     scoreThreshold,
     frames: frameResults,
     summary: {
-      total: NARRATIVE_FRAMES.length,
+      total: totalFrames,
       passed: passedFrames.length,
       published: publishedFrames.length,
       failed: failedFrames.length,
@@ -846,7 +777,7 @@ export async function runGauntlet(projectId, options = {}, sendEvent) {
   sendEvent({
     type: 'progress',
     step: 'gauntlet_complete',
-    message: `Gauntlet complete: ${passedFrames.length}/5 passed, ${publishedFrames.length} published, avg score ${report.summary.avgScore}/10`,
+    message: `Generation complete: ${passedFrames.length}/${totalFrames} passed, ${publishedFrames.length} published, avg score ${report.summary.avgScore}/10`,
   });
 
   return report;

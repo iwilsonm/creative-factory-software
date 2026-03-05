@@ -44,6 +44,8 @@ export const create = mutation({
     gauntlet_frame: v.optional(v.string()),
     gauntlet_attempt: v.optional(v.float64()),
     gauntlet_status: v.optional(v.string()),
+    gauntlet_batch_started_at: v.optional(v.string()),
+    gauntlet_batch_completed_at: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const now = new Date().toISOString();
@@ -67,6 +69,8 @@ export const create = mutation({
       gauntlet_frame: args.gauntlet_frame,
       gauntlet_attempt: args.gauntlet_attempt,
       gauntlet_status: args.gauntlet_status,
+      gauntlet_batch_started_at: args.gauntlet_batch_started_at,
+      gauntlet_batch_completed_at: args.gauntlet_batch_completed_at,
       created_at: now,
       updated_at: now,
     });
@@ -131,6 +135,8 @@ export const update = mutation({
     gauntlet_score_reasoning: v.optional(v.string()),
     gauntlet_status: v.optional(v.string()),
     gauntlet_image_prescore_attempts: v.optional(v.float64()),
+    gauntlet_batch_started_at: v.optional(v.string()),
+    gauntlet_batch_completed_at: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const doc = await ctx.db
@@ -188,6 +194,8 @@ export const update = mutation({
     if (args.gauntlet_score_reasoning !== undefined) updates.gauntlet_score_reasoning = args.gauntlet_score_reasoning;
     if (args.gauntlet_status !== undefined) updates.gauntlet_status = args.gauntlet_status;
     if (args.gauntlet_image_prescore_attempts !== undefined) updates.gauntlet_image_prescore_attempts = args.gauntlet_image_prescore_attempts;
+    if (args.gauntlet_batch_started_at !== undefined) updates.gauntlet_batch_started_at = args.gauntlet_batch_started_at;
+    if (args.gauntlet_batch_completed_at !== undefined) updates.gauntlet_batch_completed_at = args.gauntlet_batch_completed_at;
     await ctx.db.patch(doc._id, updates);
   },
 });

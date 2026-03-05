@@ -45,8 +45,7 @@ export const upsertConfig = mutation({
     // Cached image context
     cached_product_visual_context: v.optional(v.string()),
     cached_avatar_visual_context: v.optional(v.string()),
-    // Gauntlet config
-    gauntlet_enabled: v.optional(v.boolean()),
+    // Generation pipeline config
     gauntlet_score_threshold: v.optional(v.float64()),
     gauntlet_max_image_retries: v.optional(v.float64()),
     gauntlet_max_lp_retries: v.optional(v.float64()),

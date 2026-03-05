@@ -27,16 +27,10 @@ export default function LPAgentSettings({ projectId }) {
   const [shopifyConnecting, setShopifyConnecting] = useState(false);
   const [shopifyForm, setShopifyForm] = useState({ store_domain: '', client_id: '', client_secret: '' });
 
-  // Test generation state
+  // Templates (for status check)
   const [templates, setTemplates] = useState([]);
-  const [testForm, setTestForm] = useState({ template_id: '', narrative_frame: 'testimonial', angle: '' });
-  const [generating, setGenerating] = useState(false);
-  const [genPhase, setGenPhase] = useState('');
-  const [genProgress, setGenProgress] = useState(0);
-  const genStartRef = useRef(null);
-  const genAbortRef = useRef(null);
 
-  // Gauntlet state
+  // Batch generation state
   const [gauntletRunning, setGauntletRunning] = useState(false);
   const [gauntletPhase, setGauntletPhase] = useState('');
   const [gauntletProgress, setGauntletProgress] = useState(0);
@@ -132,160 +126,10 @@ export default function LPAgentSettings({ projectId }) {
     } catch { /* ignore */ }
   }, [projectId]);
 
-  // ── Test LP generation ──
-  // Map SSE step names to progress percentages (roughly weighted by time)
-  const STEP_PROGRESS = {
-    // Route-level setup: 0-5%
-    'initializing': 1, 'validating': 2, 'creating_record': 3,
-    // Pipeline setup: 5-10%
-    'auto_loading': 5, 'product_image_loading': 7,
-    // Copy generation: 10-35%
-    'auto_copy': 10, 'loading_docs': 12, 'generating': 14, 'calling_api': 16, 'parsing': 32, 'copy_complete': 35,
-    // Editorial pass: 36-55%
-    'editorial_starting': 36, 'editorial_complete': 55, 'editorial_skipped': 55, 'editorial_failed': 55,
-    // Image generation: 56-80%
-    'images_starting': 56, 'image_generating': 60, 'image_complete': 70, 'images_complete': 80, 'images_skipped': 80,
-    // HTML generation: 81-92%
-    'html_generating': 81, 'html_complete': 92,
-    // Visual QA + fix loop: 93-96%
-    'qa_running': 93, 'qa_complete': 96,
-    'generation_reattempt': 5, 'autofix_attempt': 94, 'qa_recheck': 95,
-    'qa_passed_after_fix': 96, 'qa_failed_regen': 50, 'qa_all_failed': 97,
-    // Smoke test: 97-99%
-    'smoke_testing': 98, 'smoke_passed': 99, 'smoke_failed': 99,
-    // Assembly + publish: 97-100%
-    'auto_complete': 97,
-  };
-  // User-friendly status messages (overrides backend messages for cleaner display)
-  const STEP_LABELS = {
-    'initializing': 'Setting up...',
-    'validating': 'Validating template...',
-    'creating_record': 'Creating page...',
-    'auto_loading': 'Loading template...',
-    'product_image_loading': 'Loading product image...',
-    'auto_copy': 'Writing copy...',
-    'loading_docs': 'Loading research docs...',
-    'generating': 'Preparing copy prompt...',
-    'calling_api': 'Writing copy...',
-    'parsing': 'Processing copy...',
-    'copy_complete': 'Copy complete',
-    'editorial_starting': 'Editorial review (Opus)...',
-    'editorial_complete': 'Editorial review complete',
-    'editorial_skipped': 'Skipping editorial review',
-    'editorial_failed': 'Editorial review skipped',
-    'images_starting': 'Generating images...',
-    'image_generating': null, // Use backend message (has image count)
-    'image_complete': null, // Use backend message
-    'images_complete': 'Images complete',
-    'images_skipped': 'Skipping images',
-    'html_generating': 'Building HTML page...',
-    'html_complete': 'HTML complete',
-    'qa_running': 'Running visual QA...',
-    'qa_complete': null, // Use backend message (has score)
-    'generation_reattempt': null, // Use backend message (has attempt number)
-    'autofix_attempt': 'Auto-fixing issues...',
-    'qa_recheck': 'Re-checking after fix...',
-    'qa_passed_after_fix': null, // Use backend message (has score)
-    'qa_failed_regen': 'Fix failed — regenerating...',
-    'qa_all_failed': 'All generation attempts failed QA',
-    'smoke_testing': 'Running smoke test...',
-    'smoke_passed': 'Smoke test passed',
-    'smoke_failed': 'Smoke test failed — reverting to draft',
-    'auto_complete': 'Finalizing...',
-  };
-  // Separate handler for phase-level events from lpAgent.js route
-  const PHASE_PROGRESS = {
-    'publishing': 97, 'verifying': 98, 'smoke_testing': 99,
-  };
-
-  const handleGenerateTest = () => {
-    if (!testForm.template_id || !testForm.angle.trim()) {
-      toast.error('Select a template and enter an angle');
-      return;
-    }
-
-    setGenerating(true);
-    setGenPhase('Starting generation...');
-    setGenProgress(0);
-    genStartRef.current = Date.now();
-
-    const { abort, done } = api.generateTestLP(projectId, {
-      template_id: testForm.template_id,
-      narrative_frame: testForm.narrative_frame,
-      angle_description: testForm.angle.trim(),
-    }, (event) => {
-      console.log('[LP Gen]', event.type, event.step || event.phase || '', event.message || '');
-      if (event.type === 'progress') {
-        // Use friendly label if available, otherwise use backend message
-        const label = (event.step && STEP_LABELS[event.step] !== undefined)
-          ? (STEP_LABELS[event.step] || event.message || '')
-          : (event.message || '');
-        setGenPhase(label);
-        // Map step to progress percentage — never go backwards
-        if (event.step && STEP_PROGRESS[event.step] !== undefined) {
-          setGenProgress(prev => Math.max(prev, STEP_PROGRESS[event.step]));
-        }
-        // Handle per-image progress (images are 56-80% of total)
-        if (event.imageProgress) {
-          const { current, total, done: imgDone } = event.imageProgress;
-          // Show "Generating image 1 of 3..." style message
-          if (!imgDone) {
-            setGenPhase(`Generating image ${current} of ${total}...`);
-          } else {
-            setGenPhase(`Image ${current} of ${total} complete`);
-          }
-          const imgPercent = imgDone
-            ? 56 + Math.round((current / total) * 24)
-            : 56 + Math.round(((current - 1) / total) * 24) + Math.round((1 / total) * 12);
-          setGenProgress(prev => Math.max(prev, imgPercent));
-        }
-      } else if (event.type === 'phase') {
-        setGenPhase(event.message || event.phase || '');
-        if (event.phase && PHASE_PROGRESS[event.phase] !== undefined) {
-          setGenProgress(prev => Math.max(prev, PHASE_PROGRESS[event.phase]));
-        }
-      } else if (event.type === 'complete') {
-        setGenProgress(100);
-        setTimeout(() => {
-          setGenerating(false);
-          setGenPhase('');
-          setGenProgress(0);
-          genStartRef.current = null;
-          let msg = event.published_url
-            ? 'LP generated and published!'
-            : 'LP generated successfully!';
-          if (event.generation_attempts > 1 || event.fix_attempts > 0) {
-            msg += ` (${event.generation_attempts || 1} gen${event.generation_attempts > 1 ? 's' : ''}, ${event.fix_attempts || 0} fix${event.fix_attempts !== 1 ? 'es' : ''})`;
-          }
-          toast.success(msg);
-          refreshRecentGenerations();
-        }, 500);
-      } else if (event.type === 'error') {
-        setGenerating(false);
-        setGenPhase('');
-        setGenProgress(0);
-        genStartRef.current = null;
-        toast.error(event.message || 'Generation failed');
-      }
-    });
-
-    genAbortRef.current = abort;
-
-    done.catch((err) => {
-      if (err.name !== 'AbortError') {
-        setGenerating(false);
-        setGenPhase('');
-        setGenProgress(0);
-        genStartRef.current = null;
-        toast.error(err.message || 'Generation failed');
-      }
-    });
-  };
-
-  // ── Gauntlet test ──
+  // ── Batch generation ──
   const handleRunGauntlet = (dryRun = false) => {
     setGauntletRunning(true);
-    setGauntletPhase('Starting Gauntlet...');
+    setGauntletPhase('Starting generation...');
     setGauntletProgress(0);
     setGauntletReport(null);
     gauntletStartRef.current = Date.now();
@@ -315,7 +159,7 @@ export default function LPAgentSettings({ projectId }) {
           setGauntletPhase('');
           gauntletStartRef.current = null;
           const r = event.report?.summary;
-          toast.success(`Gauntlet complete: ${r?.passed || 0}/${r?.total || 5} passed, avg ${r?.avgScore || 0}/10`);
+          toast.success(`Generation complete: ${r?.passed || 0}/${r?.total || 5} passed, avg ${r?.avgScore || 0}/10`);
           refreshRecentGenerations();
         }, 500);
       } else if (event.type === 'error') {
@@ -323,7 +167,7 @@ export default function LPAgentSettings({ projectId }) {
         setGauntletPhase('');
         setGauntletProgress(0);
         gauntletStartRef.current = null;
-        toast.error(event.message || 'Gauntlet failed');
+        toast.error(event.message || 'Generation failed');
       }
     });
 
@@ -334,7 +178,7 @@ export default function LPAgentSettings({ projectId }) {
         setGauntletPhase('');
         setGauntletProgress(0);
         gauntletStartRef.current = null;
-        toast.error(err.message || 'Gauntlet failed');
+        toast.error(err.message || 'Generation failed');
       }
     });
   };
@@ -350,11 +194,9 @@ export default function LPAgentSettings({ projectId }) {
     }
   })();
 
-  const readyTemplates = templates.filter(t => t.status === 'ready');
-
   // Determine agent status label
   const hasShopify = shopifyStatus?.connected;
-  const hasTemplates = readyTemplates.length > 0;
+  const hasTemplates = templates.filter(t => t.status === 'ready').length > 0;
   const hasPdpUrl = !!config?.pdp_url;
   const isEnabled = !!config?.enabled;
 
@@ -542,30 +384,10 @@ export default function LPAgentSettings({ projectId }) {
           Page Metadata
         </h3>
         <div className="space-y-3">
-          <div>
-            <label className="text-[11px] text-textmid font-medium block mb-1">Author Name</label>
-            <input
-              type="text"
-              placeholder="Sarah Mitchell"
-              value={config?.default_author_name || ''}
-              onChange={e => handleSaveConfig({ default_author_name: e.target.value })}
-              className="input-apple w-full text-[12px]"
-            />
-          </div>
-          <div>
-            <label className="text-[11px] text-textmid font-medium block mb-1">Author Title</label>
-            <input
-              type="text"
-              placeholder="Health & Wellness Editor"
-              value={config?.default_author_title || ''}
-              onChange={e => handleSaveConfig({ default_author_title: e.target.value })}
-              className="input-apple w-full text-[12px]"
-            />
-          </div>
           <p className="text-[9px] text-textlight">
-            These appear as byline metadata on generated landing pages. Leave blank for defaults.
+            Author names are auto-generated to match the target demographic from Foundational Docs.
           </p>
-          <div className="mt-3">
+          <div>
             <label className="text-[11px] text-textmid font-medium mb-1 block">Warning/Disclaimer Text</label>
             <textarea
               placeholder="This article is based on scientific research and expert opinions. Individual results may vary..."
@@ -591,43 +413,7 @@ export default function LPAgentSettings({ projectId }) {
           Generation Settings
         </h3>
 
-        <div className="space-y-4">
-          {/* Narrative Frames */}
-          <div>
-            <label className="text-[11px] text-textmid font-medium block mb-2">Narrative Frames</label>
-            <p className="text-[9px] text-textlight mb-2">Select which narrative frames are available for LP generation (minimum 2).</p>
-            <div className="space-y-1.5">
-              {NARRATIVE_FRAMES.map(frame => {
-                const isChecked = enabledFrames.includes(frame.id);
-                return (
-                  <label key={frame.id} className="flex items-center gap-2.5 cursor-pointer group">
-                    <input
-                      type="checkbox"
-                      checked={isChecked}
-                      onChange={() => {
-                        let updated;
-                        if (isChecked) {
-                          updated = enabledFrames.filter(id => id !== frame.id);
-                          if (updated.length < 2) {
-                            toast.error('At least 2 narrative frames must be enabled');
-                            return;
-                          }
-                        } else {
-                          updated = [...enabledFrames, frame.id];
-                        }
-                        handleSaveConfig({ default_narrative_frames: JSON.stringify(updated) });
-                      }}
-                      className="w-3.5 h-3.5 rounded border-gray-300 text-navy focus:ring-navy/50 cursor-pointer"
-                    />
-                    <span className="text-[12px] text-textdark group-hover:text-navy transition-colors">{frame.name}</span>
-                  </label>
-                );
-              })}
-            </div>
-          </div>
-
-          {/* Toggles */}
-          <div className="space-y-3 pt-3 border-t border-black/5">
+        <div className="space-y-3">
             {/* Editorial pass toggle */}
             <div className="flex items-center justify-between">
               <div>
@@ -699,7 +485,6 @@ export default function LPAgentSettings({ projectId }) {
                 }`} />
               </button>
             </div>
-          </div>
         </div>
       </div>
 
@@ -714,149 +499,95 @@ export default function LPAgentSettings({ projectId }) {
         <LPTemplateManager projectId={projectId} />
       </div>
 
-      {/* ── 6. Test Generation ── */}
-      <div className="card p-5">
-        <h3 className="text-[13px] font-semibold text-textdark mb-3 flex items-center gap-2">
-          <svg className="w-4 h-4 text-textmid" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.75 3.104v5.714a2.25 2.25 0 01-.659 1.591L5 14.5M9.75 3.104c-.251.023-.501.05-.75.082m.75-.082a24.301 24.301 0 014.5 0m0 0v5.714c0 .597.237 1.17.659 1.591L19.8 15.3M14.25 3.104c.251.023.501.05.75.082M19.8 15.3l-1.57.393A9.065 9.065 0 0112 15a9.065 9.065 0 00-6.23.693L5 14.5m14.8.8l1.402 1.402c1.232 1.232.65 3.318-1.067 3.611A48.309 48.309 0 0112 21c-2.773 0-5.491-.235-8.135-.687-1.718-.293-2.3-2.379-1.067-3.61L5 14.5" />
-          </svg>
-          Test Generation
-        </h3>
-
-        {readyTemplates.length === 0 ? (
-          <div className="text-center py-4">
-            <p className="text-[12px] text-textmid">No templates available. Extract a template from a URL first.</p>
-          </div>
-        ) : (
-          <div className="space-y-2">
-            <div className="flex gap-2">
-              <select
-                value={testForm.template_id}
-                onChange={e => setTestForm(f => ({ ...f, template_id: e.target.value }))}
-                disabled={generating}
-                className="input-apple flex-1 text-[12px]"
-              >
-                <option value="">Select template...</option>
-                {readyTemplates.map(t => (
-                  <option key={t.id} value={t.id}>{t.name}</option>
-                ))}
-              </select>
-              <select
-                value={testForm.narrative_frame}
-                onChange={e => setTestForm(f => ({ ...f, narrative_frame: e.target.value }))}
-                disabled={generating}
-                className="input-apple flex-1 text-[12px]"
-              >
-                {NARRATIVE_FRAMES.filter(f => enabledFrames.includes(f.id)).map(f => (
-                  <option key={f.id} value={f.id}>{f.name}</option>
-                ))}
-              </select>
-            </div>
-            <div className="flex gap-2">
-              <input
-                type="text"
-                value={testForm.angle}
-                onChange={e => setTestForm(f => ({ ...f, angle: e.target.value }))}
-                className="input-apple flex-1 text-[12px]"
-                placeholder="Angle: e.g., Grounding reduces chronic inflammation and improves sleep"
-                disabled={generating}
-                onKeyDown={e => e.key === 'Enter' && !generating && handleGenerateTest()}
-              />
-              <button
-                onClick={handleGenerateTest}
-                disabled={generating || !testForm.template_id || !testForm.angle.trim()}
-                className="btn-primary text-[12px] whitespace-nowrap disabled:opacity-50"
-              >
-                {generating ? 'Generating...' : 'Generate'}
-              </button>
-            </div>
-            {generating && (
-              <PipelineProgress
-                progress={genProgress}
-                message={genPhase}
-                startTime={genStartRef.current}
-                className="mt-1"
-              />
-            )}
-            <p className="text-[10px] text-textlight mt-1">
-              Test the LP pipeline: pick a template and narrative frame, enter an angle, and generate a landing page.
-            </p>
-          </div>
-        )}
-      </div>
-
-      {/* ── 7. LP Gauntlet ── */}
+      {/* ── 6. Batch Generation ── */}
       <div className="card p-5">
         <h3 className="text-[13px] font-semibold text-textdark mb-3 flex items-center gap-2">
           <svg className="w-4 h-4 text-gold" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z" />
           </svg>
-          LP Gauntlet
+          Batch Generation
         </h3>
 
         <div className="space-y-3">
-          {/* Gauntlet toggle */}
-          <label className="flex items-center gap-2">
-            <input
-              type="checkbox"
-              checked={!!config?.gauntlet_enabled}
-              onChange={e => handleSaveConfig({ gauntlet_enabled: e.target.checked })}
-              className="rounded border-gray-300"
-            />
-            <span className="text-[12px] text-textdark">Enable Gauntlet mode</span>
-          </label>
-
-          {/* Config fields */}
-          {!!config?.gauntlet_enabled && (
-            <div className="grid grid-cols-3 gap-2">
-              <div>
-                <label className="text-[10px] text-textmid">Score threshold</label>
-                <input
-                  type="number"
-                  min={0} max={10} step={0.5}
-                  value={config?.gauntlet_score_threshold ?? 6}
-                  onChange={e => handleSaveConfig({ gauntlet_score_threshold: parseFloat(e.target.value) || 6 })}
-                  className="input-apple text-[12px] w-full"
-                />
-              </div>
-              <div>
-                <label className="text-[10px] text-textmid">Max image retries</label>
-                <input
-                  type="number"
-                  min={0} max={5}
-                  value={config?.gauntlet_max_image_retries ?? 3}
-                  onChange={e => handleSaveConfig({ gauntlet_max_image_retries: parseInt(e.target.value) || 3 })}
-                  className="input-apple text-[12px] w-full"
-                />
-              </div>
-              <div>
-                <label className="text-[10px] text-textmid">Max LP retries</label>
-                <input
-                  type="number"
-                  min={0} max={5}
-                  value={config?.gauntlet_max_lp_retries ?? 2}
-                  onChange={e => handleSaveConfig({ gauntlet_max_lp_retries: parseInt(e.target.value) || 2 })}
-                  className="input-apple text-[12px] w-full"
-                />
-              </div>
+          {/* Narrative frame checkboxes */}
+          <div>
+            <label className="text-[11px] text-textmid font-medium block mb-2">Narrative Frames</label>
+            <div className="space-y-1.5">
+              {NARRATIVE_FRAMES.map(f => {
+                const checked = enabledFrames.includes(f.id);
+                return (
+                  <label key={f.id} className="flex items-center gap-2 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={checked}
+                      onChange={() => {
+                        const next = checked
+                          ? enabledFrames.filter(id => id !== f.id)
+                          : [...enabledFrames, f.id];
+                        if (next.length === 0) return; // at least 1 required
+                        handleSaveConfig({ default_narrative_frames: JSON.stringify(next) });
+                      }}
+                      className="w-3.5 h-3.5 rounded border-gray-300 text-navy focus:ring-navy/50 cursor-pointer"
+                    />
+                    <span className="text-[12px] text-textdark">{f.name}</span>
+                  </label>
+                );
+              })}
             </div>
-          )}
+            <p className="text-[9px] text-textlight mt-1.5">
+              {enabledFrames.length} frame{enabledFrames.length !== 1 ? 's' : ''} selected — will generate {enabledFrames.length} LP{enabledFrames.length !== 1 ? 's' : ''} per batch
+            </p>
+          </div>
+
+          {/* Quality settings */}
+          <div className="grid grid-cols-3 gap-2">
+            <div>
+              <label className="text-[10px] text-textmid">Score threshold</label>
+              <input
+                type="number"
+                min={0} max={10} step={0.5}
+                value={config?.gauntlet_score_threshold ?? 6}
+                onChange={e => handleSaveConfig({ gauntlet_score_threshold: parseFloat(e.target.value) || 6 })}
+                className="input-apple text-[12px] w-full"
+              />
+            </div>
+            <div>
+              <label className="text-[10px] text-textmid">Max image retries</label>
+              <input
+                type="number"
+                min={0} max={5}
+                value={config?.gauntlet_max_image_retries ?? 3}
+                onChange={e => handleSaveConfig({ gauntlet_max_image_retries: parseInt(e.target.value) || 3 })}
+                className="input-apple text-[12px] w-full"
+              />
+            </div>
+            <div>
+              <label className="text-[10px] text-textmid">Max LP retries</label>
+              <input
+                type="number"
+                min={0} max={5}
+                value={config?.gauntlet_max_lp_retries ?? 2}
+                onChange={e => handleSaveConfig({ gauntlet_max_lp_retries: parseInt(e.target.value) || 2 })}
+                className="input-apple text-[12px] w-full"
+              />
+            </div>
+          </div>
 
           {/* Run buttons */}
           <div className="flex gap-2">
             <button
               onClick={() => handleRunGauntlet(true)}
-              disabled={gauntletRunning || generating}
+              disabled={gauntletRunning}
               className="btn-secondary text-[12px] disabled:opacity-50"
             >
               {gauntletRunning ? 'Running...' : 'Dry Run'}
             </button>
             <button
               onClick={() => handleRunGauntlet(false)}
-              disabled={gauntletRunning || generating}
+              disabled={gauntletRunning}
               className="btn-primary text-[12px] disabled:opacity-50"
             >
-              {gauntletRunning ? 'Running...' : 'Run Gauntlet'}
+              {gauntletRunning ? 'Running...' : 'Run & Publish'}
             </button>
           </div>
 
@@ -899,12 +630,12 @@ export default function LPAgentSettings({ projectId }) {
           )}
 
           <p className="text-[10px] text-textlight">
-            Generate 5 LPs (one per narrative frame) with image pre-scoring, template caching, and scoring. Dry run generates and scores without publishing.
+            Generate {enabledFrames.length} LP{enabledFrames.length !== 1 ? 's' : ''} with image pre-scoring, template caching, and quality scoring. Dry run generates and scores without publishing.
           </p>
         </div>
       </div>
 
-      {/* ── 8. Recent Generations ── */}
+      {/* ── 7. Recent Generations ── */}
       <div className="card p-5">
         <h3 className="text-[13px] font-semibold text-textdark mb-3 flex items-center gap-2">
           <svg className="w-4 h-4 text-textmid" fill="none" stroke="currentColor" viewBox="0 0 24 24">
