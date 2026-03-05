@@ -473,15 +473,15 @@ router.get('/:id/lp-agent/gauntlet-progress', (req, res) => {
  */
 router.post('/:id/lp-agent/gauntlet-test', async (req, res) => {
   const projectId = req.params.id;
-  const { dry_run = false } = req.body;
-  console.log(`[LP Agent] gauntlet-test: project=${projectId?.slice(0, 8)}, dry_run=${dry_run}`);
+  const { dry_run = false, angle = null } = req.body;
+  console.log(`[LP Agent] gauntlet-test: project=${projectId?.slice(0, 8)}, dry_run=${dry_run}, angle=${angle || '(none)'}`);
 
   // Open SSE stream IMMEDIATELY
   const { sendEvent, end, isClosed } = createSSEStream(req, res);
   sendEvent({ type: 'progress', step: 'initializing', message: 'Starting LP Gauntlet...' });
 
   try {
-    const report = await runGauntlet(projectId, { dryRun: !!dry_run }, sendEvent);
+    const report = await runGauntlet(projectId, { dryRun: !!dry_run, angle }, sendEvent);
 
     sendEvent({
       type: 'complete',

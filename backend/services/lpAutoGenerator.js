@@ -92,7 +92,7 @@ export async function triggerLPGeneration(batchJobId, projectId, angle) {
         }
       };
 
-      const report = await runGauntlet(projectId, { dryRun: false }, makeLogger);
+      const report = await runGauntlet(projectId, { dryRun: false, angle }, makeLogger);
 
       // Store LP URLs on the batch for filter.sh to pick up
       if (report.lpUrls && report.lpUrls.length > 0) {
@@ -381,7 +381,7 @@ export async function retryLP(batchJobId, which, { switchTemplate, fullRegenerat
  * @returns {Promise<object>} Report with per-frame results + summary
  */
 export async function runGauntlet(projectId, options = {}, sendEventRaw) {
-  const { dryRun = false } = options;
+  const { dryRun = false, angle: batchAngle = null } = options;
   const gauntletBatchId = uuidv4();
   const startTime = Date.now();
   const batchStartedAt = new Date().toISOString();
@@ -566,7 +566,7 @@ export async function runGauntlet(projectId, options = {}, sendEventRaw) {
         id: lpId,
         project_id: projectId,
         name: lpName,
-        angle: null, // Gauntlet test runs have no batch angle — Director-triggered batches set this
+        angle: batchAngle || null, // Director-triggered batches pass the angle name; gauntlet test runs leave it null
         status: 'generating',
         auto_generated: true,
         narrative_frame: frame.id,

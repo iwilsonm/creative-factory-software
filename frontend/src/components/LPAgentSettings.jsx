@@ -48,6 +48,10 @@ export default function LPAgentSettings({ projectId }) {
   const gauntletAbortRef = useRef(null);
   const gauntletSSEActive = useRef(false); // true when SSE stream is connected
 
+  // Conductor angles (for gauntlet dropdown)
+  const [conductorAngles, setConductorAngles] = useState([]);
+  const [selectedAngle, setSelectedAngle] = useState('');
+
   // Recent generations
   const [recentGenerations, setRecentGenerations] = useState([]);
   const [expandedBatches, setExpandedBatches] = useState({});
@@ -60,11 +64,12 @@ export default function LPAgentSettings({ projectId }) {
     if (!projectId) return;
     setLoading(true);
     try {
-      const [cfgRes, shopRes, tplRes, statusRes] = await Promise.allSettled([
+      const [cfgRes, shopRes, tplRes, statusRes, anglesRes] = await Promise.allSettled([
         api.getLPAgentConfig(projectId),
         api.getLPAgentShopifyStatus(projectId),
         api.getLPTemplates(projectId),
         api.getLPAgentStatus(projectId),
+        api.getConductorAngles(projectId),
       ]);
       if (cfgRes.status === 'fulfilled') setConfig(cfgRes.value?.config || null);
       if (shopRes.status === 'fulfilled') {
@@ -75,6 +80,7 @@ export default function LPAgentSettings({ projectId }) {
       }
       if (tplRes.status === 'fulfilled') setTemplates(tplRes.value?.templates || []);
       if (statusRes.status === 'fulfilled') setRecentGenerations(statusRes.value?.recent_generations || []);
+      if (anglesRes.status === 'fulfilled') setConductorAngles(anglesRes.value?.angles || anglesRes.value || []);
     } catch (err) {
       console.error('[LPAgentSettings] Load error:', err);
     } finally {
@@ -183,7 +189,7 @@ export default function LPAgentSettings({ projectId }) {
     gauntletStartRef.current = Date.now();
     gauntletSSEActive.current = true;
 
-    const { abort, done } = api.runGauntletTest(projectId, { dry_run: dryRun }, (event) => {
+    const { abort, done } = api.runGauntletTest(projectId, { dry_run: dryRun, angle: selectedAngle || null }, (event) => {
       if (event.type === 'progress') {
         setGauntletPhase(event.message || '');
         // Map gauntlet steps to progress: each frame is ~20% of total
@@ -712,19 +718,30 @@ export default function LPAgentSettings({ projectId }) {
             </p>
           </div>
 
-          {/* Run buttons */}
-          <div className="flex gap-2">
+          {/* Angle selector + Run buttons */}
+          <div className="flex items-center gap-2">
+            <select
+              value={selectedAngle}
+              onChange={(e) => setSelectedAngle(e.target.value)}
+              disabled={gauntletRunning}
+              className="input-apple text-[12px] py-1.5 px-2 flex-1 min-w-0 disabled:opacity-50"
+            >
+              <option value="">No angle</option>
+              {conductorAngles.filter(a => a.status === 'active').map(a => (
+                <option key={a.id || a.externalId || a.name} value={a.name}>{a.name}</option>
+              ))}
+            </select>
             <button
               onClick={() => handleRunGauntlet(true)}
               disabled={gauntletRunning}
-              className="btn-secondary text-[12px] disabled:opacity-50"
+              className="btn-secondary text-[12px] whitespace-nowrap disabled:opacity-50"
             >
               {gauntletRunning ? 'Running...' : 'Dry Run'}
             </button>
             <button
               onClick={() => handleRunGauntlet(false)}
               disabled={gauntletRunning}
-              className="btn-primary text-[12px] disabled:opacity-50"
+              className="btn-primary text-[12px] whitespace-nowrap disabled:opacity-50"
             >
               {gauntletRunning ? 'Running...' : 'Run & Publish'}
             </button>
