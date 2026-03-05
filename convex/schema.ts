@@ -452,6 +452,7 @@ export default defineSchema({
     gauntlet_image_prescore_attempts: v.optional(v.float64()), // Total image prescore retries
     gauntlet_batch_started_at: v.optional(v.string()),  // ISO timestamp when batch run began
     gauntlet_batch_completed_at: v.optional(v.string()), // ISO timestamp when batch run finished
+    generation_duration_ms: v.optional(v.float64()),     // How long generation took in milliseconds
     created_at: v.string(),
     updated_at: v.string(),
   })

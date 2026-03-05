@@ -573,7 +573,9 @@ function DirectorTab({ onRefresh }) {
     try {
       await api.updateConductorAngle(selectedProject, angleId, { lp_enabled: lpEnabled });
       setAngles(prev => prev.map(a => a.externalId === angleId ? { ...a, lp_enabled: lpEnabled } : a));
-    } catch { /* ignore */ }
+    } catch (err) {
+      console.error('[AgentMonitor] Failed to toggle LP enabled:', err);
+    }
   };
 
   // --- Export angles as markdown ---
@@ -1172,17 +1174,6 @@ function AngleCard({ angle, playbooks, onStatusChange, onToggleFocus, onToggleLP
           )}
           <span className="text-[13px] font-medium text-textdark">{angle.name}</span>
           {angle.focused && <span className="text-[9px] font-medium text-gold uppercase tracking-wider">Focused</span>}
-          {onToggleLPEnabled && angle.status === 'active' && (
-            <button
-              onClick={() => onToggleLPEnabled(angle.externalId, !angle.lp_enabled)}
-              title={angle.lp_enabled ? 'Disable LP generation for this angle' : 'Enable LP generation for this angle'}
-              className={`text-[9px] font-medium px-1.5 py-0.5 rounded-full transition-colors ${
-                angle.lp_enabled ? 'bg-teal/10 text-teal' : 'bg-black/5 text-textlight hover:text-textmid'
-              }`}
-            >
-              {angle.lp_enabled ? 'LP \u2713' : 'LP'}
-            </button>
-          )}
           <span className="text-[10px] text-textlight">used {angle.times_used || 0}x</span>
           {pb && (
             <span className="text-[10px] text-textmid">
@@ -1221,6 +1212,22 @@ function AngleCard({ angle, playbooks, onStatusChange, onToggleFocus, onToggleLP
         <p className="text-[10px] text-teal mt-1 leading-relaxed">
           Playbook v{pb.version}: "{pb.generation_hints.slice(0, 120)}{pb.generation_hints.length > 120 ? '...' : ''}"
         </p>
+      )}
+      {onToggleLPEnabled && angle.status === 'active' && (
+        <div className="flex items-center justify-between mt-2 pt-2 border-t border-black/5">
+          <span className="text-[10px] text-textmid">Landing Pages</span>
+          <button
+            onClick={() => onToggleLPEnabled(angle.externalId, !angle.lp_enabled)}
+            title={angle.lp_enabled ? 'Disable LP generation for this angle' : 'Enable LP generation for this angle'}
+            className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
+              angle.lp_enabled ? 'bg-teal' : 'bg-gray-200'
+            }`}
+          >
+            <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${
+              angle.lp_enabled ? 'translate-x-[18px]' : 'translate-x-[3px]'
+            }`} />
+          </button>
+        </div>
       )}
     </div>
   );

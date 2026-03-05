@@ -358,9 +358,11 @@ function LPEditor({ page: initialPage, onBack, onDelete, projectId }) {
   });
   const [slug, setSlug] = useState(() => {
     if (initialPage.slug) return initialPage.slug;
-    // Auto-generate from angle
-    return (initialPage.angle || 'landing-page')
-      .toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 60);
+    // Auto-generate from angle in lp-XXXX-headline format
+    const num = String(Math.floor(1000 + Math.random() * 9000));
+    const slugified = (initialPage.angle || 'landing-page')
+      .toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').replace(/-{2,}/g, '-').slice(0, 60);
+    return `lp-${num}-${slugified}`;
   });
   const [currentVersion, setCurrentVersion] = useState(initialPage.current_version || 1);
   const [htmlTemplate] = useState(initialPage.html_template || '');
@@ -712,7 +714,7 @@ function LPEditor({ page: initialPage, onBack, onDelete, projectId }) {
     { id: 'images', label: 'Images', count: imageSlots.length },
     { id: 'links', label: 'Links', count: ctaLinks.length },
     { id: 'details', label: 'Details', count: auditTrail.length || undefined },
-    ...((qaResult || smokeResult) ? [{ id: 'qa', label: 'QA Report' }] : []),
+    ...((qaResult || smokeResult || initialPage.gauntlet_score != null) ? [{ id: 'qa', label: 'QA Report' }] : []),
     { id: 'settings', label: 'Settings' },
   ];
 
@@ -1122,6 +1124,36 @@ function LPEditor({ page: initialPage, onBack, onDelete, projectId }) {
           {/* ──── DETAILS TAB ──── */}
           {activeTab === 'details' && (
             <div className="space-y-5">
+              {/* Generation Duration + Meta */}
+              {(initialPage.generation_duration_ms || initialPage.gauntlet_score != null) && (
+                <div className="flex items-center gap-3 flex-wrap">
+                  {initialPage.generation_duration_ms && (
+                    <div className="flex items-center gap-1.5 px-3 py-1.5 bg-navy/5 rounded-lg">
+                      <svg className="w-3.5 h-3.5 text-navy/50" fill="none" viewBox="0 0 24 24" stroke="currentColor"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                      <span className="text-[11px] font-medium text-textdark">
+                        {initialPage.generation_duration_ms >= 60000
+                          ? `${Math.floor(initialPage.generation_duration_ms / 60000)}m ${Math.round((initialPage.generation_duration_ms % 60000) / 1000)}s`
+                          : `${Math.round(initialPage.generation_duration_ms / 1000)}s`}
+                      </span>
+                      <span className="text-[10px] text-textlight">generation time</span>
+                    </div>
+                  )}
+                  {initialPage.gauntlet_score != null && (
+                    <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg ${initialPage.gauntlet_score >= 6 ? 'bg-teal/5' : 'bg-gold/5'}`}>
+                      <span className={`text-[11px] font-medium ${initialPage.gauntlet_score >= 6 ? 'text-teal' : 'text-gold'}`}>
+                        {initialPage.gauntlet_score}/10
+                      </span>
+                      <span className="text-[10px] text-textlight">gauntlet score</span>
+                    </div>
+                  )}
+                  {initialPage.narrative_frame && (
+                    <div className="flex items-center gap-1.5 px-3 py-1.5 bg-[#7C6DCD]/5 rounded-lg">
+                      <span className="text-[10px] text-[#7C6DCD] font-medium">{initialPage.narrative_frame}</span>
+                    </div>
+                  )}
+                </div>
+              )}
+
               {/* Editorial Plan Summary */}
               {editorialPlan && (
                 <div className="p-3 bg-[#7C6DCD]/5 border border-[#7C6DCD]/15 rounded-xl">
@@ -1365,8 +1397,29 @@ function LPEditor({ page: initialPage, onBack, onDelete, projectId }) {
                 </div>
               )}
 
+              {/* Gauntlet Score Fallback (for existing LPs without qa_report) */}
+              {!qaResult && initialPage.gauntlet_score != null && (
+                <div className={`p-4 rounded-xl border ${initialPage.gauntlet_score >= 6 ? 'bg-teal/5 border-teal/20' : 'bg-gold/5 border-gold/20'}`}>
+                  <div className="flex items-center justify-between mb-2">
+                    <div className="flex items-center gap-2">
+                      <span className={`text-[20px] font-bold ${initialPage.gauntlet_score >= 6 ? 'text-teal' : 'text-gold'}`}>
+                        {initialPage.gauntlet_score}/10
+                      </span>
+                      <span className={`text-[11px] font-medium px-2 py-0.5 rounded-full ${
+                        initialPage.gauntlet_score >= 6 ? 'bg-teal/10 text-teal' : 'bg-gold/10 text-gold'
+                      }`}>
+                        GAUNTLET SCORE
+                      </span>
+                    </div>
+                  </div>
+                  {initialPage.gauntlet_score_reasoning && (
+                    <p className="text-[11px] text-textmid leading-relaxed">{initialPage.gauntlet_score_reasoning}</p>
+                  )}
+                </div>
+              )}
+
               {/* No data fallback */}
-              {!qaResult && !smokeResult && (
+              {!qaResult && !smokeResult && initialPage.gauntlet_score == null && (
                 <div className="p-4 bg-offwhite rounded-xl border border-black/5 text-center">
                   <p className="text-[11px] text-textlight">No QA data available for this page.</p>
                 </div>

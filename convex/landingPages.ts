@@ -137,6 +137,7 @@ export const update = mutation({
     gauntlet_image_prescore_attempts: v.optional(v.float64()),
     gauntlet_batch_started_at: v.optional(v.string()),
     gauntlet_batch_completed_at: v.optional(v.string()),
+    generation_duration_ms: v.optional(v.float64()),
   },
   handler: async (ctx, args) => {
     const doc = await ctx.db
@@ -196,6 +197,7 @@ export const update = mutation({
     if (args.gauntlet_image_prescore_attempts !== undefined) updates.gauntlet_image_prescore_attempts = args.gauntlet_image_prescore_attempts;
     if (args.gauntlet_batch_started_at !== undefined) updates.gauntlet_batch_started_at = args.gauntlet_batch_started_at;
     if (args.gauntlet_batch_completed_at !== undefined) updates.gauntlet_batch_completed_at = args.gauntlet_batch_completed_at;
+    if (args.generation_duration_ms !== undefined) updates.generation_duration_ms = args.generation_duration_ms;
     await ctx.db.patch(doc._id, updates);
   },
 });

@@ -14,7 +14,7 @@ import { generateAndValidateLP, NARRATIVE_FRAMES } from '../services/lpGenerator
 import { runGauntlet } from '../services/lpAutoGenerator.js';
 import { getProjectProgress } from '../services/gauntletProgress.js';
 import { uploadBuffer } from '../convexClient.js';
-import { publishAndSmokeTest } from '../services/lpPublisher.js';
+import { publishAndSmokeTest, generateSlug, extractHeadlineForSlug } from '../services/lpPublisher.js';
 import { createSSEStream } from '../utils/sseHelper.js';
 
 const router = Router();
@@ -266,6 +266,7 @@ router.post('/:id/lp-agent/generate-test', async (req, res) => {
     console.log(`[LP Agent] generate-test: LP record created (${lpId.slice(0, 8)}), starting pipeline...`);
 
     // Generate with QA validation + auto-fix loop
+    const genStartTime = Date.now();
     const visualQAEnabled = agentConfig?.visual_qa_enabled !== false;
     const { result, qaReport, fixLog, generationAttempts, fixAttempts } = await generateAndValidateLP({
       projectId,
@@ -279,6 +280,7 @@ router.post('/:id/lp-agent/generate-test', async (req, res) => {
     }, sendEvent, { visualQAEnabled });
 
     // Handle failed generation (all QA attempts exhausted)
+    const genDurationMs = Date.now() - genStartTime;
     if (!result) {
       await updateLandingPage(lpId, {
         status: 'failed',
@@ -289,6 +291,7 @@ router.post('/:id/lp-agent/generate-test', async (req, res) => {
         qa_issues_count: qaReport?.issues?.length ?? 0,
         generation_attempts: generationAttempts,
         fix_attempts: fixAttempts,
+        generation_duration_ms: genDurationMs,
       });
       sendEvent({ type: 'error', message: `LP generation failed QA after ${generationAttempts} attempts. No LP produced.` });
       end();
@@ -304,10 +307,19 @@ router.post('/:id/lp-agent/generate-test', async (req, res) => {
       assembled_html: result.assembledHtml || '',
       generation_attempts: generationAttempts,
       fix_attempts: fixAttempts,
+      generation_duration_ms: genDurationMs,
     };
     if (result.designAnalysis) {
       updateFields.swipe_design_analysis = JSON.stringify(result.designAnalysis);
     }
+
+    // Generate slug from content
+    const slugSource = extractHeadlineForSlug({
+      copy_sections: updateFields.copy_sections,
+      angle: angle_description,
+      name: `Test LP — ${frame.name}: ${angle_description.slice(0, 60)}`,
+    });
+    updateFields.slug = generateSlug(slugSource);
 
     // Persist audit trail + editorial plan
     if (result.auditTrail) updateFields.audit_trail = JSON.stringify(result.auditTrail);

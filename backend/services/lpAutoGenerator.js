@@ -30,7 +30,7 @@ import {
   NARRATIVE_FRAMES,
 } from './lpGenerator.js';
 import { getCachedImageContext, getFoundationalDocs } from './lpGenerator.js';
-import { publishAndSmokeTest } from './lpPublisher.js';
+import { publishAndSmokeTest, generateSlug, extractHeadlineForSlug } from './lpPublisher.js';
 import { uploadBuffer, downloadToBuffer } from '../convexClient.js';
 import { setProgress, clearProgress } from './gauntletProgress.js';
 
@@ -630,7 +630,14 @@ export async function runGauntlet(projectId, options = {}, sendEventRaw) {
           sendEvent({ type: 'progress', step: 'gauntlet_template_cached', message: 'HTML template cached for remaining frames' });
         }
 
-        // Save LP content
+        // Save LP content + generate slug
+        const lpSlugSource = extractHeadlineForSlug({
+          copy_sections: JSON.stringify(lpResult.copySections),
+          angle,
+          name: lpName,
+        });
+        const lpSlug = generateSlug(lpSlugSource);
+
         await updateLandingPage(lpId, {
           status: 'draft',
           copy_sections: JSON.stringify(lpResult.copySections),
@@ -642,6 +649,7 @@ export async function runGauntlet(projectId, options = {}, sendEventRaw) {
           editorial_plan: lpResult.editorialPlan ? JSON.stringify(lpResult.editorialPlan) : undefined,
           gauntlet_attempt: attempt,
           gauntlet_status: 'scoring',
+          slug: lpSlug,
         });
 
         // 5f. Score the LP
@@ -728,12 +736,33 @@ export async function runGauntlet(projectId, options = {}, sendEventRaw) {
         }
       }
 
-      // 5h. Final status update
+      // 5h. Final status update (include duration + QA-equivalent data for QA tab)
+      const frameDurationMs = Date.now() - frameStart;
+      const qaEquivalent = lastScore ? {
+        passed: passed,
+        score: Math.round((lastScore.score / 10) * 100), // Convert 0-10 to 0-100
+        summary: lastScore.reasoning || `Gauntlet score: ${lastScore.score}/10`,
+        issues: (lastScore.fatal_flaws || []).map(f => ({
+          severity: 'critical',
+          description: f.description || f.type || 'Fatal flaw detected',
+          location: f.location || null,
+        })),
+        source: 'gauntlet',
+        checked_at: new Date().toISOString(),
+      } : null;
+
       await updateLandingPage(lpId, {
         gauntlet_score: lastScore?.score ?? null,
         gauntlet_score_reasoning: lastScore?.reasoning ?? null,
         gauntlet_status: passed ? 'passed' : 'failed',
         gauntlet_image_prescore_attempts: frameResult.imagePrescoreAttempts,
+        generation_duration_ms: frameDurationMs,
+        ...(qaEquivalent ? {
+          qa_status: passed ? 'passed' : 'failed',
+          qa_score: qaEquivalent.score,
+          qa_report: JSON.stringify(qaEquivalent),
+          qa_issues_count: qaEquivalent.issues.length,
+        } : {}),
       });
 
       // 5i. Publish if passed and not dry run
