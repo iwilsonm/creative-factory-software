@@ -730,7 +730,7 @@ function LPEditor({ page: initialPage, onBack, onDelete, projectId }) {
         <div className="flex-1 min-w-0">
           <div className="flex items-center gap-2">
             <h2 className="text-[14px] font-semibold text-textdark truncate max-w-[300px]">
-              {initialPage.angle || initialPage.name}
+              {initialPage.name}
             </h2>
             <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${
               pageStatus === 'published' ? 'bg-teal/15 text-teal' :
@@ -744,6 +744,16 @@ function LPEditor({ page: initialPage, onBack, onDelete, projectId }) {
             <span className="text-[10px] font-mono text-textlight bg-black/5 px-1.5 py-0.5 rounded">
               v{currentVersion}
             </span>
+            {initialPage.angle && (
+              <span className="text-[10px] text-navy font-medium px-2 py-0.5 rounded-full bg-navy/10 truncate max-w-[250px]" title={initialPage.angle}>
+                Angle: {initialPage.angle}
+              </span>
+            )}
+            {initialPage.narrative_frame && (
+              <span className="text-[10px] text-[#7C6DCD] font-medium px-2 py-0.5 rounded-full bg-[#7C6DCD]/10">
+                {FRAME_LABELS[initialPage.narrative_frame] || initialPage.narrative_frame}
+              </span>
+            )}
           </div>
           {/* Published URL display */}
           {publishedUrl && (
@@ -1125,7 +1135,7 @@ function LPEditor({ page: initialPage, onBack, onDelete, projectId }) {
           {activeTab === 'details' && (
             <div className="space-y-5">
               {/* Generation Duration + Meta */}
-              {(initialPage.generation_duration_ms || initialPage.gauntlet_score != null) && (
+              {(initialPage.generation_duration_ms || initialPage.gauntlet_score != null || initialPage.angle || initialPage.narrative_frame) && (
                 <div className="flex items-center gap-3 flex-wrap">
                   {initialPage.generation_duration_ms && (
                     <div className="flex items-center gap-1.5 px-3 py-1.5 bg-navy/5 rounded-lg">
@@ -1146,9 +1156,16 @@ function LPEditor({ page: initialPage, onBack, onDelete, projectId }) {
                       <span className="text-[10px] text-textlight">gauntlet score</span>
                     </div>
                   )}
+                  {initialPage.angle && (
+                    <div className="flex items-center gap-1.5 px-3 py-1.5 bg-navy/5 rounded-lg">
+                      <span className="text-[10px] text-textlight">Angle</span>
+                      <span className="text-[10px] text-navy font-medium">{initialPage.angle}</span>
+                    </div>
+                  )}
                   {initialPage.narrative_frame && (
                     <div className="flex items-center gap-1.5 px-3 py-1.5 bg-[#7C6DCD]/5 rounded-lg">
-                      <span className="text-[10px] text-[#7C6DCD] font-medium">{initialPage.narrative_frame}</span>
+                      <span className="text-[10px] text-textlight">Frame</span>
+                      <span className="text-[10px] text-[#7C6DCD] font-medium">{FRAME_LABELS[initialPage.narrative_frame] || initialPage.narrative_frame}</span>
                     </div>
                   )}
                 </div>

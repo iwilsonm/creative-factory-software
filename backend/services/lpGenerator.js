@@ -1055,6 +1055,8 @@ Your job is NOT to rewrite the copy — it's to make high-level strategic decisi
 
 You think in terms of: hook → story → mechanism → proof → offer → urgency → CTA.
 
+NARRATIVE FRAME ALIGNMENT: The headline and subheadline MUST reflect the specific narrative frame being used. A testimonial frame should have a personal, first-person headline. A mechanism frame should lead with curiosity about the "how." A problem agitation frame should hook with the reader's pain. A myth-busting frame should challenge a common belief. A listicle frame should use a numbered format. The headline is the #1 signal that differentiates each narrative frame — never produce a generic headline that could work for any frame.
+
 TEMPLATE FIDELITY: Your editorial plan must work within the template structure. You can reorder sections, adjust emphasis, insert callout blocks at specified positions, and refine copy — but you CANNOT add entirely new structural elements that don't exist in the template skeleton. For example, do NOT add a sticky urgency banner if the template doesn't have one. Do NOT add floating CTAs, countdown timers, notification bars, or any other conversion elements unless they already exist in the template. The template is the blueprint — optimize within it, don't expand beyond it. Set "top_banner_text" to null if the template has no banner element.
 
 DUPLICATE HEADING CHECK: Check all callout blocks and data boxes for duplicate heading text. If a callout's body paragraph begins with the same text as its heading label (e.g., heading="USDA DATA" and body starts with "USDA DATA:"), remove the duplicate from the body.
@@ -1065,6 +1067,7 @@ CRITICAL: Also scan the copy for any remaining {{placeholder}} template tags (e.
 
 MARKETING ANGLE: ${angle}
 NARRATIVE FRAME: ${narrativeFrame || 'general'}
+IMPORTANT: The headline MUST be unique to this narrative frame. It should reflect the storytelling approach described above — a testimonial frame headline reads completely differently from a mechanism or listicle headline.
 PDP URL: ${pdpUrl || 'not set'}
 PAGE SECTIONS: ${sectionTypes}
 
@@ -1083,7 +1086,7 @@ ${sectionsSummary}
 Respond with a JSON object containing your editorial plan:
 
 {
-  "headline": "Your optimized headline (max 15 words, curiosity-driven)",
+  "headline": "Your optimized headline reflecting this frame's unique voice (max 15 words)",
   "subheadline": "Supporting subheadline (max 25 words)",
   "top_banner_text": "Urgency/scarcity banner text or null if not needed",
   "sections_order": ["section_type_1", "section_type_2", ...],
