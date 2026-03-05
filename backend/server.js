@@ -114,6 +114,7 @@ process.on('uncaughtException', (err) => {
   app.use('/api/projects/:id/generate-ad', llmRateLimit);
   app.use('/api/projects/:id/generate-landing-page', llmRateLimit);
   app.use('/api/projects/:id/lp-agent/generate-test', llmRateLimit);
+  app.use('/api/projects/:id/lp-agent/gauntlet-test', llmRateLimit);
   app.use('/api/projects/:id/lp-agent/shopify/connect', llmRateLimit);
   app.use('/api/deployments/generate-ad-copy', llmRateLimit);
   app.use('/api/deployments/generate-ad-headlines', llmRateLimit);

@@ -11,6 +11,7 @@ import {
 } from '../convexClient.js';
 import { withRetry } from '../services/retry.js';
 import { generateAndValidateLP, NARRATIVE_FRAMES } from '../services/lpGenerator.js';
+import { runGauntlet } from '../services/lpAutoGenerator.js';
 import { uploadBuffer } from '../convexClient.js';
 import { publishAndSmokeTest } from '../services/lpPublisher.js';
 import { createSSEStream } from '../utils/sseHelper.js';
@@ -420,6 +421,39 @@ router.get('/:id/lp-agent/status', async (req, res) => {
   } catch (err) {
     console.error('[LP Agent] Status error:', err.message);
     res.status(500).json({ error: err.message });
+  }
+});
+
+// ── Gauntlet Test ──
+
+/**
+ * POST /api/projects/:id/lp-agent/gauntlet-test
+ * Run the LP Gauntlet — generate 5 LPs (one per narrative frame) with
+ * pre-scoring, template caching, scoring, and targeted retries.
+ * SSE stream.
+ */
+router.post('/:id/lp-agent/gauntlet-test', async (req, res) => {
+  const projectId = req.params.id;
+  const { dry_run = false } = req.body;
+  console.log(`[LP Agent] gauntlet-test: project=${projectId?.slice(0, 8)}, dry_run=${dry_run}`);
+
+  // Open SSE stream IMMEDIATELY
+  const { sendEvent, end, isClosed } = createSSEStream(req, res);
+  sendEvent({ type: 'progress', step: 'initializing', message: 'Starting LP Gauntlet...' });
+
+  try {
+    const report = await runGauntlet(projectId, { dryRun: !!dry_run }, sendEvent);
+
+    sendEvent({
+      type: 'complete',
+      report,
+    });
+    console.log(`[LP Agent] gauntlet-test: complete — ${report.summary.passed}/${report.summary.total} passed, ${report.summary.published} published`);
+  } catch (err) {
+    console.error('[LP Agent] Gauntlet test error:', err.message);
+    sendEvent({ type: 'error', message: err.message });
+  } finally {
+    end();
   }
 });
 

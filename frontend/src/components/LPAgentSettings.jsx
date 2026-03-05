@@ -36,6 +36,14 @@ export default function LPAgentSettings({ projectId }) {
   const genStartRef = useRef(null);
   const genAbortRef = useRef(null);
 
+  // Gauntlet state
+  const [gauntletRunning, setGauntletRunning] = useState(false);
+  const [gauntletPhase, setGauntletPhase] = useState('');
+  const [gauntletProgress, setGauntletProgress] = useState(0);
+  const [gauntletReport, setGauntletReport] = useState(null);
+  const gauntletStartRef = useRef(null);
+  const gauntletAbortRef = useRef(null);
+
   // Recent generations
   const [recentGenerations, setRecentGenerations] = useState([]);
 
@@ -270,6 +278,63 @@ export default function LPAgentSettings({ projectId }) {
         setGenProgress(0);
         genStartRef.current = null;
         toast.error(err.message || 'Generation failed');
+      }
+    });
+  };
+
+  // ── Gauntlet test ──
+  const handleRunGauntlet = (dryRun = false) => {
+    setGauntletRunning(true);
+    setGauntletPhase('Starting Gauntlet...');
+    setGauntletProgress(0);
+    setGauntletReport(null);
+    gauntletStartRef.current = Date.now();
+
+    const { abort, done } = api.runGauntletTest(projectId, { dry_run: dryRun }, (event) => {
+      if (event.type === 'progress') {
+        setGauntletPhase(event.message || '');
+        // Map gauntlet steps to progress: each frame is ~20% of total
+        if (event.gauntlet?.frame && event.gauntlet?.total) {
+          const frameBase = ((event.gauntlet.frame - 1) / event.gauntlet.total) * 100;
+          const frameChunk = 100 / event.gauntlet.total;
+          // Sub-steps within a frame
+          const subSteps = {
+            'gauntlet_frame_start': 0, 'gauntlet_images': 0.1, 'gauntlet_prescore': 0.3,
+            'gauntlet_generate': 0.5, 'gauntlet_scoring': 0.8, 'gauntlet_publishing': 0.9,
+            'gauntlet_frame_done': 1,
+          };
+          const sub = subSteps[event.step] ?? 0.5;
+          setGauntletProgress(prev => Math.max(prev, Math.round(frameBase + sub * frameChunk)));
+        }
+        if (event.step === 'gauntlet_complete') setGauntletProgress(100);
+      } else if (event.type === 'complete') {
+        setGauntletProgress(100);
+        setGauntletReport(event.report);
+        setTimeout(() => {
+          setGauntletRunning(false);
+          setGauntletPhase('');
+          gauntletStartRef.current = null;
+          const r = event.report?.summary;
+          toast.success(`Gauntlet complete: ${r?.passed || 0}/${r?.total || 5} passed, avg ${r?.avgScore || 0}/10`);
+          refreshRecentGenerations();
+        }, 500);
+      } else if (event.type === 'error') {
+        setGauntletRunning(false);
+        setGauntletPhase('');
+        setGauntletProgress(0);
+        gauntletStartRef.current = null;
+        toast.error(event.message || 'Gauntlet failed');
+      }
+    });
+
+    gauntletAbortRef.current = abort;
+    done.catch((err) => {
+      if (err.name !== 'AbortError') {
+        setGauntletRunning(false);
+        setGauntletPhase('');
+        setGauntletProgress(0);
+        gauntletStartRef.current = null;
+        toast.error(err.message || 'Gauntlet failed');
       }
     });
   };
@@ -720,7 +785,126 @@ export default function LPAgentSettings({ projectId }) {
         )}
       </div>
 
-      {/* ── 7. Recent Generations ── */}
+      {/* ── 7. LP Gauntlet ── */}
+      <div className="card p-5">
+        <h3 className="text-[13px] font-semibold text-textdark mb-3 flex items-center gap-2">
+          <svg className="w-4 h-4 text-gold" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z" />
+          </svg>
+          LP Gauntlet
+        </h3>
+
+        <div className="space-y-3">
+          {/* Gauntlet toggle */}
+          <label className="flex items-center gap-2">
+            <input
+              type="checkbox"
+              checked={!!config?.gauntlet_enabled}
+              onChange={e => handleSaveConfig({ gauntlet_enabled: e.target.checked })}
+              className="rounded border-gray-300"
+            />
+            <span className="text-[12px] text-textdark">Enable Gauntlet mode</span>
+          </label>
+
+          {/* Config fields */}
+          {!!config?.gauntlet_enabled && (
+            <div className="grid grid-cols-3 gap-2">
+              <div>
+                <label className="text-[10px] text-textmid">Score threshold</label>
+                <input
+                  type="number"
+                  min={0} max={10} step={0.5}
+                  value={config?.gauntlet_score_threshold ?? 6}
+                  onChange={e => handleSaveConfig({ gauntlet_score_threshold: parseFloat(e.target.value) || 6 })}
+                  className="input-apple text-[12px] w-full"
+                />
+              </div>
+              <div>
+                <label className="text-[10px] text-textmid">Max image retries</label>
+                <input
+                  type="number"
+                  min={0} max={5}
+                  value={config?.gauntlet_max_image_retries ?? 3}
+                  onChange={e => handleSaveConfig({ gauntlet_max_image_retries: parseInt(e.target.value) || 3 })}
+                  className="input-apple text-[12px] w-full"
+                />
+              </div>
+              <div>
+                <label className="text-[10px] text-textmid">Max LP retries</label>
+                <input
+                  type="number"
+                  min={0} max={5}
+                  value={config?.gauntlet_max_lp_retries ?? 2}
+                  onChange={e => handleSaveConfig({ gauntlet_max_lp_retries: parseInt(e.target.value) || 2 })}
+                  className="input-apple text-[12px] w-full"
+                />
+              </div>
+            </div>
+          )}
+
+          {/* Run buttons */}
+          <div className="flex gap-2">
+            <button
+              onClick={() => handleRunGauntlet(true)}
+              disabled={gauntletRunning || generating}
+              className="btn-secondary text-[12px] disabled:opacity-50"
+            >
+              {gauntletRunning ? 'Running...' : 'Dry Run'}
+            </button>
+            <button
+              onClick={() => handleRunGauntlet(false)}
+              disabled={gauntletRunning || generating}
+              className="btn-primary text-[12px] disabled:opacity-50"
+            >
+              {gauntletRunning ? 'Running...' : 'Run Gauntlet'}
+            </button>
+          </div>
+
+          {/* Progress */}
+          {gauntletRunning && (
+            <PipelineProgress
+              progress={gauntletProgress}
+              message={gauntletPhase}
+              startTime={gauntletStartRef.current}
+              className="mt-1"
+            />
+          )}
+
+          {/* Report */}
+          {gauntletReport && !gauntletRunning && (
+            <div className="bg-navy/5 rounded-lg p-3 space-y-2">
+              <div className="flex items-center gap-3 text-[12px]">
+                <span className="font-medium text-textdark">
+                  {gauntletReport.summary?.passed}/{gauntletReport.summary?.total} passed
+                </span>
+                <span className="text-textmid">
+                  Avg score: {gauntletReport.summary?.avgScore}/10
+                </span>
+                <span className="text-textmid">
+                  {gauntletReport.summary?.totalDurationMin}m
+                </span>
+              </div>
+              {gauntletReport.frames?.map((f, i) => (
+                <div key={i} className="flex items-center gap-2 text-[11px]">
+                  <span className={`w-2 h-2 rounded-full ${f.status === 'published' || f.status === 'passed' || f.status === 'passed_dry_run' ? 'bg-teal' : f.status === 'failed' ? 'bg-red-400' : 'bg-gold'}`} />
+                  <span className="text-textdark font-medium w-40 truncate">{f.frameName}</span>
+                  <span className="text-textmid">{f.score != null ? `${f.score}/10` : '—'}</span>
+                  <span className="text-textlight">{f.status}</span>
+                  {f.publishedUrl && (
+                    <a href={f.publishedUrl} target="_blank" rel="noopener noreferrer" className="text-gold hover:underline ml-auto">View</a>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+
+          <p className="text-[10px] text-textlight">
+            Generate 5 LPs (one per narrative frame) with image pre-scoring, template caching, and scoring. Dry run generates and scores without publishing.
+          </p>
+        </div>
+      </div>
+
+      {/* ── 8. Recent Generations ── */}
       <div className="card p-5">
         <h3 className="text-[13px] font-semibold text-textdark mb-3 flex items-center gap-2">
           <svg className="w-4 h-4 text-textmid" fill="none" stroke="currentColor" viewBox="0 0 24 24">

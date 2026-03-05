@@ -319,6 +319,8 @@ export const api = {
   getLPAgentShopifyStatus: (projectId) => request(`/projects/${projectId}/lp-agent/shopify/status`),
   generateTestLP: (projectId, body, onEvent) =>
     streamSSEWithBody(`/projects/${projectId}/lp-agent/generate-test`, body, onEvent),
+  runGauntletTest: (projectId, body, onEvent) =>
+    streamSSEWithBody(`/projects/${projectId}/lp-agent/gauntlet-test`, body, onEvent),
   getLPAgentStatus: (projectId) => request(`/projects/${projectId}/lp-agent/status`),
 
   getConductorAngles: (projectId) => request(`/conductor/angles/${projectId}`),
