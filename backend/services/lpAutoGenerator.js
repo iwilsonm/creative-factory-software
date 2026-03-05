@@ -18,10 +18,20 @@ import {
   createLandingPage,
   updateLandingPage,
   updateBatchJob,
+  getProject,
 } from '../convexClient.js';
-import { generateAndValidateLP, NARRATIVE_FRAMES } from './lpGenerator.js';
+import {
+  generateAndValidateLP,
+  generateAutoLP,
+  generateSlotImages,
+  preScoreAndRetryImages,
+  scoreGauntletLP,
+  regenerateFailedImages,
+  NARRATIVE_FRAMES,
+} from './lpGenerator.js';
+import { getCachedImageContext } from './lpGenerator.js';
 import { publishAndSmokeTest } from './lpPublisher.js';
-import { uploadBuffer } from '../convexClient.js';
+import { uploadBuffer, downloadToBuffer } from '../convexClient.js';
 
 /**
  * Trigger LP generation for a batch. Fire-and-forget — never throws.
@@ -378,4 +388,417 @@ export async function retryLP(batchJobId, which, { switchTemplate, fullRegenerat
       });
     }
   }
+}
+
+// ─── LP Gauntlet ──────────────────────────────────────────────────────────────
+
+/**
+ * Run the LP Gauntlet — generate 5 landing pages (one per narrative frame)
+ * with image pre-scoring, template caching, full-page scoring, and targeted retries.
+ *
+ * @param {string} projectId
+ * @param {{ dryRun?: boolean }} options
+ * @param {(event: object) => void} sendEvent - SSE event callback
+ * @returns {Promise<object>} Report with per-frame results + summary
+ */
+export async function runGauntlet(projectId, options = {}, sendEvent) {
+  const { dryRun = false } = options;
+  const gauntletBatchId = uuidv4();
+  const startTime = Date.now();
+
+  sendEvent({ type: 'progress', step: 'gauntlet_init', message: 'Initializing LP Gauntlet...' });
+
+  // 1. Load config, templates, project
+  const config = await getLPAgentConfig(projectId);
+  if (!config) {
+    throw new Error('LP Agent not configured for this project');
+  }
+
+  const scoreThreshold = config.gauntlet_score_threshold || 6;
+  const maxImageRetries = config.gauntlet_max_image_retries || 3;
+  const maxLPRetries = config.gauntlet_max_lp_retries || 2;
+
+  const templates = await getLPTemplatesByProject(projectId);
+  const readyTemplates = templates.filter(t => t.status === 'ready');
+  if (readyTemplates.length === 0) {
+    throw new Error('No ready templates available for Gauntlet');
+  }
+
+  // Pick a random template (reuse across all 5 frames)
+  const template = readyTemplates[Math.floor(Math.random() * readyTemplates.length)];
+
+  const project = await getProject(projectId);
+  if (!project) {
+    throw new Error(`Project ${projectId} not found`);
+  }
+
+  sendEvent({ type: 'progress', step: 'gauntlet_config', message: `Template: ${template.name || 'unnamed'}, threshold: ${scoreThreshold}/10, dry run: ${dryRun}` });
+
+  // 2. Get cached image context
+  let imageContext;
+  try {
+    const { getDocsByProject } = await import('../convexClient.js');
+    const docs = await getDocsByProject(projectId);
+    const foundationalDocs = {};
+    for (const doc of docs) {
+      foundationalDocs[doc.doc_type] = doc;
+    }
+    imageContext = await getCachedImageContext(projectId, foundationalDocs, project);
+  } catch (err) {
+    console.warn('[Gauntlet] Failed to get image context:', err.message);
+    imageContext = { avatarContext: '', productContext: '' };
+  }
+
+  // 3. Load product reference image
+  let productImageData = null;
+  if (config.use_product_reference_images !== false && project.product_image_storageId) {
+    try {
+      const buffer = await downloadToBuffer(project.product_image_storageId);
+      productImageData = { base64: buffer.toString('base64'), mimeType: 'image/jpeg' };
+    } catch (err) {
+      console.warn('[Gauntlet] Failed to load product image:', err.message);
+    }
+  }
+
+  // 4. Parse template structure for image slots
+  let slotDefs;
+  try {
+    slotDefs = JSON.parse(template.slot_definitions || '[]');
+  } catch {
+    slotDefs = [];
+  }
+
+  const designImageSlots = slotDefs.filter(s => s.type === 'image').map((s, i) => ({
+    slot_id: `image_${i + 1}`,
+    location: s.description || `Section with ${s.name}`,
+    description: s.description || s.name,
+    suggested_size: s.suggested_size || '800x600',
+    aspect_ratio: '16:9',
+  }));
+
+  // Track results per frame
+  const frameResults = [];
+  let cachedHtmlTemplate = null;
+  let totalImagePrescoreAttempts = 0;
+
+  // 5. Loop through all 5 narrative frames
+  for (let frameIndex = 0; frameIndex < NARRATIVE_FRAMES.length; frameIndex++) {
+    const frame = NARRATIVE_FRAMES[frameIndex];
+    const frameNum = frameIndex + 1;
+    const frameStart = Date.now();
+
+    sendEvent({
+      type: 'progress',
+      step: 'gauntlet_frame_start',
+      message: `Frame ${frameNum}/5: ${frame.name}...`,
+      gauntlet: { frame: frameNum, total: 5, name: frame.name },
+    });
+
+    let frameResult = {
+      frame: frame.id,
+      frameName: frame.name,
+      lpId: null,
+      publishedUrl: null,
+      score: null,
+      status: 'pending',
+      attempts: 0,
+      imagePrescoreAttempts: 0,
+      durationMs: 0,
+    };
+
+    try {
+      // 5a. Generate images for this frame
+      sendEvent({ type: 'progress', step: 'gauntlet_images', message: `Frame ${frameNum}: Generating images...` });
+
+      const angle = frame.instruction || frame.name;
+      let imageSlots = await generateSlotImages({
+        imageSlots: designImageSlots,
+        copySections: [], // No copy yet — images generated before copy
+        angle,
+        projectId,
+        autoContext: {
+          narrativeFrame: frame.instruction,
+          productImageData,
+          editorialPlan: null,
+          imageContext,
+        },
+      }, (e) => { /* suppress sub-events */ });
+
+      // 5b. Pre-score images
+      sendEvent({ type: 'progress', step: 'gauntlet_prescore', message: `Frame ${frameNum}: Pre-scoring images...` });
+
+      const prescoreResult = await preScoreAndRetryImages(
+        imageSlots,
+        angle,
+        { narrativeFrame: frame.instruction, productImageData, imageContext },
+        projectId,
+        sendEvent,
+        maxImageRetries,
+      );
+      imageSlots = prescoreResult.imageSlots;
+      frameResult.imagePrescoreAttempts = prescoreResult.totalAttempts;
+      totalImagePrescoreAttempts += prescoreResult.totalAttempts;
+
+      // 5c. Create LP record
+      const lpId = uuidv4();
+      frameResult.lpId = lpId;
+      const lpName = `Gauntlet — ${frame.name}`;
+
+      await createLandingPage({
+        id: lpId,
+        project_id: projectId,
+        name: lpName,
+        angle,
+        status: 'generating',
+        auto_generated: true,
+        narrative_frame: frame.id,
+        template_id: template.id || template.externalId,
+        gauntlet_batch_id: gauntletBatchId,
+        gauntlet_frame: frame.id,
+        gauntlet_attempt: 1,
+        gauntlet_status: 'generating',
+      });
+
+      // 5d. Generate LP with pre-generated images + cached template
+      sendEvent({ type: 'progress', step: 'gauntlet_generate', message: `Frame ${frameNum}: Generating LP copy + HTML...` });
+
+      let lpResult;
+      let attempt = 0;
+      let passed = false;
+      let lastScore = null;
+
+      for (attempt = 1; attempt <= maxLPRetries + 1; attempt++) {
+        frameResult.attempts = attempt;
+
+        try {
+          lpResult = await generateAutoLP({
+            projectId,
+            templateId: template.id || template.externalId,
+            angle,
+            narrativeFrame: frame.instruction,
+            editorialPassEnabled: config.editorial_pass_enabled !== false,
+            useProductReferenceImages: config.use_product_reference_images !== false,
+            agentConfig: config,
+            autoContext: {
+              preGeneratedImages: imageSlots,
+              cachedHtmlTemplate: cachedHtmlTemplate,
+            },
+          }, (e) => {
+            // Forward sub-events with frame context
+            if (e.type === 'progress') {
+              sendEvent({ ...e, gauntlet: { frame: frameNum, total: 5 } });
+            }
+          });
+        } catch (genErr) {
+          console.error(`[Gauntlet] Frame ${frameNum} generation failed (attempt ${attempt}):`, genErr.message);
+          if (attempt > maxLPRetries) {
+            frameResult.status = 'failed';
+            frameResult.error = genErr.message;
+            await updateLandingPage(lpId, {
+              status: 'failed',
+              error_message: genErr.message,
+              gauntlet_status: 'failed',
+              gauntlet_attempt: attempt,
+            });
+            break;
+          }
+          continue;
+        }
+
+        // 5e. Cache HTML template from first successful frame
+        if (!cachedHtmlTemplate && lpResult.htmlTemplate) {
+          cachedHtmlTemplate = lpResult.htmlTemplate;
+          sendEvent({ type: 'progress', step: 'gauntlet_template_cached', message: 'HTML template cached for remaining frames' });
+        }
+
+        // Save LP content
+        await updateLandingPage(lpId, {
+          status: 'draft',
+          copy_sections: JSON.stringify(lpResult.copySections),
+          image_slots: JSON.stringify(lpResult.imageSlots),
+          html_template: lpResult.htmlTemplate,
+          assembled_html: lpResult.assembledHtml,
+          swipe_design_analysis: JSON.stringify(lpResult.designAnalysis),
+          audit_trail: lpResult.auditTrail ? JSON.stringify(lpResult.auditTrail) : undefined,
+          editorial_plan: lpResult.editorialPlan ? JSON.stringify(lpResult.editorialPlan) : undefined,
+          gauntlet_attempt: attempt,
+          gauntlet_status: 'scoring',
+        });
+
+        // 5f. Score the LP
+        sendEvent({ type: 'progress', step: 'gauntlet_scoring', message: `Frame ${frameNum}: Scoring LP...` });
+
+        let scoreResult;
+        try {
+          scoreResult = await scoreGauntletLP(lpResult.assembledHtml, projectId, imageContext);
+          lastScore = scoreResult;
+        } catch (scoreErr) {
+          console.error(`[Gauntlet] Scoring failed for frame ${frameNum}:`, scoreErr.message);
+          // Can't score — treat as passed to avoid waste
+          passed = true;
+          frameResult.score = null;
+          frameResult.status = 'score_error';
+          break;
+        }
+
+        frameResult.score = scoreResult.score;
+        const hasFatalFlaws = scoreResult.fatal_flaws && scoreResult.fatal_flaws.length > 0;
+
+        sendEvent({
+          type: 'progress',
+          step: 'gauntlet_score_result',
+          message: `Frame ${frameNum}: Score ${scoreResult.score}/10${hasFatalFlaws ? ` (${scoreResult.fatal_flaws.length} fatal flaw${scoreResult.fatal_flaws.length > 1 ? 's' : ''})` : ''}`,
+        });
+
+        // Check pass
+        if (scoreResult.score >= scoreThreshold && !hasFatalFlaws) {
+          passed = true;
+          frameResult.status = 'passed';
+          break;
+        }
+
+        // 5g. Try targeted image regeneration for image-related fatal flaws
+        if (hasFatalFlaws) {
+          const imageFlaws = scoreResult.fatal_flaws.filter(f =>
+            f.type === 'wrong_product_image' || f.type === 'ai_text_in_image'
+          );
+
+          if (imageFlaws.length > 0 && attempt <= maxLPRetries) {
+            sendEvent({ type: 'progress', step: 'gauntlet_image_retry', message: `Frame ${frameNum}: Regenerating ${imageFlaws.length} flagged image(s)...` });
+
+            const { html: fixedHtml, regeneratedCount } = await regenerateFailedImages(
+              lpResult.assembledHtml,
+              scoreResult.fatal_flaws,
+              lpResult.imageSlots || imageSlots,
+              { angle, productImageData, imageContext },
+              projectId,
+              sendEvent,
+            );
+
+            if (regeneratedCount > 0) {
+              lpResult.assembledHtml = fixedHtml;
+              await updateLandingPage(lpId, {
+                assembled_html: fixedHtml,
+                gauntlet_retry_type: 'image',
+                gauntlet_attempt: attempt + 1,
+              });
+
+              // Re-score after image fix
+              try {
+                const rescore = await scoreGauntletLP(fixedHtml, projectId, imageContext);
+                lastScore = rescore;
+                frameResult.score = rescore.score;
+
+                if (rescore.score >= scoreThreshold && (!rescore.fatal_flaws || rescore.fatal_flaws.length === 0)) {
+                  passed = true;
+                  frameResult.status = 'passed';
+                  frameResult.attempts = attempt + 0.5; // Mark as image-retry pass
+                  break;
+                }
+              } catch {
+                // Re-score failed, continue to next full attempt
+              }
+            }
+          }
+        }
+
+        // Full retry on next iteration
+        if (attempt <= maxLPRetries) {
+          sendEvent({ type: 'progress', step: 'gauntlet_full_retry', message: `Frame ${frameNum}: Full regeneration (attempt ${attempt + 1})...` });
+          await updateLandingPage(lpId, { gauntlet_retry_type: 'full' });
+        }
+      }
+
+      // 5h. Final status update
+      await updateLandingPage(lpId, {
+        gauntlet_score: lastScore?.score ?? null,
+        gauntlet_score_reasoning: lastScore?.reasoning ?? null,
+        gauntlet_status: passed ? 'passed' : 'failed',
+        gauntlet_image_prescore_attempts: frameResult.imagePrescoreAttempts,
+      });
+
+      // 5i. Publish if passed and not dry run
+      if (passed && !dryRun) {
+        sendEvent({ type: 'progress', step: 'gauntlet_publishing', message: `Frame ${frameNum}: Publishing to Shopify...` });
+
+        try {
+          const { publishResult, smokeResult, verified } = await publishAndSmokeTest(lpId, projectId, {
+            pdpUrl: config.pdp_url,
+          });
+
+          const smokeOk = !smokeResult || smokeResult.passed;
+          frameResult.publishedUrl = smokeOk ? publishResult.published_url : null;
+          frameResult.status = smokeOk ? 'published' : 'smoke_failed';
+
+          sendEvent({
+            type: 'progress',
+            step: 'gauntlet_published',
+            message: `Frame ${frameNum}: ${smokeOk ? 'Published successfully' : 'Smoke test failed'}`,
+          });
+        } catch (pubErr) {
+          console.error(`[Gauntlet] Publish failed for frame ${frameNum}:`, pubErr.message);
+          frameResult.status = 'publish_failed';
+          frameResult.error = pubErr.message;
+        }
+      } else if (passed && dryRun) {
+        frameResult.status = 'passed_dry_run';
+      } else {
+        frameResult.status = 'failed';
+      }
+    } catch (err) {
+      console.error(`[Gauntlet] Frame ${frameNum} error:`, err.message);
+      frameResult.status = 'error';
+      frameResult.error = err.message;
+    }
+
+    frameResult.durationMs = Date.now() - frameStart;
+    frameResults.push(frameResult);
+
+    sendEvent({
+      type: 'progress',
+      step: 'gauntlet_frame_done',
+      message: `Frame ${frameNum}/5 complete: ${frameResult.status}${frameResult.score != null ? ` (${frameResult.score}/10)` : ''}`,
+      gauntlet: { frame: frameNum, total: 5, result: frameResult },
+    });
+  }
+
+  // 6. Build report
+  const totalDuration = Date.now() - startTime;
+  const passedFrames = frameResults.filter(r => r.status === 'passed' || r.status === 'published' || r.status === 'passed_dry_run');
+  const publishedFrames = frameResults.filter(r => r.publishedUrl);
+  const failedFrames = frameResults.filter(r => r.status === 'failed' || r.status === 'error');
+  const avgScore = frameResults.filter(r => r.score != null).reduce((sum, r) => sum + r.score, 0) / Math.max(1, frameResults.filter(r => r.score != null).length);
+
+  const report = {
+    gauntletBatchId,
+    projectId,
+    dryRun,
+    template: template.name || template.id || template.externalId,
+    scoreThreshold,
+    frames: frameResults,
+    summary: {
+      total: NARRATIVE_FRAMES.length,
+      passed: passedFrames.length,
+      published: publishedFrames.length,
+      failed: failedFrames.length,
+      avgScore: Math.round(avgScore * 10) / 10,
+      totalImagePrescoreAttempts,
+      totalDurationMs: totalDuration,
+      totalDurationMin: Math.round(totalDuration / 60000 * 10) / 10,
+    },
+    lpUrls: publishedFrames.map(r => ({
+      frame: r.frame,
+      frameName: r.frameName,
+      url: r.publishedUrl,
+      score: r.score,
+    })),
+  };
+
+  sendEvent({
+    type: 'progress',
+    step: 'gauntlet_complete',
+    message: `Gauntlet complete: ${passedFrames.length}/5 passed, ${publishedFrames.length} published, avg score ${report.summary.avgScore}/10`,
+  });
+
+  return report;
 }

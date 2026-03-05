@@ -628,7 +628,7 @@ function computeDocsHash(docs) {
  * @param {object|null} project - Project object
  * @returns {Promise<object>} Image context with avatarContext, productContext, brandName, niche, productVisual, avatarVisual
  */
-async function getCachedImageContext(projectId, docs, project) {
+export async function getCachedImageContext(projectId, docs, project) {
   const brandName = project?.brand_name || project?.name || null;
   const niche = project?.niche || null;
   const hasDocs = !!(docs?.avatar || docs?.offer_brief);
