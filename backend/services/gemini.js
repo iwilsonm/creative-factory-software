@@ -37,9 +37,9 @@ export async function generateImage(prompt, aspectRatio = '1:1', productImage = 
   const { projectId = null, operation = 'image_generation', isBatch = false, imageModel } = options;
   const ai = await getClient();
 
-  // Resolve model name — default to Nano Banana Pro
-  const modelId = GEMINI_MODELS[imageModel] || GEMINI_MODELS['nano-banana-pro'];
-  const modelLabel = imageModel === 'nano-banana-2' ? 'Nano Banana 2' : 'Nano Banana Pro';
+  // Resolve model name — default to Nano Banana 2
+  const modelId = GEMINI_MODELS[imageModel] || GEMINI_MODELS['nano-banana-2'];
+  const modelLabel = imageModel === 'nano-banana-pro' ? 'Nano Banana Pro' : 'Nano Banana 2';
 
   try {
   let contents;
@@ -81,7 +81,7 @@ export async function generateImage(prompt, aspectRatio = '1:1', productImage = 
           responseModalities: ['TEXT', 'IMAGE'],
           imageConfig: {
             aspectRatio: aspectRatio || '1:1',
-            imageSize: '2K'
+            imageSize: '512'
           }
         }
       }),
@@ -111,7 +111,7 @@ export async function generateImage(prompt, aspectRatio = '1:1', productImage = 
   }
 
   // Auto-log Gemini cost (fire-and-forget)
-  logGeminiCost(projectId, 1, '2K', isBatch, operation).catch(() => {});
+  logGeminiCost(projectId, 1, '512', isBatch, operation).catch(() => {});
 
   return { imageBuffer, mimeType, textResponse };
   } catch (err) {
