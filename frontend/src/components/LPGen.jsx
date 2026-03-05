@@ -2474,7 +2474,7 @@ export default function LPGen({ projectId, project }) {
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2">
                             <h3 className="text-[13px] font-medium text-textdark">
-                              LP Batch{batchPages[0]?.angle ? <> — <span className="text-navy">{batchPages[0].angle}</span></> : ''} — {batchPages.length} landing page{batchPages.length !== 1 ? 's' : ''}
+                              LP Batch{batchPages[0]?.angle && batchPages[0].angle.length < 80 ? <> — <span className="text-navy">{batchPages[0].angle}</span></> : ''} — {batchPages.length} landing page{batchPages.length !== 1 ? 's' : ''}
                               {durationStr && <span className="text-textlight font-normal"> — Generated in {durationStr}</span>}
                             </h3>
                             {!allDone && gauntletProgress ? (
@@ -2526,7 +2526,9 @@ export default function LPGen({ projectId, project }) {
                               <div className="flex items-center gap-3">
                                 <div className="flex-1 min-w-0">
                                   <div className="flex items-center gap-2">
-                                    <h3 className="text-[12px] font-medium text-textdark truncate">{frameName || page.name}</h3>
+                                    <h3 className="text-[12px] font-medium text-textdark truncate">
+                                      {frameName || page.name}{page.angle && page.angle.length < 80 ? <span className="text-textmid font-normal"> - {page.angle}</span> : ''}
+                                    </h3>
                                     {page.gauntlet_score != null && (
                                       <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${page.gauntlet_score >= 6 ? 'bg-teal/10 text-teal' : 'bg-gold/10 text-gold'}`}>
                                         {page.gauntlet_score}/10

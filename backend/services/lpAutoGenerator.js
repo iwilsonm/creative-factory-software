@@ -528,11 +528,11 @@ export async function runGauntlet(projectId, options = {}, sendEventRaw) {
       // 5a. Generate images for this frame
       sendEvent({ type: 'progress', step: 'gauntlet_images', message: `LP ${frameNum} of ${totalFrames} — Generating images...` });
 
-      const angle = frame.instruction || frame.name;
+      const frameAngle = frame.instruction || frame.name; // Used for image/copy gen context, NOT stored as LP angle
       let imageSlots = await generateSlotImages({
         imageSlots: designImageSlots,
         copySections: [], // No copy yet — images generated before copy
-        angle,
+        angle: frameAngle,
         projectId,
         autoContext: {
           narrativeFrame: frame.instruction,
@@ -547,7 +547,7 @@ export async function runGauntlet(projectId, options = {}, sendEventRaw) {
 
       const prescoreResult = await preScoreAndRetryImages(
         imageSlots,
-        angle,
+        frameAngle,
         { narrativeFrame: frame.instruction, productImageData, imageContext },
         projectId,
         sendEvent,
@@ -566,7 +566,7 @@ export async function runGauntlet(projectId, options = {}, sendEventRaw) {
         id: lpId,
         project_id: projectId,
         name: lpName,
-        angle,
+        angle: null, // Gauntlet test runs have no batch angle — Director-triggered batches set this
         status: 'generating',
         auto_generated: true,
         narrative_frame: frame.id,
@@ -593,7 +593,7 @@ export async function runGauntlet(projectId, options = {}, sendEventRaw) {
           lpResult = await generateAutoLP({
             projectId,
             templateId: template.id || template.externalId,
-            angle,
+            angle: frameAngle,
             narrativeFrame: frame.instruction,
             editorialPassEnabled: config.editorial_pass_enabled !== false,
             useProductReferenceImages: config.use_product_reference_images !== false,

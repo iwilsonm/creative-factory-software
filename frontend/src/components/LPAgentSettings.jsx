@@ -855,7 +855,7 @@ export default function LPAgentSettings({ projectId }) {
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2">
                               <span className="text-[12px] font-medium text-textdark">
-                                LP Batch{angleName ? <> — <span className="text-navy">{angleName}</span></> : ''} — {batchPages.length} LP{batchPages.length !== 1 ? 's' : ''}
+                                LP Batch{angleName && angleName.length < 80 ? <> — <span className="text-navy">{angleName}</span></> : ''} — {batchPages.length} LP{batchPages.length !== 1 ? 's' : ''}
                               </span>
                               {durationStr && <span className="text-[10px] text-textlight">{durationStr}</span>}
                               {!allDone && (
@@ -905,7 +905,9 @@ export default function LPAgentSettings({ projectId }) {
                                 <div className="flex items-center gap-2">
                                   <div className="flex-1 min-w-0">
                                     <div className="flex items-center gap-2">
-                                      <span className="text-[11px] font-medium text-textdark truncate">{frameName || lp.name}</span>
+                                      <span className="text-[11px] font-medium text-textdark truncate">
+                                        {frameName || lp.name}{lp.angle && lp.angle.length < 80 ? <span className="text-textmid font-normal"> - {lp.angle}</span> : ''}
+                                      </span>
                                       {lp.gauntlet_score != null && (
                                         <span className={`text-[9px] font-medium px-1.5 py-0.5 rounded-full ${lp.gauntlet_score >= 6 ? 'bg-teal/10 text-teal' : 'bg-gold/10 text-gold'}`}>
                                           {lp.gauntlet_score}/10
