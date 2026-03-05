@@ -416,5 +416,85 @@ costRouter.post('/log', async (req, res) => {
   }
 });
 
+/**
+ * GET /agent-monitor/gauntlet-stats — Gauntlet aggregate stats for a project
+ */
+router.get('/gauntlet-stats', async (req, res) => {
+  try {
+    const { projectId } = req.query;
+    if (!projectId) return res.status(400).json({ error: 'projectId required' });
+
+    const { getLandingPagesByProject } = await import('../convexClient.js');
+    const allLPs = await getLandingPagesByProject(projectId);
+    const gauntletLPs = allLPs.filter(lp => lp.gauntlet_batch_id);
+
+    if (gauntletLPs.length === 0) {
+      return res.json({ hasData: false, stats: null });
+    }
+
+    // Unique gauntlet runs (batch IDs)
+    const batchIds = [...new Set(gauntletLPs.map(lp => lp.gauntlet_batch_id))];
+
+    // Status counts
+    const passed = gauntletLPs.filter(lp => lp.gauntlet_status === 'passed' || lp.status === 'published');
+    const failed = gauntletLPs.filter(lp => lp.gauntlet_status === 'failed');
+    const scored = gauntletLPs.filter(lp => lp.gauntlet_score != null);
+
+    // Score stats
+    const scores = scored.map(lp => lp.gauntlet_score);
+    const avgScore = scores.length > 0 ? Math.round((scores.reduce((a, b) => a + b, 0) / scores.length) * 10) / 10 : null;
+    const minScore = scores.length > 0 ? Math.min(...scores) : null;
+    const maxScore = scores.length > 0 ? Math.max(...scores) : null;
+
+    // Image pre-score stats
+    const prescoreAttempts = gauntletLPs
+      .filter(lp => lp.gauntlet_image_prescore_attempts != null)
+      .map(lp => lp.gauntlet_image_prescore_attempts);
+    const avgPrescoreAttempts = prescoreAttempts.length > 0
+      ? Math.round((prescoreAttempts.reduce((a, b) => a + b, 0) / prescoreAttempts.length) * 10) / 10
+      : null;
+    const firstPassRate = prescoreAttempts.length > 0
+      ? Math.round((prescoreAttempts.filter(a => a <= 1).length / prescoreAttempts.length) * 100)
+      : null;
+
+    // Retry stats
+    const retried = gauntletLPs.filter(lp => lp.gauntlet_attempt > 1);
+    const retryRate = gauntletLPs.length > 0 ? Math.round((retried.length / gauntletLPs.length) * 100) : 0;
+
+    // Score by narrative frame
+    const frameScores = {};
+    for (const lp of scored) {
+      const frame = lp.gauntlet_frame || lp.narrative_frame || 'unknown';
+      if (!frameScores[frame]) frameScores[frame] = [];
+      frameScores[frame].push(lp.gauntlet_score);
+    }
+    const scoreByFrame = {};
+    for (const [frame, vals] of Object.entries(frameScores)) {
+      scoreByFrame[frame] = Math.round((vals.reduce((a, b) => a + b, 0) / vals.length) * 10) / 10;
+    }
+
+    res.json({
+      hasData: true,
+      stats: {
+        gauntletRuns: batchIds.length,
+        totalLPs: gauntletLPs.length,
+        passed: passed.length,
+        failed: failed.length,
+        passRate: gauntletLPs.length > 0 ? Math.round((passed.length / gauntletLPs.length) * 100) : 0,
+        avgScore,
+        minScore,
+        maxScore,
+        avgPrescoreAttempts,
+        firstPassRate,
+        retryRate,
+        scoreByFrame,
+      },
+    });
+  } catch (err) {
+    console.error('[AgentMonitor] Gauntlet stats error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 export { costRouter as agentCostRouter };
 export default router;

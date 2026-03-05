@@ -274,6 +274,108 @@ function PipelineOverview({ data, fixerData, filterData }) {
 }
 
 // =============================================
+// Gauntlet Stats Panel
+// =============================================
+function GauntletStatsPanel({ projectId }) {
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    if (!projectId) return;
+    setLoading(true);
+    api.getGauntletStats(projectId)
+      .then(res => setData(res))
+      .catch(() => setData(null))
+      .finally(() => setLoading(false));
+  }, [projectId]);
+
+  if (loading) return <div className="py-2 text-center text-[11px] text-textmid">Loading gauntlet stats...</div>;
+  if (!data?.hasData) return null;
+
+  const s = data.stats;
+  const FRAME_LABELS = {
+    testimonial: 'Testimonial',
+    mechanism: 'Mechanism',
+    problem_agitation: 'Problem',
+    myth_busting: 'Myth Bust',
+    listicle: 'Listicle',
+  };
+
+  return (
+    <div className="card p-4 space-y-3 mb-4">
+      <h3 className="text-[13px] font-semibold text-navy">Gauntlet Stats</h3>
+
+      {/* Summary grid */}
+      <div className="grid grid-cols-4 gap-3">
+        <div className="bg-offwhite rounded-lg p-2.5 text-center">
+          <div className="text-[18px] font-bold text-navy">{s.gauntletRuns}</div>
+          <div className="text-[10px] text-textmid">Runs</div>
+        </div>
+        <div className="bg-offwhite rounded-lg p-2.5 text-center">
+          <div className="text-[18px] font-bold text-teal">{s.passRate}%</div>
+          <div className="text-[10px] text-textmid">Pass Rate</div>
+        </div>
+        <div className="bg-offwhite rounded-lg p-2.5 text-center">
+          <div className="text-[18px] font-bold text-navy">{s.avgScore ?? '—'}</div>
+          <div className="text-[10px] text-textmid">Avg Score</div>
+        </div>
+        <div className="bg-offwhite rounded-lg p-2.5 text-center">
+          <div className="text-[18px] font-bold text-gold">{s.retryRate}%</div>
+          <div className="text-[10px] text-textmid">Retry Rate</div>
+        </div>
+      </div>
+
+      {/* Detail stats */}
+      <div className="grid grid-cols-3 gap-2 text-[11px]">
+        <div className="bg-offwhite rounded-lg px-2.5 py-2">
+          <span className="text-textmid">Total LPs: </span>
+          <span className="font-medium text-navy">{s.totalLPs}</span>
+        </div>
+        <div className="bg-offwhite rounded-lg px-2.5 py-2">
+          <span className="text-textmid">Passed: </span>
+          <span className="font-medium text-teal">{s.passed}</span>
+        </div>
+        <div className="bg-offwhite rounded-lg px-2.5 py-2">
+          <span className="text-textmid">Failed: </span>
+          <span className="font-medium text-red-400">{s.failed}</span>
+        </div>
+        <div className="bg-offwhite rounded-lg px-2.5 py-2">
+          <span className="text-textmid">Image 1st Pass: </span>
+          <span className="font-medium text-navy">{s.firstPassRate != null ? `${s.firstPassRate}%` : '—'}</span>
+        </div>
+        <div className="bg-offwhite rounded-lg px-2.5 py-2">
+          <span className="text-textmid">Avg Img Retries: </span>
+          <span className="font-medium text-navy">{s.avgPrescoreAttempts ?? '—'}</span>
+        </div>
+        <div className="bg-offwhite rounded-lg px-2.5 py-2">
+          <span className="text-textmid">Score Range: </span>
+          <span className="font-medium text-navy">{s.minScore != null ? `${s.minScore}–${s.maxScore}` : '—'}</span>
+        </div>
+      </div>
+
+      {/* Score by frame (mini bar chart) */}
+      {Object.keys(s.scoreByFrame || {}).length > 0 && (
+        <div className="space-y-1.5">
+          <div className="text-[10px] font-semibold text-textmid uppercase tracking-wide">Score by Frame</div>
+          {Object.entries(s.scoreByFrame).map(([frame, score]) => (
+            <div key={frame} className="flex items-center gap-2">
+              <span className="text-[10px] text-textmid w-20 flex-shrink-0 truncate">{FRAME_LABELS[frame] || frame}</span>
+              <div className="flex-1 h-4 bg-offwhite rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-navy/70 rounded-full transition-all"
+                  style={{ width: `${Math.min(100, (score / 10) * 100)}%` }}
+                />
+              </div>
+              <span className="text-[10px] font-medium text-navy w-8 text-right">{score}</span>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// =============================================
 // LP Agent Tab
 // =============================================
 function LPAgentTab() {
@@ -331,7 +433,10 @@ function LPAgentTab() {
       )}
 
       {selectedProject ? (
-        <LPAgentSettings projectId={selectedProject} />
+        <>
+          <GauntletStatsPanel projectId={selectedProject} />
+          <LPAgentSettings projectId={selectedProject} />
+        </>
       ) : (
         <div className="py-6 text-center text-[12px] text-textmid">No projects found. Create a project first.</div>
       )}

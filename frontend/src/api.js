@@ -349,6 +349,7 @@ export const api = {
   toggleFilterPause: () => request('/agent-monitor/filter/pause', { method: 'POST' }),
   getFilterVolumes: () => request('/agent-monitor/filter/volumes'),
   updateFilterVolume: (projectId, value) => request(`/agent-monitor/filter/volumes/${projectId}`, { method: 'PUT', body: JSON.stringify({ scout_daily_flex_ads: value }) }),
+  getGauntletStats: (projectId) => request(`/agent-monitor/gauntlet-stats?projectId=${projectId}`),
 
   // Performance Tracker / Deployments
   getDeployments: () => request('/deployments'),
