@@ -39,6 +39,11 @@ export const create = mutation({
     batch_job_id: v.optional(v.string()),
     narrative_frame: v.optional(v.string()),
     template_id: v.optional(v.string()),
+    // Gauntlet fields
+    gauntlet_batch_id: v.optional(v.string()),
+    gauntlet_frame: v.optional(v.string()),
+    gauntlet_attempt: v.optional(v.float64()),
+    gauntlet_status: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const now = new Date().toISOString();
@@ -58,6 +63,10 @@ export const create = mutation({
       batch_job_id: args.batch_job_id,
       narrative_frame: args.narrative_frame,
       template_id: args.template_id,
+      gauntlet_batch_id: args.gauntlet_batch_id,
+      gauntlet_frame: args.gauntlet_frame,
+      gauntlet_attempt: args.gauntlet_attempt,
+      gauntlet_status: args.gauntlet_status,
       created_at: now,
       updated_at: now,
     });
@@ -113,6 +122,15 @@ export const update = mutation({
     // Audit trail fields
     audit_trail: v.optional(v.string()),
     editorial_plan: v.optional(v.string()),
+    // Gauntlet fields
+    gauntlet_batch_id: v.optional(v.string()),
+    gauntlet_frame: v.optional(v.string()),
+    gauntlet_attempt: v.optional(v.float64()),
+    gauntlet_retry_type: v.optional(v.string()),
+    gauntlet_score: v.optional(v.float64()),
+    gauntlet_score_reasoning: v.optional(v.string()),
+    gauntlet_status: v.optional(v.string()),
+    gauntlet_image_prescore_attempts: v.optional(v.float64()),
   },
   handler: async (ctx, args) => {
     const doc = await ctx.db
@@ -162,6 +180,14 @@ export const update = mutation({
     if (args.smoke_test_at !== undefined) updates.smoke_test_at = args.smoke_test_at;
     if (args.audit_trail !== undefined) updates.audit_trail = args.audit_trail;
     if (args.editorial_plan !== undefined) updates.editorial_plan = args.editorial_plan;
+    if (args.gauntlet_batch_id !== undefined) updates.gauntlet_batch_id = args.gauntlet_batch_id;
+    if (args.gauntlet_frame !== undefined) updates.gauntlet_frame = args.gauntlet_frame;
+    if (args.gauntlet_attempt !== undefined) updates.gauntlet_attempt = args.gauntlet_attempt;
+    if (args.gauntlet_retry_type !== undefined) updates.gauntlet_retry_type = args.gauntlet_retry_type;
+    if (args.gauntlet_score !== undefined) updates.gauntlet_score = args.gauntlet_score;
+    if (args.gauntlet_score_reasoning !== undefined) updates.gauntlet_score_reasoning = args.gauntlet_score_reasoning;
+    if (args.gauntlet_status !== undefined) updates.gauntlet_status = args.gauntlet_status;
+    if (args.gauntlet_image_prescore_attempts !== undefined) updates.gauntlet_image_prescore_attempts = args.gauntlet_image_prescore_attempts;
     await ctx.db.patch(doc._id, updates);
   },
 });

@@ -42,6 +42,14 @@ export const upsertConfig = mutation({
     default_author_title: v.optional(v.string()),
     default_warning_text: v.optional(v.string()),
     visual_qa_enabled: v.optional(v.boolean()),
+    // Cached image context
+    cached_product_visual_context: v.optional(v.string()),
+    cached_avatar_visual_context: v.optional(v.string()),
+    // Gauntlet config
+    gauntlet_enabled: v.optional(v.boolean()),
+    gauntlet_score_threshold: v.optional(v.float64()),
+    gauntlet_max_image_retries: v.optional(v.float64()),
+    gauntlet_max_lp_retries: v.optional(v.float64()),
   },
   handler: async (ctx, args) => {
     const existing = await ctx.db

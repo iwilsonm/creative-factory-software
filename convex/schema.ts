@@ -218,6 +218,9 @@ export default defineSchema({
     // LP URLs for auto-generated landing pages
     lp_primary_url: v.optional(v.string()),
     lp_secondary_url: v.optional(v.string()),
+    // Gauntlet LP URLs
+    gauntlet_lp_urls: v.optional(v.string()),         // JSON: [{ frame, url, score }]
+    destination_urls_used: v.optional(v.string()),     // JSON: [0, 2, 5] — indices of copied URLs
     created_at: v.string(),
     updated_at: v.string(),
     deleted_at: v.optional(v.string()),           // ISO timestamp for soft delete
@@ -437,6 +440,15 @@ export default defineSchema({
     // Audit trail fields
     audit_trail: v.optional(v.string()),              // JSON: generation audit trail entries
     editorial_plan: v.optional(v.string()),           // JSON: Opus editorial plan
+    // Gauntlet fields
+    gauntlet_batch_id: v.optional(v.string()),        // Groups LPs from same gauntlet run
+    gauntlet_frame: v.optional(v.string()),           // Which narrative frame in this gauntlet run
+    gauntlet_attempt: v.optional(v.float64()),        // Which attempt # for this frame
+    gauntlet_retry_type: v.optional(v.string()),      // "image" | "full" | null
+    gauntlet_score: v.optional(v.float64()),          // 0-10 score from Sonnet vision
+    gauntlet_score_reasoning: v.optional(v.string()), // Full scoring reasoning
+    gauntlet_status: v.optional(v.string()),          // "pending" | "scoring" | "passed" | "failed" | "retrying"
+    gauntlet_image_prescore_attempts: v.optional(v.float64()), // Total image prescore retries
     created_at: v.string(),
     updated_at: v.string(),
   })
@@ -618,6 +630,14 @@ export default defineSchema({
     default_author_title: v.optional(v.string()),
     default_warning_text: v.optional(v.string()),
     visual_qa_enabled: v.optional(v.boolean()),       // Toggle visual QA (default true)
+    // Cached image context (LLM-extracted from foundational docs, JSON strings)
+    cached_product_visual_context: v.optional(v.string()),  // JSON: { sourceHash, extractedAt, data }
+    cached_avatar_visual_context: v.optional(v.string()),   // JSON: { sourceHash, extractedAt, data }
+    // Gauntlet config
+    gauntlet_enabled: v.optional(v.boolean()),              // Enable LP Gauntlet (5 frames per run)
+    gauntlet_score_threshold: v.optional(v.float64()),      // Min score to pass (default 6)
+    gauntlet_max_image_retries: v.optional(v.float64()),    // Max image prescore retries (default 3)
+    gauntlet_max_lp_retries: v.optional(v.float64()),       // Max full LP retries (default 2)
     // Timestamps
     created_at: v.optional(v.string()),
     updated_at: v.optional(v.string()),

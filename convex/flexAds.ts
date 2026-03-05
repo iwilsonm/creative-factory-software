@@ -56,6 +56,9 @@ export const create = mutation({
     // LP URLs
     lp_primary_url: v.optional(v.string()),
     lp_secondary_url: v.optional(v.string()),
+    // Gauntlet LP URLs
+    gauntlet_lp_urls: v.optional(v.string()),
+    destination_urls_used: v.optional(v.string()),
     created_at: v.string(),
     updated_at: v.string(),
   },
@@ -87,6 +90,9 @@ export const update = mutation({
       // LP URLs
       lp_primary_url: v.optional(v.string()),
       lp_secondary_url: v.optional(v.string()),
+      // Gauntlet LP URLs
+      gauntlet_lp_urls: v.optional(v.string()),
+      destination_urls_used: v.optional(v.string()),
     }),
   },
   handler: async (ctx, args) => {
