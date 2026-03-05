@@ -2474,7 +2474,7 @@ export default function LPGen({ projectId, project }) {
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2">
                             <h3 className="text-[13px] font-medium text-textdark">
-                              LP Batch — {batchPages.length} landing page{batchPages.length !== 1 ? 's' : ''}
+                              LP Batch{batchPages[0]?.angle ? <> — <span className="text-navy">{batchPages[0].angle}</span></> : ''} — {batchPages.length} landing page{batchPages.length !== 1 ? 's' : ''}
                               {durationStr && <span className="text-textlight font-normal"> — Generated in {durationStr}</span>}
                             </h3>
                             {!allDone && gauntletProgress ? (

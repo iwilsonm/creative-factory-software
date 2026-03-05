@@ -14,6 +14,14 @@ const NARRATIVE_FRAMES = [
   { id: 'listicle', name: 'Listicle' },
 ];
 
+const FRAME_LABELS = {
+  testimonial: 'Testimonial Journey',
+  mechanism: 'Mechanism Deep-Dive',
+  problem_agitation: 'Problem Agitation',
+  myth_busting: 'Myth Busting',
+  listicle: 'Listicle',
+};
+
 export default function LPAgentSettings({ projectId }) {
   const toast = useToast();
   const navigate = useNavigate();
@@ -42,6 +50,7 @@ export default function LPAgentSettings({ projectId }) {
 
   // Recent generations
   const [recentGenerations, setRecentGenerations] = useState([]);
+  const [expandedBatches, setExpandedBatches] = useState({});
 
   // Debounced save
   const saveTimerRef = useRef(null);
@@ -640,6 +649,69 @@ export default function LPAgentSettings({ projectId }) {
             </div>
           </div>
 
+          {/* Word count settings */}
+          <div className="pt-2 border-t border-black/5">
+            <label className="text-[11px] text-textmid font-medium block mb-2">Word Count</label>
+            <div className="space-y-2">
+              <div className="flex items-center gap-3">
+                <span className="text-[11px] text-textdark w-28">Default</span>
+                <input
+                  type="number"
+                  min={300} max={5000} step={100}
+                  value={config?.default_word_count ?? 1200}
+                  onChange={e => handleSaveConfig({ default_word_count: parseInt(e.target.value) || 1200 })}
+                  className="input-apple text-[12px] w-24"
+                />
+                <span className="text-[10px] text-textlight">words</span>
+              </div>
+              {enabledFrames.map(frameId => {
+                const frame = NARRATIVE_FRAMES.find(f => f.id === frameId);
+                if (!frame) return null;
+                const frameWordCounts = (() => { try { return JSON.parse(config?.frame_word_counts || '{}'); } catch { return {}; } })();
+                const hasOverride = frameWordCounts[frameId] != null;
+                return (
+                  <div key={frameId} className="flex items-center gap-3">
+                    <span className="text-[11px] text-textdark w-28 truncate" title={frame.name}>{frame.name}</span>
+                    {hasOverride ? (
+                      <>
+                        <input
+                          type="number"
+                          min={300} max={5000} step={100}
+                          value={frameWordCounts[frameId]}
+                          onChange={e => {
+                            const updated = { ...frameWordCounts, [frameId]: parseInt(e.target.value) || 1200 };
+                            handleSaveConfig({ frame_word_counts: JSON.stringify(updated) });
+                          }}
+                          className="input-apple text-[12px] w-24"
+                        />
+                        <button
+                          onClick={() => {
+                            const updated = { ...frameWordCounts };
+                            delete updated[frameId];
+                            handleSaveConfig({ frame_word_counts: JSON.stringify(updated) });
+                          }}
+                          className="text-[10px] text-textlight hover:text-red-400 transition-colors"
+                          title="Remove override"
+                        >✕</button>
+                      </>
+                    ) : (
+                      <button
+                        onClick={() => {
+                          const updated = { ...frameWordCounts, [frameId]: config?.default_word_count ?? 1200 };
+                          handleSaveConfig({ frame_word_counts: JSON.stringify(updated) });
+                        }}
+                        className="text-[10px] text-navy hover:text-navy/70 transition-colors"
+                      >+ Override</button>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+            <p className="text-[9px] text-textlight mt-1.5">
+              Target word count for generated landing pages. Frame-specific overrides take priority over the default.
+            </p>
+          </div>
+
           {/* Run buttons */}
           <div className="flex gap-2">
             <button
@@ -715,87 +787,207 @@ export default function LPAgentSettings({ projectId }) {
           <p className="text-[12px] text-textmid text-center py-3">No test generations yet.</p>
         ) : (
           <div className="space-y-2">
-            {recentGenerations.map(lp => {
-              const isGenerating = lp.status === 'generating';
-              const isPublished = lp.status === 'published';
-              const isFailed = lp.status === 'failed' || lp.status === 'error';
-              const isDraft = !isGenerating && !isPublished && !isFailed;
+            {(() => {
+              // Group pages into batches and singles
+              const batchMap = {};
+              const singles = [];
+              for (const lp of recentGenerations) {
+                if (lp.gauntlet_batch_id) {
+                  if (!batchMap[lp.gauntlet_batch_id]) batchMap[lp.gauntlet_batch_id] = [];
+                  batchMap[lp.gauntlet_batch_id].push(lp);
+                } else {
+                  singles.push(lp);
+                }
+              }
+              // Convert batches to array sorted by earliest created_at desc
+              const batches = Object.entries(batchMap).map(([batchId, batchPages]) => ({
+                batchId,
+                pages: batchPages.sort((a, b) => new Date(a.created_at) - new Date(b.created_at)),
+                sortDate: Math.min(...batchPages.map(p => new Date(p.created_at).getTime())),
+              })).sort((a, b) => b.sortDate - a.sortDate);
 
-              let badgeClass = 'bg-navy/10 text-navy';
-              let badgeText = 'Draft';
-              if (isGenerating) { badgeClass = 'bg-gold/10 text-gold'; badgeText = 'Generating'; }
-              if (isPublished) { badgeClass = 'bg-teal/10 text-teal'; badgeText = 'Published'; }
-              if (isFailed) { badgeClass = 'bg-red-50 text-red-600'; badgeText = 'Failed'; }
+              // Interleave batches and singles by date
+              const items = [];
+              for (const batch of batches) items.push({ type: 'batch', ...batch });
+              for (const page of singles) items.push({ type: 'single', page, sortDate: new Date(page.created_at).getTime() });
+              items.sort((a, b) => b.sortDate - a.sortDate);
 
-              // Full timestamp
-              const createdAt = lp.created_at ? new Date(lp.created_at) : null;
-              const timestamp = createdAt ? createdAt.toLocaleString(undefined, { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' }) : '';
+              return items.map(item => {
+                if (item.type === 'batch') {
+                  const { batchId, pages: batchPages } = item;
+                  const expanded = expandedBatches[batchId];
+                  const passedCount = batchPages.filter(p => p.gauntlet_status === 'passed' || p.gauntlet_status === 'published').length;
+                  const scores = batchPages.filter(p => p.gauntlet_score != null).map(p => p.gauntlet_score);
+                  const avgScore = scores.length > 0 ? Math.round(scores.reduce((s, v) => s + v, 0) / scores.length * 10) / 10 : null;
+                  const angleName = batchPages[0]?.angle;
 
-              return (
-                <div
-                  key={lp.id}
-                  className="flex items-center justify-between bg-offwhite rounded-lg px-3 py-2 cursor-pointer hover:bg-navy/5 transition-colors"
-                  onClick={() => navigate(`/projects/${projectId}?tab=lpgen&lp=${lp.id}`)}
-                  title="View this landing page"
-                >
-                  <div className="flex items-center gap-2 min-w-0 flex-1">
-                    {isGenerating && (
-                      <svg className="w-3 h-3 text-gold animate-spin flex-shrink-0" viewBox="0 0 24 24" fill="none">
-                        <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" strokeDasharray="31.4 31.4" strokeLinecap="round" />
-                      </svg>
-                    )}
-                    <span className="text-[11px] text-textdark truncate">{lp.name}</span>
-                    <span className={`text-[9px] font-medium px-1.5 py-0.5 rounded-full flex-shrink-0 ${badgeClass}`}>
-                      {badgeText}
-                    </span>
-                    {lp.qa_status === 'passed' && (
-                      <span className="text-[9px] font-medium px-1.5 py-0.5 rounded-full flex-shrink-0 bg-teal/10 text-teal" title={`QA Score: ${lp.qa_issues_count === 0 ? 'No issues' : `${lp.qa_issues_count} issue(s)`}`}>
-                        QA Pass
-                      </span>
-                    )}
-                    {lp.qa_status === 'failed' && (
-                      <span className="text-[9px] font-medium px-1.5 py-0.5 rounded-full flex-shrink-0 bg-red-50 text-red-600" title={`${lp.qa_issues_count || 0} issue(s) found`}>
-                        QA {lp.qa_issues_count || 0}
-                      </span>
-                    )}
-                    {lp.qa_status === 'running' && (
-                      <span className="text-[9px] font-medium px-1.5 py-0.5 rounded-full flex-shrink-0 bg-gold/10 text-gold animate-pulse">
-                        QA...
-                      </span>
-                    )}
-                    {lp.smoke_test_status === 'passed' && (
-                      <span className="text-[9px] font-medium px-1.5 py-0.5 rounded-full flex-shrink-0 bg-teal/10 text-teal" title="Smoke test passed">
-                        Smoke ✓
-                      </span>
-                    )}
-                    {lp.smoke_test_status === 'failed' && (
-                      <span className="text-[9px] font-medium px-1.5 py-0.5 rounded-full flex-shrink-0 bg-red-50 text-red-600" title="Smoke test failed">
-                        Smoke ✗
-                      </span>
-                    )}
-                  </div>
-                  <div className="flex items-center gap-2 flex-shrink-0 ml-2">
-                    {isPublished && lp.published_url && (
-                      <a
-                        href={lp.published_url}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        onClick={(e) => e.stopPropagation()}
-                        className="text-[10px] text-gold hover:text-gold/80 transition-colors"
+                  // Duration from batch timestamps
+                  const startedAt = batchPages[0]?.gauntlet_batch_started_at;
+                  const completedAt = batchPages[0]?.gauntlet_batch_completed_at;
+                  let durationStr = '';
+                  let timeRange = '';
+                  if (startedAt) {
+                    const startDate = new Date(startedAt);
+                    timeRange = startDate.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+                    if (completedAt) {
+                      const endDate = new Date(completedAt);
+                      const diffMin = Math.round((endDate - startDate) / 60000);
+                      durationStr = diffMin >= 60 ? `${Math.floor(diffMin / 60)}h ${diffMin % 60}m` : `${diffMin}m`;
+                    }
+                  } else {
+                    const d = new Date(batchPages[0].created_at);
+                    timeRange = d.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' });
+                  }
+
+                  const allDone = batchPages.every(p => p.status !== 'generating');
+
+                  return (
+                    <div key={batchId} className="space-y-0">
+                      {/* Batch header */}
+                      <div
+                        className="bg-offwhite rounded-lg px-3 py-2.5 cursor-pointer hover:bg-navy/5 transition-colors"
+                        onClick={() => setExpandedBatches(prev => ({ ...prev, [batchId]: !prev[batchId] }))}
                       >
-                        View live
-                      </a>
-                    )}
-                    {timestamp && (
-                      <span className="text-[9px] text-textlight">{timestamp}</span>
-                    )}
-                    <svg className="w-3.5 h-3.5 text-textlight" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-                      <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
-                    </svg>
+                        <div className="flex items-center gap-2">
+                          <svg className={`w-3 h-3 text-textmid flex-shrink-0 transition-transform ${expanded ? 'rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+                          </svg>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2">
+                              <span className="text-[12px] font-medium text-textdark">
+                                LP Batch{angleName ? <> — <span className="text-navy">{angleName}</span></> : ''} — {batchPages.length} LP{batchPages.length !== 1 ? 's' : ''}
+                              </span>
+                              {durationStr && <span className="text-[10px] text-textlight">{durationStr}</span>}
+                              {!allDone && (
+                                <span className="text-[9px] font-medium px-1.5 py-0.5 rounded-full bg-navy/10 text-navy animate-pulse">Generating...</span>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-3 mt-0.5">
+                              <span className="text-[10px] text-textlight">{timeRange}</span>
+                              {allDone && (
+                                <>
+                                  <span className="text-[10px] text-textmid">
+                                    Passed: <span className={passedCount === batchPages.length ? 'text-teal' : 'text-textdark'}>{passedCount}/{batchPages.length}</span>
+                                  </span>
+                                  {avgScore != null && (
+                                    <span className="text-[10px] text-textmid">
+                                      Avg: <span className={avgScore >= 6 ? 'text-teal' : 'text-gold'}>{avgScore}</span>
+                                    </span>
+                                  )}
+                                </>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Expanded sub-rows */}
+                      {expanded && (
+                        <div className="ml-5 border-l-2 border-navy/10 space-y-1 py-1">
+                          {batchPages.map(lp => {
+                            const frameName = FRAME_LABELS[lp.gauntlet_frame] || lp.gauntlet_frame || lp.narrative_frame || '';
+                            const isPublished = lp.status === 'published';
+                            const isFailed = lp.status === 'failed' || lp.status === 'error';
+                            const isGenerating = lp.status === 'generating';
+
+                            let statusBg = 'bg-navy/10 text-navy';
+                            let statusText = 'Draft';
+                            if (isGenerating) { statusBg = 'bg-gold/10 text-gold'; statusText = 'Generating'; }
+                            if (isPublished) { statusBg = 'bg-teal/10 text-teal'; statusText = 'Published'; }
+                            if (isFailed) { statusBg = 'bg-red-50 text-red-600'; statusText = 'Failed'; }
+
+                            return (
+                              <div
+                                key={lp.id}
+                                className="ml-2 bg-offwhite rounded-lg px-3 py-2 cursor-pointer hover:bg-navy/5 transition-colors"
+                                onClick={() => navigate(`/projects/${projectId}?tab=lpgen&lp=${lp.id}`)}
+                              >
+                                <div className="flex items-center gap-2">
+                                  <div className="flex-1 min-w-0">
+                                    <div className="flex items-center gap-2">
+                                      <span className="text-[11px] font-medium text-textdark truncate">{frameName || lp.name}</span>
+                                      {lp.gauntlet_score != null && (
+                                        <span className={`text-[9px] font-medium px-1.5 py-0.5 rounded-full ${lp.gauntlet_score >= 6 ? 'bg-teal/10 text-teal' : 'bg-gold/10 text-gold'}`}>
+                                          {lp.gauntlet_score}/10
+                                        </span>
+                                      )}
+                                      <span className={`text-[9px] font-medium px-1.5 py-0.5 rounded-full ${statusBg}`}>
+                                        {statusText}
+                                      </span>
+                                      {(lp.gauntlet_status === 'passed' || lp.gauntlet_status === 'published') && (
+                                        <span className="text-teal text-[10px]">✓</span>
+                                      )}
+                                      {lp.gauntlet_status === 'failed' && (
+                                        <span className="text-red-500 text-[10px]">✗</span>
+                                      )}
+                                      {lp.qa_status === 'passed' && (
+                                        <span className="text-[9px] font-medium px-1.5 py-0.5 rounded-full bg-teal/10 text-teal">QA ✓</span>
+                                      )}
+                                      {lp.smoke_test_status === 'passed' && (
+                                        <span className="text-[9px] font-medium px-1.5 py-0.5 rounded-full bg-teal/10 text-teal">Smoke ✓</span>
+                                      )}
+                                    </div>
+                                    {isPublished && lp.published_url && (
+                                      <span
+                                        className="text-[9px] font-mono text-gold hover:text-gold/80 truncate block mt-0.5 max-w-[280px]"
+                                        onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(lp.published_url); toast.success('URL copied'); }}
+                                        title="Click to copy URL"
+                                      >
+                                        {lp.published_url}
+                                      </span>
+                                    )}
+                                  </div>
+                                  <svg className="w-3 h-3 text-textlight flex-shrink-0" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+                                  </svg>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      )}
+                    </div>
+                  );
+                }
+
+                // Single LP (not in a batch)
+                const lp = item.page;
+                const isGenerating = lp.status === 'generating';
+                const isPublished = lp.status === 'published';
+                const isFailed = lp.status === 'failed' || lp.status === 'error';
+
+                let badgeClass = 'bg-navy/10 text-navy';
+                let badgeText = 'Draft';
+                if (isGenerating) { badgeClass = 'bg-gold/10 text-gold'; badgeText = 'Generating'; }
+                if (isPublished) { badgeClass = 'bg-teal/10 text-teal'; badgeText = 'Published'; }
+                if (isFailed) { badgeClass = 'bg-red-50 text-red-600'; badgeText = 'Failed'; }
+
+                const createdAt = lp.created_at ? new Date(lp.created_at) : null;
+                const timestamp = createdAt ? createdAt.toLocaleString(undefined, { month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit' }) : '';
+
+                return (
+                  <div
+                    key={lp.id}
+                    className="bg-offwhite rounded-lg px-3 py-2 cursor-pointer hover:bg-navy/5 transition-colors"
+                    onClick={() => navigate(`/projects/${projectId}?tab=lpgen&lp=${lp.id}`)}
+                  >
+                    <div className="flex items-center justify-between">
+                      <div className="flex items-center gap-2 min-w-0 flex-1">
+                        <span className="text-[11px] text-textdark truncate">{lp.name}</span>
+                        {lp.angle && <span className="text-[9px] text-navy font-medium flex-shrink-0">{lp.angle}</span>}
+                        <span className={`text-[9px] font-medium px-1.5 py-0.5 rounded-full flex-shrink-0 ${badgeClass}`}>{badgeText}</span>
+                      </div>
+                      <div className="flex items-center gap-2 flex-shrink-0 ml-2">
+                        {timestamp && <span className="text-[9px] text-textlight">{timestamp}</span>}
+                        <svg className="w-3 h-3 text-textlight" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+                        </svg>
+                      </div>
+                    </div>
                   </div>
-                </div>
-              );
-            })}
+                );
+              });
+            })()}
           </div>
         )}
       </div>

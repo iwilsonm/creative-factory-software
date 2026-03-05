@@ -402,7 +402,7 @@ router.get('/:id/lp-agent/status', async (req, res) => {
     const recentLPs = (landingPages || [])
       .filter(lp => lp.auto_generated)
       .sort((a, b) => (b.created_at || '').localeCompare(a.created_at || ''))
-      .slice(0, 5);
+      .slice(0, 20);
 
     const hasShopify = !!(config?.shopify_access_token && config?.shopify_store_domain);
     const hasTemplates = readyTemplates.length > 0;
@@ -431,6 +431,18 @@ router.get('/:id/lp-agent/status', async (req, res) => {
         status: lp.status,
         created_at: lp.created_at,
         published_url: lp.published_url,
+        angle: lp.angle,
+        gauntlet_batch_id: lp.gauntlet_batch_id,
+        gauntlet_frame: lp.gauntlet_frame,
+        narrative_frame: lp.narrative_frame,
+        gauntlet_score: lp.gauntlet_score,
+        gauntlet_status: lp.gauntlet_status,
+        gauntlet_batch_started_at: lp.gauntlet_batch_started_at,
+        gauntlet_batch_completed_at: lp.gauntlet_batch_completed_at,
+        qa_status: lp.qa_status,
+        qa_issues_count: lp.qa_issues_count,
+        smoke_test_status: lp.smoke_test_status,
+        error_message: lp.error_message,
       })),
     });
   } catch (err) {

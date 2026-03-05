@@ -50,6 +50,9 @@ export const upsertConfig = mutation({
     gauntlet_score_threshold: v.optional(v.float64()),
     gauntlet_max_image_retries: v.optional(v.float64()),
     gauntlet_max_lp_retries: v.optional(v.float64()),
+    // Word count
+    default_word_count: v.optional(v.float64()),
+    frame_word_counts: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const existing = await ctx.db

@@ -644,6 +644,9 @@ export default defineSchema({
     gauntlet_score_threshold: v.optional(v.float64()),      // Min score to pass (default 6)
     gauntlet_max_image_retries: v.optional(v.float64()),    // Max image prescore retries (default 5)
     gauntlet_max_lp_retries: v.optional(v.float64()),       // Max full LP retries (default 2)
+    // Word count
+    default_word_count: v.optional(v.float64()),             // Global default word count (default 1200)
+    frame_word_counts: v.optional(v.string()),               // JSON: { "testimonial": 1800, "listicle": 600 }
     // Timestamps
     created_at: v.optional(v.string()),
     updated_at: v.optional(v.string()),
