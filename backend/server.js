@@ -39,6 +39,25 @@ const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
 const PORT = process.env.PORT || 3001;
 
+// Patch Express 4 to catch async route handler errors.
+// Without this, an async handler that throws creates an unhandledRejection
+// and the request hangs forever (Express 4 does not catch async errors).
+// This replaces Layer.handle_request to capture the Promise returned by async handlers
+// and forward rejections to next(), where Express's error middleware handles them.
+import Layer from 'express/lib/router/layer.js';
+Layer.prototype.handle_request = function handle(req, res, next) {
+  const fn = this.handle;
+  if (fn.length > 3) return next(); // skip error-handling middleware
+  try {
+    const result = fn(req, res, next);
+    if (result && typeof result.catch === 'function') {
+      result.catch(next);
+    }
+  } catch (err) {
+    next(err);
+  }
+};
+
 // Global error handlers — log and let PM2 handle restart
 process.on('unhandledRejection', (reason) => {
   console.error('[FATAL] Unhandled rejection:', reason);

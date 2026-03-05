@@ -91,14 +91,23 @@ export async function getAllProjects() {
 }
 
 export async function getAllProjectsWithStats() {
-  const projects = await queryWithRetry(api.projects.getAllWithStats, {});
-  return projects.map(p => ({
-    ...convexProjectToRow(p),
-    docCount: p.docCount,
-    adCount: p.adCount,
-    lpCount: p.lpCount,
-    lpPublishedCount: p.lpPublishedCount,
-  }));
+  // Fetch projects first (lightweight), then stats per-project in parallel.
+  // The old monolithic Convex getAllWithStats query loaded ALL ads + LPs + docs
+  // in a single execution (~15+ MB), exceeding Convex query bandwidth limits.
+  const projects = await getAllProjects();
+  const statsResults = await Promise.allSettled(
+    projects.map(p => queryWithRetry(api.projects.getStats, { projectId: p.id }))
+  );
+  return projects.map((p, i) => {
+    const stats = statsResults[i].status === 'fulfilled' ? statsResults[i].value : {};
+    return {
+      ...p,
+      docCount: stats.docCount ?? 0,
+      adCount: stats.adCount ?? 0,
+      lpCount: stats.lpCount ?? 0,
+      lpPublishedCount: stats.lpPublishedCount ?? 0,
+    };
+  });
 }
 
 export async function updateProject(id, fields) {

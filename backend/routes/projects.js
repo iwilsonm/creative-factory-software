@@ -38,65 +38,90 @@ router.use(requireAuth);
 
 // List all projects (single Convex query with embedded stats)
 router.get('/', async (req, res) => {
-  const projects = await getAllProjectsWithStats();
-  res.json(projects);
+  try {
+    const projects = await getAllProjectsWithStats();
+    res.json(projects);
+  } catch (err) {
+    console.error('[Projects] List error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // Get single project
 router.get('/:id', async (req, res) => {
-  const project = await getProject(req.params.id);
-  if (!project) return res.status(404).json({ error: 'Project not found' });
-  const stats = await getProjectStats(project.id);
+  try {
+    const project = await getProject(req.params.id);
+    if (!project) return res.status(404).json({ error: 'Project not found' });
+    const stats = await getProjectStats(project.id);
 
-  // Resolve product image URL if set
-  let productImageUrl = null;
-  if (project.product_image_storageId) {
-    try {
-      productImageUrl = await getStorageUrl(project.product_image_storageId);
-    } catch {}
+    // Resolve product image URL if set
+    let productImageUrl = null;
+    if (project.product_image_storageId) {
+      try {
+        productImageUrl = await getStorageUrl(project.product_image_storageId);
+      } catch {}
+    }
+
+    res.json({ ...project, ...stats, productImageUrl });
+  } catch (err) {
+    console.error('[Projects] Get error:', err.message);
+    res.status(500).json({ error: err.message });
   }
-
-  res.json({ ...project, ...stats, productImageUrl });
 });
 
 // Create project
 router.post('/', requireRole('admin', 'manager'), async (req, res) => {
-  const { name, brand_name, niche, product_description, sales_page_content, drive_folder_id, inspiration_folder_id } = req.body;
-  if (!name) return res.status(400).json({ error: 'Project name is required' });
+  try {
+    const { name, brand_name, niche, product_description, sales_page_content, drive_folder_id, inspiration_folder_id } = req.body;
+    if (!name) return res.status(400).json({ error: 'Project name is required' });
 
-  const id = uuidv4();
-  await createProject({
-    id,
-    name,
-    brand_name: brand_name || '',
-    niche: niche || '',
-    product_description: product_description || '',
-    sales_page_content: sales_page_content || '',
-    drive_folder_id: drive_folder_id || '',
-    inspiration_folder_id: inspiration_folder_id || ''
-  });
+    const id = uuidv4();
+    await createProject({
+      id,
+      name,
+      brand_name: brand_name || '',
+      niche: niche || '',
+      product_description: product_description || '',
+      sales_page_content: sales_page_content || '',
+      drive_folder_id: drive_folder_id || '',
+      inspiration_folder_id: inspiration_folder_id || ''
+    });
 
-  const project = await getProject(id);
-  res.status(201).json(project);
+    const project = await getProject(id);
+    res.status(201).json(project);
+  } catch (err) {
+    console.error('[Projects] Create error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // Update project
 router.put('/:id', requireRole('admin', 'manager'), async (req, res) => {
-  const project = await getProject(req.params.id);
-  if (!project) return res.status(404).json({ error: 'Project not found' });
+  try {
+    const project = await getProject(req.params.id);
+    if (!project) return res.status(404).json({ error: 'Project not found' });
 
-  await updateProject(req.params.id, req.body);
-  const updated = await getProject(req.params.id);
-  res.json(updated);
+    await updateProject(req.params.id, req.body);
+    const updated = await getProject(req.params.id);
+    res.json(updated);
+  } catch (err) {
+    console.error('[Projects] Update error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // Delete project
 router.delete('/:id', requireRole('admin', 'manager'), async (req, res) => {
-  const project = await getProject(req.params.id);
-  if (!project) return res.status(404).json({ error: 'Project not found' });
+  try {
+    const project = await getProject(req.params.id);
+    if (!project) return res.status(404).json({ error: 'Project not found' });
 
-  await deleteProject(req.params.id);
-  res.json({ success: true });
+    await deleteProject(req.params.id);
+    res.json({ success: true });
+  } catch (err) {
+    console.error('[Projects] Delete error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // Upload / replace project product image
@@ -127,14 +152,14 @@ router.post('/:id/product-image', requireRole('admin', 'manager'), imgUpload.sin
 
 // Delete project product image
 router.delete('/:id/product-image', requireRole('admin', 'manager'), async (req, res) => {
-  const project = await getProject(req.params.id);
-  if (!project) return res.status(404).json({ error: 'Project not found' });
-
-  if (!project.product_image_storageId) {
-    return res.json({ success: true });
-  }
-
   try {
+    const project = await getProject(req.params.id);
+    if (!project) return res.status(404).json({ error: 'Project not found' });
+
+    if (!project.product_image_storageId) {
+      return res.json({ success: true });
+    }
+
     // Pass undefined to clear; mutation handles storage deletion
     await setProjectProductImage(req.params.id, undefined);
     res.json({ success: true });
