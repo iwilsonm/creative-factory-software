@@ -1330,6 +1330,31 @@ function LPEditor({ page: initialPage, onBack, onDelete, projectId }) {
                 </div>
               )}
 
+              {/* Category Score Breakdown (gauntlet-scored LPs) */}
+              {qaResult?.categories && (
+                <div className="p-3 bg-offwhite rounded-xl border border-black/5">
+                  <p className="text-[11px] font-medium text-textmid mb-3">Score Breakdown</p>
+                  <div className="space-y-2.5">
+                    {Object.entries(qaResult.categories).map(([key, cat]) => {
+                      const pct = cat.max > 0 ? (cat.score / cat.max) * 100 : 0;
+                      const color = pct >= 100 ? 'bg-teal' : pct >= 50 ? 'bg-gold' : 'bg-red-400';
+                      const textColor = pct >= 100 ? 'text-teal' : pct >= 50 ? 'text-gold' : 'text-red-500';
+                      return (
+                        <div key={key}>
+                          <div className="flex items-center justify-between mb-1">
+                            <span className="text-[11px] font-medium text-textdark">{cat.label}</span>
+                            <span className={`text-[11px] font-bold ${textColor}`}>{cat.score}/{cat.max}</span>
+                          </div>
+                          <div className="h-1.5 bg-black/5 rounded-full overflow-hidden">
+                            <div className={`h-full rounded-full transition-all ${color}`} style={{ width: `${pct}%` }} />
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              )}
+
               {/* Issues Breakdown */}
               {qaResult?.issues?.length > 0 && (
                 <div className="p-3 bg-offwhite rounded-xl border border-black/5">

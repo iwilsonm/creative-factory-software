@@ -742,10 +742,16 @@ export async function runGauntlet(projectId, options = {}, sendEventRaw) {
         passed: passed,
         score: Math.round((lastScore.score / 10) * 100), // Convert 0-10 to 0-100
         summary: lastScore.reasoning || `Gauntlet score: ${lastScore.score}/10`,
+        categories: {
+          image_sensibility: { score: lastScore.image_sensibility, max: 4, label: 'Image Sensibility' },
+          visual_coherence: { score: lastScore.visual_coherence, max: 3, label: 'Visual Coherence' },
+          cta_effectiveness: { score: lastScore.cta_effectiveness, max: 2, label: 'CTA Effectiveness' },
+          copy_quality: { score: lastScore.copy_quality, max: 1, label: 'Copy Quality' },
+        },
         issues: (lastScore.fatal_flaws || []).map(f => ({
           severity: 'critical',
           description: f.description || f.type || 'Fatal flaw detected',
-          location: f.location || null,
+          location: f.image_position || f.location || null,
         })),
         source: 'gauntlet',
         checked_at: new Date().toISOString(),
