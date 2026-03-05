@@ -215,7 +215,7 @@ export default function LPAgentSettings({ projectId }) {
           setGauntletPhase('');
           gauntletStartRef.current = null;
           const r = event.report?.summary;
-          toast.success(`Generation complete: ${r?.passed || 0}/${r?.total || 5} passed, avg ${r?.avgScore || 0}/10`);
+          toast.success(`Generation complete: ${r?.passed || 0}/${r?.total || 5} passed, avg ${r?.avgScore || 0}/11`);
           refreshRecentGenerations();
         }, 500);
       } else if (event.type === 'error') {
@@ -627,9 +627,9 @@ export default function LPAgentSettings({ projectId }) {
               <label className="text-[10px] text-textmid">Score threshold</label>
               <input
                 type="number"
-                min={0} max={10} step={0.5}
-                value={config?.gauntlet_score_threshold ?? 6}
-                onChange={e => handleSaveConfig({ gauntlet_score_threshold: parseFloat(e.target.value) || 6 })}
+                min={0} max={11} step={0.5}
+                value={config?.gauntlet_score_threshold ?? 7}
+                onChange={e => handleSaveConfig({ gauntlet_score_threshold: parseFloat(e.target.value) || 7 })}
                 className="input-apple text-[12px] w-full"
               />
             </div>
@@ -765,7 +765,7 @@ export default function LPAgentSettings({ projectId }) {
                   {gauntletReport.summary?.passed}/{gauntletReport.summary?.total} passed
                 </span>
                 <span className="text-textmid">
-                  Avg score: {gauntletReport.summary?.avgScore}/10
+                  Avg score: {gauntletReport.summary?.avgScore}/11
                 </span>
                 <span className="text-textmid">
                   {gauntletReport.summary?.totalDurationMin}m
@@ -775,7 +775,7 @@ export default function LPAgentSettings({ projectId }) {
                 <div key={i} className="flex items-center gap-2 text-[11px]">
                   <span className={`w-2 h-2 rounded-full ${f.status === 'published' || f.status === 'passed' || f.status === 'passed_dry_run' ? 'bg-teal' : f.status === 'failed' ? 'bg-red-400' : 'bg-gold'}`} />
                   <span className="text-textdark font-medium w-40 truncate">{f.frameName}</span>
-                  <span className="text-textmid">{f.score != null ? `${f.score}/10` : '—'}</span>
+                  <span className="text-textmid">{f.score != null ? `${f.score}/11` : '—'}</span>
                   <span className="text-textlight">{f.status}</span>
                   {f.publishedUrl && (
                     <a href={f.publishedUrl} target="_blank" rel="noopener noreferrer" className="text-gold hover:underline ml-auto">View</a>
@@ -926,8 +926,8 @@ export default function LPAgentSettings({ projectId }) {
                                         {frameName || lp.name}{lp.angle && lp.angle.length < 80 ? <span className="text-textmid font-normal"> - {lp.angle}</span> : ''}
                                       </span>
                                       {lp.gauntlet_score != null && (
-                                        <span className={`text-[9px] font-medium px-1.5 py-0.5 rounded-full ${lp.gauntlet_score >= 6 ? 'bg-teal/10 text-teal' : 'bg-gold/10 text-gold'}`}>
-                                          {lp.gauntlet_score}/10
+                                        <span className={`text-[9px] font-medium px-1.5 py-0.5 rounded-full ${lp.gauntlet_score >= 7 ? 'bg-teal/10 text-teal' : 'bg-gold/10 text-gold'}`}>
+                                          {lp.gauntlet_score}/11
                                         </span>
                                       )}
                                       <span className={`text-[9px] font-medium px-1.5 py-0.5 rounded-full ${statusBg}`}>

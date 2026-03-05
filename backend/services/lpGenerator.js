@@ -4029,7 +4029,7 @@ export async function preScoreAndRetryImages(imageSlots, angle, autoContext, pro
  *
  * @returns {{ score, image_sensibility, visual_coherence, cta_effectiveness, copy_quality, fatal_flaws[], reasoning, screenshotBuffer }}
  */
-export async function scoreGauntletLP(assembledHtml, projectId, imageContext) {
+export async function scoreGauntletLP(assembledHtml, projectId, imageContext, { angle, narrativeFrame, productImageData } = {}) {
   const puppeteer = (await import('puppeteer')).default;
 
   let browser;
@@ -4067,10 +4067,13 @@ export async function scoreGauntletLP(assembledHtml, projectId, imageContext) {
     const productDesc = imageContext?.productContext || 'Unknown product';
     const avatarDesc = imageContext?.avatarContext || 'Unknown audience';
 
-    const scorePrompt = `You are a landing page quality scorer. Score this landing page screenshot on a 0-10 scale.
+    const scorePrompt = `You are a landing page quality scorer. Score this landing page screenshot on a 0-11 scale.
 
 PRODUCT: ${productDesc}
 TARGET AUDIENCE: ${avatarDesc}
+MARKETING ANGLE: ${angle || 'General'}
+NARRATIVE FRAME: ${narrativeFrame || 'General'}
+${productImageData ? 'PRODUCT REFERENCE: The second image is a photo of the actual product. Use it as ground truth when scoring Image Sensibility — images on the landing page should visually match this product.' : ''}
 
 SCORING DIMENSIONS (score each independently):
 
@@ -4089,12 +4092,13 @@ SCORING DIMENSIONS (score each independently):
 
 3. **CTA Effectiveness (0-2 points)**:
    - 0: CTAs are missing, broken, or invisible
-   - 1: CTAs exist but are poorly positioned or styled
-   - 2: CTAs are prominent, well-styled, and compelling
+   - 1: At least one CTA is present and functional but small or hard to find
+   - 2: CTAs are clearly visible, well-styled, and appear at multiple points on the page
 
-4. **Copy Quality (0-1 point)**:
+4. **Copy Quality (0-2 points)**:
    - 0: Placeholders visible, garbled text, or truncated content
-   - 1: Copy is clean, readable, no placeholders
+   - 1: Copy is clean and readable but generic or lacks persuasive power
+   - 2: Copy is compelling — headline hooks attention, body builds desire, tone matches audience
 
 Also identify any **FATAL FLAWS** — issues so bad the LP cannot be used:
 - "wrong_product_image": An image shows the wrong product entirely (e.g., yoga mat instead of bedsheet)
@@ -4106,22 +4110,26 @@ For image-related fatal flaws, include the approximate position: "hero", "middle
 
 RESPOND WITH JSON ONLY:
 {
-  "score": <0-10 total>,
+  "score": <0-11 total>,
   "image_sensibility": <0-4>,
   "visual_coherence": <0-3>,
   "cta_effectiveness": <0-2>,
-  "copy_quality": <0-1>,
+  "copy_quality": <0-2>,
   "fatal_flaws": [
     { "type": "wrong_product_image", "image_position": "hero", "description": "..." }
   ],
   "reasoning": "Brief overall assessment"
 }`;
 
-    const response = await chatWithImage(
+    const images = [{ base64: screenshotBuffer.toString('base64'), mimeType: 'image/jpeg' }];
+    if (productImageData?.base64) {
+      images.push({ base64: productImageData.base64, mimeType: productImageData.mimeType || 'image/jpeg' });
+    }
+
+    const response = await chatWithMultipleImages(
       [{ role: 'system', content: 'You are a landing page quality scorer. Respond with JSON only.' }],
       scorePrompt,
-      screenshotBuffer.toString('base64'),
-      'image/jpeg',
+      images,
       'claude-sonnet-4-6',
       {
         operation: 'lp_gauntlet_score',

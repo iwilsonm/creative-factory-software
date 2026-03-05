@@ -1139,9 +1139,9 @@ function LPEditor({ page: initialPage, onBack, onDelete, projectId }) {
                     </div>
                   )}
                   {initialPage.gauntlet_score != null && (
-                    <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg ${initialPage.gauntlet_score >= 6 ? 'bg-teal/5' : 'bg-gold/5'}`}>
-                      <span className={`text-[11px] font-medium ${initialPage.gauntlet_score >= 6 ? 'text-teal' : 'text-gold'}`}>
-                        {initialPage.gauntlet_score}/10
+                    <div className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg ${initialPage.gauntlet_score >= 7 ? 'bg-teal/5' : 'bg-gold/5'}`}>
+                      <span className={`text-[11px] font-medium ${initialPage.gauntlet_score >= 7 ? 'text-teal' : 'text-gold'}`}>
+                        {initialPage.gauntlet_score}/11
                       </span>
                       <span className="text-[10px] text-textlight">gauntlet score</span>
                     </div>
@@ -1424,14 +1424,14 @@ function LPEditor({ page: initialPage, onBack, onDelete, projectId }) {
 
               {/* Gauntlet Score Fallback (for existing LPs without qa_report) */}
               {!qaResult && initialPage.gauntlet_score != null && (
-                <div className={`p-4 rounded-xl border ${initialPage.gauntlet_score >= 6 ? 'bg-teal/5 border-teal/20' : 'bg-gold/5 border-gold/20'}`}>
+                <div className={`p-4 rounded-xl border ${initialPage.gauntlet_score >= 7 ? 'bg-teal/5 border-teal/20' : 'bg-gold/5 border-gold/20'}`}>
                   <div className="flex items-center justify-between mb-2">
                     <div className="flex items-center gap-2">
-                      <span className={`text-[20px] font-bold ${initialPage.gauntlet_score >= 6 ? 'text-teal' : 'text-gold'}`}>
-                        {initialPage.gauntlet_score}/10
+                      <span className={`text-[20px] font-bold ${initialPage.gauntlet_score >= 7 ? 'text-teal' : 'text-gold'}`}>
+                        {initialPage.gauntlet_score}/11
                       </span>
                       <span className={`text-[11px] font-medium px-2 py-0.5 rounded-full ${
-                        initialPage.gauntlet_score >= 6 ? 'bg-teal/10 text-teal' : 'bg-gold/10 text-gold'
+                        initialPage.gauntlet_score >= 7 ? 'bg-teal/10 text-teal' : 'bg-gold/10 text-gold'
                       }`}>
                         GAUNTLET SCORE
                       </span>
@@ -2530,8 +2530,8 @@ export default function LPGen({ projectId, project }) {
                                       {frameName || page.name}{page.angle && page.angle.length < 80 ? <span className="text-textmid font-normal"> - {page.angle}</span> : ''}
                                     </h3>
                                     {page.gauntlet_score != null && (
-                                      <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${page.gauntlet_score >= 6 ? 'bg-teal/10 text-teal' : 'bg-gold/10 text-gold'}`}>
-                                        {page.gauntlet_score}/10
+                                      <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${page.gauntlet_score >= 7 ? 'bg-teal/10 text-teal' : 'bg-gold/10 text-gold'}`}>
+                                        {page.gauntlet_score}/11
                                       </span>
                                     )}
                                     <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${status.bg} ${status.text}`}>

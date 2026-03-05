@@ -426,7 +426,7 @@ export async function runGauntlet(projectId, options = {}, sendEventRaw) {
     throw new Error('LP Agent not configured for this project');
   }
 
-  const scoreThreshold = config.gauntlet_score_threshold || 6;
+  const scoreThreshold = config.gauntlet_score_threshold || 7;
   const maxImageRetries = config.gauntlet_max_image_retries || 5;
   const maxLPRetries = config.gauntlet_max_lp_retries || 2;
 
@@ -454,7 +454,7 @@ export async function runGauntlet(projectId, options = {}, sendEventRaw) {
     throw new Error(`Project ${projectId} not found`);
   }
 
-  sendEvent({ type: 'progress', step: 'gauntlet_config', message: `Template: ${template.name || 'unnamed'}, threshold: ${scoreThreshold}/10, dry run: ${dryRun}` });
+  sendEvent({ type: 'progress', step: 'gauntlet_config', message: `Template: ${template.name || 'unnamed'}, threshold: ${scoreThreshold}/11, dry run: ${dryRun}` });
 
   // 2. Get cached image context (using getFoundationalDocs which returns content strings + latest version)
   let imageContext;
@@ -657,7 +657,7 @@ export async function runGauntlet(projectId, options = {}, sendEventRaw) {
 
         let scoreResult;
         try {
-          scoreResult = await scoreGauntletLP(lpResult.assembledHtml, projectId, imageContext);
+          scoreResult = await scoreGauntletLP(lpResult.assembledHtml, projectId, imageContext, { angle: frameAngle, narrativeFrame: frame.id, productImageData });
           lastScore = scoreResult;
         } catch (scoreErr) {
           console.error(`[Gauntlet] Scoring failed for frame ${frameNum}:`, scoreErr.message);
@@ -674,7 +674,7 @@ export async function runGauntlet(projectId, options = {}, sendEventRaw) {
         sendEvent({
           type: 'progress',
           step: 'gauntlet_score_result',
-          message: `LP ${frameNum} of ${totalFrames} — Score ${scoreResult.score}/10${hasFatalFlaws ? ` (${scoreResult.fatal_flaws.length} fatal flaw${scoreResult.fatal_flaws.length > 1 ? 's' : ''})` : ''}`,
+          message: `LP ${frameNum} of ${totalFrames} — Score ${scoreResult.score}/11${hasFatalFlaws ? ` (${scoreResult.fatal_flaws.length} fatal flaw${scoreResult.fatal_flaws.length > 1 ? 's' : ''})` : ''}`,
         });
 
         // Check pass
@@ -712,7 +712,7 @@ export async function runGauntlet(projectId, options = {}, sendEventRaw) {
 
               // Re-score after image fix
               try {
-                const rescore = await scoreGauntletLP(fixedHtml, projectId, imageContext);
+                const rescore = await scoreGauntletLP(fixedHtml, projectId, imageContext, { angle: frameAngle, narrativeFrame: frame.id, productImageData });
                 lastScore = rescore;
                 frameResult.score = rescore.score;
 
@@ -740,13 +740,13 @@ export async function runGauntlet(projectId, options = {}, sendEventRaw) {
       const frameDurationMs = Date.now() - frameStart;
       const qaEquivalent = lastScore ? {
         passed: passed,
-        score: Math.round((lastScore.score / 10) * 100), // Convert 0-10 to 0-100
-        summary: lastScore.reasoning || `Gauntlet score: ${lastScore.score}/10`,
+        score: Math.round((lastScore.score / 11) * 100), // Convert 0-11 to 0-100
+        summary: lastScore.reasoning || `Gauntlet score: ${lastScore.score}/11`,
         categories: {
           image_sensibility: { score: lastScore.image_sensibility, max: 4, label: 'Image Sensibility' },
           visual_coherence: { score: lastScore.visual_coherence, max: 3, label: 'Visual Coherence' },
           cta_effectiveness: { score: lastScore.cta_effectiveness, max: 2, label: 'CTA Effectiveness' },
-          copy_quality: { score: lastScore.copy_quality, max: 1, label: 'Copy Quality' },
+          copy_quality: { score: lastScore.copy_quality, max: 2, label: 'Copy Quality' },
         },
         issues: (lastScore.fatal_flaws || []).map(f => ({
           severity: 'critical',
@@ -821,7 +821,7 @@ export async function runGauntlet(projectId, options = {}, sendEventRaw) {
     sendEvent({
       type: 'progress',
       step: 'gauntlet_frame_done',
-      message: `LP ${frameNum} of ${totalFrames} complete: ${frameResult.status}${frameResult.score != null ? ` (${frameResult.score}/10)` : ''}`,
+      message: `LP ${frameNum} of ${totalFrames} complete: ${frameResult.status}${frameResult.score != null ? ` (${frameResult.score}/11)` : ''}`,
       gauntlet: { frame: frameNum, total: totalFrames, result: frameResult },
     });
   }
@@ -875,7 +875,7 @@ export async function runGauntlet(projectId, options = {}, sendEventRaw) {
   sendEvent({
     type: 'progress',
     step: 'gauntlet_complete',
-    message: `Generation complete: ${passedFrames.length}/${totalFrames} passed, ${publishedFrames.length} published, avg score ${report.summary.avgScore}/10`,
+    message: `Generation complete: ${passedFrames.length}/${totalFrames} passed, ${publishedFrames.length} published, avg score ${report.summary.avgScore}/11`,
   });
 
   // Clear in-memory progress — generation is done
