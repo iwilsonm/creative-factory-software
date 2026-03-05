@@ -3210,6 +3210,7 @@ export async function generateAutoLP({
   editorialPassEnabled = true,
   useProductReferenceImages = true,
   agentConfig = null,
+  autoContext: parentAutoContext = null,  // Gauntlet: { cachedHtmlTemplate, preGeneratedImages }
 }, sendEvent) {
   // Audit trail — collect entries at each generation phase
   const auditTrail = [];
@@ -3366,34 +3367,48 @@ export async function generateAutoLP({
     console.log(`[LPGen] Image context: avatar="${imageContext.avatarContext || 'none'}", product="${(imageContext.productContext || 'none').slice(0, 80)}", llm=${!!imageContext.productVisual}`);
   }
 
-  // 4. Generate images (Step 3) with product reference + editorial direction + article context
-  const imageSlots = await generateSlotImages({
-    imageSlots: designAnalysis.image_slots,
-    copySections,
-    angle,
-    projectId,
-    autoContext: {
-      narrativeFrame,
-      productImageData,
-      editorialPlan,
-      imageContext,
-    },
-  }, sendEvent);
+  // 4. Generate images (Step 3) — skip if pre-generated (Gauntlet mode)
+  let imageSlots;
+  if (parentAutoContext?.preGeneratedImages) {
+    imageSlots = parentAutoContext.preGeneratedImages;
+    sendEvent({ type: 'progress', step: 'images_cached', message: 'Using pre-scored images' });
+    audit('images', 'cached', `${imageSlots.filter(s => s.generated).length} pre-scored images`);
+  } else {
+    imageSlots = await generateSlotImages({
+      imageSlots: designAnalysis.image_slots,
+      copySections,
+      angle,
+      projectId,
+      autoContext: {
+        narrativeFrame,
+        productImageData,
+        editorialPlan,
+        imageContext,
+      },
+    }, sendEvent);
+    audit('images', 'generated', `${imageSlots.filter(s => s.generated).length}/${imageSlots.length} images generated`);
+  }
 
-  audit('images', 'generated', `${imageSlots.filter(s => s.generated).length}/${imageSlots.length} images generated`);
-
-  // 5. Generate HTML (Step 4) with skeleton template + editorial plan
-  const htmlTemplate = await generateHtmlTemplate({
-    designAnalysis,
-    copySections,
-    imageSlots,
-    ctaElements: designAnalysis.cta_elements,
-    projectId,
-    autoContext: {
-      skeletonHtml: enforceBackgroundLightness(template.skeleton_html || '').html,
-      editorialPlan,
-    },
-  }, sendEvent);
+  // 5. Generate HTML (Step 4) — skip if cached (Gauntlet mode)
+  let htmlTemplate;
+  if (parentAutoContext?.cachedHtmlTemplate) {
+    htmlTemplate = parentAutoContext.cachedHtmlTemplate;
+    sendEvent({ type: 'progress', step: 'html_cached', message: 'Using cached HTML template' });
+    audit('html', 'cached', `Cached template: ${htmlTemplate.length} chars`);
+  } else {
+    htmlTemplate = await generateHtmlTemplate({
+      designAnalysis,
+      copySections,
+      imageSlots,
+      ctaElements: designAnalysis.cta_elements,
+      projectId,
+      autoContext: {
+        skeletonHtml: enforceBackgroundLightness(template.skeleton_html || '').html,
+        editorialPlan,
+      },
+    }, sendEvent);
+    audit('html', 'generated', `HTML template: ${htmlTemplate.length} chars`);
+  }
 
   audit('html', 'generated', `HTML template: ${htmlTemplate.length} chars`);
 
@@ -3811,4 +3826,370 @@ export async function generateAndValidateLP(params, sendEvent, options = {}) {
   sendEvent({ type: 'progress', step: 'qa_all_failed', message: `All ${MAX_GENERATIONS} generation attempts failed QA. LP slot unfilled.` });
   console.error(`[LP Pipeline] LP generation failed after ${generationAttempts} generations, ${totalFixAttempts} fix attempts.`);
   return { result: null, qaReport: lastQAReport, fixLog, generationAttempts, fixAttempts: totalFixAttempts };
+}
+
+// ─── Gauntlet: Image Pre-Scoring ────────────────────────────────────────────
+
+/**
+ * Score a single image against avatar/product expectations using Sonnet vision.
+ * Returns { passed, issues[], reasoning }.
+ */
+export async function preScoreImage(imageBase64, mimeType, avatarContext, productContext, productVisual, avatarVisual) {
+  const prompt = `You are a strict image quality gatekeeper for advertising landing pages. Score this image.
+
+PRODUCT CONTEXT: ${productContext || 'Unknown product'}
+AVATAR CONTEXT: ${avatarContext || 'Unknown audience'}
+${productVisual ? `PRODUCT DETAILS: ${productVisual.productName} — ${productVisual.physicalDescription || 'no description'}` : ''}
+${avatarVisual ? `PERSON SHOULD BE: ${avatarVisual.gender || 'any'}, age ${avatarVisual.ageRange || 'unknown'}, ${avatarVisual.lifestyle || 'unknown lifestyle'}` : ''}
+${productVisual?.notThisProduct?.length ? `THIS IS NOT: ${productVisual.notThisProduct.join(', ')}` : ''}
+${avatarVisual?.notThisPerson?.length ? `Do NOT show: ${avatarVisual.notThisPerson.join(', ')}` : ''}
+
+CHECK FOR:
+1. **Sensibility** — Does this image make sense for an ad landing page? No surreal/absurd compositions.
+2. **Correct product** — If a product is shown, does it match the product context? A bedsheet must look like a bedsheet, not a yoga mat.
+3. **Correct demographic** — Does the person (if shown) match the target avatar's age, gender, and lifestyle?
+4. **Realism** — Does the image look photorealistic? No obvious AI artifacts, distorted faces, or extra fingers.
+5. **No AI text** — The image must NOT contain any visible text, watermarks, or generated text.
+
+RESPOND WITH JSON ONLY:
+{
+  "passed": true/false,
+  "issues": ["issue 1", "issue 2"],
+  "reasoning": "Brief explanation"
+}
+
+Pass ONLY if ALL 5 checks pass. Be strict — a single failed check means passed=false.`;
+
+  try {
+    const response = await chatWithImage(
+      [{ role: 'system', content: 'You are an image quality scorer. Respond with JSON only.' }],
+      prompt,
+      imageBase64,
+      mimeType || 'image/png',
+      'claude-sonnet-4-6',
+      {
+        operation: 'lp_image_prescore',
+        timeout: 30000,
+      }
+    );
+
+    try {
+      return JSON.parse(response);
+    } catch {
+      // If response isn't valid JSON, treat as failed
+      return { passed: false, issues: ['Failed to parse scoring response'], reasoning: response.slice(0, 200) };
+    }
+  } catch (err) {
+    console.error('[Gauntlet] Image pre-score error:', err.message);
+    return { passed: false, issues: [`Scoring error: ${err.message}`], reasoning: 'Scoring failed' };
+  }
+}
+
+/**
+ * Pre-score all images in a slot array. For failed images, regenerate and re-score
+ * up to maxRetries times per slot.
+ */
+export async function preScoreAndRetryImages(imageSlots, angle, autoContext, projectId, sendEvent, maxRetries = 3) {
+  const imageContext = autoContext?.imageContext || {};
+  const updatedSlots = [...imageSlots];
+  let totalAttempts = 0;
+
+  for (let i = 0; i < updatedSlots.length; i++) {
+    const slot = updatedSlots[i];
+    if (!slot.generated || !slot.storageId) continue; // Skip failed/empty slots
+
+    let attempts = 0;
+    let currentSlot = slot;
+
+    while (attempts < maxRetries) {
+      attempts++;
+      totalAttempts++;
+
+      sendEvent({
+        type: 'progress',
+        step: 'image_prescoring',
+        message: `Pre-scoring image ${i + 1}/${updatedSlots.length}${attempts > 1 ? ` (retry ${attempts - 1})` : ''}...`,
+      });
+
+      // Download the image to score it
+      let imageBuffer;
+      try {
+        imageBuffer = await downloadToBuffer(currentSlot.storageId);
+      } catch (err) {
+        console.warn(`[Gauntlet] Failed to download image for scoring: ${err.message}`);
+        break; // Can't score, keep the image as-is
+      }
+
+      const scoreResult = await preScoreImage(
+        imageBuffer.toString('base64'),
+        'image/png',
+        imageContext.avatarContext,
+        imageContext.productContext,
+        imageContext.productVisual,
+        imageContext.avatarVisual,
+      );
+
+      if (scoreResult.passed) {
+        console.log(`[Gauntlet] Image ${i + 1} passed pre-score on attempt ${attempts}`);
+        sendEvent({
+          type: 'progress',
+          step: 'image_prescore_passed',
+          message: `Image ${i + 1} passed pre-score${attempts > 1 ? ` after ${attempts} attempts` : ''}`,
+        });
+        break;
+      }
+
+      console.warn(`[Gauntlet] Image ${i + 1} failed pre-score (attempt ${attempts}): ${scoreResult.issues?.join(', ')}`);
+
+      // If we have retries left, regenerate
+      if (attempts < maxRetries) {
+        sendEvent({
+          type: 'progress',
+          step: 'image_prescore_retry',
+          message: `Image ${i + 1} failed: ${scoreResult.issues?.[0] || 'quality issue'}. Regenerating...`,
+        });
+
+        try {
+          const imagePrompt = buildImagePrompt(slot, angle, '', autoContext, i, updatedSlots.length);
+          const slotDesc = (slot.description || slot.type || slot.slot_id || '').toLowerCase();
+          const isProductSlot = slotDesc.includes('product') || slotDesc.includes('hero');
+          const referenceImage = (isProductSlot && autoContext?.productImageData) ? autoContext.productImageData : null;
+
+          const { imageBuffer: newBuffer, mimeType: newMimeType } = await generateImage(imagePrompt, slot.aspect_ratio || '16:9', referenceImage, {
+            projectId, operation: 'lp_image_prescore_retry',
+          });
+
+          const storageId = await uploadBuffer(newBuffer, newMimeType);
+          const storageUrl = await getStorageUrl(storageId);
+
+          currentSlot = {
+            ...slot,
+            storageId,
+            storageUrl,
+            generated: true,
+          };
+          updatedSlots[i] = currentSlot;
+        } catch (regenErr) {
+          console.error(`[Gauntlet] Image regeneration failed:`, regenErr.message);
+          break; // Keep what we have
+        }
+      } else {
+        sendEvent({
+          type: 'progress',
+          step: 'image_prescore_exhausted',
+          message: `Image ${i + 1} failed all ${maxRetries} pre-score attempts. Keeping last version.`,
+        });
+      }
+    }
+  }
+
+  return { imageSlots: updatedSlots, totalAttempts };
+}
+
+// ─── Gauntlet: Full-Page LP Scoring ─────────────────────────────────────────
+
+/**
+ * Render an LP's assembled HTML, take a full-page screenshot, and score it
+ * using Sonnet vision on a 0-10 scale.
+ *
+ * Scoring dimensions:
+ * - Image sensibility (0-4): Do images make sense, match product/avatar?
+ * - Visual coherence (0-3): Layout, typography, color consistency
+ * - CTA effectiveness (0-2): Are CTAs visible, compelling, properly styled?
+ * - Copy quality (0-1): Is copy readable, no placeholders, proper formatting?
+ *
+ * @returns {{ score, image_sensibility, visual_coherence, cta_effectiveness, copy_quality, fatal_flaws[], reasoning, screenshotBuffer }}
+ */
+export async function scoreGauntletLP(assembledHtml, projectId, imageContext) {
+  const puppeteer = (await import('puppeteer')).default;
+
+  let browser;
+  try {
+    browser = await puppeteer.launch({
+      headless: 'new',
+      args: [
+        '--no-sandbox',
+        '--disable-setuid-sandbox',
+        '--disable-dev-shm-usage',
+        '--disable-gpu',
+        '--disable-software-rasterizer',
+        '--single-process',
+      ],
+    });
+
+    const page = await browser.newPage();
+    await page.setViewport({ width: 1280, height: 800 });
+    await page.setContent(assembledHtml, { waitUntil: 'networkidle0', timeout: 30000 });
+    await new Promise(r => setTimeout(r, 1000));
+
+    const bodyHeight = await page.evaluate(() => document.body.scrollHeight);
+    const screenshotHeight = Math.min(bodyHeight, 7900);
+
+    const screenshotBuffer = await page.screenshot({
+      type: 'jpeg',
+      quality: 85,
+      clip: { x: 0, y: 0, width: 1280, height: screenshotHeight },
+    });
+
+    await browser.close();
+    browser = null;
+
+    // Score via Sonnet vision
+    const productDesc = imageContext?.productContext || 'Unknown product';
+    const avatarDesc = imageContext?.avatarContext || 'Unknown audience';
+
+    const scorePrompt = `You are a landing page quality scorer. Score this landing page screenshot on a 0-10 scale.
+
+PRODUCT: ${productDesc}
+TARGET AUDIENCE: ${avatarDesc}
+
+SCORING DIMENSIONS (score each independently):
+
+1. **Image Sensibility (0-4 points)**:
+   - 0: Images are absurd, wrong product, or clearly AI-broken
+   - 1: Images exist but don't match the product or audience
+   - 2: Images are acceptable but generic
+   - 3: Images match the product and audience well
+   - 4: Images are compelling, on-brand, and perfectly matched
+
+2. **Visual Coherence (0-3 points)**:
+   - 0: Layout is broken, elements overlap, completely unprofessional
+   - 1: Layout works but has noticeable issues (spacing, alignment)
+   - 2: Clean, professional layout with minor issues
+   - 3: Polished, visually cohesive design
+
+3. **CTA Effectiveness (0-2 points)**:
+   - 0: CTAs are missing, broken, or invisible
+   - 1: CTAs exist but are poorly positioned or styled
+   - 2: CTAs are prominent, well-styled, and compelling
+
+4. **Copy Quality (0-1 point)**:
+   - 0: Placeholders visible, garbled text, or truncated content
+   - 1: Copy is clean, readable, no placeholders
+
+Also identify any **FATAL FLAWS** — issues so bad the LP cannot be used:
+- "wrong_product_image": An image shows the wrong product entirely (e.g., yoga mat instead of bedsheet)
+- "ai_text_in_image": Visible AI-generated text baked into an image
+- "broken_layout": Page is fundamentally broken (massive overlap, invisible content)
+- "placeholder_visible": {{placeholder}} text is visible to the user
+
+For image-related fatal flaws, include the approximate position: "hero", "middle", "bottom", or "product".
+
+RESPOND WITH JSON ONLY:
+{
+  "score": <0-10 total>,
+  "image_sensibility": <0-4>,
+  "visual_coherence": <0-3>,
+  "cta_effectiveness": <0-2>,
+  "copy_quality": <0-1>,
+  "fatal_flaws": [
+    { "type": "wrong_product_image", "image_position": "hero", "description": "..." }
+  ],
+  "reasoning": "Brief overall assessment"
+}`;
+
+    const response = await chatWithImage(
+      [{ role: 'system', content: 'You are a landing page quality scorer. Respond with JSON only.' }],
+      scorePrompt,
+      screenshotBuffer.toString('base64'),
+      'image/jpeg',
+      'claude-sonnet-4-6',
+      {
+        operation: 'lp_gauntlet_score',
+        projectId,
+        timeout: 60000,
+      }
+    );
+
+    let scoreResult;
+    try {
+      scoreResult = JSON.parse(response);
+    } catch {
+      scoreResult = { score: 0, fatal_flaws: [{ type: 'parse_error', description: 'Failed to parse scoring response' }], reasoning: response.slice(0, 200) };
+    }
+
+    return { ...scoreResult, screenshotBuffer };
+  } catch (err) {
+    if (browser) await browser.close().catch(() => {});
+    throw err;
+  }
+}
+
+/**
+ * Regenerate images flagged with fatal_flaws by the Gauntlet scorer.
+ * Swaps URLs in the assembled HTML and re-runs postProcessLP.
+ */
+export async function regenerateFailedImages(assembledHtml, fatalFlaws, imageSlots, autoContext, projectId, sendEvent) {
+  const imageFlaws = (fatalFlaws || []).filter(f =>
+    f.type === 'wrong_product_image' || f.type === 'ai_text_in_image'
+  );
+
+  if (imageFlaws.length === 0) return { html: assembledHtml, regeneratedCount: 0 };
+
+  let html = assembledHtml;
+  let regeneratedCount = 0;
+
+  for (const flaw of imageFlaws) {
+    // Map position to slot index
+    const position = (flaw.image_position || '').toLowerCase();
+    let targetSlotIndex = -1;
+
+    if (position === 'hero' || position === 'top') {
+      targetSlotIndex = 0;
+    } else if (position === 'product') {
+      // Find the product slot
+      targetSlotIndex = imageSlots.findIndex(s =>
+        (s.description || s.slot_id || '').toLowerCase().includes('product')
+      );
+    } else if (position === 'middle') {
+      targetSlotIndex = Math.floor(imageSlots.length / 2);
+    } else if (position === 'bottom') {
+      targetSlotIndex = imageSlots.length - 1;
+    }
+
+    if (targetSlotIndex < 0 || targetSlotIndex >= imageSlots.length) {
+      targetSlotIndex = 0; // Default to first image
+    }
+
+    const targetSlot = imageSlots[targetSlotIndex];
+    if (!targetSlot?.storageUrl) continue;
+
+    sendEvent({
+      type: 'progress',
+      step: 'gauntlet_image_regen',
+      message: `Regenerating ${position || 'flagged'} image (${flaw.type})...`,
+    });
+
+    try {
+      const imagePrompt = buildImagePrompt(targetSlot, autoContext?.angle || '', '', autoContext, targetSlotIndex, imageSlots.length);
+      const slotDesc = (targetSlot.description || targetSlot.type || targetSlot.slot_id || '').toLowerCase();
+      const isProductSlot = slotDesc.includes('product') || slotDesc.includes('hero');
+      const referenceImage = (isProductSlot && autoContext?.productImageData) ? autoContext.productImageData : null;
+
+      const { imageBuffer, mimeType } = await generateImage(imagePrompt, targetSlot.aspect_ratio || '16:9', referenceImage, {
+        projectId, operation: 'lp_gauntlet_image_regen',
+      });
+
+      const storageId = await uploadBuffer(imageBuffer, mimeType);
+      const newUrl = await getStorageUrl(storageId);
+
+      // Swap URL in HTML
+      if (targetSlot.storageUrl) {
+        html = html.split(targetSlot.storageUrl).join(newUrl);
+        targetSlot.storageId = storageId;
+        targetSlot.storageUrl = newUrl;
+        regeneratedCount++;
+      }
+    } catch (err) {
+      console.error(`[Gauntlet] Failed to regenerate image at ${position}:`, err.message);
+    }
+  }
+
+  // Re-run post-processing on the updated HTML
+  if (regeneratedCount > 0) {
+    const { html: processed } = postProcessLP(html);
+    html = processed;
+  }
+
+  return { html, regeneratedCount };
 }
