@@ -688,6 +688,8 @@ export async function getFlexAdsByProject(projectId) {
     angle_name: f.angle_name || null,
     lp_primary_url: f.lp_primary_url || null,
     lp_secondary_url: f.lp_secondary_url || null,
+    gauntlet_lp_urls: f.gauntlet_lp_urls || null,
+    destination_urls_used: f.destination_urls_used || null,
     created_at: f.created_at,
     updated_at: f.updated_at,
   }));
@@ -712,6 +714,8 @@ export async function getFlexAdsByAdSet(adSetId) {
     duplicate_adset_name: f.duplicate_adset_name || null,
     lp_primary_url: f.lp_primary_url || null,
     lp_secondary_url: f.lp_secondary_url || null,
+    gauntlet_lp_urls: f.gauntlet_lp_urls || null,
+    destination_urls_used: f.destination_urls_used || null,
     created_at: f.created_at,
     updated_at: f.updated_at,
   }));
@@ -740,12 +744,14 @@ export async function getFlexAd(id) {
     angle_name: f.angle_name || null,
     lp_primary_url: f.lp_primary_url || null,
     lp_secondary_url: f.lp_secondary_url || null,
+    gauntlet_lp_urls: f.gauntlet_lp_urls || null,
+    destination_urls_used: f.destination_urls_used || null,
     created_at: f.created_at,
     updated_at: f.updated_at,
   };
 }
 
-export async function createFlexAd({ id, project_id, ad_set_id, name, child_deployment_ids, primary_texts, headlines, display_link, cta_button, facebook_page, destination_url, duplicate_adset_name, posting_day, angle_name, lp_primary_url, lp_secondary_url }) {
+export async function createFlexAd({ id, project_id, ad_set_id, name, child_deployment_ids, primary_texts, headlines, display_link, cta_button, facebook_page, destination_url, duplicate_adset_name, posting_day, angle_name, lp_primary_url, lp_secondary_url, gauntlet_lp_urls }) {
   const now = new Date().toISOString();
   return await mutationWithRetry(api.flexAds.create, {
     externalId: id,
@@ -764,6 +770,7 @@ export async function createFlexAd({ id, project_id, ad_set_id, name, child_depl
     ...(angle_name ? { angle_name } : {}),
     ...(lp_primary_url ? { lp_primary_url } : {}),
     ...(lp_secondary_url ? { lp_secondary_url } : {}),
+    ...(gauntlet_lp_urls ? { gauntlet_lp_urls } : {}),
     created_at: now,
     updated_at: now,
   });
@@ -1062,7 +1069,7 @@ export async function getLandingPage(externalId) {
   return await queryWithRetry(api.landingPages.getByExternalId, { externalId });
 }
 
-export async function createLandingPage({ id, project_id, name, angle, word_count, additional_direction, swipe_text, swipe_filename, swipe_url, swipe_screenshot_storageId, status, auto_generated, batch_job_id, narrative_frame, template_id }) {
+export async function createLandingPage({ id, project_id, name, angle, word_count, additional_direction, swipe_text, swipe_filename, swipe_url, swipe_screenshot_storageId, status, auto_generated, batch_job_id, narrative_frame, template_id, gauntlet_batch_id, gauntlet_frame, gauntlet_attempt, gauntlet_status }) {
   await mutationWithRetry(api.landingPages.create, {
     externalId: id,
     project_id,
@@ -1079,6 +1086,10 @@ export async function createLandingPage({ id, project_id, name, angle, word_coun
     batch_job_id: batch_job_id || undefined,
     narrative_frame: narrative_frame || undefined,
     template_id: template_id || undefined,
+    gauntlet_batch_id: gauntlet_batch_id || undefined,
+    gauntlet_frame: gauntlet_frame || undefined,
+    gauntlet_attempt: gauntlet_attempt || undefined,
+    gauntlet_status: gauntlet_status || undefined,
   });
 }
 
