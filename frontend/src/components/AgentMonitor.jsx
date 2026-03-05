@@ -1249,7 +1249,7 @@ function AngleCard({ angle, playbooks, onStatusChange, onToggleFocus, onToggleLP
         </p>
       )}
       {onToggleLPEnabled && angle.status === 'active' && (
-        <div className="flex items-center justify-between mt-2 pt-2 border-t border-black/5">
+        <div className="flex items-center justify-end gap-2 mt-2 pt-2 border-t border-black/5">
           <span className="text-[10px] text-textmid">Generate landing pages</span>
           <button
             onClick={() => onToggleLPEnabled(angle.externalId, !angle.lp_enabled)}
