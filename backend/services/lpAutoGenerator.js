@@ -17,6 +17,8 @@ import {
   createLandingPage,
   updateLandingPage,
   updateBatchJob,
+  getBatchJob,
+  getAdsByBatchId,
   getProject,
   getActiveConductorAngles,
 } from '../convexClient.js';
@@ -78,8 +80,40 @@ export async function triggerLPGeneration(batchJobId, projectId, angle) {
       return;
     }
 
-    // 3. Run the generation pipeline
-    console.log(`[LPAuto] Running LP generation for project ${projectId.slice(0, 8)}, batch ${batchJobId.slice(0, 8)}`);
+    // 3. Wait for Creative Filter to finish scoring the ads before generating LPs
+    //    This ensures LPs align with the approved ads that will actually go live.
+    console.log(`[LPAuto] Waiting for Creative Filter to finish scoring batch ${batchJobId.slice(0, 8)}...`);
+    let approvedAds = [];
+    const POLL_INTERVAL_MS = 30_000; // 30 seconds
+    const MAX_WAIT_MS = 2 * 60 * 60 * 1000; // 2 hours
+    const waitStart = Date.now();
+
+    while (Date.now() - waitStart < MAX_WAIT_MS) {
+      const batch = await getBatchJob(batchJobId);
+      if (!batch) {
+        console.warn(`[LPAuto] Batch ${batchJobId.slice(0, 8)} not found — proceeding without ad reference`);
+        break;
+      }
+      if (batch.filter_processed) {
+        console.log(`[LPAuto] Creative Filter finished for batch ${batchJobId.slice(0, 8)} — loading approved ads`);
+        const allAds = await getAdsByBatchId(batchJobId);
+        approvedAds = allAds.filter(ad =>
+          ad.tags && Array.isArray(ad.tags) && ad.tags.includes('Filter Approved')
+        );
+        console.log(`[LPAuto] Found ${approvedAds.length} approved ads out of ${allAds.length} total`);
+        break;
+      }
+      const elapsed = Math.round((Date.now() - waitStart) / 60_000);
+      console.log(`[LPAuto] Creative Filter not done yet for batch ${batchJobId.slice(0, 8)} — waited ${elapsed}min, polling again in 30s...`);
+      await new Promise(resolve => setTimeout(resolve, POLL_INTERVAL_MS));
+    }
+
+    if (Date.now() - waitStart >= MAX_WAIT_MS) {
+      console.warn(`[LPAuto] Timed out waiting for Creative Filter (2h) for batch ${batchJobId.slice(0, 8)} — proceeding without ad reference`);
+    }
+
+    // 4. Run the generation pipeline
+    console.log(`[LPAuto] Running LP generation for project ${projectId.slice(0, 8)}, batch ${batchJobId.slice(0, 8)}${approvedAds.length > 0 ? ` with ${approvedAds.length} approved ads as reference` : ' (no ad reference)'}`);
     try {
       await updateBatchJob(batchJobId, {
         lp_primary_status: 'generating',
@@ -92,7 +126,7 @@ export async function triggerLPGeneration(batchJobId, projectId, angle) {
         }
       };
 
-      const report = await runGauntlet(projectId, { dryRun: false, angle }, makeLogger);
+      const report = await runGauntlet(projectId, { dryRun: false, angle, approvedAds }, makeLogger);
 
       // Store LP URLs on the batch for filter.sh to pick up
       if (report.lpUrls && report.lpUrls.length > 0) {
@@ -381,7 +415,7 @@ export async function retryLP(batchJobId, which, { switchTemplate, fullRegenerat
  * @returns {Promise<object>} Report with per-frame results + summary
  */
 export async function runGauntlet(projectId, options = {}, sendEventRaw) {
-  const { dryRun = false, angle: batchAngle = null } = options;
+  const { dryRun = false, angle: batchAngle = null, approvedAds = [] } = options;
   const gauntletBatchId = uuidv4();
   const startTime = Date.now();
   const batchStartedAt = new Date().toISOString();
@@ -598,6 +632,7 @@ export async function runGauntlet(projectId, options = {}, sendEventRaw) {
             editorialPassEnabled: config.editorial_pass_enabled !== false,
             useProductReferenceImages: config.use_product_reference_images !== false,
             agentConfig: config,
+            approvedAds,
             autoContext: {
               preGeneratedImages: imageSlots,
               cachedHtmlTemplate: cachedHtmlTemplate,

@@ -805,6 +805,7 @@ export async function generateLandingPageCopy({
   swipeText,
   wordCount = 1200,
   additionalDirection,
+  approvedAds = [],  // Approved batch ads for messaging alignment
   autoContext,  // { narrativeFrame, foundationalDocs } — only in auto mode
 }, sendEvent) {
   sendEvent({ type: 'progress', step: 'loading_docs', message: 'Loading foundational documents...' });
@@ -892,13 +893,32 @@ Study these documents carefully. You will use them to write a landing page in th
     ? `\nNARRATIVE FRAME INSTRUCTION:\n${autoContext.narrativeFrame}\n\nYou MUST write the entire landing page using this narrative frame. The frame dictates the overall voice, structure, and storytelling approach. Every section should reflect this frame.\n`
     : '';
 
+  // Build approved ad reference section (only when ads are available from a real batch)
+  let adReferenceSection = '';
+  if (approvedAds.length > 0) {
+    const adSummaries = approvedAds.map((ad, i) => {
+      const headline = ad.headline || 'No headline';
+      const opening = ad.body_copy ? ad.body_copy.split(/[.!?]\s/)[0] + '.' : '';
+      return `  ${i + 1}. HEADLINE: ${headline}${opening ? `\n     OPENING: ${opening}` : ''}`;
+    }).join('\n');
+
+    adReferenceSection = `
+APPROVED AD CAMPAIGN REFERENCE:
+The following are the approved ad headlines and opening lines from this campaign. These are the ads that have passed quality review and will actually run. Your landing page should align with the overall messaging themes across these ads. Don't copy them word-for-word, but make sure someone who clicked one of these ads would feel like the landing page delivers on the promise the ad made.
+
+The ads vary in approach — different hooks, different emotional angles — so align with the overall direction and common themes, not any single ad.
+
+${adSummaries}
+`;
+  }
+
   const generateMessage = `Now write a landing page using the product knowledge from the documents above.
 
 MARKETING ANGLE / HOOK:
 ${angle}
 
 TARGET WORD COUNT: approximately ${wordCount} words
-${narrativeInstruction}
+${narrativeInstruction}${adReferenceSection}
 ${swipeText ? `SWIPE FILE REFERENCE (use this as structural and tonal inspiration — do NOT copy it verbatim):
 ${swipeText.slice(0, 15000)}
 ${swipeText.length > 15000 ? '\n[... swipe text truncated for context length ...]' : ''}` : 'No swipe file provided — use your own best judgment for structure and flow.'}
@@ -1092,6 +1112,7 @@ export async function runEditorialPass({
   angle,
   narrativeFrame,
   foundationalDocs,
+  approvedAds = [],
   pdpUrl,
   projectId,
 }, sendEvent) {
@@ -1132,12 +1153,27 @@ DUPLICATE HEADING CHECK: Check all callout blocks and data boxes for duplicate h
 
 CRITICAL: Also scan the copy for any remaining {{placeholder}} template tags (e.g., {{author_name}}, {{publish_date}}, {{TRENDING_CATEGORY}}). If you find any, provide replacement text in the "placeholder_fills" field of your response.`;
 
+  // Build ad reference for editorial pass
+  let editorialAdReference = '';
+  if (approvedAds.length > 0) {
+    const adHeadlines = approvedAds
+      .filter(ad => ad.headline)
+      .map((ad, i) => `  ${i + 1}. ${ad.headline}`)
+      .join('\n');
+    editorialAdReference = `
+APPROVED AD HEADLINES FROM THIS CAMPAIGN:
+A reader clicked on one of these ads and landed on this page. Your LP headline should deliver on the promise that drew them in. The ads vary in approach — align with the common themes, not any single ad.
+
+${adHeadlines}
+`;
+  }
+
   const userPrompt = `Review this landing page draft and provide your editorial plan.
 
 MARKETING ANGLE: ${angle}
 NARRATIVE FRAME: ${narrativeFrame || 'general'}
 IMPORTANT: The headline MUST be unique to this narrative frame. It should reflect the storytelling approach described above — a testimonial frame headline reads completely differently from a mechanism or listicle headline.
-PDP URL: ${pdpUrl || 'not set'}
+${editorialAdReference}PDP URL: ${pdpUrl || 'not set'}
 PAGE SECTIONS: ${sectionTypes}
 
 ${docsContext ? `FOUNDATIONAL DOCS:\n${docsContext}\n` : ''}
@@ -3444,6 +3480,7 @@ export async function generateAutoLP({
   editorialPassEnabled = true,
   useProductReferenceImages = true,
   agentConfig = null,
+  approvedAds = [],  // Approved batch ads for messaging alignment
   autoContext: parentAutoContext = null,  // Gauntlet: { cachedHtmlTemplate, preGeneratedImages }
 }, sendEvent) {
   // Audit trail — collect entries at each generation phase
@@ -3463,7 +3500,7 @@ export async function generateAutoLP({
     }
   };
 
-  audit('init', 'started', `Angle: "${(angle || '').slice(0, 60)}", template: ${templateId?.slice(0, 8) || 'none'}`);
+  audit('init', 'started', `Angle: "${(angle || '').slice(0, 60)}", template: ${templateId?.slice(0, 8) || 'none'}, approved ads: ${approvedAds.length}`);
   sendEvent({ type: 'progress', step: 'auto_loading', message: 'Loading template for auto-generation...' });
 
   // 1. Load the template
@@ -3576,6 +3613,7 @@ export async function generateAutoLP({
     angle,
     swipeText: '', // No swipe text in auto mode — template provides structure
     wordCount: effectiveWordCount,
+    approvedAds,
     autoContext: {
       narrativeFrame,
       templateSlots: placeholders.templateCopy,
@@ -3606,6 +3644,7 @@ export async function generateAutoLP({
             angle,
             swipeText: '',
             wordCount: effectiveWordCount,
+            approvedAds,
             additionalDirection: `CRITICAL: Your previous attempt was missing these required template sections: ${missingSlots.join(', ')}. You MUST include a section for EACH of these in your response. The template has placeholder tags for these sections — if you skip them, the finished page will have empty holes.`,
             autoContext: {
               narrativeFrame,
@@ -3662,6 +3701,7 @@ export async function generateAutoLP({
       angle,
       narrativeFrame,
       foundationalDocs,
+      approvedAds,
       pdpUrl: null, // Will be set by publisher
       projectId,
     }, sendEvent);
@@ -3735,6 +3775,7 @@ Score guide: 1=terrible/generic, 2=weak/misaligned, 3=adequate, 4=good, 5=excell
             angle,
             swipeText: '',
             wordCount: effectiveWordCount,
+            approvedAds,
             additionalDirection: `QUALITY FEEDBACK FROM REVIEW: ${weaknessText}. Address these weaknesses. Make the copy more specific, persuasive, and tightly aligned with the marketing angle "${angle}".`,
             autoContext: {
               narrativeFrame,
@@ -3754,7 +3795,7 @@ Score guide: 1=terrible/generic, 2=weak/misaligned, 3=adequate, 4=good, 5=excell
             // Re-run editorial pass on improved copy
             if (editorialPassEnabled) {
               const retryEditorial = await runEditorialPass({
-                copySections, designAnalysis, angle, narrativeFrame, foundationalDocs, pdpUrl: null, projectId,
+                copySections, designAnalysis, angle, narrativeFrame, foundationalDocs, approvedAds, pdpUrl: null, projectId,
               }, sendEvent);
               if (retryEditorial.plan) {
                 editorialPlan = retryEditorial.plan;

@@ -229,6 +229,11 @@ export async function getAdImageUrl(id) {
   return await queryWithRetry(api.adCreatives.getImageUrl, { externalId: id });
 }
 
+export async function getAdsByBatchId(batchId) {
+  const ads = await queryWithRetry(api.adCreatives.getByBatch, { batchId });
+  return ads.map(a => convexAdToRow(a));
+}
+
 function convexAdToRow(a) {
   return {
     id: a.externalId,
