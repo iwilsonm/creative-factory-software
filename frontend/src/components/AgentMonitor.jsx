@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { api } from '../api';
 import LPAgentSettings from './LPAgentSettings';
 import PipelineProgress from './PipelineProgress';
+import { useToast } from './Toast';
 
 const LEVEL_CONFIG = {
   OK:        { color: 'text-teal',       icon: '\u2713', bg: 'bg-teal/10' },
@@ -48,6 +49,7 @@ function timeUntil(dateStr) {
 const VALID_AGENT_TABS = ['director', 'lp_agent', 'filter', 'fixer'];
 
 export default function AgentMonitor() {
+  const toast = useToast();
   const [searchParams, setSearchParams] = useSearchParams();
   const [fixerData, setFixerData] = useState(null);
   const [filterData, setFilterData] = useState(null);
@@ -533,12 +535,29 @@ function DirectorTab({ onRefresh }) {
   }, [selectedProject]);
 
   const STEP_PROGRESS = {
-    'initializing': 5,
-    'selecting_angle': 20,
-    'building_prompt': 40,
-    'creating_batch': 60,
-    'saving_run': 80,
-    'launching_batch': 95,
+    // Director phase (~5s) — 0-2%
+    'initializing': 1,
+    'selecting_angle': 1,
+    'building_prompt': 1,
+    'creating_batch': 2,
+    'saving_run': 2,
+    'launching_batch': 2,
+    // Batch pipeline (~3-8 min) — 2-15%
+    'batch_brief': 4,
+    'batch_headlines': 6,
+    'batch_body_copy': 9,
+    'batch_image_prompts': 12,
+    'batch_submitting': 14,
+    'batch_submitted': 15,
+    // Gemini processing (~5-20 min) — 15-60%
+    'gemini_waiting': 15,
+    'gemini_complete': 60,
+    // Creative Filter (~2-5 min) — 60-95%
+    'filter_scoring': 62,
+    'filter_grouping': 82,
+    'filter_copy_gen': 86,
+    'filter_deploying': 92,
+    'filter_complete': 95,
   };
 
   const handleTestRun = () => {
@@ -550,12 +569,42 @@ function DirectorTab({ onRefresh }) {
     const { abort, done } = api.triggerConductorTestRun(selectedProject, (event) => {
       if (event.type === 'progress') {
         setTestRunPhase(event.message || '');
+
+        // Map step to percentage (never go backwards)
         if (event.step && STEP_PROGRESS[event.step] !== undefined) {
           setTestRunProgress(prev => Math.max(prev, STEP_PROGRESS[event.step]));
         }
+
+        // Gemini polling: time-based progress 15% → 58%
+        if (event.step === 'gemini_polling' && event.elapsed) {
+          const GEMINI_START = 15, GEMINI_END = 58;
+          const estimatedSec = 600; // ~10 min estimate
+          const ratio = Math.min(event.elapsed / estimatedSec, 0.95);
+          const pct = GEMINI_START + Math.round(ratio * (GEMINI_END - GEMINI_START));
+          setTestRunProgress(prev => Math.max(prev, pct));
+        }
+
+        // Per-ad scoring sub-progress: 62% → 80%
+        if (event.step === 'filter_scoring' && event.scoringProgress) {
+          const { current, total } = event.scoringProgress;
+          const SCORE_START = 62, SCORE_END = 80;
+          const pct = SCORE_START + Math.round((current / total) * (SCORE_END - SCORE_START));
+          setTestRunProgress(prev => Math.max(prev, pct));
+        }
+
+        // Per-image-prompt sub-progress: 12% → 14%
+        if (event.imageProgress) {
+          const { current, total } = event.imageProgress;
+          const IMG_START = 12, IMG_END = 14;
+          const pct = IMG_START + Math.round((current / total) * (IMG_END - IMG_START));
+          setTestRunProgress(prev => Math.max(prev, pct));
+        }
       } else if (event.type === 'complete') {
         setTestRunProgress(100);
-        setTestRunPhase(`Batch created: ${event.ad_count} ads for "${event.angle}"`);
+        const msg = event.flex_ads_created > 0
+          ? `${event.ads_passed}/${event.ads_scored} ads passed — flex ad deployed to Ready to Post!`
+          : `Complete — ${event.ads_passed || '?'}/${event.ads_scored || '?'} ads passed.`;
+        setTestRunPhase(msg);
         setTimeout(async () => {
           setRunningAction(null);
           setTestRunProgress(0);
@@ -564,12 +613,13 @@ function DirectorTab({ onRefresh }) {
           const runRes = await api.getConductorRuns(selectedProject, 20);
           setRuns(runRes?.runs || []);
           onRefresh();
-        }, 500);
+        }, 2000);
       } else if (event.type === 'error') {
         setRunningAction(null);
         setTestRunProgress(0);
         setTestRunPhase('');
         testRunStartRef.current = null;
+        toast.error(event.message || 'Test run failed');
       }
     });
 

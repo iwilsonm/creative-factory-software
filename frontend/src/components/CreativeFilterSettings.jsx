@@ -125,7 +125,7 @@ export default function CreativeFilterSettings({ projectId, project, onSave }) {
               >
                 <option value="">Select a campaign...</option>
                 {campaigns.map(c => (
-                  <option key={c.externalId} value={c.externalId}>
+                  <option key={c.id} value={c.id}>
                     {c.name}
                   </option>
                 ))}

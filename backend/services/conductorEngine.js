@@ -20,7 +20,7 @@ import {
   getProject, getAllConductorConfigs,
 } from '../convexClient.js';
 import { getAdaptiveBatchSize } from './conductorLearning.js';
-import { runBatch } from './batchProcessor.js';
+import { runBatch, pollBatchJob } from './batchProcessor.js';
 import { triggerLPGeneration } from './lpAutoGenerator.js';
 import { buildStructuredAnglePrompt, hasStructuredBrief, buildAngleBriefJSON } from '../utils/angleParser.js';
 
@@ -428,7 +428,7 @@ function distributeAngles(angles, count, rotation) {
  * Creates one full batch, fires it, and lets the Filter pick it up end-to-end.
  * @param {string} projectId
  */
-export async function runTestBatch(projectId, sendEvent) {
+export async function runTestBatch(projectId, sendEvent, { skipBatchLaunch = false, batchSizeOverride = null } = {}) {
   const emit = sendEvent || (() => {});
   const startMs = Date.now();
   const runId = uuidv4();
@@ -459,7 +459,7 @@ export async function runTestBatch(projectId, sendEvent) {
     const angles = await selectAngles(projectId, config, 1);
     const angleInfo = angles[0];
 
-    const batchSize = config.ads_per_batch || 18;
+    const batchSize = batchSizeOverride || config.ads_per_batch || 18;
     const batchId = uuidv4();
 
     // Build angle prompt with playbook context (same as normal runs)
@@ -516,16 +516,19 @@ export async function runTestBatch(projectId, sendEvent) {
 
     console.log(`[Director] Test run for ${projectId.slice(0, 8)}: Created 1 batch (${batchSize} ads, angle: ${angleInfo.name}) in ${Date.now() - startMs}ms`);
 
-    // Fire-and-forget: start the batch
-    emit({ type: 'progress', step: 'launching_batch', message: `Launching batch pipeline for "${angleInfo.name}"...` });
-    runBatch(batchId).catch(err => {
-      console.error(`[Director] Test batch ${batchId.slice(0, 8)} failed:`, err.message);
-    });
-
-    // Fire-and-forget: trigger LP generation for test batch
-    triggerLPGeneration(batchId, projectId, angleInfo.name).catch(err => {
-      console.warn(`[Director] LP trigger for test batch ${batchId.slice(0, 8)} failed:`, err.message);
-    });
+    if (!skipBatchLaunch) {
+      // Fire-and-forget: start the batch (original behavior)
+      emit({ type: 'progress', step: 'launching_batch', message: `Launching batch pipeline for "${angleInfo.name}"...` });
+      runBatch(batchId).catch(err => {
+        console.error(`[Director] Test batch ${batchId.slice(0, 8)} failed:`, err.message);
+      });
+      // Fire-and-forget: trigger LP generation for test batch
+      triggerLPGeneration(batchId, projectId, angleInfo.name).catch(err => {
+        console.warn(`[Director] LP trigger for test batch ${batchId.slice(0, 8)} failed:`, err.message);
+      });
+    } else {
+      emit({ type: 'progress', step: 'launching_batch', message: `Batch created, starting full pipeline...` });
+    }
 
     return { runId, batches_created: 1, batch_id: batchId, angle: angleInfo.name, ad_count: batchSize };
 
@@ -537,6 +540,104 @@ export async function runTestBatch(projectId, sendEvent) {
     });
     throw err;
   }
+}
+
+// ── Full Test Pipeline (Director → Batch → Gemini → Filter → Ready to Post) ──
+
+/**
+ * Run the full test pipeline with a single SSE stream tracking all phases:
+ * 1. Director creates batch (selects angle, builds prompt)
+ * 2. Batch pipeline (brief → headlines → body copy → image prompts → Gemini submit)
+ * 3. Poll Gemini until images are generated
+ * 4. Creative Filter (score → group → generate copy → deploy to Ready to Post)
+ *
+ * @param {string} projectId
+ * @param {(event: object) => void} sendEvent - SSE event emitter
+ * @returns {object} Combined result from Director + Filter phases
+ */
+export async function runFullTestPipeline(projectId, sendEvent) {
+  const emit = sendEvent || (() => {});
+
+  // ── Phase 1: Director creates batch (30 ads for headroom — need 10 passing) ──
+  const directorResult = await runTestBatch(projectId, emit, { skipBatchLaunch: true, batchSizeOverride: 30 });
+  const batchId = directorResult.batch_id;
+
+  // LP generation runs independently — fire-and-forget
+  triggerLPGeneration(batchId, projectId, directorResult.angle).catch(err => {
+    console.warn(`[Pipeline] LP trigger for test batch ${batchId.slice(0, 8)} failed:`, err.message);
+  });
+
+  // ── Phase 2: Run batch pipeline (brief → headlines → body copy → image prompts → Gemini submit) ──
+  const batchAdapter = (event) => {
+    if (event.type === 'prompt_progress') {
+      const msg = event.message || '';
+      let step = 'batch_pipeline';
+      if (msg.includes('Step 1')) step = 'batch_brief';
+      else if (msg.includes('Step 2')) step = 'batch_headlines';
+      else if (msg.includes('Step 3')) step = 'batch_body_copy';
+      else if (msg.includes('Step 4')) step = 'batch_image_prompts';
+      emit({
+        type: 'progress', step, message: msg,
+        imageProgress: (event.current && event.total) ? { current: event.current, total: event.total } : undefined,
+      });
+    } else if (event.type === 'status') {
+      const map = { submitting: 'batch_submitting', processing: 'batch_submitted' };
+      if (map[event.status]) {
+        emit({ type: 'progress', step: map[event.status], message: event.message });
+      }
+    } else if (event.type === 'error') {
+      emit(event);
+    }
+  };
+
+  await runBatch(batchId, batchAdapter);
+
+  // ── Phase 3: Poll Gemini until images are generated ─────────────────────
+  emit({ type: 'progress', step: 'gemini_waiting', message: 'Waiting for Gemini to generate images...' });
+  const pollStart = Date.now();
+  const MAX_POLL_MS = 30 * 60 * 1000; // 30 minute safety limit
+
+  while (true) {
+    await new Promise(r => setTimeout(r, 10000)); // 10 seconds between polls
+    const elapsed = Math.round((Date.now() - pollStart) / 1000);
+    const mins = Math.floor(elapsed / 60);
+    const secs = elapsed % 60;
+    const timeStr = mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
+
+    if (Date.now() - pollStart > MAX_POLL_MS) {
+      throw new Error('Gemini batch timed out after 30 minutes');
+    }
+
+    const result = await pollBatchJob(batchId);
+
+    if (result === 'completed') {
+      emit({ type: 'progress', step: 'gemini_complete', message: `Images generated (${timeStr})` });
+      break;
+    } else if (result === 'failed') {
+      throw new Error('Gemini batch processing failed');
+    }
+
+    // Heartbeat: keep SSE alive and show elapsed time
+    emit({ type: 'progress', step: 'gemini_polling', message: `Generating images via Gemini... (${timeStr})`, elapsed });
+  }
+
+  // ── Phase 4: Creative Filter (score → group → copy → deploy) ───────────
+  const { runInlineFilter } = await import('./creativeFilterService.js');
+  const filterResult = await runInlineFilter(batchId, projectId, emit);
+
+  if (filterResult.flex_ads_created === 0) {
+    let reason = 'Unknown error during Creative Filter';
+    if (filterResult.not_enough_passed) {
+      reason = `Only ${filterResult.ads_passed}/${filterResult.ads_scored} ads passed scoring (need 10). Try adjusting the angle.`;
+    } else if (filterResult.grouping_failed) {
+      reason = `${filterResult.ads_passed} ads passed but couldn't be grouped into a flex ad.`;
+    } else if (filterResult.deploy_error) {
+      reason = `Scoring passed but deployment failed: ${filterResult.deploy_error}`;
+    }
+    return { ...directorResult, ...filterResult, pipeline_failed: true, failure_reason: reason };
+  }
+
+  return { ...directorResult, ...filterResult };
 }
 
 // ── Date helpers ─────────────────────────────────────────────────────────────

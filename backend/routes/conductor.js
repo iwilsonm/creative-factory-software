@@ -190,12 +190,16 @@ router.post('/run/:projectId', async (req, res) => {
   }
 });
 
-// POST /api/conductor/test-run/:projectId — test batch (bypasses windows/deficit)
+// POST /api/conductor/test-run/:projectId — full pipeline: Director → batch → Gemini → Filter → Ready to Post
 router.post('/test-run/:projectId', async (req, res) => {
   streamService(req, res, async (sendEvent) => {
-    const { runTestBatch } = await import('../services/conductorEngine.js');
-    const result = await runTestBatch(req.params.projectId, sendEvent);
-    sendEvent({ type: 'complete', ...result });
+    const { runFullTestPipeline } = await import('../services/conductorEngine.js');
+    const result = await runFullTestPipeline(req.params.projectId, sendEvent);
+    if (result.pipeline_failed) {
+      sendEvent({ type: 'error', message: result.failure_reason, ...result });
+    } else {
+      sendEvent({ type: 'complete', ...result });
+    }
   });
 });
 
