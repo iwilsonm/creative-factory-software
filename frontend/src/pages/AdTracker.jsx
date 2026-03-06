@@ -26,7 +26,7 @@ const VALID_VIEWS = ['campaigns', 'status', 'ready_to_post'];
 
 export default function AdTracker({ projectId, userRole, searchParams, setSearchParams }) {
   const isPoster = userRole === 'poster';
-  const { data: deployments, setData: setDeployments, loading, error: deploymentsError, refetch: loadDeployments, silentRefetch: silentLoadDeployments } = useAsyncData(
+  const { data: deployments, setData: setDeployments, loading, error: deploymentsError, refetch: loadDeployments } = useAsyncData(
     () => api.getProjectDeployments(projectId).then(d => d.deployments || []),
     [projectId]
   );
@@ -87,54 +87,6 @@ export default function AdTracker({ projectId, userRole, searchParams, setSearch
       setPublishedLPs(published);
     }).catch(() => {});
   }, [projectId]);
-
-  // One-time migration: backfill headlines on existing ads, then rename deployments
-  // Uses silentLoadDeployments to avoid briefly flashing empty state
-  useEffect(() => {
-    const backfillKey = 'headline_backfill_v1';
-    const renameKey = 'deployment_rename_v2';
-    const needsBackfill = !localStorage.getItem(backfillKey);
-    const needsRename = !localStorage.getItem(renameKey);
-    if (needsBackfill) {
-      api.backfillHeadlines().then(() => {
-        localStorage.setItem(backfillKey, Date.now().toString());
-        // After backfill, always run rename to pick up new headlines
-        return api.renameAllDeployments();
-      }).then(() => {
-        localStorage.setItem(renameKey, Date.now().toString());
-        silentLoadDeployments();
-      }).catch(() => {});
-    } else if (needsRename) {
-      api.renameAllDeployments().then(() => {
-        localStorage.setItem(renameKey, Date.now().toString());
-        silentLoadDeployments();
-      }).catch(() => {});
-    }
-  }, []);
-
-  // One-time migration: rename 'scheduled' → 'ready_to_post' status
-  // Runs once after initial data loads (uses ref to avoid re-triggering on every state change)
-  const migrationRanRef = useRef(false);
-  useEffect(() => {
-    const migrationKey = 'status_migration_scheduled_to_ready_v1';
-    if (migrationRanRef.current || localStorage.getItem(migrationKey)) {
-      if (!localStorage.getItem(migrationKey)) localStorage.setItem(migrationKey, Date.now().toString());
-      return;
-    }
-    if (!deployments || deployments.length === 0) return;
-    migrationRanRef.current = true;
-    const scheduledDeps = deployments.filter(d => d.status === 'scheduled');
-    if (scheduledDeps.length > 0) {
-      Promise.all(scheduledDeps.map(d => api.updateDeploymentStatus(d.id, 'ready_to_post')))
-        .then(() => {
-          localStorage.setItem(migrationKey, Date.now().toString());
-          silentLoadDeployments();
-        })
-        .catch(() => {});
-    } else {
-      localStorage.setItem(migrationKey, Date.now().toString());
-    }
-  }, [deployments]);
 
   // Focus input when editing cell changes
   useEffect(() => {

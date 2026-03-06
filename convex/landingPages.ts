@@ -1,6 +1,65 @@
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
 
+function countWords(text?: string) {
+  if (!text) return 0;
+  return text
+    .trim()
+    .split(/\s+/)
+    .filter(Boolean)
+    .length;
+}
+
+function summarizeLandingPage(page: any) {
+  let sectionCount = 0;
+  let totalWords = 0;
+
+  if (page.copy_sections) {
+    try {
+      const sections = JSON.parse(page.copy_sections);
+      if (Array.isArray(sections)) {
+        sectionCount = sections.length;
+        totalWords = sections.reduce(
+          (sum: number, section: any) => sum + countWords(section?.content),
+          0
+        );
+      }
+    } catch {
+      sectionCount = 0;
+      totalWords = 0;
+    }
+  }
+
+  return {
+    externalId: page.externalId,
+    project_id: page.project_id,
+    name: page.name,
+    angle: page.angle,
+    status: page.status,
+    swipe_url: page.swipe_url,
+    auto_generated: page.auto_generated,
+    batch_job_id: page.batch_job_id,
+    narrative_frame: page.narrative_frame,
+    gauntlet_batch_id: page.gauntlet_batch_id,
+    gauntlet_frame: page.gauntlet_frame,
+    gauntlet_score: page.gauntlet_score,
+    gauntlet_status: page.gauntlet_status,
+    gauntlet_batch_started_at: page.gauntlet_batch_started_at,
+    gauntlet_batch_completed_at: page.gauntlet_batch_completed_at,
+    published_url: page.published_url,
+    error_message: page.error_message,
+    qa_status: page.qa_status,
+    qa_issues_count: page.qa_issues_count,
+    generation_duration_ms: page.generation_duration_ms,
+    created_at: page.created_at,
+    updated_at: page.updated_at,
+    has_html: !!page.assembled_html,
+    has_design: !!page.swipe_design_analysis,
+    section_count: sectionCount,
+    total_words: totalWords,
+  };
+}
+
 export const getByProject = query({
   args: { projectId: v.string() },
   handler: async (ctx, args) => {
@@ -8,6 +67,18 @@ export const getByProject = query({
       .query("landing_pages")
       .withIndex("by_project", (q) => q.eq("project_id", args.projectId))
       .collect();
+  },
+});
+
+export const getListByProject = query({
+  args: { projectId: v.string() },
+  handler: async (ctx, args) => {
+    const pages = await ctx.db
+      .query("landing_pages")
+      .withIndex("by_project", (q) => q.eq("project_id", args.projectId))
+      .collect();
+
+    return pages.map(summarizeLandingPage);
   },
 });
 

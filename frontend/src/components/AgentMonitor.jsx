@@ -90,8 +90,22 @@ export default function AgentMonitor() {
 
   useEffect(() => {
     loadStatus();
-    const interval = setInterval(loadStatus, 30000);
+    const interval = setInterval(() => {
+      if (document.visibilityState === 'visible') {
+        loadStatus();
+      }
+    }, 30000);
     return () => clearInterval(interval);
+  }, [loadStatus]);
+
+  useEffect(() => {
+    const handleVisibilityChange = () => {
+      if (document.visibilityState === 'visible') {
+        loadStatus();
+      }
+    };
+    document.addEventListener('visibilitychange', handleVisibilityChange);
+    return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
   }, [loadStatus]);
 
   if (loading) {

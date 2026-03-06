@@ -268,10 +268,28 @@ function convexDocToRow(d) {
 // =============================================
 
 export async function getAdsByProject(projectId) {
-  const ads = await cachedQuery('ad_creatives', api.adCreatives.getByProjectWithUrls, { projectId });
-  return ads.map(a => ({
-    ...convexAdToRow(a),
-    resolvedImageUrl: a.resolvedImageUrl || null,
+  const ads = await cachedQuery('ad_creatives', api.adCreatives.getGalleryByProject, { projectId });
+  return ads.map(convexAdSummaryToRow);
+}
+
+export async function getAdSummariesByExternalIds(externalIds) {
+  if (!Array.isArray(externalIds) || externalIds.length === 0) return [];
+  const uniqueExternalIds = [...new Set(externalIds.filter(Boolean))];
+  const chunks = [];
+  for (let i = 0; i < uniqueExternalIds.length; i += 500) {
+    chunks.push(uniqueExternalIds.slice(i, i + 500));
+  }
+  const results = await Promise.all(
+    chunks.map(chunk => queryWithRetry(api.adCreatives.getSummariesByExternalIds, { externalIds: chunk }))
+  );
+  return results.flat().map(a => ({
+    id: a.externalId,
+    project_id: a.project_id,
+    angle: a.angle || null,
+    headline: a.headline || null,
+    body_copy: a.body_copy || null,
+    tags: a.tags || [],
+    hasImage: !!a.has_image,
   }));
 }
 
@@ -313,11 +331,39 @@ function convexAdToRow(a) {
     template_image_id: a.template_image_id || null,
     inspiration_image_id: a.inspiration_image_id || null,
     storageId: a.storageId || null,
+    drive_file_id: a.drive_file_id || null,
+    drive_url: a.drive_url || null,
     aspect_ratio: a.aspect_ratio || '1:1',
     status: a.status || 'generating_copy',
     auto_generated: a.auto_generated ? 1 : 0,
     parent_ad_id: a.parent_ad_id || null,
     tags: a.tags || [],
+    is_favorite: !!a.is_favorite,
+    source_quote_id: a.source_quote_id || null,
+    created_at: a.created_at,
+  };
+}
+
+function convexAdSummaryToRow(a) {
+  return {
+    id: a.externalId,
+    project_id: a.project_id,
+    generation_mode: a.generation_mode,
+    angle: a.angle || null,
+    headline: a.headline || null,
+    body_copy: a.body_copy || null,
+    template_image_id: a.template_image_id || null,
+    storageId: a.storageId || null,
+    aspect_ratio: a.aspect_ratio || '1:1',
+    status: a.status || 'generating_copy',
+    auto_generated: a.auto_generated ? 1 : 0,
+    parent_ad_id: a.parent_ad_id || null,
+    tags: a.tags || [],
+    is_favorite: !!a.is_favorite,
+    source_quote_id: a.source_quote_id || null,
+    drive_file_id: a.drive_file_id || null,
+    drive_url: a.drive_url || null,
+    has_edit_prompt: !!a.has_image_prompt,
     created_at: a.created_at,
   };
 }
@@ -1204,6 +1250,10 @@ export async function replaceDashboardTodos(todos) {
 
 export async function getLandingPagesByProject(projectId) {
   return await cachedQuery('landing_pages', api.landingPages.getByProject, { projectId });
+}
+
+export async function getLandingPageSummariesByProject(projectId) {
+  return await cachedQuery('landing_pages', api.landingPages.getListByProject, { projectId });
 }
 
 export async function getLandingPage(externalId) {

@@ -14,6 +14,86 @@ import { buildDescriptionFromBrief } from '../utils/angleParser.js';
 import { streamService } from '../utils/sseHelper.js';
 
 const router = Router();
+const PIPELINE_STATUS_TTL_MS = 30 * 1000;
+let pipelineStatusCache = {
+  value: null,
+  expiresAt: 0,
+  inFlight: null,
+};
+
+function resetPipelineStatusCache() {
+  pipelineStatusCache = {
+    value: null,
+    expiresAt: 0,
+    inFlight: null,
+  };
+}
+
+async function computePipelineStatus() {
+  const [configs, projects] = await Promise.all([
+    getAllConductorConfigs(),
+    getAllProjects(),
+  ]);
+  const projectMap = new Map(projects.map(project => [project.id, project]));
+
+  const status = await Promise.all(configs.filter(c => c.enabled).map(async (config) => {
+    const project = projectMap.get(config.project_id);
+    if (!project) return null;
+
+    const [flexAds, batches] = await Promise.all([
+      getFlexAdsByProject(config.project_id),
+      getBatchesByProject(config.project_id),
+    ]);
+
+    const flexByDay = {};
+    for (const fa of flexAds) {
+      if (fa.posting_day) {
+        flexByDay[fa.posting_day] = (flexByDay[fa.posting_day] || 0) + 1;
+      }
+    }
+
+    const activeBatchesByDay = {};
+    for (const batch of batches) {
+      if (batch.posting_day && ['pending', 'generating_prompts', 'submitting', 'processing'].includes(batch.status)) {
+        activeBatchesByDay[batch.posting_day] = (activeBatchesByDay[batch.posting_day] || 0) + 1;
+      }
+    }
+
+    return {
+      project_id: config.project_id,
+      project_name: project.name,
+      brand_name: project.brand_name,
+      daily_flex_target: config.daily_flex_target,
+      flex_by_day: flexByDay,
+      active_batches_by_day: activeBatchesByDay,
+    };
+  }));
+
+  return { projects: status.filter(Boolean) };
+}
+
+async function getCachedPipelineStatus() {
+  if (pipelineStatusCache.value && pipelineStatusCache.expiresAt > Date.now()) {
+    return pipelineStatusCache.value;
+  }
+  if (pipelineStatusCache.inFlight) {
+    return pipelineStatusCache.inFlight;
+  }
+
+  pipelineStatusCache.inFlight = computePipelineStatus()
+    .then((value) => {
+      pipelineStatusCache.value = value;
+      pipelineStatusCache.expiresAt = Date.now() + PIPELINE_STATUS_TTL_MS;
+      pipelineStatusCache.inFlight = null;
+      return value;
+    })
+    .catch((err) => {
+      pipelineStatusCache.inFlight = null;
+      throw err;
+    });
+
+  return pipelineStatusCache.inFlight;
+}
 
 // =============================================
 // Conductor Config — per-project Director settings
@@ -59,6 +139,7 @@ router.put('/config/:projectId', async (req, res) => {
       if (req.body[key] !== undefined) fields[key] = req.body[key];
     }
     await upsertConductorConfig(req.params.projectId, fields);
+    resetPipelineStatusCache();
     const config = await getConductorConfig(req.params.projectId);
     res.json({ success: true, config });
   } catch (err) {
@@ -280,44 +361,7 @@ router.post('/learn', async (req, res) => {
 // GET /api/conductor/pipeline-status
 router.get('/pipeline-status', async (req, res) => {
   try {
-    const configs = await getAllConductorConfigs();
-    const projects = await getAllProjects();
-
-    const status = await Promise.all(configs.filter(c => c.enabled).map(async (config) => {
-      const project = projects.find(p => p.id === config.project_id);
-      if (!project) return null;
-
-      // Get flex ads for this project to count by posting_day
-      const flexAds = await getFlexAdsByProject(config.project_id);
-      const batches = await getBatchesByProject(config.project_id);
-
-      // Count flex ads per posting day
-      const flexByDay = {};
-      for (const fa of flexAds) {
-        if (fa.posting_day) {
-          flexByDay[fa.posting_day] = (flexByDay[fa.posting_day] || 0) + 1;
-        }
-      }
-
-      // Count in-progress batches per posting day
-      const activeBatchesByDay = {};
-      for (const b of batches) {
-        if (b.posting_day && ['pending', 'generating_prompts', 'submitting', 'processing'].includes(b.status)) {
-          activeBatchesByDay[b.posting_day] = (activeBatchesByDay[b.posting_day] || 0) + 1;
-        }
-      }
-
-      return {
-        project_id: config.project_id,
-        project_name: project.name,
-        brand_name: project.brand_name,
-        daily_flex_target: config.daily_flex_target,
-        flex_by_day: flexByDay,
-        active_batches_by_day: activeBatchesByDay,
-      };
-    }));
-
-    res.json({ projects: status.filter(Boolean) });
+    res.json(await getCachedPipelineStatus());
   } catch (err) {
     console.error('[Conductor] Pipeline status error:', err.message);
     res.status(500).json({ error: err.message });

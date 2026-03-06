@@ -18,6 +18,10 @@ export default defineSchema({
     inspiration_folder_id: v.optional(v.string()),
     prompt_guidelines: v.optional(v.string()),
     product_image_storageId: v.optional(v.id("_storage")),
+    docCount: v.optional(v.float64()),
+    adCount: v.optional(v.float64()),
+    lpCount: v.optional(v.float64()),
+    lpPublishedCount: v.optional(v.float64()),
     status: v.optional(v.string()),
     // Meta Ads (per-project — each project has its own Meta App + OAuth)
     meta_app_id: v.optional(v.string()),
@@ -81,6 +85,7 @@ export default defineSchema({
     template_image_id: v.optional(v.string()),
     inspiration_image_id: v.optional(v.string()),
     storageId: v.optional(v.id("_storage")),
+    thumbnailStorageId: v.optional(v.id("_storage")),
     drive_file_id: v.optional(v.string()),
     drive_url: v.optional(v.string()),
     aspect_ratio: v.optional(v.string()),
@@ -271,6 +276,7 @@ export default defineSchema({
     filename: v.string(),
     mimeType: v.optional(v.string()),
     storageId: v.optional(v.id("_storage")),
+    thumbnailStorageId: v.optional(v.id("_storage")),
     modifiedTime: v.optional(v.string()),
     size: v.optional(v.number()),
   })

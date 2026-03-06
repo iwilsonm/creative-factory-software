@@ -163,7 +163,7 @@ function invalidateCache(...paths) {
 
 // Exported for use by components after SSE completions (e.g., doc generation)
 export function invalidateProjectCache(projectId) {
-  invalidateCache('/projects', `/projects/${projectId}`);
+  invalidateCache('/projects', `/projects/${projectId}`, `/projects/${projectId}/stats`);
 }
 
 export const api = {
@@ -184,6 +184,7 @@ export const api = {
   // Projects
   getProjects: () => cachedRequest('/projects'),
   getProject: (id) => cachedRequest(`/projects/${id}`),
+  getProjectStats: (id) => request(`/projects/${id}/stats`),
   createProject: (data) => request('/projects', { method: 'POST', body: JSON.stringify(data) }).then(r => { invalidateCache('/projects'); return r; }),
   updateProject: (id, data) => request(`/projects/${id}`, { method: 'PUT', body: JSON.stringify(data) }).then(r => { invalidateCache('/projects', `/projects/${id}`); return r; }),
   deleteProject: (id) => request(`/projects/${id}`, { method: 'DELETE' }).then(r => { invalidateCache('/projects', `/projects/${id}`); return r; }),

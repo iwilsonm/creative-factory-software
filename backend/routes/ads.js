@@ -4,7 +4,7 @@ import { getProject, getLatestDoc, getAdsByProject, getInProgressAdsByProject, g
 import { generateAd, generateAdMode2, regenerateImageOnly, applyPromptEdit } from '../services/adGenerator.js';
 import { generateBodyCopy } from '../services/bodyCopyGenerator.js';
 import { chat as claudeChat } from '../services/anthropic.js';
-import { getProjectProductImage, enrichAdsWithQuotes, generateThumbnail } from '../utils/adImages.js';
+import { getProjectProductImage, generateThumbnail } from '../utils/adImages.js';
 import { streamService } from '../utils/sseHelper.js';
 import fs from 'fs';
 import path from 'path';
@@ -20,6 +20,14 @@ if (!fs.existsSync(THUMB_CACHE_DIR)) {
 
 const router = Router();
 router.use(requireAuth);
+
+function attachAdMedia(projectId, ad) {
+  return {
+    ...ad,
+    imageUrl: ad.storageId ? `/api/projects/${projectId}/ads/${ad.id}/image` : null,
+    thumbnailUrl: ad.storageId ? `/api/projects/${projectId}/ads/${ad.id}/thumbnail` : null,
+  };
+}
 
 // Generate an ad creative (SSE stream)
 router.post('/:projectId/generate-ad', async (req, res) => {
@@ -270,7 +278,7 @@ router.get('/:projectId/ads', async (req, res) => {
   if (!project) return res.status(404).json({ error: 'Project not found' });
 
   const ads = await getAdsByProject(req.params.projectId);
-  const withUrls = await enrichAdsWithQuotes(ads, req.params.projectId);
+  const withUrls = ads.map(ad => attachAdMedia(req.params.projectId, ad));
   res.json({ ads: withUrls, total: withUrls.length });
 });
 
@@ -291,8 +299,18 @@ router.get('/:projectId/ads/:adId', async (req, res) => {
     return res.status(404).json({ error: 'Ad not found' });
   }
 
-  ad.imageUrl = ad.storageId ? `/api/projects/${req.params.projectId}/ads/${ad.id}/image` : null;
-  res.json(ad);
+  let sourceQuoteText = null;
+  if (ad.source_quote_id) {
+    try {
+      const quote = await getQuoteBankQuote(ad.source_quote_id);
+      sourceQuoteText = quote?.quote || null;
+    } catch {}
+  }
+
+  res.json({
+    ...attachAdMedia(req.params.projectId, ad),
+    source_quote_text: sourceQuoteText,
+  });
 });
 
 // Update tags on an ad

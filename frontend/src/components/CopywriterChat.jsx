@@ -37,6 +37,7 @@ export default function CopywriterChat({ projectId, projectName }) {
   const [streamingText, setStreamingText] = useState('');
   const [isInitializing, setIsInitializing] = useState(false);
   const [threadId, setThreadId] = useState(null);
+  const [loadedProjectId, setLoadedProjectId] = useState(null);
   const [statusText, setStatusText] = useState('');
   const [error, setError] = useState(null);
   const [loadedDocs, setLoadedDocs] = useState({}); // { research: true, avatar: true, ... }
@@ -53,9 +54,32 @@ export default function CopywriterChat({ projectId, projectName }) {
   const fileInputRef = useRef(null);
   const dragCounterRef = useRef(0);
 
-  // Load existing thread + doc statuses on mount / project change
+  useEffect(() => {
+    if (abortRef.current) {
+      abortRef.current();
+      abortRef.current = null;
+    }
+    setMessages([]);
+    setInputValue('');
+    setIsStreaming(false);
+    setStreamingText('');
+    streamingTextRef.current = '';
+    setIsInitializing(false);
+    setThreadId(null);
+    setLoadedProjectId(null);
+    setStatusText('');
+    setError(null);
+    setLoadedDocs({});
+    setDocsExpanded(false);
+    setDocContents({});
+    setViewingDoc(null);
+    setAttachedFiles([]);
+  }, [projectId]);
+
+  // Load existing thread + doc statuses only when the chat is opened
   useEffect(() => {
     let cancelled = false;
+    if (!isOpen || !projectId || loadedProjectId === projectId) return undefined;
     const load = async () => {
       try {
         // Load thread and docs in parallel
@@ -88,13 +112,14 @@ export default function CopywriterChat({ projectId, projectName }) {
         }
         setLoadedDocs(docMap);
         setDocContents(contentMap);
+        setLoadedProjectId(projectId);
       } catch (err) {
         console.error('[Chat] Failed to load thread/docs:', err);
       }
     };
     load();
     return () => { cancelled = true; };
-  }, [projectId]);
+  }, [isOpen, loadedProjectId, projectId]);
 
   // Auto-scroll on new messages or streaming text
   useEffect(() => {

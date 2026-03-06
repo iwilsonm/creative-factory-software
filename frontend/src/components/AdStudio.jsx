@@ -73,6 +73,18 @@ function fileToBase64(file) {
   });
 }
 
+function normalizeAdRecord(ad) {
+  if (!ad) return ad;
+  return {
+    ...ad,
+    has_edit_prompt: ad.has_edit_prompt ?? !!ad.image_prompt,
+  };
+}
+
+function hasAdDetail(ad) {
+  return !!ad && Object.prototype.hasOwnProperty.call(ad, 'source_quote_text');
+}
+
 export default function AdStudio({ projectId, project, prefill, onPrefillConsumed }) {
   const toast = useToast();
 
@@ -160,10 +172,11 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
 
   // Gallery
   const { data: ads, setData: setAds, loading: loadingAds, refetch: loadAds } = useAsyncData(
-    () => api.getAds(projectId).then(d => d.ads || []),
+    () => api.getAds(projectId).then(d => (d.ads || []).map(normalizeAdRecord)),
     [projectId]
   );
   const [viewAd, setViewAd] = useState(null);
+  const [viewAdLoading, setViewAdLoading] = useState(false);
   const [galleryFilter, setGalleryFilter] = useState('individual'); // 'individual' | 'batch' | 'all'
   const [galleryView, setGalleryView] = useState('grid'); // 'grid' | 'list'
   const [dateRange, setDateRange] = useState('4d'); // 'today' | 'yesterday' | '4d' | '7d' | '14d' | '30d' | 'all'
@@ -189,9 +202,41 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
     setSelectedTemplate(null);
     setTemplateAnalysis(null);
     setSkipProductImage(false);
+    setViewAd(null);
+    setViewAdLoading(false);
     setOptionalOpen(false);
     setPromptGuidelines(project?.prompt_guidelines || '');
   }, [projectId]);
+
+  const mergeAdData = useCallback((nextAd) => {
+    if (!nextAd) return null;
+    const normalized = normalizeAdRecord(nextAd);
+    setAds(prev => prev.map(ad => ad.id === normalized.id ? { ...ad, ...normalized } : ad));
+    setViewAd(prev => prev && prev.id === normalized.id ? { ...prev, ...normalized } : prev);
+    return normalized;
+  }, [setAds]);
+
+  const hydrateAd = useCallback(async (ad) => {
+    if (!ad) return null;
+    if (hasAdDetail(ad)) return ad;
+    const detail = await api.getAd(projectId, ad.id);
+    return mergeAdData(detail);
+  }, [mergeAdData, projectId]);
+
+  const openAdDetails = useCallback(async (ad) => {
+    if (!ad || ad.status !== 'completed') return null;
+    setViewAd(ad);
+    if (hasAdDetail(ad)) return ad;
+    setViewAdLoading(true);
+    try {
+      return await hydrateAd(ad);
+    } catch (err) {
+      toast.error(err.message || 'Failed to load ad details.');
+      return ad;
+    } finally {
+      setViewAdLoading(false);
+    }
+  }, [hydrateAd, toast]);
 
   // Restore in-progress ads to the queue on mount
   useEffect(() => {
@@ -821,7 +866,8 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
         updateGen(genId, { warning: event.message });
       } else if (event.type === 'complete') {
         updateGen(genId, { status: 'completed', message: 'Ad generated successfully!', progress: 100 });
-        setAds(prev => [event.ad, ...prev]);
+        const nextAd = normalizeAdRecord(event.ad);
+        setAds(prev => [nextAd, ...prev.filter(ad => ad.id !== nextAd.id)]);
       } else if (event.type === 'error') {
         updateGen(genId, { error: event.error, status: null });
       }
@@ -1135,8 +1181,22 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
     if (e) e.stopPropagation();
     if (viewAd) setViewAd(null);
 
+    let sourceAd = ad;
+    if (ad.generation_mode === 'image_only') {
+      try {
+        sourceAd = await hydrateAd(ad);
+      } catch (err) {
+        toast.error(err.message || 'Failed to load ad details.');
+        return;
+      }
+      if (!sourceAd?.image_prompt) {
+        toast.error('No prompt available for this ad.');
+        return;
+      }
+    }
+
     const genId = ++genIdCounter.current;
-    const genLabel = ad.angle || ad.aspect_ratio || 'Regeneration';
+    const genLabel = sourceAd.angle || sourceAd.aspect_ratio || 'Regeneration';
 
     const newGen = { id: genId, label: genLabel, status: null, message: 'Preparing regeneration...', error: '', warning: '', progress: 0, startTime: Date.now() };
     setActiveGens(prev => [...prev, newGen]);
@@ -1165,7 +1225,8 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
         updateGen(genId, { warning: event.message });
       } else if (event.type === 'complete') {
         updateGen(genId, { status: 'completed', message: 'Ad regenerated successfully!', progress: 100 });
-        setAds(prev => [event.ad, ...prev]);
+        const nextAd = normalizeAdRecord(event.ad);
+        setAds(prev => [nextAd, ...prev.filter(existing => existing.id !== nextAd.id)]);
       } else if (event.type === 'error') {
         updateGen(genId, { error: event.error, status: null });
       }
@@ -1173,37 +1234,37 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
 
     let stream;
 
-    if (ad.generation_mode === 'image_only' && ad.image_prompt) {
+    if (sourceAd.generation_mode === 'image_only' && sourceAd.image_prompt) {
       // Prompt-edit ads: regenerate image with the same prompt
       updateGen(genId, { status: 'generating_image', message: 'Regenerating image...', progress: 10 });
       stream = api.regenerateImage(projectId, {
-        image_prompt: ad.image_prompt,
-        aspect_ratio: ad.aspect_ratio || '1:1',
-        parent_ad_id: ad.id,
-        angle: ad.angle || undefined,
-        headline: ad.headline || undefined,
-        body_copy: ad.body_copy || undefined,
+        image_prompt: sourceAd.image_prompt,
+        aspect_ratio: sourceAd.aspect_ratio || '1:1',
+        parent_ad_id: sourceAd.id,
+        angle: sourceAd.angle || undefined,
+        headline: sourceAd.headline || undefined,
+        body_copy: sourceAd.body_copy || undefined,
       }, handleEvent);
-    } else if (ad.generation_mode === 'mode2' && ad.template_image_id) {
+    } else if (sourceAd.generation_mode === 'mode2' && sourceAd.template_image_id) {
       // Template-based ads: regenerate with same template
       updateGen(genId, { status: 'generating_copy', message: 'Regenerating template-based ad...', progress: 5 });
       stream = api.generateAd(projectId, {
         mode: 'mode2',
-        template_image_id: ad.template_image_id,
-        aspect_ratio: ad.aspect_ratio || '1:1',
-        angle: ad.angle || undefined,
-        headline: ad.headline || undefined,
-        body_copy: ad.body_copy || undefined,
+        template_image_id: sourceAd.template_image_id,
+        aspect_ratio: sourceAd.aspect_ratio || '1:1',
+        angle: sourceAd.angle || undefined,
+        headline: sourceAd.headline || undefined,
+        body_copy: sourceAd.body_copy || undefined,
       }, handleEvent);
     } else {
       // Standard mode1 ads: regenerate with random inspiration
       updateGen(genId, { status: 'generating_copy', message: 'Regenerating ad...', progress: 5 });
       stream = api.generateAd(projectId, {
         mode: 'mode1',
-        aspect_ratio: ad.aspect_ratio || '1:1',
-        angle: ad.angle || undefined,
-        headline: ad.headline || undefined,
-        body_copy: ad.body_copy || undefined,
+        aspect_ratio: sourceAd.aspect_ratio || '1:1',
+        angle: sourceAd.angle || undefined,
+        headline: sourceAd.headline || undefined,
+        body_copy: sourceAd.body_copy || undefined,
       }, handleEvent);
     }
 
@@ -1225,20 +1286,27 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
   };
 
   // Edit prompt workflow — load ad's prompt into editor and scroll to top
-  const handleEditPrompt = (ad, e) => {
+  const handleEditPrompt = async (ad, e) => {
     if (e) e.stopPropagation();
-    if (!ad.image_prompt) {
+    let editableAd = ad;
+    try {
+      editableAd = await hydrateAd(ad);
+    } catch (err) {
+      toast.error(err.message || 'Failed to load ad details.');
+      return;
+    }
+    if (!editableAd?.image_prompt) {
       toast.error('No prompt available for this ad.');
       return;
     }
-    setCustomPrompt(ad.image_prompt);
-    setOriginalPromptRef(ad.image_prompt);
-    setParentAdId(ad.id);
-    setEditingAdImage(ad.imageUrl || ad.thumbnailUrl || null);
-    setAspectRatio(ad.aspect_ratio || '1:1');
-    if (ad.angle) setAngle(ad.angle);
-    if (ad.headline) setHeadline(ad.headline);
-    if (ad.body_copy) setBodyCopy(ad.body_copy);
+    setCustomPrompt(editableAd.image_prompt);
+    setOriginalPromptRef(editableAd.image_prompt);
+    setParentAdId(editableAd.id);
+    setEditingAdImage(editableAd.imageUrl || editableAd.thumbnailUrl || ad.imageUrl || ad.thumbnailUrl || null);
+    setAspectRatio(editableAd.aspect_ratio || '1:1');
+    if (editableAd.angle) setAngle(editableAd.angle);
+    if (editableAd.headline) setHeadline(editableAd.headline);
+    if (editableAd.body_copy) setBodyCopy(editableAd.body_copy);
     setEditMode('describe');
     setEditInstruction('');
     setViewAd(null);
@@ -2552,12 +2620,12 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
                   onClick={() => {
                     if (ad.status !== 'completed') return;
                     if (selectedCount > 0) toggleAdSelection(ad.id);
-                    else setViewAd(ad);
+                    else void openAdDetails(ad);
                   }}
                 >
                   {ad.imageUrl && ad.status === 'completed' ? (
                     <img
-                      src={ad.imageUrl}
+                      src={ad.thumbnailUrl || ad.imageUrl}
                       alt={`Ad - ${ad.angle || 'No angle'}`}
                       className="w-full h-full object-cover group-hover:scale-[1.02] transition-transform duration-500"
                       loading="lazy"
@@ -2629,7 +2697,7 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
                         </svg>
                       </button>
                       {/* Edit prompt */}
-                      {ad.image_prompt && (
+                      {ad.has_edit_prompt && (
                         <button
                           onClick={(e) => handleEditPrompt(ad, e)}
                           className="w-7 h-7 rounded-lg bg-black/40 backdrop-blur-sm flex items-center justify-center text-white/90 hover:bg-black/60 transition-all"
@@ -2746,7 +2814,7 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
                 onClick={() => {
                   if (ad.status !== 'completed') return;
                   if (selectedAdIds.size > 0) toggleAdSelection(ad.id);
-                  else setViewAd(ad);
+                  else void openAdDetails(ad);
                 }}
               >
                 {/* Selection checkbox */}
@@ -2941,7 +3009,7 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
           >
             <div className="flex-1 bg-offwhite flex items-center justify-center p-2 min-h-[300px]">
               <img
-                src={viewAd.imageUrl}
+                src={viewAd.imageUrl || viewAd.thumbnailUrl}
                 alt={`Ad - ${viewAd.angle || 'No angle'}`}
                 className="max-w-full max-h-[80vh] object-contain rounded-xl"
               />
@@ -2993,7 +3061,7 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
                   </svg>
                   Regenerate
                 </button>
-                {viewAd.image_prompt && (
+                {(viewAd.has_edit_prompt || viewAd.image_prompt) && (
                   <button
                     onClick={(e) => handleEditPrompt(viewAd, e)}
                     className="flex-1 flex items-center justify-center gap-1.5 py-2 px-3 bg-navy text-white rounded-xl text-[12px] font-medium hover:bg-navy-light transition-colors"
@@ -3022,12 +3090,18 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
               </div>
 
               {/* Edit workflow explanation */}
-              {viewAd.image_prompt && (
+              {(viewAd.has_edit_prompt || viewAd.image_prompt) && (
                 <div className="mb-5 p-3 bg-navy/5 border border-navy/10 rounded-xl">
                   <p className="text-[11px] font-medium text-navy mb-1">How editing works</p>
                   <p className="text-[10px] text-navy/70 leading-relaxed">
                     Click "Edit" to open the editor. Describe what you want to change in plain English and AI will update the prompt — or switch to direct editing for manual control. The original ad stays untouched.
                   </p>
+                </div>
+              )}
+
+              {viewAdLoading && (
+                <div className="mb-5 p-3 bg-offwhite rounded-xl text-[11px] text-textlight">
+                  Loading full ad details...
                 </div>
               )}
 
@@ -3091,7 +3165,7 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
                     <button
                       onClick={() => {
                         const parentAd = ads.find(a => a.id === viewAd.parent_ad_id);
-                        if (parentAd) setViewAd(parentAd);
+                        if (parentAd) void openAdDetails(parentAd);
                       }}
                       className="text-gold hover:text-gold/80 text-[13px] transition-colors"
                     >

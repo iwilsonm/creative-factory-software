@@ -11,8 +11,7 @@ import {
   deleteDeployment,
   getAd,
   getAllAds,
-  getAdsByProject,
-  getAdImageUrl,
+  getAdSummariesByExternalIds,
   getProject,
   getLatestDoc,
   getCampaignsByProject,
@@ -41,6 +40,20 @@ import { chat as claudeChat } from '../services/anthropic.js';
 const router = Router();
 router.use(requireAuth);
 
+function compactDeploymentAd(ad) {
+  if (!ad) return null;
+  return {
+    angle: ad.angle || null,
+    headline: ad.headline || null,
+    body_copy: ad.body_copy || null,
+    tags: ad.tags || [],
+  };
+}
+
+function buildDeploymentImageUrl(projectId, adId, hasImage) {
+  return projectId && adId && hasImage ? `/api/projects/${projectId}/ads/${adId}/image` : null;
+}
+
 /**
  * GET /deployments — List deployments with resolved ad + project data
  * Optional query param: ?projectId=xxx to filter by project
@@ -52,79 +65,50 @@ router.get('/deployments', async (req, res) => {
       ? await getDeploymentsByProject(projectId)
       : await getAllDeployments();
 
-    // ── Batch-fetch ads and project data to avoid N+1 queries ──
-    // When filtering by project, bulk-fetch all ads for that project at once
-    // instead of making individual getAd + getAdImageUrl calls per deployment
-    let adsMap = new Map();   // ad_id → { ad, imageUrl }
-    let projectName = null;
+    const uniqueAdIds = [...new Set(deployments.map(d => d.ad_id).filter(Boolean))];
+    const uniqueProjectIds = [...new Set(deployments.map(d => d.project_id).filter(Boolean))];
 
-    if (deployments.length > 0 && projectId) {
-      // Parallel fetch: project name + all ads for this project (2 queries instead of N+1)
-      const [projectResult, adsResult] = await Promise.allSettled([
-        getProject(projectId),
-        getAdsByProject(projectId),
-      ]);
-      if (projectResult.status === 'fulfilled' && projectResult.value) {
-        projectName = projectResult.value.name || null;
-      }
-      if (adsResult.status === 'fulfilled' && adsResult.value) {
-        for (const ad of adsResult.value) {
-          adsMap.set(ad.id, { ad, imageUrl: ad.resolvedImageUrl || null });
-        }
-      }
-    } else if (deployments.length > 0) {
-      // No project filter — bulk-fetch all relevant ads and projects
-      const uniqueProjectIds = [...new Set(deployments.map(d => d.project_id).filter(Boolean))];
-      const projectsMap = new Map();
+    const [adSummaries, projectResults] = await Promise.all([
+      getAdSummariesByExternalIds(uniqueAdIds),
+      Promise.all(uniqueProjectIds.map(pid => getProject(pid).catch(() => null))),
+    ]);
 
-      // Fetch all ads + projects in parallel (M+N queries instead of 2*D individual)
-      const [adsResults, ...projectResults] = await Promise.all([
-        Promise.all(uniqueProjectIds.map(pid => getAdsByProject(pid).catch(() => []))),
-        ...uniqueProjectIds.map(pid => getProject(pid).catch(() => null)),
-      ]);
-
-      for (const projectAds of adsResults) {
-        for (const ad of projectAds) {
-          adsMap.set(ad.id, { ad, imageUrl: ad.resolvedImageUrl || null });
-        }
-      }
-      for (let i = 0; i < uniqueProjectIds.length; i++) {
-        if (projectResults[i]) projectsMap.set(uniqueProjectIds[i], projectResults[i].name);
-      }
-      // Stash projectsMap so the enrichment loop can use it
-      req._projectsMap = projectsMap;
-    }
+    const adsMap = new Map(adSummaries.map(ad => [ad.id, ad]));
+    const projectsMap = new Map(
+      projectResults
+        .filter(Boolean)
+        .map(project => [project.id, project.name || null])
+    );
 
     const enriched = await Promise.all(
       deployments.map(async (dep) => {
-        let ad = null;
-        let imageUrl = null;
-        let depProjectName = projectName;
-
-        // Try batch cache first, fall back to individual fetch
-        const cached = adsMap.get(dep.ad_id);
-        if (cached) {
-          ad = cached.ad;
-          imageUrl = cached.imageUrl;
-        } else {
-          // Fallback for ads not in the batch (e.g. cross-project or no projectId filter)
+        let ad = adsMap.get(dep.ad_id) || null;
+        if (!ad && dep.ad_id) {
           try {
-            ad = await getAd(dep.ad_id);
-            if (ad?.storageId) {
-              imageUrl = await getAdImageUrl(dep.ad_id);
+            const fullAd = await getAd(dep.ad_id);
+            if (fullAd) {
+              ad = {
+                id: fullAd.id,
+                project_id: fullAd.project_id,
+                angle: fullAd.angle,
+                headline: fullAd.headline,
+                body_copy: fullAd.body_copy,
+                tags: fullAd.tags || [],
+                hasImage: !!fullAd.storageId,
+              };
             }
           } catch {}
         }
 
-        if (!depProjectName && req._projectsMap) {
-          depProjectName = req._projectsMap.get(dep.project_id) || null;
-        }
-        if (!depProjectName) {
+        let depProjectName = projectsMap.get(dep.project_id) || null;
+        if (!depProjectName && dep.project_id) {
           try {
             const project = await getProject(dep.project_id);
             depProjectName = project?.name || null;
           } catch {}
         }
+
+        const imageUrl = buildDeploymentImageUrl(dep.project_id, dep.ad_id, ad?.hasImage);
 
         return {
           id: dep.externalId,
@@ -152,15 +136,7 @@ router.get('/deployments', async (req, res) => {
           duplicate_adset_name: dep.duplicate_adset_name || null,
           campaign_name: dep.campaign_name || null,
           ad_set_name: dep.ad_set_name || null,
-          ad: ad ? {
-            angle: ad.angle,
-            headline: ad.headline,
-            body_copy: ad.body_copy,
-            image_prompt: ad.image_prompt,
-            aspect_ratio: ad.aspect_ratio,
-            generation_mode: ad.generation_mode,
-            tags: ad.tags || [],
-          } : null,
+          ad: compactDeploymentAd(ad),
           imageUrl,
           projectName: depProjectName,
         };
@@ -243,22 +219,16 @@ router.get('/deployments/deleted', async (req, res) => {
   try {
     const { projectId } = req.query;
     const deleted = await getDeletedDeployments(projectId);
-    // Enrich with ad data + image URLs (same pattern as main GET /deployments)
-    const enriched = await Promise.all(
-      deleted.map(async (dep) => {
-        let ad = null;
-        let imageUrl = null;
-        try {
-          ad = await getAd(dep.ad_id);
-          if (ad?.storageId) imageUrl = await getAdImageUrl(dep.ad_id);
-        } catch { /* ignore */ }
-        return {
-          ...dep,
-          ad: ad ? { angle: ad.angle, headline: ad.headline, body_copy: ad.body_copy, tags: ad.tags || [] } : null,
-          imageUrl,
-        };
-      })
-    );
+    const adSummaries = await getAdSummariesByExternalIds(deleted.map(dep => dep.ad_id));
+    const adsMap = new Map(adSummaries.map(ad => [ad.id, ad]));
+    const enriched = deleted.map((dep) => {
+      const ad = adsMap.get(dep.ad_id) || null;
+      return {
+        ...dep,
+        ad: compactDeploymentAd(ad),
+        imageUrl: buildDeploymentImageUrl(dep.project_id, dep.ad_id, ad?.hasImage),
+      };
+    });
     res.json({ deployments: enriched });
   } catch (err) {
     console.error('Failed to list deleted deployments:', err);

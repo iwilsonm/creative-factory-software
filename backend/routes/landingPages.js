@@ -8,7 +8,7 @@ import puppeteer from 'puppeteer';
 import { requireAuth } from '../auth.js';
 import {
   getProject,
-  getLandingPagesByProject,
+  getLandingPageSummariesByProject,
   getLandingPage,
   createLandingPage,
   updateLandingPage,
@@ -72,24 +72,9 @@ router.get('/:projectId/landing-pages', async (req, res) => {
   const project = await getProject(req.params.projectId);
   if (!project) return res.status(404).json({ error: 'Project not found' });
 
-  const pages = await getLandingPagesByProject(req.params.projectId);
+  const pages = await getLandingPageSummariesByProject(req.params.projectId);
   // Sort newest first
   pages.sort((a, b) => new Date(b.created_at) - new Date(a.created_at));
-
-  // Resolve image URLs for any image slots that have storageIds
-  for (const page of pages) {
-    if (page.image_slots) {
-      try {
-        const slots = JSON.parse(page.image_slots);
-        for (const slot of slots) {
-          if (slot.storageId && !slot.storageUrl) {
-            slot.storageUrl = await getStorageUrl(slot.storageId);
-          }
-        }
-        page.image_slots = JSON.stringify(slots);
-      } catch {}
-    }
-  }
 
   res.json({ pages });
 });

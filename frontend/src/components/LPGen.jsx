@@ -1795,8 +1795,25 @@ export default function LPGen({ projectId, project }) {
     return () => clearInterval(interval);
   }, [generating, genStartTime]);
 
+  const openPageEditor = useCallback(async (pageOrId) => {
+    const pageId = typeof pageOrId === 'string' ? pageOrId : pageOrId?.externalId;
+    if (!pageId) return null;
+    try {
+      const fullPage = await api.getLandingPage(projectId, pageId);
+      setSelectedPage(fullPage);
+      setView('editor');
+      return fullPage;
+    } catch (err) {
+      toast.error(err.message || 'Failed to load landing page.');
+      return null;
+    }
+  }, [projectId, toast]);
+
   // Load pages + check docs on mount
   useEffect(() => {
+    deepLinkHandled.current = false;
+    setLoading(true);
+    setSelectedPage(null);
     loadPages();
     checkDocs();
   }, [projectId]);
@@ -1808,9 +1825,8 @@ export default function LPGen({ projectId, project }) {
     if (!lpId) return;
     const target = pages.find(p => p.externalId === lpId);
     if (target) {
-      setSelectedPage(target);
-      setView('editor');
       deepLinkHandled.current = true;
+      void openPageEditor(target);
       // Clean the lp param from URL so back/refresh goes to list
       setSearchParams(prev => {
         const next = new URLSearchParams(prev);
@@ -1818,10 +1834,11 @@ export default function LPGen({ projectId, project }) {
         return next;
       }, { replace: true });
     }
-  }, [pages, loading, searchParams]);
+  }, [pages, loading, openPageEditor, searchParams, setSearchParams]);
 
   const loadPages = async () => {
     try {
+      setLoading(true);
       const data = await api.getLandingPages(projectId);
       setPages(data.pages || []);
     } catch (err) {
@@ -1962,13 +1979,8 @@ export default function LPGen({ projectId, project }) {
     setGenProgress('');
     setView('configure');
   };
-
-
-
-
   const handleViewPage = (page) => {
-    setSelectedPage(page);
-    setView('editor');
+    void openPageEditor(page);
   };
 
   const handleDeleteFromDetail = () => {
@@ -2112,12 +2124,9 @@ export default function LPGen({ projectId, project }) {
                 <button
                   onClick={async () => {
                     try {
-                      const data = await api.getLandingPages(projectId);
-                      setPages(data.pages || []);
-                      const page = (data.pages || []).find(p => p.externalId === genResult.pageId);
-                      if (page) {
-                        handleViewPage(page);
-                      } else {
+                      await loadPages();
+                      const page = await openPageEditor(genResult.pageId);
+                      if (!page) {
                         setView('list');
                       }
                     } catch {
@@ -2619,11 +2628,10 @@ export default function LPGen({ projectId, project }) {
               // Single (non-batch) LP row — unchanged from original
               const page = item.page;
               const status = STATUS_CONFIG[page.status] || STATUS_CONFIG.draft;
-              let sections = [];
-              try { sections = page.copy_sections ? JSON.parse(page.copy_sections) : []; } catch {}
-              const totalWords = sections.reduce((sum, s) => sum + countWords(s.content), 0);
-              const hasHtml = !!page.assembled_html;
-              const hasDesign = !!page.swipe_design_analysis;
+              const totalWords = page.total_words || 0;
+              const sectionCount = page.section_count || 0;
+              const hasHtml = !!page.has_html;
+              const hasDesign = !!page.has_design;
               const isPublished = page.status === 'published';
 
               return (
@@ -2672,7 +2680,7 @@ export default function LPGen({ projectId, project }) {
                         {(page.status === 'completed' || isPublished) && (
                           <>
                             <span className="text-[11px] text-textlight">{totalWords} words</span>
-                            <span className="text-[11px] text-textlight">{sections.length} sections</span>
+                            <span className="text-[11px] text-textlight">{sectionCount} sections</span>
                           </>
                         )}
                         {page.swipe_url && (

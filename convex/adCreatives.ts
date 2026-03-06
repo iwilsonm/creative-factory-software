@@ -38,6 +38,39 @@ export const getByProjectWithUrls = query({
   },
 });
 
+export const getGalleryByProject = query({
+  args: { projectId: v.string() },
+  handler: async (ctx, args) => {
+    const ads = await ctx.db
+      .query("ad_creatives")
+      .withIndex("by_project", (q) => q.eq("project_id", args.projectId))
+      .order("desc")
+      .collect();
+
+    return ads.map((ad) => ({
+      externalId: ad.externalId,
+      project_id: ad.project_id,
+      generation_mode: ad.generation_mode,
+      angle: ad.angle,
+      headline: ad.headline,
+      body_copy: ad.body_copy,
+      template_image_id: ad.template_image_id,
+      storageId: ad.storageId,
+      aspect_ratio: ad.aspect_ratio,
+      status: ad.status,
+      auto_generated: ad.auto_generated,
+      parent_ad_id: ad.parent_ad_id,
+      tags: ad.tags,
+      is_favorite: ad.is_favorite,
+      source_quote_id: ad.source_quote_id,
+      drive_file_id: ad.drive_file_id,
+      drive_url: ad.drive_url,
+      has_image_prompt: !!ad.image_prompt,
+      created_at: ad.created_at,
+    }));
+  },
+});
+
 export const getInProgressByProject = query({
   args: { projectId: v.string() },
   handler: async (ctx, args) => {
@@ -58,6 +91,32 @@ export const getByExternalId = query({
       .query("ad_creatives")
       .withIndex("by_externalId", (q) => q.eq("externalId", args.externalId))
       .first();
+  },
+});
+
+export const getSummariesByExternalIds = query({
+  args: { externalIds: v.array(v.string()) },
+  handler: async (ctx, args) => {
+    const uniqueExternalIds = [...new Set(args.externalIds)].slice(0, 500);
+
+    const ads = await Promise.all(
+      uniqueExternalIds.map((externalId) =>
+        ctx.db
+          .query("ad_creatives")
+          .withIndex("by_externalId", (q) => q.eq("externalId", externalId))
+          .first()
+      )
+    );
+
+    return ads.filter(Boolean).map((ad) => ({
+      externalId: ad!.externalId,
+      project_id: ad!.project_id,
+      angle: ad!.angle,
+      headline: ad!.headline,
+      body_copy: ad!.body_copy,
+      tags: ad!.tags || [],
+      has_image: !!ad!.storageId,
+    }));
   },
 });
 

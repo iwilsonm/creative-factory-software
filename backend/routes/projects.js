@@ -8,7 +8,6 @@ import { requireAuth, requireRole } from '../auth.js';
 import {
   createProject,
   getProject,
-  getAllProjects,
   getAllProjectsWithStats,
   updateProject,
   deleteProject,
@@ -47,21 +46,31 @@ router.get('/', async (req, res) => {
   }
 });
 
+// Get project stats
+router.get('/:id/stats', async (req, res) => {
+  try {
+    const project = await getProject(req.params.id);
+    if (!project) return res.status(404).json({ error: 'Project not found' });
+
+    const stats = await getProjectStats(project.id);
+    res.json(stats);
+  } catch (err) {
+    console.error('[Projects] Stats error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // Get single project
 router.get('/:id', async (req, res) => {
   try {
     const project = await getProject(req.params.id);
     if (!project) return res.status(404).json({ error: 'Project not found' });
 
-    // Run stats + image URL in parallel (both depend on project existing)
-    const [stats, productImageUrl] = await Promise.all([
-      getProjectStats(project.id),
-      project.product_image_storageId
-        ? getStorageUrl(project.product_image_storageId).catch(() => null)
-        : Promise.resolve(null),
-    ]);
+    const productImageUrl = project.product_image_storageId
+      ? await getStorageUrl(project.product_image_storageId).catch(() => null)
+      : null;
 
-    res.json({ ...project, ...stats, productImageUrl });
+    res.json({ ...project, productImageUrl });
   } catch (err) {
     console.error('[Projects] Get error:', err.message);
     res.status(500).json({ error: err.message });

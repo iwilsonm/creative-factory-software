@@ -111,7 +111,6 @@ export default function ProjectDetail() {
 
   useEffect(() => {
     loadProject();
-    loadMetaStatus();
     // Clear cross-tab prefill on project switch to avoid stale data
     setAdStudioPrefill(null);
 
@@ -132,6 +131,8 @@ export default function ProjectDetail() {
   useEffect(() => {
     if (tab === 'overview' && id) {
       loadProjectCosts();
+      loadProjectStats();
+      loadMetaStatus();
     }
   }, [tab, id]);
 
@@ -243,10 +244,19 @@ export default function ProjectDetail() {
     }
   };
 
+  const loadProjectStats = async () => {
+    try {
+      const stats = await api.getProjectStats(id);
+      setProject(prev => ({ ...(prev || {}), ...stats }));
+    } catch (err) {
+      console.error('Failed to load project stats:', err);
+    }
+  };
+
   const loadProject = async () => {
     try {
       const data = await api.getProject(id);
-      setProject(data);
+      setProject(prev => prev ? { ...prev, ...data } : data);
       setForm({
         name: data.name,
         brand_name: data.brand_name,
@@ -388,7 +398,7 @@ export default function ProjectDetail() {
       }>
       <div className="fade-in">
         {/* Docs needed alert */}
-        {!project.docCount && (
+        {tab === 'overview' && project.docCount === 0 && (
           <div className="mb-4 p-3 bg-gold/5 border border-gold/20 rounded-xl flex items-center gap-2">
             <svg className="w-4 h-4 text-gold flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />

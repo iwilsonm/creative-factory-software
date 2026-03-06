@@ -80,11 +80,11 @@ router.post('/:projectId/chat/send', async (req, res) => {
 
       // Load all 4 foundational docs
       const docTypes = ['research', 'avatar', 'offer_brief', 'necessary_beliefs'];
+      const latestDocs = await Promise.all(docTypes.map(dt => getLatestDoc(projectId, dt)));
       const docs = {};
-      for (const dt of docTypes) {
-        const doc = await getLatestDoc(projectId, dt);
-        docs[dt] = doc?.content || `[No ${dt.replace('_', ' ')} document found]`;
-      }
+      docTypes.forEach((dt, index) => {
+        docs[dt] = latestDocs[index]?.content || `[No ${dt.replace('_', ' ')} document found]`;
+      });
 
       // Build context message with priming text + all docs
       const contextContent = `${PRIMING_MESSAGE}

@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import { requireAuth } from '../auth.js';
-import { getProject, getDocsByProject, getLatestDoc, updateProject } from '../convexClient.js';
+import { getProject, getLatestDoc, updateProject } from '../convexClient.js';
 import { convexClient, api } from '../convexClient.js';
 import {
   generateAllDocs,
@@ -18,6 +18,7 @@ import { streamService } from '../utils/sseHelper.js';
 
 const router = Router();
 router.use(requireAuth);
+const DOC_TYPES = ['research', 'avatar', 'offer_brief', 'necessary_beliefs'];
 
 // List all docs for a project
 router.get('/:projectId/docs', async (req, res) => {
@@ -25,18 +26,12 @@ router.get('/:projectId/docs', async (req, res) => {
     const project = await getProject(req.params.projectId);
     if (!project) return res.status(404).json({ error: 'Project not found' });
 
-    const docs = await getDocsByProject(req.params.projectId);
-
-    // Group by doc_type, return only latest version of each
-    const latest = {};
-    for (const doc of docs) {
-      if (!latest[doc.doc_type] || doc.version > latest[doc.doc_type].version) {
-        latest[doc.doc_type] = doc;
-      }
-    }
+    const docs = await Promise.all(
+      DOC_TYPES.map(type => getLatestDoc(req.params.projectId, type))
+    );
 
     res.json({
-      docs: Object.values(latest),
+      docs: docs.filter(Boolean),
       steps: STEPS.map(s => ({ id: s.id, label: s.label, savedAs: s.savedAs, mode: s.mode }))
     });
   } catch (err) {
@@ -93,7 +88,7 @@ router.post('/:projectId/upload-docs', async (req, res) => {
       return res.status(400).json({ error: 'docs object is required' });
     }
 
-    const validTypes = ['research', 'avatar', 'offer_brief', 'necessary_beliefs'];
+    const validTypes = DOC_TYPES;
     const saved = [];
 
     for (const [docType, content] of Object.entries(docs)) {
@@ -121,9 +116,10 @@ router.post('/:projectId/upload-docs', async (req, res) => {
     }
 
     // Update project status if we have all 4 docs now
-    const allDocs = await getDocsByProject(req.params.projectId);
-    const types = new Set(allDocs.map(d => d.doc_type));
-    if (validTypes.every(t => types.has(t))) {
+    const latestDocs = await Promise.all(
+      validTypes.map(type => getLatestDoc(req.params.projectId, type))
+    );
+    if (latestDocs.every(Boolean)) {
       await updateProject(req.params.projectId, { status: 'docs_ready' });
     } else {
       await updateProject(req.params.projectId, { status: 'setup' });
