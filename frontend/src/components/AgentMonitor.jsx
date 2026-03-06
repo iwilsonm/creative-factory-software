@@ -1787,11 +1787,6 @@ function AngleCard({ angle, playbooks, onStatusChange, onToggleFocus, onToggleLP
         </div>
       </div>
 
-      {/* Collapsed: show description */}
-      {!expanded && (
-        <p className="text-[11px] text-textmid leading-relaxed px-3 pb-3">{angle.description}</p>
-      )}
-
       {/* Expanded: show full structured brief */}
       {expanded && (
         <div className="px-3 pb-3 pt-1 border-t border-black/5 space-y-2 text-[12px]">
