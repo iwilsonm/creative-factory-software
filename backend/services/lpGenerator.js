@@ -16,6 +16,32 @@ import { generateImage } from './gemini.js';
 import crypto from 'crypto';
 import { getDocsByProject, uploadBuffer, getStorageUrl, getLPTemplate, getProject, downloadToBuffer, getLPAgentConfig, upsertLPAgentConfig } from '../convexClient.js';
 
+/**
+ * Detect the actual MIME type of an image buffer by reading magic bytes.
+ * Prevents mismatches where the declared type doesn't match the actual format.
+ */
+export function detectImageMimeType(buffer) {
+  if (buffer && buffer.length > 4) {
+    // PNG: 89 50 4E 47
+    if (buffer[0] === 0x89 && buffer[1] === 0x50 && buffer[2] === 0x4E && buffer[3] === 0x47) {
+      return 'image/png';
+    }
+    // JPEG: FF D8 FF
+    if (buffer[0] === 0xFF && buffer[1] === 0xD8 && buffer[2] === 0xFF) {
+      return 'image/jpeg';
+    }
+    // WebP: 52 49 46 46 ... 57 45 42 50
+    if (buffer[0] === 0x52 && buffer[1] === 0x49 && buffer[2] === 0x46 && buffer[3] === 0x46 && buffer.length > 11 && buffer[8] === 0x57 && buffer[9] === 0x45 && buffer[10] === 0x42 && buffer[11] === 0x50) {
+      return 'image/webp';
+    }
+    // GIF: 47 49 46
+    if (buffer[0] === 0x47 && buffer[1] === 0x49 && buffer[2] === 0x46) {
+      return 'image/gif';
+    }
+  }
+  return 'image/jpeg'; // fallback
+}
+
 // ─── Narrative Frame Library ─────────────────────────────────────────────────
 
 export const NARRATIVE_FRAMES = [
@@ -3586,7 +3612,7 @@ export async function generateAutoLP({
     if (useProductReferenceImages && project?.product_image_storageId) {
       sendEvent({ type: 'progress', step: 'product_image_loading', message: 'Loading product reference image...' });
       const buffer = await downloadToBuffer(project.product_image_storageId);
-      productImageData = { base64: buffer.toString('base64'), mimeType: 'image/jpeg' };
+      productImageData = { base64: buffer.toString('base64'), mimeType: detectImageMimeType(buffer) };
     }
   } catch (err) {
     console.warn('[LPGen] Failed to load project/product image (non-fatal):', err.message);
@@ -4568,7 +4594,7 @@ RESPOND WITH JSON ONLY:
   "reasoning": "Brief overall assessment"
 }`;
 
-    const images = [{ base64: screenshotBuffer.toString('base64'), mimeType: 'image/jpeg' }];
+    const images = [{ base64: screenshotBuffer.toString('base64'), mimeType: detectImageMimeType(screenshotBuffer) }];
     if (productImageData?.base64) {
       images.push({ base64: productImageData.base64, mimeType: productImageData.mimeType || 'image/jpeg' });
     }

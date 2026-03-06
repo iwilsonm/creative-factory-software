@@ -29,6 +29,7 @@ import {
   preScoreAndRetryImages,
   scoreGauntletLP,
   regenerateFailedImages,
+  detectImageMimeType,
   NARRATIVE_FRAMES,
 } from './lpGenerator.js';
 import { getCachedImageContext, getFoundationalDocs } from './lpGenerator.js';
@@ -505,7 +506,7 @@ export async function runGauntlet(projectId, options = {}, sendEventRaw) {
   if (config.use_product_reference_images !== false && project.product_image_storageId) {
     try {
       const buffer = await downloadToBuffer(project.product_image_storageId);
-      productImageData = { base64: buffer.toString('base64'), mimeType: 'image/jpeg' };
+      productImageData = { base64: buffer.toString('base64'), mimeType: detectImageMimeType(buffer) };
     } catch (err) {
       console.warn('[Gauntlet] Failed to load product image:', err.message);
     }
