@@ -428,7 +428,7 @@ function distributeAngles(angles, count, rotation) {
  * Creates one full batch, fires it, and lets the Filter pick it up end-to-end.
  * @param {string} projectId
  */
-export async function runTestBatch(projectId, sendEvent, { skipBatchLaunch = false, batchSizeOverride = null } = {}) {
+export async function runTestBatch(projectId, sendEvent, { skipBatchLaunch = false, batchSizeOverride = null, angleOverride = null } = {}) {
   const emit = sendEvent || (() => {});
   const startMs = Date.now();
   const runId = uuidv4();
@@ -454,10 +454,17 @@ export async function runTestBatch(projectId, sendEvent, { skipBatchLaunch = fal
   });
 
   try {
-    // Pick an angle using the project's rotation strategy
+    // Pick an angle — use override if provided, otherwise rotation strategy
     emit({ type: 'progress', step: 'selecting_angle', message: 'Selecting angle...' });
-    const angles = await selectAngles(projectId, config, 1);
-    const angleInfo = angles[0];
+    let angleInfo;
+    if (angleOverride) {
+      const allAngles = await getActiveConductorAngles(projectId);
+      angleInfo = allAngles.find(a => a.externalId === angleOverride);
+      if (!angleInfo) throw new Error('Selected angle not found or not active');
+    } else {
+      const angles = await selectAngles(projectId, config, 1);
+      angleInfo = angles[0];
+    }
 
     const batchSize = batchSizeOverride || config.ads_per_batch || 18;
     const batchId = uuidv4();
@@ -542,24 +549,83 @@ export async function runTestBatch(projectId, sendEvent, { skipBatchLaunch = fal
   }
 }
 
+// ── In-memory progress tracking for test runs (survives SSE disconnect) ──────
+const activeTestRuns = new Map();
+
+const PIPELINE_STEP_PROGRESS = {
+  'initializing': 1, 'selecting_angle': 1, 'building_prompt': 1,
+  'creating_batch': 2, 'saving_run': 2, 'launching_batch': 2,
+  'batch_brief': 4, 'batch_headlines': 6, 'batch_body_copy': 9,
+  'batch_image_prompts': 12, 'batch_submitting': 14, 'batch_submitted': 15,
+  'gemini_waiting': 15, 'gemini_complete': 60,
+  'filter_scoring': 62, 'filter_grouping': 82, 'filter_copy_gen': 86,
+  'filter_deploying': 92, 'filter_complete': 95,
+};
+
+/**
+ * Get the active test run for a project (if any).
+ * @param {string} projectId
+ * @returns {{ id: string, projectId: string, status: string, progress: number, phase: string, startTime: number, result: object|null }|null}
+ */
+export function getActiveTestRun(projectId) {
+  for (const [id, run] of activeTestRuns) {
+    if (run.projectId === projectId && run.status === 'running') return { id, ...run };
+  }
+  return null;
+}
+
 // ── Full Test Pipeline (Director → Batch → Gemini → Filter → Ready to Post) ──
 
 /**
- * Run the full test pipeline with a single SSE stream tracking all phases:
- * 1. Director creates batch (selects angle, builds prompt)
- * 2. Batch pipeline (brief → headlines → body copy → image prompts → Gemini submit)
- * 3. Poll Gemini until images are generated
- * 4. Creative Filter (score → group → generate copy → deploy to Ready to Post)
+ * Run the full test pipeline with a single SSE stream tracking all phases.
  *
  * @param {string} projectId
  * @param {(event: object) => void} sendEvent - SSE event emitter
+ * @param {{ angleOverride?: string }} options
  * @returns {object} Combined result from Director + Filter phases
  */
-export async function runFullTestPipeline(projectId, sendEvent) {
-  const emit = sendEvent || (() => {});
+export async function runFullTestPipeline(projectId, sendEvent, { angleOverride = null } = {}) {
+  const rawEmit = sendEvent || (() => {});
+
+  // Track progress in-memory so polling endpoint can serve it after SSE disconnect
+  const runProgress = { projectId, status: 'running', progress: 0, phase: 'Starting...', startTime: Date.now(), result: null };
+  const trackingId = `pending-${Date.now()}`;
+  activeTestRuns.set(trackingId, runProgress);
+
+  const emit = (event) => {
+    rawEmit(event);
+    if (event.type === 'progress') {
+      runProgress.phase = event.message || runProgress.phase;
+      if (event.step && PIPELINE_STEP_PROGRESS[event.step] !== undefined) {
+        runProgress.progress = Math.max(runProgress.progress, PIPELINE_STEP_PROGRESS[event.step]);
+      }
+      if (event.step === 'gemini_polling' && event.elapsed) {
+        const ratio = Math.min(event.elapsed / 600, 0.95);
+        const pct = 15 + Math.round(ratio * 43);
+        runProgress.progress = Math.max(runProgress.progress, pct);
+      }
+      if (event.step === 'filter_scoring' && event.scoringProgress) {
+        const { current, total } = event.scoringProgress;
+        const pct = 62 + Math.round((current / total) * 18);
+        runProgress.progress = Math.max(runProgress.progress, pct);
+      }
+    } else if (event.type === 'complete') {
+      runProgress.status = 'complete';
+      runProgress.progress = 100;
+      runProgress.phase = 'Complete';
+      runProgress.result = event;
+      setTimeout(() => activeTestRuns.delete(trackingId), 60000);
+    } else if (event.type === 'error') {
+      runProgress.status = 'error';
+      runProgress.progress = 0;
+      runProgress.phase = event.message || 'Failed';
+      runProgress.result = event;
+      setTimeout(() => activeTestRuns.delete(trackingId), 60000);
+    }
+  };
 
   // ── Phase 1: Director creates batch (30 ads for headroom — need 10 passing) ──
-  const directorResult = await runTestBatch(projectId, emit, { skipBatchLaunch: true, batchSizeOverride: 30 });
+  const directorResult = await runTestBatch(projectId, emit, { skipBatchLaunch: true, batchSizeOverride: 30, angleOverride });
   const batchId = directorResult.batch_id;
 
   // LP generation runs independently — fire-and-forget

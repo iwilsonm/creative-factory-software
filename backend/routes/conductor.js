@@ -193,14 +193,26 @@ router.post('/run/:projectId', async (req, res) => {
 // POST /api/conductor/test-run/:projectId — full pipeline: Director → batch → Gemini → Filter → Ready to Post
 router.post('/test-run/:projectId', async (req, res) => {
   streamService(req, res, async (sendEvent) => {
+    const { angle_id } = req.body || {};
     const { runFullTestPipeline } = await import('../services/conductorEngine.js');
-    const result = await runFullTestPipeline(req.params.projectId, sendEvent);
+    const result = await runFullTestPipeline(req.params.projectId, sendEvent, { angleOverride: angle_id || null });
     if (result.pipeline_failed) {
       sendEvent({ type: 'error', message: result.failure_reason, ...result });
     } else {
       sendEvent({ type: 'complete', ...result });
     }
   });
+});
+
+// GET /api/conductor/test-run/progress/:projectId — poll active test run progress (survives SSE disconnect)
+router.get('/test-run/progress/:projectId', async (req, res) => {
+  try {
+    const { getActiveTestRun } = await import('../services/conductorEngine.js');
+    const active = getActiveTestRun(req.params.projectId);
+    res.json({ active });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // =============================================

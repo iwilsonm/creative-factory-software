@@ -465,10 +465,29 @@ function DirectorTab({ onRefresh }) {
 
   const [campaigns, setCampaigns] = useState([]);
 
-  // Test run queue — each item: { id, status: 'queued'|'running'|'complete'|'error', progress, phase, startTime, result }
-  const [testRunQueue, setTestRunQueue] = useState([]);
+  // Angle selection for test runs
+  const [selectedAngleId, setSelectedAngleId] = useState('');
+
+  // Test run queue — persisted to localStorage so it survives refresh/navigation
+  const QUEUE_KEY = 'dacia_testRunQueue';
+  const [testRunQueue, setTestRunQueue] = useState(() => {
+    try {
+      const saved = localStorage.getItem(QUEUE_KEY);
+      if (!saved) return [];
+      const parsed = JSON.parse(saved);
+      // Clear stale items older than 2 hours
+      const cutoff = Date.now() - 2 * 60 * 60 * 1000;
+      return parsed.filter(r => r.startTime ? r.startTime > cutoff : true);
+    } catch { return []; }
+  });
   const activeRun = testRunQueue.find(r => r.status === 'running');
   const queuedCount = testRunQueue.filter(r => r.status === 'queued').length;
+  const sseActiveRef = useRef(false); // tracks if we have a live SSE connection for the active run
+
+  // Sync queue to localStorage on every change
+  useEffect(() => {
+    localStorage.setItem(QUEUE_KEY, JSON.stringify(testRunQueue));
+  }, [testRunQueue]);
 
   const navigate = useNavigate();
 
@@ -563,100 +582,138 @@ function DirectorTab({ onRefresh }) {
   };
 
   const handleTestRun = () => {
-    const queueItem = { id: crypto.randomUUID(), status: 'queued', progress: 0, phase: '', startTime: null, result: null };
+    const queueItem = { id: crypto.randomUUID(), status: 'queued', progress: 0, phase: '', startTime: null, result: null, angleId: selectedAngleId || null, sseConnected: false };
     setTestRunQueue(prev => [...prev, queueItem]);
     setSubTab('history');
   };
 
-  // Queue processor — starts next queued run when no active run
+  const updateQueueItem = useCallback((id, updates) => {
+    setTestRunQueue(prev => prev.map(r => r.id === id ? { ...r, ...updates } : r));
+  }, []);
+
+  const finishRun = useCallback((runId, isError) => {
+    setTimeout(async () => {
+      setRunningAction(null);
+      sseActiveRef.current = false;
+      setTestRunQueue(prev => prev.filter(r => r.id !== runId));
+      try {
+        const runRes = await api.getConductorRuns(selectedProject, 20);
+        setRuns(runRes?.runs || []);
+      } catch {}
+      if (!isError) onRefresh();
+    }, isError ? 3000 : 2000);
+  }, [selectedProject, onRefresh]);
+
+  // Queue processor — starts next queued run via SSE when no active run
   useEffect(() => {
     const running = testRunQueue.find(r => r.status === 'running');
     const nextQueued = testRunQueue.find(r => r.status === 'queued');
-    if (running || !nextQueued) return;
+
+    // If there's a running item with a live SSE connection, nothing to do
+    if (running && sseActiveRef.current) return;
+    // If there's a running item without SSE (restored from localStorage), polling handles it — don't start a new one
+    if (running && !sseActiveRef.current) return;
+    if (!nextQueued) return;
 
     const runId = nextQueued.id;
-    setTestRunQueue(prev => prev.map(r => r.id === runId ? { ...r, status: 'running', startTime: Date.now(), phase: 'Starting test run...' } : r));
+    setTestRunQueue(prev => prev.map(r => r.id === runId ? { ...r, status: 'running', startTime: Date.now(), phase: 'Starting test run...', sseConnected: true } : r));
     setRunningAction('run');
+    sseActiveRef.current = true;
 
-    const updateRun = (id, updates) => {
-      setTestRunQueue(prev => prev.map(r => r.id === id ? { ...r, ...updates } : r));
-    };
+    const body = nextQueued.angleId ? { angle_id: nextQueued.angleId } : {};
 
-    const { abort, done } = api.triggerConductorTestRun(selectedProject, (event) => {
+    const { abort, done } = api.triggerConductorTestRun(selectedProject, body, (event) => {
       if (event.type === 'progress') {
         const updates = { phase: event.message || '' };
 
-        // Map step to percentage (never go backwards)
         if (event.step && STEP_PROGRESS[event.step] !== undefined) {
-          updateRun(runId, updates);
           setTestRunQueue(prev => prev.map(r => r.id === runId ? { ...r, ...updates, progress: Math.max(r.progress, STEP_PROGRESS[event.step]) } : r));
           return;
         }
 
-        // Gemini polling: time-based progress 15% → 58%
         if (event.step === 'gemini_polling' && event.elapsed) {
-          const GEMINI_START = 15, GEMINI_END = 58;
-          const estimatedSec = 600;
-          const ratio = Math.min(event.elapsed / estimatedSec, 0.95);
-          const pct = GEMINI_START + Math.round(ratio * (GEMINI_END - GEMINI_START));
+          const pct = 15 + Math.round(Math.min(event.elapsed / 600, 0.95) * 43);
           setTestRunQueue(prev => prev.map(r => r.id === runId ? { ...r, ...updates, progress: Math.max(r.progress, pct) } : r));
           return;
         }
 
-        // Per-ad scoring sub-progress: 62% → 80%
         if (event.step === 'filter_scoring' && event.scoringProgress) {
           const { current, total } = event.scoringProgress;
-          const SCORE_START = 62, SCORE_END = 80;
-          const pct = SCORE_START + Math.round((current / total) * (SCORE_END - SCORE_START));
+          const pct = 62 + Math.round((current / total) * 18);
           setTestRunQueue(prev => prev.map(r => r.id === runId ? { ...r, ...updates, progress: Math.max(r.progress, pct) } : r));
           return;
         }
 
-        // Per-image-prompt sub-progress: 12% → 14%
         if (event.imageProgress) {
           const { current, total } = event.imageProgress;
-          const IMG_START = 12, IMG_END = 14;
-          const pct = IMG_START + Math.round((current / total) * (IMG_END - IMG_START));
+          const pct = 12 + Math.round((current / total) * 2);
           setTestRunQueue(prev => prev.map(r => r.id === runId ? { ...r, ...updates, progress: Math.max(r.progress, pct) } : r));
           return;
         }
 
-        updateRun(runId, updates);
+        updateQueueItem(runId, updates);
       } else if (event.type === 'complete') {
         const msg = event.flex_ads_created > 0
           ? `${event.ads_passed}/${event.ads_scored} ads passed — flex ad deployed to Ready to Post!`
           : `Complete — ${event.ads_passed || '?'}/${event.ads_scored || '?'} ads passed.`;
-        updateRun(runId, { status: 'complete', progress: 100, phase: msg, result: event });
-        setTimeout(async () => {
-          setRunningAction(null);
-          // Remove this completed item from queue after brief display
-          setTestRunQueue(prev => prev.filter(r => r.id !== runId));
-          const runRes = await api.getConductorRuns(selectedProject, 20);
-          setRuns(runRes?.runs || []);
-          onRefresh();
-        }, 2000);
+        updateQueueItem(runId, { status: 'complete', progress: 100, phase: msg, result: event });
+        finishRun(runId, false);
       } else if (event.type === 'error') {
-        updateRun(runId, { status: 'error', progress: 0, phase: event.message || 'Failed' });
+        updateQueueItem(runId, { status: 'error', progress: 0, phase: event.message || 'Failed' });
         toast.error(event.message || 'Test run failed');
-        setTimeout(async () => {
-          setRunningAction(null);
-          setTestRunQueue(prev => prev.filter(r => r.id !== runId));
-          const runRes = await api.getConductorRuns(selectedProject, 20);
-          setRuns(runRes?.runs || []);
-        }, 3000);
+        finishRun(runId, true);
       }
     });
 
     done.catch((err) => {
       if (err.name !== 'AbortError') {
-        updateRun(runId, { status: 'error', progress: 0, phase: 'Connection lost' });
-        setTimeout(() => {
-          setRunningAction(null);
-          setTestRunQueue(prev => prev.filter(r => r.id !== runId));
-        }, 3000);
+        // SSE disconnected (refresh, navigate away) — DON'T mark as error
+        // The backend keeps running. Mark sseConnected=false so polling picks up.
+        sseActiveRef.current = false;
+        updateQueueItem(runId, { sseConnected: false });
       }
     });
-  }, [testRunQueue, selectedProject]);
+  }, [testRunQueue, selectedProject, updateQueueItem, finishRun, toast]);
+
+  // Polling reconnect — when a 'running' item exists without SSE (after page refresh)
+  useEffect(() => {
+    const running = testRunQueue.find(r => r.status === 'running');
+    if (!running || sseActiveRef.current) return;
+    if (!selectedProject) return;
+
+    setRunningAction('run');
+
+    const poll = async () => {
+      try {
+        const res = await api.getTestRunProgress(selectedProject);
+        if (res.active) {
+          updateQueueItem(running.id, {
+            progress: res.active.progress,
+            phase: res.active.phase,
+            startTime: running.startTime || res.active.startTime,
+          });
+        } else {
+          // Run finished while we were away
+          const runRes = await api.getConductorRuns(selectedProject, 5);
+          setRuns(runRes?.runs || []);
+          const latest = (runRes?.runs || [])[0];
+          const succeeded = latest?.status === 'completed';
+          updateQueueItem(running.id, {
+            status: succeeded ? 'complete' : 'error',
+            progress: succeeded ? 100 : 0,
+            phase: succeeded ? 'Complete' : (latest?.error || 'Failed'),
+          });
+          finishRun(running.id, !succeeded);
+          return; // Stop polling
+        }
+      } catch {}
+    };
+
+    // Poll immediately, then every 3 seconds
+    poll();
+    const interval = setInterval(poll, 3000);
+    return () => clearInterval(interval);
+  }, [activeRun?.id, selectedProject]);
 
   const handleAddAngle = async () => {
     if (!newAngle.name) return;
@@ -955,12 +1012,24 @@ function DirectorTab({ onRefresh }) {
           Enabled
         </label>
 
-        <button
-          onClick={handleTestRun}
-          className="btn-primary text-[11px] px-3 py-1.5 flex items-center gap-1 ml-auto"
-        >
-          {activeRun ? <><Spinner /> {queuedCount > 0 ? `Running (${queuedCount} queued)` : 'Running...'}</> : queuedCount > 0 ? `Queue Run (${queuedCount} queued)` : 'Test Run'}
-        </button>
+        <div className="flex items-center gap-2 ml-auto">
+          <select
+            value={selectedAngleId}
+            onChange={e => setSelectedAngleId(e.target.value)}
+            className="text-[11px] text-textdark bg-offwhite border border-black/10 rounded-lg px-2 py-1.5 cursor-pointer max-w-[140px]"
+          >
+            <option value="">Auto-select angle</option>
+            {activeAngles.map(a => (
+              <option key={a.externalId} value={a.externalId}>{a.name}</option>
+            ))}
+          </select>
+          <button
+            onClick={handleTestRun}
+            className="btn-primary text-[11px] px-3 py-1.5 flex items-center gap-1"
+          >
+            {activeRun ? <><Spinner /> {queuedCount > 0 ? `Running (${queuedCount} queued)` : 'Running...'}</> : queuedCount > 0 ? `Queue Run (${queuedCount} queued)` : 'Test Run'}
+          </button>
+        </div>
       </div>
 
       {/* Test run progress bar */}
