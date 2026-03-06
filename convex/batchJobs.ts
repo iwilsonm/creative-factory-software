@@ -23,6 +23,7 @@ export const create = mutation({
     conductor_run_id: v.optional(v.string()),
     angle_name: v.optional(v.string()),
     angle_prompt: v.optional(v.string()),
+    angle_brief: v.optional(v.string()),    // JSON: structured angle brief
   },
   handler: async (ctx, args) => {
     const now = new Date().toISOString();
@@ -130,6 +131,7 @@ export const update = mutation({
     conductor_run_id: v.optional(v.string()),
     angle_name: v.optional(v.string()),
     angle_prompt: v.optional(v.string()),
+    angle_brief: v.optional(v.string()),    // JSON: structured angle brief
     // LP auto-generation tracking
     lp_primary_id: v.optional(v.string()),
     lp_primary_url: v.optional(v.string()),

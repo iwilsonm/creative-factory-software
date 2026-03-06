@@ -268,7 +268,7 @@ export async function getProjectStats(projectId) {
 // Batch job helpers
 // =============================================
 
-export async function createBatchJob({ id, project_id, generation_mode, batch_size, angle, angles, aspect_ratio, template_image_id, template_image_ids, inspiration_image_id, inspiration_image_ids, product_image_storageId, scheduled, schedule_cron, filter_assigned, posting_day, conductor_run_id, angle_name, angle_prompt }) {
+export async function createBatchJob({ id, project_id, generation_mode, batch_size, angle, angles, aspect_ratio, template_image_id, template_image_ids, inspiration_image_id, inspiration_image_ids, product_image_storageId, scheduled, schedule_cron, filter_assigned, posting_day, conductor_run_id, angle_name, angle_prompt, angle_brief }) {
   await mutationWithRetry(api.batchJobs.create, {
     externalId: id,
     project_id,
@@ -289,6 +289,7 @@ export async function createBatchJob({ id, project_id, generation_mode, batch_si
     conductor_run_id: conductor_run_id || undefined,
     angle_name: angle_name || undefined,
     angle_prompt: angle_prompt || undefined,
+    angle_brief: angle_brief || undefined,
   });
 }
 
@@ -318,7 +319,7 @@ export async function getAllScheduledBatchesForCost() {
 }
 
 export async function updateBatchJob(id, fields) {
-  const allowed = ['status', 'gemini_batch_job', 'gpt_prompts', 'error_message', 'started_at', 'completed_at', 'completed_count', 'failed_count', 'run_count', 'scheduled', 'schedule_cron', 'retry_count', 'batch_stats', 'pipeline_state', 'angle', 'angles', 'batch_size', 'aspect_ratio', 'used_template_ids', 'filter_assigned', 'filter_processed', 'filter_processed_at', 'posting_day', 'conductor_run_id', 'angle_name', 'angle_prompt', 'lp_primary_id', 'lp_primary_url', 'lp_primary_status', 'lp_primary_error', 'lp_primary_retry_count', 'lp_secondary_id', 'lp_secondary_url', 'lp_secondary_status', 'lp_secondary_error', 'lp_secondary_retry_count', 'lp_narrative_frames', 'gauntlet_lp_urls'];
+  const allowed = ['status', 'gemini_batch_job', 'gpt_prompts', 'error_message', 'started_at', 'completed_at', 'completed_count', 'failed_count', 'run_count', 'scheduled', 'schedule_cron', 'retry_count', 'batch_stats', 'pipeline_state', 'angle', 'angles', 'batch_size', 'aspect_ratio', 'used_template_ids', 'filter_assigned', 'filter_processed', 'filter_processed_at', 'posting_day', 'conductor_run_id', 'angle_name', 'angle_prompt', 'angle_brief', 'lp_primary_id', 'lp_primary_url', 'lp_primary_status', 'lp_primary_error', 'lp_primary_retry_count', 'lp_secondary_id', 'lp_secondary_url', 'lp_secondary_status', 'lp_secondary_error', 'lp_secondary_retry_count', 'lp_narrative_frames', 'gauntlet_lp_urls'];
   const updates = { externalId: id };
   for (const key of allowed) {
     if (fields[key] !== undefined) {
@@ -369,6 +370,7 @@ function convexBatchToRow(b) {
     conductor_run_id: b.conductor_run_id || null,
     angle_name: b.angle_name || null,
     angle_prompt: b.angle_prompt || null,
+    angle_brief: b.angle_brief || null,
     lp_primary_id: b.lp_primary_id || null,
     lp_primary_url: b.lp_primary_url || null,
     lp_primary_status: b.lp_primary_status || null,

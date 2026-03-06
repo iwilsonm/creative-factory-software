@@ -10,6 +10,7 @@ import {
   getFlexAdsByProject, getBatchesByProject,
   getAllProjects,
 } from '../convexClient.js';
+import { buildDescriptionFromBrief } from '../utils/angleParser.js';
 
 const router = Router();
 
@@ -94,19 +95,29 @@ router.get('/angles/:projectId', async (req, res) => {
 // POST /api/conductor/angles/:projectId
 router.post('/angles/:projectId', async (req, res) => {
   try {
-    const { name, description, prompt_hints, source, status } = req.body;
-    if (!name || !description) {
-      return res.status(400).json({ error: 'Name and description are required' });
+    const { name, description, prompt_hints, source, status,
+      priority, frame, core_buyer, symptom_pattern, failed_solutions,
+      current_belief, objection, emotional_state, scene,
+      desired_belief_shift, tone, avoid_list } = req.body;
+    if (!name) {
+      return res.status(400).json({ error: 'Name is required' });
     }
+    // Auto-compute description from structured fields if not provided
+    const computedDescription = description || buildDescriptionFromBrief({
+      core_buyer, symptom_pattern, objection, scene, desired_belief_shift
+    });
     const id = uuidv4();
     await createConductorAngle({
       id,
       project_id: req.params.projectId,
       name,
-      description,
+      description: computedDescription,
       prompt_hints,
       source: source || 'manual',
       status: status || 'active',
+      priority, frame, core_buyer, symptom_pattern, failed_solutions,
+      current_belief, objection, emotional_state, scene,
+      desired_belief_shift, tone, avoid_list,
     });
     res.json({ success: true, id });
   } catch (err) {
@@ -119,7 +130,12 @@ router.post('/angles/:projectId', async (req, res) => {
 router.put('/angles/:projectId/:angleId', async (req, res) => {
   try {
     // Whitelist allowed fields to prevent arbitrary field injection
-    const allowedAngleFields = ['name', 'description', 'prompt_hints', 'status', 'source', 'focused', 'lp_enabled'];
+    const allowedAngleFields = [
+      'name', 'description', 'prompt_hints', 'status', 'source', 'focused', 'lp_enabled',
+      'priority', 'frame', 'core_buyer', 'symptom_pattern', 'failed_solutions',
+      'current_belief', 'objection', 'emotional_state', 'scene',
+      'desired_belief_shift', 'tone', 'avoid_list',
+    ];
     const fields = {};
     for (const key of allowedAngleFields) {
       if (req.body[key] !== undefined) fields[key] = req.body[key];

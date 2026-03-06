@@ -309,6 +309,7 @@ get_top_performers() {
 score_batch_ads() {
   local ads_json="$1"
   local top_performers="$2"
+  local angle_brief_json="${3:-}"  # Optional structured angle brief
   local ad_count
   ad_count=$(echo "$ads_json" | jq 'length')
 
@@ -332,7 +333,7 @@ score_batch_ads() {
     log_score "Scoring ad $((i+1))/$ad_count: $ad_id"
 
     local score_result
-    score_result=$(bash "${SCRIPT_DIR}/agents/score.sh" "$ad" "$top_performers")
+    score_result=$(bash "${SCRIPT_DIR}/agents/score.sh" "$ad" "$top_performers" "$angle_brief_json")
     add_spend 2 "scoring" "$SCORE_MODEL" "anthropic"  # ~$0.02 per ad
 
     local passed
@@ -745,11 +746,13 @@ process_batch() {
   local project_id
   project_id=$(echo "$batch" | jq -r '.project_id')
 
-  # Extract Director metadata (posting_day, angle_name) if present
+  # Extract Director metadata (posting_day, angle_name, angle_brief) if present
   local posting_day
   posting_day=$(echo "$batch" | jq -r '.posting_day // ""')
   local angle_name
   angle_name=$(echo "$batch" | jq -r '.angle_name // ""')
+  local angle_brief
+  angle_brief=$(echo "$batch" | jq -r '.angle_brief // ""')
 
   log_info "━━━ Processing batch: $batch_id ━━━"
   if [[ -n "$posting_day" ]]; then
@@ -794,9 +797,9 @@ process_batch() {
   local top_performers
   top_performers=$(get_top_performers "$project_id")
 
-  # Score all ads
+  # Score all ads (pass angle_brief for structured scoring context)
   local scored_ads
-  scored_ads=$(score_batch_ads "$ads" "$top_performers")
+  scored_ads=$(score_batch_ads "$ads" "$top_performers" "$angle_brief")
 
   # 1 flex ad per batch — Director controls how many batches are created
   local flex_result

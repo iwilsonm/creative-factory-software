@@ -133,6 +133,7 @@ export default defineSchema({
     conductor_run_id: v.optional(v.string()),      // → conductor_runs.externalId that created this batch
     angle_name: v.optional(v.string()),            // Which angle this batch targets
     angle_prompt: v.optional(v.string()),          // Full angle prompt injected into generation
+    angle_brief: v.optional(v.string()),           // JSON: structured angle brief for downstream use
     // LP auto-generation tracking
     lp_primary_id: v.optional(v.string()),           // → landing_pages.externalId
     lp_primary_url: v.optional(v.string()),          // Published URL
@@ -541,12 +542,26 @@ export default defineSchema({
     externalId: v.string(),
     project_id: v.string(),              // → projects.externalId
     name: v.string(),                    // short label
-    description: v.string(),             // detailed angle for prompt injection
+    description: v.string(),             // detailed angle for prompt injection (auto-computed from structured fields)
     prompt_hints: v.optional(v.string()), // specific creative direction
-    source: v.string(),                  // "manual" | "auto_generated"
+    source: v.string(),                  // "manual" | "imported" | "auto_generated"
     status: v.string(),                  // "active" | "testing" | "archived"
     focused: v.optional(v.boolean()),    // When true + active, Director only uses focused angles
     lp_enabled: v.optional(v.boolean()), // Per-angle LP override: true=always, false=never, null=use project default
+    // Structured creative brief fields
+    priority: v.optional(v.string()),    // "highest" | "high" | "medium" | "test"
+    frame: v.optional(v.string()),       // "symptom-first" | "scam" | "objection-first" | "identity-first" | "MAHA" | "news-first" | "consequence-first"
+    core_buyer: v.optional(v.string()),
+    symptom_pattern: v.optional(v.string()),
+    failed_solutions: v.optional(v.string()),
+    current_belief: v.optional(v.string()),
+    objection: v.optional(v.string()),
+    emotional_state: v.optional(v.string()),
+    scene: v.optional(v.string()),       // "Scene to Center the Ad On"
+    desired_belief_shift: v.optional(v.string()),
+    tone: v.optional(v.string()),
+    avoid_list: v.optional(v.string()),  // "Avoid" — renamed to avoid JS keyword
+    // Operational fields
     times_used: v.number(),
     last_used_at: v.optional(v.number()),
     performance_note: v.optional(v.string()),

@@ -24,12 +24,29 @@ source "${SCRIPT_DIR}/config/filter.conf"
 
 AD_JSON="$1"
 TOP_PERFORMERS="$2"
+ANGLE_BRIEF="${3:-}"  # Optional structured angle brief JSON
 
 # Extract ad details
 HEADLINE=$(echo "$AD_JSON" | jq -r '.headline // ""')
 PRIMARY_TEXT=$(echo "$AD_JSON" | jq -r '.body_copy // .primary_text // ""')
 ANGLE=$(echo "$AD_JSON" | jq -r '.angle // ""')
 AD_ID=$(echo "$AD_JSON" | jq -r '.externalId // ._id // "unknown"')
+
+# Build rich angle context from structured brief if available
+ANGLE_CONTEXT="Angle: ${ANGLE}"
+if [[ -n "$ANGLE_BRIEF" && "$ANGLE_BRIEF" != "null" ]]; then
+  BRIEF_FRAME=$(echo "$ANGLE_BRIEF" | jq -r '.frame // ""')
+  BRIEF_CORE_BUYER=$(echo "$ANGLE_BRIEF" | jq -r '.core_buyer // ""')
+  BRIEF_SCENE=$(echo "$ANGLE_BRIEF" | jq -r '.scene // ""')
+  BRIEF_TONE=$(echo "$ANGLE_BRIEF" | jq -r '.tone // ""')
+  BRIEF_DESIRED_SHIFT=$(echo "$ANGLE_BRIEF" | jq -r '.desired_belief_shift // ""')
+  ANGLE_CONTEXT="Angle: ${ANGLE}"
+  [[ -n "$BRIEF_FRAME" ]] && ANGLE_CONTEXT="${ANGLE_CONTEXT}\nFrame: ${BRIEF_FRAME}"
+  [[ -n "$BRIEF_CORE_BUYER" ]] && ANGLE_CONTEXT="${ANGLE_CONTEXT}\nCore Buyer: ${BRIEF_CORE_BUYER}"
+  [[ -n "$BRIEF_SCENE" ]] && ANGLE_CONTEXT="${ANGLE_CONTEXT}\nScene: ${BRIEF_SCENE}"
+  [[ -n "$BRIEF_TONE" ]] && ANGLE_CONTEXT="${ANGLE_CONTEXT}\nTone: ${BRIEF_TONE}"
+  [[ -n "$BRIEF_DESIRED_SHIFT" ]] && ANGLE_CONTEXT="${ANGLE_CONTEXT}\nDesired Belief Shift: ${BRIEF_DESIRED_SHIFT}"
+fi
 STORAGE_ID=$(echo "$AD_JSON" | jq -r '.storageId // ""')
 
 # ── Resolve image URL and download for vision ──────────────────────────
@@ -110,7 +127,7 @@ Score this ad creative. Be critical but fair — only genuinely strong ads shoul
 AD CREATIVE:
 Headline: ${HEADLINE}
 Primary Text: ${PRIMARY_TEXT}
-Angle: ${ANGLE}
+${ANGLE_CONTEXT}
 
 TOP PERFORMING ADS FROM THIS BRAND (for reference — what's already working):
 ${TOP_PERFORMERS}

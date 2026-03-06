@@ -58,6 +58,15 @@ export async function triggerLPGeneration(batchJobId, projectId, angle) {
     const angles = await getActiveConductorAngles(projectId);
     const matchedAngle = angles.find(a => a.name === angle);
 
+    // Load structured angle brief from the batch record (set by Director in Phase 3)
+    let angleBrief = null;
+    try {
+      const batch = await getBatchJob(batchJobId);
+      if (batch?.angle_brief) {
+        angleBrief = JSON.parse(batch.angle_brief);
+      }
+    } catch { /* non-critical — proceed without brief */ }
+
     let shouldGenerateLP;
     if (matchedAngle && matchedAngle.lp_enabled !== undefined && matchedAngle.lp_enabled !== null) {
       // Explicit per-angle override
@@ -127,7 +136,7 @@ export async function triggerLPGeneration(batchJobId, projectId, angle) {
         }
       };
 
-      const report = await runGauntlet(projectId, { dryRun: false, angle, approvedAds }, makeLogger);
+      const report = await runGauntlet(projectId, { dryRun: false, angle, angleBrief, approvedAds }, makeLogger);
 
       // Store LP URLs on the batch for filter.sh to pick up
       if (report.lpUrls && report.lpUrls.length > 0) {
@@ -416,7 +425,7 @@ export async function retryLP(batchJobId, which, { switchTemplate, fullRegenerat
  * @returns {Promise<object>} Report with per-frame results + summary
  */
 export async function runGauntlet(projectId, options = {}, sendEventRaw) {
-  const { dryRun = false, angle: batchAngle = null, approvedAds = [] } = options;
+  const { dryRun = false, angle: batchAngle = null, angleBrief = null, approvedAds = [] } = options;
   const gauntletBatchId = uuidv4();
   const startTime = Date.now();
   const batchStartedAt = new Date().toISOString();
@@ -629,6 +638,7 @@ export async function runGauntlet(projectId, options = {}, sendEventRaw) {
             projectId,
             templateId: template.id || template.externalId,
             angle: frameAngle,
+            angleBrief,
             narrativeFrame: frame.instruction,
             editorialPassEnabled: config.editorial_pass_enabled !== false,
             useProductReferenceImages: config.use_product_reference_images !== false,

@@ -22,6 +22,7 @@ import {
 import { getAdaptiveBatchSize } from './conductorLearning.js';
 import { runBatch } from './batchProcessor.js';
 import { triggerLPGeneration } from './lpAutoGenerator.js';
+import { buildStructuredAnglePrompt, hasStructuredBrief, buildAngleBriefJSON } from '../utils/angleParser.js';
 
 /**
  * Run the Director cycle for ALL enabled projects.
@@ -135,8 +136,13 @@ export async function runDirectorForProject(projectId, runType = 'manual') {
         const baseBatchSize = runType === 'emergency' ? 12 : config.ads_per_batch;
         const batchSize = await getAdaptiveBatchSize(projectId, angleInfo.name, baseBatchSize);
 
-        // Build the angle prompt (description + playbook hints if available)
-        let anglePrompt = angleInfo.description;
+        // Build the angle prompt — use structured fields if available, else legacy description
+        let anglePrompt;
+        if (hasStructuredBrief(angleInfo)) {
+          anglePrompt = buildStructuredAnglePrompt(angleInfo);
+        } else {
+          anglePrompt = angleInfo.description;
+        }
         if (angleInfo.prompt_hints) {
           anglePrompt += `\n\nCREATIVE DIRECTION:\n${angleInfo.prompt_hints}`;
         }
@@ -153,6 +159,11 @@ export async function runDirectorForProject(projectId, runType = 'manual') {
           anglePrompt += `\nFollow these patterns to maximize quality.`;
         }
 
+        // Build structured brief JSON for downstream use (scoring, QA, LP generation)
+        const angleBriefJSON = hasStructuredBrief(angleInfo)
+          ? JSON.stringify(buildAngleBriefJSON(angleInfo))
+          : undefined;
+
         await createBatchJob({
           id: batchId,
           project_id: projectId,
@@ -166,6 +177,7 @@ export async function runDirectorForProject(projectId, runType = 'manual') {
           conductor_run_id: runId,
           angle_name: angleInfo.name,
           angle_prompt: anglePrompt,
+          angle_brief: angleBriefJSON,
         });
 
         // Update angle usage stats (skip for fallback angles with no DB record)
@@ -345,16 +357,28 @@ async function selectAngles(projectId, config, count) {
   return distributeAngles(anglesToUse, count, rotation);
 }
 
+// Priority weights for angle selection — higher = more likely to be selected
+const PRIORITY_WEIGHTS = { highest: 4, high: 2, medium: 1, test: 0.25 };
+
+function getPriorityWeight(angle) {
+  return PRIORITY_WEIGHTS[angle.priority] || PRIORITY_WEIGHTS.medium;
+}
+
 /**
  * Distribute angles across batches using the specified rotation strategy.
+ * Priority-aware: angles with higher priority get selected more often.
  */
 function distributeAngles(angles, count, rotation) {
   if (angles.length === 0) return [];
 
   switch (rotation) {
     case 'weighted': {
-      // Favor less-recently-used angles
-      const sorted = [...angles].sort((a, b) => (a.last_used_at || 0) - (b.last_used_at || 0));
+      // Favor less-recently-used angles, weighted by priority
+      const sorted = [...angles].sort((a, b) => {
+        const priorityDiff = getPriorityWeight(b) - getPriorityWeight(a);
+        if (priorityDiff !== 0) return priorityDiff;
+        return (a.last_used_at || 0) - (b.last_used_at || 0);
+      });
       const result = [];
       for (let i = 0; i < count; i++) {
         result.push(sorted[i % sorted.length]);
@@ -365,8 +389,11 @@ function distributeAngles(angles, count, rotation) {
     case 'random': {
       const result = [];
       for (let i = 0; i < count; i++) {
-        // Weighted random favoring less-used angles
-        const weights = angles.map(a => 1 / (1 + (a.times_used || 0)));
+        // Weighted random: usage-based weight × priority multiplier
+        const weights = angles.map(a => {
+          const usageWeight = 1 / (1 + (a.times_used || 0));
+          return usageWeight * getPriorityWeight(a);
+        });
         const totalWeight = weights.reduce((s, w) => s + w, 0);
         let r = Math.random() * totalWeight;
         let selected = angles[0];
@@ -381,8 +408,12 @@ function distributeAngles(angles, count, rotation) {
 
     case 'round_robin':
     default: {
-      // Sort by times_used ascending, then rotate
-      const sorted = [...angles].sort((a, b) => (a.times_used || 0) - (b.times_used || 0));
+      // Sort by priority (desc) then times_used (asc), then rotate
+      const sorted = [...angles].sort((a, b) => {
+        const priorityDiff = getPriorityWeight(b) - getPriorityWeight(a);
+        if (priorityDiff !== 0) return priorityDiff;
+        return (a.times_used || 0) - (b.times_used || 0);
+      });
       const result = [];
       for (let i = 0; i < count; i++) {
         result.push(sorted[i % sorted.length]);

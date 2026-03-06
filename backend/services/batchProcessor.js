@@ -143,6 +143,12 @@ async function generateBatchPrompts(batch, project, docs, onProgress) {
   const batchId = batch.id;
   const angle = batch.angle || null;
 
+  // Parse structured angle brief if available (set by Director from conductor_angles)
+  let angleBrief = null;
+  if (batch.angle_brief) {
+    try { angleBrief = JSON.parse(batch.angle_brief); } catch {}
+  }
+
   // ========================================
   // STAGE 0: Brief Extraction (1 API call)
   // ========================================
@@ -151,7 +157,7 @@ async function generateBatchPrompts(batch, project, docs, onProgress) {
     pipeline_state: JSON.stringify({ stage: 0, stage_label: 'Step 1 of 5: Extracting brief...' })
   });
 
-  const briefPacket = await extractBrief(project, docs, angle);
+  const briefPacket = await extractBrief(project, docs, angle, angleBrief);
 
   await updateBatchJob(batchId, {
     pipeline_state: JSON.stringify({ stage: 0, stage_label: 'Step 1 of 5: Brief extracted', brief_length: briefPacket.length })
@@ -166,7 +172,7 @@ async function generateBatchPrompts(batch, project, docs, onProgress) {
     pipeline_state: JSON.stringify({ stage: 1, stage_label: `Step 2 of 5: Generating headlines...` })
   });
 
-  const headlineResult = await generateHeadlines(project, briefPacket, angle, headlineCount);
+  const headlineResult = await generateHeadlines(project, briefPacket, angle, headlineCount, angleBrief);
 
   // Take the top N headlines by rank (they should already be sorted by rank/average_score)
   const topHeadlines = headlineResult.headlines.slice(0, batch.batch_size);
@@ -190,7 +196,7 @@ async function generateBatchPrompts(batch, project, docs, onProgress) {
     pipeline_state: JSON.stringify({ stage: 2, stage_label: `Step 3 of 5: Writing body copy...` })
   });
 
-  const bodyCopies = await generateBodyCopies(project, briefPacket, topHeadlines);
+  const bodyCopies = await generateBodyCopies(project, briefPacket, topHeadlines, angleBrief);
 
   console.log(`[BatchProcessor] Stage 2 complete: ${bodyCopies.length} body copies for ${topHeadlines.length} headlines`);
   await updateBatchJob(batchId, {
@@ -282,7 +288,8 @@ async function generateBatchPrompts(batch, project, docs, onProgress) {
           copy.body_copy,
           copy.primary_emotion || 'curiosity',
           imageData,
-          batch.aspect_ratio || '1:1'
+          batch.aspect_ratio || '1:1',
+          angleBrief
         );
 
         // Apply prompt guidelines if set (uses gpt-4.1-mini, not rate-limited)

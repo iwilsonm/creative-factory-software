@@ -42,12 +42,32 @@ export async function runLearningStep(projectId, angleName, scoredAds) {
   // Load existing playbook
   const existingPlaybook = await getConductorPlaybook(projectId, angleName);
 
-  // Load angle description for context
+  // Load angle description for context — use structured brief when available
   const angles = await getConductorAngles(projectId);
   const angle = angles.find(a => a.name === angleName);
-  const angleDesc = angle
-    ? `${angle.description}\nPrompt hints: ${angle.prompt_hints || 'none'}`
-    : angleName;
+  let angleDesc;
+  if (angle && (angle.core_buyer || angle.symptom_pattern || angle.scene)) {
+    // Structured angle brief — build rich context
+    const parts = [`Name: ${angle.name}`];
+    if (angle.frame) parts.push(`Frame: ${angle.frame}`);
+    if (angle.priority) parts.push(`Priority: ${angle.priority}`);
+    if (angle.core_buyer) parts.push(`Core Buyer: ${angle.core_buyer}`);
+    if (angle.symptom_pattern) parts.push(`Symptom Pattern: ${angle.symptom_pattern}`);
+    if (angle.failed_solutions) parts.push(`Failed Solutions: ${angle.failed_solutions}`);
+    if (angle.current_belief) parts.push(`Current Belief: ${angle.current_belief}`);
+    if (angle.objection) parts.push(`Objection: ${angle.objection}`);
+    if (angle.emotional_state) parts.push(`Emotional State: ${angle.emotional_state}`);
+    if (angle.scene) parts.push(`Scene: ${angle.scene}`);
+    if (angle.desired_belief_shift) parts.push(`Desired Belief Shift: ${angle.desired_belief_shift}`);
+    if (angle.tone) parts.push(`Tone: ${angle.tone}`);
+    if (angle.avoid_list) parts.push(`Avoid: ${angle.avoid_list}`);
+    if (angle.prompt_hints) parts.push(`Prompt hints: ${angle.prompt_hints}`);
+    angleDesc = parts.join('\n');
+  } else if (angle) {
+    angleDesc = `${angle.description}\nPrompt hints: ${angle.prompt_hints || 'none'}`;
+  } else {
+    angleDesc = angleName;
+  }
 
   // Calculate cumulative stats
   const totalScored = (existingPlaybook?.total_scored || 0) + scoredAds.length;

@@ -224,7 +224,7 @@ ${beliefsContent}`;
  * Per the SOP, the core instruction is exactly "make a prompt for an image like this".
  * Angle, aspect ratio, product image, headline, and body copy are appended as additional direction.
  */
-export function buildImageRequestText(angle, aspectRatio, hasProductImage = false, headline = null, bodyCopy = null) {
+export function buildImageRequestText(angle, aspectRatio, hasProductImage = false, headline = null, bodyCopy = null, angleBrief = null) {
   let text = 'make a prompt for an image like this';
 
   const extras = [];
@@ -239,7 +239,14 @@ export function buildImageRequestText(angle, aspectRatio, hasProductImage = fals
     const cleanBody = bodyCopy.replace(/^["'""\u201C\u201D]+|["'""\u201C\u201D]+$/g, '');
     extras.push(`The ad must include this body copy text exactly as written (do NOT add quotation marks around it): ${cleanBody}`);
   }
-  if (angle) {
+  if (angleBrief && (angleBrief.scene || angleBrief.tone)) {
+    // Use structured angle context when available
+    const briefParts = [];
+    if (angleBrief.scene) briefParts.push(`scene: ${angleBrief.scene}`);
+    if (angleBrief.tone) briefParts.push(`tone: ${angleBrief.tone}`);
+    if (angleBrief.avoid_list) briefParts.push(`avoid: ${angleBrief.avoid_list}`);
+    extras.push(`The ad should focus on this angle: ${angle || angleBrief.name || 'general'} (${briefParts.join('; ')})`);
+  } else if (angle) {
     extras.push(`The ad should focus on this angle/topic: ${angle}`);
   }
   if (aspectRatio && aspectRatio !== '1:1') {
@@ -813,7 +820,7 @@ function extractBriefSection(briefPacket, sectionName) {
  * @param {string} angle - The advertising angle for this batch
  * @returns {string} brief_packet (markdown)
  */
-export async function extractBrief(project, docs, angle) {
+export async function extractBrief(project, docs, angle, angleBrief = null) {
   const researchContent = docs.research?.content || '[No research document available]';
   const avatarContent = docs.avatar?.content || '[No avatar sheet available]';
   const offerContent = docs.offer_brief?.content || '[No offer brief available]';
@@ -822,13 +829,31 @@ export async function extractBrief(project, docs, angle) {
   // Extract first paragraph of avatar sheet for target demographic summary
   const targetDemographic = avatarContent.split('\n\n')[0] || avatarContent.slice(0, 500);
 
+  // Build angle context — structured brief when available, flat name otherwise
+  let angleContext;
+  if (angleBrief && (angleBrief.core_buyer || angleBrief.symptom_pattern || angleBrief.scene)) {
+    const parts = [`ANGLE NAME: "${angle || angleBrief.name || 'general'}"`];
+    if (angleBrief.frame) parts.push(`FRAME: ${angleBrief.frame}`);
+    if (angleBrief.core_buyer) parts.push(`CORE BUYER: ${angleBrief.core_buyer}`);
+    if (angleBrief.symptom_pattern) parts.push(`SYMPTOM PATTERN: ${angleBrief.symptom_pattern}`);
+    if (angleBrief.failed_solutions) parts.push(`FAILED SOLUTIONS: ${angleBrief.failed_solutions}`);
+    if (angleBrief.current_belief) parts.push(`CURRENT BELIEF: ${angleBrief.current_belief}`);
+    if (angleBrief.objection) parts.push(`OBJECTION TO ADDRESS: ${angleBrief.objection}`);
+    if (angleBrief.emotional_state) parts.push(`EMOTIONAL STATE: ${angleBrief.emotional_state}`);
+    if (angleBrief.scene) parts.push(`SCENE TO CENTER THE AD ON: ${angleBrief.scene}`);
+    if (angleBrief.desired_belief_shift) parts.push(`DESIRED BELIEF SHIFT: ${angleBrief.desired_belief_shift}`);
+    angleContext = parts.join('\n');
+  } else {
+    angleContext = `THE ANGLE FOR THIS BATCH: "${angle || 'general'}"`;
+  }
+
   const prompt = `You are a direct response research analyst. Your job is to extract the most relevant raw material from brand foundational documents for a specific advertising angle.
 
 BRAND: ${project.brand_name || project.name}
 PRODUCT: ${project.product_description || ''}
 TARGET DEMOGRAPHIC: ${targetDemographic}
 
-THE ANGLE FOR THIS BATCH: "${angle || 'general'}"
+${angleContext}
 
 I will provide you with four foundational documents. From these documents, extract ONLY the material directly relevant to this specific angle. Ignore everything else — do not try to be comprehensive.
 
@@ -904,12 +929,25 @@ ${beliefsContent}`;
  * @param {number} count - headlines_to_generate count
  * @returns {{ sub_angles: Array, headlines: Array }}
  */
-export async function generateHeadlines(project, briefPacket, angle, count) {
+export async function generateHeadlines(project, briefPacket, angle, count, angleBrief = null) {
   const avatarSection = extractBriefSection(briefPacket, 'AVATAR IN THIS MOMENT');
   const emotionalEntry = extractBriefSection(briefPacket, 'EMOTIONAL ENTRY POINT');
   const painPoints = extractBriefSection(briefPacket, 'RELEVANT PAIN POINTS');
   const quotes = extractBriefSection(briefPacket, 'RELEVANT QUOTES');
   const anchors = extractBriefSection(briefPacket, 'SPECIFICITY ANCHORS');
+
+  // Build structured angle context when available
+  let structuredAngleBlock = '';
+  if (angleBrief && (angleBrief.core_buyer || angleBrief.scene || angleBrief.objection)) {
+    const parts = [];
+    if (angleBrief.frame) parts.push(`FRAME: ${angleBrief.frame} — use this as the structural approach for the headlines`);
+    if (angleBrief.scene) parts.push(`SCENE: ${angleBrief.scene} — center the headlines around this moment`);
+    if (angleBrief.objection) parts.push(`OBJECTION TO ADDRESS: ${angleBrief.objection}`);
+    if (angleBrief.desired_belief_shift) parts.push(`DESIRED BELIEF SHIFT: ${angleBrief.desired_belief_shift} — headlines should move the reader toward this belief`);
+    if (angleBrief.tone) parts.push(`TONE: ${angleBrief.tone}`);
+    if (angleBrief.avoid_list) parts.push(`AVOID: ${angleBrief.avoid_list}`);
+    structuredAngleBlock = '\n\nSTRUCTURED ANGLE BRIEF:\n' + parts.join('\n');
+  }
 
   const prompt = `You are a world-class direct response copywriter who writes Facebook ad headlines for health and wellness products targeting women 55-75. These women are skeptical, have been disappointed by other products, and need to feel safe and understood before they'll engage.
 
@@ -921,7 +959,7 @@ PRODUCT: ${project.product_description || ''}
 TARGET AUDIENCE IN THIS MOMENT:
 ${avatarSection || '(Not available)'}
 
-THE ANGLE FOR THIS BATCH: "${angle || 'general'}"
+THE ANGLE FOR THIS BATCH: "${angle || 'general'}"${structuredAngleBlock}
 
 EMOTIONAL ENTRY POINT:
 ${emotionalEntry || '(Not available)'}
@@ -1095,10 +1133,22 @@ OUTPUT FORMAT — respond as JSON only:
  * @param {Array} headlines - Array of headline objects from Stage 1
  * @returns {Array} Array of { headline, body_copy, structure, word_count, specific_detail_used, closing_cta, primary_emotion }
  */
-export async function generateBodyCopies(project, briefPacket, headlines) {
+export async function generateBodyCopies(project, briefPacket, headlines, angleBrief = null) {
   const quotes = extractBriefSection(briefPacket, 'RELEVANT QUOTES');
   const anchors = extractBriefSection(briefPacket, 'SPECIFICITY ANCHORS');
   const beliefs = extractBriefSection(briefPacket, 'RELEVANT BELIEFS');
+
+  // Build tone/avoid directives from structured brief
+  let briefToneBlock = '';
+  if (angleBrief) {
+    const parts = [];
+    if (angleBrief.tone) parts.push(`TONE DIRECTIVE FROM ANGLE BRIEF: ${angleBrief.tone}`);
+    if (angleBrief.avoid_list) parts.push(`AVOID (from angle brief): ${angleBrief.avoid_list}`);
+    if (angleBrief.emotional_state) parts.push(`READER'S EMOTIONAL STATE: ${angleBrief.emotional_state}`);
+    if (angleBrief.failed_solutions) parts.push(`FAILED SOLUTIONS TO REFERENCE: ${angleBrief.failed_solutions}`);
+    if (angleBrief.desired_belief_shift) parts.push(`BELIEF SHIFT GOAL: ${angleBrief.desired_belief_shift}`);
+    if (parts.length > 0) briefToneBlock = '\n\n' + parts.join('\n');
+  }
 
   const allCopies = [];
 
@@ -1120,7 +1170,7 @@ TONE RULES:
 - Lead with relief, not claims
 - Show skepticism openly — don't fight it
 - Emphasize safety and reversibility
-- Sound like a trusted friend who found something that helped, not a salesperson
+- Sound like a trusted friend who found something that helped, not a salesperson${briefToneBlock}
 
 REFERENCE MATERIAL (use for specificity and emotional tone — do not copy verbatim):
 ${quotes || '(Not available)'}
@@ -1246,7 +1296,20 @@ OUTPUT FORMAT — respond as JSON only:
  * @param {string} aspectRatio - User-selected aspect ratio
  * @returns {string} Image generation prompt
  */
-export async function generateImagePrompt(project, headline, bodyCopy, primaryEmotion, imageData, aspectRatio) {
+export async function generateImagePrompt(project, headline, bodyCopy, primaryEmotion, imageData, aspectRatio, angleBrief = null) {
+  // Build visual direction from structured angle brief
+  let visualDirectionBlock = '';
+  if (angleBrief && (angleBrief.scene || angleBrief.frame || angleBrief.tone)) {
+    const parts = [];
+    if (angleBrief.scene) parts.push(`SCENE/SETTING: ${angleBrief.scene} — the visual should evoke this moment`);
+    if (angleBrief.frame) parts.push(`AD FRAME: ${angleBrief.frame} — inform the visual treatment accordingly`);
+    if (angleBrief.core_buyer) parts.push(`CORE BUYER: ${angleBrief.core_buyer} — the person in the image should feel like this woman`);
+    if (angleBrief.emotional_state) parts.push(`EMOTIONAL STATE TO CONVEY: ${angleBrief.emotional_state}`);
+    if (angleBrief.tone) parts.push(`TONE: ${angleBrief.tone}`);
+    if (angleBrief.avoid_list) parts.push(`VISUAL ELEMENTS TO AVOID: ${angleBrief.avoid_list}`);
+    visualDirectionBlock = '\n\nSTRUCTURED VISUAL DIRECTION:\n' + parts.join('\n') + '\n';
+  }
+
   const promptText = `You are a creative director generating prompts for text-to-image AI software. You create Facebook ad visuals for DTC health/wellness brands targeting women 55-75.
 
 BRAND: ${project.brand_name || project.name}
@@ -1259,7 +1322,7 @@ HEADLINE: "${headline}"
 BODY COPY: "${bodyCopy}"
 
 PRIMARY EMOTION OF THIS AD: ${primaryEmotion || 'curiosity'}
-
+${visualDirectionBlock}
 TEMPLATE TO MATCH:
 (See attached image — analyze its visual structure, layout, color palette, typography, and composition)
 

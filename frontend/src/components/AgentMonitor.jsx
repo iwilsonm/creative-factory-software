@@ -464,7 +464,7 @@ function DirectorTab({ onRefresh }) {
 
   // New angle form
   const [showAddAngle, setShowAddAngle] = useState(false);
-  const [newAngle, setNewAngle] = useState({ name: '', description: '', prompt_hints: '' });
+  const [newAngle, setNewAngle] = useState({ name: '', description: '', prompt_hints: '', priority: 'medium', frame: 'symptom-first', core_buyer: '', symptom_pattern: '', failed_solutions: '', current_belief: '', objection: '', emotional_state: '', scene: '', desired_belief_shift: '', tone: '', avoid_list: '' });
 
   // Import angles
   const [showImport, setShowImport] = useState(false);
@@ -540,16 +540,40 @@ function DirectorTab({ onRefresh }) {
   };
 
   const handleAddAngle = async () => {
-    if (!newAngle.name || !newAngle.description) return;
+    if (!newAngle.name) return;
+    // Auto-compute description if structured fields are present but description is empty
+    let description = newAngle.description;
+    if (!description && (newAngle.core_buyer || newAngle.symptom_pattern)) {
+      const parts = [];
+      if (newAngle.core_buyer) parts.push(`Core Buyer: ${newAngle.core_buyer}`);
+      if (newAngle.symptom_pattern) parts.push(`Symptom Pattern: ${newAngle.symptom_pattern}`);
+      if (newAngle.objection) parts.push(`Objection: ${newAngle.objection}`);
+      if (newAngle.scene) parts.push(`Scene: ${newAngle.scene}`);
+      if (newAngle.desired_belief_shift) parts.push(`Desired Belief Shift: ${newAngle.desired_belief_shift}`);
+      description = parts.join('\n');
+    }
+    if (!description) return;
     try {
       await api.createConductorAngle(selectedProject, {
         name: newAngle.name,
-        description: newAngle.description,
-        prompt_hints: newAngle.prompt_hints,
+        description,
+        prompt_hints: newAngle.prompt_hints || undefined,
         source: 'manual',
         status: 'active',
+        priority: newAngle.priority || undefined,
+        frame: newAngle.frame || undefined,
+        core_buyer: newAngle.core_buyer || undefined,
+        symptom_pattern: newAngle.symptom_pattern || undefined,
+        failed_solutions: newAngle.failed_solutions || undefined,
+        current_belief: newAngle.current_belief || undefined,
+        objection: newAngle.objection || undefined,
+        emotional_state: newAngle.emotional_state || undefined,
+        scene: newAngle.scene || undefined,
+        desired_belief_shift: newAngle.desired_belief_shift || undefined,
+        tone: newAngle.tone || undefined,
+        avoid_list: newAngle.avoid_list || undefined,
       });
-      setNewAngle({ name: '', description: '', prompt_hints: '' });
+      setNewAngle({ name: '', description: '', prompt_hints: '', priority: 'medium', frame: 'symptom-first', core_buyer: '', symptom_pattern: '', failed_solutions: '', current_belief: '', objection: '', emotional_state: '', scene: '', desired_belief_shift: '', tone: '', avoid_list: '' });
       setShowAddAngle(false);
       const angRes = await api.getConductorAngles(selectedProject);
       setAngles(angRes?.angles || []);
@@ -625,9 +649,74 @@ function DirectorTab({ onRefresh }) {
     URL.revokeObjectURL(url);
   };
 
-  // --- Parse markdown into angle objects ---
+  // --- Parse markdown into angle objects (supports both old flat + new structured formats) ---
+  const SECTION_MAP = {
+    'core buyer': 'core_buyer',
+    'symptom pattern': 'symptom_pattern',
+    'failed solutions': 'failed_solutions',
+    'current belief': 'current_belief',
+    'objection': 'objection',
+    'emotional state': 'emotional_state',
+    'scene to center the ad on': 'scene',
+    'desired belief shift': 'desired_belief_shift',
+    'tone': 'tone',
+    'avoid': 'avoid_list',
+  };
+
   const parseAnglesMarkdown = (text) => {
-    const sections = text.split(/\n## /).slice(1); // split on ## headings, skip preamble
+    // Split by --- separators (new format) or ## headings (old format)
+    const hasStructuredSections = text.includes('### Core Buyer') || text.includes('### Symptom Pattern');
+
+    if (hasStructuredSections) {
+      // New structured format: split by --- separators
+      const blocks = text.split(/\n---\n/).map(b => b.trim()).filter(Boolean);
+      const parsed = [];
+      for (const block of blocks) {
+        const titleMatch = block.match(/^##\s+(.+)/m);
+        if (!titleMatch) continue;
+        const name = titleMatch[1].trim();
+        // Skip meta sections
+        if (name.startsWith('Removed from') || name === 'De-prioritized or Removed' ||
+            name.startsWith('Notes for System') || name.startsWith('Best categories') ||
+            name.startsWith('What should') || name.startsWith('Strong output') ||
+            name.startsWith('Weak output')) continue;
+
+        const angle = { name, source: 'imported', status: 'active' };
+
+        // Extract metadata bullets
+        const statusMatch = block.match(/\*\*Status\*\*:\s*(.+)/i);
+        if (statusMatch) angle.status = statusMatch[1].trim().toLowerCase();
+        const priorityMatch = block.match(/\*\*Priority\*\*:\s*(.+)/i);
+        if (priorityMatch) angle.priority = priorityMatch[1].trim().toLowerCase();
+        const frameMatch = block.match(/\*\*Frame\*\*:\s*(.+)/i);
+        if (frameMatch) angle.frame = frameMatch[1].trim().toLowerCase();
+
+        // Extract ### sections
+        const sectionRegex = /###\s+(.+)\n([\s\S]*?)(?=###|\n---|\n##|$)/g;
+        let match;
+        while ((match = sectionRegex.exec(block)) !== null) {
+          const sectionTitle = match[1].trim().toLowerCase();
+          const sectionContent = match[2].trim();
+          const fieldKey = SECTION_MAP[sectionTitle];
+          if (fieldKey && sectionContent) angle[fieldKey] = sectionContent;
+        }
+
+        // Auto-compute description from structured fields
+        const descParts = [];
+        if (angle.core_buyer) descParts.push(`Core Buyer: ${angle.core_buyer}`);
+        if (angle.symptom_pattern) descParts.push(`Symptom Pattern: ${angle.symptom_pattern}`);
+        if (angle.objection) descParts.push(`Objection: ${angle.objection}`);
+        if (angle.scene) descParts.push(`Scene: ${angle.scene}`);
+        if (angle.desired_belief_shift) descParts.push(`Desired Belief Shift: ${angle.desired_belief_shift}`);
+        angle.description = descParts.length > 0 ? descParts.join('\n') : 'No structured brief provided.';
+
+        if (angle.name && (angle.core_buyer || angle.symptom_pattern)) parsed.push(angle);
+      }
+      return parsed;
+    }
+
+    // Old flat format fallback
+    const sections = text.split(/\n## /).slice(1);
     const parsed = [];
     for (const section of sections) {
       const lines = section.split('\n');
@@ -655,7 +744,7 @@ function DirectorTab({ onRefresh }) {
         }
       }
       const description = descLines.join('\n').trim();
-      if (!description) continue; // skip angles with no description
+      if (!description) continue;
 
       parsed.push({ name, description, status, source, focused, prompt_hints: promptHints, performance_note: performanceNote });
     }
@@ -686,8 +775,20 @@ function DirectorTab({ onRefresh }) {
           name: angle.name,
           description: angle.description,
           prompt_hints: angle.prompt_hints || undefined,
-          source: angle.source || 'manual',
+          source: angle.source || 'imported',
           status: angle.status || 'active',
+          priority: angle.priority || undefined,
+          frame: angle.frame || undefined,
+          core_buyer: angle.core_buyer || undefined,
+          symptom_pattern: angle.symptom_pattern || undefined,
+          failed_solutions: angle.failed_solutions || undefined,
+          current_belief: angle.current_belief || undefined,
+          objection: angle.objection || undefined,
+          emotional_state: angle.emotional_state || undefined,
+          scene: angle.scene || undefined,
+          desired_belief_shift: angle.desired_belief_shift || undefined,
+          tone: angle.tone || undefined,
+          avoid_list: angle.avoid_list || undefined,
         });
       }
       const angRes = await api.getConductorAngles(selectedProject);
@@ -938,26 +1039,44 @@ function DirectorTab({ onRefresh }) {
           {/* Add angle */}
           {showAddAngle ? (
             <div className="rounded-xl bg-offwhite border border-black/10 p-4 mt-2">
-              <p className="text-[12px] font-medium text-textdark mb-3">New Angle</p>
+              <p className="text-[12px] font-medium text-textdark mb-3">New Angle (Creative Brief)</p>
               <input
                 type="text"
-                placeholder="Angle name (e.g., Joint Pain Fear)"
+                placeholder="Angle name (e.g., Broken Sleep / Wake Up at 2 to 4 AM)"
                 value={newAngle.name}
                 onChange={e => setNewAngle(prev => ({ ...prev, name: e.target.value }))}
                 className="input-apple w-full mb-2 text-[12px]"
               />
-              <textarea
-                placeholder="Description — what emotion does this target? Why would it resonate?"
-                value={newAngle.description}
-                onChange={e => setNewAngle(prev => ({ ...prev, description: e.target.value }))}
-                className="input-apple w-full mb-2 text-[12px] h-20 resize-none"
-              />
-              <textarea
-                placeholder="Prompt hints — visual style, copy tone, key phrases (optional)"
-                value={newAngle.prompt_hints}
-                onChange={e => setNewAngle(prev => ({ ...prev, prompt_hints: e.target.value }))}
-                className="input-apple w-full mb-3 text-[12px] h-16 resize-none"
-              />
+              <div className="grid grid-cols-2 gap-2 mb-2">
+                <select value={newAngle.priority} onChange={e => setNewAngle(prev => ({ ...prev, priority: e.target.value }))} className="input-apple text-[12px]">
+                  <option value="highest">Priority: Highest</option>
+                  <option value="high">Priority: High</option>
+                  <option value="medium">Priority: Medium</option>
+                  <option value="test">Priority: Test</option>
+                </select>
+                <select value={newAngle.frame} onChange={e => setNewAngle(prev => ({ ...prev, frame: e.target.value }))} className="input-apple text-[12px]">
+                  <option value="symptom-first">Frame: Symptom-first</option>
+                  <option value="scam">Frame: Scam</option>
+                  <option value="objection-first">Frame: Objection-first</option>
+                  <option value="identity-first">Frame: Identity-first</option>
+                  <option value="MAHA">Frame: MAHA</option>
+                  <option value="news-first">Frame: News-first</option>
+                  <option value="consequence-first">Frame: Consequence-first</option>
+                </select>
+              </div>
+              <textarea placeholder="Core Buyer — who is this ad for?" value={newAngle.core_buyer} onChange={e => setNewAngle(prev => ({ ...prev, core_buyer: e.target.value }))} className="input-apple w-full mb-2 text-[12px] h-14 resize-none" />
+              <textarea placeholder="Symptom Pattern — what specific experience?" value={newAngle.symptom_pattern} onChange={e => setNewAngle(prev => ({ ...prev, symptom_pattern: e.target.value }))} className="input-apple w-full mb-2 text-[12px] h-14 resize-none" />
+              <textarea placeholder="Failed Solutions — what have they already tried?" value={newAngle.failed_solutions} onChange={e => setNewAngle(prev => ({ ...prev, failed_solutions: e.target.value }))} className="input-apple w-full mb-2 text-[12px] h-14 resize-none" />
+              <textarea placeholder="Current Belief — what do they believe now?" value={newAngle.current_belief} onChange={e => setNewAngle(prev => ({ ...prev, current_belief: e.target.value }))} className="input-apple w-full mb-2 text-[12px] h-14 resize-none" />
+              <textarea placeholder="Objection — primary resistance to the product" value={newAngle.objection} onChange={e => setNewAngle(prev => ({ ...prev, objection: e.target.value }))} className="input-apple w-full mb-2 text-[12px] h-14 resize-none" />
+              <textarea placeholder="Emotional State — how do they feel right now?" value={newAngle.emotional_state} onChange={e => setNewAngle(prev => ({ ...prev, emotional_state: e.target.value }))} className="input-apple w-full mb-2 text-[12px] h-14 resize-none" />
+              <textarea placeholder="Scene — the specific moment the ad centers on" value={newAngle.scene} onChange={e => setNewAngle(prev => ({ ...prev, scene: e.target.value }))} className="input-apple w-full mb-2 text-[12px] h-14 resize-none" />
+              <textarea placeholder="Desired Belief Shift — what should they believe after?" value={newAngle.desired_belief_shift} onChange={e => setNewAngle(prev => ({ ...prev, desired_belief_shift: e.target.value }))} className="input-apple w-full mb-2 text-[12px] h-14 resize-none" />
+              <div className="grid grid-cols-2 gap-2 mb-2">
+                <input type="text" placeholder="Tone (e.g., Calm, specific, skeptical-friendly)" value={newAngle.tone} onChange={e => setNewAngle(prev => ({ ...prev, tone: e.target.value }))} className="input-apple text-[12px]" />
+                <input type="text" placeholder="Avoid (e.g., Generic insomnia language, young models)" value={newAngle.avoid_list} onChange={e => setNewAngle(prev => ({ ...prev, avoid_list: e.target.value }))} className="input-apple text-[12px]" />
+              </div>
+              <textarea placeholder="Prompt hints — additional creative direction (optional)" value={newAngle.prompt_hints} onChange={e => setNewAngle(prev => ({ ...prev, prompt_hints: e.target.value }))} className="input-apple w-full mb-3 text-[12px] h-14 resize-none" />
               <div className="flex gap-2">
                 <button onClick={handleAddAngle} className="btn-primary text-[11px] px-3 py-1.5">Save Angle</button>
                 <button onClick={() => setShowAddAngle(false)} className="btn-secondary text-[11px] px-3 py-1.5">Cancel</button>
@@ -1188,16 +1307,25 @@ function DirectorTab({ onRefresh }) {
 // =============================================
 function AngleCard({ angle, playbooks, onStatusChange, onToggleFocus, onToggleLPEnabled, showActions }) {
   const pb = playbooks.find(p => p.angle_name === angle.name);
+  const [expanded, setExpanded] = useState(false);
+  const hasStructured = !!(angle.core_buyer || angle.symptom_pattern || angle.scene);
+
+  const PRIORITY_COLORS = { highest: 'bg-red-100 text-red-700', high: 'bg-gold/15 text-gold', medium: 'bg-navy/10 text-navy', test: 'bg-gray-100 text-textmid' };
+  const FRAME_COLORS = { 'symptom-first': 'bg-teal/10 text-teal', 'scam': 'bg-red-50 text-red-600', 'objection-first': 'bg-amber-50 text-amber-700', 'identity-first': 'bg-purple-50 text-purple-600', 'MAHA': 'bg-blue-50 text-blue-600', 'news-first': 'bg-indigo-50 text-indigo-600', 'consequence-first': 'bg-orange-50 text-orange-600' };
 
   return (
-    <div className={`rounded-lg border p-3 ${angle.focused ? 'bg-gold/5 border-gold/30' : 'bg-white/60 border-black/5'}`}>
-      <div className="flex items-center justify-between mb-1">
-        <div className="flex items-center gap-2">
+    <div className={`rounded-lg border ${angle.focused ? 'bg-gold/5 border-gold/30' : 'bg-white/60 border-black/5'}`}>
+      {/* Clickable header row */}
+      <div
+        className="flex items-center justify-between p-3 cursor-pointer select-none"
+        onClick={() => hasStructured && setExpanded(!expanded)}
+      >
+        <div className="flex items-center gap-2 flex-wrap min-w-0">
           {angle.status === 'active' && onToggleFocus && (
             <button
-              onClick={() => onToggleFocus(angle.externalId, !angle.focused)}
+              onClick={(e) => { e.stopPropagation(); onToggleFocus(angle.externalId, !angle.focused); }}
               title={angle.focused ? 'Remove focus' : 'Focus on this angle'}
-              className={`transition-colors ${angle.focused ? 'text-gold' : 'text-textlight/40 hover:text-gold/60'}`}
+              className={`transition-colors flex-shrink-0 ${angle.focused ? 'text-gold' : 'text-textlight/40 hover:text-gold/60'}`}
             >
               <svg className="w-3.5 h-3.5" fill={angle.focused ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
@@ -1205,10 +1333,15 @@ function AngleCard({ angle, playbooks, onStatusChange, onToggleFocus, onToggleLP
             </button>
           )}
           {!(angle.status === 'active' && onToggleFocus) && (
-            <span className="text-[11px]">{'\u25CF'}</span>
+            <span className="text-[11px] flex-shrink-0">{'\u25CF'}</span>
+          )}
+          {hasStructured && (
+            <span className={`text-[11px] text-textlight flex-shrink-0 transition-transform ${expanded ? 'rotate-90' : ''}`}>&#9656;</span>
           )}
           <span className="text-[13px] font-medium text-textdark">{angle.name}</span>
           {angle.focused && <span className="text-[9px] font-medium text-gold uppercase tracking-wider">Focused</span>}
+          {angle.priority && <span className={`text-[9px] font-medium px-1.5 py-0.5 rounded ${PRIORITY_COLORS[angle.priority] || 'bg-gray-100 text-gray-600'}`}>{angle.priority}</span>}
+          {angle.frame && <span className={`text-[9px] font-medium px-1.5 py-0.5 rounded ${FRAME_COLORS[angle.frame] || 'bg-gray-100 text-gray-600'}`}>{angle.frame}</span>}
           <span className="text-[10px] text-textlight">used {angle.times_used || 0}x</span>
           {pb && (
             <span className="text-[10px] text-textmid">
@@ -1217,40 +1350,44 @@ function AngleCard({ angle, playbooks, onStatusChange, onToggleFocus, onToggleLP
             </span>
           )}
         </div>
-        {showActions && (
-          <div className="flex gap-1">
-            <button
-              onClick={() => onStatusChange(angle.externalId, 'active')}
-              className="text-[10px] text-teal hover:underline"
-            >
-              Activate
-            </button>
-            <button
-              onClick={() => onStatusChange(angle.externalId, 'archived')}
-              className="text-[10px] text-red-400 hover:underline ml-2"
-            >
-              Archive
-            </button>
-          </div>
-        )}
-        {!showActions && angle.status === 'active' && (
-          <button
-            onClick={() => onStatusChange(angle.externalId, 'archived')}
-            className="text-[10px] text-textlight hover:text-red-400"
-          >
-            Archive
-          </button>
-        )}
-        {!showActions && (angle.status === 'archived' || angle.status === 'retired') && (
-          <button
-            onClick={() => onStatusChange(angle.externalId, 'active')}
-            className="text-[10px] text-teal hover:underline"
-          >
-            Unarchive
-          </button>
-        )}
+        <div className="flex items-center gap-2 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
+          {showActions && (
+            <div className="flex gap-1">
+              <button onClick={() => onStatusChange(angle.externalId, 'active')} className="text-[10px] text-teal hover:underline">Activate</button>
+              <button onClick={() => onStatusChange(angle.externalId, 'archived')} className="text-[10px] text-red-400 hover:underline ml-2">Archive</button>
+            </div>
+          )}
+          {!showActions && angle.status === 'active' && (
+            <button onClick={() => onStatusChange(angle.externalId, 'archived')} className="text-[10px] text-textlight hover:text-red-400">Archive</button>
+          )}
+          {!showActions && (angle.status === 'archived' || angle.status === 'retired') && (
+            <button onClick={() => onStatusChange(angle.externalId, 'active')} className="text-[10px] text-teal hover:underline">Unarchive</button>
+          )}
+        </div>
       </div>
-      <p className="text-[11px] text-textmid leading-relaxed">{angle.description}</p>
+
+      {/* Collapsed: show description for flat angles only */}
+      {!expanded && !hasStructured && (
+        <p className="text-[11px] text-textmid leading-relaxed px-3 pb-3">{angle.description}</p>
+      )}
+
+      {/* Expanded: show full structured brief */}
+      {expanded && hasStructured && (
+        <div className="px-3 pb-3 pt-1 border-t border-black/5 space-y-2 text-[12px]">
+          {angle.core_buyer && <div><span className="font-semibold text-textdark">Core Buyer:</span> <span className="text-textmid">{angle.core_buyer}</span></div>}
+          {angle.symptom_pattern && <div><span className="font-semibold text-textdark">Symptom Pattern:</span> <span className="text-textmid">{angle.symptom_pattern}</span></div>}
+          {angle.failed_solutions && <div><span className="font-semibold text-textdark">Failed Solutions:</span> <span className="text-textmid">{angle.failed_solutions}</span></div>}
+          {angle.current_belief && <div><span className="font-semibold text-textdark">Current Belief:</span> <span className="text-textmid">{angle.current_belief}</span></div>}
+          {angle.objection && <div><span className="font-semibold text-textdark">Objection:</span> <span className="text-textmid">{angle.objection}</span></div>}
+          {angle.emotional_state && <div><span className="font-semibold text-textdark">Emotional State:</span> <span className="text-textmid">{angle.emotional_state}</span></div>}
+          {angle.scene && <div><span className="font-semibold text-textdark">Scene:</span> <span className="text-textmid italic">{angle.scene}</span></div>}
+          {angle.desired_belief_shift && <div><span className="font-semibold text-textdark">Belief Shift:</span> <span className="text-textmid italic">"{angle.desired_belief_shift}"</span></div>}
+          {angle.tone && <div><span className="font-semibold text-textdark">Tone:</span> <span className="text-textmid">{angle.tone}</span></div>}
+          {angle.avoid_list && <div><span className="font-semibold text-textdark">Avoid:</span> <span className="text-red-500">{angle.avoid_list}</span></div>}
+          {angle.prompt_hints && <div><span className="font-semibold text-textdark">Prompt Hints:</span> <span className="text-textmid">{angle.prompt_hints}</span></div>}
+        </div>
+      )}
+
       {pb && pb.generation_hints && (
         <p className="text-[10px] text-teal mt-1 leading-relaxed">
           Playbook v{pb.version}: "{pb.generation_hints.slice(0, 120)}{pb.generation_hints.length > 120 ? '...' : ''}"
