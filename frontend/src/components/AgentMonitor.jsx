@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { useSearchParams } from 'react-router-dom';
+import { useSearchParams, useNavigate } from 'react-router-dom';
 import { api } from '../api';
 import LPAgentSettings from './LPAgentSettings';
 import PipelineProgress from './PipelineProgress';
@@ -465,10 +465,12 @@ function DirectorTab({ onRefresh }) {
 
   const [campaigns, setCampaigns] = useState([]);
 
-  // Test run progress
-  const [testRunProgress, setTestRunProgress] = useState(0);
-  const [testRunPhase, setTestRunPhase] = useState('');
-  const testRunStartRef = useRef(null);
+  // Test run queue — each item: { id, status: 'queued'|'running'|'complete'|'error', progress, phase, startTime, result }
+  const [testRunQueue, setTestRunQueue] = useState([]);
+  const activeRun = testRunQueue.find(r => r.status === 'running');
+  const queuedCount = testRunQueue.filter(r => r.status === 'queued').length;
+
+  const navigate = useNavigate();
 
   // New angle form
   const [showAddAngle, setShowAddAngle] = useState(false);
@@ -561,27 +563,44 @@ function DirectorTab({ onRefresh }) {
   };
 
   const handleTestRun = () => {
+    const queueItem = { id: crypto.randomUUID(), status: 'queued', progress: 0, phase: '', startTime: null, result: null };
+    setTestRunQueue(prev => [...prev, queueItem]);
+    setSubTab('history');
+  };
+
+  // Queue processor — starts next queued run when no active run
+  useEffect(() => {
+    const running = testRunQueue.find(r => r.status === 'running');
+    const nextQueued = testRunQueue.find(r => r.status === 'queued');
+    if (running || !nextQueued) return;
+
+    const runId = nextQueued.id;
+    setTestRunQueue(prev => prev.map(r => r.id === runId ? { ...r, status: 'running', startTime: Date.now(), phase: 'Starting test run...' } : r));
     setRunningAction('run');
-    setTestRunProgress(0);
-    setTestRunPhase('Starting test run...');
-    testRunStartRef.current = Date.now();
+
+    const updateRun = (id, updates) => {
+      setTestRunQueue(prev => prev.map(r => r.id === id ? { ...r, ...updates } : r));
+    };
 
     const { abort, done } = api.triggerConductorTestRun(selectedProject, (event) => {
       if (event.type === 'progress') {
-        setTestRunPhase(event.message || '');
+        const updates = { phase: event.message || '' };
 
         // Map step to percentage (never go backwards)
         if (event.step && STEP_PROGRESS[event.step] !== undefined) {
-          setTestRunProgress(prev => Math.max(prev, STEP_PROGRESS[event.step]));
+          updateRun(runId, updates);
+          setTestRunQueue(prev => prev.map(r => r.id === runId ? { ...r, ...updates, progress: Math.max(r.progress, STEP_PROGRESS[event.step]) } : r));
+          return;
         }
 
         // Gemini polling: time-based progress 15% → 58%
         if (event.step === 'gemini_polling' && event.elapsed) {
           const GEMINI_START = 15, GEMINI_END = 58;
-          const estimatedSec = 600; // ~10 min estimate
+          const estimatedSec = 600;
           const ratio = Math.min(event.elapsed / estimatedSec, 0.95);
           const pct = GEMINI_START + Math.round(ratio * (GEMINI_END - GEMINI_START));
-          setTestRunProgress(prev => Math.max(prev, pct));
+          setTestRunQueue(prev => prev.map(r => r.id === runId ? { ...r, ...updates, progress: Math.max(r.progress, pct) } : r));
+          return;
         }
 
         // Per-ad scoring sub-progress: 62% → 80%
@@ -589,7 +608,8 @@ function DirectorTab({ onRefresh }) {
           const { current, total } = event.scoringProgress;
           const SCORE_START = 62, SCORE_END = 80;
           const pct = SCORE_START + Math.round((current / total) * (SCORE_END - SCORE_START));
-          setTestRunProgress(prev => Math.max(prev, pct));
+          setTestRunQueue(prev => prev.map(r => r.id === runId ? { ...r, ...updates, progress: Math.max(r.progress, pct) } : r));
+          return;
         }
 
         // Per-image-prompt sub-progress: 12% → 14%
@@ -597,41 +617,46 @@ function DirectorTab({ onRefresh }) {
           const { current, total } = event.imageProgress;
           const IMG_START = 12, IMG_END = 14;
           const pct = IMG_START + Math.round((current / total) * (IMG_END - IMG_START));
-          setTestRunProgress(prev => Math.max(prev, pct));
+          setTestRunQueue(prev => prev.map(r => r.id === runId ? { ...r, ...updates, progress: Math.max(r.progress, pct) } : r));
+          return;
         }
+
+        updateRun(runId, updates);
       } else if (event.type === 'complete') {
-        setTestRunProgress(100);
         const msg = event.flex_ads_created > 0
           ? `${event.ads_passed}/${event.ads_scored} ads passed — flex ad deployed to Ready to Post!`
           : `Complete — ${event.ads_passed || '?'}/${event.ads_scored || '?'} ads passed.`;
-        setTestRunPhase(msg);
+        updateRun(runId, { status: 'complete', progress: 100, phase: msg, result: event });
         setTimeout(async () => {
           setRunningAction(null);
-          setTestRunProgress(0);
-          setTestRunPhase('');
-          testRunStartRef.current = null;
+          // Remove this completed item from queue after brief display
+          setTestRunQueue(prev => prev.filter(r => r.id !== runId));
           const runRes = await api.getConductorRuns(selectedProject, 20);
           setRuns(runRes?.runs || []);
           onRefresh();
         }, 2000);
       } else if (event.type === 'error') {
-        setRunningAction(null);
-        setTestRunProgress(0);
-        setTestRunPhase('');
-        testRunStartRef.current = null;
+        updateRun(runId, { status: 'error', progress: 0, phase: event.message || 'Failed' });
         toast.error(event.message || 'Test run failed');
+        setTimeout(async () => {
+          setRunningAction(null);
+          setTestRunQueue(prev => prev.filter(r => r.id !== runId));
+          const runRes = await api.getConductorRuns(selectedProject, 20);
+          setRuns(runRes?.runs || []);
+        }, 3000);
       }
     });
 
     done.catch((err) => {
       if (err.name !== 'AbortError') {
-        setRunningAction(null);
-        setTestRunProgress(0);
-        setTestRunPhase('');
-        testRunStartRef.current = null;
+        updateRun(runId, { status: 'error', progress: 0, phase: 'Connection lost' });
+        setTimeout(() => {
+          setRunningAction(null);
+          setTestRunQueue(prev => prev.filter(r => r.id !== runId));
+        }, 3000);
       }
     });
-  };
+  }, [testRunQueue, selectedProject]);
 
   const handleAddAngle = async () => {
     if (!newAngle.name) return;
@@ -932,21 +957,23 @@ function DirectorTab({ onRefresh }) {
 
         <button
           onClick={handleTestRun}
-          disabled={!!runningAction}
-          className="btn-primary text-[11px] px-3 py-1.5 flex items-center gap-1 disabled:opacity-50 ml-auto"
+          className="btn-primary text-[11px] px-3 py-1.5 flex items-center gap-1 ml-auto"
         >
-          {runningAction === 'run' ? <><Spinner /> Running...</> : <>Test Run</>}
+          {activeRun ? <><Spinner /> {queuedCount > 0 ? `Running (${queuedCount} queued)` : 'Running...'}</> : queuedCount > 0 ? `Queue Run (${queuedCount} queued)` : 'Test Run'}
         </button>
       </div>
 
       {/* Test run progress bar */}
-      {runningAction === 'run' && (
+      {activeRun && (
         <PipelineProgress
-          progress={testRunProgress}
-          message={testRunPhase}
-          startTime={testRunStartRef.current}
+          progress={activeRun.progress}
+          message={activeRun.phase}
+          startTime={activeRun.startTime}
           className="mb-4"
         />
+      )}
+      {queuedCount > 0 && !activeRun && (
+        <p className="text-[10px] text-textlight mb-4">{queuedCount} run{queuedCount !== 1 ? 's' : ''} queued, waiting...</p>
       )}
 
       {/* Quick stats */}
@@ -1372,32 +1399,49 @@ function DirectorTab({ onRefresh }) {
             <p className="text-[11px] text-textlight py-4">No runs yet. Click "Test Run" to trigger the Director, or wait for the next scheduled run.</p>
           ) : (
             <div className="space-y-2">
-              {runs.map(run => (
-                <div key={run.externalId} className="rounded-lg bg-black/[0.02] border border-black/5 p-3">
-                  <div className="flex items-center justify-between mb-1">
-                    <div className="flex items-center gap-2">
-                      <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${
-                        run.status === 'completed' ? 'bg-teal/10 text-teal' :
-                        run.status === 'failed' ? 'bg-red-50 text-red-400' :
-                        'bg-gold/10 text-gold'
-                      }`}>
-                        {run.status}
-                      </span>
-                      <span className="text-[10px] text-textlight">{run.run_type}</span>
+              {runs.map(run => {
+                let flexAdId = null;
+                try {
+                  const batches = JSON.parse(run.batches_created || '[]');
+                  flexAdId = batches[0]?.flex_ad_id;
+                } catch {}
+
+                return (
+                  <div
+                    key={run.externalId}
+                    className={`rounded-lg bg-black/[0.02] border border-black/5 p-3 ${flexAdId ? 'cursor-pointer hover:border-navy/20 transition-colors' : ''}`}
+                    onClick={() => flexAdId && navigate(`/projects/${selectedProject}?tab=tracker&view=ready_to_post&flexAdId=${flexAdId}`)}
+                  >
+                    <div className="flex items-center justify-between mb-1">
+                      <div className="flex items-center gap-2">
+                        <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${
+                          run.status === 'completed' ? 'bg-teal/10 text-teal' :
+                          run.status === 'failed' ? 'bg-red-50 text-red-400' :
+                          'bg-gold/10 text-gold'
+                        }`}>
+                          {run.status}
+                        </span>
+                        <span className="text-[10px] text-textlight">{run.run_type}</span>
+                      </div>
+                      <span className="text-[10px] text-textlight">{timeAgo(new Date(run.run_at).toISOString())}</span>
                     </div>
-                    <span className="text-[10px] text-textlight">{timeAgo(new Date(run.run_at).toISOString())}</span>
+                    {run.decisions && (
+                      <p className="text-[11px] text-textdark leading-relaxed">{run.decisions}</p>
+                    )}
+                    {run.error && (
+                      <p className="text-[11px] text-red-400 leading-relaxed mt-1">{run.error}</p>
+                    )}
+                    <div className="flex items-center justify-between mt-1">
+                      {run.duration_ms ? (
+                        <p className="text-[9px] text-textlight">{Math.round(run.duration_ms / 1000)}s</p>
+                      ) : <span />}
+                      {flexAdId && (
+                        <p className="text-[10px] text-gold flex items-center gap-1">View in Ready to Post →</p>
+                      )}
+                    </div>
                   </div>
-                  {run.decisions && (
-                    <p className="text-[11px] text-textdark leading-relaxed">{run.decisions}</p>
-                  )}
-                  {run.error && (
-                    <p className="text-[11px] text-red-400 leading-relaxed mt-1">{run.error}</p>
-                  )}
-                  {run.duration_ms && (
-                    <p className="text-[9px] text-textlight mt-1">{Math.round(run.duration_ms / 1000)}s</p>
-                  )}
-                </div>
-              ))}
+                );
+              })}
             </div>
           )}
         </div>

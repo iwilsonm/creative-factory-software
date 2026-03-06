@@ -46,6 +46,12 @@ export default function AdTracker({ projectId, userRole, searchParams, setSearch
       }, { replace: true });
     }
   }, [setSearchParams]);
+  // Deep-link to a specific flex ad from Agent Monitor run history
+  const flexAdId = searchParams?.get('flexAdId');
+  useEffect(() => {
+    if (flexAdId) setActiveView('ready_to_post');
+  }, [flexAdId]);
+
   const [statusFilter, setStatusFilter] = useState('posted');
   const [selectedIds, setSelectedIds] = useState(new Set());
   const [bulkEditOpen, setBulkEditOpen] = useState(false);
@@ -842,6 +848,16 @@ export default function AdTracker({ projectId, userRole, searchParams, setSearch
           loadDeployments={loadDeployments}
           onSwitchToPlanner={() => { setActiveView('campaigns'); setSelectedIds(new Set()); }}
           isPoster={isPoster}
+          highlightFlexAdId={flexAdId}
+          onHighlightDone={() => {
+            if (setSearchParams) {
+              setSearchParams(prev => {
+                const next = new URLSearchParams(prev);
+                next.delete('flexAdId');
+                return next;
+              }, { replace: true });
+            }
+          }}
         />
       )}
 

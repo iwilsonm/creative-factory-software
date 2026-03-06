@@ -637,6 +637,16 @@ export async function runFullTestPipeline(projectId, sendEvent) {
     return { ...directorResult, ...filterResult, pipeline_failed: true, failure_reason: reason };
   }
 
+  // Store flex_ad_id in the run record so frontend can link to it
+  if (filterResult.flex_ad_id) {
+    try {
+      const batchInfo = [{ batch_id: batchId, angle_name: directorResult.angle, ad_count: directorResult.ad_count, flex_ad_id: filterResult.flex_ad_id }];
+      await updateConductorRun(directorResult.runId, { batches_created: JSON.stringify(batchInfo) });
+    } catch (err) {
+      console.warn('[Pipeline] Failed to store flex_ad_id in run record:', err.message);
+    }
+  }
+
   return { ...directorResult, ...filterResult };
 }
 

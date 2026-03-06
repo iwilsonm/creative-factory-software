@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import JSZip from 'jszip';
 import { api } from '../api';
 
@@ -11,7 +11,7 @@ import { api } from '../api';
  *
  * Props: projectId, deployments, setDeployments, addToast, loadDeployments, onSwitchToPlanner
  */
-export default function ReadyToPostView({ projectId, deployments, setDeployments, addToast, loadDeployments, onSwitchToPlanner, isPoster }) {
+export default function ReadyToPostView({ projectId, deployments, setDeployments, addToast, loadDeployments, onSwitchToPlanner, isPoster, highlightFlexAdId, onHighlightDone }) {
   const [campaigns, setCampaigns] = useState([]);
   const [adSets, setAdSets] = useState([]);
   const [flexAds, setFlexAds] = useState([]);
@@ -34,6 +34,22 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
   const [editFields, setEditFields] = useState({}); // temp edit values
   const [savingEdit, setSavingEdit] = useState(false);
   const [sortBy, setSortBy] = useState('newest');
+
+  // Highlight + scroll to flex ad from deep link
+  const [highlightedId, setHighlightedId] = useState(highlightFlexAdId || null);
+  const highlightRef = useRef(null);
+
+  useEffect(() => {
+    if (highlightedId && highlightRef.current && !loading) {
+      highlightRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      // Clear highlight after animation
+      const timer = setTimeout(() => {
+        setHighlightedId(null);
+        onHighlightDone?.();
+      }, 2500);
+      return () => clearTimeout(timer);
+    }
+  }, [highlightedId, loading, flexAds]);
 
   const toggleCardExpanded = (key) => {
     setExpandedCards(prev => {
@@ -1235,7 +1251,11 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
     const isExpanded = expandedCards.has(flexId);
 
     return (
-      <div key={flexAd.id} className="border border-black/[0.1] rounded-2xl bg-white shadow-sm overflow-hidden">
+      <div
+        key={flexAd.id}
+        ref={flexAd.id === highlightedId ? highlightRef : undefined}
+        className={`border rounded-2xl bg-white shadow-sm overflow-hidden transition-all duration-700 ${flexAd.id === highlightedId ? 'border-gold ring-2 ring-gold/30' : 'border-black/[0.1]'}`}
+      >
         {/* Always-visible header: Ad Name, Campaign, Ad Set */}
         <div className="px-5 py-4 space-y-3">
           {/* Ad Name + Format badge + small thumbnails */}
