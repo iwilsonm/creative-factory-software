@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { api } from '../api';
 import LPAgentSettings from './LPAgentSettings';
+import PipelineProgress from './PipelineProgress';
 
 const LEVEL_CONFIG = {
   OK:        { color: 'text-teal',       icon: '\u2713', bg: 'bg-teal/10' },
@@ -462,6 +463,11 @@ function DirectorTab({ onRefresh }) {
 
   const [campaigns, setCampaigns] = useState([]);
 
+  // Test run progress
+  const [testRunProgress, setTestRunProgress] = useState(0);
+  const [testRunPhase, setTestRunPhase] = useState('');
+  const testRunStartRef = useRef(null);
+
   // New angle form
   const [showAddAngle, setShowAddAngle] = useState(false);
   const [newAngle, setNewAngle] = useState({ name: '', description: '', prompt_hints: '', priority: 'medium', frame: 'symptom-first', core_buyer: '', symptom_pattern: '', failed_solutions: '', current_belief: '', objection: '', emotional_state: '', scene: '', desired_belief_shift: '', tone: '', avoid_list: '' });
@@ -526,17 +532,55 @@ function DirectorTab({ onRefresh }) {
     }, 500);
   }, [selectedProject]);
 
-  const handleTestRun = async () => {
+  const STEP_PROGRESS = {
+    'initializing': 5,
+    'selecting_angle': 20,
+    'building_prompt': 40,
+    'creating_batch': 60,
+    'saving_run': 80,
+    'launching_batch': 95,
+  };
+
+  const handleTestRun = () => {
     setRunningAction('run');
-    try {
-      await api.triggerConductorTestRun(selectedProject);
-      setTimeout(async () => {
-        const runRes = await api.getConductorRuns(selectedProject, 20);
-        setRuns(runRes?.runs || []);
-        onRefresh();
-      }, 3000);
-    } catch { /* ignore */ }
-    finally { setRunningAction(null); }
+    setTestRunProgress(0);
+    setTestRunPhase('Starting test run...');
+    testRunStartRef.current = Date.now();
+
+    const { abort, done } = api.triggerConductorTestRun(selectedProject, (event) => {
+      if (event.type === 'progress') {
+        setTestRunPhase(event.message || '');
+        if (event.step && STEP_PROGRESS[event.step] !== undefined) {
+          setTestRunProgress(prev => Math.max(prev, STEP_PROGRESS[event.step]));
+        }
+      } else if (event.type === 'complete') {
+        setTestRunProgress(100);
+        setTestRunPhase(`Batch created: ${event.ad_count} ads for "${event.angle}"`);
+        setTimeout(async () => {
+          setRunningAction(null);
+          setTestRunProgress(0);
+          setTestRunPhase('');
+          testRunStartRef.current = null;
+          const runRes = await api.getConductorRuns(selectedProject, 20);
+          setRuns(runRes?.runs || []);
+          onRefresh();
+        }, 500);
+      } else if (event.type === 'error') {
+        setRunningAction(null);
+        setTestRunProgress(0);
+        setTestRunPhase('');
+        testRunStartRef.current = null;
+      }
+    });
+
+    done.catch((err) => {
+      if (err.name !== 'AbortError') {
+        setRunningAction(null);
+        setTestRunProgress(0);
+        setTestRunPhase('');
+        testRunStartRef.current = null;
+      }
+    });
   };
 
   const handleAddAngle = async () => {
@@ -844,6 +888,16 @@ function DirectorTab({ onRefresh }) {
           {runningAction === 'run' ? <><Spinner /> Running...</> : <>Test Run</>}
         </button>
       </div>
+
+      {/* Test run progress bar */}
+      {runningAction === 'run' && (
+        <PipelineProgress
+          progress={testRunProgress}
+          message={testRunPhase}
+          startTime={testRunStartRef.current}
+          className="mb-4"
+        />
+      )}
 
       {/* Quick stats */}
       <div className="grid grid-cols-4 gap-2 mb-4">

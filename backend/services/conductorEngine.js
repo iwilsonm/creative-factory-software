@@ -428,9 +428,12 @@ function distributeAngles(angles, count, rotation) {
  * Creates one full batch, fires it, and lets the Filter pick it up end-to-end.
  * @param {string} projectId
  */
-export async function runTestBatch(projectId) {
+export async function runTestBatch(projectId, sendEvent) {
+  const emit = sendEvent || (() => {});
   const startMs = Date.now();
   const runId = uuidv4();
+
+  emit({ type: 'progress', step: 'initializing', message: 'Loading project config...' });
 
   const config = await getConductorConfig(projectId);
   if (!config) {
@@ -452,6 +455,7 @@ export async function runTestBatch(projectId) {
 
   try {
     // Pick an angle using the project's rotation strategy
+    emit({ type: 'progress', step: 'selecting_angle', message: 'Selecting angle...' });
     const angles = await selectAngles(projectId, config, 1);
     const angleInfo = angles[0];
 
@@ -459,6 +463,7 @@ export async function runTestBatch(projectId) {
     const batchId = uuidv4();
 
     // Build angle prompt with playbook context (same as normal runs)
+    emit({ type: 'progress', step: 'building_prompt', message: `Building prompt for "${angleInfo.name}"...` });
     let anglePrompt = angleInfo.description;
     if (angleInfo.prompt_hints) {
       anglePrompt += `\n\nCREATIVE DIRECTION:\n${angleInfo.prompt_hints}`;
@@ -475,6 +480,7 @@ export async function runTestBatch(projectId) {
       anglePrompt += `\nFollow these patterns to maximize quality.`;
     }
 
+    emit({ type: 'progress', step: 'creating_batch', message: `Creating batch (${batchSize} ads)...` });
     await createBatchJob({
       id: batchId,
       project_id: projectId,
@@ -499,6 +505,7 @@ export async function runTestBatch(projectId) {
 
     const batchInfo = [{ batch_id: batchId, angle_name: angleInfo.name, ad_count: batchSize, posting_day: 'test' }];
 
+    emit({ type: 'progress', step: 'saving_run', message: 'Saving run record...' });
     await updateConductorRun(runId, {
       status: 'completed',
       posting_days: JSON.stringify([{ date: 'test', action: 'Test batch created' }]),
@@ -510,6 +517,7 @@ export async function runTestBatch(projectId) {
     console.log(`[Director] Test run for ${projectId.slice(0, 8)}: Created 1 batch (${batchSize} ads, angle: ${angleInfo.name}) in ${Date.now() - startMs}ms`);
 
     // Fire-and-forget: start the batch
+    emit({ type: 'progress', step: 'launching_batch', message: `Launching batch pipeline for "${angleInfo.name}"...` });
     runBatch(batchId).catch(err => {
       console.error(`[Director] Test batch ${batchId.slice(0, 8)} failed:`, err.message);
     });
