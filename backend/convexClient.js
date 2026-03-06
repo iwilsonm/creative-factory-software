@@ -47,6 +47,61 @@ export async function mutationWithRetry(fnRef, args) {
 }
 
 // =============================================
+// Generic Query Cache — reduces 250ms Convex round-trips to <1ms for repeat reads
+// =============================================
+
+const queryCache = new Map();
+
+// Table-specific TTLs (longer for rarely-changing data)
+const TABLE_TTL = {
+  settings:            10 * 60 * 1000,
+  users:               10 * 60 * 1000,
+  projects:             2 * 60 * 1000,
+  foundational_docs:    5 * 60 * 1000,
+  ad_creatives:         1 * 60 * 1000,
+  batch_jobs:          30 * 1000,
+  api_costs:            2 * 60 * 1000,
+  ad_deployments:       1 * 60 * 1000,
+  campaigns:            2 * 60 * 1000,
+  ad_sets:              2 * 60 * 1000,
+  flex_ads:             1 * 60 * 1000,
+  landing_pages:        2 * 60 * 1000,
+  landing_page_versions: 2 * 60 * 1000,
+  lp_templates:         5 * 60 * 1000,
+  conductor:            2 * 60 * 1000,
+  lp_agent_config:      5 * 60 * 1000,
+  quote_bank:           2 * 60 * 1000,
+  quote_mining_runs:    2 * 60 * 1000,
+  template_images:      5 * 60 * 1000,
+  meta_performance:     2 * 60 * 1000,
+};
+const DEFAULT_QUERY_TTL = 60 * 1000;
+
+// Cleanup stale entries every 5 minutes
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, entry] of queryCache) {
+    if (now - entry.time > entry.ttl) queryCache.delete(key);
+  }
+}, 5 * 60 * 1000).unref();
+
+async function cachedQuery(table, fnRef, args) {
+  const key = table + ':' + JSON.stringify(args);
+  const cached = queryCache.get(key);
+  const ttl = TABLE_TTL[table] || DEFAULT_QUERY_TTL;
+  if (cached && Date.now() - cached.time < ttl) return cached.value;
+  const value = await queryWithRetry(fnRef, args);
+  queryCache.set(key, { value, time: Date.now(), ttl, table });
+  return value;
+}
+
+export function invalidateQueryCache(table) {
+  for (const [key, entry] of queryCache) {
+    if (entry.table === table) queryCache.delete(key);
+  }
+}
+
+// =============================================
 // Settings helpers (with 10-min in-memory cache)
 // =============================================
 
@@ -85,16 +140,17 @@ export async function createProject({ id, name, brand_name, niche, product_descr
     drive_folder_id: drive_folder_id || '',
     inspiration_folder_id: inspiration_folder_id || '',
   });
+  invalidateQueryCache('projects');
 }
 
 export async function getProject(id) {
-  const project = await queryWithRetry(api.projects.getByExternalId, { externalId: id });
+  const project = await cachedQuery('projects', api.projects.getByExternalId, { externalId: id });
   if (!project) return null;
   return convexProjectToRow(project);
 }
 
 export async function getAllProjects() {
-  const projects = await queryWithRetry(api.projects.getAll, {});
+  const projects = await cachedQuery('projects', api.projects.getAll, {});
   return projects.map(convexProjectToRow);
 }
 
@@ -104,7 +160,7 @@ export async function getAllProjectsWithStats() {
   // in a single execution (~15+ MB), exceeding Convex query bandwidth limits.
   const projects = await getAllProjects();
   const statsResults = await Promise.allSettled(
-    projects.map(p => queryWithRetry(api.projects.getStats, { projectId: p.id }))
+    projects.map(p => cachedQuery('projects', api.projects.getStats, { projectId: p.id }))
   );
   return projects.map((p, i) => {
     const stats = statsResults[i].status === 'fulfilled' ? statsResults[i].value : {};
@@ -127,10 +183,12 @@ export async function updateProject(id, fields) {
     }
   }
   await mutationWithRetry(api.projects.update, updates);
+  invalidateQueryCache('projects');
 }
 
 export async function deleteProject(id) {
   await mutationWithRetry(api.projects.remove, { externalId: id });
+  invalidateQueryCache('projects');
 }
 
 function convexProjectToRow(p) {
@@ -181,12 +239,12 @@ export async function setProjectProductImage(projectId, storageId) {
 // =============================================
 
 export async function getDocsByProject(projectId) {
-  const docs = await queryWithRetry(api.foundationalDocs.getByProject, { projectId });
+  const docs = await cachedQuery('foundational_docs', api.foundationalDocs.getByProject, { projectId });
   return docs.map(convexDocToRow);
 }
 
 export async function getLatestDoc(projectId, docType) {
-  const doc = await queryWithRetry(api.foundationalDocs.getLatest, { projectId, docType });
+  const doc = await cachedQuery('foundational_docs', api.foundationalDocs.getLatest, { projectId, docType });
   if (!doc) return null;
   return convexDocToRow(doc);
 }
@@ -210,7 +268,7 @@ function convexDocToRow(d) {
 // =============================================
 
 export async function getAdsByProject(projectId) {
-  const ads = await queryWithRetry(api.adCreatives.getByProjectWithUrls, { projectId });
+  const ads = await cachedQuery('ad_creatives', api.adCreatives.getByProjectWithUrls, { projectId });
   return ads.map(a => ({
     ...convexAdToRow(a),
     resolvedImageUrl: a.resolvedImageUrl || null,
@@ -218,27 +276,27 @@ export async function getAdsByProject(projectId) {
 }
 
 export async function getAd(id) {
-  const ad = await queryWithRetry(api.adCreatives.getByExternalId, { externalId: id });
+  const ad = await cachedQuery('ad_creatives', api.adCreatives.getByExternalId, { externalId: id });
   if (!ad) return null;
   return convexAdToRow(ad);
 }
 
 export async function getAllAds() {
-  const ads = await queryWithRetry(api.adCreatives.getAll, {});
+  const ads = await cachedQuery('ad_creatives', api.adCreatives.getAll, {});
   return ads.map(a => convexAdToRow(a));
 }
 
 export async function getInProgressAdsByProject(projectId) {
-  const ads = await queryWithRetry(api.adCreatives.getInProgressByProject, { projectId });
+  const ads = await cachedQuery('ad_creatives', api.adCreatives.getInProgressByProject, { projectId });
   return ads.map(a => convexAdToRow(a));
 }
 
 export async function getAdImageUrl(id) {
-  return await queryWithRetry(api.adCreatives.getImageUrl, { externalId: id });
+  return await cachedQuery('ad_creatives', api.adCreatives.getImageUrl, { externalId: id });
 }
 
 export async function getAdsByBatchId(batchId) {
-  const ads = await queryWithRetry(api.adCreatives.getByBatch, { batchId });
+  const ads = await cachedQuery('ad_creatives', api.adCreatives.getByBatch, { batchId });
   return ads.map(a => convexAdToRow(a));
 }
 
@@ -302,28 +360,28 @@ export async function createBatchJob({ id, project_id, generation_mode, batch_si
 }
 
 export async function getBatchJob(id) {
-  const batch = await queryWithRetry(api.batchJobs.getByExternalId, { externalId: id });
+  const batch = await cachedQuery('batch_jobs', api.batchJobs.getByExternalId, { externalId: id });
   if (!batch) return null;
   return convexBatchToRow(batch);
 }
 
 export async function getBatchesByProject(projectId) {
-  const batches = await queryWithRetry(api.batchJobs.getByProject, { projectId });
+  const batches = await cachedQuery('batch_jobs', api.batchJobs.getByProject, { projectId });
   return batches.map(convexBatchToRow);
 }
 
 export async function getActiveBatchJobs() {
-  const batches = await queryWithRetry(api.batchJobs.getActive, {});
+  const batches = await cachedQuery('batch_jobs', api.batchJobs.getActive, {});
   return batches.map(convexBatchToRow);
 }
 
 export async function getScheduledBatchJobs() {
-  const batches = await queryWithRetry(api.batchJobs.getScheduled, {});
+  const batches = await cachedQuery('batch_jobs', api.batchJobs.getScheduled, {});
   return batches.map(convexBatchToRow);
 }
 
 export async function getAllScheduledBatchesForCost() {
-  return await queryWithRetry(api.batchJobs.getAllScheduledForCost, {});
+  return await cachedQuery('batch_jobs', api.batchJobs.getAllScheduledForCost, {});
 }
 
 export async function updateBatchJob(id, fields) {
@@ -339,10 +397,12 @@ export async function updateBatchJob(id, fields) {
     updates.scheduled = !!updates.scheduled;
   }
   await mutationWithRetry(api.batchJobs.update, updates);
+  invalidateQueryCache('batch_jobs');
 }
 
 export async function deleteBatchJob(id) {
   await mutationWithRetry(api.batchJobs.remove, { externalId: id });
+  invalidateQueryCache('batch_jobs');
 }
 
 function convexBatchToRow(b) {
@@ -417,7 +477,7 @@ export async function logCost({ id, project_id, service, operation, cost_usd, ra
 }
 
 export async function getCostAggregates(startDate, endDate, projectId = null) {
-  return await queryWithRetry(api.apiCosts.getAggregates, {
+  return await cachedQuery('api_costs', api.apiCosts.getAggregates, {
     startDate,
     endDate,
     projectId: projectId || undefined,
@@ -425,7 +485,7 @@ export async function getCostAggregates(startDate, endDate, projectId = null) {
 }
 
 export async function getAgentCosts(startDate, endDate) {
-  return await queryWithRetry(api.apiCosts.getAgentCosts, { startDate, endDate });
+  return await cachedQuery('api_costs', api.apiCosts.getAgentCosts, { startDate, endDate });
 }
 
 export async function getDailyCostHistory(days = 30, projectId = null) {
@@ -433,7 +493,7 @@ export async function getDailyCostHistory(days = 30, projectId = null) {
   startDate.setDate(startDate.getDate() - days);
   const startStr = startDate.toISOString().split('T')[0];
 
-  return await queryWithRetry(api.apiCosts.getDailyHistory, {
+  return await cachedQuery('api_costs', api.apiCosts.getDailyHistory, {
     startDate: startStr,
     projectId: projectId || undefined,
   });
@@ -551,23 +611,23 @@ export async function getTemplateImageUrl(externalId) {
 // =============================================
 
 export async function getAllDeployments() {
-  return await queryWithRetry(api.ad_deployments.getAll, {});
+  return await cachedQuery('ad_deployments', api.ad_deployments.getAll, {});
 }
 
 export async function getDeploymentsByProject(projectId) {
-  return await queryWithRetry(api.ad_deployments.getByProject, { projectId });
+  return await cachedQuery('ad_deployments', api.ad_deployments.getByProject, { projectId });
 }
 
 export async function getDeploymentsByStatus(status) {
-  return await queryWithRetry(api.ad_deployments.getByStatus, { status });
+  return await cachedQuery('ad_deployments', api.ad_deployments.getByStatus, { status });
 }
 
 export async function getDeploymentByAdId(adId) {
-  return await queryWithRetry(api.ad_deployments.getByAdId, { adId });
+  return await cachedQuery('ad_deployments', api.ad_deployments.getByAdId, { adId });
 }
 
 export async function createDeployment({ id, ad_id, project_id, status, ad_name, local_campaign_id }) {
-  return await mutationWithRetry(api.ad_deployments.create, {
+  const result = await mutationWithRetry(api.ad_deployments.create, {
     externalId: id,
     ad_id,
     project_id,
@@ -576,26 +636,36 @@ export async function createDeployment({ id, ad_id, project_id, status, ad_name,
     ...(local_campaign_id ? { local_campaign_id } : {}),
     created_at: new Date().toISOString(),
   });
+  invalidateQueryCache('ad_deployments');
+  return result;
 }
 
 export async function updateDeployment(id, fields) {
-  return await mutationWithRetry(api.ad_deployments.update, { externalId: id, fields });
+  const result = await mutationWithRetry(api.ad_deployments.update, { externalId: id, fields });
+  invalidateQueryCache('ad_deployments');
+  return result;
 }
 
 export async function updateDeploymentStatus(id, status) {
-  return await mutationWithRetry(api.ad_deployments.updateStatus, { externalId: id, status });
+  const result = await mutationWithRetry(api.ad_deployments.updateStatus, { externalId: id, status });
+  invalidateQueryCache('ad_deployments');
+  return result;
 }
 
 export async function deleteDeployment(id) {
-  return await mutationWithRetry(api.ad_deployments.remove, { externalId: id });
+  const result = await mutationWithRetry(api.ad_deployments.remove, { externalId: id });
+  invalidateQueryCache('ad_deployments');
+  return result;
 }
 
 export async function restoreDeployment(id) {
-  return await mutationWithRetry(api.ad_deployments.restore, { externalId: id });
+  const result = await mutationWithRetry(api.ad_deployments.restore, { externalId: id });
+  invalidateQueryCache('ad_deployments');
+  return result;
 }
 
 export async function getDeletedDeployments(projectId) {
-  const results = await queryWithRetry(api.ad_deployments.getDeleted, { projectId: projectId || undefined });
+  const results = await cachedQuery('ad_deployments', api.ad_deployments.getDeleted, { projectId: projectId || undefined });
   return results.map(d => ({
     ...d,
     id: d.externalId,
@@ -611,7 +681,7 @@ export async function purgeDeletedDeployments(olderThanDays = 30) {
 // =============================================
 
 export async function getCampaignsByProject(projectId) {
-  const campaigns = await queryWithRetry(api.campaigns.getByProject, { projectId });
+  const campaigns = await cachedQuery('campaigns', api.campaigns.getByProject, { projectId });
   return campaigns.map(c => ({
     id: c.externalId,
     project_id: c.project_id,
@@ -624,7 +694,7 @@ export async function getCampaignsByProject(projectId) {
 
 export async function createCampaign({ id, project_id, name, sort_order }) {
   const now = new Date().toISOString();
-  return await mutationWithRetry(api.campaigns.create, {
+  const result = await mutationWithRetry(api.campaigns.create, {
     externalId: id,
     project_id,
     name,
@@ -632,14 +702,22 @@ export async function createCampaign({ id, project_id, name, sort_order }) {
     created_at: now,
     updated_at: now,
   });
+  invalidateQueryCache('campaigns');
+  return result;
 }
 
 export async function updateCampaign(id, fields) {
-  return await mutationWithRetry(api.campaigns.update, { externalId: id, fields });
+  const result = await mutationWithRetry(api.campaigns.update, { externalId: id, fields });
+  invalidateQueryCache('campaigns');
+  return result;
 }
 
 export async function deleteCampaign(id) {
-  return await mutationWithRetry(api.campaigns.remove, { externalId: id });
+  const result = await mutationWithRetry(api.campaigns.remove, { externalId: id });
+  invalidateQueryCache('campaigns');
+  invalidateQueryCache('ad_sets');
+  invalidateQueryCache('flex_ads');
+  return result;
 }
 
 // =============================================
@@ -647,7 +725,7 @@ export async function deleteCampaign(id) {
 // =============================================
 
 export async function getAdSet(id) {
-  const adSet = await queryWithRetry(api.adSets.getByExternalId, { externalId: id });
+  const adSet = await cachedQuery('ad_sets', api.adSets.getByExternalId, { externalId: id });
   if (!adSet) return null;
   return {
     id: adSet.externalId,
@@ -661,7 +739,7 @@ export async function getAdSet(id) {
 }
 
 export async function getAdSetsByProject(projectId) {
-  const adSets = await queryWithRetry(api.adSets.getByProject, { projectId });
+  const adSets = await cachedQuery('ad_sets', api.adSets.getByProject, { projectId });
   return adSets.map(a => ({
     id: a.externalId,
     campaign_id: a.campaign_id,
@@ -674,7 +752,7 @@ export async function getAdSetsByProject(projectId) {
 }
 
 export async function getAdSetsByCampaign(campaignId) {
-  const adSets = await queryWithRetry(api.adSets.getByCampaign, { campaignId });
+  const adSets = await cachedQuery('ad_sets', api.adSets.getByCampaign, { campaignId });
   return adSets.map(a => ({
     id: a.externalId,
     campaign_id: a.campaign_id,
@@ -688,7 +766,7 @@ export async function getAdSetsByCampaign(campaignId) {
 
 export async function createAdSet({ id, campaign_id, project_id, name, sort_order }) {
   const now = new Date().toISOString();
-  return await mutationWithRetry(api.adSets.create, {
+  const result = await mutationWithRetry(api.adSets.create, {
     externalId: id,
     campaign_id,
     project_id,
@@ -697,14 +775,21 @@ export async function createAdSet({ id, campaign_id, project_id, name, sort_orde
     created_at: now,
     updated_at: now,
   });
+  invalidateQueryCache('ad_sets');
+  return result;
 }
 
 export async function updateAdSet(id, fields) {
-  return await mutationWithRetry(api.adSets.update, { externalId: id, fields });
+  const result = await mutationWithRetry(api.adSets.update, { externalId: id, fields });
+  invalidateQueryCache('ad_sets');
+  return result;
 }
 
 export async function deleteAdSet(id) {
-  return await mutationWithRetry(api.adSets.remove, { externalId: id });
+  const result = await mutationWithRetry(api.adSets.remove, { externalId: id });
+  invalidateQueryCache('ad_sets');
+  invalidateQueryCache('flex_ads');
+  return result;
 }
 
 // =============================================
@@ -712,7 +797,7 @@ export async function deleteAdSet(id) {
 // =============================================
 
 export async function getFlexAdsByProject(projectId) {
-  const flexAds = await queryWithRetry(api.flexAds.getByProject, { projectId });
+  const flexAds = await cachedQuery('flex_ads', api.flexAds.getByProject, { projectId });
   return flexAds.map(f => ({
     id: f.externalId,
     project_id: f.project_id,
@@ -741,7 +826,7 @@ export async function getFlexAdsByProject(projectId) {
 }
 
 export async function getFlexAdsByAdSet(adSetId) {
-  const flexAds = await queryWithRetry(api.flexAds.getByAdSet, { adSetId });
+  const flexAds = await cachedQuery('flex_ads', api.flexAds.getByAdSet, { adSetId });
   return flexAds.map(f => ({
     id: f.externalId,
     project_id: f.project_id,
@@ -767,7 +852,7 @@ export async function getFlexAdsByAdSet(adSetId) {
 }
 
 export async function getFlexAd(id) {
-  const f = await queryWithRetry(api.flexAds.getByExternalId, { externalId: id });
+  const f = await cachedQuery('flex_ads', api.flexAds.getByExternalId, { externalId: id });
   if (!f) return null;
   return {
     id: f.externalId,
@@ -819,27 +904,36 @@ export async function createFlexAd({ id, project_id, ad_set_id, name, child_depl
     created_at: now,
     updated_at: now,
   });
+  invalidateQueryCache('flex_ads');
 }
 
 export async function updateFlexAd(id, fields) {
-  return await mutationWithRetry(api.flexAds.update, { externalId: id, fields });
+  const result = await mutationWithRetry(api.flexAds.update, { externalId: id, fields });
+  invalidateQueryCache('flex_ads');
+  return result;
 }
 
 export async function deleteFlexAd(id) {
-  return await mutationWithRetry(api.flexAds.remove, { externalId: id });
+  const result = await mutationWithRetry(api.flexAds.remove, { externalId: id });
+  invalidateQueryCache('flex_ads');
+  return result;
 }
 
 export async function restoreFlexAd(id) {
-  return await mutationWithRetry(api.flexAds.restore, { externalId: id });
+  const result = await mutationWithRetry(api.flexAds.restore, { externalId: id });
+  invalidateQueryCache('flex_ads');
+  return result;
 }
 
 export async function purgeDeletedFlexAds(olderThanDays = 30) {
-  return await mutationWithRetry(api.flexAds.purgeDeleted, { olderThanDays });
+  const result = await mutationWithRetry(api.flexAds.purgeDeleted, { olderThanDays });
+  invalidateQueryCache('flex_ads');
+  return result;
 }
 
 // Duplicate a deployment (skips dedup guard)
 export async function createDeploymentDuplicate({ id, ad_id, project_id, status, ad_name, local_campaign_id, local_adset_id, flex_ad_id, destination_url, cta_button, primary_texts, ad_headlines, planned_date }) {
-  return await mutationWithRetry(api.ad_deployments.createWithoutDedup, {
+  const result = await mutationWithRetry(api.ad_deployments.createWithoutDedup, {
     externalId: id,
     ad_id,
     project_id,
@@ -855,6 +949,8 @@ export async function createDeploymentDuplicate({ id, ad_id, project_id, status,
     ...(planned_date ? { planned_date } : {}),
     created_at: new Date().toISOString(),
   });
+  invalidateQueryCache('ad_deployments');
+  return result;
 }
 
 // =============================================
@@ -862,7 +958,7 @@ export async function createDeploymentDuplicate({ id, ad_id, project_id, status,
 // =============================================
 
 export async function getQuoteMiningRunsByProject(projectId) {
-  const runs = await queryWithRetry(api.quote_mining_runs.getByProject, { projectId });
+  const runs = await cachedQuery('quote_mining_runs', api.quote_mining_runs.getByProject, { projectId });
   return runs.map(r => ({
     id: r.externalId,
     project_id: r.project_id,
@@ -917,7 +1013,7 @@ export async function getQuoteMiningRun(externalId) {
 // =============================================
 
 export async function getQuoteBankByProject(projectId) {
-  const quotes = await queryWithRetry(api.quote_bank.getByProject, { projectId });
+  const quotes = await cachedQuery('quote_bank', api.quote_bank.getByProject, { projectId });
   return quotes.map(q => ({
     id: q.externalId,
     project_id: q.project_id,
@@ -1107,11 +1203,11 @@ export async function replaceDashboardTodos(todos) {
 // =============================================
 
 export async function getLandingPagesByProject(projectId) {
-  return await queryWithRetry(api.landingPages.getByProject, { projectId });
+  return await cachedQuery('landing_pages', api.landingPages.getByProject, { projectId });
 }
 
 export async function getLandingPage(externalId) {
-  return await queryWithRetry(api.landingPages.getByExternalId, { externalId });
+  return await cachedQuery('landing_pages', api.landingPages.getByExternalId, { externalId });
 }
 
 export async function createLandingPage({ id, project_id, name, angle, word_count, additional_direction, swipe_text, swipe_filename, swipe_url, swipe_screenshot_storageId, status, auto_generated, batch_job_id, narrative_frame, template_id, gauntlet_batch_id, gauntlet_frame, gauntlet_attempt, gauntlet_status, gauntlet_batch_started_at, gauntlet_batch_completed_at }) {
@@ -1138,10 +1234,12 @@ export async function createLandingPage({ id, project_id, name, angle, word_coun
     gauntlet_batch_started_at: gauntlet_batch_started_at || undefined,
     gauntlet_batch_completed_at: gauntlet_batch_completed_at || undefined,
   });
+  invalidateQueryCache('landing_pages');
 }
 
 export async function updateLandingPage(externalId, fields) {
   await mutationWithRetry(api.landingPages.update, { externalId, ...fields });
+  invalidateQueryCache('landing_pages');
 }
 
 export async function deleteLandingPage(externalId) {
@@ -1151,10 +1249,12 @@ export async function deleteLandingPage(externalId) {
     await mutationWithRetry(api.landingPageVersions.remove, { externalId: v.externalId });
   }
   await mutationWithRetry(api.landingPages.remove, { externalId });
+  invalidateQueryCache('landing_pages');
+  invalidateQueryCache('landing_page_versions');
 }
 
 export async function getLandingPageVersions(landingPageId) {
-  return await queryWithRetry(api.landingPageVersions.getByLandingPage, { landingPageId });
+  return await cachedQuery('landing_page_versions', api.landingPageVersions.getByLandingPage, { landingPageId });
 }
 
 export async function createLandingPageVersion({ id, landing_page_id, version, copy_sections, source, image_slots, cta_links, html_template, assembled_html }) {
@@ -1172,7 +1272,7 @@ export async function createLandingPageVersion({ id, landing_page_id, version, c
 }
 
 export async function getLandingPageVersion(externalId) {
-  return await queryWithRetry(api.landingPageVersions.getByExternalId, { externalId });
+  return await cachedQuery('landing_page_versions', api.landingPageVersions.getByExternalId, { externalId });
 }
 
 // =============================================
@@ -1196,12 +1296,12 @@ function convexLPTemplateToRow(t) {
 }
 
 export async function getLPTemplatesByProject(projectId) {
-  const templates = await queryWithRetry(api.lpTemplates.getByProject, { projectId });
+  const templates = await cachedQuery('lp_templates', api.lpTemplates.getByProject, { projectId });
   return templates.map(convexLPTemplateToRow);
 }
 
 export async function getLPTemplate(externalId) {
-  const t = await queryWithRetry(api.lpTemplates.getByExternalId, { externalId });
+  const t = await cachedQuery('lp_templates', api.lpTemplates.getByExternalId, { externalId });
   if (!t) return null;
   return convexLPTemplateToRow(t);
 }
@@ -1316,15 +1416,16 @@ export async function cleanupExpiredSessions() {
 // =============================================
 
 export async function getConductorConfig(projectId) {
-  return await queryWithRetry(api.conductor.getConfig, { projectId });
+  return await cachedQuery('conductor', api.conductor.getConfig, { projectId });
 }
 
 export async function upsertConductorConfig(projectId, fields) {
   await mutationWithRetry(api.conductor.upsertConfig, { project_id: projectId, ...fields });
+  invalidateQueryCache('conductor');
 }
 
 export async function getAllConductorConfigs() {
-  return await queryWithRetry(api.conductor.getAllConfigs, {});
+  return await cachedQuery('conductor', api.conductor.getAllConfigs, {});
 }
 
 // =============================================
@@ -1332,15 +1433,16 @@ export async function getAllConductorConfigs() {
 // =============================================
 
 export async function getLPAgentConfig(projectId) {
-  return await queryWithRetry(api.lpAgentConfig.getByProject, { projectId });
+  return await cachedQuery('lp_agent_config', api.lpAgentConfig.getByProject, { projectId });
 }
 
 export async function upsertLPAgentConfig(projectId, fields) {
   await mutationWithRetry(api.lpAgentConfig.upsertConfig, { project_id: projectId, ...fields });
+  invalidateQueryCache('lp_agent_config');
 }
 
 export async function getAllLPAgentConfigs() {
-  return await queryWithRetry(api.lpAgentConfig.getAllConfigs, {});
+  return await cachedQuery('lp_agent_config', api.lpAgentConfig.getAllConfigs, {});
 }
 
 // =============================================
@@ -1348,11 +1450,11 @@ export async function getAllLPAgentConfigs() {
 // =============================================
 
 export async function getConductorAngles(projectId) {
-  return await queryWithRetry(api.conductor.getAngles, { projectId });
+  return await cachedQuery('conductor', api.conductor.getAngles, { projectId });
 }
 
 export async function getActiveConductorAngles(projectId) {
-  return await queryWithRetry(api.conductor.getActiveAngles, { projectId });
+  return await cachedQuery('conductor', api.conductor.getActiveAngles, { projectId });
 }
 
 export async function createConductorAngle({ id, project_id, name, description, prompt_hints, source, status,
@@ -1379,14 +1481,17 @@ export async function createConductorAngle({ id, project_id, name, description, 
     tone: tone || undefined,
     avoid_list: avoid_list || undefined,
   });
+  invalidateQueryCache('conductor');
 }
 
 export async function updateConductorAngle(id, fields) {
   await mutationWithRetry(api.conductor.updateAngle, { externalId: id, ...fields });
+  invalidateQueryCache('conductor');
 }
 
 export async function deleteConductorAngle(id) {
   await mutationWithRetry(api.conductor.deleteAngle, { externalId: id });
+  invalidateQueryCache('conductor');
 }
 
 // =============================================
@@ -1394,15 +1499,17 @@ export async function deleteConductorAngle(id) {
 // =============================================
 
 export async function getConductorRuns(projectId, limit = 50) {
-  return await queryWithRetry(api.conductor.getRuns, { projectId, limit });
+  return await cachedQuery('conductor', api.conductor.getRuns, { projectId, limit });
 }
 
 export async function createConductorRun(fields) {
   await mutationWithRetry(api.conductor.createRun, fields);
+  invalidateQueryCache('conductor');
 }
 
 export async function updateConductorRun(id, fields) {
   await mutationWithRetry(api.conductor.updateRun, { externalId: id, ...fields });
+  invalidateQueryCache('conductor');
 }
 
 // =============================================
@@ -1410,11 +1517,11 @@ export async function updateConductorRun(id, fields) {
 // =============================================
 
 export async function getConductorHealth(limit = 50) {
-  return await queryWithRetry(api.conductor.getHealth, { limit });
+  return await cachedQuery('conductor', api.conductor.getHealth, { limit });
 }
 
 export async function getConductorHealthByAgent(agent, limit = 20) {
-  return await queryWithRetry(api.conductor.getHealthByAgent, { agent, limit });
+  return await cachedQuery('conductor', api.conductor.getHealthByAgent, { agent, limit });
 }
 
 export async function createConductorHealth(fields) {
@@ -1426,15 +1533,16 @@ export async function createConductorHealth(fields) {
 // =============================================
 
 export async function getConductorPlaybooks(projectId) {
-  return await queryWithRetry(api.conductor.getPlaybooks, { projectId });
+  return await cachedQuery('conductor', api.conductor.getPlaybooks, { projectId });
 }
 
 export async function getConductorPlaybook(projectId, angleName) {
-  return await queryWithRetry(api.conductor.getPlaybook, { projectId, angleName });
+  return await cachedQuery('conductor', api.conductor.getPlaybook, { projectId, angleName });
 }
 
 export async function upsertConductorPlaybook(fields) {
   await mutationWithRetry(api.conductor.upsertPlaybook, fields);
+  invalidateQueryCache('conductor');
 }
 
 // =============================================
@@ -1442,15 +1550,16 @@ export async function upsertConductorPlaybook(fields) {
 // =============================================
 
 export async function getFixerPlaybooks() {
-  return await queryWithRetry(api.conductor.getFixerPlaybooks, {});
+  return await cachedQuery('conductor', api.conductor.getFixerPlaybooks, {});
 }
 
 export async function getFixerPlaybook(issueCategory) {
-  return await queryWithRetry(api.conductor.getFixerPlaybook, { issueCategory });
+  return await cachedQuery('conductor', api.conductor.getFixerPlaybook, { issueCategory });
 }
 
 export async function upsertFixerPlaybook(fields) {
   await mutationWithRetry(api.conductor.upsertFixerPlaybook, fields);
+  invalidateQueryCache('conductor');
 }
 
 // =============================================

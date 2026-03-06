@@ -108,8 +108,8 @@ process.on('uncaughtException', (err) => {
       directives: {
         defaultSrc: ["'self'"],
         scriptSrc: ["'self'", "'unsafe-inline'"],
-        styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
-        fontSrc: ["'self'", "https://fonts.gstatic.com"],
+        styleSrc: ["'self'", "'unsafe-inline'"],
+        fontSrc: ["'self'"],
         imgSrc: ["'self'", "data:", "blob:", "https://*.convex.cloud", "https://*.googleapis.com", "https://*.fbcdn.net"],
         connectSrc: ["'self'", "https://*.convex.cloud", "https://api.anthropic.com", "https://api.openai.com"],
         frameSrc: ["'none'"],

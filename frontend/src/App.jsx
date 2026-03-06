@@ -63,20 +63,56 @@ export const AuthContext = createContext({
 });
 
 function AuthProvider({ children }) {
-  const [auth, setAuth] = useState({ authenticated: false, loading: true, user: null });
+  // Optimistic auth: render instantly from cached state, verify in background
+  const [auth, setAuth] = useState(() => {
+    try {
+      const cached = localStorage.getItem('auth_state');
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (parsed.authenticated && parsed.user) {
+          return { authenticated: true, loading: false, user: parsed.user };
+        }
+      }
+    } catch {}
+    return { authenticated: false, loading: true, user: null };
+  });
 
   useEffect(() => {
+    // Background verify — don't block rendering
     api.getSession()
-      .then(data => setAuth({
-        authenticated: !!data.authenticated,
-        loading: false,
-        user: data.user || null,
-      }))
-      .catch(() => setAuth({ authenticated: false, loading: false, user: null }));
+      .then(data => {
+        const newAuth = {
+          authenticated: !!data.authenticated,
+          loading: false,
+          user: data.user || null,
+        };
+        setAuth(newAuth);
+        if (newAuth.authenticated) {
+          localStorage.setItem('auth_state', JSON.stringify({
+            authenticated: true, user: newAuth.user,
+          }));
+        } else {
+          localStorage.removeItem('auth_state');
+        }
+      })
+      .catch(() => {
+        setAuth({ authenticated: false, loading: false, user: null });
+        localStorage.removeItem('auth_state');
+      });
   }, []);
 
-  const setAuthenticated = (value) => setAuth(prev => ({ ...prev, authenticated: value, loading: false }));
-  const setUser = (user) => setAuth(prev => ({ ...prev, user, authenticated: !!user, loading: false }));
+  const setAuthenticated = (value) => {
+    setAuth(prev => ({ ...prev, authenticated: value, loading: false }));
+    if (!value) localStorage.removeItem('auth_state');
+  };
+  const setUser = (user) => {
+    setAuth(prev => ({ ...prev, user, authenticated: !!user, loading: false }));
+    if (user) {
+      localStorage.setItem('auth_state', JSON.stringify({ authenticated: true, user }));
+    } else {
+      localStorage.removeItem('auth_state');
+    }
+  };
 
   return (
     <AuthContext.Provider value={{ ...auth, setAuthenticated, setUser }}>

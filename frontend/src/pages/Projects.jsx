@@ -102,6 +102,7 @@ export default function Projects() {
                   to={`/projects/${project.id}`}
                   className="card p-5 transition-all duration-300 hover:-translate-y-0.5 group border-l-2"
                   style={{ borderLeftColor: borderColor }}
+                  onMouseEnter={() => api.getProject(project.id)}
                 >
                   <div className="flex items-start justify-between mb-3">
                     <h3 className="font-semibold text-[15px] text-textdark tracking-tight group-hover:text-gold transition-colors">{project.brand_name || project.name}</h3>

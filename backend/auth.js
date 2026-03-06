@@ -32,10 +32,17 @@ export function requireRole(...roles) {
 
 /**
  * Check if initial setup is complete (any users exist).
+ * Cached after first positive result — once users exist, this never changes.
  */
+let _setupComplete = null;
 export async function isSetupComplete() {
+  if (_setupComplete) return true;
   const count = await getUserCount();
-  return count > 0;
+  if (count > 0) {
+    _setupComplete = true;
+    return true;
+  }
+  return false;
 }
 
 /**

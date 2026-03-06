@@ -4,7 +4,7 @@
  * Sessions persist across PM2 restarts because they're stored in
  * Convex cloud, not in-memory.
  *
- * In-memory cache (5-min TTL) eliminates ~250ms Convex round-trip
+ * In-memory cache (30-min TTL) eliminates ~250ms Convex round-trip
  * on every authenticated request after the first one.
  */
 
@@ -12,7 +12,7 @@ import session from 'express-session';
 import { getSession, setSession, destroySession, cleanupExpiredSessions } from './convexClient.js';
 
 const ONE_DAY_MS = 86400000;
-const SESSION_CACHE_TTL = 5 * 60 * 1000; // 5 minutes
+const SESSION_CACHE_TTL = 30 * 60 * 1000; // 30 minutes
 const sessionCache = new Map();
 
 // Evict stale cache entries every 10 minutes
