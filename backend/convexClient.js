@@ -1327,7 +1327,9 @@ export async function getActiveConductorAngles(projectId) {
   return await queryWithRetry(api.conductor.getActiveAngles, { projectId });
 }
 
-export async function createConductorAngle({ id, project_id, name, description, prompt_hints, source, status }) {
+export async function createConductorAngle({ id, project_id, name, description, prompt_hints, source, status,
+  priority, frame, core_buyer, symptom_pattern, failed_solutions, current_belief,
+  objection, emotional_state, scene, desired_belief_shift, tone, avoid_list }) {
   await mutationWithRetry(api.conductor.createAngle, {
     externalId: id,
     project_id,
@@ -1336,6 +1338,18 @@ export async function createConductorAngle({ id, project_id, name, description, 
     prompt_hints: prompt_hints || undefined,
     source: source || 'manual',
     status: status || 'active',
+    priority: priority || undefined,
+    frame: frame || undefined,
+    core_buyer: core_buyer || undefined,
+    symptom_pattern: symptom_pattern || undefined,
+    failed_solutions: failed_solutions || undefined,
+    current_belief: current_belief || undefined,
+    objection: objection || undefined,
+    emotional_state: emotional_state || undefined,
+    scene: scene || undefined,
+    desired_belief_shift: desired_belief_shift || undefined,
+    tone: tone || undefined,
+    avoid_list: avoid_list || undefined,
   });
 }
 
