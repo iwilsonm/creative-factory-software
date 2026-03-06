@@ -194,16 +194,12 @@ export default function AgentMonitor() {
 
       {/* Agent Tabs */}
       <div className="card p-5">
-        <div className="tab-strip mb-4">
+        <div className="segmented-control mb-4">
           {tabs.map(tab => (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className={`tab-chip ${
-                activeTab === tab.id
-                  ? 'active'
-                  : ''
-              }`}
+              className={activeTab === tab.id ? 'active' : ''}
             >
               {tab.label}
             </button>
@@ -527,13 +523,15 @@ function DirectorTab({ onRefresh }) {
   const [angles, setAngles] = useState([]);
   const [runs, setRuns] = useState([]);
   const [playbooks, setPlaybooks] = useState([]);
-  const [subTab, setSubTab] = useState('angles');
+  const [subTab, setSubTab] = useState('history');
   const [archivedOpen, setArchivedOpen] = useState(false);
   const [projectLoading, setProjectLoading] = useState(true);
   const [baseLoading, setBaseLoading] = useState(false);
+  const [anglesLoading, setAnglesLoading] = useState(false);
   const [runsLoading, setRunsLoading] = useState(false);
   const [playbooksLoading, setPlaybooksLoading] = useState(false);
   const [campaignsLoading, setCampaignsLoading] = useState(false);
+  const [anglesLoadedFor, setAnglesLoadedFor] = useState('');
   const [runsLoadedFor, setRunsLoadedFor] = useState('');
   const [playbooksLoadedFor, setPlaybooksLoadedFor] = useState('');
   const [campaignsLoadedFor, setCampaignsLoadedFor] = useState('');
@@ -630,23 +628,26 @@ function DirectorTab({ onRefresh }) {
     setSelectedAngleId('');
     let cancelled = false;
     setBaseLoading(true);
+    setAnglesLoading(false);
+    setRunsLoading(false);
+    setPlaybooksLoading(false);
+    setCampaignsLoading(false);
     setConfig(null);
     setAngles([]);
     setRuns([]);
     setPlaybooks([]);
     setCampaigns([]);
+    setAnglesLoadedFor('');
     setRunsLoadedFor('');
     setPlaybooksLoadedFor('');
     setCampaignsLoadedFor('');
     (async () => {
       try {
-        const [cfgRes, angRes] = await Promise.allSettled([
+        const [cfgRes] = await Promise.allSettled([
           api.getConductorConfig(selectedProject),
-          api.getConductorAngles(selectedProject),
         ]);
         if (cancelled) return;
         if (cfgRes.status === 'fulfilled') setConfig(cfgRes.value?.config || null);
-        if (angRes.status === 'fulfilled') setAngles(angRes.value?.angles || []);
       } catch { /* ignore */ }
       finally {
         if (!cancelled) setBaseLoading(false);
@@ -656,6 +657,20 @@ function DirectorTab({ onRefresh }) {
       cancelled = true;
     };
   }, [selectedProject]);
+
+  const loadAngles = useCallback(async (projectId = selectedProjectRef.current) => {
+    if (!projectId || anglesLoading || anglesLoadedFor === projectId) return;
+    setAnglesLoading(true);
+    try {
+      const angRes = await api.getConductorAngles(projectId);
+      if (selectedProjectRef.current !== projectId) return;
+      setAngles(angRes?.angles || []);
+      setAnglesLoadedFor(projectId);
+    } catch { /* ignore */ }
+    finally {
+      if (selectedProjectRef.current === projectId) setAnglesLoading(false);
+    }
+  }, [anglesLoadedFor, anglesLoading]);
 
   const loadRuns = useCallback(async (projectId = selectedProjectRef.current) => {
     if (!projectId || runsLoading || runsLoadedFor === projectId) return;
@@ -701,7 +716,11 @@ function DirectorTab({ onRefresh }) {
 
   useEffect(() => {
     if (!selectedProject) return;
-    if (subTab === 'angles' || subTab === 'playbooks') {
+    if (subTab === 'angles') {
+      loadAngles(selectedProject);
+      loadPlaybooks(selectedProject);
+    }
+    if (subTab === 'playbooks') {
       loadPlaybooks(selectedProject);
     }
     if (subTab === 'history') {
@@ -710,7 +729,7 @@ function DirectorTab({ onRefresh }) {
     if (subTab === 'settings') {
       loadCampaigns(selectedProject);
     }
-  }, [loadCampaigns, loadPlaybooks, loadRuns, selectedProject, subTab]);
+  }, [loadAngles, loadCampaigns, loadPlaybooks, loadRuns, selectedProject, subTab]);
 
   useEffect(() => {
     return () => {
@@ -988,6 +1007,7 @@ function DirectorTab({ onRefresh }) {
       setShowAddAngle(false);
       const angRes = await api.getConductorAngles(selectedProject);
       setAngles(angRes?.angles || []);
+      setAnglesLoadedFor(selectedProject);
     } catch { /* ignore */ }
   };
 
@@ -1209,6 +1229,7 @@ function DirectorTab({ onRefresh }) {
       }
       const angRes = await api.getConductorAngles(selectedProject);
       setAngles(angRes?.angles || []);
+      setAnglesLoadedFor(selectedProject);
       setImportResult(null);
       setShowImport(false);
     } catch { /* ignore */ }
@@ -1220,15 +1241,17 @@ function DirectorTab({ onRefresh }) {
   if (!selectedProject) return <div className="text-[11px] text-textlight py-4">Select a project to load Director settings.</div>;
 
   const subTabs = [
+    { id: 'history', label: 'Run History' },
     { id: 'angles', label: 'Angles' },
     { id: 'playbooks', label: 'Playbooks' },
     { id: 'settings', label: 'Settings' },
-    { id: 'history', label: 'Run History' },
   ];
 
   const activeAngles = angles.filter(a => a.status === 'active');
   const testingAngles = angles.filter(a => a.status === 'testing');
   const archivedAngles = angles.filter(a => a.status === 'archived' || a.status === 'retired');
+  const canChooseAngle = !anglesLoading;
+  const canTriggerTestRun = !baseLoading && !!config && (anglesLoadedFor !== selectedProject || activeAngles.length > 0);
 
   return (
     <div>
@@ -1261,9 +1284,17 @@ function DirectorTab({ onRefresh }) {
           <select
             value={selectedAngleId}
             onChange={e => setSelectedAngleId(e.target.value)}
+            onFocus={() => {
+              if (anglesLoadedFor !== selectedProject) {
+                loadAngles(selectedProject);
+              }
+            }}
+            disabled={!canChooseAngle}
             className="text-[11px] text-textdark bg-offwhite border border-black/10 rounded-lg px-2 py-1.5 cursor-pointer max-w-[140px]"
           >
-            <option value="">Auto-select angle</option>
+            <option value="">
+              {anglesLoading ? 'Loading angles...' : anglesLoadedFor === selectedProject ? 'Auto-select angle' : 'Click to load angles'}
+            </option>
             {activeAngles.map(a => (
               <option key={a.externalId} value={a.externalId}>{a.name}</option>
             ))}
@@ -1274,7 +1305,7 @@ function DirectorTab({ onRefresh }) {
           </label>
           <button
             onClick={handleTestRun}
-            disabled={baseLoading || activeAngles.length === 0}
+            disabled={!canTriggerTestRun}
             className="btn-primary text-[11px] px-3 py-1.5 flex items-center gap-1 disabled:opacity-50"
           >
             {activeRun ? <><Spinner /> {queuedCount > 0 ? `Running (${queuedCount} queued)` : 'Running...'}</> : queuedCount > 0 ? `Queue Run (${queuedCount} queued)` : 'Test Run'}
@@ -1364,7 +1395,7 @@ function DirectorTab({ onRefresh }) {
       <div className="grid grid-cols-4 gap-2 mb-4">
         <StatCell value={config?.daily_flex_target ?? '—'} label="Daily Target" color="text-textdark" />
         <StatCell value={config?.ads_per_batch ?? '—'} label="Ads/Batch" color="text-textdark" />
-        <StatCell value={activeAngles.length} label="Angles" color="text-navy" />
+        <StatCell value={anglesLoadedFor === selectedProject ? activeAngles.length : '—'} label="Angles" color="text-navy" />
         <StatCell value={runsLoadedFor === selectedProject ? runs.filter(r => r.status === 'completed').length : '—'} label="Runs" color="text-teal" />
       </div>
 
@@ -1388,9 +1419,9 @@ function DirectorTab({ onRefresh }) {
       {/* Sub-tab content */}
       {subTab === 'angles' && (
         <div>
-          {baseLoading && angles.length === 0 && (
+          {anglesLoading && anglesLoadedFor !== selectedProject && (
             <div className="rounded-xl bg-black/[0.02] border border-black/5 px-3 py-3 mb-3">
-              <p className="text-[11px] text-textmid">Loading Director settings and angles...</p>
+              <p className="text-[11px] text-textmid">Loading angles and playbook notes...</p>
             </div>
           )}
 
@@ -1805,6 +1836,11 @@ function DirectorTab({ onRefresh }) {
 
       {subTab === 'history' && (
         <div>
+          {anglesLoadedFor !== selectedProject && (
+            <div className="rounded-xl bg-black/[0.02] border border-black/5 px-3 py-3 mb-3">
+              <p className="text-[11px] text-textmid">Angles stay hidden until you open the Angles tab so the Director loads faster.</p>
+            </div>
+          )}
           {runsLoading && runsLoadedFor !== selectedProject ? (
             <p className="text-[11px] text-textlight py-4">Loading run history...</p>
           ) : runs.length === 0 ? (

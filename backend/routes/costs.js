@@ -6,12 +6,69 @@ import { getCostSummary, getCostHistoryData, syncOpenAICosts, getRecurringBatchC
 const router = Router();
 router.use(requireAuth);
 
+const ROUTE_CACHE = new Map();
+const COST_CACHE_TTLS = {
+  summary: 20 * 1000,
+  history: 5 * 60 * 1000,
+  recurring: 60 * 1000,
+  rates: 10 * 60 * 1000,
+};
+
+async function getCachedCostPayload(key, ttlMs, loader) {
+  const cached = ROUTE_CACHE.get(key);
+  const now = Date.now();
+
+  if (cached?.data && cached.expiresAt > now) {
+    return cached.data;
+  }
+
+  if (cached?.promise) {
+    return cached.promise;
+  }
+
+  const promise = loader()
+    .then((data) => {
+      ROUTE_CACHE.set(key, {
+        data,
+        expiresAt: Date.now() + ttlMs,
+      });
+      return data;
+    })
+    .catch((err) => {
+      if (cached?.data) {
+        ROUTE_CACHE.set(key, {
+          data: cached.data,
+          expiresAt: Date.now() + Math.min(ttlMs, 5000),
+        });
+        return cached.data;
+      }
+      ROUTE_CACHE.delete(key);
+      throw err;
+    });
+
+  ROUTE_CACHE.set(key, {
+    data: cached?.data || null,
+    expiresAt: cached?.expiresAt || 0,
+    promise,
+  });
+
+  return promise;
+}
+
+function invalidateCostCache(...prefixes) {
+  for (const key of ROUTE_CACHE.keys()) {
+    if (prefixes.some(prefix => key.startsWith(prefix))) {
+      ROUTE_CACHE.delete(key);
+    }
+  }
+}
+
 /**
  * GET /costs — System-wide cost summaries (today, week, month)
  */
 router.get('/costs', async (req, res) => {
   try {
-    const summary = await getCostSummary(null);
+    const summary = await getCachedCostPayload('summary:all', COST_CACHE_TTLS.summary, () => getCostSummary(null));
     res.json(summary);
   } catch (err) {
     console.error('[Costs API] Summary error:', err.message);
@@ -26,7 +83,8 @@ router.get('/costs/history', async (req, res) => {
   try {
     const days = parseInt(req.query.days) || 30;
     const projectId = req.query.project_id || null;
-    const history = await getCostHistoryData(days, projectId);
+    const historyKey = `history:${projectId || 'all'}:${days}`;
+    const history = await getCachedCostPayload(historyKey, COST_CACHE_TTLS.history, () => getCostHistoryData(days, projectId));
     res.json({ history, days });
   } catch (err) {
     console.error('[Costs API] History error:', err.message);
@@ -39,7 +97,7 @@ router.get('/costs/history', async (req, res) => {
  */
 router.get('/costs/recurring', async (req, res) => {
   try {
-    const estimate = await getRecurringBatchCostEstimate();
+    const estimate = await getCachedCostPayload('recurring:all', COST_CACHE_TTLS.recurring, () => getRecurringBatchCostEstimate());
     res.json(estimate);
   } catch (err) {
     console.error('[Costs API] Recurring estimate error:', err.message);
@@ -55,7 +113,7 @@ router.get('/projects/:id/costs', async (req, res) => {
   if (!project) return res.status(404).json({ error: 'Project not found' });
 
   try {
-    const summary = await getCostSummary(req.params.id);
+    const summary = await getCachedCostPayload(`summary:${req.params.id}`, COST_CACHE_TTLS.summary, () => getCostSummary(req.params.id));
     const stats = await getProjectStats(req.params.id);
 
     // Calculate cost per ad
@@ -79,10 +137,16 @@ router.get('/projects/:id/costs', async (req, res) => {
  */
 router.get('/costs/rates', async (req, res) => {
   try {
-    const [rate2k, updatedAt] = await Promise.all([
-      getSetting('gemini_rate_2k'),
-      getSetting('gemini_rates_updated_at'),
-    ]);
+    const { rate2k, updatedAt } = await getCachedCostPayload('rates:gemini', COST_CACHE_TTLS.rates, async () => {
+      const [geminiRate2k, geminiUpdatedAt] = await Promise.all([
+        getSetting('gemini_rate_2k'),
+        getSetting('gemini_rates_updated_at'),
+      ]);
+      return {
+        rate2k: geminiRate2k,
+        updatedAt: geminiUpdatedAt,
+      };
+    });
     const manualRate = rate2k ? parseFloat(rate2k) : null;
     const batchRate = manualRate ? manualRate * 0.5 : null;
     res.json({
@@ -102,6 +166,7 @@ router.get('/costs/rates', async (req, res) => {
 router.post('/costs/sync', async (req, res) => {
   try {
     const result = await syncOpenAICosts();
+    invalidateCostCache('summary:', 'history:');
     res.json(result);
   } catch (err) {
     console.error('[Costs API] Sync error:', err.message);

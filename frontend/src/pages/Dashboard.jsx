@@ -431,35 +431,129 @@ function cronToLabel(cronStr) {
   return cronStr;
 }
 
+const DASHBOARD_COST_SNAPSHOT_KEY = 'dashboard_cost_snapshot_v1';
+const EMPTY_DASHBOARD_COST_SNAPSHOT = {
+  costs: null,
+  costHistory: [],
+  recurringCosts: null,
+  imageRates: null,
+  hasHistory: false,
+};
+
+function readDashboardCostSnapshot() {
+  try {
+    const raw = localStorage.getItem(DASHBOARD_COST_SNAPSHOT_KEY);
+    if (!raw) return EMPTY_DASHBOARD_COST_SNAPSHOT;
+    const parsed = JSON.parse(raw);
+    return {
+      costs: parsed?.costs || null,
+      costHistory: Array.isArray(parsed?.costHistory) ? parsed.costHistory : [],
+      recurringCosts: parsed?.recurringCosts || null,
+      imageRates: parsed?.imageRates || null,
+      hasHistory: !!parsed?.hasHistory,
+    };
+  } catch {
+    return EMPTY_DASHBOARD_COST_SNAPSHOT;
+  }
+}
+
+function writeDashboardCostSnapshot(snapshot) {
+  try {
+    localStorage.setItem(DASHBOARD_COST_SNAPSHOT_KEY, JSON.stringify(snapshot));
+  } catch {
+    // Ignore storage errors; the dashboard can still hydrate from live requests.
+  }
+}
+
 export default function Dashboard() {
-  const [costs, setCosts] = useState(null);
-  const [costHistory, setCostHistory] = useState([]);
-  const [costsLoading, setCostsLoading] = useState(true);
-  const [recurringCosts, setRecurringCosts] = useState(null);
-  const [imageRates, setImageRates] = useState(null);
+  const initialCostSnapshot = useRef(readDashboardCostSnapshot()).current;
+  const [costs, setCosts] = useState(initialCostSnapshot.costs);
+  const [costHistory, setCostHistory] = useState(initialCostSnapshot.costHistory);
+  const [costsLoading, setCostsLoading] = useState(!initialCostSnapshot.costs);
+  const [costHistoryLoading, setCostHistoryLoading] = useState(!initialCostSnapshot.hasHistory);
+  const [recurringCosts, setRecurringCosts] = useState(initialCostSnapshot.recurringCosts);
+  const [recurringLoading, setRecurringLoading] = useState(!initialCostSnapshot.recurringCosts);
+  const [imageRates, setImageRates] = useState(initialCostSnapshot.imageRates);
+  const [costHistoryLoaded, setCostHistoryLoaded] = useState(initialCostSnapshot.hasHistory);
 
   useEffect(() => {
-    loadCosts();
+    let cancelled = false;
+    const loadCostSummary = async () => {
+      if (!initialCostSnapshot.costs) setCostsLoading(true);
+      try {
+        const [costsData, ratesData] = await Promise.all([
+          api.getCosts().catch(() => null),
+          api.getCostRates().catch(() => null)
+        ]);
+        if (cancelled) return;
+        if (costsData) setCosts(costsData);
+        if (ratesData) setImageRates(ratesData);
+      } catch (err) {
+        console.error('Failed to load cost summary:', err);
+      } finally {
+        if (!cancelled) setCostsLoading(false);
+      }
+    };
+
+    const loadCostHistory = async () => {
+      if (!initialCostSnapshot.hasHistory) setCostHistoryLoading(true);
+      try {
+        const historyData = await api.getCostHistory(30).catch(() => ({ history: [] }));
+        if (cancelled) return;
+        setCostHistory(historyData?.history || []);
+        setCostHistoryLoaded(true);
+      } catch (err) {
+        console.error('Failed to load cost history:', err);
+      } finally {
+        if (!cancelled) setCostHistoryLoading(false);
+      }
+    };
+
+    const loadRecurringCosts = async () => {
+      if (!initialCostSnapshot.recurringCosts) setRecurringLoading(true);
+      try {
+        const recurringData = await api.getRecurringCosts().catch(() => null);
+        if (cancelled) return;
+        if (recurringData) setRecurringCosts(recurringData);
+      } catch (err) {
+        console.error('Failed to load recurring costs:', err);
+      } finally {
+        if (!cancelled) setRecurringLoading(false);
+      }
+    };
+
+    loadCostSummary();
+
+    const useAnimationFrame = typeof window.requestAnimationFrame === 'function';
+    const scheduleSupplemental = useAnimationFrame
+      ? window.requestAnimationFrame(() => {
+        loadCostHistory();
+        loadRecurringCosts();
+      })
+      : window.setTimeout(() => {
+        loadCostHistory();
+        loadRecurringCosts();
+      }, 0);
+
+    return () => {
+      cancelled = true;
+      if (useAnimationFrame && typeof window.cancelAnimationFrame === 'function') {
+        window.cancelAnimationFrame(scheduleSupplemental);
+      } else {
+        clearTimeout(scheduleSupplemental);
+      }
+    };
   }, []);
 
-  const loadCosts = async () => {
-    try {
-      const [costsData, historyData, recurringData, ratesData] = await Promise.all([
-        api.getCosts().catch(() => null),
-        api.getCostHistory(30).catch(() => ({ history: [] })),
-        api.getRecurringCosts().catch(() => null),
-        api.getCostRates().catch(() => null)
-      ]);
-      setCosts(costsData);
-      setCostHistory(historyData?.history || []);
-      setRecurringCosts(recurringData);
-      setImageRates(ratesData);
-    } catch (err) {
-      console.error('Failed to load costs:', err);
-    } finally {
-      setCostsLoading(false);
-    }
-  };
+  useEffect(() => {
+    writeDashboardCostSnapshot({
+      costs,
+      costHistory,
+      recurringCosts,
+      imageRates,
+      hasHistory: costHistoryLoaded,
+    });
+  }, [costHistory, costHistoryLoaded, costs, imageRates, recurringCosts]);
 
   const hasScheduledBatches = recurringCosts && recurringCosts.scheduledBatchCount > 0;
 
@@ -497,7 +591,7 @@ export default function Dashboard() {
         )}
         <div className="space-y-4">
           <CostSummaryCards costs={costs} loading={costsLoading} />
-          <CostBarChart data={costHistory} loading={costsLoading} />
+          <CostBarChart data={costHistory} loading={costHistoryLoading} />
         </div>
       </div>
 
@@ -515,7 +609,9 @@ export default function Dashboard() {
                 Est. Daily Recurring
               </p>
               <p className="text-lg font-semibold text-textdark tracking-tight">
-                {hasScheduledBatches
+                {recurringLoading && !recurringCosts
+                  ? 'Loading...'
+                  : hasScheduledBatches
                   ? `~$${recurringCosts.estimatedDailyCost.toFixed(2)}/day`
                   : '$0.00/day'}
               </p>
@@ -528,7 +624,12 @@ export default function Dashboard() {
             />
           </div>
 
-          {hasScheduledBatches ? (
+          {recurringLoading && !recurringCosts ? (
+            <div className="mt-3 ml-11 animate-pulse space-y-2">
+              <div className="h-3 w-32 bg-gray-100 rounded" />
+              <div className="h-10 bg-gray-50 rounded-xl" />
+            </div>
+          ) : hasScheduledBatches ? (
             <>
               <p className="text-[11px] text-textlight mt-2 ml-11">
                 {recurringCosts.scheduledBatchCount} scheduled batch{recurringCosts.scheduledBatchCount !== 1 ? 'es' : ''}
@@ -584,9 +685,13 @@ export default function Dashboard() {
                 </div>
               )}
             </>
-          ) : (
+          ) : recurringCosts ? (
             <p className="text-[11px] text-textlight mt-2 ml-11">
               No scheduled automations. Set up batch schedules in a project to see estimated recurring costs.
+            </p>
+          ) : (
+            <p className="text-[11px] text-textlight mt-2 ml-11">
+              Recurring cost estimates are temporarily unavailable.
             </p>
           )}
         </div>
