@@ -30,13 +30,13 @@ export default class ConvexSessionStore extends session.Store {
       if (parsed.cookie && parsed.cookie.expires) {
         const expires = new Date(parsed.cookie.expires).getTime();
         if (expires < Date.now()) {
-          // Expired — destroy and return null
           await destroySession(sid);
           return callback(null, null);
         }
       }
       callback(null, parsed);
     } catch (err) {
+      console.error('[ConvexSessionStore] get error:', err.message);
       callback(err);
     }
   }
@@ -51,6 +51,22 @@ export default class ConvexSessionStore extends session.Store {
       await setSession(sid, data, expiresAt);
       if (callback) callback(null);
     } catch (err) {
+      console.error('[ConvexSessionStore] set error:', err.message);
+      if (callback) callback(err);
+    }
+  }
+
+  async touch(sid, sessionData, callback) {
+    try {
+      const ttl = sessionData.cookie && sessionData.cookie.maxAge
+        ? sessionData.cookie.maxAge
+        : ONE_DAY_MS;
+      const expiresAt = Date.now() + ttl;
+      const data = JSON.stringify(sessionData);
+      await setSession(sid, data, expiresAt);
+      if (callback) callback(null);
+    } catch (err) {
+      console.error('[ConvexSessionStore] touch error:', err.message);
       if (callback) callback(err);
     }
   }
@@ -64,7 +80,6 @@ export default class ConvexSessionStore extends session.Store {
     }
   }
 
-  // Optional: called by express-session on graceful shutdown
   close() {
     if (this._cleanupInterval) {
       clearInterval(this._cleanupInterval);

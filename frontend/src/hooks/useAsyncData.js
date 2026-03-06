@@ -23,6 +23,7 @@ export function useAsyncData(fetchFn, deps = [], options = {}) {
   // Track whether the component is mounted
   const mountedRef = useRef(true);
   useEffect(() => {
+    mountedRef.current = true; // Reset on StrictMode remount
     return () => { mountedRef.current = false; };
   }, []);
 

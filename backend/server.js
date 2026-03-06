@@ -75,12 +75,31 @@ process.on('uncaughtException', (err) => {
     app.set('trust proxy', 1);
   }
 
+  // Disable ETags for API responses — 304s through the Vite dev proxy
+  // cause empty response bodies, breaking fetch().json() on the frontend
+  app.set('etag', false);
+
   // Generate or retrieve session secret
   let sessionSecret = await getSetting('session_secret');
   if (!sessionSecret) {
     sessionSecret = crypto.randomBytes(32).toString('hex');
     await setSetting('session_secret', sessionSecret);
   }
+
+  // Request logging
+  app.use((req, res, next) => {
+    const start = Date.now();
+    const url = req.originalUrl || req.url;
+    if (url.startsWith('/api/') && !url.includes('/health')) {
+      console.log(`[REQ] ${req.method} ${url}`);
+    }
+    res.on('finish', () => {
+      if (url.startsWith('/api/') && !url.includes('/health')) {
+        console.log(`[REQ] ${req.method} ${url} → ${res.statusCode} (${Date.now()-start}ms)`);
+      }
+    });
+    next();
+  });
 
   // Middleware
   app.use(compression());
