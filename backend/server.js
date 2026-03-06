@@ -7,7 +7,7 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import crypto from 'crypto';
 
-import { getSetting, setSetting } from './convexClient.js';
+import { getSetting, setSetting, backfillProjectStats } from './convexClient.js';
 import ConvexSessionStore from './ConvexSessionStore.js';
 import { requireAuth, requireRole, migrateToMultiUser } from './auth.js';
 import authRoutes from './routes/auth.js';
@@ -166,6 +166,18 @@ process.on('uncaughtException', (err) => {
 
   // Migrate legacy single-user auth to multi-user (runs once, idempotent)
   await migrateToMultiUser();
+
+  // Repair missing stored project counters once after startup so list pages can
+  // use lightweight summary queries without per-project scans.
+  backfillProjectStats()
+    .then(({ updated }) => {
+      if (updated > 0) {
+        console.log(`[Projects] Backfilled stored stats for ${updated} project(s)`);
+      }
+    })
+    .catch((err) => {
+      console.error('[Projects] Stored stats backfill error:', err.message);
+    });
 
   // Health check — no auth required (used by Dacia Fixer health probes)
   app.get('/api/health', async (req, res) => {

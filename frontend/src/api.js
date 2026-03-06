@@ -139,8 +139,10 @@ const _requestCache = new Map();
 // Per-path TTLs — longer for data that rarely changes mid-session
 function _getCacheTTL(path) {
   if (path === '/auth/session') return 5 * 60 * 1000;    // 5 min
+  if (path === '/projects/options') return 2 * 60 * 1000; // 2 min
   if (path === '/projects') return 2 * 60 * 1000;         // 2 min
   if (path.match(/^\/projects\/[^/]+$/)) return 2 * 60 * 1000; // 2 min
+  if (path === '/conductor/pipeline-status') return 30 * 1000; // 30s
   if (path.match(/^\/deployments/)) return 60 * 1000;     // 1 min
   if (path.match(/^\/conductor\//)) return 2 * 60 * 1000; // 2 min
   if (path.match(/^\/costs/)) return 2 * 60 * 1000;       // 2 min
@@ -183,11 +185,12 @@ export const api = {
 
   // Projects
   getProjects: () => cachedRequest('/projects'),
+  getProjectOptions: () => cachedRequest('/projects/options'),
   getProject: (id) => cachedRequest(`/projects/${id}`),
   getProjectStats: (id) => request(`/projects/${id}/stats`),
-  createProject: (data) => request('/projects', { method: 'POST', body: JSON.stringify(data) }).then(r => { invalidateCache('/projects'); return r; }),
-  updateProject: (id, data) => request(`/projects/${id}`, { method: 'PUT', body: JSON.stringify(data) }).then(r => { invalidateCache('/projects', `/projects/${id}`); return r; }),
-  deleteProject: (id) => request(`/projects/${id}`, { method: 'DELETE' }).then(r => { invalidateCache('/projects', `/projects/${id}`); return r; }),
+  createProject: (data) => request('/projects', { method: 'POST', body: JSON.stringify(data) }).then(r => { invalidateCache('/projects', '/projects/options'); return r; }),
+  updateProject: (id, data) => request(`/projects/${id}`, { method: 'PUT', body: JSON.stringify(data) }).then(r => { invalidateCache('/projects', '/projects/options', `/projects/${id}`); return r; }),
+  deleteProject: (id) => request(`/projects/${id}`, { method: 'DELETE' }).then(r => { invalidateCache('/projects', '/projects/options', `/projects/${id}`); return r; }),
 
   // Foundational Documents
   getDocs: (projectId) => request(`/projects/${projectId}/docs`),
@@ -344,7 +347,7 @@ export const api = {
 
   // Conductor (Dacia Creative Director)
   getConductorConfig: (projectId) => cachedRequest(`/conductor/config/${projectId}`),
-  updateConductorConfig: (projectId, data) => request(`/conductor/config/${projectId}`, { method: 'PUT', body: JSON.stringify(data) }).then(r => { invalidateCache(`/conductor/config/${projectId}`); return r; }),
+  updateConductorConfig: (projectId, data) => request(`/conductor/config/${projectId}`, { method: 'PUT', body: JSON.stringify(data) }).then(r => { invalidateCache(`/conductor/config/${projectId}`, '/conductor/pipeline-status'); return r; }),
   getAllConductorConfigs: () => cachedRequest('/conductor/configs'),
 
   // LP Agent config
@@ -372,7 +375,7 @@ export const api = {
   getConductorPlaybooks: (projectId) => cachedRequest(`/conductor/playbooks/${projectId}`),
   getConductorPlaybook: (projectId, angleName) => request(`/conductor/playbooks/${projectId}/${encodeURIComponent(angleName)}`),
   triggerLearningStep: (projectId, angleName, scoredAds) => request('/conductor/learn', { method: 'POST', body: JSON.stringify({ projectId, angleName, scoredAds }) }),
-  getConductorPipelineStatus: () => request('/conductor/pipeline-status'),
+  getConductorPipelineStatus: () => cachedRequest('/conductor/pipeline-status'),
   getConductorHealth: (limit) => request(`/conductor/health${limit ? `?limit=${limit}` : ''}`),
   getFixerPlaybooks: () => request('/conductor/fixer-playbooks'),
 

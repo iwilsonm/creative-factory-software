@@ -1,5 +1,6 @@
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
+import { adjustProjectCounters } from "./projects";
 
 export const getAll = query({
   args: {},
@@ -149,6 +150,7 @@ export const create = mutation({
       ...args,
       created_at: now,
     });
+    await adjustProjectCounters(ctx, args.project_id, { adCount: 1 });
   },
 });
 
@@ -196,6 +198,7 @@ export const remove = mutation({
       await ctx.storage.delete(ad.storageId);
     }
     await ctx.db.delete(ad._id);
+    await adjustProjectCounters(ctx, ad.project_id, { adCount: -1 });
   },
 });
 

@@ -154,24 +154,18 @@ export async function getAllProjects() {
   return projects.map(convexProjectToRow);
 }
 
+export async function getProjectSummaries() {
+  const projects = await queryWithRetry(api.projects.getSummaries, {});
+  return projects.map(convexProjectSummaryToRow);
+}
+
+export async function getProjectOptions() {
+  const projects = await queryWithRetry(api.projects.getOptions, {});
+  return projects.map(convexProjectOptionToRow);
+}
+
 export async function getAllProjectsWithStats() {
-  // Fetch projects first (lightweight), then stats per-project in parallel.
-  // The old monolithic Convex getAllWithStats query loaded ALL ads + LPs + docs
-  // in a single execution (~15+ MB), exceeding Convex query bandwidth limits.
-  const projects = await getAllProjects();
-  const statsResults = await Promise.allSettled(
-    projects.map(p => cachedQuery('projects', api.projects.getStats, { projectId: p.id }))
-  );
-  return projects.map((p, i) => {
-    const stats = statsResults[i].status === 'fulfilled' ? statsResults[i].value : {};
-    return {
-      ...p,
-      docCount: stats.docCount ?? 0,
-      adCount: stats.adCount ?? 0,
-      lpCount: stats.lpCount ?? 0,
-      lpPublishedCount: stats.lpPublishedCount ?? 0,
-    };
-  });
+  return await getProjectSummaries();
 }
 
 export async function updateProject(id, fields) {
@@ -189,6 +183,13 @@ export async function updateProject(id, fields) {
 export async function deleteProject(id) {
   await mutationWithRetry(api.projects.remove, { externalId: id });
   invalidateQueryCache('projects');
+}
+
+export async function backfillProjectStats(force = false) {
+  invalidateQueryCache('projects');
+  return await mutationWithRetry(api.projects.backfillStoredStats, {
+    ...(force ? { force: true } : {}),
+  });
 }
 
 function convexProjectToRow(p) {
@@ -222,8 +223,36 @@ function convexProjectToRow(p) {
     scout_daily_flex_ads: p.scout_daily_flex_ads ?? null,
     scout_destination_url: p.scout_destination_url || null,
     scout_duplicate_adset_name: p.scout_duplicate_adset_name || null,
+    docCount: p.docCount ?? 0,
+    adCount: p.adCount ?? 0,
+    lpCount: p.lpCount ?? 0,
+    lpPublishedCount: p.lpPublishedCount ?? 0,
     created_at: p.created_at,
     updated_at: p.updated_at,
+  };
+}
+
+function convexProjectSummaryToRow(p) {
+  return {
+    id: p.externalId,
+    name: p.name,
+    brand_name: p.brand_name || null,
+    niche: p.niche || null,
+    status: p.status || 'setup',
+    docCount: p.docCount ?? 0,
+    adCount: p.adCount ?? 0,
+    lpCount: p.lpCount ?? 0,
+    lpPublishedCount: p.lpPublishedCount ?? 0,
+  };
+}
+
+function convexProjectOptionToRow(p) {
+  return {
+    id: p.externalId,
+    name: p.name,
+    brand_name: p.brand_name || null,
+    displayName: p.displayName || p.brand_name || p.name,
+    status: p.status || 'setup',
   };
 }
 
@@ -1258,6 +1287,10 @@ export async function getLandingPageSummariesByProject(projectId) {
 
 export async function getLandingPage(externalId) {
   return await cachedQuery('landing_pages', api.landingPages.getByExternalId, { externalId });
+}
+
+export async function getLandingPageGauntletStats(projectId) {
+  return await queryWithRetry(api.landingPages.getGauntletStatsByProject, { projectId });
 }
 
 export async function createLandingPage({ id, project_id, name, angle, word_count, additional_direction, swipe_text, swipe_filename, swipe_url, swipe_screenshot_storageId, status, auto_generated, batch_job_id, narrative_frame, template_id, gauntlet_batch_id, gauntlet_frame, gauntlet_attempt, gauntlet_status, gauntlet_batch_started_at, gauntlet_batch_completed_at }) {

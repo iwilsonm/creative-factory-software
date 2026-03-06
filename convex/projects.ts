@@ -1,6 +1,109 @@
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
 
+type ProjectRecord = {
+  _id: any;
+  externalId: string;
+  name: string;
+  brand_name?: string;
+  niche?: string;
+  status?: string;
+  docCount?: number;
+  adCount?: number;
+  lpCount?: number;
+  lpPublishedCount?: number;
+};
+
+type ProjectStats = {
+  docCount: number;
+  adCount: number;
+  lpCount: number;
+  lpPublishedCount: number;
+};
+
+async function getProjectByExternalId(ctx: any, externalId: string) {
+  return await ctx.db
+    .query("projects")
+    .withIndex("by_externalId", (q: any) => q.eq("externalId", externalId))
+    .first();
+}
+
+function hasStoredStats(project: ProjectRecord) {
+  return [project.docCount, project.adCount, project.lpCount, project.lpPublishedCount].every(
+    (value) => typeof value === "number"
+  );
+}
+
+function getStoredStats(project: ProjectRecord): ProjectStats {
+  return {
+    docCount: project.docCount ?? 0,
+    adCount: project.adCount ?? 0,
+    lpCount: project.lpCount ?? 0,
+    lpPublishedCount: project.lpPublishedCount ?? 0,
+  };
+}
+
+async function countProjectAssets(ctx: any, projectId: string): Promise<ProjectStats> {
+  const docs = await ctx.db
+    .query("foundational_docs")
+    .withIndex("by_project", (q: any) => q.eq("project_id", projectId))
+    .collect();
+  const ads = await ctx.db
+    .query("ad_creatives")
+    .withIndex("by_project", (q: any) => q.eq("project_id", projectId))
+    .collect();
+  const lps = await ctx.db
+    .query("landing_pages")
+    .withIndex("by_project", (q: any) => q.eq("project_id", projectId))
+    .collect();
+
+  return {
+    docCount: docs.length,
+    adCount: ads.length,
+    lpCount: lps.length,
+    lpPublishedCount: lps.filter((lp: any) => lp.status === "published").length,
+  };
+}
+
+async function getProjectStatsForRecord(ctx: any, project: ProjectRecord): Promise<ProjectStats> {
+  if (hasStoredStats(project)) {
+    return getStoredStats(project);
+  }
+  return countProjectAssets(ctx, project.externalId);
+}
+
+function toProjectSummary(project: ProjectRecord, stats: ProjectStats) {
+  return {
+    externalId: project.externalId,
+    name: project.name,
+    brand_name: project.brand_name,
+    niche: project.niche,
+    status: project.status ?? "setup",
+    ...stats,
+  };
+}
+
+export async function adjustProjectCounters(
+  ctx: any,
+  projectId: string,
+  deltas: Partial<Record<keyof ProjectStats, number>>
+) {
+  const project = await getProjectByExternalId(ctx, projectId);
+  if (!project) return;
+
+  const patch: Partial<ProjectStats> = {};
+  for (const [key, delta] of Object.entries(deltas)) {
+    if (!delta) continue;
+    const statsKey = key as keyof ProjectStats;
+    const current = typeof project[statsKey] === "number" ? project[statsKey] : 0;
+    patch[statsKey] = Math.max(0, current + delta);
+  }
+
+  if (Object.keys(patch).length > 0) {
+    await ctx.db.patch(project._id, patch);
+  }
+}
+
 export const create = mutation({
   args: {
     externalId: v.string(),
@@ -16,6 +119,10 @@ export const create = mutation({
     const now = new Date().toISOString();
     await ctx.db.insert("projects", {
       ...args,
+      docCount: 0,
+      adCount: 0,
+      lpCount: 0,
+      lpPublishedCount: 0,
       status: "setup",
       created_at: now,
       updated_at: now,
@@ -71,6 +178,10 @@ export const update = mutation({
     scout_daily_flex_ads: v.optional(v.number()),
     scout_destination_url: v.optional(v.string()),
     scout_duplicate_adset_name: v.optional(v.string()),
+    docCount: v.optional(v.float64()),
+    adCount: v.optional(v.float64()),
+    lpCount: v.optional(v.float64()),
+    lpPublishedCount: v.optional(v.float64()),
   },
   handler: async (ctx, args) => {
     const project = await ctx.db
@@ -133,55 +244,75 @@ export const setProductImage = mutation({
 export const getStats = query({
   args: { projectId: v.string() },
   handler: async (ctx, args) => {
-    const docs = await ctx.db
-      .query("foundational_docs")
-      .withIndex("by_project", (q) => q.eq("project_id", args.projectId))
-      .collect();
-    const ads = await ctx.db
-      .query("ad_creatives")
-      .withIndex("by_project", (q) => q.eq("project_id", args.projectId))
-      .collect();
-    const lps = await ctx.db
-      .query("landing_pages")
-      .withIndex("by_project", (q) => q.eq("project_id", args.projectId))
-      .collect();
-    return {
-      docCount: docs.length,
-      adCount: ads.length,
-      lpCount: lps.length,
-      lpPublishedCount: lps.filter((lp) => lp.status === "published").length,
-    };
+    const project = await getProjectByExternalId(ctx, args.projectId);
+    if (!project) throw new Error("Project not found");
+    return await getProjectStatsForRecord(ctx, project);
   },
 });
 
-// Combined query: get all projects with their stats in a single Convex execution
-// Eliminates N+1 round-trips from VPS → Convex Cloud
+export const getSummaries = query({
+  args: {},
+  handler: async (ctx) => {
+    const projects = await ctx.db.query("projects").order("desc").collect();
+
+    return await Promise.all(
+      projects.map(async (project) => {
+        const stats = await getProjectStatsForRecord(ctx, project);
+        return toProjectSummary(project, stats);
+      })
+    );
+  },
+});
+
+export const getOptions = query({
+  args: {},
+  handler: async (ctx) => {
+    const projects = await ctx.db.query("projects").order("desc").collect();
+    return projects.map((project) => ({
+      externalId: project.externalId,
+      name: project.name,
+      brand_name: project.brand_name,
+      displayName: project.brand_name || project.name,
+      status: project.status ?? "setup",
+    }));
+  },
+});
+
+// Combined query retained for compatibility with older call sites.
 export const getAllWithStats = query({
   args: {},
   handler: async (ctx) => {
     const projects = await ctx.db.query("projects").order("desc").collect();
     return Promise.all(
       projects.map(async (project) => {
-        const docs = await ctx.db
-          .query("foundational_docs")
-          .withIndex("by_project", (q) => q.eq("project_id", project.externalId))
-          .collect();
-        const ads = await ctx.db
-          .query("ad_creatives")
-          .withIndex("by_project", (q) => q.eq("project_id", project.externalId))
-          .collect();
-        const lps = await ctx.db
-          .query("landing_pages")
-          .withIndex("by_project", (q) => q.eq("project_id", project.externalId))
-          .collect();
+        const stats = await getProjectStatsForRecord(ctx, project);
         return {
           ...project,
-          docCount: docs.length,
-          adCount: ads.length,
-          lpCount: lps.length,
-          lpPublishedCount: lps.filter((lp) => lp.status === "published").length,
+          ...stats,
         };
       })
     );
+  },
+});
+
+export const backfillStoredStats = mutation({
+  args: {
+    force: v.optional(v.boolean()),
+  },
+  handler: async (ctx, args) => {
+    const projects = await ctx.db.query("projects").collect();
+    let updated = 0;
+
+    for (const project of projects) {
+      if (!args.force && hasStoredStats(project)) {
+        continue;
+      }
+
+      const stats = await countProjectAssets(ctx, project.externalId);
+      await ctx.db.patch(project._id, stats);
+      updated += 1;
+    }
+
+    return { updated };
   },
 });

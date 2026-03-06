@@ -1,5 +1,6 @@
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
+import { adjustProjectCounters } from "./projects";
 
 function countWords(text?: string) {
   if (!text) return 0;
@@ -60,6 +61,10 @@ function summarizeLandingPage(page: any) {
   };
 }
 
+function isPublishedStatus(status?: string) {
+  return status === "published";
+}
+
 export const getByProject = query({
   args: { projectId: v.string() },
   handler: async (ctx, args) => {
@@ -89,6 +94,92 @@ export const getByExternalId = query({
       .query("landing_pages")
       .withIndex("by_externalId", (q) => q.eq("externalId", args.externalId))
       .first();
+  },
+});
+
+export const getGauntletStatsByProject = query({
+  args: { projectId: v.string() },
+  handler: async (ctx, args) => {
+    const allPages = await ctx.db
+      .query("landing_pages")
+      .withIndex("by_project", (q) => q.eq("project_id", args.projectId))
+      .collect();
+
+    const gauntletPages = allPages.filter((page) => page.gauntlet_batch_id);
+    if (gauntletPages.length === 0) {
+      return null;
+    }
+
+    const batchIds = [...new Set(gauntletPages.map((page) => page.gauntlet_batch_id))];
+    const passed = gauntletPages.filter(
+      (page) => page.gauntlet_status === "passed" || page.status === "published"
+    );
+    const failed = gauntletPages.filter((page) => page.gauntlet_status === "failed");
+    const scored = gauntletPages.filter((page) => page.gauntlet_score != null);
+    const scores = scored.map((page) => page.gauntlet_score);
+    const avgScore =
+      scores.length > 0
+        ? Math.round((scores.reduce((sum, score) => sum + score, 0) / scores.length) * 10) / 10
+        : null;
+    const minScore = scores.length > 0 ? Math.min(...scores) : null;
+    const maxScore = scores.length > 0 ? Math.max(...scores) : null;
+
+    const prescoreAttempts = gauntletPages
+      .filter((page) => page.gauntlet_image_prescore_attempts != null)
+      .map((page) => page.gauntlet_image_prescore_attempts);
+    const avgPrescoreAttempts =
+      prescoreAttempts.length > 0
+        ? Math.round(
+            (prescoreAttempts.reduce((sum, attempts) => sum + attempts, 0) /
+              prescoreAttempts.length) *
+              10
+          ) / 10
+        : null;
+    const firstPassRate =
+      prescoreAttempts.length > 0
+        ? Math.round(
+            (prescoreAttempts.filter((attempts) => attempts <= 1).length /
+              prescoreAttempts.length) *
+              100
+          )
+        : null;
+
+    const retried = gauntletPages.filter((page) => (page.gauntlet_attempt ?? 0) > 1);
+    const retryRate =
+      gauntletPages.length > 0
+        ? Math.round((retried.length / gauntletPages.length) * 100)
+        : 0;
+
+    const frameScores: Record<string, number[]> = {};
+    for (const page of scored) {
+      const frame = page.gauntlet_frame || page.narrative_frame || "unknown";
+      if (!frameScores[frame]) frameScores[frame] = [];
+      frameScores[frame].push(page.gauntlet_score);
+    }
+
+    const scoreByFrame: Record<string, number> = {};
+    for (const [frame, values] of Object.entries(frameScores)) {
+      scoreByFrame[frame] =
+        Math.round((values.reduce((sum, score) => sum + score, 0) / values.length) * 10) / 10;
+    }
+
+    return {
+      gauntletRuns: batchIds.length,
+      totalLPs: gauntletPages.length,
+      passed: passed.length,
+      failed: failed.length,
+      passRate:
+        gauntletPages.length > 0
+          ? Math.round((passed.length / gauntletPages.length) * 100)
+          : 0,
+      avgScore,
+      minScore,
+      maxScore,
+      avgPrescoreAttempts,
+      firstPassRate,
+      retryRate,
+      scoreByFrame,
+    };
   },
 });
 
@@ -144,6 +235,10 @@ export const create = mutation({
       gauntlet_batch_completed_at: args.gauntlet_batch_completed_at,
       created_at: now,
       updated_at: now,
+    });
+    await adjustProjectCounters(ctx, args.project_id, {
+      lpCount: 1,
+      lpPublishedCount: isPublishedStatus(args.status) ? 1 : 0,
     });
   },
 });
@@ -217,6 +312,10 @@ export const update = mutation({
       .first();
     if (!doc) throw new Error("Landing page not found");
 
+    const wasPublished = isPublishedStatus(doc.status);
+    const willBePublished =
+      args.status === undefined ? wasPublished : isPublishedStatus(args.status);
+
     const updates: Record<string, any> = { updated_at: new Date().toISOString() };
     if (args.name !== undefined) updates.name = args.name;
     if (args.angle !== undefined) updates.angle = args.angle;
@@ -270,6 +369,12 @@ export const update = mutation({
     if (args.gauntlet_batch_completed_at !== undefined) updates.gauntlet_batch_completed_at = args.gauntlet_batch_completed_at;
     if (args.generation_duration_ms !== undefined) updates.generation_duration_ms = args.generation_duration_ms;
     await ctx.db.patch(doc._id, updates);
+
+    if (wasPublished !== willBePublished) {
+      await adjustProjectCounters(ctx, doc.project_id, {
+        lpPublishedCount: willBePublished ? 1 : -1,
+      });
+    }
   },
 });
 
@@ -282,5 +387,9 @@ export const remove = mutation({
       .first();
     if (!doc) throw new Error("Landing page not found");
     await ctx.db.delete(doc._id);
+    await adjustProjectCounters(ctx, doc.project_id, {
+      lpCount: -1,
+      lpPublishedCount: isPublishedStatus(doc.status) ? -1 : 0,
+    });
   },
 });

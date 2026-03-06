@@ -1,5 +1,6 @@
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
+import { adjustProjectCounters } from "./projects";
 
 export const getByProject = query({
   args: { projectId: v.string() },
@@ -49,6 +50,7 @@ export const create = mutation({
       created_at: now,
       updated_at: now,
     });
+    await adjustProjectCounters(ctx, args.project_id, { docCount: 1 });
   },
 });
 
@@ -81,6 +83,7 @@ export const remove = mutation({
       .first();
     if (!doc) throw new Error("Document not found");
     await ctx.db.delete(doc._id);
+    await adjustProjectCounters(ctx, doc.project_id, { docCount: -1 });
   },
 });
 

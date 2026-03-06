@@ -49,7 +49,6 @@ function timeUntil(dateStr) {
 const VALID_AGENT_TABS = ['director', 'lp_agent', 'filter', 'fixer'];
 
 export default function AgentMonitor() {
-  const toast = useToast();
   const [searchParams, setSearchParams] = useSearchParams();
   const [fixerData, setFixerData] = useState(null);
   const [filterData, setFilterData] = useState(null);
@@ -67,10 +66,11 @@ export default function AgentMonitor() {
       return next;
     }, { replace: true });
   }, [setSearchParams]);
-  const [loading, setLoading] = useState(true);
+  const [statusLoading, setStatusLoading] = useState(true);
   const [error, setError] = useState(false);
 
   const loadStatus = useCallback(async () => {
+    setStatusLoading(true);
     try {
       if (activeTab === 'director') {
         const [fixer, filter, pipeline] = await Promise.allSettled([
@@ -103,7 +103,7 @@ export default function AgentMonitor() {
     } catch {
       setError(true);
     } finally {
-      setLoading(false);
+      setStatusLoading(false);
     }
   }, [activeTab]);
 
@@ -127,21 +127,6 @@ export default function AgentMonitor() {
     return () => document.removeEventListener('visibilitychange', handleVisibilityChange);
   }, [loadStatus]);
 
-  if (loading) {
-    return (
-      <div className="fade-in">
-        <div className="card p-5 animate-pulse">
-          <div className="flex items-center gap-3 mb-4">
-            <div className="w-7 h-7 rounded-lg bg-gray-100" />
-            <div className="h-4 w-48 bg-gray-100 rounded" />
-          </div>
-          <div className="h-24 bg-gray-50 rounded-xl mb-4" />
-          <div className="h-60 bg-gray-50 rounded-xl" />
-        </div>
-      </div>
-    );
-  }
-
   const hasActiveTabData =
     activeTab === 'director'
       ? !!pipelineStatus || !!fixerData || !!filterData
@@ -150,26 +135,6 @@ export default function AgentMonitor() {
         : activeTab === 'fixer'
           ? !!fixerData
           : true;
-
-  if (error || !hasActiveTabData) {
-    return (
-      <div className="fade-in">
-        <div className="card p-5">
-          <div className="flex items-center gap-3">
-            <div className="w-7 h-7 rounded-lg bg-black/5 flex items-center justify-center">
-              <svg className="w-3.5 h-3.5 text-textlight" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-              </svg>
-            </div>
-            <div>
-              <p className="text-[13px] font-medium text-textlight">Agent Dashboard</p>
-              <p className="text-[11px] text-textlight/60">Not available</p>
-            </div>
-          </div>
-        </div>
-      </div>
-    );
-  }
 
   const agentsOnline = [fixerData, filterData].filter(d => d?.status === 'online').length;
   const agentsTotal = [fixerData, filterData].filter(Boolean).length;
@@ -200,7 +165,17 @@ export default function AgentMonitor() {
           <span className="text-[11px] text-textmid font-medium">{agentsOnline}/{agentsTotal} online</span>
         </div>
 
-        {activeTab === 'director' ? (
+        {statusLoading && !hasActiveTabData ? (
+          <div className="animate-pulse">
+            <div className="h-3 w-28 bg-gray-200 rounded mb-3" />
+            <div className="h-20 bg-gray-50 rounded-xl" />
+          </div>
+        ) : error && !hasActiveTabData ? (
+          <div className="rounded-xl bg-black/[0.02] border border-black/5 p-4">
+            <p className="text-[12px] font-medium text-textmid mb-1">Status Summary</p>
+            <p className="text-[11px] text-textlight">Agent status is temporarily unavailable. The page shell stays interactive while the status endpoints recover.</p>
+          </div>
+        ) : activeTab === 'director' ? (
           <PipelineOverview data={pipelineStatus} fixerData={fixerData} filterData={filterData} />
         ) : (
           <div className="rounded-xl bg-black/[0.02] border border-black/5 p-4">
@@ -336,21 +311,33 @@ function PipelineOverview({ data, fixerData, filterData }) {
 // =============================================
 function GauntletStatsPanel({ projectId }) {
   const [data, setData] = useState(null);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(false);
+  const [expanded, setExpanded] = useState(false);
+  const [loadedProjectId, setLoadedProjectId] = useState(null);
 
   useEffect(() => {
-    if (!projectId) return;
-    setLoading(true);
-    api.getGauntletStats(projectId)
-      .then(res => setData(res))
-      .catch(() => setData(null))
-      .finally(() => setLoading(false));
+    setExpanded(false);
+    setData(null);
+    setLoading(false);
+    setLoadedProjectId(null);
   }, [projectId]);
 
-  if (loading) return <div className="py-2 text-center text-[11px] text-textmid">Loading LP stats...</div>;
-  if (!data?.hasData) return null;
+  useEffect(() => {
+    if (!projectId || !expanded || loadedProjectId === projectId) return;
+    setLoading(true);
+    api.getGauntletStats(projectId)
+      .then(res => {
+        setData(res);
+        setLoadedProjectId(projectId);
+      })
+      .catch(() => {
+        setData(null);
+        setLoadedProjectId(null);
+      })
+      .finally(() => setLoading(false));
+  }, [expanded, loadedProjectId, projectId]);
 
-  const s = data.stats;
+  const s = data?.stats || null;
   const FRAME_LABELS = {
     testimonial: 'Testimonial',
     mechanism: 'Mechanism',
@@ -361,73 +348,100 @@ function GauntletStatsPanel({ projectId }) {
 
   return (
     <div className="card p-4 space-y-3 mb-4">
-      <h3 className="text-[13px] font-semibold text-navy">LP Generation Stats</h3>
-
-      {/* Summary grid */}
-      <div className="grid grid-cols-4 gap-3">
-        <div className="bg-offwhite rounded-lg p-2.5 text-center">
-          <div className="text-[18px] font-bold text-navy">{s.gauntletRuns}</div>
-          <div className="text-[10px] text-textmid">Runs</div>
+      <div className="flex items-start justify-between gap-3">
+        <div>
+          <h3 className="text-[13px] font-semibold text-navy">LP Generation Stats</h3>
+          <p className="text-[10px] text-textlight mt-0.5">Loaded on demand so the LP Agent tab opens faster.</p>
         </div>
-        <div className="bg-offwhite rounded-lg p-2.5 text-center">
-          <div className="text-[18px] font-bold text-teal">{s.passRate}%</div>
-          <div className="text-[10px] text-textmid">Pass Rate</div>
-        </div>
-        <div className="bg-offwhite rounded-lg p-2.5 text-center">
-          <div className="text-[18px] font-bold text-navy">{s.avgScore ?? '—'}</div>
-          <div className="text-[10px] text-textmid">Avg Score</div>
-        </div>
-        <div className="bg-offwhite rounded-lg p-2.5 text-center">
-          <div className="text-[18px] font-bold text-gold">{s.retryRate}%</div>
-          <div className="text-[10px] text-textmid">Retry Rate</div>
-        </div>
+        <button
+          type="button"
+          onClick={() => setExpanded(prev => !prev)}
+          className="btn-secondary text-[11px] px-3 py-1.5 shrink-0"
+        >
+          {expanded ? 'Hide Stats' : loadedProjectId === projectId ? 'Show Stats' : 'Load Stats'}
+        </button>
       </div>
 
-      {/* Detail stats */}
-      <div className="grid grid-cols-3 gap-2 text-[11px]">
-        <div className="bg-offwhite rounded-lg px-2.5 py-2">
-          <span className="text-textmid">Total LPs: </span>
-          <span className="font-medium text-navy">{s.totalLPs}</span>
+      {!expanded ? (
+        <div className="rounded-xl bg-black/[0.02] border border-black/5 px-3 py-2.5">
+          <p className="text-[11px] text-textmid">Open this panel only when you need gauntlet pass/fail and score breakdowns.</p>
         </div>
-        <div className="bg-offwhite rounded-lg px-2.5 py-2">
-          <span className="text-textmid">Passed: </span>
-          <span className="font-medium text-teal">{s.passed}</span>
+      ) : loading ? (
+        <div className="py-3 text-center text-[11px] text-textmid">Loading LP stats...</div>
+      ) : !data?.hasData ? (
+        <div className="rounded-xl bg-black/[0.02] border border-black/5 px-3 py-2.5">
+          <p className="text-[11px] text-textmid">No gauntlet runs found for this project yet.</p>
         </div>
-        <div className="bg-offwhite rounded-lg px-2.5 py-2">
-          <span className="text-textmid">Failed: </span>
-          <span className="font-medium text-red-400">{s.failed}</span>
-        </div>
-        <div className="bg-offwhite rounded-lg px-2.5 py-2">
-          <span className="text-textmid">Image 1st Pass: </span>
-          <span className="font-medium text-navy">{s.firstPassRate != null ? `${s.firstPassRate}%` : '—'}</span>
-        </div>
-        <div className="bg-offwhite rounded-lg px-2.5 py-2">
-          <span className="text-textmid">Avg Img Retries: </span>
-          <span className="font-medium text-navy">{s.avgPrescoreAttempts ?? '—'}</span>
-        </div>
-        <div className="bg-offwhite rounded-lg px-2.5 py-2">
-          <span className="text-textmid">Score Range: </span>
-          <span className="font-medium text-navy">{s.minScore != null ? `${s.minScore}–${s.maxScore}` : '—'}</span>
-        </div>
-      </div>
+      ) : (
+        <>
 
-      {/* Score by frame (mini bar chart) */}
-      {Object.keys(s.scoreByFrame || {}).length > 0 && (
-        <div className="space-y-1.5">
-          <div className="text-[10px] font-semibold text-textmid uppercase tracking-wide">Score by Frame</div>
-          {Object.entries(s.scoreByFrame).map(([frame, score]) => (
-            <div key={frame} className="flex items-center gap-2">
-              <span className="text-[10px] text-textmid w-20 flex-shrink-0 truncate">{FRAME_LABELS[frame] || frame}</span>
-              <div className="flex-1 h-4 bg-offwhite rounded-full overflow-hidden">
-                <div
-                  className="h-full bg-navy/70 rounded-full transition-all"
-                  style={{ width: `${Math.min(100, (score / 10) * 100)}%` }}
-                />
-              </div>
-              <span className="text-[10px] font-medium text-navy w-8 text-right">{score}</span>
+          {/* Summary grid */}
+          <div className="grid grid-cols-4 gap-3">
+            <div className="bg-offwhite rounded-lg p-2.5 text-center">
+              <div className="text-[18px] font-bold text-navy">{s.gauntletRuns}</div>
+              <div className="text-[10px] text-textmid">Runs</div>
             </div>
-          ))}
-        </div>
+            <div className="bg-offwhite rounded-lg p-2.5 text-center">
+              <div className="text-[18px] font-bold text-teal">{s.passRate}%</div>
+              <div className="text-[10px] text-textmid">Pass Rate</div>
+            </div>
+            <div className="bg-offwhite rounded-lg p-2.5 text-center">
+              <div className="text-[18px] font-bold text-navy">{s.avgScore ?? '—'}</div>
+              <div className="text-[10px] text-textmid">Avg Score</div>
+            </div>
+            <div className="bg-offwhite rounded-lg p-2.5 text-center">
+              <div className="text-[18px] font-bold text-gold">{s.retryRate}%</div>
+              <div className="text-[10px] text-textmid">Retry Rate</div>
+            </div>
+          </div>
+
+          {/* Detail stats */}
+          <div className="grid grid-cols-3 gap-2 text-[11px]">
+            <div className="bg-offwhite rounded-lg px-2.5 py-2">
+              <span className="text-textmid">Total LPs: </span>
+              <span className="font-medium text-navy">{s.totalLPs}</span>
+            </div>
+            <div className="bg-offwhite rounded-lg px-2.5 py-2">
+              <span className="text-textmid">Passed: </span>
+              <span className="font-medium text-teal">{s.passed}</span>
+            </div>
+            <div className="bg-offwhite rounded-lg px-2.5 py-2">
+              <span className="text-textmid">Failed: </span>
+              <span className="font-medium text-red-400">{s.failed}</span>
+            </div>
+            <div className="bg-offwhite rounded-lg px-2.5 py-2">
+              <span className="text-textmid">Image 1st Pass: </span>
+              <span className="font-medium text-navy">{s.firstPassRate != null ? `${s.firstPassRate}%` : '—'}</span>
+            </div>
+            <div className="bg-offwhite rounded-lg px-2.5 py-2">
+              <span className="text-textmid">Avg Img Retries: </span>
+              <span className="font-medium text-navy">{s.avgPrescoreAttempts ?? '—'}</span>
+            </div>
+            <div className="bg-offwhite rounded-lg px-2.5 py-2">
+              <span className="text-textmid">Score Range: </span>
+              <span className="font-medium text-navy">{s.minScore != null ? `${s.minScore}–${s.maxScore}` : '—'}</span>
+            </div>
+          </div>
+
+          {/* Score by frame (mini bar chart) */}
+          {Object.keys(s.scoreByFrame || {}).length > 0 && (
+            <div className="space-y-1.5">
+              <div className="text-[10px] font-semibold text-textmid uppercase tracking-wide">Score by Frame</div>
+              {Object.entries(s.scoreByFrame).map(([frame, score]) => (
+                <div key={frame} className="flex items-center gap-2">
+                  <span className="text-[10px] text-textmid w-20 flex-shrink-0 truncate">{FRAME_LABELS[frame] || frame}</span>
+                  <div className="flex-1 h-4 bg-offwhite rounded-full overflow-hidden">
+                    <div
+                      className="h-full bg-navy/70 rounded-full transition-all"
+                      style={{ width: `${Math.min(100, (score / 10) * 100)}%` }}
+                    />
+                  </div>
+                  <span className="text-[10px] font-medium text-navy w-8 text-right">{score}</span>
+                </div>
+              ))}
+            </div>
+          )}
+        </>
       )}
     </div>
   );
@@ -455,7 +469,7 @@ function LPAgentTab() {
   useEffect(() => {
     (async () => {
       try {
-        const res = await api.getProjects();
+        const res = await api.getProjectOptions();
         const list = res.projects || res || [];
         setProjects(list);
         const projectFromUrl = searchParams.get('project');
@@ -484,7 +498,7 @@ function LPAgentTab() {
             className="input-apple text-[12px]"
           >
             {projects.map(p => (
-              <option key={p.id} value={p.id}>{p.name}</option>
+              <option key={p.id} value={p.id}>{p.displayName || p.brand_name || p.name}</option>
             ))}
           </select>
         </div>
@@ -515,7 +529,14 @@ function DirectorTab({ onRefresh }) {
   const [playbooks, setPlaybooks] = useState([]);
   const [subTab, setSubTab] = useState('angles');
   const [archivedOpen, setArchivedOpen] = useState(false);
-  const [loading, setLoading] = useState(true);
+  const [projectLoading, setProjectLoading] = useState(true);
+  const [baseLoading, setBaseLoading] = useState(false);
+  const [runsLoading, setRunsLoading] = useState(false);
+  const [playbooksLoading, setPlaybooksLoading] = useState(false);
+  const [campaignsLoading, setCampaignsLoading] = useState(false);
+  const [runsLoadedFor, setRunsLoadedFor] = useState('');
+  const [playbooksLoadedFor, setPlaybooksLoadedFor] = useState('');
+  const [campaignsLoadedFor, setCampaignsLoadedFor] = useState('');
   const [runningAction, setRunningAction] = useState(null);
   const [saving, setSaving] = useState(false);
 
@@ -573,20 +594,32 @@ function DirectorTab({ onRefresh }) {
   const debounceRef = useRef(null);
   const pendingConfigRef = useRef({});
   const saveInFlightRef = useRef(false);
+  const selectedProjectRef = useRef('');
+
+  useEffect(() => {
+    selectedProjectRef.current = selectedProject;
+  }, [selectedProject]);
 
   // Load projects list
   useEffect(() => {
+    let cancelled = false;
     (async () => {
       try {
-        const res = await api.getProjects();
+        const res = await api.getProjectOptions();
         const list = res.projects || res || [];
+        if (cancelled) return;
         setProjects(list);
-        if (list.length > 0 && !selectedProject) {
+        if (list.length > 0 && !selectedProjectRef.current) {
           setSelectedProject(list[0].id);
         }
       } catch { /* ignore */ }
-      finally { setLoading(false); }
+      finally {
+        if (!cancelled) setProjectLoading(false);
+      }
     })();
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   // Load project-specific data when selection changes
@@ -594,23 +627,90 @@ function DirectorTab({ onRefresh }) {
     if (!selectedProject) return;
     pendingConfigRef.current = {};
     if (debounceRef.current) clearTimeout(debounceRef.current);
+    setSelectedAngleId('');
+    let cancelled = false;
+    setBaseLoading(true);
+    setConfig(null);
+    setAngles([]);
+    setRuns([]);
+    setPlaybooks([]);
+    setCampaigns([]);
+    setRunsLoadedFor('');
+    setPlaybooksLoadedFor('');
+    setCampaignsLoadedFor('');
     (async () => {
       try {
-        const [cfgRes, angRes, runRes, pbRes, campRes] = await Promise.allSettled([
+        const [cfgRes, angRes] = await Promise.allSettled([
           api.getConductorConfig(selectedProject),
           api.getConductorAngles(selectedProject),
-          api.getConductorRuns(selectedProject, 20),
-          api.getConductorPlaybooks(selectedProject),
-          api.getCampaigns(selectedProject),
         ]);
+        if (cancelled) return;
         if (cfgRes.status === 'fulfilled') setConfig(cfgRes.value?.config || null);
         if (angRes.status === 'fulfilled') setAngles(angRes.value?.angles || []);
-        if (runRes.status === 'fulfilled') setRuns(runRes.value?.runs || []);
-        if (pbRes.status === 'fulfilled') setPlaybooks(pbRes.value?.playbooks || []);
-        if (campRes.status === 'fulfilled') setCampaigns(campRes.value?.campaigns || []);
       } catch { /* ignore */ }
+      finally {
+        if (!cancelled) setBaseLoading(false);
+      }
     })();
+    return () => {
+      cancelled = true;
+    };
   }, [selectedProject]);
+
+  const loadRuns = useCallback(async (projectId = selectedProjectRef.current) => {
+    if (!projectId || runsLoading || runsLoadedFor === projectId) return;
+    setRunsLoading(true);
+    try {
+      const runRes = await api.getConductorRuns(projectId, 20);
+      if (selectedProjectRef.current !== projectId) return;
+      setRuns(runRes?.runs || []);
+      setRunsLoadedFor(projectId);
+    } catch { /* ignore */ }
+    finally {
+      if (selectedProjectRef.current === projectId) setRunsLoading(false);
+    }
+  }, [runsLoadedFor, runsLoading]);
+
+  const loadPlaybooks = useCallback(async (projectId = selectedProjectRef.current) => {
+    if (!projectId || playbooksLoading || playbooksLoadedFor === projectId) return;
+    setPlaybooksLoading(true);
+    try {
+      const pbRes = await api.getConductorPlaybooks(projectId);
+      if (selectedProjectRef.current !== projectId) return;
+      setPlaybooks(pbRes?.playbooks || []);
+      setPlaybooksLoadedFor(projectId);
+    } catch { /* ignore */ }
+    finally {
+      if (selectedProjectRef.current === projectId) setPlaybooksLoading(false);
+    }
+  }, [playbooksLoadedFor, playbooksLoading]);
+
+  const loadCampaigns = useCallback(async (projectId = selectedProjectRef.current) => {
+    if (!projectId || campaignsLoading || campaignsLoadedFor === projectId) return;
+    setCampaignsLoading(true);
+    try {
+      const campRes = await api.getCampaigns(projectId);
+      if (selectedProjectRef.current !== projectId) return;
+      setCampaigns(campRes?.campaigns || []);
+      setCampaignsLoadedFor(projectId);
+    } catch { /* ignore */ }
+    finally {
+      if (selectedProjectRef.current === projectId) setCampaignsLoading(false);
+    }
+  }, [campaignsLoadedFor, campaignsLoading]);
+
+  useEffect(() => {
+    if (!selectedProject) return;
+    if (subTab === 'angles' || subTab === 'playbooks') {
+      loadPlaybooks(selectedProject);
+    }
+    if (subTab === 'history') {
+      loadRuns(selectedProject);
+    }
+    if (subTab === 'settings') {
+      loadCampaigns(selectedProject);
+    }
+  }, [loadCampaigns, loadPlaybooks, loadRuns, selectedProject, subTab]);
 
   useEffect(() => {
     return () => {
@@ -642,7 +742,7 @@ function DirectorTab({ onRefresh }) {
   }, [selectedProject]);
 
   const handleSaveConfig = useCallback((updates) => {
-    setConfig(prev => ({ ...prev, ...updates }));
+    setConfig(prev => ({ ...(prev || {}), ...updates }));
     pendingConfigRef.current = { ...pendingConfigRef.current, ...updates };
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(flushPendingConfig, 500);
@@ -695,6 +795,7 @@ function DirectorTab({ onRefresh }) {
       try {
         const runRes = await api.getConductorRuns(selectedProject, 20);
         setRuns(runRes?.runs || []);
+        setRunsLoadedFor(selectedProject);
       } catch {}
       if (!isError) onRefresh();
     }, isError ? 3000 : 2000);
@@ -829,6 +930,7 @@ function DirectorTab({ onRefresh }) {
           // Run finished while we were away
           const runRes = await api.getConductorRuns(selectedProject, 5);
           setRuns(runRes?.runs || []);
+          setRunsLoadedFor(selectedProject);
           const latest = (runRes?.runs || [])[0];
           const succeeded = latest?.status === 'completed';
           updateQueueItem(running.id, {
@@ -1113,7 +1215,9 @@ function DirectorTab({ onRefresh }) {
     finally { setImporting(false); }
   };
 
-  if (loading) return <div className="text-[11px] text-textlight py-4">Loading...</div>;
+  if (projectLoading) return <div className="text-[11px] text-textlight py-4">Loading projects...</div>;
+  if (projects.length === 0) return <div className="text-[11px] text-textlight py-4">No projects found.</div>;
+  if (!selectedProject) return <div className="text-[11px] text-textlight py-4">Select a project to load Director settings.</div>;
 
   const subTabs = [
     { id: 'angles', label: 'Angles' },
@@ -1136,14 +1240,17 @@ function DirectorTab({ onRefresh }) {
           className="text-[12px] text-textdark bg-offwhite border border-black/10 rounded-lg px-3 py-1.5 cursor-pointer"
         >
           {projects.map(p => (
-            <option key={p.id} value={p.id}>{p.brand_name || p.name}</option>
+            <option key={p.id} value={p.id}>{p.displayName || p.brand_name || p.name}</option>
           ))}
         </select>
 
-        <label className="flex items-center gap-2 text-[11px] text-textmid cursor-pointer">
+        <label className={`flex items-center gap-2 text-[11px] ${baseLoading || !config ? 'text-textlight cursor-not-allowed' : 'text-textmid cursor-pointer'}`}>
           <div
-            onClick={() => handleSaveConfig({ enabled: !config?.enabled })}
-            className={`relative w-7 h-4 rounded-full transition-colors duration-200 cursor-pointer ${config?.enabled ? 'bg-teal/30' : 'bg-black/10'}`}
+            onClick={() => {
+              if (!config) return;
+              handleSaveConfig({ enabled: !config.enabled });
+            }}
+            className={`relative w-7 h-4 rounded-full transition-colors duration-200 ${config ? 'cursor-pointer' : 'cursor-not-allowed opacity-50'} ${config?.enabled ? 'bg-teal/30' : 'bg-black/10'}`}
           >
             <div className={`absolute top-0.5 w-3 h-3 rounded-full transition-all duration-200 shadow-sm ${config?.enabled ? 'left-3.5 bg-teal' : 'left-0.5 bg-textlight'}`} />
           </div>
@@ -1167,7 +1274,8 @@ function DirectorTab({ onRefresh }) {
           </label>
           <button
             onClick={handleTestRun}
-            className="btn-primary text-[11px] px-3 py-1.5 flex items-center gap-1"
+            disabled={baseLoading || activeAngles.length === 0}
+            className="btn-primary text-[11px] px-3 py-1.5 flex items-center gap-1 disabled:opacity-50"
           >
             {activeRun ? <><Spinner /> {queuedCount > 0 ? `Running (${queuedCount} queued)` : 'Running...'}</> : queuedCount > 0 ? `Queue Run (${queuedCount} queued)` : 'Test Run'}
           </button>
@@ -1254,10 +1362,10 @@ function DirectorTab({ onRefresh }) {
 
       {/* Quick stats */}
       <div className="grid grid-cols-4 gap-2 mb-4">
-        <StatCell value={config?.daily_flex_target ?? 5} label="Daily Target" color="text-textdark" />
-        <StatCell value={config?.ads_per_batch || 18} label="Ads/Batch" color="text-textdark" />
+        <StatCell value={config?.daily_flex_target ?? '—'} label="Daily Target" color="text-textdark" />
+        <StatCell value={config?.ads_per_batch ?? '—'} label="Ads/Batch" color="text-textdark" />
         <StatCell value={activeAngles.length} label="Angles" color="text-navy" />
-        <StatCell value={runs.length > 0 ? runs.filter(r => r.status === 'completed').length : 0} label="Runs" color="text-teal" />
+        <StatCell value={runsLoadedFor === selectedProject ? runs.filter(r => r.status === 'completed').length : '—'} label="Runs" color="text-teal" />
       </div>
 
       {/* Sub-tabs */}
@@ -1280,6 +1388,12 @@ function DirectorTab({ onRefresh }) {
       {/* Sub-tab content */}
       {subTab === 'angles' && (
         <div>
+          {baseLoading && angles.length === 0 && (
+            <div className="rounded-xl bg-black/[0.02] border border-black/5 px-3 py-3 mb-3">
+              <p className="text-[11px] text-textmid">Loading Director settings and angles...</p>
+            </div>
+          )}
+
           {/* Focus mode banner */}
           {activeAngles.some(a => a.focused) && (
             <div className="mb-3 flex items-center gap-2 px-3 py-2 rounded-lg bg-gold/10 border border-gold/20">
@@ -1308,6 +1422,10 @@ function DirectorTab({ onRefresh }) {
               Import
             </button>
           </div>
+
+          {playbooksLoading && playbooksLoadedFor !== selectedProject && (
+            <p className="text-[10px] text-textlight mb-3">Loading playbook notes...</p>
+          )}
 
           {/* Import panel */}
           {showImport && (
@@ -1443,6 +1561,12 @@ function DirectorTab({ onRefresh }) {
             </div>
           )}
 
+          {!baseLoading && activeAngles.length === 0 && testingAngles.length === 0 && archivedAngles.length === 0 && (
+            <div className="rounded-xl bg-black/[0.02] border border-black/5 px-3 py-3 mb-4">
+              <p className="text-[11px] text-textmid">No angles yet. Add one to start using the Creative Director.</p>
+            </div>
+          )}
+
           {/* Add angle */}
           {showAddAngle ? (
             <div className="rounded-xl bg-offwhite border border-black/10 p-4 mt-2">
@@ -1502,7 +1626,9 @@ function DirectorTab({ onRefresh }) {
 
       {subTab === 'playbooks' && (
         <div>
-          {playbooks.length === 0 ? (
+          {playbooksLoading && playbooksLoadedFor !== selectedProject ? (
+            <p className="text-[11px] text-textlight py-4">Loading playbooks...</p>
+          ) : playbooks.length === 0 ? (
             <p className="text-[11px] text-textlight py-4">No playbooks yet. Playbooks are created automatically after the Creative Filter scores batches for each angle.</p>
           ) : (
             <div className="space-y-3">
@@ -1544,6 +1670,12 @@ function DirectorTab({ onRefresh }) {
               ))}
             </div>
           )}
+        </div>
+      )}
+
+      {subTab === 'settings' && !config && (
+        <div className="rounded-xl bg-black/[0.02] border border-black/5 px-3 py-3">
+          <p className="text-[11px] text-textmid">Loading Director settings...</p>
         </div>
       )}
 
@@ -1646,7 +1778,9 @@ function DirectorTab({ onRefresh }) {
 
           <div>
             <label className="text-[11px] text-textmid font-medium block mb-1">Default Campaign for Auto-Deployed Ads</label>
-            {campaigns.length > 0 ? (
+            {campaignsLoading && campaignsLoadedFor !== selectedProject ? (
+              <p className="text-[11px] text-textlight">Loading campaigns...</p>
+            ) : campaigns.length > 0 ? (
               <select
                 value={config.default_campaign_id || ''}
                 onChange={e => handleSaveConfig({ default_campaign_id: e.target.value })}
@@ -1671,7 +1805,9 @@ function DirectorTab({ onRefresh }) {
 
       {subTab === 'history' && (
         <div>
-          {runs.length === 0 ? (
+          {runsLoading && runsLoadedFor !== selectedProject ? (
+            <p className="text-[11px] text-textlight py-4">Loading run history...</p>
+          ) : runs.length === 0 ? (
             <p className="text-[11px] text-textlight py-4">No runs yet. Click "Test Run" to trigger the Director, or wait for the next scheduled run.</p>
           ) : (
             <div className="space-y-2">

@@ -8,7 +8,7 @@ import {
   getConductorPlaybooks, getConductorPlaybook,
   getFixerPlaybooks, upsertFixerPlaybook,
   getFlexAdsByProject, getBatchesByProject,
-  getAllProjects,
+  getProjectOptions,
 } from '../convexClient.js';
 import { buildDescriptionFromBrief } from '../utils/angleParser.js';
 import { streamService } from '../utils/sseHelper.js';
@@ -32,7 +32,7 @@ function resetPipelineStatusCache() {
 async function computePipelineStatus() {
   const [configs, projects] = await Promise.all([
     getAllConductorConfigs(),
-    getAllProjects(),
+    getProjectOptions(),
   ]);
   const projectMap = new Map(projects.map(project => [project.id, project]));
 
@@ -72,10 +72,7 @@ async function computePipelineStatus() {
   return { projects: status.filter(Boolean) };
 }
 
-async function getCachedPipelineStatus() {
-  if (pipelineStatusCache.value && pipelineStatusCache.expiresAt > Date.now()) {
-    return pipelineStatusCache.value;
-  }
+function refreshPipelineStatusCache() {
   if (pipelineStatusCache.inFlight) {
     return pipelineStatusCache.inFlight;
   }
@@ -93,6 +90,22 @@ async function getCachedPipelineStatus() {
     });
 
   return pipelineStatusCache.inFlight;
+}
+
+async function getCachedPipelineStatus() {
+  const now = Date.now();
+  if (pipelineStatusCache.value && pipelineStatusCache.expiresAt > now) {
+    return pipelineStatusCache.value;
+  }
+
+  if (pipelineStatusCache.value) {
+    refreshPipelineStatusCache().catch((err) => {
+      console.error('[Conductor] Pipeline refresh error:', err.message);
+    });
+    return pipelineStatusCache.value;
+  }
+
+  return refreshPipelineStatusCache();
 }
 
 // =============================================

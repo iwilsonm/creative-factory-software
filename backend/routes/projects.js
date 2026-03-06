@@ -8,7 +8,8 @@ import { requireAuth, requireRole } from '../auth.js';
 import {
   createProject,
   getProject,
-  getAllProjectsWithStats,
+  getProjectSummaries,
+  getProjectOptions,
   updateProject,
   deleteProject,
   getProjectStats,
@@ -38,10 +39,20 @@ router.use(requireAuth);
 // List all projects (single Convex query with embedded stats)
 router.get('/', async (req, res) => {
   try {
-    const projects = await getAllProjectsWithStats();
+    const projects = await getProjectSummaries();
     res.json(projects);
   } catch (err) {
     console.error('[Projects] List error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/options', async (req, res) => {
+  try {
+    const projects = await getProjectOptions();
+    res.json({ projects });
+  } catch (err) {
+    console.error('[Projects] Options error:', err.message);
     res.status(500).json({ error: err.message });
   }
 });
