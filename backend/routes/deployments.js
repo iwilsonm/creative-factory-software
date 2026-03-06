@@ -58,7 +58,7 @@ router.get('/deployments', async (req, res) => {
     let adsMap = new Map();   // ad_id → { ad, imageUrl }
     let projectName = null;
 
-    if (projectId && deployments.length > 0) {
+    if (deployments.length > 0 && projectId) {
       // Parallel fetch: project name + all ads for this project (2 queries instead of N+1)
       const [projectResult, adsResult] = await Promise.allSettled([
         getProject(projectId),
@@ -72,6 +72,27 @@ router.get('/deployments', async (req, res) => {
           adsMap.set(ad.id, { ad, imageUrl: ad.resolvedImageUrl || null });
         }
       }
+    } else if (deployments.length > 0) {
+      // No project filter — bulk-fetch all relevant ads and projects
+      const uniqueProjectIds = [...new Set(deployments.map(d => d.project_id).filter(Boolean))];
+      const projectsMap = new Map();
+
+      // Fetch all ads + projects in parallel (M+N queries instead of 2*D individual)
+      const [adsResults, ...projectResults] = await Promise.all([
+        Promise.all(uniqueProjectIds.map(pid => getAdsByProject(pid).catch(() => []))),
+        ...uniqueProjectIds.map(pid => getProject(pid).catch(() => null)),
+      ]);
+
+      for (const projectAds of adsResults) {
+        for (const ad of projectAds) {
+          adsMap.set(ad.id, { ad, imageUrl: ad.resolvedImageUrl || null });
+        }
+      }
+      for (let i = 0; i < uniqueProjectIds.length; i++) {
+        if (projectResults[i]) projectsMap.set(uniqueProjectIds[i], projectResults[i].name);
+      }
+      // Stash projectsMap so the enrichment loop can use it
+      req._projectsMap = projectsMap;
     }
 
     const enriched = await Promise.all(
@@ -95,6 +116,9 @@ router.get('/deployments', async (req, res) => {
           } catch {}
         }
 
+        if (!depProjectName && req._projectsMap) {
+          depProjectName = req._projectsMap.get(dep.project_id) || null;
+        }
         if (!depProjectName) {
           try {
             const project = await getProject(dep.project_id);

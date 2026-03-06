@@ -131,12 +131,31 @@ function streamSSEWithBody(path, body, onEvent) {
   return { abort: () => controller.abort(), done };
 }
 
+// ─── Request Cache (30s TTL) ──────────────────────────────────────────────────
+// Caches read-only GET responses so back-navigation doesn't re-fetch.
+// Mutations invalidate related entries immediately.
+const _requestCache = new Map();
+const _CACHE_TTL = 30 * 1000;
+
+function cachedRequest(path) {
+  const cached = _requestCache.get(path);
+  if (cached && Date.now() - cached.time < _CACHE_TTL) return Promise.resolve(cached.data);
+  return request(path).then(data => {
+    _requestCache.set(path, { data, time: Date.now() });
+    return data;
+  });
+}
+
+function invalidateCache(...paths) {
+  for (const p of paths) _requestCache.delete(p);
+}
+
 export const api = {
   // Auth
-  getSession: () => request('/auth/session'),
+  getSession: () => cachedRequest('/auth/session'),
   setup: (username, password) => request('/auth/setup', { method: 'POST', body: JSON.stringify({ username, password }) }),
-  login: (username, password) => request('/auth/login', { method: 'POST', body: JSON.stringify({ username, password }) }),
-  logout: () => request('/auth/logout', { method: 'POST' }),
+  login: (username, password) => request('/auth/login', { method: 'POST', body: JSON.stringify({ username, password }) }).then(r => { invalidateCache('/auth/session'); return r; }),
+  logout: () => request('/auth/logout', { method: 'POST' }).then(r => { _requestCache.clear(); return r; }),
   changePassword: (currentPassword, newPassword) => request('/auth/password', { method: 'PUT', body: JSON.stringify({ currentPassword, newPassword }) }),
 
   // User Management (admin only)
@@ -147,11 +166,11 @@ export const api = {
   deleteUser: (id) => request(`/users/${id}`, { method: 'DELETE' }),
 
   // Projects
-  getProjects: () => request('/projects'),
-  getProject: (id) => request(`/projects/${id}`),
-  createProject: (data) => request('/projects', { method: 'POST', body: JSON.stringify(data) }),
-  updateProject: (id, data) => request(`/projects/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
-  deleteProject: (id) => request(`/projects/${id}`, { method: 'DELETE' }),
+  getProjects: () => cachedRequest('/projects'),
+  getProject: (id) => cachedRequest(`/projects/${id}`),
+  createProject: (data) => request('/projects', { method: 'POST', body: JSON.stringify(data) }).then(r => { invalidateCache('/projects'); return r; }),
+  updateProject: (id, data) => request(`/projects/${id}`, { method: 'PUT', body: JSON.stringify(data) }).then(r => { invalidateCache('/projects', `/projects/${id}`); return r; }),
+  deleteProject: (id) => request(`/projects/${id}`, { method: 'DELETE' }).then(r => { invalidateCache('/projects', `/projects/${id}`); return r; }),
 
   // Foundational Documents
   getDocs: (projectId) => request(`/projects/${projectId}/docs`),
@@ -354,8 +373,8 @@ export const api = {
   getGauntletStats: (projectId) => request(`/agent-monitor/gauntlet-stats?projectId=${projectId}`),
 
   // Performance Tracker / Deployments
-  getDeployments: () => request('/deployments'),
-  getProjectDeployments: (projectId) => request(`/deployments?projectId=${projectId}`),
+  getDeployments: () => cachedRequest('/deployments'),
+  getProjectDeployments: (projectId) => cachedRequest(`/deployments?projectId=${projectId}`),
   createDeployments: (adIds) => request('/deployments', { method: 'POST', body: JSON.stringify({ adIds }) }),
   updateDeployment: (id, fields) => request(`/deployments/${id}`, { method: 'PUT', body: JSON.stringify(fields) }),
   updateDeploymentStatus: (id, status) => request(`/deployments/${id}/status`, { method: 'PUT', body: JSON.stringify({ status }) }),

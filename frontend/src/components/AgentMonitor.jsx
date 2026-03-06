@@ -451,6 +451,7 @@ function LPAgentTab() {
 // Creative Director Tab
 // =============================================
 function DirectorTab({ onRefresh }) {
+  const toast = useToast();
   const [projects, setProjects] = useState([]);
   const [selectedProject, setSelectedProject] = useState('');
   const [config, setConfig] = useState(null);

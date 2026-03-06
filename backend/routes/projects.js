@@ -52,15 +52,14 @@ router.get('/:id', async (req, res) => {
   try {
     const project = await getProject(req.params.id);
     if (!project) return res.status(404).json({ error: 'Project not found' });
-    const stats = await getProjectStats(project.id);
 
-    // Resolve product image URL if set
-    let productImageUrl = null;
-    if (project.product_image_storageId) {
-      try {
-        productImageUrl = await getStorageUrl(project.product_image_storageId);
-      } catch {}
-    }
+    // Run stats + image URL in parallel (both depend on project existing)
+    const [stats, productImageUrl] = await Promise.all([
+      getProjectStats(project.id),
+      project.product_image_storageId
+        ? getStorageUrl(project.product_image_storageId).catch(() => null)
+        : Promise.resolve(null),
+    ]);
 
     res.json({ ...project, ...stats, productImageUrl });
   } catch (err) {

@@ -47,14 +47,22 @@ export async function mutationWithRetry(fnRef, args) {
 }
 
 // =============================================
-// Settings helpers
+// Settings helpers (with 10-min in-memory cache)
 // =============================================
 
+const settingsCache = new Map();
+const SETTINGS_CACHE_TTL = 10 * 60 * 1000; // 10 minutes
+
 export async function getSetting(key) {
-  return await queryWithRetry(api.settings.get, { key });
+  const cached = settingsCache.get(key);
+  if (cached && Date.now() - cached.time < SETTINGS_CACHE_TTL) return cached.value;
+  const value = await queryWithRetry(api.settings.get, { key });
+  settingsCache.set(key, { value, time: Date.now() });
+  return value;
 }
 
 export async function setSetting(key, value) {
+  settingsCache.delete(key);
   await mutationWithRetry(api.settings.set, { key, value });
 }
 
