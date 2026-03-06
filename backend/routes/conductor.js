@@ -193,9 +193,9 @@ router.post('/run/:projectId', async (req, res) => {
 // POST /api/conductor/test-run/:projectId — full pipeline: Director → batch → Gemini → Filter → Ready to Post
 router.post('/test-run/:projectId', async (req, res) => {
   streamService(req, res, async (sendEvent) => {
-    const { angle_id } = req.body || {};
+    const { angle_id, generate_lp } = req.body || {};
     const { runFullTestPipeline } = await import('../services/conductorEngine.js');
-    const result = await runFullTestPipeline(req.params.projectId, sendEvent, { angleOverride: angle_id || null });
+    const result = await runFullTestPipeline(req.params.projectId, sendEvent, { angleOverride: angle_id || null, skipLPGen: generate_lp === false });
     if (result.pipeline_failed) {
       sendEvent({ type: 'error', message: result.failure_reason, ...result });
     } else {

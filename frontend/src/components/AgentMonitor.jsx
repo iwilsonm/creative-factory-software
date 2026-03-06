@@ -466,8 +466,9 @@ function DirectorTab({ onRefresh }) {
 
   const [campaigns, setCampaigns] = useState([]);
 
-  // Angle selection for test runs
+  // Angle selection and LP toggle for test runs
   const [selectedAngleId, setSelectedAngleId] = useState('');
+  const [generateLP, setGenerateLP] = useState(true);
 
   // Test run queue — persisted to localStorage so it survives refresh/navigation
   const QUEUE_KEY = 'dacia_testRunQueue';
@@ -583,7 +584,7 @@ function DirectorTab({ onRefresh }) {
   };
 
   const handleTestRun = () => {
-    const queueItem = { id: crypto.randomUUID(), status: 'queued', progress: 0, phase: '', startTime: null, result: null, angleId: selectedAngleId || null, sseConnected: false };
+    const queueItem = { id: crypto.randomUUID(), status: 'queued', progress: 0, phase: '', startTime: null, result: null, angleId: selectedAngleId || null, generateLP, sseConnected: false };
     setTestRunQueue(prev => [...prev, queueItem]);
     setSubTab('history');
   };
@@ -621,7 +622,10 @@ function DirectorTab({ onRefresh }) {
     setRunningAction('run');
     sseActiveRef.current = true;
 
-    const body = nextQueued.angleId ? { angle_id: nextQueued.angleId } : {};
+    const body = {
+      ...(nextQueued.angleId ? { angle_id: nextQueued.angleId } : {}),
+      generate_lp: nextQueued.generateLP ?? true,
+    };
 
     const { abort, done } = api.triggerConductorTestRun(selectedProject, body, (event) => {
       if (event.type === 'progress') {
@@ -1024,6 +1028,10 @@ function DirectorTab({ onRefresh }) {
               <option key={a.externalId} value={a.externalId}>{a.name}</option>
             ))}
           </select>
+          <label className="flex items-center gap-1.5 text-[11px] text-textmid cursor-pointer select-none">
+            <input type="checkbox" checked={generateLP} onChange={e => setGenerateLP(e.target.checked)} className="rounded border-black/20" />
+            Generate LPs
+          </label>
           <button
             onClick={handleTestRun}
             className="btn-primary text-[11px] px-3 py-1.5 flex items-center gap-1"

@@ -584,7 +584,7 @@ export function getActiveTestRun(projectId) {
  * @param {{ angleOverride?: string }} options
  * @returns {object} Combined result from Director + Filter phases
  */
-export async function runFullTestPipeline(projectId, sendEvent, { angleOverride = null } = {}) {
+export async function runFullTestPipeline(projectId, sendEvent, { angleOverride = null, skipLPGen = false } = {}) {
   const rawEmit = sendEvent || (() => {});
 
   // Track progress in-memory so polling endpoint can serve it after SSE disconnect
@@ -628,10 +628,12 @@ export async function runFullTestPipeline(projectId, sendEvent, { angleOverride 
   const directorResult = await runTestBatch(projectId, emit, { skipBatchLaunch: true, batchSizeOverride: 30, angleOverride });
   const batchId = directorResult.batch_id;
 
-  // LP generation runs independently — fire-and-forget
-  triggerLPGeneration(batchId, projectId, directorResult.angle).catch(err => {
-    console.warn(`[Pipeline] LP trigger for test batch ${batchId.slice(0, 8)} failed:`, err.message);
-  });
+  // LP generation runs independently — fire-and-forget (skippable via toggle)
+  if (!skipLPGen) {
+    triggerLPGeneration(batchId, projectId, directorResult.angle).catch(err => {
+      console.warn(`[Pipeline] LP trigger for test batch ${batchId.slice(0, 8)} failed:`, err.message);
+    });
+  }
 
   // ── Phase 2: Run batch pipeline (brief → headlines → body copy → image prompts → Gemini submit) ──
   const batchAdapter = (event) => {
