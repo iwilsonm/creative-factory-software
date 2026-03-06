@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { api } from '../api';
+import { api, invalidateProjectCache } from '../api';
 import DragDropUpload from './DragDropUpload';
 import InfoTooltip from './InfoTooltip';
 import PipelineProgress from './PipelineProgress';
@@ -485,6 +485,7 @@ export default function FoundationalDocs({ projectId, projectStatus }) {
       await api.uploadDocs(projectId, uploadDocs);
       setGenerationMode(null);
       setUploadDocs({ research: '', avatar: '', offer_brief: '', necessary_beliefs: '' });
+      invalidateProjectCache(projectId);
       loadDocs();
     } catch (err) {
       setGenError(err.message);
@@ -572,6 +573,7 @@ export default function FoundationalDocs({ projectId, projectStatus }) {
         setGenProgress(0);
         setGenProgressMsg('');
         genStartTimeRef.current = null;
+        invalidateProjectCache(projectId);
         loadDocs();
       }, 500);
     }).catch(err => {
@@ -629,6 +631,7 @@ export default function FoundationalDocs({ projectId, projectStatus }) {
         setManualResearchText('');
         setGenProgress(0);
         genStartTimeRef.current = null;
+        invalidateProjectCache(projectId);
         loadDocs();
       }, 500);
     }).catch(err => {

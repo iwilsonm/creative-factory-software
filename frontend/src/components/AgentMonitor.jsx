@@ -484,12 +484,24 @@ function DirectorTab({ onRefresh }) {
   });
   const activeRun = testRunQueue.find(r => r.status === 'running');
   const queuedCount = testRunQueue.filter(r => r.status === 'queued').length;
+  const finishedRuns = testRunQueue.filter(r => r.status === 'complete' || r.status === 'error');
   const sseActiveRef = useRef(false); // tracks if we have a live SSE connection for the active run
+  const abortRef = useRef(null); // stores the SSE abort function for active run cancellation
 
   // Sync queue to localStorage on every change
   useEffect(() => {
     localStorage.setItem(QUEUE_KEY, JSON.stringify(testRunQueue));
   }, [testRunQueue]);
+
+  // Auto-clear finished results after 5 minutes
+  useEffect(() => {
+    if (finishedRuns.length === 0) return;
+    const timer = setInterval(() => {
+      const cutoff = Date.now() - 5 * 60 * 1000;
+      setTestRunQueue(prev => prev.filter(r => !(r.finishedAt && r.finishedAt < cutoff)));
+    }, 30000);
+    return () => clearInterval(timer);
+  }, [finishedRuns.length]);
 
   const navigate = useNavigate();
 
@@ -597,7 +609,10 @@ function DirectorTab({ onRefresh }) {
     setTimeout(async () => {
       setRunningAction(null);
       sseActiveRef.current = false;
-      setTestRunQueue(prev => prev.filter(r => r.id !== runId));
+      abortRef.current = null;
+      // Keep completed/errored items visible — don't remove from queue
+      // Mark with finishedAt so we can auto-clear later
+      setTestRunQueue(prev => prev.map(r => r.id === runId ? { ...r, finishedAt: Date.now() } : r));
       try {
         const runRes = await api.getConductorRuns(selectedProject, 20);
         setRuns(runRes?.runs || []);
@@ -605,6 +620,38 @@ function DirectorTab({ onRefresh }) {
       if (!isError) onRefresh();
     }, isError ? 3000 : 2000);
   }, [selectedProject, onRefresh]);
+
+  // Dismiss a completed/errored result
+  const handleDismissResult = useCallback((runId) => {
+    setTestRunQueue(prev => prev.filter(r => r.id !== runId));
+  }, []);
+
+  // Cancel the active running test run
+  const handleCancelRun = useCallback(async () => {
+    if (!activeRun) return;
+    // Abort SSE connection
+    abortRef.current?.();
+    abortRef.current = null;
+    sseActiveRef.current = false;
+    // Tell backend to clean up
+    try { await api.cancelTestRun(selectedProject); } catch {}
+    // Update queue
+    updateQueueItem(activeRun.id, { status: 'error', progress: 0, phase: 'Cancelled' });
+    setRunningAction(null);
+    setTimeout(() => {
+      setTestRunQueue(prev => prev.filter(r => r.id !== activeRun.id));
+    }, 2000);
+  }, [activeRun, selectedProject, updateQueueItem]);
+
+  // Remove a queued (not yet running) test run
+  const handleRemoveQueued = useCallback((runId) => {
+    setTestRunQueue(prev => prev.filter(r => r.id !== runId));
+  }, []);
+
+  // Clear all queued runs
+  const handleClearQueue = useCallback(() => {
+    setTestRunQueue(prev => prev.filter(r => r.status !== 'queued'));
+  }, []);
 
   // Queue processor — starts next queued run via SSE when no active run
   useEffect(() => {
@@ -669,6 +716,8 @@ function DirectorTab({ onRefresh }) {
         finishRun(runId, true);
       }
     });
+
+    abortRef.current = abort;
 
     done.catch((err) => {
       if (err.name !== 'AbortError') {
@@ -773,6 +822,11 @@ function DirectorTab({ onRefresh }) {
       await api.updateConductorAngle(selectedProject, angleId, { focused });
       setAngles(prev => prev.map(a => a.externalId === angleId ? { ...a, focused } : a));
     } catch { /* ignore */ }
+  };
+
+  const handleUpdateAngle = async (angleId, updates) => {
+    await api.updateConductorAngle(selectedProject, angleId, updates);
+    setAngles(prev => prev.map(a => a.externalId === angleId ? { ...a, ...updates } : a));
   };
 
   const handleToggleLPEnabled = async (angleId, lpEnabled) => {
@@ -1041,17 +1095,82 @@ function DirectorTab({ onRefresh }) {
         </div>
       </div>
 
-      {/* Test run progress bar */}
+      {/* Test run progress bar + cancel */}
       {activeRun && (
-        <PipelineProgress
-          progress={activeRun.progress}
-          message={activeRun.phase}
-          startTime={activeRun.startTime}
-          className="mb-4"
-        />
+        <div className="mb-4">
+          <div className="flex items-center gap-2">
+            <div className="flex-1">
+              <PipelineProgress
+                progress={activeRun.progress}
+                message={activeRun.phase}
+                startTime={activeRun.startTime}
+              />
+            </div>
+            <button
+              onClick={handleCancelRun}
+              className="text-[10px] text-red-500 hover:text-red-700 font-medium px-2 py-0.5 rounded hover:bg-red-50 transition-colors shrink-0"
+              title="Cancel running test"
+            >
+              Cancel
+            </button>
+          </div>
+        </div>
       )}
-      {queuedCount > 0 && !activeRun && (
-        <p className="text-[10px] text-textlight mb-4">{queuedCount} run{queuedCount !== 1 ? 's' : ''} queued, waiting...</p>
+      {queuedCount > 0 && (
+        <div className="flex items-center gap-2 mb-4">
+          <p className="text-[10px] text-textlight">
+            {queuedCount} run{queuedCount !== 1 ? 's' : ''} queued{activeRun ? '' : ', waiting...'}
+          </p>
+          <button
+            onClick={handleClearQueue}
+            className="text-[10px] text-textlight hover:text-red-500 transition-colors"
+          >
+            Clear queue
+          </button>
+        </div>
+      )}
+
+      {/* Recent test run results */}
+      {finishedRuns.length > 0 && (
+        <div className="mb-4 space-y-2">
+          {finishedRuns.map(run => (
+            <div
+              key={run.id}
+              className={`flex items-start gap-2 px-3 py-2 rounded-lg text-[11px] ${
+                run.status === 'complete' ? 'bg-teal/5 border border-teal/20' : 'bg-red-50 border border-red-200'
+              }`}
+            >
+              <span className="mt-0.5 shrink-0">
+                {run.status === 'complete' ? (
+                  <svg className="w-3.5 h-3.5 text-teal" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
+                ) : (
+                  <svg className="w-3.5 h-3.5 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                )}
+              </span>
+              <div className="flex-1 min-w-0">
+                <p className={`font-medium ${run.status === 'complete' ? 'text-teal' : 'text-red-600'}`}>
+                  {run.status === 'complete' ? 'Test Run Complete' : 'Test Run Failed'}
+                </p>
+                <p className="text-textmid mt-0.5">{run.phase}</p>
+                {run.result?.flex_ads_created > 0 && (
+                  <button
+                    onClick={() => navigate('/ads?tab=ready')}
+                    className="text-[10px] text-gold hover:text-gold-light font-medium mt-1 inline-flex items-center gap-1"
+                  >
+                    View in Ready to Post {'\u2192'}
+                  </button>
+                )}
+              </div>
+              <button
+                onClick={() => handleDismissResult(run.id)}
+                className="text-textlight hover:text-textdark transition-colors shrink-0 mt-0.5"
+                title="Dismiss"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+              </button>
+            </div>
+          ))}
+        </div>
       )}
 
       {/* Quick stats */}
@@ -1205,7 +1324,7 @@ function DirectorTab({ onRefresh }) {
               </div>
               <div className="space-y-2">
                 {activeAngles.map(a => (
-                  <AngleCard key={a.externalId} angle={a} playbooks={playbooks} onStatusChange={handleAngleStatusChange} onToggleFocus={handleToggleFocus} onToggleLPEnabled={handleToggleLPEnabled} />
+                  <AngleCard key={a.externalId} angle={a} playbooks={playbooks} onStatusChange={handleAngleStatusChange} onToggleFocus={handleToggleFocus} onToggleLPEnabled={handleToggleLPEnabled} onUpdate={handleUpdateAngle} />
                 ))}
               </div>
             </div>
@@ -1217,7 +1336,7 @@ function DirectorTab({ onRefresh }) {
               <p className="text-[10px] text-textlight font-medium uppercase tracking-wider mb-2">Testing (auto-generated)</p>
               <div className="space-y-2">
                 {testingAngles.map(a => (
-                  <AngleCard key={a.externalId} angle={a} playbooks={playbooks} onStatusChange={handleAngleStatusChange} showActions />
+                  <AngleCard key={a.externalId} angle={a} playbooks={playbooks} onStatusChange={handleAngleStatusChange} onUpdate={handleUpdateAngle} showActions />
                 ))}
               </div>
             </div>
@@ -1238,7 +1357,7 @@ function DirectorTab({ onRefresh }) {
               {archivedOpen && (
                 <div className="space-y-2">
                   {archivedAngles.map(a => (
-                    <AngleCard key={a.externalId} angle={a} playbooks={playbooks} onStatusChange={handleAngleStatusChange} />
+                    <AngleCard key={a.externalId} angle={a} playbooks={playbooks} onStatusChange={handleAngleStatusChange} onUpdate={handleUpdateAngle} />
                   ))}
                 </div>
               )}
@@ -1531,20 +1650,93 @@ function DirectorTab({ onRefresh }) {
 // =============================================
 // Angle Card
 // =============================================
-function AngleCard({ angle, playbooks, onStatusChange, onToggleFocus, onToggleLPEnabled, showActions }) {
+const PRIORITY_OPTIONS = ['highest', 'high', 'medium', 'test'];
+const FRAME_OPTIONS = ['symptom-first', 'scam', 'objection-first', 'identity-first', 'MAHA', 'news-first', 'consequence-first'];
+
+function AngleCard({ angle, playbooks, onStatusChange, onToggleFocus, onToggleLPEnabled, onUpdate, showActions }) {
   const pb = playbooks.find(p => p.angle_name === angle.name);
   const [expanded, setExpanded] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [editForm, setEditForm] = useState({});
+  const [saving, setSaving] = useState(false);
   const hasStructured = !!(angle.core_buyer || angle.symptom_pattern || angle.scene);
 
   const PRIORITY_COLORS = { highest: 'bg-red-100 text-red-700', high: 'bg-gold/15 text-gold', medium: 'bg-navy/10 text-navy', test: 'bg-gray-100 text-textmid' };
   const FRAME_COLORS = { 'symptom-first': 'bg-teal/10 text-teal', 'scam': 'bg-red-50 text-red-600', 'objection-first': 'bg-amber-50 text-amber-700', 'identity-first': 'bg-purple-50 text-purple-600', 'MAHA': 'bg-blue-50 text-blue-600', 'news-first': 'bg-indigo-50 text-indigo-600', 'consequence-first': 'bg-orange-50 text-orange-600' };
+
+  const startEdit = (e) => {
+    e.stopPropagation();
+    setEditForm({
+      name: angle.name || '', description: angle.description || '', prompt_hints: angle.prompt_hints || '',
+      priority: angle.priority || 'medium', frame: angle.frame || 'symptom-first',
+      core_buyer: angle.core_buyer || '', symptom_pattern: angle.symptom_pattern || '',
+      failed_solutions: angle.failed_solutions || '', current_belief: angle.current_belief || '',
+      objection: angle.objection || '', emotional_state: angle.emotional_state || '',
+      scene: angle.scene || '', desired_belief_shift: angle.desired_belief_shift || '',
+      tone: angle.tone || '', avoid_list: angle.avoid_list || '',
+    });
+    setEditing(true);
+    setExpanded(true);
+  };
+
+  const handleSave = async () => {
+    if (!editForm.name) return;
+    setSaving(true);
+    try {
+      await onUpdate(angle.externalId, editForm);
+      setEditing(false);
+    } catch {} finally { setSaving(false); }
+  };
+
+  if (editing) {
+    return (
+      <div className={`rounded-lg border p-3 ${angle.focused ? 'bg-gold/5 border-gold/30' : 'bg-white/60 border-black/5'}`}>
+        <div className="flex items-center justify-between mb-2">
+          <span className="text-[11px] font-medium text-textdark uppercase tracking-wider">Edit Angle</span>
+          <div className="flex gap-2">
+            <button onClick={handleSave} disabled={saving} className="btn-primary text-[11px] px-3 py-1 disabled:opacity-50">{saving ? 'Saving...' : 'Save'}</button>
+            <button onClick={() => setEditing(false)} className="btn-secondary text-[11px] px-3 py-1">Cancel</button>
+          </div>
+        </div>
+        <input type="text" placeholder="Angle name" value={editForm.name} onChange={e => setEditForm(prev => ({ ...prev, name: e.target.value }))} className="input-apple w-full mb-2 text-[12px]" />
+        <textarea placeholder="Description" value={editForm.description} onChange={e => setEditForm(prev => ({ ...prev, description: e.target.value }))} className="input-apple w-full mb-2 text-[12px] h-16 resize-none" />
+        <div className="grid grid-cols-2 gap-2 mb-2">
+          <div>
+            <label className="text-[10px] text-textmid font-medium block mb-0.5">Priority</label>
+            <select value={editForm.priority} onChange={e => setEditForm(prev => ({ ...prev, priority: e.target.value }))} className="text-[12px] text-textdark bg-offwhite border border-black/10 rounded-lg px-2 py-1.5 w-full cursor-pointer">
+              {PRIORITY_OPTIONS.map(p => <option key={p} value={p}>{p.charAt(0).toUpperCase() + p.slice(1)}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="text-[10px] text-textmid font-medium block mb-0.5">Frame</label>
+            <select value={editForm.frame} onChange={e => setEditForm(prev => ({ ...prev, frame: e.target.value }))} className="text-[12px] text-textdark bg-offwhite border border-black/10 rounded-lg px-2 py-1.5 w-full cursor-pointer">
+              {FRAME_OPTIONS.map(f => <option key={f} value={f}>{f}</option>)}
+            </select>
+          </div>
+        </div>
+        <textarea placeholder="Core Buyer" value={editForm.core_buyer} onChange={e => setEditForm(prev => ({ ...prev, core_buyer: e.target.value }))} className="input-apple w-full mb-2 text-[12px] h-14 resize-none" />
+        <textarea placeholder="Symptom Pattern" value={editForm.symptom_pattern} onChange={e => setEditForm(prev => ({ ...prev, symptom_pattern: e.target.value }))} className="input-apple w-full mb-2 text-[12px] h-14 resize-none" />
+        <textarea placeholder="Failed Solutions" value={editForm.failed_solutions} onChange={e => setEditForm(prev => ({ ...prev, failed_solutions: e.target.value }))} className="input-apple w-full mb-2 text-[12px] h-14 resize-none" />
+        <textarea placeholder="Current Belief" value={editForm.current_belief} onChange={e => setEditForm(prev => ({ ...prev, current_belief: e.target.value }))} className="input-apple w-full mb-2 text-[12px] h-14 resize-none" />
+        <textarea placeholder="Objection" value={editForm.objection} onChange={e => setEditForm(prev => ({ ...prev, objection: e.target.value }))} className="input-apple w-full mb-2 text-[12px] h-14 resize-none" />
+        <textarea placeholder="Emotional State" value={editForm.emotional_state} onChange={e => setEditForm(prev => ({ ...prev, emotional_state: e.target.value }))} className="input-apple w-full mb-2 text-[12px] h-14 resize-none" />
+        <textarea placeholder="Scene" value={editForm.scene} onChange={e => setEditForm(prev => ({ ...prev, scene: e.target.value }))} className="input-apple w-full mb-2 text-[12px] h-14 resize-none" />
+        <textarea placeholder="Desired Belief Shift" value={editForm.desired_belief_shift} onChange={e => setEditForm(prev => ({ ...prev, desired_belief_shift: e.target.value }))} className="input-apple w-full mb-2 text-[12px] h-14 resize-none" />
+        <div className="grid grid-cols-2 gap-2 mb-2">
+          <input type="text" placeholder="Tone" value={editForm.tone} onChange={e => setEditForm(prev => ({ ...prev, tone: e.target.value }))} className="input-apple text-[12px]" />
+          <input type="text" placeholder="Avoid" value={editForm.avoid_list} onChange={e => setEditForm(prev => ({ ...prev, avoid_list: e.target.value }))} className="input-apple text-[12px]" />
+        </div>
+        <textarea placeholder="Prompt hints (optional)" value={editForm.prompt_hints} onChange={e => setEditForm(prev => ({ ...prev, prompt_hints: e.target.value }))} className="input-apple w-full text-[12px] h-14 resize-none" />
+      </div>
+    );
+  }
 
   return (
     <div className={`rounded-lg border ${angle.focused ? 'bg-gold/5 border-gold/30' : 'bg-white/60 border-black/5'}`}>
       {/* Clickable header row */}
       <div
         className="flex items-center justify-between p-3 cursor-pointer select-none"
-        onClick={() => hasStructured && setExpanded(!expanded)}
+        onClick={() => setExpanded(!expanded)}
       >
         <div className="flex items-center gap-2 flex-wrap min-w-0">
           {angle.status === 'active' && onToggleFocus && (
@@ -1561,9 +1753,7 @@ function AngleCard({ angle, playbooks, onStatusChange, onToggleFocus, onToggleLP
           {!(angle.status === 'active' && onToggleFocus) && (
             <span className="text-[11px] flex-shrink-0">{'\u25CF'}</span>
           )}
-          {hasStructured && (
-            <span className={`text-[11px] text-textlight flex-shrink-0 transition-transform ${expanded ? 'rotate-90' : ''}`}>&#9656;</span>
-          )}
+          <span className={`text-[11px] text-textlight flex-shrink-0 transition-transform ${expanded ? 'rotate-90' : ''}`}>&#9656;</span>
           <span className="text-[13px] font-medium text-textdark">{angle.name}</span>
           {angle.focused && <span className="text-[9px] font-medium text-gold uppercase tracking-wider">Focused</span>}
           {angle.priority && <span className={`text-[9px] font-medium px-1.5 py-0.5 rounded ${PRIORITY_COLORS[angle.priority] || 'bg-gray-100 text-gray-600'}`}>{angle.priority}</span>}
@@ -1577,6 +1767,11 @@ function AngleCard({ angle, playbooks, onStatusChange, onToggleFocus, onToggleLP
           )}
         </div>
         <div className="flex items-center gap-2 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
+          {onUpdate && (
+            <button onClick={startEdit} className="text-[10px] text-textlight hover:text-navy" title="Edit angle">
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L6.832 19.82a4.5 4.5 0 01-1.897 1.13l-2.685.8.8-2.685a4.5 4.5 0 011.13-1.897L16.863 4.487z" /></svg>
+            </button>
+          )}
           {showActions && (
             <div className="flex gap-1">
               <button onClick={() => onStatusChange(angle.externalId, 'active')} className="text-[10px] text-teal hover:underline">Activate</button>
@@ -1592,14 +1787,15 @@ function AngleCard({ angle, playbooks, onStatusChange, onToggleFocus, onToggleLP
         </div>
       </div>
 
-      {/* Collapsed: show description for flat angles only */}
-      {!expanded && !hasStructured && (
+      {/* Collapsed: show description */}
+      {!expanded && (
         <p className="text-[11px] text-textmid leading-relaxed px-3 pb-3">{angle.description}</p>
       )}
 
       {/* Expanded: show full structured brief */}
-      {expanded && hasStructured && (
+      {expanded && (
         <div className="px-3 pb-3 pt-1 border-t border-black/5 space-y-2 text-[12px]">
+          {angle.description && <div><span className="font-semibold text-textdark">Description:</span> <span className="text-textmid">{angle.description}</span></div>}
           {angle.core_buyer && <div><span className="font-semibold text-textdark">Core Buyer:</span> <span className="text-textmid">{angle.core_buyer}</span></div>}
           {angle.symptom_pattern && <div><span className="font-semibold text-textdark">Symptom Pattern:</span> <span className="text-textmid">{angle.symptom_pattern}</span></div>}
           {angle.failed_solutions && <div><span className="font-semibold text-textdark">Failed Solutions:</span> <span className="text-textmid">{angle.failed_solutions}</span></div>}
@@ -1615,12 +1811,12 @@ function AngleCard({ angle, playbooks, onStatusChange, onToggleFocus, onToggleLP
       )}
 
       {pb && pb.generation_hints && (
-        <p className="text-[10px] text-teal mt-1 leading-relaxed">
+        <p className="text-[10px] text-teal mt-1 leading-relaxed px-3">
           Playbook v{pb.version}: "{pb.generation_hints.slice(0, 120)}{pb.generation_hints.length > 120 ? '...' : ''}"
         </p>
       )}
       {onToggleLPEnabled && angle.status === 'active' && (
-        <div className="flex items-center justify-end gap-2 mt-2 pt-2 border-t border-black/5">
+        <div className="flex items-center justify-end gap-2 px-3 py-2 border-t border-black/5">
           <span className="text-[10px] text-textmid">Generate landing pages</span>
           <button
             onClick={() => onToggleLPEnabled(angle.externalId, !angle.lp_enabled)}

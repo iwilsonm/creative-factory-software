@@ -574,6 +574,24 @@ export function getActiveTestRun(projectId) {
   return null;
 }
 
+/**
+ * Cancel the active test run for a project.
+ * Marks the in-memory tracking entry as cancelled so polling returns null.
+ * The in-flight batch/Gemini work continues but results are ignored.
+ */
+export function cancelTestRun(projectId) {
+  for (const [id, run] of activeTestRuns) {
+    if (run.projectId === projectId && run.status === 'running') {
+      run.status = 'cancelled';
+      run.phase = 'Cancelled';
+      run.progress = 0;
+      activeTestRuns.delete(id);
+      return true;
+    }
+  }
+  return false;
+}
+
 // ── Full Test Pipeline (Director → Batch → Gemini → Filter → Ready to Post) ──
 
 /**

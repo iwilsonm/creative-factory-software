@@ -204,6 +204,17 @@ router.post('/test-run/:projectId', async (req, res) => {
   });
 });
 
+// POST /api/conductor/test-run/cancel/:projectId — cancel active test run
+router.post('/test-run/cancel/:projectId', async (req, res) => {
+  try {
+    const { cancelTestRun } = await import('../services/conductorEngine.js');
+    const cancelled = cancelTestRun(req.params.projectId);
+    res.json({ success: true, cancelled });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // GET /api/conductor/test-run/progress/:projectId — poll active test run progress (survives SSE disconnect)
 router.get('/test-run/progress/:projectId', async (req, res) => {
   try {

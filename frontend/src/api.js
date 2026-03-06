@@ -131,15 +131,26 @@ function streamSSEWithBody(path, body, onEvent) {
   return { abort: () => controller.abort(), done };
 }
 
-// ─── Request Cache (30s TTL) ──────────────────────────────────────────────────
+// ─── Request Cache (tiered TTLs) ──────────────────────────────────────────────
 // Caches read-only GET responses so back-navigation doesn't re-fetch.
 // Mutations invalidate related entries immediately.
 const _requestCache = new Map();
-const _CACHE_TTL = 30 * 1000;
+
+// Per-path TTLs — longer for data that rarely changes mid-session
+function _getCacheTTL(path) {
+  if (path === '/auth/session') return 5 * 60 * 1000;    // 5 min
+  if (path === '/projects') return 2 * 60 * 1000;         // 2 min
+  if (path.match(/^\/projects\/[^/]+$/)) return 2 * 60 * 1000; // 2 min
+  if (path.match(/^\/deployments/)) return 60 * 1000;     // 1 min
+  if (path.match(/^\/conductor\//)) return 2 * 60 * 1000; // 2 min
+  if (path.match(/^\/costs/)) return 2 * 60 * 1000;       // 2 min
+  if (path.match(/\/landing-pages$/)) return 2 * 60 * 1000; // 2 min
+  return 30 * 1000; // 30s default
+}
 
 function cachedRequest(path) {
   const cached = _requestCache.get(path);
-  if (cached && Date.now() - cached.time < _CACHE_TTL) return Promise.resolve(cached.data);
+  if (cached && Date.now() - cached.time < _getCacheTTL(path)) return Promise.resolve(cached.data);
   return request(path).then(data => {
     _requestCache.set(path, { data, time: Date.now() });
     return data;
@@ -150,12 +161,17 @@ function invalidateCache(...paths) {
   for (const p of paths) _requestCache.delete(p);
 }
 
+// Exported for use by components after SSE completions (e.g., doc generation)
+export function invalidateProjectCache(projectId) {
+  invalidateCache('/projects', `/projects/${projectId}`);
+}
+
 export const api = {
   // Auth
   getSession: () => cachedRequest('/auth/session'),
   setup: (username, password) => request('/auth/setup', { method: 'POST', body: JSON.stringify({ username, password }) }),
   login: (username, password) => request('/auth/login', { method: 'POST', body: JSON.stringify({ username, password }) }).then(r => { invalidateCache('/auth/session'); return r; }),
-  logout: () => request('/auth/logout', { method: 'POST' }).then(r => { _requestCache.clear(); return r; }),
+  logout: () => request('/auth/logout', { method: 'POST' }).then(r => { _requestCache.clear(); localStorage.removeItem('auth_state'); return r; }),
   changePassword: (currentPassword, newPassword) => request('/auth/password', { method: 'PUT', body: JSON.stringify({ currentPassword, newPassword }) }),
 
   // User Management (admin only)
@@ -301,15 +317,15 @@ export const api = {
   cancelBatch: (projectId, batchId) => request(`/projects/${projectId}/batches/${batchId}/cancel`, { method: 'POST' }),
 
   // Costs
-  getCosts: () => request('/costs'),
-  getProjectCosts: (projectId) => request(`/projects/${projectId}/costs`),
+  getCosts: () => cachedRequest('/costs'),
+  getProjectCosts: (projectId) => cachedRequest(`/projects/${projectId}/costs`),
   getCostHistory: (days = 30, projectId) => {
     let url = `/costs/history?days=${days}`;
     if (projectId) url += `&project_id=${projectId}`;
-    return request(url);
+    return cachedRequest(url);
   },
-  getRecurringCosts: () => request('/costs/recurring'),
-  getCostRates: () => request('/costs/rates'),
+  getRecurringCosts: () => cachedRequest('/costs/recurring'),
+  getCostRates: () => cachedRequest('/costs/rates'),
   syncCosts: () => request('/costs/sync', { method: 'POST' }),
   getAgentCosts: (days = 30) => request(`/costs/agents?days=${days}`),
 
@@ -322,13 +338,13 @@ export const api = {
   refreshGeminiRates: () => request('/settings/refresh-gemini-rates', { method: 'POST' }),
 
   // Dashboard Todos
-  getTodos: () => request('/settings/todos'),
-  saveTodos: (todos) => request('/settings/todos', { method: 'PUT', body: JSON.stringify({ todos }) }),
+  getTodos: () => cachedRequest('/settings/todos'),
+  saveTodos: (todos) => request('/settings/todos', { method: 'PUT', body: JSON.stringify({ todos }) }).then(r => { invalidateCache('/settings/todos'); return r; }),
 
   // Conductor (Dacia Creative Director)
-  getConductorConfig: (projectId) => request(`/conductor/config/${projectId}`),
-  updateConductorConfig: (projectId, data) => request(`/conductor/config/${projectId}`, { method: 'PUT', body: JSON.stringify(data) }),
-  getAllConductorConfigs: () => request('/conductor/configs'),
+  getConductorConfig: (projectId) => cachedRequest(`/conductor/config/${projectId}`),
+  updateConductorConfig: (projectId, data) => request(`/conductor/config/${projectId}`, { method: 'PUT', body: JSON.stringify(data) }).then(r => { invalidateCache(`/conductor/config/${projectId}`); return r; }),
+  getAllConductorConfigs: () => cachedRequest('/conductor/configs'),
 
   // LP Agent config
   getLPAgentConfig: (projectId) => request(`/projects/${projectId}/lp-agent/config`),
@@ -343,15 +359,16 @@ export const api = {
   getLPAgentStatus: (projectId) => request(`/projects/${projectId}/lp-agent/status`),
   getGauntletProgress: (projectId) => request(`/projects/${projectId}/lp-agent/gauntlet-progress`).then(r => r.progress),
 
-  getConductorAngles: (projectId) => request(`/conductor/angles/${projectId}`),
-  createConductorAngle: (projectId, data) => request(`/conductor/angles/${projectId}`, { method: 'POST', body: JSON.stringify(data) }),
-  updateConductorAngle: (projectId, angleId, data) => request(`/conductor/angles/${projectId}/${angleId}`, { method: 'PUT', body: JSON.stringify(data) }),
-  deleteConductorAngle: (projectId, angleId) => request(`/conductor/angles/${projectId}/${angleId}`, { method: 'DELETE' }),
-  getConductorRuns: (projectId, limit) => request(`/conductor/runs/${projectId}${limit ? `?limit=${limit}` : ''}`),
+  getConductorAngles: (projectId) => cachedRequest(`/conductor/angles/${projectId}`),
+  createConductorAngle: (projectId, data) => request(`/conductor/angles/${projectId}`, { method: 'POST', body: JSON.stringify(data) }).then(r => { invalidateCache(`/conductor/angles/${projectId}`); return r; }),
+  updateConductorAngle: (projectId, angleId, data) => request(`/conductor/angles/${projectId}/${angleId}`, { method: 'PUT', body: JSON.stringify(data) }).then(r => { invalidateCache(`/conductor/angles/${projectId}`); return r; }),
+  deleteConductorAngle: (projectId, angleId) => request(`/conductor/angles/${projectId}/${angleId}`, { method: 'DELETE' }).then(r => { invalidateCache(`/conductor/angles/${projectId}`); return r; }),
+  getConductorRuns: (projectId, limit) => cachedRequest(`/conductor/runs/${projectId}${limit ? `?limit=${limit}` : ''}`),
   triggerConductorRun: (projectId) => request(`/conductor/run/${projectId}`, { method: 'POST' }),
   triggerConductorTestRun: (projectId, body, onEvent) => streamSSEWithBody(`/conductor/test-run/${projectId}`, body, onEvent),
   getTestRunProgress: (projectId) => request(`/conductor/test-run/progress/${projectId}`),
-  getConductorPlaybooks: (projectId) => request(`/conductor/playbooks/${projectId}`),
+  cancelTestRun: (projectId) => request(`/conductor/test-run/cancel/${projectId}`, { method: 'POST' }),
+  getConductorPlaybooks: (projectId) => cachedRequest(`/conductor/playbooks/${projectId}`),
   getConductorPlaybook: (projectId, angleName) => request(`/conductor/playbooks/${projectId}/${encodeURIComponent(angleName)}`),
   triggerLearningStep: (projectId, angleName, scoredAds) => request('/conductor/learn', { method: 'POST', body: JSON.stringify({ projectId, angleName, scoredAds }) }),
   getConductorPipelineStatus: () => request('/conductor/pipeline-status'),
