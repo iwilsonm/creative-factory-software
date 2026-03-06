@@ -1936,26 +1936,6 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
           />
         </div>
 
-        {/* Image model selector */}
-        <div className="mb-5">
-          <label className="block text-[11px] font-medium text-textmid mb-1.5">
-            Image Generator
-          </label>
-          <select
-            value={imageModel}
-            onChange={e => setImageModel(e.target.value)}
-            className="text-[12px] text-textdark bg-offwhite border border-black/10 rounded-lg px-3 py-2 w-full cursor-pointer hover:border-navy/30 transition-colors"
-          >
-            <option value="nano-banana-pro">Nano Banana Pro (Gemini 3 Pro)</option>
-            <option value="nano-banana-2">Nano Banana 2 (Gemini 3.1 Flash)</option>
-          </select>
-          <p className="text-[10px] text-textlight mt-1">
-            {imageModel === 'nano-banana-pro'
-              ? 'Current default — high-fidelity image generation'
-              : 'Faster generation, improved text rendering, up to 4K resolution'}
-          </p>
-        </div>
-
         {/* ── OPTIONAL FIELDS (collapsible) ── */}
         <div className="my-6 -mx-6">
           <button
@@ -1964,7 +1944,7 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
           >
             <div className="text-left">
               <p className="text-[12px] font-semibold text-textmid uppercase tracking-wider">Optional Fields</p>
-              <p className="text-[11px] text-textlight mt-0.5">Topic, headline, body copy, and prompt guidelines — the AI handles these if left blank.</p>
+              <p className="text-[11px] text-textlight mt-0.5">Topic, headline, body copy, image generator, and prompt guidelines.</p>
             </div>
             <svg
               className={`w-4 h-4 text-textlight transition-transform duration-200 ${optionalOpen ? 'rotate-180' : ''}`}
@@ -1976,6 +1956,26 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
 
           {optionalOpen && (
             <div className="px-6 pt-4 pb-1 fade-in">
+              {/* Image model selector */}
+              <div className="mb-5">
+                <label className="block text-[13px] font-medium text-textmid mb-1.5">
+                  Image Generator
+                </label>
+                <select
+                  value={imageModel}
+                  onChange={e => setImageModel(e.target.value)}
+                  className="text-[12px] text-textdark bg-offwhite border border-black/10 rounded-lg px-3 py-2 w-full cursor-pointer hover:border-navy/30 transition-colors"
+                >
+                  <option value="nano-banana-pro">Nano Banana Pro (Gemini 3 Pro)</option>
+                  <option value="nano-banana-2">Nano Banana 2 (Gemini 3.1 Flash)</option>
+                </select>
+                <p className="text-[10px] text-textlight mt-1">
+                  {imageModel === 'nano-banana-pro'
+                    ? 'Current default — high-fidelity image generation'
+                    : 'Faster generation, improved text rendering, up to 4K resolution'}
+                </p>
+              </div>
+
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-5">
                 {/* Ad Topic / Angle */}
                 <div>
