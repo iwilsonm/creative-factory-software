@@ -18,12 +18,17 @@ const ROLE_COLORS = {
 export default function Layout({ children }) {
   const navigate = useNavigate();
   const location = useLocation();
-  const { user } = useContext(AuthContext);
+  const { user, setUser } = useContext(AuthContext);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const handleLogout = async () => {
-    await api.logout();
-    navigate('/login');
+    try {
+      await api.logout();
+    } finally {
+      setUser(null);
+      setMobileMenuOpen(false);
+      navigate('/login', { replace: true });
+    }
   };
 
   // Build nav links based on role

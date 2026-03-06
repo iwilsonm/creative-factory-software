@@ -3,6 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { api } from '../api';
 import InfoTooltip from './InfoTooltip';
 import PipelineProgress from './PipelineProgress';
+import ConfirmDialog from './ConfirmDialog';
 import { useToast } from './Toast';
 import { usePolling } from '../hooks/usePolling';
 
@@ -330,6 +331,9 @@ function injectImageOverlays(html) {
 function LPEditor({ page: initialPage, onBack, onDelete, projectId }) {
   const toast = useToast();
   const [deleting, setDeleting] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [showUnpublishConfirm, setShowUnpublishConfirm] = useState(false);
+  const [restoreTarget, setRestoreTarget] = useState(null);
   const [activeTab, setActiveTab] = useState('copy');
   const [mobileView, setMobileView] = useState('preview'); // 'preview' | 'editor'
 
@@ -411,7 +415,9 @@ function LPEditor({ page: initialPage, onBack, onDelete, projectId }) {
   // ── Debounce timers ──
   const previewTimer = useRef(null);
   const saveTimer = useRef(null);
+  const saveStatusTimer = useRef(null);
   const initDone = useRef(false);
+  const [saveState, setSaveState] = useState('idle'); // idle | pending | saving | saved | error
 
   // ── Initialize CTA links, slug, current_version on first load ──
   useEffect(() => {
@@ -461,8 +467,11 @@ function LPEditor({ page: initialPage, onBack, onDelete, projectId }) {
   // ── Debounced save to backend ──
   const saveToBackend = useCallback(() => {
     clearTimeout(saveTimer.current);
+    if (saveStatusTimer.current) clearTimeout(saveStatusTimer.current);
+    setSaveState('pending');
     saveTimer.current = setTimeout(async () => {
       const assembled = assembleHtmlClient(htmlTemplate, copySections, imageSlots, ctaLinks);
+      setSaveState('saving');
       try {
         await api.updateLandingPage(projectId, initialPage.externalId, {
           copy_sections: JSON.stringify(copySections),
@@ -470,8 +479,11 @@ function LPEditor({ page: initialPage, onBack, onDelete, projectId }) {
           slug,
           assembled_html: assembled,
         });
+        setSaveState('saved');
+        saveStatusTimer.current = setTimeout(() => setSaveState('idle'), 2000);
       } catch (err) {
         console.error('Auto-save failed:', err);
+        setSaveState('error');
       }
     }, 1500);
   }, [htmlTemplate, copySections, imageSlots, ctaLinks, slug, projectId, initialPage.externalId]);
@@ -483,6 +495,7 @@ function LPEditor({ page: initialPage, onBack, onDelete, projectId }) {
     return () => {
       clearTimeout(previewTimer.current);
       clearTimeout(saveTimer.current);
+      clearTimeout(saveStatusTimer.current);
     };
   }, [copySections, ctaLinks]);
 
@@ -589,18 +602,19 @@ function LPEditor({ page: initialPage, onBack, onDelete, projectId }) {
   };
 
   // ── Version restore ──
-  const handleRestoreVersion = async (versionId, versionNum) => {
-    if (!confirm(`This will save your current state as a new version and restore version ${versionNum}. Continue?`)) return;
-    setRestoringVersion(versionId);
+  const handleRestoreVersion = async () => {
+    if (!restoreTarget) return;
+    setRestoringVersion(restoreTarget.versionId);
     try {
-      const updated = await api.restoreLPVersion(projectId, initialPage.externalId, versionId);
+      const updated = await api.restoreLPVersion(projectId, initialPage.externalId, restoreTarget.versionId);
       // Reset all local state from restored data
       setCopySections(updated.copy_sections ? JSON.parse(updated.copy_sections) : []);
       setImageSlots(updated.image_slots ? JSON.parse(updated.image_slots) : []);
       if (updated.cta_links) setCtaLinks(JSON.parse(updated.cta_links));
       if (updated.current_version) setCurrentVersion(updated.current_version);
       if (updated.assembled_html) setPreviewHtml(updated.assembled_html);
-      toast.success(`Restored to version ${versionNum}`);
+      toast.success(`Restored to version ${restoreTarget.versionNum}`);
+      setRestoreTarget(null);
       loadVersions();
     } catch (err) {
       toast.error(err.message || 'Failed to restore version');
@@ -610,11 +624,11 @@ function LPEditor({ page: initialPage, onBack, onDelete, projectId }) {
 
   // ── Delete ──
   const handleDelete = async () => {
-    if (!confirm('Delete this landing page? This cannot be undone.')) return;
     setDeleting(true);
     try {
       await api.deleteLandingPage(projectId, initialPage.externalId);
       toast.success('Landing page deleted');
+      setShowDeleteConfirm(false);
       onDelete();
     } catch (err) {
       toast.error(err.message || 'Failed to delete');
@@ -643,13 +657,13 @@ function LPEditor({ page: initialPage, onBack, onDelete, projectId }) {
 
   // ── Unpublish handler ──
   const handleUnpublish = async () => {
-    if (!confirm('Unpublish this landing page? It will be removed from Shopify.')) return;
     setUnpublishing(true);
     try {
       await api.unpublishLandingPage(projectId, initialPage.externalId);
       setPageStatus('unpublished');
       setPublishedUrl('');
       setShopifyHandle('');
+      setShowUnpublishConfirm(false);
       toast.success('Landing page unpublished');
     } catch (err) {
       toast.error(err.message || 'Failed to unpublish');
@@ -750,7 +764,7 @@ function LPEditor({ page: initialPage, onBack, onDelete, projectId }) {
               </span>
             )}
             {initialPage.narrative_frame && (
-              <span className="text-[10px] text-[#7C6DCD] font-medium px-2 py-0.5 rounded-full bg-[#7C6DCD]/10">
+              <span className="text-[10px] text-gold font-medium px-2 py-0.5 rounded-full bg-gold/10">
                 {FRAME_LABELS[initialPage.narrative_frame] || initialPage.narrative_frame}
               </span>
             )}
@@ -785,6 +799,19 @@ function LPEditor({ page: initialPage, onBack, onDelete, projectId }) {
           )}
         </div>
         <div className="flex items-center gap-2">
+          {saveState !== 'idle' && (
+            <span className={`text-[11px] font-medium px-2 py-1 rounded-lg ${
+              saveState === 'saving' ? 'bg-navy/10 text-navy' :
+              saveState === 'saved' ? 'bg-teal/10 text-teal' :
+              saveState === 'error' ? 'bg-red-50 text-red-600' :
+              'bg-gold/10 text-gold'
+            }`}>
+              {saveState === 'saving' ? 'Saving...' :
+               saveState === 'saved' ? 'All changes saved' :
+               saveState === 'error' ? 'Save failed' :
+               'Unsaved changes'}
+            </span>
+          )}
           {publishing ? (
             <span className="text-[11px] text-navy flex items-center gap-1.5">
               <svg className="w-3.5 h-3.5 animate-spin" viewBox="0 0 24 24" fill="none">
@@ -836,11 +863,11 @@ function LPEditor({ page: initialPage, onBack, onDelete, projectId }) {
             Download PDF
           </button>
           <button
-            onClick={handleDelete}
+            onClick={() => setShowDeleteConfirm(true)}
             disabled={deleting}
-            className="text-[11px] text-red-400 hover:text-red-500 transition-colors disabled:opacity-50"
+            className="action-link-danger disabled:opacity-50"
           >
-            {deleting ? '...' : 'Delete'}
+            {deleting ? 'Deleting...' : 'Delete'}
           </button>
         </div>
       </div>
@@ -892,6 +919,34 @@ function LPEditor({ page: initialPage, onBack, onDelete, projectId }) {
           Editor
         </button>
       </div>
+      <ConfirmDialog
+        open={showDeleteConfirm}
+        title="Delete landing page?"
+        message="This removes the landing page and all of its saved versions. This action cannot be undone."
+        confirmLabel="Delete Page"
+        busy={deleting}
+        onCancel={() => setShowDeleteConfirm(false)}
+        onConfirm={handleDelete}
+      />
+      <ConfirmDialog
+        open={!!restoreTarget}
+        title="Restore this version?"
+        message={restoreTarget ? `This will save your current state as a new version and restore version ${restoreTarget.versionNum}.` : ''}
+        confirmLabel="Restore Version"
+        tone="default"
+        busy={!!restoringVersion}
+        onCancel={() => setRestoreTarget(null)}
+        onConfirm={handleRestoreVersion}
+      />
+      <ConfirmDialog
+        open={showUnpublishConfirm}
+        title="Unpublish landing page?"
+        message="This removes the live Shopify page and returns this landing page to an unpublished state."
+        confirmLabel="Unpublish"
+        busy={unpublishing}
+        onCancel={() => setShowUnpublishConfirm(false)}
+        onConfirm={handleUnpublish}
+      />
 
       {/* ── Split Panel ── */}
       <div className="flex flex-col lg:flex-row flex-1 min-h-0 gap-0">
@@ -1163,9 +1218,9 @@ function LPEditor({ page: initialPage, onBack, onDelete, projectId }) {
                     </div>
                   )}
                   {initialPage.narrative_frame && (
-                    <div className="flex items-center gap-1.5 px-3 py-1.5 bg-[#7C6DCD]/5 rounded-lg">
+                    <div className="flex items-center gap-1.5 px-3 py-1.5 bg-gold/10 rounded-lg">
                       <span className="text-[10px] text-textlight">Frame</span>
-                      <span className="text-[10px] text-[#7C6DCD] font-medium">{FRAME_LABELS[initialPage.narrative_frame] || initialPage.narrative_frame}</span>
+                      <span className="text-[10px] text-gold font-medium">{FRAME_LABELS[initialPage.narrative_frame] || initialPage.narrative_frame}</span>
                     </div>
                   )}
                 </div>
@@ -1173,8 +1228,8 @@ function LPEditor({ page: initialPage, onBack, onDelete, projectId }) {
 
               {/* Editorial Plan Summary */}
               {editorialPlan && (
-                <div className="p-3 bg-[#7C6DCD]/5 border border-[#7C6DCD]/15 rounded-xl">
-                  <p className="text-[11px] font-semibold text-[#7C6DCD] mb-2">Editorial Plan (Opus)</p>
+                <div className="p-3 bg-gold/5 border border-gold/15 rounded-xl">
+                  <p className="text-[11px] font-semibold text-gold mb-2">Editorial Plan (Opus)</p>
                   {editorialPlan.headline && (
                     <p className="text-[12px] font-medium text-textdark mb-1">{editorialPlan.headline}</p>
                   )}
@@ -1182,12 +1237,12 @@ function LPEditor({ page: initialPage, onBack, onDelete, projectId }) {
                     <p className="text-[11px] text-textmid mb-2">{editorialPlan.editorial_notes}</p>
                   )}
                   {editorialPlan.decisions?.length > 0 && (
-                    <div className="mt-2 pt-2 border-t border-[#7C6DCD]/10">
-                      <p className="text-[10px] font-medium text-[#7C6DCD]/80 mb-1">Decisions</p>
+                    <div className="mt-2 pt-2 border-t border-gold/10">
+                      <p className="text-[10px] font-medium text-gold/80 mb-1">Decisions</p>
                       <ul className="space-y-0.5">
                         {editorialPlan.decisions.map((d, i) => (
                           <li key={i} className="text-[10px] text-textmid flex gap-1.5">
-                            <span className="text-[#7C6DCD]/60 flex-shrink-0">&bull;</span>
+                            <span className="text-gold/60 flex-shrink-0">&bull;</span>
                             <span>{d}</span>
                           </li>
                         ))}
@@ -1213,7 +1268,7 @@ function LPEditor({ page: initialPage, onBack, onDelete, projectId }) {
                       const stepColors = {
                         init: 'bg-navy/10 text-navy', template: 'bg-navy/10 text-navy',
                         project: 'bg-navy/10 text-navy', copy: 'bg-gold/10 text-gold',
-                        editorial: 'bg-[#7C6DCD]/10 text-[#7C6DCD]', images: 'bg-teal/10 text-teal',
+                        editorial: 'bg-gold/10 text-gold', images: 'bg-teal/10 text-teal',
                         html: 'bg-navy/10 text-navy', assembly: 'bg-navy/10 text-navy',
                         postprocess: 'bg-gold/10 text-gold', qa: 'bg-teal/10 text-teal',
                         autofix: 'bg-red-50 text-red-600', complete: 'bg-teal/10 text-teal',
@@ -1223,7 +1278,7 @@ function LPEditor({ page: initialPage, onBack, onDelete, projectId }) {
                       const color = stepColors[entry.step] || 'bg-black/5 text-textmid';
                       const dotColor = entry.step === 'complete' ? 'bg-teal' :
                         entry.action === 'failed' ? 'bg-red-500' :
-                        entry.step === 'editorial' ? 'bg-[#7C6DCD]' : 'bg-navy/40';
+                        entry.step === 'editorial' ? 'bg-gold' : 'bg-navy/40';
 
                       return (
                         <div key={i} className="relative">
@@ -1241,7 +1296,7 @@ function LPEditor({ page: initialPage, onBack, onDelete, projectId }) {
                           {entry.decisions?.length > 0 && (
                             <ul className="mt-1 space-y-0.5 ml-2">
                               {entry.decisions.map((d, j) => (
-                                <li key={j} className="text-[10px] text-[#7C6DCD]/80 flex gap-1">
+                                <li key={j} className="text-[10px] text-gold/80 flex gap-1">
                                   <span className="flex-shrink-0">&#8227;</span>
                                   <span>{d}</span>
                                 </li>
@@ -1533,7 +1588,7 @@ function LPEditor({ page: initialPage, onBack, onDelete, projectId }) {
                           Preview
                         </button>
                         <button
-                          onClick={() => handleRestoreVersion(v.externalId, v.version)}
+                          onClick={() => setRestoreTarget({ versionId: v.externalId, versionNum: v.version })}
                           disabled={restoringVersion === v.externalId}
                           className="text-[10px] text-gold hover:text-gold/80 font-medium disabled:opacity-50"
                         >
@@ -1559,7 +1614,7 @@ function LPEditor({ page: initialPage, onBack, onDelete, projectId }) {
                   </a>
                   <div className="mt-2">
                     <button
-                      onClick={handleUnpublish}
+                      onClick={() => setShowUnpublishConfirm(true)}
                       disabled={unpublishing}
                       className="text-[11px] px-3 py-1 bg-red-50 text-red-600 rounded-lg hover:bg-red-100 transition-colors disabled:opacity-50 font-medium"
                     >
@@ -1720,6 +1775,8 @@ export default function LPGen({ projectId, project }) {
   const [loading, setLoading] = useState(true);
   const [selectedPage, setSelectedPage] = useState(null);
   const [expandedBatches, setExpandedBatches] = useState({});
+  const [displayCount, setDisplayCount] = useState(12);
+  const [pendingDeletePage, setPendingDeletePage] = useState(null);
   const deepLinkHandled = useRef(false);
 
   // Gauntlet (batch generation) progress from server polling
@@ -1814,6 +1871,7 @@ export default function LPGen({ projectId, project }) {
     deepLinkHandled.current = false;
     setLoading(true);
     setSelectedPage(null);
+    setDisplayCount(12);
     loadPages();
     checkDocs();
   }, [projectId]);
@@ -2012,6 +2070,50 @@ export default function LPGen({ projectId, project }) {
     setCurrentPhase('');
     setImageProgress(null);
   };
+
+  const pageItems = useMemo(() => {
+    const batchMap = {};
+    const singles = [];
+
+    for (const page of pages) {
+      if (page.gauntlet_batch_id) {
+        if (!batchMap[page.gauntlet_batch_id]) batchMap[page.gauntlet_batch_id] = [];
+        batchMap[page.gauntlet_batch_id].push(page);
+      } else {
+        singles.push(page);
+      }
+    }
+
+    const batches = Object.entries(batchMap).map(([batchId, batchPages]) => ({
+      type: 'batch',
+      batchId,
+      pages: batchPages.sort((a, b) => new Date(a.created_at) - new Date(b.created_at)),
+      sortDate: Math.min(...batchPages.map(p => new Date(p.created_at).getTime())),
+    })).sort((a, b) => b.sortDate - a.sortDate);
+
+    const singleItems = singles.map(page => ({
+      type: 'single',
+      page,
+      sortDate: new Date(page.created_at).getTime(),
+    }));
+
+    return [...batches, ...singleItems].sort((a, b) => b.sortDate - a.sortDate);
+  }, [pages]);
+
+  const visiblePageItems = pageItems.slice(0, displayCount);
+  const hasMorePageItems = displayCount < pageItems.length;
+
+  const handleDeletePage = useCallback(async () => {
+    if (!pendingDeletePage) return;
+    try {
+      await api.deleteLandingPage(projectId, pendingDeletePage.externalId);
+      toast.success('Landing page deleted');
+      setPendingDeletePage(null);
+      loadPages();
+    } catch (err) {
+      toast.error(err.message || 'Failed to delete');
+    }
+  }, [pendingDeletePage, projectId, toast]);
 
   // ── Editor view ──
   if (view === 'editor' && selectedPage) {
@@ -2353,20 +2455,16 @@ export default function LPGen({ projectId, project }) {
     <div>
       <div className="flex items-center justify-between mb-5">
         <div className="flex items-center gap-4">
-          <div className="flex gap-1 p-0.5 bg-offwhite rounded-lg">
+          <div className="tab-strip">
             <button
               onClick={() => setSubTab('pages')}
-              className={`px-3 py-1.5 rounded-md text-[12px] font-medium transition-all ${
-                subTab === 'pages' ? 'bg-navy text-white shadow-sm' : 'text-textmid hover:text-textdark'
-              }`}
+              className={`tab-chip ${subTab === 'pages' ? 'active' : ''}`}
             >
               Landing Pages
             </button>
             <button
               onClick={() => setSubTab('templates')}
-              className={`px-3 py-1.5 rounded-md text-[12px] font-medium transition-all ${
-                subTab === 'templates' ? 'bg-navy text-white shadow-sm' : 'text-textmid hover:text-textdark'
-              }`}
+              className={`tab-chip ${subTab === 'templates' ? 'active' : ''}`}
             >
               Templates
             </button>
@@ -2423,343 +2521,321 @@ export default function LPGen({ projectId, project }) {
         </div>
       ) : (
         <div className="space-y-2">
-          {(() => {
-            // Group pages into batches and singles
-            const batchMap = {};
-            const singles = [];
-            for (const page of pages) {
-              if (page.gauntlet_batch_id) {
-                if (!batchMap[page.gauntlet_batch_id]) batchMap[page.gauntlet_batch_id] = [];
-                batchMap[page.gauntlet_batch_id].push(page);
-              } else {
-                singles.push(page);
-              }
-            }
-            // Convert batches to array sorted by earliest created_at desc
-            const batches = Object.entries(batchMap).map(([batchId, batchPages]) => ({
-              batchId,
-              pages: batchPages.sort((a, b) => new Date(a.created_at) - new Date(b.created_at)),
-              sortDate: Math.min(...batchPages.map(p => new Date(p.created_at).getTime())),
-            })).sort((a, b) => b.sortDate - a.sortDate);
+          {visiblePageItems.map(item => {
+            if (item.type === 'batch') {
+              const { batchId, pages: batchPages } = item;
+              const expanded = expandedBatches[batchId];
+              const passedCount = batchPages.filter(p => p.gauntlet_status === 'passed' || p.gauntlet_status === 'published').length;
+              const scores = batchPages.filter(p => p.gauntlet_score != null).map(p => p.gauntlet_score);
+              const avgScore = scores.length > 0 ? Math.round(scores.reduce((sum, value) => sum + value, 0) / scores.length * 10) / 10 : null;
 
-            // Interleave batches and singles by date (most recent first)
-            const items = [];
-            for (const batch of batches) {
-              items.push({ type: 'batch', ...batch });
-            }
-            for (const page of singles) {
-              items.push({ type: 'single', page, sortDate: new Date(page.created_at).getTime() });
-            }
-            items.sort((a, b) => b.sortDate - a.sortDate);
-
-            return items.map(item => {
-              if (item.type === 'batch') {
-                const { batchId, pages: batchPages } = item;
-                const expanded = expandedBatches[batchId];
-                const passedCount = batchPages.filter(p => p.gauntlet_status === 'passed' || p.gauntlet_status === 'published').length;
-                const scores = batchPages.filter(p => p.gauntlet_score != null).map(p => p.gauntlet_score);
-                const avgScore = scores.length > 0 ? Math.round(scores.reduce((s, v) => s + v, 0) / scores.length * 10) / 10 : null;
-
-                // Duration from batch timestamps
-                const startedAt = batchPages[0]?.gauntlet_batch_started_at;
-                const completedAt = batchPages[0]?.gauntlet_batch_completed_at;
-                let durationStr = '';
-                let timeRange = '';
-                if (startedAt) {
-                  const startDate = new Date(startedAt);
-                  timeRange = startDate.toLocaleString(undefined, { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' });
-                  if (completedAt) {
-                    const endDate = new Date(completedAt);
-                    const diffMin = Math.round((endDate - startDate) / 60000);
-                    if (diffMin >= 60) {
-                      const hrs = Math.floor(diffMin / 60);
-                      const mins = diffMin % 60;
-                      durationStr = mins > 0 ? `${hrs} hour${hrs !== 1 ? 's' : ''} ${mins} minute${mins !== 1 ? 's' : ''}` : `${hrs} hour${hrs !== 1 ? 's' : ''}`;
-                    } else {
-                      durationStr = `${diffMin} minute${diffMin !== 1 ? 's' : ''}`;
-                    }
-                    timeRange += ` – ${endDate.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}`;
+              const startedAt = batchPages[0]?.gauntlet_batch_started_at;
+              const completedAt = batchPages[0]?.gauntlet_batch_completed_at;
+              let durationStr = '';
+              let timeRange = '';
+              if (startedAt) {
+                const startDate = new Date(startedAt);
+                timeRange = startDate.toLocaleString(undefined, { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' });
+                if (completedAt) {
+                  const endDate = new Date(completedAt);
+                  const diffMin = Math.round((endDate - startDate) / 60000);
+                  if (diffMin >= 60) {
+                    const hrs = Math.floor(diffMin / 60);
+                    const mins = diffMin % 60;
+                    durationStr = mins > 0 ? `${hrs} hour${hrs !== 1 ? 's' : ''} ${mins} minute${mins !== 1 ? 's' : ''}` : `${hrs} hour${hrs !== 1 ? 's' : ''}`;
+                  } else {
+                    durationStr = `${diffMin} minute${diffMin !== 1 ? 's' : ''}`;
                   }
-                } else {
-                  timeRange = new Date(batchPages[0].created_at).toLocaleString(undefined, { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' });
+                  timeRange += ` – ${endDate.toLocaleTimeString(undefined, { hour: 'numeric', minute: '2-digit' })}`;
                 }
-
-                const allDone = batchPages.every(p => p.status !== 'generating');
-
-                return (
-                  <div key={batchId} className="space-y-0">
-                    {/* Batch header row */}
-                    <div
-                      className="card p-4 w-full text-left hover:shadow-card-hover transition-shadow cursor-pointer"
-                      onClick={() => setExpandedBatches(prev => ({ ...prev, [batchId]: !prev[batchId] }))}
-                    >
-                      <div className="flex items-center gap-3">
-                        <svg className={`w-3.5 h-3.5 text-textmid flex-shrink-0 transition-transform ${expanded ? 'rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
-                        </svg>
-                        <div className="flex-1 min-w-0">
-                          <div className="flex items-center gap-2">
-                            <h3 className="text-[13px] font-medium text-textdark">
-                              LP Batch{batchPages[0]?.angle && batchPages[0].angle.length < 80 ? <> — <span className="text-navy">{batchPages[0].angle}</span></> : ''} — {batchPages.length} landing page{batchPages.length !== 1 ? 's' : ''}
-                              {durationStr && <span className="text-textlight font-normal"> — Generated in {durationStr}</span>}
-                            </h3>
-                            {!allDone && gauntletProgress ? (
-                              <div className="flex-1 max-w-xs ml-2">
-                                <PipelineProgress
-                                  progress={gauntletProgress.percent}
-                                  message={gauntletProgress.message}
-                                  startTime={gauntletProgress.startedAt}
-                                />
-                              </div>
-                            ) : !allDone ? (
-                              <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-navy/10 text-navy animate-pulse">
-                                Generating...
-                              </span>
-                            ) : null}
-                          </div>
-                          <div className="flex items-center gap-3 mt-1">
-                            <span className="text-[11px] text-textlight">{timeRange}</span>
-                            {allDone && (
-                              <>
-                                <span className="text-[11px] text-textmid">
-                                  Passed: <span className={passedCount === batchPages.length ? 'text-teal' : 'text-textdark'}>{passedCount}/{batchPages.length}</span>
-                                </span>
-                                {avgScore != null && (
-                                  <span className="text-[11px] text-textmid">
-                                    Avg score: <span className={avgScore >= 6 ? 'text-teal' : 'text-gold'}>{avgScore}</span>
-                                  </span>
-                                )}
-                              </>
-                            )}
-                          </div>
-                        </div>
-                      </div>
-                    </div>
-
-                    {/* Expanded batch sub-rows */}
-                    {expanded && (
-                      <div className="ml-6 border-l-2 border-navy/10 space-y-1 py-1">
-                        {batchPages.map(page => {
-                          const status = STATUS_CONFIG[page.status] || STATUS_CONFIG.draft;
-                          const frameName = FRAME_LABELS[page.gauntlet_frame] || page.gauntlet_frame || page.narrative_frame || '';
-                          const isPublished = page.status === 'published';
-                          return (
-                            <div
-                              key={page.externalId}
-                              className="card ml-2 p-3 w-full text-left hover:shadow-card-hover transition-shadow cursor-pointer"
-                              onClick={() => handleViewPage(page)}
-                            >
-                              <div className="flex items-center gap-3">
-                                <div className="flex-1 min-w-0">
-                                  <div className="flex items-center gap-2">
-                                    <h3 className="text-[12px] font-medium text-textdark truncate">
-                                      {frameName || page.name}{page.angle && page.angle.length < 80 ? <span className="text-textmid font-normal"> - {page.angle}</span> : ''}
-                                    </h3>
-                                    {page.gauntlet_score != null && (
-                                      <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${page.gauntlet_score >= 7 ? 'bg-teal/10 text-teal' : 'bg-gold/10 text-gold'}`}>
-                                        {page.gauntlet_score}/11
-                                      </span>
-                                    )}
-                                    <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${status.bg} ${status.text}`}>
-                                      {status.label}
-                                    </span>
-                                    {(page.gauntlet_status === 'passed' || page.gauntlet_status === 'published') && (
-                                      <span className="text-teal text-[11px]">✓</span>
-                                    )}
-                                    {page.gauntlet_status === 'failed' && (
-                                      <span className="text-red-500 text-[11px]">✗</span>
-                                    )}
-                                  </div>
-                                  {isPublished && page.published_url && (
-                                    <div className="flex items-center gap-1.5 mt-1">
-                                      <svg className="w-3 h-3 text-teal flex-shrink-0" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-                                        <path strokeLinecap="round" strokeLinejoin="round" d="M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m9.86-2.504a4.5 4.5 0 00-1.242-7.244l-4.5-4.5a4.5 4.5 0 00-6.364 6.364L4.343 8.684" />
-                                      </svg>
-                                      <span
-                                        className="text-[10px] font-mono text-gold hover:text-gold/80 truncate max-w-[300px]"
-                                        onClick={(e) => {
-                                          e.stopPropagation();
-                                          navigator.clipboard.writeText(page.published_url);
-                                          toast.success('URL copied');
-                                        }}
-                                        title="Click to copy URL"
-                                      >
-                                        {page.published_url}
-                                      </span>
-                                    </div>
-                                  )}
-                                </div>
-                                <div className="flex items-center gap-1 flex-shrink-0">
-                                  <button
-                                    onClick={(e) => { e.stopPropagation(); handleViewPage(page); }}
-                                    className="text-[10px] text-navy hover:text-navy/70 px-2 py-1 rounded-lg hover:bg-navy/5 transition-colors"
-                                  >
-                                    View
-                                  </button>
-                                  <button
-                                    onClick={(e) => {
-                                      e.stopPropagation();
-                                      if (!confirm(`Delete "${page.name}"? This cannot be undone.`)) return;
-                                      api.deleteLandingPage(projectId, page.externalId)
-                                        .then(() => { toast.success('Landing page deleted'); loadPages(); })
-                                        .catch(err => toast.error(err.message || 'Failed to delete'));
-                                    }}
-                                    className="text-textlight hover:text-red-500 p-1 rounded-lg hover:bg-red-50 transition-colors"
-                                    title="Delete"
-                                  >
-                                    <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-                                      <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
-                                    </svg>
-                                  </button>
-                                </div>
-                              </div>
-                              {page.status === 'failed' && page.error_message && (
-                                <p className="text-[10px] text-red-500 mt-1 truncate">{page.error_message}</p>
-                              )}
-                            </div>
-                          );
-                        })}
-                      </div>
-                    )}
-                  </div>
-                );
+              } else {
+                timeRange = new Date(batchPages[0].created_at).toLocaleString(undefined, { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' });
               }
 
-              // Single (non-batch) LP row — unchanged from original
-              const page = item.page;
-              const status = STATUS_CONFIG[page.status] || STATUS_CONFIG.draft;
-              const totalWords = page.total_words || 0;
-              const sectionCount = page.section_count || 0;
-              const hasHtml = !!page.has_html;
-              const hasDesign = !!page.has_design;
-              const isPublished = page.status === 'published';
+              const allDone = batchPages.every(page => page.status !== 'generating');
 
               return (
-                <div
-                  key={page.externalId}
-                  className="card p-4 w-full text-left hover:shadow-card-hover transition-shadow cursor-pointer"
-                  onClick={() => handleViewPage(page)}
-                >
-                  <div className="flex items-center gap-3">
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
-                        <h3 className="text-[13px] font-medium text-textdark truncate">{page.name}</h3>
-                        <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${status.bg} ${status.text}`}>
-                          {status.label}
-                        </span>
-                        {hasHtml && !isPublished && (
-                          <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-teal/5 text-teal">
-                            HTML
-                          </span>
-                        )}
-                        {page.auto_generated && (
-                          <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-navy/10 text-navy">
-                            Auto
-                          </span>
-                        )}
-                        {page.qa_status === 'passed' && (
-                          <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-teal/10 text-teal" title="Visual QA passed">
-                            QA Pass
-                          </span>
-                        )}
-                        {page.qa_status === 'failed' && (
-                          <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-red-50 text-red-600" title={`${page.qa_issues_count || 0} issue(s) found`}>
-                            QA {page.qa_issues_count || 0}
-                          </span>
-                        )}
-                        {page.qa_status === 'running' && (
-                          <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-gold/10 text-gold animate-pulse">
-                            QA...
-                          </span>
-                        )}
-                      </div>
-                      <div className="flex items-center gap-3 mt-1">
-                        <span className="text-[11px] text-textlight">
-                          {new Date(page.created_at).toLocaleString(undefined, { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })}
-                        </span>
-                        {(page.status === 'completed' || isPublished) && (
-                          <>
-                            <span className="text-[11px] text-textlight">{totalWords} words</span>
-                            <span className="text-[11px] text-textlight">{sectionCount} sections</span>
-                          </>
-                        )}
-                        {page.swipe_url && (
-                          <a
-                            href={page.swipe_url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            onClick={(e) => e.stopPropagation()}
-                            className="text-[10px] text-gold hover:text-gold/80 bg-gold/5 px-1.5 py-0.5 rounded truncate max-w-[200px] inline-block"
-                            title={page.swipe_url}
-                          >
-                            {(() => { try { return new URL(page.swipe_url).hostname; } catch { return page.swipe_url; } })()}
-                          </a>
-                        )}
-                        {hasDesign && (
-                          <span className="text-[10px] text-navy/50">
-                            Design analyzed
-                          </span>
-                        )}
-                      </div>
-                      {/* Published URL */}
-                      {isPublished && page.published_url && (
-                        <div className="flex items-center gap-1.5 mt-1">
-                          <svg className="w-3 h-3 text-teal flex-shrink-0" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m9.86-2.504a4.5 4.5 0 00-1.242-7.244l-4.5-4.5a4.5 4.5 0 00-6.364 6.364L4.343 8.684" />
-                          </svg>
-                          <span
-                            className="text-[10px] font-mono text-gold hover:text-gold/80 truncate max-w-[300px]"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              navigator.clipboard.writeText(page.published_url);
-                              toast.success('URL copied');
-                            }}
-                            title="Click to copy URL"
-                          >
-                            {page.published_url}
-                          </span>
-                        </div>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-1 flex-shrink-0">
-                      <button
-                        onClick={(e) => { e.stopPropagation(); handleDuplicate(page); }}
-                        className="text-textlight hover:text-navy p-1.5 rounded-lg hover:bg-navy/5 transition-colors"
-                        title="Duplicate"
-                      >
-                        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 17.25v3.375c0 .621-.504 1.125-1.125 1.125h-9.5a1.125 1.125 0 01-1.125-1.125V7.875c0-.621.504-1.125 1.125-1.125H6.75a9.06 9.06 0 011.5.124m7.5 10.376h3.375c.621 0 1.125-.504 1.125-1.125V11.25c0-4.46-3.243-8.161-7.5-8.876a9.06 9.06 0 00-1.5-.124H9.375c-.621 0-1.125.504-1.125 1.125v3.5m7.5 10.375H9.375a1.125 1.125 0 01-1.125-1.125v-9.25m0 0a2.625 2.625 0 00-2.625 2.625v6.625a2.625 2.625 0 002.625 2.625" />
-                        </svg>
-                      </button>
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          if (!confirm(`Delete "${page.name}"? This cannot be undone.`)) return;
-                          api.deleteLandingPage(projectId, page.externalId)
-                            .then(() => { toast.success('Landing page deleted'); loadPages(); })
-                            .catch(err => toast.error(err.message || 'Failed to delete'));
-                        }}
-                        className="text-textlight hover:text-red-500 p-1.5 rounded-lg hover:bg-red-50 transition-colors"
-                        title="Delete"
-                      >
-                        <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
-                        </svg>
-                      </button>
-                      <svg className="w-4 h-4 text-textlight" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                <div key={batchId} className="space-y-0">
+                  <div
+                    className="card p-4 w-full text-left hover:shadow-card-hover transition-shadow cursor-pointer"
+                    onClick={() => setExpandedBatches(prev => ({ ...prev, [batchId]: !prev[batchId] }))}
+                  >
+                    <div className="flex items-center gap-3">
+                      <svg className={`w-3.5 h-3.5 text-textmid flex-shrink-0 transition-transform ${expanded ? 'rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" strokeWidth={2.5} stroke="currentColor">
                         <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
                       </svg>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2">
+                          <h3 className="text-[13px] font-medium text-textdark">
+                            LP Batch{batchPages[0]?.angle && batchPages[0].angle.length < 80 ? <> — <span className="text-navy">{batchPages[0].angle}</span></> : ''} — {batchPages.length} landing page{batchPages.length !== 1 ? 's' : ''}
+                            {durationStr && <span className="text-textlight font-normal"> — Generated in {durationStr}</span>}
+                          </h3>
+                          {!allDone && gauntletProgress ? (
+                            <div className="flex-1 max-w-xs ml-2">
+                              <PipelineProgress
+                                progress={gauntletProgress.percent}
+                                message={gauntletProgress.message}
+                                startTime={gauntletProgress.startedAt}
+                              />
+                            </div>
+                          ) : !allDone ? (
+                            <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-navy/10 text-navy animate-pulse">
+                              Generating...
+                            </span>
+                          ) : null}
+                        </div>
+                        <div className="flex items-center gap-3 mt-1">
+                          <span className="text-[11px] text-textlight">{timeRange}</span>
+                          {allDone && (
+                            <>
+                              <span className="text-[11px] text-textmid">
+                                Passed: <span className={passedCount === batchPages.length ? 'text-teal' : 'text-textdark'}>{passedCount}/{batchPages.length}</span>
+                              </span>
+                              {avgScore != null && (
+                                <span className="text-[11px] text-textmid">
+                                  Avg score: <span className={avgScore >= 6 ? 'text-teal' : 'text-gold'}>{avgScore}</span>
+                                </span>
+                              )}
+                            </>
+                          )}
+                        </div>
+                      </div>
                     </div>
                   </div>
-                  {page.status === 'failed' && page.error_message && (
-                    <p className="text-[11px] text-red-500 mt-1.5 truncate">{page.error_message}</p>
+
+                  {expanded && (
+                    <div className="ml-6 border-l-2 border-navy/10 space-y-1 py-1">
+                      {batchPages.map(page => {
+                        const status = STATUS_CONFIG[page.status] || STATUS_CONFIG.draft;
+                        const frameName = FRAME_LABELS[page.gauntlet_frame] || page.gauntlet_frame || page.narrative_frame || '';
+                        const isPublished = page.status === 'published';
+                        return (
+                          <div
+                            key={page.externalId}
+                            className="card ml-2 p-3 w-full text-left hover:shadow-card-hover transition-shadow cursor-pointer"
+                            onClick={() => handleViewPage(page)}
+                          >
+                            <div className="flex items-center gap-3">
+                              <div className="flex-1 min-w-0">
+                                <div className="flex items-center gap-2">
+                                  <h3 className="text-[12px] font-medium text-textdark truncate">
+                                    {frameName || page.name}{page.angle && page.angle.length < 80 ? <span className="text-textmid font-normal"> - {page.angle}</span> : ''}
+                                  </h3>
+                                  {page.gauntlet_score != null && (
+                                    <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${page.gauntlet_score >= 7 ? 'bg-teal/10 text-teal' : 'bg-gold/10 text-gold'}`}>
+                                      {page.gauntlet_score}/11
+                                    </span>
+                                  )}
+                                  <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${status.bg} ${status.text}`}>
+                                    {status.label}
+                                  </span>
+                                  {(page.gauntlet_status === 'passed' || page.gauntlet_status === 'published') && (
+                                    <span className="text-teal text-[11px]">✓</span>
+                                  )}
+                                  {page.gauntlet_status === 'failed' && (
+                                    <span className="text-red-500 text-[11px]">✗</span>
+                                  )}
+                                </div>
+                                {isPublished && page.published_url && (
+                                  <div className="flex items-center gap-1.5 mt-1">
+                                    <svg className="w-3 h-3 text-teal flex-shrink-0" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                                      <path strokeLinecap="round" strokeLinejoin="round" d="M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m9.86-2.504a4.5 4.5 0 00-1.242-7.244l-4.5-4.5a4.5 4.5 0 00-6.364 6.364L4.343 8.684" />
+                                    </svg>
+                                    <span
+                                      className="text-[10px] font-mono text-gold hover:text-gold/80 truncate max-w-[300px]"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        navigator.clipboard.writeText(page.published_url);
+                                        toast.success('URL copied');
+                                      }}
+                                      title="Click to copy URL"
+                                    >
+                                      {page.published_url}
+                                    </span>
+                                  </div>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-1 flex-shrink-0">
+                                <button
+                                  onClick={(e) => { e.stopPropagation(); handleViewPage(page); }}
+                                  className="action-link"
+                                >
+                                  View
+                                </button>
+                                <button
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    setPendingDeletePage(page);
+                                  }}
+                                  className="icon-button-danger"
+                                  title="Delete"
+                                >
+                                  <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+                                  </svg>
+                                </button>
+                              </div>
+                            </div>
+                            {page.status === 'failed' && page.error_message && (
+                              <p className="text-[10px] text-red-500 mt-1 truncate">{page.error_message}</p>
+                            )}
+                          </div>
+                        );
+                      })}
+                    </div>
                   )}
                 </div>
               );
-            });
-          })()}
+            }
+
+            const page = item.page;
+            const status = STATUS_CONFIG[page.status] || STATUS_CONFIG.draft;
+            const totalWords = page.total_words || 0;
+            const sectionCount = page.section_count || 0;
+            const hasHtml = !!page.has_html;
+            const hasDesign = !!page.has_design;
+            const isPublished = page.status === 'published';
+
+            return (
+              <div
+                key={page.externalId}
+                className="card p-4 w-full text-left hover:shadow-card-hover transition-shadow cursor-pointer"
+                onClick={() => handleViewPage(page)}
+              >
+                <div className="flex items-center gap-3">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <h3 className="text-[13px] font-medium text-textdark truncate">{page.name}</h3>
+                      <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${status.bg} ${status.text}`}>
+                        {status.label}
+                      </span>
+                      {hasHtml && !isPublished && (
+                        <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-teal/5 text-teal">
+                          HTML
+                        </span>
+                      )}
+                      {page.auto_generated && (
+                        <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-navy/10 text-navy">
+                          Auto
+                        </span>
+                      )}
+                      {page.qa_status === 'passed' && (
+                        <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-teal/10 text-teal" title="Visual QA passed">
+                          QA Pass
+                        </span>
+                      )}
+                      {page.qa_status === 'failed' && (
+                        <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-red-50 text-red-600" title={`${page.qa_issues_count || 0} issue(s) found`}>
+                          QA {page.qa_issues_count || 0}
+                        </span>
+                      )}
+                      {page.qa_status === 'running' && (
+                        <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-gold/10 text-gold animate-pulse">
+                          QA...
+                        </span>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-3 mt-1">
+                      <span className="text-[11px] text-textlight">
+                        {new Date(page.created_at).toLocaleString(undefined, { month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit' })}
+                      </span>
+                      {(page.status === 'completed' || isPublished) && (
+                        <>
+                          <span className="text-[11px] text-textlight">{totalWords} words</span>
+                          <span className="text-[11px] text-textlight">{sectionCount} sections</span>
+                        </>
+                      )}
+                      {page.swipe_url && (
+                        <a
+                          href={page.swipe_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          onClick={(e) => e.stopPropagation()}
+                          className="text-[10px] text-gold hover:text-gold/80 bg-gold/5 px-1.5 py-0.5 rounded truncate max-w-[200px] inline-block"
+                          title={page.swipe_url}
+                        >
+                          {(() => { try { return new URL(page.swipe_url).hostname; } catch { return page.swipe_url; } })()}
+                        </a>
+                      )}
+                      {hasDesign && (
+                        <span className="text-[10px] text-navy/50">
+                          Design analyzed
+                        </span>
+                      )}
+                    </div>
+                    {isPublished && page.published_url && (
+                      <div className="flex items-center gap-1.5 mt-1">
+                        <svg className="w-3 h-3 text-teal flex-shrink-0" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m9.86-2.504a4.5 4.5 0 00-1.242-7.244l-4.5-4.5a4.5 4.5 0 00-6.364 6.364L4.343 8.684" />
+                        </svg>
+                        <span
+                          className="text-[10px] font-mono text-gold hover:text-gold/80 truncate max-w-[300px]"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            navigator.clipboard.writeText(page.published_url);
+                            toast.success('URL copied');
+                          }}
+                          title="Click to copy URL"
+                        >
+                          {page.published_url}
+                        </span>
+                      </div>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-1 flex-shrink-0">
+                    <button
+                      onClick={(e) => { e.stopPropagation(); handleDuplicate(page); }}
+                      className="icon-button"
+                      title="Duplicate"
+                    >
+                      <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M15.75 17.25v3.375c0 .621-.504 1.125-1.125 1.125h-9.5a1.125 1.125 0 01-1.125-1.125V7.875c0-.621.504-1.125 1.125-1.125H6.75a9.06 9.06 0 011.5.124m7.5 10.376h3.375c.621 0 1.125-.504 1.125-1.125V11.25c0-4.46-3.243-8.161-7.5-8.876a9.06 9.06 0 00-1.5-.124H9.375c-.621 0-1.125.504-1.125 1.125v3.5m7.5 10.375H9.375a1.125 1.125 0 01-1.125-1.125v-9.25m0 0a2.625 2.625 0 00-2.625 2.625v6.625a2.625 2.625 0 002.625 2.625" />
+                      </svg>
+                    </button>
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setPendingDeletePage(page);
+                      }}
+                      className="icon-button-danger"
+                      title="Delete"
+                    >
+                      <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" />
+                      </svg>
+                    </button>
+                    <svg className="w-4 h-4 text-textlight" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                      <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+                    </svg>
+                  </div>
+                </div>
+                {page.status === 'failed' && page.error_message && (
+                  <p className="text-[11px] text-red-500 mt-1.5 truncate">{page.error_message}</p>
+                )}
+              </div>
+            );
+          })}
+          {hasMorePageItems && (
+            <div className="pt-3 flex justify-center">
+              <button
+                onClick={() => setDisplayCount(prev => prev + 12)}
+                className="btn-secondary text-[13px]"
+              >
+                Show 12 Older Pages
+              </button>
+            </div>
+          )}
         </div>
       )}
+      <ConfirmDialog
+        open={!!pendingDeletePage}
+        title="Delete landing page?"
+        message={pendingDeletePage ? `Delete "${pendingDeletePage.name}"? This cannot be undone.` : ''}
+        confirmLabel="Delete Page"
+        busy={false}
+        onCancel={() => setPendingDeletePage(null)}
+        onConfirm={handleDeletePage}
+      />
         </>
       )}
     </div>

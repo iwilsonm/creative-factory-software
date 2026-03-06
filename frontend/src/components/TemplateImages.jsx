@@ -1,6 +1,7 @@
 import { useState, useRef, useCallback } from 'react';
 import { api } from '../api';
 import InfoTooltip from './InfoTooltip';
+import ConfirmDialog from './ConfirmDialog';
 import { useAsyncData } from '../hooks/useAsyncData';
 
 /**
@@ -30,7 +31,9 @@ export default function TemplateImages({ projectId, inspirationFolderId }) {
   const [viewImage, setViewImage] = useState(null);
   const [editingDesc, setEditingDesc] = useState(null);
   const [descValue, setDescValue] = useState('');
+  const [savingDescId, setSavingDescId] = useState(null);
   const [dragOver, setDragOver] = useState(false);
+  const [pendingDeleteImage, setPendingDeleteImage] = useState(null);
   const fileInputRef = useRef(null);
 
   const [driveError, setDriveError] = useState('');
@@ -98,24 +101,28 @@ export default function TemplateImages({ projectId, inspirationFolderId }) {
     setDragOver(false);
   }, []);
 
-  const handleDelete = async (imageId) => {
-    if (!confirm('Delete this template image? This cannot be undone.')) return;
+  const handleDelete = async () => {
+    if (!pendingDeleteImage) return;
     try {
-      await api.deleteTemplate(projectId, imageId);
-      setTemplates(prev => prev.filter(t => t.id !== imageId));
-      if (viewImage?.id === imageId) setViewImage(null);
+      await api.deleteTemplate(projectId, pendingDeleteImage.id);
+      setTemplates(prev => prev.filter(t => t.id !== pendingDeleteImage.id));
+      if (viewImage?.id === pendingDeleteImage.id) setViewImage(null);
+      setPendingDeleteImage(null);
     } catch (err) {
       setError(err.message);
     }
   };
 
   const handleSaveDesc = async (imageId) => {
+    setSavingDescId(imageId);
     try {
       await api.updateTemplate(projectId, imageId, descValue);
       setTemplates(prev => prev.map(t => t.id === imageId ? { ...t, description: descValue } : t));
       setEditingDesc(null);
     } catch (err) {
       setError(err.message);
+    } finally {
+      setSavingDescId(null);
     }
   };
 
@@ -314,7 +321,7 @@ export default function TemplateImages({ projectId, inspirationFolderId }) {
                     {tmpl.filename}
                   </p>
                   {editingDesc === tmpl.id ? (
-                    <div className="mt-1 flex gap-1">
+                    <div className="mt-1 space-y-2">
                       <input
                         value={descValue}
                         onChange={e => setDescValue(e.target.value)}
@@ -326,12 +333,22 @@ export default function TemplateImages({ projectId, inspirationFolderId }) {
                           if (e.key === 'Escape') setEditingDesc(null);
                         }}
                       />
-                      <button
-                        onClick={() => handleSaveDesc(tmpl.id)}
-                        className="text-[11px] text-gold hover:text-gold/80 transition-colors"
-                      >
-                        Save
-                      </button>
+                      <div className="flex items-center gap-2">
+                        <button
+                          onClick={() => handleSaveDesc(tmpl.id)}
+                          disabled={savingDescId === tmpl.id}
+                          className="btn-primary text-[11px] px-3 py-1 disabled:opacity-50"
+                        >
+                          {savingDescId === tmpl.id ? 'Saving...' : 'Save'}
+                        </button>
+                        <button
+                          onClick={() => setEditingDesc(null)}
+                          disabled={savingDescId === tmpl.id}
+                          className="btn-secondary text-[11px] px-3 py-1 disabled:opacity-50"
+                        >
+                          Cancel
+                        </button>
+                      </div>
                     </div>
                   ) : (
                     <p
@@ -352,13 +369,13 @@ export default function TemplateImages({ projectId, inspirationFolderId }) {
                         setEditingDesc(tmpl.id);
                         setDescValue(tmpl.description || '');
                       }}
-                      className="text-[11px] text-gold hover:text-gold/80 transition-colors"
+                      className="action-link"
                     >
                       Edit
                     </button>
                     <button
-                      onClick={(e) => { e.stopPropagation(); handleDelete(tmpl.id); }}
-                      className="text-[11px] text-red-500 hover:text-red-600 transition-colors"
+                      onClick={(e) => { e.stopPropagation(); setPendingDeleteImage(tmpl); }}
+                      className="action-link-danger"
                     >
                       Delete
                     </button>
@@ -393,8 +410,8 @@ export default function TemplateImages({ projectId, inspirationFolderId }) {
               <div className="flex items-center gap-3">
                 {viewImage.source === 'uploaded' && (
                   <button
-                    onClick={() => handleDelete(viewImage.id)}
-                    className="text-[12px] text-red-500 hover:text-red-600 transition-colors"
+                    onClick={() => setPendingDeleteImage(viewImage)}
+                    className="action-link-danger"
                   >
                     Delete
                   </button>
@@ -417,6 +434,14 @@ export default function TemplateImages({ projectId, inspirationFolderId }) {
           </div>
         </div>
       )}
+      <ConfirmDialog
+        open={!!pendingDeleteImage}
+        title="Delete template image?"
+        message="This removes the uploaded template image permanently. This action cannot be undone."
+        confirmLabel="Delete Image"
+        onCancel={() => setPendingDeleteImage(null)}
+        onConfirm={handleDelete}
+      />
     </div>
   );
 }

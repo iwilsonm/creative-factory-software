@@ -73,6 +73,9 @@ export default function AdTracker({ projectId, userRole, searchParams, setSearch
   const [perfLoading, setPerfLoading] = useState(false);
   const [metaSyncing, setMetaSyncing] = useState(false);
   const [publishedLPs, setPublishedLPs] = useState([]);
+  const [metaStatusLoaded, setMetaStatusLoaded] = useState(false);
+  const [publishedLPsLoaded, setPublishedLPsLoaded] = useState(false);
+  const [loadingPublishedLPs, setLoadingPublishedLPs] = useState(false);
   const editRef = useRef(null);
   const notesRef = useRef(null);
   const statusDropdownRef = useRef(null);
@@ -80,13 +83,41 @@ export default function AdTracker({ projectId, userRole, searchParams, setSearch
   const { addToast } = useToast();
 
   useEffect(() => {
+    setMetaConnected(false);
+    setMetaStatusLoaded(false);
+    setPerfSummary(null);
+    setPublishedLPs([]);
+    setPublishedLPsLoaded(false);
+    setLoadingPublishedLPs(false);
+  }, [projectId]);
+
+  useEffect(() => {
+    if (activeView !== 'status' || metaStatusLoaded) return;
+    setMetaStatusLoaded(true);
     checkMetaConnection();
-    // Fetch published landing pages for URL suggestions
-    api.getLandingPages(projectId).then(data => {
+  }, [activeView, metaStatusLoaded]);
+
+  const loadPublishedLPs = useCallback(async () => {
+    if (publishedLPsLoaded || loadingPublishedLPs) return;
+    setLoadingPublishedLPs(true);
+    try {
+      const data = await api.getLandingPages(projectId);
       const published = (data.pages || []).filter(p => p.status === 'published' && p.published_url);
       setPublishedLPs(published);
-    }).catch(() => {});
-  }, [projectId]);
+      setPublishedLPsLoaded(true);
+    } catch {
+      // allow retry
+    } finally {
+      setLoadingPublishedLPs(false);
+    }
+  }, [projectId, publishedLPsLoaded, loadingPublishedLPs]);
+
+  useEffect(() => {
+    if (activeView !== 'status') return;
+    if (bulkEditOpen || editingCell?.field === 'landing_page_url') {
+      loadPublishedLPs();
+    }
+  }, [activeView, bulkEditOpen, editingCell, loadPublishedLPs]);
 
   // Focus input when editing cell changes
   useEffect(() => {
@@ -317,6 +348,9 @@ export default function AdTracker({ projectId, userRole, searchParams, setSearch
 
   // ─── Inline Edit ──────────────────────────────────────────────────────────
   const startEdit = (id, field, currentValue) => {
+    if (field === 'landing_page_url') {
+      void loadPublishedLPs();
+    }
     setEditingCell({ id, field });
     setEditValue(currentValue || '');
   };

@@ -6,6 +6,7 @@ import Layout from '../components/Layout';
 import CostSummaryCards from '../components/CostSummaryCards';
 import InfoTooltip from '../components/InfoTooltip';
 import ErrorBoundary from '../components/ErrorBoundary';
+import ConfirmDialog from '../components/ConfirmDialog';
 import { useToast } from '../components/Toast';
 
 // Lazy-load heavy tab components — only the active tab's code is downloaded
@@ -35,6 +36,7 @@ export default function ProjectDetail() {
   const [loading, setLoading] = useState(true);
   const [form, setForm] = useState({});
   const [saving, setSaving] = useState(false);
+  const [deletingProject, setDeletingProject] = useState(false);
   // Persist active tab in URL search params so it survives page refresh
   const validTabs = ['quotes', 'ads', 'tracker', 'lpgen', 'overview', 'docs', 'templates'];
   const defaultTab = user?.role === 'poster' ? 'tracker' : 'ads';
@@ -66,6 +68,8 @@ export default function ProjectDetail() {
   const [metaAppForm, setMetaAppForm] = useState({ meta_app_id: '', meta_app_secret: '' });
   const [metaAppSaving, setMetaAppSaving] = useState(false);
   const [metaShowEditCreds, setMetaShowEditCreds] = useState(false);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [showMetaDisconnectConfirm, setShowMetaDisconnectConfirm] = useState(false);
 
   // Product image state
   const [productImageUploading, setProductImageUploading] = useState(false);
@@ -158,12 +162,12 @@ export default function ProjectDetail() {
   };
 
   const handleMetaDisconnect = async () => {
-    if (!confirm('Disconnect Meta from this project? This will remove the stored credentials for this project.')) return;
     setMetaDisconnecting(true);
     try {
       await api.disconnectMeta(id);
       setMetaStatus({ connected: false, appConfigured: true });
       setMetaAdAccounts([]);
+      setShowMetaDisconnectConfirm(false);
       toast.success('Meta account disconnected');
     } catch (err) {
       toast.error('Failed to disconnect: ' + err.message);
@@ -292,12 +296,15 @@ export default function ProjectDetail() {
   };
 
   const handleDelete = async () => {
-    if (!confirm('Are you sure you want to delete this project? This cannot be undone.')) return;
+    setDeletingProject(true);
     try {
       await api.deleteProject(id);
+      setShowDeleteConfirm(false);
       navigate('/projects');
     } catch (err) {
       toast.error(err.message);
+    } finally {
+      setDeletingProject(false);
     }
   };
 
@@ -367,7 +374,7 @@ export default function ProjectDetail() {
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
           </svg>
         </Link>
-        <h1 className="text-2xl font-semibold text-textdark tracking-tight">{project.name}</h1>
+        <h1 className="text-2xl font-semibold text-textdark tracking-tight">{project.brand_name || project.name}</h1>
         <span className={`badge ${status.bg} ${status.text}`}>
           {status.label}
         </span>
@@ -416,7 +423,7 @@ export default function ProjectDetail() {
         {tab === 'overview' && (
           <>
           {/* Sub-tabs */}
-          <div className="flex gap-1 p-0.5 bg-offwhite rounded-lg mb-5">
+          <div className="tab-strip mb-5">
             {[
               { id: 'general', label: 'General' },
               { id: 'docs', label: 'Foundational Docs' },
@@ -426,10 +433,10 @@ export default function ProjectDetail() {
               <button
                 key={st.id}
                 onClick={() => setSettingsSubTab(st.id)}
-                className={`px-3 py-1.5 rounded-md text-[12px] font-medium transition-all ${
+                className={`tab-chip ${
                   settingsSubTab === st.id
-                    ? 'bg-navy text-white shadow-sm'
-                    : 'text-textmid hover:text-textdark'
+                    ? 'active'
+                    : ''
                 }`}
               >
                 {st.label}
@@ -451,8 +458,8 @@ export default function ProjectDetail() {
                   {saving ? 'Saving...' : 'Save'}
                 </button>
                 <button
-                  onClick={handleDelete}
-                  className="btn-secondary text-[13px] text-red-500 hover:text-red-600"
+                  onClick={() => setShowDeleteConfirm(true)}
+                  className="action-link-danger"
                 >
                   Delete
                 </button>
@@ -740,9 +747,9 @@ export default function ProjectDetail() {
                     </button>
                   )}
                   <button
-                    onClick={handleMetaDisconnect}
+                    onClick={() => setShowMetaDisconnectConfirm(true)}
                     disabled={metaDisconnecting}
-                    className="text-[12px] text-red-500 hover:text-red-600 hover:underline ml-auto"
+                    className="action-link-danger ml-auto disabled:opacity-50"
                   >
                     {metaDisconnecting ? 'Disconnecting...' : 'Disconnect'}
                   </button>
@@ -919,6 +926,24 @@ export default function ProjectDetail() {
 
       {/* Floating Copywriter Chat Widget */}
       <CopywriterChat projectId={id} projectName={project.name} />
+      <ConfirmDialog
+        open={showDeleteConfirm}
+        title="Delete project?"
+        message="This will permanently delete the project and its related data. This action cannot be undone."
+        confirmLabel="Delete Project"
+        busy={deletingProject}
+        onCancel={() => setShowDeleteConfirm(false)}
+        onConfirm={handleDelete}
+      />
+      <ConfirmDialog
+        open={showMetaDisconnectConfirm}
+        title="Disconnect Meta?"
+        message="This removes the stored Meta credentials for this project and stops performance syncing until you reconnect it."
+        confirmLabel="Disconnect Meta"
+        busy={metaDisconnecting}
+        onCancel={() => setShowMetaDisconnectConfirm(false)}
+        onConfirm={handleMetaDisconnect}
+      />
       </Suspense>
     </Layout>
   );

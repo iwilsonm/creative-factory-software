@@ -1221,10 +1221,10 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
         ) : (
           <div className="w-10 h-10 rounded-lg bg-gray-100 flex-shrink-0" />
         )}
-        <span className="text-[8px] font-bold text-purple-700 bg-purple-100 px-1 py-0.5 rounded tracking-wide flex-shrink-0">Single Image</span>
+        <span className="text-[8px] font-bold text-navy bg-navy/10 px-1 py-0.5 rounded tracking-wide flex-shrink-0">Single Image</span>
 
         {/* Action buttons on hover */}
-        <div className="opacity-0 group-hover:opacity-100 flex items-center gap-0.5 flex-shrink-0 transition-opacity">
+        <div className="opacity-100 md:opacity-0 md:group-hover:opacity-100 flex items-center gap-0.5 flex-shrink-0 transition-opacity">
           {inStaging && (
             <span className="text-[10px] text-navy font-medium mr-1">Edit</span>
           )}
@@ -1321,7 +1321,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
             </div>
           )}
         </div>
-        <span className="text-[9px] font-bold text-purple-700 bg-purple-100 px-1.5 py-0.5 rounded tracking-wide flex-shrink-0">Flexible</span>
+        <span className="text-[9px] font-bold text-navy bg-navy/10 px-1.5 py-0.5 rounded tracking-wide flex-shrink-0">Flexible</span>
 
         {/* Hover actions / Confirmation */}
         {flexActionConfirm?.id === flexAd.id ? (
@@ -1345,7 +1345,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
             </button>
           </div>
         ) : (
-          <div className="opacity-0 group-hover:opacity-100 flex items-center gap-1 flex-shrink-0 transition-opacity">
+          <div className="opacity-100 md:opacity-0 md:group-hover:opacity-100 flex items-center gap-1 flex-shrink-0 transition-opacity">
             {/* Ungroup */}
             <button
               onClick={(e) => { e.stopPropagation(); setFlexActionConfirm({ id: flexAd.id, action: 'ungroup' }); }}
@@ -1400,7 +1400,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
           {/* Header */}
           <div className="sticky top-0 bg-white border-b border-gray-100 px-5 py-4 flex items-center justify-between z-10">
             <div className="flex items-center gap-2">
-              {isFlex && <span className="text-[9px] font-bold text-purple-700 bg-purple-100 px-1.5 py-0.5 rounded tracking-wide">Flexible</span>}
+              {isFlex && <span className="text-[9px] font-bold text-navy bg-navy/10 px-1.5 py-0.5 rounded tracking-wide">Flexible</span>}
               <h3 className="text-[14px] font-semibold text-textdark">
                 Ad Details
               </h3>

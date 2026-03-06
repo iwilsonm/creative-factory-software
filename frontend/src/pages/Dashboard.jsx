@@ -198,7 +198,7 @@ function TodoWidget() {
               />
               <div className="flex items-center gap-1.5">
                 <button onClick={saveEdit} className="btn-primary text-[10px] px-2.5 py-0.5">Save</button>
-                <button onClick={cancelEdit} className="text-[10px] text-textlight hover:text-textmid px-1.5">Cancel</button>
+                <button onClick={cancelEdit} className="btn-secondary text-[10px] px-2.5 py-0.5">Cancel</button>
               </div>
             </div>
           ) : (
@@ -210,7 +210,6 @@ function TodoWidget() {
               )}
               <span
                 className={`text-[13px] ${isDone ? 'text-textlight line-through' : 'text-textdark'} cursor-text rounded px-0.5 truncate`}
-                onDoubleClick={() => startEdit(t)}
               >
                 {t.text}
               </span>
@@ -235,24 +234,24 @@ function TodoWidget() {
 
           {/* Action buttons */}
           {!isEditing && (
-            <div className="flex items-center gap-1 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity">
+            <div className="flex items-center gap-1 flex-shrink-0 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
               <button
                 onClick={() => startEdit(t)}
-                className="text-[10px] font-medium text-navy bg-navy/10 hover:bg-navy/15 transition-colors px-2 py-0.5 rounded-md"
+                className="action-link"
               >
                 Edit
               </button>
               {!t.notes && (
                 <button
                   onClick={() => startEdit(t)}
-                  className="text-[10px] font-medium text-gold bg-gold/10 hover:bg-gold/15 transition-colors px-2 py-0.5 rounded-md"
+                  className="action-link text-gold bg-gold/10 hover:bg-gold/15 hover:text-gold"
                 >
                   Add Notes
                 </button>
               )}
               <button
                 onClick={() => remove(t.id)}
-                className="text-textlight/60 hover:text-red-500 hover:bg-red-50 transition-all p-0.5 rounded-md"
+                className="icon-button-danger"
                 title="Delete"
               >
                 <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">

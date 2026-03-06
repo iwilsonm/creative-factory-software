@@ -643,7 +643,7 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
       {/* Ad Format + Date row */}
       <div className="flex flex-wrap items-start gap-5">
         <div>
-          <span className="inline-block px-2 py-0.5 rounded bg-purple-100 text-purple-700 text-[10px] font-bold uppercase tracking-widest mb-1">Ad Format</span>
+          <span className="inline-block px-2 py-0.5 rounded bg-navy/10 text-navy text-[10px] font-bold uppercase tracking-widest mb-1">Ad Format</span>
           <div className="text-[14px] font-bold text-textdark">{adFormat}</div>
         </div>
         {plannedDate && (
@@ -826,12 +826,12 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
   const FacebookPageSection = ({ page }) => {
     if (!page) return null;
     return (
-      <div className="border-2 border-purple-200 bg-purple-50/50 rounded-xl p-4">
+      <div className="border-2 border-navy/15 bg-navy/5 rounded-xl p-4">
         <div className="flex items-start justify-between gap-3">
           <div className="flex-1 min-w-0">
-            <span className="inline-block px-2 py-0.5 rounded bg-purple-100 text-purple-700 text-[10px] font-bold uppercase tracking-widest mb-1">Facebook Page</span>
+            <span className="inline-block px-2 py-0.5 rounded bg-navy/10 text-navy text-[10px] font-bold uppercase tracking-widest mb-1">Facebook Page</span>
             <p className="text-[11px] text-textmid mb-2">Make sure you are posting from the correct Facebook Page. Select <strong>"{page}"</strong> as your Page identity in Ads Manager.</p>
-            <div className="bg-white rounded-lg px-3 py-2 border border-purple-200">
+            <div className="bg-white rounded-lg px-3 py-2 border border-navy/15">
               <span className="text-[14px] font-bold text-textdark">{page}</span>
             </div>
           </div>
@@ -1092,7 +1092,7 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
                 <span className="font-bold text-textdark">{name}</span>
               </div>
               <div className="flex items-center gap-2 flex-wrap">
-                <span className="inline-block px-2 py-0.5 rounded bg-purple-100 text-purple-700 text-[9px] font-bold uppercase tracking-wider">Ad Format: Single Image</span>
+                <span className="inline-block px-2 py-0.5 rounded bg-navy/10 text-navy text-[9px] font-bold uppercase tracking-wider">Ad Format: Single Image</span>
                 {plannedDate && (
                   <span className="inline-block px-2 py-0.5 rounded bg-teal/10 text-teal text-[9px] font-bold uppercase tracking-wider">Start Date: {plannedDate}</span>
                 )}
@@ -1266,7 +1266,7 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
                 <span className="font-bold text-textdark">{flexAd.name || 'Flex Ad'}</span>
               </div>
               <div className="flex items-center gap-2 flex-wrap">
-                <span className="inline-block px-2 py-0.5 rounded bg-purple-100 text-purple-700 text-[9px] font-bold uppercase tracking-wider">Ad Format: Flexible</span>
+                <span className="inline-block px-2 py-0.5 rounded bg-navy/10 text-navy text-[9px] font-bold uppercase tracking-wider">Ad Format: Flexible</span>
                 {plannedDate && (
                   <span className="inline-block px-2 py-0.5 rounded bg-teal/10 text-teal text-[9px] font-bold uppercase tracking-wider">Start Date: {plannedDate}</span>
                 )}
@@ -1491,7 +1491,7 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
                       )}
                       {d.imageUrl && (
                         <button onClick={() => downloadSingleImage(d)} disabled={isSingleDl}
-                          className="absolute bottom-2 right-2 p-1.5 rounded-lg bg-white/90 text-navy hover:bg-white shadow-sm opacity-0 group-hover:opacity-100 transition-opacity disabled:opacity-50"
+                          className="absolute bottom-2 right-2 p-1.5 rounded-lg bg-white/90 text-navy hover:bg-white shadow-sm opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity disabled:opacity-50"
                           title="Download this image">
                           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />

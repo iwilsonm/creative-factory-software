@@ -89,12 +89,13 @@
 
   /* Segmented control */
   .segmented-control {
-    @apply inline-flex rounded-xl p-0.5;
+    @apply inline-flex rounded-xl p-0.5 max-w-full overflow-x-auto scrollbar-thin;
     background: rgba(0, 0, 0, 0.04);
+    white-space: nowrap;
   }
   .segmented-control button,
   .segmented-control a {
-    @apply px-3 py-1.5 rounded-[10px] text-xs font-medium transition-all duration-200;
+    @apply px-3 py-1.5 rounded-[10px] text-xs font-medium transition-all duration-200 flex-shrink-0;
     color: #8A96A8;
     text-decoration: none;
   }
@@ -108,6 +109,86 @@
   /* Badge / pill */
   .badge {
     @apply inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-semibold tracking-wide;
+  }
+
+  .tab-strip {
+    @apply flex gap-1 p-1 rounded-xl max-w-full overflow-x-auto scrollbar-thin;
+    background: rgba(0, 0, 0, 0.03);
+    white-space: nowrap;
+  }
+
+  .tab-chip {
+    @apply px-3 py-1.5 rounded-lg text-[12px] font-medium transition-all duration-200 flex-shrink-0;
+    color: #4A5568;
+  }
+
+  .tab-chip:hover {
+    color: #1A1A2E;
+    background: rgba(0, 0, 0, 0.04);
+  }
+
+  .tab-chip.active {
+    background: #FFFFFF;
+    color: #1A1A2E;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+  }
+
+  .action-link {
+    @apply inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium transition-colors;
+    color: #0B1D3A;
+    background: rgba(11, 29, 58, 0.06);
+  }
+
+  .action-link:hover {
+    background: rgba(11, 29, 58, 0.1);
+    color: #0B1D3A;
+  }
+
+  .action-link-muted {
+    @apply inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium transition-colors;
+    color: #4A5568;
+  }
+
+  .action-link-muted:hover {
+    background: rgba(0, 0, 0, 0.04);
+    color: #1A1A2E;
+  }
+
+  .action-link-danger {
+    @apply inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium transition-colors;
+    color: #DC2626;
+    background: rgba(220, 38, 38, 0.06);
+  }
+
+  .action-link-danger:hover {
+    background: rgba(220, 38, 38, 0.12);
+    color: #B91C1C;
+  }
+
+  .icon-button {
+    @apply inline-flex items-center justify-center rounded-lg transition-colors;
+    width: 1.875rem;
+    height: 1.875rem;
+    color: #8A96A8;
+    background: rgba(0, 0, 0, 0.03);
+  }
+
+  .icon-button:hover {
+    color: #0B1D3A;
+    background: rgba(11, 29, 58, 0.08);
+  }
+
+  .icon-button-danger {
+    @apply inline-flex items-center justify-center rounded-lg transition-colors;
+    width: 1.875rem;
+    height: 1.875rem;
+    color: #8A96A8;
+    background: rgba(0, 0, 0, 0.03);
+  }
+
+  .icon-button-danger:hover {
+    color: #DC2626;
+    background: rgba(220, 38, 38, 0.08);
   }
 
   /* Smooth content transitions */

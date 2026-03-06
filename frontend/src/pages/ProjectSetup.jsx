@@ -100,7 +100,7 @@ export default function ProjectSetup() {
             />
           </div>
 
-          <div className="grid grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
             <div>
               <label className="block text-[13px] font-medium text-textmid mb-1.5">Brand Name</label>
               <input
@@ -231,7 +231,7 @@ export default function ProjectSetup() {
           </div>
 
 
-          <div className="flex gap-3 pt-2">
+          <div className="flex flex-col sm:flex-row gap-3 pt-2">
             <button
               type="submit"
               disabled={loading}

@@ -3,6 +3,7 @@ import { api, invalidateProjectCache } from '../api';
 import DragDropUpload from './DragDropUpload';
 import InfoTooltip from './InfoTooltip';
 import PipelineProgress from './PipelineProgress';
+import ConfirmDialog from './ConfirmDialog';
 import { useToast } from './Toast';
 import { useAsyncData } from '../hooks/useAsyncData';
 import { useSSEStream } from '../hooks/useSSEStream';
@@ -196,7 +197,7 @@ function CopyCorrection({ projectId, onDocsUpdated, onCorrectionApplied }) {
                 <button
                   onClick={handleCancel}
                   disabled={applying}
-                  className="text-[12px] text-textmid hover:text-textdark px-3 py-1.5"
+                  className="btn-secondary text-[12px] px-3 py-1.5 disabled:opacity-50"
                 >
                   Cancel
                 </button>
@@ -220,9 +221,9 @@ function Changelog({ projectId, onDocsUpdated, refreshKey }) {
   const [open, setOpen] = useState(false);
   const [expandedId, setExpandedId] = useState(null);
   const [reverting, setReverting] = useState(null);
+  const [pendingRevertId, setPendingRevertId] = useState(null);
 
   const handleRevert = async (entryId) => {
-    if (!confirm('Revert all documents to their state before this correction?')) return;
     setReverting(entryId);
     try {
       await api.revertCorrection(projectId, entryId);
@@ -232,6 +233,7 @@ function Changelog({ projectId, onDocsUpdated, refreshKey }) {
       // silently fail — the revert button stays enabled
     } finally {
       setReverting(null);
+      setPendingRevertId(null);
     }
   };
 
@@ -306,9 +308,9 @@ function Changelog({ projectId, onDocsUpdated, refreshKey }) {
                       </p>
                     </div>
                     <button
-                      onClick={(e) => { e.stopPropagation(); handleRevert(entry.id); }}
+                      onClick={(e) => { e.stopPropagation(); setPendingRevertId(entry.id); }}
                       disabled={reverting === entry.id}
-                      className="text-[11px] font-medium text-gold hover:text-gold/80 bg-gold/5 hover:bg-gold/10 px-2.5 py-1 rounded-md transition-colors disabled:opacity-50 flex-shrink-0"
+                      className="action-link-danger disabled:opacity-50 flex-shrink-0"
                     >
                       {reverting === entry.id ? 'Reverting...' : 'Revert'}
                     </button>
@@ -342,6 +344,15 @@ function Changelog({ projectId, onDocsUpdated, refreshKey }) {
           </div>
         </div>
       )}
+      <ConfirmDialog
+        open={!!pendingRevertId}
+        title="Revert this correction?"
+        message="This restores the foundational documents to the state they were in before the selected correction was applied."
+        confirmLabel="Revert Correction"
+        busy={!!reverting}
+        onCancel={() => setPendingRevertId(null)}
+        onConfirm={() => handleRevert(pendingRevertId)}
+      />
     </div>
   );
 }
@@ -723,7 +734,7 @@ export default function FoundationalDocs({ projectId, projectStatus }) {
     return (
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         {[0, 1, 2, 3].map(i => (
-          <div key={i} className="bg-white rounded-lg shadow-sm border border-gray-200 p-5 animate-pulse">
+          <div key={i} className="card p-5 animate-pulse">
             <div className="flex items-start justify-between mb-2">
               <div className="h-4 w-32 bg-gray-200 rounded" />
               <div className="h-5 w-16 bg-gray-200 rounded-full" />
@@ -1126,7 +1137,7 @@ export default function FoundationalDocs({ projectId, projectStatus }) {
           </div>
         )}
 
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+        <div className="card p-6">
           <div className="flex items-center justify-between mb-4">
             <h3 className="font-semibold text-textdark">
               {regenerating
@@ -1286,7 +1297,7 @@ export default function FoundationalDocs({ projectId, projectStatus }) {
             </div>
             <button
               onClick={handleGenerateClick}
-              className="bg-navy text-white px-4 py-2 rounded-md text-sm font-medium hover:bg-navy-light"
+              className="btn-primary text-[13px]"
             >
               {hasDocs ? 'Regenerate All Docs' : 'Generate Foundational Docs'}
             </button>
@@ -1308,7 +1319,7 @@ export default function FoundationalDocs({ projectId, projectStatus }) {
 
       {/* Editing mode */}
       {editingDoc && (
-        <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+        <div className="card p-6">
           <div className="flex items-center justify-between mb-4">
             <h3 className="font-semibold text-textdark">
               Editing: {DOC_LABELS[editingDoc.doc_type]}
@@ -1317,13 +1328,13 @@ export default function FoundationalDocs({ projectId, projectStatus }) {
               <button
                 onClick={handleSaveEdit}
                 disabled={saving}
-                className="bg-navy text-white px-3 py-1.5 rounded text-sm font-medium hover:bg-navy-light disabled:opacity-50"
+                className="btn-primary text-[13px] disabled:opacity-50"
               >
                 {saving ? 'Saving...' : 'Save'}
               </button>
               <button
                 onClick={() => setEditingDoc(null)}
-                className="border border-black/10 text-textdark px-3 py-1.5 rounded text-sm hover:bg-gray-50"
+                className="btn-secondary text-[13px]"
               >
                 Cancel
               </button>
@@ -1342,7 +1353,7 @@ export default function FoundationalDocs({ projectId, projectStatus }) {
         const viewSourceInfo = SOURCE_LABELS[viewDoc.source] || SOURCE_LABELS.generated;
         const viewLastUpdated = viewDoc.updated_at || viewDoc.created_at;
         return (
-          <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+          <div className="card p-6">
             <div className="flex items-center justify-between mb-2">
               <div className="flex items-center gap-2">
                 <h3 className="font-semibold text-textdark">
@@ -1356,23 +1367,23 @@ export default function FoundationalDocs({ projectId, projectStatus }) {
               <div className="flex gap-2">
                 <button
                   onClick={() => handleEdit(viewDoc)}
-                  className="border border-black/10 text-textdark px-3 py-1.5 rounded text-sm hover:bg-gray-50"
+                  className="action-link"
                 >
                   Edit
                 </button>
                 <button
                   onClick={() => handleRegenerate(viewDoc.doc_type)}
-                  className={`border px-3 py-1.5 rounded text-sm ${
+                  className={`action-link ${
                     viewDoc.doc_type === 'research'
-                      ? 'border-navy/20 text-navy hover:bg-navy/5'
-                      : 'border-gold/20 text-gold hover:bg-navy/5'
+                      ? ''
+                      : 'text-gold bg-gold/10 hover:bg-gold/15 hover:text-gold'
                   }`}
                 >
                   {viewDoc.doc_type === 'research' ? 'Re-run Deep Research' : 'Regenerate'}
                 </button>
                 <button
                   onClick={() => setViewDoc(null)}
-                  className="border border-black/10 text-textdark px-3 py-1.5 rounded text-sm hover:bg-gray-50"
+                  className="btn-secondary text-[13px]"
                 >
                   Close
                 </button>
@@ -1401,7 +1412,7 @@ export default function FoundationalDocs({ projectId, projectStatus }) {
             const isResearch = docType === 'research';
             if (!doc) {
               return (
-                <div key={docType} className="bg-white rounded-lg shadow-sm border border-dashed border-black/10 p-5">
+                <div key={docType} className="card p-5 border-dashed border-black/10">
                   <h3 className="font-medium text-textlight">{DOC_LABELS[docType]}</h3>
                   <p className="text-xs text-textlight mt-1">Not yet generated</p>
                 </div>
@@ -1418,7 +1429,7 @@ export default function FoundationalDocs({ projectId, projectStatus }) {
             return (
               <div
                 key={docType}
-                className={`bg-white rounded-lg shadow-sm border p-5 hover:shadow-md transition-shadow cursor-pointer ${
+                className={`card p-5 hover:shadow-md transition-shadow cursor-pointer ${
                   isResearch ? 'border-navy/15' : 'border-gray-200'
                 }`}
                 onClick={() => setViewDoc(doc)}
@@ -1462,13 +1473,13 @@ export default function FoundationalDocs({ projectId, projectStatus }) {
                 <div className="flex gap-2 mt-3">
                   <button
                     onClick={(e) => { e.stopPropagation(); handleEdit(doc); }}
-                    className="text-xs text-gold hover:underline"
+                    className="action-link"
                   >
                     Edit
                   </button>
                   <button
                     onClick={(e) => { e.stopPropagation(); handleRegenerate(docType); }}
-                    className={`text-xs hover:underline ${isResearch ? 'text-navy' : 'text-gold'}`}
+                    className={`action-link ${isResearch ? '' : 'text-gold bg-gold/10 hover:bg-gold/15 hover:text-gold'}`}
                   >
                     {isResearch ? 'Re-run Deep Research' : 'Regenerate'}
                   </button>

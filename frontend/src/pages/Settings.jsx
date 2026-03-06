@@ -3,6 +3,7 @@ import { api } from '../api';
 import Layout from '../components/Layout';
 import InfoTooltip from '../components/InfoTooltip';
 import DragDropUpload from '../components/DragDropUpload';
+import ConfirmDialog from '../components/ConfirmDialog';
 import { useToast } from '../components/Toast';
 
 // ─── Single reference doc upload slot (reusable) ─────────────────────────
@@ -13,6 +14,7 @@ function ReferenceDocSlot({ docKey, label, description, content, onSave, onDelet
   const [editing, setEditing] = useState(false);
   const [expanded, setExpanded] = useState(false);
   const [deleting, setDeleting] = useState(false);
+  const [confirmingDelete, setConfirmingDelete] = useState(false);
 
   const handleSave = async () => {
     if (!pasteContent.trim()) { toast.error('Please enter or upload content'); return; }
@@ -28,11 +30,11 @@ function ReferenceDocSlot({ docKey, label, description, content, onSave, onDelet
   };
 
   const handleDelete = async () => {
-    if (!confirm(`Remove ${label}?`)) return;
     setDeleting(true);
     try {
       await onDelete(docKey);
       toast.success(`${label} removed`);
+      setConfirmingDelete(false);
     } catch (err) {
       toast.error('Failed to delete: ' + (err.message || 'Unknown error'));
     } finally { setDeleting(false); }
@@ -43,66 +45,84 @@ function ReferenceDocSlot({ docKey, label, description, content, onSave, onDelet
     toast.success(`Extracted ${result.charCount.toLocaleString()} characters from ${result.filename}`);
   };
 
+  const deleteDialog = (
+    <ConfirmDialog
+      open={confirmingDelete}
+      title={`Remove ${label}?`}
+      message="This removes the stored reference document from settings."
+      confirmLabel="Remove"
+      busy={deleting}
+      onCancel={() => setConfirmingDelete(false)}
+      onConfirm={handleDelete}
+    />
+  );
+
   if (content && !editing) {
     return (
-      <div className="bg-white rounded-lg shadow-sm border border-navy/15 p-3">
-        <div className="flex items-start justify-between mb-1">
-          <div className="flex items-center gap-2">
-            <h4 className="text-[12px] font-medium text-textdark">{label}</h4>
-            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-teal/10 text-teal">Uploaded</span>
+      <>
+        <div className="card p-3">
+          <div className="flex items-start justify-between mb-1">
+            <div className="flex items-center gap-2">
+              <h4 className="text-[12px] font-medium text-textdark">{label}</h4>
+              <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-teal/10 text-teal">Uploaded</span>
+            </div>
+            <div className="flex items-center gap-2">
+              <button onClick={() => { setEditing(true); setPasteContent(content); }} className="action-link">Replace</button>
+              <button onClick={() => setConfirmingDelete(true)} disabled={deleting} className="action-link-danger disabled:opacity-50">
+                {deleting ? 'Removing...' : 'Remove'}
+              </button>
+            </div>
           </div>
-          <div className="flex items-center gap-2">
-            <button onClick={() => { setEditing(true); setPasteContent(content); }} className="text-[11px] text-gold hover:underline">Replace</button>
-            <button onClick={handleDelete} disabled={deleting} className="text-[11px] text-red-500 hover:underline disabled:opacity-50">
-              {deleting ? '...' : 'Remove'}
-            </button>
+          <div className="flex items-center gap-3 mb-1 text-[10px] text-textlight">
+            <span>{content.length.toLocaleString()} characters</span>
           </div>
+          <button onClick={() => setExpanded(prev => !prev)} className="text-[10px] text-textmid hover:text-textdark flex items-center gap-1">
+            <svg className={`w-2.5 h-2.5 transition-transform ${expanded ? 'rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+              <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
+            </svg>
+            {expanded ? 'Hide' : 'Preview'}
+          </button>
+          {expanded && (
+            <div className="mt-2 max-h-[200px] overflow-y-auto text-[11px] text-textmid whitespace-pre-wrap bg-offwhite rounded-lg p-2.5 border border-black/5">
+              {content.slice(0, 2000)}{content.length > 2000 ? '...' : ''}
+            </div>
+          )}
         </div>
-        <div className="flex items-center gap-3 mb-1 text-[10px] text-textlight">
-          <span>{content.length.toLocaleString()} characters</span>
-        </div>
-        <button onClick={() => setExpanded(prev => !prev)} className="text-[10px] text-textmid hover:text-textdark flex items-center gap-1">
-          <svg className={`w-2.5 h-2.5 transition-transform ${expanded ? 'rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
-          </svg>
-          {expanded ? 'Hide' : 'Preview'}
-        </button>
-        {expanded && (
-          <div className="mt-2 max-h-[200px] overflow-y-auto text-[11px] text-textmid whitespace-pre-wrap bg-offwhite rounded-lg p-2.5 border border-black/5">
-            {content.slice(0, 2000)}{content.length > 2000 ? '...' : ''}
-          </div>
-        )}
-      </div>
+        {deleteDialog}
+      </>
     );
   }
 
   return (
-    <div className="border border-dashed border-black/10 rounded-lg p-3 space-y-2">
-      <p className="text-[12px] font-medium text-textdark">{label}</p>
-      {description && <p className="text-[10px] text-textlight">{description}</p>}
-      <DragDropUpload
-        onTextExtracted={handleFileExtracted}
-        accept=".pdf,.docx,.epub,.mobi,.txt,.html,.htm,.md,.markdown"
-        label="Drop file (PDF, DOCX, TXT, etc.)"
-        compact
-      />
-      <textarea
-        value={pasteContent}
-        onChange={(e) => setPasteContent(e.target.value)}
-        placeholder="Or paste content here..."
-        rows={3}
-        className="input-apple w-full text-[12px] resize-y"
-      />
-      {pasteContent && <p className="text-[10px] text-textlight">{pasteContent.length.toLocaleString()} characters</p>}
-      <div className="flex items-center gap-2">
-        <button onClick={handleSave} disabled={saving || !pasteContent.trim()} className="btn-primary text-[11px] px-3 py-1 disabled:opacity-50">
-          {saving ? 'Saving...' : 'Save'}
-        </button>
-        {editing && (
-          <button onClick={() => { setEditing(false); setPasteContent(''); }} className="btn-secondary text-[11px] px-3 py-1">Cancel</button>
-        )}
+    <>
+      <div className="card p-3 border-dashed border-black/10 space-y-2">
+        <p className="text-[12px] font-medium text-textdark">{label}</p>
+        {description && <p className="text-[10px] text-textlight">{description}</p>}
+        <DragDropUpload
+          onTextExtracted={handleFileExtracted}
+          accept=".pdf,.docx,.epub,.mobi,.txt,.html,.htm,.md,.markdown"
+          label="Drop file (PDF, DOCX, TXT, etc.)"
+          compact
+        />
+        <textarea
+          value={pasteContent}
+          onChange={(e) => setPasteContent(e.target.value)}
+          placeholder="Or paste content here..."
+          rows={3}
+          className="input-apple w-full text-[12px] resize-y"
+        />
+        {pasteContent && <p className="text-[10px] text-textlight">{pasteContent.length.toLocaleString()} characters</p>}
+        <div className="flex items-center gap-2">
+          <button onClick={handleSave} disabled={saving || !pasteContent.trim()} className="btn-primary text-[11px] px-3 py-1 disabled:opacity-50">
+            {saving ? 'Saving...' : 'Save'}
+          </button>
+          {editing && (
+            <button onClick={() => { setEditing(false); setPasteContent(''); }} className="btn-secondary text-[11px] px-3 py-1">Cancel</button>
+          )}
+        </div>
       </div>
-    </div>
+      {deleteDialog}
+    </>
   );
 }
 
@@ -213,6 +233,7 @@ function UserManagementCard() {
   const [resetPasswordId, setResetPasswordId] = useState(null);
   const [newPassword, setNewPassword] = useState('');
   const [resettingPassword, setResettingPassword] = useState(false);
+  const [pendingDeleteUser, setPendingDeleteUser] = useState(null);
 
   useEffect(() => { loadUsers(); }, []);
 
@@ -286,11 +307,12 @@ function UserManagementCard() {
     }
   };
 
-  const handleDelete = async (user) => {
-    if (!confirm(`Delete user "${user.username}"? This cannot be undone.`)) return;
+  const handleDelete = async () => {
+    if (!pendingDeleteUser) return;
     try {
-      await api.deleteUser(user.id);
-      toast.success(`User "${user.username}" deleted`);
+      await api.deleteUser(pendingDeleteUser.id);
+      toast.success(`User "${pendingDeleteUser.username}" deleted`);
+      setPendingDeleteUser(null);
       await loadUsers();
     } catch (err) {
       toast.error(err.message || 'Failed to delete user');
@@ -455,25 +477,29 @@ function UserManagementCard() {
                   <div className="flex items-center gap-1">
                     <button
                       onClick={() => { setEditingId(user.id); setEditForm({ display_name: user.display_name, role: user.role }); }}
-                      className="text-[10px] px-2 py-1 rounded-lg text-textmid hover:bg-black/5 transition-colors"
+                      className="action-link"
                     >
                       Edit
                     </button>
                     <button
                       onClick={() => { setResetPasswordId(user.id); setNewPassword(''); }}
-                      className="text-[10px] px-2 py-1 rounded-lg text-textmid hover:bg-black/5 transition-colors"
+                      className="action-link"
                     >
                       Reset Pwd
                     </button>
                     <button
                       onClick={() => handleToggleActive(user)}
-                      className={`text-[10px] px-2 py-1 rounded-lg transition-colors ${user.is_active ? 'text-red-500 hover:bg-red-50' : 'text-teal hover:bg-teal/10'}`}
+                      className={`text-[10px] px-2 py-1 rounded-lg transition-colors ${
+                        user.is_active
+                          ? 'text-red-500 hover:bg-red-50'
+                          : 'text-teal hover:bg-teal/10'
+                      }`}
                     >
                       {user.is_active ? 'Deactivate' : 'Activate'}
                     </button>
                     <button
-                      onClick={() => handleDelete(user)}
-                      className="text-[10px] px-2 py-1 rounded-lg text-red-500 hover:bg-red-50 transition-colors"
+                      onClick={() => setPendingDeleteUser(user)}
+                      className="action-link-danger"
                     >
                       Delete
                     </button>
@@ -484,6 +510,14 @@ function UserManagementCard() {
           ))}
         </div>
       )}
+      <ConfirmDialog
+        open={!!pendingDeleteUser}
+        title="Delete user?"
+        message={pendingDeleteUser ? `Delete user "${pendingDeleteUser.username}"? This cannot be undone.` : ''}
+        confirmLabel="Delete User"
+        onCancel={() => setPendingDeleteUser(null)}
+        onConfirm={handleDelete}
+      />
     </div>
   );
 }

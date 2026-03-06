@@ -58,6 +58,8 @@ export default function LPAgentSettings({ projectId }) {
 
   // Debounced save
   const saveTimerRef = useRef(null);
+  const pendingConfigRef = useRef({});
+  const saveInFlightRef = useRef(false);
 
   // ── Load config + Shopify status + templates ──
   const loadData = useCallback(async () => {
@@ -89,6 +91,17 @@ export default function LPAgentSettings({ projectId }) {
   }, [projectId]);
 
   useEffect(() => { loadData(); }, [loadData]);
+
+  useEffect(() => {
+    pendingConfigRef.current = {};
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+  }, [projectId]);
+
+  useEffect(() => {
+    return () => {
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    };
+  }, []);
 
   // ── Mount-time recovery: check for active gauntlet progress ──
   useEffect(() => {
@@ -128,22 +141,35 @@ export default function LPAgentSettings({ projectId }) {
   );
 
   // ── Debounced config save ──
-  const handleSaveConfig = useCallback((updates) => {
-    // Optimistic local update
-    setConfig(prev => ({ ...(prev || {}), ...updates }));
+  const flushPendingConfig = useCallback(async () => {
+    if (!projectId || saveInFlightRef.current) return;
+    const updates = pendingConfigRef.current;
+    if (Object.keys(updates).length === 0) return;
 
-    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-    saveTimerRef.current = setTimeout(async () => {
-      setSaving(true);
-      try {
-        await api.updateLPAgentConfig(projectId, updates);
-      } catch (err) {
-        toast.error(err.message || 'Failed to save setting');
-      } finally {
-        setSaving(false);
+    pendingConfigRef.current = {};
+    saveInFlightRef.current = true;
+    setSaving(true);
+    try {
+      await api.updateLPAgentConfig(projectId, updates);
+    } catch (err) {
+      pendingConfigRef.current = { ...updates, ...pendingConfigRef.current };
+      toast.error(err.message || 'Failed to save setting');
+    } finally {
+      saveInFlightRef.current = false;
+      setSaving(false);
+      if (Object.keys(pendingConfigRef.current).length > 0) {
+        if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+        saveTimerRef.current = setTimeout(flushPendingConfig, 500);
       }
-    }, 500);
+    }
   }, [projectId, toast]);
+
+  const handleSaveConfig = useCallback((updates) => {
+    setConfig(prev => ({ ...(prev || {}), ...updates }));
+    pendingConfigRef.current = { ...pendingConfigRef.current, ...updates };
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    saveTimerRef.current = setTimeout(flushPendingConfig, 500);
+  }, [flushPendingConfig]);
 
   // ── Shopify connect ──
   const handleConnectShopify = async () => {

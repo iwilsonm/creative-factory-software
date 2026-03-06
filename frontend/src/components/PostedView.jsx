@@ -134,7 +134,7 @@ export default function PostedView({ projectId, deployments, setDeployments, add
               </div>
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="inline-block px-2 py-0.5 rounded bg-teal/10 text-teal text-[9px] font-bold uppercase tracking-wider">Posted</span>
-                <span className="inline-block px-2 py-0.5 rounded bg-purple-100 text-purple-700 text-[9px] font-bold uppercase tracking-wider">Single Image</span>
+                <span className="inline-block px-2 py-0.5 rounded bg-navy/10 text-navy text-[9px] font-bold uppercase tracking-wider">Single Image</span>
                 {postedDate && (
                   <span className="text-[10px] text-textmid">{postedDate}</span>
                 )}
@@ -240,7 +240,7 @@ export default function PostedView({ projectId, deployments, setDeployments, add
               </div>
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="inline-block px-2 py-0.5 rounded bg-teal/10 text-teal text-[9px] font-bold uppercase tracking-wider">Posted</span>
-                <span className="inline-block px-2 py-0.5 rounded bg-purple-100 text-purple-700 text-[9px] font-bold uppercase tracking-wider">Flexible · {depsWithImages.length} images</span>
+                <span className="inline-block px-2 py-0.5 rounded bg-navy/10 text-navy text-[9px] font-bold uppercase tracking-wider">Flexible · {depsWithImages.length} images</span>
                 {postedDate && (
                   <span className="text-[10px] text-textmid">{postedDate}</span>
                 )}

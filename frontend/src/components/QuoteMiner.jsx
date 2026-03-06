@@ -49,10 +49,11 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
   const toast = useToast();
   // Sub-tab state: 'bank' | 'headlines' | 'mine'
   const [subTab, setSubTab] = useState('mine');
+  const shouldLoadBankData = subTab === 'bank' || subTab === 'headlines';
   const { data: usageData, refetch: loadUsage } = useAsyncData(
     () => api.getQuoteBankUsage(projectId).then(d => d || { usedHeadlines: {}, totalAds: 0 }),
     [projectId],
-    { initialData: { usedHeadlines: {}, totalAds: 0 } }
+    { initialData: { usedHeadlines: {}, totalAds: 0 }, enabled: shouldLoadBankData }
   );
 
   // Config form state
@@ -98,7 +99,8 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
   // ─── Quote Bank state ──────────────────────────────────────────────────────
   const { data: bankQuotes, setData: setBankQuotes, loading: loadingBank, refetch: loadBank } = useAsyncData(
     () => api.getQuoteBank(projectId).then(d => d.quotes || []),
-    [projectId]
+    [projectId],
+    { enabled: shouldLoadBankData }
   );
   const [bankFilter, setBankFilter] = useState('all'); // 'all' | 'favorites'
   const [headlineFilter, setHeadlineFilter] = useState('all'); // 'all' | 'used' | 'unused'
@@ -183,17 +185,6 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
       setProgress([{ type: 'restored', message: `Reconnected to mining run: ${runningRun.target_demographic} × ${runningRun.problem}` }]);
     }
   }, [runs]);
-
-  // Smart default sub-tab based on bank data
-  useEffect(() => {
-    if (bankQuotes.length > 0) {
-      const hasHeadlines = bankQuotes.some(q => q.headlines && q.headlines !== '[]');
-      setSubTab(prev => {
-        if (prev !== 'mine') return prev;
-        return hasHeadlines ? 'headlines' : 'bank';
-      });
-    }
-  }, [bankQuotes]);
 
   // Import all past runs into the quote bank
   const handleImportAllRuns = async () => {

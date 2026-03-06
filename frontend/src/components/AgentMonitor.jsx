@@ -72,21 +72,40 @@ export default function AgentMonitor() {
 
   const loadStatus = useCallback(async () => {
     try {
-      const [fixer, filter, pipeline] = await Promise.allSettled([
-        api.getAgentMonitorStatus(),
-        api.getFilterStatus(),
-        api.getConductorPipelineStatus(),
-      ]);
-      if (fixer.status === 'fulfilled') setFixerData(fixer.value);
-      if (filter.status === 'fulfilled') setFilterData(filter.value);
-      if (pipeline.status === 'fulfilled') setPipelineStatus(pipeline.value);
-      setError(fixer.status === 'rejected' && filter.status === 'rejected');
+      if (activeTab === 'director') {
+        const [fixer, filter, pipeline] = await Promise.allSettled([
+          api.getAgentMonitorStatus(),
+          api.getFilterStatus(),
+          api.getConductorPipelineStatus(),
+        ]);
+        if (fixer.status === 'fulfilled') setFixerData(fixer.value);
+        if (filter.status === 'fulfilled') setFilterData(filter.value);
+        if (pipeline.status === 'fulfilled') setPipelineStatus(pipeline.value);
+        setError(
+          fixer.status === 'rejected' &&
+          filter.status === 'rejected' &&
+          pipeline.status === 'rejected'
+        );
+      } else if (activeTab === 'filter') {
+        const filter = await api.getFilterStatus();
+        setFilterData(filter);
+        setPipelineStatus(null);
+        setError(false);
+      } else if (activeTab === 'fixer') {
+        const fixer = await api.getAgentMonitorStatus();
+        setFixerData(fixer);
+        setPipelineStatus(null);
+        setError(false);
+      } else {
+        setPipelineStatus(null);
+        setError(false);
+      }
     } catch {
       setError(true);
     } finally {
       setLoading(false);
     }
-  }, []);
+  }, [activeTab]);
 
   useEffect(() => {
     loadStatus();
@@ -123,7 +142,16 @@ export default function AgentMonitor() {
     );
   }
 
-  if (error || (!fixerData && !filterData)) {
+  const hasActiveTabData =
+    activeTab === 'director'
+      ? !!pipelineStatus || !!fixerData || !!filterData
+      : activeTab === 'filter'
+        ? !!filterData
+        : activeTab === 'fixer'
+          ? !!fixerData
+          : true;
+
+  if (error || !hasActiveTabData) {
     return (
       <div className="fade-in">
         <div className="card p-5">
@@ -166,27 +194,40 @@ export default function AgentMonitor() {
             </div>
             <div>
               <h2 className="text-[15px] font-semibold text-textdark tracking-tight">Agent Dashboard</h2>
-              <p className="text-[11px] text-textlight">Three autonomous agents managing your ad pipeline</p>
+              <p className="text-[11px] text-textlight">Four automation systems managing your creative pipeline</p>
             </div>
           </div>
           <span className="text-[11px] text-textmid font-medium">{agentsOnline}/{agentsTotal} online</span>
         </div>
 
-        {/* Pipeline Overview */}
-        <PipelineOverview data={pipelineStatus} fixerData={fixerData} filterData={filterData} />
+        {activeTab === 'director' ? (
+          <PipelineOverview data={pipelineStatus} fixerData={fixerData} filterData={filterData} />
+        ) : (
+          <div className="rounded-xl bg-black/[0.02] border border-black/5 p-4">
+            <p className="text-[12px] font-medium text-textmid mb-1">Status Summary</p>
+            <p className="text-[11px] text-textlight">
+              Director pipeline metrics load only on the Creative Director tab to keep this page lighter while you work elsewhere.
+            </p>
+            <div className="flex items-center gap-4 mt-3 text-[10px] text-textmid">
+              <span>Director: open tab to load</span>
+              <span>Filter: {filterData?.status === 'online' ? '\u2713' : '\u2013'}</span>
+              <span>Fixer: {fixerData?.status === 'online' ? '\u2713' : '\u2013'}</span>
+            </div>
+          </div>
+        )}
       </div>
 
       {/* Agent Tabs */}
       <div className="card p-5">
-        <div className="flex gap-1 mb-4 bg-black/[0.03] rounded-xl p-1">
+        <div className="tab-strip mb-4">
           {tabs.map(tab => (
             <button
               key={tab.id}
               onClick={() => setActiveTab(tab.id)}
-              className={`flex-1 text-[12px] font-medium py-2 px-3 rounded-lg transition-all duration-200 ${
+              className={`tab-chip ${
                 activeTab === tab.id
-                  ? 'bg-white text-textdark shadow-sm'
-                  : 'text-textmid hover:text-textdark'
+                  ? 'active'
+                  : ''
               }`}
             >
               {tab.label}
@@ -529,6 +570,9 @@ function DirectorTab({ onRefresh }) {
   const [importResult, setImportResult] = useState(null); // { newAngles: [], skipped: [] }
   const [importing, setImporting] = useState(false);
   const importFileRef = useRef(null);
+  const debounceRef = useRef(null);
+  const pendingConfigRef = useRef({});
+  const saveInFlightRef = useRef(false);
 
   // Load projects list
   useEffect(() => {
@@ -548,6 +592,8 @@ function DirectorTab({ onRefresh }) {
   // Load project-specific data when selection changes
   useEffect(() => {
     if (!selectedProject) return;
+    pendingConfigRef.current = {};
+    if (debounceRef.current) clearTimeout(debounceRef.current);
     (async () => {
       try {
         const [cfgRes, angRes, runRes, pbRes, campRes] = await Promise.allSettled([
@@ -566,22 +612,41 @@ function DirectorTab({ onRefresh }) {
     })();
   }, [selectedProject]);
 
-  const debounceRef = useRef(null);
+  useEffect(() => {
+    return () => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+    };
+  }, []);
+
+  const flushPendingConfig = useCallback(async () => {
+    if (!selectedProject || saveInFlightRef.current) return;
+    const updates = pendingConfigRef.current;
+    if (Object.keys(updates).length === 0) return;
+
+    pendingConfigRef.current = {};
+    saveInFlightRef.current = true;
+    setSaving(true);
+    try {
+      const res = await api.updateConductorConfig(selectedProject, updates);
+      if (res?.config) setConfig(res.config);
+    } catch {
+      pendingConfigRef.current = { ...updates, ...pendingConfigRef.current };
+    } finally {
+      saveInFlightRef.current = false;
+      setSaving(false);
+      if (Object.keys(pendingConfigRef.current).length > 0) {
+        if (debounceRef.current) clearTimeout(debounceRef.current);
+        debounceRef.current = setTimeout(flushPendingConfig, 500);
+      }
+    }
+  }, [selectedProject]);
 
   const handleSaveConfig = useCallback((updates) => {
-    // Apply optimistic local update immediately for responsive UI
     setConfig(prev => ({ ...prev, ...updates }));
-    // Debounce the actual API save (500ms) to avoid saving on every keystroke
+    pendingConfigRef.current = { ...pendingConfigRef.current, ...updates };
     if (debounceRef.current) clearTimeout(debounceRef.current);
-    debounceRef.current = setTimeout(async () => {
-      setSaving(true);
-      try {
-        const res = await api.updateConductorConfig(selectedProject, updates);
-        setConfig(res?.config || (prev => ({ ...prev, ...updates })));
-      } catch { /* ignore */ }
-      finally { setSaving(false); }
-    }, 500);
-  }, [selectedProject]);
+    debounceRef.current = setTimeout(flushPendingConfig, 500);
+  }, [flushPendingConfig]);
 
   const STEP_PROGRESS = {
     // Director phase (~5s) — 0-2%

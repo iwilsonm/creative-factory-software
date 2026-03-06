@@ -2648,7 +2648,7 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
                       className={`absolute top-2 left-2 z-10 w-6 h-6 rounded-lg flex items-center justify-center transition-all duration-200 ${
                         selectedAdIds.has(ad.id)
                           ? 'bg-navy text-white shadow-sm'
-                          : 'bg-black/30 backdrop-blur-sm text-white/80 opacity-0 group-hover:opacity-100 hover:bg-black/50'
+                          : 'bg-black/40 backdrop-blur-sm text-white/90 opacity-100 md:opacity-0 md:group-hover:opacity-100 hover:bg-black/50'
                       }`}
                       title={selectedAdIds.has(ad.id) ? 'Deselect' : 'Select for bulk download'}
                     >
@@ -2675,7 +2675,7 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
 
                   {/* Action icons — visible on hover */}
                   {ad.status === 'completed' && (
-                    <div className="absolute bottom-2 right-2 flex gap-1.5 opacity-0 group-hover:opacity-100 transition-opacity duration-200">
+                    <div className="absolute bottom-2 right-2 flex gap-1.5 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity duration-200">
                       {/* Download */}
                       <button
                         onClick={(e) => handleDownload(ad, e)}
@@ -2728,7 +2728,7 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
                       className={`absolute top-2 right-2 z-10 w-7 h-7 rounded-lg flex items-center justify-center transition-all duration-200 ${
                         ad.is_favorite
                           ? 'text-rose-500 bg-white/90 backdrop-blur-sm shadow-sm'
-                          : 'text-white/80 bg-black/30 backdrop-blur-sm opacity-0 group-hover:opacity-100 hover:bg-black/50'
+                          : 'text-white/90 bg-black/40 backdrop-blur-sm opacity-100 md:opacity-0 md:group-hover:opacity-100 hover:bg-black/50'
                       }`}
                       title={ad.is_favorite ? 'Remove from favorites' : 'Add to favorites'}
                     >
