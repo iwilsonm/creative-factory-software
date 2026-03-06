@@ -459,11 +459,31 @@ export async function generateUploadUrl() {
   return await mutationWithRetry(api.fileStorage.generateUploadUrl, {});
 }
 
+// In-memory TTL cache for storage URLs — content-addressed, stable for the lifetime of the file
+const storageUrlCache = new Map();
+const STORAGE_URL_TTL = 30 * 60 * 1000; // 30 minutes
+
+// Periodic cleanup to prevent memory growth (runs every 10 minutes)
+setInterval(() => {
+  const now = Date.now();
+  for (const [key, entry] of storageUrlCache) {
+    if (now - entry.time > STORAGE_URL_TTL) storageUrlCache.delete(key);
+  }
+}, 10 * 60 * 1000).unref();
+
 export async function getStorageUrl(storageId) {
-  return await queryWithRetry(api.fileStorage.getUrl, { storageId });
+  if (!storageId) return null;
+
+  const cached = storageUrlCache.get(storageId);
+  if (cached && Date.now() - cached.time < STORAGE_URL_TTL) return cached.url;
+
+  const url = await queryWithRetry(api.fileStorage.getUrl, { storageId });
+  if (url) storageUrlCache.set(storageId, { url, time: Date.now() });
+  return url;
 }
 
 export async function deleteStorageFile(storageId) {
+  storageUrlCache.delete(storageId);
   await mutationWithRetry(api.fileStorage.deleteFile, { storageId });
 }
 

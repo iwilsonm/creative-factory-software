@@ -1393,9 +1393,16 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
 
   const hiddenByDateCount = typeFilteredAds.length - filteredAds.length;
 
-  // Clear selection when filter changes
+  // Client-side pagination — render a limited number of ads for responsiveness
+  const AD_PAGE_SIZE = 24;
+  const [displayCount, setDisplayCount] = useState(AD_PAGE_SIZE);
+  const visibleAds = filteredAds.slice(0, displayCount);
+  const hasMoreAds = displayCount < filteredAds.length;
+
+  // Clear selection and reset pagination when filter changes
   useEffect(() => {
     setSelectedAdIds(new Set());
+    setDisplayCount(AD_PAGE_SIZE);
   }, [galleryFilter, dateRange]);
 
   // Counts for filter labels
@@ -2533,7 +2540,7 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
           </div>
         ) : galleryView === 'grid' ? (
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
-            {filteredAds.map(ad => (
+            {visibleAds.map(ad => (
               <div
                 key={ad.id}
                 className={`group card overflow-hidden transition-all duration-300 hover:-translate-y-0.5 ${
@@ -2730,7 +2737,7 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
         ) : galleryView === 'list' ? (
           /* ---- LIST VIEW ---- */
           <div className="space-y-1">
-            {filteredAds.map(ad => (
+            {visibleAds.map(ad => (
               <div
                 key={ad.id}
                 className={`flex items-center gap-3 p-2.5 rounded-xl hover:bg-black/[0.02] cursor-pointer transition-colors ${
@@ -2842,6 +2849,18 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
             ))}
           </div>
         ) : null}
+
+        {/* Load More button for pagination */}
+        {hasMoreAds && (
+          <div className="flex justify-center mt-6">
+            <button
+              onClick={() => setDisplayCount(c => c + AD_PAGE_SIZE)}
+              className="btn-secondary text-[13px] px-6 py-2"
+            >
+              Load More ({filteredAds.length - displayCount} remaining)
+            </button>
+          </div>
+        )}
       </div>
 
       {/* Tag editor popover */}

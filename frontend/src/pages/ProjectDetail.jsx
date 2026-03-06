@@ -1,20 +1,22 @@
-import { useState, useEffect, useRef, useCallback, useContext } from 'react';
+import { useState, useEffect, useRef, useCallback, useContext, lazy, Suspense } from 'react';
 import { useParams, useNavigate, Link, useSearchParams } from 'react-router-dom';
 import { api } from '../api';
 import { AuthContext } from '../App';
 import Layout from '../components/Layout';
-import FoundationalDocs from '../components/FoundationalDocs';
-import TemplateImages from '../components/TemplateImages';
-import AdStudio from '../components/AdStudio';
-import AdTracker from './AdTracker';
-import QuoteMiner from '../components/QuoteMiner';
 import CostSummaryCards from '../components/CostSummaryCards';
-import CopywriterChat from '../components/CopywriterChat';
 import InfoTooltip from '../components/InfoTooltip';
-import LPGen from '../components/LPGen';
 import ErrorBoundary from '../components/ErrorBoundary';
-import CreativeFilterSettings from '../components/CreativeFilterSettings';
 import { useToast } from '../components/Toast';
+
+// Lazy-load heavy tab components — only the active tab's code is downloaded
+const FoundationalDocs = lazy(() => import('../components/FoundationalDocs'));
+const TemplateImages = lazy(() => import('../components/TemplateImages'));
+const AdStudio = lazy(() => import('../components/AdStudio'));
+const AdTracker = lazy(() => import('./AdTracker'));
+const QuoteMiner = lazy(() => import('../components/QuoteMiner'));
+const LPGen = lazy(() => import('../components/LPGen'));
+const CopywriterChat = lazy(() => import('../components/CopywriterChat'));
+const CreativeFilterSettings = lazy(() => import('../components/CreativeFilterSettings'));
 
 const STATUS_CONFIG = {
   setup: { label: 'Setup', bg: 'bg-gold/10', text: 'text-gold' },
@@ -377,6 +379,13 @@ export default function ProjectDetail() {
         </div>
       </div>
 
+      <Suspense fallback={
+        <div className="flex items-center justify-center py-16">
+          <svg className="w-5 h-5 text-navy animate-spin" viewBox="0 0 24 24" fill="none">
+            <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="2.5" strokeDasharray="31.4 31.4" strokeLinecap="round" />
+          </svg>
+        </div>
+      }>
       <div className="fade-in">
         {/* Docs needed alert */}
         {!project.docCount && (
@@ -900,6 +909,7 @@ export default function ProjectDetail() {
 
       {/* Floating Copywriter Chat Widget */}
       <CopywriterChat projectId={id} projectName={project.name} />
+      </Suspense>
     </Layout>
   );
 }

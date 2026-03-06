@@ -103,8 +103,31 @@ router.get('/deployments', async (req, res) => {
         }
 
         return {
-          ...dep,
           id: dep.externalId,
+          externalId: dep.externalId,
+          ad_id: dep.ad_id,
+          project_id: dep.project_id,
+          status: dep.status,
+          ad_name: dep.ad_name || null,
+          local_campaign_id: dep.local_campaign_id || null,
+          local_adset_id: dep.local_adset_id || null,
+          created_at: dep.created_at || null,
+          notes: dep.notes || null,
+          planned_date: dep.planned_date || null,
+          posted_date: dep.posted_date || null,
+          posted_by: dep.posted_by || null,
+          posted_at: dep.posted_at || null,
+          flex_ad_id: dep.flex_ad_id || null,
+          primary_texts: dep.primary_texts || null,
+          ad_headlines: dep.ad_headlines || null,
+          destination_url: dep.destination_url || null,
+          landing_page_url: dep.landing_page_url || null,
+          display_link: dep.display_link || null,
+          cta_button: dep.cta_button || null,
+          facebook_page: dep.facebook_page || null,
+          duplicate_adset_name: dep.duplicate_adset_name || null,
+          campaign_name: dep.campaign_name || null,
+          ad_set_name: dep.ad_set_name || null,
           ad: ad ? {
             angle: ad.angle,
             headline: ad.headline,
@@ -116,15 +139,6 @@ router.get('/deployments', async (req, res) => {
           } : null,
           imageUrl,
           projectName: depProjectName,
-          flex_ad_id: dep.flex_ad_id || null,
-          primary_texts: dep.primary_texts || null,
-          ad_headlines: dep.ad_headlines || null,
-          destination_url: dep.destination_url || null,
-          display_link: dep.display_link || null,
-          cta_button: dep.cta_button || null,
-          facebook_page: dep.facebook_page || null,
-          posted_by: dep.posted_by || null,
-          duplicate_adset_name: dep.duplicate_adset_name || null,
         };
       })
     );
