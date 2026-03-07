@@ -60,6 +60,14 @@ function getRunStatusLabel(run) {
   switch (run.terminal_status) {
     case 'deployed':
       return 'deployed';
+    case 'cancelled':
+      return 'cancelled';
+    case 'waiting_on_gemini':
+      return 'waiting on Gemini';
+    case 'building_round':
+      return 'building next round';
+    case 'provider_failed':
+      return 'provider failed';
     case 'failed_under_threshold_after_54':
       return 'cap reached';
     case 'generation_failed':
@@ -82,10 +90,28 @@ function getRunStatusClasses(run) {
   if (run.status === 'running') {
     return 'bg-gold/10 text-gold';
   }
+  if (run.terminal_status === 'cancelled') {
+    return 'bg-black/5 text-textmid';
+  }
   if (run.status === 'failed') {
     return 'bg-red-50 text-red-500';
   }
   return 'bg-black/5 text-textmid';
+}
+
+function buildServerQueueItem(active, existing = null) {
+  return {
+    id: existing?.id || active?.runId || active?.id || crypto.randomUUID(),
+    status: active?.status === 'complete' ? 'complete' : active?.status === 'error' ? 'error' : 'running',
+    progress: typeof active?.progress === 'number' ? active.progress : (existing?.progress || 0),
+    phase: active?.phase || existing?.phase || 'Still processing in background...',
+    startTime: existing?.startTime || active?.startTime || Date.now(),
+    result: active?.result || existing?.result || null,
+    angleId: existing?.angleId || null,
+    generateLP: existing?.generateLP ?? true,
+    sseConnected: false,
+    serverRunId: active?.runId || active?.id || existing?.serverRunId || null,
+  };
 }
 
 const VALID_AGENT_TABS = ['director', 'lp_agent', 'filter', 'fixer'];
@@ -864,7 +890,7 @@ function DirectorTab({ onRefresh }) {
   };
 
   const handleTestRun = () => {
-    const queueItem = { id: crypto.randomUUID(), status: 'queued', progress: 0, phase: '', startTime: null, result: null, angleId: selectedAngleId || null, generateLP, sseConnected: false };
+    const queueItem = { id: crypto.randomUUID(), status: 'queued', progress: 0, phase: '', startTime: null, result: null, angleId: selectedAngleId || null, generateLP, sseConnected: false, serverRunId: null };
     setTestRunQueue(prev => [...prev, queueItem]);
     setSubTab('history');
   };
@@ -902,14 +928,17 @@ function DirectorTab({ onRefresh }) {
     abortRef.current?.();
     abortRef.current = null;
     sseActiveRef.current = false;
-    // Tell backend to clean up
-    try { await api.cancelTestRun(selectedProject); } catch {}
-    // Update queue
-    updateQueueItem(activeRun.id, { status: 'error', progress: 0, phase: 'Cancelled' });
-    setRunningAction(null);
-    setTimeout(() => {
-      setTestRunQueue(prev => prev.filter(r => r.id !== activeRun.id));
-    }, 2000);
+    updateQueueItem(activeRun.id, { sseConnected: false, phase: 'Cancelling...' });
+    try {
+      const res = await api.cancelTestRun(selectedProject);
+      if (!res?.cancelled) {
+        updateQueueItem(activeRun.id, { status: 'error', progress: 0, phase: 'No active run found to cancel.' });
+        setRunningAction(null);
+      }
+    } catch (err) {
+      updateQueueItem(activeRun.id, { status: 'error', progress: 0, phase: err.message || 'Cancel failed' });
+      setRunningAction(null);
+    }
   }, [activeRun, selectedProject, updateQueueItem]);
 
   // Remove a queued (not yet running) test run
@@ -947,7 +976,9 @@ function DirectorTab({ onRefresh }) {
       generate_lp: nextQueued.generateLP ?? true,
     };
 
+    let sawEvent = false;
     const { abort, done } = api.triggerConductorTestRun(selectedProject, body, (event) => {
+      sawEvent = true;
       if (event.type === 'progress') {
         const updates = { phase: event.message || '' };
 
@@ -990,11 +1021,25 @@ function DirectorTab({ onRefresh }) {
         const msg = event.flex_ads_created > 0
           ? `Reached ${passed}/10 after ${roundsUsed} round${roundsUsed !== 1 ? 's' : ''} (${generated} generated). ${readyCount} Ready to Post ads created.`
           : `Complete — ${passed}/10 passed after ${generated} generated.`;
-        updateQueueItem(runId, { status: 'complete', progress: 100, phase: msg, result: event });
+        updateQueueItem(runId, { status: 'complete', progress: 100, phase: msg, result: event, serverRunId: event.runId || null });
         finishRun(runId, false);
+      } else if (event.type === 'background') {
+        sseActiveRef.current = false;
+        abortRef.current = null;
+        updateQueueItem(runId, {
+          status: 'running',
+          sseConnected: false,
+          progress: Math.max(nextQueued.progress || 0, 22),
+          phase: event.phase || event.background_message || 'Still processing in background...',
+          result: event,
+          serverRunId: event.runId || null,
+        });
       } else if (event.type === 'error') {
-        updateQueueItem(runId, { status: 'error', progress: 0, phase: event.message || 'Failed', result: event });
-        toast.error(event.message || 'Test run failed');
+        const cancelled = event.terminal_status === 'cancelled' || event.message === 'Cancelled by user';
+        updateQueueItem(runId, { status: 'error', progress: 0, phase: event.message || 'Failed', result: event, serverRunId: event.runId || null });
+        if (!cancelled) {
+          toast.error(event.message || 'Test run failed');
+        }
         finishRun(runId, true);
       }
     });
@@ -1003,48 +1048,83 @@ function DirectorTab({ onRefresh }) {
 
     done.catch((err) => {
       if (err.name !== 'AbortError') {
-        // SSE disconnected (refresh, navigate away) — DON'T mark as error
-        // The backend keeps running. Mark sseConnected=false so polling picks up.
         sseActiveRef.current = false;
+        if (!sawEvent) {
+          updateQueueItem(runId, { status: 'error', progress: 0, phase: err.message || 'Failed to start test run' });
+          toast.error(err.message || 'Failed to start test run');
+          finishRun(runId, true);
+          return;
+        }
+        // SSE disconnected after the run had already started — let polling reconnect.
         updateQueueItem(runId, { sseConnected: false });
       }
     });
   }, [testRunQueue, selectedProject, updateQueueItem, finishRun, toast]);
 
-  // Polling reconnect — when a 'running' item exists without SSE (after page refresh)
+  // Polling reconnect / hydration — keeps the server-backed progress bar alive after refresh
   useEffect(() => {
     const running = testRunQueue.find(r => r.status === 'running');
-    if (!running || sseActiveRef.current) return;
+    if (sseActiveRef.current) return;
     if (!selectedProject) return;
-
-    setRunningAction('run');
 
     const poll = async () => {
       try {
         const res = await api.getTestRunProgress(selectedProject);
         if (res.active) {
-          updateQueueItem(running.id, {
-            progress: res.active.progress,
-            phase: res.active.phase,
-            startTime: running.startTime || res.active.startTime,
-          });
-        } else {
-          // Run finished while we were away
-          const runRes = await api.getConductorRuns(selectedProject, 5);
-          const safeRuns = ensureArray(runRes?.runs, 'AgentMonitor.director.runs');
-          setRuns(safeRuns);
-          setRunsLoadedFor(selectedProject);
-          const latest = safeRuns[0];
-          const succeeded = latest?.status === 'completed';
-          updateQueueItem(running.id, {
-            status: succeeded ? 'complete' : 'error',
-            progress: succeeded ? 100 : 0,
-            phase: succeeded ? (latest?.decisions || 'Complete') : (latest?.failure_reason || latest?.error || 'Failed'),
-            result: latest || null,
-          });
-          finishRun(running.id, !succeeded);
-          return; // Stop polling
+          setRunningAction('run');
+          if (running) {
+            updateQueueItem(running.id, {
+              progress: res.active.progress,
+              phase: res.active.phase,
+              startTime: running.startTime || res.active.startTime,
+              result: res.active.result || running.result || null,
+              serverRunId: res.active.runId || res.active.id || running.serverRunId || null,
+            });
+          } else {
+            setTestRunQueue(prev => {
+              const safePrev = ensureArray(prev, 'AgentMonitor.director.testRunQueueState');
+              const existing = safePrev.find(item => item.serverRunId && item.serverRunId === (res.active.runId || res.active.id));
+              if (existing) {
+                return safePrev.map(item => item.id === existing.id ? buildServerQueueItem(res.active, item) : item);
+              }
+              return [buildServerQueueItem(res.active), ...safePrev];
+            });
+          }
+          return;
         }
+
+        if (!running) {
+          setRunningAction(null);
+          return;
+        }
+
+        // No active tracker: check the durable run record before deciding the run is done.
+        const runRes = await api.getConductorRuns(selectedProject, 5);
+        const safeRuns = ensureArray(runRes?.runs, 'AgentMonitor.director.runs');
+        setRuns(safeRuns);
+        setRunsLoadedFor(selectedProject);
+        const latest = safeRuns[0];
+        if (latest?.status === 'running') {
+          updateQueueItem(running.id, {
+            status: 'running',
+            progress: Math.max(running.progress || 0, latest?.terminal_status === 'waiting_on_gemini' ? 22 : running.progress || 0),
+            phase: latest?.decisions || 'Still processing in background...',
+            result: latest || null,
+            serverRunId: latest?.externalId || running.serverRunId || null,
+          });
+          return;
+        }
+
+        const succeeded = latest?.status === 'completed';
+        updateQueueItem(running.id, {
+          status: succeeded ? 'complete' : 'error',
+          progress: succeeded ? 100 : 0,
+          phase: succeeded ? (latest?.decisions || 'Complete') : (latest?.failure_reason || latest?.error || 'Failed'),
+          result: latest || null,
+          serverRunId: latest?.externalId || running.serverRunId || null,
+        });
+        finishRun(running.id, !succeeded);
+        return; // Stop polling
       } catch {}
     };
 
@@ -1052,7 +1132,7 @@ function DirectorTab({ onRefresh }) {
     poll();
     const interval = setInterval(poll, 3000);
     return () => clearInterval(interval);
-  }, [activeRun?.id, selectedProject]);
+  }, [activeRun?.id, selectedProject, updateQueueItem, finishRun]);
 
   const handleAddAngle = async () => {
     if (!newAngle.name) return;

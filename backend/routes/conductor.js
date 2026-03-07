@@ -303,6 +303,8 @@ router.post('/test-run/:projectId', async (req, res) => {
     const result = await runFullTestPipeline(req.params.projectId, sendEvent, { angleOverride: angle_id || null, skipLPGen: generate_lp === false });
     if (result.pipeline_failed) {
       sendEvent({ type: 'error', message: result.failure_reason, ...result });
+    } else if (result.run_in_background) {
+      sendEvent({ type: 'background', ...result });
     } else {
       sendEvent({ type: 'complete', ...result });
     }
@@ -323,8 +325,8 @@ router.post('/test-run/cancel/:projectId', async (req, res) => {
 // GET /api/conductor/test-run/progress/:projectId — poll active test run progress (survives SSE disconnect)
 router.get('/test-run/progress/:projectId', async (req, res) => {
   try {
-    const { getActiveTestRun } = await import('../services/conductorEngine.js');
-    const active = getActiveTestRun(req.params.projectId);
+    const { getActiveTestRunSnapshot } = await import('../services/conductorEngine.js');
+    const active = await getActiveTestRunSnapshot(req.params.projectId);
     res.json({ active });
   } catch (err) {
     res.status(500).json({ error: err.message });

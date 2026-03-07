@@ -14,8 +14,9 @@ import {
   getConductorConfig, upsertConductorConfig,
   getActiveConductorAngles, updateConductorAngle,
   getConductorPlaybook,
-  createConductorRun, updateConductorRun,
-  createBatchJob,
+  createConductorRun, updateConductorRun, getConductorRuns,
+  createBatchJob, getBatchJob, updateBatchJob,
+  getAdsByBatchId,
   getFlexAdsByProject, getBatchesByProject,
   getProject, getAllConductorConfigs,
 } from '../convexClient.js';
@@ -426,6 +427,7 @@ function distributeAngles(angles, count, rotation) {
 const TEST_RUN_ADS_PER_ROUND = 18;
 const TEST_RUN_MAX_ROUNDS = 3;
 const TEST_RUN_REQUIRED_PASSES = 10;
+const TEST_RUN_GEMINI_WAIT_MS = 30 * 60 * 1000;
 
 function stringifyJSON(value, fallback = '[]') {
   try {
@@ -435,8 +437,21 @@ function stringifyJSON(value, fallback = '[]') {
   }
 }
 
+function parseJSON(value, fallback = []) {
+  if (!value) return fallback;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return fallback;
+  }
+}
+
 function getTestPostingDays(angleName) {
   return stringifyJSON([{ date: 'test', action: `Testing angle "${angleName}"` }], '[]');
+}
+
+function getGeminiTimeoutMessage(roundNumber) {
+  return `Round ${roundNumber} Gemini batch timed out after 30 minutes`;
 }
 
 function buildTestProgressValue(roundNumber, step, meta = {}) {
@@ -484,6 +499,172 @@ function buildTestProgressValue(roundNumber, step, meta = {}) {
 function withTestProgress(roundNumber, event) {
   const progressValue = buildTestProgressValue(roundNumber, event.step, event);
   return progressValue === undefined ? event : { ...event, progressValue };
+}
+
+function getBatchPhaseState(batch) {
+  const pipelineState = parseJSON(batch?.pipeline_state, {});
+  const batchStats = parseJSON(batch?.batch_stats, {});
+  return { pipelineState, batchStats };
+}
+
+function getBatchPromptProgress(roundNumber, pipelineState) {
+  const stage = Number(pipelineState?.stage);
+  if (stage === 0) {
+    return buildTestProgressValue(roundNumber, 'batch_brief');
+  }
+  if (stage === 1) {
+    return buildTestProgressValue(roundNumber, 'batch_headlines');
+  }
+  if (stage === 2) {
+    return buildTestProgressValue(roundNumber, 'batch_body_copy');
+  }
+  if (stage === 3) {
+    const total = Number(pipelineState?.total) || 0;
+    const current = Number(pipelineState?.current) || 0;
+    if (total > 0) {
+      const base = buildTestProgressValue(roundNumber, 'batch_body_copy');
+      const max = buildTestProgressValue(roundNumber, 'batch_image_prompts');
+      if (typeof base === 'number' && typeof max === 'number') {
+        return base + Math.round((Math.min(current, total) / total) * (max - base));
+      }
+    }
+    return buildTestProgressValue(roundNumber, 'batch_image_prompts');
+  }
+  return buildTestProgressValue(roundNumber, 'creating_batch');
+}
+
+function getGeminiWaitingProgress(roundNumber, batch, batchStats) {
+  const waitingBase = buildTestProgressValue(roundNumber, 'gemini_waiting') || 22;
+  const completeBase = buildTestProgressValue(roundNumber, 'gemini_complete') || (waitingBase + 6);
+  const total = Number(batchStats?.totalCount) || 0;
+  const successful = Number(batchStats?.successfulCount) || 0;
+  const failed = Number(batchStats?.failedCount) || 0;
+  if (total > 0) {
+    const finished = Math.min(successful + failed, total);
+    return waitingBase + Math.round((finished / total) * Math.max(completeBase - waitingBase - 1, 1));
+  }
+
+  const startedAt = batch?.started_at ? Date.parse(batch.started_at) : NaN;
+  if (Number.isFinite(startedAt)) {
+    const elapsed = Math.max(0, Math.round((Date.now() - startedAt) / 1000));
+    return buildTestProgressValue(roundNumber, 'gemini_polling', { elapsed }) || waitingBase;
+  }
+
+  return waitingBase;
+}
+
+function getDurableRunPhaseMessage(run, batchInfo, batch, pipelineState, batchStats) {
+  const roundNumber = batchInfo?.round || 1;
+  const total = Number(batchStats?.totalCount) || 0;
+  const successful = Number(batchStats?.successfulCount) || 0;
+  const failed = Number(batchStats?.failedCount) || 0;
+  const finished = Math.min(successful + failed, total);
+
+  if (!batch) {
+    return run?.decisions || 'Test run is still processing in background...';
+  }
+
+  if (batch.status === 'pending') {
+    return run?.decisions || `Round ${roundNumber}: queued to start...`;
+  }
+
+  if (batch.status === 'generating_prompts') {
+    return pipelineState?.stage_label
+      ? `Round ${roundNumber}: ${pipelineState.stage_label}`
+      : `Round ${roundNumber}: building prompts...`;
+  }
+
+  if (batch.status === 'submitting') {
+    return `Round ${roundNumber}: submitting prompts to Gemini...`;
+  }
+
+  if (batch.status === 'processing') {
+    if (total > 0) {
+      return `Round ${roundNumber}: Gemini is processing images (${finished}/${total} complete)...`;
+    }
+    return run?.decisions || `Round ${roundNumber}: Gemini is still processing images...`;
+  }
+
+  if (batch.status === 'completed' && run?.status === 'running') {
+    return `Round ${roundNumber}: Gemini finished. Scoring ads...`;
+  }
+
+  if (batch.status === 'failed') {
+    return batch.error_message || `Round ${roundNumber} failed.`;
+  }
+
+  return run?.decisions || 'Test run is still processing in background...';
+}
+
+function buildDurableRunProgress(run, batchInfo, batch) {
+  const roundNumber = batchInfo?.round || 1;
+  const { pipelineState, batchStats } = getBatchPhaseState(batch);
+  const waitingProgress = getGeminiWaitingProgress(roundNumber, batch, batchStats);
+  const promptProgress = getBatchPromptProgress(roundNumber, pipelineState);
+
+  if (!batch) {
+    const fallback = run?.terminal_status === 'waiting_on_gemini'
+      ? buildTestProgressValue(roundNumber, 'gemini_waiting')
+      : buildTestProgressValue(roundNumber, 'creating_batch');
+    return Math.max(2, fallback || 2);
+  }
+
+  switch (batch.status) {
+    case 'pending':
+      return Math.max(2, buildTestProgressValue(roundNumber, 'creating_batch') || 2);
+    case 'generating_prompts':
+      return Math.max(2, promptProgress || 2);
+    case 'submitting':
+      return Math.max(2, buildTestProgressValue(roundNumber, 'batch_submitting') || 14);
+    case 'processing':
+      return Math.max(2, waitingProgress);
+    case 'completed':
+      return Math.max(2, buildTestProgressValue(roundNumber, 'gemini_complete') || waitingProgress);
+    case 'failed':
+      return 0;
+    default:
+      return Math.max(2, promptProgress || waitingProgress || 2);
+  }
+}
+
+async function buildDurableActiveTestRun(projectId) {
+  const runs = await getConductorRuns(projectId, 10);
+  const testRuns = runs.filter((run) => run.run_type === 'test');
+  const candidate = testRuns.find((run) => run.status === 'running')
+    || testRuns.find((run) => {
+      const failure = run.failure_reason || run.error || '';
+      return run.status === 'failed' && failure.includes(getGeminiTimeoutMessage(1).replace('Round 1 ', ''));
+    });
+
+  if (!candidate) return null;
+
+  const batchInfos = parseJSON(candidate.batches_created, []);
+  const roundDetails = parseJSON(candidate.rounds_json, []);
+  const pending = findPendingBatchInfo(batchInfos, roundDetails);
+  const currentBatchInfo = pending?.batchInfo || batchInfos[batchInfos.length - 1] || null;
+  const batch = currentBatchInfo?.batch_id ? await getBatchJob(currentBatchInfo.batch_id).catch(() => null) : null;
+  const { pipelineState, batchStats } = getBatchPhaseState(batch);
+  const phase = getDurableRunPhaseMessage(candidate, currentBatchInfo, batch, pipelineState, batchStats);
+  const progress = buildDurableRunProgress(candidate, currentBatchInfo, batch);
+
+  return {
+    id: candidate.externalId,
+    runId: candidate.externalId,
+    projectId,
+    status: candidate.status === 'completed' ? 'complete' : candidate.status === 'failed' ? 'error' : 'running',
+    progress,
+    phase,
+    startTime: candidate.run_at || Date.now(),
+    result: candidate,
+    terminal_status: candidate.terminal_status || null,
+    batchId: currentBatchInfo?.batch_id || null,
+  };
+}
+
+export async function getActiveTestRunSnapshot(projectId) {
+  const tracked = getActiveTestRun(projectId);
+  if (tracked) return tracked;
+  return await buildDurableActiveTestRun(projectId);
 }
 
 async function loadTestRunContext(projectId, angleOverride) {
@@ -586,8 +767,25 @@ async function createTestBatchRound({
   };
 }
 
-async function executeTestBatchRound(batchId, roundNumber, emit) {
+async function executeTestBatchRound(batchId, roundNumber, emit, shouldCancel = null) {
   const roundEmit = (event) => emit(withTestProgress(roundNumber, event));
+  const throwIfCancelled = async () => {
+    if (!shouldCancel || !shouldCancel()) return;
+    const batch = await getBatchJob(batchId).catch(() => null);
+    if (batch?.gemini_batch_job) {
+      try {
+        const { getClient } = await import('./gemini.js');
+        const ai = await getClient();
+        await ai.batches.cancel({ name: batch.gemini_batch_job });
+      } catch (err) {
+        console.warn(`[Director] Could not cancel Gemini batch ${batchId.slice(0, 8)}:`, err.message);
+      }
+    }
+    try {
+      await updateBatchJob(batchId, { status: 'failed', error_message: 'Cancelled by user' });
+    } catch {}
+    throw new Error('Cancelled by user');
+  };
 
   const batchAdapter = (event) => {
     if (event.type === 'prompt_progress') {
@@ -617,7 +815,9 @@ async function executeTestBatchRound(batchId, roundNumber, emit) {
     }
   };
 
-  await runBatch(batchId, batchAdapter);
+  await throwIfCancelled();
+  await runBatch(batchId, batchAdapter, { shouldCancel });
+  await throwIfCancelled();
 
   roundEmit({
     type: 'progress',
@@ -626,17 +826,21 @@ async function executeTestBatchRound(batchId, roundNumber, emit) {
   });
 
   const pollStart = Date.now();
-  const MAX_POLL_MS = 30 * 60 * 1000;
 
   while (true) {
     await new Promise(r => setTimeout(r, 10000));
+    await throwIfCancelled();
     const elapsed = Math.round((Date.now() - pollStart) / 1000);
     const mins = Math.floor(elapsed / 60);
     const secs = elapsed % 60;
     const timeStr = mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
 
-    if (Date.now() - pollStart > MAX_POLL_MS) {
-      throw new Error(`Round ${roundNumber} Gemini batch timed out after 30 minutes`);
+    if (Date.now() - pollStart > TEST_RUN_GEMINI_WAIT_MS) {
+      return {
+        deferred: true,
+        step: 'gemini_waiting',
+        message: getGeminiTimeoutMessage(roundNumber),
+      };
     }
 
     const result = await pollBatchJob(batchId);
@@ -659,6 +863,8 @@ async function executeTestBatchRound(batchId, roundNumber, emit) {
       elapsed,
     });
   }
+
+  return { deferred: false };
 }
 
 function buildTestRunSummary({
@@ -676,7 +882,444 @@ function buildTestRunSummary({
   if (terminalStatus === 'failed_under_threshold_after_54') {
     return `Angle "${angleName}" reached ${totalAdsPassed}/${TEST_RUN_REQUIRED_PASSES} passed ads after ${roundsUsed} rounds (${totalAdsGenerated} generated). Hard cap reached with no Ready to Post flex ad.`;
   }
+  if (terminalStatus === 'cancelled') {
+    return `Angle "${angleName}" was cancelled after ${roundsUsed} round${roundsUsed !== 1 ? 's' : ''} (${totalAdsGenerated} generated, ${totalAdsPassed}/${TEST_RUN_REQUIRED_PASSES} passed so far).`;
+  }
   return failureReason || `Angle "${angleName}" failed before reaching ${TEST_RUN_REQUIRED_PASSES} passed ads.`;
+}
+
+function buildPassingAdsMeta(passingAds) {
+  return passingAds.map(({ ad, score }) => ({
+    ad_id: ad.id,
+    overall_score: score?.overall_score ?? 0,
+  }));
+}
+
+function getBackgroundWaitingMessage(roundNumber) {
+  return `Round ${roundNumber} is still processing in Gemini. Continuing in background.`;
+}
+
+async function hydratePassingAdsForRounds(roundDetails, projectId) {
+  const hydrated = [];
+  const cumulativePassingAds = [];
+  let recoveredAny = false;
+  let scoreBatchForInlineFilterFn = null;
+
+  for (let i = 0; i < roundDetails.length; i++) {
+    const round = { ...roundDetails[i], round: roundDetails[i].round || i + 1 };
+    const passingMeta = Array.isArray(round.passing_ads) ? round.passing_ads : [];
+    let passingAds = [];
+
+    if (round.batch_id && passingMeta.length > 0) {
+      const ads = await getAdsByBatchId(round.batch_id);
+      const adMap = new Map(ads.map(ad => [ad.id, ad]));
+      passingAds = passingMeta
+        .map((meta) => {
+          const ad = adMap.get(meta.ad_id);
+          if (!ad) return null;
+          return {
+            ad,
+            score: {
+              ad_id: ad.id,
+              overall_score: meta.overall_score ?? 0,
+              pass: true,
+            },
+          };
+        })
+        .filter(Boolean);
+    } else if (round.batch_id) {
+      if (!scoreBatchForInlineFilterFn) {
+        ({ scoreBatchForInlineFilter: scoreBatchForInlineFilterFn } = await import('./creativeFilterService.js'));
+      }
+      const recovered = await scoreBatchForInlineFilterFn(round.batch_id, projectId, null, {
+        roundNumber: round.round,
+        totalRounds: TEST_RUN_MAX_ROUNDS,
+      });
+      round.ads_scored = recovered.ads_scored;
+      round.ads_passed = recovered.ads_passed;
+      round.passing_ads = buildPassingAdsMeta(recovered.passingAds);
+      passingAds = recovered.passingAds;
+      recoveredAny = true;
+    }
+
+    cumulativePassingAds.push(...passingAds);
+    round.cumulative_passed = cumulativePassingAds.length;
+    round.status = cumulativePassingAds.length >= TEST_RUN_REQUIRED_PASSES ? 'threshold_reached' : 'below_threshold';
+    hydrated.push(round);
+  }
+
+  return { roundDetails: hydrated, cumulativePassingAds, recoveredAny };
+}
+
+function findPendingBatchInfo(batchInfos, roundDetails) {
+  const nextIndex = roundDetails.length;
+  if (nextIndex >= batchInfos.length) return null;
+  return { nextIndex, batchInfo: batchInfos[nextIndex] };
+}
+
+async function markTestRunWaitingOnGemini({
+  runId,
+  angleName,
+  roundNumber,
+  batchInfos,
+  roundDetails,
+  totalAdsGenerated,
+  totalAdsScored,
+  totalAdsPassed,
+}) {
+  await updateConductorRun(runId, {
+    status: 'running',
+    terminal_status: 'waiting_on_gemini',
+    error: '',
+    failure_reason: '',
+    posting_days: angleName ? getTestPostingDays(angleName) : stringifyJSON([{ date: 'test', action: 'Waiting on Gemini' }]),
+    batches_created: stringifyJSON(batchInfos),
+    rounds_json: stringifyJSON(roundDetails),
+    total_rounds: Math.max(roundDetails.length, roundNumber),
+    total_ads_generated: totalAdsGenerated,
+    total_ads_scored: totalAdsScored,
+    total_ads_passed: totalAdsPassed,
+    decisions: getBackgroundWaitingMessage(roundNumber),
+  });
+}
+
+async function markTestRunBackgroundFailure({
+  runId,
+  angleName,
+  batchInfos,
+  roundDetails,
+  totalAdsGenerated,
+  totalAdsScored,
+  totalAdsPassed,
+  failureReason,
+  terminalStatus = 'generation_failed',
+}) {
+  await updateConductorRun(runId, {
+    status: 'failed',
+    terminal_status: terminalStatus,
+    error: failureReason,
+    failure_reason: failureReason,
+    posting_days: angleName ? getTestPostingDays(angleName) : stringifyJSON([{ date: 'test', action: 'Background test run failed' }]),
+    batches_created: stringifyJSON(batchInfos),
+    rounds_json: stringifyJSON(roundDetails),
+    total_rounds: Math.max(roundDetails.length, batchInfos.length, 1),
+    total_ads_generated: totalAdsGenerated,
+    total_ads_scored: totalAdsScored,
+    total_ads_passed: totalAdsPassed,
+    ready_to_post_count: 0,
+    decisions: buildTestRunSummary({
+      angleName: angleName || 'Unknown angle',
+      roundsUsed: Math.max(roundDetails.length, batchInfos.length, 1),
+      totalAdsGenerated,
+      totalAdsPassed,
+      terminalStatus,
+      failureReason,
+    }),
+  });
+}
+
+async function continueBackgroundTestRun(run) {
+  const runId = run.externalId;
+  const projectId = run.project_id;
+  const batchInfos = parseJSON(run.batches_created, []);
+  let roundDetails = parseJSON(run.rounds_json, []);
+  const pending = findPendingBatchInfo(batchInfos, roundDetails);
+  if (!pending) {
+    return false;
+  }
+
+  const { batchInfo } = pending;
+  const batch = await getBatchJob(batchInfo.batch_id);
+  if (!batch) {
+    await markTestRunBackgroundFailure({
+      runId,
+      angleName: batchInfo.angle_name || '',
+      batchInfos,
+      roundDetails,
+      totalAdsGenerated: run.total_ads_generated || batchInfos.reduce((sum, info) => sum + (info.ad_count || 0), 0),
+      totalAdsScored: run.total_ads_scored || 0,
+      totalAdsPassed: run.total_ads_passed || 0,
+      failureReason: `Round ${batchInfo.round || (roundDetails.length + 1)} batch record could not be found.`,
+    });
+    return true;
+  }
+
+  if (['pending', 'generating_prompts', 'submitting', 'processing'].includes(batch.status)) {
+    const roundNumber = batchInfo.round || (roundDetails.length + 1);
+    const terminalStatus = batch.gemini_batch_job ? 'waiting_on_gemini' : 'building_round';
+    const phaseMessage = batch.gemini_batch_job
+      ? getBackgroundWaitingMessage(roundNumber)
+      : `Round ${roundNumber} is still building prompts. Continuing in background.`;
+    await updateConductorRun(runId, {
+      status: 'running',
+      terminal_status: terminalStatus,
+      error: '',
+      failure_reason: '',
+      posting_days: getTestPostingDays(batchInfo.angle_name || batch.angle_name || ''),
+      batches_created: stringifyJSON(batchInfos),
+      rounds_json: stringifyJSON(roundDetails),
+      total_rounds: Math.max(roundDetails.length, roundNumber),
+      total_ads_generated: run.total_ads_generated || batchInfos.reduce((sum, info) => sum + (info.ad_count || 0), 0),
+      total_ads_scored: run.total_ads_scored || 0,
+      total_ads_passed: run.total_ads_passed || 0,
+      decisions: phaseMessage,
+    });
+    return false;
+  }
+
+  if (batch.status === 'failed') {
+    await markTestRunBackgroundFailure({
+      runId,
+      angleName: batchInfo.angle_name || batch.angle_name || '',
+      batchInfos,
+      roundDetails,
+      totalAdsGenerated: run.total_ads_generated || batchInfos.reduce((sum, info) => sum + (info.ad_count || 0), 0),
+      totalAdsScored: run.total_ads_scored || 0,
+      totalAdsPassed: run.total_ads_passed || 0,
+      failureReason: batch.error_message || `Round ${batchInfo.round || (roundDetails.length + 1)} batch failed.`,
+      terminalStatus: 'provider_failed',
+    });
+    return true;
+  }
+
+  if (batch.status !== 'completed') {
+    return false;
+  }
+
+  const { scoreBatchForInlineFilter, finalizePassingAds } = await import('./creativeFilterService.js');
+  const hydrated = await hydratePassingAdsForRounds(roundDetails, projectId);
+  roundDetails = hydrated.roundDetails;
+  const cumulativePassingAds = [...hydrated.cumulativePassingAds];
+
+  const roundNumber = batchInfo.round || (roundDetails.length + 1);
+  const roundScoreResult = await scoreBatchForInlineFilter(batchInfo.batch_id, projectId, null, {
+    roundNumber,
+    totalRounds: TEST_RUN_MAX_ROUNDS,
+  });
+
+  cumulativePassingAds.push(...roundScoreResult.passingAds);
+  const totalAdsGenerated = batchInfos.reduce((sum, info) => sum + (info.ad_count || 0), 0);
+  const totalAdsScored = roundDetails.reduce((sum, detail) => sum + (detail.ads_scored || 0), 0) + roundScoreResult.ads_scored;
+  const totalAdsPassed = cumulativePassingAds.length;
+  const angleName = batchInfo.angle_name || batch.angle_name || '';
+
+  const roundDetail = {
+    round: roundNumber,
+    batch_id: batchInfo.batch_id,
+    angle_name: angleName,
+    ads_generated: batchInfo.ad_count || roundScoreResult.ads_scored,
+    ads_scored: roundScoreResult.ads_scored,
+    ads_passed: roundScoreResult.ads_passed,
+    cumulative_passed: totalAdsPassed,
+    status: totalAdsPassed >= TEST_RUN_REQUIRED_PASSES ? 'threshold_reached' : 'below_threshold',
+    completed_at: new Date().toISOString(),
+    passing_ads: buildPassingAdsMeta(roundScoreResult.passingAds),
+  };
+  roundDetails.push(roundDetail);
+
+  batchInfos[batchInfos.length - 1] = {
+    ...batchInfo,
+    ads_scored: roundScoreResult.ads_scored,
+    ads_passed: roundScoreResult.ads_passed,
+  };
+
+  if (totalAdsPassed >= TEST_RUN_REQUIRED_PASSES) {
+    const finalizeResult = await finalizePassingAds({
+      passingAds: cumulativePassingAds,
+      projectId,
+      batchId: batchInfo.batch_id,
+      postingDay: 'test',
+      angleName,
+    });
+
+    if (finalizeResult.flex_ads_created === 0) {
+      let failureReason = 'Unknown error during Creative Filter';
+      let terminalStatus = 'deploy_failed';
+      if (finalizeResult.grouping_failed) {
+        failureReason = `${totalAdsPassed} approved ads were available, but grouping could not create a flex ad.`;
+        terminalStatus = 'grouping_failed';
+      } else if (finalizeResult.deploy_error) {
+        failureReason = `Reached ${totalAdsPassed}/${TEST_RUN_REQUIRED_PASSES} passed ads, but deployment failed: ${finalizeResult.deploy_error}`;
+      }
+
+      await updateConductorRun(runId, {
+        status: 'failed',
+        terminal_status: terminalStatus,
+        error: failureReason,
+        failure_reason: failureReason,
+        posting_days: getTestPostingDays(angleName),
+        batches_created: stringifyJSON(batchInfos),
+        rounds_json: stringifyJSON(roundDetails),
+        total_rounds: roundDetails.length,
+        total_ads_generated: totalAdsGenerated,
+        total_ads_scored: totalAdsScored,
+        total_ads_passed: totalAdsPassed,
+        ready_to_post_count: 0,
+        decisions: buildTestRunSummary({
+          angleName,
+          roundsUsed: roundDetails.length,
+          totalAdsGenerated,
+          totalAdsPassed,
+          terminalStatus,
+          failureReason,
+        }),
+      });
+      return true;
+    }
+
+    const readyToPostCount = finalizeResult.ready_to_post_count || 0;
+    const flexAdId = finalizeResult.flex_ad_id || null;
+    if (flexAdId) {
+      batchInfos[batchInfos.length - 1] = {
+        ...batchInfos[batchInfos.length - 1],
+        flex_ad_id: flexAdId,
+      };
+    }
+
+    await updateConductorRun(runId, {
+      status: 'completed',
+      terminal_status: 'deployed',
+      error: '',
+      failure_reason: '',
+      posting_days: getTestPostingDays(angleName),
+      batches_created: stringifyJSON(batchInfos),
+      rounds_json: stringifyJSON(roundDetails),
+      total_rounds: roundDetails.length,
+      total_ads_generated: totalAdsGenerated,
+      total_ads_scored: totalAdsScored,
+      total_ads_passed: totalAdsPassed,
+      ready_to_post_count: readyToPostCount,
+      flex_ad_id: flexAdId || undefined,
+      decisions: buildTestRunSummary({
+        angleName,
+        roundsUsed: roundDetails.length,
+        totalAdsGenerated,
+        totalAdsPassed,
+        readyToPostCount,
+        terminalStatus: 'deployed',
+      }),
+    });
+    console.log(`[Director] Resumed test run ${runId.slice(0, 8)} completed in background: ${totalAdsPassed}/${TEST_RUN_REQUIRED_PASSES} passed`);
+    return true;
+  }
+
+  if (roundNumber >= TEST_RUN_MAX_ROUNDS) {
+    const failureReason = `Reached ${totalAdsPassed}/${TEST_RUN_REQUIRED_PASSES} passed ads after ${totalAdsGenerated} generated across ${TEST_RUN_MAX_ROUNDS} rounds. Hard cap reached with no Ready to Post flex ad.`;
+    await updateConductorRun(runId, {
+      status: 'failed',
+      terminal_status: 'failed_under_threshold_after_54',
+      error: failureReason,
+      failure_reason: failureReason,
+      posting_days: getTestPostingDays(angleName),
+      batches_created: stringifyJSON(batchInfos),
+      rounds_json: stringifyJSON(roundDetails),
+      total_rounds: roundDetails.length,
+      total_ads_generated: totalAdsGenerated,
+      total_ads_scored: totalAdsScored,
+      total_ads_passed: totalAdsPassed,
+      ready_to_post_count: 0,
+      decisions: buildTestRunSummary({
+        angleName,
+        roundsUsed: roundDetails.length,
+        totalAdsGenerated,
+        totalAdsPassed,
+        terminalStatus: 'failed_under_threshold_after_54',
+      }),
+    });
+    console.warn(`[Director] Background test run ${runId.slice(0, 8)} failed at hard cap`);
+    return true;
+  }
+
+  const project = await getProject(projectId);
+  if (!project) {
+    await markTestRunBackgroundFailure({
+      runId,
+      angleName,
+      batchInfos,
+      roundDetails,
+      totalAdsGenerated,
+      totalAdsScored,
+      totalAdsPassed,
+      failureReason: 'Project not found while preparing the next round.',
+    });
+    return true;
+  }
+
+  const nextBatchInfo = await createTestBatchRound({
+    projectId,
+    project,
+    runId,
+    angleInfo: { name: angleName, externalId: 'background' },
+    anglePrompt: batch.angle_prompt || batch.angle || batchInfo.angle_prompt || '',
+    angleBriefJSON: batch.angle_brief || batchInfo.angle_brief,
+    batchSize: TEST_RUN_ADS_PER_ROUND,
+    roundNumber: roundNumber + 1,
+    emit: () => {},
+    updateAngleUsage: false,
+  });
+
+  batchInfos.push(nextBatchInfo);
+
+  await updateConductorRun(runId, {
+    status: 'running',
+    terminal_status: 'building_round',
+    error: '',
+    failure_reason: '',
+    posting_days: getTestPostingDays(angleName),
+    batches_created: stringifyJSON(batchInfos),
+    rounds_json: stringifyJSON(roundDetails),
+    total_rounds: roundDetails.length + 1,
+    total_ads_generated: totalAdsGenerated + nextBatchInfo.ad_count,
+    total_ads_scored: totalAdsScored,
+    total_ads_passed: totalAdsPassed,
+    decisions: `Round ${roundNumber} complete: ${roundScoreResult.ads_passed}/${roundScoreResult.ads_scored} passed, ${totalAdsPassed}/${TEST_RUN_REQUIRED_PASSES} total. Starting round ${roundNumber + 1} in background...`,
+  });
+
+  runBatch(nextBatchInfo.batch_id).catch(async (err) => {
+    console.error(`[Director] Background batch ${nextBatchInfo.batch_id.slice(0, 8)} failed for test run ${runId.slice(0, 8)}:`, err.message);
+    try {
+      await markTestRunBackgroundFailure({
+        runId,
+        angleName,
+        batchInfos,
+        roundDetails,
+        totalAdsGenerated: totalAdsGenerated + nextBatchInfo.ad_count,
+        totalAdsScored,
+        totalAdsPassed,
+        failureReason: err.message,
+      });
+    } catch (updateErr) {
+      console.error(`[Director] Failed to mark background test run ${runId.slice(0, 8)} as failed:`, updateErr.message);
+    }
+  });
+
+  console.log(`[Director] Resumed test run ${runId.slice(0, 8)} started round ${roundNumber + 1} in background`);
+  return true;
+}
+
+export async function resumeBackgroundTestRuns() {
+  const configs = await getAllConductorConfigs();
+  const projectIds = [...new Set(configs.map(config => config.project_id))];
+
+  for (const projectId of projectIds) {
+    if (findTrackedTestRun(projectId)) continue;
+
+    const runs = await getConductorRuns(projectId, 10);
+    const testRuns = runs.filter((run) => run.run_type === 'test');
+    const candidate = testRuns.find((run) => run.status === 'running')
+      || testRuns.find((run) => {
+        const failure = run.failure_reason || run.error || '';
+        return run.status === 'failed' && failure.includes(getGeminiTimeoutMessage(1).replace('Round 1 ', ''));
+      });
+
+    if (!candidate) continue;
+
+    try {
+      await continueBackgroundTestRun(candidate);
+    } catch (err) {
+      console.error(`[Director] Background resume error for test run ${candidate.externalId.slice(0, 8)}:`, err.message);
+    }
+  }
 }
 
 /**
@@ -779,34 +1422,38 @@ const PIPELINE_STEP_PROGRESS = {
   'filter_deploying': 92, 'filter_complete': 95,
 };
 
+function findTrackedTestRun(projectId) {
+  for (const [id, run] of activeTestRuns) {
+    if (run.projectId === projectId && run.status === 'running') {
+      return [id, run];
+    }
+  }
+  return null;
+}
+
 /**
  * Get the active test run for a project (if any).
  * @param {string} projectId
  * @returns {{ id: string, projectId: string, status: string, progress: number, phase: string, startTime: number, result: object|null }|null}
  */
 export function getActiveTestRun(projectId) {
-  for (const [id, run] of activeTestRuns) {
-    if (run.projectId === projectId && run.status === 'running') return { id, ...run };
-  }
-  return null;
+  const tracked = findTrackedTestRun(projectId);
+  if (!tracked) return null;
+  const [id, run] = tracked;
+  return { id, ...run };
 }
 
 /**
  * Cancel the active test run for a project.
- * Marks the in-memory tracking entry as cancelled so polling returns null.
- * The in-flight batch/Gemini work continues but results are ignored.
+ * Marks the in-memory tracking entry so the pipeline cooperatively stops.
  */
 export function cancelTestRun(projectId) {
-  for (const [id, run] of activeTestRuns) {
-    if (run.projectId === projectId && run.status === 'running') {
-      run.status = 'cancelled';
-      run.phase = 'Cancelled';
-      run.progress = 0;
-      activeTestRuns.delete(id);
-      return true;
-    }
-  }
-  return false;
+  const tracked = findTrackedTestRun(projectId);
+  if (!tracked) return false;
+  const [, run] = tracked;
+  run.cancelRequested = true;
+  run.phase = 'Cancelling...';
+  return true;
 }
 
 // ── Full Test Pipeline (Director → Batch → Gemini → Filter → Ready to Post) ──
@@ -822,30 +1469,52 @@ export function cancelTestRun(projectId) {
 export async function runFullTestPipeline(projectId, sendEvent, { angleOverride = null, skipLPGen = false } = {}) {
   const rawEmit = sendEvent || (() => {});
 
+  if (findTrackedTestRun(projectId)) {
+    throw new Error('A test run is already in progress for this project. Cancel it or wait for it to finish before starting another.');
+  }
+
   // Track progress in-memory so polling endpoint can serve it after SSE disconnect
-  const runProgress = { projectId, status: 'running', progress: 0, phase: 'Starting...', startTime: Date.now(), result: null };
+  const runProgress = {
+    projectId,
+    status: 'running',
+    progress: 0,
+    phase: 'Starting...',
+    startTime: Date.now(),
+    result: null,
+    cancelRequested: false,
+    currentBatchId: null,
+    runId: null,
+  };
   const trackingId = `pending-${Date.now()}`;
   activeTestRuns.set(trackingId, runProgress);
+
+  const throwIfRunCancelled = () => {
+    if (runProgress.cancelRequested) {
+      throw new Error('Cancelled by user');
+    }
+  };
 
   const emit = (event) => {
     rawEmit(event);
     if (event.type === 'progress') {
-      runProgress.phase = event.message || runProgress.phase;
-      if (typeof event.progressValue === 'number') {
-        runProgress.progress = Math.max(runProgress.progress, event.progressValue);
-      }
-      if (event.step && PIPELINE_STEP_PROGRESS[event.step] !== undefined) {
-        runProgress.progress = Math.max(runProgress.progress, PIPELINE_STEP_PROGRESS[event.step]);
-      }
-      if (event.step === 'gemini_polling' && event.elapsed) {
-        const ratio = Math.min(event.elapsed / 600, 0.95);
-        const pct = 15 + Math.round(ratio * 43);
-        runProgress.progress = Math.max(runProgress.progress, pct);
-      }
-      if (event.step === 'filter_scoring' && event.scoringProgress) {
-        const { current, total } = event.scoringProgress;
-        const pct = 62 + Math.round((current / total) * 18);
-        runProgress.progress = Math.max(runProgress.progress, pct);
+      if (!runProgress.cancelRequested) {
+        runProgress.phase = event.message || runProgress.phase;
+        if (typeof event.progressValue === 'number') {
+          runProgress.progress = Math.max(runProgress.progress, event.progressValue);
+        }
+        if (event.step && PIPELINE_STEP_PROGRESS[event.step] !== undefined) {
+          runProgress.progress = Math.max(runProgress.progress, PIPELINE_STEP_PROGRESS[event.step]);
+        }
+        if (event.step === 'gemini_polling' && event.elapsed) {
+          const ratio = Math.min(event.elapsed / 600, 0.95);
+          const pct = 15 + Math.round(ratio * 43);
+          runProgress.progress = Math.max(runProgress.progress, pct);
+        }
+        if (event.step === 'filter_scoring' && event.scoringProgress) {
+          const { current, total } = event.scoringProgress;
+          const pct = 62 + Math.round((current / total) * 18);
+          runProgress.progress = Math.max(runProgress.progress, pct);
+        }
       }
     } else if (event.type === 'complete') {
       runProgress.status = 'complete';
@@ -872,6 +1541,7 @@ export async function runFullTestPipeline(projectId, sendEvent, { angleOverride 
   try {
     emit({ type: 'progress', step: 'initializing', message: 'Loading project config...' });
     runId = uuidv4();
+    runProgress.runId = runId;
 
     await createConductorRun({
       externalId: runId,
@@ -884,6 +1554,7 @@ export async function runFullTestPipeline(projectId, sendEvent, { angleOverride 
       max_rounds: TEST_RUN_MAX_ROUNDS,
     });
 
+    throwIfRunCancelled();
     emit({ type: 'progress', step: 'selecting_angle', message: 'Selecting angle...' });
     const { project, angleInfo, anglePrompt, angleBriefJSON } = await loadTestRunContext(projectId, angleOverride);
     angleName = angleInfo.name;
@@ -893,6 +1564,7 @@ export async function runFullTestPipeline(projectId, sendEvent, { angleOverride 
     const cumulativePassingAds = [];
 
     for (let roundNumber = 1; roundNumber <= TEST_RUN_MAX_ROUNDS; roundNumber++) {
+      throwIfRunCancelled();
       console.log(`[Director] Test run ${runId.slice(0, 8)} round ${roundNumber}/${TEST_RUN_MAX_ROUNDS}: creating ${TEST_RUN_ADS_PER_ROUND} ads for "${angleName}"`);
       const batchInfo = await createTestBatchRound({
         projectId,
@@ -908,6 +1580,7 @@ export async function runFullTestPipeline(projectId, sendEvent, { angleOverride 
       });
 
       batchInfos.push(batchInfo);
+      runProgress.currentBatchId = batchInfo.batch_id;
       totalAdsGenerated += batchInfo.ad_count;
 
       await updateConductorRun(runId, {
@@ -922,7 +1595,35 @@ export async function runFullTestPipeline(projectId, sendEvent, { angleOverride 
         decisions: `Testing "${angleName}" — round ${roundNumber} of ${TEST_RUN_MAX_ROUNDS} started.`,
       });
 
-      await executeTestBatchRound(batchInfo.batch_id, roundNumber, emit);
+      const roundExecution = await executeTestBatchRound(batchInfo.batch_id, roundNumber, emit, () => runProgress.cancelRequested);
+      if (roundExecution?.deferred) {
+        const backgroundMessage = getBackgroundWaitingMessage(roundNumber);
+        await markTestRunWaitingOnGemini({
+          runId,
+          angleName,
+          roundNumber,
+          batchInfos,
+          roundDetails,
+          totalAdsGenerated,
+          totalAdsScored,
+          totalAdsPassed,
+        });
+        activeTestRuns.delete(trackingId);
+        return {
+          runId,
+          angle: angleName,
+          rounds_used: roundDetails.length,
+          total_ads_generated: totalAdsGenerated,
+          ads_scored: totalAdsScored,
+          ads_passed: totalAdsPassed,
+          ready_to_post_count: 0,
+          terminal_status: 'waiting_on_gemini',
+          run_in_background: true,
+          background_message: backgroundMessage,
+          phase: backgroundMessage,
+        };
+      }
+      throwIfRunCancelled();
 
       const roundScoreResult = await scoreBatchForInlineFilter(
         batchInfo.batch_id,
@@ -930,6 +1631,7 @@ export async function runFullTestPipeline(projectId, sendEvent, { angleOverride 
         (event) => emit(withTestProgress(roundNumber, event)),
         { roundNumber, totalRounds: TEST_RUN_MAX_ROUNDS }
       );
+      throwIfRunCancelled();
 
       cumulativePassingAds.push(...roundScoreResult.passingAds);
       totalAdsScored += roundScoreResult.ads_scored;
@@ -946,6 +1648,7 @@ export async function runFullTestPipeline(projectId, sendEvent, { angleOverride 
         cumulative_passed: totalAdsPassed,
         status: totalAdsPassed >= TEST_RUN_REQUIRED_PASSES ? 'threshold_reached' : 'below_threshold',
         completed_at: new Date().toISOString(),
+        passing_ads: buildPassingAdsMeta(roundScoreResult.passingAds),
       };
       roundDetails.push(roundDetail);
 
@@ -1151,14 +1854,18 @@ export async function runFullTestPipeline(projectId, sendEvent, { angleOverride 
     };
   } catch (err) {
     const failureReason = err.message || 'Test run failed';
+    const cancelled = failureReason === 'Cancelled by user' || runProgress.cancelRequested;
+    const terminalStatus = cancelled ? 'cancelled' : 'generation_failed';
     if (runId) {
       try {
         await updateConductorRun(runId, {
           status: 'failed',
-          terminal_status: 'generation_failed',
+          terminal_status: terminalStatus,
           error: failureReason,
           failure_reason: failureReason,
-          posting_days: angleName ? getTestPostingDays(angleName) : stringifyJSON([{ date: 'test', action: 'Test run failed before angle selection' }]),
+          posting_days: angleName
+            ? getTestPostingDays(angleName)
+            : stringifyJSON([{ date: 'test', action: cancelled ? 'Test run cancelled before angle selection' : 'Test run failed before angle selection' }]),
           batches_created: stringifyJSON(batchInfos),
           rounds_json: stringifyJSON(roundDetails),
           total_rounds: roundDetails.length,
@@ -1172,7 +1879,7 @@ export async function runFullTestPipeline(projectId, sendEvent, { angleOverride 
             roundsUsed: Math.max(roundDetails.length, batchInfos.length, 1),
             totalAdsGenerated,
             totalAdsPassed,
-            terminalStatus: 'generation_failed',
+            terminalStatus,
             failureReason,
           }),
         });
@@ -1184,7 +1891,7 @@ export async function runFullTestPipeline(projectId, sendEvent, { angleOverride 
     runProgress.status = 'error';
     runProgress.progress = 0;
     runProgress.phase = failureReason;
-    runProgress.result = { failure_reason: failureReason };
+    runProgress.result = { failure_reason: failureReason, terminal_status: terminalStatus };
     setTimeout(() => activeTestRuns.delete(trackingId), 60000);
 
     return {
@@ -1195,7 +1902,7 @@ export async function runFullTestPipeline(projectId, sendEvent, { angleOverride 
       ads_scored: totalAdsScored,
       ads_passed: totalAdsPassed,
       ready_to_post_count: 0,
-      terminal_status: 'generation_failed',
+      terminal_status: terminalStatus,
       failure_reason: failureReason,
       rounds: roundDetails,
       pipeline_failed: true,

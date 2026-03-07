@@ -31,15 +31,35 @@ import { withRetry } from './retry.js';
  * @param {string} batchId
  * @param {(event: object) => void} [onProgress]
  */
-export async function runBatch(batchId, onProgress) {
+export async function runBatch(batchId, onProgress, options = {}) {
   const emit = (event) => { if (onProgress) try { onProgress(event); } catch {} };
+  const shouldCancel = typeof options.shouldCancel === 'function' ? options.shouldCancel : null;
+  let submittedGeminiBatchName = null;
 
+  const throwIfCancelled = async () => {
+    if (!shouldCancel || !shouldCancel()) return;
+    if (submittedGeminiBatchName) {
+      try {
+        const ai = await getClient();
+        await ai.batches.cancel({ name: submittedGeminiBatchName });
+      } catch (err) {
+        console.warn(`[BatchProcessor] Could not cancel Gemini batch ${submittedGeminiBatchName}: ${err.message}`);
+      }
+    }
+    try {
+      await updateBatchJob(batchId, { status: 'failed', error_message: 'Cancelled by user' });
+    } catch {}
+    throw new Error('Cancelled by user');
+  };
+
+  await throwIfCancelled();
   const batch = await getBatchJob(batchId);
   if (!batch) throw new Error('Batch job not found');
   if (!['pending'].includes(batch.status)) {
     throw new Error(`Batch is already ${batch.status}`);
   }
 
+  await throwIfCancelled();
   const project = await getProject(batch.project_id);
   if (!project) {
     await updateBatchJob(batchId, { status: 'failed', error_message: 'Project not found.' });
@@ -62,12 +82,14 @@ export async function runBatch(batchId, onProgress) {
   }
 
   try {
+    await throwIfCancelled();
     // Phase 1: Generate GPT prompts
     await updateBatchJob(batchId, { status: 'generating_prompts', started_at: new Date().toISOString() });
     emit({ type: 'status', status: 'generating_prompts', message: `Generating ${batch.batch_size} prompts via GPT-5.2...` });
 
-    const prompts = await generateBatchPrompts(batch, project, docs, onProgress);
+    const prompts = await generateBatchPrompts(batch, project, docs, onProgress, { throwIfCancelled });
 
+    await throwIfCancelled();
     // Store prompts with headline/body in DB (exclude base64 image data to keep DB size reasonable)
     await updateBatchJob(batchId, {
       gpt_prompts: JSON.stringify(prompts.map(p => ({
@@ -95,8 +117,11 @@ export async function runBatch(batchId, onProgress) {
     }
 
     // Phase 2: Submit to Gemini Batch API
+    await throwIfCancelled();
     const geminiBatchName = await submitGeminiBatch(batchId, prompts, batch.aspect_ratio, project.name, productImageData);
+    submittedGeminiBatchName = geminiBatchName;
 
+    await throwIfCancelled();
     await updateBatchJob(batchId, {
       gemini_batch_job: geminiBatchName,
       status: 'processing'
@@ -138,10 +163,11 @@ export async function runBatch(batchId, onProgress) {
  * @param {(event: { type: string, [key: string]: any }) => void} [onProgress]
  * @returns {Promise<Array<{ prompt: string, headline: string, body_copy: string, inspirationTmpPath?: string, inspirationMimeType?: string, templateFileId?: string }>>}
  */
-async function generateBatchPrompts(batch, project, docs, onProgress) {
+async function generateBatchPrompts(batch, project, docs, onProgress, options = {}) {
   const emit = (event) => { if (onProgress) try { onProgress(event); } catch {} };
   const batchId = batch.id;
   const angle = batch.angle || null;
+  const throwIfCancelled = typeof options.throwIfCancelled === 'function' ? options.throwIfCancelled : async () => {};
 
   // Parse structured angle brief if available (set by Director from conductor_angles)
   let angleBrief = null;
@@ -149,6 +175,7 @@ async function generateBatchPrompts(batch, project, docs, onProgress) {
     try { angleBrief = JSON.parse(batch.angle_brief); } catch {}
   }
 
+  await throwIfCancelled();
   // ========================================
   // STAGE 0: Brief Extraction (1 API call)
   // ========================================
@@ -163,6 +190,7 @@ async function generateBatchPrompts(batch, project, docs, onProgress) {
     pipeline_state: JSON.stringify({ stage: 0, stage_label: 'Step 1 of 5: Brief extracted', brief_length: briefPacket.length })
   });
 
+  await throwIfCancelled();
   // ========================================
   // STAGE 1: Headline Generation (1 API call)
   // ========================================
@@ -187,6 +215,7 @@ async function generateBatchPrompts(batch, project, docs, onProgress) {
     })
   });
 
+  await throwIfCancelled();
   // ========================================
   // STAGE 2: Body Copy Generation (N/5 API calls)
   // ========================================
@@ -211,6 +240,7 @@ async function generateBatchPrompts(batch, project, docs, onProgress) {
     throw new Error('All body copy generations failed. Check your OpenAI API key and project configuration.');
   }
 
+  await throwIfCancelled();
   // ========================================
   // STAGE 3: Image Prompt Generation (1 per ad)
   // ========================================
@@ -229,6 +259,7 @@ async function generateBatchPrompts(batch, project, docs, onProgress) {
   const newlyUsedTemplateIds = [];
 
   for (let i = 0; i < bodyCopies.length; i++) {
+    await throwIfCancelled();
     const copy = bodyCopies[i];
 
     emit({
@@ -319,6 +350,7 @@ async function generateBatchPrompts(batch, project, docs, onProgress) {
 
     // Small delay between GPT calls
     if (i < bodyCopies.length - 1) {
+      await throwIfCancelled();
       await new Promise(resolve => setTimeout(resolve, 1000));
     }
   }

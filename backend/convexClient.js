@@ -87,7 +87,8 @@ setInterval(() => {
 }, 5 * 60 * 1000).unref();
 
 async function cachedQuery(table, fnRef, args) {
-  const key = table + ':' + JSON.stringify(args);
+  const caller = new Error().stack?.split('\n')[2]?.trim() || 'unknown';
+  const key = table + ':' + caller + ':' + JSON.stringify(args);
   const cached = queryCache.get(key);
   const ttl = TABLE_TTL[table] || DEFAULT_QUERY_TTL;
   if (cached && Date.now() - cached.time < ttl) return cached.value;

@@ -123,6 +123,12 @@ export async function initScheduler() {
 
   schedulerInitialized = true;
   console.log('[Scheduler] Active. Polling every 5 minutes for batch completion. Cost sync hourly, rate refresh daily. Meta sync every 30 min. Director runs 3x/day.');
+
+  import('./conductorEngine.js')
+    .then(({ resumeBackgroundTestRuns }) => resumeBackgroundTestRuns())
+    .catch((e) => {
+      console.error('[Scheduler] Background test-run resume error:', e.message);
+    });
 }
 
 /**
@@ -206,6 +212,12 @@ async function pollActiveBatches() {
 
   if (active.length === 0) {
     lastPollResult = { checked: 0 };
+    try {
+      const { resumeBackgroundTestRuns } = await import('./conductorEngine.js');
+      await resumeBackgroundTestRuns();
+    } catch (err) {
+      console.error('[Scheduler] Background test-run resume error:', err.message);
+    }
     return;
   }
 
@@ -300,6 +312,13 @@ async function pollActiveBatches() {
   }
 
   lastPollResult = { checked: active.length, completed, failed };
+
+  try {
+    const { resumeBackgroundTestRuns } = await import('./conductorEngine.js');
+    await resumeBackgroundTestRuns();
+  } catch (err) {
+    console.error('[Scheduler] Background test-run resume error:', err.message);
+  }
 }
 
 // ── Status reporting ─────────────────────────────────────────────────────────
