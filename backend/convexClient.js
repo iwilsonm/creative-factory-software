@@ -1349,6 +1349,13 @@ export async function getLandingPage(externalId) {
   return await cachedQuery('landing_pages', api.landingPages.getByExternalId, { externalId });
 }
 
+export async function getLandingPagesByBatchJob(batchJobId) {
+  return ensureArray(
+    await queryWithRetry(api.landingPages.getByBatchJob, { batchJobId }),
+    'convexClient.getLandingPagesByBatchJob'
+  );
+}
+
 export async function getLandingPageGauntletStats(projectId) {
   return await queryWithRetry(api.landingPages.getGauntletStatsByProject, { projectId });
 }

@@ -172,6 +172,35 @@ function formatFailureLabel(key) {
   return labels[key] || formatLaneLabel(key);
 }
 
+function formatBooleanStatus(value) {
+  if (value === true) return 'Passed';
+  if (value === false) return 'Failed';
+  return '—';
+}
+
+function getLPStatusClasses(status) {
+  switch (status) {
+    case 'live':
+    case 'published':
+    case 'passed':
+    case 'passed_dry_run':
+      return 'bg-teal/10 text-teal';
+    case 'generating':
+    case 'scoring':
+    case 'retrying':
+      return 'bg-gold/10 text-gold';
+    case 'failed':
+    case 'error':
+    case 'publish_failed':
+    case 'smoke_failed':
+      return 'bg-red-50 text-red-500';
+    case 'skipped':
+      return 'bg-black/5 text-textmid';
+    default:
+      return 'bg-black/5 text-textmid';
+  }
+}
+
 function getRoundLaneEntries(round) {
   if (!round?.lane_distribution || typeof round.lane_distribution !== 'object') return [];
   return Object.entries(round.lane_distribution)
@@ -391,6 +420,297 @@ function RoundFailedAds({ round }) {
             </div>
           );
         })}
+      </div>
+    </details>
+  );
+}
+
+function RoundLandingPageFunnel({ batchId, lpDetailState, loading }) {
+  if (!batchId) return null;
+  if (loading) {
+    return (
+      <div className="mt-2 rounded-lg bg-black/[0.02] border border-black/5 px-3 py-2">
+        <p className="text-[10px] text-textmid">Loading landing page funnel details...</p>
+      </div>
+    );
+  }
+
+  if (lpDetailState?.error) {
+    return (
+      <div className="mt-2 rounded-lg bg-red-50/70 border border-red-100 px-3 py-2">
+        <p className="text-[10px] text-red-500">{lpDetailState.error}</p>
+      </div>
+    );
+  }
+
+  const detail = lpDetailState?.data;
+  if (!detail) return null;
+
+  const batch = detail.batch || {};
+  const summary = detail.summary || {};
+  const landingPages = ensureArray(detail.landingPages, `AgentMonitor.run.lpDetails.${batchId}.landingPages`);
+  const narrativeFrames = ensureArray(batch.lp_narrative_frames, `AgentMonitor.run.lpDetails.${batchId}.frames`);
+  const publishedUrls = ensureArray(batch.gauntlet_lp_urls, `AgentMonitor.run.lpDetails.${batchId}.urls`);
+  const hasLPActivity = landingPages.length > 0 || batch.lp_primary_status || batch.lp_secondary_status || publishedUrls.length > 0;
+
+  if (!hasLPActivity) return null;
+
+  return (
+    <details className="mt-2 rounded-lg bg-black/[0.02] border border-black/5">
+      <summary className="cursor-pointer list-none px-3 py-2 flex items-center justify-between gap-3">
+        <span className="text-[10px] font-medium text-textdark">Landing page funnel</span>
+        <span className="text-[10px] text-textmid">
+          {landingPages.length > 0
+            ? `${summary.published ?? 0}/${summary.total ?? landingPages.length} published`
+            : `${batch.lp_primary_status || 'not started'}`}
+        </span>
+      </summary>
+      <div className="px-3 pb-3 pt-1 border-t border-black/5 space-y-3">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+          <div className="rounded-lg bg-white/70 border border-black/5 px-2 py-2">
+            <p className="text-[9px] uppercase tracking-wider text-textlight">LPs</p>
+            <p className="text-[12px] font-semibold text-textdark mt-0.5">{summary.total ?? landingPages.length ?? '—'}</p>
+          </div>
+          <div className="rounded-lg bg-white/70 border border-black/5 px-2 py-2">
+            <p className="text-[9px] uppercase tracking-wider text-textlight">Published</p>
+            <p className="text-[12px] font-semibold text-textdark mt-0.5">{summary.published ?? '—'}</p>
+          </div>
+          <div className="rounded-lg bg-white/70 border border-black/5 px-2 py-2">
+            <p className="text-[9px] uppercase tracking-wider text-textlight">Avg Score</p>
+            <p className="text-[12px] font-semibold text-textdark mt-0.5">{summary.avgScore ?? '—'}</p>
+          </div>
+          <div className="rounded-lg bg-white/70 border border-black/5 px-2 py-2">
+            <p className="text-[9px] uppercase tracking-wider text-textlight">Duration</p>
+            <p className="text-[12px] font-semibold text-textdark mt-0.5">
+              {summary.totalGenerationDurationMs ? formatDuration(summary.totalGenerationDurationMs) : '—'}
+            </p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+          <div className="rounded-lg bg-white/70 border border-black/5 px-3 py-2">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-[10px] font-medium text-textdark">Primary LP</p>
+              <span className={`text-[9px] font-medium px-1.5 py-0.5 rounded ${getLPStatusClasses(batch.lp_primary_status)}`}>
+                {batch.lp_primary_status || 'not started'}
+              </span>
+            </div>
+            {batch.lp_primary_url && (
+              <a href={batch.lp_primary_url} target="_blank" rel="noreferrer" className="text-[10px] text-gold hover:text-gold-light mt-1 inline-block break-all">
+                {batch.lp_primary_url}
+              </a>
+            )}
+            {batch.lp_primary_error && (
+              <p className="text-[10px] text-red-500 mt-1 leading-relaxed">{batch.lp_primary_error}</p>
+            )}
+            {batch.lp_primary_retry_count ? (
+              <p className="text-[9px] text-textlight mt-1">Retries: {batch.lp_primary_retry_count}</p>
+            ) : null}
+          </div>
+          <div className="rounded-lg bg-white/70 border border-black/5 px-3 py-2">
+            <div className="flex items-center justify-between gap-2">
+              <p className="text-[10px] font-medium text-textdark">Secondary LP</p>
+              <span className={`text-[9px] font-medium px-1.5 py-0.5 rounded ${getLPStatusClasses(batch.lp_secondary_status)}`}>
+                {batch.lp_secondary_status || 'not started'}
+              </span>
+            </div>
+            {batch.lp_secondary_url && (
+              <a href={batch.lp_secondary_url} target="_blank" rel="noreferrer" className="text-[10px] text-gold hover:text-gold-light mt-1 inline-block break-all">
+                {batch.lp_secondary_url}
+              </a>
+            )}
+            {batch.lp_secondary_error && (
+              <p className="text-[10px] text-red-500 mt-1 leading-relaxed">{batch.lp_secondary_error}</p>
+            )}
+            {batch.lp_secondary_retry_count ? (
+              <p className="text-[9px] text-textlight mt-1">Retries: {batch.lp_secondary_retry_count}</p>
+            ) : null}
+          </div>
+        </div>
+
+        {narrativeFrames.length > 0 && (
+          <div>
+            <p className="text-[9px] uppercase tracking-wider text-textlight">Narrative frames</p>
+            <div className="flex flex-wrap gap-1.5 mt-1">
+              {narrativeFrames.map((frame) => (
+                <span key={frame} className="inline-flex items-center rounded-full bg-white/80 border border-black/5 px-2 py-1 text-[9px] text-textdark">
+                  {formatLaneLabel(frame)}
+                </span>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {publishedUrls.length > 0 && (
+          <div>
+            <p className="text-[9px] uppercase tracking-wider text-textlight">Published URLs</p>
+            <div className="space-y-1 mt-1">
+              {publishedUrls.map((entry, index) => (
+                <div key={`${entry.url || entry.frame || index}`} className="rounded-lg bg-white/70 border border-black/5 px-3 py-2">
+                  <div className="flex items-center justify-between gap-3">
+                    <span className="text-[10px] text-textdark">{formatLaneLabel(entry.frameName || entry.frame || `LP ${index + 1}`)}</span>
+                    <span className="text-[9px] text-textmid">{entry.score ?? '—'}/11</span>
+                  </div>
+                  {entry.url && (
+                    <a href={entry.url} target="_blank" rel="noreferrer" className="text-[10px] text-gold hover:text-gold-light mt-1 inline-block break-all">
+                      {entry.url}
+                    </a>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {landingPages.length > 0 && (
+          <div className="space-y-2">
+            {landingPages.map((page) => (
+              <details key={page.id} className="rounded-lg bg-white/70 border border-black/5">
+                <summary className="cursor-pointer list-none px-3 py-2 flex items-center justify-between gap-3">
+                  <div className="min-w-0">
+                    <p className="text-[10px] font-medium text-textdark">
+                      {formatLaneLabel(page.narrative_frame || page.gauntlet_frame || page.name || 'Landing page')}
+                    </p>
+                    <p className="text-[9px] text-textlight mt-0.5">
+                      {page.id ? `${page.id.slice(0, 8)}...` : '—'} · attempt {page.gauntlet_attempt ?? page.generation_attempts ?? 1}
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    {page.gauntlet_score != null && (
+                      <span className="text-[10px] font-medium text-textdark">{page.gauntlet_score}/11</span>
+                    )}
+                    <span className={`text-[9px] font-medium px-1.5 py-0.5 rounded ${getLPStatusClasses(page.status || page.gauntlet_status)}`}>
+                      {page.status || page.gauntlet_status || 'unknown'}
+                    </span>
+                  </div>
+                </summary>
+                <div className="px-3 pb-3 pt-1 border-t border-black/5 space-y-2">
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                    <div className="rounded-lg bg-black/[0.02] border border-black/5 px-2 py-2">
+                      <p className="text-[9px] uppercase tracking-wider text-textlight">QA</p>
+                      <p className="text-[11px] font-medium text-textdark mt-0.5">{page.qa_score ?? '—'}</p>
+                    </div>
+                    <div className="rounded-lg bg-black/[0.02] border border-black/5 px-2 py-2">
+                      <p className="text-[9px] uppercase tracking-wider text-textlight">Issues</p>
+                      <p className="text-[11px] font-medium text-textdark mt-0.5">{page.qa_issues_count ?? '—'}</p>
+                    </div>
+                    <div className="rounded-lg bg-black/[0.02] border border-black/5 px-2 py-2">
+                      <p className="text-[9px] uppercase tracking-wider text-textlight">Smoke</p>
+                      <p className="text-[11px] font-medium text-textdark mt-0.5">{page.smoke_test_status || '—'}</p>
+                    </div>
+                    <div className="rounded-lg bg-black/[0.02] border border-black/5 px-2 py-2">
+                      <p className="text-[9px] uppercase tracking-wider text-textlight">Duration</p>
+                      <p className="text-[11px] font-medium text-textdark mt-0.5">{page.generation_duration_ms ? formatDuration(page.generation_duration_ms) : '—'}</p>
+                    </div>
+                  </div>
+
+                  <div className="flex flex-wrap gap-1.5">
+                    {page.qa_status && (
+                      <span className={`inline-flex items-center rounded-full px-2 py-1 text-[9px] border ${page.qa_status === 'passed' ? 'bg-teal/10 text-teal border-teal/20' : 'bg-red-50 text-red-500 border-red-100'}`}>
+                        QA {page.qa_status}
+                      </span>
+                    )}
+                    {page.smoke_test_status && (
+                      <span className={`inline-flex items-center rounded-full px-2 py-1 text-[9px] border ${page.smoke_test_status === 'passed' ? 'bg-teal/10 text-teal border-teal/20' : 'bg-red-50 text-red-500 border-red-100'}`}>
+                        Smoke {page.smoke_test_status}
+                      </span>
+                    )}
+                    {page.gauntlet_retry_type && (
+                      <span className="inline-flex items-center rounded-full bg-gold/10 text-gold border border-gold/20 px-2 py-1 text-[9px]">
+                        Retry {page.gauntlet_retry_type}
+                      </span>
+                    )}
+                    {page.gauntlet_image_prescore_attempts != null && (
+                      <span className="inline-flex items-center rounded-full bg-black/[0.02] text-textmid border border-black/5 px-2 py-1 text-[9px]">
+                        Image prescore attempts {page.gauntlet_image_prescore_attempts}
+                      </span>
+                    )}
+                    {page.fix_attempts != null && (
+                      <span className="inline-flex items-center rounded-full bg-black/[0.02] text-textmid border border-black/5 px-2 py-1 text-[9px]">
+                        Fixes {page.fix_attempts}
+                      </span>
+                    )}
+                  </div>
+
+                  {page.published_url && (
+                    <a href={page.published_url} target="_blank" rel="noreferrer" className="text-[10px] text-gold hover:text-gold-light inline-block break-all">
+                      {page.published_url}
+                    </a>
+                  )}
+
+                  {page.error_message && (
+                    <p className="text-[10px] text-red-500 leading-relaxed">{page.error_message}</p>
+                  )}
+                  {page.qa_summary && (
+                    <p className="text-[10px] text-textdark leading-relaxed">{page.qa_summary}</p>
+                  )}
+                  {page.gauntlet_score_reasoning && (
+                    <p className="text-[10px] text-textmid leading-relaxed">{page.gauntlet_score_reasoning}</p>
+                  )}
+
+                  {page.qa_categories && (
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                      {Object.entries(page.qa_categories).map(([key, value]) => (
+                        <div key={key} className="rounded-lg bg-black/[0.02] border border-black/5 px-2 py-2">
+                          <p className="text-[9px] uppercase tracking-wider text-textlight">{value?.label || formatLaneLabel(key)}</p>
+                          <p className="text-[11px] font-medium text-textdark mt-0.5">
+                            {value?.score ?? '—'}{value?.max ? `/${value.max}` : ''}
+                          </p>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {ensureArray(page.qa_issues, `AgentMonitor.run.lpDetails.${page.id}.qaIssues`).length > 0 && (
+                    <div>
+                      <p className="text-[9px] uppercase tracking-wider text-textlight">QA issues</p>
+                      <div className="space-y-1 mt-1">
+                        {ensureArray(page.qa_issues, `AgentMonitor.run.lpDetails.${page.id}.qaIssuesList`).map((issue, index) => (
+                          <div key={`${page.id}-issue-${index}`} className="rounded-lg bg-red-50/70 border border-red-100 px-2 py-2">
+                            <div className="flex items-center justify-between gap-2">
+                              <span className="text-[9px] font-medium text-red-500">{issue.severity || 'issue'}</span>
+                              {issue.location && <span className="text-[9px] text-textlight">{issue.location}</span>}
+                            </div>
+                            <p className="text-[10px] text-textdark mt-1 leading-relaxed">{issue.description || 'Issue detected'}</p>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {ensureArray(page.smoke_checks, `AgentMonitor.run.lpDetails.${page.id}.smokeChecks`).length > 0 && (
+                    <div>
+                      <p className="text-[9px] uppercase tracking-wider text-textlight">Smoke checks</p>
+                      <div className="space-y-1 mt-1">
+                        {ensureArray(page.smoke_checks, `AgentMonitor.run.lpDetails.${page.id}.smokeChecksList`).map((check, index) => (
+                          <div key={`${page.id}-smoke-${index}`} className={`rounded-lg border px-2 py-2 ${check.passed ? 'bg-teal/5 border-teal/20' : 'bg-red-50/70 border-red-100'}`}>
+                            <div className="flex items-center justify-between gap-2">
+                              <span className={`text-[9px] font-medium ${check.passed ? 'text-teal' : 'text-red-500'}`}>
+                                {check.name}
+                              </span>
+                              <span className={`text-[9px] ${check.passed ? 'text-teal' : 'text-red-500'}`}>
+                                {formatBooleanStatus(check.passed)}
+                              </span>
+                            </div>
+                            {check.detail && (
+                              <p className="text-[10px] text-textdark mt-1 leading-relaxed">{check.detail}</p>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  <div className="flex flex-wrap gap-3 text-[9px] text-textlight">
+                    {page.created_at && <span>Created {formatDateTime(page.created_at)}</span>}
+                    {page.updated_at && <span>Updated {formatDateTime(page.updated_at)}</span>}
+                    {page.gauntlet_batch_completed_at && <span>Completed {formatDateTime(page.gauntlet_batch_completed_at)}</span>}
+                  </div>
+                </div>
+              </details>
+            ))}
+          </div>
+        )}
       </div>
     </details>
   );
@@ -907,6 +1227,8 @@ function DirectorTab({ onRefresh }) {
   const [runningAction, setRunningAction] = useState(null);
   const [saving, setSaving] = useState(false);
   const [expandedRuns, setExpandedRuns] = useState({});
+  const [lpDetailsByBatchId, setLpDetailsByBatchId] = useState({});
+  const [lpDetailsLoadingByBatchId, setLpDetailsLoadingByBatchId] = useState({});
 
   const [campaigns, setCampaigns] = useState([]);
 
@@ -973,6 +1295,11 @@ function DirectorTab({ onRefresh }) {
 
   useEffect(() => {
     selectedProjectRef.current = selectedProject;
+  }, [selectedProject]);
+
+  useEffect(() => {
+    setLpDetailsByBatchId({});
+    setLpDetailsLoadingByBatchId({});
   }, [selectedProject]);
 
   // Load projects list
@@ -1254,9 +1581,32 @@ function DirectorTab({ onRefresh }) {
     setTestRunQueue(prev => prev.filter(r => r.status !== 'queued'));
   }, []);
 
-  const toggleRunExpanded = useCallback((runId) => {
-    setExpandedRuns(prev => ({ ...prev, [runId]: !prev[runId] }));
-  }, []);
+  const loadLPDetailsForBatch = useCallback(async (batchId) => {
+    if (!selectedProject || !batchId) return;
+    if (lpDetailsByBatchId[batchId] || lpDetailsLoadingByBatchId[batchId]) return;
+
+    setLpDetailsLoadingByBatchId(prev => ({ ...prev, [batchId]: true }));
+    try {
+      const data = await api.getConductorBatchLPDetails(selectedProject, batchId);
+      setLpDetailsByBatchId(prev => ({ ...prev, [batchId]: { data } }));
+    } catch (err) {
+      setLpDetailsByBatchId(prev => ({ ...prev, [batchId]: { error: err.message || 'Failed to load LP details.' } }));
+    } finally {
+      setLpDetailsLoadingByBatchId(prev => ({ ...prev, [batchId]: false }));
+    }
+  }, [lpDetailsByBatchId, lpDetailsLoadingByBatchId, selectedProject]);
+
+  const toggleRunExpanded = useCallback((runId, batchIds = []) => {
+    const willExpand = !expandedRuns[runId];
+    setExpandedRuns(prev => ({ ...prev, [runId]: willExpand }));
+    if (willExpand) {
+      ensureArray(batchIds, `AgentMonitor.run.${runId}.batchIds`)
+        .filter(Boolean)
+        .forEach((batchId) => {
+          loadLPDetailsForBatch(batchId);
+        });
+    }
+  }, [expandedRuns, loadLPDetailsForBatch]);
 
   // Queue processor — starts next queued run via SSE when no active run
   useEffect(() => {
@@ -2400,6 +2750,14 @@ function DirectorTab({ onRefresh }) {
                 const readyCount = run.ready_to_post_count ?? (flexAdId ? 10 : 0);
                 const failureText = run.failure_reason || run.error || '';
                 const isExpanded = !!expandedRuns[run.externalId];
+                const runBatchIds = [
+                  ...new Set(
+                    [
+                      ...rounds.map((round) => round.batch_id),
+                      ...batches.map((batch) => batch.batch_id),
+                    ].filter(Boolean)
+                  ),
+                ];
                 const runStartMs = Number(run.run_at);
                 const startedAt = formatDateTime(runStartMs);
                 const finishedAt = run.duration_ms && Number.isFinite(runStartMs)
@@ -2480,7 +2838,7 @@ function DirectorTab({ onRefresh }) {
                         )}
                         {(rounds.length > 0 || batches.length > 0) && (
                           <button
-                            onClick={() => toggleRunExpanded(run.externalId)}
+                            onClick={() => toggleRunExpanded(run.externalId, runBatchIds)}
                             className="text-[10px] text-textmid hover:text-navy font-medium"
                           >
                             {isExpanded ? 'Hide details' : 'Show details'}
@@ -2509,6 +2867,11 @@ function DirectorTab({ onRefresh }) {
                                 </p>
                                 <RoundHeadlineDiagnostics round={round} />
                                 <RoundFailedAds round={round} />
+                                <RoundLandingPageFunnel
+                                  batchId={round.batch_id}
+                                  lpDetailState={lpDetailsByBatchId[round.batch_id]}
+                                  loading={!!lpDetailsLoadingByBatchId[round.batch_id]}
+                                />
                                 {round.completed_at && (
                                   <p className="text-[9px] text-textlight mt-1">{timeAgo(round.completed_at)}</p>
                                 )}

@@ -380,6 +380,8 @@ export const api = {
   deleteConductorAngle: (projectId, angleId) => request(`/conductor/angles/${projectId}/${angleId}`, { method: 'DELETE' }).then(r => { invalidateCache(`/conductor/angles/${projectId}`, `/conductor/angles/${projectId}/active`); return r; }),
   getConductorRuns: (projectId, limit) =>
     request(`/conductor/runs/${projectId}${limit ? `?limit=${limit}` : ''}`).then(data => normalizeArrayResponse(data, 'runs', 'api.getConductorRuns.runs')),
+  getConductorBatchLPDetails: (projectId, batchId) =>
+    request(`/conductor/run-batch-lp/${projectId}/${batchId}`),
   triggerConductorRun: (projectId) => request(`/conductor/run/${projectId}`, { method: 'POST' }),
   triggerConductorTestRun: (projectId, body, onEvent) => streamSSEWithBody(`/conductor/test-run/${projectId}`, body, onEvent),
   getTestRunProgress: (projectId) => request(`/conductor/test-run/progress/${projectId}`),

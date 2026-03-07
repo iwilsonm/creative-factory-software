@@ -9,6 +9,7 @@ import {
   getFixerPlaybooks, upsertFixerPlaybook,
   getFlexAdsByProject, getBatchesByProject,
   getProjectOptions,
+  getBatchJob, getLandingPagesByBatchJob,
 } from '../convexClient.js';
 import { buildDescriptionFromBrief } from '../utils/angleParser.js';
 import { streamService } from '../utils/sseHelper.js';
@@ -20,6 +21,15 @@ let pipelineStatusCache = {
   expiresAt: 0,
   inFlight: null,
 };
+
+function safeParseJSON(value, fallback = null) {
+  if (!value) return fallback;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return fallback;
+  }
+}
 
 function resetPipelineStatusCache() {
   pipelineStatusCache = {
@@ -278,6 +288,100 @@ router.get('/runs/:projectId', async (req, res) => {
     res.json({ runs });
   } catch (err) {
     console.error('[Conductor] Get runs error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// GET /api/conductor/run-batch-lp/:projectId/:batchId
+router.get('/run-batch-lp/:projectId/:batchId', async (req, res) => {
+  try {
+    const { projectId, batchId } = req.params;
+    const batch = await getBatchJob(batchId);
+    if (!batch || batch.project_id !== projectId) {
+      return res.status(404).json({ error: 'Batch not found' });
+    }
+
+    const landingPages = await getLandingPagesByBatchJob(batchId);
+    const mappedPages = landingPages.map((page) => {
+      const qaReport = safeParseJSON(page.qa_report, {});
+      const smokeReport = safeParseJSON(page.smoke_test_report, {});
+      const qaIssues = Array.isArray(qaReport?.issues) ? qaReport.issues : [];
+      const smokeChecks = Array.isArray(smokeReport?.checks) ? smokeReport.checks : [];
+
+      return {
+        id: page.externalId,
+        name: page.name || null,
+        status: page.status || null,
+        angle: page.angle || null,
+        narrative_frame: page.narrative_frame || null,
+        template_id: page.template_id || null,
+        published_url: page.published_url || null,
+        error_message: page.error_message || null,
+        created_at: page.created_at || null,
+        updated_at: page.updated_at || null,
+        qa_status: page.qa_status || null,
+        qa_score: page.qa_score ?? null,
+        qa_issues_count: page.qa_issues_count ?? qaIssues.length,
+        qa_summary: qaReport?.summary || null,
+        qa_source: qaReport?.source || null,
+        qa_issues: qaIssues,
+        qa_categories: qaReport?.categories && typeof qaReport.categories === 'object' ? qaReport.categories : null,
+        smoke_test_status: page.smoke_test_status || null,
+        smoke_test_at: page.smoke_test_at || null,
+        smoke_passed: typeof smokeReport?.passed === 'boolean' ? smokeReport.passed : null,
+        smoke_failed_count: typeof smokeReport?.failedCount === 'number' ? smokeReport.failedCount : null,
+        smoke_checks: smokeChecks,
+        generation_attempts: page.generation_attempts ?? null,
+        fix_attempts: page.fix_attempts ?? null,
+        generation_duration_ms: page.generation_duration_ms ?? null,
+        gauntlet_batch_id: page.gauntlet_batch_id || null,
+        gauntlet_frame: page.gauntlet_frame || null,
+        gauntlet_attempt: page.gauntlet_attempt ?? null,
+        gauntlet_retry_type: page.gauntlet_retry_type || null,
+        gauntlet_score: page.gauntlet_score ?? null,
+        gauntlet_score_reasoning: page.gauntlet_score_reasoning || null,
+        gauntlet_status: page.gauntlet_status || null,
+        gauntlet_image_prescore_attempts: page.gauntlet_image_prescore_attempts ?? null,
+        gauntlet_batch_started_at: page.gauntlet_batch_started_at || null,
+        gauntlet_batch_completed_at: page.gauntlet_batch_completed_at || null,
+      };
+    });
+
+    const scoredPages = mappedPages.filter((page) => typeof page.gauntlet_score === 'number');
+    const summary = {
+      total: mappedPages.length,
+      passed: mappedPages.filter((page) => ['passed', 'published', 'passed_dry_run'].includes(page.gauntlet_status) || page.status === 'published').length,
+      published: mappedPages.filter((page) => !!page.published_url || page.status === 'published').length,
+      failed: mappedPages.filter((page) => ['failed', 'error', 'publish_failed', 'smoke_failed'].includes(page.status) || page.gauntlet_status === 'failed').length,
+      avgScore: scoredPages.length > 0
+        ? Math.round((scoredPages.reduce((sum, page) => sum + page.gauntlet_score, 0) / scoredPages.length) * 10) / 10
+        : null,
+      totalImagePrescoreAttempts: mappedPages.reduce((sum, page) => sum + (page.gauntlet_image_prescore_attempts || 0), 0),
+      totalGenerationDurationMs: mappedPages.reduce((sum, page) => sum + (page.generation_duration_ms || 0), 0),
+    };
+
+    res.json({
+      batch: {
+        id: batch.id,
+        angle_name: batch.angle_name || null,
+        lp_primary_id: batch.lp_primary_id || null,
+        lp_primary_url: batch.lp_primary_url || null,
+        lp_primary_status: batch.lp_primary_status || null,
+        lp_primary_error: batch.lp_primary_error || null,
+        lp_primary_retry_count: batch.lp_primary_retry_count || 0,
+        lp_secondary_id: batch.lp_secondary_id || null,
+        lp_secondary_url: batch.lp_secondary_url || null,
+        lp_secondary_status: batch.lp_secondary_status || null,
+        lp_secondary_error: batch.lp_secondary_error || null,
+        lp_secondary_retry_count: batch.lp_secondary_retry_count || 0,
+        lp_narrative_frames: safeParseJSON(batch.lp_narrative_frames, []),
+        gauntlet_lp_urls: safeParseJSON(batch.gauntlet_lp_urls, []),
+      },
+      summary,
+      landingPages: mappedPages,
+    });
+  } catch (err) {
+    console.error('[Conductor] Get run batch LP details error:', err.message);
     res.status(500).json({ error: err.message });
   }
 });

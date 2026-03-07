@@ -97,6 +97,16 @@ export const getByExternalId = query({
   },
 });
 
+export const getByBatchJob = query({
+  args: { batchJobId: v.string() },
+  handler: async (ctx, args) => {
+    return await ctx.db
+      .query("landing_pages")
+      .withIndex("by_batch_job", (q) => q.eq("batch_job_id", args.batchJobId))
+      .collect();
+  },
+});
+
 export const getGauntletStatsByProject = query({
   args: { projectId: v.string() },
   handler: async (ctx, args) => {
