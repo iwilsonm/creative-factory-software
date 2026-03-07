@@ -56,6 +56,26 @@ function safeParseJSON(value, fallback) {
   }
 }
 
+function getRunRounds(run) {
+  if (!run) return [];
+  if (Array.isArray(run.rounds)) {
+    return ensureArray(run.rounds, 'AgentMonitor.run.rounds');
+  }
+  return ensureArray(safeParseJSON(run.rounds_json, []), 'AgentMonitor.run.rounds_json');
+}
+
+function getRunBatches(run) {
+  if (!run) return [];
+  if (Array.isArray(run.batches)) {
+    return ensureArray(run.batches, 'AgentMonitor.run.batches');
+  }
+  return ensureArray(safeParseJSON(run.batches_created, []), 'AgentMonitor.run.batches_created');
+}
+
+function getRoundStatusClasses(round) {
+  return round.status === 'threshold_reached' ? 'bg-teal/10 text-teal' : 'bg-gold/10 text-gold';
+}
+
 function getRunStatusLabel(run) {
   switch (run.terminal_status) {
     case 'deployed':
@@ -633,6 +653,12 @@ function DirectorTab({ onRefresh }) {
   const activeRun = safeTestRunQueue.find(r => r.status === 'running');
   const queuedCount = safeTestRunQueue.filter(r => r.status === 'queued').length;
   const finishedRuns = safeTestRunQueue.filter(r => r.status === 'complete' || r.status === 'error');
+  const activeRunRecord = activeRun?.result || null;
+  const activeRunRounds = getRunRounds(activeRunRecord);
+  const activeRunBatches = getRunBatches(activeRunRecord);
+  const activeRunRequiredPasses = activeRunRecord?.required_passes || 10;
+  const activeRunPassed = activeRunRecord?.total_ads_passed ?? activeRunRounds[activeRunRounds.length - 1]?.cumulative_passed ?? null;
+  const showActiveRunBreakdown = activeRun && (activeRunRounds.length > 0 || activeRunBatches.length > 0);
   const sseActiveRef = useRef(false); // tracks if we have a live SSE connection for the active run
   const abortRef = useRef(null); // stores the SSE abort function for active run cancellation
 
@@ -1523,6 +1549,50 @@ function DirectorTab({ onRefresh }) {
               Cancel
             </button>
           </div>
+          {showActiveRunBreakdown && (
+            <details key={activeRun.serverRunId || activeRun.id} className="mt-2 rounded-lg bg-black/[0.02] border border-black/5">
+              <summary className="flex items-center justify-between gap-3 cursor-pointer list-none px-3 py-2 text-[11px] text-textmid">
+                <span className="font-medium text-textdark">Current round details</span>
+                <span>
+                  {activeRunPassed === null || activeRunPassed === undefined
+                    ? 'Show details'
+                    : `${activeRunPassed}/${activeRunRequiredPasses} passed so far`}
+                </span>
+              </summary>
+              <div className="px-3 pb-3 pt-1 border-t border-black/5 space-y-2">
+                {activeRunRounds.length > 0 ? (
+                  activeRunRounds.map((round, index) => (
+                    <div key={round.batch_id || `${activeRun.id}-${index}`} className="rounded-lg bg-white/70 border border-black/5 px-3 py-2">
+                      <div className="flex items-center justify-between gap-3">
+                        <p className="text-[11px] font-medium text-textdark">Round {round.round || index + 1}</p>
+                        <span className={`text-[9px] font-medium px-1.5 py-0.5 rounded ${getRoundStatusClasses(round)}`}>
+                          {round.status === 'threshold_reached' ? 'threshold reached' : 'below threshold'}
+                        </span>
+                      </div>
+                      <p className="text-[10px] text-textmid mt-1">
+                        Batch {round.batch_id ? `${round.batch_id.slice(0, 8)}...` : '\u2013'}
+                      </p>
+                      <p className="text-[11px] text-textdark mt-1">
+                        {round.ads_passed ?? 0}/{round.ads_scored ?? round.ads_generated ?? 0} passed in this round, {round.cumulative_passed ?? 0}/{activeRunRequiredPasses} cumulative.
+                      </p>
+                      {round.completed_at && (
+                        <p className="text-[9px] text-textlight mt-1">{timeAgo(round.completed_at)}</p>
+                      )}
+                    </div>
+                  ))
+                ) : (
+                  activeRunBatches.map((batch, index) => (
+                    <div key={batch.batch_id || `${activeRun.id}-${index}`} className="rounded-lg bg-white/70 border border-black/5 px-3 py-2">
+                      <p className="text-[11px] font-medium text-textdark">Batch {index + 1}</p>
+                      <p className="text-[10px] text-textmid mt-1">
+                        ID {batch.batch_id ? `${batch.batch_id.slice(0, 8)}...` : '\u2013'} · {batch.ad_count || '\u2013'} ads
+                      </p>
+                    </div>
+                  ))
+                )}
+              </div>
+            </details>
+          )}
         </div>
       )}
       {queuedCount > 0 && (
@@ -2041,8 +2111,8 @@ function DirectorTab({ onRefresh }) {
           ) : (
             <div className="space-y-2">
               {safeRuns.map(run => {
-                const rounds = safeParseJSON(run.rounds_json, []);
-                const batches = safeParseJSON(run.batches_created, []);
+                const rounds = getRunRounds(run);
+                const batches = getRunBatches(run);
                 const flexAdId = run.flex_ad_id || batches.find(batch => batch.flex_ad_id)?.flex_ad_id || null;
                 const angleName = rounds[0]?.angle_name || batches[0]?.angle_name || 'Unassigned angle';
                 const roundsUsed = run.total_rounds || rounds.length || batches.length || 1;
@@ -2137,9 +2207,7 @@ function DirectorTab({ onRefresh }) {
                               <div key={round.batch_id || `${run.externalId}-${index}`} className="rounded-lg bg-white/70 border border-black/5 px-3 py-2">
                                 <div className="flex items-center justify-between gap-3">
                                   <p className="text-[11px] font-medium text-textdark">Round {round.round || index + 1}</p>
-                                  <span className={`text-[9px] font-medium px-1.5 py-0.5 rounded ${
-                                    round.status === 'threshold_reached' ? 'bg-teal/10 text-teal' : 'bg-gold/10 text-gold'
-                                  }`}>
+                                  <span className={`text-[9px] font-medium px-1.5 py-0.5 rounded ${getRoundStatusClasses(round)}`}>
                                     {round.status === 'threshold_reached' ? 'threshold reached' : 'below threshold'}
                                   </span>
                                 </div>
