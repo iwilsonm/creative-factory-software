@@ -13,6 +13,7 @@ import {
   createAdSet, createFlexAd, createDeploymentDuplicate, updateDeployment,
   getFlexAdsByProject, getConductorConfig,
 } from '../convexClient.js';
+import { filterHeadlineCandidatePool, selectDiverseHeadlines } from './headlineDiversity.js';
 
 // Models — match filter.conf
 const SCORE_MODEL = 'claude-sonnet-4-5-20250929';
@@ -20,6 +21,7 @@ const GROUP_MODEL = 'claude-sonnet-4-6';
 const SCORE_THRESHOLD = 7;
 const IMAGES_PER_FLEX = 10;
 const HEADLINES_TARGET = 5;
+const HEADLINE_POOL_TARGET = 7;
 const PRIMARY_TEXTS_TARGET = 5;
 const HEADLINES_MIN = 3;
 const PRIMARY_TEXTS_MIN = 3;
@@ -434,20 +436,22 @@ ${primaryTextList}
 
 ANGLE/THEME FOR THIS AD SET: ${angleTheme}
 
-Your task is to write 5 punchy headlines that:
+Your task is to write ${HEADLINE_POOL_TARGET} punchy headlines that:
 - Are under 10 words each
 - Align with and complement the primary text above
 - Drive curiosity and clicks
 - Sound natural, not salesy
 - Each has a different angle or emphasis
+- No two headlines should reuse the same central claim with slightly different wording
+- No two headlines should open with the same phrase or sentence structure
 - All speak to the angle/theme: ${angleTheme}
 
-ALWAYS return ONLY a JSON object: { "headlines": ["h1", "h2", "h3", "h4", "h5"] }`;
+ALWAYS return ONLY a JSON object: { "headlines": ["h1", "h2", "..."] }`;
 
   const hlResult = await chat(
     [
       { role: 'system', content: headlineSystemPrompt },
-      { role: 'user', content: 'Write 5 punchy Facebook ad headlines based on the brand context and primary text provided. Return ONLY a JSON object: { "headlines": ["h1", "h2", "h3", "h4", "h5"] }' },
+      { role: 'user', content: `Write ${HEADLINE_POOL_TARGET} punchy Facebook ad headlines based on the brand context and primary text provided. Return ONLY a JSON object: { "headlines": ["h1", "h2", "..."] }` },
     ],
     'claude-sonnet-4-6',
     { max_tokens: 1024, operation: 'filter_headline_generation', projectId }
@@ -465,8 +469,19 @@ ALWAYS return ONLY a JSON object: { "headlines": ["h1", "h2", "h3", "h4", "h5"] 
     if (headlines.length === 0) headlines = [hlResult.trim()];
   }
 
-  console.log(`[FilterService] Generated ${primaryTexts.length} primary texts + ${headlines.length} headlines for ${project.name} (${angleTheme})`);
-  return { primary_texts: primaryTexts, headlines };
+  const dedupedHeadlines = selectDiverseHeadlines(
+    filterHeadlineCandidatePool(
+      headlines.map((headline, index) => ({
+        headline,
+        rank: index + 1,
+        average_score: HEADLINE_POOL_TARGET - index,
+      }))
+    ).survivors,
+    HEADLINES_TARGET
+  ).selected.map((headline) => headline.headline);
+
+  console.log(`[FilterService] Generated ${primaryTexts.length} primary texts + ${headlines.length} headlines (${dedupedHeadlines.length} kept) for ${project.name} (${angleTheme})`);
+  return { primary_texts: primaryTexts, headlines: dedupedHeadlines.length > 0 ? dedupedHeadlines : headlines.slice(0, HEADLINES_TARGET) };
 }
 
 // ── Deploy flex ad to Ready to Post ────────────────────────────────────────

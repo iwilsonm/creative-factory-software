@@ -152,6 +152,80 @@ function getRunStatusClasses(run) {
   return 'bg-black/5 text-textmid';
 }
 
+function formatLaneLabel(lane) {
+  if (!lane) return 'Unassigned';
+  return lane
+    .split('_')
+    .filter(Boolean)
+    .map((part) => part.charAt(0).toUpperCase() + part.slice(1))
+    .join(' ');
+}
+
+function getRoundLaneEntries(round) {
+  if (!round?.lane_distribution || typeof round.lane_distribution !== 'object') return [];
+  return Object.entries(round.lane_distribution)
+    .filter(([, count]) => Number(count) > 0)
+    .sort((left, right) => {
+      const countDiff = Number(right[1]) - Number(left[1]);
+      return countDiff !== 0 ? countDiff : String(left[0]).localeCompare(String(right[0]));
+    });
+}
+
+function hasHeadlineDiagnostics(round) {
+  return (
+    round &&
+    (
+      round.headline_candidates !== undefined ||
+      round.duplicate_rejections !== undefined ||
+      round.history_rejections !== undefined ||
+      getRoundLaneEntries(round).length > 0
+    )
+  );
+}
+
+function RoundHeadlineDiagnostics({ round }) {
+  if (!hasHeadlineDiagnostics(round)) return null;
+
+  const laneEntries = getRoundLaneEntries(round);
+  const headlineCandidates = Number(round.headline_candidates);
+  const duplicateRejections = Number(round.duplicate_rejections);
+  const historyRejections = Number(round.history_rejections);
+  const headlineCount = Number(round.headline_count);
+  const summaryBits = [];
+
+  if (Number.isFinite(headlineCandidates)) summaryBits.push(`${headlineCandidates} candidates`);
+  if (Number.isFinite(headlineCount)) summaryBits.push(`${headlineCount} selected`);
+  if (Number.isFinite(duplicateRejections)) summaryBits.push(`${duplicateRejections} batch duplicates removed`);
+  if (Number.isFinite(historyRejections)) summaryBits.push(`${historyRejections} history conflicts removed`);
+
+  return (
+    <div className="mt-2 rounded-lg bg-black/[0.02] border border-black/5 px-2.5 py-2">
+      <div className="flex items-center justify-between gap-3">
+        <p className="text-[9px] uppercase tracking-wider text-textlight">Headline diversity</p>
+        {laneEntries.length > 0 && (
+          <span className="text-[9px] text-textmid">{laneEntries.length} lane{laneEntries.length !== 1 ? 's' : ''}</span>
+        )}
+      </div>
+      {summaryBits.length > 0 && (
+        <p className="text-[10px] text-textmid mt-1 leading-relaxed">{summaryBits.join(' · ')}</p>
+      )}
+      {laneEntries.length > 0 && (
+        <div className="flex flex-wrap gap-1.5 mt-2">
+          {laneEntries.map(([lane, count]) => (
+            <span
+              key={lane}
+              className="inline-flex items-center gap-1 rounded-full bg-white/80 border border-black/5 px-2 py-1 text-[9px] text-textdark"
+            >
+              <span>{formatLaneLabel(lane)}</span>
+              <span className="text-textmid">{count}</span>
+            </span>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 function buildServerQueueItem(active, existing = null) {
   return {
     id: existing?.id || active?.runId || active?.id || crypto.randomUUID(),
@@ -1608,6 +1682,7 @@ function DirectorTab({ onRefresh }) {
                       <p className="text-[11px] text-textdark mt-1">
                         {round.ads_generated ?? round.ads_scored ?? 0} generated, {round.ads_passed ?? 0}/{round.ads_scored ?? round.ads_generated ?? 0} passed in this round, {round.cumulative_passed ?? 0}/{activeRunRequiredPasses} cumulative.
                       </p>
+                      <RoundHeadlineDiagnostics round={round} />
                       {round.completed_at && (
                         <p className="text-[9px] text-textlight mt-1">{timeAgo(round.completed_at)}</p>
                       )}
@@ -2262,6 +2337,7 @@ function DirectorTab({ onRefresh }) {
                                 <p className="text-[11px] text-textdark mt-1">
                                   {round.ads_generated ?? round.ads_scored ?? 0} generated, {round.ads_passed ?? 0}/{round.ads_scored ?? round.ads_generated ?? 0} passed in this round, {round.cumulative_passed ?? 0}/{requiredPasses} cumulative.
                                 </p>
+                                <RoundHeadlineDiagnostics round={round} />
                                 {round.completed_at && (
                                   <p className="text-[9px] text-textlight mt-1">{timeAgo(round.completed_at)}</p>
                                 )}

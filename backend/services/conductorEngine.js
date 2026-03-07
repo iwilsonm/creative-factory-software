@@ -905,6 +905,61 @@ function buildPassingAdsMeta(passingAds) {
   }));
 }
 
+function normalizeHeadlineDiagnostics(raw) {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
+  const laneDistribution = Object.fromEntries(
+    Object.entries(raw.lane_distribution || {})
+      .map(([lane, count]) => [lane, Number(count) || 0])
+      .filter(([, count]) => count > 0)
+  );
+  const headlineCandidates = Number(raw.headline_candidates);
+  const headlineCount = Number(raw.headline_count);
+  const duplicateRejections = Number(raw.duplicate_rejections);
+  const historyRejections = Number(raw.history_rejections);
+  const laneCount = Number(raw.lane_count) || Object.keys(laneDistribution).length;
+  const hasDiagnostics =
+    Number.isFinite(headlineCandidates) ||
+    Number.isFinite(headlineCount) ||
+    Number.isFinite(duplicateRejections) ||
+    Number.isFinite(historyRejections) ||
+    laneCount > 0;
+
+  if (!hasDiagnostics) return null;
+
+  return {
+    ...(Number.isFinite(headlineCandidates) ? { headline_candidates: headlineCandidates } : {}),
+    ...(Number.isFinite(headlineCount) ? { headline_count: headlineCount } : {}),
+    ...(Number.isFinite(duplicateRejections) ? { duplicate_rejections: duplicateRejections } : {}),
+    ...(Number.isFinite(historyRejections) ? { history_rejections: historyRejections } : {}),
+    ...(laneCount > 0 ? { lane_count: laneCount } : {}),
+    ...(Object.keys(laneDistribution).length > 0 ? { lane_distribution: laneDistribution } : {}),
+  };
+}
+
+function extractHeadlineDiagnostics(batch) {
+  if (!batch) return null;
+  const pipelineState = parseJSON(batch.pipeline_state, {});
+  const directDiagnostics = normalizeHeadlineDiagnostics(pipelineState?.headline_diagnostics || pipelineState);
+  if (directDiagnostics) return directDiagnostics;
+
+  const prompts = parseJSON(batch.gpt_prompts, []);
+  if (!Array.isArray(prompts) || prompts.length === 0) return null;
+
+  const laneDistribution = prompts.reduce((distribution, promptObj) => {
+    const lane = typeof promptObj?.hook_lane === 'string' && promptObj.hook_lane.trim()
+      ? promptObj.hook_lane.trim()
+      : 'unassigned';
+    distribution[lane] = (distribution[lane] || 0) + 1;
+    return distribution;
+  }, {});
+
+  return normalizeHeadlineDiagnostics({
+    headline_count: prompts.length,
+    lane_count: Object.keys(laneDistribution).length,
+    lane_distribution: laneDistribution,
+  });
+}
+
 function getBackgroundWaitingMessage(roundNumber) {
   return `Round ${roundNumber} is still processing in Gemini. Continuing in background.`;
 }
@@ -1112,6 +1167,7 @@ async function continueBackgroundTestRun(run) {
   const totalAdsScored = roundDetails.reduce((sum, detail) => sum + (detail.ads_scored || 0), 0) + roundScoreResult.ads_scored;
   const totalAdsPassed = cumulativePassingAds.length;
   const angleName = batchInfo.angle_name || batch.angle_name || '';
+  const headlineDiagnostics = extractHeadlineDiagnostics(batch);
 
   const roundDetail = {
     round: roundNumber,
@@ -1124,6 +1180,7 @@ async function continueBackgroundTestRun(run) {
     status: totalAdsPassed >= TEST_RUN_REQUIRED_PASSES ? 'threshold_reached' : 'below_threshold',
     completed_at: new Date().toISOString(),
     passing_ads: buildPassingAdsMeta(roundScoreResult.passingAds),
+    ...(headlineDiagnostics || {}),
   };
   roundDetails.push(roundDetail);
 
@@ -1655,6 +1712,7 @@ export async function runFullTestPipeline(projectId, sendEvent, { angleOverride 
       totalAdsScored += roundScoreResult.ads_scored;
       totalAdsPassed = cumulativePassingAds.length;
       console.log(`[Director] Test run ${runId.slice(0, 8)} round ${roundNumber}/${TEST_RUN_MAX_ROUNDS}: ${roundScoreResult.ads_passed}/${roundScoreResult.ads_scored} passed, ${totalAdsPassed}/${TEST_RUN_REQUIRED_PASSES} cumulative`);
+      const headlineDiagnostics = extractHeadlineDiagnostics(batch);
 
       const roundDetail = {
         round: roundNumber,
@@ -1667,6 +1725,7 @@ export async function runFullTestPipeline(projectId, sendEvent, { angleOverride 
         status: totalAdsPassed >= TEST_RUN_REQUIRED_PASSES ? 'threshold_reached' : 'below_threshold',
         completed_at: new Date().toISOString(),
         passing_ads: buildPassingAdsMeta(roundScoreResult.passingAds),
+        ...(headlineDiagnostics || {}),
       };
       roundDetails.push(roundDetail);
 

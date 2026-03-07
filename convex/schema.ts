@@ -78,8 +78,15 @@ export default defineSchema({
     project_id: v.string(),
     generation_mode: v.string(),
     angle: v.optional(v.string()),
+    angle_name: v.optional(v.string()),
     headline: v.optional(v.string()),
     body_copy: v.optional(v.string()),
+    hook_lane: v.optional(v.string()),
+    core_claim: v.optional(v.string()),
+    target_symptom: v.optional(v.string()),
+    emotional_entry: v.optional(v.string()),
+    desired_belief_shift: v.optional(v.string()),
+    opening_pattern: v.optional(v.string()),
     image_prompt: v.optional(v.string()),
     gpt_creative_output: v.optional(v.string()),
     template_image_id: v.optional(v.string()),
@@ -97,12 +104,37 @@ export default defineSchema({
     source_quote_id: v.optional(v.string()), // → quote_bank.externalId (ad created from quote)
     batch_job_id: v.optional(v.string()),    // → batch_jobs.externalId (batch that generated this ad)
     copy_framework: v.optional(v.string()),  // Legacy: from removed diversity features
-    sub_angle: v.optional(v.string()),       // Legacy: from removed diversity features
+    sub_angle: v.optional(v.string()),       // Secondary variation label within a hook lane
     created_at: v.string(),
   })
     .index("by_externalId", ["externalId"])
     .index("by_project", ["project_id"])
-    .index("by_batch_job", ["batch_job_id"]),
+    .index("by_batch_job", ["batch_job_id"])
+    .index("by_project_and_angle_name", ["project_id", "angle_name"]),
+
+  headline_history: defineTable({
+    externalId: v.string(),
+    project_id: v.string(),
+    angle_name: v.string(),
+    batch_job_id: v.optional(v.string()),
+    conductor_run_id: v.optional(v.string()),
+    ad_creative_id: v.optional(v.string()),
+    headline_text: v.string(),
+    normalized_headline: v.string(),
+    hook_lane: v.optional(v.string()),
+    sub_angle: v.optional(v.string()),
+    core_claim: v.optional(v.string()),
+    target_symptom: v.optional(v.string()),
+    emotional_entry: v.optional(v.string()),
+    desired_belief_shift: v.optional(v.string()),
+    opening_pattern: v.optional(v.string()),
+    created_at: v.string(),
+  })
+    .index("by_externalId", ["externalId"])
+    .index("by_project_and_angle", ["project_id", "angle_name"])
+    .index("by_project_angle_and_created_at", ["project_id", "angle_name", "created_at"])
+    .index("by_batch_job", ["batch_job_id"])
+    .index("by_run", ["conductor_run_id"]),
 
   batch_jobs: defineTable({
     externalId: v.string(),

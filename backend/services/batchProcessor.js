@@ -13,13 +13,40 @@ import {
 } from './adGenerator.js';
 import {
   getProject, getLatestDoc, getBatchJob, updateBatchJob,
-  uploadBuffer, downloadToBuffer,
+  uploadBuffer, downloadToBuffer, getRecentHeadlineHistoryByAngle, recordHeadlineHistory,
   convexClient, api
 } from '../convexClient.js';
 import { logGeminiCost } from './costTracker.js';
 import { withRetry } from './retry.js';
+import {
+  buildHeadlineHistoryEntry,
+  filterHeadlineCandidatePool,
+  normalizeHeadlineText,
+  selectDiverseHeadlines,
+} from './headlineDiversity.js';
 // Drive upload skipped for batch images — Service Account has no storage quota.
 // Images are stored in Convex storage and viewable in the UI.
+
+const HEADLINE_HISTORY_DAYS = 90;
+const HEADLINE_HISTORY_LIMIT = 200;
+
+function serializePromptForStorage(prompt) {
+  if (!prompt || typeof prompt !== 'object') return prompt;
+  return {
+    prompt: prompt.prompt,
+    headline: prompt.headline || null,
+    body_copy: prompt.body_copy || null,
+    angle_name: prompt.angle_name || null,
+    hook_lane: prompt.hook_lane || null,
+    sub_angle: prompt.sub_angle || null,
+    core_claim: prompt.core_claim || null,
+    target_symptom: prompt.target_symptom || null,
+    emotional_entry: prompt.emotional_entry || null,
+    desired_belief_shift: prompt.desired_belief_shift || null,
+    opening_pattern: prompt.opening_pattern || null,
+    primary_emotion: prompt.primary_emotion || null,
+  };
+}
 
 /**
  * Run a batch job end-to-end.
@@ -92,11 +119,7 @@ export async function runBatch(batchId, onProgress, options = {}) {
     await throwIfCancelled();
     // Store prompts with headline/body in DB (exclude base64 image data to keep DB size reasonable)
     await updateBatchJob(batchId, {
-      gpt_prompts: JSON.stringify(prompts.map(p => ({
-        prompt: p.prompt,
-        headline: p.headline || null,
-        body_copy: p.body_copy || null,
-      }))),
+      gpt_prompts: JSON.stringify(prompts.map(serializePromptForStorage)),
       status: 'submitting'
     });
     emit({ type: 'status', status: 'submitting', message: 'Submitting to Gemini Batch API...' });
@@ -191,6 +214,21 @@ async function generateBatchPrompts(batch, project, docs, onProgress, options = 
   });
 
   await throwIfCancelled();
+  let priorHeadlines = [];
+  if (batch.angle_name) {
+    try {
+      const since = new Date(Date.now() - HEADLINE_HISTORY_DAYS * 24 * 60 * 60 * 1000).toISOString();
+      priorHeadlines = await getRecentHeadlineHistoryByAngle(batch.project_id, batch.angle_name, {
+        since,
+        limit: HEADLINE_HISTORY_LIMIT,
+      });
+      console.log(`[BatchProcessor] Loaded ${priorHeadlines.length} historical headlines for angle "${batch.angle_name}"`);
+    } catch (err) {
+      console.warn(`[BatchProcessor] Failed to load headline history for "${batch.angle_name}": ${err.message}`);
+    }
+  }
+
+  await throwIfCancelled();
   // ========================================
   // STAGE 1: Headline Generation (1 API call)
   // ========================================
@@ -200,18 +238,76 @@ async function generateBatchPrompts(batch, project, docs, onProgress, options = 
     pipeline_state: JSON.stringify({ stage: 1, stage_label: `Step 2 of 5: Generating headlines...` })
   });
 
-  const headlineResult = await generateHeadlines(project, briefPacket, angle, headlineCount, angleBrief);
+  const headlineResult = await generateHeadlines(project, briefPacket, angle, headlineCount, angleBrief, priorHeadlines);
+  const initialCandidates = Array.isArray(headlineResult.headlines) ? headlineResult.headlines : [];
+  const dedupedPool = filterHeadlineCandidatePool(initialCandidates, priorHeadlines);
+  let selection = selectDiverseHeadlines(dedupedPool.survivors, batch.batch_size);
+  let finalHeadlines = selection.selected;
+  let regenCandidateCount = 0;
+  let regenDedupedPool = null;
 
-  // Take the top N headlines by rank (they should already be sorted by rank/average_score)
-  const topHeadlines = headlineResult.headlines.slice(0, batch.batch_size);
+  if (finalHeadlines.length < batch.batch_size) {
+    const shortfall = batch.batch_size - finalHeadlines.length;
+    const regenCount = shortfall + Math.max(3, Math.min(6, shortfall));
+    console.log(`[BatchProcessor] Stage 1 shortfall: ${shortfall} slots missing after dedup/history filtering, regenerating ${regenCount} candidates`);
+    const regenSeedHistory = [
+      ...priorHeadlines,
+      ...finalHeadlines.map((headline) => ({
+        headline: headline.headline,
+        hook_lane: headline.hook_lane,
+        sub_angle: headline.sub_angle,
+        core_claim: headline.core_claim,
+        target_symptom: headline.target_symptom,
+        emotional_entry: headline.emotional_entry,
+        desired_belief_shift: headline.desired_belief_shift,
+        opening_pattern: headline.opening_pattern,
+      })),
+    ];
+    const regenResult = await generateHeadlines(project, briefPacket, angle, regenCount, angleBrief, regenSeedHistory);
+    regenCandidateCount = Array.isArray(regenResult.headlines) ? regenResult.headlines.length : 0;
+    const selectedNormalized = new Set(finalHeadlines.map((headline) => normalizeHeadlineText(headline.headline)));
+    const secondPassPool = [
+      ...selection.overflow,
+      ...(Array.isArray(regenResult.headlines) ? regenResult.headlines : []),
+    ].filter((headline) => !selectedNormalized.has(normalizeHeadlineText(headline.headline)));
+    regenDedupedPool = filterHeadlineCandidatePool(secondPassPool, regenSeedHistory);
+    selection = selectDiverseHeadlines(regenDedupedPool.survivors, batch.batch_size, finalHeadlines);
+    finalHeadlines = selection.selected;
+  }
 
-  console.log(`[BatchProcessor] Stage 1 complete: ${headlineResult.headlines.length} generated, top ${topHeadlines.length} selected`);
+  if (finalHeadlines.length === 0) {
+    throw new Error('Stage 1 failed to produce any usable headline candidates after diversity filtering.');
+  }
+
+  const laneDistribution = finalHeadlines.reduce((distribution, headline) => {
+    const lane = headline.hook_lane || 'unassigned';
+    distribution[lane] = (distribution[lane] || 0) + 1;
+    return distribution;
+  }, {});
+  const duplicateRejections =
+    dedupedPool.rejectedInBatch.length + (regenDedupedPool?.rejectedInBatch.length || 0);
+  const historyRejections =
+    dedupedPool.rejectedByHistory.length + (regenDedupedPool?.rejectedByHistory.length || 0);
+  const headlineDiagnostics = {
+    headline_count: finalHeadlines.length,
+    headline_candidates: initialCandidates.length + regenCandidateCount,
+    duplicate_rejections: duplicateRejections,
+    history_rejections: historyRejections,
+    lane_count: Object.keys(laneDistribution).length,
+    lane_distribution: laneDistribution,
+    sub_angle_count: new Set(finalHeadlines.map((headline) => headline.sub_angle).filter(Boolean)).size,
+    regen_candidate_count: regenCandidateCount,
+  };
+
+  console.log(
+    `[BatchProcessor] Stage 1 complete: ${initialCandidates.length + regenCandidateCount} generated, ${duplicateRejections} intra-batch rejects, ${historyRejections} historical rejects, ${finalHeadlines.length} selected`
+  );
   await updateBatchJob(batchId, {
     pipeline_state: JSON.stringify({
       stage: 1,
-      stage_label: `Step 2 of 5: ${topHeadlines.length} headlines selected`,
-      headline_count: topHeadlines.length,
-      sub_angle_count: (headlineResult.sub_angles || []).length,
+      stage_label: `Step 2 of 5: ${finalHeadlines.length} diverse headlines selected`,
+      ...headlineDiagnostics,
+      headline_diagnostics: headlineDiagnostics,
     })
   });
 
@@ -219,20 +315,25 @@ async function generateBatchPrompts(batch, project, docs, onProgress, options = 
   // ========================================
   // STAGE 2: Body Copy Generation (N/5 API calls)
   // ========================================
-  const totalBodyBatches = Math.ceil(topHeadlines.length / 5);
+  const totalBodyBatches = Math.ceil(finalHeadlines.length / 5);
   emit({ type: 'prompt_progress', current: 0, total: batch.batch_size, message: `Step 3 of 5: Writing body copy (${totalBodyBatches} batches of 5)...` });
   await updateBatchJob(batchId, {
-    pipeline_state: JSON.stringify({ stage: 2, stage_label: `Step 3 of 5: Writing body copy...` })
+    pipeline_state: JSON.stringify({
+      stage: 2,
+      stage_label: `Step 3 of 5: Writing body copy...`,
+      headline_diagnostics: headlineDiagnostics,
+    })
   });
 
-  const bodyCopies = await generateBodyCopies(project, briefPacket, topHeadlines, angleBrief);
+  const bodyCopies = await generateBodyCopies(project, briefPacket, finalHeadlines, angleBrief);
 
-  console.log(`[BatchProcessor] Stage 2 complete: ${bodyCopies.length} body copies for ${topHeadlines.length} headlines`);
+  console.log(`[BatchProcessor] Stage 2 complete: ${bodyCopies.length} body copies for ${finalHeadlines.length} headlines`);
   await updateBatchJob(batchId, {
     pipeline_state: JSON.stringify({
       stage: 2,
       stage_label: `Step 3 of 5: ${bodyCopies.length} body copies generated`,
       body_copy_count: bodyCopies.length,
+      headline_diagnostics: headlineDiagnostics,
     })
   });
 
@@ -246,7 +347,11 @@ async function generateBatchPrompts(batch, project, docs, onProgress, options = 
   // ========================================
   emit({ type: 'prompt_progress', current: 0, total: bodyCopies.length, message: `Step 4 of 5: Creating image prompts (0/${bodyCopies.length})...` });
   await updateBatchJob(batchId, {
-    pipeline_state: JSON.stringify({ stage: 3, stage_label: `Step 4 of 5: Creating image prompts (0/${bodyCopies.length})...` })
+    pipeline_state: JSON.stringify({
+      stage: 3,
+      stage_label: `Step 4 of 5: Creating image prompts (0/${bodyCopies.length})...`,
+      headline_diagnostics: headlineDiagnostics,
+    })
   });
 
   const prompts = [];
@@ -272,7 +377,13 @@ async function generateBatchPrompts(batch, project, docs, onProgress, options = 
     // Update pipeline_state for frontend polling
     if (i % 5 === 0 || i === bodyCopies.length - 1) {
       await updateBatchJob(batchId, {
-        pipeline_state: JSON.stringify({ stage: 3, stage_label: `Step 4 of 5: Image prompts (${i + 1}/${bodyCopies.length})...`, current: i + 1, total: bodyCopies.length })
+        pipeline_state: JSON.stringify({
+          stage: 3,
+          stage_label: `Step 4 of 5: Image prompts (${i + 1}/${bodyCopies.length})...`,
+          current: i + 1,
+          total: bodyCopies.length,
+          headline_diagnostics: headlineDiagnostics,
+        })
       });
     }
 
@@ -320,7 +431,16 @@ async function generateBatchPrompts(batch, project, docs, onProgress, options = 
           copy.primary_emotion || 'curiosity',
           imageData,
           batch.aspect_ratio || '1:1',
-          angleBrief
+          angleBrief,
+          {
+            hook_lane: copy.hook_lane,
+            sub_angle: copy.sub_angle,
+            core_claim: copy.core_claim,
+            target_symptom: copy.target_symptom,
+            emotional_entry: copy.emotional_entry,
+            desired_belief_shift: copy.desired_belief_shift,
+            opening_pattern: copy.opening_pattern,
+          }
         );
 
         // Apply prompt guidelines if set (uses gpt-4.1-mini, not rate-limited)
@@ -332,6 +452,15 @@ async function generateBatchPrompts(batch, project, docs, onProgress, options = 
           prompt: imagePrompt,
           headline: copy.headline,
           body_copy: copy.body_copy,
+          angle_name: batch.angle_name || null,
+          hook_lane: copy.hook_lane || null,
+          sub_angle: copy.sub_angle || null,
+          core_claim: copy.core_claim || null,
+          target_symptom: copy.target_symptom || null,
+          emotional_entry: copy.emotional_entry || copy.primary_emotion || null,
+          desired_belief_shift: copy.desired_belief_shift || null,
+          opening_pattern: copy.opening_pattern || null,
+          primary_emotion: copy.primary_emotion || null,
           inspirationTmpPath: imageData.tmpPath,
           inspirationMimeType: imageData.mimeType,
           templateFileId: imageData.fileId || null,
@@ -372,7 +501,11 @@ async function generateBatchPrompts(batch, project, docs, onProgress, options = 
 
   // Clear pipeline_state now that all stages are done
   await updateBatchJob(batchId, {
-    pipeline_state: JSON.stringify({ stage: 'complete', prompts_generated: validPrompts.length })
+    pipeline_state: JSON.stringify({
+      stage: 'complete',
+      prompts_generated: validPrompts.length,
+      headline_diagnostics: headlineDiagnostics,
+    })
   });
 
   return validPrompts;
@@ -537,6 +670,7 @@ async function processBatchResults(batchId, job) {
 
   let savedCount = 0;
   let failedCount = 0;
+  const historyEntries = [];
 
   for (let i = 0; i < responses.length; i++) {
     try {
@@ -594,8 +728,16 @@ async function processBatchResults(batchId, job) {
         project_id: batch.project_id,
         generation_mode: batch.generation_mode,
         angle: batch.angle || undefined,
+        angle_name: batch.angle_name || undefined,
         headline: (typeof promptObj === 'object' ? promptObj?.headline : null) || undefined,
         body_copy: (typeof promptObj === 'object' ? promptObj?.body_copy : null) || undefined,
+        hook_lane: (typeof promptObj === 'object' ? promptObj?.hook_lane : null) || undefined,
+        core_claim: (typeof promptObj === 'object' ? promptObj?.core_claim : null) || undefined,
+        target_symptom: (typeof promptObj === 'object' ? promptObj?.target_symptom : null) || undefined,
+        emotional_entry: (typeof promptObj === 'object' ? promptObj?.emotional_entry : null) || undefined,
+        desired_belief_shift: (typeof promptObj === 'object' ? promptObj?.desired_belief_shift : null) || undefined,
+        opening_pattern: (typeof promptObj === 'object' ? promptObj?.opening_pattern : null) || undefined,
+        sub_angle: (typeof promptObj === 'object' ? promptObj?.sub_angle : null) || undefined,
         image_prompt: promptText || undefined,
         gpt_creative_output: promptText || undefined,
         aspect_ratio: batch.aspect_ratio,
@@ -606,6 +748,27 @@ async function processBatchResults(batchId, job) {
         batch_job_id: batchId,
       });
 
+      if (batch.angle_name && typeof promptObj === 'object' && promptObj?.headline) {
+        historyEntries.push(buildHeadlineHistoryEntry({
+          projectId: batch.project_id,
+          angleName: batch.angle_name,
+          batchJobId: batchId,
+          conductorRunId: batch.conductor_run_id || null,
+          adCreativeId: adId,
+          candidate: {
+            headline: promptObj.headline,
+            hook_lane: promptObj.hook_lane,
+            sub_angle: promptObj.sub_angle,
+            core_claim: promptObj.core_claim,
+            target_symptom: promptObj.target_symptom,
+            emotional_entry: promptObj.emotional_entry || promptObj.primary_emotion,
+            desired_belief_shift: promptObj.desired_belief_shift,
+            opening_pattern: promptObj.opening_pattern,
+          },
+          createdAt: new Date().toISOString(),
+        }));
+      }
+
       savedCount++;
 
       // Log Gemini cost with batch discount (fire-and-forget)
@@ -614,6 +777,14 @@ async function processBatchResults(batchId, job) {
     } catch (err) {
       console.error(`[BatchProcessor] Failed to process result ${i}:`, err.message);
       failedCount++;
+    }
+  }
+
+  if (historyEntries.length > 0) {
+    try {
+      await recordHeadlineHistory(historyEntries);
+    } catch (err) {
+      console.warn(`[BatchProcessor] Failed to record headline history for ${historyEntries.length} ads: ${err.message}`);
     }
   }
 

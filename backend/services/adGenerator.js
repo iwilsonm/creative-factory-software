@@ -811,6 +811,86 @@ function extractBriefSection(briefPacket, sectionName) {
   return match ? match[1].trim() : '';
 }
 
+export const HEADLINE_LANES = {
+  symptom_recognition: 'Open with a specific physical symptom the reader recognizes instantly.',
+  oddly_specific_moment: 'Describe a hyper-specific moment, time, or sensation that feels uncannily real.',
+  failed_solutions: 'Lead with the remedies, purchases, or routines they already tried without success.',
+  consequence_led: 'Focus on the cost of leaving the problem unresolved.',
+  skeptical_confession: 'Use the voice of someone who doubted it would work and admits that honestly.',
+  objection_reversal: 'Name the objection directly, then flip it in a grounded way.',
+  review_like: 'Sound like a real recommendation, testimonial, or product review from a trusted person.',
+  comparison: 'Compare against a familiar alternative, habit, or failed solution.',
+  mechanism_curiosity: 'Create curiosity around how or why something works without fully explaining it.',
+  identity_trust: 'Appeal to identity, values, trust, origin, or buyer-protection logic.',
+};
+
+export const FRAME_LANE_MAP = {
+  'symptom-first': ['symptom_recognition', 'oddly_specific_moment', 'failed_solutions', 'consequence_led', 'skeptical_confession', 'mechanism_curiosity'],
+  scam: ['skeptical_confession', 'objection_reversal', 'failed_solutions', 'comparison', 'review_like', 'mechanism_curiosity'],
+  'objection-first': ['objection_reversal', 'skeptical_confession', 'comparison', 'review_like', 'identity_trust', 'mechanism_curiosity'],
+  'identity-first': ['identity_trust', 'review_like', 'oddly_specific_moment', 'comparison', 'skeptical_confession', 'failed_solutions'],
+  MAHA: ['identity_trust', 'comparison', 'objection_reversal', 'mechanism_curiosity', 'consequence_led', 'review_like'],
+  'news-first': ['mechanism_curiosity', 'comparison', 'symptom_recognition', 'skeptical_confession', 'consequence_led', 'review_like'],
+  'consequence-first': ['consequence_led', 'symptom_recognition', 'oddly_specific_moment', 'failed_solutions', 'skeptical_confession', 'mechanism_curiosity'],
+};
+
+export const DEFAULT_LANES = ['symptom_recognition', 'oddly_specific_moment', 'failed_solutions', 'skeptical_confession', 'mechanism_curiosity', 'review_like'];
+
+function safeString(value) {
+  return typeof value === 'string' ? value.trim() : '';
+}
+
+function inferOpeningPattern(headline) {
+  const raw = safeString(headline);
+  const normalized = raw
+    ? raw.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim()
+    : '';
+  if (!normalized) return 'statement';
+  if (raw.endsWith('?')) return 'question_open';
+  if (/^(i|my)\b/.test(normalized)) return 'first_person_open';
+  if (/^(still|after|before|when|why|what|how)\b/.test(normalized)) return 'pattern_interrupt_open';
+  if (/^\d/.test(normalized)) return 'number_open';
+  if (/^(review|heres|here|try|tap|stop)\b/.test(normalized)) return 'directive_open';
+  return 'statement_open';
+}
+
+function selectHeadlineLanes(angleBrief, count) {
+  const frame = angleBrief?.frame && FRAME_LANE_MAP[angleBrief.frame]
+    ? angleBrief.frame
+    : null;
+  const lanePool = frame ? FRAME_LANE_MAP[frame] : DEFAULT_LANES;
+  const desiredLaneCount = Math.max(4, Math.min(6, count >= 24 ? 6 : count >= 16 ? 5 : 4));
+  return lanePool.slice(0, desiredLaneCount);
+}
+
+function buildLaneAllocation(lanes, count) {
+  const allocation = [];
+  const base = Math.floor(count / Math.max(1, lanes.length));
+  let remainder = count % Math.max(1, lanes.length);
+  for (const lane of lanes) {
+    allocation.push({
+      lane,
+      count: base + (remainder > 0 ? 1 : 0),
+    });
+    if (remainder > 0) remainder -= 1;
+  }
+  return allocation;
+}
+
+function formatPriorHeadlineHistory(priorHeadlines) {
+  if (!Array.isArray(priorHeadlines) || priorHeadlines.length === 0) return '';
+  const lines = priorHeadlines
+    .slice(0, 30)
+    .map((entry) => {
+      const lane = entry.hook_lane ? ` | lane: ${entry.hook_lane}` : '';
+      const claim = entry.core_claim ? ` | claim: ${entry.core_claim}` : '';
+      const symptom = entry.target_symptom ? ` | symptom: ${entry.target_symptom}` : '';
+      return `- "${entry.headline || entry.headline_text}"${lane}${claim}${symptom}`;
+    })
+    .join('\n');
+  return `\n\nRECENT HEADLINES ALREADY USED FOR THIS ANGLE:\n${lines}\nDo NOT recycle these headline families, hook moves, or central claims.`;
+}
+
 /**
  * Stage 0: Brief Extraction — condenses 4 foundational docs into angle-specific ~1 page brief.
  * Runs once per batch. 1 API call.
@@ -920,38 +1000,49 @@ ${beliefsContent}`;
 }
 
 /**
- * Stage 1: Headline + Sub-Angle Generation — generates scored/ranked headlines with sub-angle diversity.
- * Runs once per batch. 1 API call.
+ * Stage 1: Headline generation — creates a structured pool of headline candidates
+ * distributed across fixed hook lanes, with recent angle history supplied as an avoid list.
  *
  * @param {object} project - Project record
  * @param {string} briefPacket - Output of Stage 0
  * @param {string} angle - The advertising angle
- * @param {number} count - headlines_to_generate count
- * @returns {{ sub_angles: Array, headlines: Array }}
+ * @param {number} count - Total number of candidates to generate
+ * @param {object|null} angleBrief - Structured angle brief when available
+ * @param {Array} priorHeadlines - Recent headline history for the same angle
+ * @returns {{ lanes_used: Array, sub_angles: Array, headlines: Array }}
  */
-export async function generateHeadlines(project, briefPacket, angle, count, angleBrief = null) {
+export async function generateHeadlines(project, briefPacket, angle, count, angleBrief = null, priorHeadlines = []) {
   const avatarSection = extractBriefSection(briefPacket, 'AVATAR IN THIS MOMENT');
   const emotionalEntry = extractBriefSection(briefPacket, 'EMOTIONAL ENTRY POINT');
   const painPoints = extractBriefSection(briefPacket, 'RELEVANT PAIN POINTS');
   const quotes = extractBriefSection(briefPacket, 'RELEVANT QUOTES');
   const anchors = extractBriefSection(briefPacket, 'SPECIFICITY ANCHORS');
+  const selectedLanes = selectHeadlineLanes(angleBrief, count);
+  const laneAllocation = buildLaneAllocation(selectedLanes, count);
+  const priorHeadlineBlock = formatPriorHeadlineHistory(priorHeadlines);
 
-  // Build structured angle context when available
   let structuredAngleBlock = '';
   if (angleBrief && (angleBrief.core_buyer || angleBrief.scene || angleBrief.objection)) {
     const parts = [];
-    if (angleBrief.frame) parts.push(`FRAME: ${angleBrief.frame} — use this as the structural approach for the headlines`);
-    if (angleBrief.scene) parts.push(`SCENE: ${angleBrief.scene} — center the headlines around this moment`);
+    if (angleBrief.frame) parts.push(`FRAME: ${angleBrief.frame} — use this as the dominant structural lens.`);
+    if (angleBrief.core_buyer) parts.push(`CORE BUYER: ${angleBrief.core_buyer}`);
+    if (angleBrief.symptom_pattern) parts.push(`TARGET SYMPTOM PATTERN: ${angleBrief.symptom_pattern}`);
+    if (angleBrief.scene) parts.push(`SCENE: ${angleBrief.scene} — center the headlines around this lived moment when useful.`);
     if (angleBrief.objection) parts.push(`OBJECTION TO ADDRESS: ${angleBrief.objection}`);
-    if (angleBrief.desired_belief_shift) parts.push(`DESIRED BELIEF SHIFT: ${angleBrief.desired_belief_shift} — headlines should move the reader toward this belief`);
+    if (angleBrief.failed_solutions) parts.push(`FAILED SOLUTIONS: ${angleBrief.failed_solutions}`);
+    if (angleBrief.desired_belief_shift) parts.push(`DESIRED BELIEF SHIFT: ${angleBrief.desired_belief_shift} — headlines should move the reader toward this belief.`);
     if (angleBrief.tone) parts.push(`TONE: ${angleBrief.tone}`);
     if (angleBrief.avoid_list) parts.push(`AVOID: ${angleBrief.avoid_list}`);
     structuredAngleBlock = '\n\nSTRUCTURED ANGLE BRIEF:\n' + parts.join('\n');
   }
 
-  const prompt = `You are a world-class direct response copywriter who writes Facebook ad headlines for health and wellness products targeting women 55-75. These women are skeptical, have been disappointed by other products, and need to feel safe and understood before they'll engage.
+  const laneInstructions = laneAllocation
+    .map(({ lane, count: laneCount }) => `- ${lane}: generate exactly ${laneCount} headline${laneCount === 1 ? '' : 's'}\n  ${HEADLINE_LANES[lane]}`)
+    .join('\n');
 
-Your headlines stop the scroll. They are specific, emotional, and impossible to ignore. They sound like something a real person would say or think — not like marketing copy.
+  const prompt = `You are a world-class direct response copywriter writing Facebook ad headlines for health and wellness products targeting women 55-75. These women are skeptical, have been disappointed by other products, and need to feel safe, understood, and intrigued before they will engage.
+
+Your job is NOT to produce loosely varied headlines. Your job is to produce a diverse headline set where each hook feels meaningfully different in persuasion style, emotional entry point, and central claim.
 
 BRAND: ${project.brand_name || project.name}
 PRODUCT: ${project.product_description || ''}
@@ -971,86 +1062,64 @@ LANGUAGE TO DRAW FROM (for tone and specificity — do not copy verbatim):
 ${quotes || '(Not available)'}
 
 CONCRETE DETAILS TO WEAVE IN:
-${anchors || '(Not available)'}
+${anchors || '(Not available)'}${priorHeadlineBlock}
 
 ---
 
-STEP 1: GENERATE SUB-ANGLES
+HEADLINE LANES TO USE FOR THIS BATCH:
+${laneInstructions}
 
-Before writing any headlines, create exactly 4 sub-angles within the main angle "${angle || 'general'}". Each sub-angle is a distinct emotional or strategic variation that will force different types of headlines.
+IMPORTANT DIVERSITY RULES:
+- Write exactly ${count} headlines total.
+- Every headline must belong to one of the allowed hook lanes above.
+- No two headlines may share the same hook lane AND the same core claim.
+- No two headlines may start with the same opening phrase.
+- Do not recycle the same persuasion move with slightly different wording.
+- The angle "${angle || 'general'}" is a strategic lens, not the headline text itself.
+- Headlines must be short. Maximum 12 words. Under 8 words is ideal when it still feels natural.
+- Avoid hype cliches, fake authority, miracle language, and anything that sounds like generic ad copy.
 
-Rules for sub-angles:
-- Each must target a different emotional entry point (e.g., betrayal, outrage, quiet determination, surprise)
-- Each must suggest a different speaker perspective (e.g., first-person skeptic, editorial exposé, reluctant convert, defiant grandma)
-- They must be specific enough that headlines from one sub-angle could not be confused with another
+KEEP A SECONDARY "SUB-ANGLE" LABEL:
+- For each headline, include a short sub_angle label that captures the micro-angle or speaker perspective for that exact line.
+- This is a secondary variation layer inside the hook lane. Keep it short and concrete.
 
-STEP 2: GENERATE HEADLINES
+STRUCTURED METADATA REQUIREMENTS:
+- hook_lane: one of the allowed lanes above
+- core_claim: short phrase describing the central promise, problem, or idea
+- target_symptom: the specific symptom or moment this headline is speaking to
+- emotional_entry: the dominant emotional doorway for this line
+- desired_belief_shift: the belief this line is trying to move the reader toward
+- opening_pattern: classify the opening as one of these:
+  direct_symptom | specific_moment | failed_solution | confession | objection_flip | review_statement | comparison | mechanism_hint | trust_signal | question_open | statement_open
 
-Write exactly ${count} headlines total, distributed roughly evenly across your 4 sub-angles.
+SCORING:
+After writing the headlines, score each one on:
+- scroll_stop
+- specificity
+- uniqueness
+- real_human
 
-Every headline must follow ALL of these rules:
+UNIQUENESS MUST PENALIZE:
+- same hook lane + same core claim as another line
+- same opening pattern with nearly the same meaning
+- recycling ideas from the recent headline history above
 
-1. MAXIMUM 12 WORDS. Shorter is better. Under 8 is ideal for scroll-stopping power.
-
-2. THE ANGLE NEVER BECOMES THE HEADLINE. The angle "${angle || 'general'}" is a strategic lens that informs the headline — it must NEVER be the headline text itself. If the angle is "American small business," the headline must still hit a pain point or create curiosity. "American Small Business" as a headline = failure. "We're the small US company your neighbor told you about after she finally slept through the night" = success.
-
-3. Every headline must trigger one clear emotion: curiosity, recognition ("that's me"), outrage, vindication, relief, or surprise.
-
-4. At least 25% must use first-person voice ("I tried...", "I felt...", "My knees...")
-5. At least 25% must lead with a concrete physical sensation or specific symptom
-6. At least 25% must create an open loop or unanswered question
-7. At least 15% must use a pattern interrupt (contradiction, confession, counterintuitive framing)
-
-8. NO TWO HEADLINES may start with the same word.
-
-9. NO TWO HEADLINES may use the same sentence structure.
-
-10. NONE may use these phrases: "game-changer", "what if I told you", "here's the thing", "discover the secret", "unlock", "revolutionize", "transform your", "the ultimate", "you won't believe", "this changes everything", "finally revealed", "the truth about", "doctors don't want you to know", "one weird trick", "miracle", "breakthrough", "ancient secret"
-
-11. These are HEADLINES, not taglines or slogans. A headline makes someone stop and want to read more. A tagline is a brand statement. Write headlines.
-
-CALIBRATION — headlines at the quality level I expect:
-GOOD:
-- "I Felt Cheated After Every Grounding Product I Tried — Until I Discovered Why."
-- "The Grounding Sheet Ripoff: When You've Run Out of 'New Things to Try'"
-- "Wake up less stiff tomorrow. Seriously."
-- "I Stopped Waking Up at 3am. My Husband Noticed Before I Did."
-
-BAD (do NOT produce anything like these):
-- "2026 Sleep Wins" (meaningless, no hook)
-- "American Small Business" (angle as headline)
-- "Natural Sleep Solution for Better Rest" (generic, any product)
-- "Discover the Power of Grounding" (vague hype)
-
-STEP 3: SCORE YOUR OWN HEADLINES
-
-After generating all headlines, score each one yourself on these criteria (1-10):
-- SCROLL STOP: Would a 65-year-old woman stop her thumb mid-scroll?
-- SPECIFICITY: Does it trigger one clear emotion, or is it vague?
-- UNIQUENESS: Does it stand out from the other headlines in this batch?
-- REAL HUMAN: Would a real person say, think, or react to this exact phrasing?
-
-Compute an average score for each. Then rank all headlines from highest to lowest average score.
-
-OUTPUT FORMAT — respond as JSON only:
-
+Return ONLY valid JSON:
 {
   "angle": "${angle || 'general'}",
-  "sub_angles": [
-    {
-      "id": "A",
-      "name": "short label",
-      "emotional_entry": "dominant emotion",
-      "speaker_perspective": "who is speaking"
-    }
-  ],
+  "lanes_used": ["symptom_recognition", "oddly_specific_moment"],
   "headlines": [
     {
       "rank": 1,
       "headline": "the headline text",
-      "sub_angle": "A",
-      "primary_emotion": "curiosity",
-      "category": "first_person | pain_point | open_loop | pattern_interrupt",
+      "hook_lane": "symptom_recognition",
+      "sub_angle": "late-night stiffness",
+      "core_claim": "morning stiffness may come from sleep setup",
+      "target_symptom": "waking up stiff and sore",
+      "emotional_entry": "recognition",
+      "desired_belief_shift": "this problem has a specific, fixable cause",
+      "opening_pattern": "direct_symptom",
+      "primary_emotion": "recognition",
       "word_count": 8,
       "scores": {
         "scroll_stop": 9,
@@ -1069,9 +1138,12 @@ OUTPUT FORMAT — respond as JSON only:
     try {
       const response = await withHeavyLLMLimit(async () => {
         return await claudeChat(
-          [{ role: 'user', content: attempt > 1
-            ? prompt + `\n\nIMPORTANT: Your previous attempt did not succeed. Please ensure you generate exactly ${count} headlines and return valid JSON.`
-            : prompt }],
+          [{
+            role: 'user',
+            content: attempt > 1
+              ? prompt + `\n\nIMPORTANT: Your previous attempt did not succeed. Generate exactly ${count} headlines, use only the allowed lanes, and return valid JSON.`
+              : prompt
+          }],
           'claude-opus-4-6',
           {
             response_format: { type: 'json_object' },
@@ -1092,36 +1164,83 @@ OUTPUT FORMAT — respond as JSON only:
         throw new Error('Response missing headlines array');
       }
 
-      // Sort by rank (should already be sorted, but ensure)
-      result.headlines.sort((a, b) => (a.rank || 999) - (b.rank || 999));
+      const allowedLanes = new Set(selectedLanes);
+      result.headlines = result.headlines
+        .map((headline, index) => {
+          const hookLane = allowedLanes.has(headline.hook_lane)
+            ? headline.hook_lane
+            : selectedLanes[index % selectedLanes.length];
+          const primaryEmotion = headline.primary_emotion || headline.emotional_entry || 'curiosity';
+          const emotionalEntryValue = headline.emotional_entry || primaryEmotion;
+          return {
+            rank: Number(headline.rank) || index + 1,
+            headline: safeString(headline.headline),
+            hook_lane: hookLane,
+            sub_angle: safeString(headline.sub_angle) || hookLane,
+            core_claim: safeString(headline.core_claim),
+            target_symptom: safeString(headline.target_symptom),
+            emotional_entry: safeString(emotionalEntryValue) || 'curiosity',
+            desired_belief_shift: safeString(headline.desired_belief_shift) || angleBrief?.desired_belief_shift || '',
+            opening_pattern: safeString(headline.opening_pattern) || inferOpeningPattern(headline.headline),
+            primary_emotion: safeString(primaryEmotion) || 'curiosity',
+            word_count: Number(headline.word_count) || safeString(headline.headline).split(/\s+/).filter(Boolean).length,
+            scores: headline.scores && typeof headline.scores === 'object' ? headline.scores : {},
+            average_score: Number(headline.average_score) || 0,
+          };
+        })
+        .filter((headline) => headline.headline);
+
+      result.headlines.sort((a, b) => {
+        const scoreDiff = (b.average_score || 0) - (a.average_score || 0);
+        if (Math.abs(scoreDiff) > 0.0001) return scoreDiff;
+        return (a.rank || 999) - (b.rank || 999);
+      });
+
+      const uniqueSubAngles = Array.from(
+        new Map(
+          result.headlines.map((headline) => [
+            `${headline.hook_lane}:${headline.sub_angle}`,
+            {
+              id: `${headline.hook_lane}:${headline.sub_angle}`,
+              name: headline.sub_angle,
+              hook_lane: headline.hook_lane,
+              emotional_entry: headline.emotional_entry,
+            }
+          ])
+        ).values()
+      );
+
+      result.sub_angles = Array.isArray(result.sub_angles) && result.sub_angles.length > 0
+        ? result.sub_angles
+        : uniqueSubAngles;
+      result.lanes_used = Array.isArray(result.lanes_used) && result.lanes_used.length > 0
+        ? result.lanes_used.filter((lane) => allowedLanes.has(lane))
+        : selectedLanes;
+
       lastResult = result;
+      console.log(`[Pipeline Stage 1] Generated ${result.headlines.length} structured headline candidates across ${result.lanes_used.length} lanes for angle: "${(angle || 'general').slice(0, 40)}"`);
 
-      console.log(`[Pipeline Stage 1] Generated ${result.headlines.length} headlines, ${(result.sub_angles || []).length} sub-angles for angle: "${(angle || 'general').slice(0, 40)}"`);
-
-      // If we got fewer than needed on first attempt, retry with note
       if (attempt < 3 && result.headlines.length < count) {
         console.warn(`[Pipeline Stage 1] Got ${result.headlines.length}/${count} headlines, retrying...`);
-        await new Promise(r => setTimeout(r, 3000));
+        await new Promise((resolve) => setTimeout(resolve, 3000));
         continue;
       }
 
       return result;
-
     } catch (err) {
       console.error(`[Pipeline Stage 1] Attempt ${attempt}/3 failed:`, err.message);
       if (attempt < 3) {
-        await new Promise(r => setTimeout(r, 5000 * attempt)); // 5s, 10s backoff
+        await new Promise((resolve) => setTimeout(resolve, 5000 * attempt));
       }
     }
   }
 
-  // If we got partial results, return them rather than throwing
   if (lastResult && lastResult.headlines && lastResult.headlines.length > 0) {
     console.warn(`[Pipeline Stage 1] Returning partial results: ${lastResult.headlines.length} headlines`);
     return lastResult;
   }
 
-  throw new Error('[Stage 1] All headline generation attempts failed. OpenAI may be experiencing issues — try again in a few minutes.');
+  throw new Error('[Stage 1] All headline generation attempts failed. Claude may be experiencing issues — try again in a few minutes.');
 }
 
 /**
@@ -1158,7 +1277,17 @@ export async function generateBodyCopies(project, briefPacket, headlines, angleB
     const batchNum = Math.floor(i / 5) + 1;
     const totalBatches = Math.ceil(headlines.length / 5);
 
-    const headlineList = batch.map((h, idx) => `${idx + 1}. "${h.headline}"`).join('\n');
+    const headlineList = batch.map((headlineObj, idx) => {
+      const metadata = [
+        headlineObj.hook_lane ? `lane: ${headlineObj.hook_lane}` : null,
+        headlineObj.sub_angle ? `sub-angle: ${headlineObj.sub_angle}` : null,
+        headlineObj.core_claim ? `core claim: ${headlineObj.core_claim}` : null,
+        headlineObj.target_symptom ? `symptom: ${headlineObj.target_symptom}` : null,
+        headlineObj.emotional_entry ? `emotional entry: ${headlineObj.emotional_entry}` : null,
+        headlineObj.desired_belief_shift ? `belief shift: ${headlineObj.desired_belief_shift}` : null,
+      ].filter(Boolean).join(' | ');
+      return `${idx + 1}. "${headlineObj.headline}"${metadata ? `\n   ${metadata}` : ''}`;
+    }).join('\n');
 
     const prompt = `You are a direct response copywriter writing Facebook ad primary text for a health/wellness brand. You write for women 55-75 dealing with chronic pain, broken sleep, and morning stiffness. Your copy is warm, specific, honest, and sounds like a real person — not a brand.
 
@@ -1258,6 +1387,12 @@ OUTPUT FORMAT — respond as JSON only:
             ...copy,
             primary_emotion: matchingHeadline?.primary_emotion || 'curiosity',
             sub_angle: matchingHeadline?.sub_angle || null,
+            hook_lane: matchingHeadline?.hook_lane || null,
+            core_claim: matchingHeadline?.core_claim || null,
+            target_symptom: matchingHeadline?.target_symptom || null,
+            emotional_entry: matchingHeadline?.emotional_entry || matchingHeadline?.primary_emotion || null,
+            desired_belief_shift: matchingHeadline?.desired_belief_shift || null,
+            opening_pattern: matchingHeadline?.opening_pattern || null,
           });
         }
 
@@ -1294,9 +1429,10 @@ OUTPUT FORMAT — respond as JSON only:
  * @param {string} primaryEmotion - Primary emotion from Stage 1
  * @param {{ base64: string, mimeType: string }} imageData - Template image data
  * @param {string} aspectRatio - User-selected aspect ratio
+ * @param {object|null} headlineMeta - Selected headline metadata carried through the pipeline
  * @returns {string} Image generation prompt
  */
-export async function generateImagePrompt(project, headline, bodyCopy, primaryEmotion, imageData, aspectRatio, angleBrief = null) {
+export async function generateImagePrompt(project, headline, bodyCopy, primaryEmotion, imageData, aspectRatio, angleBrief = null, headlineMeta = null) {
   // Build visual direction from structured angle brief
   let visualDirectionBlock = '';
   if (angleBrief && (angleBrief.scene || angleBrief.frame || angleBrief.tone)) {
@@ -1308,6 +1444,19 @@ export async function generateImagePrompt(project, headline, bodyCopy, primaryEm
     if (angleBrief.tone) parts.push(`TONE: ${angleBrief.tone}`);
     if (angleBrief.avoid_list) parts.push(`VISUAL ELEMENTS TO AVOID: ${angleBrief.avoid_list}`);
     visualDirectionBlock = '\n\nSTRUCTURED VISUAL DIRECTION:\n' + parts.join('\n') + '\n';
+  }
+
+  let headlineStrategyBlock = '';
+  if (headlineMeta && (headlineMeta.hook_lane || headlineMeta.core_claim || headlineMeta.target_symptom || headlineMeta.desired_belief_shift)) {
+    const parts = [];
+    if (headlineMeta.hook_lane) parts.push(`HOOK LANE: ${headlineMeta.hook_lane}`);
+    if (headlineMeta.sub_angle) parts.push(`SUB-ANGLE: ${headlineMeta.sub_angle}`);
+    if (headlineMeta.core_claim) parts.push(`CORE CLAIM: ${headlineMeta.core_claim}`);
+    if (headlineMeta.target_symptom) parts.push(`TARGET SYMPTOM: ${headlineMeta.target_symptom}`);
+    if (headlineMeta.emotional_entry) parts.push(`EMOTIONAL ENTRY: ${headlineMeta.emotional_entry}`);
+    if (headlineMeta.desired_belief_shift) parts.push(`DESIRED BELIEF SHIFT: ${headlineMeta.desired_belief_shift}`);
+    if (headlineMeta.opening_pattern) parts.push(`OPENING PATTERN: ${headlineMeta.opening_pattern}`);
+    headlineStrategyBlock = '\nHEADLINE STRATEGY:\n' + parts.join('\n') + '\n';
   }
 
   const promptText = `You are a creative director generating prompts for text-to-image AI software. You create Facebook ad visuals for DTC health/wellness brands targeting women 55-75.
@@ -1322,6 +1471,7 @@ HEADLINE: "${headline}"
 BODY COPY: "${bodyCopy}"
 
 PRIMARY EMOTION OF THIS AD: ${primaryEmotion || 'curiosity'}
+${headlineStrategyBlock}
 ${visualDirectionBlock}
 TEMPLATE TO MATCH:
 (See attached image — analyze its visual structure, layout, color palette, typography, and composition)
@@ -1342,7 +1492,7 @@ Generate an image prompt that:
 3. Places the EXACT headline text in the primary/dominant text position matching the template's hierarchy
 4. Places a key supporting line from the body copy (or the closing CTA) in the secondary text position if the template has one
 5. Places the brand name (${project.brand_name || project.name}) in a subtle position (footer, corner) matching the template
-6. Supports the emotional tone of the headline — the visual mood (colors, lighting, texture) should reinforce what the headline makes the reader feel. Skepticism angles get editorial/news-style treatments. Pain point angles get warm, empathetic tones. Relief angles get bright, calm aesthetics.
+6. Supports the emotional tone of the headline — the visual mood (colors, lighting, texture, casting, composition) should reinforce what the headline makes the reader feel and what belief shift it is trying to create. Skepticism angles get editorial/news-style treatments. Pain point angles get warm, empathetic tones. Relief angles get bright, calm aesthetics.
 7. Uses the specified aspect ratio: ${aspectRatio || '1:1'}
 8. Avoids generic stock photo aesthetics — aim for authentic, warm, realistic DTC ad quality that resonates with women 60-70
 9. Prioritizes scroll-stopping contrast and clean, conversion-focused design

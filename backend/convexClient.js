@@ -75,6 +75,7 @@ const TABLE_TTL = {
   quote_mining_runs:    2 * 60 * 1000,
   template_images:      5 * 60 * 1000,
   meta_performance:     2 * 60 * 1000,
+  headline_history:     1 * 60 * 1000,
 };
 const DEFAULT_QUERY_TTL = 60 * 1000;
 
@@ -303,6 +304,46 @@ export async function getAdsByProject(projectId) {
   return ads.map(convexAdSummaryToRow);
 }
 
+export async function getRecentHeadlineHistoryByAngle(projectId, angleName, options = {}) {
+  if (!projectId || !angleName) return [];
+  const { limit = 200, since = null } = options;
+  const rows = ensureArray(
+    await cachedQuery('headline_history', api.headlineHistory.getRecentByAngle, {
+      projectId,
+      angleName,
+      limit,
+      ...(since ? { since } : {}),
+    }),
+    'convexClient.getRecentHeadlineHistoryByAngle'
+  );
+
+  return rows.map((row) => ({
+    externalId: row.externalId,
+    project_id: row.project_id,
+    angle_name: row.angle_name,
+    batch_job_id: row.batch_job_id || null,
+    conductor_run_id: row.conductor_run_id || null,
+    ad_creative_id: row.ad_creative_id || null,
+    headline: row.headline_text,
+    normalized_headline: row.normalized_headline,
+    hook_lane: row.hook_lane || null,
+    sub_angle: row.sub_angle || null,
+    core_claim: row.core_claim || null,
+    target_symptom: row.target_symptom || null,
+    emotional_entry: row.emotional_entry || null,
+    desired_belief_shift: row.desired_belief_shift || null,
+    opening_pattern: row.opening_pattern || null,
+    created_at: row.created_at,
+  }));
+}
+
+export async function recordHeadlineHistory(entries) {
+  const safeEntries = ensureArray(entries, 'convexClient.recordHeadlineHistory.entries').filter(Boolean);
+  if (safeEntries.length === 0) return;
+  await mutationWithRetry(api.headlineHistory.recordMany, { entries: safeEntries });
+  invalidateQueryCache('headline_history');
+}
+
 export async function getAdSummariesByExternalIds(externalIds) {
   if (!Array.isArray(externalIds) || externalIds.length === 0) return [];
   const uniqueExternalIds = [...new Set(externalIds.filter(Boolean))];
@@ -355,8 +396,16 @@ function convexAdToRow(a) {
     project_id: a.project_id,
     generation_mode: a.generation_mode,
     angle: a.angle || null,
+    angle_name: a.angle_name || null,
     headline: a.headline || null,
     body_copy: a.body_copy || null,
+    hook_lane: a.hook_lane || null,
+    core_claim: a.core_claim || null,
+    target_symptom: a.target_symptom || null,
+    emotional_entry: a.emotional_entry || null,
+    desired_belief_shift: a.desired_belief_shift || null,
+    opening_pattern: a.opening_pattern || null,
+    sub_angle: a.sub_angle || null,
     image_prompt: a.image_prompt || null,
     gpt_creative_output: a.gpt_creative_output || null,
     template_image_id: a.template_image_id || null,
@@ -381,8 +430,16 @@ function convexAdSummaryToRow(a) {
     project_id: a.project_id,
     generation_mode: a.generation_mode,
     angle: a.angle || null,
+    angle_name: a.angle_name || null,
     headline: a.headline || null,
     body_copy: a.body_copy || null,
+    hook_lane: a.hook_lane || null,
+    core_claim: a.core_claim || null,
+    target_symptom: a.target_symptom || null,
+    emotional_entry: a.emotional_entry || null,
+    desired_belief_shift: a.desired_belief_shift || null,
+    opening_pattern: a.opening_pattern || null,
+    sub_angle: a.sub_angle || null,
     template_image_id: a.template_image_id || null,
     storageId: a.storageId || null,
     aspect_ratio: a.aspect_ratio || '1:1',
