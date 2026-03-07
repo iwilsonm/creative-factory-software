@@ -47,6 +47,38 @@ function timeUntil(dateStr) {
   return `~${mins} min`;
 }
 
+function formatDateTime(value) {
+  if (value === null || value === undefined || value === '') return '—';
+  const date = value instanceof Date ? value : new Date(value);
+  if (Number.isNaN(date.getTime())) return '—';
+  return date.toLocaleString(undefined, {
+    month: 'short',
+    day: 'numeric',
+    year: 'numeric',
+    hour: 'numeric',
+    minute: '2-digit',
+    second: '2-digit',
+  });
+}
+
+function formatDuration(ms) {
+  const totalSeconds = Number.isFinite(ms) ? Math.max(0, Math.round(ms / 1000)) : 0;
+  if (!totalSeconds) return '0s';
+
+  const days = Math.floor(totalSeconds / 86400);
+  const hours = Math.floor((totalSeconds % 86400) / 3600);
+  const minutes = Math.floor((totalSeconds % 3600) / 60);
+  const seconds = totalSeconds % 60;
+  const parts = [];
+
+  if (days) parts.push(`${days}d`);
+  if (hours) parts.push(`${hours}h`);
+  if (minutes) parts.push(`${minutes}m`);
+  if (seconds || parts.length === 0) parts.push(`${seconds}s`);
+
+  return parts.join(' ');
+}
+
 function safeParseJSON(value, fallback) {
   if (!value) return fallback;
   try {
@@ -2123,6 +2155,12 @@ function DirectorTab({ onRefresh }) {
                 const readyCount = run.ready_to_post_count ?? (flexAdId ? 10 : 0);
                 const failureText = run.failure_reason || run.error || '';
                 const isExpanded = !!expandedRuns[run.externalId];
+                const runStartMs = Number(run.run_at);
+                const startedAt = formatDateTime(runStartMs);
+                const finishedAt = run.duration_ms && Number.isFinite(runStartMs)
+                  ? formatDateTime(runStartMs + run.duration_ms)
+                  : null;
+                const durationLabel = run.duration_ms ? formatDuration(run.duration_ms) : null;
 
                 return (
                   <div
@@ -2145,7 +2183,10 @@ function DirectorTab({ onRefresh }) {
                           <p className="text-[11px] text-red-500 leading-relaxed mt-1">{failureText}</p>
                         )}
                       </div>
-                      <span className="text-[10px] text-textlight shrink-0">{timeAgo(new Date(run.run_at).toISOString())}</span>
+                      <div className="shrink-0 text-right">
+                        <p className="text-[9px] uppercase tracking-wider text-textlight">Started</p>
+                        <p className="text-[10px] text-textmid mt-0.5 whitespace-nowrap">{startedAt}</p>
+                      </div>
                     </div>
 
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-3">
@@ -2170,11 +2211,14 @@ function DirectorTab({ onRefresh }) {
                     </div>
 
                     <div className="flex items-center justify-between gap-3 mt-3">
-                      <div className="flex items-center gap-3 text-[9px] text-textlight">
-                        {run.duration_ms ? (
-                          <span>{Math.round(run.duration_ms / 1000)}s</span>
+                      <div className="flex flex-wrap items-center gap-3 text-[9px] text-textlight">
+                        {durationLabel ? (
+                          <span>Duration {durationLabel}</span>
                         ) : (
                           <span>In progress</span>
+                        )}
+                        {finishedAt && (
+                          <span>Finished {finishedAt}</span>
                         )}
                         {batches.length > 0 && (
                           <span>{batches.length} batch{batches.length !== 1 ? 'es' : ''}</span>
