@@ -564,6 +564,7 @@ function DirectorTab({ onRefresh }) {
   const [selectedProject, setSelectedProject] = useState('');
   const [config, setConfig] = useState(null);
   const [angles, setAngles] = useState([]);
+  const [angleOptions, setAngleOptions] = useState([]);
   const [runs, setRuns] = useState([]);
   const [playbooks, setPlaybooks] = useState([]);
   const [subTab, setSubTab] = useState('history');
@@ -571,10 +572,12 @@ function DirectorTab({ onRefresh }) {
   const [projectLoading, setProjectLoading] = useState(true);
   const [baseLoading, setBaseLoading] = useState(false);
   const [anglesLoading, setAnglesLoading] = useState(false);
+  const [angleOptionsLoading, setAngleOptionsLoading] = useState(false);
   const [runsLoading, setRunsLoading] = useState(false);
   const [playbooksLoading, setPlaybooksLoading] = useState(false);
   const [campaignsLoading, setCampaignsLoading] = useState(false);
   const [anglesLoadedFor, setAnglesLoadedFor] = useState('');
+  const [angleOptionsLoadedFor, setAngleOptionsLoadedFor] = useState('');
   const [runsLoadedFor, setRunsLoadedFor] = useState('');
   const [playbooksLoadedFor, setPlaybooksLoadedFor] = useState('');
   const [campaignsLoadedFor, setCampaignsLoadedFor] = useState('');
@@ -674,15 +677,18 @@ function DirectorTab({ onRefresh }) {
     let cancelled = false;
     setBaseLoading(true);
     setAnglesLoading(false);
+    setAngleOptionsLoading(false);
     setRunsLoading(false);
     setPlaybooksLoading(false);
     setCampaignsLoading(false);
     setConfig(null);
     setAngles([]);
+    setAngleOptions([]);
     setRuns([]);
     setPlaybooks([]);
     setCampaigns([]);
     setAnglesLoadedFor('');
+    setAngleOptionsLoadedFor('');
     setRunsLoadedFor('');
     setPlaybooksLoadedFor('');
     setCampaignsLoadedFor('');
@@ -716,6 +722,20 @@ function DirectorTab({ onRefresh }) {
       if (selectedProjectRef.current === projectId) setAnglesLoading(false);
     }
   }, [anglesLoadedFor, anglesLoading]);
+
+  const loadAngleOptions = useCallback(async (projectId = selectedProjectRef.current, { force = false } = {}) => {
+    if (!projectId || angleOptionsLoading || (!force && angleOptionsLoadedFor === projectId)) return;
+    setAngleOptionsLoading(true);
+    try {
+      const angRes = await api.getConductorActiveAngles(projectId);
+      if (selectedProjectRef.current !== projectId) return;
+      setAngleOptions(ensureArray(angRes?.angles, 'AgentMonitor.director.angleOptions'));
+      setAngleOptionsLoadedFor(projectId);
+    } catch { /* ignore */ }
+    finally {
+      if (selectedProjectRef.current === projectId) setAngleOptionsLoading(false);
+    }
+  }, [angleOptionsLoadedFor, angleOptionsLoading]);
 
   const loadRuns = useCallback(async (projectId = selectedProjectRef.current) => {
     if (!projectId || runsLoading || runsLoadedFor === projectId) return;
@@ -758,6 +778,11 @@ function DirectorTab({ onRefresh }) {
       if (selectedProjectRef.current === projectId) setCampaignsLoading(false);
     }
   }, [campaignsLoadedFor, campaignsLoading]);
+
+  useEffect(() => {
+    if (!selectedProject) return;
+    loadAngleOptions(selectedProject);
+  }, [loadAngleOptions, selectedProject]);
 
   useEffect(() => {
     if (!selectedProject) return;
@@ -1068,6 +1093,7 @@ function DirectorTab({ onRefresh }) {
       const angRes = await api.getConductorAngles(selectedProject);
       setAngles(ensureArray(angRes?.angles, 'AgentMonitor.director.angles'));
       setAnglesLoadedFor(selectedProject);
+      loadAngleOptions(selectedProject, { force: true });
     } catch { /* ignore */ }
   };
 
@@ -1075,6 +1101,15 @@ function DirectorTab({ onRefresh }) {
     try {
       await api.updateConductorAngle(selectedProject, angleId, { status: newStatus });
       setAngles(prev => ensureArray(prev, 'AgentMonitor.director.anglesState').map(a => a.externalId === angleId ? { ...a, status: newStatus } : a));
+      setAngleOptions(prev => {
+        const safePrev = ensureArray(prev, 'AgentMonitor.director.angleOptionsState');
+        if (newStatus === 'active') {
+          const fullMatch = ensureArray(angles, 'AgentMonitor.director.anglesState').find(a => a.externalId === angleId);
+          if (fullMatch && !safePrev.some(a => a.externalId === angleId)) return [...safePrev, { ...fullMatch, status: newStatus }];
+          return safePrev.map(a => a.externalId === angleId ? { ...a, status: newStatus } : a);
+        }
+        return safePrev.filter(a => a.externalId !== angleId);
+      });
     } catch { /* ignore */ }
   };
 
@@ -1088,6 +1123,7 @@ function DirectorTab({ onRefresh }) {
   const handleUpdateAngle = async (angleId, updates) => {
     await api.updateConductorAngle(selectedProject, angleId, updates);
     setAngles(prev => ensureArray(prev, 'AgentMonitor.director.anglesState').map(a => a.externalId === angleId ? { ...a, ...updates } : a));
+    setAngleOptions(prev => ensureArray(prev, 'AgentMonitor.director.angleOptionsState').map(a => a.externalId === angleId ? { ...a, ...updates } : a));
   };
 
   const handleToggleLPEnabled = async (angleId, lpEnabled) => {
@@ -1291,6 +1327,7 @@ function DirectorTab({ onRefresh }) {
       const angRes = await api.getConductorAngles(selectedProject);
       setAngles(ensureArray(angRes?.angles, 'AgentMonitor.director.angles'));
       setAnglesLoadedFor(selectedProject);
+      loadAngleOptions(selectedProject, { force: true });
       setImportResult(null);
       setShowImport(false);
     } catch { /* ignore */ }
@@ -1299,6 +1336,7 @@ function DirectorTab({ onRefresh }) {
 
   const safeProjects = ensureArray(projects, 'AgentMonitor.director.projectsState');
   const safeAngles = ensureArray(angles, 'AgentMonitor.director.anglesState');
+  const safeAngleOptions = ensureArray(angleOptions, 'AgentMonitor.director.angleOptionsState');
   const safeRuns = ensureArray(runs, 'AgentMonitor.director.runsState');
   const safePlaybooks = ensureArray(playbooks, 'AgentMonitor.director.playbooksState');
   const safeCampaigns = ensureArray(campaigns, 'AgentMonitor.director.campaignsState');
@@ -1323,7 +1361,7 @@ function DirectorTab({ onRefresh }) {
   const archivedAngles = subTab === 'angles' || anglesLoadedFor === selectedProject
     ? safeAngles.filter(a => a.status === 'archived' || a.status === 'retired')
     : [];
-  const canChooseAngle = !anglesLoading;
+  const canChooseAngle = !angleOptionsLoading;
   const canTriggerTestRun = !baseLoading && !!config && (anglesLoadedFor !== selectedProject || activeAngles.length > 0);
 
   return (
@@ -1358,17 +1396,17 @@ function DirectorTab({ onRefresh }) {
             value={selectedAngleId}
             onChange={e => setSelectedAngleId(e.target.value)}
             onFocus={() => {
-              if (anglesLoadedFor !== selectedProject) {
-                loadAngles(selectedProject);
+              if (angleOptionsLoadedFor !== selectedProject) {
+                loadAngleOptions(selectedProject);
               }
             }}
             disabled={!canChooseAngle}
             className="text-[11px] text-textdark bg-offwhite border border-black/10 rounded-lg px-2 py-1.5 cursor-pointer max-w-[140px]"
           >
             <option value="">
-              {anglesLoading ? 'Loading angles...' : anglesLoadedFor === selectedProject ? 'Auto-select angle' : 'Click to load angles'}
+              {angleOptionsLoading ? 'Loading angles...' : angleOptionsLoadedFor === selectedProject ? 'Auto-select angle' : 'Loading angle options...'}
             </option>
-            {activeAngles.map(a => (
+            {safeAngleOptions.map(a => (
               <option key={a.externalId} value={a.externalId}>{a.name}</option>
             ))}
           </select>

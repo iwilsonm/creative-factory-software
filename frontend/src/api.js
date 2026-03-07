@@ -373,9 +373,11 @@ export const api = {
 
   getConductorAngles: (projectId) =>
     cachedRequest(`/conductor/angles/${projectId}`).then(data => normalizeArrayResponse(data, 'angles', 'api.getConductorAngles.angles')),
-  createConductorAngle: (projectId, data) => request(`/conductor/angles/${projectId}`, { method: 'POST', body: JSON.stringify(data) }).then(r => { invalidateCache(`/conductor/angles/${projectId}`); return r; }),
-  updateConductorAngle: (projectId, angleId, data) => request(`/conductor/angles/${projectId}/${angleId}`, { method: 'PUT', body: JSON.stringify(data) }).then(r => { invalidateCache(`/conductor/angles/${projectId}`); return r; }),
-  deleteConductorAngle: (projectId, angleId) => request(`/conductor/angles/${projectId}/${angleId}`, { method: 'DELETE' }).then(r => { invalidateCache(`/conductor/angles/${projectId}`); return r; }),
+  getConductorActiveAngles: (projectId) =>
+    cachedRequest(`/conductor/angles/${projectId}/active`).then(data => normalizeArrayResponse(data, 'angles', 'api.getConductorActiveAngles.angles')),
+  createConductorAngle: (projectId, data) => request(`/conductor/angles/${projectId}`, { method: 'POST', body: JSON.stringify(data) }).then(r => { invalidateCache(`/conductor/angles/${projectId}`, `/conductor/angles/${projectId}/active`); return r; }),
+  updateConductorAngle: (projectId, angleId, data) => request(`/conductor/angles/${projectId}/${angleId}`, { method: 'PUT', body: JSON.stringify(data) }).then(r => { invalidateCache(`/conductor/angles/${projectId}`, `/conductor/angles/${projectId}/active`); return r; }),
+  deleteConductorAngle: (projectId, angleId) => request(`/conductor/angles/${projectId}/${angleId}`, { method: 'DELETE' }).then(r => { invalidateCache(`/conductor/angles/${projectId}`, `/conductor/angles/${projectId}/active`); return r; }),
   getConductorRuns: (projectId, limit) =>
     request(`/conductor/runs/${projectId}${limit ? `?limit=${limit}` : ''}`).then(data => normalizeArrayResponse(data, 'runs', 'api.getConductorRuns.runs')),
   triggerConductorRun: (projectId) => request(`/conductor/run/${projectId}`, { method: 'POST' }),

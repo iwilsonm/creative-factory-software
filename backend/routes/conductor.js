@@ -187,6 +187,17 @@ router.get('/angles/:projectId', async (req, res) => {
   }
 });
 
+// GET /api/conductor/angles/:projectId/active
+router.get('/angles/:projectId/active', async (req, res) => {
+  try {
+    const angles = await getActiveConductorAngles(req.params.projectId);
+    res.json({ angles });
+  } catch (err) {
+    console.error('[Conductor] Get active angles error:', err.message);
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // POST /api/conductor/angles/:projectId
 router.post('/angles/:projectId', async (req, res) => {
   try {
