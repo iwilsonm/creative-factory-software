@@ -114,6 +114,7 @@ export const update = mutation({
     scheduled: v.optional(v.boolean()),
     schedule_cron: v.optional(v.string()),
     retry_count: v.optional(v.number()),
+    stale_detected_at: v.optional(v.nullable(v.string())),
     batch_stats: v.optional(v.nullable(v.string())),
     angle: v.optional(v.string()),
     angles: v.optional(v.string()),
@@ -199,6 +200,7 @@ export const updateStatus = mutation({
     const updates: Record<string, any> = { status: args.status };
     if (args.error_message !== undefined) updates.error_message = args.error_message;
     if (args.retry_count !== undefined) updates.retry_count = args.retry_count;
+    if (args.stale_detected_at !== undefined) updates.stale_detected_at = args.stale_detected_at;
     await ctx.db.patch(batch._id, updates);
   },
 });

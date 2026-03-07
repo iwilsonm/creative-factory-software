@@ -1431,6 +1431,11 @@ function findTrackedTestRun(projectId) {
   return null;
 }
 
+async function hasDurableActiveTestRun(projectId) {
+  const runs = await getConductorRuns(projectId, 10);
+  return runs.some((run) => run.run_type === 'test' && run.status === 'running');
+}
+
 /**
  * Get the active test run for a project (if any).
  * @param {string} projectId
@@ -1469,7 +1474,7 @@ export function cancelTestRun(projectId) {
 export async function runFullTestPipeline(projectId, sendEvent, { angleOverride = null, skipLPGen = false } = {}) {
   const rawEmit = sendEvent || (() => {});
 
-  if (findTrackedTestRun(projectId)) {
+  if (findTrackedTestRun(projectId) || await hasDurableActiveTestRun(projectId)) {
     throw new Error('A test run is already in progress for this project. Cancel it or wait for it to finish before starting another.');
   }
 

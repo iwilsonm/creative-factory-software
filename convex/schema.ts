@@ -127,6 +127,7 @@ export default defineSchema({
     failed_count: v.optional(v.number()),
     run_count: v.optional(v.number()),
     retry_count: v.optional(v.number()),
+    stale_detected_at: v.optional(v.nullable(v.string())),
     used_template_ids: v.optional(v.string()),  // JSON array of template IDs used across runs
     batch_stats: v.optional(v.nullable(v.string())),
     pipeline_state: v.optional(v.string()),  // JSON: { stage, brief_packet, headlines, body_copies }
