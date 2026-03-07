@@ -905,6 +905,39 @@ function buildPassingAdsMeta(passingAds) {
   }));
 }
 
+function buildFailedAdsMeta(scoredAds) {
+  return scoredAds
+    .filter(({ score }) => !score?.pass)
+    .map(({ ad, score }) => {
+      const hardRequirements = score?.hard_requirements && typeof score.hard_requirements === 'object'
+        ? score.hard_requirements
+        : {};
+      const failedHardRequirements = Object.entries(hardRequirements)
+        .filter(([key, value]) => key !== 'all_passed' && value === false)
+        .map(([key]) => key);
+
+      return {
+        ad_id: ad?.id,
+        headline: ad?.headline || '',
+        body_copy_preview: (ad?.body_copy || '').slice(0, 320),
+        overall_score: score?.overall_score ?? 0,
+        copy_strength: score?.copy_strength ?? null,
+        compliance: score?.compliance ?? null,
+        effectiveness: score?.effectiveness ?? null,
+        image_quality: score?.image_quality ?? null,
+        angle_category: score?.angle_category || null,
+        failed_hard_requirements: failedHardRequirements,
+        hard_requirements: hardRequirements,
+        compliance_flags: Array.isArray(score?.compliance_flags) ? score.compliance_flags.filter(Boolean) : [],
+        spelling_errors: Array.isArray(score?.spelling_errors) ? score.spelling_errors.filter(Boolean) : [],
+        weaknesses: Array.isArray(score?.weaknesses) ? score.weaknesses.filter(Boolean) : [],
+        strengths: Array.isArray(score?.strengths) ? score.strengths.filter(Boolean) : [],
+        image_issues: Array.isArray(score?.image_issues) ? score.image_issues.filter(Boolean) : [],
+        error: score?.error || null,
+      };
+    });
+}
+
 function normalizeHeadlineDiagnostics(raw) {
   if (!raw || typeof raw !== 'object' || Array.isArray(raw)) return null;
   const laneDistribution = Object.fromEntries(
@@ -1003,6 +1036,7 @@ async function hydratePassingAdsForRounds(roundDetails, projectId) {
       round.ads_scored = recovered.ads_scored;
       round.ads_passed = recovered.ads_passed;
       round.passing_ads = buildPassingAdsMeta(recovered.passingAds);
+      round.failed_ads = buildFailedAdsMeta(recovered.scoredAds);
       passingAds = recovered.passingAds;
       recoveredAny = true;
     }
@@ -1180,6 +1214,7 @@ async function continueBackgroundTestRun(run) {
     status: totalAdsPassed >= TEST_RUN_REQUIRED_PASSES ? 'threshold_reached' : 'below_threshold',
     completed_at: new Date().toISOString(),
     passing_ads: buildPassingAdsMeta(roundScoreResult.passingAds),
+    failed_ads: buildFailedAdsMeta(roundScoreResult.scoredAds),
     ...(headlineDiagnostics || {}),
   };
   roundDetails.push(roundDetail);
@@ -1725,6 +1760,7 @@ export async function runFullTestPipeline(projectId, sendEvent, { angleOverride 
         status: totalAdsPassed >= TEST_RUN_REQUIRED_PASSES ? 'threshold_reached' : 'below_threshold',
         completed_at: new Date().toISOString(),
         passing_ads: buildPassingAdsMeta(roundScoreResult.passingAds),
+        failed_ads: buildFailedAdsMeta(roundScoreResult.scoredAds),
         ...(headlineDiagnostics || {}),
       };
       roundDetails.push(roundDetail);

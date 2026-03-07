@@ -161,6 +161,17 @@ function formatLaneLabel(lane) {
     .join(' ');
 }
 
+function formatFailureLabel(key) {
+  const labels = {
+    spelling_grammar: 'Spelling / grammar',
+    first_line_hook: 'First-line hook',
+    cta_at_end: 'CTA at end',
+    headline_alignment: 'Headline alignment',
+    image_completeness: 'Image completeness',
+  };
+  return labels[key] || formatLaneLabel(key);
+}
+
 function getRoundLaneEntries(round) {
   if (!round?.lane_distribution || typeof round.lane_distribution !== 'object') return [];
   return Object.entries(round.lane_distribution)
@@ -223,6 +234,165 @@ function RoundHeadlineDiagnostics({ round }) {
         </div>
       )}
     </div>
+  );
+}
+
+function getRoundFailedAds(round) {
+  return ensureArray(round?.failed_ads, 'AgentMonitor.run.round.failed_ads');
+}
+
+function RoundFailedAds({ round }) {
+  const failedAds = getRoundFailedAds(round);
+  if (failedAds.length === 0) return null;
+
+  return (
+    <details className="mt-2 rounded-lg bg-red-50/70 border border-red-100">
+      <summary className="cursor-pointer list-none px-3 py-2 flex items-center justify-between gap-3">
+        <span className="text-[10px] font-medium text-red-600">Failed ads</span>
+        <span className="text-[10px] text-red-500">{failedAds.length} to inspect</span>
+      </summary>
+      <div className="px-3 pb-3 pt-1 border-t border-red-100 space-y-2">
+        {failedAds.map((failedAd, index) => {
+          const hardFailures = ensureArray(failedAd.failed_hard_requirements, `AgentMonitor.run.round.failed_ads.${index}.hardFailures`);
+          const complianceFlags = ensureArray(failedAd.compliance_flags, `AgentMonitor.run.round.failed_ads.${index}.complianceFlags`);
+          const spellingErrors = ensureArray(failedAd.spelling_errors, `AgentMonitor.run.round.failed_ads.${index}.spellingErrors`);
+          const weaknesses = ensureArray(failedAd.weaknesses, `AgentMonitor.run.round.failed_ads.${index}.weaknesses`);
+          const strengths = ensureArray(failedAd.strengths, `AgentMonitor.run.round.failed_ads.${index}.strengths`);
+          const imageIssues = ensureArray(failedAd.image_issues, `AgentMonitor.run.round.failed_ads.${index}.imageIssues`);
+          const fellBelowThreshold = !failedAd.error && hardFailures.length === 0;
+
+          return (
+            <div key={failedAd.ad_id || `${round.batch_id || 'round'}-${index}`} className="rounded-lg bg-white/80 border border-red-100 px-3 py-2">
+              <div className="flex items-start justify-between gap-3">
+                <div className="min-w-0">
+                  <p className="text-[10px] font-medium text-textdark">
+                    Ad {index + 1}{failedAd.ad_id ? ` · ${failedAd.ad_id.slice(0, 8)}...` : ''}
+                  </p>
+                  {failedAd.headline && (
+                    <p className="text-[11px] text-textdark mt-1 leading-relaxed">{failedAd.headline}</p>
+                  )}
+                </div>
+                <div className="shrink-0 text-right">
+                  <p className="text-[9px] uppercase tracking-wider text-textlight">Score</p>
+                  <p className="text-[12px] font-semibold text-red-500 mt-0.5">{failedAd.overall_score ?? 0}</p>
+                </div>
+              </div>
+
+              {failedAd.body_copy_preview && (
+                <p className="text-[10px] text-textmid mt-2 leading-relaxed whitespace-pre-line">{failedAd.body_copy_preview}</p>
+              )}
+
+              <div className="flex flex-wrap gap-1.5 mt-2">
+                {hardFailures.map((key) => (
+                  <span key={key} className="inline-flex items-center rounded-full bg-red-100 text-red-600 px-2 py-1 text-[9px] font-medium">
+                    Failed {formatFailureLabel(key)}
+                  </span>
+                ))}
+                {fellBelowThreshold && (
+                  <span className="inline-flex items-center rounded-full bg-gold/15 text-gold px-2 py-1 text-[9px] font-medium">
+                    Below score threshold
+                  </span>
+                )}
+                {failedAd.angle_category && (
+                  <span className="inline-flex items-center rounded-full bg-black/5 text-textmid px-2 py-1 text-[9px]">
+                    {failedAd.angle_category}
+                  </span>
+                )}
+                {failedAd.error && (
+                  <span className="inline-flex items-center rounded-full bg-red-100 text-red-600 px-2 py-1 text-[9px] font-medium">
+                    {failedAd.error}
+                  </span>
+                )}
+              </div>
+
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-2">
+                <div className="rounded-lg bg-black/[0.02] border border-black/5 px-2 py-2">
+                  <p className="text-[9px] uppercase tracking-wider text-textlight">Copy</p>
+                  <p className="text-[11px] font-medium text-textdark mt-0.5">{failedAd.copy_strength ?? '—'}</p>
+                </div>
+                <div className="rounded-lg bg-black/[0.02] border border-black/5 px-2 py-2">
+                  <p className="text-[9px] uppercase tracking-wider text-textlight">Compliance</p>
+                  <p className="text-[11px] font-medium text-textdark mt-0.5">{failedAd.compliance ?? '—'}</p>
+                </div>
+                <div className="rounded-lg bg-black/[0.02] border border-black/5 px-2 py-2">
+                  <p className="text-[9px] uppercase tracking-wider text-textlight">Effectiveness</p>
+                  <p className="text-[11px] font-medium text-textdark mt-0.5">{failedAd.effectiveness ?? '—'}</p>
+                </div>
+                <div className="rounded-lg bg-black/[0.02] border border-black/5 px-2 py-2">
+                  <p className="text-[9px] uppercase tracking-wider text-textlight">Image</p>
+                  <p className="text-[11px] font-medium text-textdark mt-0.5">{failedAd.image_quality ?? '—'}</p>
+                </div>
+              </div>
+
+              {(weaknesses.length > 0 || complianceFlags.length > 0 || spellingErrors.length > 0 || imageIssues.length > 0 || strengths.length > 0) && (
+                <div className="mt-2 space-y-2">
+                  {weaknesses.length > 0 && (
+                    <div>
+                      <p className="text-[9px] uppercase tracking-wider text-textlight">Weaknesses</p>
+                      <div className="flex flex-wrap gap-1.5 mt-1">
+                        {weaknesses.map((item, itemIndex) => (
+                          <span key={`${failedAd.ad_id || index}-weakness-${itemIndex}`} className="inline-flex items-center rounded-full bg-red-50 text-red-600 border border-red-100 px-2 py-1 text-[9px]">
+                            {item}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {complianceFlags.length > 0 && (
+                    <div>
+                      <p className="text-[9px] uppercase tracking-wider text-textlight">Compliance flags</p>
+                      <div className="flex flex-wrap gap-1.5 mt-1">
+                        {complianceFlags.map((item, itemIndex) => (
+                          <span key={`${failedAd.ad_id || index}-flag-${itemIndex}`} className="inline-flex items-center rounded-full bg-gold/10 text-gold border border-gold/20 px-2 py-1 text-[9px]">
+                            {item}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {spellingErrors.length > 0 && (
+                    <div>
+                      <p className="text-[9px] uppercase tracking-wider text-textlight">Spelling / grammar</p>
+                      <div className="flex flex-wrap gap-1.5 mt-1">
+                        {spellingErrors.map((item, itemIndex) => (
+                          <span key={`${failedAd.ad_id || index}-spelling-${itemIndex}`} className="inline-flex items-center rounded-full bg-red-50 text-red-600 border border-red-100 px-2 py-1 text-[9px]">
+                            {item}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {imageIssues.length > 0 && (
+                    <div>
+                      <p className="text-[9px] uppercase tracking-wider text-textlight">Image issues</p>
+                      <div className="flex flex-wrap gap-1.5 mt-1">
+                        {imageIssues.map((item, itemIndex) => (
+                          <span key={`${failedAd.ad_id || index}-image-${itemIndex}`} className="inline-flex items-center rounded-full bg-black/[0.02] text-textmid border border-black/5 px-2 py-1 text-[9px]">
+                            {item}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                  {strengths.length > 0 && (
+                    <div>
+                      <p className="text-[9px] uppercase tracking-wider text-textlight">Strengths</p>
+                      <div className="flex flex-wrap gap-1.5 mt-1">
+                        {strengths.map((item, itemIndex) => (
+                          <span key={`${failedAd.ad_id || index}-strength-${itemIndex}`} className="inline-flex items-center rounded-full bg-teal/10 text-teal border border-teal/20 px-2 py-1 text-[9px]">
+                            {item}
+                          </span>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          );
+        })}
+      </div>
+    </details>
   );
 }
 
@@ -2338,6 +2508,7 @@ function DirectorTab({ onRefresh }) {
                                   {round.ads_generated ?? round.ads_scored ?? 0} generated, {round.ads_passed ?? 0}/{round.ads_scored ?? round.ads_generated ?? 0} passed in this round, {round.cumulative_passed ?? 0}/{requiredPasses} cumulative.
                                 </p>
                                 <RoundHeadlineDiagnostics round={round} />
+                                <RoundFailedAds round={round} />
                                 {round.completed_at && (
                                   <p className="text-[9px] text-textlight mt-1">{timeAgo(round.completed_at)}</p>
                                 )}
