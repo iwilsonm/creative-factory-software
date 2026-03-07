@@ -1,6 +1,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import JSZip from 'jszip';
 import { api } from '../api';
+import { ensureArray } from '../utils/collections';
 
 /**
  * ReadyToPostView — Employee-facing view for posting ads to Meta Ads Manager.
@@ -69,9 +70,9 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
         api.getCampaigns(projectId),
         api.getFlexAds(projectId),
       ]);
-      setCampaigns(campData.campaigns || []);
-      setAdSets(campData.adSets || []);
-      setFlexAds(flexData.flexAds || []);
+      setCampaigns(ensureArray(campData?.campaigns, 'ReadyToPostView.campaigns'));
+      setAdSets(ensureArray(campData?.adSets, 'ReadyToPostView.adSets'));
+      setFlexAds(ensureArray(flexData?.flexAds, 'ReadyToPostView.flexAds'));
     } catch (err) {
       console.error('ReadyToPostView loadData error:', err);
       setLoadError('Failed to load campaign data. Please refresh the page.');
@@ -79,21 +80,25 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
     setLoading(false);
   };
 
-  const readyDeps = deployments.filter(d => d.status === 'ready_to_post');
+  const safeDeployments = ensureArray(deployments, 'ReadyToPostView.deployments');
+  const safeCampaigns = ensureArray(campaigns, 'ReadyToPostView.campaignsState');
+  const safeAdSets = ensureArray(adSets, 'ReadyToPostView.adSetsState');
+  const safeFlexAds = ensureArray(flexAds, 'ReadyToPostView.flexAdsState');
+  const readyDeps = safeDeployments.filter(d => d.status === 'ready_to_post');
 
   // ── Helpers ──────────────────────────────────────────────────────────────
 
   const resolveLocation = (dep) => {
-    const adSet = adSets.find(a => a.id === dep.local_adset_id);
+    const adSet = safeAdSets.find(a => a.id === dep.local_adset_id);
     if (!adSet) return { campaignName: null, adSetName: null };
-    const campaign = campaigns.find(c => adSets.filter(a => a.campaign_id === c.id).some(a => a.id === dep.local_adset_id));
+    const campaign = safeCampaigns.find(c => safeAdSets.filter(a => a.campaign_id === c.id).some(a => a.id === dep.local_adset_id));
     return { campaignName: campaign?.name || null, adSetName: adSet?.name || null };
   };
 
   const resolveFlexLocation = (flexAd) => {
-    const adSet = adSets.find(a => a.id === flexAd.ad_set_id);
+    const adSet = safeAdSets.find(a => a.id === flexAd.ad_set_id);
     if (!adSet) return { campaignName: null, adSetName: null };
-    const campaign = campaigns.find(c => adSets.filter(a => a.campaign_id === c.id).some(a => a.id === flexAd.ad_set_id));
+    const campaign = safeCampaigns.find(c => safeAdSets.filter(a => a.campaign_id === c.id).some(a => a.id === flexAd.ad_set_id));
     return { campaignName: campaign?.name || null, adSetName: adSet?.name || null };
   };
 
@@ -144,10 +149,10 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
     try {
       if (isFlexCard) {
         await api.updateFlexAd(id, { notes: notesValue.trim() || '' });
-        setFlexAds(prev => prev.map(f => f.id === id ? { ...f, notes: notesValue.trim() || '' } : f));
+        setFlexAds(prev => ensureArray(prev, 'ReadyToPostView.flexAdsState').map(f => f.id === id ? { ...f, notes: notesValue.trim() || '' } : f));
       } else {
         await api.updateDeployment(id, { notes: notesValue.trim() || '' });
-        setDeployments(prev => prev.map(d => d.id === id ? { ...d, notes: notesValue.trim() || '' } : d));
+        setDeployments(prev => ensureArray(prev, 'ReadyToPostView.deploymentsState').map(d => d.id === id ? { ...d, notes: notesValue.trim() || '' } : d));
       }
       addToast('Notes saved', 'success');
     } catch {
@@ -163,7 +168,7 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
     // Optimistic UI update — immediate feedback
     const dep = readyDeps.find(d => d.id === depId);
     const { campaignName, adSetName } = dep ? resolveLocation(dep) : {};
-    setDeployments(prev => prev.map(d => {
+    setDeployments(prev => ensureArray(prev, 'ReadyToPostView.deploymentsState').map(d => {
       if (d.id !== depId) return d;
       return {
         ...d,
@@ -201,7 +206,7 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
     const { campaignName, adSetName } = resolveFlexLocation(flexAd);
     let childIds = [];
     try { childIds = flexAd.child_deployment_ids ? JSON.parse(flexAd.child_deployment_ids) : []; } catch { /* ignore */ }
-    setDeployments(prev => prev.map(d => {
+    setDeployments(prev => ensureArray(prev, 'ReadyToPostView.deploymentsState').map(d => {
       if (!childIds.includes(d.id)) return d;
       return {
         ...d,
@@ -236,7 +241,7 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
 
   const handleSendBack = async (depId) => {
     // Optimistic UI update
-    setDeployments(prev => prev.map(d => d.id === depId ? { ...d, status: 'selected' } : d));
+    setDeployments(prev => ensureArray(prev, 'ReadyToPostView.deploymentsState').map(d => d.id === depId ? { ...d, status: 'selected' } : d));
     addToast('Sent back to Planner', 'success');
     try {
       await api.updateDeploymentStatus(depId, 'selected');
@@ -250,7 +255,7 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
     // Optimistic UI update
     let childIds = [];
     try { childIds = flexAd.child_deployment_ids ? JSON.parse(flexAd.child_deployment_ids) : []; } catch { /* ignore */ }
-    setDeployments(prev => prev.map(d => {
+    setDeployments(prev => ensureArray(prev, 'ReadyToPostView.deploymentsState').map(d => {
       if (childIds.includes(d.id)) return { ...d, status: 'selected' };
       return d;
     }));
@@ -269,7 +274,7 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
     setBulkMarkingAll(true);
     try {
       await Promise.all(readyDeps.map(d => api.updateDeploymentStatus(d.id, 'posted')));
-      setDeployments(prev => prev.map(d =>
+      setDeployments(prev => ensureArray(prev, 'ReadyToPostView.deploymentsState').map(d =>
         d.status === 'ready_to_post' ? { ...d, status: 'posted', posted_date: new Date().toISOString() } : d
       ));
       addToast(`${readyDeps.length} ads marked as posted`, 'success');
@@ -283,10 +288,10 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
     try {
       if (isFlex) {
         await api.updateFlexAdPostedBy(depId, value || '');
-        setFlexAds(prev => prev.map(f => f.id === depId ? { ...f, posted_by: value } : f));
+        setFlexAds(prev => ensureArray(prev, 'ReadyToPostView.flexAdsState').map(f => f.id === depId ? { ...f, posted_by: value } : f));
       } else {
         await api.updateDeploymentPostedBy(depId, value || '');
-        setDeployments(prev => prev.map(d => d.id === depId ? { ...d, posted_by: value } : d));
+        setDeployments(prev => ensureArray(prev, 'ReadyToPostView.deploymentsState').map(d => d.id === depId ? { ...d, posted_by: value } : d));
       }
     } catch {
       addToast('Failed to save', 'error');
@@ -300,14 +305,14 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
     let currentCampaignId = '';
     let currentAdSetName = '';
     if (isFlex) {
-      const adSet = adSets.find(a => a.id === data.ad_set_id);
+      const adSet = safeAdSets.find(a => a.id === data.ad_set_id);
       if (adSet) {
-        currentCampaignId = campaigns.find(c => adSets.filter(a => a.campaign_id === c.id).some(a => a.id === data.ad_set_id))?.id || '';
+        currentCampaignId = safeCampaigns.find(c => safeAdSets.filter(a => a.campaign_id === c.id).some(a => a.id === data.ad_set_id))?.id || '';
         currentAdSetName = adSet.name || '';
       }
     } else {
       currentCampaignId = data.local_campaign_id || '';
-      const adSet = adSets.find(a => a.id === data.local_adset_id);
+      const adSet = safeAdSets.find(a => a.id === data.local_adset_id);
       currentAdSetName = adSet?.name || '';
     }
 
@@ -375,22 +380,22 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
 
       if (newCampaignId && adSetNameTyped) {
         // Look for existing ad set by name under this campaign
-        const existingAdSet = adSets.find(a => a.campaign_id === newCampaignId && a.name === adSetNameTyped);
+        const existingAdSet = safeAdSets.find(a => a.campaign_id === newCampaignId && a.name === adSetNameTyped);
         if (existingAdSet) {
           payload[adSetKey] = existingAdSet.id;
         } else {
           // Check if the current ad set just needs to be moved to the new campaign
-          const currentAdSet = currentAdSetId ? adSets.find(a => a.id === currentAdSetId) : null;
+          const currentAdSet = currentAdSetId ? safeAdSets.find(a => a.id === currentAdSetId) : null;
           if (currentAdSet && currentAdSet.name === adSetNameTyped && currentAdSet.campaign_id !== newCampaignId) {
             // Move existing ad set to new campaign
             await api.updateAdSet(currentAdSetId, { campaign_id: newCampaignId });
-            setAdSets(prev => prev.map(a => a.id === currentAdSetId ? { ...a, campaign_id: newCampaignId } : a));
+            setAdSets(prev => ensureArray(prev, 'ReadyToPostView.adSetsState').map(a => a.id === currentAdSetId ? { ...a, campaign_id: newCampaignId } : a));
             payload[adSetKey] = currentAdSetId;
           } else {
             // Create new ad set under the new campaign
             const result = await api.createAdSet(newCampaignId, adSetNameTyped, projectId);
             const newAdSetId = result.id;
-            setAdSets(prev => [...prev, { id: newAdSetId, name: adSetNameTyped, campaign_id: newCampaignId, project_id: projectId }]);
+            setAdSets(prev => [...ensureArray(prev, 'ReadyToPostView.adSetsState'), { id: newAdSetId, name: adSetNameTyped, campaign_id: newCampaignId, project_id: projectId }]);
             payload[adSetKey] = newAdSetId;
           }
         }
@@ -403,10 +408,10 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
 
       if (isFlex) {
         await api.updateFlexAd(id, payload);
-        setFlexAds(prev => prev.map(f => f.id === id ? { ...f, ...payload } : f));
+        setFlexAds(prev => ensureArray(prev, 'ReadyToPostView.flexAdsState').map(f => f.id === id ? { ...f, ...payload } : f));
       } else {
         await api.updateDeployment(id, payload);
-        setDeployments(prev => prev.map(d => d.id === id ? { ...d, ...payload } : d));
+        setDeployments(prev => ensureArray(prev, 'ReadyToPostView.deploymentsState').map(d => d.id === id ? { ...d, ...payload } : d));
       }
       addToast('Changes saved', 'success');
 
@@ -959,7 +964,7 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
             className="w-full text-[12px] text-textdark bg-white border border-black/10 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-navy/20 cursor-pointer"
           >
             <option value="">Select a campaign...</option>
-            {campaigns.map(c => (
+            {safeCampaigns.map(c => (
               <option key={c.id} value={c.id}>{c.name}</option>
             ))}
           </select>
@@ -1583,7 +1588,7 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
   const buildCardList = () => {
     const cards = [];
     const flexChildIds = new Set();
-    flexAds.forEach(fa => {
+    safeFlexAds.forEach(fa => {
       try { (fa.child_deployment_ids ? JSON.parse(fa.child_deployment_ids) : []).forEach(id => flexChildIds.add(id)); } catch { /* ignore */ }
     });
     readyDeps.forEach(dep => {
@@ -1591,7 +1596,7 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
       const { campaignName, adSetName } = resolveLocation(dep);
       cards.push({ type: 'single', dep, campaignName: campaignName || '', adSetName: adSetName || '', plannedDate: dep.planned_date || '', createdAt: dep.created_at || '', name: dep.ad_name || '', key: dep.id });
     });
-    flexAds.forEach(fa => {
+    safeFlexAds.forEach(fa => {
       if (!flexHasReadyChildren(fa)) return;
       const { campaignName, adSetName } = resolveFlexLocation(fa);
       cards.push({ type: 'flex', flexAd: fa, campaignName: campaignName || '', adSetName: adSetName || '', plannedDate: fa.planned_date || '', createdAt: fa.created_at || '', name: fa.name || '', key: `flex-${fa.id}` });

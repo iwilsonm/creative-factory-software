@@ -6,6 +6,7 @@ import MultiInput from './MultiInput';
 import NotionFilter from './NotionFilter';
 import { useAsyncData } from '../hooks/useAsyncData';
 import { usePolling } from '../hooks/usePolling';
+import { ensureArray } from '../utils/collections';
 
 // ─── Emotion badge colors ────────────────────────────────────────────────────
 const EMOTION_COLORS = {
@@ -75,6 +76,7 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
   // Mining state
   const [mining, setMining] = useState(false);
   const [progress, setProgress] = useState([]);
+  const safeProgress = ensureArray(progress, 'QuoteMiner.progressState');
   const [currentRunId, setCurrentRunId] = useState(null);
   const abortRef = useRef(null);
 
@@ -89,19 +91,21 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
   const headlineAbortRef = useRef(null);
 
   // History state
-  const { data: runs, setData: setRuns, loading: loadingHistory, refetch: loadHistory } = useAsyncData(
-    () => api.getQuoteMiningRuns(projectId).then(d => d.runs || []),
+  const { data: runsData, setData: setRuns, loading: loadingHistory, refetch: loadHistory } = useAsyncData(
+    () => api.getQuoteMiningRuns(projectId).then(d => ensureArray(d?.runs, 'QuoteMiner.runs')),
     [projectId]
   );
+  const runs = ensureArray(runsData, 'QuoteMiner.runsState');
   const [historyOpen, setHistoryOpen] = useState(false);
   const [viewingRunId, setViewingRunId] = useState(null);
 
   // ─── Quote Bank state ──────────────────────────────────────────────────────
-  const { data: bankQuotes, setData: setBankQuotes, loading: loadingBank, refetch: loadBank } = useAsyncData(
-    () => api.getQuoteBank(projectId).then(d => d.quotes || []),
+  const { data: bankQuotesData, setData: setBankQuotes, loading: loadingBank, refetch: loadBank } = useAsyncData(
+    () => api.getQuoteBank(projectId).then(d => ensureArray(d?.quotes, 'QuoteMiner.bankQuotes')),
     [projectId],
     { enabled: shouldLoadBankData }
   );
+  const bankQuotes = ensureArray(bankQuotesData, 'QuoteMiner.bankQuotesState');
   const [bankFilter, setBankFilter] = useState('all'); // 'all' | 'favorites'
   const [headlineFilter, setHeadlineFilter] = useState('all'); // 'all' | 'used' | 'unused'
   // Notion-style filters (Map<propertyKey, Set<selectedValues>>)
@@ -239,7 +243,7 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
     const newTags = [...currentTags, tag];
     try {
       await api.updateQuoteBankTags(projectId, quoteId, newTags);
-      setBankQuotes(prev => prev.map(q => q.id === quoteId ? { ...q, tags: newTags } : q));
+      setBankQuotes(prev => ensureArray(prev, 'QuoteMiner.bankQuotesState').map(q => q.id === quoteId ? { ...q, tags: newTags } : q));
     } catch (err) {
       toast.error('Failed to add tag: ' + err.message);
     }
@@ -251,7 +255,7 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
     const newTags = (quote.tags || []).filter(t => t !== tag);
     try {
       await api.updateQuoteBankTags(projectId, quoteId, newTags);
-      setBankQuotes(prev => prev.map(q => q.id === quoteId ? { ...q, tags: newTags } : q));
+      setBankQuotes(prev => ensureArray(prev, 'QuoteMiner.bankQuotesState').map(q => q.id === quoteId ? { ...q, tags: newTags } : q));
     } catch (err) {
       toast.error('Failed to remove tag: ' + err.message);
     }
@@ -298,7 +302,7 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
     if (ids.length === 0) return;
     try {
       await api.bulkUpdateQuoteBank(projectId, ids, { [field]: value });
-      setBankQuotes(prev => prev.map(q =>
+      setBankQuotes(prev => ensureArray(prev, 'QuoteMiner.bankQuotesState').map(q =>
         ids.includes(q.id) ? { ...q, [field]: value } : q
       ));
       toast.success(`Updated ${field} on ${ids.length} quotes`);
@@ -321,7 +325,7 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
         try {
           const newTags = [...currentTags, tag.trim()];
           await api.updateQuoteBankTags(projectId, id, newTags);
-          setBankQuotes(prev => prev.map(bq => bq.id === id ? { ...bq, tags: newTags } : bq));
+          setBankQuotes(prev => ensureArray(prev, 'QuoteMiner.bankQuotesState').map(bq => bq.id === id ? { ...bq, tags: newTags } : bq));
           updated++;
         } catch (err) {
           console.warn(`Failed to add tag to quote ${id}:`, err);
@@ -344,7 +348,7 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
         try {
           const newTags = currentTags.filter(t => t !== tag);
           await api.updateQuoteBankTags(projectId, id, newTags);
-          setBankQuotes(prev => prev.map(bq => bq.id === id ? { ...bq, tags: newTags } : bq));
+          setBankQuotes(prev => ensureArray(prev, 'QuoteMiner.bankQuotesState').map(bq => bq.id === id ? { ...bq, tags: newTags } : bq));
           updated++;
         } catch (err) {
           console.warn(`Failed to remove tag from quote ${id}:`, err);
@@ -362,7 +366,7 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
     if (quoteIds.length === 0) return;
     try {
       await api.bulkUpdateQuoteBank(projectId, quoteIds, { [field]: value });
-      setBankQuotes(prev => prev.map(q =>
+      setBankQuotes(prev => ensureArray(prev, 'QuoteMiner.bankQuotesState').map(q =>
         quoteIds.includes(q.id) ? { ...q, [field]: value } : q
       ));
       toast.success(`Updated ${field} on ${quoteIds.length} source quotes`);
@@ -399,7 +403,7 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
         await api.updateQuoteBankQuote(projectId, editingField.quoteId, {
           headlines: JSON.stringify(headlines),
         });
-        setBankQuotes(prev => prev.map(q =>
+        setBankQuotes(prev => ensureArray(prev, 'QuoteMiner.bankQuotesState').map(q =>
           q.id === editingField.quoteId ? { ...q, headlines: JSON.stringify(headlines) } : q
         ));
         toast.success('Headline updated');
@@ -408,7 +412,7 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
         await api.updateQuoteBankQuote(projectId, editingField.quoteId, {
           [editingField.field]: editingField.value,
         });
-        setBankQuotes(prev => prev.map(q =>
+        setBankQuotes(prev => ensureArray(prev, 'QuoteMiner.bankQuotesState').map(q =>
           q.id === editingField.quoteId ? { ...q, [editingField.field]: editingField.value } : q
         ));
         toast.success(`${editingField.field} updated`);
@@ -578,7 +582,7 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
   const toggleFavorite = async (quoteId) => {
     try {
       await api.toggleQuoteFavorite(projectId, quoteId);
-      setBankQuotes(prev => prev.map(q =>
+      setBankQuotes(prev => ensureArray(prev, 'QuoteMiner.bankQuotesState').map(q =>
         q.id === quoteId ? { ...q, is_favorite: !q.is_favorite } : q
       ));
     } catch (err) {
@@ -590,7 +594,7 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
     if (!confirm('Remove this quote from the bank?')) return;
     try {
       await api.deleteQuoteBankQuote(projectId, quoteId);
-      setBankQuotes(prev => prev.filter(q => q.id !== quoteId));
+      setBankQuotes(prev => ensureArray(prev, 'QuoteMiner.bankQuotesState').filter(q => q.id !== quoteId));
       toast.success('Quote removed');
     } catch (err) {
       toast.error('Failed to delete: ' + err.message);
@@ -792,7 +796,7 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
     if (!confirm('Delete this mining run?')) return;
     try {
       await api.deleteQuoteMiningRun(projectId, runId);
-      setRuns(prev => prev.filter(r => r.id !== runId));
+      setRuns(prev => ensureArray(prev, 'QuoteMiner.runsState').filter(r => r.id !== runId));
       if (viewingRunId === runId) {
         setCurrentQuotes(null);
         setCurrentRunMeta(null);
@@ -806,7 +810,7 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
 
   // ─── Engine status helpers ─────────────────────────────────────────────────
   const getEngineStatus = (engine) => {
-    const events = progress.filter(e => e.engine === engine);
+    const events = safeProgress.filter(e => e.engine === engine);
     const started = events.find(e => e.type === 'engine_start');
     const completed = events.find(e => e.type === 'engine_complete');
     const error = events.find(e => e.type === 'engine_error');
@@ -817,8 +821,8 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
   };
 
   const getMergeStatus = () => {
-    const started = progress.find(e => e.type === 'merge_start');
-    const completed = progress.find(e => e.type === 'merge_complete');
+    const started = safeProgress.find(e => e.type === 'merge_start');
+    const completed = safeProgress.find(e => e.type === 'merge_complete');
     if (completed) return 'complete';
     if (started) return 'running';
     return 'pending';
@@ -830,9 +834,9 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
     const perplexity = getEngineStatus('perplexity');
     const claude = getEngineStatus('claude');
     const merge = getMergeStatus();
-    const bankUpdated = progress.some(e => e.type === 'bank_updated');
-    const headlinesDone = progress.some(e => e.type === 'headlines_saved' || e.type === 'bank_headlines_generated');
-    const saved = progress.some(e => e.type === 'saved');
+    const bankUpdated = safeProgress.some(e => e.type === 'bank_updated');
+    const headlinesDone = safeProgress.some(e => e.type === 'headlines_saved' || e.type === 'bank_headlines_generated');
+    const saved = safeProgress.some(e => e.type === 'saved');
 
     if (headlinesDone || bankUpdated) return { percent: 95, message: 'Generating headlines...' };
     if (saved) return { percent: 85, message: 'Updating quote bank...' };
@@ -1119,7 +1123,7 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
                               await api.updateQuoteBankTags(projectId, id, [...currentTags, bulkInput.trim()]);
                             }
                           }
-                          setBankQuotes(prev => prev.map(q =>
+                          setBankQuotes(prev => ensureArray(prev, 'QuoteMiner.bankQuotesState').map(q =>
                             quoteIds.includes(q.id) ? { ...q, tags: [...new Set([...(q.tags || []), bulkInput.trim()])] } : q
                           ));
                           toast.success(`Added tag to ${quoteIds.length} source quotes`);
@@ -2129,7 +2133,7 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
             A mining run is still processing in the background. Results will appear automatically when complete.
           </p>
           <div className="bg-offwhite rounded-xl p-3 text-[11px] font-mono text-textmid space-y-1">
-            {progress.map((event, i) => (
+            {safeProgress.map((event, i) => (
               <div key={i} className={event.type === 'error' ? 'text-red-500' : ''}>
                 {event.message || JSON.stringify(event)}
               </div>
@@ -2155,7 +2159,7 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
                     const claudeDone = getEngineStatus('claude') === 'complete' || getEngineStatus('claude') === 'error';
                     const mergeDone = getMergeStatus() === 'complete';
                     const mergeRunning = getMergeStatus() === 'running';
-                    const bankUpdated = progress.some(e => e.type === 'bank_updated');
+                    const bankUpdated = safeProgress.some(e => e.type === 'bank_updated');
 
                     let estRemaining = null;
                     if (bankUpdated || mergeDone) {
@@ -2289,7 +2293,7 @@ export default function QuoteMiner({ projectId, project, onNavigateToTracker, on
 
           {/* Progress log */}
           <div className="bg-offwhite rounded-xl p-3 max-h-[200px] overflow-y-auto text-[11px] font-mono text-textmid space-y-1">
-            {progress.map((event, i) => (
+            {safeProgress.map((event, i) => (
               <div key={i} className={`${
                 event.type === 'error' || event.type === 'engine_error' ? 'text-red-500' :
                 event.type === 'complete' || event.type === 'saved' || event.type === 'bank_updated' ? 'text-teal' :

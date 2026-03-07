@@ -7,6 +7,7 @@ import InfoTooltip from './InfoTooltip';
 import { useToast } from './Toast';
 import { useAsyncData } from '../hooks/useAsyncData';
 import { usePolling } from '../hooks/usePolling';
+import { ensureArray } from '../utils/collections';
 
 const ASPECT_RATIOS = [
   { value: '1:1', label: '1:1 (Square)' },
@@ -172,7 +173,7 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
 
   // Gallery
   const { data: ads, setData: setAds, loading: loadingAds, refetch: loadAds } = useAsyncData(
-    () => api.getAds(projectId).then(d => (d.ads || []).map(normalizeAdRecord)),
+    () => api.getAds(projectId).then(d => ensureArray(d?.ads, 'AdStudio.ads').map(normalizeAdRecord)),
     [projectId]
   );
   const [viewAd, setViewAd] = useState(null);
@@ -293,7 +294,7 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
   usePolling(async () => {
     try {
       const data = await api.getInProgressAds(projectId);
-      const inProgressMap = new Map((data.ads || []).map(a => [a.id, a]));
+      const inProgressMap = new Map(ensureArray(data?.ads, 'AdStudio.inProgressAds').map(a => [a.id, a]));
 
       const currentRestored = activeGens.filter(g => g.source === 'restored' && g.status !== 'completed' && !g.error);
       const disappeared = currentRestored.filter(g => !inProgressMap.has(g.adExternalId));
@@ -585,8 +586,8 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
         api.getInspirationImages(projectId).catch(() => ({ images: [] })),
         api.getTemplates(projectId).catch(() => ({ templates: [] }))
       ]);
-      setDriveImages(driveData.images || []);
-      setUploadedTemplates(uploadedData.templates || []);
+      setDriveImages(ensureArray(driveData?.images, 'AdStudio.driveImages'));
+      setUploadedTemplates(ensureArray(uploadedData?.templates, 'AdStudio.uploadedTemplates'));
     } catch (err) {
       console.error('Failed to load templates:', err);
     } finally {
@@ -1053,7 +1054,7 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
       toast.addToast(msg, result.created > 0 ? 'success' : 'info');
       // Background re-fetch for consistency with server state
       api.getProjectDeployments(projectId).then(data => {
-        const ids = new Set((data.deployments || []).map(d => d.ad_id));
+        const ids = new Set(ensureArray(data?.deployments, 'AdStudio.deployments').map(d => d.ad_id));
         setDeployedAdIds(ids);
       }).catch(() => {});
     } catch (err) {
@@ -1139,7 +1140,7 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
   const [deployedAdIds, setDeployedAdIds] = useState(new Set());
   useEffect(() => {
     api.getProjectDeployments(projectId).then(data => {
-      const ids = new Set((data.deployments || []).map(d => d.ad_id));
+      const ids = new Set(ensureArray(data?.deployments, 'AdStudio.deployments').map(d => d.ad_id));
       setDeployedAdIds(ids);
     }).catch(() => {});
   }, [projectId]);
@@ -1363,8 +1364,8 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
             api.getInspirationImages(projectId).catch(() => ({ images: [] })),
             api.getTemplates(projectId).catch(() => ({ templates: [] }))
           ]);
-          const drive = driveData.images || [];
-          const uploaded = uploadedData.templates || [];
+          const drive = ensureArray(driveData?.images, 'AdStudio.driveImages');
+          const uploaded = ensureArray(uploadedData?.templates, 'AdStudio.uploadedTemplates');
           setDriveImages(drive);
           setUploadedTemplates(uploaded);
           if (!trySelectTemplate(drive, uploaded)) {

@@ -1,3 +1,5 @@
+import { normalizeArrayFields, normalizeArrayResponse } from './utils/collections';
+
 const API_BASE = '/api';
 
 async function request(path, options = {}) {
@@ -184,8 +186,10 @@ export const api = {
   deleteUser: (id) => request(`/users/${id}`, { method: 'DELETE' }),
 
   // Projects
-  getProjects: () => cachedRequest('/projects'),
-  getProjectOptions: () => cachedRequest('/projects/options'),
+  getProjects: () =>
+    cachedRequest('/projects').then(data => normalizeArrayResponse(data, 'projects', 'api.getProjects.projects').projects),
+  getProjectOptions: () =>
+    cachedRequest('/projects/options').then(data => normalizeArrayResponse(data, 'projects', 'api.getProjectOptions.projects')),
   getProject: (id) => cachedRequest(`/projects/${id}`),
   getProjectStats: (id) => request(`/projects/${id}/stats`),
   createProject: (data) => request('/projects', { method: 'POST', body: JSON.stringify(data) }).then(r => { invalidateCache('/projects', '/projects/options'); return r; }),
@@ -243,11 +247,13 @@ export const api = {
   driveFolderInfo: (folderId) => request(`/drive/folders/${folderId}`),
 
   // Inspiration Folder
-  getInspirationImages: (projectId) => request(`/projects/${projectId}/inspiration`),
+  getInspirationImages: (projectId) =>
+    request(`/projects/${projectId}/inspiration`).then(data => normalizeArrayResponse(data, 'images', 'api.getInspirationImages.images')),
   syncInspiration: (projectId) => request(`/projects/${projectId}/inspiration/sync`, { method: 'POST' }),
 
   // Template Images
-  getTemplates: (projectId) => request(`/projects/${projectId}/templates`),
+  getTemplates: (projectId) =>
+    request(`/projects/${projectId}/templates`).then(data => normalizeArrayResponse(data, 'templates', 'api.getTemplates.templates')),
   uploadTemplate: async (projectId, file, description = '') => {
     const formData = new FormData();
     formData.append('image', file);
@@ -301,7 +307,8 @@ export const api = {
         ...(referenceImage ? { reference_image: referenceImage, reference_image_mime: referenceImageMime } : {})
       })
     }),
-  getAds: (projectId) => request(`/projects/${projectId}/ads`),
+  getAds: (projectId) =>
+    request(`/projects/${projectId}/ads`).then(data => normalizeArrayResponse(data, 'ads', 'api.getAds.ads')),
   getInProgressAds: (projectId) => request(`/projects/${projectId}/ads/in-progress`),
   getAd: (projectId, adId) => request(`/projects/${projectId}/ads/${adId}`),
   deleteAd: (projectId, adId) =>
@@ -360,19 +367,23 @@ export const api = {
     streamSSEWithBody(`/projects/${projectId}/lp-agent/generate-test`, body, onEvent),
   runGauntletTest: (projectId, body, onEvent) =>
     streamSSEWithBody(`/projects/${projectId}/lp-agent/gauntlet-test`, body, onEvent),
-  getLPAgentStatus: (projectId) => request(`/projects/${projectId}/lp-agent/status`),
+  getLPAgentStatus: (projectId) =>
+    request(`/projects/${projectId}/lp-agent/status`).then(data => normalizeArrayResponse(data, 'recent_generations', 'api.getLPAgentStatus.recent_generations')),
   getGauntletProgress: (projectId) => request(`/projects/${projectId}/lp-agent/gauntlet-progress`).then(r => r.progress),
 
-  getConductorAngles: (projectId) => cachedRequest(`/conductor/angles/${projectId}`),
+  getConductorAngles: (projectId) =>
+    cachedRequest(`/conductor/angles/${projectId}`).then(data => normalizeArrayResponse(data, 'angles', 'api.getConductorAngles.angles')),
   createConductorAngle: (projectId, data) => request(`/conductor/angles/${projectId}`, { method: 'POST', body: JSON.stringify(data) }).then(r => { invalidateCache(`/conductor/angles/${projectId}`); return r; }),
   updateConductorAngle: (projectId, angleId, data) => request(`/conductor/angles/${projectId}/${angleId}`, { method: 'PUT', body: JSON.stringify(data) }).then(r => { invalidateCache(`/conductor/angles/${projectId}`); return r; }),
   deleteConductorAngle: (projectId, angleId) => request(`/conductor/angles/${projectId}/${angleId}`, { method: 'DELETE' }).then(r => { invalidateCache(`/conductor/angles/${projectId}`); return r; }),
-  getConductorRuns: (projectId, limit) => request(`/conductor/runs/${projectId}${limit ? `?limit=${limit}` : ''}`),
+  getConductorRuns: (projectId, limit) =>
+    request(`/conductor/runs/${projectId}${limit ? `?limit=${limit}` : ''}`).then(data => normalizeArrayResponse(data, 'runs', 'api.getConductorRuns.runs')),
   triggerConductorRun: (projectId) => request(`/conductor/run/${projectId}`, { method: 'POST' }),
   triggerConductorTestRun: (projectId, body, onEvent) => streamSSEWithBody(`/conductor/test-run/${projectId}`, body, onEvent),
   getTestRunProgress: (projectId) => request(`/conductor/test-run/progress/${projectId}`),
   cancelTestRun: (projectId) => request(`/conductor/test-run/cancel/${projectId}`, { method: 'POST' }),
-  getConductorPlaybooks: (projectId) => cachedRequest(`/conductor/playbooks/${projectId}`),
+  getConductorPlaybooks: (projectId) =>
+    cachedRequest(`/conductor/playbooks/${projectId}`).then(data => normalizeArrayResponse(data, 'playbooks', 'api.getConductorPlaybooks.playbooks')),
   getConductorPlaybook: (projectId, angleName) => request(`/conductor/playbooks/${projectId}/${encodeURIComponent(angleName)}`),
   triggerLearningStep: (projectId, angleName, scoredAds) => request('/conductor/learn', { method: 'POST', body: JSON.stringify({ projectId, angleName, scoredAds }) }),
   getConductorPipelineStatus: () => cachedRequest('/conductor/pipeline-status'),
@@ -389,12 +400,14 @@ export const api = {
   runFilterDryRun: () => request('/agent-monitor/filter/run', { method: 'POST' }),
   runFilterLive: () => request('/agent-monitor/filter/run-live', { method: 'POST' }),
   toggleFilterPause: () => request('/agent-monitor/filter/pause', { method: 'POST' }),
-  getFilterVolumes: () => request('/agent-monitor/filter/volumes'),
+  getFilterVolumes: () =>
+    request('/agent-monitor/filter/volumes').then(data => normalizeArrayResponse(data, 'projects', 'api.getFilterVolumes.projects')),
   updateFilterVolume: (projectId, value) => request(`/agent-monitor/filter/volumes/${projectId}`, { method: 'PUT', body: JSON.stringify({ scout_daily_flex_ads: value }) }),
   getGauntletStats: (projectId) => request(`/agent-monitor/gauntlet-stats?projectId=${projectId}`),
 
   // Performance Tracker / Deployments
-  getDeployments: () => cachedRequest('/deployments'),
+  getDeployments: () =>
+    cachedRequest('/deployments').then(data => normalizeArrayResponse(data, 'deployments', 'api.getDeployments.deployments')),
   getProjectDeployments: (projectId) => cachedRequest(`/deployments?projectId=${projectId}`),
   createDeployments: (adIds) => request('/deployments', { method: 'POST', body: JSON.stringify({ adIds }) }),
   updateDeployment: (id, fields) => request(`/deployments/${id}`, { method: 'PUT', body: JSON.stringify(fields) }),
@@ -407,7 +420,13 @@ export const api = {
   backfillHeadlines: () => request('/deployments/backfill-headlines', { method: 'POST' }),
 
   // Campaigns & Ad Sets (local organization)
-  getCampaigns: (projectId) => request(`/deployments/campaigns?projectId=${projectId}`),
+  getCampaigns: (projectId) =>
+    request(`/deployments/campaigns?projectId=${projectId}`).then(data =>
+      normalizeArrayFields(data, {
+        campaigns: 'api.getCampaigns.campaigns',
+        adSets: 'api.getCampaigns.adSets',
+      })
+    ),
   createCampaign: (projectId, name) => request('/deployments/campaigns', { method: 'POST', body: JSON.stringify({ projectId, name }) }),
   updateCampaign: (id, fields) => request(`/deployments/campaigns/${id}`, { method: 'PUT', body: JSON.stringify(fields) }),
   deleteCampaign: (id) => request(`/deployments/campaigns/${id}`, { method: 'DELETE' }),
@@ -422,7 +441,8 @@ export const api = {
   duplicateDeployment: (id, overrides) => request(`/deployments/${id}/duplicate`, { method: 'POST', body: JSON.stringify({ overrides }) }),
 
   // Flex Ads
-  getFlexAds: (projectId) => request(`/deployments/flex-ads?projectId=${projectId}`),
+  getFlexAds: (projectId) =>
+    request(`/deployments/flex-ads?projectId=${projectId}`).then(data => normalizeArrayResponse(data, 'flexAds', 'api.getFlexAds.flexAds')),
   getFlexAdCount: (projectId, angleName) => request(`/deployments/flex-ads/count?projectId=${projectId}${angleName ? `&angleName=${encodeURIComponent(angleName)}` : ''}`),
   createFlexAd: (projectId, adSetId, name, deploymentIds) =>
     request('/deployments/flex-ads', { method: 'POST', body: JSON.stringify({ projectId, adSetId, name, deploymentIds }) }),
@@ -442,7 +462,8 @@ export const api = {
     request(`/deployments/${deploymentId}/generate-ad-headlines`, { method: 'POST', body: JSON.stringify({ primaryTexts, flexAdId, direction, messages }) }),
 
   // Quote Mining
-  getQuoteMiningRuns: (projectId) => request(`/projects/${projectId}/quote-mining`),
+  getQuoteMiningRuns: (projectId) =>
+    request(`/projects/${projectId}/quote-mining`).then(data => normalizeArrayResponse(data, 'runs', 'api.getQuoteMiningRuns.runs')),
   getQuoteMiningRun: (projectId, runId) => request(`/projects/${projectId}/quote-mining/${runId}`),
   startQuoteMining: (projectId, config, onEvent) =>
     streamSSEWithBody(`/projects/${projectId}/quote-mining`, config, onEvent),
@@ -461,7 +482,8 @@ export const api = {
     streamSSEWithBody(`/projects/${projectId}/quote-mining/${runId}/headlines`, {}, onEvent),
 
   // Quote Bank
-  getQuoteBank: (projectId) => request(`/projects/${projectId}/quote-bank`),
+  getQuoteBank: (projectId) =>
+    request(`/projects/${projectId}/quote-bank`).then(data => normalizeArrayResponse(data, 'quotes', 'api.getQuoteBank.quotes')),
   toggleQuoteFavorite: (projectId, quoteId) =>
     request(`/projects/${projectId}/quote-bank/${quoteId}/favorite`, { method: 'PATCH' }),
   deleteQuoteBankQuote: (projectId, quoteId) =>
@@ -537,7 +559,8 @@ export const api = {
   syncMetaPerformance: (projectId) => request(`/projects/${projectId}/meta/sync`, { method: 'POST' }),
 
   // Landing Pages (LP Gen)
-  getLandingPages: (projectId) => request(`/projects/${projectId}/landing-pages`),
+  getLandingPages: (projectId) =>
+    request(`/projects/${projectId}/landing-pages`).then(data => normalizeArrayResponse(data, 'pages', 'api.getLandingPages.pages')),
   getLandingPage: (projectId, pageId) => request(`/projects/${projectId}/landing-pages/${pageId}`),
   checkLandingPageDocs: (projectId) => request(`/projects/${projectId}/landing-pages-check`),
   generateLandingPage: (projectId, body, onEvent) =>
@@ -596,7 +619,7 @@ export const api = {
 
   // LP Templates
   getLPTemplates: (projectId) =>
-    request(`/projects/${projectId}/lp-templates`),
+    request(`/projects/${projectId}/lp-templates`).then(data => normalizeArrayResponse(data, 'templates', 'api.getLPTemplates.templates')),
   getLPTemplate: (projectId, templateId) =>
     request(`/projects/${projectId}/lp-templates/${templateId}`),
   extractLPTemplate: (projectId, url, onEvent) =>

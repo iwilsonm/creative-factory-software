@@ -12,6 +12,7 @@ import { ConvexHttpClient } from 'convex/browser';
 import { api } from '../convex/_generated/api.js';
 import fetch from 'node-fetch';
 import { withRetry } from './services/retry.js';
+import { ensureArray } from './utils/collections.js';
 
 // Read Convex URL from environment
 const CONVEX_URL = process.env.CONVEX_URL;
@@ -155,12 +156,12 @@ export async function getAllProjects() {
 }
 
 export async function getProjectSummaries() {
-  const projects = await queryWithRetry(api.projects.getSummaries, {});
+  const projects = ensureArray(await queryWithRetry(api.projects.getSummaries, {}), 'convexClient.getProjectSummaries');
   return projects.map(convexProjectSummaryToRow);
 }
 
 export async function getProjectOptions() {
-  const projects = await queryWithRetry(api.projects.getOptions, {});
+  const projects = ensureArray(await queryWithRetry(api.projects.getOptions, {}), 'convexClient.getProjectOptions');
   return projects.map(convexProjectOptionToRow);
 }
 
@@ -297,7 +298,7 @@ function convexDocToRow(d) {
 // =============================================
 
 export async function getAdsByProject(projectId) {
-  const ads = await cachedQuery('ad_creatives', api.adCreatives.getGalleryByProject, { projectId });
+  const ads = ensureArray(await cachedQuery('ad_creatives', api.adCreatives.getGalleryByProject, { projectId }), 'convexClient.getAdsByProject');
   return ads.map(convexAdSummaryToRow);
 }
 
@@ -329,12 +330,12 @@ export async function getAd(id) {
 }
 
 export async function getAllAds() {
-  const ads = await cachedQuery('ad_creatives', api.adCreatives.getAll, {});
+  const ads = ensureArray(await cachedQuery('ad_creatives', api.adCreatives.getAll, {}), 'convexClient.getAllAds');
   return ads.map(a => convexAdToRow(a));
 }
 
 export async function getInProgressAdsByProject(projectId) {
-  const ads = await cachedQuery('ad_creatives', api.adCreatives.getInProgressByProject, { projectId });
+  const ads = ensureArray(await cachedQuery('ad_creatives', api.adCreatives.getInProgressByProject, { projectId }), 'convexClient.getInProgressAdsByProject');
   return ads.map(a => convexAdToRow(a));
 }
 
@@ -343,7 +344,7 @@ export async function getAdImageUrl(id) {
 }
 
 export async function getAdsByBatchId(batchId) {
-  const ads = await cachedQuery('ad_creatives', api.adCreatives.getByBatch, { batchId });
+  const ads = ensureArray(await cachedQuery('ad_creatives', api.adCreatives.getByBatch, { batchId }), 'convexClient.getAdsByBatchId');
   return ads.map(a => convexAdToRow(a));
 }
 
@@ -756,7 +757,7 @@ export async function purgeDeletedDeployments(olderThanDays = 30) {
 // =============================================
 
 export async function getCampaignsByProject(projectId) {
-  const campaigns = await cachedQuery('campaigns', api.campaigns.getByProject, { projectId });
+  const campaigns = ensureArray(await cachedQuery('campaigns', api.campaigns.getByProject, { projectId }), 'convexClient.getCampaignsByProject');
   return campaigns.map(c => ({
     id: c.externalId,
     project_id: c.project_id,
@@ -814,7 +815,7 @@ export async function getAdSet(id) {
 }
 
 export async function getAdSetsByProject(projectId) {
-  const adSets = await cachedQuery('ad_sets', api.adSets.getByProject, { projectId });
+  const adSets = ensureArray(await cachedQuery('ad_sets', api.adSets.getByProject, { projectId }), 'convexClient.getAdSetsByProject');
   return adSets.map(a => ({
     id: a.externalId,
     campaign_id: a.campaign_id,
@@ -872,7 +873,7 @@ export async function deleteAdSet(id) {
 // =============================================
 
 export async function getFlexAdsByProject(projectId) {
-  const flexAds = await cachedQuery('flex_ads', api.flexAds.getByProject, { projectId });
+  const flexAds = ensureArray(await cachedQuery('flex_ads', api.flexAds.getByProject, { projectId }), 'convexClient.getFlexAdsByProject');
   return flexAds.map(f => ({
     id: f.externalId,
     project_id: f.project_id,
@@ -1033,7 +1034,7 @@ export async function createDeploymentDuplicate({ id, ad_id, project_id, status,
 // =============================================
 
 export async function getQuoteMiningRunsByProject(projectId) {
-  const runs = await cachedQuery('quote_mining_runs', api.quote_mining_runs.getByProject, { projectId });
+  const runs = ensureArray(await cachedQuery('quote_mining_runs', api.quote_mining_runs.getByProject, { projectId }), 'convexClient.getQuoteMiningRunsByProject');
   return runs.map(r => ({
     id: r.externalId,
     project_id: r.project_id,
@@ -1088,7 +1089,7 @@ export async function getQuoteMiningRun(externalId) {
 // =============================================
 
 export async function getQuoteBankByProject(projectId) {
-  const quotes = await cachedQuery('quote_bank', api.quote_bank.getByProject, { projectId });
+  const quotes = ensureArray(await cachedQuery('quote_bank', api.quote_bank.getByProject, { projectId }), 'convexClient.getQuoteBankByProject');
   return quotes.map(q => ({
     id: q.externalId,
     project_id: q.project_id,
@@ -1278,11 +1279,11 @@ export async function replaceDashboardTodos(todos) {
 // =============================================
 
 export async function getLandingPagesByProject(projectId) {
-  return await cachedQuery('landing_pages', api.landingPages.getByProject, { projectId });
+  return ensureArray(await cachedQuery('landing_pages', api.landingPages.getByProject, { projectId }), 'convexClient.getLandingPagesByProject');
 }
 
 export async function getLandingPageSummariesByProject(projectId) {
-  return await cachedQuery('landing_pages', api.landingPages.getListByProject, { projectId });
+  return ensureArray(await cachedQuery('landing_pages', api.landingPages.getListByProject, { projectId }), 'convexClient.getLandingPageSummariesByProject');
 }
 
 export async function getLandingPage(externalId) {
@@ -1379,7 +1380,7 @@ function convexLPTemplateToRow(t) {
 }
 
 export async function getLPTemplatesByProject(projectId) {
-  const templates = await cachedQuery('lp_templates', api.lpTemplates.getByProject, { projectId });
+  const templates = ensureArray(await cachedQuery('lp_templates', api.lpTemplates.getByProject, { projectId }), 'convexClient.getLPTemplatesByProject');
   return templates.map(convexLPTemplateToRow);
 }
 
@@ -1533,11 +1534,11 @@ export async function getAllLPAgentConfigs() {
 // =============================================
 
 export async function getConductorAngles(projectId) {
-  return await cachedQuery('conductor', api.conductor.getAngles, { projectId });
+  return ensureArray(await cachedQuery('conductor', api.conductor.getAngles, { projectId }), 'convexClient.getConductorAngles');
 }
 
 export async function getActiveConductorAngles(projectId) {
-  return await cachedQuery('conductor', api.conductor.getActiveAngles, { projectId });
+  return ensureArray(await cachedQuery('conductor', api.conductor.getActiveAngles, { projectId }), 'convexClient.getActiveConductorAngles');
 }
 
 export async function createConductorAngle({ id, project_id, name, description, prompt_hints, source, status,
@@ -1582,7 +1583,7 @@ export async function deleteConductorAngle(id) {
 // =============================================
 
 export async function getConductorRuns(projectId, limit = 50) {
-  return await cachedQuery('conductor', api.conductor.getRuns, { projectId, limit });
+  return ensureArray(await cachedQuery('conductor', api.conductor.getRuns, { projectId, limit }), 'convexClient.getConductorRuns');
 }
 
 export async function createConductorRun(fields) {
@@ -1616,7 +1617,7 @@ export async function createConductorHealth(fields) {
 // =============================================
 
 export async function getConductorPlaybooks(projectId) {
-  return await cachedQuery('conductor', api.conductor.getPlaybooks, { projectId });
+  return ensureArray(await cachedQuery('conductor', api.conductor.getPlaybooks, { projectId }), 'convexClient.getConductorPlaybooks');
 }
 
 export async function getConductorPlaybook(projectId, angleName) {

@@ -5,6 +5,7 @@ import { useToast } from './Toast';
 import LPTemplateManager from './LPTemplateManager';
 import PipelineProgress from './PipelineProgress';
 import { usePolling } from '../hooks/usePolling';
+import { ensureArray } from '../utils/collections';
 
 const NARRATIVE_FRAMES = [
   { id: 'testimonial', name: 'Testimonial Journey' },
@@ -80,9 +81,9 @@ export default function LPAgentSettings({ projectId }) {
           setShopifyForm(f => ({ ...f, store_domain: shopRes.value.store_domain }));
         }
       }
-      if (tplRes.status === 'fulfilled') setTemplates(tplRes.value?.templates || []);
-      if (statusRes.status === 'fulfilled') setRecentGenerations(statusRes.value?.recent_generations || []);
-      if (anglesRes.status === 'fulfilled') setConductorAngles(anglesRes.value?.angles || anglesRes.value || []);
+      if (tplRes.status === 'fulfilled') setTemplates(ensureArray(tplRes.value?.templates, 'LPAgentSettings.templates'));
+      if (statusRes.status === 'fulfilled') setRecentGenerations(ensureArray(statusRes.value?.recent_generations, 'LPAgentSettings.recentGenerations'));
+      if (anglesRes.status === 'fulfilled') setConductorAngles(ensureArray(anglesRes.value?.angles ?? anglesRes.value, 'LPAgentSettings.conductorAngles'));
     } catch (err) {
       console.error('[LPAgentSettings] Load error:', err);
     } finally {
@@ -280,7 +281,10 @@ export default function LPAgentSettings({ projectId }) {
 
   // Determine agent status label
   const hasShopify = shopifyStatus?.connected;
-  const hasTemplates = templates.filter(t => t.status === 'ready').length > 0;
+  const safeTemplates = ensureArray(templates, 'LPAgentSettings.templatesState');
+  const safeConductorAngles = ensureArray(conductorAngles, 'LPAgentSettings.conductorAnglesState');
+  const safeRecentGenerations = ensureArray(recentGenerations, 'LPAgentSettings.recentGenerationsState');
+  const hasTemplates = safeTemplates.filter(t => t.status === 'ready').length > 0;
   const hasPdpUrl = !!config?.pdp_url;
   const isEnabled = !!config?.enabled;
 
@@ -753,7 +757,7 @@ export default function LPAgentSettings({ projectId }) {
               className="input-apple text-[12px] py-1.5 px-2 flex-1 min-w-0 disabled:opacity-50"
             >
               <option value="">No angle</option>
-              {conductorAngles.filter(a => a.status === 'active').map(a => (
+              {safeConductorAngles.filter(a => a.status === 'active').map(a => (
                 <option key={a.id || a.externalId || a.name} value={a.name}>{a.name}</option>
               ))}
             </select>
@@ -826,7 +830,7 @@ export default function LPAgentSettings({ projectId }) {
           Recent Generations
         </h3>
 
-        {recentGenerations.length === 0 ? (
+        {safeRecentGenerations.length === 0 ? (
           <p className="text-[12px] text-textmid text-center py-3">No test generations yet.</p>
         ) : (
           <div className="space-y-2">
@@ -834,7 +838,7 @@ export default function LPAgentSettings({ projectId }) {
               // Group pages into batches and singles
               const batchMap = {};
               const singles = [];
-              for (const lp of recentGenerations) {
+              for (const lp of safeRecentGenerations) {
                 if (lp.gauntlet_batch_id) {
                   if (!batchMap[lp.gauntlet_batch_id]) batchMap[lp.gauntlet_batch_id] = [];
                   batchMap[lp.gauntlet_batch_id].push(lp);

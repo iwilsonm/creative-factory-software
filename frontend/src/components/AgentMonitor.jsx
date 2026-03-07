@@ -4,6 +4,7 @@ import { api } from '../api';
 import LPAgentSettings from './LPAgentSettings';
 import PipelineProgress from './PipelineProgress';
 import { useToast } from './Toast';
+import { ensureArray } from '../utils/collections';
 
 const LEVEL_CONFIG = {
   OK:        { color: 'text-teal',       icon: '\u2713', bg: 'bg-teal/10' },
@@ -260,7 +261,7 @@ export default function AgentMonitor() {
 // Pipeline Overview
 // =============================================
 function PipelineOverview({ data, fixerData, filterData }) {
-  const projects = data?.projects || [];
+  const projects = ensureArray(data?.projects, 'AgentMonitor.pipeline.projects');
   const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
   // Get the next 5 weekdays
@@ -502,12 +503,13 @@ function LPAgentTab() {
       return next;
     }, { replace: true });
   }, [setSearchParams]);
+  const safeProjects = ensureArray(projects, 'AgentMonitor.lpAgent.projectsState');
 
   useEffect(() => {
     (async () => {
       try {
         const res = await api.getProjectOptions();
-        const list = res.projects || res || [];
+        const list = ensureArray(res?.projects ?? res, 'AgentMonitor.lpAgent.projects');
         setProjects(list);
         const projectFromUrl = searchParams.get('project');
         if (projectFromUrl && list.some(p => p.id === projectFromUrl)) {
@@ -527,14 +529,14 @@ function LPAgentTab() {
   return (
     <div>
       {/* Project selector */}
-      {projects.length > 1 && (
+      {safeProjects.length > 1 && (
         <div className="mb-4">
           <select
             value={selectedProject}
             onChange={e => setSelectedProject(e.target.value)}
             className="input-apple text-[12px]"
           >
-            {projects.map(p => (
+            {safeProjects.map(p => (
               <option key={p.id} value={p.id}>{p.displayName || p.brand_name || p.name}</option>
             ))}
           </select>
@@ -592,22 +594,23 @@ function DirectorTab({ onRefresh }) {
     try {
       const saved = localStorage.getItem(QUEUE_KEY);
       if (!saved) return [];
-      const parsed = JSON.parse(saved);
+      const parsed = ensureArray(JSON.parse(saved), 'AgentMonitor.director.savedRunQueue');
       // Clear stale items older than 2 hours
       const cutoff = Date.now() - 2 * 60 * 60 * 1000;
       return parsed.filter(r => r.startTime ? r.startTime > cutoff : true);
     } catch { return []; }
   });
-  const activeRun = testRunQueue.find(r => r.status === 'running');
-  const queuedCount = testRunQueue.filter(r => r.status === 'queued').length;
-  const finishedRuns = testRunQueue.filter(r => r.status === 'complete' || r.status === 'error');
+  const safeTestRunQueue = ensureArray(testRunQueue, 'AgentMonitor.director.testRunQueue');
+  const activeRun = safeTestRunQueue.find(r => r.status === 'running');
+  const queuedCount = safeTestRunQueue.filter(r => r.status === 'queued').length;
+  const finishedRuns = safeTestRunQueue.filter(r => r.status === 'complete' || r.status === 'error');
   const sseActiveRef = useRef(false); // tracks if we have a live SSE connection for the active run
   const abortRef = useRef(null); // stores the SSE abort function for active run cancellation
 
   // Sync queue to localStorage on every change
   useEffect(() => {
-    localStorage.setItem(QUEUE_KEY, JSON.stringify(testRunQueue));
-  }, [testRunQueue]);
+    localStorage.setItem(QUEUE_KEY, JSON.stringify(safeTestRunQueue));
+  }, [safeTestRunQueue]);
 
   // Auto-clear finished results after 5 minutes
   useEffect(() => {
@@ -646,7 +649,7 @@ function DirectorTab({ onRefresh }) {
     (async () => {
       try {
         const res = await api.getProjectOptions();
-        const list = res.projects || res || [];
+        const list = ensureArray(res?.projects ?? res, 'AgentMonitor.director.projects');
         if (cancelled) return;
         setProjects(list);
         if (list.length > 0 && !selectedProjectRef.current) {
@@ -706,7 +709,7 @@ function DirectorTab({ onRefresh }) {
     try {
       const angRes = await api.getConductorAngles(projectId);
       if (selectedProjectRef.current !== projectId) return;
-      setAngles(angRes?.angles || []);
+      setAngles(ensureArray(angRes?.angles, 'AgentMonitor.director.angles'));
       setAnglesLoadedFor(projectId);
     } catch { /* ignore */ }
     finally {
@@ -720,7 +723,7 @@ function DirectorTab({ onRefresh }) {
     try {
       const runRes = await api.getConductorRuns(projectId, 20);
       if (selectedProjectRef.current !== projectId) return;
-      setRuns(runRes?.runs || []);
+      setRuns(ensureArray(runRes?.runs, 'AgentMonitor.director.runs'));
       setRunsLoadedFor(projectId);
     } catch { /* ignore */ }
     finally {
@@ -734,7 +737,7 @@ function DirectorTab({ onRefresh }) {
     try {
       const pbRes = await api.getConductorPlaybooks(projectId);
       if (selectedProjectRef.current !== projectId) return;
-      setPlaybooks(pbRes?.playbooks || []);
+      setPlaybooks(ensureArray(pbRes?.playbooks, 'AgentMonitor.director.playbooks'));
       setPlaybooksLoadedFor(projectId);
     } catch { /* ignore */ }
     finally {
@@ -748,7 +751,7 @@ function DirectorTab({ onRefresh }) {
     try {
       const campRes = await api.getCampaigns(projectId);
       if (selectedProjectRef.current !== projectId) return;
-      setCampaigns(campRes?.campaigns || []);
+      setCampaigns(ensureArray(campRes?.campaigns, 'AgentMonitor.director.campaigns'));
       setCampaignsLoadedFor(projectId);
     } catch { /* ignore */ }
     finally {
@@ -855,7 +858,7 @@ function DirectorTab({ onRefresh }) {
       setTestRunQueue(prev => prev.map(r => r.id === runId ? { ...r, finishedAt: Date.now() } : r));
       try {
         const runRes = await api.getConductorRuns(selectedProject, 20);
-        setRuns(runRes?.runs || []);
+        setRuns(ensureArray(runRes?.runs, 'AgentMonitor.director.runs'));
         setRunsLoadedFor(selectedProject);
       } catch {}
       if (!isError) onRefresh();
@@ -1003,9 +1006,10 @@ function DirectorTab({ onRefresh }) {
         } else {
           // Run finished while we were away
           const runRes = await api.getConductorRuns(selectedProject, 5);
-          setRuns(runRes?.runs || []);
+          const safeRuns = ensureArray(runRes?.runs, 'AgentMonitor.director.runs');
+          setRuns(safeRuns);
           setRunsLoadedFor(selectedProject);
-          const latest = (runRes?.runs || [])[0];
+          const latest = safeRuns[0];
           const succeeded = latest?.status === 'completed';
           updateQueueItem(running.id, {
             status: succeeded ? 'complete' : 'error',
@@ -1062,7 +1066,7 @@ function DirectorTab({ onRefresh }) {
       setNewAngle({ name: '', description: '', prompt_hints: '', priority: 'medium', frame: 'symptom-first', core_buyer: '', symptom_pattern: '', failed_solutions: '', current_belief: '', objection: '', emotional_state: '', scene: '', desired_belief_shift: '', tone: '', avoid_list: '' });
       setShowAddAngle(false);
       const angRes = await api.getConductorAngles(selectedProject);
-      setAngles(angRes?.angles || []);
+      setAngles(ensureArray(angRes?.angles, 'AgentMonitor.director.angles'));
       setAnglesLoadedFor(selectedProject);
     } catch { /* ignore */ }
   };
@@ -1070,35 +1074,35 @@ function DirectorTab({ onRefresh }) {
   const handleAngleStatusChange = async (angleId, newStatus) => {
     try {
       await api.updateConductorAngle(selectedProject, angleId, { status: newStatus });
-      setAngles(prev => prev.map(a => a.externalId === angleId ? { ...a, status: newStatus } : a));
+      setAngles(prev => ensureArray(prev, 'AgentMonitor.director.anglesState').map(a => a.externalId === angleId ? { ...a, status: newStatus } : a));
     } catch { /* ignore */ }
   };
 
   const handleToggleFocus = async (angleId, focused) => {
     try {
       await api.updateConductorAngle(selectedProject, angleId, { focused });
-      setAngles(prev => prev.map(a => a.externalId === angleId ? { ...a, focused } : a));
+      setAngles(prev => ensureArray(prev, 'AgentMonitor.director.anglesState').map(a => a.externalId === angleId ? { ...a, focused } : a));
     } catch { /* ignore */ }
   };
 
   const handleUpdateAngle = async (angleId, updates) => {
     await api.updateConductorAngle(selectedProject, angleId, updates);
-    setAngles(prev => prev.map(a => a.externalId === angleId ? { ...a, ...updates } : a));
+    setAngles(prev => ensureArray(prev, 'AgentMonitor.director.anglesState').map(a => a.externalId === angleId ? { ...a, ...updates } : a));
   };
 
   const handleToggleLPEnabled = async (angleId, lpEnabled) => {
     try {
       await api.updateConductorAngle(selectedProject, angleId, { lp_enabled: lpEnabled });
-      setAngles(prev => prev.map(a => a.externalId === angleId ? { ...a, lp_enabled: lpEnabled } : a));
+      setAngles(prev => ensureArray(prev, 'AgentMonitor.director.anglesState').map(a => a.externalId === angleId ? { ...a, lp_enabled: lpEnabled } : a));
     } catch (err) {
       console.error('[AgentMonitor] Failed to toggle LP enabled:', err);
     }
   };
 
   const handleToggleAllLP = async (lpEnabled) => {
-    const active = angles.filter(a => a.status === 'active');
+    const active = ensureArray(angles, 'AgentMonitor.director.anglesState').filter(a => a.status === 'active');
     // Optimistic update
-    setAngles(prev => prev.map(a => a.status === 'active' ? { ...a, lp_enabled: lpEnabled } : a));
+    setAngles(prev => ensureArray(prev, 'AgentMonitor.director.anglesState').map(a => a.status === 'active' ? { ...a, lp_enabled: lpEnabled } : a));
     // Fire all API calls in parallel
     await Promise.allSettled(
       active.map(a => api.updateConductorAngle(selectedProject, a.externalId, { lp_enabled: lpEnabled }))
@@ -1107,9 +1111,10 @@ function DirectorTab({ onRefresh }) {
 
   // --- Export angles as markdown ---
   const handleDownloadAngles = () => {
-    if (angles.length === 0) return;
+    const allAngles = ensureArray(angles, 'AgentMonitor.director.anglesState');
+    if (allAngles.length === 0) return;
     const grouped = { active: [], testing: [], archived: [] };
-    angles.forEach(a => {
+    allAngles.forEach(a => {
       const bucket = a.status === 'retired' ? grouped.archived : (grouped[a.status] || grouped.active);
       bucket.push(a);
     });
@@ -1250,7 +1255,7 @@ function DirectorTab({ onRefresh }) {
     reader.onload = (e) => {
       const text = e.target.result;
       const parsed = parseAnglesMarkdown(text);
-      const existingNames = new Set(angles.map(a => a.name.toLowerCase()));
+      const existingNames = new Set(ensureArray(angles, 'AgentMonitor.director.anglesState').map(a => a.name.toLowerCase()));
       const newAngles = parsed.filter(a => !existingNames.has(a.name.toLowerCase()));
       const skipped = parsed.filter(a => existingNames.has(a.name.toLowerCase()));
       setImportResult({ newAngles, skipped });
@@ -1284,7 +1289,7 @@ function DirectorTab({ onRefresh }) {
         });
       }
       const angRes = await api.getConductorAngles(selectedProject);
-      setAngles(angRes?.angles || []);
+      setAngles(ensureArray(angRes?.angles, 'AgentMonitor.director.angles'));
       setAnglesLoadedFor(selectedProject);
       setImportResult(null);
       setShowImport(false);
@@ -1292,8 +1297,14 @@ function DirectorTab({ onRefresh }) {
     finally { setImporting(false); }
   };
 
+  const safeProjects = ensureArray(projects, 'AgentMonitor.director.projectsState');
+  const safeAngles = ensureArray(angles, 'AgentMonitor.director.anglesState');
+  const safeRuns = ensureArray(runs, 'AgentMonitor.director.runsState');
+  const safePlaybooks = ensureArray(playbooks, 'AgentMonitor.director.playbooksState');
+  const safeCampaigns = ensureArray(campaigns, 'AgentMonitor.director.campaignsState');
+
   if (projectLoading) return <div className="text-[11px] text-textlight py-4">Loading projects...</div>;
-  if (projects.length === 0) return <div className="text-[11px] text-textlight py-4">No projects found.</div>;
+  if (safeProjects.length === 0) return <div className="text-[11px] text-textlight py-4">No projects found.</div>;
   if (!selectedProject) return <div className="text-[11px] text-textlight py-4">Select a project to load Director settings.</div>;
 
   const subTabs = [
@@ -1303,9 +1314,15 @@ function DirectorTab({ onRefresh }) {
     { id: 'settings', label: 'Settings' },
   ];
 
-  const activeAngles = angles.filter(a => a.status === 'active');
-  const testingAngles = angles.filter(a => a.status === 'testing');
-  const archivedAngles = angles.filter(a => a.status === 'archived' || a.status === 'retired');
+  const activeAngles = subTab === 'angles' || anglesLoadedFor === selectedProject
+    ? safeAngles.filter(a => a.status === 'active')
+    : [];
+  const testingAngles = subTab === 'angles' || anglesLoadedFor === selectedProject
+    ? safeAngles.filter(a => a.status === 'testing')
+    : [];
+  const archivedAngles = subTab === 'angles' || anglesLoadedFor === selectedProject
+    ? safeAngles.filter(a => a.status === 'archived' || a.status === 'retired')
+    : [];
   const canChooseAngle = !anglesLoading;
   const canTriggerTestRun = !baseLoading && !!config && (anglesLoadedFor !== selectedProject || activeAngles.length > 0);
 
@@ -1318,7 +1335,7 @@ function DirectorTab({ onRefresh }) {
           onChange={e => setSelectedProject(e.target.value)}
           className="text-[12px] text-textdark bg-offwhite border border-black/10 rounded-lg px-3 py-1.5 cursor-pointer"
         >
-          {projects.map(p => (
+          {safeProjects.map(p => (
             <option key={p.id} value={p.id}>{p.displayName || p.brand_name || p.name}</option>
           ))}
         </select>
@@ -1454,7 +1471,7 @@ function DirectorTab({ onRefresh }) {
         <StatCell value={config?.daily_flex_target ?? '—'} label="Daily Target" color="text-textdark" />
         <StatCell value={config?.ads_per_batch ?? '—'} label="Ads/Batch" color="text-textdark" />
         <StatCell value={anglesLoadedFor === selectedProject ? activeAngles.length : '—'} label="Angles" color="text-navy" />
-        <StatCell value={runsLoadedFor === selectedProject ? runs.filter(r => r.status === 'completed').length : '—'} label="Runs" color="text-teal" />
+        <StatCell value={runsLoadedFor === selectedProject ? safeRuns.filter(r => r.status === 'completed').length : '—'} label="Runs" color="text-teal" />
       </div>
 
       {/* Sub-tabs */}
@@ -1497,7 +1514,7 @@ function DirectorTab({ onRefresh }) {
           <div className="flex items-center gap-2 mb-3">
             <button
               onClick={handleDownloadAngles}
-              disabled={angles.length === 0}
+              disabled={safeAngles.length === 0}
               className="btn-secondary text-[11px] px-3 py-1.5 flex items-center gap-1.5 disabled:opacity-40"
             >
               <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5m0 0l5-5m-5 5V3" /></svg>
@@ -1717,11 +1734,11 @@ function DirectorTab({ onRefresh }) {
         <div>
           {playbooksLoading && playbooksLoadedFor !== selectedProject ? (
             <p className="text-[11px] text-textlight py-4">Loading playbooks...</p>
-          ) : playbooks.length === 0 ? (
+          ) : safePlaybooks.length === 0 ? (
             <p className="text-[11px] text-textlight py-4">No playbooks yet. Playbooks are created automatically after the Creative Filter scores batches for each angle.</p>
           ) : (
             <div className="space-y-3">
-              {playbooks.map(pb => (
+              {safePlaybooks.map(pb => (
                 <div key={pb.angle_name} className="rounded-xl bg-black/[0.02] border border-black/5 p-4">
                   <div className="flex items-center justify-between mb-2">
                     <p className="text-[13px] font-medium text-textdark">{pb.angle_name}</p>
@@ -1869,14 +1886,14 @@ function DirectorTab({ onRefresh }) {
             <label className="text-[11px] text-textmid font-medium block mb-1">Default Campaign for Auto-Deployed Ads</label>
             {campaignsLoading && campaignsLoadedFor !== selectedProject ? (
               <p className="text-[11px] text-textlight">Loading campaigns...</p>
-            ) : campaigns.length > 0 ? (
+            ) : safeCampaigns.length > 0 ? (
               <select
                 value={config.default_campaign_id || ''}
                 onChange={e => handleSaveConfig({ default_campaign_id: e.target.value })}
                 className="text-[12px] text-textdark bg-offwhite border border-black/10 rounded-lg px-3 py-1.5 cursor-pointer w-full"
               >
                 <option value="">Select a campaign...</option>
-                {campaigns.map(c => (
+                {safeCampaigns.map(c => (
                   <option key={c.externalId || c.id} value={c.externalId || c.id}>
                     {c.name}
                   </option>
@@ -1901,11 +1918,11 @@ function DirectorTab({ onRefresh }) {
           )}
           {runsLoading && runsLoadedFor !== selectedProject ? (
             <p className="text-[11px] text-textlight py-4">Loading run history...</p>
-          ) : runs.length === 0 ? (
+          ) : safeRuns.length === 0 ? (
             <p className="text-[11px] text-textlight py-4">No runs yet. Click "Test Run" to trigger the Director, or wait for the next scheduled run.</p>
           ) : (
             <div className="space-y-2">
-              {runs.map(run => {
+              {safeRuns.map(run => {
                 const rounds = safeParseJSON(run.rounds_json, []);
                 const batches = safeParseJSON(run.batches_created, []);
                 const flexAdId = run.flex_ad_id || batches.find(batch => batch.flex_ad_id)?.flex_ad_id || null;
@@ -2052,7 +2069,7 @@ const PRIORITY_OPTIONS = ['highest', 'high', 'medium', 'test'];
 const FRAME_OPTIONS = ['symptom-first', 'scam', 'objection-first', 'identity-first', 'MAHA', 'news-first', 'consequence-first'];
 
 function AngleCard({ angle, playbooks, onStatusChange, onToggleFocus, onToggleLPEnabled, onUpdate, showActions }) {
-  const pb = playbooks.find(p => p.angle_name === angle.name);
+  const pb = ensureArray(playbooks, 'AgentMonitor.angleCard.playbooks').find(p => p.angle_name === angle.name);
   const [expanded, setExpanded] = useState(false);
   const [editing, setEditing] = useState(false);
   const [editForm, setEditForm] = useState({});
@@ -2427,7 +2444,7 @@ function FilterPanel({ data, onRefresh }) {
     setLoadingVolumes(true);
     try {
       const res = await api.getFilterVolumes();
-      setVolumes(res.projects || []);
+      setVolumes(ensureArray(res?.projects, 'AgentMonitor.filter.volumes'));
     } catch { /* ignore */ }
     finally { setLoadingVolumes(false); }
   }, []);
@@ -2438,7 +2455,7 @@ function FilterPanel({ data, onRefresh }) {
     setSavingVolume(projectId);
     try {
       await api.updateFilterVolume(projectId, newValue);
-      setVolumes(prev => prev.map(p =>
+      setVolumes(prev => ensureArray(prev, 'AgentMonitor.filter.volumesState').map(p =>
         p.id === projectId ? { ...p, scout_daily_flex_ads: newValue } : p
       ));
     } catch { /* ignore */ }
@@ -2535,9 +2552,9 @@ function FilterPanel({ data, onRefresh }) {
         </p>
         {loadingVolumes ? (
           <div className="text-[10px] text-textlight py-2">Loading projects...</div>
-        ) : volumes && volumes.length > 0 ? (
+        ) : ensureArray(volumes, 'AgentMonitor.filter.volumesState').length > 0 ? (
           <div className="space-y-1">
-            {volumes.filter(p => p.scout_enabled !== false).map(project => (
+            {ensureArray(volumes, 'AgentMonitor.filter.volumesState').filter(p => p.scout_enabled !== false).map(project => (
               <div key={project.id} className="flex items-center justify-between gap-2 py-1.5 px-2.5 rounded-lg bg-white/60">
                 <div className="flex-1 min-w-0">
                   <p className="text-[11px] font-medium text-textdark truncate">

@@ -6,6 +6,7 @@ import Layout from '../components/Layout';
 import InfoTooltip from '../components/InfoTooltip';
 import { useToast } from '../components/Toast';
 import { useAsyncData } from '../hooks/useAsyncData';
+import { ensureArray } from '../utils/collections';
 
 const STATUS_CONFIG = {
   setup: { label: 'Setup', bg: 'bg-gold/10', text: 'text-gold' },
@@ -29,6 +30,7 @@ export default function Projects() {
     () => api.getProjects(),
     []
   );
+  const safeProjects = ensureArray(projects, 'Projects.page.projects');
 
   return (
     <Layout>
@@ -38,9 +40,9 @@ export default function Projects() {
           <div>
             <div className="flex items-center gap-2">
               <h1 className="text-2xl font-semibold text-textdark tracking-tight">Projects</h1>
-              {!loading && projects.length > 0 && (
+              {!loading && safeProjects.length > 0 && (
                 <span className="badge bg-black/5 text-textlight">
-                  {projects.length}
+                  {safeProjects.length}
                 </span>
               )}
               <InfoTooltip
@@ -77,7 +79,7 @@ export default function Projects() {
               </div>
             ))}
           </div>
-        ) : projects.length === 0 ? (
+        ) : safeProjects.length === 0 ? (
           <div className="card p-16 text-center fade-in">
             <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-black/5 flex items-center justify-center">
               <svg className="w-8 h-8 text-textlight" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -93,7 +95,7 @@ export default function Projects() {
           </div>
         ) : (
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 fade-in">
-            {projects.map(project => {
+            {safeProjects.map(project => {
               const status = STATUS_CONFIG[project.status] || { label: project.status, bg: 'bg-black/5', text: 'text-textmid' };
               const borderColor = STATUS_COLORS[project.status] || '#D1D5DB';
               return (
