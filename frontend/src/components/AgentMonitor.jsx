@@ -88,6 +88,7 @@ function getRunStatusLabel(run) {
       return 'building next round';
     case 'provider_failed':
       return 'provider failed';
+    case 'failed_under_threshold_after_round_cap':
     case 'failed_under_threshold_after_54':
       return 'cap reached';
     case 'generation_failed':
@@ -1573,7 +1574,7 @@ function DirectorTab({ onRefresh }) {
                         Batch {round.batch_id ? `${round.batch_id.slice(0, 8)}...` : '\u2013'}
                       </p>
                       <p className="text-[11px] text-textdark mt-1">
-                        {round.ads_passed ?? 0}/{round.ads_scored ?? round.ads_generated ?? 0} passed in this round, {round.cumulative_passed ?? 0}/{activeRunRequiredPasses} cumulative.
+                        {round.ads_generated ?? round.ads_scored ?? 0} generated, {round.ads_passed ?? 0}/{round.ads_scored ?? round.ads_generated ?? 0} passed in this round, {round.cumulative_passed ?? 0}/{activeRunRequiredPasses} cumulative.
                       </p>
                       {round.completed_at && (
                         <p className="text-[9px] text-textlight mt-1">{timeAgo(round.completed_at)}</p>
@@ -2215,7 +2216,7 @@ function DirectorTab({ onRefresh }) {
                                   Batch {round.batch_id ? `${round.batch_id.slice(0, 8)}...` : '\u2013'}
                                 </p>
                                 <p className="text-[11px] text-textdark mt-1">
-                                  {round.ads_passed ?? 0}/{round.ads_scored ?? round.ads_generated ?? 0} passed in this round, {round.cumulative_passed ?? 0}/{requiredPasses} cumulative.
+                                  {round.ads_generated ?? round.ads_scored ?? 0} generated, {round.ads_passed ?? 0}/{round.ads_scored ?? round.ads_generated ?? 0} passed in this round, {round.cumulative_passed ?? 0}/{requiredPasses} cumulative.
                                 </p>
                                 {round.completed_at && (
                                   <p className="text-[9px] text-textlight mt-1">{timeAgo(round.completed_at)}</p>
