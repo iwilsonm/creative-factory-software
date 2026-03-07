@@ -367,7 +367,7 @@ export const api = {
   createConductorAngle: (projectId, data) => request(`/conductor/angles/${projectId}`, { method: 'POST', body: JSON.stringify(data) }).then(r => { invalidateCache(`/conductor/angles/${projectId}`); return r; }),
   updateConductorAngle: (projectId, angleId, data) => request(`/conductor/angles/${projectId}/${angleId}`, { method: 'PUT', body: JSON.stringify(data) }).then(r => { invalidateCache(`/conductor/angles/${projectId}`); return r; }),
   deleteConductorAngle: (projectId, angleId) => request(`/conductor/angles/${projectId}/${angleId}`, { method: 'DELETE' }).then(r => { invalidateCache(`/conductor/angles/${projectId}`); return r; }),
-  getConductorRuns: (projectId, limit) => cachedRequest(`/conductor/runs/${projectId}${limit ? `?limit=${limit}` : ''}`),
+  getConductorRuns: (projectId, limit) => request(`/conductor/runs/${projectId}${limit ? `?limit=${limit}` : ''}`),
   triggerConductorRun: (projectId) => request(`/conductor/run/${projectId}`, { method: 'POST' }),
   triggerConductorTestRun: (projectId, body, onEvent) => streamSSEWithBody(`/conductor/test-run/${projectId}`, body, onEvent),
   getTestRunProgress: (projectId) => request(`/conductor/test-run/progress/${projectId}`),

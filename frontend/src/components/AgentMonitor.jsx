@@ -46,6 +46,47 @@ function timeUntil(dateStr) {
   return `~${mins} min`;
 }
 
+function safeParseJSON(value, fallback) {
+  if (!value) return fallback;
+  try {
+    return JSON.parse(value);
+  } catch {
+    return fallback;
+  }
+}
+
+function getRunStatusLabel(run) {
+  switch (run.terminal_status) {
+    case 'deployed':
+      return 'deployed';
+    case 'failed_under_threshold_after_54':
+      return 'cap reached';
+    case 'generation_failed':
+      return 'generation failed';
+    case 'grouping_failed':
+      return 'grouping failed';
+    case 'deploy_failed':
+      return 'deploy failed';
+    case 'batch_created':
+      return 'batch created';
+    default:
+      return run.status || 'unknown';
+  }
+}
+
+function getRunStatusClasses(run) {
+  if (run.status === 'completed' && run.terminal_status === 'deployed') {
+    return 'bg-teal/10 text-teal';
+  }
+  if (run.status === 'running') {
+    return 'bg-gold/10 text-gold';
+  }
+  if (run.status === 'failed') {
+    return 'bg-red-50 text-red-500';
+  }
+  return 'bg-black/5 text-textmid';
+}
+
 const VALID_AGENT_TABS = ['director', 'lp_agent', 'filter', 'fixer'];
 
 export default function AgentMonitor() {
@@ -537,6 +578,7 @@ function DirectorTab({ onRefresh }) {
   const [campaignsLoadedFor, setCampaignsLoadedFor] = useState('');
   const [runningAction, setRunningAction] = useState(null);
   const [saving, setSaving] = useState(false);
+  const [expandedRuns, setExpandedRuns] = useState({});
 
   const [campaigns, setCampaigns] = useState([]);
 
@@ -852,6 +894,10 @@ function DirectorTab({ onRefresh }) {
     setTestRunQueue(prev => prev.filter(r => r.status !== 'queued'));
   }, []);
 
+  const toggleRunExpanded = useCallback((runId) => {
+    setExpandedRuns(prev => ({ ...prev, [runId]: !prev[runId] }));
+  }, []);
+
   // Queue processor — starts next queued run via SSE when no active run
   useEffect(() => {
     const running = testRunQueue.find(r => r.status === 'running');
@@ -876,6 +922,11 @@ function DirectorTab({ onRefresh }) {
     const { abort, done } = api.triggerConductorTestRun(selectedProject, body, (event) => {
       if (event.type === 'progress') {
         const updates = { phase: event.message || '' };
+
+        if (typeof event.progressValue === 'number') {
+          setTestRunQueue(prev => prev.map(r => r.id === runId ? { ...r, ...updates, progress: Math.max(r.progress, event.progressValue) } : r));
+          return;
+        }
 
         if (event.step && STEP_PROGRESS[event.step] !== undefined) {
           setTestRunQueue(prev => prev.map(r => r.id === runId ? { ...r, ...updates, progress: Math.max(r.progress, STEP_PROGRESS[event.step]) } : r));
@@ -904,13 +955,17 @@ function DirectorTab({ onRefresh }) {
 
         updateQueueItem(runId, updates);
       } else if (event.type === 'complete') {
+        const roundsUsed = event.rounds_used || event.rounds?.length || 1;
+        const generated = event.total_ads_generated || event.ads_scored || '?';
+        const passed = event.ads_passed ?? '?';
+        const readyCount = event.ready_to_post_count ?? 0;
         const msg = event.flex_ads_created > 0
-          ? `${event.ads_passed}/${event.ads_scored} ads passed — flex ad deployed to Ready to Post!`
-          : `Complete — ${event.ads_passed || '?'}/${event.ads_scored || '?'} ads passed.`;
+          ? `Reached ${passed}/10 after ${roundsUsed} round${roundsUsed !== 1 ? 's' : ''} (${generated} generated). ${readyCount} Ready to Post ads created.`
+          : `Complete — ${passed}/10 passed after ${generated} generated.`;
         updateQueueItem(runId, { status: 'complete', progress: 100, phase: msg, result: event });
         finishRun(runId, false);
       } else if (event.type === 'error') {
-        updateQueueItem(runId, { status: 'error', progress: 0, phase: event.message || 'Failed' });
+        updateQueueItem(runId, { status: 'error', progress: 0, phase: event.message || 'Failed', result: event });
         toast.error(event.message || 'Test run failed');
         finishRun(runId, true);
       }
@@ -955,7 +1010,8 @@ function DirectorTab({ onRefresh }) {
           updateQueueItem(running.id, {
             status: succeeded ? 'complete' : 'error',
             progress: succeeded ? 100 : 0,
-            phase: succeeded ? 'Complete' : (latest?.error || 'Failed'),
+            phase: succeeded ? (latest?.decisions || 'Complete') : (latest?.failure_reason || latest?.error || 'Failed'),
+            result: latest || null,
           });
           finishRun(running.id, !succeeded);
           return; // Stop polling
@@ -1372,7 +1428,9 @@ function DirectorTab({ onRefresh }) {
                 <p className="text-textmid mt-0.5">{run.phase}</p>
                 {run.result?.flex_ads_created > 0 && (
                   <button
-                    onClick={() => navigate('/ads?tab=ready')}
+                    onClick={() => navigate(run.result?.flex_ad_id
+                      ? `/projects/${selectedProject}?tab=tracker&view=ready_to_post&flexAdId=${run.result.flex_ad_id}`
+                      : '/ads?tab=ready')}
                     className="text-[10px] text-gold hover:text-gold-light font-medium mt-1 inline-flex items-center gap-1"
                   >
                     View in Ready to Post {'\u2192'}
@@ -1848,45 +1906,134 @@ function DirectorTab({ onRefresh }) {
           ) : (
             <div className="space-y-2">
               {runs.map(run => {
-                let flexAdId = null;
-                try {
-                  const batches = JSON.parse(run.batches_created || '[]');
-                  flexAdId = batches[0]?.flex_ad_id;
-                } catch {}
+                const rounds = safeParseJSON(run.rounds_json, []);
+                const batches = safeParseJSON(run.batches_created, []);
+                const flexAdId = run.flex_ad_id || batches.find(batch => batch.flex_ad_id)?.flex_ad_id || null;
+                const angleName = rounds[0]?.angle_name || batches[0]?.angle_name || 'Unassigned angle';
+                const roundsUsed = run.total_rounds || rounds.length || batches.length || 1;
+                const totalGenerated = run.total_ads_generated || batches.reduce((sum, batch) => sum + (Number(batch.ad_count) || 0), 0);
+                const totalPassed = run.total_ads_passed ?? rounds[rounds.length - 1]?.cumulative_passed ?? null;
+                const requiredPasses = run.required_passes || 10;
+                const readyCount = run.ready_to_post_count ?? (flexAdId ? 10 : 0);
+                const failureText = run.failure_reason || run.error || '';
+                const isExpanded = !!expandedRuns[run.externalId];
 
                 return (
                   <div
                     key={run.externalId}
-                    className={`rounded-lg bg-black/[0.02] border border-black/5 p-3 ${flexAdId ? 'cursor-pointer hover:border-navy/20 transition-colors' : ''}`}
-                    onClick={() => flexAdId && navigate(`/projects/${selectedProject}?tab=tracker&view=ready_to_post&flexAdId=${flexAdId}`)}
+                    className="rounded-lg bg-black/[0.02] border border-black/5 p-3"
                   >
-                    <div className="flex items-center justify-between mb-1">
-                      <div className="flex items-center gap-2">
-                        <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${
-                          run.status === 'completed' ? 'bg-teal/10 text-teal' :
-                          run.status === 'failed' ? 'bg-red-50 text-red-400' :
-                          'bg-gold/10 text-gold'
-                        }`}>
-                          {run.status}
-                        </span>
-                        <span className="text-[10px] text-textlight">{run.run_type}</span>
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${getRunStatusClasses(run)}`}>
+                            {getRunStatusLabel(run)}
+                          </span>
+                          <span className="text-[10px] text-textlight">{run.run_type}</span>
+                          <span className="text-[10px] text-textmid truncate">{angleName}</span>
+                        </div>
+                        <p className="text-[11px] text-textdark leading-relaxed mt-1">
+                          {run.decisions || `Run used ${roundsUsed} round${roundsUsed !== 1 ? 's' : ''}.`}
+                        </p>
+                        {!!failureText && (
+                          <p className="text-[11px] text-red-500 leading-relaxed mt-1">{failureText}</p>
+                        )}
                       </div>
-                      <span className="text-[10px] text-textlight">{timeAgo(new Date(run.run_at).toISOString())}</span>
+                      <span className="text-[10px] text-textlight shrink-0">{timeAgo(new Date(run.run_at).toISOString())}</span>
                     </div>
-                    {run.decisions && (
-                      <p className="text-[11px] text-textdark leading-relaxed">{run.decisions}</p>
-                    )}
-                    {run.error && (
-                      <p className="text-[11px] text-red-400 leading-relaxed mt-1">{run.error}</p>
-                    )}
-                    <div className="flex items-center justify-between mt-1">
-                      {run.duration_ms ? (
-                        <p className="text-[9px] text-textlight">{Math.round(run.duration_ms / 1000)}s</p>
-                      ) : <span />}
-                      {flexAdId && (
-                        <p className="text-[10px] text-gold flex items-center gap-1">View in Ready to Post →</p>
-                      )}
+
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-3">
+                      <div className="rounded-lg bg-white/70 border border-black/5 px-2 py-2">
+                        <p className="text-[9px] uppercase tracking-wider text-textlight">Rounds</p>
+                        <p className="text-[12px] font-semibold text-textdark mt-0.5">{roundsUsed}</p>
+                      </div>
+                      <div className="rounded-lg bg-white/70 border border-black/5 px-2 py-2">
+                        <p className="text-[9px] uppercase tracking-wider text-textlight">Generated</p>
+                        <p className="text-[12px] font-semibold text-textdark mt-0.5">{totalGenerated || '\u2013'}</p>
+                      </div>
+                      <div className="rounded-lg bg-white/70 border border-black/5 px-2 py-2">
+                        <p className="text-[9px] uppercase tracking-wider text-textlight">Passed</p>
+                        <p className="text-[12px] font-semibold text-textdark mt-0.5">
+                          {totalPassed === null || totalPassed === undefined ? '\u2013' : `${totalPassed}/${requiredPasses}`}
+                        </p>
+                      </div>
+                      <div className="rounded-lg bg-white/70 border border-black/5 px-2 py-2">
+                        <p className="text-[9px] uppercase tracking-wider text-textlight">Ready</p>
+                        <p className="text-[12px] font-semibold text-textdark mt-0.5">{readyCount}</p>
+                      </div>
                     </div>
+
+                    <div className="flex items-center justify-between gap-3 mt-3">
+                      <div className="flex items-center gap-3 text-[9px] text-textlight">
+                        {run.duration_ms ? (
+                          <span>{Math.round(run.duration_ms / 1000)}s</span>
+                        ) : (
+                          <span>In progress</span>
+                        )}
+                        {batches.length > 0 && (
+                          <span>{batches.length} batch{batches.length !== 1 ? 'es' : ''}</span>
+                        )}
+                      </div>
+                      <div className="flex items-center gap-2">
+                        {flexAdId && (
+                          <button
+                            onClick={() => navigate(`/projects/${selectedProject}?tab=tracker&view=ready_to_post&flexAdId=${flexAdId}`)}
+                            className="text-[10px] text-gold hover:text-gold-light font-medium"
+                          >
+                            View in Ready to Post {'\u2192'}
+                          </button>
+                        )}
+                        {(rounds.length > 0 || batches.length > 0) && (
+                          <button
+                            onClick={() => toggleRunExpanded(run.externalId)}
+                            className="text-[10px] text-textmid hover:text-navy font-medium"
+                          >
+                            {isExpanded ? 'Hide details' : 'Show details'}
+                          </button>
+                        )}
+                      </div>
+                    </div>
+
+                    {isExpanded && (
+                      <div className="mt-3 pt-3 border-t border-black/5 space-y-2">
+                        {rounds.length > 0 ? (
+                          <div className="space-y-2">
+                            {rounds.map((round, index) => (
+                              <div key={round.batch_id || `${run.externalId}-${index}`} className="rounded-lg bg-white/70 border border-black/5 px-3 py-2">
+                                <div className="flex items-center justify-between gap-3">
+                                  <p className="text-[11px] font-medium text-textdark">Round {round.round || index + 1}</p>
+                                  <span className={`text-[9px] font-medium px-1.5 py-0.5 rounded ${
+                                    round.status === 'threshold_reached' ? 'bg-teal/10 text-teal' : 'bg-gold/10 text-gold'
+                                  }`}>
+                                    {round.status === 'threshold_reached' ? 'threshold reached' : 'below threshold'}
+                                  </span>
+                                </div>
+                                <p className="text-[10px] text-textmid mt-1">
+                                  Batch {round.batch_id ? `${round.batch_id.slice(0, 8)}...` : '\u2013'}
+                                </p>
+                                <p className="text-[11px] text-textdark mt-1">
+                                  {round.ads_passed ?? 0}/{round.ads_scored ?? round.ads_generated ?? 0} passed in this round, {round.cumulative_passed ?? 0}/{requiredPasses} cumulative.
+                                </p>
+                                {round.completed_at && (
+                                  <p className="text-[9px] text-textlight mt-1">{timeAgo(round.completed_at)}</p>
+                                )}
+                              </div>
+                            ))}
+                          </div>
+                        ) : batches.length > 0 ? (
+                          <div className="space-y-2">
+                            {batches.map((batch, index) => (
+                              <div key={batch.batch_id || `${run.externalId}-${index}`} className="rounded-lg bg-white/70 border border-black/5 px-3 py-2">
+                                <p className="text-[11px] font-medium text-textdark">Batch {index + 1}</p>
+                                <p className="text-[10px] text-textmid mt-1">
+                                  ID {batch.batch_id ? `${batch.batch_id.slice(0, 8)}...` : '\u2013'} · {batch.ad_count || '\u2013'} ads
+                                </p>
+                              </div>
+                            ))}
+                          </div>
+                        ) : null}
+                      </div>
+                    )}
                   </div>
                 );
               })}

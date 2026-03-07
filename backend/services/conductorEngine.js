@@ -423,6 +423,262 @@ function distributeAngles(angles, count, rotation) {
   }
 }
 
+const TEST_RUN_ADS_PER_ROUND = 18;
+const TEST_RUN_MAX_ROUNDS = 3;
+const TEST_RUN_REQUIRED_PASSES = 10;
+
+function stringifyJSON(value, fallback = '[]') {
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return fallback;
+  }
+}
+
+function getTestPostingDays(angleName) {
+  return stringifyJSON([{ date: 'test', action: `Testing angle "${angleName}"` }], '[]');
+}
+
+function buildTestProgressValue(roundNumber, step, meta = {}) {
+  const base = Math.min((roundNumber - 1) * 30, 90);
+  switch (step) {
+    case 'creating_batch':
+      return base + 2;
+    case 'batch_brief':
+      return base + 5;
+    case 'batch_headlines':
+      return base + 8;
+    case 'batch_body_copy':
+      return base + 12;
+    case 'batch_image_prompts':
+      return base + 16;
+    case 'batch_submitting':
+      return base + 20;
+    case 'batch_submitted':
+    case 'gemini_waiting':
+      return base + 22;
+    case 'gemini_polling':
+      return base + 22 + Math.round(Math.min((meta.elapsed || 0) / 600, 0.95) * 6);
+    case 'gemini_complete':
+      return base + 28;
+    case 'filter_scoring':
+      if (meta.scoringProgress?.total) {
+        return base + 28 + Math.round((meta.scoringProgress.current / meta.scoringProgress.total) * 2);
+      }
+      return base + 28;
+    case 'round_complete':
+      return Math.min(roundNumber * 30, 90);
+    case 'filter_grouping':
+      return 92;
+    case 'filter_copy_gen':
+      return 95;
+    case 'filter_deploying':
+      return 98;
+    case 'filter_complete':
+      return 100;
+    default:
+      return undefined;
+  }
+}
+
+function withTestProgress(roundNumber, event) {
+  const progressValue = buildTestProgressValue(roundNumber, event.step, event);
+  return progressValue === undefined ? event : { ...event, progressValue };
+}
+
+async function loadTestRunContext(projectId, angleOverride) {
+  const config = await getConductorConfig(projectId);
+  if (!config) {
+    throw new Error('No conductor config for this project. Create one first.');
+  }
+
+  const project = await getProject(projectId);
+  if (!project) {
+    throw new Error('Project not found');
+  }
+
+  let angleInfo;
+  if (angleOverride) {
+    const allAngles = await getActiveConductorAngles(projectId);
+    angleInfo = allAngles.find(a => a.externalId === angleOverride);
+    if (!angleInfo) throw new Error('Selected angle not found or not active');
+  } else {
+    const angles = await selectAngles(projectId, config, 1);
+    angleInfo = angles[0];
+  }
+
+  let anglePrompt;
+  if (hasStructuredBrief(angleInfo)) {
+    anglePrompt = buildStructuredAnglePrompt(angleInfo);
+  } else {
+    anglePrompt = angleInfo.description;
+  }
+  if (angleInfo.prompt_hints) {
+    anglePrompt += `\n\nCREATIVE DIRECTION:\n${angleInfo.prompt_hints}`;
+  }
+
+  const playbook = await getConductorPlaybook(projectId, angleInfo.name);
+  if (playbook && playbook.version > 0) {
+    anglePrompt += `\n\nCREATIVE DIRECTION FROM PREVIOUS ROUNDS:`;
+    if (playbook.visual_patterns) anglePrompt += `\n- Visual approach: ${playbook.visual_patterns}`;
+    if (playbook.copy_patterns) anglePrompt += `\n- Copy approach: ${playbook.copy_patterns}`;
+    if (playbook.avoid_patterns) anglePrompt += `\n- AVOID: ${playbook.avoid_patterns}`;
+    if (playbook.generation_hints) anglePrompt += `\n- Key hints: ${playbook.generation_hints}`;
+    anglePrompt += `\n\nCurrent pass rate for this angle: ${Math.round((playbook.pass_rate || 0) * 100)}%`;
+    anglePrompt += `\nFollow these patterns to maximize quality.`;
+  }
+
+  const angleBriefJSON = hasStructuredBrief(angleInfo)
+    ? JSON.stringify(buildAngleBriefJSON(angleInfo))
+    : undefined;
+
+  return { config, project, angleInfo, anglePrompt, angleBriefJSON };
+}
+
+async function createTestBatchRound({
+  projectId,
+  project,
+  runId,
+  angleInfo,
+  anglePrompt,
+  angleBriefJSON,
+  batchSize,
+  roundNumber,
+  emit,
+  updateAngleUsage = false,
+}) {
+  const batchId = uuidv4();
+  emit(withTestProgress(roundNumber, {
+    type: 'progress',
+    step: 'creating_batch',
+    message: `Round ${roundNumber}: creating batch (${batchSize} ads)...`,
+  }));
+
+  await createBatchJob({
+    id: batchId,
+    project_id: projectId,
+    generation_mode: 'batch',
+    batch_size: batchSize,
+    angle: anglePrompt,
+    aspect_ratio: '1:1',
+    product_image_storageId: project.product_image_storageId || undefined,
+    filter_assigned: true,
+    posting_day: 'test',
+    conductor_run_id: runId,
+    angle_name: angleInfo.name,
+    angle_prompt: anglePrompt,
+    angle_brief: angleBriefJSON,
+  });
+
+  if (updateAngleUsage && angleInfo.externalId !== 'fallback') {
+    await updateConductorAngle(angleInfo.externalId, {
+      times_used: (angleInfo.times_used || 0) + 1,
+      last_used_at: Date.now(),
+    });
+  }
+
+  return {
+    batch_id: batchId,
+    angle_name: angleInfo.name,
+    ad_count: batchSize,
+    posting_day: 'test',
+    round: roundNumber,
+  };
+}
+
+async function executeTestBatchRound(batchId, roundNumber, emit) {
+  const roundEmit = (event) => emit(withTestProgress(roundNumber, event));
+
+  const batchAdapter = (event) => {
+    if (event.type === 'prompt_progress') {
+      const msg = event.message || '';
+      let step = 'batch_pipeline';
+      if (msg.includes('Step 1')) step = 'batch_brief';
+      else if (msg.includes('Step 2')) step = 'batch_headlines';
+      else if (msg.includes('Step 3')) step = 'batch_body_copy';
+      else if (msg.includes('Step 4')) step = 'batch_image_prompts';
+      roundEmit({
+        type: 'progress',
+        step,
+        message: `Round ${roundNumber}: ${msg}`,
+        imageProgress: (event.current && event.total) ? { current: event.current, total: event.total } : undefined,
+      });
+    } else if (event.type === 'status') {
+      const map = { submitting: 'batch_submitting', processing: 'batch_submitted' };
+      if (map[event.status]) {
+        roundEmit({
+          type: 'progress',
+          step: map[event.status],
+          message: `Round ${roundNumber}: ${event.message}`,
+        });
+      }
+    } else if (event.type === 'error') {
+      emit(event);
+    }
+  };
+
+  await runBatch(batchId, batchAdapter);
+
+  roundEmit({
+    type: 'progress',
+    step: 'gemini_waiting',
+    message: `Round ${roundNumber}: waiting for Gemini to generate images...`,
+  });
+
+  const pollStart = Date.now();
+  const MAX_POLL_MS = 30 * 60 * 1000;
+
+  while (true) {
+    await new Promise(r => setTimeout(r, 10000));
+    const elapsed = Math.round((Date.now() - pollStart) / 1000);
+    const mins = Math.floor(elapsed / 60);
+    const secs = elapsed % 60;
+    const timeStr = mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
+
+    if (Date.now() - pollStart > MAX_POLL_MS) {
+      throw new Error(`Round ${roundNumber} Gemini batch timed out after 30 minutes`);
+    }
+
+    const result = await pollBatchJob(batchId);
+    if (result === 'completed') {
+      roundEmit({
+        type: 'progress',
+        step: 'gemini_complete',
+        message: `Round ${roundNumber}: images generated (${timeStr})`,
+      });
+      break;
+    }
+    if (result === 'failed') {
+      throw new Error(`Round ${roundNumber} Gemini batch processing failed`);
+    }
+
+    roundEmit({
+      type: 'progress',
+      step: 'gemini_polling',
+      message: `Round ${roundNumber}: generating images via Gemini... (${timeStr})`,
+      elapsed,
+    });
+  }
+}
+
+function buildTestRunSummary({
+  angleName,
+  roundsUsed,
+  totalAdsGenerated,
+  totalAdsPassed,
+  readyToPostCount = 0,
+  terminalStatus,
+  failureReason = '',
+}) {
+  if (terminalStatus === 'deployed') {
+    return `Angle "${angleName}" reached ${TEST_RUN_REQUIRED_PASSES}/${TEST_RUN_REQUIRED_PASSES} passed ads after ${roundsUsed} round${roundsUsed !== 1 ? 's' : ''} (${totalAdsGenerated} generated). ${readyToPostCount} Ready to Post ads created.`;
+  }
+  if (terminalStatus === 'failed_under_threshold_after_54') {
+    return `Angle "${angleName}" reached ${totalAdsPassed}/${TEST_RUN_REQUIRED_PASSES} passed ads after ${roundsUsed} rounds (${totalAdsGenerated} generated). Hard cap reached with no Ready to Post flex ad.`;
+  }
+  return failureReason || `Angle "${angleName}" failed before reaching ${TEST_RUN_REQUIRED_PASSES} passed ads.`;
+}
+
 /**
  * Run a single test batch for a project — bypasses production windows and deficit checks.
  * Creates one full batch, fires it, and lets the Filter pick it up end-to-end.
@@ -435,114 +691,75 @@ export async function runTestBatch(projectId, sendEvent, { skipBatchLaunch = fal
 
   emit({ type: 'progress', step: 'initializing', message: 'Loading project config...' });
 
-  const config = await getConductorConfig(projectId);
-  if (!config) {
-    throw new Error('No conductor config for this project. Create one first.');
-  }
-
-  const project = await getProject(projectId);
-  if (!project) {
-    throw new Error('Project not found');
-  }
-
   await createConductorRun({
     externalId: runId,
     project_id: projectId,
     run_type: 'test',
     run_at: startMs,
     status: 'running',
+    required_passes: TEST_RUN_REQUIRED_PASSES,
+    ads_per_round: batchSizeOverride || TEST_RUN_ADS_PER_ROUND,
+    max_rounds: 1,
   });
 
   try {
-    // Pick an angle — use override if provided, otherwise rotation strategy
     emit({ type: 'progress', step: 'selecting_angle', message: 'Selecting angle...' });
-    let angleInfo;
-    if (angleOverride) {
-      const allAngles = await getActiveConductorAngles(projectId);
-      angleInfo = allAngles.find(a => a.externalId === angleOverride);
-      if (!angleInfo) throw new Error('Selected angle not found or not active');
-    } else {
-      const angles = await selectAngles(projectId, config, 1);
-      angleInfo = angles[0];
-    }
+    const { project, angleInfo, anglePrompt, angleBriefJSON } = await loadTestRunContext(projectId, angleOverride);
 
-    const batchSize = batchSizeOverride || config.ads_per_batch || 18;
-    const batchId = uuidv4();
-
-    // Build angle prompt with playbook context (same as normal runs)
     emit({ type: 'progress', step: 'building_prompt', message: `Building prompt for "${angleInfo.name}"...` });
-    let anglePrompt = angleInfo.description;
-    if (angleInfo.prompt_hints) {
-      anglePrompt += `\n\nCREATIVE DIRECTION:\n${angleInfo.prompt_hints}`;
-    }
-
-    const playbook = await getConductorPlaybook(projectId, angleInfo.name);
-    if (playbook && playbook.version > 0) {
-      anglePrompt += `\n\nCREATIVE DIRECTION FROM PREVIOUS ROUNDS:`;
-      if (playbook.visual_patterns) anglePrompt += `\n- Visual approach: ${playbook.visual_patterns}`;
-      if (playbook.copy_patterns) anglePrompt += `\n- Copy approach: ${playbook.copy_patterns}`;
-      if (playbook.avoid_patterns) anglePrompt += `\n- AVOID: ${playbook.avoid_patterns}`;
-      if (playbook.generation_hints) anglePrompt += `\n- Key hints: ${playbook.generation_hints}`;
-      anglePrompt += `\n\nCurrent pass rate for this angle: ${Math.round((playbook.pass_rate || 0) * 100)}%`;
-      anglePrompt += `\nFollow these patterns to maximize quality.`;
-    }
-
-    emit({ type: 'progress', step: 'creating_batch', message: `Creating batch (${batchSize} ads)...` });
-    await createBatchJob({
-      id: batchId,
-      project_id: projectId,
-      generation_mode: 'batch',
-      batch_size: batchSize,
-      angle: anglePrompt,
-      aspect_ratio: '1:1',
-      product_image_storageId: project.product_image_storageId || undefined,
-      filter_assigned: true,
-      posting_day: 'test',
-      conductor_run_id: runId,
-      angle_name: angleInfo.name,
-      angle_prompt: anglePrompt,
+    const batchSize = batchSizeOverride || TEST_RUN_ADS_PER_ROUND;
+    const batchInfo = await createTestBatchRound({
+      projectId,
+      project,
+      runId,
+      angleInfo,
+      anglePrompt,
+      angleBriefJSON,
+      batchSize,
+      roundNumber: 1,
+      emit,
+      updateAngleUsage: true,
     });
-
-    if (angleInfo.externalId !== 'fallback') {
-      await updateConductorAngle(angleInfo.externalId, {
-        times_used: (angleInfo.times_used || 0) + 1,
-        last_used_at: Date.now(),
-      });
-    }
-
-    const batchInfo = [{ batch_id: batchId, angle_name: angleInfo.name, ad_count: batchSize, posting_day: 'test' }];
 
     emit({ type: 'progress', step: 'saving_run', message: 'Saving run record...' });
     await updateConductorRun(runId, {
       status: 'completed',
-      posting_days: JSON.stringify([{ date: 'test', action: 'Test batch created' }]),
-      batches_created: JSON.stringify(batchInfo),
+      terminal_status: 'batch_created',
+      posting_days: getTestPostingDays(angleInfo.name),
+      batches_created: stringifyJSON([batchInfo]),
       decisions: `Test run: created 1 batch (${batchSize} ads) with angle "${angleInfo.name}".`,
+      total_rounds: 1,
+      total_ads_generated: batchSize,
       duration_ms: Date.now() - startMs,
     });
 
     console.log(`[Director] Test run for ${projectId.slice(0, 8)}: Created 1 batch (${batchSize} ads, angle: ${angleInfo.name}) in ${Date.now() - startMs}ms`);
 
     if (!skipBatchLaunch) {
-      // Fire-and-forget: start the batch (original behavior)
       emit({ type: 'progress', step: 'launching_batch', message: `Launching batch pipeline for "${angleInfo.name}"...` });
-      runBatch(batchId).catch(err => {
-        console.error(`[Director] Test batch ${batchId.slice(0, 8)} failed:`, err.message);
+      runBatch(batchInfo.batch_id).catch(err => {
+        console.error(`[Director] Test batch ${batchInfo.batch_id.slice(0, 8)} failed:`, err.message);
       });
-      // Fire-and-forget: trigger LP generation for test batch
-      triggerLPGeneration(batchId, projectId, angleInfo.name).catch(err => {
-        console.warn(`[Director] LP trigger for test batch ${batchId.slice(0, 8)} failed:`, err.message);
+      triggerLPGeneration(batchInfo.batch_id, projectId, angleInfo.name).catch(err => {
+        console.warn(`[Director] LP trigger for test batch ${batchInfo.batch_id.slice(0, 8)} failed:`, err.message);
       });
     } else {
-      emit({ type: 'progress', step: 'launching_batch', message: `Batch created, starting full pipeline...` });
+      emit({ type: 'progress', step: 'launching_batch', message: 'Batch created, starting full pipeline...' });
     }
 
-    return { runId, batches_created: 1, batch_id: batchId, angle: angleInfo.name, ad_count: batchSize };
-
+    return {
+      runId,
+      batches_created: 1,
+      batch_id: batchInfo.batch_id,
+      angle: angleInfo.name,
+      ad_count: batchSize,
+    };
   } catch (err) {
     await updateConductorRun(runId, {
       status: 'failed',
+      terminal_status: 'generation_failed',
       error: err.message,
+      failure_reason: err.message,
       duration_ms: Date.now() - startMs,
     });
     throw err;
@@ -614,6 +831,9 @@ export async function runFullTestPipeline(projectId, sendEvent, { angleOverride 
     rawEmit(event);
     if (event.type === 'progress') {
       runProgress.phase = event.message || runProgress.phase;
+      if (typeof event.progressValue === 'number') {
+        runProgress.progress = Math.max(runProgress.progress, event.progressValue);
+      }
       if (event.step && PIPELINE_STEP_PROGRESS[event.step] !== undefined) {
         runProgress.progress = Math.max(runProgress.progress, PIPELINE_STEP_PROGRESS[event.step]);
       }
@@ -641,99 +861,346 @@ export async function runFullTestPipeline(projectId, sendEvent, { angleOverride 
       setTimeout(() => activeTestRuns.delete(trackingId), 60000);
     }
   };
+  let runId = null;
+  let angleName = '';
+  const batchInfos = [];
+  const roundDetails = [];
+  let totalAdsGenerated = 0;
+  let totalAdsScored = 0;
+  let totalAdsPassed = 0;
 
-  // ── Phase 1: Director creates batch (30 ads for headroom — need 10 passing) ──
-  const directorResult = await runTestBatch(projectId, emit, { skipBatchLaunch: true, batchSizeOverride: 30, angleOverride });
-  const batchId = directorResult.batch_id;
+  try {
+    emit({ type: 'progress', step: 'initializing', message: 'Loading project config...' });
+    runId = uuidv4();
 
-  // LP generation runs independently — fire-and-forget (skippable via toggle)
-  if (!skipLPGen) {
-    triggerLPGeneration(batchId, projectId, directorResult.angle).catch(err => {
-      console.warn(`[Pipeline] LP trigger for test batch ${batchId.slice(0, 8)} failed:`, err.message);
+    await createConductorRun({
+      externalId: runId,
+      project_id: projectId,
+      run_type: 'test',
+      run_at: runProgress.startTime,
+      status: 'running',
+      required_passes: TEST_RUN_REQUIRED_PASSES,
+      ads_per_round: TEST_RUN_ADS_PER_ROUND,
+      max_rounds: TEST_RUN_MAX_ROUNDS,
     });
-  }
 
-  // ── Phase 2: Run batch pipeline (brief → headlines → body copy → image prompts → Gemini submit) ──
-  const batchAdapter = (event) => {
-    if (event.type === 'prompt_progress') {
-      const msg = event.message || '';
-      let step = 'batch_pipeline';
-      if (msg.includes('Step 1')) step = 'batch_brief';
-      else if (msg.includes('Step 2')) step = 'batch_headlines';
-      else if (msg.includes('Step 3')) step = 'batch_body_copy';
-      else if (msg.includes('Step 4')) step = 'batch_image_prompts';
-      emit({
-        type: 'progress', step, message: msg,
-        imageProgress: (event.current && event.total) ? { current: event.current, total: event.total } : undefined,
+    emit({ type: 'progress', step: 'selecting_angle', message: 'Selecting angle...' });
+    const { project, angleInfo, anglePrompt, angleBriefJSON } = await loadTestRunContext(projectId, angleOverride);
+    angleName = angleInfo.name;
+    emit({ type: 'progress', step: 'building_prompt', message: `Building prompt for "${angleName}"...` });
+
+    const { scoreBatchForInlineFilter, finalizePassingAds } = await import('./creativeFilterService.js');
+    const cumulativePassingAds = [];
+
+    for (let roundNumber = 1; roundNumber <= TEST_RUN_MAX_ROUNDS; roundNumber++) {
+      console.log(`[Director] Test run ${runId.slice(0, 8)} round ${roundNumber}/${TEST_RUN_MAX_ROUNDS}: creating ${TEST_RUN_ADS_PER_ROUND} ads for "${angleName}"`);
+      const batchInfo = await createTestBatchRound({
+        projectId,
+        project,
+        runId,
+        angleInfo,
+        anglePrompt,
+        angleBriefJSON,
+        batchSize: TEST_RUN_ADS_PER_ROUND,
+        roundNumber,
+        emit,
+        updateAngleUsage: roundNumber === 1,
       });
-    } else if (event.type === 'status') {
-      const map = { submitting: 'batch_submitting', processing: 'batch_submitted' };
-      if (map[event.status]) {
-        emit({ type: 'progress', step: map[event.status], message: event.message });
+
+      batchInfos.push(batchInfo);
+      totalAdsGenerated += batchInfo.ad_count;
+
+      await updateConductorRun(runId, {
+        status: 'running',
+        posting_days: getTestPostingDays(angleName),
+        batches_created: stringifyJSON(batchInfos),
+        rounds_json: stringifyJSON(roundDetails),
+        total_rounds: roundNumber,
+        total_ads_generated: totalAdsGenerated,
+        total_ads_scored: totalAdsScored,
+        total_ads_passed: totalAdsPassed,
+        decisions: `Testing "${angleName}" — round ${roundNumber} of ${TEST_RUN_MAX_ROUNDS} started.`,
+      });
+
+      await executeTestBatchRound(batchInfo.batch_id, roundNumber, emit);
+
+      const roundScoreResult = await scoreBatchForInlineFilter(
+        batchInfo.batch_id,
+        projectId,
+        (event) => emit(withTestProgress(roundNumber, event)),
+        { roundNumber, totalRounds: TEST_RUN_MAX_ROUNDS }
+      );
+
+      cumulativePassingAds.push(...roundScoreResult.passingAds);
+      totalAdsScored += roundScoreResult.ads_scored;
+      totalAdsPassed = cumulativePassingAds.length;
+      console.log(`[Director] Test run ${runId.slice(0, 8)} round ${roundNumber}/${TEST_RUN_MAX_ROUNDS}: ${roundScoreResult.ads_passed}/${roundScoreResult.ads_scored} passed, ${totalAdsPassed}/${TEST_RUN_REQUIRED_PASSES} cumulative`);
+
+      const roundDetail = {
+        round: roundNumber,
+        batch_id: batchInfo.batch_id,
+        angle_name: angleName,
+        ads_generated: batchInfo.ad_count,
+        ads_scored: roundScoreResult.ads_scored,
+        ads_passed: roundScoreResult.ads_passed,
+        cumulative_passed: totalAdsPassed,
+        status: totalAdsPassed >= TEST_RUN_REQUIRED_PASSES ? 'threshold_reached' : 'below_threshold',
+        completed_at: new Date().toISOString(),
+      };
+      roundDetails.push(roundDetail);
+
+      batchInfos[batchInfos.length - 1] = {
+        ...batchInfo,
+        ads_scored: roundScoreResult.ads_scored,
+        ads_passed: roundScoreResult.ads_passed,
+      };
+
+      if (totalAdsPassed >= TEST_RUN_REQUIRED_PASSES) {
+        const finalizeResult = await finalizePassingAds({
+          passingAds: cumulativePassingAds,
+          projectId,
+          batchId: batchInfo.batch_id,
+          postingDay: 'test',
+          angleName,
+          onProgress: (event) => emit(withTestProgress(TEST_RUN_MAX_ROUNDS, event)),
+        });
+
+        if (finalizeResult.flex_ads_created === 0) {
+          let failureReason = 'Unknown error during Creative Filter';
+          let terminalStatus = 'deploy_failed';
+          if (finalizeResult.grouping_failed) {
+            failureReason = `${totalAdsPassed} approved ads were available, but grouping could not create a flex ad.`;
+            terminalStatus = 'grouping_failed';
+          } else if (finalizeResult.deploy_error) {
+            failureReason = `Reached ${totalAdsPassed}/${TEST_RUN_REQUIRED_PASSES} passed ads, but deployment failed: ${finalizeResult.deploy_error}`;
+          }
+
+          await updateConductorRun(runId, {
+            status: 'failed',
+            terminal_status: terminalStatus,
+            error: failureReason,
+            failure_reason: failureReason,
+            posting_days: getTestPostingDays(angleName),
+            batches_created: stringifyJSON(batchInfos),
+            rounds_json: stringifyJSON(roundDetails),
+            total_rounds: roundDetails.length,
+            total_ads_generated: totalAdsGenerated,
+            total_ads_scored: totalAdsScored,
+            total_ads_passed: totalAdsPassed,
+            ready_to_post_count: 0,
+            duration_ms: Date.now() - runProgress.startTime,
+            decisions: buildTestRunSummary({
+              angleName,
+              roundsUsed: roundDetails.length,
+              totalAdsGenerated,
+              totalAdsPassed,
+              terminalStatus,
+              failureReason,
+            }),
+          });
+
+          runProgress.status = 'error';
+          runProgress.progress = 0;
+          runProgress.phase = failureReason;
+          runProgress.result = { failure_reason: failureReason };
+          setTimeout(() => activeTestRuns.delete(trackingId), 60000);
+
+          return {
+            runId,
+            angle: angleName,
+            rounds_used: roundDetails.length,
+            total_ads_generated: totalAdsGenerated,
+            ads_scored: totalAdsScored,
+            ads_passed: totalAdsPassed,
+            ready_to_post_count: 0,
+            terminal_status: terminalStatus,
+            failure_reason: failureReason,
+            rounds: roundDetails,
+            pipeline_failed: true,
+          };
+        }
+
+        const readyToPostCount = finalizeResult.ready_to_post_count || 0;
+        const flexAdId = finalizeResult.flex_ad_id || null;
+        const bestRound = [...roundDetails].sort((a, b) => b.ads_passed - a.ads_passed)[0];
+
+        if (flexAdId) {
+          batchInfos[batchInfos.length - 1] = {
+            ...batchInfos[batchInfos.length - 1],
+            flex_ad_id: flexAdId,
+          };
+        }
+
+        await updateConductorRun(runId, {
+          status: 'completed',
+          terminal_status: 'deployed',
+          posting_days: getTestPostingDays(angleName),
+          batches_created: stringifyJSON(batchInfos),
+          rounds_json: stringifyJSON(roundDetails),
+          total_rounds: roundDetails.length,
+          total_ads_generated: totalAdsGenerated,
+          total_ads_scored: totalAdsScored,
+          total_ads_passed: totalAdsPassed,
+          ready_to_post_count: readyToPostCount,
+          flex_ad_id: flexAdId || undefined,
+          duration_ms: Date.now() - runProgress.startTime,
+          decisions: buildTestRunSummary({
+            angleName,
+            roundsUsed: roundDetails.length,
+            totalAdsGenerated,
+            totalAdsPassed,
+            readyToPostCount,
+            terminalStatus: 'deployed',
+          }),
+        });
+
+        if (!skipLPGen && bestRound?.batch_id) {
+          triggerLPGeneration(bestRound.batch_id, projectId, angleName).catch(err => {
+            console.warn(`[Pipeline] LP trigger for test run ${runId.slice(0, 8)} failed:`, err.message);
+          });
+        }
+
+        console.log(`[Director] Test run ${runId.slice(0, 8)} succeeded after ${roundDetails.length} round(s): ${totalAdsPassed} passed, flex ${flexAdId || 'none'}`);
+
+        runProgress.status = 'complete';
+        runProgress.progress = 100;
+        runProgress.phase = 'Complete';
+        runProgress.result = { flex_ad_id: flexAdId, ready_to_post_count: readyToPostCount };
+        setTimeout(() => activeTestRuns.delete(trackingId), 60000);
+
+        return {
+          runId,
+          angle: angleName,
+          rounds_used: roundDetails.length,
+          total_ads_generated: totalAdsGenerated,
+          ads_scored: totalAdsScored,
+          ads_passed: totalAdsPassed,
+          ready_to_post_count: readyToPostCount,
+          flex_ads_created: finalizeResult.flex_ads_created,
+          flex_ad_id: flexAdId,
+          terminal_status: 'deployed',
+          rounds: roundDetails,
+        };
       }
-    } else if (event.type === 'error') {
-      emit(event);
-    }
-  };
 
-  await runBatch(batchId, batchAdapter);
+      if (roundNumber < TEST_RUN_MAX_ROUNDS) {
+        emit(withTestProgress(roundNumber, {
+          type: 'progress',
+          step: 'round_complete',
+          message: `Round ${roundNumber} complete: ${roundScoreResult.ads_passed}/${roundScoreResult.ads_scored} passed, ${totalAdsPassed}/${TEST_RUN_REQUIRED_PASSES} total. Starting round ${roundNumber + 1}...`,
+        }));
+      }
 
-  // ── Phase 3: Poll Gemini until images are generated ─────────────────────
-  emit({ type: 'progress', step: 'gemini_waiting', message: 'Waiting for Gemini to generate images...' });
-  const pollStart = Date.now();
-  const MAX_POLL_MS = 30 * 60 * 1000; // 30 minute safety limit
-
-  while (true) {
-    await new Promise(r => setTimeout(r, 10000)); // 10 seconds between polls
-    const elapsed = Math.round((Date.now() - pollStart) / 1000);
-    const mins = Math.floor(elapsed / 60);
-    const secs = elapsed % 60;
-    const timeStr = mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
-
-    if (Date.now() - pollStart > MAX_POLL_MS) {
-      throw new Error('Gemini batch timed out after 30 minutes');
-    }
-
-    const result = await pollBatchJob(batchId);
-
-    if (result === 'completed') {
-      emit({ type: 'progress', step: 'gemini_complete', message: `Images generated (${timeStr})` });
-      break;
-    } else if (result === 'failed') {
-      throw new Error('Gemini batch processing failed');
+      await updateConductorRun(runId, {
+        status: 'running',
+        posting_days: getTestPostingDays(angleName),
+        batches_created: stringifyJSON(batchInfos),
+        rounds_json: stringifyJSON(roundDetails),
+        total_rounds: roundDetails.length,
+        total_ads_generated: totalAdsGenerated,
+        total_ads_scored: totalAdsScored,
+        total_ads_passed: totalAdsPassed,
+        decisions: `Round ${roundNumber} complete: ${roundScoreResult.ads_passed}/${roundScoreResult.ads_scored} passed, ${totalAdsPassed}/${TEST_RUN_REQUIRED_PASSES} total.`,
+      });
     }
 
-    // Heartbeat: keep SSE alive and show elapsed time
-    emit({ type: 'progress', step: 'gemini_polling', message: `Generating images via Gemini... (${timeStr})`, elapsed });
+    const failureReason = `Reached ${totalAdsPassed}/${TEST_RUN_REQUIRED_PASSES} passed ads after ${totalAdsGenerated} generated across ${TEST_RUN_MAX_ROUNDS} rounds. Hard cap reached with no Ready to Post flex ad.`;
+    console.warn(`[Director] Test run ${runId.slice(0, 8)} failed at hard cap: ${totalAdsPassed}/${TEST_RUN_REQUIRED_PASSES} passed after ${totalAdsGenerated} generated`);
+
+    await updateConductorRun(runId, {
+      status: 'failed',
+      terminal_status: 'failed_under_threshold_after_54',
+      error: failureReason,
+      failure_reason: failureReason,
+      posting_days: getTestPostingDays(angleName),
+      batches_created: stringifyJSON(batchInfos),
+      rounds_json: stringifyJSON(roundDetails),
+      total_rounds: roundDetails.length,
+      total_ads_generated: totalAdsGenerated,
+      total_ads_scored: totalAdsScored,
+      total_ads_passed: totalAdsPassed,
+      ready_to_post_count: 0,
+      duration_ms: Date.now() - runProgress.startTime,
+      decisions: buildTestRunSummary({
+        angleName,
+        roundsUsed: roundDetails.length,
+        totalAdsGenerated,
+        totalAdsPassed,
+        terminalStatus: 'failed_under_threshold_after_54',
+      }),
+    });
+
+    runProgress.status = 'error';
+    runProgress.progress = 0;
+    runProgress.phase = failureReason;
+    runProgress.result = { failure_reason: failureReason };
+    setTimeout(() => activeTestRuns.delete(trackingId), 60000);
+
+    return {
+      runId,
+      angle: angleName,
+      rounds_used: roundDetails.length,
+      total_ads_generated: totalAdsGenerated,
+      ads_scored: totalAdsScored,
+      ads_passed: totalAdsPassed,
+      ready_to_post_count: 0,
+      terminal_status: 'failed_under_threshold_after_54',
+      failure_reason: failureReason,
+      rounds: roundDetails,
+      pipeline_failed: true,
+    };
+  } catch (err) {
+    const failureReason = err.message || 'Test run failed';
+    if (runId) {
+      try {
+        await updateConductorRun(runId, {
+          status: 'failed',
+          terminal_status: 'generation_failed',
+          error: failureReason,
+          failure_reason: failureReason,
+          posting_days: angleName ? getTestPostingDays(angleName) : stringifyJSON([{ date: 'test', action: 'Test run failed before angle selection' }]),
+          batches_created: stringifyJSON(batchInfos),
+          rounds_json: stringifyJSON(roundDetails),
+          total_rounds: roundDetails.length,
+          total_ads_generated: totalAdsGenerated,
+          total_ads_scored: totalAdsScored,
+          total_ads_passed: totalAdsPassed,
+          ready_to_post_count: 0,
+          duration_ms: Date.now() - runProgress.startTime,
+          decisions: buildTestRunSummary({
+            angleName: angleName || 'Unknown angle',
+            roundsUsed: Math.max(roundDetails.length, batchInfos.length, 1),
+            totalAdsGenerated,
+            totalAdsPassed,
+            terminalStatus: 'generation_failed',
+            failureReason,
+          }),
+        });
+      } catch (updateErr) {
+        console.warn('[Pipeline] Failed to update run record after test-run error:', updateErr.message);
+      }
+    }
+
+    runProgress.status = 'error';
+    runProgress.progress = 0;
+    runProgress.phase = failureReason;
+    runProgress.result = { failure_reason: failureReason };
+    setTimeout(() => activeTestRuns.delete(trackingId), 60000);
+
+    return {
+      runId,
+      angle: angleName || null,
+      rounds_used: roundDetails.length,
+      total_ads_generated: totalAdsGenerated,
+      ads_scored: totalAdsScored,
+      ads_passed: totalAdsPassed,
+      ready_to_post_count: 0,
+      terminal_status: 'generation_failed',
+      failure_reason: failureReason,
+      rounds: roundDetails,
+      pipeline_failed: true,
+    };
   }
-
-  // ── Phase 4: Creative Filter (score → group → copy → deploy) ───────────
-  const { runInlineFilter } = await import('./creativeFilterService.js');
-  const filterResult = await runInlineFilter(batchId, projectId, emit);
-
-  if (filterResult.flex_ads_created === 0) {
-    let reason = 'Unknown error during Creative Filter';
-    if (filterResult.not_enough_passed) {
-      reason = `Only ${filterResult.ads_passed}/${filterResult.ads_scored} ads passed scoring (need 10). Try adjusting the angle.`;
-    } else if (filterResult.grouping_failed) {
-      reason = `${filterResult.ads_passed} ads passed but couldn't be grouped into a flex ad.`;
-    } else if (filterResult.deploy_error) {
-      reason = `Scoring passed but deployment failed: ${filterResult.deploy_error}`;
-    }
-    return { ...directorResult, ...filterResult, pipeline_failed: true, failure_reason: reason };
-  }
-
-  // Store flex_ad_id in the run record so frontend can link to it
-  if (filterResult.flex_ad_id) {
-    try {
-      const batchInfo = [{ batch_id: batchId, angle_name: directorResult.angle, ad_count: directorResult.ad_count, flex_ad_id: filterResult.flex_ad_id }];
-      await updateConductorRun(directorResult.runId, { batches_created: JSON.stringify(batchInfo) });
-    } catch (err) {
-      console.warn('[Pipeline] Failed to store flex_ad_id in run record:', err.message);
-    }
-  }
-
-  return { ...directorResult, ...filterResult };
 }
 
 // ── Date helpers ─────────────────────────────────────────────────────────────

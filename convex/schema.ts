@@ -590,6 +590,18 @@ export default defineSchema({
     status: v.string(),                  // "completed" | "partial" | "failed"
     error: v.optional(v.string()),
     duration_ms: v.optional(v.number()),
+    terminal_status: v.optional(v.string()),
+    failure_reason: v.optional(v.string()),
+    required_passes: v.optional(v.number()),
+    ads_per_round: v.optional(v.number()),
+    max_rounds: v.optional(v.number()),
+    total_rounds: v.optional(v.number()),
+    total_ads_generated: v.optional(v.number()),
+    total_ads_scored: v.optional(v.number()),
+    total_ads_passed: v.optional(v.number()),
+    ready_to_post_count: v.optional(v.number()),
+    flex_ad_id: v.optional(v.string()),
+    rounds_json: v.optional(v.string()),
     created_at: v.number(),
   })
     .index("by_externalId", ["externalId"])

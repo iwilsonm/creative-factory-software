@@ -591,6 +591,157 @@ export async function deployFlexAd(flexAdDef, projectId, projectConfig, batchId,
   return { flexAdId: flexId, deploymentCount: deploymentIds.length };
 }
 
+async function markBatchFilterProcessed(batchId) {
+  await updateBatchJob(batchId, {
+    filter_processed: true,
+    filter_processed_at: new Date().toISOString(),
+  });
+}
+
+// ── Inline filter helpers ──────────────────────────────────────────────────
+
+export async function scoreBatchForInlineFilter(batchId, projectId, onProgress, { roundNumber = 1, totalRounds = 1 } = {}) {
+  const emit = (event) => { if (onProgress) try { onProgress(event); } catch {} };
+
+  const batch = await getBatchJob(batchId);
+  if (!batch) throw new Error('Batch not found for filtering');
+
+  const project = await getProject(projectId);
+  if (!project) throw new Error('Project not found');
+
+  const ads = await getAdsByBatchId(batchId);
+  if (ads.length === 0) throw new Error('No ads found in batch');
+
+  let angleBrief = null;
+  if (batch.angle_brief) {
+    try { angleBrief = JSON.parse(batch.angle_brief); } catch {}
+  }
+
+  const roundLabel = totalRounds > 1 ? `Round ${roundNumber}/${totalRounds}` : 'Batch';
+  const topPerformers = 'No previous top performers available.';
+
+  emit({
+    type: 'progress',
+    step: 'filter_scoring',
+    message: `${roundLabel}: scoring ${ads.length} ads...`,
+    scoringProgress: { current: 0, total: ads.length },
+  });
+
+  const scoredAds = [];
+  let passCount = 0;
+
+  for (let i = 0; i < ads.length; i++) {
+    const ad = ads[i];
+    emit({
+      type: 'progress',
+      step: 'filter_scoring',
+      message: `${roundLabel}: scoring ad ${i + 1} of ${ads.length}...`,
+      scoringProgress: { current: i + 1, total: ads.length },
+    });
+
+    try {
+      const score = await scoreAd(ad, topPerformers, angleBrief, projectId);
+      scoredAds.push({ ad, score });
+      if (score.pass) passCount++;
+      console.log(`[FilterService] Round ${roundNumber} ad ${ad.id.slice(0, 8)}: score=${score.overall_score}, pass=${score.pass}`);
+    } catch (err) {
+      console.error(`[FilterService] Failed to score ad ${ad.id.slice(0, 8)}: ${err.message}`);
+      scoredAds.push({ ad, score: { ad_id: ad.id, overall_score: 0, pass: false, error: err.message } });
+    }
+  }
+
+  const passingAds = scoredAds.filter(sa => sa.score.pass);
+  console.log(`[FilterService] ${roundLabel} scoring complete: ${passCount}/${ads.length} passed (threshold: ${SCORE_THRESHOLD})`);
+
+  await markBatchFilterProcessed(batchId);
+
+  return {
+    batch,
+    project,
+    scoredAds,
+    passingAds,
+    ads_scored: ads.length,
+    ads_passed: passCount,
+  };
+}
+
+export async function finalizePassingAds({ passingAds, projectId, batchId, postingDay = 'test', angleName = '', onProgress }) {
+  const emit = (event) => { if (onProgress) try { onProgress(event); } catch {} };
+
+  if (passingAds.length < IMAGES_PER_FLEX) {
+    return {
+      flex_ads_created: 0,
+      flex_ad_id: null,
+      ready_to_post_count: 0,
+      not_enough_passed: true,
+    };
+  }
+
+  const project = await getProject(projectId);
+  if (!project) throw new Error('Project not found');
+
+  emit({ type: 'progress', step: 'filter_grouping', message: `Grouping ${passingAds.length} passing ads into a flex ad...` });
+
+  const groupResult = await groupAds(passingAds, project.name, 1);
+  const flexAds = groupResult.flex_ads || [];
+
+  if (flexAds.length === 0) {
+    console.warn(`[FilterService] Grouping returned 0 flex ads despite ${passingAds.length} passing ads`);
+    emit({ type: 'progress', step: 'filter_complete', message: 'Grouping could not create a flex ad. Check copy quality.' });
+    return {
+      flex_ads_created: 0,
+      flex_ad_id: null,
+      ready_to_post_count: 0,
+      grouping_failed: true,
+    };
+  }
+
+  const flexAdDef = flexAds[0];
+  emit({ type: 'progress', step: 'filter_copy_gen', message: `Generating copy for "${flexAdDef.angle_theme}"...` });
+
+  const adCreativesForCopy = flexAdDef.image_ad_ids.slice(0, 5).map(adId => {
+    const found = passingAds.find(sa => sa.ad.id === adId);
+    return found ? found.ad : { headline: '', body_copy: '', angle: '' };
+  });
+
+  const generatedCopy = await generateFilterCopy(projectId, flexAdDef.angle_theme, adCreativesForCopy);
+
+  emit({ type: 'progress', step: 'filter_deploying', message: 'Creating flex ad and deploying to Ready to Post...' });
+
+  try {
+    const deployResult = await deployFlexAd(
+      flexAdDef,
+      projectId,
+      project,
+      batchId,
+      postingDay,
+      angleName,
+      generatedCopy
+    );
+
+    emit({
+      type: 'progress',
+      step: 'filter_complete',
+      message: `Flex ad deployed: ${passingAds.length} approved ads available, ${deployResult.deploymentCount} images → Ready to Post`,
+    });
+
+    return {
+      flex_ads_created: 1,
+      flex_ad_id: deployResult.flexAdId,
+      ready_to_post_count: deployResult.deploymentCount,
+      selected_ad_ids: flexAdDef.image_ad_ids.slice(),
+    };
+  } catch (err) {
+    console.error(`[FilterService] Deployment failed: ${err.message}`);
+    return {
+      flex_ads_created: 0,
+      flex_ad_id: null,
+      ready_to_post_count: 0,
+      deploy_error: err.message,
+    };
+  }
+}
+
 // ── Full inline filter orchestrator ────────────────────────────────────────
 
 /**
@@ -603,113 +754,33 @@ export async function deployFlexAd(flexAdDef, projectId, projectConfig, batchId,
  */
 export async function runInlineFilter(batchId, projectId, onProgress) {
   const emit = (event) => { if (onProgress) try { onProgress(event); } catch {} };
-
-  const batch = await getBatchJob(batchId);
-  if (!batch) throw new Error('Batch not found for filtering');
-
-  const project = await getProject(projectId);
-  if (!project) throw new Error('Project not found');
-
-  // Load ads for this batch
-  const ads = await getAdsByBatchId(batchId);
-  if (ads.length === 0) throw new Error('No ads found in batch');
-
-  // Parse angle brief if available
-  let angleBrief = null;
-  if (batch.angle_brief) {
-    try { angleBrief = JSON.parse(batch.angle_brief); } catch {}
-  }
-
-  // Build top performers context (existing high-scoring ads in this project)
-  let topPerformers = 'No previous top performers available.';
-  // TODO: Could load top-scoring ads from previous batches for reference
-
-  // ── Score all ads ──────────────────────────────────────────────────────
-  emit({ type: 'progress', step: 'filter_scoring', message: `Scoring ${ads.length} ads...`, scoringProgress: { current: 0, total: ads.length } });
-
-  const scoredAds = [];
-  let passCount = 0;
-
-  for (let i = 0; i < ads.length; i++) {
-    const ad = ads[i];
-    emit({
-      type: 'progress',
-      step: 'filter_scoring',
-      message: `Scoring ad ${i + 1} of ${ads.length}...`,
-      scoringProgress: { current: i + 1, total: ads.length },
-    });
-
-    try {
-      const score = await scoreAd(ad, topPerformers, angleBrief, projectId);
-      scoredAds.push({ ad, score });
-      if (score.pass) passCount++;
-      console.log(`[FilterService] Ad ${ad.id.slice(0, 8)}: score=${score.overall_score}, pass=${score.pass}`);
-    } catch (err) {
-      console.error(`[FilterService] Failed to score ad ${ad.id.slice(0, 8)}: ${err.message}`);
-      scoredAds.push({ ad, score: { ad_id: ad.id, overall_score: 0, pass: false, error: err.message } });
-    }
-  }
-
-  const passingAds = scoredAds.filter(sa => sa.score.pass);
-  console.log(`[FilterService] Scoring complete: ${passCount}/${ads.length} passed (threshold: ${SCORE_THRESHOLD})`);
-
-  if (passingAds.length < IMAGES_PER_FLEX) {
-    const msg = `Only ${passCount} of ${ads.length} ads passed scoring (need ${IMAGES_PER_FLEX}). No flex ad created.`;
+  const scoreResult = await scoreBatchForInlineFilter(batchId, projectId, emit);
+  if (scoreResult.ads_passed < IMAGES_PER_FLEX) {
+    const msg = `Only ${scoreResult.ads_passed} of ${scoreResult.ads_scored} ads passed scoring (need ${IMAGES_PER_FLEX}). No flex ad created.`;
     console.warn(`[FilterService] ${msg}`);
     emit({ type: 'progress', step: 'filter_complete', message: msg });
-    await updateBatchJob(batchId, { filter_processed: true, filter_processed_at: new Date().toISOString() });
-    return { ads_scored: ads.length, ads_passed: passCount, flex_ads_created: 0, flex_ad_id: null, not_enough_passed: true };
+    return {
+      ads_scored: scoreResult.ads_scored,
+      ads_passed: scoreResult.ads_passed,
+      flex_ads_created: 0,
+      flex_ad_id: null,
+      ready_to_post_count: 0,
+      not_enough_passed: true,
+    };
   }
 
-  // ── Group into flex ads ────────────────────────────────────────────────
-  emit({ type: 'progress', step: 'filter_grouping', message: `Grouping ${passCount} passing ads into flex ads...` });
-
-  const groupResult = await groupAds(passingAds, project.name, 1);
-  const flexAds = groupResult.flex_ads || [];
-
-  if (flexAds.length === 0) {
-    console.warn(`[FilterService] Grouping returned 0 flex ads despite ${passCount} passing ads`);
-    emit({ type: 'progress', step: 'filter_complete', message: 'Grouping could not create a flex ad. Check copy quality.' });
-    await updateBatchJob(batchId, { filter_processed: true, filter_processed_at: new Date().toISOString() });
-    return { ads_scored: ads.length, ads_passed: passCount, flex_ads_created: 0, flex_ad_id: null, grouping_failed: true };
-  }
-
-  // ── Generate fresh copy ────────────────────────────────────────────────
-  const flexAdDef = flexAds[0];
-  emit({ type: 'progress', step: 'filter_copy_gen', message: `Generating copy for "${flexAdDef.angle_theme}"...` });
-
-  // Build ad creative context for copy generation
-  const adCreativesForCopy = flexAdDef.image_ad_ids.slice(0, 5).map(adId => {
-    const found = scoredAds.find(sa => sa.ad.id === adId);
-    return found ? found.ad : { headline: '', body_copy: '', angle: '' };
+  const finalizeResult = await finalizePassingAds({
+    passingAds: scoreResult.passingAds,
+    projectId,
+    batchId,
+    postingDay: scoreResult.batch.posting_day || 'test',
+    angleName: scoreResult.batch.angle_name || '',
+    onProgress: emit,
   });
 
-  const generatedCopy = await generateFilterCopy(projectId, flexAdDef.angle_theme, adCreativesForCopy);
-
-  // ── Deploy flex ad ─────────────────────────────────────────────────────
-  emit({ type: 'progress', step: 'filter_deploying', message: 'Creating flex ad and deploying to Ready to Post...' });
-
-  try {
-    const deployResult = await deployFlexAd(
-      flexAdDef, projectId, project,
-      batchId, batch.posting_day || 'test', batch.angle_name || '',
-      generatedCopy
-    );
-
-    // Mark batch as processed
-    await updateBatchJob(batchId, { filter_processed: true, filter_processed_at: new Date().toISOString() });
-
-    emit({ type: 'progress', step: 'filter_complete', message: `Flex ad deployed: ${passCount} ads passed, ${deployResult.deploymentCount} images → Ready to Post` });
-
-    return {
-      ads_scored: ads.length,
-      ads_passed: passCount,
-      flex_ads_created: 1,
-      flex_ad_id: deployResult.flexAdId,
-    };
-  } catch (err) {
-    console.error(`[FilterService] Deployment failed: ${err.message}`);
-    await updateBatchJob(batchId, { filter_processed: true, filter_processed_at: new Date().toISOString() });
-    return { ads_scored: ads.length, ads_passed: passCount, flex_ads_created: 0, flex_ad_id: null, deploy_error: err.message };
-  }
+  return {
+    ads_scored: scoreResult.ads_scored,
+    ads_passed: scoreResult.ads_passed,
+    ...finalizeResult,
+  };
 }
