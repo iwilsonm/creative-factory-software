@@ -5,6 +5,15 @@ const STOPWORDS = new Set([
   'this', 'to', 'was', 'we', 'were', 'what', 'when', 'why', 'with', 'you', 'your',
 ]);
 
+const GENERIC_SCENE_STOPWORDS = new Set([
+  ...STOPWORDS,
+  'after', 'again', 'already', 'around', 'back', 'body', 'can', 'deal', 'exact',
+  'feels', 'gets', 'getting', 'gone', 'help', 'issue', 'kind', 'minute', 'minutes',
+  'more', 'most', 'night', 'now', 'once', 'pattern', 'problem', 'real', 'really',
+  'right', 'seconds', 'settle', 'specific', 'still', 'system', 'then', 'there',
+  'trip', 'twice', 'using', 'very',
+]);
+
 function safeString(value) {
   return typeof value === 'string' ? value.trim() : '';
 }
@@ -70,6 +79,7 @@ function toComparableHeadline(entry) {
     headline: safeString(entry?.headline || entry?.headline_text),
     hook_lane: safeString(entry?.hook_lane),
     sub_angle: safeString(entry?.sub_angle),
+    scene_anchor: safeString(entry?.scene_anchor),
     core_claim: safeString(entry?.core_claim),
     target_symptom: safeString(entry?.target_symptom),
     emotional_entry: safeString(entry?.emotional_entry || entry?.primary_emotion),
@@ -94,6 +104,232 @@ function compareCandidates(left, right) {
 
 function conflictResult(duplicate, reasons = [], similarity = 0) {
   return { duplicate, reasons, similarity };
+}
+
+function compactReasonCounts(rejected) {
+  return rejected.reduce((counts, entry) => {
+    for (const reason of entry.reasons || []) {
+      counts[reason] = (counts[reason] || 0) + 1;
+    }
+    return counts;
+  }, {});
+}
+
+function buildLexicalConcept(key, sourceText, minSharedTokens = 2) {
+  const tokens = significantTokens(sourceText)
+    .filter((token) => !GENERIC_SCENE_STOPWORDS.has(token))
+    .slice(0, 8);
+  if (tokens.length === 0) return null;
+  return {
+    key,
+    terms: tokens,
+    matchMode: 'token_count',
+    minMatches: Math.min(minSharedTokens, tokens.length),
+    required: false,
+  };
+}
+
+function createPhraseConcept(key, terms, { required = false, minMatches = 1 } = {}) {
+  return { key, terms, required, minMatches, matchMode: 'any' };
+}
+
+function buildSceneConcepts(sourceText, angleBrief) {
+  const concepts = [];
+  if (/\b(pee|bathroom|toilet|restroom|urinat)/i.test(sourceText)) {
+    concepts.push(createPhraseConcept('bathroom_trip', [
+      'pee',
+      'bathroom',
+      'toilet',
+      'restroom',
+      'urinate',
+      'urination',
+      'bathroom trip',
+      'bathroom wake',
+      'wake to pee',
+      'wakes to pee',
+      'nighttime bathroom',
+      'middle of the night bathroom',
+    ], { required: true }));
+  }
+
+  if (/\b(wake|wakes|waking|night|overnight|2 am|3 am|middle of the night|nighttime)\b/i.test(sourceText)) {
+    concepts.push(createPhraseConcept('night_wake', [
+      'wake',
+      'wakes',
+      'waking',
+      'awake',
+      'night',
+      'nighttime',
+      'overnight',
+      '2 am',
+      '3 am',
+      'middle of the night',
+      '3am',
+      '2am',
+    ]));
+  }
+
+  if (/\b(back in bed|fall back asleep|sleep is gone|stays alert|awake for real|wide awake|back to sleep|cannot fall back asleep|cant fall back asleep|alert)\b/i.test(sourceText)) {
+    concepts.push(createPhraseConcept('back_to_sleep_failure', [
+      'back in bed',
+      'fall back asleep',
+      'cannot fall back asleep',
+      'cant fall back asleep',
+      'back to sleep',
+      'sleep is gone',
+      'sleep gone',
+      'stays alert',
+      'awake for real',
+      'wide awake',
+      'fully awake',
+      'now awake',
+      'awake now',
+      'up for real',
+      'ends your night',
+      'night is over',
+      'alert',
+      'asleep again',
+    ], { required: true }));
+  }
+
+  const lexicalFallback = buildLexicalConcept(
+    'scene_keywords',
+    `${angleBrief?.scene || ''} ${angleBrief?.symptom_pattern || ''}`,
+    2
+  );
+  if (lexicalFallback) concepts.push(lexicalFallback);
+
+  return concepts;
+}
+
+export function buildSceneLockProfile(angleBrief) {
+  const scene = safeString(angleBrief?.scene);
+  const symptomPattern = safeString(angleBrief?.symptom_pattern);
+  if (!scene || !symptomPattern) return null;
+
+  const sourceText = `${scene} ${symptomPattern}`;
+  const concepts = buildSceneConcepts(sourceText, angleBrief);
+  const requiredConcepts = concepts.filter((concept) => concept.required).map((concept) => concept.key);
+  const minConceptMatches = Math.min(
+    concepts.length,
+    requiredConcepts.length > 0 ? Math.max(2, requiredConcepts.length) : 2
+  );
+
+  return {
+    locked: true,
+    scene,
+    symptomPattern,
+    sourceText,
+    concepts,
+    requiredConcepts,
+    minConceptMatches,
+  };
+}
+
+function corpusForSceneAlignment(candidate) {
+  return normalizeHeadlineText([
+    safeString(candidate?.headline || candidate?.headline_text),
+    safeString(candidate?.target_symptom),
+    safeString(candidate?.core_claim),
+    safeString(candidate?.scene_anchor),
+    safeString(candidate?.sub_angle),
+  ].filter(Boolean).join(' '));
+}
+
+function countTokenMatches(corpus, terms) {
+  const corpusTokens = new Set(significantTokens(corpus));
+  let matches = 0;
+  for (const term of terms) {
+    if (corpusTokens.has(term)) matches += 1;
+  }
+  return matches;
+}
+
+function conceptMatchesCorpus(corpus, concept) {
+  if (!corpus || !concept) return false;
+  if (concept.matchMode === 'token_count') {
+    return countTokenMatches(corpus, concept.terms) >= (concept.minMatches || 1);
+  }
+  return concept.terms.some((term) => corpus.includes(normalizeHeadlineText(term)));
+}
+
+export function evaluateSceneAlignment(candidate, angleBrief, profile = null) {
+  const sceneProfile = profile || buildSceneLockProfile(angleBrief);
+  if (!sceneProfile?.locked) {
+    return { aligned: true, reasons: [], matchedConcepts: [], similarity: 0 };
+  }
+
+  const comparable = toComparableHeadline(candidate);
+  const corpus = corpusForSceneAlignment(comparable);
+  const matchedConcepts = sceneProfile.concepts
+    .filter((concept) => conceptMatchesCorpus(corpus, concept))
+    .map((concept) => concept.key);
+  const reasons = [];
+  const similarity = tokenSimilarity(corpus, sceneProfile.sourceText);
+
+  for (const conceptKey of sceneProfile.requiredConcepts) {
+    if (!matchedConcepts.includes(conceptKey)) reasons.push(`missing_${conceptKey}`);
+  }
+
+  if (matchedConcepts.length < sceneProfile.minConceptMatches) {
+    reasons.push('insufficient_scene_specificity');
+  }
+
+  if (similarity < 0.12) {
+    reasons.push('low_scene_overlap');
+  }
+
+  if (
+    comparable.hook_lane === 'consequence_led' &&
+    !matchedConcepts.includes('back_to_sleep_failure')
+  ) {
+    reasons.push('consequence_without_return_to_sleep');
+  }
+
+  return {
+    aligned: reasons.length === 0,
+    reasons,
+    matchedConcepts,
+    similarity,
+  };
+}
+
+export function filterSceneAlignedHeadlines(candidates, angleBrief) {
+  const sceneProfile = buildSceneLockProfile(angleBrief);
+  if (!sceneProfile?.locked) {
+    return {
+      sceneLocked: false,
+      profile: null,
+      survivors: candidates.map(toComparableHeadline).filter((candidate) => candidate.headline),
+      rejected: [],
+      reasonCounts: {},
+    };
+  }
+
+  const survivors = [];
+  const rejected = [];
+
+  for (const candidate of candidates.map(toComparableHeadline).filter((entry) => entry.headline)) {
+    const result = evaluateSceneAlignment(candidate, angleBrief, sceneProfile);
+    if (result.aligned) {
+      survivors.push(candidate);
+    } else {
+      rejected.push({
+        candidate,
+        reasons: result.reasons,
+        matchedConcepts: result.matchedConcepts,
+        similarity: result.similarity,
+      });
+    }
+  }
+
+  return {
+    sceneLocked: true,
+    profile: sceneProfile,
+    survivors,
+    rejected,
+    reasonCounts: compactReasonCounts(rejected),
+  };
 }
 
 export function evaluateHeadlineConflict(candidate, other) {

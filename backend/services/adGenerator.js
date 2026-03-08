@@ -836,8 +836,16 @@ export const FRAME_LANE_MAP = {
 
 export const DEFAULT_LANES = ['symptom_recognition', 'oddly_specific_moment', 'failed_solutions', 'skeptical_confession', 'mechanism_curiosity', 'review_like'];
 
+const SCENE_LOCKED_FRAME_LANE_MAP = {
+  'symptom-first': ['symptom_recognition', 'oddly_specific_moment', 'failed_solutions', 'mechanism_curiosity', 'consequence_led'],
+};
+
 function safeString(value) {
   return typeof value === 'string' ? value.trim() : '';
+}
+
+export function isSceneLockedAngle(angleBrief) {
+  return !!(safeString(angleBrief?.scene) && safeString(angleBrief?.symptom_pattern));
 }
 
 function inferOpeningPattern(headline) {
@@ -855,10 +863,15 @@ function inferOpeningPattern(headline) {
 }
 
 function selectHeadlineLanes(angleBrief, count) {
+  const sceneLocked = isSceneLockedAngle(angleBrief);
   const frame = angleBrief?.frame && FRAME_LANE_MAP[angleBrief.frame]
     ? angleBrief.frame
     : null;
-  const lanePool = frame ? FRAME_LANE_MAP[frame] : DEFAULT_LANES;
+  const lanePool = sceneLocked && frame && SCENE_LOCKED_FRAME_LANE_MAP[frame]
+    ? SCENE_LOCKED_FRAME_LANE_MAP[frame]
+    : frame
+      ? FRAME_LANE_MAP[frame]
+      : DEFAULT_LANES;
   const desiredLaneCount = Math.max(4, Math.min(6, count >= 24 ? 6 : count >= 16 ? 5 : 4));
   return lanePool.slice(0, desiredLaneCount);
 }
@@ -1020,6 +1033,7 @@ export async function generateHeadlines(project, briefPacket, angle, count, angl
   const selectedLanes = selectHeadlineLanes(angleBrief, count);
   const laneAllocation = buildLaneAllocation(selectedLanes, count);
   const priorHeadlineBlock = formatPriorHeadlineHistory(priorHeadlines);
+  const sceneLocked = isSceneLockedAngle(angleBrief);
 
   let structuredAngleBlock = '';
   if (angleBrief && (angleBrief.core_buyer || angleBrief.scene || angleBrief.objection)) {
@@ -1027,7 +1041,13 @@ export async function generateHeadlines(project, briefPacket, angle, count, angl
     if (angleBrief.frame) parts.push(`FRAME: ${angleBrief.frame} — use this as the dominant structural lens.`);
     if (angleBrief.core_buyer) parts.push(`CORE BUYER: ${angleBrief.core_buyer}`);
     if (angleBrief.symptom_pattern) parts.push(`TARGET SYMPTOM PATTERN: ${angleBrief.symptom_pattern}`);
-    if (angleBrief.scene) parts.push(`SCENE: ${angleBrief.scene} — center the headlines around this lived moment when useful.`);
+    if (angleBrief.scene) {
+      parts.push(
+        sceneLocked
+          ? `SCENE: ${angleBrief.scene} — every accepted headline must stay anchored to this exact lived moment. Variation is allowed in framing, not in scene.`
+          : `SCENE: ${angleBrief.scene} — center the headlines around this lived moment when useful.`
+      );
+    }
     if (angleBrief.objection) parts.push(`OBJECTION TO ADDRESS: ${angleBrief.objection}`);
     if (angleBrief.failed_solutions) parts.push(`FAILED SOLUTIONS: ${angleBrief.failed_solutions}`);
     if (angleBrief.desired_belief_shift) parts.push(`DESIRED BELIEF SHIFT: ${angleBrief.desired_belief_shift} — headlines should move the reader toward this belief.`);
@@ -1075,9 +1095,14 @@ IMPORTANT DIVERSITY RULES:
 - No two headlines may share the same hook lane AND the same core claim.
 - No two headlines may start with the same opening phrase.
 - Do not recycle the same persuasion move with slightly different wording.
-- The angle "${angle || 'general'}" is a strategic lens, not the headline text itself.
+- ${sceneLocked
+    ? `Every headline must stay unmistakably about this exact scene: ${angleBrief.scene}. Do not widen into adjacent sleep problems or generic consequences unless the bathroom-trip / back-in-bed / cannot-fall-asleep moment is still explicit.`
+    : `The angle "${angle || 'general'}" is a strategic lens, not the headline text itself.`}
 - Headlines must be short. Maximum 12 words. Under 8 words is ideal when it still feels natural.
 - Avoid hype cliches, fake authority, miracle language, and anything that sounds like generic ad copy.
+- ${sceneLocked
+    ? 'For consequence-led headlines, the consequence must still be tied directly to the same middle-of-the-night wake-to-pee / back-in-bed moment.'
+    : 'Consequences can widen the frame as long as the line still feels specific and grounded.'}
 
 KEEP A SECONDARY "SUB-ANGLE" LABEL:
 - For each headline, include a short sub_angle label that captures the micro-angle or speaker perspective for that exact line.
@@ -1085,6 +1110,7 @@ KEEP A SECONDARY "SUB-ANGLE" LABEL:
 
 STRUCTURED METADATA REQUIREMENTS:
 - hook_lane: one of the allowed lanes above
+- scene_anchor: short phrase naming the exact lived moment this headline is about
 - core_claim: short phrase describing the central promise, problem, or idea
 - target_symptom: the specific symptom or moment this headline is speaking to
 - emotional_entry: the dominant emotional doorway for this line
@@ -1114,6 +1140,7 @@ Return ONLY valid JSON:
       "headline": "the headline text",
       "hook_lane": "symptom_recognition",
       "sub_angle": "late-night stiffness",
+      "scene_anchor": "back in bed after a bathroom trip and instantly awake",
       "core_claim": "morning stiffness may come from sleep setup",
       "target_symptom": "waking up stiff and sore",
       "emotional_entry": "recognition",
@@ -1177,6 +1204,7 @@ Return ONLY valid JSON:
             headline: safeString(headline.headline),
             hook_lane: hookLane,
             sub_angle: safeString(headline.sub_angle) || hookLane,
+            scene_anchor: safeString(headline.scene_anchor) || safeString(headline.target_symptom) || safeString(angleBrief?.scene),
             core_claim: safeString(headline.core_claim),
             target_symptom: safeString(headline.target_symptom),
             emotional_entry: safeString(emotionalEntryValue) || 'curiosity',
@@ -1276,6 +1304,7 @@ export async function generateBodyCopies(project, briefPacket, headlines, angleB
     primary_emotion: matchingHeadline?.primary_emotion || 'curiosity',
     sub_angle: matchingHeadline?.sub_angle || null,
     hook_lane: matchingHeadline?.hook_lane || null,
+    scene_anchor: matchingHeadline?.scene_anchor || null,
     core_claim: matchingHeadline?.core_claim || null,
     target_symptom: matchingHeadline?.target_symptom || null,
     emotional_entry: matchingHeadline?.emotional_entry || matchingHeadline?.primary_emotion || null,
@@ -1293,6 +1322,7 @@ export async function generateBodyCopies(project, briefPacket, headlines, angleB
       const metadata = [
         headlineObj.hook_lane ? `lane: ${headlineObj.hook_lane}` : null,
         headlineObj.sub_angle ? `sub-angle: ${headlineObj.sub_angle}` : null,
+        headlineObj.scene_anchor ? `scene anchor: ${headlineObj.scene_anchor}` : null,
         headlineObj.core_claim ? `core claim: ${headlineObj.core_claim}` : null,
         headlineObj.target_symptom ? `symptom: ${headlineObj.target_symptom}` : null,
         headlineObj.emotional_entry ? `emotional entry: ${headlineObj.emotional_entry}` : null,
@@ -1545,10 +1575,11 @@ export async function generateImagePrompt(project, headline, bodyCopy, primaryEm
   }
 
   let headlineStrategyBlock = '';
-  if (headlineMeta && (headlineMeta.hook_lane || headlineMeta.core_claim || headlineMeta.target_symptom || headlineMeta.desired_belief_shift)) {
+  if (headlineMeta && (headlineMeta.hook_lane || headlineMeta.scene_anchor || headlineMeta.core_claim || headlineMeta.target_symptom || headlineMeta.desired_belief_shift)) {
     const parts = [];
     if (headlineMeta.hook_lane) parts.push(`HOOK LANE: ${headlineMeta.hook_lane}`);
     if (headlineMeta.sub_angle) parts.push(`SUB-ANGLE: ${headlineMeta.sub_angle}`);
+    if (headlineMeta.scene_anchor) parts.push(`SCENE ANCHOR: ${headlineMeta.scene_anchor}`);
     if (headlineMeta.core_claim) parts.push(`CORE CLAIM: ${headlineMeta.core_claim}`);
     if (headlineMeta.target_symptom) parts.push(`TARGET SYMPTOM: ${headlineMeta.target_symptom}`);
     if (headlineMeta.emotional_entry) parts.push(`EMOTIONAL ENTRY: ${headlineMeta.emotional_entry}`);

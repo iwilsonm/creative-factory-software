@@ -19,6 +19,8 @@ const mockGetBatchesByProject = vi.fn();
 const mockCreateBatchJob = vi.fn();
 const mockDeleteBatchJob = vi.fn();
 const mockClaimBatchResultsProcessing = vi.fn();
+const mockGetRecentHeadlineHistoryByAngle = vi.fn();
+const mockRecordHeadlineHistory = vi.fn();
 
 vi.mock('../convexClient.js', () => ({
   getProject: (...args) => mockGetProject(...args),
@@ -34,6 +36,8 @@ vi.mock('../convexClient.js', () => ({
   createBatchJob: (...args) => mockCreateBatchJob(...args),
   deleteBatchJob: (...args) => mockDeleteBatchJob(...args),
   claimBatchResultsProcessing: (...args) => mockClaimBatchResultsProcessing(...args),
+  getRecentHeadlineHistoryByAngle: (...args) => mockGetRecentHeadlineHistoryByAngle(...args),
+  recordHeadlineHistory: (...args) => mockRecordHeadlineHistory(...args),
   getInspirationImages: vi.fn().mockResolvedValue([]),
   getInspirationImageUrl: vi.fn(),
   getAdImageUrl: vi.fn(),
@@ -52,12 +56,14 @@ const mockGenerateImagePrompt = vi.fn();
 const mockSelectInspirationImage = vi.fn();
 const mockSelectTemplateImage = vi.fn();
 const mockReviewPromptWithGuidelines = vi.fn();
+const mockIsSceneLockedAngle = vi.fn();
 
 vi.mock('../services/adGenerator.js', () => ({
   extractBrief: (...args) => mockExtractBrief(...args),
   generateHeadlines: (...args) => mockGenerateHeadlines(...args),
   generateBodyCopies: (...args) => mockGenerateBodyCopies(...args),
   generateImagePrompt: (...args) => mockGenerateImagePrompt(...args),
+  isSceneLockedAngle: (...args) => mockIsSceneLockedAngle(...args),
   selectInspirationImage: (...args) => mockSelectInspirationImage(...args),
   selectTemplateImage: (...args) => mockSelectTemplateImage(...args),
   reviewPromptWithGuidelines: (...args) => mockReviewPromptWithGuidelines(...args),
@@ -185,6 +191,9 @@ describe('batch pipeline', () => {
       failed_count: 0,
       run_count: 0,
     });
+    mockGetRecentHeadlineHistoryByAngle.mockResolvedValue([]);
+    mockRecordHeadlineHistory.mockResolvedValue();
+    mockIsSceneLockedAngle.mockReturnValue(false);
   });
 
   // ── Status Flow ──────────────────────────────────────────

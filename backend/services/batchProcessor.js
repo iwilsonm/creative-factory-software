@@ -5,6 +5,7 @@ import {
   generateHeadlines,
   generateBodyCopies,
   generateImagePrompt,
+  isSceneLockedAngle,
   selectInspirationImage,
   selectTemplateImage,
   reviewPromptWithGuidelines,
@@ -21,6 +22,7 @@ import { logGeminiCost } from './costTracker.js';
 import { withRetry } from './retry.js';
 import {
   buildHeadlineHistoryEntry,
+  filterSceneAlignedHeadlines,
   filterHeadlineCandidatePool,
   normalizeHeadlineText,
   selectDiverseHeadlines,
@@ -40,6 +42,7 @@ function serializePromptForStorage(prompt) {
     angle_name: prompt.angle_name || null,
     hook_lane: prompt.hook_lane || null,
     sub_angle: prompt.sub_angle || null,
+    scene_anchor: prompt.scene_anchor || null,
     core_claim: prompt.core_claim || null,
     target_symptom: prompt.target_symptom || null,
     emotional_entry: prompt.emotional_entry || null,
@@ -261,11 +264,13 @@ async function generateBatchPrompts(batch, project, docs, onProgress, options = 
 
   const headlineResult = await generateHeadlines(project, briefPacket, angle, headlineCount, angleBrief, priorHeadlines);
   const initialCandidates = Array.isArray(headlineResult.headlines) ? headlineResult.headlines : [];
-  const dedupedPool = filterHeadlineCandidatePool(initialCandidates, priorHeadlines);
+  const sceneAlignedPool = filterSceneAlignedHeadlines(initialCandidates, angleBrief);
+  const dedupedPool = filterHeadlineCandidatePool(sceneAlignedPool.survivors, priorHeadlines);
   let selection = selectDiverseHeadlines(dedupedPool.survivors, batch.batch_size);
   let finalHeadlines = selection.selected;
   let regenCandidateCount = 0;
   let regenDedupedPool = null;
+  let regenSceneAlignedPool = null;
 
   if (finalHeadlines.length < batch.batch_size) {
     const shortfall = batch.batch_size - finalHeadlines.length;
@@ -277,6 +282,7 @@ async function generateBatchPrompts(batch, project, docs, onProgress, options = 
         headline: headline.headline,
         hook_lane: headline.hook_lane,
         sub_angle: headline.sub_angle,
+        scene_anchor: headline.scene_anchor,
         core_claim: headline.core_claim,
         target_symptom: headline.target_symptom,
         emotional_entry: headline.emotional_entry,
@@ -291,7 +297,8 @@ async function generateBatchPrompts(batch, project, docs, onProgress, options = 
       ...selection.overflow,
       ...(Array.isArray(regenResult.headlines) ? regenResult.headlines : []),
     ].filter((headline) => !selectedNormalized.has(normalizeHeadlineText(headline.headline)));
-    regenDedupedPool = filterHeadlineCandidatePool(secondPassPool, regenSeedHistory);
+    regenSceneAlignedPool = filterSceneAlignedHeadlines(secondPassPool, angleBrief);
+    regenDedupedPool = filterHeadlineCandidatePool(regenSceneAlignedPool.survivors, regenSeedHistory);
     selection = selectDiverseHeadlines(regenDedupedPool.survivors, batch.batch_size, finalHeadlines);
     finalHeadlines = selection.selected;
   }
@@ -309,9 +316,20 @@ async function generateBatchPrompts(batch, project, docs, onProgress, options = 
     dedupedPool.rejectedInBatch.length + (regenDedupedPool?.rejectedInBatch.length || 0);
   const historyRejections =
     dedupedPool.rejectedByHistory.length + (regenDedupedPool?.rejectedByHistory.length || 0);
+  const sceneAlignmentRejections =
+    sceneAlignedPool.rejected.length + (regenSceneAlignedPool?.rejected.length || 0);
+  const sceneAlignmentReasonCounts = {
+    ...sceneAlignedPool.reasonCounts,
+  };
+  for (const [reason, count] of Object.entries(regenSceneAlignedPool?.reasonCounts || {})) {
+    sceneAlignmentReasonCounts[reason] = (sceneAlignmentReasonCounts[reason] || 0) + count;
+  }
   const headlineDiagnostics = {
+    scene_locked: isSceneLockedAngle(angleBrief),
     headline_count: finalHeadlines.length,
     headline_candidates: initialCandidates.length + regenCandidateCount,
+    scene_alignment_rejections: sceneAlignmentRejections,
+    scene_alignment_reason_counts: sceneAlignmentReasonCounts,
     duplicate_rejections: duplicateRejections,
     history_rejections: historyRejections,
     lane_count: Object.keys(laneDistribution).length,
@@ -321,7 +339,7 @@ async function generateBatchPrompts(batch, project, docs, onProgress, options = 
   };
 
   console.log(
-    `[BatchProcessor] Stage 1 complete: ${initialCandidates.length + regenCandidateCount} generated, ${duplicateRejections} intra-batch rejects, ${historyRejections} historical rejects, ${finalHeadlines.length} selected`
+    `[BatchProcessor] Stage 1 complete: ${initialCandidates.length + regenCandidateCount} generated, ${sceneAlignmentRejections} scene rejects, ${duplicateRejections} intra-batch rejects, ${historyRejections} historical rejects, ${finalHeadlines.length} selected`
   );
   await updateBatchJob(batchId, {
     pipeline_state: JSON.stringify({
@@ -470,6 +488,7 @@ async function generateBatchPrompts(batch, project, docs, onProgress, options = 
           {
             hook_lane: copy.hook_lane,
             sub_angle: copy.sub_angle,
+            scene_anchor: copy.scene_anchor,
             core_claim: copy.core_claim,
             target_symptom: copy.target_symptom,
             emotional_entry: copy.emotional_entry,
@@ -493,6 +512,7 @@ async function generateBatchPrompts(batch, project, docs, onProgress, options = 
           angle_name: batch.angle_name || null,
           hook_lane: copy.hook_lane || null,
           sub_angle: copy.sub_angle || null,
+          scene_anchor: copy.scene_anchor || null,
           core_claim: copy.core_claim || null,
           target_symptom: copy.target_symptom || null,
           emotional_entry: copy.emotional_entry || copy.primary_emotion || null,
@@ -826,6 +846,7 @@ async function processBatchResults(batchId, job) {
             headline: promptObj.headline,
             hook_lane: promptObj.hook_lane,
             sub_angle: promptObj.sub_angle,
+            scene_anchor: promptObj.scene_anchor,
             core_claim: promptObj.core_claim,
             target_symptom: promptObj.target_symptom,
             emotional_entry: promptObj.emotional_entry || promptObj.primary_emotion,

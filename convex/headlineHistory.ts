@@ -58,3 +58,24 @@ export const recordMany = mutation({
     }
   },
 });
+
+export const clearByAngle = mutation({
+  args: {
+    projectId: v.string(),
+    angleName: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const rows = await ctx.db
+      .query("headline_history")
+      .withIndex("by_project_and_angle", (q) =>
+        q.eq("project_id", args.projectId).eq("angle_name", args.angleName)
+      )
+      .collect();
+
+    for (const row of rows) {
+      await ctx.db.delete(row._id);
+    }
+
+    return { deleted: rows.length };
+  },
+});

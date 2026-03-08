@@ -345,6 +345,16 @@ export async function recordHeadlineHistory(entries) {
   invalidateQueryCache('headline_history');
 }
 
+export async function clearHeadlineHistoryByAngle(projectId, angleName) {
+  if (!projectId || !angleName) return { deleted: 0 };
+  const result = await mutationWithRetry(api.headlineHistory.clearByAngle, {
+    projectId,
+    angleName,
+  });
+  invalidateQueryCache('headline_history');
+  return result || { deleted: 0 };
+}
+
 export async function getRecentLPHeadlineHistoryByAngle(projectId, angleName, options = {}) {
   if (!projectId || !angleName) return [];
   const { limit = 200, since = null } = options;
