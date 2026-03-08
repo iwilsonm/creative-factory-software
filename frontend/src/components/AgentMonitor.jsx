@@ -898,7 +898,7 @@ function buildServerQueueItem(active, existing = null) {
     startTime: existing?.startTime || active?.startTime || Date.now(),
     result: active?.result || existing?.result || null,
     angleId: existing?.angleId || null,
-    generateLP: existing?.generateLP ?? true,
+    generateLP: existing?.generateLP ?? false,
     sseConnected: false,
     serverRunId: active?.runId || active?.id || existing?.serverRunId || null,
   };
@@ -1407,7 +1407,7 @@ function DirectorTab({ onRefresh }) {
 
   // Angle selection and LP toggle for test runs
   const [selectedAngleId, setSelectedAngleId] = useState('');
-  const [generateLP, setGenerateLP] = useState(true);
+  const [generateLP, setGenerateLP] = useState(false);
 
   // Test run queue — persisted to localStorage so it survives refresh/navigation
   const QUEUE_KEY = 'dacia_testRunQueue';
@@ -1799,7 +1799,7 @@ function DirectorTab({ onRefresh }) {
 
     const body = {
       ...(nextQueued.angleId ? { angle_id: nextQueued.angleId } : {}),
-      generate_lp: nextQueued.generateLP ?? true,
+      generate_lp: nextQueued.generateLP ?? false,
     };
 
     let sawEvent = false;

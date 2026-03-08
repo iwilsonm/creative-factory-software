@@ -15,7 +15,7 @@ import { chat, chatWithImage, chatWithMultipleImages, extractJSON } from './anth
 import { generateImage } from './gemini.js';
 import crypto from 'crypto';
 import { getDocsByProject, uploadBuffer, getStorageUrl, getLPTemplate, getProject, downloadToBuffer, getLPAgentConfig, upsertLPAgentConfig } from '../convexClient.js';
-import { getNarrativeFrameHeadlineContract } from './lpHeadlineValidation.js';
+import { getNarrativeFrameHeadlineContract, validateLPContentAlignment } from './lpHeadlineValidation.js';
 
 /**
  * Detect the actual MIME type of an image buffer by reading magic bytes.
@@ -87,6 +87,29 @@ function buildHeadlineConstraintInstruction(headlineConstraints = null) {
   }
   if (parts.length === 0) return '';
   return `\nHEADLINE DIFFERENTIATION RULES:\n${parts.join('\n\n')}\n`;
+}
+
+function buildCampaignMessageInstruction(messageBrief = null) {
+  if (!messageBrief) return '';
+  const parts = [];
+  if (messageBrief.sourceMode === 'director_ads') {
+    parts.push('SOURCE MESSAGE CONTRACT:\nThis LP is being generated from winning Creative Director ads. It must feel like the exact page someone should land on after clicking those ads. Stay on the same promise, same symptom/problem, and same buyer state as the ads.');
+  } else {
+    parts.push('SOURCE MESSAGE CONTRACT:\nThis LP must stay tightly aligned with the angle and angle brief below. Do not drift into adjacent generic wellness or sleep copy.');
+  }
+  if (messageBrief.angleSummary) {
+    parts.push(`ANGLE / CORE MESSAGE:\n${messageBrief.angleSummary}`);
+  }
+  if (messageBrief.headlineExamples?.length) {
+    parts.push(`WINNING AD HEADLINES / MESSAGE HOOKS:\n${messageBrief.headlineExamples.slice(0, 6).map((text, index) => `${index + 1}. ${text}`).join('\n')}`);
+  }
+  if (messageBrief.openingExamples?.length) {
+    parts.push(`WINNING AD OPENINGS / PROMISES:\n${messageBrief.openingExamples.slice(0, 6).map((text, index) => `${index + 1}. ${text}`).join('\n')}`);
+  }
+  if (messageBrief.messageKeywords?.length) {
+    parts.push(`MESSAGE KEYWORDS / THEMES TO STAY ON:\n${messageBrief.messageKeywords.slice(0, 12).join(', ')}`);
+  }
+  return `\n${parts.join('\n\n')}\n`;
 }
 
 // ─── Phase 2A: Screenshot-based Claude vision design analysis ────────────────
@@ -850,6 +873,7 @@ export async function generateLandingPageCopy({
   wordCount = 1200,
   additionalDirection,
   approvedAds = [],  // Approved batch ads for messaging alignment
+  messageBrief = null,
   autoContext,  // { narrativeFrame, foundationalDocs } — only in auto mode
   headlineConstraints = null,
 }, sendEvent) {
@@ -938,6 +962,7 @@ Study these documents carefully. You will use them to write a landing page in th
     ? `\nNARRATIVE FRAME INSTRUCTION:\n${autoContext.narrativeFrame}\n\nYou MUST write the entire landing page using this narrative frame. The frame dictates the overall voice, structure, and storytelling approach. Every section should reflect this frame.\n`
     : '';
   const headlineConstraintInstruction = buildHeadlineConstraintInstruction(headlineConstraints);
+  const campaignMessageInstruction = buildCampaignMessageInstruction(messageBrief);
 
   // Build approved ad reference section (only when ads are available from a real batch)
   let adReferenceSection = '';
@@ -950,9 +975,9 @@ Study these documents carefully. You will use them to write a landing page in th
 
     adReferenceSection = `
 APPROVED AD CAMPAIGN REFERENCE:
-The following are the approved ad headlines and opening lines from this campaign. These are the ads that have passed quality review and will actually run. Your landing page should align with the overall messaging themes across these ads. Don't copy them word-for-word, but make sure someone who clicked one of these ads would feel like the landing page delivers on the promise the ad made.
+The following are the approved ad headlines and opening lines from this campaign. These are the ads that have passed quality review and will actually run. Your landing page must feel like the exact click-through continuation of this campaign. Do not copy the ads word-for-word, but do keep the same problem, same promise, same buyer state, and same message direction.
 
-The ads vary in approach — different hooks, different emotional angles — so align with the overall direction and common themes, not any single ad.
+If a reader clicked one of these ads, the landing page must feel like it was built to fulfill that ad's promise, not a generic adjacent angle.
 
 ${adSummaries}
 `;
@@ -976,7 +1001,7 @@ MARKETING ANGLE / HOOK:
 ${angleSection}
 
 TARGET WORD COUNT: approximately ${wordCount} words
-${narrativeInstruction}${headlineConstraintInstruction}${adReferenceSection}
+${narrativeInstruction}${headlineConstraintInstruction}${campaignMessageInstruction}${adReferenceSection}
 ${swipeText ? `SWIPE FILE REFERENCE (use this as structural and tonal inspiration — do NOT copy it verbatim):
 ${swipeText.slice(0, 15000)}
 ${swipeText.length > 15000 ? '\n[... swipe text truncated for context length ...]' : ''}` : 'No swipe file provided — use your own best judgment for structure and flow.'}
@@ -1171,6 +1196,7 @@ export async function runEditorialPass({
   narrativeFrame,
   foundationalDocs,
   approvedAds = [],
+  messageBrief = null,
   pdpUrl,
   projectId,
   headlineConstraints = null,
@@ -1221,7 +1247,7 @@ CRITICAL: Also scan the copy for any remaining {{placeholder}} template tags (e.
       .join('\n');
     editorialAdReference = `
 APPROVED AD HEADLINES FROM THIS CAMPAIGN:
-A reader clicked on one of these ads and landed on this page. Your LP headline should deliver on the promise that drew them in. The ads vary in approach — align with the common themes, not any single ad.
+A reader clicked on one of these ads and landed on this page. Your LP headline and editorial choices must deliver on the same promise and message direction that drew them in. Treat these as the campaign message contract, not loose inspiration.
 
 ${adHeadlines}
 `;
@@ -1234,6 +1260,7 @@ NARRATIVE FRAME: ${narrativeFrame || 'general'}
 IMPORTANT: The headline MUST be unique to this narrative frame. It should reflect the storytelling approach described above — a testimonial frame headline reads completely differently from a mechanism or listicle headline.
 HEADLINE CONTRACT: ${headlineConstraints?.contract || getNarrativeFrameHeadlineContract(narrativeFrame)}
 ${buildHeadlineConstraintInstruction(headlineConstraints)}
+${buildCampaignMessageInstruction(messageBrief)}
 ${editorialAdReference}PDP URL: ${pdpUrl || 'not set'}
 PAGE SECTIONS: ${sectionTypes}
 
@@ -1356,6 +1383,7 @@ export async function repairLPHeadline({
   subheadline,
   copySections,
   approvedAds = [],
+  messageBrief = null,
   headlineConstraints = null,
 }, sendEvent = () => {}) {
   sendEvent({ type: 'progress', step: 'headline_repair', message: 'Repairing landing page headline...' });
@@ -1366,7 +1394,7 @@ export async function repairLPHeadline({
     .slice(0, 6000);
 
   const adReference = approvedAds.length > 0
-    ? `APPROVED AD THEMES:\n${approvedAds.slice(0, 6).map((ad, index) => `${index + 1}. ${ad.headline}`).join('\n')}\n`
+    ? `APPROVED AD MESSAGE CONTRACT:\n${approvedAds.slice(0, 6).map((ad, index) => `${index + 1}. ${ad.headline}`).join('\n')}\n`
     : '';
 
   const response = await chat(
@@ -1382,7 +1410,7 @@ export async function repairLPHeadline({
 ANGLE: ${angle}
 NARRATIVE FRAME: ${narrativeFrame}
 HEADLINE CONTRACT: ${headlineConstraints?.contract || getNarrativeFrameHeadlineContract(narrativeFrame)}
-${buildHeadlineConstraintInstruction(headlineConstraints)}
+${buildHeadlineConstraintInstruction(headlineConstraints)}${buildCampaignMessageInstruction(messageBrief)}
 CURRENT HEADLINE: ${headline || '(none)'}
 CURRENT SUBHEADLINE: ${subheadline || '(none)'}
 ${adReference}
@@ -1398,6 +1426,7 @@ Return JSON:
 
 Rules:
 - The new headline must sound like this narrative frame, not a generic advertorial.
+- It must stay unmistakably aligned with the angle and the campaign message contract above.
 - It must not overlap the already-used or recent-history headlines listed above.
 - Keep it concise and specific.
 - The subheadline should support the headline without repeating it word-for-word.`,
@@ -1421,6 +1450,87 @@ Rules:
   return {
     headline: String(parsed.headline || '').trim(),
     subheadline: String(parsed.subheadline || '').trim(),
+    reason: String(parsed.reason || '').trim(),
+  };
+}
+
+export async function repairLPContentAlignment({
+  projectId,
+  angle,
+  narrativeFrame,
+  copySections,
+  approvedAds = [],
+  messageBrief = null,
+  headlineConstraints = null,
+}, sendEvent = () => {}) {
+  sendEvent({ type: 'progress', step: 'content_alignment_repair', message: 'Repairing landing page copy alignment...' });
+
+  const response = await chat(
+    [
+      {
+        role: 'system',
+        content: 'You repair direct-response landing page copy so it stays aligned with a required angle, narrative frame, and ad message. Return JSON only.',
+      },
+      {
+        role: 'user',
+        content: `Repair this landing page copy so it stays aligned with the exact source message.
+
+ANGLE: ${angle}
+NARRATIVE FRAME: ${narrativeFrame}
+HEADLINE CONTRACT: ${headlineConstraints?.contract || getNarrativeFrameHeadlineContract(narrativeFrame)}
+${buildHeadlineConstraintInstruction(headlineConstraints)}${buildCampaignMessageInstruction(messageBrief)}
+APPROVED AD THEMES:
+${approvedAds.slice(0, 6).map((ad, index) => `${index + 1}. HEADLINE: ${ad.headline || '(none)'}${ad.body_copy ? `\n   OPENING: ${String(ad.body_copy).split(/[.!?]\\s/)[0]}.` : ''}`).join('\n')}
+
+CURRENT COPY SECTIONS:
+${(Array.isArray(copySections) ? copySections : []).map((section) => `[${section.type}] ${section.content}`).join('\n\n').slice(0, 9000)}
+
+Return JSON:
+{
+  "sections": [
+    { "type": "headline", "content": "..." },
+    { "type": "subheadline", "content": "..." },
+    { "type": "lead", "content": "..." }
+  ],
+  "reason": "brief explanation"
+}
+
+Rules:
+- Keep the page aligned with the exact angle and campaign message.
+- Keep the narrative frame unmistakable throughout the lead/problem/solution flow.
+- Do not drift into generic sleep or wellness advice.
+- Preserve the current headline and subheadline unless they need a small supporting tweak to keep the copy coherent.
+- Return the full updated sections array, not just changed sections.`,
+      },
+    ],
+    'claude-sonnet-4-6',
+    {
+      max_tokens: 8192,
+      timeout: 120000,
+      operation: 'lp_content_alignment_repair',
+      projectId,
+      response_format: { type: 'json_object' },
+    }
+  );
+
+  const parsed = extractJSON(response);
+  if (!parsed?.sections || !Array.isArray(parsed.sections)) {
+    throw new Error('Content alignment repair returned malformed JSON.');
+  }
+
+  const validSections = parsed.sections
+    .filter((section) => section?.type && section?.content)
+    .map((section) => ({
+      type: String(section.type).trim(),
+      content: String(section.content).trim(),
+    }));
+
+  if (validSections.length === 0) {
+    throw new Error('Content alignment repair returned no valid sections.');
+  }
+
+  return {
+    sections: validSections,
     reason: String(parsed.reason || '').trim(),
   };
 }
@@ -3628,6 +3738,7 @@ export async function generateAutoLP({
   useProductReferenceImages = true,
   agentConfig = null,
   approvedAds = [],  // Approved batch ads for messaging alignment
+  messageBrief = null,
   autoContext: parentAutoContext = null,  // Gauntlet: { cachedHtmlTemplate, preGeneratedImages }
   headlineConstraints = null,
 }, sendEvent) {
@@ -3763,6 +3874,7 @@ export async function generateAutoLP({
     swipeText: '', // No swipe text in auto mode — template provides structure
     wordCount: effectiveWordCount,
     approvedAds,
+    messageBrief,
     autoContext: {
       narrativeFrame,
       templateSlots: placeholders.templateCopy,
@@ -3796,6 +3908,7 @@ export async function generateAutoLP({
             swipeText: '',
             wordCount: effectiveWordCount,
             approvedAds,
+            messageBrief,
             additionalDirection: `CRITICAL: Your previous attempt was missing these required template sections: ${missingSlots.join(', ')}. You MUST include a section for EACH of these in your response. The template has placeholder tags for these sections — if you skip them, the finished page will have empty holes.`,
             autoContext: {
               narrativeFrame,
@@ -3853,6 +3966,7 @@ export async function generateAutoLP({
       narrativeFrame,
       foundationalDocs,
       approvedAds,
+      messageBrief,
       pdpUrl: null, // Will be set by publisher
       projectId,
       headlineConstraints,
@@ -3872,6 +3986,78 @@ export async function generateAutoLP({
   }
 
   endPhase('editorial_pass');
+
+  // Deterministic content-alignment gate — keep LP copy on the exact angle/ad message.
+  startPhase('content_alignment');
+  const currentHeadline = editorialPlan?.headline || copySections.find((section) => section.type === 'headline')?.content || '';
+  const currentSubheadline = editorialPlan?.subheadline || copySections.find((section) => section.type === 'subheadline')?.content || '';
+  let contentAlignment = validateLPContentAlignment({
+    copySections,
+    narrativeFrame,
+    angle,
+    headline: currentHeadline,
+    subheadline: currentSubheadline,
+    messageBrief,
+  });
+
+  if (!contentAlignment.passed) {
+    audit('content_alignment', 'repairing', contentAlignment.reason);
+    sendEvent({ type: 'progress', step: 'content_alignment', message: 'Repairing LP copy so it stays on the angle/message...' });
+
+    try {
+      const repairedContent = await repairLPContentAlignment({
+        projectId,
+        angle,
+        narrativeFrame,
+        copySections,
+        approvedAds,
+        messageBrief,
+        headlineConstraints,
+      }, sendEvent);
+
+      copySections.length = 0;
+      copySections.push(...repairedContent.sections);
+
+      if (editorialPassEnabled) {
+        const repairedEditorial = await runEditorialPass({
+          copySections,
+          designAnalysis,
+          angle,
+          narrativeFrame,
+          foundationalDocs,
+          approvedAds,
+          messageBrief,
+          pdpUrl: null,
+          projectId,
+          headlineConstraints,
+        }, sendEvent);
+        if (repairedEditorial.plan) {
+          editorialPlan = repairedEditorial.plan;
+        }
+      }
+
+      contentAlignment = validateLPContentAlignment({
+        copySections,
+        narrativeFrame,
+        angle,
+        headline: editorialPlan?.headline || copySections.find((section) => section.type === 'headline')?.content || '',
+        subheadline: editorialPlan?.subheadline || copySections.find((section) => section.type === 'subheadline')?.content || '',
+        messageBrief,
+      });
+      audit(
+        'content_alignment',
+        contentAlignment.passed ? 'repaired' : 'repair_failed',
+        contentAlignment.passed ? repairedContent.reason || 'Copy realigned to source message.' : contentAlignment.reason
+      );
+    } catch (err) {
+      console.warn('[LPGen] Content alignment repair failed (non-fatal):', err.message);
+      audit('content_alignment', 'repair_error', err.message);
+    }
+  } else {
+    audit('content_alignment', 'passed', contentAlignment.reason);
+  }
+
+  endPhase('content_alignment');
 
   // ── P6: Copy quality gate — catch bad copy before expensive image/HTML generation ──
   startPhase('quality_gate');
@@ -3929,6 +4115,7 @@ Score guide: 1=terrible/generic, 2=weak/misaligned, 3=adequate, 4=good, 5=excell
             swipeText: '',
             wordCount: effectiveWordCount,
             approvedAds,
+            messageBrief,
             additionalDirection: `QUALITY FEEDBACK FROM REVIEW: ${weaknessText}. Address these weaknesses. Make the copy more specific, persuasive, and tightly aligned with the marketing angle "${angle}".`,
             autoContext: {
               narrativeFrame,
@@ -3949,7 +4136,7 @@ Score guide: 1=terrible/generic, 2=weak/misaligned, 3=adequate, 4=good, 5=excell
             // Re-run editorial pass on improved copy
             if (editorialPassEnabled) {
               const retryEditorial = await runEditorialPass({
-                copySections, designAnalysis, angle, narrativeFrame, foundationalDocs, approvedAds, pdpUrl: null, projectId, headlineConstraints,
+                copySections, designAnalysis, angle, narrativeFrame, foundationalDocs, approvedAds, messageBrief, pdpUrl: null, projectId, headlineConstraints,
               }, sendEvent);
               if (retryEditorial.plan) {
                 editorialPlan = retryEditorial.plan;

@@ -51,6 +51,8 @@ import {
   evaluateSameRunHeadlineUniqueness,
   extractLPHeadlineParts,
   getNarrativeFrameHeadlineContract,
+  normalizeLPHeadlineText,
+  validateLPHeadlineSourceAlignment,
   validateLPHeadlineFrameAlignment,
 } from './lpHeadlineValidation.js';
 
@@ -97,6 +99,56 @@ export async function updateBatchJobAndMirror(batchJobId, fields) {
   return batch;
 }
 
+function extractOpeningLine(text = '') {
+  const value = String(text || '').trim();
+  if (!value) return '';
+  const firstSentence = value.split(/(?<=[.!?])\s+/)[0] || value;
+  return firstSentence.trim();
+}
+
+function buildKeywordList(values = [], limit = 14) {
+  const tokens = values
+    .flatMap((value) => normalizeLPHeadlineText(value || '').split(' '))
+    .map((token) => token.trim())
+    .filter((token) => token.length > 2);
+  return [...new Set(tokens)].slice(0, limit);
+}
+
+function buildCampaignMessageBrief({ batchAngle = '', angleBrief = null, approvedAds = [] }) {
+  const headlineExamples = approvedAds
+    .map((ad) => String(ad?.headline || '').trim())
+    .filter(Boolean)
+    .slice(0, 6);
+  const openingExamples = approvedAds
+    .map((ad) => extractOpeningLine(ad?.body_copy || ''))
+    .filter(Boolean)
+    .slice(0, 6);
+  const angleSummaryParts = [batchAngle || angleBrief?.name || 'General'];
+  if (angleBrief?.scene) angleSummaryParts.push(`Scene: ${angleBrief.scene}`);
+  if (angleBrief?.core_buyer) angleSummaryParts.push(`Core buyer: ${angleBrief.core_buyer}`);
+  if (angleBrief?.symptom_pattern) angleSummaryParts.push(`Symptom pattern: ${angleBrief.symptom_pattern}`);
+  if (angleBrief?.desired_belief_shift) angleSummaryParts.push(`Desired belief shift: ${angleBrief.desired_belief_shift}`);
+  if (angleBrief?.tone) angleSummaryParts.push(`Tone: ${angleBrief.tone}`);
+
+  return {
+    sourceMode: headlineExamples.length > 0 || openingExamples.length > 0 ? 'director_ads' : 'angle_only',
+    angleName: batchAngle || angleBrief?.name || '',
+    angleSummary: angleSummaryParts.join('\n'),
+    coreScene: angleBrief?.scene || '',
+    desiredBeliefShift: angleBrief?.desired_belief_shift || '',
+    headlineExamples,
+    openingExamples,
+    messageKeywords: buildKeywordList([
+      batchAngle,
+      angleBrief?.scene,
+      angleBrief?.symptom_pattern,
+      angleBrief?.desired_belief_shift,
+      ...headlineExamples,
+      ...openingExamples,
+    ]),
+  };
+}
+
 function buildHeadlineConstraintBundle(frame, usedHeadlines, angleHistory) {
   return {
     contract: getNarrativeFrameHeadlineContract(frame.id),
@@ -115,6 +167,7 @@ function evaluateFrameHeadline({
   lpResult,
   frame,
   batchAngle,
+  messageBrief,
   acceptedHeadlines,
   sameFrameHistory,
   angleHistory,
@@ -131,6 +184,12 @@ function evaluateFrameHeadline({
     signature: buildLPHeadlineSignature({ headline: headlineParts.headline, narrativeFrame: frame.id }),
     acceptedHeadlines,
   });
+  const sourceAlignment = validateLPHeadlineSourceAlignment({
+    headline: headlineParts.headline,
+    subheadline: headlineParts.subheadline,
+    angle: batchAngle || messageBrief?.angleName || '',
+    messageBrief,
+  });
   const history = batchAngle
     ? evaluateHistoryHeadlineUniqueness({
         headline: headlineParts.headline,
@@ -145,11 +204,13 @@ function evaluateFrameHeadline({
     ...headlineParts,
     frameAlignment,
     uniqueness,
+    sourceAlignment,
     history,
     passed:
       !!headlineParts.headline &&
       frameAlignment.passed &&
       uniqueness.passed &&
+      sourceAlignment.passed &&
       history.passed,
   };
 }
@@ -276,6 +337,12 @@ export async function triggerLPGeneration(batchJobId, projectId, angle) {
       console.warn(`[LPAuto] Timed out waiting for Creative Filter (2h) for batch ${batchJobId.slice(0, 8)} — proceeding without ad reference`);
     }
 
+    const messageBrief = buildCampaignMessageBrief({
+      batchAngle: angle,
+      angleBrief,
+      approvedAds,
+    });
+
     // 4. Run the generation pipeline
     console.log(`[LPAuto] Running LP generation for project ${projectId.slice(0, 8)}, batch ${batchJobId.slice(0, 8)}${approvedAds.length > 0 ? ` with ${approvedAds.length} approved ads as reference` : ' (no ad reference)'}`);
     try {
@@ -296,6 +363,7 @@ export async function triggerLPGeneration(batchJobId, projectId, angle) {
         angle,
         angleBrief,
         approvedAds,
+        messageBrief,
       }, makeLogger);
 
       // Store LP URLs on the batch for filter.sh to pick up
@@ -598,7 +666,13 @@ export async function runGauntlet(projectId, options = {}, sendEventRaw) {
     angle: batchAngle = null,
     angleBrief = null,
     approvedAds = [],
+    messageBrief: providedMessageBrief = null,
   } = options;
+  const messageBrief = providedMessageBrief || buildCampaignMessageBrief({
+    batchAngle,
+    angleBrief,
+    approvedAds,
+  });
   const gauntletBatchId = uuidv4();
   const startTime = Date.now();
   const batchStartedAt = new Date().toISOString();
@@ -826,6 +900,7 @@ export async function runGauntlet(projectId, options = {}, sendEventRaw) {
             useProductReferenceImages: config.use_product_reference_images !== false,
             agentConfig: config,
             approvedAds,
+            messageBrief,
             autoContext: {
               preGeneratedImages: imageSlots,
               cachedHtmlTemplate,
@@ -863,6 +938,7 @@ export async function runGauntlet(projectId, options = {}, sendEventRaw) {
           lpResult,
           frame,
           batchAngle,
+          messageBrief,
           acceptedHeadlines,
           sameFrameHistory,
           angleHistory,
@@ -884,6 +960,7 @@ export async function runGauntlet(projectId, options = {}, sendEventRaw) {
               subheadline: headlineEvaluation.subheadline,
               copySections: lpResult.copySections,
               approvedAds,
+              messageBrief,
               headlineConstraints: buildHeadlineConstraintBundle(frame, acceptedHeadlines, angleHistory),
             });
             lpResult = await rebuildLPAfterHeadlineRepair(lpResult, repairedHeadline, {
@@ -895,6 +972,7 @@ export async function runGauntlet(projectId, options = {}, sendEventRaw) {
               lpResult,
               frame,
               batchAngle,
+              messageBrief,
               acceptedHeadlines,
               sameFrameHistory,
               angleHistory,
@@ -910,6 +988,8 @@ export async function runGauntlet(projectId, options = {}, sendEventRaw) {
               ? headlineEvaluation.frameAlignment.reason
               : !headlineEvaluation.uniqueness.passed
                 ? headlineEvaluation.uniqueness.reason
+                : !headlineEvaluation.sourceAlignment.passed
+                  ? headlineEvaluation.sourceAlignment.reason
                 : headlineEvaluation.history.reason;
 
           await updateLandingPage(lpId, {

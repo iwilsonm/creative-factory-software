@@ -8,6 +8,11 @@ const STOPWORDS = new Set([
   'what', 'when', 'why', 'with', 'you', 'your',
 ]);
 
+const LOW_SIGNAL_ALIGNMENT_TOKENS = new Set([
+  'again', 'back', 'bed', 'body', 'cant', 'cannot', 'feel', 'health', 'night',
+  'problem', 'sleep', 'solution', 'still', 'wake', 'wakes', 'waking',
+]);
+
 const FRAME_CONTRACTS = {
   testimonial: 'Headline must read like a lived story, a personal result, or a journey moment.',
   mechanism: 'Headline must lead with how, why, hidden cause, or explanatory curiosity.',
@@ -63,6 +68,22 @@ function extractAngleKeywords(angle = '') {
   return uniqueTokens(angle).slice(0, 8);
 }
 
+function extractAlignmentKeywords(text = '', limit = 18) {
+  return uniqueTokens(text)
+    .filter((token) => !LOW_SIGNAL_ALIGNMENT_TOKENS.has(token))
+    .slice(0, limit);
+}
+
+function countKeywordHits(text = '', keywords = []) {
+  const normalized = normalizeLPHeadlineText(text);
+  if (!normalized || !Array.isArray(keywords) || keywords.length === 0) return [];
+  return keywords.filter((keyword) => normalized.includes(keyword));
+}
+
+function hasAnyKeyword(text = '', keywords = []) {
+  return countKeywordHits(text, keywords).length > 0;
+}
+
 export function getNarrativeFrameHeadlineContract(frameId) {
   return FRAME_CONTRACTS[frameId] || 'Headline must be clearly specific to this narrative frame.';
 }
@@ -88,11 +109,11 @@ function detectHeadlineShape(headline = '') {
   }
   if (hasAny(normalized, [
     /^(i|my|she|he|we)\b/i,
-    /\bthen\b/i,
-    /\bthis time\b/i,
-    /\blike always\b/i,
+    /\bfor years\b/i,
     /\bfinally\b/i,
-    /\bafter\b/i,
+    /\bone night\b/i,
+    /\bi spent\b/i,
+    /\bi woke\b/i,
   ])) {
     return 'testimonial';
   }
@@ -158,7 +179,7 @@ export function validateLPHeadlineFrameAlignment({ headline, narrativeFrame, ang
   const keywordHitCount = angleKeywords.filter((token) => normalized.includes(token)).length;
 
   const testimonialSignals = Number(/^(i|my|she|he|we)\b/i.test(headline))
-    + Number(/\b(then|finally|after|this time|like always)\b/i.test(normalized));
+    + Number(/\b(for years|finally|one night|i spent|i woke|my doctor|stopped|changed|after one change)\b/i.test(normalized));
   const mechanismSignals = Number(/^(how|why|what)\b/i.test(headline))
     + Number(/\b(hidden cause|real reason|trigger|behind|causes?|mechanism)\b/i.test(normalized));
   const mythSignals = Number(/\b(myth|mistake|wrong|truth|people think|not the reason|isnt|doesnt)\b/i.test(normalized))
@@ -166,12 +187,13 @@ export function validateLPHeadlineFrameAlignment({ headline, narrativeFrame, ang
   const listicleSignals = Number(/^\s*(\d+|one|two|three|four|five|six|seven|eight|nine|ten)\b/i.test(headline))
     + Number(/\b(reasons?|signs?|ways?|things?|myths?|mistakes?)\b/i.test(normalized));
   const problemSignals = Number(/\b(cant|cannot|wake|wakes|waking|asleep|pain|problem|again|frustrat|drained|tired|pee|bathroom)\b/i.test(normalized))
+    + Number(/\b(worst part|back in bed|wide awake|bathroom trip|fall back asleep|cant get back to sleep)\b/i.test(normalized))
     + Number(keywordHitCount > 0);
 
   const results = {
     testimonial: testimonialSignals >= 2 && !['mechanism', 'myth_busting', 'listicle'].includes(shape),
     mechanism: mechanismSignals >= 1 && !['testimonial', 'listicle'].includes(shape),
-    problem_agitation: problemSignals >= 1 && !['testimonial', 'mechanism', 'myth_busting', 'listicle'].includes(shape),
+    problem_agitation: problemSignals >= 2 && !['mechanism', 'myth_busting', 'listicle'].includes(shape),
     myth_busting: mythSignals >= 1 && !['testimonial', 'listicle'].includes(shape),
     listicle: listicleSignals >= 2,
   };
@@ -190,6 +212,156 @@ export function validateLPHeadlineFrameAlignment({ headline, narrativeFrame, ang
     passed: false,
     classifier,
     reason: `Headline reads more like ${shape.replace(/_/g, ' ')} than ${narrativeFrame.replace(/_/g, ' ')}.`,
+  };
+}
+
+function buildSourceKeywordSets({ angle = '', messageBrief = null }) {
+  const angleKeywords = [
+    ...extractAlignmentKeywords(angle || ''),
+    ...extractAlignmentKeywords(messageBrief?.coreScene || ''),
+    ...extractAlignmentKeywords(messageBrief?.desiredBeliefShift || ''),
+  ];
+  const adKeywords = [
+    ...ensureArray(messageBrief?.headlineExamples).flatMap((text) => extractAlignmentKeywords(text || '', 10)),
+    ...ensureArray(messageBrief?.openingExamples).flatMap((text) => extractAlignmentKeywords(text || '', 10)),
+    ...ensureArray(messageBrief?.messageKeywords),
+  ];
+  const uniqueAngle = [...new Set(angleKeywords)].slice(0, 20);
+  const uniqueAd = [...new Set(adKeywords)].slice(0, 20);
+  const specificKeywords = [...new Set([
+    ...uniqueAngle,
+    ...uniqueAd,
+  ])].filter((token) => !LOW_SIGNAL_ALIGNMENT_TOKENS.has(token)).slice(0, 16);
+
+  return {
+    angleKeywords: uniqueAngle,
+    adKeywords: uniqueAd,
+    specificKeywords,
+  };
+}
+
+function ensureArray(value) {
+  return Array.isArray(value) ? value : [];
+}
+
+export function validateLPHeadlineSourceAlignment({
+  headline,
+  subheadline = '',
+  angle = '',
+  messageBrief = null,
+}) {
+  const combined = `${headline || ''} ${subheadline || ''}`.trim();
+  const { angleKeywords, adKeywords, specificKeywords } = buildSourceKeywordSets({ angle, messageBrief });
+  const angleHits = countKeywordHits(combined, angleKeywords);
+  const adHits = countKeywordHits(combined, adKeywords);
+  const specificHits = countKeywordHits(combined, specificKeywords);
+  const sourceMode = messageBrief?.sourceMode || 'angle_only';
+
+  const passed = sourceMode === 'director_ads'
+    ? ((specificHits.length >= 1 || angleHits.length >= 2) && (angleHits.length >= 1 || adHits.length >= 2))
+    : (specificHits.length >= 1 || angleHits.length >= 2);
+
+  if (passed) {
+    return {
+      passed: true,
+      reason: sourceMode === 'director_ads'
+        ? 'Headline stays aligned with the angle and winning ad message.'
+        : 'Headline stays aligned with the angle.',
+      hits: {
+        angle: angleHits,
+        message: adHits,
+        specific: specificHits,
+      },
+    };
+  }
+
+  return {
+    passed: false,
+    reason: sourceMode === 'director_ads'
+      ? 'Headline drifts away from the angle or the winning ad message.'
+      : 'Headline drifts away from the angle.',
+    hits: {
+      angle: angleHits,
+      message: adHits,
+      specific: specificHits,
+    },
+  };
+}
+
+function getPrimaryCopyText(copySections = []) {
+  const sections = Array.isArray(copySections) ? copySections : [];
+  const preferredTypes = new Set(['lead', 'problem', 'solution', 'story', 'benefits', 'proof']);
+  const preferred = sections.filter((section) => preferredTypes.has(section?.type));
+  const chosen = preferred.length > 0 ? preferred : sections;
+  return chosen
+    .slice(0, 6)
+    .map((section) => stripHtml(section?.content || ''))
+    .join(' ');
+}
+
+function validateLPContentFrameAlignment({ copyText = '', narrativeFrame = '' }) {
+  const normalized = normalizeLPHeadlineText(copyText);
+  const testimonialSignals = Number(/\b(i|my|we)\b/i.test(normalized))
+    + Number(/\b(after|finally|for years|one night|at first)\b/i.test(normalized));
+  const mechanismSignals = Number(/\b(how|why|because|reason|trigger|cause|mechanism|nervous system)\b/i.test(normalized))
+    + Number(/\b(keeps?|stays?|signals?|explains?)\b/i.test(normalized));
+  const mythSignals = Number(/\b(wrong|myth|youve been told|people think|not the real reason|truth)\b/i.test(normalized))
+    + Number(/\b(actually|really)\b/i.test(normalized));
+  const problemSignals = Number(/\b(wake|wakes|bathroom|pee|asleep|again|frustrat|drained|worst part|back in bed)\b/i.test(normalized))
+    + Number(/\b(cannot|cant|get back to sleep|wide awake)\b/i.test(normalized));
+  const listicleSignals = Number(/\b(first|second|third|another reason|reason one|reason two)\b/i.test(normalized))
+    + Number(/(^|\n)\s*(\d+[\).\s]|[-*]\s)/m.test(copyText));
+
+  const frameSignals = {
+    testimonial: testimonialSignals,
+    mechanism: mechanismSignals,
+    problem_agitation: problemSignals,
+    myth_busting: mythSignals,
+    listicle: listicleSignals,
+  };
+  const requiredSignals = {
+    testimonial: 1,
+    mechanism: 1,
+    problem_agitation: 1,
+    myth_busting: 1,
+    listicle: 1,
+  };
+  const passed = (frameSignals[narrativeFrame] || 0) >= (requiredSignals[narrativeFrame] || 1);
+  return {
+    passed,
+    reason: passed
+      ? 'Body copy stays on the assigned narrative frame.'
+      : `Body copy drifts away from the ${narrativeFrame.replace(/_/g, ' ')} frame.`,
+  };
+}
+
+export function validateLPContentAlignment({
+  copySections = [],
+  narrativeFrame = '',
+  angle = '',
+  headline = '',
+  subheadline = '',
+  messageBrief = null,
+}) {
+  const copyText = getPrimaryCopyText(copySections);
+  const sourceAlignment = validateLPHeadlineSourceAlignment({
+    headline: `${headline || ''} ${subheadline || ''} ${copyText || ''}`.trim(),
+    angle,
+    messageBrief,
+  });
+  const frameAlignment = validateLPContentFrameAlignment({
+    copyText,
+    narrativeFrame,
+  });
+  return {
+    passed: sourceAlignment.passed && frameAlignment.passed,
+    sourceAlignment,
+    frameAlignment,
+    reason: !frameAlignment.passed
+      ? frameAlignment.reason
+      : !sourceAlignment.passed
+        ? sourceAlignment.reason
+        : 'Body copy stays aligned with the frame and source message.',
   };
 }
 
