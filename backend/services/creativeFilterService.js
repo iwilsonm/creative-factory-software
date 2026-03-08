@@ -7,6 +7,7 @@
 
 import crypto from 'crypto';
 import { chat, chatWithImage, extractJSON } from './anthropic.js';
+import sharp from 'sharp';
 import {
   getProject, getLatestDoc, getBatchJob, updateBatchJob,
   getAdsByBatchId, getAd, downloadToBuffer,
@@ -19,12 +20,178 @@ import { filterHeadlineCandidatePool, selectDiverseHeadlines } from './headlineD
 const SCORE_MODEL = 'claude-sonnet-4-5-20250929';
 const GROUP_MODEL = 'claude-sonnet-4-6';
 const SCORE_THRESHOLD = 7;
+const DIRECTOR_SCORE_WEIGHTS = {
+  copy_polish: 0.10,
+  meta_compliance: 0.20,
+  effectiveness: 0.10,
+  visual_integrity_score: 0.35,
+  visual_contract_match: 0.25,
+};
 const IMAGES_PER_FLEX = 10;
 const HEADLINES_TARGET = 5;
 const HEADLINE_POOL_TARGET = 7;
 const PRIMARY_TEXTS_TARGET = 5;
 const HEADLINES_MIN = 3;
 const PRIMARY_TEXTS_MIN = 3;
+
+function clampScore(value, fallback = 0) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric)) return fallback;
+  if (numeric < 0) return 0;
+  if (numeric > 10) return 10;
+  return Math.round(numeric * 10) / 10;
+}
+
+function normalizeBooleanFlag(value) {
+  if (value === true || value === false) return value;
+  if (typeof value === 'string') {
+    const lowered = value.trim().toLowerCase();
+    if (lowered === 'true') return true;
+    if (lowered === 'false') return false;
+  }
+  return null;
+}
+
+function buildHardRequirementValue(value, { required = true } = {}) {
+  const normalized = normalizeBooleanFlag(value);
+  if (normalized === null) return required ? false : null;
+  return normalized;
+}
+
+export function buildAdScoringContract(ad = {}) {
+  const scoringMode = ad?.scoring_mode
+    || ((ad?.template_image_id || ad?.inspiration_image_id) ? 'template_copy_on_creative' : 'standard');
+  const copyRenderExpectation = ad?.copy_render_expectation
+    || (scoringMode === 'template_copy_on_creative' ? 'rendered' : 'not_required');
+  const productExpectation = ad?.product_expectation
+    || (scoringMode === 'template_copy_on_creative' ? 'required' : 'not_required');
+  return {
+    scoring_mode: scoringMode,
+    copy_render_expectation: copyRenderExpectation,
+    product_expectation: productExpectation,
+  };
+}
+
+function computeDirectorOverallScore(scores) {
+  let weightedTotal = 0;
+  let totalWeight = 0;
+  for (const [field, weight] of Object.entries(DIRECTOR_SCORE_WEIGHTS)) {
+    const score = clampScore(scores[field], 0);
+    weightedTotal += score * weight;
+    totalWeight += weight;
+  }
+  if (totalWeight <= 0) return 0;
+  return Math.round((weightedTotal / totalWeight) * 10) / 10;
+}
+
+export function normalizeDirectorScore(rawScore, contract = {}, { hasImage = true } = {}) {
+  const hardRequirements = rawScore?.hard_requirements || {};
+  const productRequired = contract.product_expectation === 'required';
+  const copyRendered = contract.copy_render_expectation === 'rendered';
+
+  const normalizedHardRequirements = {
+    spelling_grammar: buildHardRequirementValue(hardRequirements.spelling_grammar, { required: true }),
+    product_present: buildHardRequirementValue(
+      hardRequirements.product_present,
+      { required: productRequired }
+    ),
+    correct_product: buildHardRequirementValue(
+      hardRequirements.correct_product,
+      { required: productRequired }
+    ),
+    visual_integrity: buildHardRequirementValue(
+      hardRequirements.visual_integrity ?? hardRequirements.image_completeness,
+      { required: hasImage }
+    ),
+    rendered_text_integrity: buildHardRequirementValue(
+      hardRequirements.rendered_text_integrity,
+      { required: copyRendered }
+    ),
+  };
+
+  const allRequiredPassed = Object.values(normalizedHardRequirements)
+    .filter((value) => value !== null)
+    .every((value) => value === true);
+
+  const normalizedScores = {
+    copy_polish: clampScore(rawScore?.copy_polish ?? rawScore?.copy_strength, 0),
+    meta_compliance: clampScore(rawScore?.meta_compliance ?? rawScore?.compliance, 0),
+    effectiveness: clampScore(rawScore?.effectiveness, 0),
+    visual_integrity_score: clampScore(rawScore?.visual_integrity_score ?? rawScore?.image_quality, hasImage ? 0 : 5),
+    visual_contract_match: clampScore(
+      rawScore?.visual_contract_match ?? rawScore?.image_quality ?? rawScore?.effectiveness,
+      hasImage ? 0 : 5
+    ),
+  };
+
+  if (contract.scoring_mode === 'template_copy_on_creative' && allRequiredPassed) {
+    normalizedScores.copy_polish = Math.max(normalizedScores.copy_polish, 5);
+    normalizedScores.effectiveness = Math.max(normalizedScores.effectiveness, 5);
+  }
+
+  const overallScore = computeDirectorOverallScore(normalizedScores);
+  const pass = allRequiredPassed && overallScore >= SCORE_THRESHOLD;
+  const imageQuality = Math.round(((normalizedScores.visual_integrity_score + normalizedScores.visual_contract_match) / 2) * 10) / 10;
+
+  return {
+    ad_id: rawScore?.ad_id,
+    scoring_contract: {
+      scoring_mode: contract.scoring_mode || 'standard',
+      copy_render_expectation: contract.copy_render_expectation || 'not_required',
+      product_expectation: contract.product_expectation || 'not_required',
+    },
+    hard_requirements: {
+      ...normalizedHardRequirements,
+      all_passed: allRequiredPassed,
+    },
+    copy_polish: normalizedScores.copy_polish,
+    meta_compliance: normalizedScores.meta_compliance,
+    effectiveness: normalizedScores.effectiveness,
+    visual_integrity_score: normalizedScores.visual_integrity_score,
+    visual_contract_match: normalizedScores.visual_contract_match,
+    overall_score: allRequiredPassed ? overallScore : 0,
+    pass,
+    compliance_flags: Array.isArray(rawScore?.compliance_flags) ? rawScore.compliance_flags.filter(Boolean) : [],
+    spelling_errors: Array.isArray(rawScore?.spelling_errors) ? rawScore.spelling_errors.filter(Boolean) : [],
+    strengths: Array.isArray(rawScore?.strengths) ? rawScore.strengths.filter(Boolean) : [],
+    weaknesses: Array.isArray(rawScore?.weaknesses) ? rawScore.weaknesses.filter(Boolean) : [],
+    image_issues: Array.isArray(rawScore?.image_issues) ? rawScore.image_issues.filter(Boolean) : [],
+    angle_category: rawScore?.angle_category || null,
+    // Compatibility aliases for downstream grouping / reporting.
+    copy_strength: normalizedScores.copy_polish,
+    compliance: normalizedScores.meta_compliance,
+    image_quality: imageQuality,
+  };
+}
+
+async function prepareScoringImageBuffer(imgBuffer) {
+  const MAX_ANTHROPIC_IMAGE_BYTES = 5 * 1024 * 1024;
+  if (!imgBuffer || imgBuffer.length <= MAX_ANTHROPIC_IMAGE_BYTES) {
+    return imgBuffer;
+  }
+
+  try {
+    let working = sharp(imgBuffer, { failOn: 'none' }).rotate();
+    const metadata = await working.metadata();
+    const resizeWidth = Math.max(768, Math.min(1536, metadata.width || 1536));
+    const resized = working
+      .resize({ width: resizeWidth, withoutEnlargement: true })
+      .jpeg({ quality: 82, mozjpeg: true })
+      .toBuffer();
+    if ((await resized).length <= MAX_ANTHROPIC_IMAGE_BYTES) {
+      return await resized;
+    }
+
+    const smaller = await sharp(await resized, { failOn: 'none' })
+      .resize({ width: Math.max(640, Math.floor(resizeWidth * 0.8)), withoutEnlargement: true })
+      .jpeg({ quality: 72, mozjpeg: true })
+      .toBuffer();
+    return smaller;
+  } catch (err) {
+    console.warn('[FilterService] Could not compress scoring image:', err.message);
+    return imgBuffer;
+  }
+}
 
 // ── Score a single ad ──────────────────────────────────────────────────────
 
@@ -43,6 +210,7 @@ export async function scoreAd(ad, topPerformers, angleBrief, projectId) {
   const primaryText = ad.body_copy || '';
   const angle = ad.angle || '';
   const adId = ad.id || 'unknown';
+  const scoringContract = buildAdScoringContract(ad);
 
   // Build angle context from structured brief
   let angleContext = `Angle: ${angle}`;
@@ -59,7 +227,8 @@ export async function scoreAd(ad, topPerformers, angleBrief, projectId) {
   let imageMime = 'image/png';
   if (ad.storageId) {
     try {
-      const imgBuffer = await downloadToBuffer(ad.storageId);
+      const rawBuffer = await downloadToBuffer(ad.storageId);
+      const imgBuffer = await prepareScoringImageBuffer(rawBuffer);
       imageBase64 = imgBuffer.toString('base64');
       // Detect MIME from buffer header
       if (imgBuffer[0] === 0xFF && imgBuffer[1] === 0xD8) imageMime = 'image/jpeg';
@@ -72,107 +241,102 @@ export async function scoreAd(ad, topPerformers, angleBrief, projectId) {
 
   const hasImage = !!imageBase64;
 
-  // Build prompt sections based on image availability
-  const imageInstructions = hasImage
-    ? '\nYou are also looking at the actual generated ad image. Evaluate the IMAGE for quality issues.'
-    : '';
+  const prompt = `You are a senior direct response creative director evaluating Meta (Facebook/Instagram) ad creatives.
 
-  const imageHardReq = hasImage
-    ? `\n5. IMAGE COMPLETENESS: Look at the ad image carefully. If there is a clearly visible blank/empty space where a product image should be (a white rectangle, an empty product placeholder, a gap in the layout where something is obviously missing), auto-fail. This does NOT mean the product must be in every ad — lifestyle shots, text-only designs, and abstract visuals are fine. Only fail if there is an obvious HOLE or BLANK AREA that looks like a broken image or missing product render.`
-    : '';
-
-  const imageScoring = hasImage
-    ? `\n5. IMAGE QUALITY (20% weight)
-- Is the image visually complete? No blank spaces, missing renders, or broken layouts?
-- Does the image look professional? No obvious AI artifacts, distorted faces, mangled text?
-- Does the image support the ad's message? Does it match the angle and copy tone?
-- Would this image stop the scroll on a Facebook/Instagram feed?
-- Are there any wrong products shown (competitor products, unrelated items)?
-NOTE: You do NOT need the product to appear in every ad. Lifestyle scenes, testimonial-style layouts, and text-heavy designs are all valid. Only dock points for genuinely broken or low-quality visuals.`
-    : `\n5. VISUAL-COPY ALIGNMENT (10% weight — image not available for review)
-- Does the copy tone match what you'd expect from an ad image?
-- Is there a clear visual hook implied by the copy?`;
-
-  const imageJsonFields = hasImage
-    ? `\n  "image_quality": <1-10, or 0 if hard req failed>,\n  "image_issues": ["list any visual issues: blank spaces, artifacts, wrong products, etc."],`
-    : `\n  "image_quality": null,\n  "image_issues": [],`;
-
-  const prompt = `You are a senior direct response creative director evaluating ad creatives for Meta (Facebook/Instagram) advertising. You specialize in health, wellness, and e-commerce brands.${imageInstructions}
-
-Score this ad creative. Be critical but fair — only genuinely strong ads should score 7+.
+Score this ad against the contract below. Be strict about real defects, but do NOT penalize the ad for valid template-ad traits.
 
 AD CREATIVE:
 Headline: ${headline}
 Primary Text: ${primaryText}
 ${angleContext}
 
+SCORING CONTRACT:
+- scoring_mode: ${scoringContract.scoring_mode}
+- copy_render_expectation: ${scoringContract.copy_render_expectation}
+- product_expectation: ${scoringContract.product_expectation}
+
+CONTRACT INTERPRETATION:
+- In template_copy_on_creative mode, visible rendered copy on the ad is expected and valid.
+- In template_copy_on_creative mode, prominent product visibility is expected and valid.
+- In template_copy_on_creative mode, template layout, text hierarchy, badges, and structured ad composition are valid if they are clean and intentional.
+- Do NOT fail an ad just because it is not documentary-style.
+- Do NOT fail an ad just because the product is visible.
+- Do NOT fail an ad just because text is rendered on the creative.
+- Only fail for real defects: wrong/missing product, broken render, irrational/unrealistic image, unreadable rendered text, or genuine spelling/grammar errors.
+- Upstream generation has already filtered headline/body quality. This scoring pass is NOT a script-faithfulness review.
+- Do NOT materially downscore a valid ad just because you would prefer a more literal match to the angle brief, a different opening line, or a stricter copy sequence.
+- If the copy is coherent, grammatical, product-relevant, and not contradictory, score it as at least mid-level competent even if it is not the exact phrasing you would have chosen.
+
 TOP PERFORMING ADS FROM THIS BRAND (for reference — what's already working):
 ${topPerformers}
 
 === HARD REQUIREMENTS (auto-fail if ANY are violated) ===
 
-These are non-negotiable. If ANY of these fail, the ad MUST score 0 and pass=false:
+These are non-negotiable. Evaluate them objectively:
 
-1. SPELLING & GRAMMAR: Actual misspelled words or broken grammar. This means REAL typos (e.g. "teh" instead of "the", "recieve" instead of "receive") and genuinely ungrammatical sentences. IMPORTANT: The following are NOT spelling or grammar errors — do NOT flag these:
-   - Numbers without dollar signs or commas (e.g. "4300" or "149" are fine in ad copy — this is a common style choice)
-   - Informal/conversational tone (sentence fragments, starting with "And" or "But", casual phrasing — this is direct response style)
-   - Intentional stylistic choices like em dashes, ellipses, ALL CAPS for emphasis
-   - Missing Oxford commas (style preference, not an error)
-   Only flag ACTUAL misspellings and genuinely broken grammar that would make the ad look unprofessional.
+1. SPELLING & GRAMMAR
+- Fail only for actual typos or genuinely broken grammar.
+- Do not fail for conversational direct-response style, sentence fragments, emphasis, or numbers written plainly.
 
-2. FIRST LINE HOOK: The very first line of the primary text MUST be a strong hook — a pattern interrupt, curiosity gap, bold claim, or emotional opener that stops the scroll. If the first line is weak, generic, or forgettable, auto-fail.
+2. PRODUCT PRESENT
+- If product_expectation is "required", the intended product must be clearly present on the creative.
+- If the product is clearly missing, fail this requirement.
 
-3. CTA AT END: The primary text MUST end with a clear call to action. The reader should know exactly what to do next (click, shop, learn more, etc.). If there's no CTA or it's buried in the middle, auto-fail.
+3. CORRECT PRODUCT
+- If the product is shown, it must be the correct product for this brand/ad.
+- Fail for the wrong product, ambiguous product, or clearly unrelated product imagery.
 
-4. HEADLINE-AD ALIGNMENT: The headline must directly relate to and reinforce the primary text and the ad's angle. If the headline feels disconnected from the primary text or could belong to a completely different ad, auto-fail.
-${imageHardReq}
-=== SCORING CRITERIA (only score if hard requirements pass) ===
+4. VISUAL INTEGRITY
+- Fail for broken render, blank placeholder, missing visual element, irrational/unrealistic anatomy or objects, impossible perspective, obvious AI artifacting, or clearly broken composition.
 
-1. COPY STRENGTH (35% weight)
-- Is the headline a pattern interrupt? Would it stop the scroll?
-- Does it create genuine curiosity or emotional tension?
-- Is the first-line hook genuinely compelling (not just present)?
-- Is the CTA motivated and urgent (not just present)?
-- Does the primary text build a coherent argument from hook to CTA?
-- Does it use specific, concrete language (not vague/generic)?
-- Does the headline work WITH the primary text as a unified message?
+5. RENDERED TEXT INTEGRITY
+- If copy_render_expectation is "rendered", the on-creative text must be readable and not visibly mangled.
+- Do NOT fail just because text is present. Only fail if the rendered text is broken or unreadable.
 
-2. META COMPLIANCE (25% weight)
-- Any income or earnings claims (explicit or implied)?
-- Any before/after implications?
-- Any health claims that GUARANTEE specific outcomes (e.g. "this will cure your..." or "eliminates pain 100%")?
-- IMPORTANT: General wellness claims are acceptable on Meta. Phrases like "reduce inflammation", "support recovery", "improve sleep quality", "natural pain relief" are compliant and commonly approved. Only flag claims that guarantee specific medical outcomes or diagnose/treat/cure diseases.
-- Any "this one trick" / "doctors hate this" style clickbait?
-- Any use of "you" in ways that call out personal attributes (e.g. "Are you overweight?", "Is your credit score low?")?
-- Would this realistically survive Meta's ad review? (Meta approves most health/wellness product ads that don't make guarantee claims)
+=== SCORING DIMENSIONS (1-10) ===
 
-3. OVERALL EFFECTIVENESS (20% weight)
-- Would this actually convert? Is there a reason to click?
-- Does it speak to a real pain point or desire?
-- Is the value proposition clear?
-- Does the hook → body → CTA flow create momentum?
-- How does it compare to the top performers?
-${imageScoring}
-Respond ONLY with this exact JSON format, nothing else:
+1. COPY POLISH (10%)
+- Judge this on clarity, grammar, coherence, and basic direct-response competence.
+- Do NOT use this to punish the ad for not matching an exact narrative sequence from the brief.
+
+2. META COMPLIANCE (20%)
+- Does this avoid obvious Meta policy risk?
+- Penalize guarantee claims, before/after implications, exploitative clickbait, or sensitive-attribute callouts.
+
+3. EFFECTIVENESS (10%)
+- Would this likely earn a click from the target buyer?
+- Judge this on clarity, specificity, and buyer relevance.
+- Do NOT downscore simply because you would have preferred a different hook order or a more literal recreation of the angle brief.
+
+4. VISUAL INTEGRITY SCORE (35%)
+- How polished, realistic, and technically sound is the image?
+- Penalize broken, irrational, or low-quality visuals heavily.
+
+5. VISUAL CONTRACT MATCH (25%)
+- Does the ad successfully execute the intended format?
+- In template_copy_on_creative mode, reward clean template hierarchy, readable rendered copy, and correct product usage.
+
+Return ONLY valid JSON in this exact shape:
 {
   "ad_id": "${adId}",
   "hard_requirements": {
     "spelling_grammar": <true/false>,
-    "first_line_hook": <true/false>,
-    "cta_at_end": <true/false>,
-    "headline_alignment": <true/false>,
-    "image_completeness": <true/false or null if no image>,
-    "all_passed": <true only if ALL requirements (including image if present) are true>
+    "product_present": <true/false/null>,
+    "correct_product": <true/false/null>,
+    "visual_integrity": <true/false>,
+    "rendered_text_integrity": <true/false/null>,
+    "all_passed": <true/false>
   },
-  "copy_strength": <1-10, or 0 if hard req failed>,
-  "compliance": <1-10, or 0 if hard req failed>,
-  "effectiveness": <1-10, or 0 if hard req failed>,${imageJsonFields}
-  "overall_score": <1-10 weighted average, or 0 if hard req failed>,
-  "pass": <true ONLY if all hard requirements passed AND overall_score >= ${SCORE_THRESHOLD}>,
+  "copy_polish": <1-10>,
+  "meta_compliance": <1-10>,
+  "effectiveness": <1-10>,
+  "visual_integrity_score": <1-10>,
+  "visual_contract_match": <1-10>,
   "compliance_flags": ["list any specific issues"],
   "spelling_errors": ["list any misspellings or grammar issues found"],
   "strengths": ["top 2 strengths"],
   "weaknesses": ["top 2 weaknesses"],
+  "image_issues": ["list any concrete visual defects, or []"],
   "angle_category": "brief label for the angle/theme (e.g. 'fear of chemicals', 'social proof', 'convenience')"
 }`;
 
@@ -196,7 +360,7 @@ Respond ONLY with this exact JSON format, nothing else:
     console.warn(`[FilterService] Failed to parse score for ad ${adId.slice(0, 8)}`);
     return { ad_id: adId, overall_score: 0, pass: false, error: 'parse_failed' };
   }
-  return parsed;
+  return normalizeDirectorScore(parsed, scoringContract, { hasImage });
 }
 
 // ── Group passing ads into flex ads ────────────────────────────────────────

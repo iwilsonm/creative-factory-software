@@ -1745,7 +1745,31 @@ Return JSON only:
 }
 
 export async function regenerateImageOnly(projectId, options = {}) {
-  const { imagePrompt, aspectRatio = '1:1', imageModel, parentAdId, productImageBase64, productImageMimeType, angle, headline, bodyCopy, onEvent } = options;
+  const {
+    imagePrompt,
+    aspectRatio = '1:1',
+    imageModel,
+    parentAdId,
+    productImageBase64,
+    productImageMimeType,
+    angle,
+    angleName,
+    headline,
+    bodyCopy,
+    onEvent,
+    scoringMode,
+    copyRenderExpectation,
+    productExpectation,
+    hookLane,
+    coreClaim,
+    targetSymptom,
+    emotionalEntry,
+    desiredBeliefShift,
+    openingPattern,
+    subAngle,
+    templateImageId,
+    inspirationImageId,
+  } = options;
 
   const emit = (event) => {
     if (onEvent) {
@@ -1764,8 +1788,21 @@ export async function regenerateImageOnly(projectId, options = {}) {
     project_id: projectId,
     generation_mode: 'image_only',
     angle: angle || undefined,
+    angle_name: angleName || undefined,
     headline: headline || undefined,
     body_copy: bodyCopy || undefined,
+    hook_lane: hookLane || undefined,
+    core_claim: coreClaim || undefined,
+    target_symptom: targetSymptom || undefined,
+    emotional_entry: emotionalEntry || undefined,
+    desired_belief_shift: desiredBeliefShift || undefined,
+    opening_pattern: openingPattern || undefined,
+    sub_angle: subAngle || undefined,
+    scoring_mode: scoringMode || undefined,
+    copy_render_expectation: copyRenderExpectation || undefined,
+    product_expectation: productExpectation || undefined,
+    template_image_id: templateImageId || undefined,
+    inspiration_image_id: inspirationImageId || undefined,
     aspect_ratio: aspectRatio,
     status: 'generating_image',
     image_prompt: imagePrompt.trim(),

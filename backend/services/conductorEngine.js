@@ -158,15 +158,7 @@ export async function runDirectorForProject(projectId, runType = 'manual') {
 
         // Load playbook for this angle if it exists
         const playbook = await getConductorPlaybook(projectId, angleInfo.name);
-        if (playbook && playbook.version > 0) {
-          anglePrompt += `\n\nCREATIVE DIRECTION FROM PREVIOUS ROUNDS:`;
-          if (playbook.visual_patterns) anglePrompt += `\n- Visual approach: ${playbook.visual_patterns}`;
-          if (playbook.copy_patterns) anglePrompt += `\n- Copy approach: ${playbook.copy_patterns}`;
-          if (playbook.avoid_patterns) anglePrompt += `\n- AVOID: ${playbook.avoid_patterns}`;
-          if (playbook.generation_hints) anglePrompt += `\n- Key hints: ${playbook.generation_hints}`;
-          anglePrompt += `\n\nCurrent pass rate for this angle: ${Math.round((playbook.pass_rate || 0) * 100)}%`;
-          anglePrompt += `\nFollow these patterns to maximize quality.`;
-        }
+        anglePrompt += buildPlaybookPromptBlock(playbook, { templateMode: true });
 
         // Build structured brief JSON for downstream use (scoring, QA, LP generation)
         const angleBriefJSON = hasStructuredBrief(angleInfo)
@@ -439,6 +431,7 @@ const TEST_RUN_REFILL_MULTIPLIER = 2;
 const TEST_RUN_ORCHESTRATION_FAILURE_STATUS = 'orchestration_failed';
 const TEST_RUN_GEMINI_WAIT_MS = 30 * 60 * 1000;
 const TEST_RUN_ROUND_CAP_TERMINAL_STATUS = 'failed_under_threshold_after_round_cap';
+const DIRECTOR_SCORE_THRESHOLD = 7;
 
 function stringifyJSON(value, fallback = '[]') {
   try {
@@ -554,6 +547,28 @@ function getBatchPromptProgress(roundNumber, pipelineState) {
     return buildTestProgressValue(roundNumber, 'batch_image_prompts');
   }
   return buildTestProgressValue(roundNumber, 'creating_batch');
+}
+
+function buildPlaybookPromptBlock(playbook, { templateMode = false } = {}) {
+  if (!playbook || playbook.version <= 0) return '';
+
+  const lines = [];
+  if (templateMode) {
+    if (playbook.copy_patterns) lines.push(`\n- Copy approach: ${playbook.copy_patterns}`);
+  } else {
+    if (playbook.visual_patterns) lines.push(`\n- Visual approach: ${playbook.visual_patterns}`);
+    if (playbook.copy_patterns) lines.push(`\n- Copy approach: ${playbook.copy_patterns}`);
+    if (playbook.avoid_patterns) lines.push(`\n- AVOID: ${playbook.avoid_patterns}`);
+    if (playbook.generation_hints) lines.push(`\n- Key hints: ${playbook.generation_hints}`);
+  }
+
+  if (lines.length === 0) return '';
+
+  const sectionLabel = templateMode
+    ? 'COPY DIRECTION FROM PREVIOUS ROUNDS:'
+    : 'CREATIVE DIRECTION FROM PREVIOUS ROUNDS:';
+
+  return `\n\n${sectionLabel}${lines.join('')}\n\nCurrent pass rate for this angle: ${Math.round((playbook.pass_rate || 0) * 100)}%\nFollow these patterns to maximize quality.`;
 }
 
 function getGeminiWaitingProgress(roundNumber, batch, batchStats) {
@@ -728,15 +743,7 @@ async function loadTestRunContext(projectId, angleOverride) {
   }
 
   const playbook = await getConductorPlaybook(projectId, angleInfo.name);
-  if (playbook && playbook.version > 0) {
-    anglePrompt += `\n\nCREATIVE DIRECTION FROM PREVIOUS ROUNDS:`;
-    if (playbook.visual_patterns) anglePrompt += `\n- Visual approach: ${playbook.visual_patterns}`;
-    if (playbook.copy_patterns) anglePrompt += `\n- Copy approach: ${playbook.copy_patterns}`;
-    if (playbook.avoid_patterns) anglePrompt += `\n- AVOID: ${playbook.avoid_patterns}`;
-    if (playbook.generation_hints) anglePrompt += `\n- Key hints: ${playbook.generation_hints}`;
-    anglePrompt += `\n\nCurrent pass rate for this angle: ${Math.round((playbook.pass_rate || 0) * 100)}%`;
-    anglePrompt += `\nFollow these patterns to maximize quality.`;
-  }
+  anglePrompt += buildPlaybookPromptBlock(playbook, { templateMode: true });
 
   const angleBriefJSON = hasStructuredBrief(angleInfo)
     ? JSON.stringify(buildAngleBriefJSON(angleInfo))
@@ -938,28 +945,23 @@ function hasMeaningfulImageIssues(score) {
   const imageIssues = Array.isArray(score?.image_issues) ? score.image_issues.filter(Boolean) : [];
   if (imageIssues.length > 0) return true;
   const weaknessText = Array.isArray(score?.weaknesses) ? score.weaknesses.join(' ') : '';
-  return /image|visual|scene|overlay|documentary|flat-lay|product|layout|photo|bedroom|lighting/i.test(weaknessText);
+  return /broken render|broken text|unreadable|distort|artifact|warped|mangled|deformed|placeholder|blank area|wrong product|missing product|impossible|composit/i.test(weaknessText);
 }
 
 function classifyScoreFailure(score) {
   const { hardRequirements, failedHardRequirements } = getFailedHardRequirements(score);
-  const headlineFailed = failedHardRequirements.includes('headline_alignment');
-  const copyFailed = failedHardRequirements.some((key) => ['first_line_hook', 'cta_at_end', 'spelling_grammar'].includes(key));
-  const imageFailed = failedHardRequirements.includes('image_completeness');
+  const grammarFailed = failedHardRequirements.includes('spelling_grammar');
+  const productFailed = failedHardRequirements.some((key) => ['product_present', 'correct_product'].includes(key));
+  const imageFailed = failedHardRequirements.some((key) => ['visual_integrity', 'rendered_text_integrity', 'image_completeness'].includes(key));
+  const legacyCopyFailed = failedHardRequirements.some((key) => ['first_line_hook', 'cta_at_end'].includes(key));
+  const legacyHeadlineFailed = failedHardRequirements.includes('headline_alignment');
   const imageIssues = hasMeaningfulImageIssues(score);
-  const imageQuality = Number(score?.image_quality);
-  const copyStrength = Number(score?.copy_strength);
+  const imageQuality = Number(score?.visual_integrity_score ?? score?.image_quality);
+  const copyStrength = Number(score?.copy_polish ?? score?.copy_strength);
   const effectiveness = Number(score?.effectiveness);
   const hardPassed = hardRequirements?.all_passed === true;
+  const copyFailed = grammarFailed || legacyCopyFailed;
   const imageSignals = imageFailed || imageIssues || (Number.isFinite(imageQuality) && imageQuality > 0 && imageQuality <= 5);
-
-  if (headlineFailed) {
-    return {
-      bucket: 'headline_alignment',
-      recommended_fix: 'new_headline',
-      repairable_without_headline: false,
-    };
-  }
 
   if (hardPassed) {
     if (Number.isFinite(imageQuality) && Number.isFinite(copyStrength) && imageQuality < copyStrength) {
@@ -969,14 +971,14 @@ function classifyScoreFailure(score) {
         repairable_without_headline: true,
       };
     }
-    if (Number.isFinite(copyStrength) && copyStrength < SCORE_THRESHOLD) {
+    if (Number.isFinite(copyStrength) && copyStrength > 0 && copyStrength < 6) {
       return {
         bucket: 'copy_only',
         recommended_fix: 'rewrite_body_copy',
         repairable_without_headline: true,
       };
     }
-    if (Number.isFinite(effectiveness) && effectiveness < SCORE_THRESHOLD && imageSignals) {
+    if (Number.isFinite(effectiveness) && effectiveness < DIRECTOR_SCORE_THRESHOLD && imageSignals) {
       return {
         bucket: 'image_only',
         recommended_fix: 'rewrite_image',
@@ -985,7 +987,7 @@ function classifyScoreFailure(score) {
     }
   }
 
-  if (!copyFailed && imageSignals) {
+  if ((!copyFailed && !legacyHeadlineFailed) && (productFailed || imageSignals)) {
     return {
       bucket: 'image_only',
       recommended_fix: 'rewrite_image',
@@ -993,7 +995,7 @@ function classifyScoreFailure(score) {
     };
   }
 
-  if (copyFailed && !imageSignals) {
+  if (copyFailed && !(productFailed || imageSignals)) {
     return {
       bucket: 'copy_only',
       recommended_fix: 'rewrite_body_copy',
@@ -1003,8 +1005,8 @@ function classifyScoreFailure(score) {
 
   return {
     bucket: 'mixed',
-    recommended_fix: copyFailed ? 'rewrite_body_and_image' : 'new_variant',
-    repairable_without_headline: !headlineFailed,
+    recommended_fix: copyFailed ? 'rewrite_body_and_image' : 'rewrite_image',
+    repairable_without_headline: true,
   };
 }
 
@@ -1013,11 +1015,13 @@ function summarizeRoundFailures(failedAds) {
   const hardRequirementCounts = {};
   const imageThemeCounts = {};
   const themeMatchers = [
-    ['not_documentary_scene', /documentary|bedroom|scene|stock|flat-lay|product shot|showcase|ad composite|realistic/i],
-    ['text_overlay_or_infographic', /text overlay|callouts|bullet|infographic|badge|stars|split-screen|comparison|poster|sign|layout/i],
-    ['product_visible', /product visible|grounding mat|grounded sheet|product|cord|cable|rolled sheets|showing product/i],
-    ['before_after_or_compliance', /before\/after|discount code|branding|logo|promotional/i],
-    ['wrong_demographic_or_staging', /too young|staged|posed|sitting upright|lighting|pajamas|polished/i],
+    ['missing_product', /missing product|product missing|no product|product absent/i],
+    ['wrong_product', /wrong product|different product|competitor/i],
+    ['unreadable_text_on_creative', /unreadable text|mangled text|broken text|illegible/i],
+    ['broken_render', /broken render|blank area|placeholder|artifact|glitch|incomplete/i],
+    ['irrational_image', /irrational|impossible|warped|deformed|mangled anatomy|extra finger|distorted/i],
+    ['copy_polish_low', /copy polish|awkward|stiff|generic|grammar|typo/i],
+    ['compliance_risk', /compliance|policy|before\/after|medical claim|guarantee/i],
   ];
 
   for (const failedAd of failedAds) {
@@ -1054,10 +1058,14 @@ function buildFailedAdsMeta(scoredAds) {
         headline: ad?.headline || '',
         body_copy_preview: (ad?.body_copy || '').slice(0, 320),
         overall_score: score?.overall_score ?? 0,
-        copy_strength: score?.copy_strength ?? null,
-        compliance: score?.compliance ?? null,
+        copy_strength: score?.copy_strength ?? score?.copy_polish ?? null,
+        copy_polish: score?.copy_polish ?? score?.copy_strength ?? null,
+        compliance: score?.compliance ?? score?.meta_compliance ?? null,
+        meta_compliance: score?.meta_compliance ?? score?.compliance ?? null,
         effectiveness: score?.effectiveness ?? null,
-        image_quality: score?.image_quality ?? null,
+        image_quality: score?.image_quality ?? score?.visual_integrity_score ?? null,
+        visual_integrity: score?.visual_integrity_score ?? score?.image_quality ?? null,
+        visual_contract_match: score?.visual_contract_match ?? null,
         angle_category: score?.angle_category || null,
         failed_hard_requirements: failedHardRequirements,
         hard_requirements: hardRequirements,
@@ -1197,8 +1205,17 @@ function buildImageRepairNotes(score) {
   for (const issue of [...(score?.image_issues || []), ...(score?.weaknesses || [])]) {
     if (typeof issue === 'string' && issue.trim()) notes.push(issue.trim());
   }
-  if ((score?.hard_requirements || {}).image_completeness === false) {
-    notes.push('Fix image completeness and remove any broken placeholder or blank area.');
+  if ((score?.hard_requirements || {}).visual_integrity === false || (score?.hard_requirements || {}).image_completeness === false) {
+    notes.push('Fix any broken render, placeholder, blank area, unrealistic artifact, or irrational visual detail.');
+  }
+  if ((score?.hard_requirements || {}).rendered_text_integrity === false) {
+    notes.push('Keep the exact headline and body copy visible on the creative with clean, readable, correctly rendered text.');
+  }
+  if ((score?.hard_requirements || {}).product_present === false) {
+    notes.push('Ensure the intended product is clearly present in the ad and positioned where the template implies it should appear.');
+  }
+  if ((score?.hard_requirements || {}).correct_product === false) {
+    notes.push('Show the correct product only. Remove any unrelated or competitor-looking product imagery.');
   }
   if (!notes.some((note) => /headline|body copy|text hierarchy|layout/i.test(note))) {
     notes.push('Keep the exact headline and body copy visible on the creative with clean, readable text hierarchy.');
@@ -1239,8 +1256,13 @@ async function createCopyRepairVariant({ originalAd, repairedBodyCopy, batchId }
     desired_belief_shift: originalAd.desired_belief_shift || undefined,
     opening_pattern: originalAd.opening_pattern || undefined,
     sub_angle: originalAd.sub_angle || undefined,
+    scoring_mode: originalAd.scoring_mode || undefined,
+    copy_render_expectation: originalAd.copy_render_expectation || undefined,
+    product_expectation: originalAd.product_expectation || undefined,
     image_prompt: originalAd.image_prompt || undefined,
     gpt_creative_output: originalAd.gpt_creative_output || undefined,
+    template_image_id: originalAd.template_image_id || undefined,
+    inspiration_image_id: originalAd.inspiration_image_id || undefined,
     storageId: originalAd.storageId || undefined,
     aspect_ratio: originalAd.aspect_ratio || '1:1',
     status: 'completed',
@@ -1363,8 +1385,21 @@ async function attemptRoundRepairs({
         aspectRatio: entry.ad.aspect_ratio || '1:1',
         parentAdId: entry.ad.id,
         angle: entry.ad.angle,
+        angleName: entry.ad.angle_name,
         headline: entry.ad.headline,
         bodyCopy: entry.ad.body_copy,
+        scoringMode: entry.ad.scoring_mode,
+        copyRenderExpectation: entry.ad.copy_render_expectation,
+        productExpectation: entry.ad.product_expectation,
+        hookLane: entry.ad.hook_lane,
+        coreClaim: entry.ad.core_claim,
+        targetSymptom: entry.ad.target_symptom,
+        emotionalEntry: entry.ad.emotional_entry,
+        desiredBeliefShift: entry.ad.desired_belief_shift,
+        openingPattern: entry.ad.opening_pattern,
+        subAngle: entry.ad.sub_angle,
+        templateImageId: entry.ad.template_image_id,
+        inspirationImageId: entry.ad.inspiration_image_id,
       });
       const savedAd = await getAd(repairedAd.id);
       const repairedScore = await scoreAd(savedAd, 'No previous top performers available.', angleBrief, projectId);

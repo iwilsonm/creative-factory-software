@@ -50,11 +50,23 @@ function serializePromptForStorage(prompt) {
     use_product_reference: prompt.use_product_reference !== false,
     visual_reference_type: prompt.visual_reference_type || null,
     visual_reference_id: prompt.visual_reference_id || null,
+    scoring_mode: prompt.scoring_mode || null,
+    copy_render_expectation: prompt.copy_render_expectation || null,
+    product_expectation: prompt.product_expectation || null,
   };
 }
 
 function shouldUseDocumentaryVisuals(batch, angleBrief) {
   return false;
+}
+
+function buildDirectorScoringContract(batch, documentaryVisuals) {
+  if (!batch?.conductor_run_id || documentaryVisuals) return {};
+  return {
+    scoring_mode: 'template_copy_on_creative',
+    copy_render_expectation: 'rendered',
+    product_expectation: 'required',
+  };
 }
 
 /**
@@ -365,6 +377,7 @@ async function generateBatchPrompts(batch, project, docs, onProgress, options = 
 
   const prompts = [];
   const documentaryVisuals = shouldUseDocumentaryVisuals(batch, angleBrief);
+  const scoringContract = buildDirectorScoringContract(batch, documentaryVisuals);
 
   // Load previously used template IDs for cross-run deduplication
   let usedTemplateIds = [];
@@ -490,6 +503,9 @@ async function generateBatchPrompts(batch, project, docs, onProgress, options = 
           use_product_reference: !documentaryVisuals,
           visual_reference_type: visualReferenceType,
           visual_reference_id: visualReferenceId,
+          scoring_mode: scoringContract.scoring_mode || null,
+          copy_render_expectation: scoringContract.copy_render_expectation || null,
+          product_expectation: scoringContract.product_expectation || null,
           inspirationTmpPath: imageData.tmpPath,
           inspirationMimeType: imageData.mimeType,
           templateFileId: imageData.fileId || null,
@@ -781,6 +797,9 @@ async function processBatchResults(batchId, job) {
         desired_belief_shift: (typeof promptObj === 'object' ? promptObj?.desired_belief_shift : null) || undefined,
         opening_pattern: (typeof promptObj === 'object' ? promptObj?.opening_pattern : null) || undefined,
         sub_angle: (typeof promptObj === 'object' ? promptObj?.sub_angle : null) || undefined,
+        scoring_mode: (typeof promptObj === 'object' ? promptObj?.scoring_mode : null) || undefined,
+        copy_render_expectation: (typeof promptObj === 'object' ? promptObj?.copy_render_expectation : null) || undefined,
+        product_expectation: (typeof promptObj === 'object' ? promptObj?.product_expectation : null) || undefined,
         image_prompt: promptText || undefined,
         gpt_creative_output: promptText || undefined,
         aspect_ratio: batch.aspect_ratio,
