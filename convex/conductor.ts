@@ -234,6 +234,8 @@ export const createRun = mutation({
     ready_to_post_count: v.optional(v.number()),
     flex_ad_id: v.optional(v.string()),
     rounds_json: v.optional(v.string()),
+    error_stage: v.optional(v.string()),
+    skip_lp_gen: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     await ctx.db.insert("conductor_runs", {
@@ -265,6 +267,8 @@ export const updateRun = mutation({
     ready_to_post_count: v.optional(v.number()),
     flex_ad_id: v.optional(v.string()),
     rounds_json: v.optional(v.string()),
+    error_stage: v.optional(v.string()),
+    skip_lp_gen: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     const run = await ctx.db

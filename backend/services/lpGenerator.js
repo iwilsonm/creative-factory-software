@@ -15,6 +15,7 @@ import { chat, chatWithImage, chatWithMultipleImages, extractJSON } from './anth
 import { generateImage } from './gemini.js';
 import crypto from 'crypto';
 import { getDocsByProject, uploadBuffer, getStorageUrl, getLPTemplate, getProject, downloadToBuffer, getLPAgentConfig, upsertLPAgentConfig } from '../convexClient.js';
+import { getNarrativeFrameHeadlineContract } from './lpHeadlineValidation.js';
 
 /**
  * Detect the actual MIME type of an image buffer by reading magic bytes.
@@ -71,6 +72,22 @@ export const NARRATIVE_FRAMES = [
     instruction: 'Structure the page as a numbered list of key reasons, benefits, or discoveries (e.g., "7 Reasons Why..." or "5 Things Nobody Tells You About..."). Each item should have a compelling sub-headline and 1-2 paragraphs of supporting copy. Build momentum so the most powerful reason comes last, leading directly into the offer.',
   },
 ];
+
+function buildHeadlineConstraintInstruction(headlineConstraints = null) {
+  if (!headlineConstraints) return '';
+  const parts = [];
+  if (headlineConstraints.contract) {
+    parts.push(`HEADLINE CONTRACT:\n${headlineConstraints.contract}`);
+  }
+  if (Array.isArray(headlineConstraints.usedHeadlines) && headlineConstraints.usedHeadlines.length > 0) {
+    parts.push(`HEADLINES ALREADY USED IN THIS 5-FRAME GAUNTLET (do not overlap these ideas):\n${headlineConstraints.usedHeadlines.map((entry) => `- [${entry.narrative_frame || 'frame'}] ${entry.headline_text || entry.headline}`).join('\n')}`);
+  }
+  if (Array.isArray(headlineConstraints.historyHeadlines) && headlineConstraints.historyHeadlines.length > 0) {
+    parts.push(`RECENT SAME-ANGLE LP HEADLINES TO AVOID REUSING:\n${headlineConstraints.historyHeadlines.map((entry) => `- [${entry.narrative_frame || 'frame'}] ${entry.headline_text || entry.headline}`).join('\n')}`);
+  }
+  if (parts.length === 0) return '';
+  return `\nHEADLINE DIFFERENTIATION RULES:\n${parts.join('\n\n')}\n`;
+}
 
 // ─── Phase 2A: Screenshot-based Claude vision design analysis ────────────────
 
@@ -834,6 +851,7 @@ export async function generateLandingPageCopy({
   additionalDirection,
   approvedAds = [],  // Approved batch ads for messaging alignment
   autoContext,  // { narrativeFrame, foundationalDocs } — only in auto mode
+  headlineConstraints = null,
 }, sendEvent) {
   sendEvent({ type: 'progress', step: 'loading_docs', message: 'Loading foundational documents...' });
 
@@ -919,6 +937,7 @@ Study these documents carefully. You will use them to write a landing page in th
   const narrativeInstruction = autoContext?.narrativeFrame
     ? `\nNARRATIVE FRAME INSTRUCTION:\n${autoContext.narrativeFrame}\n\nYou MUST write the entire landing page using this narrative frame. The frame dictates the overall voice, structure, and storytelling approach. Every section should reflect this frame.\n`
     : '';
+  const headlineConstraintInstruction = buildHeadlineConstraintInstruction(headlineConstraints);
 
   // Build approved ad reference section (only when ads are available from a real batch)
   let adReferenceSection = '';
@@ -957,7 +976,7 @@ MARKETING ANGLE / HOOK:
 ${angleSection}
 
 TARGET WORD COUNT: approximately ${wordCount} words
-${narrativeInstruction}${adReferenceSection}
+${narrativeInstruction}${headlineConstraintInstruction}${adReferenceSection}
 ${swipeText ? `SWIPE FILE REFERENCE (use this as structural and tonal inspiration — do NOT copy it verbatim):
 ${swipeText.slice(0, 15000)}
 ${swipeText.length > 15000 ? '\n[... swipe text truncated for context length ...]' : ''}` : 'No swipe file provided — use your own best judgment for structure and flow.'}
@@ -1154,6 +1173,7 @@ export async function runEditorialPass({
   approvedAds = [],
   pdpUrl,
   projectId,
+  headlineConstraints = null,
 }, sendEvent) {
   sendEvent({ type: 'progress', step: 'editorial_starting', message: 'Opus editorial review starting...' });
 
@@ -1212,6 +1232,8 @@ ${adHeadlines}
 MARKETING ANGLE: ${angle}
 NARRATIVE FRAME: ${narrativeFrame || 'general'}
 IMPORTANT: The headline MUST be unique to this narrative frame. It should reflect the storytelling approach described above — a testimonial frame headline reads completely differently from a mechanism or listicle headline.
+HEADLINE CONTRACT: ${headlineConstraints?.contract || getNarrativeFrameHeadlineContract(narrativeFrame)}
+${buildHeadlineConstraintInstruction(headlineConstraints)}
 ${editorialAdReference}PDP URL: ${pdpUrl || 'not set'}
 PAGE SECTIONS: ${sectionTypes}
 
@@ -1324,6 +1346,83 @@ Along with your editorial plan, return a "decisions" array — a list of plain-l
 
   // Should not reach here, but safety fallback
   return { plan: null, noEditorialPlan: true };
+}
+
+export async function repairLPHeadline({
+  projectId,
+  angle,
+  narrativeFrame,
+  headline,
+  subheadline,
+  copySections,
+  approvedAds = [],
+  headlineConstraints = null,
+}, sendEvent = () => {}) {
+  sendEvent({ type: 'progress', step: 'headline_repair', message: 'Repairing landing page headline...' });
+
+  const copySummary = (Array.isArray(copySections) ? copySections : [])
+    .map((section) => `[${section.type}] ${section.content}`)
+    .join('\n\n')
+    .slice(0, 6000);
+
+  const adReference = approvedAds.length > 0
+    ? `APPROVED AD THEMES:\n${approvedAds.slice(0, 6).map((ad, index) => `${index + 1}. ${ad.headline}`).join('\n')}\n`
+    : '';
+
+  const response = await chat(
+    [
+      {
+        role: 'system',
+        content: 'You rewrite landing page headlines for direct-response advertorials. Return JSON only.',
+      },
+      {
+        role: 'user',
+        content: `Repair the headline and subheadline for this landing page.
+
+ANGLE: ${angle}
+NARRATIVE FRAME: ${narrativeFrame}
+HEADLINE CONTRACT: ${headlineConstraints?.contract || getNarrativeFrameHeadlineContract(narrativeFrame)}
+${buildHeadlineConstraintInstruction(headlineConstraints)}
+CURRENT HEADLINE: ${headline || '(none)'}
+CURRENT SUBHEADLINE: ${subheadline || '(none)'}
+${adReference}
+COPY SUMMARY:
+${copySummary}
+
+Return JSON:
+{
+  "headline": "replacement headline",
+  "subheadline": "replacement subheadline",
+  "reason": "brief explanation"
+}
+
+Rules:
+- The new headline must sound like this narrative frame, not a generic advertorial.
+- It must not overlap the already-used or recent-history headlines listed above.
+- Keep it concise and specific.
+- The subheadline should support the headline without repeating it word-for-word.`,
+      },
+    ],
+    'claude-sonnet-4-6',
+    {
+      max_tokens: 1024,
+      timeout: 45000,
+      operation: 'lp_headline_repair',
+      projectId,
+      response_format: { type: 'json_object' },
+    }
+  );
+
+  const parsed = extractJSON(response);
+  if (!parsed?.headline) {
+    throw new Error('Headline repair returned malformed JSON.');
+  }
+
+  return {
+    headline: String(parsed.headline || '').trim(),
+    subheadline: String(parsed.subheadline || '').trim(),
+    reason: String(parsed.reason || '').trim(),
+  };
 }
 
 // ─── Phase 2C: Image generation via Gemini ──────────────────────────────────
@@ -3530,6 +3629,7 @@ export async function generateAutoLP({
   agentConfig = null,
   approvedAds = [],  // Approved batch ads for messaging alignment
   autoContext: parentAutoContext = null,  // Gauntlet: { cachedHtmlTemplate, preGeneratedImages }
+  headlineConstraints = null,
 }, sendEvent) {
   // Audit trail — collect entries at each generation phase
   // ── P8: Track per-phase timing in audit trail ──
@@ -3667,6 +3767,7 @@ export async function generateAutoLP({
       narrativeFrame,
       templateSlots: placeholders.templateCopy,
     },
+    headlineConstraints,
   }, sendEvent);
 
   const totalWords = copySections.reduce((sum, s) => sum + (s.content || '').split(/\s+/).filter(Boolean).length, 0);
@@ -3754,6 +3855,7 @@ export async function generateAutoLP({
       approvedAds,
       pdpUrl: null, // Will be set by publisher
       projectId,
+      headlineConstraints,
     }, sendEvent);
 
     editorialPlan = editorialResult.plan;
@@ -3832,6 +3934,7 @@ Score guide: 1=terrible/generic, 2=weak/misaligned, 3=adequate, 4=good, 5=excell
               narrativeFrame,
               templateSlots: placeholders.templateCopy,
             },
+            headlineConstraints,
           }, sendEvent);
 
           // Use the retry if it has valid sections
@@ -3846,7 +3949,7 @@ Score guide: 1=terrible/generic, 2=weak/misaligned, 3=adequate, 4=good, 5=excell
             // Re-run editorial pass on improved copy
             if (editorialPassEnabled) {
               const retryEditorial = await runEditorialPass({
-                copySections, designAnalysis, angle, narrativeFrame, foundationalDocs, approvedAds, pdpUrl: null, projectId,
+                copySections, designAnalysis, angle, narrativeFrame, foundationalDocs, approvedAds, pdpUrl: null, projectId, headlineConstraints,
               }, sendEvent);
               if (retryEditorial.plan) {
                 editorialPlan = retryEditorial.plan;

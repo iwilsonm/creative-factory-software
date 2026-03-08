@@ -1271,6 +1271,18 @@ export async function generateBodyCopies(project, briefPacket, headlines, angleB
 
   const allCopies = [];
 
+  const attachHeadlineMetadata = (copy, matchingHeadline) => ({
+    ...copy,
+    primary_emotion: matchingHeadline?.primary_emotion || 'curiosity',
+    sub_angle: matchingHeadline?.sub_angle || null,
+    hook_lane: matchingHeadline?.hook_lane || null,
+    core_claim: matchingHeadline?.core_claim || null,
+    target_symptom: matchingHeadline?.target_symptom || null,
+    emotional_entry: matchingHeadline?.emotional_entry || matchingHeadline?.primary_emotion || null,
+    desired_belief_shift: matchingHeadline?.desired_belief_shift || null,
+    opening_pattern: matchingHeadline?.opening_pattern || null,
+  });
+
   // Process in batches of 5
   for (let i = 0; i < headlines.length; i += 5) {
     const batch = headlines.slice(i, i + 5);
@@ -1315,6 +1327,7 @@ For each headline below, write Facebook ad primary text (the body copy that appe
 RULES FOR EVERY BODY COPY:
 
 1. ANCHOR TO THE HEADLINE. Your first sentence must continue the emotional thread the headline started. Do not restart. Do not introduce a new idea. Do not repeat the headline. If the headline opens a loop, partially close it — enough to satisfy, not enough to remove the need to click.
+1a. THE FIRST SENTENCE MUST BE A SCROLL-STOPPING HOOK ON ITS OWN. Maximum 12 words. It must make immediate sense without the headline. Do NOT start with weak continuations like "Because", "So", "And", "Honestly", a character name, or generic exposition.
 
 2. MAXIMUM 90 WORDS. Every word earns its place.
 
@@ -1322,7 +1335,7 @@ RULES FOR EVERY BODY COPY:
 
 4. DO NOT REPEAT THE HEADLINE TEXT in the body copy.
 
-5. END WITH A REASON TO CLICK that connects to the headline's emotion — not a generic "Learn more" or "Shop now." If the headline was about feeling cheated, the closer should be about finding out why. If the headline was about stiffness, the closer should be about what changed.
+5. THE FINAL SENTENCE MUST BE AN EXPLICIT CTA. It must tell the reader what to do next using an action verb such as "See", "Read", "Tap", "Click", "Learn", "Find out", or "Watch". If the headline was about feeling cheated, the CTA should promise what they will discover. If the headline was about stiffness, the CTA should point to what changed.
 
 6. NONE of these phrases: "game-changer", "revolutionize", "transform your life", "the ultimate solution", "miracle", "breakthrough discovery", "you won't believe what happened next"
 
@@ -1380,24 +1393,107 @@ OUTPUT FORMAT — respond as JSON only:
           throw new Error('Response missing body_copies array');
         }
 
-        // Match body copies back to original headline objects to preserve primary_emotion
-        for (const copy of result.body_copies) {
+        let normalizedCopies = result.body_copies.map((copy) => {
           const matchingHeadline = batch.find(h => h.headline === copy.headline);
-          allCopies.push({
-            ...copy,
-            primary_emotion: matchingHeadline?.primary_emotion || 'curiosity',
-            sub_angle: matchingHeadline?.sub_angle || null,
-            hook_lane: matchingHeadline?.hook_lane || null,
-            core_claim: matchingHeadline?.core_claim || null,
-            target_symptom: matchingHeadline?.target_symptom || null,
-            emotional_entry: matchingHeadline?.emotional_entry || matchingHeadline?.primary_emotion || null,
-            desired_belief_shift: matchingHeadline?.desired_belief_shift || null,
-            opening_pattern: matchingHeadline?.opening_pattern || null,
-          });
+          return attachHeadlineMetadata(copy, matchingHeadline);
+        });
+
+        const weakLeadInRe = /^(because|so|and|honestly|same|most|she\b|he\b|they\b|the\s+(routine|room|dog|light|water|problem)|it's not\b|carol\b|linda\b)/i;
+        const ctaActionRe = /\b(read|see|tap|click|learn|find out|watch|discover|open|shop)\b/i;
+        const splitSentences = (text) => String(text || '')
+          .split(/(?<=[.!?])\s+/)
+          .map((part) => part.trim())
+          .filter(Boolean);
+        const detectRepairReasons = (copy) => {
+          const sentences = splitSentences(copy.body_copy);
+          const firstSentence = sentences[0] || '';
+          const lastSentence = sentences.at(-1) || copy.closing_cta || '';
+          const reasons = [];
+          if (!firstSentence || weakLeadInRe.test(firstSentence) || firstSentence.split(/\s+/).filter(Boolean).length > 14) {
+            reasons.push('first_line_hook');
+          }
+          if (!ctaActionRe.test(lastSentence)) {
+            reasons.push('cta_at_end');
+          }
+          return reasons;
+        };
+
+        const flaggedCopies = normalizedCopies
+          .map((copy) => ({ copy, reasons: detectRepairReasons(copy) }))
+          .filter((entry) => entry.reasons.length > 0);
+
+        if (flaggedCopies.length > 0) {
+          const flaggedList = flaggedCopies.map((entry, idx) => {
+            const reasons = entry.reasons.join(', ');
+            return `${idx + 1}. HEADLINE: "${entry.copy.headline}"\nCURRENT BODY COPY: "${entry.copy.body_copy}"\nFAILED REQUIREMENTS: ${reasons}`;
+          }).join('\n\n');
+
+          const repairPrompt = `You are repairing Facebook ad primary text so it passes a strict creative filter.
+
+REPAIR RULES:
+- Keep the same headline, same overall angle, and same emotional promise.
+- Rewrite ONLY the body copy.
+- The first sentence must be a clear standalone hook. No weak lead-ins like "Because", "So", "Honestly", names, or generic exposition.
+- The final sentence must be an explicit CTA with an action verb like See, Read, Tap, Click, Learn, Find out, Watch, or Discover.
+- Maximum 90 words.
+- Keep one concrete detail.
+- Do not repeat the headline verbatim.
+
+HEADLINES TO REPAIR:
+
+${flaggedList}
+
+Return JSON only:
+{
+  "body_copies": [
+    {
+      "headline": "...",
+      "body_copy": "...",
+      "structure": "story_continuation | problem_agitate | social_proof",
+      "word_count": 78,
+      "specific_detail_used": "2-4am wakeups",
+      "closing_cta": "the final CTA sentence"
+    }
+  ]
+}`;
+
+          try {
+            const repairResponse = await withHeavyLLMLimit(async () => {
+              return await claudeChat(
+                [{ role: 'user', content: repairPrompt }],
+                'claude-sonnet-4-6',
+                {
+                  response_format: { type: 'json_object' },
+                  operation: 'batch_body_copy_repair',
+                  projectId: project?.id || null,
+                }
+              );
+            }, `[Stage 2 Body Copy repair batch ${batchNum}/${totalBatches}]`);
+
+            let repairResult;
+            try {
+              repairResult = JSON.parse(repairResponse);
+            } catch {
+              repairResult = repairJSON(repairResponse);
+            }
+
+            if (repairResult?.body_copies && Array.isArray(repairResult.body_copies)) {
+              const repairedByHeadline = new Map(
+                repairResult.body_copies.map((copy) => {
+                  const matchingHeadline = batch.find(h => h.headline === copy.headline);
+                  return [copy.headline, attachHeadlineMetadata(copy, matchingHeadline)];
+                })
+              );
+              normalizedCopies = normalizedCopies.map((copy) => repairedByHeadline.get(copy.headline) || copy);
+            }
+          } catch (repairErr) {
+            console.warn(`[Pipeline Stage 2] Repair pass skipped for batch ${batchNum}: ${repairErr.message}`);
+          }
         }
 
+        allCopies.push(...normalizedCopies);
         batchSuccess = true;
-        console.log(`[Pipeline Stage 2] Body copy batch ${batchNum}/${totalBatches}: ${result.body_copies.length} copies generated`);
+        console.log(`[Pipeline Stage 2] Body copy batch ${batchNum}/${totalBatches}: ${normalizedCopies.length} copies generated`);
 
       } catch (err) {
         console.error(`[Pipeline Stage 2] Batch ${batchNum} attempt ${attempt} failed:`, err.message);
@@ -1432,7 +1528,9 @@ OUTPUT FORMAT — respond as JSON only:
  * @param {object|null} headlineMeta - Selected headline metadata carried through the pipeline
  * @returns {string} Image generation prompt
  */
-export async function generateImagePrompt(project, headline, bodyCopy, primaryEmotion, imageData, aspectRatio, angleBrief = null, headlineMeta = null) {
+export async function generateImagePrompt(project, headline, bodyCopy, primaryEmotion, imageData, aspectRatio, angleBrief = null, headlineMeta = null, options = {}) {
+  const documentaryMode = !!options.documentaryMode;
+  const repairNotes = Array.isArray(options.repairNotes) ? options.repairNotes.filter(Boolean) : [];
   // Build visual direction from structured angle brief
   let visualDirectionBlock = '';
   if (angleBrief && (angleBrief.scene || angleBrief.frame || angleBrief.tone)) {
@@ -1459,7 +1557,46 @@ export async function generateImagePrompt(project, headline, bodyCopy, primaryEm
     headlineStrategyBlock = '\nHEADLINE STRATEGY:\n' + parts.join('\n') + '\n';
   }
 
-  const promptText = `You are a creative director generating prompts for text-to-image AI software. You create Facebook ad visuals for DTC health/wellness brands targeting women 55-75.
+  const promptText = documentaryMode
+    ? `You are a creative director generating documentary-style image prompts for Meta ads aimed at women 55-75.
+
+BRAND: ${project.brand_name || project.name}
+PRODUCT CONTEXT: ${project.product_description || ''}
+
+ASPECT RATIO: ${aspectRatio || '1:1'}
+
+THE APPROVED AD COPY (USE FOR MEANING ONLY — DO NOT RENDER ANY TEXT IN THE IMAGE):
+HEADLINE: "${headline}"
+BODY COPY: "${bodyCopy}"
+
+PRIMARY EMOTION OF THIS AD: ${primaryEmotion || 'curiosity'}
+${headlineStrategyBlock}
+${visualDirectionBlock}
+${repairNotes.length > 0 ? `REPAIR NOTES:\n${repairNotes.map((note) => `- ${note}`).join('\n')}\n` : ''}
+REFERENCE IMAGE:
+(If attached, use it only for lighting, realism, and general mood. Do NOT copy its layout, text treatment, product framing, or branding.)
+
+---
+
+Generate an image prompt that:
+
+1. Creates a pure documentary/lifestyle scene that visually expresses the headline and body copy without rendering any words.
+2. Centers the human moment, symptom pattern, and emotional state from the angle brief.
+3. Shows a realistic woman 55-75 in an authentic bedroom or home environment if the scene calls for it.
+4. Uses lighting, expression, posture, camera distance, and composition to communicate the exact frustration or relief in the copy.
+5. Prioritizes realism, intimacy, and specificity over polished ad-design aesthetics.
+6. Uses the specified aspect ratio: ${aspectRatio || '1:1'}
+
+CRITICAL NEGATIVES:
+- NO text overlays
+- NO logos, badges, bullets, testimonial cards, review stars, comparison layouts, before/after panels, mockups, coupons, or ad-template framing
+- NO product visible unless the angle brief explicitly demands it
+- NO flat-lay product photography
+- NO branded footer or brand mark
+- NO split-screen or infographic composition
+
+Treat the approved copy as semantic direction only. The output should be a photorealistic visual scene, not a designed ad layout.`
+    : `You are a creative director generating prompts for text-to-image AI software. You create Facebook ad visuals for DTC health/wellness brands targeting women 55-75.
 
 BRAND: ${project.brand_name || project.name}
 PRODUCT APPEARANCE: ${project.product_description || ''}
@@ -1473,6 +1610,7 @@ BODY COPY: "${bodyCopy}"
 PRIMARY EMOTION OF THIS AD: ${primaryEmotion || 'curiosity'}
 ${headlineStrategyBlock}
 ${visualDirectionBlock}
+${repairNotes.length > 0 ? `REPAIR NOTES:\n${repairNotes.map((note) => `- ${note}`).join('\n')}\n` : ''}
 TEMPLATE TO MATCH:
 (See attached image — analyze its visual structure, layout, color palette, typography, and composition)
 
@@ -1502,19 +1640,108 @@ CRITICAL: The headline and body copy are FINAL. Do not rewrite, shorten, improve
 
 Output the image generation prompt as a single text block ready to paste into the image generation tool.`;
 
-  const imageBase64 = readImageBase64(imageData);
   const imagePrompt = await withHeavyLLMLimit(async () => {
-    return await claudeChatWithImage(
-      [],
-      promptText,
-      imageBase64,
-      imageData.mimeType,
+    if (imageData) {
+      const imageBase64 = readImageBase64(imageData);
+      return await claudeChatWithImage(
+        [],
+        promptText,
+        imageBase64,
+        imageData.mimeType,
+        'claude-sonnet-4-6',
+        { operation: 'batch_image_prompt', projectId: project?.id || null }
+      );
+    }
+    return await claudeChat(
+      [{ role: 'user', content: promptText }],
       'claude-sonnet-4-6',
       { operation: 'batch_image_prompt', projectId: project?.id || null }
     );
   }, `[Stage 3 Image Prompt]`);
 
   return imagePrompt;
+}
+
+export async function repairBodyCopy(project, options = {}) {
+  const {
+    headline,
+    bodyCopy,
+    angleBrief = null,
+    failedReasons = [],
+    weaknesses = [],
+    maxWords = 90,
+  } = options;
+
+  if (!headline) {
+    throw new Error('Headline is required for body copy repair.');
+  }
+
+  const toneBits = [];
+  if (angleBrief?.tone) toneBits.push(`TONE: ${angleBrief.tone}`);
+  if (angleBrief?.failed_solutions) toneBits.push(`FAILED SOLUTIONS TO REFERENCE: ${angleBrief.failed_solutions}`);
+  if (angleBrief?.desired_belief_shift) toneBits.push(`BELIEF SHIFT: ${angleBrief.desired_belief_shift}`);
+  if (angleBrief?.emotional_state) toneBits.push(`EMOTIONAL STATE: ${angleBrief.emotional_state}`);
+
+  const repairIssues = [...failedReasons, ...weaknesses].filter(Boolean).slice(0, 6);
+  const prompt = `You are repairing Facebook ad primary text so it passes a strict creative filter.
+
+BRAND: ${project?.brand_name || project?.name || 'Unknown brand'}
+HEADLINE: "${headline}"
+CURRENT BODY COPY: "${bodyCopy || ''}"
+${toneBits.length > 0 ? `\nANGLE CONTEXT:\n${toneBits.join('\n')}` : ''}
+
+WHY THIS COPY FAILED:
+${repairIssues.length > 0 ? repairIssues.map((item) => `- ${item}`).join('\n') : '- Weak hook and/or weak CTA'}
+
+REPAIR RULES:
+- Keep the same headline, same angle, and same promise.
+- Rewrite ONLY the body copy.
+- The first sentence must be a standalone hook on its own. No weak lead-ins like "Because", "So", "And", "Honestly", names, or generic exposition.
+- Keep the copy under ${maxWords} words.
+- Include at least one concrete detail.
+- The final sentence must be an explicit CTA using an action verb such as See, Read, Tap, Click, Learn, Find out, Watch, or Discover.
+- Do not repeat the headline verbatim.
+- Sound like a warm, credible direct-response ad for women 55-75.
+
+Return JSON only:
+{
+  "body_copy": "...",
+  "structure": "story_continuation | problem_agitate | social_proof",
+  "word_count": 78,
+  "specific_detail_used": "2:43 AM wakeup",
+  "closing_cta": "the final CTA sentence"
+}`;
+
+  const response = await withHeavyLLMLimit(async () => {
+    return await claudeChat(
+      [{ role: 'user', content: prompt }],
+      'claude-sonnet-4-6',
+      {
+        response_format: { type: 'json_object' },
+        operation: 'batch_body_copy_repair',
+        projectId: project?.id || null,
+      }
+    );
+  }, '[Stage 2 Body Copy targeted repair]');
+
+  let parsed;
+  try {
+    parsed = JSON.parse(response);
+  } catch {
+    parsed = repairJSON(response);
+  }
+
+  if (!parsed?.body_copy) {
+    throw new Error('Body copy repair returned no body_copy.');
+  }
+
+  return {
+    body_copy: parsed.body_copy,
+    structure: parsed.structure || null,
+    word_count: Number(parsed.word_count) || String(parsed.body_copy).split(/\s+/).filter(Boolean).length,
+    specific_detail_used: parsed.specific_detail_used || null,
+    closing_cta: parsed.closing_cta || null,
+  };
 }
 
 export async function regenerateImageOnly(projectId, options = {}) {

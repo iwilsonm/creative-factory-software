@@ -136,6 +136,25 @@ export default defineSchema({
     .index("by_batch_job", ["batch_job_id"])
     .index("by_run", ["conductor_run_id"]),
 
+  lp_headline_history: defineTable({
+    externalId: v.string(),
+    project_id: v.string(),
+    angle_name: v.string(),
+    narrative_frame: v.string(),
+    landing_page_id: v.optional(v.string()),
+    gauntlet_batch_id: v.optional(v.string()),
+    headline_text: v.string(),
+    subheadline_text: v.optional(v.string()),
+    normalized_headline: v.string(),
+    headline_signature: v.optional(v.string()),
+    created_at: v.string(),
+  })
+    .index("by_externalId", ["externalId"])
+    .index("by_project_angle_frame_and_created_at", ["project_id", "angle_name", "narrative_frame", "created_at"])
+    .index("by_project_angle_and_created_at", ["project_id", "angle_name", "created_at"])
+    .index("by_landing_page", ["landing_page_id"])
+    .index("by_gauntlet_batch", ["gauntlet_batch_id"]),
+
   batch_jobs: defineTable({
     externalId: v.string(),
     project_id: v.string(),
@@ -172,6 +191,7 @@ export default defineSchema({
     angle_name: v.optional(v.string()),            // Which angle this batch targets
     angle_prompt: v.optional(v.string()),          // Full angle prompt injected into generation
     angle_brief: v.optional(v.string()),           // JSON: structured angle brief for downstream use
+    flex_ad_id: v.optional(v.string()),            // → flex_ads.externalId linked to this batch's winning output
     // LP auto-generation tracking
     lp_primary_id: v.optional(v.string()),           // → landing_pages.externalId
     lp_primary_url: v.optional(v.string()),          // Published URL
@@ -466,6 +486,16 @@ export default defineSchema({
     template_id: v.optional(v.string()),             // → lp_templates.externalId
     shopify_page_id: v.optional(v.string()),         // Shopify page ID for updates/deletion
     shopify_handle: v.optional(v.string()),          // Shopify URL handle
+    headline_text: v.optional(v.string()),
+    subheadline_text: v.optional(v.string()),
+    headline_frame_alignment_status: v.optional(v.string()),
+    headline_frame_alignment_reason: v.optional(v.string()),
+    headline_uniqueness_status: v.optional(v.string()),
+    headline_uniqueness_reason: v.optional(v.string()),
+    headline_duplicate_of_lp_id: v.optional(v.string()),
+    headline_history_status: v.optional(v.string()),
+    headline_history_reason: v.optional(v.string()),
+    headline_signature: v.optional(v.string()),
     // Visual QA fields
     qa_status: v.optional(v.string()),               // pending | running | passed | failed | skipped
     qa_report: v.optional(v.string()),               // JSON: full QA report from Claude Opus vision
@@ -497,7 +527,10 @@ export default defineSchema({
     updated_at: v.string(),
   })
     .index("by_externalId", ["externalId"])
-    .index("by_project", ["project_id"]),
+    .index("by_project", ["project_id"])
+    .index("by_batch_job", ["batch_job_id"])
+    .index("by_project_angle_and_created_at", ["project_id", "angle", "created_at"])
+    .index("by_project_angle_frame_and_created_at", ["project_id", "angle", "narrative_frame", "created_at"]),
 
   lp_templates: defineTable({
     externalId: v.string(),
@@ -635,6 +668,8 @@ export default defineSchema({
     ready_to_post_count: v.optional(v.number()),
     flex_ad_id: v.optional(v.string()),
     rounds_json: v.optional(v.string()),
+    error_stage: v.optional(v.string()),
+    skip_lp_gen: v.optional(v.boolean()),
     created_at: v.number(),
   })
     .index("by_externalId", ["externalId"])

@@ -76,6 +76,7 @@ const TABLE_TTL = {
   template_images:      5 * 60 * 1000,
   meta_performance:     2 * 60 * 1000,
   headline_history:     1 * 60 * 1000,
+  lp_headline_history:  1 * 60 * 1000,
 };
 const DEFAULT_QUERY_TTL = 60 * 1000;
 
@@ -344,6 +345,70 @@ export async function recordHeadlineHistory(entries) {
   invalidateQueryCache('headline_history');
 }
 
+export async function getRecentLPHeadlineHistoryByAngle(projectId, angleName, options = {}) {
+  if (!projectId || !angleName) return [];
+  const { limit = 200, since = null } = options;
+  const rows = ensureArray(
+    await cachedQuery('lp_headline_history', api.lpHeadlineHistory.getRecentByAngle, {
+      projectId,
+      angleName,
+      limit,
+      ...(since ? { since } : {}),
+    }),
+    'convexClient.getRecentLPHeadlineHistoryByAngle'
+  );
+
+  return rows.map((row) => ({
+    externalId: row.externalId,
+    project_id: row.project_id,
+    angle_name: row.angle_name,
+    narrative_frame: row.narrative_frame,
+    landing_page_id: row.landing_page_id || null,
+    gauntlet_batch_id: row.gauntlet_batch_id || null,
+    headline_text: row.headline_text,
+    subheadline_text: row.subheadline_text || null,
+    normalized_headline: row.normalized_headline,
+    headline_signature: row.headline_signature || null,
+    created_at: row.created_at,
+  }));
+}
+
+export async function getRecentLPHeadlineHistoryByAngleAndFrame(projectId, angleName, narrativeFrame, options = {}) {
+  if (!projectId || !angleName || !narrativeFrame) return [];
+  const { limit = 100, since = null } = options;
+  const rows = ensureArray(
+    await cachedQuery('lp_headline_history', api.lpHeadlineHistory.getRecentByAngleAndFrame, {
+      projectId,
+      angleName,
+      narrativeFrame,
+      limit,
+      ...(since ? { since } : {}),
+    }),
+    'convexClient.getRecentLPHeadlineHistoryByAngleAndFrame'
+  );
+
+  return rows.map((row) => ({
+    externalId: row.externalId,
+    project_id: row.project_id,
+    angle_name: row.angle_name,
+    narrative_frame: row.narrative_frame,
+    landing_page_id: row.landing_page_id || null,
+    gauntlet_batch_id: row.gauntlet_batch_id || null,
+    headline_text: row.headline_text,
+    subheadline_text: row.subheadline_text || null,
+    normalized_headline: row.normalized_headline,
+    headline_signature: row.headline_signature || null,
+    created_at: row.created_at,
+  }));
+}
+
+export async function recordLPHeadlineHistory(entries) {
+  const safeEntries = ensureArray(entries, 'convexClient.recordLPHeadlineHistory.entries').filter(Boolean);
+  if (safeEntries.length === 0) return;
+  await mutationWithRetry(api.lpHeadlineHistory.recordMany, { entries: safeEntries });
+  invalidateQueryCache('lp_headline_history');
+}
+
 export async function getAdSummariesByExternalIds(externalIds) {
   if (!Array.isArray(externalIds) || externalIds.length === 0) return [];
   const uniqueExternalIds = [...new Set(externalIds.filter(Boolean))];
@@ -519,7 +584,7 @@ export async function getAllScheduledBatchesForCost() {
 }
 
 export async function updateBatchJob(id, fields) {
-  const allowed = ['status', 'gemini_batch_job', 'gpt_prompts', 'error_message', 'started_at', 'completed_at', 'completed_count', 'failed_count', 'run_count', 'scheduled', 'schedule_cron', 'retry_count', 'stale_detected_at', 'batch_stats', 'pipeline_state', 'angle', 'angles', 'batch_size', 'aspect_ratio', 'used_template_ids', 'filter_assigned', 'filter_processed', 'filter_processed_at', 'posting_day', 'conductor_run_id', 'angle_name', 'angle_prompt', 'angle_brief', 'lp_primary_id', 'lp_primary_url', 'lp_primary_status', 'lp_primary_error', 'lp_primary_retry_count', 'lp_secondary_id', 'lp_secondary_url', 'lp_secondary_status', 'lp_secondary_error', 'lp_secondary_retry_count', 'lp_narrative_frames', 'gauntlet_lp_urls'];
+  const allowed = ['status', 'gemini_batch_job', 'gpt_prompts', 'error_message', 'started_at', 'completed_at', 'completed_count', 'failed_count', 'run_count', 'scheduled', 'schedule_cron', 'retry_count', 'stale_detected_at', 'batch_stats', 'pipeline_state', 'angle', 'angles', 'batch_size', 'aspect_ratio', 'used_template_ids', 'filter_assigned', 'filter_processed', 'filter_processed_at', 'posting_day', 'conductor_run_id', 'angle_name', 'angle_prompt', 'angle_brief', 'flex_ad_id', 'lp_primary_id', 'lp_primary_url', 'lp_primary_status', 'lp_primary_error', 'lp_primary_retry_count', 'lp_secondary_id', 'lp_secondary_url', 'lp_secondary_status', 'lp_secondary_error', 'lp_secondary_retry_count', 'lp_narrative_frames', 'gauntlet_lp_urls'];
   const updates = { externalId: id };
   for (const key of allowed) {
     if (fields[key] !== undefined) {
@@ -532,6 +597,12 @@ export async function updateBatchJob(id, fields) {
   }
   await mutationWithRetry(api.batchJobs.update, updates);
   invalidateQueryCache('batch_jobs');
+}
+
+export async function claimBatchResultsProcessing(id) {
+  const result = await mutationWithRetry(api.batchJobs.claimResultsProcessing, { externalId: id });
+  invalidateQueryCache('batch_jobs');
+  return result || { claimed: false, status: null, completed_count: 0, failed_count: 0, run_count: 0 };
 }
 
 export async function deleteBatchJob(id) {
@@ -574,6 +645,7 @@ function convexBatchToRow(b) {
     angle_name: b.angle_name || null,
     angle_prompt: b.angle_prompt || null,
     angle_brief: b.angle_brief || null,
+    flex_ad_id: b.flex_ad_id || null,
     lp_primary_id: b.lp_primary_id || null,
     lp_primary_url: b.lp_primary_url || null,
     lp_primary_status: b.lp_primary_status || null,
@@ -1360,7 +1432,7 @@ export async function getLandingPageGauntletStats(projectId) {
   return await queryWithRetry(api.landingPages.getGauntletStatsByProject, { projectId });
 }
 
-export async function createLandingPage({ id, project_id, name, angle, word_count, additional_direction, swipe_text, swipe_filename, swipe_url, swipe_screenshot_storageId, status, auto_generated, batch_job_id, narrative_frame, template_id, gauntlet_batch_id, gauntlet_frame, gauntlet_attempt, gauntlet_status, gauntlet_batch_started_at, gauntlet_batch_completed_at }) {
+export async function createLandingPage({ id, project_id, name, angle, word_count, additional_direction, swipe_text, swipe_filename, swipe_url, swipe_screenshot_storageId, status, auto_generated, batch_job_id, narrative_frame, template_id, headline_text, subheadline_text, headline_frame_alignment_status, headline_frame_alignment_reason, headline_uniqueness_status, headline_uniqueness_reason, headline_duplicate_of_lp_id, headline_history_status, headline_history_reason, headline_signature, gauntlet_batch_id, gauntlet_frame, gauntlet_attempt, gauntlet_status, gauntlet_batch_started_at, gauntlet_batch_completed_at }) {
   await mutationWithRetry(api.landingPages.create, {
     externalId: id,
     project_id,
@@ -1377,6 +1449,16 @@ export async function createLandingPage({ id, project_id, name, angle, word_coun
     batch_job_id: batch_job_id || undefined,
     narrative_frame: narrative_frame || undefined,
     template_id: template_id || undefined,
+    headline_text: headline_text || undefined,
+    subheadline_text: subheadline_text || undefined,
+    headline_frame_alignment_status: headline_frame_alignment_status || undefined,
+    headline_frame_alignment_reason: headline_frame_alignment_reason || undefined,
+    headline_uniqueness_status: headline_uniqueness_status || undefined,
+    headline_uniqueness_reason: headline_uniqueness_reason || undefined,
+    headline_duplicate_of_lp_id: headline_duplicate_of_lp_id || undefined,
+    headline_history_status: headline_history_status || undefined,
+    headline_history_reason: headline_history_reason || undefined,
+    headline_signature: headline_signature || undefined,
     gauntlet_batch_id: gauntlet_batch_id || undefined,
     gauntlet_frame: gauntlet_frame || undefined,
     gauntlet_attempt: gauntlet_attempt || undefined,

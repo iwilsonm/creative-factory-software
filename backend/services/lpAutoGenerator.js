@@ -21,6 +21,10 @@ import {
   getAdsByBatchId,
   getProject,
   getActiveConductorAngles,
+  updateFlexAd,
+  getRecentLPHeadlineHistoryByAngle,
+  getRecentLPHeadlineHistoryByAngleAndFrame,
+  recordLPHeadlineHistory,
 } from '../convexClient.js';
 import {
   generateAndValidateLP,
@@ -31,11 +35,161 @@ import {
   regenerateFailedImages,
   detectImageMimeType,
   NARRATIVE_FRAMES,
+  assembleLandingPage,
+  postProcessLP,
+  repairLPHeadline,
 } from './lpGenerator.js';
 import { getCachedImageContext, getFoundationalDocs } from './lpGenerator.js';
 import { publishAndSmokeTest, generateSlug, extractHeadlineForSlug } from './lpPublisher.js';
 import { uploadBuffer, downloadToBuffer } from '../convexClient.js';
 import { setProgress, clearProgress } from './gauntletProgress.js';
+import {
+  applyLPHeadlineParts,
+  buildLPHeadlineHistoryEntry,
+  buildLPHeadlineSignature,
+  evaluateHistoryHeadlineUniqueness,
+  evaluateSameRunHeadlineUniqueness,
+  extractLPHeadlineParts,
+  getNarrativeFrameHeadlineContract,
+  validateLPHeadlineFrameAlignment,
+} from './lpHeadlineValidation.js';
+
+const LP_BATCH_SYNC_FIELDS = [
+  'lp_primary_id',
+  'lp_primary_url',
+  'lp_primary_status',
+  'lp_primary_error',
+  'lp_primary_retry_count',
+  'lp_secondary_id',
+  'lp_secondary_url',
+  'lp_secondary_status',
+  'lp_secondary_error',
+  'lp_secondary_retry_count',
+  'lp_narrative_frames',
+  'gauntlet_lp_urls',
+];
+
+function touchesLPBatchState(fields = {}) {
+  return LP_BATCH_SYNC_FIELDS.some((field) => Object.prototype.hasOwnProperty.call(fields, field));
+}
+
+async function mirrorBatchLandingPagesToFlexAd(batch) {
+  if (!batch?.flex_ad_id) return;
+
+  try {
+    await updateFlexAd(batch.flex_ad_id, {
+      lp_primary_url: batch.lp_primary_url || '',
+      lp_secondary_url: batch.lp_secondary_url || '',
+      gauntlet_lp_urls: batch.gauntlet_lp_urls || '',
+    });
+  } catch (err) {
+    console.warn(`[LPAuto] Failed to mirror LP fields from batch ${batch.externalId?.slice(0, 8) || batch.id?.slice(0, 8) || 'unknown'} to flex ${batch.flex_ad_id.slice(0, 8)}:`, err.message);
+  }
+}
+
+export async function updateBatchJobAndMirror(batchJobId, fields) {
+  await updateBatchJob(batchJobId, fields);
+  if (!touchesLPBatchState(fields)) return null;
+
+  const batch = await getBatchJob(batchJobId);
+  if (!batch) return null;
+  await mirrorBatchLandingPagesToFlexAd(batch);
+  return batch;
+}
+
+function buildHeadlineConstraintBundle(frame, usedHeadlines, angleHistory) {
+  return {
+    contract: getNarrativeFrameHeadlineContract(frame.id),
+    usedHeadlines: usedHeadlines.map((entry) => ({
+      narrative_frame: entry.narrative_frame,
+      headline_text: entry.headline_text,
+    })),
+    historyHeadlines: angleHistory.slice(0, 20).map((entry) => ({
+      narrative_frame: entry.narrative_frame,
+      headline_text: entry.headline_text,
+    })),
+  };
+}
+
+function evaluateFrameHeadline({
+  lpResult,
+  frame,
+  batchAngle,
+  acceptedHeadlines,
+  sameFrameHistory,
+  angleHistory,
+}) {
+  const headlineParts = extractLPHeadlineParts(lpResult.copySections, lpResult.editorialPlan);
+  const frameAlignment = validateLPHeadlineFrameAlignment({
+    headline: headlineParts.headline,
+    narrativeFrame: frame.id,
+    angle: batchAngle || '',
+  });
+  const uniqueness = evaluateSameRunHeadlineUniqueness({
+    headline: headlineParts.headline,
+    narrativeFrame: frame.id,
+    signature: buildLPHeadlineSignature({ headline: headlineParts.headline, narrativeFrame: frame.id }),
+    acceptedHeadlines,
+  });
+  const history = batchAngle
+    ? evaluateHistoryHeadlineUniqueness({
+        headline: headlineParts.headline,
+        narrativeFrame: frame.id,
+        signature: buildLPHeadlineSignature({ headline: headlineParts.headline, narrativeFrame: frame.id }),
+        sameFrameHistory,
+        angleHistory,
+      })
+    : { passed: true, reason: 'No batch angle set for cross-run LP history.' };
+
+  return {
+    ...headlineParts,
+    frameAlignment,
+    uniqueness,
+    history,
+    passed:
+      !!headlineParts.headline &&
+      frameAlignment.passed &&
+      uniqueness.passed &&
+      history.passed,
+  };
+}
+
+async function rebuildLPAfterHeadlineRepair(lpResult, { headline, subheadline }, { project, agentConfig, angle }) {
+  const repairedSections = applyLPHeadlineParts(lpResult.copySections, { headline, subheadline });
+  const repairedEditorialPlan = {
+    ...(lpResult.editorialPlan || {}),
+    headline,
+    subheadline,
+  };
+
+  const rawAssembledHtml = assembleLandingPage({
+    htmlTemplate: lpResult.htmlTemplate,
+    copySections: repairedSections,
+    imageSlots: lpResult.imageSlots,
+    ctaElements: lpResult.designAnalysis?.cta_elements || [],
+  });
+  const postProcessed = postProcessLP(rawAssembledHtml, {
+    project,
+    agentConfig,
+    angle,
+    editorialPlan: repairedEditorialPlan,
+  });
+
+  return {
+    ...lpResult,
+    copySections: repairedSections,
+    editorialPlan: repairedEditorialPlan,
+    assembledHtml: postProcessed.html,
+  };
+}
+
+function getBatchTerminalLPStatus(frameResults) {
+  const publishedCount = frameResults.filter((result) => !!result.publishedUrl).length;
+  if (publishedCount > 0) return 'live';
+  if (frameResults.some((result) => result.status === 'headline_failed')) return 'headline_failed';
+  if (frameResults.some((result) => result.status === 'smoke_failed')) return 'smoke_failed';
+  return 'failed';
+}
 
 /**
  * Trigger LP generation for a batch. Fire-and-forget — never throws.
@@ -125,7 +279,7 @@ export async function triggerLPGeneration(batchJobId, projectId, angle) {
     // 4. Run the generation pipeline
     console.log(`[LPAuto] Running LP generation for project ${projectId.slice(0, 8)}, batch ${batchJobId.slice(0, 8)}${approvedAds.length > 0 ? ` with ${approvedAds.length} approved ads as reference` : ' (no ad reference)'}`);
     try {
-      await updateBatchJob(batchJobId, {
+      await updateBatchJobAndMirror(batchJobId, {
         lp_primary_status: 'generating',
         lp_secondary_status: 'generating',
       });
@@ -136,7 +290,13 @@ export async function triggerLPGeneration(batchJobId, projectId, angle) {
         }
       };
 
-      const report = await runGauntlet(projectId, { dryRun: false, angle, angleBrief, approvedAds }, makeLogger);
+      const report = await runGauntlet(projectId, {
+        dryRun: false,
+        batchJobId,
+        angle,
+        angleBrief,
+        approvedAds,
+      }, makeLogger);
 
       // Store LP URLs on the batch for filter.sh to pick up
       if (report.lpUrls && report.lpUrls.length > 0) {
@@ -153,19 +313,26 @@ export async function triggerLPGeneration(batchJobId, projectId, angle) {
         } else {
           updates.lp_secondary_status = 'skipped';
         }
-        await updateBatchJob(batchJobId, updates);
+        await updateBatchJobAndMirror(batchJobId, updates);
       } else {
-        await updateBatchJob(batchJobId, {
-          lp_primary_status: 'failed',
-          lp_primary_error: 'No LPs passed scoring threshold',
-          lp_secondary_status: 'failed',
+        const terminalStatus = report.summary?.terminalStatus || 'failed';
+        const terminalError = terminalStatus === 'headline_failed'
+          ? 'LP gauntlet could not produce frame-valid unique headlines after retries'
+          : terminalStatus === 'smoke_failed'
+            ? 'LPs published but failed smoke checks'
+            : 'No LPs passed scoring threshold';
+        await updateBatchJobAndMirror(batchJobId, {
+          lp_primary_status: terminalStatus,
+          lp_primary_error: terminalError,
+          lp_secondary_status: terminalStatus,
+          lp_secondary_error: terminalError,
         });
       }
 
       console.log(`[LPAuto] Complete for batch ${batchJobId.slice(0, 8)}: ${report.summary.passed}/${report.summary.total} passed, ${report.summary.published} published`);
     } catch (gErr) {
       console.error(`[LPAuto] Failed for batch ${batchJobId.slice(0, 8)}:`, gErr.message);
-      await updateBatchJob(batchJobId, {
+      await updateBatchJobAndMirror(batchJobId, {
         lp_primary_status: 'failed',
         lp_primary_error: gErr.message,
         lp_secondary_status: 'failed',
@@ -176,7 +343,7 @@ export async function triggerLPGeneration(batchJobId, projectId, angle) {
     // Top-level catch — never propagate errors to caller
     console.error(`[LPAuto] Fatal error for batch ${batchJobId.slice(0, 8)}:`, err.message);
     try {
-      await updateBatchJob(batchJobId, {
+      await updateBatchJobAndMirror(batchJobId, {
         lp_primary_status: 'failed',
         lp_primary_error: err.message,
         lp_secondary_status: 'failed',
@@ -339,7 +506,7 @@ export async function retryLP(batchJobId, which, { switchTemplate, fullRegenerat
 
   if (retryPrimary) {
     const retryCount = (batch.lp_primary_retry_count || 0) + 1;
-    await updateBatchJob(batchJobId, {
+    await updateBatchJobAndMirror(batchJobId, {
       lp_primary_status: 'generating',
       lp_primary_error: null,
       lp_primary_retry_count: retryCount,
@@ -361,13 +528,13 @@ export async function retryLP(batchJobId, which, { switchTemplate, fullRegenerat
         sendEvent: makeLogger('Primary Retry'),
       });
 
-      await updateBatchJob(batchJobId, {
+      await updateBatchJobAndMirror(batchJobId, {
         lp_primary_id: result.lpId,
         lp_primary_url: result.publishedUrl,
         lp_primary_status: result.verified ? 'live' : 'published',
       });
     } catch (err) {
-      await updateBatchJob(batchJobId, {
+      await updateBatchJobAndMirror(batchJobId, {
         lp_primary_status: 'failed',
         lp_primary_error: err.message,
       });
@@ -376,7 +543,7 @@ export async function retryLP(batchJobId, which, { switchTemplate, fullRegenerat
 
   if (retrySecondary) {
     const retryCount = (batch.lp_secondary_retry_count || 0) + 1;
-    await updateBatchJob(batchJobId, {
+    await updateBatchJobAndMirror(batchJobId, {
       lp_secondary_status: 'generating',
       lp_secondary_error: null,
       lp_secondary_retry_count: retryCount,
@@ -399,13 +566,13 @@ export async function retryLP(batchJobId, which, { switchTemplate, fullRegenerat
         sendEvent: makeLogger('Secondary Retry'),
       });
 
-      await updateBatchJob(batchJobId, {
+      await updateBatchJobAndMirror(batchJobId, {
         lp_secondary_id: result.lpId,
         lp_secondary_url: result.publishedUrl,
         lp_secondary_status: result.verified ? 'live' : 'published',
       });
     } catch (err) {
-      await updateBatchJob(batchJobId, {
+      await updateBatchJobAndMirror(batchJobId, {
         lp_secondary_status: 'failed',
         lp_secondary_error: err.message,
       });
@@ -425,7 +592,13 @@ export async function retryLP(batchJobId, which, { switchTemplate, fullRegenerat
  * @returns {Promise<object>} Report with per-frame results + summary
  */
 export async function runGauntlet(projectId, options = {}, sendEventRaw) {
-  const { dryRun = false, angle: batchAngle = null, angleBrief = null, approvedAds = [] } = options;
+  const {
+    dryRun = false,
+    batchJobId = null,
+    angle: batchAngle = null,
+    angleBrief = null,
+    approvedAds = [],
+  } = options;
   const gauntletBatchId = uuidv4();
   const startTime = Date.now();
   const batchStartedAt = new Date().toISOString();
@@ -541,6 +714,11 @@ export async function runGauntlet(projectId, options = {}, sendEventRaw) {
   const frameResults = [];
   let cachedHtmlTemplate = null;
   let totalImagePrescoreAttempts = 0;
+  const acceptedHeadlines = [];
+  const historySince = new Date(Date.now() - (90 * 24 * 60 * 60 * 1000)).toISOString();
+  const angleHistory = batchAngle
+    ? await getRecentLPHeadlineHistoryByAngle(projectId, batchAngle, { limit: 200, since: historySince })
+    : [];
 
   // 5. Loop through selected narrative frames
   const totalFrames = framesToRun.length;
@@ -573,6 +751,9 @@ export async function runGauntlet(projectId, options = {}, sendEventRaw) {
       sendEvent({ type: 'progress', step: 'gauntlet_images', message: `LP ${frameNum} of ${totalFrames} — Generating images...` });
 
       const frameAngle = frame.instruction || frame.name; // Used for image/copy gen context, NOT stored as LP angle
+      const sameFrameHistory = batchAngle
+        ? await getRecentLPHeadlineHistoryByAngleAndFrame(projectId, batchAngle, frame.id, { limit: 80, since: historySince })
+        : [];
       let imageSlots = await generateSlotImages({
         imageSlots: designImageSlots,
         copySections: [], // No copy yet — images generated before copy
@@ -613,6 +794,7 @@ export async function runGauntlet(projectId, options = {}, sendEventRaw) {
         angle: batchAngle || null, // Director-triggered batches pass the angle name; gauntlet test runs leave it null
         status: 'generating',
         auto_generated: true,
+        batch_job_id: batchJobId || undefined,
         narrative_frame: frame.id,
         template_id: template.id || template.externalId,
         gauntlet_batch_id: gauntletBatchId,
@@ -646,13 +828,14 @@ export async function runGauntlet(projectId, options = {}, sendEventRaw) {
             approvedAds,
             autoContext: {
               preGeneratedImages: imageSlots,
-              cachedHtmlTemplate: cachedHtmlTemplate,
+              cachedHtmlTemplate,
             },
+            headlineConstraints: buildHeadlineConstraintBundle(frame, acceptedHeadlines, angleHistory),
           }, (e) => {
-            // Forward sub-events with frame context
-            if (e.type === 'progress') {
-              sendEvent({ ...e, gauntlet: { frame: frameNum, total: totalFrames } });
-            }
+          // Forward sub-events with frame context
+          if (e.type === 'progress') {
+            sendEvent({ ...e, gauntlet: { frame: frameNum, total: totalFrames } });
+          }
           });
         } catch (genErr) {
           console.error(`[Gauntlet] Frame ${frameNum} generation failed (attempt ${attempt}):`, genErr.message);
@@ -676,6 +859,91 @@ export async function runGauntlet(projectId, options = {}, sendEventRaw) {
           sendEvent({ type: 'progress', step: 'gauntlet_template_cached', message: 'HTML template cached for remaining frames' });
         }
 
+        let headlineEvaluation = evaluateFrameHeadline({
+          lpResult,
+          frame,
+          batchAngle,
+          acceptedHeadlines,
+          sameFrameHistory,
+          angleHistory,
+        });
+
+        if (!headlineEvaluation.passed) {
+          sendEvent({
+            type: 'progress',
+            step: 'gauntlet_headline_repair',
+            message: `LP ${frameNum} of ${totalFrames} — repairing frame headline...`,
+          });
+
+          try {
+            const repairedHeadline = await repairLPHeadline({
+              projectId,
+              angle: batchAngle || frameAngle,
+              narrativeFrame: frame.id,
+              headline: headlineEvaluation.headline,
+              subheadline: headlineEvaluation.subheadline,
+              copySections: lpResult.copySections,
+              approvedAds,
+              headlineConstraints: buildHeadlineConstraintBundle(frame, acceptedHeadlines, angleHistory),
+            });
+            lpResult = await rebuildLPAfterHeadlineRepair(lpResult, repairedHeadline, {
+              project,
+              agentConfig: config,
+              angle: batchAngle || frameAngle,
+            });
+            headlineEvaluation = evaluateFrameHeadline({
+              lpResult,
+              frame,
+              batchAngle,
+              acceptedHeadlines,
+              sameFrameHistory,
+              angleHistory,
+            });
+          } catch (repairErr) {
+            console.warn(`[Gauntlet] Headline repair failed for frame ${frameNum}:`, repairErr.message);
+          }
+        }
+
+        if (!headlineEvaluation.passed) {
+          const headlineFailureReason =
+            !headlineEvaluation.frameAlignment.passed
+              ? headlineEvaluation.frameAlignment.reason
+              : !headlineEvaluation.uniqueness.passed
+                ? headlineEvaluation.uniqueness.reason
+                : headlineEvaluation.history.reason;
+
+          await updateLandingPage(lpId, {
+            status: 'failed',
+            error_message: headlineFailureReason,
+            headline_text: headlineEvaluation.headline || undefined,
+            subheadline_text: headlineEvaluation.subheadline || undefined,
+            headline_frame_alignment_status: headlineEvaluation.frameAlignment.passed ? 'passed' : 'failed',
+            headline_frame_alignment_reason: headlineEvaluation.frameAlignment.reason,
+            headline_uniqueness_status: headlineEvaluation.uniqueness.passed ? 'passed' : 'failed',
+            headline_uniqueness_reason: headlineEvaluation.uniqueness.reason,
+            headline_duplicate_of_lp_id: headlineEvaluation.uniqueness.duplicateOf || undefined,
+            headline_history_status: headlineEvaluation.history.passed ? 'passed' : 'failed',
+            headline_history_reason: headlineEvaluation.history.reason,
+            headline_signature: headlineEvaluation.headline_signature || undefined,
+            gauntlet_attempt: attempt,
+            gauntlet_status: 'failed',
+            gauntlet_retry_type: 'headline',
+          });
+
+          if (attempt > maxLPRetries) {
+            frameResult.status = 'headline_failed';
+            frameResult.error = headlineFailureReason;
+            break;
+          }
+
+          sendEvent({
+            type: 'progress',
+            step: 'gauntlet_full_retry',
+            message: `LP ${frameNum} of ${totalFrames} — headline failed frame/history checks, regenerating...`,
+          });
+          continue;
+        }
+
         // Save LP content + generate slug
         const lpSlugSource = extractHeadlineForSlug({
           copy_sections: JSON.stringify(lpResult.copySections),
@@ -693,6 +961,16 @@ export async function runGauntlet(projectId, options = {}, sendEventRaw) {
           swipe_design_analysis: JSON.stringify(lpResult.designAnalysis),
           audit_trail: lpResult.auditTrail ? JSON.stringify(lpResult.auditTrail) : undefined,
           editorial_plan: lpResult.editorialPlan ? JSON.stringify(lpResult.editorialPlan) : undefined,
+          headline_text: headlineEvaluation.headline || undefined,
+          subheadline_text: headlineEvaluation.subheadline || undefined,
+          headline_frame_alignment_status: headlineEvaluation.frameAlignment.passed ? 'passed' : 'failed',
+          headline_frame_alignment_reason: headlineEvaluation.frameAlignment.reason,
+          headline_uniqueness_status: headlineEvaluation.uniqueness.passed ? 'passed' : 'failed',
+          headline_uniqueness_reason: headlineEvaluation.uniqueness.reason,
+          headline_duplicate_of_lp_id: headlineEvaluation.uniqueness.duplicateOf || undefined,
+          headline_history_status: headlineEvaluation.history.passed ? 'passed' : 'failed',
+          headline_history_reason: headlineEvaluation.history.reason,
+          headline_signature: headlineEvaluation.headline_signature || undefined,
           gauntlet_attempt: attempt,
           gauntlet_status: 'scoring',
           slug: lpSlug,
@@ -827,6 +1105,36 @@ export async function runGauntlet(projectId, options = {}, sendEventRaw) {
         qa_issues_count: qaEquivalent.issues.length,
       });
 
+      const finalHeadlineParts = lpResult
+        ? extractLPHeadlineParts(lpResult.copySections, lpResult.editorialPlan)
+        : { headline: '', subheadline: '' };
+      const acceptedHeadline = {
+        landing_page_id: lpId,
+        narrative_frame: frame.id,
+        headline_text: passed ? finalHeadlineParts.headline : null,
+        headline_signature: buildLPHeadlineSignature({
+          headline: finalHeadlineParts.headline,
+          narrativeFrame: frame.id,
+        }),
+      };
+
+      if (passed && acceptedHeadline.headline_text) {
+        acceptedHeadlines.push(acceptedHeadline);
+        if (batchAngle) {
+          const historyEntry = buildLPHeadlineHistoryEntry({
+            projectId,
+            angleName: batchAngle,
+            narrativeFrame: frame.id,
+            landingPageId: lpId,
+            gauntletBatchId,
+            headlineText: acceptedHeadline.headline_text,
+            subheadlineText: finalHeadlineParts.subheadline,
+          });
+          await recordLPHeadlineHistory([historyEntry]);
+          angleHistory.unshift(historyEntry);
+        }
+      }
+
       // 5i. Publish if passed and not dry run
       if (passed && !dryRun) {
         sendEvent({ type: 'progress', step: 'gauntlet_publishing', message: `LP ${frameNum} of ${totalFrames} — Publishing to Shopify...` });
@@ -852,7 +1160,7 @@ export async function runGauntlet(projectId, options = {}, sendEventRaw) {
         }
       } else if (passed && dryRun) {
         frameResult.status = 'passed_dry_run';
-      } else {
+      } else if (frameResult.status === 'pending' || frameResult.status === 'passed') {
         frameResult.status = 'failed';
       }
     } catch (err) {
@@ -890,7 +1198,9 @@ export async function runGauntlet(projectId, options = {}, sendEventRaw) {
   const totalDuration = Date.now() - startTime;
   const passedFrames = frameResults.filter(r => r.status === 'passed' || r.status === 'published' || r.status === 'passed_dry_run');
   const publishedFrames = frameResults.filter(r => r.publishedUrl);
-  const failedFrames = frameResults.filter(r => r.status === 'failed' || r.status === 'error');
+  const failedFrames = frameResults.filter(r => ['failed', 'error', 'smoke_failed', 'headline_failed', 'publish_failed'].includes(r.status));
+  const smokeFailedFrames = frameResults.filter((result) => result.status === 'smoke_failed');
+  const headlineFailedFrames = frameResults.filter((result) => result.status === 'headline_failed');
   const avgScore = frameResults.filter(r => r.score != null).reduce((sum, r) => sum + r.score, 0) / Math.max(1, frameResults.filter(r => r.score != null).length);
 
   const report = {
@@ -905,10 +1215,13 @@ export async function runGauntlet(projectId, options = {}, sendEventRaw) {
       passed: passedFrames.length,
       published: publishedFrames.length,
       failed: failedFrames.length,
+      smokeFailed: smokeFailedFrames.length,
+      headlineFailed: headlineFailedFrames.length,
       avgScore: Math.round(avgScore * 10) / 10,
       totalImagePrescoreAttempts,
       totalDurationMs: totalDuration,
       totalDurationMin: Math.round(totalDuration / 60000 * 10) / 10,
+      terminalStatus: getBatchTerminalLPStatus(frameResults),
     },
     lpUrls: publishedFrames.map(r => ({
       frame: r.frame,

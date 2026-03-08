@@ -18,6 +18,7 @@ const mockGetScheduledBatchJobs = vi.fn();
 const mockGetBatchesByProject = vi.fn();
 const mockCreateBatchJob = vi.fn();
 const mockDeleteBatchJob = vi.fn();
+const mockClaimBatchResultsProcessing = vi.fn();
 
 vi.mock('../convexClient.js', () => ({
   getProject: (...args) => mockGetProject(...args),
@@ -32,6 +33,7 @@ vi.mock('../convexClient.js', () => ({
   getBatchesByProject: (...args) => mockGetBatchesByProject(...args),
   createBatchJob: (...args) => mockCreateBatchJob(...args),
   deleteBatchJob: (...args) => mockDeleteBatchJob(...args),
+  claimBatchResultsProcessing: (...args) => mockClaimBatchResultsProcessing(...args),
   getInspirationImages: vi.fn().mockResolvedValue([]),
   getInspirationImageUrl: vi.fn(),
   getAdImageUrl: vi.fn(),
@@ -176,6 +178,13 @@ describe('batch pipeline', () => {
 
   beforeEach(() => {
     vi.clearAllMocks();
+    mockClaimBatchResultsProcessing.mockResolvedValue({
+      claimed: true,
+      status: 'saving_results',
+      completed_count: 0,
+      failed_count: 0,
+      run_count: 0,
+    });
   });
 
   // ── Status Flow ──────────────────────────────────────────
@@ -304,6 +313,37 @@ describe('batch pipeline', () => {
       const { pollBatchJob } = await import('../services/batchProcessor.js');
       const result = await pollBatchJob('batch-001');
       expect(result).toBe('failed');
+    });
+
+    it('does not save duplicate results when another worker already claimed the batch', async () => {
+      mockGetBatchJob.mockResolvedValue(
+        makeBatchJob({ status: 'processing', gemini_batch_job: 'batches/test-job' })
+      );
+      mockGetClient.mockResolvedValue({
+        batches: {
+          get: vi.fn().mockResolvedValue({
+            state: 'JOB_STATE_SUCCEEDED',
+            dest: { inlinedResponses: [] },
+          }),
+        },
+      });
+      mockClaimBatchResultsProcessing.mockResolvedValue({
+        claimed: false,
+        status: 'completed',
+        completed_count: 18,
+        failed_count: 0,
+        run_count: 1,
+      });
+
+      const { pollBatchJob } = await import('../services/batchProcessor.js');
+      const result = await pollBatchJob('batch-001');
+
+      expect(result).toBe('completed');
+      expect(mockClaimBatchResultsProcessing).toHaveBeenCalledWith('batch-001');
+      const savingCalls = mockUpdateBatchJob.mock.calls.filter(
+        ([, fields]) => fields?.status === 'saving_results'
+      );
+      expect(savingCalls).toHaveLength(0);
     });
   });
 

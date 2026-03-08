@@ -5,6 +5,98 @@
  * Uses Puppeteer for rendering checks + fetch for HTTP checks.
  */
 
+const RAW_PLACEHOLDER_REGEX = /\{\{[^}]+\}\}/g;
+const VISIBLE_PLACEHOLDER_PATTERNS = [
+  /\{\{[^}]+\}\}/gi,
+  /\[[A-Z][A-Z0-9 _-]{2,}\]/g,
+  /lorem ipsum/gi,
+];
+
+function dedupeMatches(matches = []) {
+  return [...new Set(matches.map((value) => String(value || '').trim()).filter(Boolean))];
+}
+
+async function withBrowserPage(fn) {
+  const puppeteer = (await import('puppeteer')).default;
+  const browser = await puppeteer.launch({
+    headless: 'new',
+    args: [
+      '--no-sandbox',
+      '--disable-setuid-sandbox',
+      '--disable-dev-shm-usage',
+      '--disable-gpu',
+      '--single-process',
+    ],
+  });
+
+  try {
+    const page = await browser.newPage();
+    return await fn(page);
+  } finally {
+    try { await browser.close(); } catch {}
+  }
+}
+
+async function collectVisiblePlaceholderMatches(page) {
+  return await page.evaluate(() => {
+    const patterns = [
+      /\{\{[^}]+\}\}/gi,
+      /\[[A-Z][A-Z0-9 _-]{2,}\]/g,
+      /lorem ipsum/gi,
+    ];
+    const blockedTags = new Set(['SCRIPT', 'STYLE', 'NOSCRIPT', 'TEMPLATE']);
+    const matches = new Set();
+
+    function isVisible(node) {
+      if (!node || !node.parentElement) return false;
+      if (blockedTags.has(node.parentElement.tagName)) return false;
+
+      let current = node.parentElement;
+      while (current) {
+        if (blockedTags.has(current.tagName)) return false;
+        const style = window.getComputedStyle(current);
+        if (
+          style.display === 'none' ||
+          style.visibility === 'hidden' ||
+          style.opacity === '0'
+        ) {
+          return false;
+        }
+        current = current.parentElement;
+      }
+
+      const rect = node.parentElement.getBoundingClientRect();
+      return rect.width > 0 && rect.height > 0;
+    }
+
+    const walker = document.createTreeWalker(document.body, NodeFilter.SHOW_TEXT);
+    let currentNode = walker.nextNode();
+    while (currentNode) {
+      const text = currentNode.textContent || '';
+      if (text.trim() && isVisible(currentNode)) {
+        for (const pattern of patterns) {
+          const found = text.match(pattern) || [];
+          for (const match of found) {
+            matches.add(match.trim());
+          }
+        }
+      }
+      currentNode = walker.nextNode();
+    }
+
+    return Array.from(matches);
+  });
+}
+
+export async function inspectVisiblePlaceholdersInHtml(html) {
+  return await withBrowserPage(async (page) => {
+    await page.setViewport({ width: 1280, height: 800 });
+    await page.setContent(html, { waitUntil: 'networkidle0', timeout: 30000 });
+    await new Promise((resolve) => setTimeout(resolve, 500));
+    return dedupeMatches(await collectVisiblePlaceholderMatches(page));
+  });
+}
+
 /**
  * Run a post-publish smoke test on a live LP URL.
  *
@@ -20,9 +112,7 @@ export async function runSmokeTest(url, options = {}) {
 
   console.log(`[LP SmokeTest] Testing: ${url}`);
 
-  let browser;
   try {
-    // ─── Check 1: HTTP 200 + Load time ───
     const startTime = Date.now();
     let response;
     try {
@@ -43,7 +133,6 @@ export async function runSmokeTest(url, options = {}) {
       detail: response.ok ? `HTTP ${response.status}` : `HTTP ${response.status} — ${response.statusText}`,
     });
 
-    // ─── Check 2: Load time < 15s ───
     checks.push({
       name: 'load_time',
       passed: loadTime < 15000,
@@ -51,117 +140,140 @@ export async function runSmokeTest(url, options = {}) {
     });
 
     if (!response.ok) {
-      return { passed: false, checks, failedCount: checks.filter(c => !c.passed).length };
+      return { passed: false, checks, failedCount: checks.filter((check) => !check.passed).length };
     }
 
     const htmlContent = await response.text();
+    const rawHtmlPlaceholderMatches = dedupeMatches(htmlContent.match(RAW_PLACEHOLDER_REGEX) || []);
+    checks.push({
+      name: 'raw_html_placeholders',
+      passed: true,
+      detail: rawHtmlPlaceholderMatches.length === 0
+        ? 'No raw HTML placeholder tokens found'
+        : `Diagnostic only — found ${rawHtmlPlaceholderMatches.length}: ${rawHtmlPlaceholderMatches.slice(0, 5).join(', ')}`,
+    });
 
-    // ─── Check 3: No raw {{...}} placeholders ───
-    const rawPlaceholders = htmlContent.match(/\{\{[^}]+\}\}/g) || [];
+    const pageData = await withBrowserPage(async (page) => {
+      await page.setViewport({ width: 1280, height: 800 });
+      await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 });
+      await new Promise((resolve) => setTimeout(resolve, 2000));
+
+      const visiblePlaceholderMatches = dedupeMatches(await collectVisiblePlaceholderMatches(page));
+
+      let headlineFound = null;
+      if (expectedHeadline) {
+        headlineFound = await page.evaluate((headline) => {
+          return document.body.innerText.includes(headline);
+        }, expectedHeadline);
+      }
+
+      const imageStats = await page.evaluate(() => {
+        const imgs = Array.from(document.querySelectorAll('img'));
+        const total = imgs.length;
+        const loaded = imgs.filter((img) => img.complete && img.naturalWidth > 0).length;
+        return { total, loaded };
+      });
+
+      let ctaInfo = [];
+      if (pdpUrl) {
+        ctaInfo = await page.evaluate(() => {
+          const links = Array.from(document.querySelectorAll('a[href]'));
+          return links
+            .filter((anchor) => anchor.innerText.match(/order|buy|shop|get|claim|try/i))
+            .map((anchor) => anchor.href);
+        });
+      }
+
+      await page.setViewport({ width: 375, height: 812 });
+      await new Promise((resolve) => setTimeout(resolve, 1000));
+      const mobileOverflow = await page.evaluate(() => {
+        return document.documentElement.scrollWidth > window.innerWidth + 5;
+      });
+
+      return {
+        visiblePlaceholderMatches,
+        headlineFound,
+        imageStats,
+        ctaInfo,
+        mobileOverflow,
+      };
+    });
+
     checks.push({
       name: 'no_placeholders',
-      passed: rawPlaceholders.length === 0,
-      detail: rawPlaceholders.length === 0
-        ? 'No placeholders found'
-        : `Found ${rawPlaceholders.length}: ${rawPlaceholders.slice(0, 3).join(', ')}`,
+      passed: pageData.visiblePlaceholderMatches.length === 0,
+      detail: pageData.visiblePlaceholderMatches.length === 0
+        ? 'No visible placeholders found'
+        : `Visible placeholders: ${pageData.visiblePlaceholderMatches.slice(0, 5).join(', ')}`,
     });
 
-    // ─── Puppeteer-based checks ───
-    const puppeteer = (await import('puppeteer')).default;
-    browser = await puppeteer.launch({
-      headless: 'new',
-      args: [
-        '--no-sandbox',
-        '--disable-setuid-sandbox',
-        '--disable-dev-shm-usage',
-        '--disable-gpu',
-        '--single-process',
-      ],
-    });
-
-    const page = await browser.newPage();
-    await page.setViewport({ width: 1280, height: 800 });
-    await page.goto(url, { waitUntil: 'networkidle2', timeout: 30000 });
-    await new Promise(r => setTimeout(r, 2000));
-
-    // ─── Check 4: Headline present ───
     if (expectedHeadline) {
-      const headlineFound = await page.evaluate((headline) => {
-        return document.body.innerText.includes(headline);
-      }, expectedHeadline);
       checks.push({
         name: 'headline_present',
-        passed: headlineFound,
-        detail: headlineFound ? 'Headline found' : 'Headline not found in page text',
+        passed: !!pageData.headlineFound,
+        detail: pageData.headlineFound ? 'Headline found' : 'Headline not found in page text',
       });
     }
 
-    // ─── Check 5: Images load (>50% must load) ───
-    const imageStats = await page.evaluate(() => {
-      const imgs = Array.from(document.querySelectorAll('img'));
-      const total = imgs.length;
-      const loaded = imgs.filter(img => img.complete && img.naturalWidth > 0).length;
-      return { total, loaded };
-    });
-    const imgPassRate = imageStats.total > 0 ? imageStats.loaded / imageStats.total : 1;
+    const imgPassRate = pageData.imageStats.total > 0
+      ? pageData.imageStats.loaded / pageData.imageStats.total
+      : 1;
     checks.push({
       name: 'images_load',
       passed: imgPassRate >= 0.5,
-      detail: `${imageStats.loaded}/${imageStats.total} images loaded (${Math.round(imgPassRate * 100)}%)`,
+      detail: `${pageData.imageStats.loaded}/${pageData.imageStats.total} images loaded (${Math.round(imgPassRate * 100)}%)`,
     });
 
-    // ─── Check 6: CTA links valid ───
     if (pdpUrl) {
-      const ctaInfo = await page.evaluate(() => {
-        const links = Array.from(document.querySelectorAll('a[href]'));
-        return links
-          .filter(a => a.innerText.match(/order|buy|shop|get|claim|try/i))
-          .map(a => a.href);
-      });
-      const validCTAs = ctaInfo.filter(href =>
+      const validCTAs = pageData.ctaInfo.filter((href) =>
         href && !href.endsWith('#') && !href.includes('example.com') && !href.includes('placeholder')
       );
       checks.push({
         name: 'cta_links',
-        passed: ctaInfo.length === 0 || validCTAs.length > 0,
-        detail: `${validCTAs.length}/${ctaInfo.length} CTA links valid`,
+        passed: pageData.ctaInfo.length === 0 || validCTAs.length > 0,
+        detail: `${validCTAs.length}/${pageData.ctaInfo.length} CTA links valid`,
       });
     }
 
-    // ─── Check 7: Mobile rendering (no horizontal overflow at 375px) ───
-    await page.setViewport({ width: 375, height: 812 });
-    await new Promise(r => setTimeout(r, 1000));
-    const mobileOverflow = await page.evaluate(() => {
-      return document.documentElement.scrollWidth > window.innerWidth + 5; // 5px tolerance
-    });
     checks.push({
       name: 'mobile_rendering',
-      passed: !mobileOverflow,
-      detail: mobileOverflow ? 'Horizontal overflow detected at 375px' : 'No horizontal overflow',
+      passed: !pageData.mobileOverflow,
+      detail: pageData.mobileOverflow ? 'Horizontal overflow detected at 375px' : 'No horizontal overflow',
     });
 
-    await browser.close();
-    browser = null;
-  } catch (err) {
-    if (browser) {
-      try { await browser.close(); } catch {}
+    const failedCount = checks.filter((check) => !check.passed).length;
+    const result = {
+      passed: failedCount === 0,
+      checks,
+      failedCount,
+      visiblePlaceholderMatches: pageData.visiblePlaceholderMatches,
+      visiblePlaceholderCount: pageData.visiblePlaceholderMatches.length,
+      rawHtmlPlaceholderMatches,
+      rawHtmlPlaceholderCount: rawHtmlPlaceholderMatches.length,
+    };
+
+    console.log(`[LP SmokeTest] ${result.passed ? 'PASSED' : 'FAILED'} (${failedCount} failed): ${url}`);
+    for (const check of checks) {
+      if (!check.passed) {
+        console.log(`[LP SmokeTest]   ✗ ${check.name}: ${check.detail}`);
+      }
     }
+
+    return result;
+  } catch (err) {
     checks.push({
       name: 'smoke_test_error',
       passed: false,
       detail: `Error: ${err.message}`,
     });
+    return {
+      passed: false,
+      checks,
+      failedCount: checks.filter((check) => !check.passed).length,
+      visiblePlaceholderMatches: [],
+      visiblePlaceholderCount: 0,
+      rawHtmlPlaceholderMatches: [],
+      rawHtmlPlaceholderCount: 0,
+    };
   }
-
-  const failedCount = checks.filter(c => !c.passed).length;
-  const result = { passed: failedCount === 0, checks, failedCount };
-
-  console.log(`[LP SmokeTest] ${result.passed ? 'PASSED' : 'FAILED'} (${failedCount} failed): ${url}`);
-  for (const check of checks) {
-    if (!check.passed) {
-      console.log(`[LP SmokeTest]   ✗ ${check.name}: ${check.detail}`);
-    }
-  }
-
-  return result;
 }

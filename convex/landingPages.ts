@@ -37,6 +37,11 @@ function summarizeLandingPage(page: any) {
     name: page.name,
     angle: page.angle,
     status: page.status,
+    headline_text: page.headline_text,
+    subheadline_text: page.subheadline_text,
+    headline_frame_alignment_status: page.headline_frame_alignment_status,
+    headline_uniqueness_status: page.headline_uniqueness_status,
+    headline_history_status: page.headline_history_status,
     swipe_url: page.swipe_url,
     auto_generated: page.auto_generated,
     batch_job_id: page.batch_job_id,
@@ -211,6 +216,16 @@ export const create = mutation({
     batch_job_id: v.optional(v.string()),
     narrative_frame: v.optional(v.string()),
     template_id: v.optional(v.string()),
+    headline_text: v.optional(v.string()),
+    subheadline_text: v.optional(v.string()),
+    headline_frame_alignment_status: v.optional(v.string()),
+    headline_frame_alignment_reason: v.optional(v.string()),
+    headline_uniqueness_status: v.optional(v.string()),
+    headline_uniqueness_reason: v.optional(v.string()),
+    headline_duplicate_of_lp_id: v.optional(v.string()),
+    headline_history_status: v.optional(v.string()),
+    headline_history_reason: v.optional(v.string()),
+    headline_signature: v.optional(v.string()),
     // Gauntlet fields
     gauntlet_batch_id: v.optional(v.string()),
     gauntlet_frame: v.optional(v.string()),
@@ -237,6 +252,16 @@ export const create = mutation({
       batch_job_id: args.batch_job_id,
       narrative_frame: args.narrative_frame,
       template_id: args.template_id,
+      headline_text: args.headline_text,
+      subheadline_text: args.subheadline_text,
+      headline_frame_alignment_status: args.headline_frame_alignment_status,
+      headline_frame_alignment_reason: args.headline_frame_alignment_reason,
+      headline_uniqueness_status: args.headline_uniqueness_status,
+      headline_uniqueness_reason: args.headline_uniqueness_reason,
+      headline_duplicate_of_lp_id: args.headline_duplicate_of_lp_id,
+      headline_history_status: args.headline_history_status,
+      headline_history_reason: args.headline_history_reason,
+      headline_signature: args.headline_signature,
       gauntlet_batch_id: args.gauntlet_batch_id,
       gauntlet_frame: args.gauntlet_frame,
       gauntlet_attempt: args.gauntlet_attempt,
@@ -287,6 +312,16 @@ export const update = mutation({
     template_id: v.optional(v.string()),
     shopify_page_id: v.optional(v.string()),
     shopify_handle: v.optional(v.string()),
+    headline_text: v.optional(v.string()),
+    subheadline_text: v.optional(v.string()),
+    headline_frame_alignment_status: v.optional(v.string()),
+    headline_frame_alignment_reason: v.optional(v.string()),
+    headline_uniqueness_status: v.optional(v.string()),
+    headline_uniqueness_reason: v.optional(v.string()),
+    headline_duplicate_of_lp_id: v.optional(v.string()),
+    headline_history_status: v.optional(v.string()),
+    headline_history_reason: v.optional(v.string()),
+    headline_signature: v.optional(v.string()),
     // Visual QA fields
     qa_status: v.optional(v.string()),
     qa_report: v.optional(v.string()),
@@ -355,6 +390,16 @@ export const update = mutation({
     if (args.template_id !== undefined) updates.template_id = args.template_id;
     if (args.shopify_page_id !== undefined) updates.shopify_page_id = args.shopify_page_id;
     if (args.shopify_handle !== undefined) updates.shopify_handle = args.shopify_handle;
+    if (args.headline_text !== undefined) updates.headline_text = args.headline_text;
+    if (args.subheadline_text !== undefined) updates.subheadline_text = args.subheadline_text;
+    if (args.headline_frame_alignment_status !== undefined) updates.headline_frame_alignment_status = args.headline_frame_alignment_status;
+    if (args.headline_frame_alignment_reason !== undefined) updates.headline_frame_alignment_reason = args.headline_frame_alignment_reason;
+    if (args.headline_uniqueness_status !== undefined) updates.headline_uniqueness_status = args.headline_uniqueness_status;
+    if (args.headline_uniqueness_reason !== undefined) updates.headline_uniqueness_reason = args.headline_uniqueness_reason;
+    if (args.headline_duplicate_of_lp_id !== undefined) updates.headline_duplicate_of_lp_id = args.headline_duplicate_of_lp_id;
+    if (args.headline_history_status !== undefined) updates.headline_history_status = args.headline_history_status;
+    if (args.headline_history_reason !== undefined) updates.headline_history_reason = args.headline_history_reason;
+    if (args.headline_signature !== undefined) updates.headline_signature = args.headline_signature;
     if (args.qa_status !== undefined) updates.qa_status = args.qa_status;
     if (args.qa_report !== undefined) updates.qa_report = args.qa_report;
     if (args.qa_issues_count !== undefined) updates.qa_issues_count = args.qa_issues_count;

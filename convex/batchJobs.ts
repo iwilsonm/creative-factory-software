@@ -24,6 +24,7 @@ export const create = mutation({
     angle_name: v.optional(v.string()),
     angle_prompt: v.optional(v.string()),
     angle_brief: v.optional(v.string()),    // JSON: structured angle brief
+    flex_ad_id: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const now = new Date().toISOString();
@@ -31,6 +32,8 @@ export const create = mutation({
       ...args,
       status: "pending",
       completed_count: 0,
+      failed_count: 0,
+      run_count: 0,
       retry_count: 0,
       created_at: now,
     });
@@ -133,6 +136,7 @@ export const update = mutation({
     angle_name: v.optional(v.string()),
     angle_prompt: v.optional(v.string()),
     angle_brief: v.optional(v.string()),    // JSON: structured angle brief
+    flex_ad_id: v.optional(v.string()),
     // LP auto-generation tracking
     lp_primary_id: v.optional(v.string()),
     lp_primary_url: v.optional(v.string()),
@@ -160,6 +164,50 @@ export const update = mutation({
       if (value !== undefined) filtered[key] = value;
     }
     await ctx.db.patch(batch._id, filtered);
+  },
+});
+
+export const claimResultsProcessing = mutation({
+  args: { externalId: v.string() },
+  handler: async (ctx, args) => {
+    const batch = await ctx.db
+      .query("batch_jobs")
+      .withIndex("by_externalId", (q) => q.eq("externalId", args.externalId))
+      .first();
+    if (!batch) throw new Error("Batch job not found");
+
+    const runCount = batch.run_count || 0;
+    const completedCount = batch.completed_count || 0;
+    const failedCount = batch.failed_count || 0;
+
+    if (batch.status === "saving_results") {
+      return {
+        claimed: false,
+        status: batch.status,
+        completed_count: completedCount,
+        failed_count: failedCount,
+        run_count: runCount,
+      };
+    }
+
+    if (batch.status === "completed" && runCount > 0) {
+      return {
+        claimed: false,
+        status: batch.status,
+        completed_count: completedCount,
+        failed_count: failedCount,
+        run_count: runCount,
+      };
+    }
+
+    await ctx.db.patch(batch._id, { status: "saving_results" });
+    return {
+      claimed: true,
+      status: "saving_results",
+      completed_count: completedCount,
+      failed_count: failedCount,
+      run_count: runCount,
+    };
   },
 });
 

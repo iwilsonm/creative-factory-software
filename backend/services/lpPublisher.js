@@ -25,6 +25,7 @@ import { v4 as uuidv4 } from 'uuid';
 import { withRetry } from './retry.js';
 import fetch from 'node-fetch';
 import { postProcessLP } from './lpGenerator.js';
+import { inspectVisiblePlaceholdersInHtml } from './lpSmokeTest.js';
 
 // =============================================
 // Shopify API helpers
@@ -291,6 +292,31 @@ export async function publishToShopify(pageId, projectId) {
     angle: page.angle || '',
   });
   finalHtml = processedHtml;
+
+  const visiblePlaceholderMatches = await inspectVisiblePlaceholdersInHtml(finalHtml);
+  if (visiblePlaceholderMatches.length > 0) {
+    await updateLandingPage(pageId, {
+      smoke_test_status: 'failed',
+      smoke_test_report: JSON.stringify({
+        passed: false,
+        failedCount: 1,
+        checks: [
+          {
+            name: 'no_placeholders',
+            passed: false,
+            detail: `Visible placeholders before publish: ${visiblePlaceholderMatches.slice(0, 5).join(', ')}`,
+          },
+        ],
+        visiblePlaceholderMatches,
+        visiblePlaceholderCount: visiblePlaceholderMatches.length,
+        rawHtmlPlaceholderMatches: [],
+        rawHtmlPlaceholderCount: 0,
+        source: 'pre_publish_validation',
+      }),
+      smoke_test_at: new Date().toISOString(),
+    });
+    throw new Error(`Visible placeholder text detected before publish: ${visiblePlaceholderMatches.slice(0, 5).join(', ')}`);
+  }
 
   // Determine slug — use headline from copy, not full LP name
   const slug = page.slug || generateSlug(extractHeadlineForSlug(page));

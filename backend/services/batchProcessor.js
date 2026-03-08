@@ -14,6 +14,7 @@ import {
 import {
   getProject, getLatestDoc, getBatchJob, updateBatchJob,
   uploadBuffer, downloadToBuffer, getRecentHeadlineHistoryByAngle, recordHeadlineHistory,
+  claimBatchResultsProcessing,
   convexClient, api
 } from '../convexClient.js';
 import { logGeminiCost } from './costTracker.js';
@@ -45,7 +46,15 @@ function serializePromptForStorage(prompt) {
     desired_belief_shift: prompt.desired_belief_shift || null,
     opening_pattern: prompt.opening_pattern || null,
     primary_emotion: prompt.primary_emotion || null,
+    visual_mode: prompt.visual_mode || null,
+    use_product_reference: prompt.use_product_reference !== false,
+    visual_reference_type: prompt.visual_reference_type || null,
+    visual_reference_id: prompt.visual_reference_id || null,
   };
+}
+
+function shouldUseDocumentaryVisuals(batch, angleBrief) {
+  return false;
 }
 
 /**
@@ -355,6 +364,7 @@ async function generateBatchPrompts(batch, project, docs, onProgress, options = 
   });
 
   const prompts = [];
+  const documentaryVisuals = shouldUseDocumentaryVisuals(batch, angleBrief);
 
   // Load previously used template IDs for cross-run deduplication
   let usedTemplateIds = [];
@@ -403,19 +413,31 @@ async function generateBatchPrompts(batch, project, docs, onProgress, options = 
         }
 
         let imageData;
+        let visualReferenceType = null;
+        let visualReferenceId = null;
         if (templatePool.length > 0) {
           const pick = templatePool[Math.floor(Math.random() * templatePool.length)];
           if (pick.type === 'uploaded') {
             imageData = await selectTemplateImage(pick.id);
+            visualReferenceType = 'uploaded';
+            visualReferenceId = pick.id;
           } else {
             imageData = await selectInspirationImage(batch.project_id, pick.id);
+            visualReferenceType = 'drive';
+            visualReferenceId = pick.id;
           }
         } else if (batch.generation_mode === 'mode2' && batch.template_image_id) {
           imageData = await selectTemplateImage(batch.template_image_id);
+          visualReferenceType = 'uploaded';
+          visualReferenceId = batch.template_image_id;
         } else if (batch.inspiration_image_id) {
           imageData = await selectInspirationImage(batch.project_id, batch.inspiration_image_id);
+          visualReferenceType = 'drive';
+          visualReferenceId = batch.inspiration_image_id;
         } else {
           imageData = await selectInspirationImage(batch.project_id, null, allExcluded);
+          visualReferenceType = 'drive';
+          visualReferenceId = imageData.fileId || null;
         }
 
         // Track which template was used
@@ -440,6 +462,9 @@ async function generateBatchPrompts(batch, project, docs, onProgress, options = 
             emotional_entry: copy.emotional_entry,
             desired_belief_shift: copy.desired_belief_shift,
             opening_pattern: copy.opening_pattern,
+          },
+          {
+            documentaryMode: documentaryVisuals,
           }
         );
 
@@ -461,6 +486,10 @@ async function generateBatchPrompts(batch, project, docs, onProgress, options = 
           desired_belief_shift: copy.desired_belief_shift || null,
           opening_pattern: copy.opening_pattern || null,
           primary_emotion: copy.primary_emotion || null,
+          visual_mode: documentaryVisuals ? 'documentary' : 'template',
+          use_product_reference: !documentaryVisuals,
+          visual_reference_type: visualReferenceType,
+          visual_reference_id: visualReferenceId,
           inspirationTmpPath: imageData.tmpPath,
           inspirationMimeType: imageData.mimeType,
           templateFileId: imageData.fileId || null,
@@ -541,8 +570,8 @@ async function submitGeminiBatch(batchId, prompts, aspectRatio, projectName, pro
       cleanupImageData({ tmpPath: promptObj.inspirationTmpPath });
     }
 
-    // Include product image if configured
-    if (productImageData) {
+    // Include product image only for prompts that explicitly want it.
+    if (productImageData && promptObj.use_product_reference !== false) {
       parts.push({
         inlineData: {
           data: productImageData.base64,
@@ -585,6 +614,8 @@ async function submitGeminiBatch(batchId, prompts, aspectRatio, projectName, pro
 export async function pollBatchJob(batchId) {
   const batch = await getBatchJob(batchId);
   if (!batch) return 'failed';
+  if (batch.status === 'completed') return 'completed';
+  if (batch.status === 'saving_results') return 'processing';
 
   // If the batch is still in the pre-Gemini pipeline stages (generating prompts,
   // submitting, etc.) it won't have a gemini_batch_job yet — that's normal, not a failure.
@@ -650,6 +681,14 @@ export async function pollBatchJob(batchId) {
  * @returns {Promise<{ savedCount: number, failedCount: number }>}
  */
 async function processBatchResults(batchId, job) {
+  const claim = await claimBatchResultsProcessing(batchId);
+  if (!claim.claimed) {
+    return {
+      savedCount: claim.completed_count || 0,
+      failedCount: claim.failed_count || 0,
+    };
+  }
+
   const batch = await getBatchJob(batchId);
   if (!batch) throw new Error('Batch not found');
 
@@ -701,7 +740,11 @@ async function processBatchResults(batchId, job) {
       if (!imageBuffer && promptText) {
         console.log(`[BatchProcessor] Batch ${batchId.slice(0, 8)}: No image in response ${i}, retrying with direct Gemini call...`);
         try {
-          const retryResult = await generateImage(promptText, batch.aspect_ratio || '1:1', productImageData);
+          const retryResult = await generateImage(
+            promptText,
+            batch.aspect_ratio || '1:1',
+            (typeof promptObj === 'object' && promptObj?.use_product_reference === false) ? null : productImageData
+          );
           if (retryResult && retryResult.imageBuffer) {
             imageBuffer = retryResult.imageBuffer;
             mimeType = retryResult.mimeType || 'image/png';
@@ -744,7 +787,12 @@ async function processBatchResults(batchId, job) {
         storageId,
         status: 'completed',
         auto_generated: true,
-        template_image_id: batch.template_image_id || undefined,
+        template_image_id: (typeof promptObj === 'object' && promptObj?.visual_reference_type === 'uploaded'
+          ? promptObj.visual_reference_id
+          : batch.template_image_id) || undefined,
+        inspiration_image_id: (typeof promptObj === 'object' && promptObj?.visual_reference_type === 'drive'
+          ? promptObj.visual_reference_id
+          : undefined) || undefined,
         batch_job_id: batchId,
       });
 

@@ -270,6 +270,81 @@ function getRoundFailedAds(round) {
   return ensureArray(round?.failed_ads, 'AgentMonitor.run.round.failed_ads');
 }
 
+function formatFailureBucketLabel(bucket) {
+  const labels = {
+    image_only: 'Image only',
+    copy_only: 'Copy only',
+    mixed: 'Mixed',
+    headline_alignment: 'Headline alignment',
+  };
+  return labels[bucket] || formatLaneLabel(bucket);
+}
+
+function RoundFailureSummary({ round }) {
+  const summary = round?.failure_summary && typeof round.failure_summary === 'object'
+    ? round.failure_summary
+    : null;
+  if (!summary) return null;
+
+  const bucketEntries = Object.entries(summary.bucket_counts || {})
+    .filter(([, count]) => Number(count) > 0)
+    .sort((left, right) => Number(right[1]) - Number(left[1]));
+  const hardEntries = Object.entries(summary.hard_requirement_counts || {})
+    .filter(([, count]) => Number(count) > 0)
+    .sort((left, right) => Number(right[1]) - Number(left[1]))
+    .slice(0, 4);
+  const imageEntries = Object.entries(summary.image_theme_counts || {})
+    .filter(([, count]) => Number(count) > 0)
+    .sort((left, right) => Number(right[1]) - Number(left[1]))
+    .slice(0, 4);
+
+  if (bucketEntries.length === 0 && hardEntries.length === 0 && imageEntries.length === 0) return null;
+
+  return (
+    <div className="mt-2 rounded-lg bg-black/[0.02] border border-black/5 px-2.5 py-2">
+      <p className="text-[9px] uppercase tracking-wider text-textlight">Failure summary</p>
+      {bucketEntries.length > 0 && (
+        <div className="flex flex-wrap gap-1.5 mt-2">
+          {bucketEntries.map(([bucket, count]) => (
+            <span key={bucket} className="inline-flex items-center gap-1 rounded-full bg-white/80 border border-black/5 px-2 py-1 text-[9px] text-textdark">
+              <span>{formatFailureBucketLabel(bucket)}</span>
+              <span className="text-textmid">{count}</span>
+            </span>
+          ))}
+        </div>
+      )}
+      {hardEntries.length > 0 && (
+        <p className="text-[10px] text-textmid mt-2 leading-relaxed">
+          Hard fails: {hardEntries.map(([key, count]) => `${formatFailureLabel(key)} (${count})`).join(' · ')}
+        </p>
+      )}
+      {imageEntries.length > 0 && (
+        <p className="text-[10px] text-textmid mt-1 leading-relaxed">
+          Image themes: {imageEntries.map(([key, count]) => `${formatLaneLabel(key)} (${count})`).join(' · ')}
+        </p>
+      )}
+    </div>
+  );
+}
+
+function RoundRepairSummary({ round }) {
+  const summary = round?.repair_summary && typeof round.repair_summary === 'object'
+    ? round.repair_summary
+    : null;
+  if (!summary || Number(summary.attempted) <= 0) return null;
+
+  return (
+    <div className="mt-2 rounded-lg bg-teal/5 border border-teal/15 px-2.5 py-2">
+      <p className="text-[9px] uppercase tracking-wider text-textlight">Repair attempts</p>
+      <p className="text-[10px] text-textmid mt-1 leading-relaxed">
+        {summary.attempted} attempted · {summary.passed || 0} passed
+        {summary.image_attempted ? ` · ${summary.image_attempted} image repairs` : ''}
+        {summary.copy_attempted ? ` · ${summary.copy_attempted} copy repairs` : ''}
+      </p>
+    </div>
+  );
+}
+
 function RoundFailedAds({ round }) {
   const failedAds = getRoundFailedAds(round);
   if (failedAds.length === 0) return null;
@@ -312,6 +387,16 @@ function RoundFailedAds({ round }) {
               )}
 
               <div className="flex flex-wrap gap-1.5 mt-2">
+                {failedAd.failure_bucket && (
+                  <span className="inline-flex items-center rounded-full bg-black/5 text-textdark px-2 py-1 text-[9px] font-medium">
+                    {formatFailureBucketLabel(failedAd.failure_bucket)}
+                  </span>
+                )}
+                {failedAd.recommended_fix && (
+                  <span className="inline-flex items-center rounded-full bg-gold/10 text-gold px-2 py-1 text-[9px] font-medium">
+                    {formatLaneLabel(failedAd.recommended_fix)}
+                  </span>
+                )}
                 {hardFailures.map((key) => (
                   <span key={key} className="inline-flex items-center rounded-full bg-red-100 text-red-600 px-2 py-1 text-[9px] font-medium">
                     Failed {formatFailureLabel(key)}
@@ -476,6 +561,10 @@ function RoundLandingPageFunnel({ batchId, lpDetailState, loading }) {
             <p className="text-[12px] font-semibold text-textdark mt-0.5">{summary.published ?? '—'}</p>
           </div>
           <div className="rounded-lg bg-white/70 border border-black/5 px-2 py-2">
+            <p className="text-[9px] uppercase tracking-wider text-textlight">Headline Passed</p>
+            <p className="text-[12px] font-semibold text-textdark mt-0.5">{summary.headlinePassed ?? '—'}</p>
+          </div>
+          <div className="rounded-lg bg-white/70 border border-black/5 px-2 py-2">
             <p className="text-[9px] uppercase tracking-wider text-textlight">Avg Score</p>
             <p className="text-[12px] font-semibold text-textdark mt-0.5">{summary.avgScore ?? '—'}</p>
           </div>
@@ -632,6 +721,56 @@ function RoundLandingPageFunnel({ batchId, lpDetailState, loading }) {
                     )}
                   </div>
 
+                  {(page.headline_text || page.subheadline_text) && (
+                    <div className="space-y-1">
+                      {page.headline_text && (
+                        <div className="rounded-lg bg-black/[0.02] border border-black/5 px-2 py-2">
+                          <p className="text-[9px] uppercase tracking-wider text-textlight">Headline</p>
+                          <p className="text-[10px] text-textdark mt-1 leading-relaxed">{page.headline_text}</p>
+                        </div>
+                      )}
+                      {page.subheadline_text && (
+                        <div className="rounded-lg bg-black/[0.02] border border-black/5 px-2 py-2">
+                          <p className="text-[9px] uppercase tracking-wider text-textlight">Subheadline</p>
+                          <p className="text-[10px] text-textmid mt-1 leading-relaxed">{page.subheadline_text}</p>
+                        </div>
+                      )}
+                    </div>
+                  )}
+
+                  <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                    {page.headline_frame_alignment_status && (
+                      <div className="rounded-lg bg-black/[0.02] border border-black/5 px-2 py-2">
+                        <p className="text-[9px] uppercase tracking-wider text-textlight">Frame Fit</p>
+                        <p className="text-[11px] font-medium text-textdark mt-0.5">{page.headline_frame_alignment_status}</p>
+                        {page.headline_frame_alignment_reason && (
+                          <p className="text-[9px] text-textmid mt-1 leading-relaxed">{page.headline_frame_alignment_reason}</p>
+                        )}
+                      </div>
+                    )}
+                    {page.headline_uniqueness_status && (
+                      <div className="rounded-lg bg-black/[0.02] border border-black/5 px-2 py-2">
+                        <p className="text-[9px] uppercase tracking-wider text-textlight">5-Frame Uniqueness</p>
+                        <p className="text-[11px] font-medium text-textdark mt-0.5">{page.headline_uniqueness_status}</p>
+                        {page.headline_uniqueness_reason && (
+                          <p className="text-[9px] text-textmid mt-1 leading-relaxed">{page.headline_uniqueness_reason}</p>
+                        )}
+                        {page.headline_duplicate_of_lp_id && (
+                          <p className="text-[9px] text-textlight mt-1">Duplicate of {page.headline_duplicate_of_lp_id.slice(0, 8)}...</p>
+                        )}
+                      </div>
+                    )}
+                    {page.headline_history_status && (
+                      <div className="rounded-lg bg-black/[0.02] border border-black/5 px-2 py-2">
+                        <p className="text-[9px] uppercase tracking-wider text-textlight">History Check</p>
+                        <p className="text-[11px] font-medium text-textdark mt-0.5">{page.headline_history_status}</p>
+                        {page.headline_history_reason && (
+                          <p className="text-[9px] text-textmid mt-1 leading-relaxed">{page.headline_history_reason}</p>
+                        )}
+                      </div>
+                    )}
+                  </div>
+
                   {page.published_url && (
                     <a href={page.published_url} target="_blank" rel="noreferrer" className="text-[10px] text-gold hover:text-gold-light inline-block break-all">
                       {page.published_url}
@@ -697,6 +836,40 @@ function RoundLandingPageFunnel({ batchId, lpDetailState, loading }) {
                             )}
                           </div>
                         ))}
+                      </div>
+                    </div>
+                  )}
+
+                  {(ensureArray(page.smoke_visible_placeholder_matches, `AgentMonitor.run.lpDetails.${page.id}.visiblePlaceholders`).length > 0 ||
+                    ensureArray(page.smoke_raw_placeholder_matches, `AgentMonitor.run.lpDetails.${page.id}.rawPlaceholders`).length > 0) && (
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      <div className="rounded-lg bg-black/[0.02] border border-black/5 px-2 py-2">
+                        <p className="text-[9px] uppercase tracking-wider text-textlight">Visible Placeholders</p>
+                        {ensureArray(page.smoke_visible_placeholder_matches, `AgentMonitor.run.lpDetails.${page.id}.visiblePlaceholderList`).length > 0 ? (
+                          <div className="flex flex-wrap gap-1 mt-1">
+                            {ensureArray(page.smoke_visible_placeholder_matches, `AgentMonitor.run.lpDetails.${page.id}.visiblePlaceholderTags`).map((match, index) => (
+                              <span key={`${page.id}-visible-placeholder-${index}`} className="inline-flex items-center rounded-full bg-red-50 text-red-500 border border-red-100 px-2 py-1 text-[9px]">
+                                {match}
+                              </span>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="text-[10px] text-textmid mt-1">None detected in rendered page text.</p>
+                        )}
+                      </div>
+                      <div className="rounded-lg bg-black/[0.02] border border-black/5 px-2 py-2">
+                        <p className="text-[9px] uppercase tracking-wider text-textlight">Raw HTML Placeholder Tokens</p>
+                        {ensureArray(page.smoke_raw_placeholder_matches, `AgentMonitor.run.lpDetails.${page.id}.rawPlaceholderList`).length > 0 ? (
+                          <div className="flex flex-wrap gap-1 mt-1">
+                            {ensureArray(page.smoke_raw_placeholder_matches, `AgentMonitor.run.lpDetails.${page.id}.rawPlaceholderTags`).map((match, index) => (
+                              <span key={`${page.id}-raw-placeholder-${index}`} className="inline-flex items-center rounded-full bg-black/[0.02] text-textmid border border-black/5 px-2 py-1 text-[9px]">
+                                {match}
+                              </span>
+                            ))}
+                          </div>
+                        ) : (
+                          <p className="text-[10px] text-textmid mt-1">None found in raw HTML source.</p>
+                        )}
                       </div>
                     </div>
                   )}
@@ -2866,6 +3039,8 @@ function DirectorTab({ onRefresh }) {
                                   {round.ads_generated ?? round.ads_scored ?? 0} generated, {round.ads_passed ?? 0}/{round.ads_scored ?? round.ads_generated ?? 0} passed in this round, {round.cumulative_passed ?? 0}/{requiredPasses} cumulative.
                                 </p>
                                 <RoundHeadlineDiagnostics round={round} />
+                                <RoundFailureSummary round={round} />
+                                <RoundRepairSummary round={round} />
                                 <RoundFailedAds round={round} />
                                 <RoundLandingPageFunnel
                                   batchId={round.batch_id}

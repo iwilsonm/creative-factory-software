@@ -314,6 +314,15 @@ router.get('/run-batch-lp/:projectId/:batchId', async (req, res) => {
         status: page.status || null,
         angle: page.angle || null,
         narrative_frame: page.narrative_frame || null,
+        headline_text: page.headline_text || null,
+        subheadline_text: page.subheadline_text || null,
+        headline_frame_alignment_status: page.headline_frame_alignment_status || null,
+        headline_frame_alignment_reason: page.headline_frame_alignment_reason || null,
+        headline_uniqueness_status: page.headline_uniqueness_status || null,
+        headline_uniqueness_reason: page.headline_uniqueness_reason || null,
+        headline_duplicate_of_lp_id: page.headline_duplicate_of_lp_id || null,
+        headline_history_status: page.headline_history_status || null,
+        headline_history_reason: page.headline_history_reason || null,
         template_id: page.template_id || null,
         published_url: page.published_url || null,
         error_message: page.error_message || null,
@@ -331,6 +340,8 @@ router.get('/run-batch-lp/:projectId/:batchId', async (req, res) => {
         smoke_passed: typeof smokeReport?.passed === 'boolean' ? smokeReport.passed : null,
         smoke_failed_count: typeof smokeReport?.failedCount === 'number' ? smokeReport.failedCount : null,
         smoke_checks: smokeChecks,
+        smoke_visible_placeholder_matches: Array.isArray(smokeReport?.visiblePlaceholderMatches) ? smokeReport.visiblePlaceholderMatches : [],
+        smoke_raw_placeholder_matches: Array.isArray(smokeReport?.rawHtmlPlaceholderMatches) ? smokeReport.rawHtmlPlaceholderMatches : [],
         generation_attempts: page.generation_attempts ?? null,
         fix_attempts: page.fix_attempts ?? null,
         generation_duration_ms: page.generation_duration_ms ?? null,
@@ -353,6 +364,11 @@ router.get('/run-batch-lp/:projectId/:batchId', async (req, res) => {
       passed: mappedPages.filter((page) => ['passed', 'published', 'passed_dry_run'].includes(page.gauntlet_status) || page.status === 'published').length,
       published: mappedPages.filter((page) => !!page.published_url || page.status === 'published').length,
       failed: mappedPages.filter((page) => ['failed', 'error', 'publish_failed', 'smoke_failed'].includes(page.status) || page.gauntlet_status === 'failed').length,
+      headlinePassed: mappedPages.filter((page) =>
+        page.headline_frame_alignment_status === 'passed' &&
+        page.headline_uniqueness_status === 'passed' &&
+        page.headline_history_status !== 'failed'
+      ).length,
       avgScore: scoredPages.length > 0
         ? Math.round((scoredPages.reduce((sum, page) => sum + page.gauntlet_score, 0) / scoredPages.length) * 10) / 10
         : null,

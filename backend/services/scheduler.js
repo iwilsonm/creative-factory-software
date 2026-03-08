@@ -16,6 +16,7 @@ let lastRateRefreshAt = null;
 let lastMetaSyncAt = null;
 let lastMetaTokenRefreshAt = null;
 let lastDirectorRunAt = null;
+const DIRECTOR_INLINE_POLL_SKIP_MS = 35 * 60 * 1000;
 
 /**
  * Initialize the scheduler on server startup.
@@ -228,6 +229,16 @@ async function pollActiveBatches() {
 
   for (const batch of active) {
     try {
+      const isRecentDirectorTestBatch = !!(
+        batch.conductor_run_id &&
+        batch.status === 'processing' &&
+        batch.started_at &&
+        Date.now() - new Date(batch.started_at).getTime() < DIRECTOR_INLINE_POLL_SKIP_MS
+      );
+      if (isRecentDirectorTestBatch) {
+        continue;
+      }
+
       // Detect orphaned generating_prompts batches (process died, server restarted)
       // Two-phase detection: first poll marks stale_detected_at, second poll (5+ min later) retries.
       // This prevents double-execution when a batch is just slow, not actually dead.
