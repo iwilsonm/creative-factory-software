@@ -58,11 +58,11 @@ const FRAME_BLUEPRINTS = {
     ],
     requiredCopyGroups: [
       { label: 'causal explanation', patterns: [/\b(because|reason|trigger|cause|mechanism|signals?|switch|nervous system|stays on)\b/i] },
-      { label: 'why alternatives fail', patterns: [/\b(traditional|usual|common|nothing else|doesnt work|fails?)\b/i] },
+      { label: 'why alternatives fail', patterns: [/\b(traditional|usual|common|nothing else|doesnt work|fails?|root cause|doesnt address|doesn't address|only helps|misses what happens|surface level|surface-level)\b/i] },
     ],
     requiredSectionTypes: ['lead', 'solution'],
     forbiddenHeadlinePatterns: [/^\s*(\d+|one|two|three|four|five|six|seven|eight|nine|ten)\b/i, /\b(myth|wrong|truth|people think)\b/i, /^(i|my|we)\b/i],
-    forbiddenCopyPatterns: [/\b(reason one|reason two|myth|people think)\b/i],
+    forbiddenCopyPatterns: [/\b(reason one|reason two|myth)\b/i],
   },
   problem_agitation: {
     contract: 'Headline must open on the recurring pain pattern, symptom, or frustration.',
@@ -185,17 +185,44 @@ function uniqueLowerArray(values = []) {
   return [...new Set(values.map((value) => String(value || '').trim().toLowerCase()).filter(Boolean))];
 }
 
+const SECTION_TYPE_ALIASES = {
+  lead: ['headline', 'subheadline', 'page_title', 'category_label', 'opening_paragraph', 'body_copy_1', 'byline'],
+  story: ['opening_paragraph', 'body_copy_1', 'turning_point_heading', 'turning_point_copy_1', 'turning_point_copy_2', 'letter_body', 'letter_signature'],
+  problem: ['problem_heading', 'problem_copy_1', 'problem_copy_2', 'body_copy_1', 'opening_paragraph'],
+  solution: ['discovery_heading', 'discovery_copy_1', 'discovery_copy_2', 'company_heading', 'company_copy_1', 'company_copy_2', 'results_heading', 'results_copy_1', 'results_copy_2'],
+  proof: ['results_heading', 'results_copy_1', 'results_copy_2', 'comparison_heading', 'callout_text', 'letter_body'],
+  offer: ['good_card_title', 'good_card_price', 'cta_1_label', 'cta_2_label', 'post_letter_copy'],
+  benefits: ['good_feature_1', 'good_feature_2', 'good_feature_3', 'good_feature_4', 'discovery_copy_1', 'discovery_copy_2'],
+};
+
+function expandSectionTypeAliases(types = []) {
+  const normalized = uniqueLowerArray(types);
+  const expanded = new Set(normalized);
+  for (const type of normalized) {
+    for (const [semanticType, aliases] of Object.entries(SECTION_TYPE_ALIASES)) {
+      if (aliases.includes(type)) {
+        expanded.add(semanticType);
+      }
+    }
+  }
+  return [...expanded];
+}
+
 function sectionTypesFromCopy(copySections = []) {
-  return uniqueLowerArray(
+  return expandSectionTypeAliases(
     ensureArray(copySections).map((section) => section?.type)
   );
 }
 
 function getSectionText(copySections = [], preferredTypes = []) {
-  const preferred = new Set(ensureArray(preferredTypes).map((value) => String(value || '').trim().toLowerCase()));
+  const preferred = new Set(expandSectionTypeAliases(preferredTypes));
   const sections = ensureArray(copySections)
     .filter((section) => section?.type && section?.content)
-    .filter((section) => preferred.size === 0 || preferred.has(String(section.type).trim().toLowerCase()));
+    .filter((section) => {
+      if (preferred.size === 0) return true;
+      const candidates = expandSectionTypeAliases([section.type]);
+      return candidates.some((candidate) => preferred.has(candidate));
+    });
   return sections.map((section) => stripHtml(section.content || '')).join(' ');
 }
 
@@ -396,6 +423,51 @@ function buildSourceKeywordSets({ angle = '', messageBrief = null }) {
   };
 }
 
+function buildSourceSceneCueGroups({ angle = '', messageBrief = null }) {
+  const sourceText = normalizeLPHeadlineText([
+    angle,
+    messageBrief?.angleSummary,
+    messageBrief?.coreScene,
+    messageBrief?.desiredBeliefShift,
+    ...(ensureArray(messageBrief?.headlineExamples)),
+    ...(ensureArray(messageBrief?.openingExamples)),
+  ].filter(Boolean).join(' '));
+
+  const groups = [];
+  if (/\b(pee|bathroom|restroom|urinat)\b/i.test(sourceText)) {
+    groups.push({
+      label: 'bathroom trip',
+      patterns: [/\b(pee|bathroom|restroom|urinat|bathroom trip)\b/i],
+    });
+  }
+  if (/\b(fall back asleep|back to sleep|return to sleep|sleep again|back asleep)\b/i.test(sourceText)) {
+    groups.push({
+      label: 'return to sleep',
+      patterns: [/\b(fall back asleep|back to sleep|return to sleep|sleep again|back asleep)\b/i],
+    });
+  }
+  if (/\b(back into bed|back in bed|return to bed|get back into bed|get back to bed)\b/i.test(sourceText)) {
+    groups.push({
+      label: 'back in bed',
+      patterns: [/\b(back into bed|back in bed|return to bed|get back into bed|get back to bed)\b/i],
+    });
+  }
+  if (/\b(wake|wakes|woke|waking|night|nighttime|middle of the night|2 am|2am|3 am|3am)\b/i.test(sourceText)) {
+    groups.push({
+      label: 'night wake moment',
+      patterns: [/\b(wake|wakes|woke|waking|night|nighttime|middle of the night|2 am|2am|3 am|3am)\b/i],
+    });
+  }
+  return groups;
+}
+
+function matchSceneCueGroups(text = '', groups = []) {
+  const normalized = normalizeLPHeadlineText(text);
+  return ensureArray(groups)
+    .filter((group) => ensureArray(group.patterns).some((pattern) => pattern.test(normalized)))
+    .map((group) => group.label);
+}
+
 function ensureArray(value) {
   return Array.isArray(value) ? value : [];
 }
@@ -408,14 +480,17 @@ export function validateLPHeadlineSourceAlignment({
 }) {
   const combined = `${headline || ''} ${subheadline || ''}`.trim();
   const { angleKeywords, adKeywords, specificKeywords } = buildSourceKeywordSets({ angle, messageBrief });
+  const sceneCueGroups = buildSourceSceneCueGroups({ angle, messageBrief });
   const angleHits = countKeywordHits(combined, angleKeywords);
   const adHits = countKeywordHits(combined, adKeywords);
   const specificHits = countKeywordHits(combined, specificKeywords);
+  const sceneCueHits = matchSceneCueGroups(combined, sceneCueGroups);
   const sourceMode = messageBrief?.sourceMode || 'angle_only';
+  const sceneCuePass = sceneCueGroups.length > 0 && sceneCueHits.length >= Math.min(2, sceneCueGroups.length);
 
   const passed = sourceMode === 'director_ads'
-    ? ((specificHits.length >= 2 || angleHits.length >= 2) && (adHits.length >= 1 || specificHits.length >= 1))
-    : (specificHits.length >= 1 || angleHits.length >= 2);
+    ? sceneCuePass || ((specificHits.length >= 2 || angleHits.length >= 2) && (adHits.length >= 1 || specificHits.length >= 1))
+    : sceneCuePass || (specificHits.length >= 1 || angleHits.length >= 2);
 
   if (passed) {
     return {
@@ -427,6 +502,7 @@ export function validateLPHeadlineSourceAlignment({
         angle: angleHits,
         message: adHits,
         specific: specificHits,
+        scene: sceneCueHits,
       },
     };
   }
@@ -440,23 +516,44 @@ export function validateLPHeadlineSourceAlignment({
       angle: angleHits,
       message: adHits,
       specific: specificHits,
+      scene: sceneCueHits,
     },
   };
 }
 
-function getPrimaryCopyText(copySections = []) {
-  const sections = Array.isArray(copySections) ? copySections : [];
-  const preferredTypes = new Set(['lead', 'problem', 'solution', 'story', 'benefits', 'proof']);
-  const preferred = sections.filter((section) => preferredTypes.has(section?.type));
-  const chosen = preferred.length > 0 ? preferred : sections;
-  return chosen
-    .slice(0, 6)
+function getPrimaryCopyText(copySections = [], preferredTypes = []) {
+  const sections = Array.isArray(copySections)
+    ? copySections.filter((section) => section?.content)
+    : [];
+  if (sections.length === 0) return '';
+
+  const preferred = new Set(expandSectionTypeAliases(preferredTypes));
+  if (preferred.size === 0) {
+    return sections.map((section) => stripHtml(section?.content || '')).join(' ');
+  }
+
+  const prioritized = [];
+  const remainder = [];
+  for (const section of sections) {
+    const aliases = expandSectionTypeAliases([section?.type]);
+    if (aliases.some((alias) => preferred.has(alias))) {
+      prioritized.push(section);
+    } else {
+      remainder.push(section);
+    }
+  }
+
+  return [...prioritized, ...remainder]
     .map((section) => stripHtml(section?.content || ''))
     .join(' ');
 }
 
-function validateLPContentFrameAlignment({ copyText = '', narrativeFrame = '' }) {
+function validateLPContentFrameAlignment({ copySections = [], narrativeFrame = '' }) {
   const blueprint = getNarrativeFrameBlueprint(narrativeFrame);
+  const copyText = getPrimaryCopyText(copySections, [
+    ...ensureArray(blueprint.sectionEmphasis),
+    ...ensureArray(blueprint.requiredSectionTypes),
+  ]);
   const rawText = stripHtml(copyText);
   const normalized = normalizeLPHeadlineText(copyText);
   const missingGroups = ensureArray(blueprint.requiredCopyGroups)
@@ -486,9 +583,8 @@ export function validateLPFrameBlueprint({
     narrativeFrame,
     angle,
   });
-  const contentText = getPrimaryCopyText(copySections);
   const contentAlignment = validateLPContentFrameAlignment({
-    copyText: contentText,
+    copySections,
     narrativeFrame,
   });
   const sectionTypes = sectionTypesFromCopy(copySections);
@@ -520,7 +616,11 @@ export function validateLPContentAlignment({
   subheadline = '',
   messageBrief = null,
 }) {
-  const copyText = getPrimaryCopyText(copySections);
+  const blueprint = getNarrativeFrameBlueprint(narrativeFrame);
+  const copyText = getPrimaryCopyText(copySections, [
+    ...ensureArray(blueprint.sectionEmphasis),
+    ...ensureArray(blueprint.requiredSectionTypes),
+  ]);
   const frameBlueprint = validateLPFrameBlueprint({
     headline,
     narrativeFrame,

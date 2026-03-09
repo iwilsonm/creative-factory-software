@@ -27,6 +27,8 @@ import fetch from 'node-fetch';
 import { postProcessLP } from './lpGenerator.js';
 import { inspectVisiblePlaceholdersInHtml } from './lpSmokeTest.js';
 
+const REQUIRED_LP_TEMPLATE_SUFFIX = 'lander';
+
 // =============================================
 // Shopify API helpers
 // =============================================
@@ -52,9 +54,21 @@ async function getShopifyConfig(projectId) {
   return {
     domain,
     accessToken: shopify_access_token,
-    templateSuffix: 'lander',
+    templateSuffix: REQUIRED_LP_TEMPLATE_SUFFIX,
     pdpUrl: config.pdp_url || '#',
   };
+}
+
+function assertRequiredTemplateSuffix(templateSuffix) {
+  if (!templateSuffix || templateSuffix !== REQUIRED_LP_TEMPLATE_SUFFIX) {
+    throw new Error(`Landing pages must publish with Shopify template "${REQUIRED_LP_TEMPLATE_SUFFIX}".`);
+  }
+}
+
+async function fetchShopifyPage(domain, accessToken, shopifyPageId) {
+  if (!shopifyPageId) return null;
+  const result = await shopifyApi(domain, accessToken, 'GET', `/pages/${shopifyPageId}.json`);
+  return result?.page || null;
 }
 
 /**
@@ -261,6 +275,7 @@ export async function publishToShopify(pageId, projectId) {
 
   // Get Shopify config
   const shopify = await getShopifyConfig(projectId);
+  assertRequiredTemplateSuffix(shopify.templateSuffix);
 
   // Save pre-publish version
   const currentVersion = page.current_version || 1;
@@ -332,6 +347,7 @@ export async function publishToShopify(pageId, projectId) {
         title: page.name,
         body_html: finalHtml,
         published: true,
+        template_suffix: shopify.templateSuffix,
       },
     });
     shopifyHandle = result.page?.handle;
@@ -354,6 +370,11 @@ export async function publishToShopify(pageId, projectId) {
     shopifyHandle = result.page?.handle;
   }
 
+  const verifiedPage = await fetchShopifyPage(shopify.domain, shopify.accessToken, shopifyPageId);
+  if (!verifiedPage || verifiedPage.template_suffix !== shopify.templateSuffix) {
+    throw new Error(`Published Shopify page is not using template "${shopify.templateSuffix}".`);
+  }
+
   const publishedUrl = `https://${shopify.domain}/pages/${shopifyHandle || slug}`;
 
   // Update landing page record
@@ -369,6 +390,7 @@ export async function publishToShopify(pageId, projectId) {
       shopify_page_id: shopifyPageId,
       shopify_handle: shopifyHandle || slug,
       shopify_domain: shopify.domain,
+      shopify_template_suffix: shopify.templateSuffix,
     }),
   });
 
@@ -437,10 +459,17 @@ export async function unpublishFromShopify(pageId, projectId) {
  * Verify a published URL is live (returns HTTP 200 with content).
  *
  * @param {string} url - The published URL to verify
+ * @param {object} [options]
  * @returns {object} - { verified: boolean, error?: string }
  */
-export async function verifyLive(url) {
+export async function verifyLive(url, options = {}) {
   try {
+    const {
+      projectId = null,
+      shopifyPageId = null,
+      expectedTemplateSuffix = null,
+    } = options || {};
+
     const response = await fetch(url, {
       method: 'GET',
       headers: { 'User-Agent': 'DaciaAutomation/1.0' },
@@ -456,6 +485,21 @@ export async function verifyLive(url) {
     // Verify page has meaningful content (not an empty or error page)
     if (body.length < 200) {
       return { verified: false, error: 'Page content too short — may not have rendered correctly' };
+    }
+
+    if (projectId && shopifyPageId && expectedTemplateSuffix) {
+      const shopify = await getShopifyConfig(projectId);
+      const page = await fetchShopifyPage(shopify.domain, shopify.accessToken, shopifyPageId);
+      if (!page) {
+        return { verified: false, error: 'Shopify page could not be loaded for template verification' };
+      }
+      if (page.template_suffix !== expectedTemplateSuffix) {
+        return {
+          verified: false,
+          error: `Shopify page template mismatch: expected "${expectedTemplateSuffix}", got "${page.template_suffix || '(none)'}"`,
+        };
+      }
+      return { verified: true, templateSuffix: page.template_suffix };
     }
 
     return { verified: true };
@@ -503,14 +547,19 @@ export async function setToDraft(pageId, projectId) {
 export async function publishAndSmokeTest(pageId, projectId, smokeOptions = {}) {
   // 1. Publish to Shopify
   const publishResult = await publishToShopify(pageId, projectId);
+  const shopify = await getShopifyConfig(projectId);
 
   // 2. Verify it's live
-  const liveCheck = await verifyLive(publishResult.published_url);
+  const liveCheck = await verifyLive(publishResult.published_url, {
+    projectId,
+    shopifyPageId: publishResult.shopify_page_id,
+    expectedTemplateSuffix: shopify.templateSuffix,
+  });
   if (!liveCheck.verified) {
     console.warn(`[LPPublish] Page not live after publish: ${liveCheck.error}`);
     await updateLandingPage(pageId, {
       smoke_test_status: 'failed',
-      smoke_test_report: JSON.stringify({ error: `Page not live: ${liveCheck.error}` }),
+      smoke_test_report: JSON.stringify({ error: `Page not live: ${liveCheck.error}`, template_suffix: shopify.templateSuffix }),
       smoke_test_at: new Date().toISOString(),
     });
     return { publishResult, smokeResult: null, verified: false };

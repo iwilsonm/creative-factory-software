@@ -38,6 +38,7 @@ import {
   assembleLandingPage,
   postProcessLP,
   repairLPHeadline,
+  repairLPContentAlignment,
 } from './lpGenerator.js';
 import { getCachedImageContext, getFoundationalDocs } from './lpGenerator.js';
 import { publishAndSmokeTest, generateSlug, extractHeadlineForSlug } from './lpPublisher.js';
@@ -169,6 +170,10 @@ function buildHeadlineConstraintBundle(frame, usedHeadlines, angleHistory) {
   };
 }
 
+function ensureArray(value) {
+  return Array.isArray(value) ? value : [];
+}
+
 const LP_HEAVY_UPDATE_KEYS = new Set([
   'copy_sections',
   'image_slots',
@@ -212,6 +217,74 @@ async function updateLandingPageSafely(externalId, fields, { stage = 'update' } 
   } catch (err) {
     throw new Error(mapLandingPageMutationError(stage, err));
   }
+}
+
+function buildCompactGauntletQAReport(lastScore, passed) {
+  const fatalFlaws = ensureArray(lastScore?.fatal_flaws).map((flaw) => ({
+    type: flaw?.type || 'fatal_flaw',
+    position: flaw?.image_position || flaw?.location || null,
+  }));
+
+  return {
+    passed,
+    score: lastScore ? Math.round((lastScore.score / 11) * 100) : (passed ? 60 : 0),
+    summary: lastScore?.reasoning
+      ? String(lastScore.reasoning).slice(0, 400)
+      : (passed ? 'Gauntlet passed without a detailed score payload.' : 'Gauntlet failed before a score payload was available.'),
+    fatal_flaws: fatalFlaws,
+    fatal_flaw_count: fatalFlaws.length,
+    categories: lastScore ? {
+      image_sensibility: lastScore.image_sensibility ?? null,
+      visual_coherence: lastScore.visual_coherence ?? null,
+      cta_effectiveness: lastScore.cta_effectiveness ?? null,
+      copy_quality: lastScore.copy_quality ?? null,
+    } : null,
+    source: 'gauntlet',
+    checked_at: new Date().toISOString(),
+  };
+}
+
+async function persistGauntletScoreResult(lpId, {
+  lastScore,
+  passed,
+  frameResult,
+  frameDurationMs,
+}) {
+  const compactQaReport = buildCompactGauntletQAReport(lastScore, passed);
+  const primaryFields = {
+    gauntlet_score: lastScore?.score ?? null,
+    gauntlet_score_reasoning: lastScore?.reasoning ? String(lastScore.reasoning).slice(0, 1200) : null,
+    gauntlet_status: passed ? 'passed' : 'failed',
+    gauntlet_image_prescore_attempts: frameResult.imagePrescoreAttempts,
+    generation_duration_ms: frameDurationMs,
+    qa_status: passed ? 'passed' : 'failed',
+    qa_score: compactQaReport.score,
+    qa_report: JSON.stringify(compactQaReport),
+    qa_issues_count: compactQaReport.fatal_flaw_count,
+  };
+
+  try {
+    await updateLandingPageSafely(lpId, primaryFields, { stage: 'store_gauntlet_score' });
+    return { qaReport: compactQaReport, persistenceMode: 'full' };
+  } catch (err) {
+    console.warn(`[Gauntlet] Compact score persistence failed for ${lpId.slice(0, 8)}:`, err.message);
+    const fallbackFields = {
+      gauntlet_score: lastScore?.score ?? null,
+      gauntlet_score_reasoning: compactQaReport.summary,
+      gauntlet_status: passed ? 'passed' : 'failed',
+      gauntlet_image_prescore_attempts: frameResult.imagePrescoreAttempts,
+      generation_duration_ms: frameDurationMs,
+      qa_status: passed ? 'passed' : 'failed',
+      qa_score: compactQaReport.score,
+      qa_issues_count: compactQaReport.fatal_flaw_count,
+    };
+    await updateLandingPageSafely(lpId, fallbackFields, { stage: 'store_gauntlet_score_minimal' });
+    return { qaReport: compactQaReport, persistenceMode: 'minimal' };
+  }
+}
+
+export async function scorePersistOnly({ lpId, lastScore, passed, frameResult, frameDurationMs }) {
+  return persistGauntletScoreResult(lpId, { lastScore, passed, frameResult, frameDurationMs });
 }
 
 function evaluateFrameHeadline({
@@ -279,8 +352,7 @@ function evaluateFrameHeadline({
       frameAlignment.passed &&
       frameBlueprint.passed &&
       uniqueness.passed &&
-      sourceAlignment.passed &&
-      history.passed,
+      sourceAlignment.passed,
   };
 }
 
@@ -309,6 +381,27 @@ async function rebuildLPAfterHeadlineRepair(lpResult, { headline, subheadline },
     ...lpResult,
     copySections: repairedSections,
     editorialPlan: repairedEditorialPlan,
+    assembledHtml: postProcessed.html,
+  };
+}
+
+async function rebuildLPAfterContentRepair(lpResult, repairedSections, { project, agentConfig, angle }) {
+  const rawAssembledHtml = assembleLandingPage({
+    htmlTemplate: lpResult.htmlTemplate,
+    copySections: repairedSections,
+    imageSlots: lpResult.imageSlots,
+    ctaElements: lpResult.designAnalysis?.cta_elements || [],
+  });
+  const postProcessed = postProcessLP(rawAssembledHtml, {
+    project,
+    agentConfig,
+    angle,
+    editorialPlan: lpResult.editorialPlan || {},
+  });
+
+  return {
+    ...lpResult,
+    copySections: repairedSections,
     assembledHtml: postProcessed.html,
   };
 }
@@ -736,6 +829,7 @@ export async function runGauntlet(projectId, options = {}, sendEventRaw) {
     angleBrief = null,
     approvedAds = [],
     messageBrief: providedMessageBrief = null,
+    frameIds = null,
   } = options;
   const messageBrief = providedMessageBrief || buildCampaignMessageBrief({
     batchAngle,
@@ -804,6 +898,13 @@ export async function runGauntlet(projectId, options = {}, sendEventRaw) {
       const filtered = NARRATIVE_FRAMES.filter(f => enabledIds.includes(f.id));
       if (filtered.length >= 1) framesToRun = filtered;
     } catch {}
+  }
+  if (Array.isArray(frameIds) && frameIds.length > 0) {
+    const requested = new Set(frameIds.map((id) => String(id || '').trim()).filter(Boolean));
+    const filtered = framesToRun.filter((frame) => requested.has(frame.id));
+    if (filtered.length > 0) {
+      framesToRun = filtered;
+    }
   }
 
   // Pick a random template (reuse across all frames)
@@ -1053,6 +1154,49 @@ export async function runGauntlet(projectId, options = {}, sendEventRaw) {
           }
         }
 
+        if (!headlineEvaluation.passed && (headlineEvaluation.frameBlueprint?.passed === false || headlineEvaluation.sourceAlignment?.passed === false)) {
+          const repairFocus = frame.id === 'mechanism'
+            ? (/why alternatives fail/i.test(headlineEvaluation.frameBlueprint?.reason || '')
+                ? 'mechanism_alternatives_fail'
+                : (!headlineEvaluation.sourceAlignment?.passed ? 'mechanism_source_alignment' : null))
+            : null;
+
+          sendEvent({
+            type: 'progress',
+            step: 'gauntlet_content_repair',
+            message: `LP ${frameNum} of ${totalFrames} — repairing frame/content alignment...`,
+          });
+
+          try {
+            const repairedContent = await repairLPContentAlignment({
+              projectId,
+              angle: batchAngle || frameAngle,
+              narrativeFrame: frame.id,
+              copySections: lpResult.copySections,
+              approvedAds,
+              messageBrief,
+              headlineConstraints: buildHeadlineConstraintBundle(frame, acceptedHeadlines, angleHistory),
+              repairFocus,
+            });
+            lpResult = await rebuildLPAfterContentRepair(lpResult, repairedContent.sections, {
+              project,
+              agentConfig: config,
+              angle: batchAngle || frameAngle,
+            });
+            headlineEvaluation = evaluateFrameHeadline({
+              lpResult,
+              frame,
+              batchAngle,
+              messageBrief,
+              acceptedHeadlines,
+              sameFrameHistory,
+              angleHistory,
+            });
+          } catch (repairErr) {
+            console.warn(`[Gauntlet] Content repair failed for frame ${frameNum}:`, repairErr.message);
+          }
+        }
+
         if (!headlineEvaluation.passed) {
           const headlineFailureReason = [
             headlineEvaluation.frameAlignment.passed ? null : headlineEvaluation.frameAlignment.reason,
@@ -1220,48 +1364,15 @@ export async function runGauntlet(projectId, options = {}, sendEventRaw) {
 
       // 5h. Final status update (include duration + QA-equivalent data for QA tab)
       const frameDurationMs = Date.now() - frameStart;
-      const qaEquivalent = lastScore ? {
-        passed: passed,
-        score: Math.round((lastScore.score / 11) * 100), // Convert 0-11 to 0-100
-        summary: lastScore.reasoning || `Gauntlet score: ${lastScore.score}/11`,
-        categories: {
-          image_sensibility: { score: lastScore.image_sensibility, max: 4, label: 'Image Sensibility' },
-          visual_coherence: { score: lastScore.visual_coherence, max: 3, label: 'Visual Coherence' },
-          cta_effectiveness: { score: lastScore.cta_effectiveness, max: 2, label: 'CTA Effectiveness' },
-          copy_quality: { score: lastScore.copy_quality, max: 2, label: 'Copy Quality' },
-        },
-        issues: (lastScore.fatal_flaws || []).map(f => ({
-          severity: 'critical',
-          description: f.description || f.type || 'Fatal flaw detected',
-          location: f.image_position || f.location || null,
-        })),
-        source: 'gauntlet',
-        checked_at: new Date().toISOString(),
-      } : {
-        // Fallback when scoring failed or never ran
-        passed: passed,
-        score: passed ? 60 : 0,
-        summary: passed
-          ? 'Scoring unavailable — LP passed on generation quality'
-          : `LP failed after ${frameResult.attempts || 0} attempt(s)`,
-        categories: null,
-        issues: [],
-        source: 'gauntlet',
-        scoring_error: true,
-        checked_at: new Date().toISOString(),
-      };
-
-      await updateLandingPageSafely(lpId, {
-        gauntlet_score: lastScore?.score ?? null,
-        gauntlet_score_reasoning: lastScore?.reasoning ?? null,
-        gauntlet_status: passed ? 'passed' : 'failed',
-        gauntlet_image_prescore_attempts: frameResult.imagePrescoreAttempts,
-        generation_duration_ms: frameDurationMs,
-        qa_status: passed ? 'passed' : 'failed',
-        qa_score: qaEquivalent.score,
-        qa_report: JSON.stringify(qaEquivalent),
-        qa_issues_count: qaEquivalent.issues.length,
-      }, { stage: 'store_gauntlet_score' });
+      const { qaReport: qaEquivalent, persistenceMode } = await persistGauntletScoreResult(lpId, {
+        lastScore,
+        passed,
+        frameResult,
+        frameDurationMs,
+      });
+      if (persistenceMode === 'minimal') {
+        console.warn(`[Gauntlet] Stored compact score fallback for LP ${lpId.slice(0, 8)}`);
+      }
 
       const finalHeadlineParts = lpResult
         ? extractLPHeadlineParts(lpResult.copySections, lpResult.editorialPlan)

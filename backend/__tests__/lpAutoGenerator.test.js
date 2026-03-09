@@ -3,12 +3,13 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 const mockUpdateBatchJob = vi.fn();
 const mockGetBatchJob = vi.fn();
 const mockUpdateFlexAd = vi.fn();
+const mockUpdateLandingPage = vi.fn();
 
 vi.mock('../convexClient.js', () => ({
   getLPAgentConfig: vi.fn(),
   getLPTemplatesByProject: vi.fn(),
   createLandingPage: vi.fn(),
-  updateLandingPage: vi.fn(),
+  updateLandingPage: (...args) => mockUpdateLandingPage(...args),
   updateBatchJob: (...args) => mockUpdateBatchJob(...args),
   getBatchJob: (...args) => mockGetBatchJob(...args),
   getAdsByBatchId: vi.fn(),
@@ -54,6 +55,7 @@ describe('lpAutoGenerator batch/flex mirroring', () => {
     vi.clearAllMocks();
     mockUpdateBatchJob.mockResolvedValue();
     mockUpdateFlexAd.mockResolvedValue();
+    mockUpdateLandingPage.mockResolvedValue();
   });
 
   it('updates the batch job with LP fields', async () => {
@@ -121,5 +123,41 @@ describe('lpAutoGenerator batch/flex mirroring', () => {
     })).resolves.toMatchObject({ id: 'batch-1', flex_ad_id: null });
 
     expect(mockUpdateFlexAd).not.toHaveBeenCalled();
+  });
+
+  it('falls back to minimal gauntlet score persistence if the compact payload fails', async () => {
+    mockUpdateLandingPage
+      .mockRejectedValueOnce(new Error('Server Error'))
+      .mockResolvedValueOnce();
+
+    const { scorePersistOnly } = await import('../services/lpAutoGenerator.js');
+    const result = await scorePersistOnly({
+      lpId: 'lp-1',
+      lastScore: {
+        score: 8,
+        reasoning: 'Strong page with one minor weakness.',
+        fatal_flaws: [{ type: 'missing_offer', image_position: 'middle' }],
+        image_sensibility: 3,
+        visual_coherence: 2,
+        cta_effectiveness: 2,
+        copy_quality: 1,
+      },
+      passed: true,
+      frameResult: { imagePrescoreAttempts: 2 },
+      frameDurationMs: 12345,
+    });
+
+    expect(result.persistenceMode).toBe('minimal');
+    expect(mockUpdateLandingPage).toHaveBeenCalledTimes(2);
+    expect(mockUpdateLandingPage).toHaveBeenNthCalledWith(
+      2,
+      'lp-1',
+      expect.objectContaining({
+        gauntlet_score: 8,
+        gauntlet_status: 'passed',
+        qa_status: 'passed',
+        qa_score: expect.any(Number),
+      }),
+    );
   });
 });

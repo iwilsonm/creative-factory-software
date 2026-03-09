@@ -105,6 +105,27 @@ function buildHeadlineConstraintInstruction(headlineConstraints = null) {
   return `\nHEADLINE DIFFERENTIATION RULES:\n${parts.join('\n\n')}\n`;
 }
 
+function buildNarrativeFrameCopyGuardrails(narrativeFrame = '') {
+  const frameId = resolveNarrativeFrameId(narrativeFrame);
+  if (frameId === 'mechanism') {
+    return `
+MECHANISM FRAME MUST-HAVES:
+- Explicitly explain why common or traditional alternatives fail.
+- Name the competing approaches directly (for example: sleep supplements, bedtime routines, sleep meds, generic sleep hygiene) and explain why they miss this specific after-the-bathroom wake-up problem.
+- Use language like "doesn't address the real trigger", "misses what happens after you get back into bed", or an equivalent causal explanation.
+- Do not stop at explaining grounding in general; show why other approaches fail to solve this exact problem.
+- Include at least one dedicated subsection or paragraph that makes the alternatives-fail logic unmistakable.
+- Keep that explanation anchored to the same wake-up / bathroom-trip / back-into-bed moment.`;
+  }
+  if (frameId === 'problem_agitation') {
+    return `
+PROBLEM AGITATION FRAME MUST-HAVES:
+- Stay anchored to the recurring pain pattern and frustration of the same wake-to-pee moment.
+- Do not drift into testimonial storytelling or mechanism education before the pain is fully established.`;
+  }
+  return '';
+}
+
 function ensureArray(value) {
   return Array.isArray(value) ? value : [];
 }
@@ -124,8 +145,19 @@ function normalizeTemplateSlotName(slot = '') {
   return String(slot || '').trim().toLowerCase();
 }
 
-function getRequiredTemplateSlots(templateSlots = [], narrativeFrame = '') {
-  const normalizedSlots = ensureArray(templateSlots).map(normalizeTemplateSlotName).filter(Boolean);
+function resolveNarrativeFrameId(narrativeFrame = '') {
+  const normalized = String(narrativeFrame || '').trim().toLowerCase();
+  const match = NARRATIVE_FRAMES.find((frame) =>
+    frame.id === normalized || frame.instruction.toLowerCase() === normalized
+  );
+  return match?.id || normalized;
+}
+
+export function getRequiredTemplateSlots(placeholders = {}, narrativeFrame = '') {
+  const normalizedSlots = uniqueLowerArray([
+    ...ensureArray(placeholders.templateCopy),
+    ...ensureArray(placeholders.standardCopy),
+  ].map(normalizeTemplateSlotName).filter(Boolean));
   const required = new Set();
 
   for (const slot of normalizedSlots) {
@@ -139,8 +171,20 @@ function getRequiredTemplateSlots(templateSlots = [], narrativeFrame = '') {
     const match = normalizedSlots.find((slot) => slot === sectionType || slot.includes(sectionType));
     if (match) required.add(match);
   }
+  for (const sectionType of ensureArray(blueprint.requiredSectionTypes)) {
+    const match = normalizedSlots.find((slot) => slot === sectionType || slot.includes(sectionType));
+    if (match) required.add(match);
+  }
 
-  return normalizedSlots.filter((slot) => required.has(slot));
+  if (ensureArray(placeholders.cta).length > 0) {
+    required.add('cta');
+  }
+
+  const requiredSlots = normalizedSlots.filter((slot) => required.has(slot));
+  if (required.has('cta') && !requiredSlots.includes('cta')) {
+    requiredSlots.push('cta');
+  }
+  return requiredSlots;
 }
 
 function getMissingTemplateSlots(templateSlots = [], copySections = []) {
@@ -165,7 +209,18 @@ function mergeMissingTemplateSlotSections(baseSections = [], candidateSections =
   return merged;
 }
 
-function extractRequiredPlaceholderFailures(criticalWarnings = [], requiredSlots = []) {
+function normalizePlaceholderRequirement(slot = '') {
+  const normalized = normalizeTemplateSlotName(slot);
+  if (!normalized) return normalized;
+  if (/^cta_\d+_(url|text)$/i.test(normalized)) return 'cta';
+  if (normalized.startsWith('proof')) return 'proof';
+  if (normalized.startsWith('offer')) return 'offer';
+  if (normalized.startsWith('guarantee')) return 'guarantee';
+  if (normalized.startsWith('testimonial')) return 'proof';
+  return normalized;
+}
+
+export function extractRequiredPlaceholderFailures(criticalWarnings = [], requiredSlots = []) {
   const required = new Set(ensureArray(requiredSlots).map(normalizeTemplateSlotName));
   const failures = new Set();
 
@@ -173,7 +228,7 @@ function extractRequiredPlaceholderFailures(criticalWarnings = [], requiredSlots
     const match = String(warning || '').match(/Stripped .*?:\s*(.+)$/i);
     if (!match) continue;
     for (const rawName of match[1].split(',')) {
-      const placeholder = normalizeTemplateSlotName(rawName);
+      const placeholder = normalizePlaceholderRequirement(rawName);
       if (!placeholder) continue;
       if (required.has(placeholder)) {
         failures.add(placeholder);
@@ -1056,6 +1111,7 @@ Study these documents carefully. You will use them to write a landing page in th
   const narrativeInstruction = autoContext?.narrativeFrame
     ? `\nNARRATIVE FRAME INSTRUCTION:\n${autoContext.narrativeFrame}\n\nYou MUST write the entire landing page using this narrative frame. The frame dictates the overall voice, structure, section flow, proof style, and CTA style. This is not a cosmetic rewrite. The page must be structurally recognizable as this frame from the headline through the final CTA.\n`
     : '';
+  const frameCopyGuardrails = buildNarrativeFrameCopyGuardrails(autoContext?.narrativeFrame || '');
   const headlineConstraintInstruction = buildHeadlineConstraintInstruction(headlineConstraints);
   const campaignMessageInstruction = buildCampaignMessageInstruction(messageBrief);
 
@@ -1096,7 +1152,7 @@ MARKETING ANGLE / HOOK:
 ${angleSection}
 
 TARGET WORD COUNT: approximately ${wordCount} words
-${narrativeInstruction}${headlineConstraintInstruction}${campaignMessageInstruction}${adReferenceSection}
+${narrativeInstruction}${frameCopyGuardrails ? `${frameCopyGuardrails}\n` : ''}${headlineConstraintInstruction}${campaignMessageInstruction}${adReferenceSection}
 ${swipeText ? `SWIPE FILE REFERENCE (use this as structural and tonal inspiration — do NOT copy it verbatim):
 ${swipeText.slice(0, 15000)}
 ${swipeText.length > 15000 ? '\n[... swipe text truncated for context length ...]' : ''}` : 'No swipe file provided — use your own best judgment for structure and flow.'}
@@ -1136,7 +1192,7 @@ TEMPLATE-SPECIFIC SECTIONS — The HTML template for this landing page uses thes
 ${autoContext.templateSlots.map(slot => `  - { "type": "${slot}", "content": "..." } — Generate appropriate content for the "${slot}" section`).join('\n')}
 
 CRITICAL: The final HTML template has placeholder tags (e.g., {{${autoContext.templateSlots[0]}}}) that will be replaced with the content you provide here. If you skip any of these sections, the finished page will display raw {{placeholder}} tags to the reader. Include ALL of them.
-- Stay within 90% to 125% of the target word count. Overlong filler copy fails review.` : ''}`;
+- Stay within 90% to 115% of the target word count. Overlong filler copy fails review.` : ''}`;
 
   // Build the multi-message conversation
   const messages = [
@@ -1202,10 +1258,10 @@ CRITICAL: The final HTML template has placeholder tags (e.g., {{${autoContext.te
   // ── P1: Word count validation ──
   // Check that generated copy hits the target word count within tolerance:
   //   - Cannot be more than 10% below target
-  //   - Cannot be more than 40% above target
+  //   - Cannot be more than 30% above target
   const totalWords = validSections.reduce((sum, s) => sum + (s.content || '').split(/\s+/).filter(Boolean).length, 0);
   const minWords = Math.round(wordCount * 0.9);
-  const maxWords = Math.round(wordCount * 1.4);
+  const maxWords = Math.round(wordCount * 1.3);
   console.log(`[LPGen] Word count check: ${totalWords} words generated, target ${wordCount} (allowed range: ${minWords}–${maxWords})`);
 
   if (totalWords < minWords || totalWords > maxWords) {
@@ -1564,8 +1620,23 @@ export async function repairLPContentAlignment({
   approvedAds = [],
   messageBrief = null,
   headlineConstraints = null,
+  repairFocus = null,
 }, sendEvent = () => {}) {
   sendEvent({ type: 'progress', step: 'content_alignment_repair', message: 'Repairing landing page copy alignment...' });
+  const frameCopyGuardrails = buildNarrativeFrameCopyGuardrails(narrativeFrame);
+  const repairFocusInstruction = repairFocus === 'mechanism_alternatives_fail'
+    ? `
+TARGETED REPAIR FOCUS:
+- The page is almost correct, but it is still missing a clear "why alternatives fail" explanation for the mechanism frame.
+- Add or strengthen that mechanism subsection directly.
+- Name common alternatives explicitly and explain why they fail for this exact wake-to-pee / back-to-bed problem.
+- Preserve the rest of the page unless a small supporting change is needed for coherence.`
+    : repairFocus === 'mechanism_source_alignment'
+      ? `
+TARGETED REPAIR FOCUS:
+- The page drifted away from the exact wake-to-pee / back-to-bed angle.
+- Pull the copy back to that specific lived moment without changing the page into another frame.`
+      : '';
 
   const response = await chat(
     [
@@ -1580,7 +1651,7 @@ export async function repairLPContentAlignment({
 ANGLE: ${angle}
 NARRATIVE FRAME: ${narrativeFrame}
 HEADLINE CONTRACT: ${headlineConstraints?.contract || getNarrativeFrameHeadlineContract(narrativeFrame)}
-${buildHeadlineConstraintInstruction(headlineConstraints)}${buildCampaignMessageInstruction(messageBrief)}
+${frameCopyGuardrails ? `${frameCopyGuardrails}\n` : ''}${repairFocusInstruction ? `${repairFocusInstruction}\n` : ''}${buildHeadlineConstraintInstruction(headlineConstraints)}${buildCampaignMessageInstruction(messageBrief)}
 APPROVED AD THEMES:
 ${approvedAds.slice(0, 6).map((ad, index) => `${index + 1}. HEADLINE: ${ad.headline || '(none)'}${ad.body_copy ? `\n   OPENING: ${String(ad.body_copy).split(/[.!?]\\s/)[0]}.` : ''}`).join('\n')}
 
@@ -1603,6 +1674,7 @@ Rules:
 - Keep the page structurally in the assigned frame blueprint — do not let it collapse into a generic advertorial.
 - Do not drift into generic sleep or wellness advice.
 - Preserve the current headline and subheadline unless they need a small supporting tweak to keep the copy coherent.
+- Preserve every existing section type unless you are intentionally rewriting that same section. Do not drop template-specific slots, CTA sections, guarantee/offer/proof sections, or footer/company sections.
 - Return the full updated sections array, not just changed sections.`,
       },
     ],
@@ -1610,6 +1682,7 @@ Rules:
     {
       max_tokens: 8192,
       timeout: 120000,
+      maxRetries: 0,
       operation: 'lp_content_alignment_repair',
       projectId,
       response_format: { type: 'json_object' },
@@ -1620,6 +1693,13 @@ Rules:
   if (!parsed?.sections || !Array.isArray(parsed.sections)) {
     throw new Error('Content alignment repair returned malformed JSON.');
   }
+
+  const originalSections = (Array.isArray(copySections) ? copySections : [])
+    .filter((section) => section?.type && section?.content)
+    .map((section) => ({
+      type: String(section.type).trim(),
+      content: String(section.content).trim(),
+    }));
 
   const validSections = parsed.sections
     .filter((section) => section?.type && section?.content)
@@ -1632,8 +1712,18 @@ Rules:
     throw new Error('Content alignment repair returned no valid sections.');
   }
 
+  const repairedByType = new Map(validSections.map((section) => [section.type, section]));
+  const mergedSections = originalSections.map((section) => repairedByType.get(section.type) || section);
+  const existingTypes = new Set(mergedSections.map((section) => section.type));
+  for (const section of validSections) {
+    if (!existingTypes.has(section.type)) {
+      mergedSections.push(section);
+      existingTypes.add(section.type);
+    }
+  }
+
   return {
-    sections: validSections,
+    sections: mergedSections,
     reason: String(parsed.reason || '').trim(),
   };
 }
@@ -1911,7 +2001,7 @@ export async function generateSlotImages({
 
     try {
       const { imageBuffer, mimeType } = await generateImage(imagePrompt, aspectRatio, referenceImage, {
-        projectId, operation: 'lp_image_generation',
+        projectId, operation: 'lp_image_generation', imageModel: 'nano-banana-pro',
       });
 
       // Upload to Convex storage
@@ -1923,6 +2013,7 @@ export async function generateSlotImages({
         storageId: storageId,
         original_storageId: storageId,
         storageUrl: storageUrl,
+        mimeType,
         generated: true,
       });
 
@@ -2179,15 +2270,20 @@ export function assembleLandingPage({
   }
 
   // Replace CTA placeholders: {{cta_N_url}} and {{cta_N_text}}
-  if (ctaElements && ctaElements.length > 0) {
-    for (let i = 0; i < ctaElements.length; i++) {
+  const safeCtas = ensureArray(ctaElements);
+  if (safeCtas.length > 0) {
+    for (let i = 0; i < safeCtas.length; i++) {
       const urlPlaceholder = `{{cta_${i + 1}_url}}`;
       const textPlaceholder = `{{cta_${i + 1}_text}}`;
-      const cta = ctaElements[i];
+      const cta = safeCtas[i];
       html = html.replaceAll(urlPlaceholder, '#order');
       html = html.replaceAll(textPlaceholder, cta.text_suggestion || 'Order Now');
     }
   }
+
+  const fallbackCtaText = safeCtas[0]?.text_suggestion || 'Order Now';
+  html = html.replace(/\{\{cta_(\d+)_url\}\}/gi, '#order');
+  html = html.replace(/\{\{cta_(\d+)_text\}\}/gi, fallbackCtaText);
 
   return html;
 }
@@ -3943,7 +4039,17 @@ export async function generateAutoLP({
   const placeholders = template.skeleton_html
     ? extractTemplatePlaceholders(template.skeleton_html)
     : { metadata: [], standardCopy: [], templateCopy: [], image: [], cta: [], all: [] };
-  const requiredTemplateSlots = getRequiredTemplateSlots(placeholders.templateCopy, narrativeFrame);
+  const narrativeFrameId = resolveNarrativeFrameId(narrativeFrame);
+  const frameBlueprint = getNarrativeFrameBlueprint(narrativeFrameId);
+  const requiredTemplateSlots = getRequiredTemplateSlots(placeholders, narrativeFrame);
+  const requestedTemplateSlots = uniqueLowerArray([
+    ...ensureArray(placeholders.templateCopy),
+    ...ensureArray(frameBlueprint.requiredSectionTypes),
+  ]);
+  const requiredStructuralSlots = uniqueLowerArray([
+    ...requiredTemplateSlots,
+    ...ensureArray(frameBlueprint.requiredSectionTypes),
+  ]);
 
   if (placeholders.templateCopy.length > 0) {
     console.log(`[LPGen] Template-specific copy slots found: ${placeholders.templateCopy.join(', ')}`);
@@ -3983,8 +4089,8 @@ export async function generateAutoLP({
   let effectiveWordCount = 1200;
   if (agentConfig) {
     const frameWordCounts = agentConfig.frame_word_counts ? (() => { try { return JSON.parse(agentConfig.frame_word_counts); } catch { return {}; } })() : {};
-    const frameId = Object.keys(frameWordCounts).find(fid => narrativeFrame?.toLowerCase().includes(fid));
-    effectiveWordCount = (frameId && frameWordCounts[frameId]) || agentConfig.default_word_count || 1200;
+    const configuredFrameId = Object.keys(frameWordCounts).find(fid => narrativeFrame?.toLowerCase().includes(fid));
+    effectiveWordCount = (configuredFrameId && frameWordCounts[configuredFrameId]) || agentConfig.default_word_count || 1200;
   }
 
   const { sections: copySections, autoGeneratedAuthor, wordCountWarning } = await generateLandingPageCopy({
@@ -3997,7 +4103,7 @@ export async function generateAutoLP({
     messageBrief,
     autoContext: {
       narrativeFrame,
-      templateSlots: placeholders.templateCopy,
+      templateSlots: requestedTemplateSlots,
     },
     headlineConstraints,
   }, sendEvent);
@@ -4024,7 +4130,7 @@ export async function generateAutoLP({
       additionalDirection: `CRITICAL REQUIRED SLOT REPAIR: The template cannot proceed without these specific sections: ${missingSlots.join(', ')}. Return complete conversion-ready content for EACH missing section. Keep the page on the same angle, frame blueprint, and source message. Do not rewrite the whole page unnecessarily; focus on these missing sections.`,
       autoContext: {
         narrativeFrame,
-        templateSlots: placeholders.templateCopy,
+        templateSlots: requestedTemplateSlots,
       },
       headlineConstraints,
     }, sendEvent);
@@ -4062,7 +4168,7 @@ export async function generateAutoLP({
             additionalDirection: `CRITICAL: Your previous attempt was missing these required template sections: ${missingSlots.join(', ')}. You MUST include a section for EACH of these in your response. The template has placeholder tags for these sections — if you skip them, the finished page will have empty holes.`,
             autoContext: {
               narrativeFrame,
-              templateSlots: placeholders.templateCopy,
+              templateSlots: requestedTemplateSlots,
             },
           }, sendEvent);
 
@@ -4094,7 +4200,7 @@ export async function generateAutoLP({
     }
   }
 
-  let missingRequiredSlots = getMissingTemplateSlots(requiredTemplateSlots, copySections);
+  let missingRequiredSlots = getMissingTemplateSlots(requiredStructuralSlots, copySections);
   if (missingRequiredSlots.length > 0) {
     audit('copy_completeness', 'required_slots_missing', `Required template slots missing after generation: ${missingRequiredSlots.join(', ')}`, { missingRequiredSlots });
     try {
@@ -4405,7 +4511,7 @@ Score guide: 1=terrible/generic, 2=weak/misaligned, 3=adequate, 4=good, 5=excell
     autoGeneratedAuthor,
     avatarText: foundationalDocs?.avatar || null,
   });
-  let missingRequiredAfterPostProcess = extractRequiredPlaceholderFailures(criticalWarnings, requiredTemplateSlots);
+  let missingRequiredAfterPostProcess = extractRequiredPlaceholderFailures(criticalWarnings, requiredStructuralSlots);
   if (missingRequiredAfterPostProcess.length > 0) {
     audit('postprocess', 'required_slots_missing', `Required placeholders stripped after assembly: ${missingRequiredAfterPostProcess.join(', ')}`, { criticalWarnings });
     try {
@@ -4425,7 +4531,7 @@ Score guide: 1=terrible/generic, 2=weak/misaligned, 3=adequate, 4=good, 5=excell
           autoGeneratedAuthor,
           avatarText: foundationalDocs?.avatar || null,
         }));
-        missingRequiredAfterPostProcess = extractRequiredPlaceholderFailures(criticalWarnings, requiredTemplateSlots);
+        missingRequiredAfterPostProcess = extractRequiredPlaceholderFailures(criticalWarnings, requiredStructuralSlots);
       } else {
         missingRequiredAfterPostProcess = stillMissing;
       }
@@ -4468,6 +4574,18 @@ Score guide: 1=terrible/generic, 2=weak/misaligned, 3=adequate, 4=good, 5=excell
     auditTrail,
     phaseTiming,
   };
+}
+
+export async function generateAutoLPCopyOnly(params, sendEvent) {
+  const autoContext = params?.autoContext || {};
+  return generateAutoLP({
+    ...params,
+    autoContext: {
+      ...autoContext,
+      preGeneratedImages: autoContext.preGeneratedImages || autoContext.imageSlots || [],
+      cachedHtmlTemplate: autoContext.cachedHtmlTemplate || autoContext.htmlTemplate || null,
+    },
+  }, sendEvent);
 }
 
 // ─── Visual QA Check ────────────────────────────────────────────────────────
@@ -4944,7 +5062,7 @@ export async function preScoreAndRetryImages(imageSlots, angle, autoContext, pro
 
       const scoreResult = await preScoreImage(
         imageBuffer.toString('base64'),
-        'image/png',
+        currentSlot.mimeType || detectImageMimeType(imageBuffer),
         imageContext.avatarContext,
         imageContext.productContext,
         imageContext.productVisual,
@@ -4978,7 +5096,7 @@ export async function preScoreAndRetryImages(imageSlots, angle, autoContext, pro
           const referenceImage = (isProductSlot && autoContext?.productImageData) ? autoContext.productImageData : null;
 
           const { imageBuffer: newBuffer, mimeType: newMimeType } = await generateImage(imagePrompt, slot.aspect_ratio || '16:9', referenceImage, {
-            projectId, operation: 'lp_image_prescore_retry',
+            projectId, operation: 'lp_image_prescore_retry', imageModel: 'nano-banana-pro',
           });
 
           const storageId = await uploadBuffer(newBuffer, newMimeType);
@@ -4988,6 +5106,7 @@ export async function preScoreAndRetryImages(imageSlots, angle, autoContext, pro
             ...slot,
             storageId,
             storageUrl,
+            mimeType: newMimeType,
             generated: true,
           };
           updatedSlots[i] = currentSlot;
@@ -5195,7 +5314,7 @@ export async function regenerateFailedImages(assembledHtml, fatalFlaws, imageSlo
       const referenceImage = (isProductSlot && autoContext?.productImageData) ? autoContext.productImageData : null;
 
       const { imageBuffer, mimeType } = await generateImage(imagePrompt, targetSlot.aspect_ratio || '16:9', referenceImage, {
-        projectId, operation: 'lp_gauntlet_image_regen',
+        projectId, operation: 'lp_gauntlet_image_regen', imageModel: 'nano-banana-pro',
       });
 
       const storageId = await uploadBuffer(imageBuffer, mimeType);
@@ -5206,6 +5325,7 @@ export async function regenerateFailedImages(assembledHtml, fatalFlaws, imageSlo
         html = html.split(targetSlot.storageUrl).join(newUrl);
         targetSlot.storageId = storageId;
         targetSlot.storageUrl = newUrl;
+        targetSlot.mimeType = mimeType;
         regeneratedCount++;
       }
     } catch (err) {

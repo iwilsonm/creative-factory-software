@@ -214,8 +214,8 @@ router.get('/:id/lp-agent/shopify/status', async (req, res) => {
  */
 router.post('/:id/lp-agent/generate-test', async (req, res) => {
   const projectId = req.params.id;
-  const { template_id, narrative_frame, angle_description } = req.body;
-  console.log(`[LP Agent] generate-test: project=${projectId?.slice(0, 8)}, template=${template_id?.slice(0, 8)}, frame=${narrative_frame}`);
+  const { template_id, narrative_frame, angle_description, publish = false } = req.body;
+  console.log(`[LP Agent] generate-test: project=${projectId?.slice(0, 8)}, template=${template_id?.slice(0, 8)}, frame=${narrative_frame}, publish=${!!publish}`);
 
   if (!template_id || !narrative_frame || !angle_description) {
     return res.status(400).json({ error: 'template_id, narrative_frame, and angle_description are required' });
@@ -341,7 +341,7 @@ router.post('/:id/lp-agent/generate-test', async (req, res) => {
 
     // Auto-publish + smoke test (only if QA passed and Shopify configured)
     let publishedUrl = null;
-    const shouldAutoPublish = agentConfig?.auto_publish !== false;
+    const shouldAutoPublish = !!publish && agentConfig?.auto_publish !== false;
     const qaOk = !qaReport || qaReport.passed;
     if (shouldAutoPublish && qaOk && agentConfig?.shopify_access_token && agentConfig?.shopify_store_domain) {
       try {
@@ -473,15 +473,19 @@ router.get('/:id/lp-agent/gauntlet-progress', (req, res) => {
  */
 router.post('/:id/lp-agent/gauntlet-test', async (req, res) => {
   const projectId = req.params.id;
-  const { dry_run = false, angle = null } = req.body;
-  console.log(`[LP Agent] gauntlet-test: project=${projectId?.slice(0, 8)}, dry_run=${dry_run}, angle=${angle || '(none)'}`);
+  const { dry_run = false, angle = null, frame_ids = null } = req.body;
+  console.log(`[LP Agent] gauntlet-test: project=${projectId?.slice(0, 8)}, dry_run=${dry_run}, angle=${angle || '(none)'}, frames=${Array.isArray(frame_ids) ? frame_ids.join(',') : '(default)'}`);
 
   // Open SSE stream IMMEDIATELY
   const { sendEvent, end, isClosed } = createSSEStream(req, res);
   sendEvent({ type: 'progress', step: 'initializing', message: 'Starting LP Gauntlet...' });
 
   try {
-    const report = await runGauntlet(projectId, { dryRun: !!dry_run, angle }, sendEvent);
+    const report = await runGauntlet(projectId, {
+      dryRun: !!dry_run,
+      angle,
+      frameIds: Array.isArray(frame_ids) && frame_ids.length > 0 ? frame_ids : null,
+    }, sendEvent);
 
     sendEvent({
       type: 'complete',

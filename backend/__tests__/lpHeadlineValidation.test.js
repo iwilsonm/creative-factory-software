@@ -162,6 +162,18 @@ describe('lpHeadlineValidation', () => {
     expect(result.reason).toContain('winning ad message');
   });
 
+  it('accepts mechanism headlines that stay on the bathroom-trip to back-to-sleep scene using synonyms', () => {
+    const result = validateLPHeadlineSourceAlignment({
+      headline: "How a Two-Minute Bathroom Trip Hijacks Your Nervous System — And Why Your Body Can't Find Its Way Back to Sleep Without This One Missing Reset",
+      subheadline: "The problem isn't that you woke up. It's that the moment your feet hit the floor, an electrical discharge cycle breaks — and without a way to restore it, your nervous system stays locked in alert mode until morning.",
+      angle: 'Wakes to Pee, Then Cannot Fall Back Asleep',
+    });
+
+    expect(result.passed).toBe(true);
+    expect(result.hits.scene).toContain('bathroom trip');
+    expect(result.hits.scene).toContain('return to sleep');
+  });
+
   it('accepts copy that stays aligned with the angle and frame', () => {
     const result = validateLPContentAlignment({
       narrativeFrame: 'problem_agitation',
@@ -201,5 +213,48 @@ describe('lpHeadlineValidation', () => {
 
     expect(result.passed).toBe(false);
     expect(result.reason).toContain('mechanism');
+  });
+
+  it('accepts template slot aliases as valid frame structure', () => {
+    const result = validateLPFrameBlueprint({
+      headline: 'Why your body stays alert after a 2 AM bathroom trip',
+      narrativeFrame: 'mechanism',
+      angle: 'Wakes to Pee, Then Cannot Fall Back Asleep',
+      copySections: [
+        { type: 'headline', content: 'Why your body stays alert after a 2 AM bathroom trip' },
+        { type: 'opening_paragraph', content: 'You get back into bed after the bathroom and your system stays switched on because your body interprets that wake-up as a full restart.' },
+        { type: 'discovery_copy_1', content: 'That is why the usual sleep tricks fail: they never address the signal that keeps your nervous system alert.' },
+        { type: 'results_copy_1', content: 'Once that signal is calmed, getting back to sleep becomes much easier.' },
+      ],
+    });
+
+    expect(result.passed).toBe(true);
+  });
+
+  it('accepts a long template where the mechanism explanation appears after early decorative slots', () => {
+    const result = validateLPContentAlignment({
+      narrativeFrame: 'mechanism',
+      angle: 'Wakes to Pee, Then Cannot Fall Back Asleep',
+      headline: 'Why your body stays alert after a 2 AM bathroom trip',
+      subheadline: 'The bathroom trip is not the whole problem — what happens when you get back into bed is.',
+      copySections: [
+        { type: 'page_title', content: 'Why your body stays alert after a 2 AM bathroom trip' },
+        { type: 'category_label', content: 'Sleep Support' },
+        { type: 'byline', content: 'Debra Holloway' },
+        { type: 'image_1_alt', content: 'Woman lying awake in bed at 2 AM' },
+        { type: 'image_caption', content: 'What feels like a bathroom issue is often a signaling issue.' },
+        { type: 'opening_paragraph', content: 'You get back into bed after the bathroom and your whole system feels more awake than it did before you stood up.' },
+        { type: 'problem_heading', content: 'Why it feels so confusing' },
+        { type: 'problem_copy_1', content: 'Most people think the bathroom trip is the full explanation, but the real friction starts when you return to bed and your system never downshifts again.' },
+        { type: 'comparison_heading', content: 'Why the usual sleep fixes fail here' },
+        { type: 'bad_feature_1', content: 'Sleep supplements only try to make you drowsy — they do not address the trigger your nervous system is reacting to after that middle-of-the-night wake-up.' },
+        { type: 'bad_feature_2', content: 'Bedtime routines may help you fall asleep initially, but they miss what happens after you get back into bed at 2 or 3 AM.' },
+        { type: 'discovery_heading', content: 'The mechanism most people miss' },
+        { type: 'discovery_copy_1', content: 'The hidden issue is that your body can stay electrically and neurologically alert after the interruption, which is why common alternatives fail to calm the real trigger.' },
+        { type: 'results_copy_1', content: 'Once that alert signal is addressed, getting back to sleep becomes much easier.' },
+      ],
+    });
+
+    expect(result.passed).toBe(true);
   });
 });
