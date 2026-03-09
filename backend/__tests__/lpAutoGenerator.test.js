@@ -150,6 +150,13 @@ describe('lpAutoGenerator batch/flex mirroring', () => {
     expect(result.persistenceMode).toBe('minimal');
     expect(mockUpdateLandingPage).toHaveBeenCalledTimes(2);
     expect(mockUpdateLandingPage).toHaveBeenNthCalledWith(
+      1,
+      'lp-1',
+      expect.not.objectContaining({
+        qa_report: expect.anything(),
+      }),
+    );
+    expect(mockUpdateLandingPage).toHaveBeenNthCalledWith(
       2,
       'lp-1',
       expect.objectContaining({
@@ -157,6 +164,76 @@ describe('lpAutoGenerator batch/flex mirroring', () => {
         gauntlet_status: 'passed',
         qa_status: 'passed',
         qa_score: expect.any(Number),
+      }),
+    );
+  });
+
+  it('stores compact gauntlet score fields without qa_report on the primary path', async () => {
+    mockUpdateLandingPage.mockResolvedValueOnce();
+
+    const { scorePersistOnly } = await import('../services/lpAutoGenerator.js');
+    const result = await scorePersistOnly({
+      lpId: 'lp-2',
+      lastScore: {
+        score: 9,
+        reasoning: 'Clear frame alignment and strong score.',
+        fatal_flaws: [],
+        image_sensibility: 4,
+        visual_coherence: 2,
+        cta_effectiveness: 2,
+        copy_quality: 1,
+      },
+      passed: true,
+      frameResult: { imagePrescoreAttempts: 1 },
+      frameDurationMs: 6789,
+    });
+
+    expect(result.persistenceMode).toBe('full');
+    expect(mockUpdateLandingPage).toHaveBeenCalledTimes(1);
+    expect(mockUpdateLandingPage).toHaveBeenCalledWith(
+      'lp-2',
+      expect.not.objectContaining({
+        qa_report: expect.anything(),
+      }),
+    );
+    expect(mockUpdateLandingPage).toHaveBeenCalledWith(
+      'lp-2',
+      expect.objectContaining({
+        gauntlet_score: 9,
+        gauntlet_status: 'passed',
+        qa_status: 'passed',
+        qa_score: expect.any(Number),
+        qa_issues_count: 0,
+      }),
+    );
+  });
+
+  it('omits gauntlet_score when no numeric score exists', async () => {
+    mockUpdateLandingPage.mockResolvedValueOnce();
+
+    const { scorePersistOnly } = await import('../services/lpAutoGenerator.js');
+    const result = await scorePersistOnly({
+      lpId: 'lp-3',
+      lastScore: null,
+      passed: false,
+      frameResult: { imagePrescoreAttempts: 2 },
+      frameDurationMs: 4321,
+    });
+
+    expect(result.persistenceMode).toBe('full');
+    expect(mockUpdateLandingPage).toHaveBeenCalledTimes(1);
+    expect(mockUpdateLandingPage).toHaveBeenCalledWith(
+      'lp-3',
+      expect.not.objectContaining({
+        gauntlet_score: null,
+      }),
+    );
+    expect(mockUpdateLandingPage).toHaveBeenCalledWith(
+      'lp-3',
+      expect.objectContaining({
+        gauntlet_status: 'failed',
+        qa_status: 'failed',
+        qa_score: 0,
       }),
     );
   });

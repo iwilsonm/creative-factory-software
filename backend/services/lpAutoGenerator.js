@@ -244,6 +244,42 @@ function buildCompactGauntletQAReport(lastScore, passed) {
   };
 }
 
+function buildGauntletDraftFields({
+  headlineEvaluation,
+  attempt,
+  lpSlug,
+}) {
+  return {
+    status: 'draft',
+    headline_text: headlineEvaluation.headline || undefined,
+    subheadline_text: headlineEvaluation.subheadline || undefined,
+    headline_frame_alignment_status: headlineEvaluation.frameAlignment.passed ? 'passed' : 'failed',
+    headline_frame_alignment_reason: headlineEvaluation.frameAlignment.reason,
+    frame_blueprint_status: headlineEvaluation.frameBlueprint.passed ? 'passed' : 'failed',
+    frame_blueprint_reason: headlineEvaluation.frameBlueprint.reason,
+    headline_uniqueness_status: headlineEvaluation.uniqueness.passed ? 'passed' : 'failed',
+    headline_uniqueness_reason: headlineEvaluation.uniqueness.reason,
+    headline_duplicate_of_lp_id: headlineEvaluation.uniqueness.duplicateOf || undefined,
+    title_family_uniqueness_status: headlineEvaluation.titleFamilyUniqueness.passed ? 'passed' : 'failed',
+    title_family_uniqueness_reason: headlineEvaluation.titleFamilyUniqueness.reason,
+    headline_history_status: headlineEvaluation.history.passed ? 'passed' : 'failed',
+    headline_history_reason: headlineEvaluation.history.reason,
+    headline_signature: headlineEvaluation.headline_signature || undefined,
+    gauntlet_attempt: attempt,
+    gauntlet_status: 'scoring',
+    slug: lpSlug,
+  };
+}
+
+function buildGauntletPublishFields(lpResult) {
+  return {
+    copy_sections: JSON.stringify(lpResult.copySections),
+    image_slots: JSON.stringify(lpResult.imageSlots),
+    html_template: lpResult.htmlTemplate,
+    assembled_html: lpResult.assembledHtml,
+  };
+}
+
 async function persistGauntletScoreResult(lpId, {
   lastScore,
   passed,
@@ -251,15 +287,18 @@ async function persistGauntletScoreResult(lpId, {
   frameDurationMs,
 }) {
   const compactQaReport = buildCompactGauntletQAReport(lastScore, passed);
+  const gauntletScore = typeof lastScore?.score === 'number' ? lastScore.score : undefined;
+  const gauntletReasoning = lastScore?.reasoning
+    ? String(lastScore.reasoning).slice(0, 1200)
+    : compactQaReport.summary;
   const primaryFields = {
-    gauntlet_score: lastScore?.score ?? null,
-    gauntlet_score_reasoning: lastScore?.reasoning ? String(lastScore.reasoning).slice(0, 1200) : null,
+    gauntlet_score: gauntletScore,
+    gauntlet_score_reasoning: gauntletReasoning,
     gauntlet_status: passed ? 'passed' : 'failed',
     gauntlet_image_prescore_attempts: frameResult.imagePrescoreAttempts,
     generation_duration_ms: frameDurationMs,
     qa_status: passed ? 'passed' : 'failed',
     qa_score: compactQaReport.score,
-    qa_report: JSON.stringify(compactQaReport),
     qa_issues_count: compactQaReport.fatal_flaw_count,
   };
 
@@ -269,7 +308,7 @@ async function persistGauntletScoreResult(lpId, {
   } catch (err) {
     console.warn(`[Gauntlet] Compact score persistence failed for ${lpId.slice(0, 8)}:`, err.message);
     const fallbackFields = {
-      gauntlet_score: lastScore?.score ?? null,
+      gauntlet_score: gauntletScore,
       gauntlet_score_reasoning: compactQaReport.summary,
       gauntlet_status: passed ? 'passed' : 'failed',
       gauntlet_image_prescore_attempts: frameResult.imagePrescoreAttempts,
@@ -1254,33 +1293,15 @@ export async function runGauntlet(projectId, options = {}, sendEventRaw) {
         });
         const lpSlug = generateSlug(lpSlugSource);
 
-        await updateLandingPageSafely(lpId, {
-          status: 'draft',
-          copy_sections: JSON.stringify(lpResult.copySections),
-          image_slots: JSON.stringify(lpResult.imageSlots),
-          html_template: lpResult.htmlTemplate,
-          assembled_html: lpResult.assembledHtml,
-          swipe_design_analysis: JSON.stringify(lpResult.designAnalysis),
-          audit_trail: lpResult.auditTrail ? JSON.stringify(lpResult.auditTrail) : undefined,
-          editorial_plan: lpResult.editorialPlan ? JSON.stringify(lpResult.editorialPlan) : undefined,
-          headline_text: headlineEvaluation.headline || undefined,
-          subheadline_text: headlineEvaluation.subheadline || undefined,
-          headline_frame_alignment_status: headlineEvaluation.frameAlignment.passed ? 'passed' : 'failed',
-          headline_frame_alignment_reason: headlineEvaluation.frameAlignment.reason,
-          frame_blueprint_status: headlineEvaluation.frameBlueprint.passed ? 'passed' : 'failed',
-          frame_blueprint_reason: headlineEvaluation.frameBlueprint.reason,
-          headline_uniqueness_status: headlineEvaluation.uniqueness.passed ? 'passed' : 'failed',
-          headline_uniqueness_reason: headlineEvaluation.uniqueness.reason,
-          headline_duplicate_of_lp_id: headlineEvaluation.uniqueness.duplicateOf || undefined,
-          title_family_uniqueness_status: headlineEvaluation.titleFamilyUniqueness.passed ? 'passed' : 'failed',
-          title_family_uniqueness_reason: headlineEvaluation.titleFamilyUniqueness.reason,
-          headline_history_status: headlineEvaluation.history.passed ? 'passed' : 'failed',
-          headline_history_reason: headlineEvaluation.history.reason,
-          headline_signature: headlineEvaluation.headline_signature || undefined,
-          gauntlet_attempt: attempt,
-          gauntlet_status: 'scoring',
-          slug: lpSlug,
-        }, { stage: 'store_generated_lp' });
+        await updateLandingPageSafely(
+          lpId,
+          buildGauntletDraftFields({
+            headlineEvaluation,
+            attempt,
+            lpSlug,
+          }),
+          { stage: 'store_generated_lp' }
+        );
 
         // 5f. Score the LP
         sendEvent({ type: 'progress', step: 'gauntlet_scoring', message: `LP ${frameNum} of ${totalFrames} — Scoring...` });
@@ -1419,6 +1440,9 @@ export async function runGauntlet(projectId, options = {}, sendEventRaw) {
         sendEvent({ type: 'progress', step: 'gauntlet_publishing', message: `LP ${frameNum} of ${totalFrames} — Publishing to Shopify...` });
 
         try {
+          await updateLandingPageSafely(lpId, buildGauntletPublishFields(lpResult), {
+            stage: 'store_publish_payload',
+          });
           const { publishResult, smokeResult, verified } = await publishAndSmokeTest(lpId, projectId, {
             pdpUrl: config.pdp_url,
           });
