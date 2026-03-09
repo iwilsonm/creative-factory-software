@@ -2,20 +2,24 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 const mockFetch = vi.fn();
 const mockGetLPAgentConfig = vi.fn();
+const mockGetLandingPage = vi.fn();
+const mockUpdateLandingPage = vi.fn();
+const mockCreateLandingPageVersion = vi.fn();
+const mockGetProject = vi.fn();
 
 vi.mock('node-fetch', () => ({
   default: (...args) => mockFetch(...args),
 }));
 
 vi.mock('../convexClient.js', () => ({
-  getLandingPage: vi.fn(),
+  getLandingPage: (...args) => mockGetLandingPage(...args),
   getLandingPagesByProject: vi.fn(),
-  updateLandingPage: vi.fn(),
-  createLandingPageVersion: vi.fn(),
+  updateLandingPage: (...args) => mockUpdateLandingPage(...args),
+  createLandingPageVersion: (...args) => mockCreateLandingPageVersion(...args),
   getStorageUrl: vi.fn(),
   downloadToBuffer: vi.fn(),
   getLPAgentConfig: (...args) => mockGetLPAgentConfig(...args),
-  getProject: vi.fn(),
+  getProject: (...args) => mockGetProject(...args),
 }));
 
 describe('lpPublisher verifyLive', () => {
@@ -26,6 +30,12 @@ describe('lpPublisher verifyLive', () => {
       shopify_access_token: 'shpat_test',
       pdp_url: 'https://example.com/products/foo',
     });
+    mockGetProject.mockResolvedValue({
+      name: 'Grounding Bedsheet',
+      niche: 'Health/Wellness',
+    });
+    mockUpdateLandingPage.mockResolvedValue(undefined);
+    mockCreateLandingPageVersion.mockResolvedValue(undefined);
   });
 
   it('passes when the live URL responds and the Shopify page uses template lander', async () => {
@@ -73,5 +83,32 @@ describe('lpPublisher verifyLive', () => {
 
     expect(result.verified).toBe(false);
     expect(result.error).toContain('template mismatch');
+  });
+
+  it('blocks publish before Shopify when required placeholders remain unresolved', async () => {
+    mockGetLandingPage.mockResolvedValue({
+      externalId: 'lp-1',
+      current_version: 1,
+      name: 'LP Batch — Myth Busting',
+      angle: 'Wakes to Pee, Then Cannot Fall Back Asleep',
+      narrative_frame: 'myth_busting',
+      html_template: '<section>{{proof}}</section><a href="{{cta_1_url}}">{{cta_1_text}}</a>',
+      copy_sections: '[]',
+      cta_links: '[]',
+      image_slots: '[]',
+    });
+
+    const { publishToShopify } = await import('../services/lpPublisher.js');
+
+    await expect(publishToShopify('lp-1', 'project-1')).rejects.toThrow(
+      'Required publish placeholders unresolved before publish: proof'
+    );
+    expect(mockFetch).not.toHaveBeenCalled();
+    expect(mockUpdateLandingPage).toHaveBeenCalledWith(
+      'lp-1',
+      expect.objectContaining({
+        smoke_test_status: 'failed',
+      }),
+    );
   });
 });

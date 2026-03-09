@@ -4,6 +4,9 @@ let assembleLandingPage;
 let extractRequiredPlaceholderFailures;
 let getRequiredTemplateSlots;
 let getMissingTemplateSlots;
+let postProcessLP;
+let extractTemplatePlaceholders;
+let getRequiredPlaceholderNames;
 
 beforeAll(async () => {
   process.env.CONVEX_URL ||= 'https://test-convex.invalid';
@@ -12,6 +15,9 @@ beforeAll(async () => {
   extractRequiredPlaceholderFailures = lpGenerator.extractRequiredPlaceholderFailures;
   getRequiredTemplateSlots = lpGenerator.getRequiredTemplateSlots;
   getMissingTemplateSlots = lpGenerator.getMissingTemplateSlots;
+  postProcessLP = lpGenerator.postProcessLP;
+  extractTemplatePlaceholders = lpGenerator.extractTemplatePlaceholders;
+  getRequiredPlaceholderNames = lpGenerator.getRequiredPlaceholderNames;
 });
 
 describe('lpGenerator helpers', () => {
@@ -73,5 +79,38 @@ describe('lpGenerator helpers', () => {
 
     expect(failures).toEqual(expect.arrayContaining(['problem', 'proof']));
     expect(failures).not.toContain('benefits');
+  });
+
+  it('classifies CTA element placeholders as required publish placeholders', () => {
+    const placeholders = extractTemplatePlaceholders(`
+      <a href="{{cta_1_url}}">{{cta_1_text}}</a>
+      <a href="{{cta_2_url}}">{{cta_2_text}}</a>
+      <div>{{proof}}</div>
+      <aside>{{decorative_note}}</aside>
+    `);
+
+    const requiredNames = getRequiredPlaceholderNames(placeholders, 'listicle');
+
+    expect(requiredNames).toEqual(expect.arrayContaining([
+      'cta_1_url',
+      'cta_1_text',
+      'cta_2_url',
+      'cta_2_text',
+      'proof',
+    ]));
+    expect(requiredNames).not.toContain('decorative_note');
+  });
+
+  it('strips optional placeholders but keeps required placeholders visible for failure handling', () => {
+    const result = postProcessLP(
+      '<div>{{decorative_note}}</div><a href="{{cta_1_url}}">{{cta_1_text}}</a>',
+      { requiredPlaceholderNames: ['cta_1_url', 'cta_1_text'] },
+    );
+
+    expect(result.html).not.toContain('{{decorative_note}}');
+    expect(result.html).toContain('{{cta_1_url}}');
+    expect(result.html).toContain('{{cta_1_text}}');
+    expect(result.requiredWarnings).toEqual(expect.arrayContaining(['cta_1_url', 'cta_1_text']));
+    expect(result.warnings).toEqual(expect.arrayContaining(['decorative_note']));
   });
 });

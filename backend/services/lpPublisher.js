@@ -24,7 +24,7 @@ import {
 import { v4 as uuidv4 } from 'uuid';
 import { withRetry } from './retry.js';
 import fetch from 'node-fetch';
-import { postProcessLP } from './lpGenerator.js';
+import { extractTemplatePlaceholders, getRequiredPlaceholderNames, postProcessLP } from './lpGenerator.js';
 import { inspectVisiblePlaceholdersInHtml } from './lpSmokeTest.js';
 
 const REQUIRED_LP_TEMPLATE_SUFFIX = 'lander';
@@ -248,6 +248,10 @@ async function bakeFinalHtml(page, pdpUrl) {
     html = html.replaceAll(textPlaceholder, cta.text || cta.text_suggestion || 'Order Now');
   }
 
+  const fallbackCtaText = ctaLinks[0]?.text || ctaLinks[0]?.text_suggestion || 'Order Now';
+  html = html.replace(/\{\{cta_(\d+)_url\}\}/gi, pdpUrl);
+  html = html.replace(/\{\{cta_(\d+)_text\}\}/gi, fallbackCtaText);
+
   return html;
 }
 
@@ -301,12 +305,38 @@ export async function publishToShopify(pageId, projectId) {
   // This is critical — bakeFinalHtml() rebuilds from html_template which still has {{publish_date}} etc.
   const project = await getProject(projectId);
   const agentConfig = await getLPAgentConfig(projectId).catch(() => null);
-  const { html: processedHtml } = postProcessLP(finalHtml, {
+  const placeholders = extractTemplatePlaceholders(page.html_template || '');
+  const requiredPlaceholderNames = getRequiredPlaceholderNames(placeholders, page.narrative_frame || '');
+  const { html: processedHtml, requiredWarnings } = postProcessLP(finalHtml, {
     project,
     agentConfig,
     angle: page.angle || '',
+    requiredPlaceholderNames,
   });
   finalHtml = processedHtml;
+
+  if (requiredWarnings.length > 0) {
+    const detail = `Required placeholders unresolved before publish: ${requiredWarnings.slice(0, 10).join(', ')}`;
+    await updateLandingPage(pageId, {
+      smoke_test_status: 'failed',
+      smoke_test_report: JSON.stringify({
+        passed: false,
+        failedCount: 1,
+        checks: [
+          {
+            name: 'required_placeholders_resolved',
+            passed: false,
+            detail,
+          },
+        ],
+        requiredPlaceholderMatches: requiredWarnings,
+        requiredPlaceholderCount: requiredWarnings.length,
+        source: 'pre_publish_validation',
+      }),
+      smoke_test_at: new Date().toISOString(),
+    });
+    throw new Error(`Required publish placeholders unresolved before publish: ${requiredWarnings.slice(0, 10).join(', ')}`);
+  }
 
   const visiblePlaceholderMatches = await inspectVisiblePlaceholdersInHtml(finalHtml);
   if (visiblePlaceholderMatches.length > 0) {
