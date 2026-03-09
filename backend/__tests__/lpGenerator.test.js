@@ -3,6 +3,7 @@ import { beforeAll, describe, expect, it } from 'vitest';
 let assembleLandingPage;
 let extractRequiredPlaceholderFailures;
 let getRequiredTemplateSlots;
+let getMissingTemplateSlots;
 
 beforeAll(async () => {
   process.env.CONVEX_URL ||= 'https://test-convex.invalid';
@@ -10,6 +11,7 @@ beforeAll(async () => {
   assembleLandingPage = lpGenerator.assembleLandingPage;
   extractRequiredPlaceholderFailures = lpGenerator.extractRequiredPlaceholderFailures;
   getRequiredTemplateSlots = lpGenerator.getRequiredTemplateSlots;
+  getMissingTemplateSlots = lpGenerator.getMissingTemplateSlots;
 });
 
 describe('lpGenerator helpers', () => {
@@ -47,5 +49,29 @@ describe('lpGenerator helpers', () => {
     );
 
     expect(failures).toEqual(expect.arrayContaining(['cta', 'proof']));
+  });
+
+  it('treats empty required sections as missing even when the section type exists', () => {
+    const missing = getMissingTemplateSlots(
+      ['problem', 'proof', 'cta'],
+      [
+        { type: 'problem', content: '   ' },
+        { type: 'proof', content: '<p>Actual evidence goes here.</p>' },
+        { type: 'cta', content: '' },
+      ],
+    );
+
+    expect(missing).toEqual(expect.arrayContaining(['problem', 'cta']));
+    expect(missing).not.toContain('proof');
+  });
+
+  it('treats stripped myth-busting problem/proof placeholders as required failures', () => {
+    const failures = extractRequiredPlaceholderFailures(
+      ['Stripped 3 unfilled placeholder(s): problem, benefits, proof'],
+      ['lead', 'problem', 'solution', 'proof', 'cta'],
+    );
+
+    expect(failures).toEqual(expect.arrayContaining(['problem', 'proof']));
+    expect(failures).not.toContain('benefits');
   });
 });

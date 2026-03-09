@@ -1086,12 +1086,16 @@ export async function runGauntlet(projectId, options = {}, sendEventRaw) {
           });
         } catch (genErr) {
           console.error(`[Gauntlet] Frame ${frameNum} generation failed (attempt ${attempt}):`, genErr.message);
-          if (attempt > maxLPRetries) {
+          const isRequiredSlotFailure = /Required template slots missing after (repair|post-process repair)/i.test(genErr.message || '');
+          if (attempt > maxLPRetries || isRequiredSlotFailure) {
+            const failureReason = isRequiredSlotFailure
+              ? `missing_required_conversion_slots: ${genErr.message}`
+              : genErr.message;
             frameResult.status = 'failed';
-            frameResult.error = genErr.message;
+            frameResult.error = failureReason;
             await updateLandingPageSafely(lpId, {
               status: 'failed',
-              error_message: genErr.message,
+              error_message: failureReason,
               gauntlet_status: 'failed',
               gauntlet_attempt: attempt,
             }, { stage: 'generation_failure' });

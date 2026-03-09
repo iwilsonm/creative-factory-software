@@ -134,6 +134,14 @@ function uniqueLowerArray(values = []) {
   return [...new Set(ensureArray(values).map((value) => String(value || '').trim()).filter(Boolean))];
 }
 
+function hasMeaningfulSectionContent(section) {
+  return String(section?.content || '')
+    .replace(/<[^>]+>/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .length > 0;
+}
+
 const UNIVERSAL_REQUIRED_TEMPLATE_SLOT_PATTERNS = [
   /\boffer\b/i,
   /\bcta\b/i,
@@ -187,22 +195,42 @@ export function getRequiredTemplateSlots(placeholders = {}, narrativeFrame = '')
   return requiredSlots;
 }
 
-function getMissingTemplateSlots(templateSlots = [], copySections = []) {
-  const present = new Set(ensureArray(copySections).map((section) => normalizeTemplateSlotName(section?.type)).filter(Boolean));
+export function getMissingTemplateSlots(templateSlots = [], copySections = []) {
+  const present = new Set(
+    ensureArray(copySections)
+      .filter((section) => hasMeaningfulSectionContent(section))
+      .map((section) => normalizeTemplateSlotName(section?.type))
+      .filter(Boolean)
+  );
   return ensureArray(templateSlots).filter((slot) => !present.has(normalizeTemplateSlotName(slot)));
 }
 
 function mergeMissingTemplateSlotSections(baseSections = [], candidateSections = [], targetSlots = []) {
   const merged = ensureArray(baseSections).map((section) => ({ ...section }));
-  const existing = new Set(merged.map((section) => normalizeTemplateSlotName(section?.type)).filter(Boolean));
+  const existingIndexes = new Map();
+
+  merged.forEach((section, index) => {
+    const normalizedType = normalizeTemplateSlotName(section?.type);
+    if (normalizedType && !existingIndexes.has(normalizedType)) {
+      existingIndexes.set(normalizedType, index);
+    }
+  });
 
   for (const slot of ensureArray(targetSlots)) {
     const normalizedSlot = normalizeTemplateSlotName(slot);
-    if (existing.has(normalizedSlot)) continue;
     const candidate = ensureArray(candidateSections).find((section) => normalizeTemplateSlotName(section?.type) === normalizedSlot && String(section?.content || '').trim());
+    const existingIndex = existingIndexes.get(normalizedSlot);
+
+    if (existingIndex != null) {
+      if (!hasMeaningfulSectionContent(merged[existingIndex]) && candidate) {
+        merged[existingIndex] = { ...candidate, type: normalizedSlot };
+      }
+      continue;
+    }
+
     if (candidate) {
       merged.push({ ...candidate, type: normalizedSlot });
-      existing.add(normalizedSlot);
+      existingIndexes.set(normalizedSlot, merged.length - 1);
     }
   }
 
@@ -4044,6 +4072,7 @@ export async function generateAutoLP({
   const requiredTemplateSlots = getRequiredTemplateSlots(placeholders, narrativeFrame);
   const requestedTemplateSlots = uniqueLowerArray([
     ...ensureArray(placeholders.templateCopy),
+    ...ensureArray(frameBlueprint.sectionEmphasis),
     ...ensureArray(frameBlueprint.requiredSectionTypes),
   ]);
   const requiredStructuralSlots = uniqueLowerArray([
@@ -4539,6 +4568,11 @@ Score guide: 1=terrible/generic, 2=weak/misaligned, 3=adequate, 4=good, 5=excell
       console.warn('[LPGen] Required placeholder repair failed:', err.message);
       audit('postprocess', 'required_slot_repair_failed', err.message, { missingRequiredAfterPostProcess });
     }
+  }
+  const missingRequiredStructuralContent = getMissingTemplateSlots(requiredStructuralSlots, copySections);
+  if (missingRequiredStructuralContent.length > 0) {
+    audit('postprocess', 'required_slots_missing', `Required structural sections still missing after post-process: ${missingRequiredStructuralContent.join(', ')}`, { missingRequiredStructuralContent });
+    throw new Error(`Required template slots missing after post-process repair: ${missingRequiredStructuralContent.join(', ')}`);
   }
   if (missingRequiredAfterPostProcess.length > 0) {
     throw new Error(`Required template slots missing after post-process repair: ${missingRequiredAfterPostProcess.join(', ')}`);
