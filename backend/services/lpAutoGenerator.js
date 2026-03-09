@@ -169,6 +169,51 @@ function buildHeadlineConstraintBundle(frame, usedHeadlines, angleHistory) {
   };
 }
 
+const LP_HEAVY_UPDATE_KEYS = new Set([
+  'copy_sections',
+  'image_slots',
+  'html_template',
+  'assembled_html',
+  'swipe_design_analysis',
+  'audit_trail',
+  'editorial_plan',
+  'qa_report',
+  'smoke_test_report',
+  'final_html',
+  'hosting_metadata',
+]);
+
+function mapLandingPageMutationError(stage, err) {
+  const message = String(err?.message || err || '').trim() || 'Unknown landing-page mutation failure';
+  if (/landing page not found/i.test(message)) return message;
+  return `LP mutation failed during ${stage}: ${message}`;
+}
+
+async function updateLandingPageSafely(externalId, fields, { stage = 'update' } = {}) {
+  const baseFields = {};
+  const heavyFields = {};
+
+  for (const [key, value] of Object.entries(fields || {})) {
+    if (value === undefined) continue;
+    if (LP_HEAVY_UPDATE_KEYS.has(key)) {
+      heavyFields[key] = value;
+    } else {
+      baseFields[key] = value;
+    }
+  }
+
+  try {
+    if (Object.keys(baseFields).length > 0) {
+      await updateLandingPage(externalId, baseFields);
+    }
+    for (const [key, value] of Object.entries(heavyFields)) {
+      await updateLandingPage(externalId, { [key]: value });
+    }
+  } catch (err) {
+    throw new Error(mapLandingPageMutationError(stage, err));
+  }
+}
+
 function evaluateFrameHeadline({
   lpResult,
   frame,
@@ -234,7 +279,6 @@ function evaluateFrameHeadline({
       frameAlignment.passed &&
       frameBlueprint.passed &&
       uniqueness.passed &&
-      titleFamilyUniqueness.passed &&
       sourceAlignment.passed &&
       history.passed,
   };
@@ -486,7 +530,7 @@ async function generateAndPublishLP({ projectId, batchJobId, angle, template, fr
 
     // Handle failed generation (all QA attempts exhausted)
     if (!result) {
-      await updateLandingPage(lpId, {
+      await updateLandingPageSafely(lpId, {
         status: 'failed',
         error_message: 'All generation attempts failed visual QA',
         qa_status: 'failed',
@@ -495,7 +539,7 @@ async function generateAndPublishLP({ projectId, batchJobId, angle, template, fr
         qa_issues_count: qaReport?.issues?.length ?? 0,
         generation_attempts: generationAttempts,
         fix_attempts: fixAttempts,
-      });
+      }, { stage: 'store_generate_and_validate_failure' });
       throw new Error(`${label} LP generation failed QA after ${generationAttempts} attempts`);
     }
 
@@ -527,7 +571,7 @@ async function generateAndPublishLP({ projectId, batchJobId, angle, template, fr
       if (qaScreenshotStorageId) updateFields.qa_screenshot_storageId = qaScreenshotStorageId;
     }
 
-    await updateLandingPage(lpId, updateFields);
+    await updateLandingPageSafely(lpId, updateFields, { stage: 'store_generate_and_publish_lp' });
 
     // Publish + smoke test
     const { publishResult, smokeResult, verified } = await publishAndSmokeTest(lpId, projectId, {
@@ -543,10 +587,10 @@ async function generateAndPublishLP({ projectId, batchJobId, angle, template, fr
     };
   } catch (err) {
     // Update LP to failed state
-    await updateLandingPage(lpId, {
+    await updateLandingPageSafely(lpId, {
       status: 'failed',
       error_message: err.message,
-    });
+    }, { stage: 'store_generate_and_publish_failure' });
     throw err;
   }
 }
@@ -911,6 +955,8 @@ export async function runGauntlet(projectId, options = {}, sendEventRaw) {
       let passed = false;
       let lastScore = null;
 
+      let headlineEvaluation = null;
+
       for (attempt = 1; attempt <= maxLPRetries + 1; attempt++) {
         frameResult.attempts = attempt;
 
@@ -942,12 +988,12 @@ export async function runGauntlet(projectId, options = {}, sendEventRaw) {
           if (attempt > maxLPRetries) {
             frameResult.status = 'failed';
             frameResult.error = genErr.message;
-            await updateLandingPage(lpId, {
+            await updateLandingPageSafely(lpId, {
               status: 'failed',
               error_message: genErr.message,
               gauntlet_status: 'failed',
               gauntlet_attempt: attempt,
-            });
+            }, { stage: 'generation_failure' });
             break;
           }
           continue;
@@ -959,7 +1005,7 @@ export async function runGauntlet(projectId, options = {}, sendEventRaw) {
           sendEvent({ type: 'progress', step: 'gauntlet_template_cached', message: 'HTML template cached for remaining frames' });
         }
 
-        let headlineEvaluation = evaluateFrameHeadline({
+        headlineEvaluation = evaluateFrameHeadline({
           lpResult,
           frame,
           batchAngle,
@@ -1011,13 +1057,12 @@ export async function runGauntlet(projectId, options = {}, sendEventRaw) {
           const headlineFailureReason = [
             headlineEvaluation.frameAlignment.passed ? null : headlineEvaluation.frameAlignment.reason,
             headlineEvaluation.frameBlueprint.passed ? null : headlineEvaluation.frameBlueprint.reason,
-            headlineEvaluation.titleFamilyUniqueness.passed ? null : headlineEvaluation.titleFamilyUniqueness.reason,
             headlineEvaluation.uniqueness.passed ? null : headlineEvaluation.uniqueness.reason,
             headlineEvaluation.sourceAlignment.passed ? null : headlineEvaluation.sourceAlignment.reason,
             headlineEvaluation.history.passed ? null : headlineEvaluation.history.reason,
           ].find(Boolean);
 
-          await updateLandingPage(lpId, {
+          await updateLandingPageSafely(lpId, {
             status: 'failed',
             error_message: headlineFailureReason,
             headline_text: headlineEvaluation.headline || undefined,
@@ -1037,7 +1082,7 @@ export async function runGauntlet(projectId, options = {}, sendEventRaw) {
             gauntlet_attempt: attempt,
             gauntlet_status: 'failed',
             gauntlet_retry_type: 'headline',
-          });
+          }, { stage: 'headline_validation_failure' });
 
           if (attempt > maxLPRetries) {
             frameResult.status = 'headline_failed';
@@ -1061,7 +1106,7 @@ export async function runGauntlet(projectId, options = {}, sendEventRaw) {
         });
         const lpSlug = generateSlug(lpSlugSource);
 
-        await updateLandingPage(lpId, {
+        await updateLandingPageSafely(lpId, {
           status: 'draft',
           copy_sections: JSON.stringify(lpResult.copySections),
           image_slots: JSON.stringify(lpResult.imageSlots),
@@ -1087,7 +1132,7 @@ export async function runGauntlet(projectId, options = {}, sendEventRaw) {
           gauntlet_attempt: attempt,
           gauntlet_status: 'scoring',
           slug: lpSlug,
-        });
+        }, { stage: 'store_generated_lp' });
 
         // 5f. Score the LP
         sendEvent({ type: 'progress', step: 'gauntlet_scoring', message: `LP ${frameNum} of ${totalFrames} — Scoring...` });
@@ -1141,11 +1186,11 @@ export async function runGauntlet(projectId, options = {}, sendEventRaw) {
 
             if (regeneratedCount > 0) {
               lpResult.assembledHtml = fixedHtml;
-              await updateLandingPage(lpId, {
+              await updateLandingPageSafely(lpId, {
                 assembled_html: fixedHtml,
                 gauntlet_retry_type: 'image',
                 gauntlet_attempt: attempt + 1,
-              });
+              }, { stage: 'store_regenerated_images' });
 
               // Re-score after image fix
               try {
@@ -1169,7 +1214,7 @@ export async function runGauntlet(projectId, options = {}, sendEventRaw) {
         // Full retry on next iteration
         if (attempt <= maxLPRetries) {
           sendEvent({ type: 'progress', step: 'gauntlet_full_retry', message: `LP ${frameNum} of ${totalFrames} — Full regeneration (attempt ${attempt + 1})...` });
-          await updateLandingPage(lpId, { gauntlet_retry_type: 'full' });
+          await updateLandingPageSafely(lpId, { gauntlet_retry_type: 'full' }, { stage: 'mark_full_retry' });
         }
       }
 
@@ -1206,7 +1251,7 @@ export async function runGauntlet(projectId, options = {}, sendEventRaw) {
         checked_at: new Date().toISOString(),
       };
 
-      await updateLandingPage(lpId, {
+      await updateLandingPageSafely(lpId, {
         gauntlet_score: lastScore?.score ?? null,
         gauntlet_score_reasoning: lastScore?.reasoning ?? null,
         gauntlet_status: passed ? 'passed' : 'failed',
@@ -1216,7 +1261,7 @@ export async function runGauntlet(projectId, options = {}, sendEventRaw) {
         qa_score: qaEquivalent.score,
         qa_report: JSON.stringify(qaEquivalent),
         qa_issues_count: qaEquivalent.issues.length,
-      });
+      }, { stage: 'store_gauntlet_score' });
 
       const finalHeadlineParts = lpResult
         ? extractLPHeadlineParts(lpResult.copySections, lpResult.editorialPlan)
@@ -1245,8 +1290,12 @@ export async function runGauntlet(projectId, options = {}, sendEventRaw) {
             headlineText: acceptedHeadline.headline_text,
             subheadlineText: finalHeadlineParts.subheadline,
           });
-          await recordLPHeadlineHistory([historyEntry]);
-          angleHistory.unshift(historyEntry);
+          try {
+            await recordLPHeadlineHistory([historyEntry]);
+            angleHistory.unshift(historyEntry);
+          } catch (err) {
+            console.warn(`[Gauntlet] Failed to record LP headline history for frame ${frameNum}:`, err.message);
+          }
         }
       }
 
@@ -1300,9 +1349,9 @@ export async function runGauntlet(projectId, options = {}, sendEventRaw) {
   for (const result of frameResults) {
     if (result.lpId) {
       try {
-        await updateLandingPage(result.lpId, {
+        await updateLandingPageSafely(result.lpId, {
           gauntlet_batch_completed_at: batchCompletedAt,
-        });
+        }, { stage: 'mark_gauntlet_batch_complete' });
       } catch (err) {
         console.warn(`[Gauntlet] Failed to set batch_completed_at for LP ${result.lpId}:`, err.message);
       }

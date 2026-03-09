@@ -15,7 +15,7 @@ import { chat, chatWithImage, chatWithMultipleImages, extractJSON } from './anth
 import { generateImage } from './gemini.js';
 import crypto from 'crypto';
 import { getDocsByProject, uploadBuffer, getStorageUrl, getLPTemplate, getProject, downloadToBuffer, getLPAgentConfig, upsertLPAgentConfig } from '../convexClient.js';
-import { getNarrativeFrameHeadlineContract, validateLPContentAlignment } from './lpHeadlineValidation.js';
+import { getNarrativeFrameBlueprint, getNarrativeFrameHeadlineContract, validateLPContentAlignment } from './lpHeadlineValidation.js';
 
 /**
  * Detect the actual MIME type of an image buffer by reading magic bytes.
@@ -96,7 +96,7 @@ function buildHeadlineConstraintInstruction(headlineConstraints = null) {
   }
   const usedFamilies = uniqueLowerArray(ensureArray(headlineConstraints.usedHeadlines).map((entry) => entry?.title_family));
   if (usedFamilies.length > 0) {
-    parts.push(`TITLE FAMILIES ALREADY USED IN THIS GAUNTLET (choose a materially different family for this frame):\n- ${usedFamilies.join('\n- ')}`);
+    parts.push(`TITLE FAMILIES ALREADY USED IN THIS GAUNTLET (diagnostic context — avoid exact or near-exact reuse, but focus on writing a structurally correct frame-specific title):\n- ${usedFamilies.join('\n- ')}`);
   }
   if (Array.isArray(headlineConstraints.historyHeadlines) && headlineConstraints.historyHeadlines.length > 0) {
     parts.push(`RECENT SAME-ANGLE LP HEADLINES TO AVOID REUSING:\n${headlineConstraints.historyHeadlines.map((entry) => `- [${entry.narrative_frame || 'frame'}] ${entry.headline_text || entry.headline}`).join('\n')}`);
@@ -111,6 +111,77 @@ function ensureArray(value) {
 
 function uniqueLowerArray(values = []) {
   return [...new Set(ensureArray(values).map((value) => String(value || '').trim()).filter(Boolean))];
+}
+
+const UNIVERSAL_REQUIRED_TEMPLATE_SLOT_PATTERNS = [
+  /\boffer\b/i,
+  /\bcta\b/i,
+  /\bproof\b/i,
+  /\bguarantee\b/i,
+];
+
+function normalizeTemplateSlotName(slot = '') {
+  return String(slot || '').trim().toLowerCase();
+}
+
+function getRequiredTemplateSlots(templateSlots = [], narrativeFrame = '') {
+  const normalizedSlots = ensureArray(templateSlots).map(normalizeTemplateSlotName).filter(Boolean);
+  const required = new Set();
+
+  for (const slot of normalizedSlots) {
+    if (UNIVERSAL_REQUIRED_TEMPLATE_SLOT_PATTERNS.some((pattern) => pattern.test(slot))) {
+      required.add(slot);
+    }
+  }
+
+  const blueprint = getNarrativeFrameBlueprint(narrativeFrame);
+  for (const sectionType of ensureArray(blueprint.sectionEmphasis)) {
+    const match = normalizedSlots.find((slot) => slot === sectionType || slot.includes(sectionType));
+    if (match) required.add(match);
+  }
+
+  return normalizedSlots.filter((slot) => required.has(slot));
+}
+
+function getMissingTemplateSlots(templateSlots = [], copySections = []) {
+  const present = new Set(ensureArray(copySections).map((section) => normalizeTemplateSlotName(section?.type)).filter(Boolean));
+  return ensureArray(templateSlots).filter((slot) => !present.has(normalizeTemplateSlotName(slot)));
+}
+
+function mergeMissingTemplateSlotSections(baseSections = [], candidateSections = [], targetSlots = []) {
+  const merged = ensureArray(baseSections).map((section) => ({ ...section }));
+  const existing = new Set(merged.map((section) => normalizeTemplateSlotName(section?.type)).filter(Boolean));
+
+  for (const slot of ensureArray(targetSlots)) {
+    const normalizedSlot = normalizeTemplateSlotName(slot);
+    if (existing.has(normalizedSlot)) continue;
+    const candidate = ensureArray(candidateSections).find((section) => normalizeTemplateSlotName(section?.type) === normalizedSlot && String(section?.content || '').trim());
+    if (candidate) {
+      merged.push({ ...candidate, type: normalizedSlot });
+      existing.add(normalizedSlot);
+    }
+  }
+
+  return merged;
+}
+
+function extractRequiredPlaceholderFailures(criticalWarnings = [], requiredSlots = []) {
+  const required = new Set(ensureArray(requiredSlots).map(normalizeTemplateSlotName));
+  const failures = new Set();
+
+  for (const warning of ensureArray(criticalWarnings)) {
+    const match = String(warning || '').match(/Stripped .*?:\s*(.+)$/i);
+    if (!match) continue;
+    for (const rawName of match[1].split(',')) {
+      const placeholder = normalizeTemplateSlotName(rawName);
+      if (!placeholder) continue;
+      if (required.has(placeholder)) {
+        failures.add(placeholder);
+      }
+    }
+  }
+
+  return [...failures];
 }
 
 function buildCampaignMessageInstruction(messageBrief = null) {
@@ -1057,14 +1128,15 @@ Important:
 - Use the customer's language from the avatar and research documents
 - Mirror the emotional tone and structure of the swipe file reference if provided
 - The narrative frame must be obvious from the page structure itself, not just the wording of one headline
-- The headline must be materially different from the already-used frame headlines and must not belong to the same title family
+- The headline must clearly reflect this frame's distinct promise and structural role; avoid exact or near-exact overlap with already-used frame headlines
 - The body copy must continue the same frame-specific promise as the headline — do not collapse into a generic sleep/wellness page
 - Every section must have a "type" (short lowercase identifier) and "content" (the actual copy)${autoContext?.templateSlots?.length > 0 ? `
 
 TEMPLATE-SPECIFIC SECTIONS — The HTML template for this landing page uses these additional named content slots. You MUST include a section for EACH ONE in your response:
 ${autoContext.templateSlots.map(slot => `  - { "type": "${slot}", "content": "..." } — Generate appropriate content for the "${slot}" section`).join('\n')}
 
-CRITICAL: The final HTML template has placeholder tags (e.g., {{${autoContext.templateSlots[0]}}}) that will be replaced with the content you provide here. If you skip any of these sections, the finished page will display raw {{placeholder}} tags to the reader. Include ALL of them.` : ''}`;
+CRITICAL: The final HTML template has placeholder tags (e.g., {{${autoContext.templateSlots[0]}}}) that will be replaced with the content you provide here. If you skip any of these sections, the finished page will display raw {{placeholder}} tags to the reader. Include ALL of them.
+- Stay within 90% to 125% of the target word count. Overlong filler copy fails review.` : ''}`;
 
   // Build the multi-message conversation
   const messages = [
@@ -1259,7 +1331,7 @@ You think in terms of: hook → story → mechanism → proof → offer → urge
 
 NARRATIVE FRAME ALIGNMENT: The headline and subheadline MUST reflect the specific narrative frame being used. A testimonial frame should have a personal, first-person headline. A mechanism frame should lead with curiosity about the "how." A problem agitation frame should hook with the reader's pain. A myth-busting frame should challenge a common belief. A listicle frame should use a numbered format. The headline is the #1 signal that differentiates each narrative frame — never produce a generic headline that could work for any frame.
 
-FRAME BLUEPRINT ENFORCEMENT: The page must also look structurally like the assigned frame, not just sound like it in one sentence. Your editorial plan must preserve that structural identity from headline to lead to proof to CTA. If the title is still in the same family as another frame headline, you must push it farther apart.
+FRAME BLUEPRINT ENFORCEMENT: The page must also look structurally like the assigned frame, not just sound like it in one sentence. Your editorial plan must preserve that structural identity from headline to lead to proof to CTA. If the title is too close to another frame headline, make the frame distinction clearer without drifting away from the angle or source message.
 
 TEMPLATE FIDELITY: Your editorial plan must work within the template structure. You can reorder sections, adjust emphasis, insert callout blocks at specified positions, and refine copy — but you CANNOT add entirely new structural elements that don't exist in the template skeleton. For example, do NOT add a sticky urgency banner if the template doesn't have one. Do NOT add floating CTAs, countdown timers, notification bars, or any other conversion elements unless they already exist in the template. The template is the blueprint — optimize within it, don't expand beyond it. Set "top_banner_text" to null if the template has no banner element.
 
@@ -1457,7 +1529,7 @@ Rules:
 - The new headline must sound like this narrative frame, not a generic advertorial.
 - It must stay unmistakably aligned with the angle and the campaign message contract above.
 - It must not overlap the already-used or recent-history headlines listed above.
-- It must belong to a different title family than the other accepted frame headlines.
+- Avoid exact or near-exact overlap with the other accepted frame headlines, but prioritize a strong frame-specific title over artificial wording differences.
 - Keep it concise and specific.
 - The subheadline should support the headline without repeating it word-for-word.`,
       },
@@ -1708,6 +1780,14 @@ function buildImagePrompt(slot, angle, copyContext, autoContext, slotIndex, tota
   const editorialHint = editorialDirection
     ? `\nEDITORIAL DIRECTION: ${editorialDirection}`
     : '';
+  const productDescriptor = [
+    pv?.productName,
+    pv?.productType,
+    pv?.physicalDescription,
+    pv?.usageContext,
+    imageContext.productContext,
+  ].filter(Boolean).join(' ').toLowerCase();
+  const isGroundingSheetProduct = /\b(grounding|conductive)\b/.test(productDescriptor) && /\b(sheet|bedsheet|fitted sheet)\b/.test(productDescriptor);
 
   // ── Constraints (negative prompting — works best at end for Gemini) ──
   let constraints = `STRICT REQUIREMENTS:
@@ -1738,6 +1818,11 @@ function buildImagePrompt(slot, angle, copyContext, autoContext, slotIndex, tota
     }
   } else if (imageContext.productContext) {
     constraints += `\n- Any product shown MUST be: ${imageContext.productContext} — correct form factor, NOT a different product`;
+  }
+  if (isGroundingSheetProduct) {
+    constraints += `\n- For grounding-sheet imagery, the bed MUST clearly show a fitted grounding sheet on the mattress, not a plain flat sheet, blanket, topper, bare mattress, or yoga mat`;
+    constraints += `\n- Show the grounding cord or visible connection point whenever the product is featured prominently`;
+    constraints += `\n- Make the conductive-sheet identity obvious through the fitted-sheet form factor and grounded-bed context`;
   }
 
   return `Generate a photorealistic editorial photograph.
@@ -3858,9 +3943,13 @@ export async function generateAutoLP({
   const placeholders = template.skeleton_html
     ? extractTemplatePlaceholders(template.skeleton_html)
     : { metadata: [], standardCopy: [], templateCopy: [], image: [], cta: [], all: [] };
+  const requiredTemplateSlots = getRequiredTemplateSlots(placeholders.templateCopy, narrativeFrame);
 
   if (placeholders.templateCopy.length > 0) {
     console.log(`[LPGen] Template-specific copy slots found: ${placeholders.templateCopy.join(', ')}`);
+  }
+  if (requiredTemplateSlots.length > 0) {
+    console.log(`[LPGen] Required template slots: ${requiredTemplateSlots.join(', ')}`);
   }
   if (placeholders.metadata.length > 0) {
     console.log(`[LPGen] Metadata slots to auto-fill: ${placeholders.metadata.join(', ')}`);
@@ -3915,6 +4004,36 @@ export async function generateAutoLP({
 
   const totalWords = copySections.reduce((sum, s) => sum + (s.content || '').split(/\s+/).filter(Boolean).length, 0);
   audit('copy', 'generated', `${copySections.length} sections, ${totalWords} words (target ${effectiveWordCount}): ${copySections.map(s => s.type).join(', ')}${autoGeneratedAuthor ? `, author: ${autoGeneratedAuthor.name}` : ''}${wordCountWarning ? ` ⚠️ ${wordCountWarning}` : ''}`);
+
+  const repairMissingRequiredSlots = async (missingSlots, reasonLabel) => {
+    if (missingSlots.length === 0) return [];
+    sendEvent({
+      type: 'progress',
+      step: 'required_slot_repair',
+      message: `${reasonLabel}: filling required sections (${missingSlots.join(', ')})...`,
+    });
+
+    const repairResult = await generateLandingPageCopy({
+      projectId,
+      angle,
+      angleBrief,
+      swipeText: '',
+      wordCount: effectiveWordCount,
+      approvedAds,
+      messageBrief,
+      additionalDirection: `CRITICAL REQUIRED SLOT REPAIR: The template cannot proceed without these specific sections: ${missingSlots.join(', ')}. Return complete conversion-ready content for EACH missing section. Keep the page on the same angle, frame blueprint, and source message. Do not rewrite the whole page unnecessarily; focus on these missing sections.`,
+      autoContext: {
+        narrativeFrame,
+        templateSlots: placeholders.templateCopy,
+      },
+      headlineConstraints,
+    }, sendEvent);
+
+    const mergedSections = mergeMissingTemplateSlotSections(copySections, repairResult.sections, missingSlots);
+    copySections.length = 0;
+    copySections.push(...mergedSections);
+    return getMissingTemplateSlots(missingSlots, copySections);
+  };
 
   // ── P3: Validate copy section completeness against template ──
   if (placeholders.templateCopy.length > 0) {
@@ -3973,6 +4092,24 @@ export async function generateAutoLP({
       console.log(`[LPGen] Copy section completeness: 100% — all ${placeholders.templateCopy.length} template slots filled`);
       audit('copy_completeness', 'complete', `100% — all ${placeholders.templateCopy.length} template slots filled`);
     }
+  }
+
+  let missingRequiredSlots = getMissingTemplateSlots(requiredTemplateSlots, copySections);
+  if (missingRequiredSlots.length > 0) {
+    audit('copy_completeness', 'required_slots_missing', `Required template slots missing after generation: ${missingRequiredSlots.join(', ')}`, { missingRequiredSlots });
+    try {
+      missingRequiredSlots = await repairMissingRequiredSlots(missingRequiredSlots, 'Required slots missing');
+      if (missingRequiredSlots.length === 0) {
+        audit('copy_completeness', 'required_slots_repaired', 'Filled all required template slots before editorial/scoring');
+      }
+    } catch (err) {
+      console.warn('[LPGen] Required slot repair failed:', err.message);
+      audit('copy_completeness', 'required_slot_repair_failed', err.message, { missingRequiredSlots });
+    }
+  }
+
+  if (missingRequiredSlots.length > 0) {
+    throw new Error(`Required template slots missing after repair: ${missingRequiredSlots.join(', ')}`);
   }
 
   endPhase('copy_generation');
@@ -4086,6 +4223,10 @@ export async function generateAutoLP({
     }
   } else {
     audit('content_alignment', 'passed', contentAlignment.reason);
+  }
+
+  if (!contentAlignment.passed) {
+    throw new Error(`LP content alignment failed: ${contentAlignment.reason}`);
   }
 
   endPhase('content_alignment');
@@ -4256,7 +4397,7 @@ Score guide: 1=terrible/generic, 2=weak/misaligned, 3=adequate, 4=good, 5=excell
   });
 
   // 7. Post-process: metadata → editorial fills → strip placeholders → fix duplicate headings
-  const { html: assembledHtml, warnings, criticalWarnings, infoWarnings, hasCriticalIssues } = postProcessLP(rawAssembledHtml, {
+  let { html: assembledHtml, warnings, criticalWarnings, infoWarnings, hasCriticalIssues } = postProcessLP(rawAssembledHtml, {
     project,
     agentConfig,
     angle,
@@ -4264,6 +4405,38 @@ Score guide: 1=terrible/generic, 2=weak/misaligned, 3=adequate, 4=good, 5=excell
     autoGeneratedAuthor,
     avatarText: foundationalDocs?.avatar || null,
   });
+  let missingRequiredAfterPostProcess = extractRequiredPlaceholderFailures(criticalWarnings, requiredTemplateSlots);
+  if (missingRequiredAfterPostProcess.length > 0) {
+    audit('postprocess', 'required_slots_missing', `Required placeholders stripped after assembly: ${missingRequiredAfterPostProcess.join(', ')}`, { criticalWarnings });
+    try {
+      const stillMissing = await repairMissingRequiredSlots(missingRequiredAfterPostProcess, 'Required placeholders stripped');
+      if (stillMissing.length === 0) {
+        const rebuiltHtml = assembleLandingPage({
+          htmlTemplate,
+          copySections,
+          imageSlots,
+          ctaElements: designAnalysis.cta_elements,
+        });
+        ({ html: assembledHtml, warnings, criticalWarnings, infoWarnings, hasCriticalIssues } = postProcessLP(rebuiltHtml, {
+          project,
+          agentConfig,
+          angle,
+          editorialPlan,
+          autoGeneratedAuthor,
+          avatarText: foundationalDocs?.avatar || null,
+        }));
+        missingRequiredAfterPostProcess = extractRequiredPlaceholderFailures(criticalWarnings, requiredTemplateSlots);
+      } else {
+        missingRequiredAfterPostProcess = stillMissing;
+      }
+    } catch (err) {
+      console.warn('[LPGen] Required placeholder repair failed:', err.message);
+      audit('postprocess', 'required_slot_repair_failed', err.message, { missingRequiredAfterPostProcess });
+    }
+  }
+  if (missingRequiredAfterPostProcess.length > 0) {
+    throw new Error(`Required template slots missing after post-process repair: ${missingRequiredAfterPostProcess.join(', ')}`);
+  }
   if (hasCriticalIssues) {
     console.warn(`[LPGen] Post-processing found ${criticalWarnings.length} critical issue(s): ${criticalWarnings.join('; ')}`);
     audit('postprocess', 'critical_warnings', `${criticalWarnings.length} critical issue(s): ${criticalWarnings.join('; ')}`, { criticalWarnings, infoWarnings });
@@ -4695,7 +4868,7 @@ ${avatarVisual?.notThisPerson?.length ? `Do NOT show: ${avatarVisual.notThisPers
 
 CHECK FOR:
 1. **Sensibility** — Does this image make sense for an ad landing page? No surreal/absurd compositions.
-2. **Correct product** — If a product is shown, does it match the product context? A bedsheet must look like a bedsheet, not a yoga mat.
+2. **Correct product** — If a product is shown, does it match the product context? A bedsheet must look like a bedsheet, not a yoga mat. For grounding-sheet products, the image should clearly read as a fitted conductive sheet on a bed, ideally with the grounding cord or connection visible when the product is featured.
 3. **Correct demographic** — Does the person (if shown) match the target avatar's age, gender, and lifestyle?
 4. **Realism** — Does the image look photorealistic? No obvious AI artifacts, distorted faces, or extra fingers.
 5. **No AI text** — The image must NOT contain any visible text, watermarks, or generated text.
