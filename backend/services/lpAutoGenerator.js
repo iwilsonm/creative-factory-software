@@ -47,11 +47,15 @@ import {
   applyLPHeadlineParts,
   buildLPHeadlineHistoryEntry,
   buildLPHeadlineSignature,
+  buildNarrativeFrameBlueprintSummary,
+  evaluateTitleFamilyUniqueness,
   evaluateHistoryHeadlineUniqueness,
   evaluateSameRunHeadlineUniqueness,
   extractLPHeadlineParts,
+  getNarrativeFrameBlueprint,
   getNarrativeFrameHeadlineContract,
   normalizeLPHeadlineText,
+  validateLPFrameBlueprint,
   validateLPHeadlineSourceAlignment,
   validateLPHeadlineFrameAlignment,
 } from './lpHeadlineValidation.js';
@@ -152,9 +156,11 @@ function buildCampaignMessageBrief({ batchAngle = '', angleBrief = null, approve
 function buildHeadlineConstraintBundle(frame, usedHeadlines, angleHistory) {
   return {
     contract: getNarrativeFrameHeadlineContract(frame.id),
+    frameBlueprint: buildNarrativeFrameBlueprintSummary(frame.id),
     usedHeadlines: usedHeadlines.map((entry) => ({
       narrative_frame: entry.narrative_frame,
       headline_text: entry.headline_text,
+      title_family: entry.title_family,
     })),
     historyHeadlines: angleHistory.slice(0, 20).map((entry) => ({
       narrative_frame: entry.narrative_frame,
@@ -178,11 +184,24 @@ function evaluateFrameHeadline({
     narrativeFrame: frame.id,
     angle: batchAngle || '',
   });
+  const frameBlueprint = validateLPFrameBlueprint({
+    headline: headlineParts.headline,
+    narrativeFrame: frame.id,
+    copySections: lpResult.copySections,
+    angle: batchAngle || '',
+  });
   const uniqueness = evaluateSameRunHeadlineUniqueness({
     headline: headlineParts.headline,
     narrativeFrame: frame.id,
     signature: buildLPHeadlineSignature({ headline: headlineParts.headline, narrativeFrame: frame.id }),
     acceptedHeadlines,
+  });
+  const titleFamilyUniqueness = evaluateTitleFamilyUniqueness({
+    headline: headlineParts.headline,
+    narrativeFrame: frame.id,
+    acceptedHeadlines,
+    angle: batchAngle || messageBrief?.angleName || '',
+    messageBrief,
   });
   const sourceAlignment = validateLPHeadlineSourceAlignment({
     headline: headlineParts.headline,
@@ -197,19 +216,25 @@ function evaluateFrameHeadline({
         signature: buildLPHeadlineSignature({ headline: headlineParts.headline, narrativeFrame: frame.id }),
         sameFrameHistory,
         angleHistory,
+        angle: batchAngle || messageBrief?.angleName || '',
+        messageBrief,
       })
     : { passed: true, reason: 'No batch angle set for cross-run LP history.' };
 
   return {
     ...headlineParts,
     frameAlignment,
+    frameBlueprint,
     uniqueness,
+    titleFamilyUniqueness,
     sourceAlignment,
     history,
     passed:
       !!headlineParts.headline &&
       frameAlignment.passed &&
+      frameBlueprint.passed &&
       uniqueness.passed &&
+      titleFamilyUniqueness.passed &&
       sourceAlignment.passed &&
       history.passed,
   };
@@ -983,14 +1008,14 @@ export async function runGauntlet(projectId, options = {}, sendEventRaw) {
         }
 
         if (!headlineEvaluation.passed) {
-          const headlineFailureReason =
-            !headlineEvaluation.frameAlignment.passed
-              ? headlineEvaluation.frameAlignment.reason
-              : !headlineEvaluation.uniqueness.passed
-                ? headlineEvaluation.uniqueness.reason
-                : !headlineEvaluation.sourceAlignment.passed
-                  ? headlineEvaluation.sourceAlignment.reason
-                : headlineEvaluation.history.reason;
+          const headlineFailureReason = [
+            headlineEvaluation.frameAlignment.passed ? null : headlineEvaluation.frameAlignment.reason,
+            headlineEvaluation.frameBlueprint.passed ? null : headlineEvaluation.frameBlueprint.reason,
+            headlineEvaluation.titleFamilyUniqueness.passed ? null : headlineEvaluation.titleFamilyUniqueness.reason,
+            headlineEvaluation.uniqueness.passed ? null : headlineEvaluation.uniqueness.reason,
+            headlineEvaluation.sourceAlignment.passed ? null : headlineEvaluation.sourceAlignment.reason,
+            headlineEvaluation.history.passed ? null : headlineEvaluation.history.reason,
+          ].find(Boolean);
 
           await updateLandingPage(lpId, {
             status: 'failed',
@@ -999,9 +1024,13 @@ export async function runGauntlet(projectId, options = {}, sendEventRaw) {
             subheadline_text: headlineEvaluation.subheadline || undefined,
             headline_frame_alignment_status: headlineEvaluation.frameAlignment.passed ? 'passed' : 'failed',
             headline_frame_alignment_reason: headlineEvaluation.frameAlignment.reason,
+            frame_blueprint_status: headlineEvaluation.frameBlueprint.passed ? 'passed' : 'failed',
+            frame_blueprint_reason: headlineEvaluation.frameBlueprint.reason,
             headline_uniqueness_status: headlineEvaluation.uniqueness.passed ? 'passed' : 'failed',
             headline_uniqueness_reason: headlineEvaluation.uniqueness.reason,
             headline_duplicate_of_lp_id: headlineEvaluation.uniqueness.duplicateOf || undefined,
+            title_family_uniqueness_status: headlineEvaluation.titleFamilyUniqueness.passed ? 'passed' : 'failed',
+            title_family_uniqueness_reason: headlineEvaluation.titleFamilyUniqueness.reason,
             headline_history_status: headlineEvaluation.history.passed ? 'passed' : 'failed',
             headline_history_reason: headlineEvaluation.history.reason,
             headline_signature: headlineEvaluation.headline_signature || undefined,
@@ -1045,9 +1074,13 @@ export async function runGauntlet(projectId, options = {}, sendEventRaw) {
           subheadline_text: headlineEvaluation.subheadline || undefined,
           headline_frame_alignment_status: headlineEvaluation.frameAlignment.passed ? 'passed' : 'failed',
           headline_frame_alignment_reason: headlineEvaluation.frameAlignment.reason,
+          frame_blueprint_status: headlineEvaluation.frameBlueprint.passed ? 'passed' : 'failed',
+          frame_blueprint_reason: headlineEvaluation.frameBlueprint.reason,
           headline_uniqueness_status: headlineEvaluation.uniqueness.passed ? 'passed' : 'failed',
           headline_uniqueness_reason: headlineEvaluation.uniqueness.reason,
           headline_duplicate_of_lp_id: headlineEvaluation.uniqueness.duplicateOf || undefined,
+          title_family_uniqueness_status: headlineEvaluation.titleFamilyUniqueness.passed ? 'passed' : 'failed',
+          title_family_uniqueness_reason: headlineEvaluation.titleFamilyUniqueness.reason,
           headline_history_status: headlineEvaluation.history.passed ? 'passed' : 'failed',
           headline_history_reason: headlineEvaluation.history.reason,
           headline_signature: headlineEvaluation.headline_signature || undefined,
@@ -1196,6 +1229,8 @@ export async function runGauntlet(projectId, options = {}, sendEventRaw) {
           headline: finalHeadlineParts.headline,
           narrativeFrame: frame.id,
         }),
+        title_family: getNarrativeFrameBlueprint(frame.id).titleFamily,
+        title_focus_tokens: headlineEvaluation?.titleFamilyUniqueness?.titleFocus || [],
       };
 
       if (passed && acceptedHeadline.headline_text) {

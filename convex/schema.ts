@@ -496,9 +496,13 @@ export default defineSchema({
     headline_uniqueness_status: v.optional(v.string()),
     headline_uniqueness_reason: v.optional(v.string()),
     headline_duplicate_of_lp_id: v.optional(v.string()),
+    title_family_uniqueness_status: v.optional(v.string()),
+    title_family_uniqueness_reason: v.optional(v.string()),
     headline_history_status: v.optional(v.string()),
     headline_history_reason: v.optional(v.string()),
     headline_signature: v.optional(v.string()),
+    frame_blueprint_status: v.optional(v.string()),
+    frame_blueprint_reason: v.optional(v.string()),
     // Visual QA fields
     qa_status: v.optional(v.string()),               // pending | running | passed | failed | skipped
     qa_report: v.optional(v.string()),               // JSON: full QA report from Claude Opus vision

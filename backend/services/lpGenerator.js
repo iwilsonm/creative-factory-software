@@ -76,17 +76,41 @@ export const NARRATIVE_FRAMES = [
 function buildHeadlineConstraintInstruction(headlineConstraints = null) {
   if (!headlineConstraints) return '';
   const parts = [];
+  if (headlineConstraints.frameBlueprint) {
+    const blueprint = headlineConstraints.frameBlueprint;
+    parts.push(`FRAME BLUEPRINT (hard requirements):
+- Title family: ${blueprint.title_family}
+- Title shape: ${blueprint.title_shape}
+- Opening move: ${blueprint.opening_move}
+- Section emphasis: ${ensureArray(blueprint.section_emphasis).join(', ')}
+- Proof style: ${blueprint.proof_style}
+- Persuasion pattern: ${blueprint.persuasion_pattern}
+- CTA style: ${blueprint.cta_style}
+- Forbidden structural patterns: ${ensureArray(blueprint.forbidden_structural_patterns).join(', ')}`);
+  }
   if (headlineConstraints.contract) {
     parts.push(`HEADLINE CONTRACT:\n${headlineConstraints.contract}`);
   }
   if (Array.isArray(headlineConstraints.usedHeadlines) && headlineConstraints.usedHeadlines.length > 0) {
     parts.push(`HEADLINES ALREADY USED IN THIS 5-FRAME GAUNTLET (do not overlap these ideas):\n${headlineConstraints.usedHeadlines.map((entry) => `- [${entry.narrative_frame || 'frame'}] ${entry.headline_text || entry.headline}`).join('\n')}`);
   }
+  const usedFamilies = uniqueLowerArray(ensureArray(headlineConstraints.usedHeadlines).map((entry) => entry?.title_family));
+  if (usedFamilies.length > 0) {
+    parts.push(`TITLE FAMILIES ALREADY USED IN THIS GAUNTLET (choose a materially different family for this frame):\n- ${usedFamilies.join('\n- ')}`);
+  }
   if (Array.isArray(headlineConstraints.historyHeadlines) && headlineConstraints.historyHeadlines.length > 0) {
     parts.push(`RECENT SAME-ANGLE LP HEADLINES TO AVOID REUSING:\n${headlineConstraints.historyHeadlines.map((entry) => `- [${entry.narrative_frame || 'frame'}] ${entry.headline_text || entry.headline}`).join('\n')}`);
   }
   if (parts.length === 0) return '';
   return `\nHEADLINE DIFFERENTIATION RULES:\n${parts.join('\n\n')}\n`;
+}
+
+function ensureArray(value) {
+  return Array.isArray(value) ? value : [];
+}
+
+function uniqueLowerArray(values = []) {
+  return [...new Set(ensureArray(values).map((value) => String(value || '').trim()).filter(Boolean))];
 }
 
 function buildCampaignMessageInstruction(messageBrief = null) {
@@ -959,7 +983,7 @@ Study these documents carefully. You will use them to write a landing page in th
 
   // ── Message 2: Swipe reference + generation instructions ──
   const narrativeInstruction = autoContext?.narrativeFrame
-    ? `\nNARRATIVE FRAME INSTRUCTION:\n${autoContext.narrativeFrame}\n\nYou MUST write the entire landing page using this narrative frame. The frame dictates the overall voice, structure, and storytelling approach. Every section should reflect this frame.\n`
+    ? `\nNARRATIVE FRAME INSTRUCTION:\n${autoContext.narrativeFrame}\n\nYou MUST write the entire landing page using this narrative frame. The frame dictates the overall voice, structure, section flow, proof style, and CTA style. This is not a cosmetic rewrite. The page must be structurally recognizable as this frame from the headline through the final CTA.\n`
     : '';
   const headlineConstraintInstruction = buildHeadlineConstraintInstruction(headlineConstraints);
   const campaignMessageInstruction = buildCampaignMessageInstruction(messageBrief);
@@ -1032,6 +1056,9 @@ Important:
 - Write at approximately ${wordCount} words total across all sections
 - Use the customer's language from the avatar and research documents
 - Mirror the emotional tone and structure of the swipe file reference if provided
+- The narrative frame must be obvious from the page structure itself, not just the wording of one headline
+- The headline must be materially different from the already-used frame headlines and must not belong to the same title family
+- The body copy must continue the same frame-specific promise as the headline — do not collapse into a generic sleep/wellness page
 - Every section must have a "type" (short lowercase identifier) and "content" (the actual copy)${autoContext?.templateSlots?.length > 0 ? `
 
 TEMPLATE-SPECIFIC SECTIONS — The HTML template for this landing page uses these additional named content slots. You MUST include a section for EACH ONE in your response:
@@ -1232,6 +1259,8 @@ You think in terms of: hook → story → mechanism → proof → offer → urge
 
 NARRATIVE FRAME ALIGNMENT: The headline and subheadline MUST reflect the specific narrative frame being used. A testimonial frame should have a personal, first-person headline. A mechanism frame should lead with curiosity about the "how." A problem agitation frame should hook with the reader's pain. A myth-busting frame should challenge a common belief. A listicle frame should use a numbered format. The headline is the #1 signal that differentiates each narrative frame — never produce a generic headline that could work for any frame.
 
+FRAME BLUEPRINT ENFORCEMENT: The page must also look structurally like the assigned frame, not just sound like it in one sentence. Your editorial plan must preserve that structural identity from headline to lead to proof to CTA. If the title is still in the same family as another frame headline, you must push it farther apart.
+
 TEMPLATE FIDELITY: Your editorial plan must work within the template structure. You can reorder sections, adjust emphasis, insert callout blocks at specified positions, and refine copy — but you CANNOT add entirely new structural elements that don't exist in the template skeleton. For example, do NOT add a sticky urgency banner if the template doesn't have one. Do NOT add floating CTAs, countdown timers, notification bars, or any other conversion elements unless they already exist in the template. The template is the blueprint — optimize within it, don't expand beyond it. Set "top_banner_text" to null if the template has no banner element.
 
 DUPLICATE HEADING CHECK: Check all callout blocks and data boxes for duplicate heading text. If a callout's body paragraph begins with the same text as its heading label (e.g., heading="USDA DATA" and body starts with "USDA DATA:"), remove the duplicate from the body.
@@ -1428,6 +1457,7 @@ Rules:
 - The new headline must sound like this narrative frame, not a generic advertorial.
 - It must stay unmistakably aligned with the angle and the campaign message contract above.
 - It must not overlap the already-used or recent-history headlines listed above.
+- It must belong to a different title family than the other accepted frame headlines.
 - Keep it concise and specific.
 - The subheadline should support the headline without repeating it word-for-word.`,
       },
@@ -1498,6 +1528,7 @@ Return JSON:
 Rules:
 - Keep the page aligned with the exact angle and campaign message.
 - Keep the narrative frame unmistakable throughout the lead/problem/solution flow.
+- Keep the page structurally in the assigned frame blueprint — do not let it collapse into a generic advertorial.
 - Do not drift into generic sleep or wellness advice.
 - Preserve the current headline and subheadline unless they need a small supporting tweak to keep the copy coherent.
 - Return the full updated sections array, not just changed sections.`,

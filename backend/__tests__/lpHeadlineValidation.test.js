@@ -5,7 +5,9 @@ import {
   buildLPHeadlineSignature,
   evaluateHistoryHeadlineUniqueness,
   evaluateSameRunHeadlineUniqueness,
+  evaluateTitleFamilyUniqueness,
   validateLPContentAlignment,
+  validateLPFrameBlueprint,
   validateLPHeadlineFrameAlignment,
   validateLPHeadlineSourceAlignment,
 } from '../services/lpHeadlineValidation.js';
@@ -112,6 +114,34 @@ describe('lpHeadlineValidation', () => {
     expect(result.reason).toContain('prior mechanism');
   });
 
+  it('rejects same-run titles that are still in the same family', () => {
+    const result = evaluateTitleFamilyUniqueness({
+      headline: 'The real reason your 2 AM bathroom trip keeps you alert until sunrise',
+      narrativeFrame: 'myth_busting',
+      angle: 'Wakes to Pee, Then Cannot Fall Back Asleep',
+      messageBrief: {
+        sourceMode: 'director_ads',
+        angleSummary: 'Wakes to Pee, Then Cannot Fall Back Asleep',
+        coreScene: 'You wake in the night, use the bathroom, climb back into bed, and cannot fall asleep again.',
+        desiredBeliefShift: 'The bathroom trip is not the end of the story; the problem is what happens when you get back into bed.',
+        headlineExamples: ['You wake to pee and then lie there wide awake for an hour.'],
+        openingExamples: ['The bathroom trip is not the worst part. The worst part starts when you get back into bed.'],
+        messageKeywords: ['bathroom', 'pee', 'back', 'bed', 'wide', 'awake'],
+      },
+      acceptedHeadlines: [
+        {
+          landing_page_id: 'lp-1',
+          narrative_frame: 'mechanism',
+          headline_text: 'Why your 2 AM bathroom trip keeps you alert until sunrise every night',
+          title_family: 'mechanism_explainer',
+        },
+      ],
+    });
+
+    expect(result.passed).toBe(false);
+    expect(result.reason).toContain('same family');
+  });
+
   it('rejects headlines that drift away from the Director ad message', () => {
     const result = validateLPHeadlineSourceAlignment({
       headline: 'How to sleep deeper after 60 without changing your bedtime routine',
@@ -155,5 +185,21 @@ describe('lpHeadlineValidation', () => {
     });
 
     expect(result.passed).toBe(true);
+  });
+
+  it('rejects pages whose copy structure does not match the frame blueprint', () => {
+    const result = validateLPFrameBlueprint({
+      headline: 'Why your body stays alert after a 2 AM bathroom trip',
+      narrativeFrame: 'mechanism',
+      angle: 'Wakes to Pee, Then Cannot Fall Back Asleep',
+      copySections: [
+        { type: 'headline', content: 'Why your body stays alert after a 2 AM bathroom trip' },
+        { type: 'lead', content: 'I dreaded every bathroom trip because I knew I would not sleep again until morning.' },
+        { type: 'proof', content: 'For years I felt broken until one night everything changed.' },
+      ],
+    });
+
+    expect(result.passed).toBe(false);
+    expect(result.reason).toContain('mechanism');
   });
 });

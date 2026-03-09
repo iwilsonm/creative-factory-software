@@ -1,0 +1,7 @@
+{
+  "name": "ad-platform-convex",
+  "private": true,
+  "dependencies": {
+    "convex": "^1.18.0"
+  }
+}

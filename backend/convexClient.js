@@ -1448,7 +1448,7 @@ export async function getLandingPageGauntletStats(projectId) {
   return await queryWithRetry(api.landingPages.getGauntletStatsByProject, { projectId });
 }
 
-export async function createLandingPage({ id, project_id, name, angle, word_count, additional_direction, swipe_text, swipe_filename, swipe_url, swipe_screenshot_storageId, status, auto_generated, batch_job_id, narrative_frame, template_id, headline_text, subheadline_text, headline_frame_alignment_status, headline_frame_alignment_reason, headline_uniqueness_status, headline_uniqueness_reason, headline_duplicate_of_lp_id, headline_history_status, headline_history_reason, headline_signature, gauntlet_batch_id, gauntlet_frame, gauntlet_attempt, gauntlet_status, gauntlet_batch_started_at, gauntlet_batch_completed_at }) {
+export async function createLandingPage({ id, project_id, name, angle, word_count, additional_direction, swipe_text, swipe_filename, swipe_url, swipe_screenshot_storageId, status, auto_generated, batch_job_id, narrative_frame, template_id, headline_text, subheadline_text, headline_frame_alignment_status, headline_frame_alignment_reason, headline_uniqueness_status, headline_uniqueness_reason, headline_duplicate_of_lp_id, title_family_uniqueness_status, title_family_uniqueness_reason, headline_history_status, headline_history_reason, headline_signature, frame_blueprint_status, frame_blueprint_reason, gauntlet_batch_id, gauntlet_frame, gauntlet_attempt, gauntlet_status, gauntlet_batch_started_at, gauntlet_batch_completed_at }) {
   await mutationWithRetry(api.landingPages.create, {
     externalId: id,
     project_id,
@@ -1472,9 +1472,13 @@ export async function createLandingPage({ id, project_id, name, angle, word_coun
     headline_uniqueness_status: headline_uniqueness_status || undefined,
     headline_uniqueness_reason: headline_uniqueness_reason || undefined,
     headline_duplicate_of_lp_id: headline_duplicate_of_lp_id || undefined,
+    title_family_uniqueness_status: title_family_uniqueness_status || undefined,
+    title_family_uniqueness_reason: title_family_uniqueness_reason || undefined,
     headline_history_status: headline_history_status || undefined,
     headline_history_reason: headline_history_reason || undefined,
     headline_signature: headline_signature || undefined,
+    frame_blueprint_status: frame_blueprint_status || undefined,
+    frame_blueprint_reason: frame_blueprint_reason || undefined,
     gauntlet_batch_id: gauntlet_batch_id || undefined,
     gauntlet_frame: gauntlet_frame || undefined,
     gauntlet_attempt: gauntlet_attempt || undefined,

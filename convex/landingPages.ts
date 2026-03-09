@@ -40,8 +40,15 @@ function summarizeLandingPage(page: any) {
     headline_text: page.headline_text,
     subheadline_text: page.subheadline_text,
     headline_frame_alignment_status: page.headline_frame_alignment_status,
+    headline_frame_alignment_reason: page.headline_frame_alignment_reason,
     headline_uniqueness_status: page.headline_uniqueness_status,
+    headline_uniqueness_reason: page.headline_uniqueness_reason,
+    title_family_uniqueness_status: page.title_family_uniqueness_status,
+    title_family_uniqueness_reason: page.title_family_uniqueness_reason,
     headline_history_status: page.headline_history_status,
+    headline_history_reason: page.headline_history_reason,
+    frame_blueprint_status: page.frame_blueprint_status,
+    frame_blueprint_reason: page.frame_blueprint_reason,
     swipe_url: page.swipe_url,
     auto_generated: page.auto_generated,
     batch_job_id: page.batch_job_id,
@@ -223,9 +230,13 @@ export const create = mutation({
     headline_uniqueness_status: v.optional(v.string()),
     headline_uniqueness_reason: v.optional(v.string()),
     headline_duplicate_of_lp_id: v.optional(v.string()),
+    title_family_uniqueness_status: v.optional(v.string()),
+    title_family_uniqueness_reason: v.optional(v.string()),
     headline_history_status: v.optional(v.string()),
     headline_history_reason: v.optional(v.string()),
     headline_signature: v.optional(v.string()),
+    frame_blueprint_status: v.optional(v.string()),
+    frame_blueprint_reason: v.optional(v.string()),
     // Gauntlet fields
     gauntlet_batch_id: v.optional(v.string()),
     gauntlet_frame: v.optional(v.string()),
@@ -259,9 +270,13 @@ export const create = mutation({
       headline_uniqueness_status: args.headline_uniqueness_status,
       headline_uniqueness_reason: args.headline_uniqueness_reason,
       headline_duplicate_of_lp_id: args.headline_duplicate_of_lp_id,
+      title_family_uniqueness_status: args.title_family_uniqueness_status,
+      title_family_uniqueness_reason: args.title_family_uniqueness_reason,
       headline_history_status: args.headline_history_status,
       headline_history_reason: args.headline_history_reason,
       headline_signature: args.headline_signature,
+      frame_blueprint_status: args.frame_blueprint_status,
+      frame_blueprint_reason: args.frame_blueprint_reason,
       gauntlet_batch_id: args.gauntlet_batch_id,
       gauntlet_frame: args.gauntlet_frame,
       gauntlet_attempt: args.gauntlet_attempt,
@@ -319,9 +334,13 @@ export const update = mutation({
     headline_uniqueness_status: v.optional(v.string()),
     headline_uniqueness_reason: v.optional(v.string()),
     headline_duplicate_of_lp_id: v.optional(v.string()),
+    title_family_uniqueness_status: v.optional(v.string()),
+    title_family_uniqueness_reason: v.optional(v.string()),
     headline_history_status: v.optional(v.string()),
     headline_history_reason: v.optional(v.string()),
     headline_signature: v.optional(v.string()),
+    frame_blueprint_status: v.optional(v.string()),
+    frame_blueprint_reason: v.optional(v.string()),
     // Visual QA fields
     qa_status: v.optional(v.string()),
     qa_report: v.optional(v.string()),
@@ -397,9 +416,13 @@ export const update = mutation({
     if (args.headline_uniqueness_status !== undefined) updates.headline_uniqueness_status = args.headline_uniqueness_status;
     if (args.headline_uniqueness_reason !== undefined) updates.headline_uniqueness_reason = args.headline_uniqueness_reason;
     if (args.headline_duplicate_of_lp_id !== undefined) updates.headline_duplicate_of_lp_id = args.headline_duplicate_of_lp_id;
+    if (args.title_family_uniqueness_status !== undefined) updates.title_family_uniqueness_status = args.title_family_uniqueness_status;
+    if (args.title_family_uniqueness_reason !== undefined) updates.title_family_uniqueness_reason = args.title_family_uniqueness_reason;
     if (args.headline_history_status !== undefined) updates.headline_history_status = args.headline_history_status;
     if (args.headline_history_reason !== undefined) updates.headline_history_reason = args.headline_history_reason;
     if (args.headline_signature !== undefined) updates.headline_signature = args.headline_signature;
+    if (args.frame_blueprint_status !== undefined) updates.frame_blueprint_status = args.frame_blueprint_status;
+    if (args.frame_blueprint_reason !== undefined) updates.frame_blueprint_reason = args.frame_blueprint_reason;
     if (args.qa_status !== undefined) updates.qa_status = args.qa_status;
     if (args.qa_report !== undefined) updates.qa_report = args.qa_report;
     if (args.qa_issues_count !== undefined) updates.qa_issues_count = args.qa_issues_count;

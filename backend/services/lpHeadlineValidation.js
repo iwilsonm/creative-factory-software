@@ -13,13 +13,126 @@ const LOW_SIGNAL_ALIGNMENT_TOKENS = new Set([
   'problem', 'sleep', 'solution', 'still', 'wake', 'wakes', 'waking',
 ]);
 
-const FRAME_CONTRACTS = {
-  testimonial: 'Headline must read like a lived story, a personal result, or a journey moment.',
-  mechanism: 'Headline must lead with how, why, hidden cause, or explanatory curiosity.',
-  problem_agitation: 'Headline must open on the recurring pain pattern, symptom, or frustration.',
-  myth_busting: 'Headline must challenge a mistaken belief or common assumption.',
-  listicle: 'Headline must use an explicit numbered or list-driven structure.',
+const TITLE_FAMILY_STOPWORDS = new Set([
+  ...LOW_SIGNAL_ALIGNMENT_TOKENS,
+  '2', '2am', '3', '3am', 'bathroom', 'bathrooms', 'clock', 'dawn', 'fall', 'falls',
+  'finally', 'fix', 'fixes', 'hour', 'hours', 'pee', 'peeing', 'reason', 'reasons',
+  'trip', 'trips', 'use', 'using', 'worst',
+]);
+
+const FRAME_BLUEPRINTS = {
+  testimonial: {
+    contract: 'Headline must read like a lived story, a personal result, or a journey moment.',
+    titleFamily: 'testimonial_journey',
+    titleShape: 'lived-result story',
+    openingMove: 'Lead with a lived moment, dread, relief, or before/after result.',
+    sectionEmphasis: ['lead', 'story', 'proof', 'offer'],
+    proofStyle: 'personal before/after specifics and named customer proof',
+    persuasionPattern: 'struggle -> turning point -> result',
+    ctaStyle: 'personal invitation tied to the result',
+    forbiddenStructuralPatterns: ['mechanism explainer opener', 'myth/truth opener', 'numbered list opener'],
+    requiredHeadlineGroups: [
+      { label: 'lived perspective', patterns: [/^(i|my|we)\b/i, /\b(i|my|we)\b/i] },
+      { label: 'story/result movement', patterns: [/\b(for years|finally|one night|after|dreaded|spent|woke|changed|stopped)\b/i] },
+    ],
+    requiredCopyGroups: [
+      { label: 'first-person story voice', patterns: [/\b(i|my|we)\b/i, /\bone night\b/i, /\bfor years\b/i] },
+      { label: 'journey progression', patterns: [/\b(before|after|finally|then|until)\b/i, /\b(struggl|changed|stopped|relief)\b/i] },
+    ],
+    requiredSectionTypes: ['lead', 'proof'],
+    forbiddenHeadlinePatterns: [/^\s*(\d+|one|two|three|four|five|six|seven|eight|nine|ten)\b/i, /\b(myth|wrong|truth|people think)\b/i, /^(how|why|what)\b/i],
+    forbiddenCopyPatterns: [/\b(myth|people think|the real reason|reason one|reason two)\b/i],
+  },
+  mechanism: {
+    contract: 'Headline must lead with how, why, hidden cause, or explanatory curiosity.',
+    titleFamily: 'mechanism_explainer',
+    titleShape: 'explanatory curiosity',
+    openingMove: 'Lead with how/why or the hidden cause that explains the problem.',
+    sectionEmphasis: ['lead', 'solution', 'benefits', 'proof'],
+    proofStyle: 'cause-and-effect explanation supported by practical proof',
+    persuasionPattern: 'curiosity -> cause -> explanation -> solution',
+    ctaStyle: 'resolve the hidden cause',
+    forbiddenStructuralPatterns: ['first-person testimonial opener', 'generic myth framing', 'numbered list opener'],
+    requiredHeadlineGroups: [
+      { label: 'mechanism opener', patterns: [/^(how|why|what)\b/i, /\b(real reason|hidden cause|blocking|trigger|behind|keeps)\b/i] },
+    ],
+    requiredCopyGroups: [
+      { label: 'causal explanation', patterns: [/\b(because|reason|trigger|cause|mechanism|signals?|switch|nervous system|stays on)\b/i] },
+      { label: 'why alternatives fail', patterns: [/\b(traditional|usual|common|nothing else|doesnt work|fails?)\b/i] },
+    ],
+    requiredSectionTypes: ['lead', 'solution'],
+    forbiddenHeadlinePatterns: [/^\s*(\d+|one|two|three|four|five|six|seven|eight|nine|ten)\b/i, /\b(myth|wrong|truth|people think)\b/i, /^(i|my|we)\b/i],
+    forbiddenCopyPatterns: [/\b(reason one|reason two|myth|people think)\b/i],
+  },
+  problem_agitation: {
+    contract: 'Headline must open on the recurring pain pattern, symptom, or frustration.',
+    titleFamily: 'pain_pattern_agitation',
+    titleShape: 'pain-led symptom moment',
+    openingMove: 'Lead with the painful recurring moment the reader instantly recognizes.',
+    sectionEmphasis: ['lead', 'problem', 'solution', 'offer'],
+    proofStyle: 'pain recognition followed by relief-oriented proof',
+    persuasionPattern: 'pain pattern -> frustration -> escalation -> relief transition',
+    ctaStyle: 'urgent relief from the recurring problem',
+    forbiddenStructuralPatterns: ['first-person testimonial opener', 'pure mechanism explainer opener', 'numbered list opener'],
+    requiredHeadlineGroups: [
+      { label: 'pain or symptom moment', patterns: [/\b(wake|wakes|bathroom|pee|back in bed|wide awake|worst part|cannot fall back asleep|cant fall back asleep)\b/i] },
+      { label: 'friction or distress', patterns: [/\b(exhausted|frustrat|dawn|clock|again|night after night|lie there)\b/i, /\byou\b/i] },
+    ],
+    requiredCopyGroups: [
+      { label: 'reader-focused pain voice', patterns: [/\byou\b/i, /\b(your|night after night|again)\b/i] },
+      { label: 'specific symptom friction', patterns: [/\b(bathroom|pee|back in bed|wide awake|ceiling|clock|dawn|worst part)\b/i] },
+    ],
+    requiredSectionTypes: ['lead', 'problem'],
+    forbiddenHeadlinePatterns: [/^\s*(\d+|one|two|three|four|five|six|seven|eight|nine|ten)\b/i, /\b(myth|wrong|truth|people think)\b/i],
+    forbiddenCopyPatterns: [/\b(reason one|reason two|myth|people think)\b/i],
+  },
+  myth_busting: {
+    contract: 'Headline must challenge a mistaken belief or common assumption.',
+    titleFamily: 'belief_reversal',
+    titleShape: 'belief challenge',
+    openingMove: 'Lead by challenging a mistaken belief, false explanation, or conventional wisdom.',
+    sectionEmphasis: ['lead', 'problem', 'solution', 'proof'],
+    proofStyle: 'belief reversal supported by corrective explanation and evidence',
+    persuasionPattern: 'common belief -> why it feels true -> what is actually true',
+    ctaStyle: 'act on the corrected truth',
+    forbiddenStructuralPatterns: ['first-person testimonial opener', 'generic why/how mechanism opener without belief reversal', 'numbered list opener'],
+    requiredHeadlineGroups: [
+      { label: 'belief-challenge language', patterns: [/\b(myth|mistake|wrong|truth|people think|youve been told|not the real reason|isnt|doesnt)\b/i] },
+    ],
+    requiredCopyGroups: [
+      { label: 'belief reversal copy', patterns: [/\b(people think|youve been told|most people|actually|truth|wrong|myth)\b/i] },
+      { label: 'correction language', patterns: [/\b(instead|real reason|what is actually happening|not the real reason)\b/i] },
+    ],
+    requiredSectionTypes: ['lead', 'solution'],
+    forbiddenHeadlinePatterns: [/^\s*(\d+|one|two|three|four|five|six|seven|eight|nine|ten)\b/i, /^(i|my|we)\b/i],
+    forbiddenCopyPatterns: [/\b(reason one|reason two)\b/i],
+  },
+  listicle: {
+    contract: 'Headline must use an explicit numbered or list-driven structure.',
+    titleFamily: 'numbered_list',
+    titleShape: 'numbered list',
+    openingMove: 'Lead with an explicit count and a list promise.',
+    sectionEmphasis: ['lead', 'benefits', 'proof', 'offer'],
+    proofStyle: 'itemized proof or reasons that escalate toward the offer',
+    persuasionPattern: 'numbered reasons -> build momentum -> strongest point near the end',
+    ctaStyle: 'cta tied to the list conclusion',
+    forbiddenStructuralPatterns: ['first-person testimonial opener', 'generic mechanism opener', 'myth-only opener'],
+    requiredHeadlineGroups: [
+      { label: 'numbered opener', patterns: [/^\s*(\d+|one|two|three|four|five|six|seven|eight|nine|ten)\b/i] },
+      { label: 'list promise', patterns: [/\b(reasons?|signs?|ways?|things?|myths?|mistakes?)\b/i] },
+    ],
+    requiredCopyGroups: [
+      { label: 'list structure', patterns: [/\b(first|second|third|reason one|reason two|reason three)\b/i, /(^|\n)\s*(\d+[\).\s]|[-*]\s)/m] },
+    ],
+    requiredSectionTypes: ['lead'],
+    forbiddenHeadlinePatterns: [/^(i|my|we)\b/i],
+    forbiddenCopyPatterns: [/\bpeople think\b/i],
+  },
 };
+
+const FRAME_CONTRACTS = Object.fromEntries(
+  Object.entries(FRAME_BLUEPRINTS).map(([frameId, blueprint]) => [frameId, blueprint.contract])
+);
 
 function stripHtml(text = '') {
   return String(text || '').replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
@@ -68,6 +181,24 @@ function extractAngleKeywords(angle = '') {
   return uniqueTokens(angle).slice(0, 8);
 }
 
+function uniqueLowerArray(values = []) {
+  return [...new Set(values.map((value) => String(value || '').trim().toLowerCase()).filter(Boolean))];
+}
+
+function sectionTypesFromCopy(copySections = []) {
+  return uniqueLowerArray(
+    ensureArray(copySections).map((section) => section?.type)
+  );
+}
+
+function getSectionText(copySections = [], preferredTypes = []) {
+  const preferred = new Set(ensureArray(preferredTypes).map((value) => String(value || '').trim().toLowerCase()));
+  const sections = ensureArray(copySections)
+    .filter((section) => section?.type && section?.content)
+    .filter((section) => preferred.size === 0 || preferred.has(String(section.type).trim().toLowerCase()));
+  return sections.map((section) => stripHtml(section.content || '')).join(' ');
+}
+
 function extractAlignmentKeywords(text = '', limit = 18) {
   return uniqueTokens(text)
     .filter((token) => !LOW_SIGNAL_ALIGNMENT_TOKENS.has(token))
@@ -86,6 +217,40 @@ function hasAnyKeyword(text = '', keywords = []) {
 
 export function getNarrativeFrameHeadlineContract(frameId) {
   return FRAME_CONTRACTS[frameId] || 'Headline must be clearly specific to this narrative frame.';
+}
+
+export function getNarrativeFrameBlueprint(frameId) {
+  return FRAME_BLUEPRINTS[frameId] || {
+    contract: getNarrativeFrameHeadlineContract(frameId),
+    titleFamily: frameId || 'general',
+    titleShape: 'frame-specific headline',
+    openingMove: 'Lead in the voice of the assigned narrative frame.',
+    sectionEmphasis: ['lead', 'offer'],
+    proofStyle: 'proof that matches the frame',
+    persuasionPattern: 'frame-specific persuasion sequence',
+    ctaStyle: 'cta that follows the frame',
+    forbiddenStructuralPatterns: [],
+    requiredHeadlineGroups: [],
+    requiredCopyGroups: [],
+    requiredSectionTypes: ['lead'],
+    forbiddenHeadlinePatterns: [],
+    forbiddenCopyPatterns: [],
+  };
+}
+
+export function buildNarrativeFrameBlueprintSummary(frameId) {
+  const blueprint = getNarrativeFrameBlueprint(frameId);
+  return {
+    contract: blueprint.contract,
+    title_family: blueprint.titleFamily,
+    title_shape: blueprint.titleShape,
+    opening_move: blueprint.openingMove,
+    section_emphasis: blueprint.sectionEmphasis,
+    proof_style: blueprint.proofStyle,
+    persuasion_pattern: blueprint.persuasionPattern,
+    cta_style: blueprint.ctaStyle,
+    forbidden_structural_patterns: blueprint.forbiddenStructuralPatterns,
+  };
 }
 
 function detectHeadlineShape(headline = '') {
@@ -175,30 +340,13 @@ export function applyLPHeadlineParts(copySections = [], { headline, subheadline 
 export function validateLPHeadlineFrameAlignment({ headline, narrativeFrame, angle = '' }) {
   const normalized = normalizeLPHeadlineText(headline);
   const shape = detectHeadlineShape(headline);
-  const angleKeywords = extractAngleKeywords(angle);
-  const keywordHitCount = angleKeywords.filter((token) => normalized.includes(token)).length;
-
-  const testimonialSignals = Number(/^(i|my|she|he|we)\b/i.test(headline))
-    + Number(/\b(for years|finally|one night|i spent|i woke|my doctor|stopped|changed|after one change)\b/i.test(normalized));
-  const mechanismSignals = Number(/^(how|why|what)\b/i.test(headline))
-    + Number(/\b(hidden cause|real reason|trigger|behind|causes?|mechanism)\b/i.test(normalized));
-  const mythSignals = Number(/\b(myth|mistake|wrong|truth|people think|not the reason|isnt|doesnt)\b/i.test(normalized))
-    + Number(/\b(actually|really)\b/i.test(normalized));
-  const listicleSignals = Number(/^\s*(\d+|one|two|three|four|five|six|seven|eight|nine|ten)\b/i.test(headline))
-    + Number(/\b(reasons?|signs?|ways?|things?|myths?|mistakes?)\b/i.test(normalized));
-  const problemSignals = Number(/\b(cant|cannot|wake|wakes|waking|asleep|pain|problem|again|frustrat|drained|tired|pee|bathroom)\b/i.test(normalized))
-    + Number(/\b(worst part|back in bed|wide awake|bathroom trip|fall back asleep|cant get back to sleep)\b/i.test(normalized))
-    + Number(keywordHitCount > 0);
-
-  const results = {
-    testimonial: testimonialSignals >= 2 && !['mechanism', 'myth_busting', 'listicle'].includes(shape),
-    mechanism: mechanismSignals >= 1 && !['testimonial', 'listicle'].includes(shape),
-    problem_agitation: problemSignals >= 2 && !['mechanism', 'myth_busting', 'listicle'].includes(shape),
-    myth_busting: mythSignals >= 1 && !['testimonial', 'listicle'].includes(shape),
-    listicle: listicleSignals >= 2,
-  };
-
-  const passed = !!results[narrativeFrame];
+  const blueprint = getNarrativeFrameBlueprint(narrativeFrame);
+  const headlineText = stripHtml(headline);
+  const missingGroups = ensureArray(blueprint.requiredHeadlineGroups)
+    .filter((group) => !ensureArray(group?.patterns).some((pattern) => pattern.test(headlineText)));
+  const forbiddenPattern = ensureArray(blueprint.forbiddenHeadlinePatterns)
+    .find((pattern) => pattern.test(headlineText) || pattern.test(normalized));
+  const passed = missingGroups.length === 0 && !forbiddenPattern;
   const classifier = shape;
   if (passed) {
     return {
@@ -208,10 +356,18 @@ export function validateLPHeadlineFrameAlignment({ headline, narrativeFrame, ang
     };
   }
 
+  if (forbiddenPattern) {
+    return {
+      passed: false,
+      classifier,
+      reason: `Headline uses a ${shape.replace(/_/g, ' ')} structure that conflicts with the ${narrativeFrame.replace(/_/g, ' ')} frame.`,
+    };
+  }
+
   return {
     passed: false,
     classifier,
-    reason: `Headline reads more like ${shape.replace(/_/g, ' ')} than ${narrativeFrame.replace(/_/g, ' ')}.`,
+    reason: `Headline is missing the ${missingGroups.map((group) => group.label).join(' and ')} needed for ${narrativeFrame.replace(/_/g, ' ')}.`,
   };
 }
 
@@ -258,7 +414,7 @@ export function validateLPHeadlineSourceAlignment({
   const sourceMode = messageBrief?.sourceMode || 'angle_only';
 
   const passed = sourceMode === 'director_ads'
-    ? ((specificHits.length >= 1 || angleHits.length >= 2) && (angleHits.length >= 1 || adHits.length >= 2))
+    ? ((specificHits.length >= 2 || angleHits.length >= 2) && (adHits.length >= 1 || specificHits.length >= 1))
     : (specificHits.length >= 1 || angleHits.length >= 2);
 
   if (passed) {
@@ -300,38 +456,59 @@ function getPrimaryCopyText(copySections = []) {
 }
 
 function validateLPContentFrameAlignment({ copyText = '', narrativeFrame = '' }) {
+  const blueprint = getNarrativeFrameBlueprint(narrativeFrame);
+  const rawText = stripHtml(copyText);
   const normalized = normalizeLPHeadlineText(copyText);
-  const testimonialSignals = Number(/\b(i|my|we)\b/i.test(normalized))
-    + Number(/\b(after|finally|for years|one night|at first)\b/i.test(normalized));
-  const mechanismSignals = Number(/\b(how|why|because|reason|trigger|cause|mechanism|nervous system)\b/i.test(normalized))
-    + Number(/\b(keeps?|stays?|signals?|explains?)\b/i.test(normalized));
-  const mythSignals = Number(/\b(wrong|myth|youve been told|people think|not the real reason|truth)\b/i.test(normalized))
-    + Number(/\b(actually|really)\b/i.test(normalized));
-  const problemSignals = Number(/\b(wake|wakes|bathroom|pee|asleep|again|frustrat|drained|worst part|back in bed)\b/i.test(normalized))
-    + Number(/\b(cannot|cant|get back to sleep|wide awake)\b/i.test(normalized));
-  const listicleSignals = Number(/\b(first|second|third|another reason|reason one|reason two)\b/i.test(normalized))
-    + Number(/(^|\n)\s*(\d+[\).\s]|[-*]\s)/m.test(copyText));
-
-  const frameSignals = {
-    testimonial: testimonialSignals,
-    mechanism: mechanismSignals,
-    problem_agitation: problemSignals,
-    myth_busting: mythSignals,
-    listicle: listicleSignals,
-  };
-  const requiredSignals = {
-    testimonial: 1,
-    mechanism: 1,
-    problem_agitation: 1,
-    myth_busting: 1,
-    listicle: 1,
-  };
-  const passed = (frameSignals[narrativeFrame] || 0) >= (requiredSignals[narrativeFrame] || 1);
+  const missingGroups = ensureArray(blueprint.requiredCopyGroups)
+    .filter((group) => !ensureArray(group?.patterns).some((pattern) => pattern.test(rawText) || pattern.test(normalized)));
+  const forbiddenPattern = ensureArray(blueprint.forbiddenCopyPatterns)
+    .find((pattern) => pattern.test(rawText) || pattern.test(normalized));
+  const passed = missingGroups.length === 0 && !forbiddenPattern;
   return {
     passed,
     reason: passed
       ? 'Body copy stays on the assigned narrative frame.'
-      : `Body copy drifts away from the ${narrativeFrame.replace(/_/g, ' ')} frame.`,
+      : forbiddenPattern
+        ? `Body copy uses a pattern that conflicts with the ${narrativeFrame.replace(/_/g, ' ')} frame.`
+        : `Body copy is missing the ${missingGroups.map((group) => group.label).join(' and ')} needed for the ${narrativeFrame.replace(/_/g, ' ')} frame.`,
+  };
+}
+
+export function validateLPFrameBlueprint({
+  headline = '',
+  narrativeFrame = '',
+  copySections = [],
+  angle = '',
+}) {
+  const blueprint = getNarrativeFrameBlueprint(narrativeFrame);
+  const headlineAlignment = validateLPHeadlineFrameAlignment({
+    headline,
+    narrativeFrame,
+    angle,
+  });
+  const contentText = getPrimaryCopyText(copySections);
+  const contentAlignment = validateLPContentFrameAlignment({
+    copyText: contentText,
+    narrativeFrame,
+  });
+  const sectionTypes = sectionTypesFromCopy(copySections);
+  const missingSectionTypes = ensureArray(blueprint.requiredSectionTypes)
+    .filter((sectionType) => !sectionTypes.includes(String(sectionType).toLowerCase()));
+  const passed = headlineAlignment.passed && contentAlignment.passed && missingSectionTypes.length === 0;
+
+  return {
+    passed,
+    titleFamily: blueprint.titleFamily,
+    headlineAlignment,
+    contentAlignment,
+    missingSectionTypes,
+    reason: !headlineAlignment.passed
+      ? headlineAlignment.reason
+      : !contentAlignment.passed
+        ? contentAlignment.reason
+        : missingSectionTypes.length > 0
+          ? `Page is missing the ${missingSectionTypes.join(', ')} structure required for ${narrativeFrame.replace(/_/g, ' ')}.`
+          : `${narrativeFrame} blueprint satisfied.`,
   };
 }
 
@@ -344,21 +521,24 @@ export function validateLPContentAlignment({
   messageBrief = null,
 }) {
   const copyText = getPrimaryCopyText(copySections);
+  const frameBlueprint = validateLPFrameBlueprint({
+    headline,
+    narrativeFrame,
+    copySections,
+    angle,
+  });
   const sourceAlignment = validateLPHeadlineSourceAlignment({
     headline: `${headline || ''} ${subheadline || ''} ${copyText || ''}`.trim(),
     angle,
     messageBrief,
   });
-  const frameAlignment = validateLPContentFrameAlignment({
-    copyText,
-    narrativeFrame,
-  });
   return {
-    passed: sourceAlignment.passed && frameAlignment.passed,
+    passed: sourceAlignment.passed && frameBlueprint.passed,
     sourceAlignment,
-    frameAlignment,
-    reason: !frameAlignment.passed
-      ? frameAlignment.reason
+    frameAlignment: frameBlueprint,
+    frameBlueprint,
+    reason: !frameBlueprint.passed
+      ? frameBlueprint.reason
       : !sourceAlignment.passed
         ? sourceAlignment.reason
         : 'Body copy stays aligned with the frame and source message.',
@@ -405,20 +585,109 @@ export function evaluateSameRunHeadlineUniqueness({ headline, narrativeFrame, si
   };
 }
 
+function buildTitleFamilyFocus({ headline = '', angle = '', messageBrief = null }) {
+  const { angleKeywords, adKeywords, specificKeywords } = buildSourceKeywordSets({ angle, messageBrief });
+  const ignore = new Set([
+    ...TITLE_FAMILY_STOPWORDS,
+    ...angleKeywords,
+    ...adKeywords,
+    ...specificKeywords,
+  ]);
+  return uniqueTokens(headline)
+    .filter((token) => !ignore.has(token))
+    .slice(0, 4);
+}
+
+function sameFocus(leftTokens = [], rightTokens = []) {
+  if (!leftTokens.length || !rightTokens.length) return false;
+  const left = leftTokens.slice(0, 2).join('|');
+  const right = rightTokens.slice(0, 2).join('|');
+  if (left && right && left === right) return true;
+  const overlap = leftTokens.filter((token) => rightTokens.includes(token));
+  return overlap.length >= 2;
+}
+
+export function evaluateTitleFamilyUniqueness({
+  headline,
+  narrativeFrame,
+  acceptedHeadlines = [],
+  angle = '',
+  messageBrief = null,
+}) {
+  const blueprint = getNarrativeFrameBlueprint(narrativeFrame);
+  const titleFamily = blueprint.titleFamily;
+  const titleFocus = buildTitleFamilyFocus({ headline, angle, messageBrief });
+
+  for (const existing of acceptedHeadlines) {
+    const existingHeadline = existing.headline_text || existing.headline || '';
+    const comparison = compareLPHeadlines(headline, existingHeadline);
+    const existingFamily = existing.title_family || getNarrativeFrameBlueprint(existing.narrative_frame || '').titleFamily;
+    const existingFocus = Array.isArray(existing.title_focus_tokens)
+      ? existing.title_focus_tokens
+      : buildTitleFamilyFocus({
+          headline: existingHeadline,
+          angle,
+          messageBrief,
+        });
+
+    if (existingFamily && existingFamily === titleFamily) {
+      return {
+        passed: false,
+        duplicateOf: existing.landing_page_id || existing.lpId || existing.externalId || null,
+        titleFamily,
+        titleFocus,
+        reason: `Title reuses the ${titleFamily.replace(/_/g, ' ')} family already used by "${existingHeadline}".`,
+      };
+    }
+
+    if (
+      comparison.exact ||
+      comparison.containment ||
+      comparison.similarity >= 0.58 ||
+      (comparison.similarity >= 0.42 && sameFocus(titleFocus, existingFocus))
+    ) {
+      return {
+        passed: false,
+        duplicateOf: existing.landing_page_id || existing.lpId || existing.externalId || null,
+        titleFamily,
+        titleFocus,
+        reason: `Title is still too close to the same family as "${existingHeadline}".`,
+      };
+    }
+  }
+
+  return {
+    passed: true,
+    duplicateOf: null,
+    titleFamily,
+    titleFocus,
+    reason: 'Title is materially different from the other frame titles in this gauntlet.',
+  };
+}
+
 export function evaluateHistoryHeadlineUniqueness({
   headline,
   narrativeFrame,
   signature,
   sameFrameHistory = [],
   angleHistory = [],
+  angle = '',
+  messageBrief = null,
 }) {
+  const currentFocusTokens = buildTitleFamilyFocus({ headline, angle, messageBrief });
   for (const existing of sameFrameHistory) {
     const comparison = compareLPHeadlines(headline, existing.headline_text || existing.headline || '');
+    const existingFocusTokens = buildTitleFamilyFocus({
+      headline: existing.headline_text || existing.headline || '',
+      angle,
+      messageBrief,
+    });
     if (
       comparison.exact ||
       comparison.containment ||
       comparison.similarity >= 0.65 ||
-      (sameSignature(signature, existing.headline_signature) && comparison.similarity >= 0.45)
+      (sameSignature(signature, existing.headline_signature) && comparison.similarity >= 0.45) ||
+      (comparison.similarity >= 0.4 && sameFocus(currentFocusTokens, existingFocusTokens))
     ) {
       return {
         passed: false,
@@ -431,12 +700,18 @@ export function evaluateHistoryHeadlineUniqueness({
   for (const existing of angleHistory) {
     const comparison = compareLPHeadlines(headline, existing.headline_text || existing.headline || '');
     const existingTokens = firstContentTokens(existing.headline_text || existing.headline || '', 4).join('|');
+    const existingFocusTokens = buildTitleFamilyFocus({
+      headline: existing.headline_text || existing.headline || '',
+      angle,
+      messageBrief,
+    });
     if (
       comparison.exact ||
       comparison.containment ||
       comparison.similarity >= 0.78 ||
       (sameSignature(signature, existing.headline_signature) && comparison.similarity >= 0.4) ||
-      (currentTokens && currentTokens === existingTokens)
+      (currentTokens && currentTokens === existingTokens) ||
+      sameFocus(currentFocusTokens, existingFocusTokens)
     ) {
       return {
         passed: false,

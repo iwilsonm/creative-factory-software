@@ -1418,7 +1418,9 @@ function DirectorTab({ onRefresh }) {
       const parsed = ensureArray(JSON.parse(saved), 'AgentMonitor.director.savedRunQueue');
       // Clear stale items older than 2 hours
       const cutoff = Date.now() - 2 * 60 * 60 * 1000;
-      return parsed.filter(r => r.startTime ? r.startTime > cutoff : true);
+      return parsed
+        .filter(r => r.startTime ? r.startTime > cutoff : true)
+        .map((item) => ({ ...item, generateLP: item?.generateLP === true }));
     } catch { return []; }
   });
   const safeTestRunQueue = ensureArray(testRunQueue, 'AgentMonitor.director.testRunQueue');
