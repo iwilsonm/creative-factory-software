@@ -51,7 +51,7 @@ export const upsertConfig = mutation({
     gauntlet_max_image_retries: v.optional(v.float64()),
     gauntlet_max_lp_retries: v.optional(v.float64()),
     // Word count
-    default_word_count: v.optional(v.float64()),
+    default_word_count: v.optional(v.union(v.float64(), v.null())),
     frame_word_counts: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
@@ -63,11 +63,46 @@ export const upsertConfig = mutation({
     const now = new Date().toISOString();
     if (existing) {
       const { project_id, externalId, ...updates } = args;
-      const filtered: Record<string, any> = { updated_at: now };
+      const replacement: Record<string, any> = {
+        externalId: existing.externalId,
+        project_id: existing.project_id,
+        enabled: existing.enabled,
+        shopify_store_domain: existing.shopify_store_domain,
+        shopify_access_token: existing.shopify_access_token,
+        shopify_client_id: existing.shopify_client_id,
+        shopify_connected: existing.shopify_connected,
+        pdp_url: existing.pdp_url,
+        default_narrative_frames: existing.default_narrative_frames,
+        template_selection_mode: existing.template_selection_mode,
+        editorial_pass_enabled: existing.editorial_pass_enabled,
+        lp_default_mode: existing.lp_default_mode,
+        auto_publish: existing.auto_publish,
+        daily_budget_cents: existing.daily_budget_cents,
+        use_product_reference_images: existing.use_product_reference_images,
+        lifestyle_image_style: existing.lifestyle_image_style,
+        default_author_name: existing.default_author_name,
+        default_author_title: existing.default_author_title,
+        default_warning_text: existing.default_warning_text,
+        visual_qa_enabled: existing.visual_qa_enabled,
+        cached_product_visual_context: existing.cached_product_visual_context,
+        cached_avatar_visual_context: existing.cached_avatar_visual_context,
+        gauntlet_score_threshold: existing.gauntlet_score_threshold,
+        gauntlet_max_image_retries: existing.gauntlet_max_image_retries,
+        gauntlet_max_lp_retries: existing.gauntlet_max_lp_retries,
+        default_word_count: existing.default_word_count,
+        frame_word_counts: existing.frame_word_counts,
+        created_at: existing.created_at,
+        updated_at: now,
+      };
       for (const [key, value] of Object.entries(updates)) {
-        if (value !== undefined) filtered[key] = value;
+        if (value === undefined) continue;
+        if (value === null) {
+          delete replacement[key];
+          continue;
+        }
+        replacement[key] = value;
       }
-      await ctx.db.patch(existing._id, filtered);
+      await ctx.db.replace(existing._id, replacement);
     } else {
       await ctx.db.insert("lp_agent_config", {
         externalId: args.externalId || crypto.randomUUID(),

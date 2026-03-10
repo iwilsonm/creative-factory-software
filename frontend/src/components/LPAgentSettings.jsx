@@ -694,9 +694,13 @@ export default function LPAgentSettings({ projectId }) {
                 <input
                   type="number"
                   min={300} max={5000} step={100}
-                  value={config?.default_word_count ?? 1200}
-                  onChange={e => handleSaveConfig({ default_word_count: parseInt(e.target.value) || 1200 })}
+                  value={config?.default_word_count ?? ''}
+                  onChange={e => {
+                    const raw = e.target.value.trim();
+                    handleSaveConfig({ default_word_count: raw ? parseInt(raw, 10) : null });
+                  }}
                   className="input-apple text-[12px] w-24"
+                  placeholder="None"
                 />
                 <span className="text-[10px] text-textlight">words</span>
               </div>
@@ -715,10 +719,14 @@ export default function LPAgentSettings({ projectId }) {
                           min={300} max={5000} step={100}
                           value={frameWordCounts[frameId]}
                           onChange={e => {
-                            const updated = { ...frameWordCounts, [frameId]: parseInt(e.target.value) || 1200 };
+                            const raw = e.target.value.trim();
+                            const updated = { ...frameWordCounts };
+                            if (raw) updated[frameId] = parseInt(raw, 10);
+                            else delete updated[frameId];
                             handleSaveConfig({ frame_word_counts: JSON.stringify(updated) });
                           }}
                           className="input-apple text-[12px] w-24"
+                          placeholder="None"
                         />
                         <button
                           onClick={() => {
@@ -733,7 +741,7 @@ export default function LPAgentSettings({ projectId }) {
                     ) : (
                       <button
                         onClick={() => {
-                          const updated = { ...frameWordCounts, [frameId]: config?.default_word_count ?? 1200 };
+                          const updated = { ...frameWordCounts, [frameId]: '' };
                           handleSaveConfig({ frame_word_counts: JSON.stringify(updated) });
                         }}
                         className="text-[10px] text-navy hover:text-navy/70 transition-colors"
@@ -744,7 +752,7 @@ export default function LPAgentSettings({ projectId }) {
               })}
             </div>
             <p className="text-[9px] text-textlight mt-1.5">
-              Target word count for generated landing pages. Frame-specific overrides take priority over the default.
+              Leave blank for no target. Frame-specific overrides take priority over the optional global default.
             </p>
           </div>
 

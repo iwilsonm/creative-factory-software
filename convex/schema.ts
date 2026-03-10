@@ -460,7 +460,7 @@ export default defineSchema({
     project_id: v.string(),              // → projects.externalId
     name: v.string(),                    // User-facing name (auto-generated or manual)
     angle: v.optional(v.string()),       // The angle/hook for this LP
-    word_count: v.optional(v.number()),  // Target word count (default 1200)
+    word_count: v.optional(v.number()),  // Optional target word count
     additional_direction: v.optional(v.string()), // Extra instructions from user
     swipe_text: v.optional(v.string()),  // Extracted text from swipe page
     swipe_filename: v.optional(v.string()), // Legacy: original swipe PDF filename
@@ -757,7 +757,7 @@ export default defineSchema({
     gauntlet_max_image_retries: v.optional(v.float64()),    // Max image prescore retries (default 5)
     gauntlet_max_lp_retries: v.optional(v.float64()),       // Max full LP retries (default 2)
     // Word count
-    default_word_count: v.optional(v.float64()),             // Global default word count (default 1200)
+    default_word_count: v.optional(v.float64()),             // Optional global default word count
     frame_word_counts: v.optional(v.string()),               // JSON: { "testimonial": 1800, "listicle": 600 }
     // Timestamps
     created_at: v.optional(v.string()),

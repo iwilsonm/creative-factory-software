@@ -201,7 +201,8 @@ router.post('/:projectId/landing-pages/generate', async (req, res) => {
 
   // Create landing page record
   const pageId = uuidv4();
-  const wordCountNum = parseInt(word_count) || 1200;
+  const parsedWordCount = Number.parseInt(word_count, 10);
+  const wordCountNum = Number.isFinite(parsedWordCount) && parsedWordCount > 0 ? parsedWordCount : undefined;
   const pageName = `LP — ${angle.trim().slice(0, 60)}`;
 
   await createLandingPage({

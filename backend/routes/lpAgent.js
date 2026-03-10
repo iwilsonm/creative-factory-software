@@ -48,7 +48,7 @@ router.put('/:id/lp-agent/config', async (req, res) => {
       'default_author_name', 'default_author_title', 'default_warning_text',
       'visual_qa_enabled',
       'gauntlet_score_threshold', 'gauntlet_max_image_retries', 'gauntlet_max_lp_retries',
-      'lp_default_mode',
+      'lp_default_mode', 'default_word_count', 'frame_word_counts',
     ];
     const fields = {};
     for (const key of allowedFields) {
@@ -254,7 +254,6 @@ router.post('/:id/lp-agent/generate-test', async (req, res) => {
       project_id: projectId,
       name: `Test LP — ${frame.name}: ${angle_description.slice(0, 60)}`,
       angle: angle_description,
-      word_count: 1200,
       status: 'generating',
       auto_generated: true,
       batch_job_id: null,
