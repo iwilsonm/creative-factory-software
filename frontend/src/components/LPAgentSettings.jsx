@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api';
 import { useToast } from './Toast';
@@ -23,9 +23,26 @@ const FRAME_LABELS = {
   listicle: 'Listicle',
 };
 
+function safeParseQueue(value) {
+  if (!value) return [];
+  try {
+    const parsed = JSON.parse(value);
+    return ensureArray(parsed, 'LPAgentSettings.savedQueue');
+  } catch {
+    return [];
+  }
+}
+
+function buildQueueSummary(report) {
+  const summary = report?.summary;
+  if (!summary) return 'Dry run complete.';
+  return `${summary.passed || 0}/${summary.total || 0} passed, avg ${summary.avgScore || 0}/11`;
+}
+
 export default function LPAgentSettings({ projectId }) {
   const toast = useToast();
   const navigate = useNavigate();
+  const queueStorageKey = useMemo(() => `lp-agent-dry-run-queue:${projectId}`, [projectId]);
 
   // Config state
   const [config, setConfig] = useState(null);
@@ -49,6 +66,12 @@ export default function LPAgentSettings({ projectId }) {
   const gauntletAbortRef = useRef(null);
   const gauntletSSEActive = useRef(false); // true when SSE stream is connected
 
+  // Dry-run queue state
+  const [dryRunQueue, setDryRunQueue] = useState([]);
+  const dryRunSSEActiveRef = useRef(false);
+  const dryRunAbortRef = useRef(null);
+  const restoredDryRunRef = useRef(false);
+
   // Conductor angles (for gauntlet dropdown)
   const [conductorAngles, setConductorAngles] = useState([]);
   const [selectedAngle, setSelectedAngle] = useState('');
@@ -61,6 +84,17 @@ export default function LPAgentSettings({ projectId }) {
   const saveTimerRef = useRef(null);
   const pendingConfigRef = useRef({});
   const saveInFlightRef = useRef(false);
+
+  // ── Derived state ──
+  const enabledFrames = (() => {
+    try {
+      const parsed = JSON.parse(config?.default_narrative_frames || '[]');
+      // Default to all frames if none are saved yet
+      return parsed.length > 0 ? parsed : NARRATIVE_FRAMES.map(f => f.id);
+    } catch {
+      return NARRATIVE_FRAMES.map(f => f.id);
+    }
+  })();
 
   // ── Load config + Shopify status + templates ──
   const loadData = useCallback(async () => {
@@ -99,14 +133,37 @@ export default function LPAgentSettings({ projectId }) {
   }, [projectId]);
 
   useEffect(() => {
+    restoredDryRunRef.current = false;
+    setDryRunQueue([]);
+  }, [projectId]);
+
+  useEffect(() => {
     return () => {
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+      dryRunAbortRef.current?.();
     };
   }, []);
+
+  useEffect(() => {
+    if (!projectId || restoredDryRunRef.current) return;
+    restoredDryRunRef.current = true;
+    setDryRunQueue(safeParseQueue(localStorage.getItem(queueStorageKey)).map((item) => ({
+      ...item,
+      status: item.status === 'running' ? 'running' : item.status,
+      sseConnected: false,
+    })));
+  }, [projectId, queueStorageKey]);
+
+  useEffect(() => {
+    if (!projectId || !restoredDryRunRef.current) return;
+    localStorage.setItem(queueStorageKey, JSON.stringify(dryRunQueue));
+  }, [dryRunQueue, projectId, queueStorageKey]);
 
   // ── Mount-time recovery: check for active gauntlet progress ──
   useEffect(() => {
     if (!projectId) return;
+    const savedQueue = safeParseQueue(localStorage.getItem(queueStorageKey));
+    if (savedQueue.some(item => item.status === 'queued' || item.status === 'running')) return;
     api.getGauntletProgress(projectId).then(progress => {
       if (progress) {
         setGauntletRunning(true);
@@ -115,7 +172,39 @@ export default function LPAgentSettings({ projectId }) {
         if (!gauntletStartRef.current) gauntletStartRef.current = progress.startedAt;
       }
     }).catch(() => {});
-  }, [projectId]);
+  }, [projectId, queueStorageKey]);
+
+  useEffect(() => {
+    if (!projectId) return;
+    api.getGauntletProgress(projectId).then(progress => {
+      if (!progress) return;
+      setDryRunQueue(prev => {
+        const running = prev.find(item => item.status === 'running');
+        if (running) {
+          return prev.map(item => item.id === running.id ? {
+            ...item,
+            progress: Math.max(item.progress || 0, progress.percent || 0),
+            phase: progress.message || progress.step || item.phase,
+            startTime: item.startTime || progress.startedAt || Date.now(),
+            sseConnected: false,
+          } : item);
+        }
+        const restoredItem = {
+          id: `restored-${projectId}`,
+          projectId,
+          status: 'running',
+          angle: selectedAngle || null,
+          frameIds: enabledFrames,
+          startTime: progress.startedAt || Date.now(),
+          progress: progress.percent || 0,
+          phase: progress.message || progress.step || 'Dry run in progress...',
+          result: null,
+          sseConnected: false,
+        };
+        return [...prev, restoredItem];
+      });
+    }).catch(() => {});
+  }, [enabledFrames, projectId, selectedAngle]);
 
   // ── Polling fallback: update progress when gauntlet running but no SSE ──
   usePolling(
@@ -139,6 +228,39 @@ export default function LPAgentSettings({ projectId }) {
     },
     3000,
     gauntletRunning && !gauntletSSEActive.current
+  );
+
+  const activeDryRun = dryRunQueue.find(item => item.status === 'running') || null;
+  const queuedDryRuns = dryRunQueue.filter(item => item.status === 'queued');
+  const finishedDryRuns = dryRunQueue.filter(item => item.status === 'complete' || item.status === 'error' || item.status === 'cancelled');
+  const hasQueuedOrRunningDryRun = dryRunQueue.some(item => item.status === 'queued' || item.status === 'running');
+
+  usePolling(
+    async () => {
+      const progress = await api.getGauntletProgress(projectId);
+      if (progress && activeDryRun) {
+        setDryRunQueue(prev => prev.map(item => item.id === activeDryRun.id ? {
+          ...item,
+          progress: Math.max(item.progress || 0, progress.percent || 0),
+          phase: progress.message || progress.step || item.phase,
+          startTime: item.startTime || progress.startedAt || Date.now(),
+        } : item));
+        return;
+      }
+      if (!progress && activeDryRun) {
+        setDryRunQueue(prev => prev.map(item => item.id === activeDryRun.id ? {
+          ...item,
+          status: 'complete',
+          progress: 100,
+          phase: 'Dry run complete. Check Recent Generations for results.',
+          sseConnected: false,
+          finishedAt: Date.now(),
+        } : item));
+        refreshRecentGenerations();
+      }
+    },
+    3000,
+    Boolean(activeDryRun) && !dryRunSSEActiveRef.current
   );
 
   // ── Debounced config save ──
@@ -207,6 +329,39 @@ export default function LPAgentSettings({ projectId }) {
     } catch { /* ignore */ }
   }, [projectId]);
 
+  const updateDryRunQueueItem = useCallback((queueId, updates) => {
+    setDryRunQueue(prev => prev.map(item => item.id === queueId ? { ...item, ...updates } : item));
+  }, []);
+
+  const handleQueueDryRun = useCallback(() => {
+    const queueItem = {
+      id: crypto.randomUUID(),
+      projectId,
+      status: 'queued',
+      angle: selectedAngle || null,
+      frameIds: [...enabledFrames],
+      startTime: null,
+      progress: 0,
+      phase: 'Queued',
+      result: null,
+      sseConnected: false,
+    };
+    setDryRunQueue(prev => [...prev, queueItem]);
+    setGauntletReport(null);
+  }, [enabledFrames, projectId, selectedAngle]);
+
+  const handleRemoveQueuedDryRun = useCallback((queueId) => {
+    setDryRunQueue(prev => prev.filter(item => item.id !== queueId || item.status !== 'queued'));
+  }, []);
+
+  const handleDismissDryRun = useCallback((queueId) => {
+    setDryRunQueue(prev => prev.filter(item => item.id !== queueId));
+  }, []);
+
+  const handleClearQueuedDryRuns = useCallback(() => {
+    setDryRunQueue(prev => prev.filter(item => item.status !== 'queued'));
+  }, []);
+
   // ── Batch generation ──
   const handleRunGauntlet = (dryRun = false) => {
     setGauntletRunning(true);
@@ -268,16 +423,110 @@ export default function LPAgentSettings({ projectId }) {
     });
   };
 
-  // ── Derived state ──
-  const enabledFrames = (() => {
-    try {
-      const parsed = JSON.parse(config?.default_narrative_frames || '[]');
-      // Default to all frames if none are saved yet
-      return parsed.length > 0 ? parsed : NARRATIVE_FRAMES.map(f => f.id);
-    } catch {
-      return NARRATIVE_FRAMES.map(f => f.id);
+  useEffect(() => {
+    if (!projectId) return;
+    if (gauntletRunning) return;
+    if (activeDryRun) {
+      if (dryRunSSEActiveRef.current) return;
+      return;
     }
-  })();
+    const nextQueued = dryRunQueue.find(item => item.status === 'queued');
+    if (!nextQueued) return;
+
+    dryRunSSEActiveRef.current = true;
+    setDryRunQueue(prev => prev.map(item => item.id === nextQueued.id ? {
+      ...item,
+      status: 'running',
+      startTime: Date.now(),
+      phase: 'Starting dry run...',
+      progress: 0,
+      sseConnected: true,
+    } : item));
+
+    const { abort, done } = api.runGauntletTest(projectId, {
+      dry_run: true,
+      angle: nextQueued.angle || null,
+      frame_ids: nextQueued.frameIds,
+    }, (event) => {
+      if (event.type === 'progress') {
+        const updates = { phase: event.message || event.step || 'Running...', sseConnected: true };
+        if (event.gauntlet?.frame && event.gauntlet?.total) {
+          const frameBase = ((event.gauntlet.frame - 1) / event.gauntlet.total) * 100;
+          const frameChunk = 100 / event.gauntlet.total;
+          const subSteps = {
+            gauntlet_frame_start: 0,
+            gauntlet_images: 0.1,
+            gauntlet_prescore: 0.3,
+            gauntlet_generate: 0.5,
+            gauntlet_scoring: 0.8,
+            gauntlet_publishing: 0.9,
+            gauntlet_frame_done: 1,
+          };
+          const sub = subSteps[event.step] ?? 0.5;
+          updates.progress = Math.round(frameBase + sub * frameChunk);
+        } else if (event.step === 'gauntlet_complete') {
+          updates.progress = 100;
+        }
+        setDryRunQueue(prev => prev.map(item => item.id === nextQueued.id ? {
+          ...item,
+          ...updates,
+          progress: Math.max(item.progress || 0, updates.progress ?? item.progress ?? 0),
+        } : item));
+      } else if (event.type === 'complete') {
+        dryRunSSEActiveRef.current = false;
+        dryRunAbortRef.current = null;
+        const summaryText = buildQueueSummary(event.report);
+        setDryRunQueue(prev => prev.map(item => item.id === nextQueued.id ? {
+          ...item,
+          status: 'complete',
+          progress: 100,
+          phase: summaryText,
+          result: event.report,
+          sseConnected: false,
+          finishedAt: Date.now(),
+        } : item));
+        refreshRecentGenerations();
+      } else if (event.type === 'error') {
+        dryRunSSEActiveRef.current = false;
+        dryRunAbortRef.current = null;
+        setDryRunQueue(prev => prev.map(item => item.id === nextQueued.id ? {
+          ...item,
+          status: 'error',
+          progress: 0,
+          phase: event.message || 'Dry run failed',
+          result: { error: event.message || 'Dry run failed' },
+          sseConnected: false,
+          finishedAt: Date.now(),
+        } : item));
+      }
+    });
+
+    dryRunAbortRef.current = abort;
+    done.catch((err) => {
+      dryRunSSEActiveRef.current = false;
+      dryRunAbortRef.current = null;
+      if (err.name === 'AbortError') {
+        setDryRunQueue(prev => prev.map(item => item.id === nextQueued.id ? {
+          ...item,
+          status: 'cancelled',
+          progress: item.progress || 0,
+          phase: 'Dry run cancelled locally',
+          sseConnected: false,
+          finishedAt: Date.now(),
+        } : item));
+        return;
+      }
+      setDryRunQueue(prev => prev.map(item => item.id === nextQueued.id ? {
+        ...item,
+        status: 'error',
+        progress: 0,
+        phase: err.message || 'Dry run failed',
+        result: { error: err.message || 'Dry run failed' },
+        sseConnected: false,
+        finishedAt: Date.now(),
+      } : item));
+    });
+  }, [activeDryRun, dryRunQueue, gauntletRunning, projectId, refreshRecentGenerations]);
 
   // Determine agent status label
   const hasShopify = shopifyStatus?.connected;
@@ -770,20 +1019,43 @@ export default function LPAgentSettings({ projectId }) {
               ))}
             </select>
             <button
-              onClick={() => handleRunGauntlet(true)}
+              onClick={handleQueueDryRun}
               disabled={gauntletRunning}
               className="btn-secondary text-[12px] whitespace-nowrap disabled:opacity-50"
             >
-              {gauntletRunning ? 'Running...' : 'Dry Run'}
+              {activeDryRun ? `Running (${queuedDryRuns.length} queued)` : queuedDryRuns.length > 0 ? `Queue Dry Run (${queuedDryRuns.length} queued)` : 'Queue Dry Run'}
             </button>
             <button
               onClick={() => handleRunGauntlet(false)}
-              disabled={gauntletRunning}
+              disabled={gauntletRunning || hasQueuedOrRunningDryRun}
               className="btn-primary text-[12px] whitespace-nowrap disabled:opacity-50"
             >
               {gauntletRunning ? 'Running...' : 'Run & Publish'}
             </button>
           </div>
+
+          {activeDryRun && (
+            <PipelineProgress
+              progress={activeDryRun.progress}
+              message={activeDryRun.phase}
+              startTime={activeDryRun.startTime}
+              className="mt-1"
+            />
+          )}
+
+          {queuedDryRuns.length > 0 && (
+            <div className="flex items-center gap-2">
+              <p className="text-[10px] text-textlight">
+                {queuedDryRuns.length} dry run{queuedDryRuns.length !== 1 ? 's' : ''} queued
+              </p>
+              <button
+                onClick={handleClearQueuedDryRuns}
+                className="text-[10px] text-textlight hover:text-red-500 transition-colors"
+              >
+                Clear queue
+              </button>
+            </div>
+          )}
 
           {/* Progress */}
           {gauntletRunning && (
@@ -793,6 +1065,64 @@ export default function LPAgentSettings({ projectId }) {
               startTime={gauntletStartRef.current}
               className="mt-1"
             />
+          )}
+
+          {(activeDryRun || dryRunQueue.length > 0) && (
+            <div className="space-y-2">
+              {dryRunQueue.map((item) => {
+                const isQueued = item.status === 'queued';
+                const isRunning = item.status === 'running';
+                const isComplete = item.status === 'complete';
+                const isError = item.status === 'error' || item.status === 'cancelled';
+                const summary = item.result?.summary;
+                const label = item.angle || 'No angle';
+                const frameCount = item.frameIds?.length || 0;
+
+                return (
+                  <div key={item.id} className="rounded-lg border border-black/5 bg-black/[0.02] px-3 py-2">
+                    <div className="flex items-start gap-3">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <p className="text-[11px] font-medium text-textdark truncate">{label}</p>
+                          <span className="text-[9px] text-textlight">{frameCount} frame{frameCount !== 1 ? 's' : ''}</span>
+                          <span className={`text-[9px] font-medium px-1.5 py-0.5 rounded-full ${
+                            isQueued ? 'bg-black/5 text-textmid' :
+                            isRunning ? 'bg-gold/10 text-gold' :
+                            isComplete ? 'bg-teal/10 text-teal' :
+                            'bg-red-50 text-red-600'
+                          }`}>
+                            {isQueued ? 'Queued' : isRunning ? 'Running' : isComplete ? 'Complete' : item.status === 'cancelled' ? 'Cancelled' : 'Failed'}
+                          </span>
+                        </div>
+                        <p className="text-[10px] text-textmid mt-1">{item.phase || 'Queued'}</p>
+                        {(isRunning || isComplete) && (
+                          <p className="text-[9px] text-textlight mt-1">
+                            {item.progress != null ? `${item.progress}%` : '—'}
+                            {summary ? ` · ${summary.passed || 0}/${summary.total || 0} passed` : ''}
+                          </p>
+                        )}
+                      </div>
+                      {isQueued && (
+                        <button
+                          onClick={() => handleRemoveQueuedDryRun(item.id)}
+                          className="text-[10px] text-textlight hover:text-red-500 transition-colors"
+                        >
+                          Remove
+                        </button>
+                      )}
+                      {(isComplete || isError) && (
+                        <button
+                          onClick={() => handleDismissDryRun(item.id)}
+                          className="text-[10px] text-textlight hover:text-red-500 transition-colors"
+                        >
+                          Dismiss
+                        </button>
+                      )}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
           )}
 
           {/* Report */}
