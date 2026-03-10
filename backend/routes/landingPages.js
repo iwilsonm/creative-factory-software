@@ -67,6 +67,34 @@ const EXT_TO_MIME = {
   '.gif': 'image/gif',
 };
 
+function parseMaybeJson(value, fallback) {
+  if (value == null) return fallback;
+  if (typeof value === 'string') {
+    try {
+      return JSON.parse(value);
+    } catch {
+      return fallback;
+    }
+  }
+  return value;
+}
+
+function resolveDraftState(page, body = {}) {
+  const draftState = parseMaybeJson(body.draft_state, null) || {};
+  return {
+    copySections: parseMaybeJson(draftState.copy_sections ?? body.copy_sections, page.copy_sections ? JSON.parse(page.copy_sections) : []),
+    imageSlots: parseMaybeJson(draftState.image_slots ?? body.image_slots, page.image_slots ? JSON.parse(page.image_slots) : []),
+    ctaLinks: parseMaybeJson(draftState.cta_links ?? body.cta_links, page.cta_links ? JSON.parse(page.cta_links) : []),
+    htmlTemplate: draftState.html_template ?? body.html_template ?? page.html_template ?? '',
+  };
+}
+
+function isPersistEnabled(value) {
+  if (value === undefined || value === null || value === '') return true;
+  if (typeof value === 'boolean') return value;
+  return String(value).toLowerCase() !== 'false';
+}
+
 // ─── List all landing pages for a project ────────────────────────────────────
 router.get('/:projectId/landing-pages', async (req, res) => {
   const project = await getProject(req.params.projectId);
@@ -481,7 +509,8 @@ router.post('/:projectId/landing-pages/:pageId/regenerate-image', async (req, re
     return res.status(400).json({ error: 'slot_index and prompt are required' });
   }
 
-  const imageSlots = page.image_slots ? JSON.parse(page.image_slots) : [];
+  const persist = isPersistEnabled(req.body.persist);
+  const { imageSlots, copySections, ctaLinks, htmlTemplate } = resolveDraftState(page, req.body);
   if (slot_index < 0 || slot_index >= imageSlots.length) {
     return res.status(400).json({ error: 'Invalid slot_index' });
   }
@@ -518,23 +547,22 @@ router.post('/:projectId/landing-pages/:pageId/regenerate-image', async (req, re
       imageSlots[slot_index].generated = true;
 
       // Re-assemble HTML
-      const copySections = page.copy_sections ? JSON.parse(page.copy_sections) : [];
-      const ctaLinks = page.cta_links ? JSON.parse(page.cta_links) : [];
       const ctaElements = ctaLinks.length > 0 ? ctaLinks : (page.swipe_design_analysis ? JSON.parse(page.swipe_design_analysis).cta_elements || [] : []);
 
       const rawAssembledHtml = assembleLandingPage({
-        htmlTemplate: page.html_template || '',
+        htmlTemplate,
         copySections,
         imageSlots,
         ctaElements: ctaLinks.length > 0 ? ctaLinks : ctaElements,
       });
       const { html: assembledHtml } = postProcessLP(rawAssembledHtml, { project: regenProject });
 
-      // Save everything
-      await updateLandingPage(req.params.pageId, {
-        image_slots: JSON.stringify(imageSlots),
-        assembled_html: assembledHtml,
-      });
+      if (persist) {
+        await updateLandingPage(req.params.pageId, {
+          image_slots: JSON.stringify(imageSlots),
+          assembled_html: assembledHtml,
+        });
+      }
 
       sse.sendEvent({
         type: 'completed',
@@ -567,7 +595,8 @@ router.post('/:projectId/landing-pages/:pageId/upload-image', imageUpload.single
     return res.status(400).json({ error: 'slot_index is required' });
   }
 
-  const imageSlots = page.image_slots ? JSON.parse(page.image_slots) : [];
+  const persist = isPersistEnabled(req.body.persist);
+  const { imageSlots, copySections, ctaLinks, htmlTemplate } = resolveDraftState(page, req.body);
   if (slotIndex < 0 || slotIndex >= imageSlots.length) {
     if (req.file?.path) fs.unlinkSync(req.file.path);
     return res.status(400).json({ error: 'Invalid slot_index' });
@@ -595,24 +624,24 @@ router.post('/:projectId/landing-pages/:pageId/upload-image', imageUpload.single
     const uploadProject = await getProject(req.params.projectId);
 
     // Re-assemble HTML
-    const copySections = page.copy_sections ? JSON.parse(page.copy_sections) : [];
-    const ctaLinks = page.cta_links ? JSON.parse(page.cta_links) : [];
     const ctaElements = ctaLinks.length > 0 ? ctaLinks : (page.swipe_design_analysis ? JSON.parse(page.swipe_design_analysis).cta_elements || [] : []);
 
     const rawAssembledHtml = assembleLandingPage({
-      htmlTemplate: page.html_template || '',
+      htmlTemplate,
       copySections,
       imageSlots,
       ctaElements: ctaLinks.length > 0 ? ctaLinks : ctaElements,
     });
     const { html: assembledHtml } = postProcessLP(rawAssembledHtml, { project: uploadProject });
 
-    await updateLandingPage(req.params.pageId, {
-      image_slots: JSON.stringify(imageSlots),
-      assembled_html: assembledHtml,
-    });
+    if (persist) {
+      await updateLandingPage(req.params.pageId, {
+        image_slots: JSON.stringify(imageSlots),
+        assembled_html: assembledHtml,
+      });
+    }
 
-    res.json({ slot: imageSlots[slotIndex], assembled_html: assembledHtml });
+    res.json({ slot: imageSlots[slotIndex], imageSlots, assembled_html: assembledHtml });
   } catch (err) {
     console.error('[LPGen] Image upload error:', err.message);
     res.status(500).json({ error: err.message });
@@ -629,7 +658,8 @@ router.post('/:projectId/landing-pages/:pageId/revert-image', async (req, res) =
   }
 
   const { slot_index } = req.body;
-  const imageSlots = page.image_slots ? JSON.parse(page.image_slots) : [];
+  const persist = isPersistEnabled(req.body.persist);
+  const { imageSlots, copySections, ctaLinks, htmlTemplate } = resolveDraftState(page, req.body);
   if (slot_index < 0 || slot_index >= imageSlots.length) {
     return res.status(400).json({ error: 'Invalid slot_index' });
   }
@@ -651,24 +681,24 @@ router.post('/:projectId/landing-pages/:pageId/revert-image', async (req, res) =
   const revertProject = await getProject(req.params.projectId);
 
   // Re-assemble HTML
-  const copySections = page.copy_sections ? JSON.parse(page.copy_sections) : [];
-  const ctaLinks = page.cta_links ? JSON.parse(page.cta_links) : [];
   const ctaElements = ctaLinks.length > 0 ? ctaLinks : (page.swipe_design_analysis ? JSON.parse(page.swipe_design_analysis).cta_elements || [] : []);
 
   const rawAssembledHtml = assembleLandingPage({
-    htmlTemplate: page.html_template || '',
+    htmlTemplate,
     copySections,
     imageSlots,
     ctaElements: ctaLinks.length > 0 ? ctaLinks : ctaElements,
   });
   const { html: assembledHtml } = postProcessLP(rawAssembledHtml, { project: revertProject });
 
-  await updateLandingPage(req.params.pageId, {
-    image_slots: JSON.stringify(imageSlots),
-    assembled_html: assembledHtml,
-  });
+  if (persist) {
+    await updateLandingPage(req.params.pageId, {
+      image_slots: JSON.stringify(imageSlots),
+      assembled_html: assembledHtml,
+    });
+  }
 
-  res.json({ slot: imageSlots[slot_index], assembled_html: assembledHtml });
+  res.json({ slot: imageSlots[slot_index], imageSlots, assembled_html: assembledHtml });
 });
 
 // ─── Visual QA Check ──────────────────────────────────────────────────────────

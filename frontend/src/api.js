@@ -577,10 +577,12 @@ export const api = {
   // LP Editor — Image management
   regenerateLPImage: (projectId, pageId, body, onEvent) =>
     streamSSEWithBody(`/projects/${projectId}/landing-pages/${pageId}/regenerate-image`, body, onEvent),
-  uploadLPImage: async (projectId, pageId, file, slotIndex) => {
+  uploadLPImage: async (projectId, pageId, file, slotIndex, options = {}) => {
     const formData = new FormData();
     formData.append('image', file);
     formData.append('slot_index', String(slotIndex));
+    if (options.persist !== undefined) formData.append('persist', String(options.persist));
+    if (options.draft_state) formData.append('draft_state', JSON.stringify(options.draft_state));
     const res = await fetch(`${API_BASE}/projects/${projectId}/landing-pages/${pageId}/upload-image`, {
       method: 'POST',
       credentials: 'include',
@@ -592,10 +594,10 @@ export const api = {
     }
     return res.json();
   },
-  revertLPImage: (projectId, pageId, slotIndex) =>
+  revertLPImage: (projectId, pageId, slotIndex, options = {}) =>
     request(`/projects/${projectId}/landing-pages/${pageId}/revert-image`, {
       method: 'POST',
-      body: JSON.stringify({ slot_index: slotIndex }),
+      body: JSON.stringify({ slot_index: slotIndex, ...options }),
     }),
 
   // LP Visual QA

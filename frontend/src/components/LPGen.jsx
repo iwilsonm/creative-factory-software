@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { api } from '../api';
 import InfoTooltip from './InfoTooltip';
 import PipelineProgress from './PipelineProgress';
-import ConfirmDialog from './ConfirmDialog';
+import ConfirmDialog from './ConfirmDialog.jsx';
 import { useToast } from './Toast';
 import { usePolling } from '../hooks/usePolling';
 
@@ -414,9 +414,9 @@ function LPEditor({ page: initialPage, onBack, onDelete, projectId }) {
 
   // ── Debounce timers ──
   const previewTimer = useRef(null);
-  const saveTimer = useRef(null);
   const saveStatusTimer = useRef(null);
   const initDone = useRef(false);
+  const [isDirty, setIsDirty] = useState(false);
   const [saveState, setSaveState] = useState('idle'); // idle | pending | saving | saved | error
 
   // ── Initialize CTA links, slug, current_version on first load ──
@@ -464,40 +464,50 @@ function LPEditor({ page: initialPage, onBack, onDelete, projectId }) {
     }, 500);
   }, [htmlTemplate, copySections, imageSlots, ctaLinks]);
 
-  // ── Debounced save to backend ──
-  const saveToBackend = useCallback(() => {
-    clearTimeout(saveTimer.current);
-    if (saveStatusTimer.current) clearTimeout(saveStatusTimer.current);
-    setSaveState('pending');
-    saveTimer.current = setTimeout(async () => {
-      const assembled = assembleHtmlClient(htmlTemplate, copySections, imageSlots, ctaLinks);
-      setSaveState('saving');
-      try {
-        await api.updateLandingPage(projectId, initialPage.externalId, {
-          copy_sections: JSON.stringify(copySections),
-          cta_links: JSON.stringify(ctaLinks),
-          slug,
-          assembled_html: assembled,
-        });
-        setSaveState('saved');
-        saveStatusTimer.current = setTimeout(() => setSaveState('idle'), 2000);
-      } catch (err) {
-        console.error('Auto-save failed:', err);
-        setSaveState('error');
-      }
-    }, 1500);
-  }, [htmlTemplate, copySections, imageSlots, ctaLinks, slug, projectId, initialPage.externalId]);
-
-  // Trigger preview rebuild + save on relevant state changes
+  // Trigger preview rebuild on relevant state changes
   useEffect(() => {
     rebuildPreview();
-    saveToBackend();
     return () => {
       clearTimeout(previewTimer.current);
-      clearTimeout(saveTimer.current);
       clearTimeout(saveStatusTimer.current);
     };
-  }, [copySections, ctaLinks]);
+  }, [rebuildPreview]);
+
+  const markDirty = useCallback(() => {
+    if (saveStatusTimer.current) clearTimeout(saveStatusTimer.current);
+    setIsDirty(true);
+    setSaveState(prev => (prev === 'saving' ? prev : 'pending'));
+  }, []);
+
+  const getDraftState = useCallback(() => ({
+    copy_sections: copySections,
+    image_slots: imageSlots,
+    cta_links: ctaLinks,
+    html_template: htmlTemplate,
+  }), [copySections, imageSlots, ctaLinks, htmlTemplate]);
+
+  const handleSaveDraft = useCallback(async () => {
+    const assembled = assembleHtmlClient(htmlTemplate, copySections, imageSlots, ctaLinks);
+    setSaveState('saving');
+    try {
+      await api.updateLandingPage(projectId, initialPage.externalId, {
+        copy_sections: JSON.stringify(copySections),
+        cta_links: JSON.stringify(ctaLinks),
+        slug,
+        image_slots: JSON.stringify(imageSlots),
+        assembled_html: assembled,
+      });
+      setPreviewHtml(assembled);
+      setIsDirty(false);
+      setSaveState('saved');
+      saveStatusTimer.current = setTimeout(() => setSaveState('idle'), 2000);
+      toast.success('Draft saved');
+    } catch (err) {
+      console.error('Draft save failed:', err);
+      setSaveState('error');
+      toast.error(err.message || 'Failed to save draft');
+    }
+  }, [htmlTemplate, copySections, imageSlots, ctaLinks, slug, projectId, initialPage.externalId, toast]);
 
   // ── Copy section edit ──
   const handleCopyChange = (index, newContent) => {
@@ -506,6 +516,7 @@ function LPEditor({ page: initialPage, onBack, onDelete, projectId }) {
       updated[index] = { ...updated[index], content: newContent };
       return updated;
     });
+    markDirty();
   };
 
   // ── CTA link edit ──
@@ -515,11 +526,7 @@ function LPEditor({ page: initialPage, onBack, onDelete, projectId }) {
       updated[index] = { ...updated[index], [field]: value };
       return updated;
     });
-  };
-
-  // ── Slug save ──
-  const handleSlugBlur = () => {
-    api.updateLandingPage(projectId, initialPage.externalId, { slug }).catch(() => {});
+    markDirty();
   };
 
   // ── Image regeneration ──
@@ -533,11 +540,14 @@ function LPEditor({ page: initialPage, onBack, onDelete, projectId }) {
       slot_index: slotIndex,
       prompt,
       aspect_ratio: slot.aspect_ratio || '16:9',
+      persist: false,
+      draft_state: getDraftState(),
     }, (event) => {
       if (event.type === 'completed') {
         setImageSlots(event.imageSlots || []);
         setPreviewHtml(event.assembled_html || '');
         setRegeneratingSlot(null);
+        markDirty();
         toast.success(`Image ${slotIndex + 1} regenerated`);
       } else if (event.type === 'error') {
         setRegeneratingSlot(null);
@@ -556,14 +566,13 @@ function LPEditor({ page: initialPage, onBack, onDelete, projectId }) {
   const handleUploadImage = async (slotIndex, file) => {
     setUploadingSlot(slotIndex);
     try {
-      const result = await api.uploadLPImage(projectId, initialPage.externalId, file, slotIndex);
-      // Update local state
-      setImageSlots(prev => {
-        const updated = [...prev];
-        updated[slotIndex] = result.slot;
-        return updated;
+      const result = await api.uploadLPImage(projectId, initialPage.externalId, file, slotIndex, {
+        persist: false,
+        draft_state: getDraftState(),
       });
+      setImageSlots(result.imageSlots || imageSlots.map((slot, idx) => (idx === slotIndex ? result.slot : slot)));
       if (result.assembled_html) setPreviewHtml(result.assembled_html);
+      markDirty();
       toast.success(`Image ${slotIndex + 1} uploaded`);
     } catch (err) {
       toast.error(err.message || 'Upload failed');
@@ -574,13 +583,13 @@ function LPEditor({ page: initialPage, onBack, onDelete, projectId }) {
   // ── Image revert ──
   const handleRevertImage = async (slotIndex) => {
     try {
-      const result = await api.revertLPImage(projectId, initialPage.externalId, slotIndex);
-      setImageSlots(prev => {
-        const updated = [...prev];
-        updated[slotIndex] = result.slot;
-        return updated;
+      const result = await api.revertLPImage(projectId, initialPage.externalId, slotIndex, {
+        persist: false,
+        draft_state: getDraftState(),
       });
+      setImageSlots(result.imageSlots || imageSlots.map((slot, idx) => (idx === slotIndex ? result.slot : slot)));
       if (result.assembled_html) setPreviewHtml(result.assembled_html);
+      markDirty();
       toast.success(`Image ${slotIndex + 1} reverted to original`);
     } catch (err) {
       toast.error(err.message || 'Revert failed');
@@ -613,6 +622,8 @@ function LPEditor({ page: initialPage, onBack, onDelete, projectId }) {
       if (updated.cta_links) setCtaLinks(JSON.parse(updated.cta_links));
       if (updated.current_version) setCurrentVersion(updated.current_version);
       if (updated.assembled_html) setPreviewHtml(updated.assembled_html);
+      setIsDirty(false);
+      setSaveState('idle');
       toast.success(`Restored to version ${restoreTarget.versionNum}`);
       setRestoreTarget(null);
       loadVersions();
@@ -638,6 +649,10 @@ function LPEditor({ page: initialPage, onBack, onDelete, projectId }) {
 
   // ── Publish handler (Shopify) ──
   const handlePublish = async () => {
+    if (isDirty) {
+      toast.error('Save Draft before publishing');
+      return;
+    }
     setPublishing(true);
     setPublishProgress('Publishing to Shopify...');
     try {
@@ -817,6 +832,16 @@ function LPEditor({ page: initialPage, onBack, onDelete, projectId }) {
                'Unsaved changes'}
             </span>
           )}
+          <button
+            onClick={handleSaveDraft}
+            disabled={saveState === 'saving' || !isDirty}
+            className={`text-[11px] px-3 py-1.5 rounded-lg font-medium transition-colors ${
+              isDirty ? 'btn-secondary' : 'bg-black/5 text-textlight cursor-not-allowed'
+            } disabled:opacity-60`}
+            title={isDirty ? 'Save draft changes' : 'No unsaved changes'}
+          >
+            {saveState === 'saving' ? 'Saving Draft...' : 'Save Draft'}
+          </button>
           {publishing ? (
             <span className="text-[11px] text-navy flex items-center gap-1.5">
               <svg className="w-3.5 h-3.5 animate-spin" viewBox="0 0 24 24" fill="none">
@@ -827,16 +852,20 @@ function LPEditor({ page: initialPage, onBack, onDelete, projectId }) {
           ) : (
             <button
               onClick={handlePublish}
+              disabled={isDirty}
               className={`text-[11px] px-3 py-1.5 rounded-lg font-medium transition-colors ${
-                pageStatus === 'published'
+                isDirty
+                  ? 'bg-black/5 text-textlight cursor-not-allowed'
+                  : pageStatus === 'published'
                   ? 'bg-navy/10 text-navy hover:bg-navy/15'
                   : 'btn-primary'
-              }`}
+              } disabled:opacity-60`}
+              title={isDirty ? 'Save Draft before publishing' : undefined}
             >
               {pageStatus === 'published' ? 'Re-publish' : 'Publish to Shopify'}
             </button>
           )}
-          {pageStatus === 'published' && publishedUrl && (
+          {publishedUrl && (
             <button
               onClick={handleOpenLivePage}
               className="text-[11px] px-3 py-1.5 rounded-lg font-medium bg-teal/10 text-teal hover:bg-teal/15 transition-colors"
@@ -1546,8 +1575,10 @@ function LPEditor({ page: initialPage, onBack, onDelete, projectId }) {
                 <input
                   type="text"
                   value={slug}
-                  onChange={(e) => setSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''))}
-                  onBlur={handleSlugBlur}
+                  onChange={(e) => {
+                    setSlug(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ''));
+                    markDirty();
+                  }}
                   className="input-apple text-[12px]"
                   placeholder="landing-page-slug"
                 />
@@ -1614,7 +1645,7 @@ function LPEditor({ page: initialPage, onBack, onDelete, projectId }) {
               </div>
 
               {/* Publishing Controls */}
-              {pageStatus === 'published' && publishedUrl && (
+              {publishedUrl && (
                 <div className="p-3 bg-teal/5 border border-teal/15 rounded-xl">
                   <p className="text-[11px] font-medium text-teal mb-1.5">Published</p>
                   <a
@@ -2256,7 +2287,7 @@ export default function LPGen({ projectId, project }) {
                   }}
                   className="btn-primary text-[12px]"
                 >
-                  View Landing Page
+                  Open Editor
                 </button>
                 <button
                   onClick={() => { resetForm(); setView('configure'); }}
@@ -2684,7 +2715,7 @@ export default function LPGen({ projectId, project }) {
                                   onClick={(e) => { e.stopPropagation(); handleViewPage(page); }}
                                   className="action-link"
                                 >
-                                  View
+                                  Edit
                                 </button>
                                 {isPublished && page.published_url && (
                                   <a
