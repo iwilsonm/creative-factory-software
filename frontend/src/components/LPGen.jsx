@@ -679,6 +679,11 @@ function LPEditor({ page: initialPage, onBack, onDelete, projectId }) {
     setTimeout(() => setCopiedUrl(false), 2000);
   };
 
+  const handleOpenLivePage = () => {
+    if (!publishedUrl) return;
+    window.open(publishedUrl, '_blank', 'noopener,noreferrer');
+  };
+
   // ── Visual QA handler ──
   const handleRunQA = async () => {
     setQaRunning(true);
@@ -829,6 +834,14 @@ function LPEditor({ page: initialPage, onBack, onDelete, projectId }) {
               }`}
             >
               {pageStatus === 'published' ? 'Re-publish' : 'Publish to Shopify'}
+            </button>
+          )}
+          {pageStatus === 'published' && publishedUrl && (
+            <button
+              onClick={handleOpenLivePage}
+              className="text-[11px] px-3 py-1.5 rounded-lg font-medium bg-teal/10 text-teal hover:bg-teal/15 transition-colors"
+            >
+              View Live Page
             </button>
           )}
           <button
@@ -1612,7 +1625,13 @@ function LPEditor({ page: initialPage, onBack, onDelete, projectId }) {
                   >
                     {publishedUrl}
                   </a>
-                  <div className="mt-2">
+                  <div className="mt-2 flex items-center gap-2">
+                    <button
+                      onClick={handleOpenLivePage}
+                      className="text-[11px] px-3 py-1 bg-teal/10 text-teal rounded-lg hover:bg-teal/15 transition-colors font-medium"
+                    >
+                      View Live Page
+                    </button>
                     <button
                       onClick={() => setShowUnpublishConfirm(true)}
                       disabled={unpublishing}
@@ -2619,8 +2638,13 @@ export default function LPGen({ projectId, project }) {
                               <div className="flex-1 min-w-0">
                                 <div className="flex items-center gap-2">
                                   <h3 className="text-[12px] font-medium text-textdark truncate">
-                                    {frameName || page.name}{page.angle && page.angle.length < 80 ? <span className="text-textmid font-normal"> - {page.angle}</span> : ''}
+                                    {page.name || frameName}{page.angle && page.angle.length < 80 ? <span className="text-textmid font-normal"> - {page.angle}</span> : ''}
                                   </h3>
+                                  {frameName && (
+                                    <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-gold/10 text-gold">
+                                      {frameName}
+                                    </span>
+                                  )}
                                   {page.gauntlet_score != null && (
                                     <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${page.gauntlet_score >= 7 ? 'bg-teal/10 text-teal' : 'bg-gold/10 text-gold'}`}>
                                       {page.gauntlet_score}/11
@@ -2662,6 +2686,17 @@ export default function LPGen({ projectId, project }) {
                                 >
                                   View
                                 </button>
+                                {isPublished && page.published_url && (
+                                  <a
+                                    href={page.published_url}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    onClick={(e) => e.stopPropagation()}
+                                    className="action-link"
+                                  >
+                                    Live
+                                  </a>
+                                )}
                                 <button
                                   onClick={(e) => {
                                     e.stopPropagation();
@@ -2783,6 +2818,17 @@ export default function LPGen({ projectId, project }) {
                     )}
                   </div>
                   <div className="flex items-center gap-1 flex-shrink-0">
+                    {isPublished && page.published_url && (
+                      <a
+                        href={page.published_url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={(e) => e.stopPropagation()}
+                        className="action-link"
+                      >
+                        Live
+                      </a>
+                    )}
                     <button
                       onClick={(e) => { e.stopPropagation(); handleDuplicate(page); }}
                       className="icon-button"

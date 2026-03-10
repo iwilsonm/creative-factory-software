@@ -346,6 +346,7 @@ function buildGauntletDraftFields({
 }) {
   return {
     status: 'draft',
+    name: headlineEvaluation.headline || undefined,
     headline_text: headlineEvaluation.headline || undefined,
     subheadline_text: headlineEvaluation.subheadline || undefined,
     headline_frame_alignment_status: headlineEvaluation.frameAlignment.passed ? 'passed' : 'failed',
@@ -877,7 +878,9 @@ async function generateAndPublishLP({ projectId, batchJobId, angle, template, fr
     }
 
     // Save generated content + QA results
+    const generatedHeadline = extractLPHeadlineParts(result.copySections, result.editorialPlan).headline;
     const updateFields = {
+      name: generatedHeadline || lpName,
       status: 'draft',
       copy_sections: JSON.stringify(result.copySections),
       image_slots: JSON.stringify(result.imageSlots),

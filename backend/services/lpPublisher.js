@@ -188,6 +188,24 @@ export function extractHeadlineForSlug(page) {
 }
 
 /**
+ * Resolve the best user-facing article title for LP naming and Shopify page titles.
+ * Priority: stored headline_text → extracted headline from copy_sections → existing name.
+ */
+export function resolveLandingPageTitle(page) {
+  const storedHeadline = String(page?.headline_text || '').trim();
+  if (storedHeadline.length > 5) {
+    return storedHeadline;
+  }
+
+  const extracted = extractHeadlineForSlug(page);
+  if (extracted && extracted.trim().length > 5) {
+    return extracted.trim();
+  }
+
+  return String(page?.name || 'Landing Page').trim() || 'Landing Page';
+}
+
+/**
  * Bake the final HTML — replace all placeholders with actual content.
  * Images use Convex storage URLs directly.
  */
@@ -364,7 +382,8 @@ export async function publishToShopify(pageId, projectId) {
   }
 
   // Determine slug — use headline from copy, not full LP name
-  const slug = page.slug || generateSlug(extractHeadlineForSlug(page));
+  const pageTitle = resolveLandingPageTitle(page);
+  const slug = page.slug || generateSlug(pageTitle);
 
   let shopifyPageId = page.shopify_page_id;
   let shopifyHandle;
@@ -374,7 +393,7 @@ export async function publishToShopify(pageId, projectId) {
     const result = await shopifyApi(shopify.domain, shopify.accessToken, 'PUT', `/pages/${shopifyPageId}.json`, {
       page: {
         id: parseInt(shopifyPageId, 10),
-        title: page.name,
+        title: pageTitle,
         body_html: finalHtml,
         published: true,
         template_suffix: shopify.templateSuffix,
@@ -385,7 +404,7 @@ export async function publishToShopify(pageId, projectId) {
     // Create new Shopify page
     const pagePayload = {
       page: {
-        title: page.name,
+        title: pageTitle,
         handle: slug,
         body_html: finalHtml,
         published: true,
