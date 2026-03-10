@@ -1,9 +1,13 @@
 import { beforeAll, describe, expect, it } from 'vitest';
 
 let assembleLandingPage;
+let buildAutoSwipeReferenceText;
+let buildLegacySOPAssemblyPrompt;
+let buildLegacySOPWritePrompt;
 let extractRequiredPlaceholderFailures;
 let getRequiredTemplateSlots;
 let getMissingTemplateSlots;
+let getLegacySOPFrameLine;
 let postProcessLP;
 let extractTemplatePlaceholders;
 let getRequiredPlaceholderNames;
@@ -12,9 +16,13 @@ beforeAll(async () => {
   process.env.CONVEX_URL ||= 'https://test-convex.invalid';
   const lpGenerator = await import('../services/lpGenerator.js');
   assembleLandingPage = lpGenerator.assembleLandingPage;
+  buildAutoSwipeReferenceText = lpGenerator.buildAutoSwipeReferenceText;
+  buildLegacySOPAssemblyPrompt = lpGenerator.buildLegacySOPAssemblyPrompt;
+  buildLegacySOPWritePrompt = lpGenerator.buildLegacySOPWritePrompt;
   extractRequiredPlaceholderFailures = lpGenerator.extractRequiredPlaceholderFailures;
   getRequiredTemplateSlots = lpGenerator.getRequiredTemplateSlots;
   getMissingTemplateSlots = lpGenerator.getMissingTemplateSlots;
+  getLegacySOPFrameLine = lpGenerator.getLegacySOPFrameLine;
   postProcessLP = lpGenerator.postProcessLP;
   extractTemplatePlaceholders = lpGenerator.extractTemplatePlaceholders;
   getRequiredPlaceholderNames = lpGenerator.getRequiredPlaceholderNames;
@@ -112,5 +120,53 @@ describe('lpGenerator helpers', () => {
     expect(result.html).toContain('{{cta_1_text}}');
     expect(result.requiredWarnings).toEqual(expect.arrayContaining(['cta_1_url', 'cta_1_text']));
     expect(result.warnings).toEqual(expect.arrayContaining(['decorative_note']));
+  });
+
+  it('returns the approved minor frame-specific SOP line per narrative frame', () => {
+    expect(getLegacySOPFrameLine('mechanism')).toContain('mechanism lens');
+    expect(getLegacySOPFrameLine('myth_busting')).toContain('myth-busting lens');
+    expect(getLegacySOPFrameLine('testimonial')).toContain('testimonial / lived-result lens');
+  });
+
+  it('keeps the legacy SOP write prompt nearly verbatim while appending the frame line', () => {
+    const prompt = buildLegacySOPWritePrompt({
+      productName: 'Grounding Sheets',
+      angle: 'Wakes to Pee, Then Cannot Fall Back Asleep',
+      frameLine: getLegacySOPFrameLine('problem_agitation'),
+      additionalDirection: '',
+      wordCount: null,
+    });
+
+    expect(prompt).toContain("Great, now I want you to please rewrite this advertorial");
+    expect(prompt).toContain('Grounding Sheets');
+    expect(prompt).toContain('Wakes to Pee, Then Cannot Fall Back Asleep');
+    expect(prompt).toContain('problem-agitation lens');
+    expect(prompt).not.toContain('Aim for approximately');
+  });
+
+  it('uses cached auto swipe context when no direct swipe text is provided', () => {
+    const swipeText = buildAutoSwipeReferenceText({
+      autoContext: { swipeReferenceText: 'Template name: Lander\nSection order: hero -> proof' },
+    });
+
+    expect(swipeText).toContain('Template name: Lander');
+    expect(swipeText).toContain('Section order: hero -> proof');
+  });
+
+  it('keeps template slot mapping in the SOP assembly prompt', () => {
+    const prompt = buildLegacySOPAssemblyPrompt({
+      narrativeInstruction: 'Narrative frame: mechanism\n',
+      frameCopyGuardrails: 'Keep the mechanism obvious.\n',
+      headlineConstraintInstruction: 'Headline contract.\n',
+      campaignMessageInstruction: 'Campaign message.\n',
+      fullDraft: 'First half.\n\nSecond half.',
+      templateSlots: ['story', 'objection_handling'],
+      wordCount: null,
+    });
+
+    expect(prompt).toContain('FINAL ADVERTORIAL DRAFT');
+    expect(prompt).toContain('"type": "story"');
+    expect(prompt).toContain('"type": "objection_handling"');
+    expect(prompt).toContain('Do not force a target word count if one was not provided');
   });
 });

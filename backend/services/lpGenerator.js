@@ -73,6 +73,155 @@ export const NARRATIVE_FRAMES = [
   },
 ];
 
+const LEGACY_LP_SOP_FOUNDATIONAL_PROMPT = `Hey, Claude, I want you to please analyze the four documents that I've attached to this message. I've done a significant amount of research of a product that I'm going to be selling, and it's your role as my direct response copywriter to understand this research, the avatar document, the offer brief, and the necessary beliefs document to an extremely high degree. So please familiarize yourself with these documents before we proceed with writing anything.`;
+
+const LEGACY_LP_SOP_SWIPE_PROMPT = `Excellent work. Now we're going to be writing an advertorial, which is a type of pre-sales page designed to nurture customers before they actually see the main product offer page. I'm going to send you an indirect competitor with a very successful advertorial, and I want you to please analyze this advertorial and let me know your thoughts:`;
+
+const LEGACY_LP_SOP_WRITE_FIRST_HALF_BASE = `Great, now I want you to please rewrite this advertorial but using all of the information around the [INSERT PRODUCT YOU’RE SELLING HERE]. I want you to specifically focus on [INSERT MAIN ANGLE YOU WANT THE ADVERTORIAL TO BE ON HERE]. For now, just write the first half of the advertorial, I’ll approve it, then I will tell you to write the second half. Go ahead.`;
+
+const LEGACY_LP_SOP_WRITE_SECOND_HALF = `great work!! Let's continue onto the second half`;
+
+export function getLegacySOPFrameLine(narrativeFrame = '') {
+  const frameId = resolveNarrativeFrameId(narrativeFrame);
+  switch (frameId) {
+    case 'testimonial':
+      return 'Please write this through a testimonial / lived-result lens, so it feels like a personal journey and result story.';
+    case 'mechanism':
+      return 'Please write this through a mechanism lens, so it explains what is really happening and why the usual solutions are missing the real issue.';
+    case 'problem_agitation':
+      return 'Please write this through a problem-agitation lens, so it emphasizes the recurring pain, frustration, and symptom pattern of the problem.';
+    case 'myth_busting':
+      return 'Please write this through a myth-busting lens, so it challenges a false belief and replaces it with the truth.';
+    case 'listicle':
+      return 'Please write this through a listicle lens, so it becomes a true numbered advertorial and clearly honors the promised count from beginning to end.';
+    default:
+      return '';
+  }
+}
+
+export function buildAutoSwipeReferenceText({ swipeText = '', autoContext = null } = {}) {
+  const directSwipe = String(swipeText || '').trim();
+  if (directSwipe) return directSwipe;
+  const cachedReference = String(autoContext?.swipeReferenceText || '').trim();
+  if (cachedReference) return cachedReference;
+  return 'No swipe advertorial text was provided. Use the existing template structure and current best direct-response judgment as the swipe reference.';
+}
+
+export function buildLegacySOPWritePrompt({
+  productName,
+  angle,
+  frameLine,
+  additionalDirection,
+  wordCount,
+}) {
+  let prompt = LEGACY_LP_SOP_WRITE_FIRST_HALF_BASE
+    .replace('[INSERT PRODUCT YOU’RE SELLING HERE]', productName || 'this product')
+    .replace('[INSERT MAIN ANGLE YOU WANT THE ADVERTORIAL TO BE ON HERE]', angle || 'the current angle');
+  if (frameLine) prompt += `\n\n${frameLine}`;
+  if (Number.isFinite(wordCount) && wordCount > 0) {
+    prompt += `\n\nAim for approximately ${wordCount} words total once the full advertorial is complete.`;
+  }
+  if (additionalDirection) {
+    prompt += `\n\nAdditional direction:\n${additionalDirection}`;
+  }
+  return prompt;
+}
+
+export function buildLegacySOPAssemblyPrompt({
+  narrativeInstruction,
+  frameCopyGuardrails,
+  headlineConstraintInstruction,
+  campaignMessageInstruction,
+  fullDraft,
+  templateSlots,
+  wordCount,
+}) {
+  const hasWordCountTarget = Number.isFinite(wordCount) && wordCount > 0;
+  return `You are converting a finished advertorial draft into the structured landing-page section JSON used by our app.
+
+Preserve the existing copy and persuasion flow as much as possible. Do not rewrite the advertorial into a different voice or methodology. Your job is to map it cleanly into section content while keeping the strongest wording and story logic intact.
+
+${narrativeInstruction}${frameCopyGuardrails ? `${frameCopyGuardrails}\n` : ''}${headlineConstraintInstruction}${campaignMessageInstruction}
+
+FINAL ADVERTORIAL DRAFT:
+${fullDraft}
+
+Return JSON in this exact format:
+{
+  "sections": [
+    { "type": "headline", "content": "The main headline text" },
+    { "type": "subheadline", "content": "Supporting subheadline" },
+    { "type": "lead", "content": "The opening hook / lead section (2-4 paragraphs)" },
+    { "type": "problem", "content": "Problem agitation section" },
+    { "type": "solution", "content": "Solution / mechanism reveal" },
+    { "type": "benefits", "content": "Benefits breakdown" },
+    { "type": "proof", "content": "Social proof / testimonials / credibility" },
+    { "type": "offer", "content": "The offer presentation" },
+    { "type": "guarantee", "content": "Risk reversal / guarantee" },
+    { "type": "cta", "content": "Final call to action" },
+    { "type": "ps", "content": "P.S. section (optional urgency/scarcity)" }
+  ]
+}
+
+Important:
+- You may add additional sections if the copy flow requires it (e.g. "story", "objection_handling", "faq")
+- Each section's "content" should be fully written copy, not outlines or bullet points
+- ${hasWordCountTarget ? `Keep the final sectioned output at approximately ${wordCount} words total` : 'Do not force a target word count if one was not provided'}
+- Keep the narrative frame obvious from the section flow itself
+- Keep the page aligned to the angle/message already expressed in the advertorial
+- If template-specific slots are listed, include them all
+${templateSlots?.length > 0 ? `
+TEMPLATE-SPECIFIC SECTIONS:
+${templateSlots.map((slot) => `- { "type": "${slot}", "content": "..." }`).join('\n')}
+` : ''}`;
+}
+
+function summarizeAdvertorialHalf(text = '') {
+  const normalized = String(text || '').replace(/\r/g, '').trim();
+  if (!normalized) return '';
+  const paragraphs = normalized
+    .split(/\n\s*\n/)
+    .map((part) => part.replace(/\s+/g, ' ').trim())
+    .filter(Boolean);
+  if (paragraphs.length === 0) return normalized.slice(0, 2500);
+
+  const summaryParts = [];
+  paragraphs.slice(0, 3).forEach((paragraph, index) => {
+    summaryParts.push(`Opening beat ${index + 1}: ${paragraph.slice(0, 360)}`);
+  });
+
+  if (paragraphs.length > 3) {
+    const middleParagraph = paragraphs[Math.floor(paragraphs.length / 2)];
+    if (middleParagraph) {
+      summaryParts.push(`Middle beat: ${middleParagraph.slice(0, 320)}`);
+    }
+  }
+
+  const closingParagraph = paragraphs[paragraphs.length - 1];
+  if (closingParagraph && !summaryParts.some((part) => part.includes(closingParagraph.slice(0, 40)))) {
+    summaryParts.push(`Latest beat: ${closingParagraph.slice(0, 360)}`);
+  }
+
+  return summaryParts.join('\n');
+}
+
+function buildLegacySOPSecondHalfPrompt({
+  firstHalf,
+  firstHalfSummary,
+}) {
+  const compactSummary = String(firstHalfSummary || summarizeAdvertorialHalf(firstHalf)).trim();
+  const excerpt = String(firstHalf || '').trim().slice(0, 2500);
+  const promptParts = [LEGACY_LP_SOP_WRITE_SECOND_HALF];
+  if (compactSummary) {
+    promptParts.push(`Here is a compact summary of the first half you just wrote:\n${compactSummary}`);
+  }
+  if (excerpt) {
+    promptParts.push(`For voice continuity, here is a short excerpt from the first half:\n${excerpt}`);
+  }
+  promptParts.push('Continue in the same voice, same structure, and same angle.');
+  return promptParts.join('\n\n');
+}
+
 function buildHeadlineConstraintInstruction(headlineConstraints = null) {
   if (!headlineConstraints) return '';
   const parts = [];
@@ -1147,6 +1296,7 @@ export async function generateLandingPageCopy({
   sendEvent({ type: 'progress', step: 'loading_docs', message: 'Loading foundational documents...' });
 
   const docs = await getFoundationalDocs(projectId);
+  const project = await getProject(projectId).catch(() => null);
   const missingDocs = [];
   if (!docs.research) missingDocs.push('research');
   if (!docs.avatar) missingDocs.push('avatar');
@@ -1159,174 +1309,142 @@ export async function generateLandingPageCopy({
 
   sendEvent({ type: 'progress', step: 'generating', message: 'Generating landing page copy...' });
 
-  // ── Message 1: System prompt + foundational docs context ──
-  const systemPrompt = `You are an elite direct response copywriter specializing in high-converting landing pages for e-commerce and direct-to-consumer brands. You write copy that:
-- Hooks readers emotionally within the first 2 sentences
-- Builds belief through storytelling, social proof, and mechanism reveals
-- Overcomes objections before they arise
-- Drives urgency and action without being sleazy or over-hyped
-- Uses short paragraphs, conversational tone, and vivid language
-- Mirrors the target customer's own words and emotional language
-
-You have been trained on the foundational research documents for this product. You understand the customer avatar, their beliefs, the offer positioning, and the research that backs it all up.
-
-CRITICAL: You must respond with a valid JSON object containing an array of copy sections. Each section has a "type" and "content" field. Do not include any text outside the JSON.
-
-IMPORTANT: Generate content ONLY for the slots defined in the template. Do not suggest or create content for elements that don't have a corresponding slot in the template. If there is no banner slot in the template, do not generate banner copy. The template defines the page structure — your job is to fill its slots, not invent new ones.
-
-IMPORTANT: For any callout, data box, stat highlight, or highlighted section that has SEPARATE heading and body slots — the heading slot contains ONLY the title or label. The body slot contains ONLY the supporting content. Do NOT start the body text with the heading text. They render as distinct elements on the page, so repeating the heading in the body will cause duplicate text.
-Example — CORRECT: heading="USDA DATA", body="42.7% of organic produce samples tested positive..."
-WRONG: heading="USDA DATA", body="USDA DATA: 42.7% of organic produce samples tested positive..."
-
-TESTIMONIAL ATTRIBUTION: When writing testimonials, social proof quotes, or customer reviews, ALWAYS use a realistic first name + last initial (e.g., "Sarah M.", "David R.", "Jennifer K."). NEVER use generic labels like "Verified Buyer", "Verified Customer", "Happy Customer", or "Anonymous". Each testimonial must have a unique, realistic name.
-
-TESTIMONIAL UNIQUENESS: Each testimonial quote must appear ONLY ONCE on the entire page. If the template has multiple testimonial slots (e.g., testimonial, section_3_body_2, proof), generate a DIFFERENT testimonial for each one — different person, different quote, different angle on why the product works. NEVER include the same person's testimonial in both body text AND a separate testimonial/blockquote section. Each attributed name must appear exactly once across all sections. Never repeat the same quote or paraphrase of the same quote anywhere on the page.
-
-PULLQUOTE / CALLOUT RULE — MANDATORY:
-When you create a styled pullquote, highlight box, callout, stat box, or any visually emphasized text element, that text is REPLACING the equivalent body copy — not supplementing it. Do NOT include the same sentence or phrase in both a styled element AND the body narrative. If a key moment appears as a pullquote or highlight, the body text should continue from AFTER that moment, not repeat it.
-
-Example of what NOT to do:
-  [Highlight: "I woke up at 6:47 AM."]
-  Body: "I woke up at 6:47 AM. I lay there for a moment..."
-
-Correct:
-  [Highlight: "I woke up at 6:47 AM."]
-  Body: "I lay there for a moment, confused..."
-
-The callout carries the moment. The body text picks up where the callout leaves off.
-
-AUTHOR METADATA: Generate an appropriate author name and title for this article's byline. The name should:
-- Match the target demographic from the Avatar Sheet (if the audience is women 60-75, the author should be a woman with a name that fits that generation; if the audience is men 30-50, use an appropriate male name)
-- Feel like a real person, not a brand or company name
-- Use first name + last initial format (e.g., "Carol H.", "Margaret S.", "Rachel T.")
-- Include a brief, relatable title (e.g., "Retired teacher", "Health & Wellness Editor", "Mother of three")
-- Be different from any testimonial names used in the article
-
-Include in your JSON output two top-level fields alongside the "sections" array:
-  "generated_author_name": "Carol H.",
-  "generated_author_title": "Retired Teacher & Wellness Advocate"
-
-WARNING BOX: If the template has a warning_box_text slot, generate an editorial content advisory that sounds concerned and personal — not institutional. Example: 'The following article discusses findings about pesticide contamination that may change how you think about your family\\'s produce.' Do NOT use phrases like 'based on scientific research', 'expert analysis', or 'reader discretion advised'.`;
-
-  const docsMessage = `Here are the foundational research documents for this product:
-
-=== CUSTOMER AVATAR ===
-${docs.avatar}
-
-=== OFFER BRIEF ===
-${docs.offer_brief}
-
-=== NECESSARY BELIEFS ===
-${docs.necessary_beliefs}
-
-=== DEEP RESEARCH ===
-${docs.research}
-
-Study these documents carefully. You will use them to write a landing page in the next message.`;
-
-  // ── Message 2: Swipe reference + generation instructions ──
   const narrativeInstruction = autoContext?.narrativeFrame
     ? `\nNARRATIVE FRAME INSTRUCTION:\n${autoContext.narrativeFrame}\n\nYou MUST write the entire landing page using this narrative frame. The frame dictates the overall voice, structure, section flow, proof style, and CTA style. This is not a cosmetic rewrite. The page must be structurally recognizable as this frame from the headline through the final CTA.\n`
     : '';
   const frameCopyGuardrails = buildNarrativeFrameCopyGuardrails(autoContext?.narrativeFrame || '');
   const headlineConstraintInstruction = buildHeadlineConstraintInstruction(headlineConstraints);
   const campaignMessageInstruction = buildCampaignMessageInstruction(messageBrief);
+  const swipeReferenceText = buildAutoSwipeReferenceText({ swipeText, autoContext });
+  const productName = project?.brand_name || project?.name || 'this product';
+  const frameLine = getLegacySOPFrameLine(autoContext?.narrativeFrame || '');
+  const legacySOPCache = autoContext?.legacySOPCache || null;
+  const docsPayload = `${LEGACY_LP_SOP_FOUNDATIONAL_PROMPT}
 
-  // Build approved ad reference section (only when ads are available from a real batch)
-  let adReferenceSection = '';
-  if (approvedAds.length > 0) {
-    const adSummaries = approvedAds.map((ad, i) => {
-      const headline = ad.headline || 'No headline';
-      const opening = ad.body_copy ? ad.body_copy.split(/[.!?]\s/)[0] + '.' : '';
-      return `  ${i + 1}. HEADLINE: ${headline}${opening ? `\n     OPENING: ${opening}` : ''}`;
-    }).join('\n');
+=== RESEARCH DOCUMENT ===
+${docs.research}
 
-    adReferenceSection = `
-APPROVED AD CAMPAIGN REFERENCE:
-The following are the approved ad headlines and opening lines from this campaign. These are the ads that have passed quality review and will actually run. Your landing page must feel like the exact click-through continuation of this campaign. Do not copy the ads word-for-word, but do keep the same problem, same promise, same buyer state, and same message direction.
+=== AVATAR DOCUMENT ===
+${docs.avatar}
 
-If a reader clicked one of these ads, the landing page must feel like it was built to fulfill that ad's promise, not a generic adjacent angle.
+=== OFFER BRIEF ===
+${docs.offer_brief}
 
-${adSummaries}
-`;
+=== NECESSARY BELIEFS DOCUMENT ===
+${docs.necessary_beliefs}`;
+
+  let docsAnalysis = String(legacySOPCache?.docsAnalysis || '').trim();
+  if (!docsAnalysis) {
+    sendEvent({ type: 'progress', step: 'calling_api', message: 'Claude is studying the foundational documents...' });
+    docsAnalysis = await chat([
+      { role: 'user', content: docsPayload },
+    ], 'claude-sonnet-4-6', {
+      max_tokens: 4096,
+      operation: 'lp_legacy_docs_analysis',
+      projectId,
+      timeout: 180000,
+    });
+    if (legacySOPCache) legacySOPCache.docsAnalysis = String(docsAnalysis || '').trim();
+  } else {
+    sendEvent({ type: 'progress', step: 'calling_api', message: 'Reusing cached foundational-doc analysis...' });
   }
 
-  // Build enriched angle context from structured brief when available
-  let angleSection = angle || 'General';
-  if (angleBrief && (angleBrief.core_buyer || angleBrief.scene || angleBrief.tone)) {
-    const parts = [angle || angleBrief.name || 'General'];
-    if (angleBrief.core_buyer) parts.push(`Core Buyer: ${angleBrief.core_buyer}`);
-    if (angleBrief.scene) parts.push(`Scene: ${angleBrief.scene}`);
-    if (angleBrief.desired_belief_shift) parts.push(`Desired Belief Shift: ${angleBrief.desired_belief_shift}`);
-    if (angleBrief.tone) parts.push(`Tone: ${angleBrief.tone}`);
-    if (angleBrief.avoid_list) parts.push(`Avoid: ${angleBrief.avoid_list}`);
-    angleSection = parts.join('\n');
+  let swipeAnalysis = String(legacySOPCache?.swipeAnalysis || '').trim();
+  if (!swipeAnalysis) {
+    sendEvent({ type: 'progress', step: 'calling_api', message: 'Claude is studying the swipe advertorial...' });
+    swipeAnalysis = await chat([
+      {
+        role: 'user',
+        content: `${LEGACY_LP_SOP_SWIPE_PROMPT}
+
+${swipeReferenceText}`,
+      },
+    ], 'claude-sonnet-4-6', {
+      max_tokens: 4096,
+      operation: 'lp_legacy_swipe_analysis',
+      projectId,
+      timeout: 180000,
+    });
+    if (legacySOPCache) legacySOPCache.swipeAnalysis = String(swipeAnalysis || '').trim();
+  } else {
+    sendEvent({ type: 'progress', step: 'calling_api', message: 'Reusing cached swipe advertorial analysis...' });
   }
 
-  const generateMessage = `Now write a landing page using the product knowledge from the documents above.
+  const firstHalfPrompt = `${buildLegacySOPWritePrompt({
+    productName,
+    angle,
+    frameLine,
+    additionalDirection,
+    wordCount,
+  })}
 
-MARKETING ANGLE / HOOK:
-${angleSection}
+For context, here are your foundational research notes:
+${String(docsAnalysis || '').slice(0, 5000)}
 
-${hasWordCountTarget ? `TARGET WORD COUNT: approximately ${wordCount} words` : 'TARGET WORD COUNT: none specified — optimize for clarity and fit to the page structure.'}
-${narrativeInstruction}${frameCopyGuardrails ? `${frameCopyGuardrails}\n` : ''}${headlineConstraintInstruction}${campaignMessageInstruction}${adReferenceSection}
-${swipeText ? `SWIPE FILE REFERENCE (use this as structural and tonal inspiration — do NOT copy it verbatim):
-${swipeText.slice(0, 15000)}
-${swipeText.length > 15000 ? '\n[... swipe text truncated for context length ...]' : ''}` : 'No swipe file provided — use your own best judgment for structure and flow.'}
+Here are your swipe advertorial notes:
+${String(swipeAnalysis || '').slice(0, 5000)}`;
 
-${additionalDirection ? `ADDITIONAL DIRECTION FROM THE USER:
-${additionalDirection}` : ''}
+  sendEvent({ type: 'progress', step: 'calling_api', message: 'Claude is writing the first half...' });
+  const firstHalf = await chat([
+    { role: 'user', content: firstHalfPrompt },
+  ], 'claude-sonnet-4-6', {
+    max_tokens: 8192,
+    operation: 'lp_legacy_first_half',
+    projectId,
+    timeout: 180000,
+  });
 
-RESPOND WITH A JSON OBJECT in this exact format:
-{
-  "sections": [
-    { "type": "headline", "content": "The main headline text" },
-    { "type": "subheadline", "content": "Supporting subheadline" },
-    { "type": "lead", "content": "The opening hook / lead section (2-4 paragraphs)" },
-    { "type": "problem", "content": "Problem agitation section" },
-    { "type": "solution", "content": "Solution / mechanism reveal" },
-    { "type": "benefits", "content": "Benefits breakdown" },
-    { "type": "proof", "content": "Social proof / testimonials / credibility" },
-    { "type": "offer", "content": "The offer presentation" },
-    { "type": "guarantee", "content": "Risk reversal / guarantee" },
-    { "type": "cta", "content": "Final call to action" },
-    { "type": "ps", "content": "P.S. section (optional urgency/scarcity)" }
-  ]
-}
+  sendEvent({ type: 'progress', step: 'calling_api', message: 'Claude is writing the second half...' });
+  const firstHalfSummary = summarizeAdvertorialHalf(firstHalf);
+  const secondHalf = await chat([
+    {
+      role: 'user',
+      content: buildLegacySOPSecondHalfPrompt({
+        firstHalf,
+        firstHalfSummary,
+      }),
+    },
+  ], 'claude-sonnet-4-6', {
+    max_tokens: 8192,
+    operation: 'lp_legacy_second_half',
+    projectId,
+    timeout: 180000,
+  });
 
-Important:
-- You may add additional sections if the copy flow requires it (e.g., "story", "objection_handling", "faq")
-- Each section's "content" should be fully written copy, not outlines or bullet points
-- ${hasWordCountTarget ? `Write at approximately ${wordCount} words total across all sections` : 'Write the amount of copy needed to fit the page structure cleanly without forcing a specific word count'}
-- Use the customer's language from the avatar and research documents
-- Mirror the emotional tone and structure of the swipe file reference if provided
-- The narrative frame must be obvious from the page structure itself, not just the wording of one headline
-- The headline must clearly reflect this frame's distinct promise and structural role; avoid exact or near-exact overlap with already-used frame headlines
-- The body copy must continue the same frame-specific promise as the headline — do not collapse into a generic sleep/wellness page
-- Every section must have a "type" (short lowercase identifier) and "content" (the actual copy)${autoContext?.templateSlots?.length > 0 ? `
+  const fullDraft = `${String(firstHalf || '').trim()}\n\n${String(secondHalf || '').trim()}`.trim();
 
-TEMPLATE-SPECIFIC SECTIONS — The HTML template for this landing page uses these additional named content slots. You MUST include a section for EACH ONE in your response:
-${autoContext.templateSlots.map(slot => `  - { "type": "${slot}", "content": "..." } — Generate appropriate content for the "${slot}" section`).join('\n')}
+  const assemblySystemPrompt = `You are an elite direct response copywriter specializing in high-converting landing pages for e-commerce and direct-to-consumer brands.
 
-CRITICAL: The final HTML template has placeholder tags (e.g., {{${autoContext.templateSlots[0]}}}) that will be replaced with the content you provide here. If you skip any of these sections, the finished page will display raw {{placeholder}} tags to the reader. Include ALL of them.
-${hasWordCountTarget ? '- Stay within 90% to 115% of the target word count. Overlong filler copy fails review.' : ''}` : ''}`;
+CRITICAL: You must respond with a valid JSON object containing an array of copy sections. Each section has a "type" and "content" field. Do not include any text outside the JSON.
 
-  // Build the multi-message conversation
-  const messages = [
-    { role: 'system', content: systemPrompt },
-    { role: 'user', content: docsMessage },
-    { role: 'assistant', content: 'I\'ve carefully studied all four foundational documents. I understand the customer avatar, their beliefs and objections, the offer positioning, and the supporting research. I\'m ready to write the landing page. Please provide the angle, swipe reference, and any additional direction.' },
-    { role: 'user', content: generateMessage },
-  ];
+IMPORTANT: Generate content ONLY for the slots defined in the template. Do not suggest or create content for elements that don't have a corresponding slot in the template.
 
-  sendEvent({ type: 'progress', step: 'calling_api', message: 'Claude is writing your landing page copy...' });
+TESTIMONIAL ATTRIBUTION: When writing testimonials, social proof quotes, or customer reviews, ALWAYS use a realistic first name + last initial.
 
-  const response = await chat(messages, 'claude-sonnet-4-6', {
+AUTHOR METADATA: Generate an appropriate author name and title for this article's byline and include:
+  "generated_author_name": "Carol H.",
+  "generated_author_title": "Retired Teacher & Wellness Advocate"`;
+
+  const assemblyMessage = buildLegacySOPAssemblyPrompt({
+    narrativeInstruction,
+    frameCopyGuardrails,
+    headlineConstraintInstruction,
+    campaignMessageInstruction,
+    fullDraft,
+    templateSlots: autoContext?.templateSlots || [],
+    wordCount,
+  });
+
+  sendEvent({ type: 'progress', step: 'calling_api', message: 'Claude is mapping the advertorial into landing-page sections...' });
+  const response = await chat([
+    { role: 'system', content: assemblySystemPrompt },
+    { role: 'user', content: assemblyMessage },
+  ], 'claude-sonnet-4-6', {
     max_tokens: 16384,
     operation: 'lp_generation',
     projectId,
     response_format: { type: 'json_object' },
-    timeout: 180000, // 3 minutes — landing pages are long
+    timeout: 180000,
   });
 
   sendEvent({ type: 'progress', step: 'parsing', message: 'Parsing generated copy...' });
@@ -1388,62 +1506,8 @@ ${hasWordCountTarget ? '- Stay within 90% to 115% of the target word count. Over
 
   if (totalWords < minWords || totalWords > maxWords) {
     const direction = totalWords < minWords ? 'too short' : 'too long';
-    console.warn(`[LPGen] Copy is ${direction} (${totalWords} words vs target ${wordCount}). Retrying once...`);
-    sendEvent({ type: 'progress', step: 'word_count_retry', message: `Copy is ${direction} (${totalWords} words). Retrying with stronger word count guidance...` });
-
-    const retryDirection = totalWords < minWords
-      ? `Your previous attempt was only ${totalWords} words — far too short. You MUST write at least ${wordCount} words. Expand each section with more detail, storytelling, and supporting evidence.`
-      : `Your previous attempt was ${totalWords} words — too long and unfocused. You MUST write approximately ${wordCount} words. Tighten each section, cut filler, and keep only the most compelling copy.`;
-
-    const retryMessages = [
-      { role: 'system', content: systemPrompt },
-      { role: 'user', content: docsMessage },
-      { role: 'assistant', content: 'I\'ve carefully studied all four foundational documents. I understand the customer avatar, their beliefs and objections, the offer positioning, and the supporting research. I\'m ready to write the landing page. Please provide the angle, swipe reference, and any additional direction.' },
-      { role: 'user', content: `${generateMessage}\n\nCRITICAL WORD COUNT CORRECTION: ${retryDirection}` },
-    ];
-
-    const retryResponse = await chat(retryMessages, 'claude-sonnet-4-6', {
-      max_tokens: 16384,
-      operation: 'lp_generation_retry',
-      projectId,
-      response_format: { type: 'json_object' },
-      timeout: 180000,
-    });
-
-    let retryParsed;
-    try {
-      retryParsed = JSON.parse(retryResponse);
-    } catch {
-      const jsonMatch = retryResponse.match(/\{[\s\S]*\}/);
-      if (jsonMatch) {
-        try { retryParsed = JSON.parse(jsonMatch[0]); } catch { retryParsed = null; }
-      }
-    }
-
-    if (retryParsed?.sections && Array.isArray(retryParsed.sections)) {
-      const retrySections = retryParsed.sections.filter(s => s.type && s.content);
-      const retryWords = retrySections.reduce((sum, s) => sum + (s.content || '').split(/\s+/).filter(Boolean).length, 0);
-      console.log(`[LPGen] Retry word count: ${retryWords} words (target ${wordCount}, range ${minWords}–${maxWords})`);
-
-      if (retryWords >= minWords && retryWords <= maxWords) {
-        // Retry hit the target — use it
-        sendEvent({ type: 'progress', step: 'word_count_fixed', message: `Retry successful: ${retryWords} words (target: ${wordCount})` });
-        // Extract author from retry if present
-        if (retryParsed.generated_author_name) autoGeneratedAuthor.name = retryParsed.generated_author_name;
-        if (retryParsed.generated_author_title) autoGeneratedAuthor.title = retryParsed.generated_author_title;
-        return { sections: retrySections, autoGeneratedAuthor: Object.keys(autoGeneratedAuthor).length > 0 ? autoGeneratedAuthor : null, wordCountWarning: null };
-      } else if (Math.abs(retryWords - wordCount) < Math.abs(totalWords - wordCount)) {
-        // Retry is closer to target even if not perfect — use it
-        console.warn(`[LPGen] Retry closer to target (${retryWords} vs original ${totalWords}) but still outside range. Using retry.`);
-        sendEvent({ type: 'progress', step: 'word_count_improved', message: `Retry improved: ${retryWords} words (still outside target but closer)` });
-        if (retryParsed.generated_author_name) autoGeneratedAuthor.name = retryParsed.generated_author_name;
-        if (retryParsed.generated_author_title) autoGeneratedAuthor.title = retryParsed.generated_author_title;
-        return { sections: retrySections, autoGeneratedAuthor: Object.keys(autoGeneratedAuthor).length > 0 ? autoGeneratedAuthor : null, wordCountWarning: `Word count ${retryWords} outside target range ${minWords}–${maxWords} (target ${wordCount}) after retry` };
-      }
-    }
-    // Retry failed or was worse — use original
-    console.warn(`[LPGen] Retry didn't improve word count. Using original (${totalWords} words).`);
-    sendEvent({ type: 'progress', step: 'word_count_warning', message: `Word count ${totalWords} outside target range (keeping original)` });
+    console.warn(`[LPGen] Copy is ${direction} (${totalWords} words vs target ${wordCount}). Keeping the SOP draft and returning a warning.`);
+    sendEvent({ type: 'progress', step: 'word_count_warning', message: `Word count ${totalWords} outside target range (keeping original SOP draft)` });
   }
 
   return { sections: validSections, autoGeneratedAuthor: Object.keys(autoGeneratedAuthor).length > 0 ? autoGeneratedAuthor : null, wordCountWarning: (totalWords < minWords || totalWords > maxWords) ? `Word count ${totalWords} outside target range ${minWords}–${maxWords} (target ${wordCount})` : null };
@@ -4223,6 +4287,16 @@ export async function generateAutoLP({
     ...requiredTemplateSlots,
     ...ensureArray(frameBlueprint.requiredSectionTypes),
   ]);
+  const bypassGauntletValidation = !!parentAutoContext?.gauntletBypassValidation;
+  const swipeReferenceText = [
+    `Template name: ${template.name || templateId || 'Unknown template'}`,
+    designBrief?.overall_style ? `Overall style: ${designBrief.overall_style}` : null,
+    designAnalysis?.style_notes ? `Style notes: ${designAnalysis.style_notes}` : null,
+    Array.isArray(designBrief?.sections_order) && designBrief.sections_order.length > 0
+      ? `Section order: ${designBrief.sections_order.join(' -> ')}`
+      : null,
+    slotDefs.length > 0 ? `Template slots: ${slotDefs.map((slot) => slot.name).filter(Boolean).join(', ')}` : null,
+  ].filter(Boolean).join('\n');
 
   if (placeholders.templateCopy.length > 0) {
     console.log(`[LPGen] Template-specific copy slots found: ${placeholders.templateCopy.join(', ')}`);
@@ -4274,13 +4348,15 @@ export async function generateAutoLP({
     projectId,
     angle,
     angleBrief,
-    swipeText: '', // No swipe text in auto mode — template provides structure
+    swipeText: swipeReferenceText,
     wordCount: effectiveWordCount,
     approvedAds,
     messageBrief,
     autoContext: {
       narrativeFrame,
       templateSlots: requestedTemplateSlots,
+      swipeReferenceText,
+      legacySOPCache: parentAutoContext?.legacySOPCache || null,
     },
     headlineConstraints,
   }, sendEvent);
@@ -4300,7 +4376,7 @@ export async function generateAutoLP({
       projectId,
       angle,
       angleBrief,
-      swipeText: '',
+      swipeText: swipeReferenceText,
       wordCount: effectiveWordCount,
       approvedAds,
       messageBrief,
@@ -4308,6 +4384,8 @@ export async function generateAutoLP({
       autoContext: {
         narrativeFrame,
         templateSlots: requestedTemplateSlots,
+        swipeReferenceText,
+        legacySOPCache: parentAutoContext?.legacySOPCache || null,
       },
       headlineConstraints,
     }, sendEvent);
@@ -4338,7 +4416,7 @@ export async function generateAutoLP({
             projectId,
             angle,
             angleBrief,
-            swipeText: '',
+            swipeText: swipeReferenceText,
             wordCount: effectiveWordCount,
             approvedAds,
             messageBrief,
@@ -4346,6 +4424,8 @@ export async function generateAutoLP({
             autoContext: {
               narrativeFrame,
               templateSlots: requestedTemplateSlots,
+              swipeReferenceText,
+              legacySOPCache: parentAutoContext?.legacySOPCache || null,
             },
           }, sendEvent);
 
@@ -4391,7 +4471,7 @@ export async function generateAutoLP({
     }
   }
 
-  if (missingRequiredSlots.length > 0) {
+  if (missingRequiredSlots.length > 0 && !bypassGauntletValidation) {
     throw new Error(`Required template slots missing after repair: ${missingRequiredSlots.join(', ')}`);
   }
 
@@ -4567,7 +4647,7 @@ Score guide: 1=terrible/generic, 2=weak/misaligned, 3=adequate, 4=good, 5=excell
             projectId,
             angle,
             angleBrief,
-            swipeText: '',
+            swipeText: swipeReferenceText,
             wordCount: effectiveWordCount,
             approvedAds,
             messageBrief,
@@ -4575,6 +4655,8 @@ Score guide: 1=terrible/generic, 2=weak/misaligned, 3=adequate, 4=good, 5=excell
             autoContext: {
               narrativeFrame,
               templateSlots: placeholders.templateCopy,
+              swipeReferenceText,
+              legacySOPCache: parentAutoContext?.legacySOPCache || null,
             },
             headlineConstraints,
           }, sendEvent);
@@ -4724,11 +4806,11 @@ Score guide: 1=terrible/generic, 2=weak/misaligned, 3=adequate, 4=good, 5=excell
     }
   }
   const missingRequiredStructuralContent = getMissingTemplateSlots(requiredStructuralSlots, copySections);
-  if (missingRequiredStructuralContent.length > 0) {
+  if (missingRequiredStructuralContent.length > 0 && !bypassGauntletValidation) {
     audit('postprocess', 'required_slots_missing', `Required structural sections still missing after post-process: ${missingRequiredStructuralContent.join(', ')}`, { missingRequiredStructuralContent });
     throw new Error(`Required template slots missing after post-process repair: ${missingRequiredStructuralContent.join(', ')}`);
   }
-  if (missingRequiredAfterPostProcess.length > 0) {
+  if (missingRequiredAfterPostProcess.length > 0 && !bypassGauntletValidation) {
     throw new Error(`Required template slots missing after post-process repair: ${missingRequiredAfterPostProcess.join(', ')}`);
   }
   if (hasCriticalIssues) {

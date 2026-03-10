@@ -65,6 +65,10 @@ import {
   validateLPHeadlineFrameAlignment,
 } from './lpHeadlineValidation.js';
 
+// Legacy-SOP LP gauntlets now rely on publish preflight + smoke as the
+// blocking gates, while earlier headline/slot/score checks remain diagnostic.
+const BYPASS_GAUNTLET_VALIDATION_GATES = true;
+
 const LP_BATCH_SYNC_FIELDS = [
   'lp_primary_id',
   'lp_primary_url',
@@ -1344,6 +1348,7 @@ export async function runGauntlet(projectId, options = {}, sendEventRaw) {
 
   let cachedHtmlTemplate = null;
   let totalImagePrescoreAttempts = 0;
+  const legacySOPCache = {};
 
   // 5. Loop through selected narrative frames
   for (let frameIndex = 0; frameIndex < totalFrames; frameIndex++) {
@@ -1456,6 +1461,8 @@ export async function runGauntlet(projectId, options = {}, sendEventRaw) {
             autoContext: {
               preGeneratedImages: imageSlots,
               cachedHtmlTemplate,
+              gauntletBypassValidation: BYPASS_GAUNTLET_VALIDATION_GATES,
+              legacySOPCache,
             },
             headlineConstraints: buildHeadlineConstraintBundle(frame, acceptedHeadlines, angleHistory, messageBrief, sameFrameHistory),
           }, (e) => {
@@ -1500,7 +1507,7 @@ export async function runGauntlet(projectId, options = {}, sendEventRaw) {
           angleHistory,
         });
 
-        if (!headlineEvaluation.passed) {
+        if (!BYPASS_GAUNTLET_VALIDATION_GATES && !headlineEvaluation.passed) {
           sendEvent({
             type: 'progress',
             step: 'gauntlet_headline_repair',
@@ -1538,7 +1545,7 @@ export async function runGauntlet(projectId, options = {}, sendEventRaw) {
           }
         }
 
-        if (!headlineEvaluation.passed && (headlineEvaluation.frameBlueprint?.passed === false || headlineEvaluation.sourceAlignment?.passed === false)) {
+        if (!BYPASS_GAUNTLET_VALIDATION_GATES && !headlineEvaluation.passed && (headlineEvaluation.frameBlueprint?.passed === false || headlineEvaluation.sourceAlignment?.passed === false)) {
           const repairFocus = frame.id === 'mechanism'
             ? (/why alternatives fail/i.test(headlineEvaluation.frameBlueprint?.reason || '')
                 ? 'mechanism_alternatives_fail'
@@ -1581,7 +1588,7 @@ export async function runGauntlet(projectId, options = {}, sendEventRaw) {
           }
         }
 
-        if (!headlineEvaluation.passed) {
+        if (!BYPASS_GAUNTLET_VALIDATION_GATES && !headlineEvaluation.passed) {
           const headlineFailureReason = [
             headlineEvaluation.frameAlignment.passed ? null : headlineEvaluation.frameAlignment.reason,
             headlineEvaluation.frameBlueprint.passed ? null : headlineEvaluation.frameBlueprint.reason,
@@ -1650,6 +1657,19 @@ export async function runGauntlet(projectId, options = {}, sendEventRaw) {
 
         // 5f. Score the LP
         sendEvent({ type: 'progress', step: 'gauntlet_scoring', message: `LP ${frameNum} of ${totalFrames} — Scoring...` });
+
+        if (BYPASS_GAUNTLET_VALIDATION_GATES) {
+          lastScore = null;
+          passed = true;
+          frameResult.score = null;
+          frameResult.status = 'passed';
+          sendEvent({
+            type: 'progress',
+            step: 'gauntlet_score_bypass',
+            message: `LP ${frameNum} of ${totalFrames} — using legacy SOP publish-preflight flow`,
+          });
+          break;
+        }
 
         let scoreResult;
         try {
