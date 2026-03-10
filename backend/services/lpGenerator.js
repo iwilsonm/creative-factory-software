@@ -2592,6 +2592,161 @@ function escapeRegex(str) {
   return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 }
 
+function escapeHtml(str) {
+  return String(str || '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+function stripHtmlTags(str) {
+  return String(str || '').replace(/<[^>]*>/g, ' ');
+}
+
+function decodeBasicHtmlEntities(str) {
+  return String(str || '')
+    .replace(/&nbsp;/gi, ' ')
+    .replace(/&amp;/gi, '&')
+    .replace(/&quot;/gi, '"')
+    .replace(/&#39;/gi, "'")
+    .replace(/&apos;/gi, "'")
+    .replace(/&lt;/gi, '<')
+    .replace(/&gt;/gi, '>');
+}
+
+function normalizeHeroText(str) {
+  return decodeBasicHtmlEntities(stripHtmlTags(str))
+    .replace(/\s+/g, ' ')
+    .trim()
+    .toLowerCase();
+}
+
+function mergeStyleAttribute(attrString, styleText) {
+  const attrs = String(attrString || '');
+  const styleMatch = attrs.match(/\sstyle=(['"])([\s\S]*?)\1/i);
+  if (!styleMatch) {
+    return `${attrs} style="${styleText}"`;
+  }
+
+  const quote = styleMatch[1];
+  const existing = styleMatch[2].trim().replace(/;?\s*$/, '');
+  const mergedStyle = `${existing}${existing ? '; ' : ''}${styleText}`;
+  return attrs.replace(styleMatch[0], ` style=${quote}${mergedStyle}${quote}`);
+}
+
+const HERO_TITLE_STYLE = 'font-size:clamp(2.6rem,5vw,4.5rem);line-height:1.05;font-weight:800;letter-spacing:-0.02em;';
+const HERO_SUBHEAD_STYLE = 'font-size:clamp(1rem,2vw,1.2rem);line-height:1.55;font-weight:500;max-width:52rem;opacity:0.92;';
+
+function findImmediateTextAfterH1(html) {
+  const match = String(html || '').match(/<h1\b[^>]*>[\s\S]*?<\/h1>\s*<(p|div|h2|h3)\b[^>]*>([\s\S]*?)<\/\1>/i);
+  if (!match) return '';
+  return normalizeHeroText(match[2]);
+}
+
+export function validateHeroTitlePlacement(html, { headline = '', subheadline = '' } = {}) {
+  const normalizedHeadline = normalizeHeroText(headline);
+  if (!normalizedHeadline) {
+    return {
+      passed: false,
+      reason: 'missing_headline_source',
+      warnings: [],
+      h1Text: '',
+    };
+  }
+
+  const h1Match = String(html || '').match(/<h1\b([^>]*)>([\s\S]*?)<\/h1>/i);
+  if (!h1Match) {
+    return {
+      passed: false,
+      reason: 'missing_primary_h1',
+      warnings: [],
+      h1Text: '',
+    };
+  }
+
+  const h1Text = normalizeHeroText(h1Match[2]);
+  if (!h1Text) {
+    return {
+      passed: false,
+      reason: 'empty_primary_h1',
+      warnings: [],
+      h1Text,
+    };
+  }
+
+  if (h1Text !== normalizedHeadline) {
+    return {
+      passed: false,
+      reason: 'headline_not_in_primary_h1',
+      warnings: [],
+      h1Text,
+    };
+  }
+
+  const warnings = [];
+  if (subheadline) {
+    const normalizedSubheadline = normalizeHeroText(subheadline);
+    if (normalizedSubheadline) {
+      const immediateText = findImmediateTextAfterH1(html);
+      if (immediateText && immediateText !== normalizedSubheadline) {
+        warnings.push('subheadline_not_directly_below_h1');
+      }
+    }
+  }
+
+  return {
+    passed: true,
+    reason: null,
+    warnings,
+    h1Text,
+  };
+}
+
+export function repairHeroTitlePlacement(html, { headline = '', subheadline = '' } = {}) {
+  let repairedHtml = String(html || '');
+  const normalizedHeadline = normalizeHeroText(headline);
+  if (!normalizedHeadline) {
+    return {
+      html: repairedHtml,
+      repaired: false,
+      reason: 'missing_headline_source',
+    };
+  }
+
+  const escapedHeadline = escapeHtml(headline);
+  const escapedSubheadline = escapeHtml(subheadline);
+  const h1Regex = /<h1\b([^>]*)>([\s\S]*?)<\/h1>/i;
+  let repaired = false;
+
+  if (h1Regex.test(repairedHtml)) {
+    repairedHtml = repairedHtml.replace(h1Regex, (_match, attrs) => {
+      repaired = true;
+      const mergedAttrs = mergeStyleAttribute(attrs, HERO_TITLE_STYLE);
+      return `<h1${mergedAttrs}>${escapedHeadline}</h1>`;
+    });
+  } else {
+    repairedHtml = `<section class="lp-hero-title-repair" style="padding:32px 0;"><h1 style="${HERO_TITLE_STYLE}">${escapedHeadline}</h1>${subheadline ? `<p class="lp-hero-subheadline-repair" style="${HERO_SUBHEAD_STYLE}">${escapedSubheadline}</p>` : ''}</section>${repairedHtml}`;
+    repaired = true;
+  }
+
+  if (subheadline) {
+    const normalizedSubheadline = normalizeHeroText(subheadline);
+    const immediateText = findImmediateTextAfterH1(repairedHtml);
+    if (!immediateText || immediateText !== normalizedSubheadline) {
+      repairedHtml = repairedHtml.replace(/(<h1\b[^>]*>[\s\S]*?<\/h1>)/i, `$1\n<p class="lp-hero-subheadline-repair" style="${HERO_SUBHEAD_STYLE}">${escapedSubheadline}</p>`);
+      repaired = true;
+    }
+  }
+
+  return {
+    html: repairedHtml,
+    repaired,
+    reason: repaired ? null : 'hero_title_already_valid',
+  };
+}
+
 /**
  * Zero-tolerance validation: strip ANY remaining {{...}} placeholders.
  * Logs warnings for debugging but never lets them reach the user.
@@ -4813,6 +4968,34 @@ Score guide: 1=terrible/generic, 2=weak/misaligned, 3=adequate, 4=good, 5=excell
   if (missingRequiredAfterPostProcess.length > 0 && !bypassGauntletValidation) {
     throw new Error(`Required template slots missing after post-process repair: ${missingRequiredAfterPostProcess.join(', ')}`);
   }
+  const headlineSection = ensureArray(copySections).find((section) => String(section?.type || '').toLowerCase() === 'headline');
+  const subheadlineSection = ensureArray(copySections).find((section) => String(section?.type || '').toLowerCase() === 'subheadline');
+  const heroTitleValidation = validateHeroTitlePlacement(assembledHtml, {
+    headline: headlineSection?.content || '',
+    subheadline: subheadlineSection?.content || '',
+  });
+  if (!heroTitleValidation.passed) {
+    audit('postprocess', 'hero_title_invalid', `Primary hero title invalid (${heroTitleValidation.reason})`, { heroTitleValidation });
+    const repairResult = repairHeroTitlePlacement(assembledHtml, {
+      headline: headlineSection?.content || '',
+      subheadline: subheadlineSection?.content || '',
+    });
+    if (repairResult.repaired) {
+      assembledHtml = repairResult.html;
+      const repairedHeroValidation = validateHeroTitlePlacement(assembledHtml, {
+        headline: headlineSection?.content || '',
+        subheadline: subheadlineSection?.content || '',
+      });
+      if (!repairedHeroValidation.passed) {
+        throw new Error(`Hero title validation failed after HTML repair: ${repairedHeroValidation.reason}`);
+      }
+      infoWarnings.push('Repaired hero title placement');
+      audit('postprocess', 'hero_title_repaired', 'Repaired hero title placement in assembled HTML', { repairedHeroValidation });
+    } else {
+      throw new Error(`Hero title validation failed: ${heroTitleValidation.reason}`);
+    }
+  }
+
   if (hasCriticalIssues) {
     console.warn(`[LPGen] Post-processing found ${criticalWarnings.length} critical issue(s): ${criticalWarnings.join('; ')}`);
     audit('postprocess', 'critical_warnings', `${criticalWarnings.length} critical issue(s): ${criticalWarnings.join('; ')}`, { criticalWarnings, infoWarnings });

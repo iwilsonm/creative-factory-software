@@ -24,7 +24,13 @@ import {
 import { v4 as uuidv4 } from 'uuid';
 import { withRetry } from './retry.js';
 import fetch from 'node-fetch';
-import { extractTemplatePlaceholders, getRequiredPlaceholderNames, postProcessLP } from './lpGenerator.js';
+import {
+  extractTemplatePlaceholders,
+  getRequiredPlaceholderNames,
+  postProcessLP,
+  repairHeroTitlePlacement,
+  validateHeroTitlePlacement,
+} from './lpGenerator.js';
 import { inspectVisiblePlaceholdersInHtml } from './lpSmokeTest.js';
 
 const REQUIRED_LP_TEMPLATE_SUFFIX = 'lander';
@@ -206,6 +212,32 @@ export function resolveLandingPageTitle(page) {
 }
 
 /**
+ * Resolve the best available subheadline for hero-title validation/repair.
+ * Priority: stored subheadline_text → extracted subheadline from copy_sections → none.
+ */
+export function resolveLandingPageSubheadline(page) {
+  const storedSubheadline = String(page?.subheadline_text || '').trim();
+  if (storedSubheadline.length > 0) {
+    return storedSubheadline;
+  }
+
+  if (page?.copy_sections) {
+    try {
+      const sections = JSON.parse(page.copy_sections);
+      const subheadlineSection = sections.find((section) => String(section?.type || '').toLowerCase() === 'subheadline');
+      const text = String(subheadlineSection?.content || '').replace(/<[^>]*>/g, '').trim();
+      if (text.length > 0) {
+        return text;
+      }
+    } catch {
+      // Ignore malformed copy_sections and fall back to empty.
+    }
+  }
+
+  return '';
+}
+
+/**
  * Bake the final HTML — replace all placeholders with actual content.
  * Images use Convex storage URLs directly.
  */
@@ -332,6 +364,64 @@ export async function publishToShopify(pageId, projectId) {
     requiredPlaceholderNames,
   });
   finalHtml = processedHtml;
+
+  const heroHeadline = resolveLandingPageTitle(page);
+  const heroSubheadline = resolveLandingPageSubheadline(page);
+
+  const heroTitleValidation = validateHeroTitlePlacement(finalHtml, {
+    headline: heroHeadline,
+    subheadline: heroSubheadline,
+  });
+  if (!heroTitleValidation.passed) {
+    const repairResult = repairHeroTitlePlacement(finalHtml, {
+      headline: heroHeadline,
+      subheadline: heroSubheadline,
+    });
+    if (repairResult.repaired) {
+      finalHtml = repairResult.html;
+      const repairedHeroValidation = validateHeroTitlePlacement(finalHtml, {
+        headline: heroHeadline,
+        subheadline: heroSubheadline,
+      });
+      if (!repairedHeroValidation.passed) {
+        await updateLandingPage(pageId, {
+          smoke_test_status: 'failed',
+          smoke_test_report: JSON.stringify({
+            passed: false,
+            failedCount: 1,
+            checks: [
+              {
+                name: 'hero_title_structure',
+                passed: false,
+                detail: `Hero title repair failed: ${repairedHeroValidation.reason}`,
+              },
+            ],
+            source: 'pre_publish_validation',
+          }),
+          smoke_test_at: new Date().toISOString(),
+        });
+        throw new Error(`Hero title validation failed after repair: ${repairedHeroValidation.reason}`);
+      }
+    } else {
+      await updateLandingPage(pageId, {
+        smoke_test_status: 'failed',
+        smoke_test_report: JSON.stringify({
+          passed: false,
+          failedCount: 1,
+          checks: [
+            {
+              name: 'hero_title_structure',
+              passed: false,
+              detail: `Hero title invalid before publish: ${heroTitleValidation.reason}`,
+            },
+          ],
+          source: 'pre_publish_validation',
+        }),
+        smoke_test_at: new Date().toISOString(),
+      });
+      throw new Error(`Hero title validation failed before publish: ${heroTitleValidation.reason}`);
+    }
+  }
 
   if (requiredWarnings.length > 0) {
     const detail = `Required placeholders unresolved before publish: ${requiredWarnings.slice(0, 10).join(', ')}`;

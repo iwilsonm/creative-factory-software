@@ -11,6 +11,8 @@ let getLegacySOPFrameLine;
 let postProcessLP;
 let extractTemplatePlaceholders;
 let getRequiredPlaceholderNames;
+let repairHeroTitlePlacement;
+let validateHeroTitlePlacement;
 
 beforeAll(async () => {
   process.env.CONVEX_URL ||= 'https://test-convex.invalid';
@@ -26,6 +28,8 @@ beforeAll(async () => {
   postProcessLP = lpGenerator.postProcessLP;
   extractTemplatePlaceholders = lpGenerator.extractTemplatePlaceholders;
   getRequiredPlaceholderNames = lpGenerator.getRequiredPlaceholderNames;
+  repairHeroTitlePlacement = lpGenerator.repairHeroTitlePlacement;
+  validateHeroTitlePlacement = lpGenerator.validateHeroTitlePlacement;
 });
 
 describe('lpGenerator helpers', () => {
@@ -120,6 +124,44 @@ describe('lpGenerator helpers', () => {
     expect(result.html).toContain('{{cta_1_text}}');
     expect(result.requiredWarnings).toEqual(expect.arrayContaining(['cta_1_url', 'cta_1_text']));
     expect(result.warnings).toEqual(expect.arrayContaining(['decorative_note']));
+  });
+
+  it('fails hero title validation when the primary h1 is empty', () => {
+    const result = validateHeroTitlePlacement(
+      '<section><h1></h1><p>Broken Sleep headline</p></section>',
+      { headline: 'Broken Sleep / Wake Up at 2 to 4 AM', subheadline: 'Support copy' },
+    );
+
+    expect(result.passed).toBe(false);
+    expect(result.reason).toBe('empty_primary_h1');
+  });
+
+  it('passes hero title validation when the headline is in the primary h1', () => {
+    const result = validateHeroTitlePlacement(
+      '<section><h1>Broken Sleep / Wake Up at 2 to 4 AM</h1><p>Support copy</p></section>',
+      { headline: 'Broken Sleep / Wake Up at 2 to 4 AM', subheadline: 'Support copy' },
+    );
+
+    expect(result.passed).toBe(true);
+    expect(result.reason).toBeNull();
+  });
+
+  it('repairs an empty h1 without regenerating copy', () => {
+    const repaired = repairHeroTitlePlacement(
+      '<section><h1></h1><div class="eyebrow">Broken Sleep / Wake Up at 2 to 4 AM</div></section>',
+      {
+        headline: 'Broken Sleep / Wake Up at 2 to 4 AM',
+        subheadline: 'What your body is telling you after 2 a.m.',
+      },
+    );
+
+    expect(repaired.repaired).toBe(true);
+    expect(repaired.html).toContain('<h1');
+    expect(repaired.html).toContain('Broken Sleep / Wake Up at 2 to 4 AM');
+    expect(validateHeroTitlePlacement(repaired.html, {
+      headline: 'Broken Sleep / Wake Up at 2 to 4 AM',
+      subheadline: 'What your body is telling you after 2 a.m.',
+    }).passed).toBe(true);
   });
 
   it('returns the approved minor frame-specific SOP line per narrative frame', () => {
