@@ -3,7 +3,7 @@
  *
  * When the Director creates a batch, this service:
  * 1. Checks if LP auto-generation is enabled for the project
- * 2. Runs the generation pipeline (1-5 narrative frames with scoring + retries)
+ * 2. Runs the generation pipeline (1-5 narrative frames)
  * 3. Publishes passing LPs to Shopify and verifies they're live
  * 4. Updates the batch record with LP IDs, URLs, and statuses
  *
@@ -32,21 +32,15 @@ import {
   generateLPTitleOnly,
   generateSlotImages,
   preScoreAndRetryImages,
-  scoreGauntletLP,
   regenerateFailedImages,
   detectImageMimeType,
   NARRATIVE_FRAMES,
-  assembleLandingPage,
-  postProcessLP,
-  repairLPHeadline,
-  repairLPContentAlignment,
 } from './lpGenerator.js';
 import { getCachedImageContext, getFoundationalDocs } from './lpGenerator.js';
 import { publishAndSmokeTest, generateSlug, extractHeadlineForSlug } from './lpPublisher.js';
 import { uploadBuffer, downloadToBuffer } from '../convexClient.js';
 import { setProgress, clearProgress } from './gauntletProgress.js';
 import {
-  applyLPHeadlineParts,
   buildLPHeadlineHistoryEntry,
   buildLPHeadlineSignature,
   buildLPTitleConceptProfile,
@@ -60,14 +54,9 @@ import {
   getNarrativeFrameHeadlineContract,
   getNarrativeFrameTitleBlueprint,
   normalizeLPHeadlineText,
-  validateLPFrameBlueprint,
   validateLPHeadlineSourceAlignment,
   validateLPHeadlineFrameAlignment,
 } from './lpHeadlineValidation.js';
-
-// Legacy-SOP LP gauntlets now rely on publish preflight + smoke as the
-// blocking gates, while earlier headline/slot/score checks remain diagnostic.
-const BYPASS_GAUNTLET_VALIDATION_GATES = true;
 
 const LP_BATCH_SYNC_FIELDS = [
   'lp_primary_id',
@@ -344,33 +333,18 @@ function buildCompactGauntletQAReport(lastScore, passed) {
 }
 
 function buildGauntletDraftFields({
-  headlineEvaluation,
+  headline,
+  subheadline,
   attempt,
   lpSlug,
 }) {
   return {
     status: 'draft',
-    name: headlineEvaluation.headline || undefined,
-    headline_text: headlineEvaluation.headline || undefined,
-    subheadline_text: headlineEvaluation.subheadline || undefined,
-    headline_frame_alignment_status: headlineEvaluation.frameAlignment.passed ? 'passed' : 'failed',
-    headline_frame_alignment_reason: headlineEvaluation.frameAlignment.reason,
-    frame_blueprint_status: headlineEvaluation.frameBlueprint.passed ? 'passed' : 'failed',
-    frame_blueprint_reason: headlineEvaluation.frameBlueprint.reason,
-    headline_uniqueness_status: headlineEvaluation.uniqueness.passed ? 'passed' : 'failed',
-    headline_uniqueness_reason: headlineEvaluation.uniqueness.reason,
-    headline_duplicate_of_lp_id: headlineEvaluation.uniqueness.duplicateOf || undefined,
-    title_family_uniqueness_status: headlineEvaluation.titleFamilyUniqueness.passed ? 'passed' : 'failed',
-    title_family_uniqueness_reason: headlineEvaluation.titleFamilyUniqueness.reason,
-    title_concept_separation_status: headlineEvaluation.titleConceptSeparation.passed ? 'passed' : 'failed',
-    title_concept_separation_reason: headlineEvaluation.titleConceptSeparation.reason,
-    title_concept_signature: headlineEvaluation.titleConceptSeparation.titleConceptSignature || undefined,
-    title_concept_family: headlineEvaluation.titleConceptSeparation.titleConceptFamily || undefined,
-    headline_history_status: headlineEvaluation.history.passed ? 'passed' : 'failed',
-    headline_history_reason: headlineEvaluation.history.reason,
-    headline_signature: headlineEvaluation.headline_signature || undefined,
+    name: headline || undefined,
+    headline_text: headline || undefined,
+    subheadline_text: subheadline || undefined,
     gauntlet_attempt: attempt,
-    gauntlet_status: 'scoring',
+    gauntlet_status: 'generated',
     slug: lpSlug,
   };
 }
@@ -428,92 +402,6 @@ async function persistGauntletScoreResult(lpId, {
 
 export async function scorePersistOnly({ lpId, lastScore, passed, frameResult, frameDurationMs }) {
   return persistGauntletScoreResult(lpId, { lastScore, passed, frameResult, frameDurationMs });
-}
-
-function evaluateFrameHeadline({
-  lpResult,
-  frame,
-  batchAngle,
-  messageBrief,
-  acceptedHeadlines,
-  sameFrameHistory,
-  angleHistory,
-}) {
-  const headlineParts = extractLPHeadlineParts(lpResult.copySections, lpResult.editorialPlan);
-  const frameAlignment = validateLPHeadlineFrameAlignment({
-    headline: headlineParts.headline,
-    narrativeFrame: frame.id,
-    angle: batchAngle || '',
-  });
-  const frameBlueprint = validateLPFrameBlueprint({
-    headline: headlineParts.headline,
-    narrativeFrame: frame.id,
-    copySections: lpResult.copySections,
-    angle: batchAngle || '',
-  });
-  const uniqueness = evaluateSameRunHeadlineUniqueness({
-    headline: headlineParts.headline,
-    narrativeFrame: frame.id,
-    signature: buildLPHeadlineSignature({ headline: headlineParts.headline, narrativeFrame: frame.id }),
-    acceptedHeadlines,
-  });
-  const titleFamilyUniqueness = evaluateTitleFamilyUniqueness({
-    headline: headlineParts.headline,
-    narrativeFrame: frame.id,
-    acceptedHeadlines,
-    angle: batchAngle || messageBrief?.angleName || '',
-    messageBrief,
-  });
-  const sourceAlignment = validateLPHeadlineSourceAlignment({
-    headline: headlineParts.headline,
-    subheadline: headlineParts.subheadline,
-    angle: batchAngle || messageBrief?.angleName || '',
-    messageBrief,
-  });
-  const history = batchAngle
-    ? evaluateHistoryHeadlineUniqueness({
-        headline: headlineParts.headline,
-        narrativeFrame: frame.id,
-        signature: buildLPHeadlineSignature({ headline: headlineParts.headline, narrativeFrame: frame.id }),
-        sameFrameHistory,
-        angleHistory,
-        angle: batchAngle || messageBrief?.angleName || '',
-        messageBrief,
-      })
-    : { passed: true, reason: 'No batch angle set for cross-run LP history.' };
-  const titleConceptSeparation = evaluateTitleConceptSeparation({
-    headline: headlineParts.headline,
-    narrativeFrame: frame.id,
-    acceptedHeadlines,
-    angle: batchAngle || messageBrief?.angleName || '',
-    messageBrief,
-  });
-  const titleConceptProfile = buildLPTitleConceptProfile({
-    headline: headlineParts.headline,
-    narrativeFrame: frame.id,
-    angle: batchAngle || messageBrief?.angleName || '',
-    messageBrief,
-  });
-
-  return {
-    ...headlineParts,
-    frameAlignment,
-    frameBlueprint,
-    uniqueness,
-    titleFamilyUniqueness,
-    titleConceptSeparation,
-    sourceAlignment,
-    history,
-    title_concept_family: titleConceptProfile.titleConceptFamily,
-    title_concept_signature: titleConceptProfile.titleConceptSignature,
-    passed:
-      !!headlineParts.headline &&
-      frameAlignment.passed &&
-      frameBlueprint.passed &&
-      uniqueness.passed &&
-      sourceAlignment.passed &&
-      history.passed,
-  };
 }
 
 function evaluateGeneratedTitleOnly({
@@ -598,56 +486,6 @@ function evaluateGeneratedTitleOnly({
       uniqueness.passed &&
       sourceAlignment.passed &&
       history.passed,
-  };
-}
-
-async function rebuildLPAfterHeadlineRepair(lpResult, { headline, subheadline }, { project, agentConfig, angle }) {
-  const repairedSections = applyLPHeadlineParts(lpResult.copySections, { headline, subheadline });
-  const repairedEditorialPlan = {
-    ...(lpResult.editorialPlan || {}),
-    headline,
-    subheadline,
-  };
-
-  const rawAssembledHtml = assembleLandingPage({
-    htmlTemplate: lpResult.htmlTemplate,
-    copySections: repairedSections,
-    imageSlots: lpResult.imageSlots,
-    ctaElements: lpResult.designAnalysis?.cta_elements || [],
-  });
-  const postProcessed = postProcessLP(rawAssembledHtml, {
-    project,
-    agentConfig,
-    angle,
-    editorialPlan: repairedEditorialPlan,
-  });
-
-  return {
-    ...lpResult,
-    copySections: repairedSections,
-    editorialPlan: repairedEditorialPlan,
-    assembledHtml: postProcessed.html,
-  };
-}
-
-async function rebuildLPAfterContentRepair(lpResult, repairedSections, { project, agentConfig, angle }) {
-  const rawAssembledHtml = assembleLandingPage({
-    htmlTemplate: lpResult.htmlTemplate,
-    copySections: repairedSections,
-    imageSlots: lpResult.imageSlots,
-    ctaElements: lpResult.designAnalysis?.cta_elements || [],
-  });
-  const postProcessed = postProcessLP(rawAssembledHtml, {
-    project,
-    agentConfig,
-    angle,
-    editorialPlan: lpResult.editorialPlan || {},
-  });
-
-  return {
-    ...lpResult,
-    copySections: repairedSections,
-    assembledHtml: postProcessed.html,
   };
 }
 
@@ -1128,7 +966,6 @@ export async function runGauntlet(projectId, options = {}, sendEventRaw) {
     throw new Error('LP Agent not configured for this project');
   }
 
-  const scoreThreshold = config.gauntlet_score_threshold || 7;
   const maxImageRetries = config.gauntlet_max_image_retries || 5;
   const maxLPRetries = config.gauntlet_max_lp_retries || 2;
 
@@ -1266,7 +1103,7 @@ export async function runGauntlet(projectId, options = {}, sendEventRaw) {
       dryRun: true,
       titleOnly: true,
       template: null,
-      scoreThreshold,
+      scoreThreshold: null,
       frames: frameResults,
       summary: {
         total: totalFrames,
@@ -1307,7 +1144,7 @@ export async function runGauntlet(projectId, options = {}, sendEventRaw) {
     throw new Error(`Project ${projectId} not found`);
   }
 
-  sendEvent({ type: 'progress', step: 'gauntlet_config', message: `Template: ${template.name || 'unnamed'}, threshold: ${scoreThreshold}/11, dry run: ${dryRun}` });
+  sendEvent({ type: 'progress', step: 'gauntlet_config', message: `Template: ${template.name || 'unnamed'}, dry run: ${dryRun}` });
 
   // 2. Get cached image context (using getFoundationalDocs which returns content strings + latest version)
   let imageContext;
@@ -1439,9 +1276,6 @@ export async function runGauntlet(projectId, options = {}, sendEventRaw) {
       let lpResult;
       let attempt = 0;
       let passed = false;
-      let lastScore = null;
-
-      let headlineEvaluation = null;
 
       for (attempt = 1; attempt <= maxLPRetries + 1; attempt++) {
         frameResult.attempts = attempt;
@@ -1461,7 +1295,6 @@ export async function runGauntlet(projectId, options = {}, sendEventRaw) {
             autoContext: {
               preGeneratedImages: imageSlots,
               cachedHtmlTemplate,
-              gauntletBypassValidation: BYPASS_GAUNTLET_VALIDATION_GATES,
               legacySOPCache,
             },
             headlineConstraints: buildHeadlineConstraintBundle(frame, acceptedHeadlines, angleHistory, messageBrief, sameFrameHistory),
@@ -1497,147 +1330,8 @@ export async function runGauntlet(projectId, options = {}, sendEventRaw) {
           sendEvent({ type: 'progress', step: 'gauntlet_template_cached', message: 'HTML template cached for remaining frames' });
         }
 
-        headlineEvaluation = evaluateFrameHeadline({
-          lpResult,
-          frame,
-          batchAngle,
-          messageBrief,
-          acceptedHeadlines,
-          sameFrameHistory,
-          angleHistory,
-        });
-
-        if (!BYPASS_GAUNTLET_VALIDATION_GATES && !headlineEvaluation.passed) {
-          sendEvent({
-            type: 'progress',
-            step: 'gauntlet_headline_repair',
-            message: `LP ${frameNum} of ${totalFrames} — repairing frame headline...`,
-          });
-
-          try {
-            const repairedHeadline = await repairLPHeadline({
-              projectId,
-              angle: batchAngle || frameAngle,
-              narrativeFrame: frame.id,
-              headline: headlineEvaluation.headline,
-              subheadline: headlineEvaluation.subheadline,
-              copySections: lpResult.copySections,
-              approvedAds,
-              messageBrief,
-              headlineConstraints: buildHeadlineConstraintBundle(frame, acceptedHeadlines, angleHistory, messageBrief, sameFrameHistory),
-            });
-            lpResult = await rebuildLPAfterHeadlineRepair(lpResult, repairedHeadline, {
-              project,
-              agentConfig: config,
-              angle: batchAngle || frameAngle,
-            });
-            headlineEvaluation = evaluateFrameHeadline({
-              lpResult,
-              frame,
-              batchAngle,
-              messageBrief,
-              acceptedHeadlines,
-              sameFrameHistory,
-              angleHistory,
-            });
-          } catch (repairErr) {
-            console.warn(`[Gauntlet] Headline repair failed for frame ${frameNum}:`, repairErr.message);
-          }
-        }
-
-        if (!BYPASS_GAUNTLET_VALIDATION_GATES && !headlineEvaluation.passed && (headlineEvaluation.frameBlueprint?.passed === false || headlineEvaluation.sourceAlignment?.passed === false)) {
-          const repairFocus = frame.id === 'mechanism'
-            ? (/why alternatives fail/i.test(headlineEvaluation.frameBlueprint?.reason || '')
-                ? 'mechanism_alternatives_fail'
-                : (!headlineEvaluation.sourceAlignment?.passed ? 'mechanism_source_alignment' : null))
-            : null;
-
-          sendEvent({
-            type: 'progress',
-            step: 'gauntlet_content_repair',
-            message: `LP ${frameNum} of ${totalFrames} — repairing frame/content alignment...`,
-          });
-
-          try {
-            const repairedContent = await repairLPContentAlignment({
-              projectId,
-              angle: batchAngle || frameAngle,
-              narrativeFrame: frame.id,
-              copySections: lpResult.copySections,
-              approvedAds,
-              messageBrief,
-              headlineConstraints: buildHeadlineConstraintBundle(frame, acceptedHeadlines, angleHistory, messageBrief, sameFrameHistory),
-              repairFocus,
-            });
-            lpResult = await rebuildLPAfterContentRepair(lpResult, repairedContent.sections, {
-              project,
-              agentConfig: config,
-              angle: batchAngle || frameAngle,
-            });
-            headlineEvaluation = evaluateFrameHeadline({
-              lpResult,
-              frame,
-              batchAngle,
-              messageBrief,
-              acceptedHeadlines,
-              sameFrameHistory,
-              angleHistory,
-            });
-          } catch (repairErr) {
-            console.warn(`[Gauntlet] Content repair failed for frame ${frameNum}:`, repairErr.message);
-          }
-        }
-
-        if (!BYPASS_GAUNTLET_VALIDATION_GATES && !headlineEvaluation.passed) {
-          const headlineFailureReason = [
-            headlineEvaluation.frameAlignment.passed ? null : headlineEvaluation.frameAlignment.reason,
-            headlineEvaluation.frameBlueprint.passed ? null : headlineEvaluation.frameBlueprint.reason,
-            headlineEvaluation.uniqueness.passed ? null : headlineEvaluation.uniqueness.reason,
-            headlineEvaluation.sourceAlignment.passed ? null : headlineEvaluation.sourceAlignment.reason,
-            headlineEvaluation.history.passed ? null : headlineEvaluation.history.reason,
-          ].find(Boolean);
-
-          await updateLandingPageSafely(lpId, {
-            status: 'failed',
-            error_message: headlineFailureReason,
-            headline_text: headlineEvaluation.headline || undefined,
-            subheadline_text: headlineEvaluation.subheadline || undefined,
-            headline_frame_alignment_status: headlineEvaluation.frameAlignment.passed ? 'passed' : 'failed',
-            headline_frame_alignment_reason: headlineEvaluation.frameAlignment.reason,
-            frame_blueprint_status: headlineEvaluation.frameBlueprint.passed ? 'passed' : 'failed',
-            frame_blueprint_reason: headlineEvaluation.frameBlueprint.reason,
-            headline_uniqueness_status: headlineEvaluation.uniqueness.passed ? 'passed' : 'failed',
-            headline_uniqueness_reason: headlineEvaluation.uniqueness.reason,
-            headline_duplicate_of_lp_id: headlineEvaluation.uniqueness.duplicateOf || undefined,
-            title_family_uniqueness_status: headlineEvaluation.titleFamilyUniqueness.passed ? 'passed' : 'failed',
-            title_family_uniqueness_reason: headlineEvaluation.titleFamilyUniqueness.reason,
-            title_concept_separation_status: headlineEvaluation.titleConceptSeparation.passed ? 'passed' : 'failed',
-            title_concept_separation_reason: headlineEvaluation.titleConceptSeparation.reason,
-            title_concept_signature: headlineEvaluation.title_concept_signature || undefined,
-            title_concept_family: headlineEvaluation.title_concept_family || undefined,
-            headline_history_status: headlineEvaluation.history.passed ? 'passed' : 'failed',
-            headline_history_reason: headlineEvaluation.history.reason,
-            headline_signature: headlineEvaluation.headline_signature || undefined,
-            gauntlet_attempt: attempt,
-            gauntlet_status: 'failed',
-            gauntlet_retry_type: 'headline',
-          }, { stage: 'headline_validation_failure' });
-
-          if (attempt > maxLPRetries) {
-            frameResult.status = 'headline_failed';
-            frameResult.error = headlineFailureReason;
-            break;
-          }
-
-          sendEvent({
-            type: 'progress',
-            step: 'gauntlet_full_retry',
-            message: `LP ${frameNum} of ${totalFrames} — headline failed frame/history checks, regenerating...`,
-          });
-          continue;
-        }
-
         // Save LP content + generate slug
+        const headlineParts = extractLPHeadlineParts(lpResult.copySections, lpResult.editorialPlan);
         const lpSlugSource = extractHeadlineForSlug({
           copy_sections: JSON.stringify(lpResult.copySections),
           angle: frameAngle,
@@ -1648,125 +1342,30 @@ export async function runGauntlet(projectId, options = {}, sendEventRaw) {
         await updateLandingPageSafely(
           lpId,
           buildGauntletDraftFields({
-            headlineEvaluation,
+            headline: headlineParts.headline,
+            subheadline: headlineParts.subheadline,
             attempt,
             lpSlug,
           }),
           { stage: 'store_generated_lp' }
         );
 
-        // 5f. Score the LP
-        sendEvent({ type: 'progress', step: 'gauntlet_scoring', message: `LP ${frameNum} of ${totalFrames} — Scoring...` });
-
-        if (BYPASS_GAUNTLET_VALIDATION_GATES) {
-          lastScore = null;
-          passed = true;
-          frameResult.score = null;
-          frameResult.status = 'passed';
-          sendEvent({
-            type: 'progress',
-            step: 'gauntlet_score_bypass',
-            message: `LP ${frameNum} of ${totalFrames} — using legacy SOP publish-preflight flow`,
-          });
-          break;
-        }
-
-        let scoreResult;
-        try {
-          scoreResult = await scoreGauntletLP(lpResult.assembledHtml, projectId, imageContext, { angle: frameAngle, narrativeFrame: frame.id, productImageData });
-          lastScore = scoreResult;
-        } catch (scoreErr) {
-          console.error(`[Gauntlet] Scoring failed for frame ${frameNum}:`, scoreErr.message);
-          // Can't score — treat as passed to avoid waste
-          passed = true;
-          frameResult.score = null;
-          frameResult.status = 'score_error';
-          break;
-        }
-
-        frameResult.score = scoreResult.score;
-        const hasFatalFlaws = scoreResult.fatal_flaws && scoreResult.fatal_flaws.length > 0;
-
-        sendEvent({
-          type: 'progress',
-          step: 'gauntlet_score_result',
-          message: `LP ${frameNum} of ${totalFrames} — Score ${scoreResult.score}/11${hasFatalFlaws ? ` (${scoreResult.fatal_flaws.length} fatal flaw${scoreResult.fatal_flaws.length > 1 ? 's' : ''})` : ''}`,
-        });
-
-        // Check pass
-        if (scoreResult.score >= scoreThreshold && !hasFatalFlaws) {
-          passed = true;
-          frameResult.status = 'passed';
-          break;
-        }
-
-        // 5g. Try targeted image regeneration for image-related fatal flaws
-        if (hasFatalFlaws) {
-          const imageFlaws = scoreResult.fatal_flaws.filter(f =>
-            f.type === 'wrong_product_image' || f.type === 'ai_text_in_image'
-          );
-
-          if (imageFlaws.length > 0 && attempt <= maxLPRetries) {
-            sendEvent({ type: 'progress', step: 'gauntlet_image_retry', message: `LP ${frameNum} of ${totalFrames} — Regenerating ${imageFlaws.length} flagged image(s)...` });
-
-            const { html: fixedHtml, regeneratedCount } = await regenerateFailedImages(
-              lpResult.assembledHtml,
-              scoreResult.fatal_flaws,
-              lpResult.imageSlots || imageSlots,
-              { angle: frameAngle, productImageData, imageContext },
-              projectId,
-              sendEvent,
-            );
-
-            if (regeneratedCount > 0) {
-              lpResult.assembledHtml = fixedHtml;
-              await updateLandingPageSafely(lpId, {
-                assembled_html: fixedHtml,
-                gauntlet_retry_type: 'image',
-                gauntlet_attempt: attempt + 1,
-              }, { stage: 'store_regenerated_images' });
-
-              // Re-score after image fix
-              try {
-                const rescore = await scoreGauntletLP(fixedHtml, projectId, imageContext, { angle: frameAngle, narrativeFrame: frame.id, productImageData });
-                lastScore = rescore;
-                frameResult.score = rescore.score;
-
-                if (rescore.score >= scoreThreshold && (!rescore.fatal_flaws || rescore.fatal_flaws.length === 0)) {
-                  passed = true;
-                  frameResult.status = 'passed';
-                  frameResult.attempts = attempt + 0.5; // Mark as image-retry pass
-                  break;
-                }
-              } catch {
-                // Re-score failed, continue to next full attempt
-              }
-            }
-          }
-        }
-
-        // Full retry on next iteration
-        if (attempt <= maxLPRetries) {
-          sendEvent({ type: 'progress', step: 'gauntlet_full_retry', message: `LP ${frameNum} of ${totalFrames} — Full regeneration (attempt ${attempt + 1})...` });
-          await updateLandingPageSafely(lpId, { gauntlet_retry_type: 'full' }, { stage: 'mark_full_retry' });
-        }
+        passed = true;
+        frameResult.score = null;
+        frameResult.status = 'passed';
+        break;
       }
 
-      // 5h. Final status update (include duration + QA-equivalent data for QA tab)
       const frameDurationMs = Date.now() - frameStart;
-      const { qaReport: qaEquivalent, persistenceMode } = await persistGauntletScoreResult(lpId, {
-        lastScore,
-        passed,
-        frameResult,
-        frameDurationMs,
-      });
-      if (persistenceMode === 'minimal') {
-        console.warn(`[Gauntlet] Stored compact score fallback for LP ${lpId.slice(0, 8)}`);
-      }
-
       const finalHeadlineParts = lpResult
         ? extractLPHeadlineParts(lpResult.copySections, lpResult.editorialPlan)
         : { headline: '', subheadline: '' };
+      const titleConceptProfile = buildLPTitleConceptProfile({
+        headline: finalHeadlineParts.headline,
+        narrativeFrame: frame.id,
+        angle: batchAngle || messageBrief?.angleName || '',
+        messageBrief,
+      });
       const acceptedHeadline = {
         landing_page_id: lpId,
         narrative_frame: frame.id,
@@ -1776,9 +1375,9 @@ export async function runGauntlet(projectId, options = {}, sendEventRaw) {
           narrativeFrame: frame.id,
         }),
         title_family: getNarrativeFrameBlueprint(frame.id).titleFamily,
-        title_focus_tokens: headlineEvaluation?.titleFamilyUniqueness?.titleFocus || [],
-        title_concept_family: headlineEvaluation?.title_concept_family || null,
-        title_concept_signature: headlineEvaluation?.title_concept_signature || null,
+        title_focus_tokens: [],
+        title_concept_family: titleConceptProfile.titleConceptFamily || null,
+        title_concept_signature: titleConceptProfile.titleConceptSignature || null,
       };
 
       if (passed && acceptedHeadline.headline_text) {
@@ -1800,6 +1399,15 @@ export async function runGauntlet(projectId, options = {}, sendEventRaw) {
             console.warn(`[Gauntlet] Failed to record LP headline history for frame ${frameNum}:`, err.message);
           }
         }
+      }
+
+      if (lpId) {
+        await updateLandingPageSafely(lpId, {
+          gauntlet_status: passed ? (dryRun ? 'passed' : 'publishing') : 'failed',
+          gauntlet_attempt: frameResult.attempts,
+          gauntlet_image_prescore_attempts: frameResult.imagePrescoreAttempts,
+          generation_duration_ms: frameDurationMs,
+        }, { stage: 'store_gauntlet_runtime_summary' });
       }
 
       // 5i. Publish if passed and not dry run
@@ -1837,6 +1445,17 @@ export async function runGauntlet(projectId, options = {}, sendEventRaw) {
       console.error(`[Gauntlet] Frame ${frameNum} error:`, err.message);
       frameResult.status = 'error';
       frameResult.error = err.message;
+      if (frameResult.lpId) {
+        try {
+          await updateLandingPageSafely(frameResult.lpId, {
+            status: 'failed',
+            error_message: err.message,
+            gauntlet_status: 'failed',
+          }, { stage: 'gauntlet_frame_error' });
+        } catch (updateErr) {
+          console.warn(`[Gauntlet] Failed to persist frame error for LP ${frameResult.lpId}:`, updateErr.message);
+        }
+      }
     }
 
     frameResult.durationMs = Date.now() - frameStart;
@@ -1871,14 +1490,17 @@ export async function runGauntlet(projectId, options = {}, sendEventRaw) {
   const failedFrames = frameResults.filter(r => ['failed', 'error', 'smoke_failed', 'headline_failed', 'publish_failed'].includes(r.status));
   const smokeFailedFrames = frameResults.filter((result) => result.status === 'smoke_failed');
   const headlineFailedFrames = frameResults.filter((result) => result.status === 'headline_failed');
-  const avgScore = frameResults.filter(r => r.score != null).reduce((sum, r) => sum + r.score, 0) / Math.max(1, frameResults.filter(r => r.score != null).length);
+  const scoredFrames = frameResults.filter((result) => result.score != null);
+  const avgScore = scoredFrames.length > 0
+    ? scoredFrames.reduce((sum, result) => sum + result.score, 0) / scoredFrames.length
+    : null;
 
   const report = {
     gauntletBatchId,
     projectId,
     dryRun,
     template: template.name || template.id || template.externalId,
-    scoreThreshold,
+    scoreThreshold: null,
     frames: frameResults,
     summary: {
       total: totalFrames,
@@ -1887,7 +1509,7 @@ export async function runGauntlet(projectId, options = {}, sendEventRaw) {
       failed: failedFrames.length,
       smokeFailed: smokeFailedFrames.length,
       headlineFailed: headlineFailedFrames.length,
-      avgScore: Math.round(avgScore * 10) / 10,
+      avgScore: avgScore == null ? null : Math.round(avgScore * 10) / 10,
       totalImagePrescoreAttempts,
       totalDurationMs: totalDuration,
       totalDurationMin: Math.round(totalDuration / 60000 * 10) / 10,
@@ -1904,7 +1526,7 @@ export async function runGauntlet(projectId, options = {}, sendEventRaw) {
   sendEvent({
     type: 'progress',
     step: 'gauntlet_complete',
-    message: `Generation complete: ${passedFrames.length}/${totalFrames} passed, ${publishedFrames.length} published, avg score ${report.summary.avgScore}/11`,
+    message: `Generation complete: ${passedFrames.length}/${totalFrames} passed, ${publishedFrames.length} published`,
   });
 
   // Clear in-memory progress — generation is done
