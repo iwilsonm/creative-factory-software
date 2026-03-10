@@ -45,6 +45,10 @@ function summarizeLandingPage(page: any) {
     headline_uniqueness_reason: page.headline_uniqueness_reason,
     title_family_uniqueness_status: page.title_family_uniqueness_status,
     title_family_uniqueness_reason: page.title_family_uniqueness_reason,
+    title_concept_separation_status: page.title_concept_separation_status,
+    title_concept_separation_reason: page.title_concept_separation_reason,
+    title_concept_signature: page.title_concept_signature,
+    title_concept_family: page.title_concept_family,
     headline_history_status: page.headline_history_status,
     headline_history_reason: page.headline_history_reason,
     frame_blueprint_status: page.frame_blueprint_status,
@@ -232,6 +236,10 @@ export const create = mutation({
     headline_duplicate_of_lp_id: v.optional(v.string()),
     title_family_uniqueness_status: v.optional(v.string()),
     title_family_uniqueness_reason: v.optional(v.string()),
+    title_concept_separation_status: v.optional(v.string()),
+    title_concept_separation_reason: v.optional(v.string()),
+    title_concept_signature: v.optional(v.string()),
+    title_concept_family: v.optional(v.string()),
     headline_history_status: v.optional(v.string()),
     headline_history_reason: v.optional(v.string()),
     headline_signature: v.optional(v.string()),
@@ -272,6 +280,10 @@ export const create = mutation({
       headline_duplicate_of_lp_id: args.headline_duplicate_of_lp_id,
       title_family_uniqueness_status: args.title_family_uniqueness_status,
       title_family_uniqueness_reason: args.title_family_uniqueness_reason,
+      title_concept_separation_status: args.title_concept_separation_status,
+      title_concept_separation_reason: args.title_concept_separation_reason,
+      title_concept_signature: args.title_concept_signature,
+      title_concept_family: args.title_concept_family,
       headline_history_status: args.headline_history_status,
       headline_history_reason: args.headline_history_reason,
       headline_signature: args.headline_signature,
@@ -336,6 +348,10 @@ export const update = mutation({
     headline_duplicate_of_lp_id: v.optional(v.string()),
     title_family_uniqueness_status: v.optional(v.string()),
     title_family_uniqueness_reason: v.optional(v.string()),
+    title_concept_separation_status: v.optional(v.string()),
+    title_concept_separation_reason: v.optional(v.string()),
+    title_concept_signature: v.optional(v.string()),
+    title_concept_family: v.optional(v.string()),
     headline_history_status: v.optional(v.string()),
     headline_history_reason: v.optional(v.string()),
     headline_signature: v.optional(v.string()),
@@ -418,6 +434,10 @@ export const update = mutation({
     if (args.headline_duplicate_of_lp_id !== undefined) updates.headline_duplicate_of_lp_id = args.headline_duplicate_of_lp_id;
     if (args.title_family_uniqueness_status !== undefined) updates.title_family_uniqueness_status = args.title_family_uniqueness_status;
     if (args.title_family_uniqueness_reason !== undefined) updates.title_family_uniqueness_reason = args.title_family_uniqueness_reason;
+    if (args.title_concept_separation_status !== undefined) updates.title_concept_separation_status = args.title_concept_separation_status;
+    if (args.title_concept_separation_reason !== undefined) updates.title_concept_separation_reason = args.title_concept_separation_reason;
+    if (args.title_concept_signature !== undefined) updates.title_concept_signature = args.title_concept_signature;
+    if (args.title_concept_family !== undefined) updates.title_concept_family = args.title_concept_family;
     if (args.headline_history_status !== undefined) updates.headline_history_status = args.headline_history_status;
     if (args.headline_history_reason !== undefined) updates.headline_history_reason = args.headline_history_reason;
     if (args.headline_signature !== undefined) updates.headline_signature = args.headline_signature;

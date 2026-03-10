@@ -91,6 +91,29 @@ function buildHeadlineConstraintInstruction(headlineConstraints = null) {
   if (headlineConstraints.contract) {
     parts.push(`HEADLINE CONTRACT:\n${headlineConstraints.contract}`);
   }
+  if (headlineConstraints.titleBlueprint) {
+    const blueprint = headlineConstraints.titleBlueprint;
+    parts.push(`TITLE BLUEPRINT (hard requirements):
+- Concept family: ${blueprint.concept_family}
+- Required title goal: ${blueprint.required_title_goal}
+- Required opening shape: ${blueprint.required_opening_shape}
+- Required claim type: ${blueprint.required_claim_type}
+- Required scene-anchor behavior: ${blueprint.required_scene_anchor_behavior}
+- Forbidden claim types: ${ensureArray(blueprint.forbidden_claim_types).join(', ') || 'none'}
+- Forbidden opening shapes: ${ensureArray(blueprint.forbidden_opening_shapes).join(', ') || 'none'}`);
+  }
+  if (headlineConstraints.titleBrief) {
+    const brief = headlineConstraints.titleBrief;
+    parts.push(`FRAME-SPECIFIC TITLE BRIEF:
+- Title goal: ${brief.title_goal}
+- Persuasion pattern: ${brief.persuasion_pattern}
+- Scene handling: ${brief.scene_handling}
+- Message emphasis: ${brief.message_emphasis}
+- Avoid drifting into: ${ensureArray(brief.avoid_angles).join(', ') || 'none'}
+- Preferred title patterns: ${ensureArray(brief.preferred_title_patterns).join(' | ') || 'none'}
+- Avoid title patterns: ${ensureArray(brief.avoid_title_patterns).join(' | ') || 'none'}
+- Distinct-from-other-frames rule: ${brief.differentiation_rule}`);
+  }
   if (Array.isArray(headlineConstraints.usedHeadlines) && headlineConstraints.usedHeadlines.length > 0) {
     parts.push(`HEADLINES ALREADY USED IN THIS 5-FRAME GAUNTLET (do not overlap these ideas):\n${headlineConstraints.usedHeadlines.map((entry) => `- [${entry.narrative_frame || 'frame'}] ${entry.headline_text || entry.headline}`).join('\n')}`);
   }
@@ -103,6 +126,71 @@ function buildHeadlineConstraintInstruction(headlineConstraints = null) {
   }
   if (parts.length === 0) return '';
   return `\nHEADLINE DIFFERENTIATION RULES:\n${parts.join('\n\n')}\n`;
+}
+
+export async function generateLPTitleOnly({
+  angle,
+  narrativeFrame,
+  messageBrief = null,
+  headlineConstraints = null,
+  projectId = null,
+}, sendEvent = () => {}) {
+  sendEvent({ type: 'progress', step: 'title_only_generation', message: `Generating ${narrativeFrame} title...` });
+
+  const response = await chat(
+    [
+      {
+        role: 'system',
+        content: 'You write direct-response landing page titles and subheadlines. Return JSON only.',
+      },
+      {
+        role: 'user',
+        content: `Generate only the landing page title layer for this LP narrative frame.
+
+ANGLE:
+${angle}
+
+NARRATIVE FRAME:
+${narrativeFrame}
+
+${buildHeadlineConstraintInstruction(headlineConstraints)}${buildCampaignMessageInstruction(messageBrief)}
+
+Rules:
+- The headline must be unmistakably written as this narrative frame.
+- It must stay clearly on the exact same angle/message.
+- It must be structurally different from the already-used frame titles listed above.
+- Do not give a generic sleep headline that could fit every frame.
+- Keep the title concise and strong.
+- The subheadline must support the title without repeating it word-for-word.
+
+Return JSON:
+{
+  "headline": "frame-specific title",
+  "subheadline": "supporting subheadline",
+  "reason": "brief explanation of why this title is structurally right for the frame"
+}`,
+      },
+    ],
+    'claude-sonnet-4-6',
+    {
+      max_tokens: 1024,
+      timeout: 45000,
+      operation: 'lp_title_only_generation',
+      projectId,
+      response_format: { type: 'json_object' },
+    }
+  );
+
+  const parsed = extractJSON(response);
+  if (!parsed?.headline) {
+    throw new Error('Title-only generation returned no headline.');
+  }
+
+  return {
+    headline: String(parsed.headline || '').trim(),
+    subheadline: String(parsed.subheadline || '').trim(),
+    reason: String(parsed.reason || '').trim(),
+  };
 }
 
 function buildNarrativeFrameCopyGuardrails(narrativeFrame = '') {

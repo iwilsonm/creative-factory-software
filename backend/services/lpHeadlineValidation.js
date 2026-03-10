@@ -130,6 +130,54 @@ const FRAME_BLUEPRINTS = {
   },
 };
 
+const TITLE_BLUEPRINTS = {
+  testimonial: {
+    conceptFamily: 'story_result',
+    requiredTitleGoal: 'Anchor the title in a lived experience, turning point, or result moment.',
+    requiredOpeningShape: 'story_led',
+    requiredClaimType: 'story_result',
+    requiredSceneAnchorBehavior: 'scene_as_personal_story',
+    forbiddenClaimTypes: ['hidden_cause', 'belief_reversal', 'numbered_promise'],
+    forbiddenOpeningShapes: ['numbered_list', 'belief_reversal', 'why_explainer'],
+  },
+  mechanism: {
+    conceptFamily: 'hidden_cause',
+    requiredTitleGoal: 'Reveal the hidden cause or the exact why behind the wake-to-pee / back-to-bed problem.',
+    requiredOpeningShape: 'why_explainer',
+    requiredClaimType: 'hidden_cause',
+    requiredSceneAnchorBehavior: 'scene_as_hidden_cause',
+    forbiddenClaimTypes: ['story_result', 'belief_reversal', 'numbered_promise'],
+    forbiddenOpeningShapes: ['numbered_list', 'first_person_story'],
+  },
+  problem_agitation: {
+    conceptFamily: 'pain_pattern',
+    requiredTitleGoal: 'Center the painful recurring moment itself and the friction it creates.',
+    requiredOpeningShape: 'pain_scene',
+    requiredClaimType: 'pain_pattern',
+    requiredSceneAnchorBehavior: 'scene_as_recurring_pain',
+    forbiddenClaimTypes: ['story_result', 'belief_reversal', 'numbered_promise'],
+    forbiddenOpeningShapes: ['numbered_list', 'first_person_story'],
+  },
+  myth_busting: {
+    conceptFamily: 'belief_reversal',
+    requiredTitleGoal: 'Challenge a false belief or common explanation about the same angle.',
+    requiredOpeningShape: 'belief_reversal',
+    requiredClaimType: 'belief_reversal',
+    requiredSceneAnchorBehavior: 'scene_as_false_explanation',
+    forbiddenClaimTypes: ['story_result', 'numbered_promise'],
+    forbiddenOpeningShapes: ['numbered_list', 'first_person_story'],
+  },
+  listicle: {
+    conceptFamily: 'numbered_promise',
+    requiredTitleGoal: 'Make an explicit numbered promise tied to the same angle and payoff.',
+    requiredOpeningShape: 'numbered_list',
+    requiredClaimType: 'numbered_promise',
+    requiredSceneAnchorBehavior: 'scene_as_numbered_takeaway',
+    forbiddenClaimTypes: ['story_result', 'belief_reversal'],
+    forbiddenOpeningShapes: ['first_person_story', 'belief_reversal'],
+  },
+};
+
 const FRAME_CONTRACTS = Object.fromEntries(
   Object.entries(FRAME_BLUEPRINTS).map(([frameId, blueprint]) => [frameId, blueprint.contract])
 );
@@ -265,11 +313,24 @@ export function getNarrativeFrameBlueprint(frameId) {
   };
 }
 
+export function getNarrativeFrameTitleBlueprint(frameId) {
+  return TITLE_BLUEPRINTS[frameId] || {
+    conceptFamily: frameId || 'general',
+    requiredTitleGoal: 'Write a clearly frame-specific title.',
+    requiredOpeningShape: 'direct_angle',
+    requiredClaimType: frameId || 'general',
+    requiredSceneAnchorBehavior: 'scene_as_direct_angle',
+    forbiddenClaimTypes: [],
+    forbiddenOpeningShapes: [],
+  };
+}
+
 export function buildNarrativeFrameBlueprintSummary(frameId) {
   const blueprint = getNarrativeFrameBlueprint(frameId);
   return {
     contract: blueprint.contract,
     title_family: blueprint.titleFamily,
+    concept_family: blueprint.titleFamily,
     title_shape: blueprint.titleShape,
     opening_move: blueprint.openingMove,
     section_emphasis: blueprint.sectionEmphasis,
@@ -321,6 +382,87 @@ function detectHeadlineShape(headline = '') {
     return 'mechanism';
   }
   return 'problem_agitation';
+}
+
+function detectTitleOpeningShape(headline = '') {
+  const normalized = normalizeLPHeadlineText(headline);
+  if (!normalized) return 'unknown';
+  if (/^\s*(\d+|one|two|three|four|five|six|seven|eight|nine|ten)\b/i.test(headline)) {
+    return 'numbered_list';
+  }
+  if (/^(i|my|we|she|he)\b/i.test(headline.trim())) {
+    return 'first_person_story';
+  }
+  if (/^(why|how|what)\b/i.test(headline.trim())) {
+    return 'why_explainer';
+  }
+  if (/\b(wrong|myth|truth|isnt|doesnt|youve been told|people think)\b/i.test(normalized)) {
+    return 'belief_reversal';
+  }
+  if (/^\s*you\b/i.test(headline.trim()) || /\b(worst part|again|wide awake)\b/i.test(normalized)) {
+    return 'pain_scene';
+  }
+  return 'direct_angle';
+}
+
+function detectTitleClaimType(headline = '', narrativeFrame = '') {
+  const normalized = normalizeLPHeadlineText(headline);
+  if (!normalized) return 'unknown';
+  if (narrativeFrame === 'listicle' || /^\s*(\d+|one|two|three|four|five|six|seven|eight|nine|ten)\b/i.test(headline)) {
+    return 'numbered_promise';
+  }
+  if (/\b(wrong|myth|truth|youve been told|people think|isnt|doesnt)\b/i.test(normalized)) {
+    return 'belief_reversal';
+  }
+  if (/^(i|my|we|she|he)\b/i.test(headline.trim()) || /\b(for years|finally|one night|changed everything|stopped)\b/i.test(normalized)) {
+    return 'story_result';
+  }
+  if (/^(why|how|what)\b/i.test(headline.trim()) || /\b(real reason|hidden cause|keeps|trigger|behind|switch)\b/i.test(normalized)) {
+    return 'hidden_cause';
+  }
+  if (/^\s*you\b/i.test(headline.trim()) || /\b(worst part|nightmare|wide awake|lie there|exhausted|back into bed)\b/i.test(normalized)) {
+    return 'pain_pattern';
+  }
+  return narrativeFrame || 'general';
+}
+
+function detectSceneAnchorBehavior({ headline = '', angle = '', messageBrief = null }) {
+  const sceneHits = matchSceneCueGroups(
+    headline,
+    buildSourceSceneCueGroups({ angle, messageBrief })
+  );
+  if (sceneHits.length >= 3) return 'explicit_scene_anchor';
+  if (sceneHits.length >= 1) return 'partial_scene_anchor';
+  return 'broad_scene_anchor';
+}
+
+export function buildLPTitleConceptProfile({
+  headline = '',
+  narrativeFrame = '',
+  angle = '',
+  messageBrief = null,
+}) {
+  const blueprint = getNarrativeFrameTitleBlueprint(narrativeFrame);
+  const openingShape = detectTitleOpeningShape(headline);
+  const claimType = detectTitleClaimType(headline, narrativeFrame);
+  const sceneAnchorBehavior = detectSceneAnchorBehavior({ headline, angle, messageBrief });
+  const leadingTokens = firstContentTokens(headline, 4).join('|');
+  const titleConceptFamily = blueprint.conceptFamily || narrativeFrame || 'general';
+  const titleConceptSignature = [
+    titleConceptFamily,
+    openingShape,
+    claimType,
+    sceneAnchorBehavior,
+    leadingTokens || normalizeLPHeadlineText(headline).slice(0, 40),
+  ].join(':');
+
+  return {
+    titleConceptFamily,
+    openingShape,
+    claimType,
+    sceneAnchorBehavior,
+    titleConceptSignature,
+  };
 }
 
 export function buildLPHeadlineSignature({ headline = '', narrativeFrame = '' }) {
@@ -762,6 +904,77 @@ export function evaluateTitleFamilyUniqueness({
     titleFamily,
     titleFocus,
     reason: 'Title is materially different from the other frame titles in this gauntlet.',
+  };
+}
+
+export function evaluateTitleConceptSeparation({
+  headline,
+  narrativeFrame,
+  acceptedHeadlines = [],
+  angle = '',
+  messageBrief = null,
+}) {
+  const current = buildLPTitleConceptProfile({
+    headline,
+    narrativeFrame,
+    angle,
+    messageBrief,
+  });
+
+  for (const existing of acceptedHeadlines) {
+    const existingHeadline = existing.headline_text || existing.headline || '';
+    const comparison = compareLPHeadlines(headline, existingHeadline);
+    const existingProfile = buildLPTitleConceptProfile({
+      headline: existingHeadline,
+      narrativeFrame: existing.narrative_frame || '',
+      angle,
+      messageBrief,
+    });
+
+    const titleConceptFamily = existing.title_concept_family || existingProfile.titleConceptFamily;
+    const openingShape = existing.title_opening_shape || existingProfile.openingShape;
+    const claimType = existing.title_claim_type || existingProfile.claimType;
+    const sceneAnchorBehavior = existing.title_scene_anchor_behavior || existingProfile.sceneAnchorBehavior;
+    const titleConceptSignature = existing.title_concept_signature || existingProfile.titleConceptSignature;
+
+    const sameConceptFamily = titleConceptFamily === current.titleConceptFamily;
+    const sameOpeningAndClaim =
+      openingShape === current.openingShape &&
+      claimType === current.claimType;
+    const sameSceneMode = sceneAnchorBehavior === current.sceneAnchorBehavior;
+    const sameSignature = titleConceptSignature === current.titleConceptSignature;
+    const sameClaimAndScene =
+      claimType === current.claimType &&
+      sceneAnchorBehavior === current.sceneAnchorBehavior;
+    const sameOpeningAndScene =
+      openingShape === current.openingShape &&
+      sceneAnchorBehavior === current.sceneAnchorBehavior;
+    const lowDistanceConcept =
+      sameOpeningAndClaim &&
+      sameSceneMode &&
+      (comparison.similarity >= 0.12 || comparison.containment || comparison.exact);
+    const samePromiseWithDifferentWords =
+      (sameClaimAndScene && comparison.similarity >= 0.2) ||
+      (sameOpeningAndScene && comparison.similarity >= 0.28) ||
+      (claimType === current.claimType && comparison.similarity >= 0.34);
+
+    if (sameSignature || lowDistanceConcept || samePromiseWithDifferentWords) {
+      return {
+        passed: false,
+        duplicateOf: existing.landing_page_id || existing.lpId || existing.externalId || null,
+        titleConceptFamily: current.titleConceptFamily,
+        titleConceptSignature: current.titleConceptSignature,
+        reason: `Title is not conceptually separated enough from "${existingHeadline}".`,
+      };
+    }
+  }
+
+  return {
+    passed: true,
+    duplicateOf: null,
+    titleConceptFamily: current.titleConceptFamily,
+    titleConceptSignature: current.titleConceptSignature,
+    reason: 'Title concept is structurally different from the other frame titles.',
   };
 }
 

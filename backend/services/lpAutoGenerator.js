@@ -29,6 +29,7 @@ import {
 import {
   generateAndValidateLP,
   generateAutoLP,
+  generateLPTitleOnly,
   generateSlotImages,
   preScoreAndRetryImages,
   scoreGauntletLP,
@@ -48,13 +49,16 @@ import {
   applyLPHeadlineParts,
   buildLPHeadlineHistoryEntry,
   buildLPHeadlineSignature,
+  buildLPTitleConceptProfile,
   buildNarrativeFrameBlueprintSummary,
   evaluateTitleFamilyUniqueness,
+  evaluateTitleConceptSeparation,
   evaluateHistoryHeadlineUniqueness,
   evaluateSameRunHeadlineUniqueness,
   extractLPHeadlineParts,
   getNarrativeFrameBlueprint,
   getNarrativeFrameHeadlineContract,
+  getNarrativeFrameTitleBlueprint,
   normalizeLPHeadlineText,
   validateLPFrameBlueprint,
   validateLPHeadlineSourceAlignment,
@@ -154,14 +158,105 @@ function buildCampaignMessageBrief({ batchAngle = '', angleBrief = null, approve
   };
 }
 
-function buildHeadlineConstraintBundle(frame, usedHeadlines, angleHistory) {
+function buildFrameSpecificTitleBrief(frameId, messageBrief = null, sameFrameHistory = []) {
+  const brief = {
+    title_goal: '',
+    persuasion_pattern: '',
+    scene_handling: '',
+    message_emphasis: '',
+    avoid_angles: [],
+    differentiation_rule: '',
+    preferred_title_patterns: [],
+    avoid_title_patterns: [],
+  };
+  const coreScene = messageBrief?.coreScene || 'the exact same source angle scene';
+  const beliefShift = messageBrief?.desiredBeliefShift || 'the same core belief shift as the source ads';
+  const recentSameFrameTitles = ensureArray(sameFrameHistory)
+    .map((entry) => String(entry?.headline_text || entry?.headline || '').trim())
+    .filter(Boolean)
+    .slice(0, 10);
+  switch (frameId) {
+    case 'testimonial':
+      brief.title_goal = 'Sound like a lived-result story or turning-point realization.';
+      brief.persuasion_pattern = 'personal moment -> emotional release -> result';
+      brief.scene_handling = `Keep the same scene, but phrase it as a lived experience or moment of relief tied to ${coreScene}.`;
+      brief.message_emphasis = `Emphasize the emotional result or turning point while staying inside ${beliefShift}.`;
+      brief.avoid_angles = ['generic why headline', 'numbered list', 'belief reversal'];
+      brief.differentiation_rule = 'Do not explain the mechanism or argue with a myth; make it feel like someone lived through it.';
+      break;
+    case 'mechanism':
+      brief.title_goal = 'Reveal the hidden cause behind why the exact scene keeps happening.';
+      brief.persuasion_pattern = 'curiosity -> hidden cause -> why alternatives fail';
+      brief.scene_handling = `Keep the same wake-to-pee / back-to-bed scene, but frame it as the hidden cause behind what happens next: ${coreScene}.`;
+      brief.message_emphasis = 'Explain what is really happening and why normal fixes miss the trigger.';
+      brief.avoid_angles = ['testimonial result', 'numbered list', 'generic myth reversal'];
+      brief.differentiation_rule = 'The title must feel like a mechanism deep-dive, not a pain rant or belief reversal.';
+      break;
+    case 'problem_agitation':
+      brief.title_goal = 'Center the painful recurring friction of the same night-time moment.';
+      brief.persuasion_pattern = 'pain moment -> frustration -> emotional friction';
+      brief.scene_handling = `Stay locked to the recurring painful moment itself: ${coreScene}.`;
+      brief.message_emphasis = 'Make the recurring symptom and friction feel immediate and recognizable.';
+      brief.avoid_angles = ['hidden cause explainer', 'testimonial result', 'numbered list'];
+      brief.differentiation_rule = 'The title must feel like the pain pattern itself, not the explanation for it.';
+      break;
+    case 'myth_busting':
+      brief.title_goal = 'Challenge a false belief or wrong explanation about this exact angle.';
+      brief.persuasion_pattern = 'belief challenge -> correction -> truth';
+      brief.scene_handling = `Keep the same scene, but frame it as evidence that the usual explanation is wrong: ${coreScene}.`;
+      brief.message_emphasis = 'Highlight the mistaken belief and the corrected truth without drifting off-angle.';
+      brief.avoid_angles = ['plain why headline', 'testimonial result', 'numbered list'];
+      brief.differentiation_rule = 'The title must explicitly feel like a myth bust, not just another explanation.';
+      break;
+    case 'listicle':
+      brief.title_goal = 'Make a numbered promise tied to the same scene and same message.';
+      brief.persuasion_pattern = 'explicit count -> list promise -> payoff';
+      brief.scene_handling = `Keep the same wake-to-pee scene, but express it as a numbered set of reasons or discoveries: ${coreScene}.`;
+      brief.message_emphasis = 'Promise a numbered takeaway while staying inside the same angle and belief shift.';
+      brief.avoid_angles = ['story result', 'belief reversal without a number', 'plain why headline'];
+      brief.preferred_title_patterns = [
+        'X reasons you stay awake after...',
+        'X signs your body is doing...',
+        'X mistakes people make after...',
+        'X clues the real problem is...',
+        'X truths about why...',
+      ];
+      brief.avoid_title_patterns = [
+        'Avoid the repeated family "X Things That Happen ..." if history already contains it.',
+        'Avoid the repeated suffix family "And Why Number X ...".',
+        'Do not make the new title a synonym swap of an older numbered title.',
+      ];
+      if (recentSameFrameTitles.length > 0) {
+        brief.avoid_title_patterns.push(
+          `Do not reuse these recent same-frame listicle title patterns:\n${recentSameFrameTitles.map((title) => `- ${title}`).join('\n')}`
+        );
+      }
+      brief.differentiation_rule = 'If the title could work without the number, it is not listicle enough. Use a numbered promise shape that is clearly different from recent same-frame listicle titles.';
+      break;
+    default:
+      brief.title_goal = 'Stay on the same angle/message while sounding structurally specific to the frame.';
+      brief.persuasion_pattern = 'frame-specific persuasion';
+      brief.scene_handling = `Stay anchored to ${coreScene}.`;
+      brief.message_emphasis = beliefShift;
+      brief.avoid_angles = [];
+      brief.differentiation_rule = 'Differentiate the title structurally from the other frame titles.';
+      break;
+  }
+  return brief;
+}
+
+function buildHeadlineConstraintBundle(frame, usedHeadlines, angleHistory, messageBrief = null, sameFrameHistory = []) {
   return {
     contract: getNarrativeFrameHeadlineContract(frame.id),
     frameBlueprint: buildNarrativeFrameBlueprintSummary(frame.id),
+    titleBlueprint: getNarrativeFrameTitleBlueprint(frame.id),
+    titleBrief: buildFrameSpecificTitleBrief(frame.id, messageBrief, sameFrameHistory),
     usedHeadlines: usedHeadlines.map((entry) => ({
       narrative_frame: entry.narrative_frame,
       headline_text: entry.headline_text,
       title_family: entry.title_family,
+      title_concept_family: entry.title_concept_family,
+      title_concept_signature: entry.title_concept_signature,
     })),
     historyHeadlines: angleHistory.slice(0, 20).map((entry) => ({
       narrative_frame: entry.narrative_frame,
@@ -262,6 +357,10 @@ function buildGauntletDraftFields({
     headline_duplicate_of_lp_id: headlineEvaluation.uniqueness.duplicateOf || undefined,
     title_family_uniqueness_status: headlineEvaluation.titleFamilyUniqueness.passed ? 'passed' : 'failed',
     title_family_uniqueness_reason: headlineEvaluation.titleFamilyUniqueness.reason,
+    title_concept_separation_status: headlineEvaluation.titleConceptSeparation.passed ? 'passed' : 'failed',
+    title_concept_separation_reason: headlineEvaluation.titleConceptSeparation.reason,
+    title_concept_signature: headlineEvaluation.titleConceptSeparation.titleConceptSignature || undefined,
+    title_concept_family: headlineEvaluation.titleConceptSeparation.titleConceptFamily || undefined,
     headline_history_status: headlineEvaluation.history.passed ? 'passed' : 'failed',
     headline_history_reason: headlineEvaluation.history.reason,
     headline_signature: headlineEvaluation.headline_signature || undefined,
@@ -377,6 +476,19 @@ function evaluateFrameHeadline({
         messageBrief,
       })
     : { passed: true, reason: 'No batch angle set for cross-run LP history.' };
+  const titleConceptSeparation = evaluateTitleConceptSeparation({
+    headline: headlineParts.headline,
+    narrativeFrame: frame.id,
+    acceptedHeadlines,
+    angle: batchAngle || messageBrief?.angleName || '',
+    messageBrief,
+  });
+  const titleConceptProfile = buildLPTitleConceptProfile({
+    headline: headlineParts.headline,
+    narrativeFrame: frame.id,
+    angle: batchAngle || messageBrief?.angleName || '',
+    messageBrief,
+  });
 
   return {
     ...headlineParts,
@@ -384,14 +496,103 @@ function evaluateFrameHeadline({
     frameBlueprint,
     uniqueness,
     titleFamilyUniqueness,
+    titleConceptSeparation,
     sourceAlignment,
     history,
+    title_concept_family: titleConceptProfile.titleConceptFamily,
+    title_concept_signature: titleConceptProfile.titleConceptSignature,
     passed:
       !!headlineParts.headline &&
       frameAlignment.passed &&
       frameBlueprint.passed &&
       uniqueness.passed &&
-      sourceAlignment.passed,
+      sourceAlignment.passed &&
+      history.passed,
+  };
+}
+
+function evaluateGeneratedTitleOnly({
+  titleResult,
+  frame,
+  batchAngle,
+  messageBrief,
+  acceptedHeadlines,
+  sameFrameHistory,
+  angleHistory,
+}) {
+  const headline = String(titleResult?.headline || '').trim();
+  const subheadline = String(titleResult?.subheadline || '').trim();
+  const headlineSignature = buildLPHeadlineSignature({
+    headline,
+    narrativeFrame: frame.id,
+  });
+  const frameAlignment = validateLPHeadlineFrameAlignment({
+    headline,
+    narrativeFrame: frame.id,
+    angle: batchAngle || messageBrief?.angleName || '',
+  });
+  const uniqueness = evaluateSameRunHeadlineUniqueness({
+    headline,
+    narrativeFrame: frame.id,
+    signature: headlineSignature,
+    acceptedHeadlines,
+  });
+  const titleFamilyUniqueness = evaluateTitleFamilyUniqueness({
+    headline,
+    narrativeFrame: frame.id,
+    acceptedHeadlines,
+    angle: batchAngle || messageBrief?.angleName || '',
+    messageBrief,
+  });
+  const sourceAlignment = validateLPHeadlineSourceAlignment({
+    headline,
+    subheadline,
+    angle: batchAngle || messageBrief?.angleName || '',
+    messageBrief,
+  });
+  const history = batchAngle
+    ? evaluateHistoryHeadlineUniqueness({
+        headline,
+        narrativeFrame: frame.id,
+        signature: headlineSignature,
+        sameFrameHistory,
+        angleHistory,
+        angle: batchAngle || messageBrief?.angleName || '',
+        messageBrief,
+      })
+    : { passed: true, reason: 'No batch angle set for cross-run LP history.' };
+  const titleConceptSeparation = evaluateTitleConceptSeparation({
+    headline,
+    narrativeFrame: frame.id,
+    acceptedHeadlines,
+    angle: batchAngle || messageBrief?.angleName || '',
+    messageBrief,
+  });
+  const titleConceptProfile = buildLPTitleConceptProfile({
+    headline,
+    narrativeFrame: frame.id,
+    angle: batchAngle || messageBrief?.angleName || '',
+    messageBrief,
+  });
+
+  return {
+    headline,
+    subheadline,
+    headline_signature: headlineSignature,
+    frameAlignment,
+    uniqueness,
+    titleFamilyUniqueness,
+    sourceAlignment,
+    history,
+    titleConceptSeparation,
+    title_concept_family: titleConceptProfile.titleConceptFamily,
+    title_concept_signature: titleConceptProfile.titleConceptSignature,
+    passed:
+      !!headline &&
+      frameAlignment.passed &&
+      uniqueness.passed &&
+      sourceAlignment.passed &&
+      history.passed,
   };
 }
 
@@ -863,6 +1064,7 @@ export async function retryLP(batchJobId, which, { switchTemplate, fullRegenerat
 export async function runGauntlet(projectId, options = {}, sendEventRaw) {
   const {
     dryRun = false,
+    titleOnly = false,
     batchJobId = null,
     angle: batchAngle = null,
     angleBrief = null,
@@ -923,12 +1125,6 @@ export async function runGauntlet(projectId, options = {}, sendEventRaw) {
   const maxImageRetries = config.gauntlet_max_image_retries || 5;
   const maxLPRetries = config.gauntlet_max_lp_retries || 2;
 
-  const templates = await getLPTemplatesByProject(projectId);
-  const readyTemplates = templates.filter(t => t.status === 'ready');
-  if (readyTemplates.length === 0) {
-    throw new Error('No ready templates available');
-  }
-
   // Determine frames to run from config
   let framesToRun = NARRATIVE_FRAMES;
   if (config.default_narrative_frames) {
@@ -944,6 +1140,156 @@ export async function runGauntlet(projectId, options = {}, sendEventRaw) {
     if (filtered.length > 0) {
       framesToRun = filtered;
     }
+  }
+
+  // Track results per frame
+  const frameResults = [];
+  const acceptedHeadlines = [];
+  const historySince = new Date(Date.now() - (90 * 24 * 60 * 60 * 1000)).toISOString();
+  const angleHistory = batchAngle
+    ? await getRecentLPHeadlineHistoryByAngle(projectId, batchAngle, { limit: 200, since: historySince })
+    : [];
+  const totalFrames = framesToRun.length;
+
+  if (titleOnly) {
+    sendEvent({ type: 'progress', step: 'gauntlet_config', message: `Title-only validation for ${totalFrames} frames, dry run: true` });
+
+    for (let frameIndex = 0; frameIndex < totalFrames; frameIndex++) {
+      const frame = framesToRun[frameIndex];
+      const frameNum = frameIndex + 1;
+      const sameFrameHistory = batchAngle
+        ? await getRecentLPHeadlineHistoryByAngleAndFrame(projectId, batchAngle, frame.id, { limit: 80, since: historySince })
+        : [];
+
+      sendEvent({
+        type: 'progress',
+        step: 'gauntlet_frame_start',
+        message: `Title validation ${frameNum} of ${totalFrames} — ${frame.name}...`,
+        gauntlet: { frame: frameNum, total: totalFrames, name: frame.name },
+      });
+
+      const frameResult = {
+        frame: frame.id,
+        frameName: frame.name,
+        lpId: null,
+        publishedUrl: null,
+        score: null,
+        status: 'pending',
+        attempts: 1,
+        imagePrescoreAttempts: 0,
+        durationMs: 0,
+        titleOnly: true,
+      };
+      const frameStart = Date.now();
+
+      try {
+        const titleResult = await generateLPTitleOnly({
+          angle: batchAngle || angleBrief?.name || '',
+          narrativeFrame: frame.id,
+          messageBrief,
+          headlineConstraints: buildHeadlineConstraintBundle(frame, acceptedHeadlines, angleHistory, messageBrief, sameFrameHistory),
+          projectId,
+        }, sendEvent);
+
+        const headlineEvaluation = evaluateGeneratedTitleOnly({
+          titleResult,
+          frame,
+          batchAngle,
+          messageBrief,
+          acceptedHeadlines,
+          sameFrameHistory,
+          angleHistory,
+        });
+
+        frameResult.headline = headlineEvaluation.headline;
+        frameResult.subheadline = headlineEvaluation.subheadline;
+        frameResult.titleConceptFamily = headlineEvaluation.title_concept_family;
+        frameResult.titleConceptSignature = headlineEvaluation.title_concept_signature;
+        frameResult.validation = {
+          frameAlignment: headlineEvaluation.frameAlignment,
+          sourceAlignment: headlineEvaluation.sourceAlignment,
+          sameRunUniqueness: headlineEvaluation.uniqueness,
+          historyUniqueness: headlineEvaluation.history,
+          titleFamilyUniqueness: headlineEvaluation.titleFamilyUniqueness,
+          titleConceptSeparation: headlineEvaluation.titleConceptSeparation,
+        };
+
+        if (headlineEvaluation.passed) {
+          acceptedHeadlines.push({
+            landing_page_id: null,
+            narrative_frame: frame.id,
+            headline_text: headlineEvaluation.headline,
+            headline_signature: headlineEvaluation.headline_signature,
+            title_family: getNarrativeFrameBlueprint(frame.id).titleFamily,
+            title_focus_tokens: headlineEvaluation.titleFamilyUniqueness.titleFocus || [],
+            title_concept_family: headlineEvaluation.title_concept_family,
+            title_concept_signature: headlineEvaluation.title_concept_signature,
+          });
+          frameResult.status = 'passed_title_only';
+        } else {
+          frameResult.status = 'title_failed';
+          frameResult.error = [
+            headlineEvaluation.frameAlignment.passed ? null : headlineEvaluation.frameAlignment.reason,
+            headlineEvaluation.uniqueness.passed ? null : headlineEvaluation.uniqueness.reason,
+            headlineEvaluation.sourceAlignment.passed ? null : headlineEvaluation.sourceAlignment.reason,
+            headlineEvaluation.history.passed ? null : headlineEvaluation.history.reason,
+          ].find(Boolean) || 'Title-only validation failed.';
+        }
+      } catch (err) {
+        frameResult.status = 'error';
+        frameResult.error = err.message;
+      }
+
+      frameResult.durationMs = Date.now() - frameStart;
+      frameResults.push(frameResult);
+      sendEvent({
+        type: 'progress',
+        step: 'gauntlet_frame_done',
+        message: `Title validation ${frameNum} of ${totalFrames} complete: ${frameResult.status}`,
+        gauntlet: { frame: frameNum, total: totalFrames, result: frameResult },
+      });
+    }
+
+    const totalDuration = Date.now() - startTime;
+    const passedFrames = frameResults.filter((r) => r.status === 'passed_title_only');
+    const failedFrames = frameResults.filter((r) => r.status !== 'passed_title_only');
+    const report = {
+      gauntletBatchId,
+      projectId,
+      dryRun: true,
+      titleOnly: true,
+      template: null,
+      scoreThreshold,
+      frames: frameResults,
+      summary: {
+        total: totalFrames,
+        passed: passedFrames.length,
+        published: 0,
+        failed: failedFrames.length,
+        smokeFailed: 0,
+        headlineFailed: failedFrames.length,
+        avgScore: null,
+        totalImagePrescoreAttempts: 0,
+        totalDurationMs: totalDuration,
+        totalDurationMin: Math.round(totalDuration / 60000 * 10) / 10,
+        terminalStatus: failedFrames.length === 0 ? 'passed_title_only' : 'title_failed',
+      },
+      lpUrls: [],
+    };
+
+    sendEvent({
+      type: 'progress',
+      step: 'gauntlet_complete',
+      message: `Title validation complete: ${passedFrames.length}/${totalFrames} passed`,
+    });
+    clearProgress(gauntletBatchId);
+    return report;
+  }
+
+  const templates = await getLPTemplatesByProject(projectId);
+  const readyTemplates = templates.filter(t => t.status === 'ready');
+  if (readyTemplates.length === 0) {
+    throw new Error('No ready templates available');
   }
 
   // Pick a random template (reuse across all frames)
@@ -993,18 +1339,10 @@ export async function runGauntlet(projectId, options = {}, sendEventRaw) {
     aspect_ratio: '16:9',
   }));
 
-  // Track results per frame
-  const frameResults = [];
   let cachedHtmlTemplate = null;
   let totalImagePrescoreAttempts = 0;
-  const acceptedHeadlines = [];
-  const historySince = new Date(Date.now() - (90 * 24 * 60 * 60 * 1000)).toISOString();
-  const angleHistory = batchAngle
-    ? await getRecentLPHeadlineHistoryByAngle(projectId, batchAngle, { limit: 200, since: historySince })
-    : [];
 
   // 5. Loop through selected narrative frames
-  const totalFrames = framesToRun.length;
   for (let frameIndex = 0; frameIndex < totalFrames; frameIndex++) {
     const frame = framesToRun[frameIndex];
     const frameNum = frameIndex + 1;
@@ -1116,7 +1454,7 @@ export async function runGauntlet(projectId, options = {}, sendEventRaw) {
               preGeneratedImages: imageSlots,
               cachedHtmlTemplate,
             },
-            headlineConstraints: buildHeadlineConstraintBundle(frame, acceptedHeadlines, angleHistory),
+            headlineConstraints: buildHeadlineConstraintBundle(frame, acceptedHeadlines, angleHistory, messageBrief, sameFrameHistory),
           }, (e) => {
           // Forward sub-events with frame context
           if (e.type === 'progress') {
@@ -1176,7 +1514,7 @@ export async function runGauntlet(projectId, options = {}, sendEventRaw) {
               copySections: lpResult.copySections,
               approvedAds,
               messageBrief,
-              headlineConstraints: buildHeadlineConstraintBundle(frame, acceptedHeadlines, angleHistory),
+              headlineConstraints: buildHeadlineConstraintBundle(frame, acceptedHeadlines, angleHistory, messageBrief, sameFrameHistory),
             });
             lpResult = await rebuildLPAfterHeadlineRepair(lpResult, repairedHeadline, {
               project,
@@ -1218,7 +1556,7 @@ export async function runGauntlet(projectId, options = {}, sendEventRaw) {
               copySections: lpResult.copySections,
               approvedAds,
               messageBrief,
-              headlineConstraints: buildHeadlineConstraintBundle(frame, acceptedHeadlines, angleHistory),
+              headlineConstraints: buildHeadlineConstraintBundle(frame, acceptedHeadlines, angleHistory, messageBrief, sameFrameHistory),
               repairFocus,
             });
             lpResult = await rebuildLPAfterContentRepair(lpResult, repairedContent.sections, {
@@ -1263,6 +1601,10 @@ export async function runGauntlet(projectId, options = {}, sendEventRaw) {
             headline_duplicate_of_lp_id: headlineEvaluation.uniqueness.duplicateOf || undefined,
             title_family_uniqueness_status: headlineEvaluation.titleFamilyUniqueness.passed ? 'passed' : 'failed',
             title_family_uniqueness_reason: headlineEvaluation.titleFamilyUniqueness.reason,
+            title_concept_separation_status: headlineEvaluation.titleConceptSeparation.passed ? 'passed' : 'failed',
+            title_concept_separation_reason: headlineEvaluation.titleConceptSeparation.reason,
+            title_concept_signature: headlineEvaluation.title_concept_signature || undefined,
+            title_concept_family: headlineEvaluation.title_concept_family || undefined,
             headline_history_status: headlineEvaluation.history.passed ? 'passed' : 'failed',
             headline_history_reason: headlineEvaluation.history.reason,
             headline_signature: headlineEvaluation.headline_signature || undefined,
@@ -1412,6 +1754,8 @@ export async function runGauntlet(projectId, options = {}, sendEventRaw) {
         }),
         title_family: getNarrativeFrameBlueprint(frame.id).titleFamily,
         title_focus_tokens: headlineEvaluation?.titleFamilyUniqueness?.titleFocus || [],
+        title_concept_family: headlineEvaluation?.title_concept_family || null,
+        title_concept_signature: headlineEvaluation?.title_concept_signature || null,
       };
 
       if (passed && acceptedHeadline.headline_text) {

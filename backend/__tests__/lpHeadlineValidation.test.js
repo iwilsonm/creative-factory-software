@@ -1,8 +1,10 @@
 import { describe, expect, it } from 'vitest';
 
 import {
+  buildLPTitleConceptProfile,
   buildLPHeadlineHistoryEntry,
   buildLPHeadlineSignature,
+  evaluateTitleConceptSeparation,
   evaluateHistoryHeadlineUniqueness,
   evaluateSameRunHeadlineUniqueness,
   evaluateTitleFamilyUniqueness,
@@ -140,6 +142,95 @@ describe('lpHeadlineValidation', () => {
 
     expect(result.passed).toBe(false);
     expect(result.reason).toContain('same family');
+  });
+
+  it('builds distinct title concept profiles for different frame structures', () => {
+    const testimonial = buildLPTitleConceptProfile({
+      headline: 'For three years I got back into bed at 2 a.m. and never once fell back asleep',
+      narrativeFrame: 'testimonial',
+      angle: 'Wakes to Pee, Then Cannot Fall Back Asleep',
+    });
+    const mechanism = buildLPTitleConceptProfile({
+      headline: 'Why your bathroom trip at 2 a.m. flips the wrong switch in your body',
+      narrativeFrame: 'mechanism',
+      angle: 'Wakes to Pee, Then Cannot Fall Back Asleep',
+    });
+    const listicle = buildLPTitleConceptProfile({
+      headline: '5 reasons you wake up to pee and stay awake for hours afterward',
+      narrativeFrame: 'listicle',
+      angle: 'Wakes to Pee, Then Cannot Fall Back Asleep',
+    });
+
+    expect(testimonial.titleConceptFamily).toBe('story_result');
+    expect(mechanism.titleConceptFamily).toBe('hidden_cause');
+    expect(listicle.titleConceptFamily).toBe('numbered_promise');
+    expect(testimonial.titleConceptSignature).not.toBe(mechanism.titleConceptSignature);
+    expect(mechanism.titleConceptSignature).not.toBe(listicle.titleConceptSignature);
+  });
+
+  it('rejects titles that are still the same concept with different wording', () => {
+    const result = evaluateTitleConceptSeparation({
+      headline: 'What most people get wrong about why your 2 AM bathroom trip keeps you alert until sunrise',
+      narrativeFrame: 'myth_busting',
+      angle: 'Wakes to Pee, Then Cannot Fall Back Asleep',
+      messageBrief: {
+        sourceMode: 'director_ads',
+        angleSummary: 'Wakes to Pee, Then Cannot Fall Back Asleep',
+        coreScene: 'You wake in the night, use the bathroom, climb back into bed, and cannot fall asleep again.',
+        desiredBeliefShift: 'The bathroom trip is not the end of the story; the problem is what happens when you get back into bed.',
+        headlineExamples: ['Why your 2 AM bathroom trip keeps you alert until sunrise.'],
+        openingExamples: ['The bathroom trip is not the whole problem.'],
+        messageKeywords: ['bathroom', 'pee', 'back', 'bed', 'wide', 'awake'],
+      },
+      acceptedHeadlines: [
+        {
+          landing_page_id: 'lp-1',
+          narrative_frame: 'mechanism',
+          headline_text: 'Why your 2 AM bathroom trip keeps you alert until sunrise',
+          title_concept_family: 'hidden_cause',
+          title_concept_signature: 'hidden_cause:why_explainer:hidden_cause:explicit_scene_anchor:2|am|bathroom|trip',
+        },
+      ],
+    });
+
+    expect(result.passed).toBe(false);
+    expect(result.reason).toContain('conceptually');
+  });
+
+  it('accepts titles that stay on-angle but separate by frame concept', () => {
+    const accepted = [
+      {
+        landing_page_id: 'lp-1',
+        narrative_frame: 'testimonial',
+        headline_text: 'For three years I got back into bed at 2 a.m. and never once fell back asleep',
+        title_concept_family: 'story_result',
+      },
+      {
+        landing_page_id: 'lp-2',
+        narrative_frame: 'mechanism',
+        headline_text: 'Why your bathroom trip at 2 a.m. flips the wrong switch in your body',
+        title_concept_family: 'hidden_cause',
+      },
+    ];
+
+    const result = evaluateTitleConceptSeparation({
+      headline: '5 reasons you wake up to pee and stay awake for hours afterward',
+      narrativeFrame: 'listicle',
+      angle: 'Wakes to Pee, Then Cannot Fall Back Asleep',
+      messageBrief: {
+        sourceMode: 'director_ads',
+        angleSummary: 'Wakes to Pee, Then Cannot Fall Back Asleep',
+        coreScene: 'You wake in the night, use the bathroom, climb back into bed, and cannot fall asleep again.',
+        desiredBeliefShift: 'The bathroom trip is not the end of the story; the problem is what happens when you get back into bed.',
+        headlineExamples: [],
+        openingExamples: [],
+        messageKeywords: ['bathroom', 'pee', 'back', 'bed', 'wide', 'awake'],
+      },
+      acceptedHeadlines: accepted,
+    });
+
+    expect(result.passed).toBe(true);
+    expect(result.titleConceptFamily).toBe('numbered_promise');
   });
 
   it('rejects headlines that drift away from the Director ad message', () => {

@@ -473,8 +473,8 @@ router.get('/:id/lp-agent/gauntlet-progress', (req, res) => {
  */
 router.post('/:id/lp-agent/gauntlet-test', async (req, res) => {
   const projectId = req.params.id;
-  const { dry_run = false, angle = null, frame_ids = null } = req.body;
-  console.log(`[LP Agent] gauntlet-test: project=${projectId?.slice(0, 8)}, dry_run=${dry_run}, angle=${angle || '(none)'}, frames=${Array.isArray(frame_ids) ? frame_ids.join(',') : '(default)'}`);
+  const { dry_run = false, title_only = false, angle = null, frame_ids = null } = req.body;
+  console.log(`[LP Agent] gauntlet-test: project=${projectId?.slice(0, 8)}, dry_run=${dry_run}, title_only=${title_only}, angle=${angle || '(none)'}, frames=${Array.isArray(frame_ids) ? frame_ids.join(',') : '(default)'}`);
 
   // Open SSE stream IMMEDIATELY
   const { sendEvent, end, isClosed } = createSSEStream(req, res);
@@ -483,6 +483,7 @@ router.post('/:id/lp-agent/gauntlet-test', async (req, res) => {
   try {
     const report = await runGauntlet(projectId, {
       dryRun: !!dry_run,
+      titleOnly: !!title_only,
       angle,
       frameIds: Array.isArray(frame_ids) && frame_ids.length > 0 ? frame_ids : null,
     }, sendEvent);
