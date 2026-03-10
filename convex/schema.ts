@@ -389,6 +389,7 @@ export default defineSchema({
   chat_threads: defineTable({
     externalId: v.string(),
     project_id: v.string(),              // → projects.externalId
+    agent_id: v.optional(v.string()),    // agency agent id (null for copywriter chat)
     title: v.optional(v.string()),
     status: v.string(),                  // active | archived
     created_at: v.string(),
@@ -396,7 +397,8 @@ export default defineSchema({
   })
     .index("by_externalId", ["externalId"])
     .index("by_project", ["project_id"])
-    .index("by_project_and_status", ["project_id", "status"]),
+    .index("by_project_and_status", ["project_id", "status"])
+    .index("by_project_agent_status", ["project_id", "agent_id", "status"]),
 
   chat_messages: defineTable({
     externalId: v.string(),

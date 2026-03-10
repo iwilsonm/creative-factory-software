@@ -15,6 +15,20 @@ export const getActiveByProject = query({
   },
 });
 
+export const getActiveByProjectAndAgent = query({
+  args: { projectId: v.string(), agentId: v.string() },
+  handler: async (ctx, args) => {
+    return await ctx.db
+      .query("chat_threads")
+      .withIndex("by_project_agent_status", (q) =>
+        q.eq("project_id", args.projectId)
+          .eq("agent_id", args.agentId)
+          .eq("status", "active")
+      )
+      .first();
+  },
+});
+
 export const getMessagesByThread = query({
   args: { threadId: v.string() },
   handler: async (ctx, args) => {
@@ -34,6 +48,7 @@ export const create = mutation({
   args: {
     externalId: v.string(),
     project_id: v.string(),
+    agent_id: v.optional(v.string()),
     title: v.optional(v.string()),
     status: v.optional(v.string()),
   },
@@ -42,6 +57,7 @@ export const create = mutation({
     await ctx.db.insert("chat_threads", {
       externalId: args.externalId,
       project_id: args.project_id,
+      agent_id: args.agent_id,
       title: args.title,
       status: args.status ?? "active",
       created_at: now,

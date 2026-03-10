@@ -24,6 +24,7 @@ import costsRoutes from './routes/costs.js';
 import deploymentRoutes from './routes/deployments.js';
 import quoteMiningRoutes from './routes/quoteMining.js';
 import chatRoutes from './routes/chat.js';
+import agencyRoutes from './routes/agency.js';
 import metaRoutes from './routes/meta.js';
 import landingPageRoutes from './routes/landingPages.js';
 import lpTemplateRoutes from './routes/lpTemplates.js';
@@ -160,6 +161,7 @@ process.on('uncaughtException', (err) => {
   app.use('/api/quote-mining/start', llmRateLimit);
   app.use('/api/conductor/run', llmRateLimit);
   app.use('/api/conductor/learn', llmRateLimit);
+  app.use('/api/projects/:id/agency/chat/send', llmRateLimit);
 
   // NOTE: Generated images are no longer served from local disk.
   // They are served via 302 redirect to Convex storage URLs in the ads route.
@@ -275,6 +277,8 @@ process.on('uncaughtException', (err) => {
   app.use('/api', requireAuth, requireRole('admin', 'manager'), costsRoutes);
   app.use('/api/projects', requireAuth, requireRole('admin', 'manager'), quoteMiningRoutes);
   app.use('/api/projects', requireAuth, requireRole('admin', 'manager'), chatRoutes);
+  app.use('/api/agency', requireAuth, requireRole('admin', 'manager'), agencyRoutes);
+  app.use('/api/projects', requireAuth, requireRole('admin', 'manager'), agencyRoutes);
   app.use('/api', requireAuth, requireRole('admin', 'manager'), metaRoutes);
   app.use('/api/projects', requireAuth, requireRole('admin', 'manager'), landingPageRoutes);
   app.use('/api/projects', requireAuth, requireRole('admin', 'manager'), lpTemplateRoutes);
