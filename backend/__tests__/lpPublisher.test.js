@@ -6,6 +6,7 @@ const mockGetLandingPage = vi.fn();
 const mockUpdateLandingPage = vi.fn();
 const mockCreateLandingPageVersion = vi.fn();
 const mockGetProject = vi.fn();
+const mockInspectVisiblePlaceholdersInHtml = vi.fn();
 
 vi.mock('node-fetch', () => ({
   default: (...args) => mockFetch(...args),
@@ -22,6 +23,10 @@ vi.mock('../convexClient.js', () => ({
   getProject: (...args) => mockGetProject(...args),
 }));
 
+vi.mock('../services/lpSmokeTest.js', () => ({
+  inspectVisiblePlaceholdersInHtml: (...args) => mockInspectVisiblePlaceholdersInHtml(...args),
+}));
+
 describe('lpPublisher verifyLive', () => {
   beforeEach(() => {
     vi.clearAllMocks();
@@ -36,6 +41,7 @@ describe('lpPublisher verifyLive', () => {
     });
     mockUpdateLandingPage.mockResolvedValue(undefined);
     mockCreateLandingPageVersion.mockResolvedValue(undefined);
+    mockInspectVisiblePlaceholdersInHtml.mockResolvedValue([]);
   });
 
   it('passes when the live URL responds and the Shopify page uses template lander', async () => {
@@ -110,5 +116,62 @@ describe('lpPublisher verifyLive', () => {
         smoke_test_status: 'failed',
       }),
     );
+  });
+
+  it('publishes Shopify body_html as a fragment instead of a nested document', async () => {
+    mockGetLandingPage.mockResolvedValue({
+      externalId: 'lp-2',
+      current_version: 1,
+      name: 'LP Batch — Listicle',
+      headline_text: '7 Reasons You Keep Waking Up Between 2 and 4 AM',
+      angle: 'Broken Sleep / Wake Up at 2 to 4 AM',
+      narrative_frame: 'listicle',
+      html_template: `<!DOCTYPE html>
+<html>
+  <head>
+    <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;700&display=swap">
+    <style>.hero { color: red; }</style>
+  </head>
+  <body>
+    <section class="hero"><h1>{{headline}}</h1><p>{{subheadline}}</p></section>
+  </body>
+</html>`,
+      copy_sections: JSON.stringify([
+        { type: 'headline', content: '7 Reasons You Keep Waking Up Between 2 and 4 AM' },
+        { type: 'subheadline', content: 'And what may finally help you sleep through the night.' },
+      ]),
+      cta_links: '[]',
+      image_slots: '[]',
+    });
+
+    mockFetch
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ page: { id: 456, handle: 'lp-test-fragment' } }),
+      })
+      .mockResolvedValueOnce({
+        ok: true,
+        status: 200,
+        json: async () => ({ page: { id: 456, template_suffix: 'lander' } }),
+      });
+
+    const { publishToShopify } = await import('../services/lpPublisher.js');
+    const result = await publishToShopify('lp-2', 'project-1');
+
+    expect(result.shopify_page_id).toBe('456');
+    expect(mockFetch).toHaveBeenCalledTimes(2);
+
+    const publishBody = JSON.parse(mockFetch.mock.calls[0][1].body);
+    const bodyHtml = publishBody.page.body_html;
+
+    expect(bodyHtml).not.toContain('<html');
+    expect(bodyHtml).not.toContain('<head');
+    expect(bodyHtml).not.toContain('<body');
+    expect(bodyHtml).toContain('<style>');
+    expect(bodyHtml).toContain("@import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;700&display=swap');");
+    expect(bodyHtml).toContain('<section class="hero">');
+    expect(bodyHtml).toContain('<h1>7 Reasons You Keep Waking Up Between 2 and 4 AM</h1>');
+    expect(bodyHtml).toContain('And what may finally help you sleep through the night.');
   });
 });

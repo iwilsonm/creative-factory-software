@@ -26,6 +26,7 @@ import { withRetry } from './retry.js';
 import fetch from 'node-fetch';
 import { extractTemplatePlaceholders, getRequiredPlaceholderNames, postProcessLP } from './lpGenerator.js';
 import { inspectVisiblePlaceholdersInHtml } from './lpSmokeTest.js';
+import { convertToShopifyFragment } from './shopifyFragment.js';
 
 const REQUIRED_LP_TEMPLATE_SUFFIX = 'lander';
 
@@ -380,6 +381,10 @@ export async function publishToShopify(pageId, projectId) {
     });
     throw new Error(`Visible placeholder text detected before publish: ${visiblePlaceholderMatches.slice(0, 5).join(', ')}`);
   }
+
+  // Shopify renders body_html inside the active page template, so send a safe
+  // fragment instead of a nested full document.
+  finalHtml = convertToShopifyFragment(finalHtml);
 
   // Determine slug — use headline from copy, not full LP name
   const pageTitle = resolveLandingPageTitle(page);
