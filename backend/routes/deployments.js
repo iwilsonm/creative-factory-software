@@ -32,6 +32,7 @@ import {
   restoreDeployment,
   getDeletedDeployments,
   restoreFlexAd,
+  getAdImageUrl,
   convexClient,
   api,
 } from '../convexClient.js';
@@ -51,7 +52,7 @@ function compactDeploymentAd(ad) {
 }
 
 function buildDeploymentImageUrl(projectId, adId, hasImage) {
-  return projectId && adId && hasImage ? `/api/projects/${projectId}/ads/${adId}/image` : null;
+  return projectId && adId && hasImage ? `/api/deployments/ad-image/${projectId}/${adId}` : null;
 }
 
 /**
@@ -234,6 +235,16 @@ router.get('/deployments/deleted', async (req, res) => {
     console.error('Failed to list deleted deployments:', err);
     res.status(500).json({ error: 'Failed to list deleted deployments' });
   }
+});
+
+/**
+ * GET /deployments/ad-image/:projectId/:adId — Serve ad image (poster-accessible)
+ */
+router.get('/deployments/ad-image/:projectId/:adId', async (req, res) => {
+  const url = await getAdImageUrl(req.params.adId);
+  if (!url) return res.status(404).json({ error: 'Image file not found' });
+  res.set('Cache-Control', 'public, max-age=3600');
+  res.redirect(url);
 });
 
 /**
