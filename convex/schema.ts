@@ -688,6 +688,27 @@ export default defineSchema({
     .index("by_externalId", ["externalId"])
     .index("by_project", ["project_id"]),
 
+  conductor_slots: defineTable({
+    externalId: v.string(),
+    project_id: v.string(),              // → projects.externalId
+    posting_day: v.string(),             // YYYY-MM-DD
+    slot_index: v.number(),              // 0-based slot within posting day
+    angle_name: v.string(),
+    angle_external_id: v.optional(v.string()),
+    status: v.string(),                  // "reserved" | "in_progress" | "produced" | "failed" | "abandoned"
+    batch_ids: v.optional(v.string()),   // JSON array of batch externalIds
+    attempt_count: v.optional(v.number()),
+    last_attempt_at: v.optional(v.number()),
+    produced_flex_ad_id: v.optional(v.string()),
+    failure_reason: v.optional(v.string()),
+    diagnostics_summary: v.optional(v.string()), // compact JSON summary for overnight diagnosis
+    created_at: v.number(),
+    updated_at: v.number(),
+  })
+    .index("by_externalId", ["externalId"])
+    .index("by_project_and_posting_day", ["project_id", "posting_day"])
+    .index("by_project_posting_day_and_slot", ["project_id", "posting_day", "slot_index"]),
+
   conductor_health: defineTable({
     externalId: v.string(),
     agent: v.string(),                   // "creative_director" | "creative_filter"

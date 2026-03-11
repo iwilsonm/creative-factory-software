@@ -1782,6 +1782,46 @@ export async function updateConductorRun(id, fields) {
   invalidateQueryCache('conductor');
 }
 
+function convexConductorSlotToRow(slot) {
+  return {
+    id: slot.externalId,
+    project_id: slot.project_id,
+    posting_day: slot.posting_day,
+    slot_index: slot.slot_index,
+    angle_name: slot.angle_name,
+    angle_external_id: slot.angle_external_id || null,
+    status: slot.status,
+    batch_ids: slot.batch_ids || null,
+    attempt_count: slot.attempt_count || 0,
+    last_attempt_at: slot.last_attempt_at || null,
+    produced_flex_ad_id: slot.produced_flex_ad_id || null,
+    failure_reason: slot.failure_reason || null,
+    diagnostics_summary: slot.diagnostics_summary || null,
+    created_at: slot.created_at,
+    updated_at: slot.updated_at,
+  };
+}
+
+export async function getConductorSlots(projectId) {
+  const slots = await cachedQuery('conductor_slots', api.conductor.getSlotsByProject, { projectId });
+  return ensureArray(slots, 'convexClient.getConductorSlots').map(convexConductorSlotToRow);
+}
+
+export async function getConductorSlotsByPostingDay(projectId, postingDay) {
+  const slots = await cachedQuery('conductor_slots', api.conductor.getSlotsByPostingDay, { projectId, postingDay });
+  return ensureArray(slots, 'convexClient.getConductorSlotsByPostingDay').map(convexConductorSlotToRow);
+}
+
+export async function createConductorSlot(fields) {
+  await mutationWithRetry(api.conductor.createSlot, fields);
+  invalidateQueryCache('conductor_slots');
+}
+
+export async function updateConductorSlot(externalId, fields) {
+  await mutationWithRetry(api.conductor.updateSlot, { externalId, ...fields });
+  invalidateQueryCache('conductor_slots');
+}
+
 // =============================================
 // Conductor Health helpers (Fixer monitoring)
 // =============================================

@@ -15,6 +15,7 @@ import {
   getActiveConductorAngles, updateConductorAngle,
   getConductorPlaybook,
   createConductorRun, updateConductorRun, getConductorRuns,
+  getConductorSlotsByPostingDay, createConductorSlot, updateConductorSlot,
   createBatchJob, getBatchJob, updateBatchJob,
   getAdsByBatchId, getAd,
   getFlexAdsByProject, getBatchesByProject,
@@ -109,36 +110,47 @@ export async function runDirectorForProject(projectId, runType = 'manual') {
     // Sort by deadline (closest first)
     activePostingDays.sort((a, b) => new Date(a.deadline) - new Date(b.deadline));
 
+    const allBatches = await getBatchesByProject(projectId);
+    const batchesById = new Map((allBatches || []).map(batch => [batch.id, batch]));
     const allBatchesCreated = [];
     const postingDayResults = [];
 
     for (const pd of activePostingDays) {
-      const { produced, inProgress, deficit } = await calculateDeficit(
-        projectId, pd.date, config.daily_flex_target
-      );
-
-      const pdResult = {
-        date: pd.date,
-        deadline: pd.deadline,
-        target: config.daily_flex_target,
-        produced,
-        in_progress: inProgress,
-        deficit,
-      };
-
-      if (deficit <= 0) {
-        pdResult.action = 'skip — quota met or pipeline will fill';
-        postingDayResults.push(pdResult);
-        continue;
-      }
-
-      // Select angles for the batches
-      const angles = await selectAngles(projectId, config, deficit);
-
-      // Create batches
+      const slots = await ensurePostingDaySlots(projectId, config, pd.date);
       const batchesForDay = [];
-      for (let i = 0; i < deficit; i++) {
-        const angleInfo = angles[i % angles.length];
+      const slotResults = [];
+
+      for (const slot of slots) {
+        let workingSlot = slot;
+        const slotBatchIds = getSlotBatchIds(slot);
+        const latestBatch = slotBatchIds.length > 0 ? batchesById.get(slotBatchIds[slotBatchIds.length - 1]) : null;
+        const reconciled = reconcileSchedulerSlot(slot, latestBatch);
+
+        if (hasSlotChanges(slot, reconciled)) {
+          await updateConductorSlot(slot.id, reconciled);
+          workingSlot = { ...slot, ...reconciled };
+        }
+
+        if (workingSlot.status === 'failed') {
+          const replacement = await replaceFailedSlot(projectId, config, pd.date, workingSlot, slots);
+          if (replacement) {
+            workingSlot = replacement;
+          }
+        }
+
+        const refreshedBatchIds = getSlotBatchIds(workingSlot);
+        const latestKnownBatch = refreshedBatchIds.length > 0 ? batchesById.get(refreshedBatchIds[refreshedBatchIds.length - 1]) : null;
+        const hasActiveBatch = latestKnownBatch && ['pending', 'generating_prompts', 'submitting', 'processing'].includes(latestKnownBatch.status);
+
+        if (workingSlot.status !== 'reserved' || hasActiveBatch || workingSlot.produced_flex_ad_id) {
+          slotResults.push(buildPostingDaySlotResult(workingSlot));
+          continue;
+        }
+
+        const angleInfo = {
+          name: workingSlot.angle_name,
+          externalId: workingSlot.angle_external_id,
+        };
         const batchId = uuidv4();
 
         // Adaptive batch size: smaller for emergency runs, learns from pass rates
@@ -189,18 +201,43 @@ export async function runDirectorForProject(projectId, runType = 'manual') {
           });
         }
 
+        const nextBatchIds = [...refreshedBatchIds, batchId];
+        await updateConductorSlot(workingSlot.id, {
+          status: 'in_progress',
+          batch_ids: stringifyJSON(nextBatchIds, '[]'),
+          attempt_count: (workingSlot.attempt_count || 0) + 1,
+          last_attempt_at: Date.now(),
+          failure_reason: '',
+        });
+
         batchesForDay.push({
           batch_id: batchId,
           angle_name: angleInfo.name,
           ad_count: batchSize,
           posting_day: pd.date,
+          slot_index: workingSlot.slot_index,
+        });
+        slotResults.push({
+          ...buildPostingDaySlotResult({
+            ...workingSlot,
+            status: 'in_progress',
+            batch_ids: stringifyJSON(nextBatchIds, '[]'),
+            attempt_count: (workingSlot.attempt_count || 0) + 1,
+            failure_reason: '',
+          }),
+          created_batch_id: batchId,
         });
       }
 
       allBatchesCreated.push(...batchesForDay);
-      pdResult.action = `Created ${batchesForDay.length} batch(es)`;
-      pdResult.batches = batchesForDay;
-      postingDayResults.push(pdResult);
+      postingDayResults.push({
+        date: pd.date,
+        deadline: pd.deadline,
+        target: config.daily_flex_target,
+        action: batchesForDay.length > 0 ? `Created ${batchesForDay.length} batch(es)` : 'slots already reserved or in progress',
+        batches: batchesForDay,
+        slots: slotResults,
+      });
     }
 
     // Update run record with results
@@ -324,11 +361,158 @@ async function calculateDeficit(projectId, postingDay, target) {
   return { produced, inProgress, deficit };
 }
 
+const MAX_ATTEMPTS_PER_ANGLE_SLOT = 2;
+
+function getSlotBatchIds(slot) {
+  return parseJSON(slot?.batch_ids, []);
+}
+
+function getBatchDiagnosticsSummary(batch) {
+  if (!batch) return null;
+  const prompts = parseJSON(batch.gpt_prompts, []);
+  const state = getBatchPhaseState(batch);
+  const stats = parseJSON(batch.batch_stats, {});
+  return {
+    headline_candidates: batch.headline_candidates || 0,
+    scene_alignment_rejections: batch.scene_alignment_rejections || 0,
+    scene_alignment_reason_counts: parseJSON(batch.scene_alignment_reason_counts, {}),
+    duplicate_rejections: batch.duplicate_rejections || 0,
+    history_rejections: batch.history_rejections || 0,
+    selected_headline_count: batch.headline_count || 0,
+    usable_prompt_count: prompts.length,
+    ads_generated: stats.successful ?? prompts.length,
+    batch_status: batch.status,
+    batch_phase: state?.step || null,
+    batch_phase_message: state?.message || null,
+    error_message: batch.error_message || null,
+    flex_ad_id: batch.flex_ad_id || null,
+    filter_processed: batch.filter_processed || false,
+  };
+}
+
+function getBatchFailureReason(batch) {
+  if (!batch || batch.flex_ad_id) return '';
+  if (batch.error_message) return batch.error_message;
+  const diagnostics = getBatchDiagnosticsSummary(batch);
+  if ((diagnostics?.usable_prompt_count || 0) === 0) return 'no_usable_prompts_after_stage1';
+  if (batch.status === 'completed' && batch.filter_processed && !batch.flex_ad_id) return 'completed_without_flex_ad';
+  if (batch.status === 'completed') return 'completed_without_flex_ad';
+  if (batch.status === 'failed') return 'batch_failed';
+  return '';
+}
+
+function reconcileSchedulerSlot(slot, latestBatch) {
+  if (!latestBatch) {
+    return {
+      status: slot.status,
+      produced_flex_ad_id: slot.produced_flex_ad_id || '',
+      failure_reason: slot.failure_reason || '',
+      diagnostics_summary: slot.diagnostics_summary || '',
+    };
+  }
+
+  const diagnosticsSummary = stringifyJSON(getBatchDiagnosticsSummary(latestBatch), '{}');
+  if (latestBatch.flex_ad_id) {
+    return {
+      status: 'produced',
+      produced_flex_ad_id: latestBatch.flex_ad_id,
+      failure_reason: '',
+      diagnostics_summary: diagnosticsSummary,
+    };
+  }
+
+  if (['pending', 'generating_prompts', 'submitting', 'processing'].includes(latestBatch.status)) {
+    return {
+      status: 'in_progress',
+      diagnostics_summary: diagnosticsSummary,
+    };
+  }
+
+  return {
+    status: (slot.attempt_count || 0) >= MAX_ATTEMPTS_PER_ANGLE_SLOT ? 'failed' : 'reserved',
+    produced_flex_ad_id: '',
+    failure_reason: getBatchFailureReason(latestBatch),
+    diagnostics_summary: diagnosticsSummary,
+  };
+}
+
+function hasSlotChanges(slot, nextFields) {
+  return Object.entries(nextFields).some(([key, value]) => {
+    const currentValue = slot[key] ?? '';
+    return currentValue !== (value ?? '');
+  });
+}
+
+function buildPostingDaySlotResult(slot) {
+  return {
+    slot_index: slot.slot_index,
+    angle_name: slot.angle_name,
+    status: slot.status,
+    attempt_count: slot.attempt_count || 0,
+    batch_ids: getSlotBatchIds(slot),
+    produced_flex_ad_id: slot.produced_flex_ad_id || null,
+    failure_reason: slot.failure_reason || null,
+    diagnostics_summary: slot.diagnostics_summary ? parseJSON(slot.diagnostics_summary, null) : null,
+  };
+}
+
+async function ensurePostingDaySlots(projectId, config, postingDay) {
+  let slots = await getConductorSlotsByPostingDay(projectId, postingDay);
+  const target = config.daily_flex_target || 0;
+  if (slots.length >= target) return slots;
+
+  const missing = target - slots.length;
+  const existingAngleNames = slots.map(slot => slot.angle_name).filter(Boolean);
+  const angles = await selectAngles(projectId, config, missing, existingAngleNames);
+  for (let i = 0; i < angles.length; i++) {
+    const angleInfo = angles[i];
+    await createConductorSlot({
+      externalId: uuidv4(),
+      project_id: projectId,
+      posting_day: postingDay,
+      slot_index: slots.length + i,
+      angle_name: angleInfo.name,
+      angle_external_id: angleInfo.externalId || '',
+      status: 'reserved',
+      batch_ids: '[]',
+      attempt_count: 0,
+      failure_reason: '',
+      diagnostics_summary: '',
+    });
+  }
+  return await getConductorSlotsByPostingDay(projectId, postingDay);
+}
+
+async function replaceFailedSlot(projectId, config, postingDay, slot, allSlots) {
+  const excludedAngleNames = allSlots
+    .filter(candidate => candidate.id !== slot.id && ['reserved', 'in_progress', 'produced'].includes(candidate.status))
+    .map(candidate => candidate.angle_name)
+    .filter(Boolean);
+  if (slot.angle_name) excludedAngleNames.push(slot.angle_name);
+
+  const replacements = await selectAngles(projectId, config, 1, excludedAngleNames);
+  if (replacements.length === 0) return null;
+
+  const replacement = replacements[0];
+  const updates = {
+    angle_name: replacement.name,
+    angle_external_id: replacement.externalId || '',
+    status: 'reserved',
+    batch_ids: '[]',
+    attempt_count: 0,
+    failure_reason: '',
+    diagnostics_summary: '',
+    produced_flex_ad_id: '',
+  };
+  await updateConductorSlot(slot.id, updates);
+  return { ...slot, ...updates };
+}
+
 /**
  * Select angles for batch creation based on the project's angle_mode config.
  * Returns an array of angle objects, one per batch needed.
  */
-async function selectAngles(projectId, config, count) {
+async function selectAngles(projectId, config, count, excludedAngleNames = []) {
   const activeAngles = await getActiveConductorAngles(projectId);
 
   if (activeAngles.length === 0) {
@@ -342,9 +526,15 @@ async function selectAngles(projectId, config, count) {
     });
   }
 
+  const excluded = new Set((excludedAngleNames || []).filter(Boolean));
+
   // Focus mode: if any active angles are focused, only use those
   const focusedAngles = activeAngles.filter(a => a.focused);
-  const anglesToUse = focusedAngles.length > 0 ? focusedAngles : activeAngles;
+  let anglesToUse = focusedAngles.length > 0 ? focusedAngles : activeAngles;
+  const filteredAngles = anglesToUse.filter(angle => !excluded.has(angle.name));
+  if (filteredAngles.length > 0) {
+    anglesToUse = filteredAngles;
+  }
 
   const mode = config.angle_mode || 'manual';
   const rotation = config.angle_rotation || 'round_robin';

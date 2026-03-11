@@ -287,6 +287,88 @@ export const updateRun = mutation({
 });
 
 // =============================================
+// conductor_slots — durable posting-day slot reservations
+// =============================================
+
+export const getSlotsByProject = query({
+  args: { projectId: v.string() },
+  handler: async (ctx, args) => {
+    return await ctx.db
+      .query("conductor_slots")
+      .withIndex("by_project_and_posting_day", (q) => q.eq("project_id", args.projectId))
+      .collect();
+  },
+});
+
+export const getSlotsByPostingDay = query({
+  args: { projectId: v.string(), postingDay: v.string() },
+  handler: async (ctx, args) => {
+    return await ctx.db
+      .query("conductor_slots")
+      .withIndex("by_project_and_posting_day", (q) =>
+        q.eq("project_id", args.projectId).eq("posting_day", args.postingDay)
+      )
+      .collect();
+  },
+});
+
+export const createSlot = mutation({
+  args: {
+    externalId: v.string(),
+    project_id: v.string(),
+    posting_day: v.string(),
+    slot_index: v.number(),
+    angle_name: v.string(),
+    angle_external_id: v.optional(v.string()),
+    status: v.string(),
+    batch_ids: v.optional(v.string()),
+    attempt_count: v.optional(v.number()),
+    last_attempt_at: v.optional(v.number()),
+    produced_flex_ad_id: v.optional(v.string()),
+    failure_reason: v.optional(v.string()),
+    diagnostics_summary: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const now = Date.now();
+    await ctx.db.insert("conductor_slots", {
+      ...args,
+      attempt_count: args.attempt_count ?? 0,
+      created_at: now,
+      updated_at: now,
+    });
+  },
+});
+
+export const updateSlot = mutation({
+  args: {
+    externalId: v.string(),
+    angle_name: v.optional(v.string()),
+    angle_external_id: v.optional(v.string()),
+    status: v.optional(v.string()),
+    batch_ids: v.optional(v.string()),
+    attempt_count: v.optional(v.number()),
+    last_attempt_at: v.optional(v.number()),
+    produced_flex_ad_id: v.optional(v.string()),
+    failure_reason: v.optional(v.string()),
+    diagnostics_summary: v.optional(v.string()),
+  },
+  handler: async (ctx, args) => {
+    const slot = await ctx.db
+      .query("conductor_slots")
+      .withIndex("by_externalId", (q) => q.eq("externalId", args.externalId))
+      .first();
+    if (!slot) throw new Error("Slot not found");
+
+    const { externalId, ...updates } = args;
+    const filtered: Record<string, any> = { updated_at: Date.now() };
+    for (const [key, value] of Object.entries(updates)) {
+      if (value !== undefined) filtered[key] = value;
+    }
+    await ctx.db.patch(slot._id, filtered);
+  },
+});
+
+// =============================================
 // conductor_health — Fixer monitoring
 // =============================================
 

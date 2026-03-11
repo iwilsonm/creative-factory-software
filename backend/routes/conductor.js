@@ -7,6 +7,7 @@ import {
   getConductorHealth, createConductorHealth,
   getConductorPlaybooks, getConductorPlaybook,
   getFixerPlaybooks, upsertFixerPlaybook,
+  getConductorSlots,
   getFlexAdsByProject, getBatchesByProject,
   getProjectOptions,
   getBatchJob, getLandingPagesByBatchJob,
@@ -50,9 +51,10 @@ async function computePipelineStatus() {
     const project = projectMap.get(config.project_id);
     if (!project) return null;
 
-    const [flexAds, batches] = await Promise.all([
+    const [flexAds, batches, slots] = await Promise.all([
       getFlexAdsByProject(config.project_id),
       getBatchesByProject(config.project_id),
+      getConductorSlots(config.project_id),
     ]);
 
     const flexByDay = {};
@@ -69,6 +71,27 @@ async function computePipelineStatus() {
       }
     }
 
+    const slotsByDay = {};
+    for (const slot of slots) {
+      const key = slot.posting_day;
+      if (!key) continue;
+      if (!slotsByDay[key]) slotsByDay[key] = [];
+      slotsByDay[key].push({
+        slot_index: slot.slot_index,
+        angle_name: slot.angle_name,
+        status: slot.status,
+        attempt_count: slot.attempt_count || 0,
+        failure_reason: slot.failure_reason || null,
+        produced_flex_ad_id: slot.produced_flex_ad_id || null,
+        batch_ids: safeParseJSON(slot.batch_ids, []),
+        diagnostics_summary: safeParseJSON(slot.diagnostics_summary, null),
+      });
+    }
+
+    for (const day of Object.keys(slotsByDay)) {
+      slotsByDay[day].sort((a, b) => (a.slot_index || 0) - (b.slot_index || 0));
+    }
+
     return {
       project_id: config.project_id,
       project_name: project.name,
@@ -76,6 +99,7 @@ async function computePipelineStatus() {
       daily_flex_target: config.daily_flex_target,
       flex_by_day: flexByDay,
       active_batches_by_day: activeBatchesByDay,
+      slots_by_day: slotsByDay,
     };
   }));
 
