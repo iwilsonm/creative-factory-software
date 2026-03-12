@@ -27,11 +27,47 @@ import {
   normalizeHeadlineText,
   selectDiverseHeadlines,
 } from './headlineDiversity.js';
+import { chatWithImage as claudeChatWithImage } from './anthropic.js';
+
 // Drive upload skipped for batch images — Service Account has no storage quota.
 // Images are stored in Convex storage and viewable in the UI.
 
 const HEADLINE_HISTORY_DAYS = 90;
 const HEADLINE_HISTORY_LIMIT = 200;
+
+/**
+ * Extract the actual rendered headline and body copy from a Gemini-generated ad image.
+ * Gemini often renders different text than what was requested, causing the Creative Filter
+ * to auto-fail ads due to copy/image mismatch. This OCR pass syncs the stored fields
+ * with what's actually visible in the image.
+ */
+async function extractRenderedCopy(imageBuffer, mimeType, projectId) {
+  const base64Image = imageBuffer.toString('base64');
+  const prompt = `Extract the exact text visible in this ad image. Return ONLY valid JSON with two fields:
+- "headline": the headline text (usually larger/bolder text at top or bottom)
+- "body_copy": the body/primary text (the longer paragraph text in the ad)
+
+If no headline is visible, set headline to null. If no body copy is visible, set body_copy to null.
+Return ONLY the JSON object, nothing else.`;
+
+  const response = await claudeChatWithImage(
+    [],
+    prompt,
+    base64Image,
+    mimeType,
+    'claude-haiku-4-5-20251001',
+    { operation: 'batch_ocr_extraction', projectId }
+  );
+
+  const text = typeof response === 'string' ? response : response?.content?.[0]?.text || '';
+  // Extract JSON from response (handle markdown fences)
+  const cleaned = text.replace(/```json\s*/g, '').replace(/```\s*/g, '').trim();
+  const parsed = JSON.parse(cleaned);
+  return {
+    headline: parsed.headline || null,
+    body_copy: parsed.body_copy || null,
+  };
+}
 
 function serializePromptForStorage(prompt) {
   if (!prompt || typeof prompt !== 'object') return prompt;
@@ -800,7 +836,21 @@ async function processBatchResults(batchId, job) {
       // Upload image to Convex storage
       const storageId = await uploadBuffer(imageBuffer, mimeType);
 
-      // Create ad_creative record with headline/body from pipeline (no extraction needed)
+      // Extract actual rendered text from image (Gemini often renders different copy than requested)
+      let renderedHeadline = (typeof promptObj === 'object' ? promptObj?.headline : null) || undefined;
+      let renderedBodyCopy = (typeof promptObj === 'object' ? promptObj?.body_copy : null) || undefined;
+      const isRenderedCopy = typeof promptObj === 'object' && promptObj?.copy_render_expectation === 'rendered';
+      if (isRenderedCopy) {
+        try {
+          const extracted = await extractRenderedCopy(imageBuffer, mimeType, batch.project_id);
+          if (extracted.headline) renderedHeadline = extracted.headline;
+          if (extracted.body_copy) renderedBodyCopy = extracted.body_copy;
+        } catch (err) {
+          console.warn(`[BatchProcessor] OCR extraction failed for response ${i}: ${err.message}`);
+        }
+      }
+
+      // Create ad_creative record
       const adId = uuidv4();
       await convexClient.mutation(api.adCreatives.create, {
         externalId: adId,
@@ -808,8 +858,8 @@ async function processBatchResults(batchId, job) {
         generation_mode: batch.generation_mode,
         angle: batch.angle || undefined,
         angle_name: batch.angle_name || undefined,
-        headline: (typeof promptObj === 'object' ? promptObj?.headline : null) || undefined,
-        body_copy: (typeof promptObj === 'object' ? promptObj?.body_copy : null) || undefined,
+        headline: renderedHeadline,
+        body_copy: renderedBodyCopy,
         hook_lane: (typeof promptObj === 'object' ? promptObj?.hook_lane : null) || undefined,
         core_claim: (typeof promptObj === 'object' ? promptObj?.core_claim : null) || undefined,
         target_symptom: (typeof promptObj === 'object' ? promptObj?.target_symptom : null) || undefined,
