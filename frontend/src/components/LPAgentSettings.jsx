@@ -75,6 +75,7 @@ export default function LPAgentSettings({ projectId }) {
   // Conductor angles (for gauntlet dropdown)
   const [conductorAngles, setConductorAngles] = useState([]);
   const [selectedAngle, setSelectedAngle] = useState('');
+  const [variantCount, setVariantCount] = useState(1);
 
   // Recent generations
   const [recentGenerations, setRecentGenerations] = useState([]);
@@ -371,7 +372,7 @@ export default function LPAgentSettings({ projectId }) {
     gauntletStartRef.current = Date.now();
     gauntletSSEActive.current = true;
 
-    const { abort, done } = api.runGauntletTest(projectId, { dry_run: dryRun, angle: selectedAngle || null }, (event) => {
+    const { abort, done } = api.runGauntletTest(projectId, { dry_run: dryRun, angle: selectedAngle || null, variant_count: variantCount > 1 ? variantCount : undefined }, (event) => {
       if (event.type === 'progress') {
         setGauntletPhase(event.message || '');
         // Map gauntlet steps to progress: each frame is ~20% of total
@@ -734,6 +735,17 @@ export default function LPAgentSettings({ projectId }) {
           />
           <p className="text-[9px] text-textlight mt-0.5">All CTA buttons on published landing pages will link here</p>
         </div>
+        <div className="mt-3">
+          <label className="text-[11px] text-textmid font-medium block mb-1">Canonical Page URL (benchmark)</label>
+          <input
+            type="text"
+            placeholder="https://example.com/your-best-landing-page"
+            value={config?.canonical_page_url || ''}
+            onChange={e => handleSaveConfig({ canonical_page_url: e.target.value })}
+            className="input-apple w-full text-[12px]"
+          />
+          <p className="text-[9px] text-textlight mt-0.5">Optional. Before publishing, generated LPs will be compared against this page for structural pattern match (1-5 score). Low scores warn but don't block.</p>
+        </div>
       </div>
 
       {/* ── 3b. Page Metadata ── */}
@@ -1017,6 +1029,19 @@ export default function LPAgentSettings({ projectId }) {
               {safeConductorAngles.filter(a => a.status === 'active').map(a => (
                 <option key={a.id || a.externalId || a.name} value={a.name}>{a.name}</option>
               ))}
+            </select>
+            <select
+              value={variantCount}
+              onChange={(e) => setVariantCount(Number(e.target.value))}
+              disabled={gauntletRunning}
+              className="input-apple text-[12px] py-1.5 px-2 w-20 disabled:opacity-50"
+              title="Variants per frame (1 = default, 2-5 = multi-variant mode, no auto-publish)"
+            >
+              <option value={1}>1 var</option>
+              <option value={2}>2 var</option>
+              <option value={3}>3 var</option>
+              <option value={4}>4 var</option>
+              <option value={5}>5 var</option>
             </select>
             <button
               onClick={handleQueueDryRun}

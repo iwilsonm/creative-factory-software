@@ -46,6 +46,47 @@ describe('lpGenerator helpers', () => {
     expect(html).not.toContain('{{cta_2_text}}');
   });
 
+  it('keeps trimmed headline text inside the existing h1 without leaving it empty', () => {
+    const html = assembleLandingPage({
+      htmlTemplate: '<section><h1>{{headline}}</h1></section>',
+      copySections: [{ type: 'headline', content: '   Broken Sleep / Wake Up at 2 to 4 AM   ' }],
+      imageSlots: [],
+      ctaElements: [],
+    });
+
+    expect(html).toContain('<h1>Broken Sleep / Wake Up at 2 to 4 AM</h1>');
+    expect(html).not.toContain('<h1></h1>');
+  });
+
+  it('removes empty wrapper paragraphs left behind when content expands into paragraphs', () => {
+    const html = assembleLandingPage({
+      htmlTemplate: '<section><p>{{opening_story}}</p></section>',
+      copySections: [{ type: 'opening_story', content: 'First paragraph.\n\nSecond paragraph.' }],
+      imageSlots: [],
+      ctaElements: [],
+    });
+
+    expect(html).not.toContain('<p></p>');
+    expect(html).toContain('<p>First paragraph.</p>');
+    expect(html).toContain('<p>Second paragraph.</p>');
+  });
+
+  it('strips paragraph wrappers that end up nested inside headings', () => {
+    const html = assembleLandingPage({
+      htmlTemplate: '<section><h1>{{headline}}</h1><div class="hero-subheadline">{{subheadline}}</div></section>',
+      copySections: [
+        { type: 'headline', content: 'Hero Headline' },
+        { type: 'subheadline', content: 'Supporting copy with enough words to wrap itself into paragraph output.\nAnd a second line.' },
+      ],
+      imageSlots: [],
+      ctaElements: [],
+    });
+
+    expect(html).toContain('<h1>Hero Headline</h1>');
+    expect(html).not.toContain('<h1><p>');
+    expect(html).not.toContain('<div class="hero-subheadline"><p>');
+  });
+
   it('treats standard proof/offer and CTA placeholders as required slots', () => {
     const required = getRequiredTemplateSlots({
       standardCopy: ['headline', 'proof', 'offer', 'guarantee'],

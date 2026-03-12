@@ -472,8 +472,9 @@ router.get('/:id/lp-agent/gauntlet-progress', (req, res) => {
  */
 router.post('/:id/lp-agent/gauntlet-test', async (req, res) => {
   const projectId = req.params.id;
-  const { dry_run = false, title_only = false, angle = null, frame_ids = null } = req.body;
-  console.log(`[LP Agent] gauntlet-test: project=${projectId?.slice(0, 8)}, dry_run=${dry_run}, title_only=${title_only}, angle=${angle || '(none)'}, frames=${Array.isArray(frame_ids) ? frame_ids.join(',') : '(default)'}`);
+  const { dry_run = false, title_only = false, angle = null, frame_ids = null, variant_count = 1 } = req.body;
+  const effectiveVariantCount = Math.max(1, Math.min(5, Number(variant_count) || 1));
+  console.log(`[LP Agent] gauntlet-test: project=${projectId?.slice(0, 8)}, dry_run=${dry_run}, title_only=${title_only}, angle=${angle || '(none)'}, frames=${Array.isArray(frame_ids) ? frame_ids.join(',') : '(default)'}${effectiveVariantCount > 1 ? `, variants=${effectiveVariantCount}` : ''}`);
 
   // Open SSE stream IMMEDIATELY
   const { sendEvent, end, isClosed } = createSSEStream(req, res);
@@ -485,6 +486,7 @@ router.post('/:id/lp-agent/gauntlet-test', async (req, res) => {
       titleOnly: !!title_only,
       angle,
       frameIds: Array.isArray(frame_ids) && frame_ids.length > 0 ? frame_ids : null,
+      variantCount: effectiveVariantCount,
     }, sendEvent);
 
     sendEvent({

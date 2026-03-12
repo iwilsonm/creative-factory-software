@@ -782,6 +782,8 @@ export default defineSchema({
     // Word count
     default_word_count: v.optional(v.float64()),             // Optional global default word count
     frame_word_counts: v.optional(v.string()),               // JSON: { "testimonial": 1800, "listicle": 600 }
+    // Canonical benchmark
+    canonical_page_url: v.optional(v.string()),              // URL of canonical LP for structural benchmarking
     // Timestamps
     created_at: v.optional(v.string()),
     updated_at: v.optional(v.string()),

@@ -53,6 +53,8 @@ export const upsertConfig = mutation({
     // Word count
     default_word_count: v.optional(v.union(v.float64(), v.null())),
     frame_word_counts: v.optional(v.string()),
+    // Canonical benchmark
+    canonical_page_url: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const existing = await ctx.db
@@ -91,6 +93,7 @@ export const upsertConfig = mutation({
         gauntlet_max_lp_retries: existing.gauntlet_max_lp_retries,
         default_word_count: existing.default_word_count,
         frame_word_counts: existing.frame_word_counts,
+        canonical_page_url: existing.canonical_page_url,
         created_at: existing.created_at,
         updated_at: now,
       };

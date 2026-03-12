@@ -916,6 +916,7 @@ export async function runGauntlet(projectId, options = {}, sendEventRaw) {
     approvedAds = [],
     messageBrief: providedMessageBrief = null,
     frameIds = null,
+    variantCount = 1,
   } = options;
   const messageBrief = providedMessageBrief || buildCampaignMessageBrief({
     batchAngle,
@@ -1144,7 +1145,9 @@ export async function runGauntlet(projectId, options = {}, sendEventRaw) {
     throw new Error(`Project ${projectId} not found`);
   }
 
-  sendEvent({ type: 'progress', step: 'gauntlet_config', message: `Template: ${template.name || 'unnamed'}, dry run: ${dryRun}` });
+  const effectiveVariantCount = Math.max(1, Math.min(5, variantCount || 1));
+  const isMultiVariant = effectiveVariantCount > 1;
+  sendEvent({ type: 'progress', step: 'gauntlet_config', message: `Template: ${template.name || 'unnamed'}, dry run: ${dryRun}${isMultiVariant ? `, variants: ${effectiveVariantCount}` : ''}` });
 
   // 2. Get cached image context (using getFoundationalDocs which returns content strings + latest version)
   let imageContext;
@@ -1186,6 +1189,15 @@ export async function runGauntlet(projectId, options = {}, sendEventRaw) {
   let cachedHtmlTemplate = null;
   let totalImagePrescoreAttempts = 0;
   const legacySOPCache = {};
+
+  // Variant variation prompts — used when variantCount > 1 to produce meaningfully different copy
+  const VARIANT_DIRECTIONS = [
+    '', // Variant 1: no extra direction (baseline)
+    'Lead with a vivid personal story or scenario in the opening. Make the reader feel like they are living the problem before introducing the solution.',
+    'Open with a surprising fact, statistic, or myth-bust. Hook the reader with something counterintuitive before building the case.',
+    'Use a conversational, confessional tone throughout — as if a friend is sharing a discovery over coffee. Keep it warm and relatable.',
+    'Structure the argument around social proof and external validation. Lead with what experts, studies, or other customers have found.',
+  ];
 
   // 5. Loop through selected narrative frames
   for (let frameIndex = 0; frameIndex < totalFrames; frameIndex++) {
@@ -1248,198 +1260,241 @@ export async function runGauntlet(projectId, options = {}, sendEventRaw) {
       frameResult.imagePrescoreAttempts = prescoreResult.totalAttempts;
       totalImagePrescoreAttempts += prescoreResult.totalAttempts;
 
-      // 5c. Create LP record
-      const lpId = uuidv4();
-      frameResult.lpId = lpId;
-      const lpName = `LP Batch — ${frame.name}`;
+      // 5c-5i: Generate LP variant(s) — inner loop for multi-variant mode
+      const variantsForFrame = isMultiVariant ? effectiveVariantCount : 1;
+      const variantResults = [];
 
-      await createLandingPage({
-        id: lpId,
-        project_id: projectId,
-        name: lpName,
-        angle: batchAngle || null, // Director-triggered batches pass the angle name; gauntlet test runs leave it null
-        status: 'generating',
-        auto_generated: true,
-        batch_job_id: batchJobId || undefined,
-        narrative_frame: frame.id,
-        template_id: template.id || template.externalId,
-        gauntlet_batch_id: gauntletBatchId,
-        gauntlet_frame: frame.id,
-        gauntlet_attempt: 1,
-        gauntlet_status: 'generating',
-        gauntlet_batch_started_at: batchStartedAt,
-      });
+      for (let variantIdx = 0; variantIdx < variantsForFrame; variantIdx++) {
+        const variantNum = variantIdx + 1;
+        const variantDirection = isMultiVariant ? (VARIANT_DIRECTIONS[variantIdx] || '') : '';
+        const variantLabel = isMultiVariant ? ` (variant ${variantNum}/${variantsForFrame})` : '';
 
-      // 5d. Generate LP with pre-generated images + cached template
-      sendEvent({ type: 'progress', step: 'gauntlet_generate', message: `LP ${frameNum} of ${totalFrames} — Generating copy + HTML...` });
+        // 5c. Create LP record
+        const lpId = uuidv4();
+        const lpName = `LP Batch — ${frame.name}${isMultiVariant ? ` v${variantNum}` : ''}`;
 
-      let lpResult;
-      let attempt = 0;
-      let passed = false;
-
-      for (attempt = 1; attempt <= maxLPRetries + 1; attempt++) {
-        frameResult.attempts = attempt;
-
-        try {
-          lpResult = await generateAutoLP({
-            projectId,
-            templateId: template.id || template.externalId,
-            angle: frameAngle,
-            angleBrief,
-            narrativeFrame: frame.instruction,
-            editorialPassEnabled: config.editorial_pass_enabled !== false,
-            useProductReferenceImages: config.use_product_reference_images !== false,
-            agentConfig: config,
-            approvedAds,
-            messageBrief,
-            autoContext: {
-              preGeneratedImages: imageSlots,
-              cachedHtmlTemplate,
-              legacySOPCache,
-            },
-            headlineConstraints: buildHeadlineConstraintBundle(frame, acceptedHeadlines, angleHistory, messageBrief, sameFrameHistory),
-          }, (e) => {
-          // Forward sub-events with frame context
-          if (e.type === 'progress') {
-            sendEvent({ ...e, gauntlet: { frame: frameNum, total: totalFrames } });
-          }
-          });
-        } catch (genErr) {
-          console.error(`[Gauntlet] Frame ${frameNum} generation failed (attempt ${attempt}):`, genErr.message);
-          const isRequiredSlotFailure = /Required template slots missing after (repair|post-process repair)/i.test(genErr.message || '');
-          if (attempt > maxLPRetries || isRequiredSlotFailure) {
-            const failureReason = isRequiredSlotFailure
-              ? `missing_required_conversion_slots: ${genErr.message}`
-              : genErr.message;
-            frameResult.status = 'failed';
-            frameResult.error = failureReason;
-            await updateLandingPageSafely(lpId, {
-              status: 'failed',
-              error_message: failureReason,
-              gauntlet_status: 'failed',
-              gauntlet_attempt: attempt,
-            }, { stage: 'generation_failure' });
-            break;
-          }
-          continue;
-        }
-
-        // 5e. Cache HTML template from first successful frame
-        if (!cachedHtmlTemplate && lpResult.htmlTemplate) {
-          cachedHtmlTemplate = lpResult.htmlTemplate;
-          sendEvent({ type: 'progress', step: 'gauntlet_template_cached', message: 'HTML template cached for remaining frames' });
-        }
-
-        // Save LP content + generate slug
-        const headlineParts = extractLPHeadlineParts(lpResult.copySections, lpResult.editorialPlan);
-        const lpSlugSource = extractHeadlineForSlug({
-          copy_sections: JSON.stringify(lpResult.copySections),
-          angle: frameAngle,
+        await createLandingPage({
+          id: lpId,
+          project_id: projectId,
           name: lpName,
+          angle: batchAngle || null,
+          status: 'generating',
+          auto_generated: true,
+          batch_job_id: batchJobId || undefined,
+          narrative_frame: frame.id,
+          template_id: template.id || template.externalId,
+          gauntlet_batch_id: gauntletBatchId,
+          gauntlet_frame: frame.id,
+          gauntlet_attempt: 1,
+          gauntlet_status: 'generating',
+          gauntlet_batch_started_at: batchStartedAt,
         });
-        const lpSlug = generateSlug(lpSlugSource);
 
-        await updateLandingPageSafely(
+        // 5d. Generate LP with pre-generated images + cached template
+        sendEvent({ type: 'progress', step: 'gauntlet_generate', message: `LP ${frameNum} of ${totalFrames}${variantLabel} — Generating copy + HTML...` });
+
+        let lpResult;
+        let attempt = 0;
+        let passed = false;
+
+        const variantFrameResult = {
+          frame: frame.id,
+          frameName: frame.name,
           lpId,
-          buildGauntletDraftFields({
-            headline: headlineParts.headline,
-            subheadline: headlineParts.subheadline,
-            attempt,
-            lpSlug,
-          }),
-          { stage: 'store_generated_lp' }
-        );
+          publishedUrl: null,
+          score: null,
+          status: 'pending',
+          attempts: 0,
+          imagePrescoreAttempts: frameResult.imagePrescoreAttempts,
+          durationMs: 0,
+          variant: isMultiVariant ? variantNum : undefined,
+        };
 
-        passed = true;
-        frameResult.score = null;
-        frameResult.status = 'passed';
-        break;
-      }
+        for (attempt = 1; attempt <= maxLPRetries + 1; attempt++) {
+          variantFrameResult.attempts = attempt;
 
-      const frameDurationMs = Date.now() - frameStart;
-      const finalHeadlineParts = lpResult
-        ? extractLPHeadlineParts(lpResult.copySections, lpResult.editorialPlan)
-        : { headline: '', subheadline: '' };
-      const titleConceptProfile = buildLPTitleConceptProfile({
-        headline: finalHeadlineParts.headline,
-        narrativeFrame: frame.id,
-        angle: batchAngle || messageBrief?.angleName || '',
-        messageBrief,
-      });
-      const acceptedHeadline = {
-        landing_page_id: lpId,
-        narrative_frame: frame.id,
-        headline_text: passed ? finalHeadlineParts.headline : null,
-        headline_signature: buildLPHeadlineSignature({
+          try {
+            lpResult = await generateAutoLP({
+              projectId,
+              templateId: template.id || template.externalId,
+              angle: frameAngle,
+              angleBrief,
+              narrativeFrame: frame.instruction,
+              editorialPassEnabled: config.editorial_pass_enabled !== false,
+              useProductReferenceImages: config.use_product_reference_images !== false,
+              agentConfig: config,
+              approvedAds,
+              messageBrief,
+              autoContext: {
+                preGeneratedImages: imageSlots,
+                cachedHtmlTemplate,
+                legacySOPCache,
+                ...(variantDirection ? { variantDirection } : {}),
+              },
+              headlineConstraints: buildHeadlineConstraintBundle(frame, acceptedHeadlines, angleHistory, messageBrief, sameFrameHistory),
+            }, (e) => {
+            // Forward sub-events with frame context
+            if (e.type === 'progress') {
+              sendEvent({ ...e, gauntlet: { frame: frameNum, total: totalFrames } });
+            }
+            });
+          } catch (genErr) {
+            console.error(`[Gauntlet] Frame ${frameNum}${variantLabel} generation failed (attempt ${attempt}):`, genErr.message);
+            const isRequiredSlotFailure = /Required template slots missing after (repair|post-process repair)/i.test(genErr.message || '');
+            if (attempt > maxLPRetries || isRequiredSlotFailure) {
+              const failureReason = isRequiredSlotFailure
+                ? `missing_required_conversion_slots: ${genErr.message}`
+                : genErr.message;
+              variantFrameResult.status = 'failed';
+              variantFrameResult.error = failureReason;
+              await updateLandingPageSafely(lpId, {
+                status: 'failed',
+                error_message: failureReason,
+                gauntlet_status: 'failed',
+                gauntlet_attempt: attempt,
+              }, { stage: 'generation_failure' });
+              break;
+            }
+            continue;
+          }
+
+          // 5e. Cache HTML template from first successful frame
+          if (!cachedHtmlTemplate && lpResult.htmlTemplate) {
+            cachedHtmlTemplate = lpResult.htmlTemplate;
+            sendEvent({ type: 'progress', step: 'gauntlet_template_cached', message: 'HTML template cached for remaining frames' });
+          }
+
+          // Save LP content + generate slug
+          const headlineParts = extractLPHeadlineParts(lpResult.copySections, lpResult.editorialPlan);
+          const lpSlugSource = extractHeadlineForSlug({
+            copy_sections: JSON.stringify(lpResult.copySections),
+            angle: frameAngle,
+            name: lpName,
+          });
+          const lpSlug = generateSlug(lpSlugSource);
+
+          await updateLandingPageSafely(
+            lpId,
+            buildGauntletDraftFields({
+              headline: headlineParts.headline,
+              subheadline: headlineParts.subheadline,
+              attempt,
+              lpSlug,
+            }),
+            { stage: 'store_generated_lp' }
+          );
+
+          passed = true;
+          variantFrameResult.score = null;
+          variantFrameResult.status = 'passed';
+          break;
+        }
+
+        const variantDurationMs = Date.now() - frameStart;
+        const finalHeadlineParts = lpResult
+          ? extractLPHeadlineParts(lpResult.copySections, lpResult.editorialPlan)
+          : { headline: '', subheadline: '' };
+        const titleConceptProfile = buildLPTitleConceptProfile({
           headline: finalHeadlineParts.headline,
           narrativeFrame: frame.id,
-        }),
-        title_family: getNarrativeFrameBlueprint(frame.id).titleFamily,
-        title_focus_tokens: [],
-        title_concept_family: titleConceptProfile.titleConceptFamily || null,
-        title_concept_signature: titleConceptProfile.titleConceptSignature || null,
-      };
-
-      if (passed && acceptedHeadline.headline_text) {
-        acceptedHeadlines.push(acceptedHeadline);
-        if (batchAngle) {
-          const historyEntry = buildLPHeadlineHistoryEntry({
-            projectId,
-            angleName: batchAngle,
+          angle: batchAngle || messageBrief?.angleName || '',
+          messageBrief,
+        });
+        const acceptedHeadline = {
+          landing_page_id: lpId,
+          narrative_frame: frame.id,
+          headline_text: passed ? finalHeadlineParts.headline : null,
+          headline_signature: buildLPHeadlineSignature({
+            headline: finalHeadlineParts.headline,
             narrativeFrame: frame.id,
-            landingPageId: lpId,
-            gauntletBatchId,
-            headlineText: acceptedHeadline.headline_text,
-            subheadlineText: finalHeadlineParts.subheadline,
-          });
-          try {
-            await recordLPHeadlineHistory([historyEntry]);
-            angleHistory.unshift(historyEntry);
-          } catch (err) {
-            console.warn(`[Gauntlet] Failed to record LP headline history for frame ${frameNum}:`, err.message);
+          }),
+          title_family: getNarrativeFrameBlueprint(frame.id).titleFamily,
+          title_focus_tokens: [],
+          title_concept_family: titleConceptProfile.titleConceptFamily || null,
+          title_concept_signature: titleConceptProfile.titleConceptSignature || null,
+        };
+
+        if (passed && acceptedHeadline.headline_text) {
+          acceptedHeadlines.push(acceptedHeadline);
+          if (batchAngle) {
+            const historyEntry = buildLPHeadlineHistoryEntry({
+              projectId,
+              angleName: batchAngle,
+              narrativeFrame: frame.id,
+              landingPageId: lpId,
+              gauntletBatchId,
+              headlineText: acceptedHeadline.headline_text,
+              subheadlineText: finalHeadlineParts.subheadline,
+            });
+            try {
+              await recordLPHeadlineHistory([historyEntry]);
+              angleHistory.unshift(historyEntry);
+            } catch (err) {
+              console.warn(`[Gauntlet] Failed to record LP headline history for frame ${frameNum}${variantLabel}:`, err.message);
+            }
           }
         }
-      }
 
-      if (lpId) {
-        await updateLandingPageSafely(lpId, {
-          gauntlet_status: passed ? (dryRun ? 'passed' : 'publishing') : 'failed',
-          gauntlet_attempt: frameResult.attempts,
-          gauntlet_image_prescore_attempts: frameResult.imagePrescoreAttempts,
-          generation_duration_ms: frameDurationMs,
-        }, { stage: 'store_gauntlet_runtime_summary' });
-      }
-
-      // 5i. Publish if passed and not dry run
-      if (passed && !dryRun) {
-        sendEvent({ type: 'progress', step: 'gauntlet_publishing', message: `LP ${frameNum} of ${totalFrames} — Publishing to Shopify...` });
-
-        try {
-          await updateLandingPageSafely(lpId, buildGauntletPublishFields(lpResult), {
-            stage: 'store_publish_payload',
-          });
-          const { publishResult, smokeResult, verified } = await publishAndSmokeTest(lpId, projectId, {
-            pdpUrl: config.pdp_url,
-          });
-
-          const smokeOk = !smokeResult || smokeResult.passed;
-          frameResult.publishedUrl = smokeOk ? publishResult.published_url : null;
-          frameResult.status = smokeOk ? 'published' : 'smoke_failed';
-
-          sendEvent({
-            type: 'progress',
-            step: 'gauntlet_published',
-            message: `LP ${frameNum} of ${totalFrames} — ${smokeOk ? 'Published successfully' : 'Smoke test failed'}`,
-          });
-        } catch (pubErr) {
-          console.error(`[Gauntlet] Publish failed for frame ${frameNum}:`, pubErr.message);
-          frameResult.status = 'publish_failed';
-          frameResult.error = pubErr.message;
+        if (lpId) {
+          await updateLandingPageSafely(lpId, {
+            gauntlet_status: passed ? (dryRun || isMultiVariant ? 'passed' : 'publishing') : 'failed',
+            gauntlet_attempt: variantFrameResult.attempts,
+            gauntlet_image_prescore_attempts: variantFrameResult.imagePrescoreAttempts,
+            generation_duration_ms: variantDurationMs,
+          }, { stage: 'store_gauntlet_runtime_summary' });
         }
-      } else if (passed && dryRun) {
-        frameResult.status = 'passed_dry_run';
-      } else if (frameResult.status === 'pending' || frameResult.status === 'passed') {
-        frameResult.status = 'failed';
+
+        // 5i. Publish if passed and not dry run and not multi-variant
+        if (passed && !dryRun && !isMultiVariant) {
+          sendEvent({ type: 'progress', step: 'gauntlet_publishing', message: `LP ${frameNum} of ${totalFrames} — Publishing to Shopify...` });
+
+          try {
+            await updateLandingPageSafely(lpId, buildGauntletPublishFields(lpResult), {
+              stage: 'store_publish_payload',
+            });
+            const { publishResult, smokeResult, verified } = await publishAndSmokeTest(lpId, projectId, {
+              pdpUrl: config.pdp_url,
+            });
+
+            const smokeOk = !smokeResult || smokeResult.passed;
+            variantFrameResult.publishedUrl = smokeOk ? publishResult.published_url : null;
+            variantFrameResult.status = smokeOk ? 'published' : 'smoke_failed';
+
+            sendEvent({
+              type: 'progress',
+              step: 'gauntlet_published',
+              message: `LP ${frameNum} of ${totalFrames} — ${smokeOk ? 'Published successfully' : 'Smoke test failed'}`,
+            });
+          } catch (pubErr) {
+            console.error(`[Gauntlet] Publish failed for frame ${frameNum}:`, pubErr.message);
+            variantFrameResult.status = 'publish_failed';
+            variantFrameResult.error = pubErr.message;
+          }
+        } else if (passed && (dryRun || isMultiVariant)) {
+          variantFrameResult.status = isMultiVariant ? 'passed' : 'passed_dry_run';
+          // Multi-variant: save publish-ready fields so user can publish later
+          if (isMultiVariant && lpResult) {
+            await updateLandingPageSafely(lpId, buildGauntletPublishFields(lpResult), {
+              stage: 'store_publish_payload',
+            });
+          }
+        } else if (variantFrameResult.status === 'pending' || variantFrameResult.status === 'passed') {
+          variantFrameResult.status = 'failed';
+        }
+
+        variantFrameResult.durationMs = Date.now() - frameStart;
+        variantResults.push(variantFrameResult);
+      } // end variant loop
+
+      // Use first variant as the primary frameResult for backwards compat
+      if (variantResults.length > 0) {
+        Object.assign(frameResult, variantResults[0]);
+      }
+      // For multi-variant, add all variant results (the primary is already in frameResults via frameResult)
+      if (isMultiVariant && variantResults.length > 1) {
+        for (let vi = 1; vi < variantResults.length; vi++) {
+          frameResults.push(variantResults[vi]);
+        }
       }
     } catch (err) {
       console.error(`[Gauntlet] Frame ${frameNum} error:`, err.message);
@@ -1495,15 +1550,36 @@ export async function runGauntlet(projectId, options = {}, sendEventRaw) {
     ? scoredFrames.reduce((sum, result) => sum + result.score, 0) / scoredFrames.length
     : null;
 
+  // Multi-variant: sort by quality score (highest first) and mark top 2 as recommended
+  if (isMultiVariant) {
+    const scoredVariants = frameResults.filter(r => r.score != null);
+    if (scoredVariants.length > 0) {
+      scoredVariants.sort((a, b) => (b.score || 0) - (a.score || 0));
+      scoredVariants.slice(0, 2).forEach(r => { r.recommended = true; });
+    } else {
+      // No scores available — recommend first 2 passed variants
+      const passedVariants = frameResults.filter(r => r.status === 'passed' || r.status === 'passed_dry_run');
+      passedVariants.slice(0, 2).forEach(r => { r.recommended = true; });
+    }
+    // Sort all results: passed first (recommended at top), then failed
+    frameResults.sort((a, b) => {
+      if (a.recommended && !b.recommended) return -1;
+      if (!a.recommended && b.recommended) return 1;
+      if ((b.score || 0) !== (a.score || 0)) return (b.score || 0) - (a.score || 0);
+      return 0;
+    });
+  }
+
   const report = {
     gauntletBatchId,
     projectId,
     dryRun,
+    variantCount: isMultiVariant ? effectiveVariantCount : undefined,
     template: template.name || template.id || template.externalId,
     scoreThreshold: null,
     frames: frameResults,
     summary: {
-      total: totalFrames,
+      total: isMultiVariant ? frameResults.length : totalFrames,
       passed: passedFrames.length,
       published: publishedFrames.length,
       failed: failedFrames.length,

@@ -107,7 +107,7 @@ describe('lpPublisher verifyLive', () => {
     const { publishToShopify } = await import('../services/lpPublisher.js');
 
     await expect(publishToShopify('lp-1', 'project-1')).rejects.toThrow(
-      'Required publish placeholders unresolved before publish: proof'
+      'Structural validation failed'
     );
     expect(mockFetch).not.toHaveBeenCalled();
     expect(mockUpdateLandingPage).toHaveBeenCalledWith(
@@ -134,11 +134,14 @@ describe('lpPublisher verifyLive', () => {
   </head>
   <body>
     <section class="hero"><h1>{{headline}}</h1><p>{{subheadline}}</p></section>
+    <section class="content"><p>{{body}}</p></section>
+    <a href="https://example.com/order" class="cta-button">Order Now</a>
   </body>
 </html>`,
       copy_sections: JSON.stringify([
         { type: 'headline', content: '7 Reasons You Keep Waking Up Between 2 and 4 AM' },
         { type: 'subheadline', content: 'And what may finally help you sleep through the night.' },
+        { type: 'body', content: 'If you find yourself staring at the ceiling between 2 and 4 AM, you are not alone. Millions of people experience this frustrating pattern of broken sleep that leaves them exhausted, irritable, and unable to focus during the day. The truth is, waking up at this specific time is not random — it is your body sending you a signal that something deeper is going on. Most people try melatonin, white noise machines, or even prescription sleep aids, but none of these address the root cause. After years of research and thousands of customer testimonials, we have discovered that the real issue often lies in your body electrical grounding connection to the earth. Our grounding sheets work by restoring this natural connection while you sleep, helping your body regulate cortisol levels and reduce inflammation that disrupts your sleep cycle.' },
       ]),
       cta_links: '[]',
       image_slots: '[]',

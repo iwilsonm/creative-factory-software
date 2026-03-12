@@ -24,7 +24,7 @@ import {
 import { v4 as uuidv4 } from 'uuid';
 import { withRetry } from './retry.js';
 import fetch from 'node-fetch';
-import { extractTemplatePlaceholders, getRequiredPlaceholderNames, postProcessLP } from './lpGenerator.js';
+import { extractTemplatePlaceholders, getRequiredPlaceholderNames, postProcessLP, runCanonicalBenchmark } from './lpGenerator.js';
 import { inspectVisiblePlaceholdersInHtml } from './lpSmokeTest.js';
 import { convertToShopifyFragment } from './shopifyFragment.js';
 
@@ -129,6 +129,8 @@ async function shopifyApi(domain, accessToken, method, path, body) {
 
 /**
  * Validate a landing page is ready for publishing.
+ * Checks: template exists, copy sections exist.
+ * Basic structural checks run only on assembled_html (post-bake).
  */
 function validateForPublish(page) {
   const errors = [];
@@ -139,6 +141,46 @@ function validateForPublish(page) {
 
   if (!page.copy_sections) {
     errors.push('No copy sections generated.');
+  }
+
+  return errors;
+}
+
+/**
+ * Validate structural integrity of baked HTML before Shopify publish.
+ * Runs after bakeFinalHtml + postProcessLP — checks the final HTML.
+ *
+ * @param {string} html - The fully baked/processed HTML
+ * @returns {string[]} Array of error messages (empty if valid)
+ */
+function validateStructuralHtml(html) {
+  const errors = [];
+  if (!html) return errors;
+
+  // Check for raw {{placeholder}} or [[placeholder]] patterns
+  const rawMustache = html.match(/\{\{[a-z_][a-z0-9_]*\}\}/gi) || [];
+  const rawBracket = html.match(/\[\[[a-z_][a-z0-9_]*\]\]/gi) || [];
+  const rawPlaceholders = [...rawMustache, ...rawBracket];
+  if (rawPlaceholders.length > 0) {
+    errors.push(`Raw placeholders found in HTML: ${rawPlaceholders.slice(0, 5).join(', ')}. Fill or remove these before publishing.`);
+  }
+
+  // Check for at least one heading (h1 or h2)
+  const hasHeading = /<h[12][^>]*>/i.test(html);
+  if (!hasHeading) {
+    errors.push('No <h1> or <h2> heading found. Landing page must have at least one heading.');
+  }
+
+  // Check for at least one CTA link (<a> with href)
+  const hasCtaLink = /<a\s[^>]*href\s*=/i.test(html);
+  if (!hasCtaLink) {
+    errors.push('No CTA link (<a href>) found. Landing page must have at least one call-to-action link.');
+  }
+
+  // Check body text length (strip HTML tags, check > 500 chars)
+  const bodyText = html.replace(/<[^>]+>/g, ' ').replace(/\s+/g, ' ').trim();
+  if (bodyText.length < 500) {
+    errors.push(`Body text too short (${bodyText.length} chars). Landing page must have at least 500 characters of content.`);
   }
 
   return errors;
@@ -334,6 +376,26 @@ export async function publishToShopify(pageId, projectId) {
   });
   finalHtml = processedHtml;
 
+  // Structural HTML validation (runs on fully baked HTML)
+  const structuralErrors = validateStructuralHtml(finalHtml);
+  if (structuralErrors.length > 0) {
+    await updateLandingPage(pageId, {
+      smoke_test_status: 'failed',
+      smoke_test_report: JSON.stringify({
+        passed: false,
+        failedCount: structuralErrors.length,
+        checks: structuralErrors.map((err, i) => ({
+          name: `structural_check_${i + 1}`,
+          passed: false,
+          detail: err,
+        })),
+        source: 'pre_publish_structural_validation',
+      }),
+      smoke_test_at: new Date().toISOString(),
+    });
+    throw new Error(`Structural validation failed: ${structuralErrors.join(' ')}`);
+  }
+
   if (requiredWarnings.length > 0) {
     const detail = `Required placeholders unresolved before publish: ${requiredWarnings.slice(0, 10).join(', ')}`;
     await updateLandingPage(pageId, {
@@ -380,6 +442,30 @@ export async function publishToShopify(pageId, projectId) {
       smoke_test_at: new Date().toISOString(),
     });
     throw new Error(`Visible placeholder text detected before publish: ${visiblePlaceholderMatches.slice(0, 5).join(', ')}`);
+  }
+
+  // Canonical benchmark comparison (warn-only, non-blocking)
+  if (agentConfig?.canonical_page_url) {
+    try {
+      const benchmark = await runCanonicalBenchmark({
+        canonicalUrl: agentConfig.canonical_page_url,
+        generatedHtml: finalHtml,
+        projectId,
+      });
+      if (benchmark.benchmark_match != null) {
+        console.log(`[LP Publisher] Canonical benchmark: ${benchmark.benchmark_match}/5${benchmark.structural_notes?.length ? ` — ${benchmark.structural_notes.join('; ')}` : ''}`);
+        if (benchmark.benchmark_match < 3) {
+          console.warn(`[LP Publisher] Low canonical benchmark score (${benchmark.benchmark_match}/5) for page ${pageId}`);
+        }
+        // Store benchmark in the LP record for audit purposes
+        await updateLandingPage(pageId, {
+          canonical_benchmark_score: benchmark.benchmark_match,
+          canonical_benchmark_notes: JSON.stringify(benchmark.structural_notes),
+        }).catch(() => {}); // fire-and-forget
+      }
+    } catch (err) {
+      console.warn(`[LP Publisher] Canonical benchmark failed (non-blocking): ${err.message}`);
+    }
   }
 
   // Shopify renders body_html inside the active page template, so send a safe
