@@ -141,6 +141,7 @@ export function buildLegacySOPWritePrompt({
     prompt += `\n\nAdditional direction:\n${additionalDirection}`;
   }
   prompt += `\n\nCRITICAL: The swipe was from a competitor selling a DIFFERENT product. Write EXCLUSIVELY about ${productName || 'this product'}. Do not import any ingredients, mechanisms, claims, or science from the swipe. Every factual claim must come from the foundational documents only. The swipe gave you structure only.`;
+  prompt += `\n\nANGLE GUARDRAIL: If the product being sold is a grounding sheet, earthing sheet, or any grounding product, the copy must NEVER attack grounding as a category or suggest grounding does not work. The correct villain is cheap, counterfeit, or poorly-made grounding products (Amazon knockoffs, Chinese factory brands, products with no real silver content or continuity testing). The hero is THIS product — real materials, genuine construction, proven connection. Attacking the grounding category destroys the sale because the reader would conclude grounding itself is a scam and stop reading. The angle is always: grounding works, but most products on the market are fake — this one is real.`;
   return prompt;
 }
 
