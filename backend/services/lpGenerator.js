@@ -1360,7 +1360,7 @@ ${docs.necessary_beliefs}`;
       max_tokens: 4096,
       operation: 'lp_legacy_docs_analysis',
       projectId,
-      timeout: 180000,
+      timeout: 300000,
     });
     if (legacySOPCache) legacySOPCache.docsAnalysis = String(docsAnalysis || '').trim();
   } else {
@@ -1381,7 +1381,7 @@ ${swipeReferenceText}`,
       max_tokens: 4096,
       operation: 'lp_legacy_swipe_analysis',
       projectId,
-      timeout: 180000,
+      timeout: 300000,
     });
     if (legacySOPCache) legacySOPCache.swipeAnalysis = String(swipeAnalysis || '').trim();
   } else {
@@ -1409,7 +1409,7 @@ ${String(swipeAnalysis || '').slice(0, 5000)}`;
     max_tokens: 8192,
     operation: 'lp_legacy_first_half',
     projectId,
-    timeout: 180000,
+    timeout: 300000,
   });
 
   sendEvent({ type: 'progress', step: 'calling_api', message: 'Claude is writing the second half...' });
@@ -1426,7 +1426,7 @@ ${String(swipeAnalysis || '').slice(0, 5000)}`;
     max_tokens: 8192,
     operation: 'lp_legacy_second_half',
     projectId,
-    timeout: 180000,
+    timeout: 300000,
   });
 
   const fullDraft = `${String(firstHalf || '').trim()}\n\n${String(secondHalf || '').trim()}`.trim();
@@ -1462,7 +1462,7 @@ AUTHOR METADATA: Generate an appropriate author name and title for this article'
     operation: 'lp_generation',
     projectId,
     response_format: { type: 'json_object' },
-    timeout: 180000,
+    timeout: 300000,
   });
 
   sendEvent({ type: 'progress', step: 'parsing', message: 'Parsing generated copy...' });
@@ -1677,7 +1677,7 @@ Along with your editorial plan, return a "decisions" array — a list of plain-l
         'claude-sonnet-4-6',
         {
           max_tokens: 16384,
-          timeout: 180000,
+          timeout: 300000,
           response_format: { type: 'json_object' },
           operation: 'lp_editorial_pass',
           projectId,
@@ -2396,7 +2396,7 @@ REQUIREMENTS:
     max_tokens: 16384,
     operation: 'lp_html_generation',
     projectId,
-    timeout: 180000,
+    timeout: 300000,
   });
 
   // Clean the response — remove any markdown fences if Claude added them
