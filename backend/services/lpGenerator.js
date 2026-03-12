@@ -91,7 +91,20 @@ Your pre-write map must include:
 
 Output your complete pre-write map, then confirm you are ready to proceed with writing.`;
 
-const LEGACY_LP_SOP_SWIPE_PROMPT = `Excellent work. Now we're going to be writing an advertorial, which is a type of pre-sales page designed to nurture customers before they actually see the main product offer page. I'm going to send you an indirect competitor with a very successful advertorial, and I want you to please analyze this advertorial and let me know your thoughts:`;
+const LEGACY_LP_SOP_SWIPE_PROMPT = `Excellent work. Now we're going to study the STRUCTURE of a successful competitor advertorial — but we are ONLY extracting the argument skeleton, NOT any product-specific content.
+
+I'm going to send you an indirect competitor's advertorial. Please analyze it and return ONLY:
+1. Headline formula (pattern, not actual words)
+2. Opening hook technique (curiosity gap, story lead, stat lead, etc.)
+3. Emotional journey arc (sequence of emotions the reader moves through)
+4. Where and how the mechanism is introduced
+5. Type and placement of proof elements (testimonials, studies, credentials)
+6. How objections are preempted
+7. CTA structure and urgency devices
+
+Do NOT summarize the competitor's product, ingredients, claims, or mechanism details — those belong to a different product and must never appear in our copy. Focus purely on the persuasion architecture.
+
+Here is the swipe advertorial:`;
 
 const LEGACY_LP_SOP_WRITE_FIRST_HALF_BASE = `Great, now I want you to please rewrite this advertorial but using all of the information around the [INSERT PRODUCT YOU’RE SELLING HERE]. I want you to specifically focus on [INSERT MAIN ANGLE YOU WANT THE ADVERTORIAL TO BE ON HERE]. For now, just write the first half of the advertorial, I’ll approve it, then I will tell you to write the second half. Go ahead.`;
 
@@ -140,6 +153,7 @@ export function buildLegacySOPWritePrompt({
   if (additionalDirection) {
     prompt += `\n\nAdditional direction:\n${additionalDirection}`;
   }
+  prompt += `\n\nCRITICAL: The swipe advertorial was from a competitor selling a DIFFERENT product. Do NOT import any ingredients, mechanisms, claims, brand names, or product details from the swipe into this copy. Every fact, ingredient, mechanism, and claim must come from the ${productName || 'this product'} foundational documents provided earlier. The swipe is ONLY a structural reference.`;
   return prompt;
 }
 
