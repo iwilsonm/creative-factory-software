@@ -2021,6 +2021,10 @@ async function continueBackgroundTestRun(run) {
     return false;
   }
 
+  // Claim this run before the long scoring operation so the next scheduler
+  // poll (every 5 min) won't pick it up again and create duplicate flex ads.
+  await updateConductorRun(runId, { status: 'scoring' });
+
   let backgroundErrorStage = 'post_score_round_processing';
   let activeRoundState = null;
 
