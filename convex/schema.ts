@@ -646,6 +646,7 @@ export default defineSchema({
     desired_belief_shift: v.optional(v.string()),
     tone: v.optional(v.string()),
     avoid_list: v.optional(v.string()),  // "Avoid" — renamed to avoid JS keyword
+    destination_urls: v.optional(v.string()), // JSON array of LP URLs for this angle (overrides project default)
     // Operational fields
     times_used: v.number(),
     last_used_at: v.optional(v.number()),

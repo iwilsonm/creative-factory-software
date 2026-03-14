@@ -274,7 +274,7 @@ router.put('/angles/:projectId/:angleId', async (req, res) => {
       'name', 'description', 'prompt_hints', 'status', 'source', 'focused', 'lp_enabled',
       'priority', 'frame', 'core_buyer', 'symptom_pattern', 'failed_solutions',
       'current_belief', 'objection', 'emotional_state', 'scene',
-      'desired_belief_shift', 'tone', 'avoid_list',
+      'desired_belief_shift', 'tone', 'avoid_list', 'destination_urls',
     ];
     const fields = {};
     for (const key of allowedAngleFields) {

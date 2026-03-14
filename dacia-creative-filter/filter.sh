@@ -536,6 +536,26 @@ deploy_flex_ads() {
     return 1
   fi
 
+  # Check for per-angle destination URL override
+  local angle_dest_urls=""
+  if [[ -n "$angle_name" ]]; then
+    local angles_resp
+    angles_resp=$(curl -s "${BACKEND_URL}/api/conductor/angles/${project_id}/active" \
+      -H "Cookie: $(get_session_cookie)" 2>/dev/null) || true
+    local angle_dest_raw
+    angle_dest_raw=$(echo "$angles_resp" | jq -r --arg name "$angle_name" \
+      '.[] | select(.name == $name) | .destination_urls // empty' 2>/dev/null) || true
+    if [[ -n "$angle_dest_raw" && "$angle_dest_raw" != "null" ]]; then
+      local first_url
+      first_url=$(echo "$angle_dest_raw" | jq -r '.[0] // empty' 2>/dev/null) || true
+      if [[ -n "$first_url" ]]; then
+        destination_url="$first_url"
+        angle_dest_urls="$angle_dest_raw"
+        log_info "Using per-angle destination URL for '${angle_name}': ${first_url}"
+      fi
+    fi
+  fi
+
   # Deploy each flex ad (each gets its own ad set)
   for i in $(seq 0 $((flex_count - 1))); do
     local flex_ad
@@ -575,6 +595,11 @@ deploy_flex_ads() {
     lp_primary_url=$(echo "$batch_data_for_lp" | jq -r '.lp_primary_url // ""' 2>/dev/null) || true
     lp_secondary_url=$(echo "$batch_data_for_lp" | jq -r '.lp_secondary_url // ""' 2>/dev/null) || true
     gauntlet_lp_urls_json=$(echo "$batch_data_for_lp" | jq -r '.gauntlet_lp_urls // ""' 2>/dev/null) || true
+
+    # Override with per-angle destination URLs if available
+    if [[ -n "$angle_dest_urls" ]]; then
+      gauntlet_lp_urls_json="$angle_dest_urls"
+    fi
 
     # Get the next flex ad number for this angle
     local flex_num=1

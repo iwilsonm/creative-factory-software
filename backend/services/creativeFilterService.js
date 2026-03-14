@@ -12,7 +12,7 @@ import {
   getProject, getLatestDoc, getBatchJob, updateBatchJob,
   getAdsByBatchId, getAd, downloadToBuffer,
   createAdSet, createFlexAd, createDeploymentDuplicate, updateDeployment,
-  getFlexAdsByProject, getConductorConfig,
+  getFlexAdsByProject, getConductorConfig, getActiveConductorAngles,
 } from '../convexClient.js';
 import { filterHeadlineCandidatePool, selectDiverseHeadlines } from './headlineDiversity.js';
 
@@ -670,8 +670,22 @@ export async function deployFlexAd(flexAdDef, projectId, projectConfig, batchId,
   const cta = projectConfig.scout_cta || '';
   const displayLink = projectConfig.scout_display_link || '';
   const facebookPage = projectConfig.scout_facebook_page || '';
-  const destinationUrl = projectConfig.scout_destination_url || '';
+  let destinationUrl = projectConfig.scout_destination_url || '';
   const duplicateAdsetName = projectConfig.scout_duplicate_adset_name || '';
+
+  // Resolve per-angle destination URLs (overrides project default)
+  let angleDestinationUrls = [];
+  try {
+    const angles = await getActiveConductorAngles(projectId);
+    const matchedAngle = angles.find(a => a.name === effectiveAngle);
+    if (matchedAngle?.destination_urls) {
+      const parsed = JSON.parse(matchedAngle.destination_urls);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        angleDestinationUrls = parsed;
+        destinationUrl = parsed[0];
+      }
+    }
+  } catch (e) { /* fall through to project default */ }
 
   // Get flex ad number for this angle
   const existingFlexAds = await getFlexAdsByProject(projectId);
@@ -759,6 +773,7 @@ export async function deployFlexAd(flexAdDef, projectId, projectConfig, batchId,
     duplicate_adset_name: duplicateAdsetName,
     posting_day: postingDay || '',
     angle_name: effectiveAngle,
+    gauntlet_lp_urls: angleDestinationUrls.length > 0 ? JSON.stringify(angleDestinationUrls) : undefined,
   });
 
   // Link each deployment to the flex ad

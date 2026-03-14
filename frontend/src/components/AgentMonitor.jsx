@@ -3092,7 +3092,9 @@ function AngleCard({ angle, playbooks, onStatusChange, onToggleFocus, onToggleLP
   const [editing, setEditing] = useState(false);
   const [editForm, setEditForm] = useState({});
   const [saving, setSaving] = useState(false);
+  const [urlInput, setUrlInput] = useState('');
   const hasStructured = !!(angle.core_buyer || angle.symptom_pattern || angle.scene);
+  const destUrls = (() => { try { return angle.destination_urls ? JSON.parse(angle.destination_urls) : []; } catch { return []; } })();
 
   const PRIORITY_COLORS = { highest: 'bg-red-100 text-red-700', high: 'bg-gold/15 text-gold', medium: 'bg-navy/10 text-navy', test: 'bg-gray-100 text-textmid' };
   const FRAME_COLORS = { 'symptom-first': 'bg-teal/10 text-teal', 'scam': 'bg-red-50 text-red-600', 'objection-first': 'bg-amber-50 text-amber-700', 'identity-first': 'bg-purple-50 text-purple-600', 'MAHA': 'bg-blue-50 text-blue-600', 'news-first': 'bg-indigo-50 text-indigo-600', 'consequence-first': 'bg-orange-50 text-orange-600' };
@@ -3243,6 +3245,62 @@ function AngleCard({ angle, playbooks, onStatusChange, onToggleFocus, onToggleLP
           Playbook v{pb.version}: "{pb.generation_hints.slice(0, 120)}{pb.generation_hints.length > 120 ? '...' : ''}"
         </p>
       )}
+      {/* Destination URLs section */}
+      {expanded && angle.status === 'active' && onUpdate && (
+        <div className="px-3 pb-2 pt-1 border-t border-black/5">
+          <div className="flex items-center gap-1.5 mb-1.5">
+            <svg className="w-3 h-3 text-textlight" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m9.86-2.54a4.5 4.5 0 00-1.242-7.244l4.5-4.5a4.5 4.5 0 016.364 6.364l-1.757 1.757" /></svg>
+            <span className="text-[10px] font-medium text-textdark">Destination URLs</span>
+            {destUrls.length === 0 && <span className="text-[9px] text-textlight">(uses project default)</span>}
+          </div>
+          {destUrls.length > 0 && (
+            <div className="space-y-1 mb-1.5">
+              {destUrls.map((url, i) => (
+                <div key={i} className="flex items-center gap-1.5 group">
+                  <span className="text-[10px] text-textmid truncate flex-1" title={url}>{url}</span>
+                  <button
+                    onClick={() => {
+                      const updated = destUrls.filter((_, idx) => idx !== i);
+                      onUpdate(angle.externalId, { destination_urls: updated.length > 0 ? JSON.stringify(updated) : '' });
+                    }}
+                    className="text-[9px] text-textlight hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0"
+                    title="Remove URL"
+                  >&times;</button>
+                </div>
+              ))}
+            </div>
+          )}
+          <div className="flex gap-1.5">
+            <input
+              type="text"
+              value={urlInput}
+              onChange={e => setUrlInput(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'Enter' && urlInput.trim()) {
+                  e.preventDefault();
+                  const updated = [...destUrls, urlInput.trim()];
+                  onUpdate(angle.externalId, { destination_urls: JSON.stringify(updated) });
+                  setUrlInput('');
+                }
+              }}
+              placeholder="Add landing page URL..."
+              className="input-apple text-[11px] flex-1 py-1"
+            />
+            <button
+              onClick={() => {
+                if (urlInput.trim()) {
+                  const updated = [...destUrls, urlInput.trim()];
+                  onUpdate(angle.externalId, { destination_urls: JSON.stringify(updated) });
+                  setUrlInput('');
+                }
+              }}
+              disabled={!urlInput.trim()}
+              className="text-[10px] text-navy hover:text-gold disabled:text-textlight disabled:cursor-not-allowed px-2 py-1 flex-shrink-0"
+            >Add</button>
+          </div>
+        </div>
+      )}
+
       {onToggleLPEnabled && angle.status === 'active' && (
         <div className="flex items-center justify-end gap-2 px-3 py-2 border-t border-black/5">
           <span className="text-[10px] text-textmid">Generate landing pages</span>

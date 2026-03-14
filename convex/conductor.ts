@@ -160,6 +160,7 @@ export const updateAngle = mutation({
     desired_belief_shift: v.optional(v.string()),
     tone: v.optional(v.string()),
     avoid_list: v.optional(v.string()),
+    destination_urls: v.optional(v.string()),
     // Operational
     times_used: v.optional(v.number()),
     last_used_at: v.optional(v.number()),
