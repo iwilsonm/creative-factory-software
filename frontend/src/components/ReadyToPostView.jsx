@@ -1331,19 +1331,23 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
               <div className="bg-offwhite rounded-xl p-3 space-y-1.5">
                 <div className="text-[10px] font-semibold text-navy uppercase tracking-wide">Destination URLs</div>
 
-                {/* Gauntlet LP URLs */}
+                {/* Gauntlet / Destination URLs */}
                 {hasGauntlet && gauntletUrls.map((lp, i) => {
                   const isUsed = usedIndices.includes(i);
+                  const isObj = typeof lp === 'object' && lp !== null;
+                  const url = isObj ? lp.url : lp;
+                  const label = isObj ? (lp.frameName || lp.frame) : null;
+                  const score = isObj ? lp.score : null;
                   return (
                     <div key={i} className={`flex items-center gap-2 ${isUsed ? 'opacity-50' : ''}`}>
                       <span className="text-[10px] text-textmid w-6 flex-shrink-0">{i + 1}.</span>
-                      <span className="text-[10px] text-textmid flex-shrink-0 w-28 truncate">{lp.frameName || lp.frame}</span>
-                      <span className="text-[10px] text-teal flex-shrink-0">({lp.score}/10)</span>
-                      <a href={lp.url} target="_blank" rel="noopener noreferrer"
+                      {label && <span className="text-[10px] text-textmid flex-shrink-0 w-28 truncate">{label}</span>}
+                      {score != null && <span className="text-[10px] text-teal flex-shrink-0">({score}/10)</span>}
+                      <a href={url} target="_blank" rel="noopener noreferrer"
                         className={`text-[11px] text-gold hover:text-gold/80 underline underline-offset-2 truncate flex-1 ${isUsed ? 'line-through' : ''}`}>
-                        {lp.url}
+                        {url}
                       </a>
-                      <button onClick={(e) => { e.stopPropagation(); handleCopyDestUrl(lp.url, `LP ${i + 1}`, i); }}
+                      <button onClick={(e) => { e.stopPropagation(); handleCopyDestUrl(url, `URL ${i + 1}`, i); }}
                         className="inline-flex items-center px-1.5 py-0.5 rounded bg-navy/5 text-[9px] text-navy hover:bg-navy/10 transition-colors flex-shrink-0">
                         Copy
                       </button>
@@ -1399,7 +1403,11 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
                 )}
 
                 <p className="text-[10px] text-textmid italic pt-1">
-                  {hasGauntlet ? 'Copy URLs to use as ad destinations. Used URLs get crossed out.' : 'Post BOTH LP and PDP as separate ads in the same ad set. Meta auto-optimizes.'}
+                  {hasGauntlet && gauntletUrls.length > 1
+                    ? 'Create this ad with URL #1, then duplicate the ad in Ads Manager for each additional URL. Keep all duplicates in the same ad set — each duplicate is identical except for the destination URL.'
+                    : hasGauntlet
+                      ? 'Copy URL to use as the ad destination.'
+                      : 'Post BOTH LP and PDP as separate ads in the same ad set. Meta auto-optimizes.'}
                 </p>
               </div>
             );
