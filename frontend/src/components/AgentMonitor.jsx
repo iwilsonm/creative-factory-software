@@ -3082,82 +3082,60 @@ const FRAME_OPTIONS = ['symptom-first', 'scam', 'objection-first', 'identity-fir
 function AngleCard({ angle, playbooks, onStatusChange, onToggleLPEnabled, onUpdate, showActions }) {
   const pb = ensureArray(playbooks, 'AgentMonitor.angleCard.playbooks').find(p => p.angle_name === angle.name);
   const [expanded, setExpanded] = useState(false);
-  const [editing, setEditing] = useState(false);
-  const [editForm, setEditForm] = useState({});
-  const [saving, setSaving] = useState(false);
+  const [editingField, setEditingField] = useState(null);
+  const [fieldValue, setFieldValue] = useState('');
   const [urlInput, setUrlInput] = useState('');
-  const hasStructured = !!(angle.core_buyer || angle.symptom_pattern || angle.scene);
   const destUrls = (() => { try { return angle.destination_urls ? JSON.parse(angle.destination_urls) : []; } catch { return []; } })();
 
   const PRIORITY_COLORS = { highest: 'bg-red-100 text-red-700', high: 'bg-gold/15 text-gold', medium: 'bg-navy/10 text-navy', test: 'bg-gray-100 text-textmid' };
   const FRAME_COLORS = { 'symptom-first': 'bg-teal/10 text-teal', 'scam': 'bg-red-50 text-red-600', 'objection-first': 'bg-amber-50 text-amber-700', 'identity-first': 'bg-purple-50 text-purple-600', 'MAHA': 'bg-blue-50 text-blue-600', 'news-first': 'bg-indigo-50 text-indigo-600', 'consequence-first': 'bg-orange-50 text-orange-600' };
 
-  const startEdit = (e) => {
-    e.stopPropagation();
-    setEditForm({
-      name: angle.name || '', description: angle.description || '', prompt_hints: angle.prompt_hints || '',
-      priority: angle.priority || 'medium', frame: angle.frame || 'symptom-first',
-      core_buyer: angle.core_buyer || '', symptom_pattern: angle.symptom_pattern || '',
-      failed_solutions: angle.failed_solutions || '', current_belief: angle.current_belief || '',
-      objection: angle.objection || '', emotional_state: angle.emotional_state || '',
-      scene: angle.scene || '', desired_belief_shift: angle.desired_belief_shift || '',
-      tone: angle.tone || '', avoid_list: angle.avoid_list || '',
-    });
-    setEditing(true);
-    setExpanded(true);
+  const startFieldEdit = (field) => {
+    setFieldValue(angle[field] || '');
+    setEditingField(field);
   };
 
-  const handleSave = async () => {
-    if (!editForm.name) return;
-    setSaving(true);
-    try {
-      await onUpdate(angle.externalId, editForm);
-      setEditing(false);
-    } catch {} finally { setSaving(false); }
+  const saveField = async (field, value) => {
+    setEditingField(null);
+    if (value !== (angle[field] || '')) {
+      try { await onUpdate(angle.externalId, { [field]: value || undefined }); } catch {}
+    }
   };
 
-  if (editing) {
+  const fieldKeyDown = (e, field) => {
+    if (e.key === 'Escape') { setEditingField(null); return; }
+    if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); saveField(field, fieldValue); }
+  };
+
+  // Inline editable text field
+  const EditableRow = ({ field, label, valueClass }) => {
+    const val = angle[field] || '';
+    if (editingField === field) {
+      return (
+        <div>
+          <span className="font-semibold text-textdark text-[11px]">{label}</span>
+          <textarea
+            autoFocus
+            value={fieldValue}
+            onChange={e => setFieldValue(e.target.value)}
+            onKeyDown={e => fieldKeyDown(e, field)}
+            onBlur={() => saveField(field, fieldValue)}
+            placeholder={`Add ${label.toLowerCase().replace(':', '')}...`}
+            className="input-apple w-full text-[12px] h-14 resize-none mt-0.5"
+          />
+        </div>
+      );
+    }
     return (
-      <div className={`rounded-lg border p-3 ${angle.focused ? 'bg-gold/5 border-gold/30' : 'bg-white/60 border-black/5'}`}>
-        <div className="flex items-center justify-between mb-2">
-          <span className="text-[11px] font-medium text-textdark uppercase tracking-wider">Edit Angle</span>
-          <div className="flex gap-2">
-            <button onClick={handleSave} disabled={saving} className="btn-primary text-[11px] px-3 py-1 disabled:opacity-50">{saving ? 'Saving...' : 'Save'}</button>
-            <button onClick={() => setEditing(false)} className="btn-secondary text-[11px] px-3 py-1">Cancel</button>
-          </div>
-        </div>
-        <input type="text" placeholder="Angle name" value={editForm.name} onChange={e => setEditForm(prev => ({ ...prev, name: e.target.value }))} className="input-apple w-full mb-2 text-[12px]" />
-        <textarea placeholder="Description" value={editForm.description} onChange={e => setEditForm(prev => ({ ...prev, description: e.target.value }))} className="input-apple w-full mb-2 text-[12px] h-16 resize-none" />
-        <div className="grid grid-cols-2 gap-2 mb-2">
-          <div>
-            <label className="text-[10px] text-textmid font-medium block mb-0.5">Priority</label>
-            <select value={editForm.priority} onChange={e => setEditForm(prev => ({ ...prev, priority: e.target.value }))} className="text-[12px] text-textdark bg-offwhite border border-black/10 rounded-lg px-2 py-1.5 w-full cursor-pointer">
-              {PRIORITY_OPTIONS.map(p => <option key={p} value={p}>{p.charAt(0).toUpperCase() + p.slice(1)}</option>)}
-            </select>
-          </div>
-          <div>
-            <label className="text-[10px] text-textmid font-medium block mb-0.5">Frame</label>
-            <select value={editForm.frame} onChange={e => setEditForm(prev => ({ ...prev, frame: e.target.value }))} className="text-[12px] text-textdark bg-offwhite border border-black/10 rounded-lg px-2 py-1.5 w-full cursor-pointer">
-              {FRAME_OPTIONS.map(f => <option key={f} value={f}>{f}</option>)}
-            </select>
-          </div>
-        </div>
-        <textarea placeholder="Core Buyer" value={editForm.core_buyer} onChange={e => setEditForm(prev => ({ ...prev, core_buyer: e.target.value }))} className="input-apple w-full mb-2 text-[12px] h-14 resize-none" />
-        <textarea placeholder="Symptom Pattern" value={editForm.symptom_pattern} onChange={e => setEditForm(prev => ({ ...prev, symptom_pattern: e.target.value }))} className="input-apple w-full mb-2 text-[12px] h-14 resize-none" />
-        <textarea placeholder="Failed Solutions" value={editForm.failed_solutions} onChange={e => setEditForm(prev => ({ ...prev, failed_solutions: e.target.value }))} className="input-apple w-full mb-2 text-[12px] h-14 resize-none" />
-        <textarea placeholder="Current Belief" value={editForm.current_belief} onChange={e => setEditForm(prev => ({ ...prev, current_belief: e.target.value }))} className="input-apple w-full mb-2 text-[12px] h-14 resize-none" />
-        <textarea placeholder="Objection" value={editForm.objection} onChange={e => setEditForm(prev => ({ ...prev, objection: e.target.value }))} className="input-apple w-full mb-2 text-[12px] h-14 resize-none" />
-        <textarea placeholder="Emotional State" value={editForm.emotional_state} onChange={e => setEditForm(prev => ({ ...prev, emotional_state: e.target.value }))} className="input-apple w-full mb-2 text-[12px] h-14 resize-none" />
-        <textarea placeholder="Scene" value={editForm.scene} onChange={e => setEditForm(prev => ({ ...prev, scene: e.target.value }))} className="input-apple w-full mb-2 text-[12px] h-14 resize-none" />
-        <textarea placeholder="Desired Belief Shift" value={editForm.desired_belief_shift} onChange={e => setEditForm(prev => ({ ...prev, desired_belief_shift: e.target.value }))} className="input-apple w-full mb-2 text-[12px] h-14 resize-none" />
-        <div className="grid grid-cols-2 gap-2 mb-2">
-          <input type="text" placeholder="Tone" value={editForm.tone} onChange={e => setEditForm(prev => ({ ...prev, tone: e.target.value }))} className="input-apple text-[12px]" />
-          <input type="text" placeholder="Avoid" value={editForm.avoid_list} onChange={e => setEditForm(prev => ({ ...prev, avoid_list: e.target.value }))} className="input-apple text-[12px]" />
-        </div>
-        <textarea placeholder="Prompt hints (optional)" value={editForm.prompt_hints} onChange={e => setEditForm(prev => ({ ...prev, prompt_hints: e.target.value }))} className="input-apple w-full text-[12px] h-14 resize-none" />
+      <div className="group cursor-pointer" onClick={() => onUpdate && startFieldEdit(field)}>
+        <span className="font-semibold text-textdark text-[11px]">{label}</span>{' '}
+        {val
+          ? <span className={valueClass || 'text-textmid text-[12px]'}>{val}</span>
+          : onUpdate && <span className="text-textlight text-[11px] italic">Click to add...</span>}
+        {onUpdate && val && <span className="text-textlight text-[9px] ml-1 opacity-0 group-hover:opacity-100 transition-opacity">edit</span>}
       </div>
     );
-  }
+  };
 
   return (
     <div className="rounded-lg border bg-white/60 border-black/5">
@@ -3180,11 +3158,6 @@ function AngleCard({ angle, playbooks, onStatusChange, onToggleLPEnabled, onUpda
           )}
         </div>
         <div className="flex items-center gap-2 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
-          {onUpdate && (
-            <button onClick={startEdit} className="text-[10px] text-textlight hover:text-navy" title="Edit angle">
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L6.832 19.82a4.5 4.5 0 01-1.897 1.13l-2.685.8.8-2.685a4.5 4.5 0 011.13-1.897L16.863 4.487z" /></svg>
-            </button>
-          )}
           {showActions && (
             <div className="flex gap-1">
               <button onClick={() => onStatusChange(angle.externalId, 'active')} className="text-[10px] text-teal hover:underline">Activate</button>
@@ -3200,21 +3173,55 @@ function AngleCard({ angle, playbooks, onStatusChange, onToggleLPEnabled, onUpda
         </div>
       </div>
 
-      {/* Expanded: show full structured brief */}
+      {/* Expanded: inline-editable properties */}
       {expanded && (
         <div className="px-3 pb-3 pt-1 border-t border-black/5 space-y-2 text-[12px]">
-          {angle.description && <div><span className="font-semibold text-textdark">Description:</span> <span className="text-textmid">{angle.description}</span></div>}
-          {angle.core_buyer && <div><span className="font-semibold text-textdark">Core Buyer:</span> <span className="text-textmid">{angle.core_buyer}</span></div>}
-          {angle.symptom_pattern && <div><span className="font-semibold text-textdark">Symptom Pattern:</span> <span className="text-textmid">{angle.symptom_pattern}</span></div>}
-          {angle.failed_solutions && <div><span className="font-semibold text-textdark">Failed Solutions:</span> <span className="text-textmid">{angle.failed_solutions}</span></div>}
-          {angle.current_belief && <div><span className="font-semibold text-textdark">Current Belief:</span> <span className="text-textmid">{angle.current_belief}</span></div>}
-          {angle.objection && <div><span className="font-semibold text-textdark">Objection:</span> <span className="text-textmid">{angle.objection}</span></div>}
-          {angle.emotional_state && <div><span className="font-semibold text-textdark">Emotional State:</span> <span className="text-textmid">{angle.emotional_state}</span></div>}
-          {angle.scene && <div><span className="font-semibold text-textdark">Scene:</span> <span className="text-textmid italic">{angle.scene}</span></div>}
-          {angle.desired_belief_shift && <div><span className="font-semibold text-textdark">Belief Shift:</span> <span className="text-textmid italic">"{angle.desired_belief_shift}"</span></div>}
-          {angle.tone && <div><span className="font-semibold text-textdark">Tone:</span> <span className="text-textmid">{angle.tone}</span></div>}
-          {angle.avoid_list && <div><span className="font-semibold text-textdark">Avoid:</span> <span className="text-red-500">{angle.avoid_list}</span></div>}
-          {angle.prompt_hints && <div><span className="font-semibold text-textdark">Prompt Hints:</span> <span className="text-textmid">{angle.prompt_hints}</span></div>}
+          {/* Priority & Frame — editable dropdowns */}
+          {onUpdate && (
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <span className="font-semibold text-textdark text-[11px]">Priority:</span>
+                <select
+                  value={angle.priority || 'medium'}
+                  onChange={e => onUpdate(angle.externalId, { priority: e.target.value })}
+                  className="text-[11px] text-textdark bg-offwhite border border-black/10 rounded-lg px-2 py-1 w-full cursor-pointer mt-0.5"
+                >
+                  {PRIORITY_OPTIONS.map(p => <option key={p} value={p}>{p.charAt(0).toUpperCase() + p.slice(1)}</option>)}
+                </select>
+              </div>
+              <div>
+                <span className="font-semibold text-textdark text-[11px]">Frame:</span>
+                <select
+                  value={angle.frame || 'symptom-first'}
+                  onChange={e => onUpdate(angle.externalId, { frame: e.target.value })}
+                  className="text-[11px] text-textdark bg-offwhite border border-black/10 rounded-lg px-2 py-1 w-full cursor-pointer mt-0.5"
+                >
+                  {FRAME_OPTIONS.map(f => <option key={f} value={f}>{f}</option>)}
+                </select>
+              </div>
+            </div>
+          )}
+          {!onUpdate && (
+            <div className="flex gap-3">
+              {angle.priority && <div><span className="font-semibold text-textdark text-[11px]">Priority:</span> <span className={`text-[11px] font-medium px-1.5 py-0.5 rounded ${PRIORITY_COLORS[angle.priority] || ''}`}>{angle.priority}</span></div>}
+              {angle.frame && <div><span className="font-semibold text-textdark text-[11px]">Frame:</span> <span className={`text-[11px] font-medium px-1.5 py-0.5 rounded ${FRAME_COLORS[angle.frame] || ''}`}>{angle.frame}</span></div>}
+            </div>
+          )}
+
+          {/* Angle name — editable */}
+          <EditableRow field="name" label="Name:" />
+          <EditableRow field="description" label="Description:" />
+          <EditableRow field="core_buyer" label="Core Buyer:" />
+          <EditableRow field="symptom_pattern" label="Symptom Pattern:" />
+          <EditableRow field="failed_solutions" label="Failed Solutions:" />
+          <EditableRow field="current_belief" label="Current Belief:" />
+          <EditableRow field="objection" label="Objection:" />
+          <EditableRow field="emotional_state" label="Emotional State:" />
+          <EditableRow field="scene" label="Scene:" valueClass="text-textmid text-[12px] italic" />
+          <EditableRow field="desired_belief_shift" label="Belief Shift:" valueClass="text-textmid text-[12px] italic" />
+          <EditableRow field="tone" label="Tone:" />
+          <EditableRow field="avoid_list" label="Avoid:" valueClass="text-red-500 text-[12px]" />
+          <EditableRow field="prompt_hints" label="Prompt Hints:" />
         </div>
       )}
 
