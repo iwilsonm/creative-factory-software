@@ -12,10 +12,11 @@ export default function CreativeFilterSettings({ projectId, project, onSave }) {
     scout_display_link: '',
     scout_facebook_page: '',
     scout_score_threshold: '',
-    scout_destination_url: '',
+    scout_destination_urls: [],
     scout_duplicate_adset_name: '',
   });
   const [saving, setSaving] = useState(false);
+  const [urlInput, setUrlInput] = useState('');
   const [showAddCampaign, setShowAddCampaign] = useState(false);
   const [newCampaignName, setNewCampaignName] = useState('');
   const [addingCampaign, setAddingCampaign] = useState(false);
@@ -40,7 +41,12 @@ export default function CreativeFilterSettings({ projectId, project, onSave }) {
       scout_display_link: project.scout_display_link || '',
       scout_facebook_page: project.scout_facebook_page || '',
       scout_score_threshold: project.scout_score_threshold != null ? String(project.scout_score_threshold) : '',
-      scout_destination_url: project.scout_destination_url || '',
+      scout_destination_urls: (() => {
+        if (project.scout_destination_urls) {
+          try { return JSON.parse(project.scout_destination_urls); } catch {}
+        }
+        return project.scout_destination_url ? [project.scout_destination_url] : [];
+      })(),
       scout_duplicate_adset_name: project.scout_duplicate_adset_name || '',
     });
   }, [project]);
@@ -60,7 +66,8 @@ export default function CreativeFilterSettings({ projectId, project, onSave }) {
         scout_display_link: form.scout_display_link || undefined,
         scout_facebook_page: form.scout_facebook_page || undefined,
         scout_score_threshold: form.scout_score_threshold ? Number(form.scout_score_threshold) : undefined,
-        scout_destination_url: form.scout_destination_url || undefined,
+        scout_destination_urls: form.scout_destination_urls.length > 0 ? JSON.stringify(form.scout_destination_urls) : undefined,
+        scout_destination_url: form.scout_destination_urls[0] || undefined,
         scout_duplicate_adset_name: form.scout_duplicate_adset_name || undefined,
       };
       await api.updateProject(projectId, updates);
@@ -247,16 +254,49 @@ export default function CreativeFilterSettings({ projectId, project, onSave }) {
           </div>
         </div>
 
-        {/* Website URL */}
+        {/* Default Destination URLs */}
         <div>
-          <label className="block text-[12px] font-medium text-textmid mb-1">Default Website URL</label>
-          <input
-            value={form.scout_destination_url}
-            onChange={e => setForm(p => ({ ...p, scout_destination_url: e.target.value }))}
-            className="input-apple text-[13px]"
-            placeholder='e.g., "https://healnaturally.com/product"'
-          />
-          <p className="text-[10px] text-textlight mt-1">Landing page URL auto-filled on deployed ads.</p>
+          <label className="block text-[12px] font-medium text-textmid mb-1">Default Destination URLs</label>
+          {form.scout_destination_urls.length > 0 && (
+            <div className="space-y-1.5 mb-2">
+              {form.scout_destination_urls.map((url, i) => (
+                <div key={i} className="flex items-center gap-2 group">
+                  <span className="text-[12px] text-textmid truncate flex-1" title={url}>{url}</span>
+                  <button
+                    onClick={() => setForm(p => ({ ...p, scout_destination_urls: p.scout_destination_urls.filter((_, idx) => idx !== i) }))}
+                    className="text-[11px] text-textlight hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0"
+                    title="Remove URL"
+                  >&times;</button>
+                </div>
+              ))}
+            </div>
+          )}
+          <div className="flex gap-2">
+            <input
+              value={urlInput}
+              onChange={e => setUrlInput(e.target.value)}
+              onKeyDown={e => {
+                if (e.key === 'Enter' && urlInput.trim()) {
+                  e.preventDefault();
+                  setForm(p => ({ ...p, scout_destination_urls: [...p.scout_destination_urls, urlInput.trim()] }));
+                  setUrlInput('');
+                }
+              }}
+              className="input-apple text-[13px] flex-1"
+              placeholder='Paste URL and press Enter...'
+            />
+            <button
+              onClick={() => {
+                if (urlInput.trim()) {
+                  setForm(p => ({ ...p, scout_destination_urls: [...p.scout_destination_urls, urlInput.trim()] }));
+                  setUrlInput('');
+                }
+              }}
+              disabled={!urlInput.trim()}
+              className="text-[11px] font-medium text-navy hover:text-gold disabled:text-textlight disabled:cursor-not-allowed px-3 py-1.5 flex-shrink-0"
+            >Add</button>
+          </div>
+          <p className="text-[10px] text-textlight mt-1">Landing page URLs auto-filled on deployed ads. Multiple URLs enable gauntlet rotation. Angle-specific URLs override these defaults.</p>
         </div>
 
         {/* Duplicate Ad Set Name */}

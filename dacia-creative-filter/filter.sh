@@ -514,8 +514,20 @@ deploy_flex_ads() {
   display_link=$(echo "$project_config" | jq -r '.scout_display_link // ""')
   local facebook_page
   facebook_page=$(echo "$project_config" | jq -r '.scout_facebook_page // ""')
+  # Build default destination URLs (plural takes precedence over legacy single)
+  local default_dest_urls_json
+  default_dest_urls_json=$(echo "$project_config" | jq -r '.scout_destination_urls // empty' 2>/dev/null) || true
   local destination_url
-  destination_url=$(echo "$project_config" | jq -r '.scout_destination_url // ""')
+  if [[ -n "$default_dest_urls_json" && "$default_dest_urls_json" != "null" ]]; then
+    destination_url=$(echo "$default_dest_urls_json" | jq -r '.[0] // ""' 2>/dev/null) || true
+  else
+    destination_url=$(echo "$project_config" | jq -r '.scout_destination_url // ""')
+    if [[ -n "$destination_url" ]]; then
+      default_dest_urls_json="[$(echo "$destination_url" | jq -Rs .)]"
+    else
+      default_dest_urls_json="[]"
+    fi
+  fi
   local duplicate_adset_name
   duplicate_adset_name=$(echo "$project_config" | jq -r '.scout_duplicate_adset_name // ""')
   local project_name
@@ -536,8 +548,7 @@ deploy_flex_ads() {
     return 1
   fi
 
-  # Check for per-angle destination URL override
-  local angle_dest_urls=""
+  # Check for per-angle destination URL override (replaces project defaults entirely)
   if [[ -n "$angle_name" ]]; then
     local angles_resp
     angles_resp=$(curl -s "${BACKEND_URL}/api/conductor/angles/${project_id}/active" \
@@ -550,7 +561,7 @@ deploy_flex_ads() {
       first_url=$(echo "$angle_dest_raw" | jq -r '.[0] // empty' 2>/dev/null) || true
       if [[ -n "$first_url" ]]; then
         destination_url="$first_url"
-        angle_dest_urls="$angle_dest_raw"
+        default_dest_urls_json="$angle_dest_raw"
         log_info "Using per-angle destination URL for '${angle_name}': ${first_url}"
       fi
     fi
@@ -596,9 +607,11 @@ deploy_flex_ads() {
     lp_secondary_url=$(echo "$batch_data_for_lp" | jq -r '.lp_secondary_url // ""' 2>/dev/null) || true
     gauntlet_lp_urls_json=$(echo "$batch_data_for_lp" | jq -r '.gauntlet_lp_urls // ""' 2>/dev/null) || true
 
-    # Override with per-angle destination URLs if available
-    if [[ -n "$angle_dest_urls" ]]; then
-      gauntlet_lp_urls_json="$angle_dest_urls"
+    # Override gauntlet URLs with resolved destination URLs (project defaults or angle-specific)
+    local dest_url_count
+    dest_url_count=$(echo "$default_dest_urls_json" | jq 'length' 2>/dev/null) || true
+    if [[ -n "$dest_url_count" && "$dest_url_count" -gt 1 ]]; then
+      gauntlet_lp_urls_json="$default_dest_urls_json"
     fi
 
     # Get the next flex ad number for this angle

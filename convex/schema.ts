@@ -40,7 +40,8 @@ export default defineSchema({
     scout_facebook_page: v.optional(v.string()),
     scout_score_threshold: v.optional(v.number()),
     scout_daily_flex_ads: v.optional(v.number()),  // Max flex ads/day from Creative Filter (default 2)
-    scout_destination_url: v.optional(v.string()),        // Default website/landing page URL
+    scout_destination_url: v.optional(v.string()),        // Default website/landing page URL (legacy single)
+    scout_destination_urls: v.optional(v.string()),       // JSON array of default LP URLs (overrides single)
     scout_duplicate_adset_name: v.optional(v.string()),   // Default "duplicate this ad set" name for Meta
     created_at: v.string(),
     updated_at: v.string(),

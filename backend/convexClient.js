@@ -173,7 +173,7 @@ export async function getAllProjectsWithStats() {
 }
 
 export async function updateProject(id, fields) {
-  const allowed = ['name', 'brand_name', 'niche', 'product_description', 'sales_page_content', 'drive_folder_id', 'inspiration_folder_id', 'prompt_guidelines', 'status', 'meta_app_id', 'meta_app_secret', 'meta_access_token', 'meta_token_expires_at', 'meta_ad_account_id', 'meta_user_name', 'meta_user_id', 'meta_last_sync_at', 'scout_enabled', 'scout_default_campaign', 'scout_cta', 'scout_display_link', 'scout_facebook_page', 'scout_score_threshold', 'scout_daily_flex_ads', 'scout_destination_url', 'scout_duplicate_adset_name'];
+  const allowed = ['name', 'brand_name', 'niche', 'product_description', 'sales_page_content', 'drive_folder_id', 'inspiration_folder_id', 'prompt_guidelines', 'status', 'meta_app_id', 'meta_app_secret', 'meta_access_token', 'meta_token_expires_at', 'meta_ad_account_id', 'meta_user_name', 'meta_user_id', 'meta_last_sync_at', 'scout_enabled', 'scout_default_campaign', 'scout_cta', 'scout_display_link', 'scout_facebook_page', 'scout_score_threshold', 'scout_daily_flex_ads', 'scout_destination_url', 'scout_destination_urls', 'scout_duplicate_adset_name'];
   const updates = { externalId: id };
   for (const key of allowed) {
     if (fields[key] !== undefined) {
@@ -226,6 +226,7 @@ function convexProjectToRow(p) {
     scout_score_threshold: p.scout_score_threshold ?? null,
     scout_daily_flex_ads: p.scout_daily_flex_ads ?? null,
     scout_destination_url: p.scout_destination_url || null,
+    scout_destination_urls: p.scout_destination_urls || null,
     scout_duplicate_adset_name: p.scout_duplicate_adset_name || null,
     docCount: p.docCount ?? 0,
     adCount: p.adCount ?? 0,
