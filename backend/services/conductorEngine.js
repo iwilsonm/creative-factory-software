@@ -528,9 +528,7 @@ async function selectAngles(projectId, config, count, excludedAngleNames = []) {
 
   const excluded = new Set((excludedAngleNames || []).filter(Boolean));
 
-  // Focus mode: if any active angles are focused, only use those
-  const focusedAngles = activeAngles.filter(a => a.focused);
-  let anglesToUse = focusedAngles.length > 0 ? focusedAngles : activeAngles;
+  let anglesToUse = activeAngles;
   const filteredAngles = anglesToUse.filter(angle => !excluded.has(angle.name));
   if (filteredAngles.length > 0) {
     anglesToUse = filteredAngles;

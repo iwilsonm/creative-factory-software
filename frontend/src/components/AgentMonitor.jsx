@@ -2021,13 +2021,6 @@ function DirectorTab({ onRefresh }) {
     } catch { /* ignore */ }
   };
 
-  const handleToggleFocus = async (angleId, focused) => {
-    try {
-      await api.updateConductorAngle(selectedProject, angleId, { focused });
-      setAngles(prev => ensureArray(prev, 'AgentMonitor.director.anglesState').map(a => a.externalId === angleId ? { ...a, focused } : a));
-    } catch { /* ignore */ }
-  };
-
   const handleUpdateAngle = async (angleId, updates) => {
     await api.updateConductorAngle(selectedProject, angleId, updates);
     setAngles(prev => ensureArray(prev, 'AgentMonitor.director.anglesState').map(a => a.externalId === angleId ? { ...a, ...updates } : a));
@@ -2618,7 +2611,7 @@ function DirectorTab({ onRefresh }) {
               </div>
               <div className="space-y-2">
                 {activeAngles.map(a => (
-                  <AngleCard key={a.externalId} angle={a} playbooks={playbooks} onStatusChange={handleAngleStatusChange} onToggleFocus={handleToggleFocus} onToggleLPEnabled={handleToggleLPEnabled} onUpdate={handleUpdateAngle} />
+                  <AngleCard key={a.externalId} angle={a} playbooks={playbooks} onStatusChange={handleAngleStatusChange} onToggleLPEnabled={handleToggleLPEnabled} onUpdate={handleUpdateAngle} />
                 ))}
               </div>
             </div>
@@ -3086,7 +3079,7 @@ function DirectorTab({ onRefresh }) {
 const PRIORITY_OPTIONS = ['highest', 'high', 'medium', 'test'];
 const FRAME_OPTIONS = ['symptom-first', 'scam', 'objection-first', 'identity-first', 'MAHA', 'news-first', 'consequence-first'];
 
-function AngleCard({ angle, playbooks, onStatusChange, onToggleFocus, onToggleLPEnabled, onUpdate, showActions }) {
+function AngleCard({ angle, playbooks, onStatusChange, onToggleLPEnabled, onUpdate, showActions }) {
   const pb = ensureArray(playbooks, 'AgentMonitor.angleCard.playbooks').find(p => p.angle_name === angle.name);
   const [expanded, setExpanded] = useState(false);
   const [editing, setEditing] = useState(false);
@@ -3167,30 +3160,15 @@ function AngleCard({ angle, playbooks, onStatusChange, onToggleFocus, onToggleLP
   }
 
   return (
-    <div className={`rounded-lg border ${angle.focused ? 'bg-gold/5 border-gold/30' : 'bg-white/60 border-black/5'}`}>
+    <div className="rounded-lg border bg-white/60 border-black/5">
       {/* Clickable header row */}
       <div
         className="flex items-center justify-between p-3 cursor-pointer select-none"
         onClick={() => setExpanded(!expanded)}
       >
         <div className="flex items-center gap-2 flex-wrap min-w-0">
-          {angle.status === 'active' && onToggleFocus && (
-            <button
-              onClick={(e) => { e.stopPropagation(); onToggleFocus(angle.externalId, !angle.focused); }}
-              title={angle.focused ? 'Remove focus' : 'Focus on this angle'}
-              className={`transition-colors flex-shrink-0 ${angle.focused ? 'text-gold' : 'text-textlight/40 hover:text-gold/60'}`}
-            >
-              <svg className="w-3.5 h-3.5" fill={angle.focused ? 'currentColor' : 'none'} stroke="currentColor" strokeWidth="2" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
-              </svg>
-            </button>
-          )}
-          {!(angle.status === 'active' && onToggleFocus) && (
-            <span className="text-[11px] flex-shrink-0">{'\u25CF'}</span>
-          )}
           <span className={`text-[11px] text-textlight flex-shrink-0 transition-transform ${expanded ? 'rotate-90' : ''}`}>&#9656;</span>
           <span className="text-[13px] font-medium text-textdark">{angle.name}</span>
-          {angle.focused && <span className="text-[9px] font-medium text-gold uppercase tracking-wider">Focused</span>}
           {angle.priority && <span className={`text-[9px] font-medium px-1.5 py-0.5 rounded ${PRIORITY_COLORS[angle.priority] || 'bg-gray-100 text-gray-600'}`}>{angle.priority}</span>}
           {angle.frame && <span className={`text-[9px] font-medium px-1.5 py-0.5 rounded ${FRAME_COLORS[angle.frame] || 'bg-gray-100 text-gray-600'}`}>{angle.frame}</span>}
           <span className="text-[10px] text-textlight">used {angle.times_used || 0}x</span>
