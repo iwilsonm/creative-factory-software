@@ -77,6 +77,7 @@ const TABLE_TTL = {
   meta_performance:     2 * 60 * 1000,
   headline_history:     1 * 60 * 1000,
   lp_headline_history:  1 * 60 * 1000,
+  cmo:                  2 * 60 * 1000,
 };
 const DEFAULT_QUERY_TTL = 60 * 1000;
 
@@ -1871,6 +1872,81 @@ export async function getFixerPlaybook(issueCategory) {
 export async function upsertFixerPlaybook(fields) {
   await mutationWithRetry(api.conductor.upsertFixerPlaybook, fields);
   invalidateQueryCache('conductor');
+}
+
+// =============================================
+// CMO Agent helpers (Ad Performance Management)
+// =============================================
+
+export async function getCmoConfig(projectId) {
+  return await cachedQuery('cmo', api.cmo.getConfig, { projectId });
+}
+
+export async function upsertCmoConfig(projectId, fields) {
+  await mutationWithRetry(api.cmo.upsertConfig, { project_id: projectId, ...fields });
+  invalidateQueryCache('cmo');
+}
+
+export async function getAllCmoConfigs() {
+  return await cachedQuery('cmo', api.cmo.getAllConfigs, {});
+}
+
+export async function getCmoRuns(projectId, limit = 50) {
+  return ensureArray(await cachedQuery('cmo', api.cmo.getRuns, { projectId, limit }), 'convexClient.getCmoRuns');
+}
+
+export async function getCmoRun(externalId) {
+  return await queryWithRetry(api.cmo.getRun, { externalId });
+}
+
+export async function createCmoRun(fields) {
+  await mutationWithRetry(api.cmo.createRun, fields);
+  invalidateQueryCache('cmo');
+}
+
+export async function updateCmoRun(id, fields) {
+  await mutationWithRetry(api.cmo.updateRun, { externalId: id, ...fields });
+  invalidateQueryCache('cmo');
+}
+
+export async function getCmoAngleHistory(projectId, limit = 500) {
+  return ensureArray(await cachedQuery('cmo', api.cmo.getAngleHistory, { projectId, limit }), 'convexClient.getCmoAngleHistory');
+}
+
+export async function getCmoAngleHistoryByAngle(projectId, angleName) {
+  return ensureArray(await queryWithRetry(api.cmo.getAngleHistoryByAngle, { projectId, angleName }), 'convexClient.getCmoAngleHistoryByAngle');
+}
+
+export async function getCmoAngleHistoryByRun(cmoRunId) {
+  return ensureArray(await queryWithRetry(api.cmo.getAngleHistoryByRun, { cmoRunId }), 'convexClient.getCmoAngleHistoryByRun');
+}
+
+export async function createCmoAngleHistory(fields) {
+  await mutationWithRetry(api.cmo.createAngleHistory, fields);
+  invalidateQueryCache('cmo');
+}
+
+export async function getCmoNotifications(projectId, limit = 100) {
+  return ensureArray(await cachedQuery('cmo', api.cmo.getNotifications, { projectId, limit }), 'convexClient.getCmoNotifications');
+}
+
+export async function getCmoNotificationsByRun(projectId, cmoRunId) {
+  return ensureArray(await queryWithRetry(api.cmo.getNotificationsByRun, { projectId, cmoRunId }), 'convexClient.getCmoNotificationsByRun');
+}
+
+export async function createCmoNotification(fields) {
+  await mutationWithRetry(api.cmo.createNotification, fields);
+  invalidateQueryCache('cmo');
+}
+
+export async function acknowledgeCmoNotification(externalId) {
+  await mutationWithRetry(api.cmo.acknowledgeNotification, { externalId });
+  invalidateQueryCache('cmo');
+}
+
+export async function acknowledgeAllCmoNotifications(projectId) {
+  await mutationWithRetry(api.cmo.acknowledgeAllNotifications, { projectId });
+  invalidateQueryCache('cmo');
 }
 
 // =============================================

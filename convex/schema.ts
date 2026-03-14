@@ -793,6 +793,111 @@ export default defineSchema({
     .index("by_project", ["project_id"])
     .index("by_externalId", ["externalId"]),
 
+  // =============================================
+  // CMO Agent — Ad Performance Management tables
+  // =============================================
+
+  cmo_config: defineTable({
+    project_id: v.string(),              // → projects.externalId
+    enabled: v.boolean(),
+    review_schedule: v.string(),         // "weekly" | "manual_only"
+    review_day_of_week: v.number(),      // 0=Sun, 1=Mon, ..., 6=Sat
+    review_hour_utc: v.number(),         // 0-23
+    target_cpa: v.optional(v.float64()), // Target CPA in USD
+    target_roas: v.optional(v.float64()), // Target ROAS multiplier
+    min_highest_angles: v.number(),      // Minimum angles at highest priority (default 8)
+    evaluation_window_days: v.number(),  // Minimum days before judging (default 12)
+    meta_campaign_id: v.optional(v.string()), // Meta campaign ID to monitor
+    tracking_start_date: v.optional(v.string()), // YYYY-MM-DD
+    tw_api_key: v.optional(v.string()),
+    tw_shopify_domain: v.optional(v.string()),
+    ga4_property_id: v.optional(v.string()),
+    ga4_credentials_json: v.optional(v.string()), // JSON service account credentials
+    notifications_enabled: v.boolean(),
+    auto_execute: v.boolean(),           // false = dry-run by default
+    created_at: v.string(),
+    updated_at: v.string(),
+  })
+    .index("by_project", ["project_id"]),
+
+  cmo_runs: defineTable({
+    externalId: v.string(),
+    project_id: v.string(),
+    run_type: v.string(),                // "weekly" | "manual" | "dry_run"
+    status: v.string(),                  // "running" | "completed" | "failed"
+    run_at: v.string(),                  // ISO timestamp
+    duration_ms: v.optional(v.float64()),
+    tw_summary: v.optional(v.string()),  // JSON: Triple Whale blended metrics
+    meta_ads_count: v.optional(v.float64()),
+    ga4_pages_count: v.optional(v.float64()),
+    angle_evaluations: v.optional(v.string()), // JSON: angle tier/spend evaluation results
+    lp_diagnostics: v.optional(v.string()),    // JSON: LP diagnostic results
+    decisions: v.optional(v.string()),         // JSON array of decision objects
+    decisions_applied: v.optional(v.boolean()),
+    decisions_count: v.optional(v.float64()),
+    pipeline_health: v.optional(v.string()),   // JSON: pipeline health check results
+    angles_written: v.optional(v.string()),    // JSON: new angles generated
+    notifications_sent: v.optional(v.float64()),
+    error: v.optional(v.string()),
+    error_stage: v.optional(v.string()),
+    created_at: v.string(),
+  })
+    .index("by_externalId", ["externalId"])
+    .index("by_project", ["project_id"])
+    .index("by_project_and_run_at", ["project_id", "run_at"]),
+
+  cmo_angle_history: defineTable({
+    externalId: v.string(),
+    project_id: v.string(),
+    angle_name: v.string(),
+    snapshot_date: v.string(),           // YYYY-MM-DD
+    cmo_run_id: v.string(),              // → cmo_runs.externalId
+    spend: v.float64(),
+    impressions: v.float64(),
+    clicks: v.float64(),
+    conversions: v.float64(),
+    conversion_value: v.float64(),
+    cpa: v.optional(v.float64()),
+    roas: v.optional(v.float64()),
+    ctr: v.optional(v.float64()),
+    cpc: v.optional(v.float64()),
+    tier: v.string(),                    // "T1" | "T2" | "T3" | "T4" | "too_early"
+    spend_class: v.string(),             // "STRONG" | "MODERATE" | "WEAK" | "NEGLIGIBLE" | "ZERO"
+    priority_at_snapshot: v.optional(v.string()),
+    status_at_snapshot: v.optional(v.string()),
+    ad_count: v.optional(v.float64()),
+    days_active: v.optional(v.float64()),
+    spend_trend: v.optional(v.string()), // "up" | "down" | "flat"
+    cpa_trend: v.optional(v.string()),   // "up" | "down" | "flat"
+    lp_bounce_rate: v.optional(v.float64()),
+    lp_cvr: v.optional(v.float64()),
+    lp_sessions: v.optional(v.float64()),
+    created_at: v.string(),
+  })
+    .index("by_externalId", ["externalId"])
+    .index("by_project_and_angle", ["project_id", "angle_name"])
+    .index("by_project_angle_and_date", ["project_id", "angle_name", "snapshot_date"])
+    .index("by_project_and_date", ["project_id", "snapshot_date"])
+    .index("by_cmo_run", ["cmo_run_id"]),
+
+  cmo_notifications: defineTable({
+    externalId: v.string(),
+    project_id: v.string(),
+    cmo_run_id: v.string(),              // → cmo_runs.externalId
+    rule: v.string(),                    // Which notification rule triggered
+    severity: v.string(),               // "info" | "warning" | "critical"
+    title: v.string(),
+    message: v.string(),
+    angle_name: v.optional(v.string()),
+    data: v.optional(v.string()),        // JSON: extra structured data
+    acknowledged: v.boolean(),
+    acknowledged_at: v.optional(v.string()),
+    created_at: v.string(),
+  })
+    .index("by_externalId", ["externalId"])
+    .index("by_project", ["project_id"])
+    .index("by_project_and_run", ["project_id", "cmo_run_id"]),
+
   fixer_playbook: defineTable({
     issue_category: v.string(),          // "batch_stuck" | "filter_stalled" | etc.
     occurrences: v.number(),

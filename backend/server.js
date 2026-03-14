@@ -31,6 +31,7 @@ import lpTemplateRoutes from './routes/lpTemplates.js';
 import agentMonitorRoutes, { agentCostRouter } from './routes/agentMonitor.js';
 import conductorRoutes from './routes/conductor.js';
 import lpAgentRoutes from './routes/lpAgent.js';
+import cmoRoutes from './routes/cmo.js';
 import rateLimit from 'express-rate-limit';
 import { initScheduler, getSchedulerStatus } from './services/scheduler.js';
 import { getRateLimiterStats } from './services/rateLimiter.js';
@@ -161,6 +162,8 @@ process.on('uncaughtException', (err) => {
   app.use('/api/quote-mining/start', llmRateLimit);
   app.use('/api/conductor/run', llmRateLimit);
   app.use('/api/conductor/learn', llmRateLimit);
+  app.use('/api/cmo/run', llmRateLimit);
+  app.use('/api/cmo/dry-run', llmRateLimit);
   app.use('/api/projects/:id/agency/chat/send', llmRateLimit);
 
   // NOTE: Generated images are no longer served from local disk.
@@ -286,6 +289,7 @@ process.on('uncaughtException', (err) => {
   app.use('/api/agent-monitor', requireAuth, requireRole('admin'), agentMonitorRoutes);
   app.use('/api/conductor', requireAuth, requireRole('admin', 'manager'), conductorRoutes);
   app.use('/api/projects', requireAuth, requireRole('admin', 'manager'), lpAgentRoutes);
+  app.use('/api/cmo', requireAuth, requireRole('admin', 'manager'), cmoRoutes);
 
   // Catch-all error handler
   app.use((err, req, res, _next) => {

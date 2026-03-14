@@ -650,4 +650,36 @@ export const api = {
   // LP retry
   retryBatchLP: (batchId, options = {}) =>
     request(`/batches/${batchId}/retry-lp`, { method: 'POST', body: JSON.stringify(options), headers: { 'Content-Type': 'application/json' } }),
+
+  // ── CMO Agent (Ad Performance) ─────────────────────────────────────────
+  getCmoConfig: (projectId) =>
+    request(`/cmo/config/${projectId}`),
+  updateCmoConfig: (projectId, data) =>
+    request(`/cmo/config/${projectId}`, { method: 'PUT', body: JSON.stringify(data) }),
+  runCmo: (projectId, onEvent) =>
+    streamSSE(`/cmo/run/${projectId}`, onEvent),
+  dryRunCmo: (projectId, onEvent) =>
+    streamSSE(`/cmo/dry-run/${projectId}`, onEvent),
+  getCmoRuns: (projectId, limit = 50) =>
+    request(`/cmo/runs/${projectId}?limit=${limit}`),
+  getCmoRun: (projectId, runId) =>
+    request(`/cmo/runs/${projectId}/${runId}`),
+  applyCmoDecisions: (projectId, runId) =>
+    request(`/cmo/runs/${projectId}/${runId}/apply`, { method: 'POST' }),
+  getCmoHistory: (projectId, limit = 500) =>
+    request(`/cmo/history/${projectId}?limit=${limit}`),
+  getCmoAngleHistory: (projectId, angleName) =>
+    request(`/cmo/history/${projectId}/${encodeURIComponent(angleName)}`),
+  getCmoNotifications: (projectId, limit = 100) =>
+    request(`/cmo/notifications/${projectId}?limit=${limit}`),
+  acknowledgeCmoNotification: (notifId) =>
+    request(`/cmo/notifications/${notifId}/acknowledge`, { method: 'PUT' }),
+  acknowledgeAllCmoNotifications: (projectId) =>
+    request(`/cmo/notifications/${projectId}/acknowledge-all`, { method: 'POST' }),
+  getCmoDashboard: (projectId) =>
+    request(`/cmo/dashboard/${projectId}`),
+  testCmoTripleWhale: (projectId) =>
+    request(`/cmo/tw-test/${projectId}`),
+  testCmoGa4: (projectId) =>
+    request(`/cmo/ga4-test/${projectId}`),
 };

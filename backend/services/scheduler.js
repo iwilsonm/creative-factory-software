@@ -16,6 +16,7 @@ let lastRateRefreshAt = null;
 let lastMetaSyncAt = null;
 let lastMetaTokenRefreshAt = null;
 let lastDirectorRunAt = null;
+let lastCmoRunAt = null;
 const DIRECTOR_INLINE_POLL_SKIP_MS = 35 * 60 * 1000;
 
 /**
@@ -122,8 +123,17 @@ export async function initScheduler() {
     } catch (e) { console.error('[Scheduler] Director 1AM verification error:', e.message); }
   });
 
+  // ── CMO Agent cron — checks daily, each project has its own review day/hour ──
+  cron.schedule('0 * * * *', async () => {
+    try {
+      const { runCmoCycle } = await import('./cmoEngine.js');
+      await runCmoCycle();
+      lastCmoRunAt = new Date().toISOString();
+    } catch (e) { console.error('[Scheduler] CMO cycle error:', e.message); }
+  });
+
   schedulerInitialized = true;
-  console.log('[Scheduler] Active. Polling every 5 minutes for batch completion. Cost sync hourly, rate refresh daily. Meta sync every 30 min. Director runs 3x/day.');
+  console.log('[Scheduler] Active. Polling every 5 minutes for batch completion. Cost sync hourly, rate refresh daily. Meta sync every 30 min. Director runs 3x/day. CMO checks hourly.');
 
   import('./conductorEngine.js')
     .then(({ resumeBackgroundTestRuns }) => resumeBackgroundTestRuns())
@@ -349,5 +359,6 @@ export function getSchedulerStatus() {
     lastMetaSyncAt,
     lastMetaTokenRefreshAt,
     lastDirectorRunAt,
+    lastCmoRunAt,
   };
 }

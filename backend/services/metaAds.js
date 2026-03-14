@@ -273,6 +273,102 @@ function parseInsightsRow(row) {
   };
 }
 
+// ── Campaign-Level Ad Fetching (CMO Agent) ──────────────────────────────────
+
+/**
+ * Get all ads from a campaign with destination URLs and performance insights.
+ * Used by the CMO Agent to evaluate angle performance.
+ *
+ * @param {string} projectId
+ * @param {string} campaignId - Meta campaign ID
+ * @param {object} [options]
+ * @param {string} [options.trackingStartDate] - YYYY-MM-DD, defaults to 90 days ago
+ * @returns {Promise<Array<{ adId, adName, createdTime, destinationUrl, status, allTime: {...}, last7Days: {...} }>>}
+ */
+export async function getCampaignAdsWithInsights(projectId, campaignId, options = {}) {
+  const token = await getAccessToken(projectId);
+
+  // Step 1: Fetch all ads in the campaign (via ad sets)
+  const adSetsData = await graphGet(
+    `/${campaignId}/adsets?fields=id&limit=100`,
+    token
+  );
+  const adSetIds = (adSetsData.data || []).map(a => a.id);
+
+  const allAds = [];
+  for (const adSetId of adSetIds) {
+    const adsData = await graphGet(
+      `/${adSetId}/ads?fields=id,name,status,created_time,adcreatives{object_story_spec,effective_object_story_id,link_url}&limit=200`,
+      token
+    );
+    for (const ad of (adsData.data || [])) {
+      // Extract destination URL from creative
+      let destinationUrl = null;
+      const creative = ad.adcreatives?.data?.[0];
+      if (creative) {
+        destinationUrl = creative.link_url
+          || creative.object_story_spec?.link_data?.link
+          || creative.object_story_spec?.link_data?.call_to_action?.value?.link
+          || null;
+      }
+
+      allAds.push({
+        adId: ad.id,
+        adName: ad.name,
+        status: ad.status,
+        createdTime: ad.created_time,
+        destinationUrl,
+        adSetId,
+      });
+    }
+  }
+
+  // Step 2: Fetch insights for each ad (all-time + last 7 days)
+  const trackingStart = options.trackingStartDate
+    || new Date(Date.now() - 90 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+  const today = new Date().toISOString().slice(0, 10);
+  const d7ago = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10);
+
+  const results = [];
+  for (const ad of allAds) {
+    try {
+      // All-time insights
+      const allTimeData = await graphGet(
+        `/${ad.adId}/insights?fields=impressions,clicks,spend,ctr,cpc,cpm,reach,frequency,actions,action_values&time_range={"since":"${trackingStart}","until":"${today}"}&limit=1`,
+        token
+      );
+      const allTime = (allTimeData.data || []).length > 0
+        ? parseInsightsRow(allTimeData.data[0])
+        : { impressions: 0, clicks: 0, spend: 0, ctr: 0, cpc: 0, cpm: 0, reach: 0, frequency: 0, conversions: 0, conversionValue: 0 };
+
+      // Last 7 days insights
+      const last7Data = await graphGet(
+        `/${ad.adId}/insights?fields=impressions,clicks,spend,ctr,cpc,cpm,reach,frequency,actions,action_values&time_range={"since":"${d7ago}","until":"${today}"}&limit=1`,
+        token
+      );
+      const last7Days = (last7Data.data || []).length > 0
+        ? parseInsightsRow(last7Data.data[0])
+        : { impressions: 0, clicks: 0, spend: 0, ctr: 0, cpc: 0, cpm: 0, reach: 0, frequency: 0, conversions: 0, conversionValue: 0 };
+
+      results.push({
+        ...ad,
+        allTime,
+        last7Days,
+      });
+    } catch (err) {
+      // Log but don't fail the whole batch
+      console.error(`[Meta CMO] Failed to get insights for ad ${ad.adId}:`, err.message);
+      results.push({
+        ...ad,
+        allTime: { impressions: 0, clicks: 0, spend: 0, ctr: 0, cpc: 0, cpm: 0, reach: 0, frequency: 0, conversions: 0, conversionValue: 0 },
+        last7Days: { impressions: 0, clicks: 0, spend: 0, ctr: 0, cpc: 0, cpm: 0, reach: 0, frequency: 0, conversions: 0, conversionValue: 0 },
+      });
+    }
+  }
+
+  return results;
+}
+
 // ── Sync ────────────────────────────────────────────────────────────────────
 
 /**
