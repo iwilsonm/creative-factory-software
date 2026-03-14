@@ -41,7 +41,7 @@ router.put('/config/:projectId', async (req, res) => {
   try {
     const allowedFields = [
       'enabled', 'review_schedule', 'review_day_of_week', 'review_hour_utc',
-      'target_cpa', 'target_roas', 'min_highest_angles', 'evaluation_window_days',
+      'target_cpa', 'min_highest_angles', 'evaluation_window_days',
       'meta_campaign_id', 'tracking_start_date',
       'tw_api_key', 'tw_shopify_domain',
       'ga4_property_id', 'ga4_credentials_json',

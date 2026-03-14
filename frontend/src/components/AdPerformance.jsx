@@ -476,9 +476,11 @@ function AgentSection({ projectId, dashboard, onRefresh }) {
   const [selectedRun, setSelectedRun] = useState(null);
   const [testingTw, setTestingTw] = useState(false);
   const [testingGa4, setTestingGa4] = useState(false);
+  const [metaCampaigns, setMetaCampaigns] = useState([]);
+  const [metaCampaignsLoading, setMetaCampaignsLoading] = useState(false);
   const toast = useToast();
 
-  // Load config and runs
+  // Load config, runs, and meta campaigns
   useEffect(() => {
     (async () => {
       try {
@@ -486,12 +488,35 @@ function AgentSection({ projectId, dashboard, onRefresh }) {
           api.getCmoConfig(projectId),
           api.getCmoRuns(projectId),
         ]);
-        if (configData.config) setConfig(configData.config);
+        if (configData.config) {
+          setConfig(configData.config);
+        } else {
+          // First time — pre-fill defaults and save
+          const defaults = {
+            tw_api_key: '10f65d6b-f7e5-4ea1-87fb-e27d4a523f89',
+            tw_shopify_domain: '218e29-2.myshopify.com',
+            ga4_property_id: '450537879',
+          };
+          await api.updateCmoConfig(projectId, defaults);
+          setConfig(defaults);
+        }
         setRuns(runsData.runs || []);
       } catch (err) {
         console.error('Failed to load CMO data:', err);
       } finally {
         setRunsLoading(false);
+      }
+    })();
+    // Load Meta campaigns
+    (async () => {
+      setMetaCampaignsLoading(true);
+      try {
+        const data = await api.getMetaCampaigns(projectId);
+        setMetaCampaigns(data.campaigns || []);
+      } catch {
+        // Meta not connected — that's fine
+      } finally {
+        setMetaCampaignsLoading(false);
       }
     })();
   }, [projectId]);
@@ -631,17 +656,6 @@ function AgentSection({ projectId, dashboard, onRefresh }) {
               />
             </div>
             <div>
-              <label className="block text-textmid mb-1">Target ROAS</label>
-              <input
-                type="number"
-                value={config?.target_roas || ''}
-                onChange={e => updateField('target_roas', parseFloat(e.target.value) || undefined)}
-                className="input-apple w-full text-xs"
-                step="0.1"
-                placeholder="3.0"
-              />
-            </div>
-            <div>
               <label className="block text-textmid mb-1">Evaluation Window (days)</label>
               <input
                 type="number"
@@ -665,14 +679,29 @@ function AgentSection({ projectId, dashboard, onRefresh }) {
           <div className="space-y-3">
             <h4 className="text-[11px] font-semibold text-textmid uppercase tracking-wide">Schedule & Meta</h4>
             <div>
-              <label className="block text-textmid mb-1">Meta Campaign ID</label>
-              <input
-                type="text"
-                value={config?.meta_campaign_id || ''}
-                onChange={e => updateField('meta_campaign_id', e.target.value || undefined)}
-                className="input-apple w-full text-xs"
-                placeholder="Campaign ID from Meta"
-              />
+              <label className="block text-textmid mb-1">Meta Campaign</label>
+              {metaCampaignsLoading ? (
+                <p className="text-[10px] text-textlight">Loading campaigns...</p>
+              ) : metaCampaigns.length > 0 ? (
+                <select
+                  value={config?.meta_campaign_id || ''}
+                  onChange={e => updateField('meta_campaign_id', e.target.value || undefined)}
+                  className="input-apple w-full text-xs"
+                >
+                  <option value="">Select a campaign...</option>
+                  {metaCampaigns.map(c => (
+                    <option key={c.id} value={c.id}>{c.name} ({c.id})</option>
+                  ))}
+                </select>
+              ) : (
+                <input
+                  type="text"
+                  value={config?.meta_campaign_id || ''}
+                  onChange={e => updateField('meta_campaign_id', e.target.value || undefined)}
+                  className="input-apple w-full text-xs"
+                  placeholder="Connect Meta first, or enter ID manually"
+                />
+              )}
             </div>
             <div>
               <label className="block text-textmid mb-1">Tracking Start Date</label>
