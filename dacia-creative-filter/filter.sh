@@ -442,7 +442,7 @@ check_lp_gate() {
 
   # Read LP statuses from batch record
   local batch_data
-  batch_data=$(curl -s "${BACKEND_URL}/api/batches/${batch_id}" \
+  batch_data=$(curl -s "${BACKEND_URL}/api/projects/${project_id}/batches/${batch_id}" \
     -H "Cookie: $(get_session_cookie)" 2>/dev/null) || true
 
   local primary_status secondary_status
@@ -600,7 +600,7 @@ deploy_flex_ads() {
 
     # Read LP URLs from batch if available
     local batch_data_for_lp
-    batch_data_for_lp=$(curl -s "${BACKEND_URL}/api/batches/${batch_id}" \
+    batch_data_for_lp=$(curl -s "${BACKEND_URL}/api/projects/${project_id}/batches/${batch_id}" \
       -H "Cookie: $(get_session_cookie)" 2>/dev/null) || true
     local lp_primary_url lp_secondary_url gauntlet_lp_urls_json
     lp_primary_url=$(echo "$batch_data_for_lp" | jq -r '.lp_primary_url // ""' 2>/dev/null) || true
@@ -878,7 +878,7 @@ process_batch() {
     elif [[ "$lp_gate" == "retry" ]]; then
       # Read current LP statuses for retry targeting
       local batch_lp_data
-      batch_lp_data=$(curl -s "${BACKEND_URL}/api/batches/${batch_id}" \
+      batch_lp_data=$(curl -s "${BACKEND_URL}/api/projects/${project_id}/batches/${batch_id}" \
         -H "Cookie: $(get_session_cookie)" 2>/dev/null) || true
       local ps ss
       ps=$(echo "$batch_lp_data" | jq -r '.lp_primary_status // "none"' 2>/dev/null) || true
