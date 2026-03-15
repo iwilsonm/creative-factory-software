@@ -5,6 +5,7 @@ import {
   generateHeadlines,
   generateBodyCopies,
   generateImagePrompt,
+  generateImagePromptsBatch,
   isSceneLockedAngle,
   selectInspirationImage,
   selectTemplateImage,
@@ -440,37 +441,36 @@ async function generateBatchPrompts(batch, project, docs, onProgress, options = 
   }
   const newlyUsedTemplateIds = [];
 
-  for (let i = 0; i < bodyCopies.length; i++) {
+  // Process image prompts in chunks of 3 to reduce LLM calls (~45% fewer)
+  const CHUNK_SIZE = 3;
+  for (let chunkStart = 0; chunkStart < bodyCopies.length; chunkStart += CHUNK_SIZE) {
     await throwIfCancelled();
-    const copy = bodyCopies[i];
+    const chunk = bodyCopies.slice(chunkStart, Math.min(chunkStart + CHUNK_SIZE, bodyCopies.length));
+    const chunkEnd = chunkStart + chunk.length;
 
     emit({
       type: 'prompt_progress',
-      current: i + 1,
+      current: chunkEnd,
       total: bodyCopies.length,
-      message: `Step 4 of 5: Creating image prompt ${i + 1} of ${bodyCopies.length}...`
+      message: `Step 4 of 5: Creating image prompts ${chunkStart + 1}-${chunkEnd} of ${bodyCopies.length}...`
     });
 
-    // Update pipeline_state for frontend polling
-    if (i % 5 === 0 || i === bodyCopies.length - 1) {
-      await updateBatchJob(batchId, {
-        pipeline_state: JSON.stringify({
-          stage: 3,
-          stage_label: `Step 4 of 5: Image prompts (${i + 1}/${bodyCopies.length})...`,
-          current: i + 1,
-          total: bodyCopies.length,
-          headline_diagnostics: headlineDiagnostics,
-        })
-      });
-    }
+    await updateBatchJob(batchId, {
+      pipeline_state: JSON.stringify({
+        stage: 3,
+        stage_label: `Step 4 of 5: Image prompts (${chunkEnd}/${bodyCopies.length})...`,
+        current: chunkEnd,
+        total: bodyCopies.length,
+        headline_diagnostics: headlineDiagnostics,
+      })
+    });
 
     let success = false;
     for (let attempt = 1; attempt <= 2 && !success; attempt++) {
       try {
-        // Select template image — existing logic, unchanged
+        // Select ONE template image for the entire chunk
         const allExcluded = [...usedTemplateIds, ...newlyUsedTemplateIds];
 
-        // Parse multi-template arrays (if present)
         let templatePool = [];
         if (batch.template_image_ids) {
           try { templatePool.push(...JSON.parse(batch.template_image_ids).map(id => ({ type: 'uploaded', id }))); } catch {}
@@ -507,21 +507,16 @@ async function generateBatchPrompts(batch, project, docs, onProgress, options = 
           visualReferenceId = imageData.fileId || null;
         }
 
-        // Track which template was used
         if (imageData.fileId) {
           newlyUsedTemplateIds.push(imageData.fileId);
         }
 
-        // Stage 3: Generate image prompt with locked copy + template image
-        let imagePrompt = await generateImagePrompt(
-          project,
-          copy.headline,
-          copy.body_copy,
-          copy.primary_emotion || 'curiosity',
-          imageData,
-          batch.aspect_ratio || '1:1',
-          angleBrief,
-          {
+        // Batched LLM call: generate image prompts for all ads in chunk at once
+        const adSpecs = chunk.map(copy => ({
+          headline: copy.headline,
+          body_copy: copy.body_copy,
+          primary_emotion: copy.primary_emotion || 'curiosity',
+          headlineMeta: {
             hook_lane: copy.hook_lane,
             sub_angle: copy.sub_angle,
             scene_anchor: copy.scene_anchor,
@@ -531,55 +526,66 @@ async function generateBatchPrompts(batch, project, docs, onProgress, options = 
             desired_belief_shift: copy.desired_belief_shift,
             opening_pattern: copy.opening_pattern,
           },
-          {
-            documentaryMode: documentaryVisuals,
-          }
+        }));
+
+        const imagePrompts = await generateImagePromptsBatch(
+          project, adSpecs, imageData,
+          batch.aspect_ratio || '1:1',
+          angleBrief,
+          { documentaryMode: documentaryVisuals }
         );
 
-        // Apply prompt guidelines if set (uses gpt-4.1-mini, not rate-limited)
-        if (project.prompt_guidelines) {
-          imagePrompt = await reviewPromptWithGuidelines(imagePrompt, project.prompt_guidelines);
-        }
+        // Apply prompt guidelines to each prompt individually
+        for (let j = 0; j < chunk.length; j++) {
+          let imagePrompt = imagePrompts[j];
+          if (project.prompt_guidelines) {
+            imagePrompt = await reviewPromptWithGuidelines(imagePrompt, project.prompt_guidelines);
+          }
 
-        prompts.push({
-          prompt: imagePrompt,
-          headline: copy.headline,
-          body_copy: copy.body_copy,
-          angle_name: batch.angle_name || null,
-          hook_lane: copy.hook_lane || null,
-          sub_angle: copy.sub_angle || null,
-          scene_anchor: copy.scene_anchor || null,
-          core_claim: copy.core_claim || null,
-          target_symptom: copy.target_symptom || null,
-          emotional_entry: copy.emotional_entry || copy.primary_emotion || null,
-          desired_belief_shift: copy.desired_belief_shift || null,
-          opening_pattern: copy.opening_pattern || null,
-          primary_emotion: copy.primary_emotion || null,
-          visual_mode: documentaryVisuals ? 'documentary' : 'template',
-          use_product_reference: !documentaryVisuals,
-          visual_reference_type: visualReferenceType,
-          visual_reference_id: visualReferenceId,
-          scoring_mode: scoringContract.scoring_mode || null,
-          copy_render_expectation: scoringContract.copy_render_expectation || null,
-          product_expectation: scoringContract.product_expectation || null,
-          inspirationTmpPath: imageData.tmpPath,
-          inspirationMimeType: imageData.mimeType,
-          templateFileId: imageData.fileId || null,
-        });
+          const copy = chunk[j];
+          prompts.push({
+            prompt: imagePrompt,
+            headline: copy.headline,
+            body_copy: copy.body_copy,
+            angle_name: batch.angle_name || null,
+            hook_lane: copy.hook_lane || null,
+            sub_angle: copy.sub_angle || null,
+            scene_anchor: copy.scene_anchor || null,
+            core_claim: copy.core_claim || null,
+            target_symptom: copy.target_symptom || null,
+            emotional_entry: copy.emotional_entry || copy.primary_emotion || null,
+            desired_belief_shift: copy.desired_belief_shift || null,
+            opening_pattern: copy.opening_pattern || null,
+            primary_emotion: copy.primary_emotion || null,
+            visual_mode: documentaryVisuals ? 'documentary' : 'template',
+            use_product_reference: !documentaryVisuals,
+            visual_reference_type: visualReferenceType,
+            visual_reference_id: visualReferenceId,
+            scoring_mode: scoringContract.scoring_mode || null,
+            copy_render_expectation: scoringContract.copy_render_expectation || null,
+            product_expectation: scoringContract.product_expectation || null,
+            inspirationTmpPath: imageData.tmpPath,
+            inspirationMimeType: imageData.mimeType,
+            templateFileId: imageData.fileId || null,
+          });
+        }
         success = true;
 
       } catch (err) {
-        console.error(`[BatchProcessor] Stage 3 prompt ${i + 1} attempt ${attempt}/2 failed:`, err.message);
+        console.error(`[BatchProcessor] Stage 3 prompts ${chunkStart + 1}-${chunkEnd} attempt ${attempt}/2 failed:`, err.message);
         if (attempt < 2) {
           await new Promise(r => setTimeout(r, 3000));
         } else {
-          prompts.push(null);
+          // Push nulls for each ad in the chunk
+          for (let j = 0; j < chunk.length; j++) {
+            prompts.push(null);
+          }
         }
       }
     }
 
-    // Small delay between GPT calls
-    if (i < bodyCopies.length - 1) {
+    // Small delay between chunks
+    if (chunkEnd < bodyCopies.length) {
       await throwIfCancelled();
       await new Promise(resolve => setTimeout(resolve, 1000));
     }

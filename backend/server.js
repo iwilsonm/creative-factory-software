@@ -25,7 +25,7 @@ import deploymentRoutes from './routes/deployments.js';
 import quoteMiningRoutes from './routes/quoteMining.js';
 import chatRoutes from './routes/chat.js';
 import agencyRoutes from './routes/agency.js';
-import metaRoutes from './routes/meta.js';
+import metaRoutes, { metaCallbackRouter } from './routes/meta.js';
 import landingPageRoutes from './routes/landingPages.js';
 import lpTemplateRoutes from './routes/lpTemplates.js';
 import agentMonitorRoutes, { agentCostRouter } from './routes/agentMonitor.js';
@@ -233,6 +233,8 @@ process.on('uncaughtException', (err) => {
 
   // Routes — auth (no role restriction)
   app.use('/api/auth', authRoutes);
+  // Meta OAuth callback — no auth (sameSite: 'strict' blocks cookie on cross-site redirect)
+  app.use('/api', metaCallbackRouter);
   // Localhost-only guard — agent scripts call these via curl from the VPS
   const localhostOnly = (req, res, next) => {
     const ip = req.ip || req.connection?.remoteAddress;

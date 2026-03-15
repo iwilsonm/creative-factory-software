@@ -254,18 +254,19 @@ export async function runDirectorForProject(projectId, runType = 'manual') {
 
     console.log(`[Director] Project ${projectId.slice(0, 8)}: Created ${allBatchesCreated.length} batch(es) for ${postingDayResults.length} posting day(s) in ${Date.now() - startMs}ms`);
 
-    // Fire-and-forget: start all created batches
+    // Process batches sequentially to avoid overwhelming the LLM rate limiter.
+    // Fire-and-forget all at once caused queue pileup + stale detection cascade.
     for (const b of allBatchesCreated) {
-      runBatch(b.batch_id).catch(err => {
-        console.error(`[Director] Background batch ${b.batch_id.slice(0, 8)} failed:`, err.message);
-      });
-    }
-
-    // Fire-and-forget: trigger LP generation per batch
-    for (const b of allBatchesCreated) {
-      triggerLPGeneration(b.batch_id, projectId, b.angle_name).catch(err => {
-        console.warn(`[Director] LP trigger for batch ${b.batch_id.slice(0, 8)} failed:`, err.message);
-      });
+      try {
+        console.log(`[Director] Starting batch ${b.batch_id.slice(0, 8)} (${allBatchesCreated.indexOf(b) + 1}/${allBatchesCreated.length})...`);
+        await runBatch(b.batch_id);
+        // Trigger LP generation after batch prompts are submitted
+        triggerLPGeneration(b.batch_id, projectId, b.angle_name).catch(err => {
+          console.warn(`[Director] LP trigger for batch ${b.batch_id.slice(0, 8)} failed:`, err.message);
+        });
+      } catch (err) {
+        console.error(`[Director] Batch ${b.batch_id.slice(0, 8)} failed:`, err.message);
+      }
     }
 
     return {

@@ -4,7 +4,6 @@ import { getSetting, setSetting, updateProject, updateDeployment, getMetaPerform
 import * as metaAds from '../services/metaAds.js';
 
 const router = Router();
-router.use(requireAuth);
 
 // Helper to build the OAuth redirect URI from the request
 function getRedirectUri(req) {
@@ -14,14 +13,14 @@ function getRedirectUri(req) {
 }
 
 // ══════════════════════════════════════════════════════════════════════════════
-// OAuth Callback — GLOBAL (Meta always redirects here, projectId is in state)
+// OAuth Callback — separate router, mounted WITHOUT auth in server.js
+// (session cookie not sent on cross-site redirect from facebook.com
+// due to sameSite: 'strict')
 // ══════════════════════════════════════════════════════════════════════════════
 
-/**
- * GET /api/meta/callback
- * OAuth callback — exchanges code for token, redirects to project page.
- */
-router.get('/meta/callback', async (req, res) => {
+const callbackRouter = Router();
+
+callbackRouter.get('/meta/callback', async (req, res) => {
   try {
     const { code, state, error: oauthError } = req.query;
 
@@ -47,7 +46,6 @@ router.get('/meta/callback', async (req, res) => {
     }
 
     const redirectUri = getRedirectUri(req);
-    // Pass state param for CSRF validation inside handleOAuthCallback
     await metaAds.handleOAuthCallback(code, redirectUri, projectId, state);
 
     res.redirect(`${redirectBase}?meta=connected`);
@@ -56,6 +54,8 @@ router.get('/meta/callback', async (req, res) => {
     res.redirect('/settings?meta=error&message=' + encodeURIComponent(err.message));
   }
 });
+
+export { callbackRouter as metaCallbackRouter };
 
 // ══════════════════════════════════════════════════════════════════════════════
 // Project-scoped Meta routes: /api/projects/:projectId/meta/*

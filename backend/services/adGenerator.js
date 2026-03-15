@@ -913,7 +913,18 @@ function formatPriorHeadlineHistory(priorHeadlines) {
  * @param {string} angle - The advertising angle for this batch
  * @returns {string} brief_packet (markdown)
  */
+// Brief extraction cache — keyed by projectId+angle, 24h TTL
+const briefCache = new Map(); // key -> { brief, expiresAt }
+const BRIEF_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+
 export async function extractBrief(project, docs, angle, angleBrief = null) {
+  // Check cache first
+  const cacheKey = `${project?.id || 'unknown'}::${angle || 'general'}`;
+  const cached = briefCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) {
+    console.log(`[Pipeline Stage 0] Brief cache hit for "${(angle || 'general').slice(0, 40)}" (${cached.brief.length} chars)`);
+    return cached.brief;
+  }
   const researchContent = docs.research?.content || '[No research document available]';
   const avatarContent = docs.avatar?.content || '[No avatar sheet available]';
   const offerContent = docs.offer_brief?.content || '[No offer brief available]';
@@ -991,13 +1002,15 @@ ${beliefsContent}`;
   for (let attempt = 1; attempt <= 2; attempt++) {
     try {
       const briefPacket = await withHeavyLLMLimit(async () => {
-        return await claudeChat([{ role: 'user', content: prompt }], 'claude-opus-4-6', {
+        return await claudeChat([{ role: 'user', content: prompt }], 'claude-sonnet-4-6', {
           operation: 'batch_brief_extraction',
           projectId: project?.id || null,
         });
       }, `[Stage 0 Brief Extraction attempt ${attempt}]`);
 
       console.log(`[Pipeline Stage 0] Brief extracted (${briefPacket.length} chars) for angle: "${(angle || 'general').slice(0, 40)}"`);
+      // Cache the result
+      briefCache.set(cacheKey, { brief: briefPacket, expiresAt: Date.now() + BRIEF_CACHE_TTL_MS });
       return briefPacket;
     } catch (err) {
       console.error(`[Pipeline Stage 0] Attempt ${attempt}/2 failed:`, err.message);
@@ -1171,7 +1184,7 @@ Return ONLY valid JSON:
               ? prompt + `\n\nIMPORTANT: Your previous attempt did not succeed. Generate exactly ${count} headlines, use only the allowed lanes, and return valid JSON.`
               : prompt
           }],
-          'claude-opus-4-6',
+          'claude-sonnet-4-6',
           {
             response_format: { type: 'json_object' },
             operation: 'batch_headline_generation',
@@ -1691,6 +1704,130 @@ Output the image generation prompt as a single text block ready to paste into th
   }, `[Stage 3 Image Prompt]`);
 
   return imagePrompt;
+}
+
+/**
+ * Stage 3 (batched): Generate image prompts for multiple ads in a single LLM call.
+ * Groups 2-3 ads per call to reduce API costs (~45% fewer calls).
+ *
+ * @param {object} project - Project record
+ * @param {Array<{headline, body_copy, primary_emotion, headlineMeta}>} ads - Ad copy specs
+ * @param {{ base64: string, mimeType: string }|null} imageData - Shared template image
+ * @param {string} aspectRatio - Aspect ratio
+ * @param {object|null} angleBrief - Angle brief for visual direction
+ * @param {object} options - { documentaryMode }
+ * @returns {string[]} Array of image prompts (one per ad)
+ */
+export async function generateImagePromptsBatch(project, ads, imageData, aspectRatio, angleBrief = null, options = {}) {
+  const documentaryMode = !!options.documentaryMode;
+
+  // Build shared visual direction block
+  let visualDirectionBlock = '';
+  if (angleBrief && (angleBrief.scene || angleBrief.frame || angleBrief.tone)) {
+    const parts = [];
+    if (angleBrief.scene) parts.push(`SCENE/SETTING: ${angleBrief.scene}`);
+    if (angleBrief.frame) parts.push(`AD FRAME: ${angleBrief.frame}`);
+    if (angleBrief.core_buyer) parts.push(`CORE BUYER: ${angleBrief.core_buyer}`);
+    if (angleBrief.emotional_state) parts.push(`EMOTIONAL STATE TO CONVEY: ${angleBrief.emotional_state}`);
+    if (angleBrief.tone) parts.push(`TONE: ${angleBrief.tone}`);
+    if (angleBrief.avoid_list) parts.push(`VISUAL ELEMENTS TO AVOID: ${angleBrief.avoid_list}`);
+    visualDirectionBlock = '\nSTRUCTURED VISUAL DIRECTION:\n' + parts.join('\n') + '\n';
+  }
+
+  // Build per-ad spec blocks
+  const adSpecs = ads.map((ad, i) => {
+    const meta = ad.headlineMeta || {};
+    let strategyBlock = '';
+    if (meta.hook_lane || meta.scene_anchor || meta.core_claim) {
+      const parts = [];
+      if (meta.hook_lane) parts.push(`HOOK LANE: ${meta.hook_lane}`);
+      if (meta.sub_angle) parts.push(`SUB-ANGLE: ${meta.sub_angle}`);
+      if (meta.scene_anchor) parts.push(`SCENE ANCHOR: ${meta.scene_anchor}`);
+      if (meta.core_claim) parts.push(`CORE CLAIM: ${meta.core_claim}`);
+      if (meta.target_symptom) parts.push(`TARGET SYMPTOM: ${meta.target_symptom}`);
+      if (meta.emotional_entry) parts.push(`EMOTIONAL ENTRY: ${meta.emotional_entry}`);
+      if (meta.desired_belief_shift) parts.push(`DESIRED BELIEF SHIFT: ${meta.desired_belief_shift}`);
+      strategyBlock = '\n' + parts.join('\n');
+    }
+    return `--- AD ${i + 1} ---
+HEADLINE: "${ad.headline}"
+BODY COPY: "${ad.body_copy}"
+PRIMARY EMOTION: ${ad.primary_emotion || 'curiosity'}${strategyBlock}`;
+  }).join('\n\n');
+
+  const modeInstruction = documentaryMode
+    ? `You are a creative director generating documentary-style image prompts for Meta ads aimed at women 55-75.
+Generate pure documentary/lifestyle scenes that visually express each ad's copy without rendering any words.
+CRITICAL NEGATIVES: NO text overlays, NO logos, NO product unless the angle brief demands it, NO ad-template framing.`
+    : `You are a creative director generating prompts for text-to-image AI software. You create Facebook ad visuals for DTC health/wellness brands targeting women 55-75.
+${imageData ? 'Analyze the attached template image for layout, color palette, typography, and composition. Each prompt should recreate this style.' : ''}
+Each prompt should render the EXACT headline and body copy text. Do not rewrite them.`;
+
+  const promptText = `${modeInstruction}
+
+BRAND: ${project.brand_name || project.name}
+PRODUCT: ${project.product_description || ''}
+ASPECT RATIO: ${aspectRatio || '1:1'}
+${visualDirectionBlock}
+
+I need you to generate ${ads.length} SEPARATE image prompts — one for each ad below. Each prompt must be tailored to its specific headline, body copy, and emotion.
+
+${adSpecs}
+
+Return a JSON object with a "prompts" array containing exactly ${ads.length} prompt strings, one per ad in order:
+{"prompts": ["prompt for ad 1", "prompt for ad 2"${ads.length > 2 ? ', "prompt for ad 3"' : ''}]}
+
+Each prompt should be a complete, standalone image generation prompt.`;
+
+  const result = await withHeavyLLMLimit(async () => {
+    if (imageData) {
+      const imageBase64 = readImageBase64(imageData);
+      return await claudeChatWithImage(
+        [],
+        promptText,
+        imageBase64,
+        imageData.mimeType,
+        'claude-sonnet-4-6',
+        { operation: 'batch_image_prompt', projectId: project?.id || null }
+      );
+    }
+    return await claudeChat(
+      [{ role: 'user', content: promptText }],
+      'claude-sonnet-4-6',
+      { operation: 'batch_image_prompt', projectId: project?.id || null }
+    );
+  }, `[Stage 3 Image Prompt Batch x${ads.length}]`);
+
+  // Parse JSON response
+  try {
+    const parsed = JSON.parse(result);
+    if (parsed.prompts && Array.isArray(parsed.prompts) && parsed.prompts.length === ads.length) {
+      return parsed.prompts;
+    }
+  } catch {}
+
+  // Fallback: try to extract JSON from response
+  try {
+    const match = result.match(/\{[\s\S]*"prompts"[\s\S]*\}/);
+    if (match) {
+      const parsed = JSON.parse(match[0]);
+      if (parsed.prompts && Array.isArray(parsed.prompts) && parsed.prompts.length === ads.length) {
+        return parsed.prompts;
+      }
+    }
+  } catch {}
+
+  // Last resort: fall back to single-prompt calls
+  console.warn(`[Stage 3] Batch parse failed for ${ads.length} ads, falling back to individual calls`);
+  const fallbackPrompts = [];
+  for (const ad of ads) {
+    const prompt = await generateImagePrompt(
+      project, ad.headline, ad.body_copy, ad.primary_emotion,
+      imageData, aspectRatio, angleBrief, ad.headlineMeta, options
+    );
+    fallbackPrompts.push(prompt);
+  }
+  return fallbackPrompts;
 }
 
 export async function repairBodyCopy(project, options = {}) {

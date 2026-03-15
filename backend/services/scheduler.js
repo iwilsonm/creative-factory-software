@@ -3,6 +3,7 @@ import { getActiveBatchJobs, getScheduledBatchJobs, getBatchJob, updateBatchJob,
 import { runBatch, pollBatchJob } from './batchProcessor.js';
 import { syncOpenAICosts, refreshGeminiRates } from './costTracker.js';
 import { syncMetaPerformance, refreshMetaTokenIfNeeded } from './metaAds.js';
+import { getRateLimiterStats } from './rateLimiter.js';
 
 // Store active cron jobs so we can stop/restart them
 const activeCronJobs = new Map(); // batchId -> cron.ScheduledTask
@@ -256,6 +257,13 @@ async function pollActiveBatches() {
         const startedAt = batch.started_at ? new Date(batch.started_at).getTime() : 0;
         const elapsed = Date.now() - startedAt;
         if (elapsed > STALE_THRESHOLD_MS) {
+          // If the LLM queue is congested, the batch is alive but waiting — not stale
+          const rlStats = getRateLimiterStats();
+          if (rlStats.queuedHeavyCalls > 0) {
+            console.log(`[Scheduler] Batch ${batch.id.slice(0, 8)}: generating_prompts for ${Math.round(elapsed / 60000)}min but LLM queue has ${rlStats.queuedHeavyCalls} pending — not stale, skipping`);
+            continue;
+          }
+
           const staleDetectedAt = batch.stale_detected_at ? new Date(batch.stale_detected_at).getTime() : 0;
           if (!staleDetectedAt) {
             // First detection — mark it but don't retry yet (batch may still be alive)
