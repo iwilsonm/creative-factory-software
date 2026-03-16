@@ -742,7 +742,12 @@ export async function getInspirationImages(projectId) {
 }
 
 export async function getAllInspirationImages() {
-  return await cachedQuery('inspiration_images', api.inspirationImages.getAll, {});
+  // Use indexed per-project queries instead of unindexed getAll (which crashes on 200+ records)
+  const projects = await getAllProjects();
+  const results = await Promise.all(
+    projects.map(p => getInspirationImages(p.id))
+  );
+  return results.flat();
 }
 
 export async function getInspirationImage(projectId, driveFileId) {
@@ -841,7 +846,12 @@ export async function getTemplateImageUrl(externalId) {
 }
 
 export async function getAllTemplateImages() {
-  return await cachedQuery('template_images', api.templateImages.getAll, {});
+  // Use indexed per-project queries instead of unindexed getAll (which crashes on large tables)
+  const projects = await getAllProjects();
+  const results = await Promise.all(
+    projects.map(p => queryWithRetry(api.templateImages.getByProject, { projectId: p.id }))
+  );
+  return results.flat();
 }
 
 // =============================================
