@@ -20,7 +20,7 @@ const SERVICES = [
   { key: 'perplexity', label: 'Perplexity',  color: '#C4975A', hoverColor: '#B3874A', legendColor: 'bg-gold',        tooltipColor: 'text-gold' },
 ];
 
-export default function CostBarChart({ data, loading }) {
+export default function CostBarChart({ data, loading, rangeLabel }) {
   const [hoveredIndex, setHoveredIndex] = useState(null);
 
   const chartData = useMemo(() => {
@@ -56,7 +56,7 @@ export default function CostBarChart({ data, loading }) {
   if (!data || data.length === 0) {
     return (
       <div className="card p-5">
-        <h4 className="text-[13px] font-semibold text-textdark mb-3">30 Days of Spend History</h4>
+        <h4 className="text-[13px] font-semibold text-textdark mb-3">{rangeLabel || 'Spend History'}</h4>
         <div className="h-32 flex items-center justify-center text-[12px] text-textlight">
           No cost data yet. Costs will appear here after generating ads.
         </div>
@@ -72,7 +72,7 @@ export default function CostBarChart({ data, loading }) {
   return (
     <div className="card p-5">
       <div className="flex items-center justify-between mb-4">
-        <h4 className="text-[13px] font-semibold text-textdark">30 Days of Spend History</h4>
+        <h4 className="text-[13px] font-semibold text-textdark">{rangeLabel || 'Spend History'}</h4>
         <div className="flex items-center gap-3 text-[10px] text-textlight">
           {activeServices.map(s => (
             <span key={s.key} className="flex items-center gap-1">
