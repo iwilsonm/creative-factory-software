@@ -441,8 +441,8 @@ async function generateBatchPrompts(batch, project, docs, onProgress, options = 
   }
   const newlyUsedTemplateIds = [];
 
-  // Process image prompts in chunks of 3 to reduce LLM calls (~45% fewer)
-  const CHUNK_SIZE = 3;
+  // Process image prompts one at a time so each ad gets a unique inspiration image
+  const CHUNK_SIZE = 1;
   for (let chunkStart = 0; chunkStart < bodyCopies.length; chunkStart += CHUNK_SIZE) {
     await throwIfCancelled();
     const chunk = bodyCopies.slice(chunkStart, Math.min(chunkStart + CHUNK_SIZE, bodyCopies.length));
