@@ -662,21 +662,15 @@ export default function Dashboard() {
 
           {/* Date range selector */}
           <div className="flex items-center gap-2 flex-wrap">
-            <div className="inline-flex items-center bg-gray-100 rounded-lg p-0.5">
+            <select
+              value={historyRange.key}
+              onChange={e => setHistoryRange(HISTORY_RANGES.find(r => r.key === e.target.value) || HISTORY_RANGES[2])}
+              className="input-apple text-[11px] py-1.5 px-2.5 w-auto"
+            >
               {HISTORY_RANGES.map(r => (
-                <button
-                  key={r.key}
-                  onClick={() => setHistoryRange(r)}
-                  className={`text-[11px] px-2.5 py-1 rounded-md font-medium transition-colors whitespace-nowrap ${
-                    historyRange.key === r.key
-                      ? 'bg-white text-navy shadow-sm'
-                      : 'text-textmid hover:text-textdark'
-                  }`}
-                >
-                  {r.label}
-                </button>
+                <option key={r.key} value={r.key}>{r.label}</option>
               ))}
-            </div>
+            </select>
             {historyRange.key === 'custom' && (
               <div className="flex items-center gap-1.5 text-[11px]">
                 <input

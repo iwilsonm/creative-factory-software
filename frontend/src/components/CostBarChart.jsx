@@ -69,10 +69,18 @@ export default function CostBarChart({ data, loading, rangeLabel }) {
   const barWidth = Math.max(4, Math.min(14, (100 / bars.length) * 0.7));
   const barGap = Math.max(1, (100 / bars.length) * 0.3);
 
+  const grandTotal = useMemo(() => {
+    if (!data || data.length === 0) return 0;
+    return data.reduce((sum, d) => sum + (d.total || 0), 0);
+  }, [data]);
+
   return (
     <div className="card p-5">
       <div className="flex items-center justify-between mb-4">
-        <h4 className="text-[13px] font-semibold text-textdark">{rangeLabel || 'Spend History'}</h4>
+        <div className="flex items-center gap-3">
+          <h4 className="text-[13px] font-semibold text-textdark">{rangeLabel || 'Spend History'}</h4>
+          <span className="text-[12px] font-semibold text-textmid">Total: {formatCost(grandTotal)}</span>
+        </div>
         <div className="flex items-center gap-3 text-[10px] text-textlight">
           {activeServices.map(s => (
             <span key={s.key} className="flex items-center gap-1">

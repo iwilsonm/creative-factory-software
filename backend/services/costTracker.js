@@ -434,9 +434,9 @@ export async function getCostSummary(projectId = null) {
   weekAgo.setDate(weekAgo.getDate() - 7);
   const weekStr = weekAgo.toISOString().split('T')[0];
 
-  const monthAgo = new Date();
-  monthAgo.setDate(monthAgo.getDate() - 30);
-  const monthStr = monthAgo.toISOString().split('T')[0];
+  const now = new Date();
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1);
+  const monthStr = monthStart.toISOString().split('T')[0];
 
   const [todayData, weekData, monthData] = await Promise.all([
     getCostAggregates(today, today, projectId),
