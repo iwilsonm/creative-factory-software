@@ -1482,8 +1482,11 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
               const hasGauntlet = gauntletUrls.length > 0;
               const hasLegacy = !hasGauntlet && (flexAd.lp_primary_url || flexAd.lp_secondary_url);
 
-              // Build unified URL list
+              // Build unified URL list — Product Page always first
               const allUrls = [];
+              if (flexAd.destination_url && (hasGauntlet || hasLegacy)) {
+                allUrls.push({ url: flexAd.destination_url, label: 'Product Page' });
+              }
               if (hasGauntlet) {
                 gauntletUrls.forEach(lp => {
                   const isObj = typeof lp === 'object' && lp !== null;
@@ -1493,9 +1496,6 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
               if (hasLegacy) {
                 if (flexAd.lp_primary_url) allUrls.push({ url: flexAd.lp_primary_url, label: 'Landing Page 1' });
                 if (flexAd.lp_secondary_url) allUrls.push({ url: flexAd.lp_secondary_url, label: 'Landing Page 2' });
-              }
-              if (flexAd.destination_url && (hasGauntlet || hasLegacy)) {
-                allUrls.push({ url: flexAd.destination_url, label: hasGauntlet ? 'Product Page' : 'Product Page' });
               }
 
               if (allUrls.length === 0) {
