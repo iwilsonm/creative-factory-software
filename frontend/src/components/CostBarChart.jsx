@@ -44,6 +44,11 @@ export default function CostBarChart({ data, loading, rangeLabel }) {
     return SERVICES.filter(s => data.some(d => (d[s.key] || 0) > 0));
   }, [data]);
 
+  const grandTotal = useMemo(() => {
+    if (!data || data.length === 0) return 0;
+    return data.reduce((sum, d) => sum + (d.total || 0), 0);
+  }, [data]);
+
   if (loading) {
     return (
       <div className="card p-5">
@@ -68,11 +73,6 @@ export default function CostBarChart({ data, loading, rangeLabel }) {
   const chartHeight = 160;
   const barWidth = Math.max(4, Math.min(14, (100 / bars.length) * 0.7));
   const barGap = Math.max(1, (100 / bars.length) * 0.3);
-
-  const grandTotal = useMemo(() => {
-    if (!data || data.length === 0) return 0;
-    return data.reduce((sum, d) => sum + (d.total || 0), 0);
-  }, [data]);
 
   return (
     <div className="card p-5">
