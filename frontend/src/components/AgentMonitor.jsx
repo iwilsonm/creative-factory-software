@@ -2279,13 +2279,13 @@ function DirectorTab({ onRefresh }) {
           ))}
         </select>
 
-        <label className={`flex items-center gap-2 text-[11px] ${baseLoading || !config ? 'text-textlight cursor-not-allowed' : 'text-textmid cursor-pointer'}`}>
+        <label className={`flex items-center gap-2 text-[11px] ${baseLoading ? 'text-textlight cursor-not-allowed' : 'text-textmid cursor-pointer'}`}>
           <div
             onClick={() => {
-              if (!config) return;
-              handleSaveConfig({ enabled: !config.enabled });
+              if (baseLoading) return;
+              handleSaveConfig({ enabled: !(config?.enabled) });
             }}
-            className={`relative w-7 h-4 rounded-full transition-colors duration-200 ${config ? 'cursor-pointer' : 'cursor-not-allowed opacity-50'} ${config?.enabled ? 'bg-teal/30' : 'bg-black/10'}`}
+            className={`relative w-7 h-4 rounded-full transition-colors duration-200 cursor-pointer ${config?.enabled ? 'bg-teal/30' : 'bg-black/10'}`}
           >
             <div className={`absolute top-0.5 w-3 h-3 rounded-full transition-all duration-200 shadow-sm ${config?.enabled ? 'left-3.5 bg-teal' : 'left-0.5 bg-textlight'}`} />
           </div>
