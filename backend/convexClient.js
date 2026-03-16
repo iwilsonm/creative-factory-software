@@ -836,6 +836,10 @@ export async function getTemplateImageUrl(externalId) {
   return await queryWithRetry(api.templateImages.getImageUrl, { externalId });
 }
 
+export async function getAllTemplateImages() {
+  return await cachedQuery('template_images', api.templateImages.getAll, {});
+}
+
 // =============================================
 // Ad Deployment helpers (Ad Tracker feature)
 // =============================================

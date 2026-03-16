@@ -11,6 +11,17 @@ export const getByProject = query({
   },
 });
 
+// Returns all template images globally (shared across projects)
+export const getAll = query({
+  args: {},
+  handler: async (ctx) => {
+    return await ctx.db
+      .query("template_images")
+      .order("desc")
+      .take(500);
+  },
+});
+
 export const getByExternalId = query({
   args: { externalId: v.string() },
   handler: async (ctx, args) => {

@@ -6,7 +6,7 @@ import fs from 'fs';
 import os from 'os';
 import { fileURLToPath } from 'url';
 import { requireAuth } from '../auth.js';
-import { getProject, uploadBuffer, downloadToBuffer, getTemplateImageUrl, convexClient, api } from '../convexClient.js';
+import { getProject, uploadBuffer, downloadToBuffer, getTemplateImageUrl, getAllTemplateImages, convexClient, api } from '../convexClient.js';
 import { chatWithImage } from '../services/openai.js';
 
 const router = Router();
@@ -42,9 +42,7 @@ router.get('/:projectId/templates', async (req, res) => {
     const project = await getProject(req.params.projectId);
     if (!project) return res.status(404).json({ error: 'Project not found' });
 
-    const templates = await convexClient.query(api.templateImages.getByProject, {
-      projectId: req.params.projectId,
-    });
+    const templates = await getAllTemplateImages();
 
     // Add thumbnail URLs + analysis cache
     const withUrls = templates.map(t => ({
@@ -115,7 +113,7 @@ router.put('/:projectId/templates/:imageId', async (req, res) => {
     const template = await convexClient.query(api.templateImages.getByExternalId, {
       externalId: req.params.imageId,
     });
-    if (!template || template.project_id !== req.params.projectId) {
+    if (!template) {
       return res.status(404).json({ error: 'Template not found' });
     }
 
@@ -147,7 +145,7 @@ router.delete('/:projectId/templates/:imageId', async (req, res) => {
     const template = await convexClient.query(api.templateImages.getByExternalId, {
       externalId: req.params.imageId,
     });
-    if (!template || template.project_id !== req.params.projectId) {
+    if (!template) {
       return res.status(404).json({ error: 'Template not found' });
     }
 
@@ -194,7 +192,7 @@ router.post('/:projectId/templates/:templateId/analyze', async (req, res) => {
     const template = await convexClient.query(api.templateImages.getByExternalId, {
       externalId: req.params.templateId,
     });
-    if (!template || template.project_id !== req.params.projectId) {
+    if (!template) {
       return res.status(404).json({ error: 'Template not found' });
     }
 
