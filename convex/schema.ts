@@ -109,6 +109,8 @@ export default defineSchema({
     batch_job_id: v.optional(v.string()),    // → batch_jobs.externalId (batch that generated this ad)
     copy_framework: v.optional(v.string()),  // Legacy: from removed diversity features
     sub_angle: v.optional(v.string()),       // Secondary variation label within a hook lane
+    text_model: v.optional(v.string()),      // LLM used for copy (e.g., "gpt-5.2")
+    image_model: v.optional(v.string()),     // Model used for image (e.g., "gemini-3-pro")
     created_at: v.string(),
   })
     .index("by_externalId", ["externalId"])

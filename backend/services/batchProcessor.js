@@ -896,6 +896,8 @@ async function processBatchResults(batchId, job) {
           ? promptObj.visual_reference_id
           : undefined) || undefined,
         batch_job_id: batchId,
+        text_model: 'claude-sonnet-4-6',
+        image_model: 'gemini-3-pro',
       });
 
       if (batch.angle_name && typeof promptObj === 'object' && promptObj?.headline) {

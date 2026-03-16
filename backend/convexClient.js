@@ -500,6 +500,8 @@ function convexAdToRow(a) {
     tags: a.tags || [],
     is_favorite: !!a.is_favorite,
     source_quote_id: a.source_quote_id || null,
+    text_model: a.text_model || null,
+    image_model: a.image_model || null,
     created_at: a.created_at,
   };
 }

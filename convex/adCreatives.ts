@@ -169,6 +169,8 @@ export const create = mutation({
     batch_job_id: v.optional(v.string()),
     tags: v.optional(v.array(v.string())),
     sub_angle: v.optional(v.string()),
+    text_model: v.optional(v.string()),
+    image_model: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const now = new Date().toISOString();
@@ -205,6 +207,8 @@ export const update = mutation({
     inspiration_image_id: v.optional(v.string()),
     tags: v.optional(v.array(v.string())),
     is_favorite: v.optional(v.boolean()),
+    text_model: v.optional(v.string()),
+    image_model: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const ad = await ctx.db

@@ -3169,6 +3169,14 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
                     <p className="text-[11px] text-textlight mb-0.5">Aspect Ratio</p>
                     <p className="text-textdark text-[12px]">{viewAd.aspect_ratio}</p>
                   </div>
+                  {(viewAd.text_model || viewAd.image_model) && (
+                    <div className="col-span-2">
+                      <p className="text-[11px] text-textlight mb-0.5">Models</p>
+                      <p className="text-textdark text-[12px]">
+                        {[viewAd.text_model, viewAd.image_model].filter(Boolean).join(' + ') || '—'}
+                      </p>
+                    </div>
+                  )}
                 </div>
                 {viewAd.angle && (
                   <div>
