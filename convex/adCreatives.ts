@@ -16,7 +16,7 @@ export const getByProject = query({
       .query("ad_creatives")
       .withIndex("by_project", (q) => q.eq("project_id", args.projectId))
       .order("desc")
-      .collect();
+      .take(1000);
   },
 });
 
@@ -46,7 +46,7 @@ export const getGalleryByProject = query({
       .query("ad_creatives")
       .withIndex("by_project", (q) => q.eq("project_id", args.projectId))
       .order("desc")
-      .collect();
+      .take(500);
 
     return ads.map((ad) => ({
       externalId: ad.externalId,
@@ -89,7 +89,7 @@ export const getInProgressByProject = query({
     const ads = await ctx.db
       .query("ad_creatives")
       .withIndex("by_project", (q) => q.eq("project_id", args.projectId))
-      .collect();
+      .take(500);
     return ads.filter(
       (ad) => ad.status === "generating_copy" || ad.status === "generating_image"
     );
