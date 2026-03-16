@@ -535,6 +535,7 @@ function convexAdSummaryToRow(a) {
     drive_file_id: a.drive_file_id || null,
     drive_url: a.drive_url || null,
     has_edit_prompt: !!a.has_image_prompt,
+    batch_job_id: a.batch_job_id || null,
     created_at: a.created_at,
   };
 }

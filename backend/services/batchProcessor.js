@@ -631,21 +631,27 @@ async function submitGeminiBatch(batchId, prompts, aspectRatio, projectName, pro
   const ai = await getClient();
   const timestamp = new Date().toISOString().replace(/[:.]/g, '-').slice(0, 16);
 
-  // Build inline requests — read images from temp files one at a time to reduce peak memory
+  // Build inline requests — read images from temp files, caching shared paths
+  // (Multiple prompts in a chunk share the same inspirationTmpPath)
+  const inspirationCache = new Map();
   const inlineRequests = prompts.map(promptObj => {
     const parts = [{ text: promptObj.prompt }];
 
     // Include inspiration image so Gemini can reference the visual style
     if (promptObj.inspirationTmpPath) {
-      const base64 = readImageBase64({ tmpPath: promptObj.inspirationTmpPath });
+      let base64 = inspirationCache.get(promptObj.inspirationTmpPath);
+      if (!base64) {
+        base64 = readImageBase64({ tmpPath: promptObj.inspirationTmpPath });
+        inspirationCache.set(promptObj.inspirationTmpPath, base64);
+        // Clean up temp file after caching
+        cleanupImageData({ tmpPath: promptObj.inspirationTmpPath });
+      }
       parts.push({
         inlineData: {
           data: base64,
           mimeType: promptObj.inspirationMimeType || 'image/jpeg'
         }
       });
-      // Clean up temp file immediately after reading
-      cleanupImageData({ tmpPath: promptObj.inspirationTmpPath });
     }
 
     // Include product image only for prompts that explicitly want it.
@@ -668,6 +674,7 @@ async function submitGeminiBatch(batchId, prompts, aspectRatio, projectName, pro
       }
     };
   });
+  inspirationCache.clear(); // Free cached image data
 
   const batchJob = await withRetry(
     () => ai.batches.create({

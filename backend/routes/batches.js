@@ -67,7 +67,7 @@ router.post('/:projectId/batches', async (req, res) => {
       project_id: req.params.projectId,
       generation_mode,
       batch_size: size,
-      angle: angle || null,
+      angle: (angle && angle !== 'undefined') ? angle : null,
       aspect_ratio,
       template_image_id: template_image_id || null,
       template_image_ids: template_image_ids || null,

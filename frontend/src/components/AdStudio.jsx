@@ -180,7 +180,11 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
   const [viewAdLoading, setViewAdLoading] = useState(false);
   const [galleryFilter, setGalleryFilter] = useState('individual'); // 'individual' | 'batch' | 'all'
   const [galleryView, setGalleryView] = useState('grid'); // 'grid' | 'list'
-  const [dateRange, setDateRange] = useState('4d'); // 'today' | 'yesterday' | '4d' | '7d' | '14d' | '30d' | 'all'
+  const [dateRange, setDateRange] = useState('4d'); // applied range
+  const [pendingRange, setPendingRange] = useState('4d'); // dropdown selection (not yet applied)
+  const [customFrom, setCustomFrom] = useState('');
+  const [customTo, setCustomTo] = useState('');
+  const [searchQuery, setSearchQuery] = useState('');
 
   // Tags
   const [tagEditAd, setTagEditAd] = useState(null); // ad being tag-edited
@@ -1436,12 +1440,12 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
     // Hide in-progress ads from gallery (they show in the queue instead)
     if (ad.status === 'generating_copy' || ad.status === 'generating_image') return false;
     if (galleryFilter === 'favorites') return !!ad.is_favorite;
-    if (galleryFilter === 'individual') return !ad.auto_generated;
-    if (galleryFilter === 'batch') return !!ad.auto_generated;
+    if (galleryFilter === 'individual') return !ad.auto_generated && !ad.batch_job_id;
+    if (galleryFilter === 'batch') return !!ad.auto_generated || !!ad.batch_job_id;
     return true; // 'all'
   });
 
-  const filteredAds = typeFilteredAds.filter(ad => {
+  const dateFilteredAds = typeFilteredAds.filter(ad => {
     if (dateRange === 'all') return true;
     const adDate = parseDate(ad.created_at);
     if (!adDate) return true; // show ads with unparseable dates
@@ -1454,13 +1458,34 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
       const startOfYesterday = new Date(now.getFullYear(), now.getMonth(), now.getDate() - 1);
       return adDate >= startOfYesterday;
     }
+    if (dateRange === 'custom') {
+      if (customFrom) {
+        const from = new Date(customFrom + 'T00:00:00');
+        if (adDate < from) return false;
+      }
+      if (customTo) {
+        const to = new Date(customTo + 'T23:59:59');
+        if (adDate > to) return false;
+      }
+      return true;
+    }
     const daysMap = { '4d': 4, '7d': 7, '14d': 14, '30d': 30 };
     const cutoff = new Date();
     cutoff.setDate(cutoff.getDate() - daysMap[dateRange]);
     return adDate >= cutoff;
   });
 
-  const hiddenByDateCount = typeFilteredAds.length - filteredAds.length;
+  const filteredAds = searchQuery.trim()
+    ? dateFilteredAds.filter(ad => {
+        const q = searchQuery.trim().toLowerCase();
+        return (ad.headline && ad.headline.toLowerCase().includes(q))
+          || (ad.angle_name && ad.angle_name.toLowerCase().includes(q))
+          || (ad.body_copy && ad.body_copy.toLowerCase().includes(q))
+          || (ad.angle && ad.angle !== 'undefined' && ad.angle.toLowerCase().includes(q));
+      })
+    : dateFilteredAds;
+
+  const hiddenByDateCount = typeFilteredAds.length - dateFilteredAds.length;
 
   // Client-side pagination — render a limited number of ads for responsiveness
   const AD_PAGE_SIZE = 24;
@@ -1472,11 +1497,11 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
   useEffect(() => {
     setSelectedAdIds(new Set());
     setDisplayCount(AD_PAGE_SIZE);
-  }, [galleryFilter, dateRange]);
+  }, [galleryFilter, dateRange, searchQuery]);
 
   // Counts for filter labels
-  const individualCount = ads.filter(a => !a.auto_generated).length;
-  const batchCount = ads.filter(a => !!a.auto_generated).length;
+  const individualCount = ads.filter(a => !a.auto_generated && !a.batch_job_id).length;
+  const batchCount = ads.filter(a => !!a.auto_generated || !!a.batch_job_id).length;
   const favoritesCount = ads.filter(a => !!a.is_favorite).length;
   const completedFilteredAds = filteredAds.filter(ad => ad.status === 'completed' && ad.imageUrl);
   const allFilteredSelected = completedFilteredAds.length > 0 && completedFilteredAds.every(ad => selectedAdIds.has(ad.id));
@@ -2519,23 +2544,49 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
                   </button>
                 )}
               </div>
-              <select
-                value={dateRange}
-                onChange={(e) => setDateRange(e.target.value)}
-                className="input-apple text-[12px] py-1 px-2 pr-7 w-auto"
-              >
-                <option value="today">Today</option>
-                <option value="yesterday">Yesterday</option>
-                <option value="4d">Last 4 days</option>
-                <option value="7d">Last 7 days</option>
-                <option value="14d">Last 14 days</option>
-                <option value="30d">Last 30 days</option>
-                <option value="all">All time</option>
-              </select>
+              <div className="flex items-center gap-1.5">
+                <select
+                  value={pendingRange}
+                  onChange={(e) => setPendingRange(e.target.value)}
+                  className="input-apple text-[12px] py-1 px-2 pr-7 w-auto"
+                >
+                  <option value="today">Today</option>
+                  <option value="yesterday">Yesterday</option>
+                  <option value="4d">Last 4 days</option>
+                  <option value="7d">Last 7 days</option>
+                  <option value="14d">Last 14 days</option>
+                  <option value="30d">Last 30 days</option>
+                  <option value="all">All time</option>
+                  <option value="custom">Custom range</option>
+                </select>
+                {pendingRange === 'custom' && (
+                  <>
+                    <input type="date" value={customFrom} onChange={(e) => setCustomFrom(e.target.value)} className="input-apple text-[11px] py-1 px-1.5 w-[120px]" />
+                    <span className="text-[11px] text-textlight">to</span>
+                    <input type="date" value={customTo} onChange={(e) => setCustomTo(e.target.value)} className="input-apple text-[11px] py-1 px-1.5 w-[120px]" />
+                  </>
+                )}
+                <button
+                  onClick={() => setDateRange(pendingRange)}
+                  className="px-2.5 py-1 text-[11px] font-medium bg-navy text-white rounded-md hover:bg-navy-light transition-colors"
+                >
+                  Apply
+                </button>
+              </div>
             </div>
           )}
           {ads.length > 0 && (
-            <div className="flex items-center gap-1 ml-2">
+            <div className="flex items-center gap-2 ml-2">
+              <div className="relative">
+                <svg className="absolute left-2 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-textlight" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z" /></svg>
+                <input
+                  type="text"
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  placeholder="Search ads..."
+                  className="input-apple text-[12px] py-1 pl-7 pr-2 w-40"
+                />
+              </div>
               <button
                 onClick={() => setGalleryView('grid')}
                 className={`p-1.5 rounded-md transition-colors ${galleryView === 'grid' ? 'bg-black/5 text-textdark' : 'text-textlight/60 hover:text-textmid'}`}
@@ -2759,11 +2810,9 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
                     <span className="text-[11px] text-textlight">{ad.aspect_ratio}</span>
                     <span className="text-[11px] text-textlight">{formatDateTime(ad.created_at)}</span>
                   </div>
-                  {ad.angle && (
-                    <p className="text-[12px] text-textdark font-medium truncate" title={ad.angle}>
-                      {ad.angle}
-                    </p>
-                  )}
+                  <p className="text-[12px] text-textdark font-medium truncate" title={ad.headline || ad.angle_name || ''}>
+                    {ad.headline || ad.angle_name || 'Untitled'}
+                  </p>
                   {/* Tags */}
                   <div className="flex items-center gap-1 mt-1 flex-wrap">
                     {(ad.tags || []).slice(0, 3).map(tag => (
@@ -2851,7 +2900,7 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
 
                 {/* Info */}
                 <div className="flex-1 min-w-0">
-                  <p className="text-[13px] font-medium text-textdark truncate">{ad.angle || 'No angle'}</p>
+                  <p className="text-[13px] font-medium text-textdark truncate">{ad.headline || ad.angle_name || 'Untitled'}</p>
                   <div className="flex items-center gap-1 mt-0.5 flex-wrap">
                     {(ad.tags || []).slice(0, 4).map(tag => (
                       <span key={tag} className="text-[10px] px-1.5 py-0.5 bg-navy/5 text-navy rounded-full">{tag}</span>
@@ -2873,7 +2922,7 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
                 <span className="text-[11px] text-textlight flex-shrink-0 hidden sm:inline">{ad.aspect_ratio}</span>
                 <span className="text-[11px] text-textlight flex-shrink-0 w-32 text-right hidden md:inline">{formatDateTime(ad.created_at)}</span>
                 <span className="text-[10px] px-2 py-0.5 bg-black/5 text-textmid rounded-full flex-shrink-0 hidden sm:inline">
-                  {ad.auto_generated ? 'Batch' : ad.generation_mode === 'image_only' ? 'Edit' : ad.generation_mode === 'mode2' ? 'Template' : 'Individual'}
+                  {(ad.auto_generated || ad.batch_job_id) ? 'Batch' : ad.generation_mode === 'image_only' ? 'Edit' : ad.generation_mode === 'mode2' ? 'Template' : 'Individual'}
                 </span>
                 {deployedAdIds.has(ad.id) && (
                   <span className="text-[10px] px-2 py-0.5 bg-teal/10 text-teal rounded-full flex-shrink-0 font-medium hidden sm:inline">
@@ -3111,7 +3160,7 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
                   <div>
                     <p className="text-[11px] text-textlight mb-0.5">Source</p>
                     <p className="text-textdark text-[12px]">
-                      {viewAd.auto_generated ? 'Batch' :
+                      {(viewAd.auto_generated || viewAd.batch_job_id) ? 'Batch' :
                        viewAd.generation_mode === 'image_only' ? 'Prompt Edit' :
                        viewAd.generation_mode === 'mode2' ? 'Template' : 'Individual'}
                     </p>

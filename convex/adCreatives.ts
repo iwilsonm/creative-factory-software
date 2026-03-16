@@ -78,6 +78,7 @@ export const getGalleryByProject = query({
       drive_file_id: ad.drive_file_id,
       drive_url: ad.drive_url,
       has_image_prompt: !!ad.image_prompt,
+      batch_job_id: ad.batch_job_id,
       created_at: ad.created_at,
     }));
   },

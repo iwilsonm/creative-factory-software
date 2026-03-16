@@ -222,11 +222,26 @@ export const getByStatus = query({
   },
 });
 
-// Used by Dacia Fixer — returns all batch jobs
+// Used by Dacia Fixer — returns all batch jobs (limited to recent 100 to avoid response size limits)
 export const list = query({
   args: {},
   handler: async (ctx) => {
-    return await ctx.db.query("batch_jobs").order("desc").collect();
+    return await ctx.db.query("batch_jobs").order("desc").take(100);
+  },
+});
+
+// Used by Creative Filter — returns only completed batches eligible for scoring
+export const getFilterable = query({
+  args: {},
+  handler: async (ctx) => {
+    const completed = await ctx.db
+      .query("batch_jobs")
+      .withIndex("by_status", (q) => q.eq("status", "completed"))
+      .order("desc")
+      .take(200);
+    return completed.filter(
+      (b) => b.filter_assigned === true && !b.filter_processed
+    );
   },
 });
 
