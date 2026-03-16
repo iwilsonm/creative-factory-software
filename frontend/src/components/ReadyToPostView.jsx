@@ -742,38 +742,87 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
   };
 
   // Website URL section — big, clear, prominent
-  const WebsiteUrlSection = ({ url, cardKey }) => {
-    if (!url) return null;
-    const itemKey = `${cardKey}-url`;
-    const isCopied = copiedItems.has(itemKey);
-    const handleCopy = () => {
-      copyToClipboard(url, 'Website URL');
-      setCopiedItems(prev => new Set(prev).add(itemKey));
-    };
-    return (
-      <div className={`border-2 rounded-xl p-4 transition-all duration-300 ${isCopied ? 'border-teal/25 bg-teal/5' : 'border-gold/25 bg-gold/5'}`}>
-        <div className="flex items-start justify-between gap-3">
-          <div className="flex-1 min-w-0">
-            <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-widest mb-1 transition-colors duration-300 ${isCopied ? 'bg-teal/15 text-teal' : 'bg-gold/20 text-gold'}`}>Website URL</span>
-            <p className="text-[11px] text-textmid mb-2">Paste this into the <strong>"Website URL"</strong> field in Ads Manager.</p>
-            <div className={`bg-white rounded-lg px-3 py-2 border transition-all duration-300 ${isCopied ? 'border-teal/20' : 'border-gold/20'}`}>
-              <a href={url} target="_blank" rel="noopener noreferrer"
-                className={`text-[13px] font-medium hover:underline break-all transition-all duration-300 ${isCopied ? 'line-through text-textmid/60 decoration-teal/40' : 'text-gold'}`}
-              >{url}</a>
+  // Website URL section — supports single URL or multiple URLs (gauntlet/legacy)
+  // urls: optional array of { url, label?, score?, type? } for multiple URLs
+  // flexAdId + usedIndices + onMarkUsed: optional, for cross-out tracking on flex ads
+  const WebsiteUrlSection = ({ url, urls, cardKey, flexAdId, usedIndices = [], onMarkUsed, instructionText }) => {
+    const hasMultiple = urls && urls.length > 0;
+    if (!url && !hasMultiple) return null;
+
+    // Single URL mode (individual deployments, or flex ads with just one URL)
+    if (!hasMultiple) {
+      const itemKey = `${cardKey}-url`;
+      const isCopied = copiedItems.has(itemKey);
+      const handleCopy = () => {
+        copyToClipboard(url, 'Website URL');
+        setCopiedItems(prev => new Set(prev).add(itemKey));
+      };
+      return (
+        <div className={`border-2 rounded-xl p-4 transition-all duration-300 ${isCopied ? 'border-teal/25 bg-teal/5' : 'border-gold/25 bg-gold/5'}`}>
+          <div className="flex items-start justify-between gap-3">
+            <div className="flex-1 min-w-0">
+              <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-widest mb-1 transition-colors duration-300 ${isCopied ? 'bg-teal/15 text-teal' : 'bg-gold/20 text-gold'}`}>Website URL</span>
+              <p className="text-[11px] text-textmid mb-2">Paste this into the <strong>"Website URL"</strong> field in Ads Manager.</p>
+              <div className={`bg-white rounded-lg px-3 py-2 border transition-all duration-300 ${isCopied ? 'border-teal/20' : 'border-gold/20'}`}>
+                <a href={url} target="_blank" rel="noopener noreferrer"
+                  className={`text-[13px] font-medium hover:underline break-all transition-all duration-300 ${isCopied ? 'line-through text-textmid/60 decoration-teal/40' : 'text-gold'}`}
+                >{url}</a>
+              </div>
             </div>
+            <button onClick={handleCopy}
+              className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-white text-[11px] font-bold transition-colors flex-shrink-0 shadow-sm ${isCopied ? 'bg-teal hover:bg-teal/90' : 'bg-gold hover:bg-gold/90'}`}
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                {isCopied
+                  ? <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                  : <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
+                }
+              </svg>
+              {isCopied ? 'Copied' : 'Copy URL'}
+            </button>
           </div>
-          <button onClick={handleCopy}
-            className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-white text-[11px] font-bold transition-colors flex-shrink-0 shadow-sm ${isCopied ? 'bg-teal hover:bg-teal/90' : 'bg-gold hover:bg-gold/90'}`}
-          >
-            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              {isCopied
-                ? <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                : <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-              }
-            </svg>
-            {isCopied ? 'Copied' : 'Copy URL'}
-          </button>
         </div>
+      );
+    }
+
+    // Multiple URLs mode (gauntlet + legacy + PDP)
+    const anyCopied = urls.some((_, i) => copiedItems.has(`${cardKey}-url-${i}`));
+    return (
+      <div className={`border-2 rounded-xl p-4 transition-all duration-300 ${anyCopied ? 'border-teal/25 bg-teal/5' : 'border-gold/25 bg-gold/5'}`}>
+        <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-widest mb-1 transition-colors duration-300 ${anyCopied ? 'bg-teal/15 text-teal' : 'bg-gold/20 text-gold'}`}>Website URL</span>
+        <p className="text-[11px] text-textmid mb-2">Paste into the <strong>"Website URL"</strong> field in Ads Manager.</p>
+        <div className="space-y-1.5">
+          {urls.map((entry, i) => {
+            const itemKey = `${cardKey}-url-${i}`;
+            const isCopied = copiedItems.has(itemKey);
+            const isUsed = usedIndices.includes(i);
+            const handleCopy = async () => {
+              copyToClipboard(entry.url, entry.label || `URL ${i + 1}`);
+              setCopiedItems(prev => new Set(prev).add(itemKey));
+              if (onMarkUsed && !isUsed) onMarkUsed(i);
+            };
+            return (
+              <div key={i} className={`flex items-center gap-2 ${isUsed ? 'opacity-50' : ''}`}>
+                <span className="text-[10px] text-textmid w-6 flex-shrink-0 font-medium">{i + 1}.</span>
+                {entry.label && <span className="text-[10px] text-textmid flex-shrink-0 w-28 truncate">{entry.label}</span>}
+                {entry.score != null && <span className="text-[10px] text-teal flex-shrink-0">({entry.score}/10)</span>}
+                <div className={`flex-1 min-w-0 bg-white rounded-lg px-2.5 py-1.5 border transition-all duration-300 ${isCopied ? 'border-teal/20' : 'border-gold/20'}`}>
+                  <a href={entry.url} target="_blank" rel="noopener noreferrer"
+                    className={`text-[12px] font-medium hover:underline break-all transition-all duration-300 ${isCopied || isUsed ? 'line-through text-textmid/60' : 'text-gold'}`}>
+                    {entry.url}
+                  </a>
+                </div>
+                <button onClick={handleCopy}
+                  className={`inline-flex items-center gap-1 px-2 py-1.5 rounded-lg text-white text-[10px] font-bold transition-colors flex-shrink-0 shadow-sm ${isCopied ? 'bg-teal hover:bg-teal/90' : 'bg-gold hover:bg-gold/90'}`}>
+                  {isCopied ? 'Copied' : 'Copy'}
+                </button>
+              </div>
+            );
+          })}
+        </div>
+        {instructionText && (
+          <p className="text-[10px] text-textmid italic pt-2">{instructionText}</p>
+        )}
       </div>
     );
   };
@@ -1423,7 +1472,7 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
               flexId, 'headline'
             )}
 
-            {/* Destination URLs Panel — Gauntlet LPs + legacy LPs + PDP */}
+            {/* Website URL — merged gauntlet/legacy/PDP into one styled section */}
             {(() => {
               let gauntletUrls = [];
               try { gauntletUrls = JSON.parse(flexAd.gauntlet_lp_urls || '[]'); } catch {}
@@ -1432,13 +1481,35 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
 
               const hasGauntlet = gauntletUrls.length > 0;
               const hasLegacy = !hasGauntlet && (flexAd.lp_primary_url || flexAd.lp_secondary_url);
-              const hasAnyLP = hasGauntlet || hasLegacy;
 
-              if (!hasAnyLP) return null;
+              // Build unified URL list
+              const allUrls = [];
+              if (hasGauntlet) {
+                gauntletUrls.forEach(lp => {
+                  const isObj = typeof lp === 'object' && lp !== null;
+                  allUrls.push({ url: isObj ? lp.url : lp, label: isObj ? (lp.frameName || lp.frame) : null, score: isObj ? lp.score : null });
+                });
+              }
+              if (hasLegacy) {
+                if (flexAd.lp_primary_url) allUrls.push({ url: flexAd.lp_primary_url, label: 'Landing Page 1' });
+                if (flexAd.lp_secondary_url) allUrls.push({ url: flexAd.lp_secondary_url, label: 'Landing Page 2' });
+              }
+              if (flexAd.destination_url && (hasGauntlet || hasLegacy)) {
+                allUrls.push({ url: flexAd.destination_url, label: hasGauntlet ? 'Product Page' : 'Product Page' });
+              }
 
-              const handleCopyDestUrl = async (url, label, index) => {
-                copyToClipboard(url, label);
-                if (index !== undefined && !usedIndices.includes(index)) {
+              if (allUrls.length === 0) {
+                return <WebsiteUrlSection url={flexAd.destination_url} cardKey={flexId} />;
+              }
+
+              const instructionText = hasGauntlet && gauntletUrls.length > 1
+                ? 'Create this ad with URL #1, then duplicate the ad in Ads Manager for each additional URL. Keep all duplicates in the same ad set — each duplicate is identical except for the website URL.'
+                : hasGauntlet
+                  ? 'Copy URL to use as the ad destination.'
+                  : 'Post BOTH LP and PDP as separate ads in the same ad set. Meta auto-optimizes.';
+
+              const handleMarkUsed = async (index) => {
+                if (!usedIndices.includes(index)) {
                   try {
                     const updated = [...usedIndices, index];
                     await api.updateFlexAd(flexAd.id, { destination_urls_used: JSON.stringify(updated) });
@@ -1446,90 +1517,8 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
                 }
               };
 
-              return (
-                <div className="bg-offwhite rounded-xl p-3 space-y-1.5">
-                  <div className="text-[10px] font-semibold text-navy uppercase tracking-wide">Destination URLs</div>
-
-                  {hasGauntlet && gauntletUrls.map((lp, i) => {
-                    const isUsed = usedIndices.includes(i);
-                    const isObj = typeof lp === 'object' && lp !== null;
-                    const url = isObj ? lp.url : lp;
-                    const label = isObj ? (lp.frameName || lp.frame) : null;
-                    const score = isObj ? lp.score : null;
-                    return (
-                      <div key={i} className={`flex items-center gap-2 ${isUsed ? 'opacity-50' : ''}`}>
-                        <span className="text-[10px] text-textmid w-6 flex-shrink-0">{i + 1}.</span>
-                        {label && <span className="text-[10px] text-textmid flex-shrink-0 w-28 truncate">{label}</span>}
-                        {score != null && <span className="text-[10px] text-teal flex-shrink-0">({score}/10)</span>}
-                        <a href={url} target="_blank" rel="noopener noreferrer"
-                          className={`text-[11px] text-gold hover:text-gold/80 underline underline-offset-2 truncate flex-1 ${isUsed ? 'line-through' : ''}`}>
-                          {url}
-                        </a>
-                        <button onClick={(e) => { e.stopPropagation(); handleCopyDestUrl(url, `URL ${i + 1}`, i); }}
-                          className="inline-flex items-center px-1.5 py-0.5 rounded bg-navy/5 text-[9px] text-navy hover:bg-navy/10 transition-colors flex-shrink-0">
-                          Copy
-                        </button>
-                      </div>
-                    );
-                  })}
-
-                  {hasLegacy && (
-                    <>
-                      {flexAd.lp_primary_url && (
-                        <div className="flex items-center gap-2">
-                          <span className="text-[10px] text-textmid w-12 flex-shrink-0">LP 1:</span>
-                          <a href={flexAd.lp_primary_url} target="_blank" rel="noopener noreferrer" className="text-[11px] text-gold hover:text-gold/80 underline underline-offset-2 truncate flex-1">
-                            {flexAd.lp_primary_url}
-                          </a>
-                          <button onClick={(e) => { e.stopPropagation(); copyToClipboard(flexAd.lp_primary_url, 'LP 1 URL'); }}
-                            className="inline-flex items-center px-1.5 py-0.5 rounded bg-navy/5 text-[9px] text-navy hover:bg-navy/10 transition-colors flex-shrink-0">
-                            Copy
-                          </button>
-                        </div>
-                      )}
-                      {flexAd.lp_secondary_url && (
-                        <div className="flex items-center gap-2">
-                          <span className="text-[10px] text-textmid w-12 flex-shrink-0">LP 2:</span>
-                          <a href={flexAd.lp_secondary_url} target="_blank" rel="noopener noreferrer" className="text-[11px] text-gold hover:text-gold/80 underline underline-offset-2 truncate flex-1">
-                            {flexAd.lp_secondary_url}
-                          </a>
-                          <button onClick={(e) => { e.stopPropagation(); copyToClipboard(flexAd.lp_secondary_url, 'LP 2 URL'); }}
-                            className="inline-flex items-center px-1.5 py-0.5 rounded bg-navy/5 text-[9px] text-navy hover:bg-navy/10 transition-colors flex-shrink-0">
-                            Copy
-                          </button>
-                        </div>
-                      )}
-                    </>
-                  )}
-
-                  {flexAd.destination_url && (
-                    <div className={`flex items-center gap-2 ${hasGauntlet && usedIndices.includes(gauntletUrls.length) ? 'opacity-50' : ''}`}>
-                      <span className="text-[10px] text-textmid w-6 flex-shrink-0">{hasGauntlet ? `${gauntletUrls.length + 1}.` : 'PDP:'}</span>
-                      {hasGauntlet && <span className="text-[10px] text-textmid flex-shrink-0 w-28">Product Page</span>}
-                      {hasGauntlet && <span className="text-[10px] text-teal flex-shrink-0 invisible">(0/10)</span>}
-                      <a href={flexAd.destination_url} target="_blank" rel="noopener noreferrer"
-                        className={`text-[11px] text-navy hover:text-navy/80 underline underline-offset-2 truncate flex-1 ${hasGauntlet && usedIndices.includes(gauntletUrls.length) ? 'line-through' : ''}`}>
-                        {flexAd.destination_url}
-                      </a>
-                      <button onClick={(e) => { e.stopPropagation(); handleCopyDestUrl(flexAd.destination_url, 'PDP URL', hasGauntlet ? gauntletUrls.length : undefined); }}
-                        className="inline-flex items-center px-1.5 py-0.5 rounded bg-navy/5 text-[9px] text-navy hover:bg-navy/10 transition-colors flex-shrink-0">
-                        Copy
-                      </button>
-                    </div>
-                  )}
-
-                  <p className="text-[10px] text-textmid italic pt-1">
-                    {hasGauntlet && gauntletUrls.length > 1
-                      ? 'Create this ad with URL #1, then duplicate the ad in Ads Manager for each additional URL. Keep all duplicates in the same ad set — each duplicate is identical except for the destination URL.'
-                      : hasGauntlet
-                        ? 'Copy URL to use as the ad destination.'
-                        : 'Post BOTH LP and PDP as separate ads in the same ad set. Meta auto-optimizes.'}
-                  </p>
-                </div>
-              );
+              return <WebsiteUrlSection urls={allUrls} cardKey={flexId} usedIndices={usedIndices} onMarkUsed={handleMarkUsed} instructionText={instructionText} />;
             })()}
-
-            <WebsiteUrlSection url={flexAd.destination_url} cardKey={flexId} />
             <DisplayLinkSection displayLink={flexAd.display_link} cardKey={flexId} />
             <CallToActionSection cta={flexAd.cta_button} />
 
