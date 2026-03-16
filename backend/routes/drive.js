@@ -314,7 +314,15 @@ inspirationRouter.get('/:projectId/inspiration', async (req, res) => {
       return res.json(result);
     }
 
-    const images = allImages.map(img => ({
+    // Deduplicate by drive_file_id (same image synced into multiple projects)
+    const seen = new Set();
+    const unique = allImages.filter(img => {
+      if (seen.has(img.drive_file_id)) return false;
+      seen.add(img.drive_file_id);
+      return true;
+    });
+
+    const images = unique.map(img => ({
       id: img.drive_file_id,
       name: img.filename,
       mimeType: img.mimeType,
