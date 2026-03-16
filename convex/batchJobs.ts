@@ -292,6 +292,33 @@ export const patch = mutation({
   },
 });
 
+// Returns completed Director batches in a date range for cost-per-ad calculations.
+// Uses order("desc") to scan newest-first and stop early once we pass sinceDate.
+export const getCompletedDirectorBatchStats = query({
+  args: { sinceDate: v.string() },
+  handler: async (ctx, args) => {
+    // Scan recent batches (newest first) — most will be in the last 7 days
+    const recent = await ctx.db
+      .query("batch_jobs")
+      .order("desc")
+      .take(200);
+
+    return recent
+      .filter(
+        (b) =>
+          b.status === "completed" &&
+          b.conductor_run_id &&
+          b.completed_at &&
+          b.completed_at >= args.sinceDate
+      )
+      .map((b) => ({
+        project_id: b.project_id,
+        batch_size: b.batch_size,
+        completed_at: b.completed_at,
+      }));
+  },
+});
+
 export const remove = mutation({
   args: { externalId: v.string() },
   handler: async (ctx, args) => {

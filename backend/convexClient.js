@@ -602,6 +602,10 @@ export async function getAllScheduledBatchesForCost() {
   return await cachedQuery('batch_jobs', api.batchJobs.getAllScheduledForCost, {});
 }
 
+export async function getCompletedDirectorBatchStats(sinceDate) {
+  return await cachedQuery('batch_jobs', api.batchJobs.getCompletedDirectorBatchStats, { sinceDate });
+}
+
 export async function updateBatchJob(id, fields) {
   const allowed = ['status', 'gemini_batch_job', 'gpt_prompts', 'error_message', 'started_at', 'completed_at', 'completed_count', 'failed_count', 'run_count', 'scheduled', 'schedule_cron', 'retry_count', 'stale_detected_at', 'batch_stats', 'pipeline_state', 'angle', 'angles', 'batch_size', 'aspect_ratio', 'used_template_ids', 'filter_assigned', 'filter_processed', 'filter_processed_at', 'posting_day', 'conductor_run_id', 'angle_name', 'angle_prompt', 'angle_brief', 'flex_ad_id', 'lp_primary_id', 'lp_primary_url', 'lp_primary_status', 'lp_primary_error', 'lp_primary_retry_count', 'lp_secondary_id', 'lp_secondary_url', 'lp_secondary_status', 'lp_secondary_error', 'lp_secondary_retry_count', 'lp_narrative_frames', 'gauntlet_lp_urls'];
   const updates = { externalId: id };

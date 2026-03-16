@@ -431,7 +431,7 @@ function cronToLabel(cronStr) {
   return cronStr;
 }
 
-const DASHBOARD_COST_SNAPSHOT_KEY = 'dashboard_cost_snapshot_v1';
+const DASHBOARD_COST_SNAPSHOT_KEY = 'dashboard_cost_snapshot_v2';
 const EMPTY_DASHBOARD_COST_SNAPSHOT = {
   costs: null,
   costHistory: [],
@@ -555,7 +555,7 @@ export default function Dashboard() {
     });
   }, [costHistory, costHistoryLoaded, costs, imageRates, recurringCosts]);
 
-  const hasScheduledBatches = recurringCosts && recurringCosts.scheduledBatchCount > 0;
+  const hasRecurringCosts = recurringCosts && (recurringCosts.estimatedDailyCost > 0 || recurringCosts.directorProjectCount > 0);
 
   return (
     <Layout>
@@ -611,15 +611,15 @@ export default function Dashboard() {
               <p className="text-lg font-semibold text-textdark tracking-tight">
                 {recurringLoading && !recurringCosts
                   ? 'Loading...'
-                  : hasScheduledBatches
-                  ? `~$${recurringCosts.estimatedDailyCost.toFixed(2)}/day`
+                  : hasRecurringCosts
+                  ? `~$${(recurringCosts.estimatedDailyCost || 0).toFixed(2)}/day`
                   : '$0.00/day'}
               </p>
             </div>
             <InfoTooltip
-              text={hasScheduledBatches
-                ? `Estimated cost from ${recurringCosts.scheduledBatchCount} scheduled batch${recurringCosts.scheduledBatchCount !== 1 ? 'es' : ''} running automatically. Based on current Gemini batch rates with 50% batch discount.`
-                : 'Shows estimated daily cost once you set up scheduled batch automations in a project.'}
+              text={hasRecurringCosts
+                ? `Average daily automation cost based on actual spending over the last ${recurringCosts.daysCovered || 7} days. Includes batch pipeline, Creative Filter, LP generation, and Director planning.`
+                : 'Shows average daily automation cost once you enable the Creative Director or set up scheduled batches.'}
               position="left"
             />
           </div>
@@ -629,55 +629,53 @@ export default function Dashboard() {
               <div className="h-3 w-32 bg-gray-100 rounded" />
               <div className="h-10 bg-gray-50 rounded-xl" />
             </div>
-          ) : hasScheduledBatches ? (
+          ) : hasRecurringCosts ? (
             <>
               <p className="text-[11px] text-textlight mt-2 ml-11">
-                {recurringCosts.scheduledBatchCount} scheduled batch{recurringCosts.scheduledBatchCount !== 1 ? 'es' : ''}
-                {' | '}~${(recurringCosts.estimatedDailyCost * 30).toFixed(2)}/month est.
+                Based on last {recurringCosts.daysCovered || 7} days ({recurringCosts.totalCompletedBatches || 0} batches, {recurringCosts.totalCompletedAds || 0} ads)
+                {' | '}~${((recurringCosts.estimatedDailyCost || 0) * 30).toFixed(0)}/month est.
               </p>
-
-              {recurringCosts.perImageRate > 0 && (
-                <p className="text-[11px] text-textlight mt-1 ml-11">
-                  Based on ${recurringCosts.perImageRate.toFixed(4)}/image Gemini rate
-                  {recurringCosts.batchDiscount ? ` with ${Math.round(recurringCosts.batchDiscount * 100)}% batch discount ($${(recurringCosts.perImageRate * recurringCosts.batchDiscount).toFixed(4)}/image effective)` : ''}
-                </p>
-              )}
 
               {recurringCosts.breakdown && recurringCosts.breakdown.length > 0 && (
                 <div className="mt-4 ml-11">
                   <table className="w-full text-[11px]">
                     <thead>
                       <tr className="border-b border-black/5">
-                        <th className="text-left font-medium text-textlight uppercase tracking-wider pb-2 pr-3">Project</th>
-                        <th className="text-left font-medium text-textlight uppercase tracking-wider pb-2 pr-3">Schedule</th>
-                        <th className="text-right font-medium text-textlight uppercase tracking-wider pb-2 pr-3">Batch Size</th>
-                        <th className="text-right font-medium text-textlight uppercase tracking-wider pb-2 pr-3">Runs/Day</th>
-                        <th className="text-right font-medium text-textlight uppercase tracking-wider pb-2 pr-3">Cost/Run</th>
-                        <th className="text-right font-medium text-textlight uppercase tracking-wider pb-2">Daily Cost</th>
+                        <th className="text-left font-medium text-textlight uppercase tracking-wider pb-2 pr-3">Component</th>
+                        <th className="text-right font-medium text-textlight uppercase tracking-wider pb-2 pr-3">7d Spend</th>
+                        <th className="text-right font-medium text-textlight uppercase tracking-wider pb-2 pr-3">Daily Est.</th>
+                        <th className="text-right font-medium text-textlight uppercase tracking-wider pb-2">Share</th>
                       </tr>
                     </thead>
                     <tbody>
                       {recurringCosts.breakdown.map((row, i) => (
-                        <tr key={i} className="border-b border-gray-50 last:border-0">
+                        <tr key={i} className={`border-b border-gray-50 last:border-0${row.collecting ? ' opacity-50' : ''}`}>
                           <td className="py-2 pr-3 text-textdark">
-                            {row.project_name}
-                            {row.angle && (
-                              <span className="text-textlight ml-1">({row.angle})</span>
+                            {row.label}
+                            <span className="text-textlight ml-1 text-[10px]">
+                              ({row.collecting ? 'collecting data...' : row.description})
+                            </span>
+                            {row.per_ad > 0 && (
+                              <span className="text-textlight ml-1 text-[10px]">
+                                — ${row.per_ad.toFixed(3)}/ad
+                              </span>
                             )}
                           </td>
-                          <td className="py-2 pr-3 text-textmid">{cronToLabel(row.schedule_cron)}</td>
-                          <td className="py-2 pr-3 text-right text-textmid">{row.batch_size} img</td>
-                          <td className="py-2 pr-3 text-right text-textmid">{row.runs_per_day}×</td>
-                          <td className="py-2 pr-3 text-right text-textmid">${row.cost_per_run.toFixed(4)}</td>
-                          <td className="py-2 text-right font-medium text-textdark">${row.daily_cost.toFixed(4)}</td>
+                          <td className="py-2 pr-3 text-right text-textmid">${(row.period_total || 0).toFixed(2)}</td>
+                          <td className="py-2 pr-3 text-right font-medium text-textdark">
+                            {row.collecting ? '—' : `$${(row.daily_avg || 0).toFixed(2)}`}
+                          </td>
+                          <td className="py-2 text-right text-textmid">{row.collecting ? '—' : `${row.pct || 0}%`}</td>
                         </tr>
                       ))}
                     </tbody>
                     {recurringCosts.breakdown.length > 1 && (
                       <tfoot>
                         <tr className="border-t border-gray-200">
-                          <td colSpan={5} className="py-2 pr-3 text-right font-medium text-textmid">Total</td>
-                          <td className="py-2 text-right font-semibold text-textdark">${recurringCosts.estimatedDailyCost.toFixed(4)}</td>
+                          <td className="py-2 pr-3 text-right font-medium text-textmid">Total</td>
+                          <td className="py-2 pr-3 text-right font-medium text-textmid"></td>
+                          <td className="py-2 pr-3 text-right font-semibold text-textdark">${(recurringCosts.estimatedDailyCost || 0).toFixed(2)}</td>
+                          <td className="py-2 text-right text-textmid">100%</td>
                         </tr>
                       </tfoot>
                     )}
@@ -687,7 +685,7 @@ export default function Dashboard() {
             </>
           ) : recurringCosts ? (
             <p className="text-[11px] text-textlight mt-2 ml-11">
-              No scheduled automations. Set up batch schedules in a project to see estimated recurring costs.
+              No automation costs recorded in the last 7 days. Enable the Creative Director or set up scheduled batches to see recurring costs.
             </p>
           ) : (
             <p className="text-[11px] text-textlight mt-2 ml-11">

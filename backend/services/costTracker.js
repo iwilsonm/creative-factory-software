@@ -1,5 +1,5 @@
 import { v4 as uuidv4 } from 'uuid';
-import { getSetting, setSetting, logCost, getCostAggregates, getDailyCostHistory, deleteCostsBySource, getAllScheduledBatchesForCost, getAllProjects } from '../convexClient.js';
+import { getSetting, setSetting, logCost, getCostAggregates, getDailyCostHistory, deleteCostsBySource, getAllScheduledBatchesForCost, getAllProjects, getAllConductorConfigs, getAllLPAgentConfigs, getCompletedDirectorBatchStats } from '../convexClient.js';
 import { withRetry } from './retry.js';
 
 // ── Anthropic Claude pricing (per million tokens) ──────────────────────────────
@@ -463,54 +463,173 @@ export async function getCostHistoryData(days = 30, projectId = null) {
 }
 
 /**
- * Estimate daily recurring batch cost from all scheduled batches.
- * For each scheduled batch:
- *   1. Parse cron to determine runs-per-day
- *   2. Multiply: runs_per_day * batch_size * gemini_rate * 0.5 (batch discount)
+ * Estimate daily recurring automation cost using per-ad averages from
+ * actual spending, scaled by current Director config. Responds immediately
+ * to config changes (e.g. changing daily_flex_target from 4 to 2).
  *
- * @returns {{ estimatedDailyCost: number, scheduledBatchCount: number, breakdown: Array }}
+ * Per-project, per-ad batch pipeline costs come from real data.
+ * Filter and Director costs are daily averages (don't scale with batch count).
  */
 export async function getRecurringBatchCostEstimate() {
-  const [batches, projects] = await Promise.all([
-    getAllScheduledBatchesForCost(),
-    getAllProjects()
-  ]);
-  const rate2k = parseFloat((await getSetting('gemini_rate_2k')) || '0');
-  const batchDiscount = 0.5;
+  const today = new Date().toISOString().split('T')[0];
+  const sevenDaysAgo = new Date();
+  sevenDaysAgo.setDate(sevenDaysAgo.getDate() - 7);
+  const startDate = sevenDaysAgo.toISOString().split('T')[0];
+  const dayCount = Math.max(1, Math.round((Date.now() - sevenDaysAgo.getTime()) / (24 * 60 * 60 * 1000)));
 
-  // Build project name lookup
+  // Fetch everything in parallel
+  const [conductorConfigs, lpConfigs, projects, batchStats, systemAggregate] = await Promise.all([
+    getAllConductorConfigs().catch(() => []),
+    getAllLPAgentConfigs().catch(() => []),
+    getAllProjects(),
+    getCompletedDirectorBatchStats(startDate).catch(() => []),
+    getCostAggregates(startDate, today)
+  ]);
+
+  const enabledDirectorProjects = conductorConfigs.filter(c => c.enabled);
+  const lpConfigMap = {};
+  for (const lc of lpConfigs) { if (lc.enabled) lpConfigMap[lc.project_id] = true; }
   const projectMap = {};
-  for (const p of projects) {
-    projectMap[p.id] = { name: p.name, brand_name: p.brand_name };
+  for (const p of projects) { projectMap[p.id] = { name: p.name, brand_name: p.brand_name }; }
+
+  // Per-project: count completed ads and batches from batch stats
+  const projectBatchData = {};
+  for (const b of batchStats) {
+    if (!projectBatchData[b.project_id]) projectBatchData[b.project_id] = { ads: 0, batches: 0 };
+    projectBatchData[b.project_id].ads += b.batch_size || 18;
+    projectBatchData[b.project_id].batches += 1;
   }
 
-  let totalDailyCost = 0;
-  const breakdown = [];
+  // Fetch per-project cost aggregates for Director-enabled projects
+  const projectCostPromises = enabledDirectorProjects.map(dc =>
+    getCostAggregates(startDate, today, dc.project_id).catch(() => ({ byOperation: {} }))
+  );
+  const projectCosts = await Promise.all(projectCostPromises);
 
-  for (const batch of batches) {
-    const runsPerDay = estimateRunsPerDay(batch.schedule_cron);
-    const costPerRun = batch.batch_size * rate2k * batchDiscount;
-    const dailyCost = runsPerDay * costPerRun;
+  // Classify operations into categories for a single project's cost data
+  function classifyCosts(byOp) {
+    let batch = 0, lp = 0;
+    for (const [op, data] of Object.entries(byOp || {})) {
+      const cost = data.cost || 0;
+      if (cost <= 0) continue;
+      if (op.startsWith('batch_') || op === 'image_generation_batch' || op === 'prompt_guideline_review') {
+        batch += cost;
+      } else if (op.startsWith('lp_')) {
+        lp += cost;
+      }
+    }
+    return { batch, lp };
+  }
+
+  // System-wide Filter and Director costs (daily averages, don't scale with batch count)
+  let filterTotal = 0, directorTotal = 0;
+  const sysOps = systemAggregate.byOperation || {};
+  for (const [op, data] of Object.entries(sysOps)) {
+    const cost = data.cost || 0;
+    if (cost <= 0) continue;
+    if (op.startsWith('filter_') || op === 'conductor_learning_analysis') filterTotal += cost;
+    else if (op.startsWith('conductor_')) directorTotal += cost;
+  }
+
+  // Build breakdown: one row per Director project + system rows
+  const breakdown = [];
+  let totalDailyCost = 0;
+
+  for (let i = 0; i < enabledDirectorProjects.length; i++) {
+    const dc = enabledDirectorProjects[i];
+    const proj = projectMap[dc.project_id];
+    const projName = proj?.brand_name || proj?.name || 'Unknown';
+    const flexTarget = dc.daily_flex_target || 4;
+    const adsPerBatch = dc.ads_per_batch || 18;
+    const hasLP = !!lpConfigMap[dc.project_id];
+
+    const costs = classifyCosts(projectCosts[i].byOperation);
+    const pbd = projectBatchData[dc.project_id];
+
+    if (!pbd || pbd.ads === 0) {
+      // No completed batches yet — show collecting state
+      breakdown.push({
+        category: 'project',
+        label: projName,
+        description: `${flexTarget}/day × ${adsPerBatch} ads${hasLP ? ' + LP' : ''} — collecting data`,
+        period_total: 0,
+        daily_avg: 0,
+        per_ad: 0,
+        per_batch_lp: 0,
+        collecting: true
+      });
+      continue;
+    }
+
+    // Per-ad batch pipeline cost
+    const perAd = costs.batch / pbd.ads;
+    const dailyBatchCost = perAd * adsPerBatch * flexTarget;
+
+    // Per-batch LP cost (only if LP Agent enabled)
+    let dailyLPCost = 0;
+    let perBatchLP = 0;
+    if (hasLP && pbd.batches > 0 && costs.lp > 0) {
+      perBatchLP = costs.lp / pbd.batches;
+      dailyLPCost = perBatchLP * flexTarget;
+    }
+
+    const dailyCost = dailyBatchCost + dailyLPCost;
     totalDailyCost += dailyCost;
 
-    const proj = projectMap[batch.project_id];
     breakdown.push({
-      project_id: batch.project_id,
-      project_name: proj?.brand_name || proj?.name || 'Unknown',
-      batch_size: batch.batch_size,
-      angle: batch.angle || null,
-      schedule_cron: batch.schedule_cron,
-      runs_per_day: Math.round(runsPerDay * 1000) / 1000,
-      cost_per_run: Math.round(costPerRun * 1000000) / 1000000,
-      daily_cost: Math.round(dailyCost * 1000000) / 1000000
+      category: 'project',
+      label: projName,
+      description: `${flexTarget}/day × ${adsPerBatch} ads${hasLP ? ' + LP' : ''}`,
+      period_total: Math.round((costs.batch + costs.lp) * 100) / 100,
+      daily_avg: Math.round(dailyCost * 100) / 100,
+      per_ad: Math.round(perAd * 10000) / 10000,
+      per_batch_lp: Math.round(perBatchLP * 100) / 100,
+      batches_completed: pbd.batches,
+      ads_completed: pbd.ads,
+      collecting: false
     });
   }
 
+  // Filter (daily average, not per-batch)
+  const filterDaily = filterTotal / dayCount;
+  if (filterDaily > 0.001) {
+    totalDailyCost += filterDaily;
+    breakdown.push({
+      category: 'filter',
+      label: 'Creative Filter',
+      description: 'Ad scoring + flex ad grouping',
+      period_total: Math.round(filterTotal * 100) / 100,
+      daily_avg: Math.round(filterDaily * 100) / 100,
+      collecting: false
+    });
+  }
+
+  // Director planning (daily average)
+  const directorDaily = directorTotal / dayCount;
+  if (directorDaily > 0.001) {
+    totalDailyCost += directorDaily;
+    breakdown.push({
+      category: 'director',
+      label: 'Director',
+      description: 'Batch planning',
+      period_total: Math.round(directorTotal * 100) / 100,
+      daily_avg: Math.round(directorDaily * 100) / 100,
+      collecting: false
+    });
+  }
+
+  // Fill in percentages
+  for (const row of breakdown) {
+    row.pct = totalDailyCost > 0 ? Math.round(((row.daily_avg || 0) / totalDailyCost) * 100) : 0;
+  }
+
   return {
-    estimatedDailyCost: Math.round(totalDailyCost * 1000000) / 1000000,
-    scheduledBatchCount: batches.length,
-    perImageRate: rate2k,
-    batchDiscount,
+    estimatedDailyCost: Math.round(totalDailyCost * 100) / 100,
+    daysCovered: dayCount,
+    directorProjectCount: enabledDirectorProjects.length,
+    lpProjectCount: Object.keys(lpConfigMap).length,
+    totalCompletedBatches: batchStats.length,
+    totalCompletedAds: batchStats.reduce((sum, b) => sum + (b.batch_size || 18), 0),
     breakdown
   };
 }
