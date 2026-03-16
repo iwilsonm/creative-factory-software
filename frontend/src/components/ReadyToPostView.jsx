@@ -2,6 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react';
 import JSZip from 'jszip';
 import { api } from '../api';
 import { ensureArray } from '../utils/collections';
+import ConfirmDialog from './ConfirmDialog';
 
 /**
  * ReadyToPostView — Employee-facing view for posting ads to Meta Ads Manager.
@@ -18,6 +19,7 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
   const [flexAds, setFlexAds] = useState([]);
   const [loading, setLoading] = useState(true);
   const [confirmPosted, setConfirmPosted] = useState(null);
+  const [deleteFlexConfirm, setDeleteFlexConfirm] = useState(null);
   const [markingPostedIds, setMarkingPostedIds] = useState(new Set());
   const [sendingBackIds, setSendingBackIds] = useState(new Set());
   const [bulkMarkingAll, setBulkMarkingAll] = useState(false);
@@ -265,6 +267,18 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
       await Promise.all(childDeps.map(d => api.updateDeploymentStatus(d.id, 'selected')));
     } catch {
       addToast('Failed to send back — refreshing...', 'error');
+      loadDeployments();
+    }
+  };
+
+  const handleDeleteFlexAd = async (flexAdId) => {
+    setDeleteFlexConfirm(null);
+    setFlexAds(prev => prev.filter(f => f.id !== flexAdId));
+    addToast('Flex ad removed', 'success');
+    try {
+      await api.deleteFlexAd(flexAdId);
+    } catch {
+      addToast('Failed to delete flex ad', 'error');
       loadDeployments();
     }
   };
@@ -1548,6 +1562,16 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
                 Edit
               </button>
             )}
+            {!isPoster && (
+              <button onClick={() => setDeleteFlexConfirm(flexAd.id)}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium text-red-500 hover:text-red-600 hover:bg-red-50 transition-colors"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                </svg>
+                Delete
+              </button>
+            )}
           </div>
           <div className="flex items-center gap-3">
             <PostedByDropdown value={flexAd.posted_by} onChange={(val) => handlePostedByChange(flexAd.id, val, true)} />
@@ -1687,6 +1711,16 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
       <div className="space-y-5">
         {cardList.map(card => card.type === 'single' ? renderAdCard(card.dep) : renderFlexCard(card.flexAd))}
       </div>
+
+      <ConfirmDialog
+        open={deleteFlexConfirm !== null}
+        title="Delete Flex Ad?"
+        message="This will permanently remove this flex ad from Ready to Post."
+        confirmLabel="Delete"
+        tone="danger"
+        onConfirm={() => handleDeleteFlexAd(deleteFlexConfirm)}
+        onCancel={() => setDeleteFlexConfirm(null)}
+      />
     </div>
   );
 }
