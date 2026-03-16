@@ -741,6 +741,10 @@ export async function getInspirationImages(projectId) {
   return await queryWithRetry(api.inspirationImages.getByProject, { projectId });
 }
 
+export async function getAllInspirationImages() {
+  return await cachedQuery('inspiration_images', api.inspirationImages.getAll, {});
+}
+
 export async function getInspirationImage(projectId, driveFileId) {
   return await queryWithRetry(api.inspirationImages.getByDriveFileId, { projectId, driveFileId });
 }

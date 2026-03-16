@@ -11,6 +11,17 @@ export const getByProject = query({
   },
 });
 
+// Returns all inspiration images globally (shared across projects)
+export const getAll = query({
+  args: {},
+  handler: async (ctx) => {
+    return await ctx.db
+      .query("inspiration_images")
+      .order("desc")
+      .take(500);
+  },
+});
+
 export const getByDriveFileId = query({
   args: { projectId: v.string(), driveFileId: v.string() },
   handler: async (ctx, args) => {

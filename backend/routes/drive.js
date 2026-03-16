@@ -7,7 +7,7 @@ import { fileURLToPath } from 'url';
 import fetch from 'node-fetch';
 import { withRetry } from '../services/retry.js';
 import { requireAuth } from '../auth.js';
-import { getProject, getInspirationImages, getInspirationImage, getInspirationImageUrl, uploadBuffer, convexClient, api } from '../convexClient.js';
+import { getProject, getInspirationImages, getAllInspirationImages, getInspirationImage, getInspirationImageUrl, uploadBuffer, convexClient, api } from '../convexClient.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SERVICE_ACCOUNT_PATH = path.join(__dirname, '..', '..', 'config', 'service-account.json');
@@ -304,25 +304,21 @@ inspirationRouter.get('/:projectId/inspiration', async (req, res) => {
   try {
     const project = await getProject(req.params.projectId);
     if (!project) return res.status(404).json({ error: 'Project not found' });
-    if (!project.inspiration_folder_id) {
-      return res.json({ images: [], total: 0, message: 'No inspiration folder configured.' });
-    }
 
-    // Check if we have any cached in Convex
-    const cached = await getInspirationImages(req.params.projectId);
+    // Return all inspiration images globally (shared across projects)
+    const allImages = await getAllInspirationImages();
 
-    if (cached.length === 0) {
-      // No cache yet — sync from Drive
+    if (allImages.length === 0 && project.inspiration_folder_id) {
+      // No images anywhere — try syncing this project's Drive folder
       const result = await syncInspirationFolder(req.params.projectId);
       return res.json(result);
     }
 
-    // Return cached list
-    const images = cached.map(img => ({
+    const images = allImages.map(img => ({
       id: img.drive_file_id,
       name: img.filename,
       mimeType: img.mimeType,
-      thumbnailUrl: `/api/projects/${req.params.projectId}/inspiration/${img.drive_file_id}/thumbnail`
+      thumbnailUrl: `/api/projects/${img.project_id}/inspiration/${img.drive_file_id}/thumbnail`
     }));
 
     res.json({ images, total: images.length });
