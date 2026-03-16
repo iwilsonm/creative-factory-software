@@ -5,7 +5,7 @@ import { generateImage } from './gemini.js';
 import { withHeavyLLMLimit } from './rateLimiter.js';
 import {
   getProject, getLatestDoc, uploadBuffer, downloadToBuffer,
-  getInspirationImages, getInspirationImageUrl,
+  getInspirationImages, getAllInspirationImages, getInspirationImageUrl,
   getAdImageUrl, getSetting, convexClient, api
 } from '../convexClient.js';
 import sharp from 'sharp';
@@ -267,7 +267,14 @@ export function buildImageRequestText(angle, aspectRatio, hasProductImage = fals
  * @returns {{ base64: string, mimeType: string, fileId: string }}
  */
 export async function selectInspirationImage(projectId, inspirationImageId, excludeIds = []) {
-  const images = await getInspirationImages(projectId);
+  // Use global pool (shared across all projects) and deduplicate by drive_file_id
+  const allImages = await getAllInspirationImages();
+  const seen = new Set();
+  const images = allImages.filter(img => {
+    if (seen.has(img.drive_file_id)) return false;
+    seen.add(img.drive_file_id);
+    return true;
+  });
   if (!images || images.length === 0) {
     throw new Error('No inspiration images cached. Sync your inspiration folder first.');
   }
