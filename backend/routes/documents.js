@@ -20,6 +20,21 @@ const router = Router();
 router.use(requireAuth);
 const DOC_TYPES = ['research', 'avatar', 'offer_brief', 'necessary_beliefs'];
 
+// Check if all 4 doc types exist and promote status to 'docs_ready' if so.
+// Only promotes from 'setup' — never demotes or interferes with 'generating_docs'.
+async function checkAndPromoteDocStatus(projectId) {
+  try {
+    const project = await getProject(projectId);
+    if (!project || project.status !== 'setup') return;
+    const docs = await Promise.all(DOC_TYPES.map(type => getLatestDoc(projectId, type)));
+    if (docs.every(Boolean)) {
+      await updateProject(projectId, { status: 'docs_ready' });
+    }
+  } catch (err) {
+    console.error('[Docs] Status check error:', err.message);
+  }
+}
+
 // List all docs for a project
 router.get('/:projectId/docs', async (req, res) => {
   try {
@@ -29,6 +44,14 @@ router.get('/:projectId/docs', async (req, res) => {
     const docs = await Promise.all(
       DOC_TYPES.map(type => getLatestDoc(req.params.projectId, type))
     );
+
+    // Auto-heal: promote status if all docs exist but status is stuck at 'setup'
+    if (project.status === 'setup') {
+      const allPresent = docs.every(Boolean);
+      if (allPresent) {
+        updateProject(req.params.projectId, { status: 'docs_ready' }).catch(() => {});
+      }
+    }
 
     res.json({
       docs: docs.filter(Boolean),
@@ -115,15 +138,8 @@ router.post('/:projectId/upload-docs', async (req, res) => {
       return res.status(400).json({ error: 'No documents with content were provided' });
     }
 
-    // Update project status if we have all 4 docs now
-    const latestDocs = await Promise.all(
-      validTypes.map(type => getLatestDoc(req.params.projectId, type))
-    );
-    if (latestDocs.every(Boolean)) {
-      await updateProject(req.params.projectId, { status: 'docs_ready' });
-    } else {
-      await updateProject(req.params.projectId, { status: 'setup' });
-    }
+    // Promote status if all 4 doc types now exist
+    await checkAndPromoteDocStatus(req.params.projectId);
 
     res.json({ saved, count: saved.length });
   } catch (err) {
@@ -167,9 +183,10 @@ router.post('/:projectId/generate-doc/:type', async (req, res) => {
     return res.status(400).json({ error: `Invalid doc type. Must be one of: ${validTypes.join(', ')}` });
   }
 
-  streamService(req, res, (sendEvent) =>
-    regenerateDoc(req.params.projectId, req.params.type, sendEvent)
-  );
+  streamService(req, res, async (sendEvent) => {
+    await regenerateDoc(req.params.projectId, req.params.type, sendEvent);
+    await checkAndPromoteDocStatus(req.params.projectId);
+  });
 });
 
 // Update doc content (manual edit) — also logs to correction history
@@ -193,6 +210,9 @@ router.put('/:projectId/docs/:docId', async (req, res) => {
       logManualEdit(req.params.projectId, doc.externalId, beforeContent, content, doc.doc_type)
         .catch(err => console.error('[Changelog] Failed to log manual edit:', err.message));
     }
+
+    // Promote status if all docs now exist
+    checkAndPromoteDocStatus(req.params.projectId).catch(() => {});
 
     res.json({
       id: doc.externalId,

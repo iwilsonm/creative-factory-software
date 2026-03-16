@@ -39,6 +39,7 @@ export default function ProjectDetail() {
   const [form, setForm] = useState({});
   const [saving, setSaving] = useState(false);
   const [deletingProject, setDeletingProject] = useState(false);
+  const [availableDocTypes, setAvailableDocTypes] = useState(new Set());
   // Persist active tab in URL search params so it survives page refresh
   const validTabs = ['quotes', 'ads', 'tracker', 'performance', 'lpgen', 'ai-agency', 'overview', 'docs', 'templates'];
   const defaultTab = user?.role === 'poster' ? 'tracker' : 'ads';
@@ -277,6 +278,13 @@ export default function ProjectDetail() {
         meta_app_id: data.meta_app_id || '',
         meta_app_secret: data.meta_app_secret || '',
       });
+      // Fetch doc types for setup banner (only when needed)
+      if (data.status === 'setup') {
+        api.getDocs(id).then(res => {
+          const types = new Set((res?.docs || []).map(d => d.doc_type).filter(Boolean));
+          setAvailableDocTypes(types);
+        }).catch(() => {});
+      }
     } catch (err) {
       console.error('Failed to load project:', err);
     } finally {
@@ -384,6 +392,38 @@ export default function ProjectDetail() {
         </span>
       </div>
 
+      {/* Setup banner — visible only when project needs foundational docs */}
+      {project.status === 'setup' && (
+        <div className="mb-6 p-4 bg-gold/5 border border-gold/20 rounded-xl fade-in">
+          <p className="text-[13px] font-medium text-textdark mb-3">Complete foundational docs to get started</p>
+          <div className="grid grid-cols-2 gap-2 mb-3">
+            {[
+              { key: 'research', label: 'Research' },
+              { key: 'avatar', label: 'Customer Avatar' },
+              { key: 'offer_brief', label: 'Offer Brief' },
+              { key: 'necessary_beliefs', label: 'Necessary Beliefs' },
+            ].map(doc => (
+              <div key={doc.key} className="flex items-center gap-2 text-[12px]">
+                {availableDocTypes.has(doc.key) ? (
+                  <svg className="w-4 h-4 text-teal flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                  </svg>
+                ) : (
+                  <div className="w-4 h-4 rounded-full border-2 border-gold/40 flex-shrink-0" />
+                )}
+                <span className={availableDocTypes.has(doc.key) ? 'text-teal font-medium' : 'text-textmid'}>{doc.label}</span>
+              </div>
+            ))}
+          </div>
+          <button
+            onClick={() => { setTab('overview'); setSettingsSubTab('docs'); }}
+            className="btn-primary text-[12px] px-4 py-1.5"
+          >
+            Generate Docs
+          </button>
+        </div>
+      )}
+
       {/* Tab navigation — segmented control style */}
       <div className="mb-6">
         <div className="segmented-control">
@@ -408,21 +448,6 @@ export default function ProjectDetail() {
         </div>
       }>
       <div className="fade-in">
-        {/* Docs needed alert */}
-        {tab === 'overview' && project.docCount === 0 && (
-          <div className="mb-4 p-3 bg-gold/5 border border-gold/20 rounded-xl flex items-center gap-2">
-            <svg className="w-4 h-4 text-gold flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-            </svg>
-            <span className="text-[12px] text-gold font-medium">
-              Foundational documents needed — add research docs to improve ad quality.
-            </span>
-            <button onClick={() => { setTab('overview'); setSettingsSubTab('docs'); }} className="ml-auto text-[11px] text-gold hover:text-gold-light font-medium whitespace-nowrap">
-              Add Docs →
-            </button>
-          </div>
-        )}
-
         {/* Project Settings tab */}
         {tab === 'overview' && (
           <>
