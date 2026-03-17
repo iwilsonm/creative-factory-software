@@ -12,7 +12,7 @@
 import { v4 as uuidv4 } from 'uuid';
 import {
   getConductorConfig, upsertConductorConfig,
-  getActiveConductorAngles, updateConductorAngle,
+  getActiveConductorAngles, updateConductorAngle, getSystemDefaultAngle, createConductorAngle,
   getConductorPlaybook,
   createConductorRun, updateConductorRun, getConductorRuns,
   getConductorSlotsByPostingDay, createConductorSlot, updateConductorSlot,
@@ -513,7 +513,39 @@ async function replaceFailedSlot(projectId, config, postingDay, slot, allSlots) 
  * Select angles for batch creation based on the project's angle_mode config.
  * Returns an array of angle objects, one per batch needed.
  */
+
+const BOF_ANGLE_DESCRIPTION = `Bottom-of-funnel direct response angle. Use the project's foundational documents (customer avatar, offer brief, necessary beliefs) to create ads focused on:
+- Direct product benefits and features
+- Social proof, testimonials, and results
+- Urgency, scarcity, and limited-time offers
+- Clear calls to action and conversion focus
+- Overcoming final purchase objections
+The tone should be confident and direct. These ads target warm audiences who already know about the product.`;
+
+async function ensureBofAngle(projectId) {
+  try {
+    const existing = await getSystemDefaultAngle(projectId);
+    if (existing) return;
+    await createConductorAngle({
+      id: uuidv4(),
+      project_id: projectId,
+      name: 'BOF (Bottom of Funnel)',
+      description: BOF_ANGLE_DESCRIPTION,
+      source: 'system',
+      status: 'active',
+      priority: 'medium',
+      is_system_default: true,
+    });
+    console.log(`[Director] Created BOF angle for project ${projectId}`);
+  } catch (err) {
+    console.error(`[Director] Failed to create BOF angle: ${err.message}`);
+  }
+}
+
 async function selectAngles(projectId, config, count, excludedAngleNames = []) {
+  // Ensure BOF (Bottom of Funnel) system angle exists
+  await ensureBofAngle(projectId);
+
   const activeAngles = await getActiveConductorAngles(projectId);
 
   if (activeAngles.length === 0) {

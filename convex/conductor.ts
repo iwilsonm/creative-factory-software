@@ -104,6 +104,17 @@ export const getActiveAngles = query({
   },
 });
 
+export const getSystemDefaultAngle = query({
+  args: { projectId: v.string() },
+  handler: async (ctx, args) => {
+    const angles = await ctx.db
+      .query("conductor_angles")
+      .withIndex("by_project", (q) => q.eq("project_id", args.projectId))
+      .collect();
+    return angles.find((a) => a.is_system_default === true) || null;
+  },
+});
+
 export const createAngle = mutation({
   args: {
     externalId: v.string(),
@@ -126,6 +137,7 @@ export const createAngle = mutation({
     desired_belief_shift: v.optional(v.string()),
     tone: v.optional(v.string()),
     avoid_list: v.optional(v.string()),
+    is_system_default: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     const now = Date.now();
@@ -161,6 +173,7 @@ export const updateAngle = mutation({
     tone: v.optional(v.string()),
     avoid_list: v.optional(v.string()),
     destination_urls: v.optional(v.string()),
+    is_system_default: v.optional(v.boolean()),
     // Operational
     times_used: v.optional(v.number()),
     last_used_at: v.optional(v.number()),

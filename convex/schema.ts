@@ -650,6 +650,7 @@ export default defineSchema({
     tone: v.optional(v.string()),
     avoid_list: v.optional(v.string()),  // "Avoid" — renamed to avoid JS keyword
     destination_urls: v.optional(v.string()), // JSON array of LP URLs for this angle (overrides project default)
+    is_system_default: v.optional(v.boolean()), // True for auto-created system angles (e.g., BOF)
     // Operational fields
     times_used: v.number(),
     last_used_at: v.optional(v.number()),

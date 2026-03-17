@@ -2253,14 +2253,15 @@ function DirectorTab({ onRefresh }) {
     { id: 'settings', label: 'Settings' },
   ];
 
+  const pinSystemFirst = (list) => list.sort((a, b) => (b.is_system_default ? 1 : 0) - (a.is_system_default ? 1 : 0));
   const activeAngles = subTab === 'angles' || anglesLoadedFor === selectedProject
-    ? safeAngles.filter(a => a.status === 'active')
+    ? pinSystemFirst(safeAngles.filter(a => a.status === 'active'))
     : [];
   const testingAngles = subTab === 'angles' || anglesLoadedFor === selectedProject
     ? safeAngles.filter(a => a.status === 'testing')
     : [];
   const archivedAngles = subTab === 'angles' || anglesLoadedFor === selectedProject
-    ? safeAngles.filter(a => a.status === 'archived' || a.status === 'retired')
+    ? pinSystemFirst(safeAngles.filter(a => a.status === 'archived' || a.status === 'retired'))
     : [];
   const canChooseAngle = !angleOptionsLoading;
   const canTriggerTestRun = !baseLoading && !!config && (anglesLoadedFor !== selectedProject || activeAngles.length > 0);
@@ -3147,6 +3148,7 @@ function AngleCard({ angle, playbooks, onStatusChange, onToggleLPEnabled, onUpda
         <div className="flex items-center gap-2 flex-wrap min-w-0">
           <span className={`text-[11px] text-textlight flex-shrink-0 transition-transform ${expanded ? 'rotate-90' : ''}`}>&#9656;</span>
           <span className="text-[13px] font-medium text-textdark">{angle.name}</span>
+          {angle.is_system_default && <span className="text-[9px] font-medium px-1.5 py-0.5 rounded bg-navy/10 text-navy">System</span>}
           {angle.priority && <span className={`text-[9px] font-medium px-1.5 py-0.5 rounded ${PRIORITY_COLORS[angle.priority] || 'bg-gray-100 text-gray-600'}`}>{angle.priority}</span>}
           {angle.frame && <span className={`text-[9px] font-medium px-1.5 py-0.5 rounded ${FRAME_COLORS[angle.frame] || 'bg-gray-100 text-gray-600'}`}>{angle.frame}</span>}
           <span className="text-[10px] text-textlight">used {angle.times_used || 0}x</span>
