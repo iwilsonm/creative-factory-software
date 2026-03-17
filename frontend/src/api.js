@@ -544,18 +544,6 @@ export const api = {
     streamSSEWithBody(`/projects/${projectId}/chat/send`, { message, images: images || undefined }, onEvent),
   clearChat: (projectId) => request(`/projects/${projectId}/chat/clear`, { method: 'POST' }),
 
-  // AI Agency (multi-agent chat)
-  getAgencyAgents: () => request('/agency/agents'),
-  getAgencyTools: () => request('/agency/tools'),
-  getAgencyChatThread: (projectId, agentId) =>
-    request(`/projects/${projectId}/agency/chat/thread?agentId=${encodeURIComponent(agentId)}`),
-  sendAgencyChatMessage: (projectId, agentId, message, onEvent, { images, enabledTools } = {}) =>
-    streamSSEWithBody(`/projects/${projectId}/agency/chat/send`,
-      { agentId, message, images: images || undefined, enabledTools: enabledTools || undefined }, onEvent),
-  clearAgencyChat: (projectId, agentId) =>
-    request(`/projects/${projectId}/agency/chat/clear`,
-      { method: 'POST', body: JSON.stringify({ agentId }), headers: { 'Content-Type': 'application/json' } }),
-
   // Meta Ads Integration (per-project)
   getMetaStatus: (projectId) => request(`/projects/${projectId}/meta/status`),
   getMetaAuthUrl: (projectId) => request(`/projects/${projectId}/meta/auth-url`),

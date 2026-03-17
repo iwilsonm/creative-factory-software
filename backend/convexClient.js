@@ -1394,20 +1394,6 @@ export async function createChatMessage({ id, thread_id, project_id, role, conte
   });
 }
 
-// Agency Chat (multi-agent) helpers
-export async function getActiveChatThreadForAgent(projectId, agentId) {
-  return await queryWithRetry(api.chatThreads.getActiveByProjectAndAgent, { projectId, agentId });
-}
-
-export async function createAgencyChatThread({ id, project_id, agent_id, title }) {
-  await mutationWithRetry(api.chatThreads.create, {
-    externalId: id,
-    project_id,
-    agent_id,
-    title: title || undefined,
-  });
-}
-
 // =============================================
 // Correction History (dedicated table)
 // =============================================
