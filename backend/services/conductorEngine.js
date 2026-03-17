@@ -35,20 +35,61 @@ import {
 } from './adGenerator.js';
 
 /**
- * Run the Director cycle for ALL enabled projects.
- * Called by scheduler cron jobs.
+ * Check if a project's schedule matches the current time (ICT = UTC+7).
+ * Returns true if the Director should run for this project right now.
+ */
+function shouldRunNow(config) {
+  if (!config.enabled || config.run_schedule === 'manual_only') return false;
+
+  const now = new Date();
+  const ictHour = (now.getUTCHours() + 7) % 24;
+  const ictDay = new Date(now.getTime() + 7 * 60 * 60 * 1000).getUTCDay(); // 0=Sun...6=Sat
+
+  // Check if already ran today (same ICT calendar day)
+  if (config.last_planning_run) {
+    const lastRun = new Date(config.last_planning_run);
+    const lastRunIctDate = new Date(lastRun.getTime() + 7 * 60 * 60 * 1000).toISOString().split('T')[0];
+    const todayIctDate = new Date(now.getTime() + 7 * 60 * 60 * 1000).toISOString().split('T')[0];
+    if (lastRunIctDate === todayIctDate) return false;
+  }
+
+  const schedule = config.run_schedule || 'weekdays';
+  const targetHour = schedule === 'custom' ? (config.run_schedule_hour ?? 0) : 0; // midnight ICT for presets
+
+  // Check hour match
+  if (ictHour !== targetHour) return false;
+
+  // Check day match
+  switch (schedule) {
+    case 'daily': return true;
+    case 'weekdays': return ictDay >= 1 && ictDay <= 5;
+    case 'weekly_monday': return ictDay === 1;
+    case 'custom': {
+      let days = [1, 2, 3, 4, 5]; // default weekdays
+      try { days = JSON.parse(config.run_schedule_days || '[]'); } catch {}
+      return days.includes(ictDay);
+    }
+    case 'auto': return ictDay >= 1 && ictDay <= 5; // backward compat: treat as weekdays
+    default: return false;
+  }
+}
+
+/**
+ * Run the Director cycle for ALL enabled projects whose schedule matches now.
+ * Called by scheduler hourly tick.
  * @param {'planning'|'verification'|'emergency'} runType
  */
 export async function runDirectorCycle(runType = 'planning') {
   console.log(`[Director] Starting ${runType} cycle...`);
   const configs = await getAllConductorConfigs();
-  const enabledConfigs = configs.filter(c => c.enabled && c.run_schedule !== 'manual_only');
+  const enabledConfigs = configs.filter(c => shouldRunNow(c));
 
   if (enabledConfigs.length === 0) {
-    console.log('[Director] No enabled projects. Skipping.');
+    console.log('[Director] No projects scheduled for this hour. Skipping.');
     return;
   }
 
+  console.log(`[Director] ${enabledConfigs.length} project(s) scheduled to run.`);
   const results = [];
   for (const config of enabledConfigs) {
     try {

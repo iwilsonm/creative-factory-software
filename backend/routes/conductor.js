@@ -176,7 +176,7 @@ router.put('/config/:projectId', async (req, res) => {
     // Whitelist allowed fields to prevent arbitrary field injection
     const allowedConfigFields = [
       'enabled', 'daily_flex_target', 'ads_per_batch', 'angle_mode',
-      'angle_rotation', 'explore_ratio', 'run_schedule', 'posting_days',
+      'angle_rotation', 'explore_ratio', 'run_schedule', 'run_schedule_days', 'run_schedule_hour', 'posting_days',
       'score_threshold', 'auto_learn',
       'headline_style', 'primary_text_style', 'meta_campaign_name',
       'meta_adset_defaults', 'default_campaign_id',

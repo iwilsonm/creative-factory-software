@@ -2772,6 +2772,57 @@ function DirectorTab({ onRefresh }) {
 
       {subTab === 'settings' && config && (
         <div className="space-y-4">
+          {/* Run Schedule */}
+          <div className="mb-4">
+            <label className="text-[11px] text-textmid font-medium block mb-1">Run Schedule</label>
+            <select
+              value={config?.run_schedule || 'weekdays'}
+              onChange={e => handleSaveConfig({ run_schedule: e.target.value })}
+              className="input-apple w-full text-[12px]"
+            >
+              <option value="daily">Daily (midnight ICT)</option>
+              <option value="weekdays">Weekdays — Mon-Fri (midnight ICT)</option>
+              <option value="weekly_monday">Weekly on Monday (midnight ICT)</option>
+              <option value="custom">Custom</option>
+              <option value="manual_only">Manual only</option>
+            </select>
+            {(config?.run_schedule || 'weekdays') === 'custom' && (
+              <div className="mt-2 space-y-2">
+                <div className="flex items-center gap-1.5 flex-wrap">
+                  {['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map((day, i) => {
+                    let selectedDays = [];
+                    try { selectedDays = JSON.parse(config?.run_schedule_days || '[]'); } catch {}
+                    const isSelected = selectedDays.includes(i);
+                    return (
+                      <button
+                        key={day}
+                        onClick={() => {
+                          const updated = isSelected ? selectedDays.filter(d => d !== i) : [...selectedDays, i];
+                          handleSaveConfig({ run_schedule_days: JSON.stringify(updated.sort()) });
+                        }}
+                        className={`text-[10px] px-2.5 py-1 rounded-md font-medium transition-colors ${isSelected ? 'bg-navy text-white' : 'bg-gray-100 text-textmid hover:bg-gray-200'}`}
+                      >
+                        {day}
+                      </button>
+                    );
+                  })}
+                </div>
+                <div>
+                  <label className="text-[10px] text-textlight block mb-0.5">Run at (ICT)</label>
+                  <select
+                    value={config?.run_schedule_hour ?? 0}
+                    onChange={e => handleSaveConfig({ run_schedule_hour: parseInt(e.target.value) })}
+                    className="input-apple text-[11px] w-auto"
+                  >
+                    {Array.from({ length: 24 }, (_, h) => (
+                      <option key={h} value={h}>{String(h).padStart(2, '0')}:00</option>
+                    ))}
+                  </select>
+                </div>
+              </div>
+            )}
+          </div>
+
           <div className="grid grid-cols-2 gap-4">
             <div>
               <label className="text-[11px] text-textmid font-medium block mb-1">Daily Flex Ad Target</label>

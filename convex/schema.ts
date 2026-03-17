@@ -618,7 +618,9 @@ export default defineSchema({
     meta_campaign_name: v.optional(v.string()),  // default campaign name template
     meta_adset_defaults: v.optional(v.string()), // JSON: default adset settings
     default_campaign_id: v.optional(v.string()),  // → campaigns.externalId for auto-deployed flex ads
-    run_schedule: v.string(),           // "auto" | "manual_only"
+    run_schedule: v.string(),           // "daily" | "weekdays" | "weekly_monday" | "custom" | "manual_only"
+    run_schedule_days: v.optional(v.string()),   // JSON array of day numbers (0=Sun...6=Sat) for custom schedule
+    run_schedule_hour: v.optional(v.number()),   // Hour in ICT (0-23) for custom schedule, default 0
     last_planning_run: v.optional(v.number()),   // timestamp
     last_verify_run: v.optional(v.number()),     // timestamp
     created_at: v.number(),

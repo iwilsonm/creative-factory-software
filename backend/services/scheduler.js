@@ -93,35 +93,17 @@ export async function initScheduler() {
     } catch (e) { console.error('[Scheduler] Meta token refresh error:', e.message); }
   });
 
-  // ── Dacia Creative Director cron jobs ──────────────────────────────────────
-  // Director runs at 7 AM, 7 PM, and 1 AM ICT (UTC+7) = 0:00, 12:00, 18:00 UTC
-  // Active Saturday through Thursday (off Friday ICT)
-
-  // 7 AM ICT = 0:00 UTC — runs Sun-Fri (ICT Sun-Thu 7 AM + opening new posting days)
-  cron.schedule('0 0 * * 0-5', async () => {
+  // ── Dacia Creative Director — hourly check ────────────────────────────────
+  // Runs every hour. Each project's conductor_config determines its own schedule
+  // (daily, weekdays, weekly_monday, custom days+hour, or manual_only).
+  // The shouldRunNow() function in conductorEngine.js handles schedule matching
+  // and prevents double-runs within the same ICT calendar day.
+  cron.schedule('0 * * * *', async () => {
     try {
       const { runDirectorCycle } = await import('./conductorEngine.js');
       await runDirectorCycle('planning');
       lastDirectorRunAt = new Date().toISOString();
-    } catch (e) { console.error('[Scheduler] Director 7AM run error:', e.message); }
-  });
-
-  // 7 PM ICT = 12:00 UTC — runs Sat-Thu (opens new production windows)
-  cron.schedule('0 12 * * 0-5', async () => {
-    try {
-      const { runDirectorCycle } = await import('./conductorEngine.js');
-      await runDirectorCycle('planning');
-      lastDirectorRunAt = new Date().toISOString();
-    } catch (e) { console.error('[Scheduler] Director 7PM run error:', e.message); }
-  });
-
-  // 1 AM ICT = 18:00 UTC (previous day) — final verification before deadline
-  cron.schedule('0 18 * * 0-5', async () => {
-    try {
-      const { runDirectorCycle } = await import('./conductorEngine.js');
-      await runDirectorCycle('verification');
-      lastDirectorRunAt = new Date().toISOString();
-    } catch (e) { console.error('[Scheduler] Director 1AM verification error:', e.message); }
+    } catch (e) { console.error('[Scheduler] Director hourly check error:', e.message); }
   });
 
   // ── CMO Agent cron — checks daily, each project has its own review day/hour ──
