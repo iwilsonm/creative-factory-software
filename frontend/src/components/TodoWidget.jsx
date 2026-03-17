@@ -30,6 +30,7 @@ export default function TodoWidget() {
   const [editPriority, setEditPriority] = useState(null);
   const [editNotes, setEditNotes] = useState('');
   const [expandedNoteId, setExpandedNoteId] = useState(null);
+  const [showCompleted, setShowCompleted] = useState(false);
   const inputRef = useRef(null);
   const editInputRef = useRef(null);
 
@@ -276,12 +277,20 @@ export default function TodoWidget() {
 
       {completed.length > 0 && (
         <div className={pending.length > 0 ? 'mt-3 pt-3 border-t border-black/5' : ''}>
-          {pending.length > 0 && (
-            <p className="text-[10px] font-medium text-textlight/60 uppercase tracking-wider mb-1">Completed</p>
+          <button
+            onClick={() => setShowCompleted(prev => !prev)}
+            className="flex items-center gap-1 text-[10px] font-medium text-textlight/60 uppercase tracking-wider mb-1 hover:text-textmid transition-colors cursor-pointer"
+          >
+            <svg className={`w-3 h-3 transition-transform duration-200 ${showCompleted ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+            </svg>
+            Completed ({completed.length})
+          </button>
+          {showCompleted && (
+            <ul className="space-y-0.5">
+              {completed.map(t => renderItem(t, true))}
+            </ul>
           )}
-          <ul className="space-y-0.5">
-            {completed.map(t => renderItem(t, true))}
-          </ul>
         </div>
       )}
 
