@@ -514,13 +514,22 @@ async function replaceFailedSlot(projectId, config, postingDay, slot, allSlots) 
  * Returns an array of angle objects, one per batch needed.
  */
 
-const BOF_ANGLE_DESCRIPTION = `Bottom-of-funnel direct response angle. Use the project's foundational documents (customer avatar, offer brief, necessary beliefs) to create ads focused on:
-- Direct product benefits and features
-- Social proof, testimonials, and results
-- Urgency, scarcity, and limited-time offers
-- Clear calls to action and conversion focus
-- Overcoming final purchase objections
-The tone should be confident and direct. These ads target warm audiences who already know about the product.`;
+const BOF_ANGLE = {
+  name: 'BOF (Bottom of Funnel)',
+  description: `Core Buyer: Warm prospects who already know about the product — have visited the site, seen ads, or been considering purchasing.
+Symptom Pattern: Hesitation at the point of purchase — reading reviews, comparing alternatives, looking for a final reason to buy.
+Objection: Price concerns, skepticism about results, uncertainty about whether this is the right product for them.
+Scene: Shopping online late at night, tab open with product page, reading reviews, almost clicking buy but closing the tab instead.
+Desired Belief Shift: This is the right choice, now is the right time, and here is proof it works.`,
+  core_buyer: 'Warm prospects who already know about the product — have visited the site, seen ads, or been considering purchasing',
+  symptom_pattern: 'Hesitation at the point of purchase — reading reviews, comparing alternatives, looking for a final reason to buy',
+  objection: 'Price concerns, skepticism about results, uncertainty about whether this is the right product for them',
+  scene: 'Shopping online late at night, tab open with product page, reading reviews, almost clicking buy but closing the tab instead',
+  desired_belief_shift: 'This is the right choice, now is the right time, and here is proof it works',
+  tone: 'Confident, direct, urgency without desperation',
+  avoid_list: 'Cold awareness-stage messaging, long educational content, fear-mongering',
+  frame: 'bottom-of-funnel',
+};
 
 async function ensureBofAngle(projectId) {
   try {
@@ -529,8 +538,7 @@ async function ensureBofAngle(projectId) {
     await createConductorAngle({
       id: uuidv4(),
       project_id: projectId,
-      name: 'BOF (Bottom of Funnel)',
-      description: BOF_ANGLE_DESCRIPTION,
+      ...BOF_ANGLE,
       source: 'system',
       status: 'active',
       priority: 'medium',

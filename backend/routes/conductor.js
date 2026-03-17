@@ -12,7 +12,7 @@ import {
   getProjectOptions,
   getBatchJob, getLandingPagesByBatchJob,
 } from '../convexClient.js';
-import { buildDescriptionFromBrief } from '../utils/angleParser.js';
+import { buildDescriptionFromBrief, parseBriefFromDescription } from '../utils/angleParser.js';
 import { streamService } from '../utils/sseHelper.js';
 
 const router = Router();
@@ -247,6 +247,10 @@ router.post('/angles/:projectId', async (req, res) => {
       core_buyer, symptom_pattern, objection, scene, desired_belief_shift
     });
     const id = uuidv4();
+    // If structured fields are empty but description has labeled data, parse them
+    const parsedFields = (!core_buyer && !symptom_pattern && computedDescription)
+      ? parseBriefFromDescription(computedDescription)
+      : {};
     await createConductorAngle({
       id,
       project_id: req.params.projectId,
@@ -255,9 +259,18 @@ router.post('/angles/:projectId', async (req, res) => {
       prompt_hints,
       source: source || 'manual',
       status: status || 'active',
-      priority, frame, core_buyer, symptom_pattern, failed_solutions,
-      current_belief, objection, emotional_state, scene,
-      desired_belief_shift, tone, avoid_list,
+      priority: priority || parsedFields.priority,
+      frame: frame || parsedFields.frame,
+      core_buyer: core_buyer || parsedFields.core_buyer,
+      symptom_pattern: symptom_pattern || parsedFields.symptom_pattern,
+      failed_solutions: failed_solutions || parsedFields.failed_solutions,
+      current_belief: current_belief || parsedFields.current_belief,
+      objection: objection || parsedFields.objection,
+      emotional_state: emotional_state || parsedFields.emotional_state,
+      scene: scene || parsedFields.scene,
+      desired_belief_shift: desired_belief_shift || parsedFields.desired_belief_shift,
+      tone: tone || parsedFields.tone,
+      avoid_list: avoid_list || parsedFields.avoid_list,
     });
     res.json({ success: true, id });
   } catch (err) {

@@ -20,6 +20,59 @@ const SECTION_MAP = {
 const VALID_PRIORITIES = ['highest', 'high', 'medium', 'test'];
 const VALID_FRAMES = ['symptom-first', 'scam', 'objection-first', 'identity-first', 'MAHA', 'news-first', 'consequence-first'];
 
+// Reverse map: description label → database field key
+const DESCRIPTION_LABEL_MAP = {
+  'core buyer': 'core_buyer',
+  'symptom pattern': 'symptom_pattern',
+  'failed solutions': 'failed_solutions',
+  'current belief': 'current_belief',
+  'objection': 'objection',
+  'emotional state': 'emotional_state',
+  'scene to center the ad on': 'scene',
+  'scene': 'scene',
+  'desired belief shift': 'desired_belief_shift',
+  'tone': 'tone',
+  'avoid': 'avoid_list',
+};
+
+/**
+ * Parse structured brief fields from a plain-text description.
+ * Extracts "Label: value" patterns from description text.
+ * Returns only fields that were found — empty fields omitted.
+ */
+export function parseBriefFromDescription(description) {
+  if (!description || typeof description !== 'string') return {};
+  const result = {};
+  const lines = description.split('\n');
+  const labels = Object.keys(DESCRIPTION_LABEL_MAP);
+
+  for (let i = 0; i < lines.length; i++) {
+    const line = lines[i].trim();
+    if (!line) continue;
+
+    // Check if line starts with a known label
+    for (const label of labels) {
+      const regex = new RegExp(`^${label}\\s*:\\s*(.+)`, 'i');
+      const match = line.match(regex);
+      if (match) {
+        const fieldKey = DESCRIPTION_LABEL_MAP[label];
+        let value = match[1].trim();
+        // Collect continuation lines (lines that don't start with a known label)
+        for (let j = i + 1; j < lines.length; j++) {
+          const nextLine = lines[j].trim();
+          if (!nextLine) break;
+          const isLabel = labels.some(l => new RegExp(`^${l}\\s*:`, 'i').test(nextLine));
+          if (isLabel) break;
+          value += ' ' + nextLine;
+        }
+        if (value) result[fieldKey] = value;
+        break;
+      }
+    }
+  }
+  return result;
+}
+
 /**
  * Build a flat description string from structured brief fields.
  * Used for backward compatibility — downstream code that reads angle.description
