@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import { requireAuth } from '../auth.js';
-import { getProject, getLatestDoc, updateProject } from '../convexClient.js';
+import { getProject, getLatestDoc, updateProject, getSystemDefaultAngle, createConductorAngle } from '../convexClient.js';
 import { convexClient, api } from '../convexClient.js';
 import {
   generateAllDocs,
@@ -22,13 +22,35 @@ const DOC_TYPES = ['research', 'avatar', 'offer_brief', 'necessary_beliefs'];
 
 // Check if all 4 doc types exist and promote status to 'docs_ready' if so.
 // Only promotes from 'setup' — never demotes or interferes with 'generating_docs'.
+// Also ensures the BOF system angle exists when all docs are present.
 async function checkAndPromoteDocStatus(projectId) {
   try {
     const project = await getProject(projectId);
-    if (!project || project.status !== 'setup') return;
+    if (!project) return;
     const docs = await Promise.all(DOC_TYPES.map(type => getLatestDoc(projectId, type)));
-    if (docs.every(Boolean)) {
+    const allDocsExist = docs.every(Boolean);
+
+    // Promote status from setup to docs_ready
+    if (project.status === 'setup' && allDocsExist) {
       await updateProject(projectId, { status: 'docs_ready' });
+    }
+
+    // Create BOF system angle if all docs exist and it doesn't already exist
+    if (allDocsExist) {
+      const existingBof = await getSystemDefaultAngle(projectId);
+      if (!existingBof) {
+        await createConductorAngle({
+          id: uuidv4(),
+          project_id: projectId,
+          name: 'BOF (Bottom of Funnel)',
+          description: 'Bottom-of-funnel direct response angle. Use the project\'s foundational documents to create ads focused on direct product benefits, social proof, urgency, and conversion. Target warm audiences who already know about the product.',
+          source: 'system',
+          status: 'active',
+          priority: 'medium',
+          is_system_default: true,
+        });
+        console.log(`[Docs] Created BOF angle for project ${projectId}`);
+      }
     }
   } catch (err) {
     console.error('[Docs] Status check error:', err.message);

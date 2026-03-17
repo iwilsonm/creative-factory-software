@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { v4 as uuidv4 } from 'uuid';
 import {
   getConductorConfig, upsertConductorConfig, getAllConductorConfigs,
-  getConductorAngles, getActiveConductorAngles, createConductorAngle, updateConductorAngle, deleteConductorAngle, getSystemDefaultAngle,
+  getConductorAngles, getActiveConductorAngles, createConductorAngle, updateConductorAngle, deleteConductorAngle,
   getConductorRuns, createConductorRun,
   getConductorHealth, createConductorHealth,
   getConductorPlaybooks, getConductorPlaybook,
@@ -187,24 +187,6 @@ router.put('/config/:projectId', async (req, res) => {
     }
     await upsertConductorConfig(req.params.projectId, fields);
     resetPipelineStatusCache();
-    // Ensure BOF system angle exists for this project
-    const existingBof = await getSystemDefaultAngle(req.params.projectId);
-    if (!existingBof) {
-      try {
-        await createConductorAngle({
-          id: uuidv4(),
-          project_id: req.params.projectId,
-          name: 'BOF (Bottom of Funnel)',
-          description: 'Bottom-of-funnel direct response angle. Use the project\'s foundational documents to create ads focused on direct product benefits, social proof, urgency, and conversion. Target warm audiences who already know about the product.',
-          source: 'system',
-          status: 'active',
-          priority: 'medium',
-          is_system_default: true,
-        });
-      } catch (err) {
-        console.error('[Conductor] Failed to create BOF angle:', err.message);
-      }
-    }
     const config = await getConductorConfig(req.params.projectId);
     res.json({ success: true, config });
   } catch (err) {
