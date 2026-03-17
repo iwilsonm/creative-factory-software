@@ -2308,7 +2308,7 @@ function DirectorTab({ onRefresh }) {
             <option value="">
               {angleOptionsLoading ? 'Loading angles...' : angleOptionsLoadedFor === selectedProject ? 'Auto-select angle' : 'Loading angle options...'}
             </option>
-            {safeAngleOptions.map(a => (
+            {[...safeAngleOptions].sort((a, b) => (b.is_system_default ? 1 : 0) - (a.is_system_default ? 1 : 0)).map(a => (
               <option key={a.externalId} value={a.externalId}>{a.name}</option>
             ))}
           </select>
