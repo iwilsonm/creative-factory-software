@@ -729,7 +729,7 @@ router.post('/deployments/flex-ads', requireRole('admin', 'manager'), async (req
     }
 
     const id = crypto.randomUUID();
-    const flexName = name || `Flex Ad (${deploymentIds.length} images)`;
+    const flexName = name || `Flex — Manual — ${crypto.randomUUID().slice(0,6).toUpperCase()}`;
 
     await createFlexAd({ id, project_id: projectId, ad_set_id: adSetId, name: flexName, child_deployment_ids: deploymentIds });
 
@@ -907,7 +907,7 @@ router.post('/deployments/flex', requireRole('admin', 'manager'), async (req, re
       id: flexId,
       project_id,
       ad_set_id,
-      name: name || `Filter Flex Ad (${uniqueAdIds.length} images)`,
+      name: name || `Flex — ${angle_name || 'Unassigned'} — ${crypto.randomUUID().slice(0,6).toUpperCase()}`,
       child_deployment_ids: deploymentIds,
       primary_texts: primary_texts || [],
       headlines: headlines || [],

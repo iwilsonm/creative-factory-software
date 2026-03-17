@@ -623,11 +623,11 @@ deploy_flex_ads() {
     existing_count=$(echo "$count_response" | jq -r '.count // 0' 2>/dev/null) || true
     flex_num=$((existing_count + 1))
 
-    # Naming: Ad set = "{Angle} — Flex #{N}", Flex ad = "Flex — {Angle} #{N} (M images)"
+    # Naming: Ad set = "{Angle} — XXXXXX", Flex ad = "Flex — {Angle} — XXXXXX"
     local ad_set_name
-    ad_set_name=$(echo "${effective_angle} — Flex #${flex_num}" | tr -d '\n\r')
+    ad_set_name=$(echo "${effective_angle} — $(printf '%06d' $flex_num)" | tr -d '\n\r')
     local flex_ad_name
-    flex_ad_name=$(echo "Flex — ${effective_angle} #${flex_num} (${image_count} images)" | tr -d '\n\r')
+    flex_ad_name=$(echo "Flex — ${effective_angle} — $(printf '%06d' $flex_num)" | tr -d '\n\r')
 
     log_info "Deploying: $flex_ad_name ($headline_count headlines, $primary_text_count primary texts)"
 
