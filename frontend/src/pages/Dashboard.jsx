@@ -635,62 +635,27 @@ export default function Dashboard() {
 
       {/* 1. API Cost Summary */}
       <div className="mb-8 fade-in">
-        <div className="flex items-center gap-2 mb-1">
+        <div className="flex items-center gap-2 mb-4">
           <h2 className="text-[15px] font-semibold text-textdark tracking-tight">API Costs</h2>
           <InfoTooltip
-            text="Tracks your spending on OpenAI (document generation, creative direction) and Gemini (image generation) API calls across all projects."
+            text={`Tracks your spending on OpenAI and Gemini API calls across all projects. Real-time cost tracking — today resets at midnight UTC.${imageRates && imageRates.manualRate ? ` Image rates: $${imageRates.manualRate.toFixed(4)}/image (manual) · $${imageRates.batchRate.toFixed(4)}/image (batch 50% off).${imageRates.updatedAt ? ` Updated ${new Date(imageRates.updatedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}.` : ''}` : ''}`}
             position="right"
           />
         </div>
-        <p className="text-[12px] text-textlight mb-1">
-          Real-time cost tracking. Today resets at midnight UTC.
-        </p>
-        {imageRates && imageRates.manualRate && (
-          <p className="text-[11px] text-textlight mb-4">
-            Image rates: <span className="text-textmid font-medium">${imageRates.manualRate.toFixed(4)}/image</span> (manual)
-            {' · '}
-            <span className="text-textmid font-medium">${imageRates.batchRate.toFixed(4)}/image</span> (batch 50% off)
-            {imageRates.updatedAt && (
-              <span className="text-textlight/60 ml-1">
-                · Updated {new Date(imageRates.updatedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}
-              </span>
-            )}
-          </p>
-        )}
         <div className="space-y-4">
           <CostSummaryCards costs={costs} loading={costsLoading} />
-
-          {/* Date range selector */}
-          <div className="flex items-center gap-2 flex-wrap">
-            <select
-              value={historyRange.key}
-              onChange={e => setHistoryRange(HISTORY_RANGES.find(r => r.key === e.target.value) || HISTORY_RANGES[2])}
-              className="input-apple text-[11px] py-1.5 px-2.5 w-auto"
-            >
-              {HISTORY_RANGES.map(r => (
-                <option key={r.key} value={r.key}>{r.label}</option>
-              ))}
-            </select>
-            {historyRange.key === 'custom' && (
-              <div className="flex items-center gap-1.5 text-[11px]">
-                <input
-                  type="date"
-                  value={customStart}
-                  onChange={e => setCustomStart(e.target.value)}
-                  className="input-apple text-[11px] py-1 px-2 w-[130px]"
-                />
-                <span className="text-textlight">to</span>
-                <input
-                  type="date"
-                  value={customEnd}
-                  onChange={e => setCustomEnd(e.target.value)}
-                  className="input-apple text-[11px] py-1 px-2 w-[130px]"
-                />
-              </div>
-            )}
-          </div>
-
-          <CostBarChart data={costHistory} loading={costHistoryLoading} rangeLabel={getRangeLabel(historyRange)} />
+          <CostBarChart
+            data={costHistory}
+            loading={costHistoryLoading}
+            rangeLabel="Spend History"
+            historyRange={historyRange}
+            setHistoryRange={setHistoryRange}
+            historyRanges={HISTORY_RANGES}
+            customStart={customStart}
+            setCustomStart={setCustomStart}
+            customEnd={customEnd}
+            setCustomEnd={setCustomEnd}
+          />
         </div>
       </div>
 

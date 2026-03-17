@@ -20,7 +20,7 @@ const SERVICES = [
   { key: 'perplexity', label: 'Perplexity',  color: '#C4975A', hoverColor: '#B3874A', legendColor: 'bg-gold',        tooltipColor: 'text-gold' },
 ];
 
-export default function CostBarChart({ data, loading, rangeLabel }) {
+export default function CostBarChart({ data, loading, rangeLabel, historyRange, setHistoryRange, historyRanges, customStart, setCustomStart, customEnd, setCustomEnd }) {
   const [hoveredIndex, setHoveredIndex] = useState(null);
 
   const chartData = useMemo(() => {
@@ -76,9 +76,20 @@ export default function CostBarChart({ data, loading, rangeLabel }) {
 
   return (
     <div className="card p-5">
-      <div className="flex items-center justify-between mb-4">
+      <div className="flex items-center justify-between mb-4 flex-wrap gap-2">
         <div className="flex items-center gap-3">
           <h4 className="text-[13px] font-semibold text-textdark">{rangeLabel || 'Spend History'}</h4>
+          {historyRanges && setHistoryRange && (
+            <select
+              value={historyRange?.key || '30d'}
+              onChange={e => setHistoryRange(historyRanges.find(r => r.key === e.target.value) || historyRanges[2])}
+              className="text-[11px] text-textdark bg-offwhite border border-black/10 rounded-lg px-2 py-1 cursor-pointer"
+            >
+              {historyRanges.map(r => (
+                <option key={r.key} value={r.key}>{r.label}</option>
+              ))}
+            </select>
+          )}
           <span className="text-[12px] font-semibold text-textmid">Total: {formatCost(grandTotal)}</span>
         </div>
         <div className="flex items-center gap-3 text-[10px] text-textlight">
@@ -90,6 +101,13 @@ export default function CostBarChart({ data, loading, rangeLabel }) {
           ))}
         </div>
       </div>
+      {historyRange?.key === 'custom' && setCustomStart && (
+        <div className="flex items-center gap-1.5 text-[11px] mb-4">
+          <input type="date" value={customStart || ''} onChange={e => setCustomStart(e.target.value)} className="input-apple text-[11px] py-1 px-2 w-[130px]" />
+          <span className="text-textlight">to</span>
+          <input type="date" value={customEnd || ''} onChange={e => setCustomEnd(e.target.value)} className="input-apple text-[11px] py-1 px-2 w-[130px]" />
+        </div>
+      )}
 
       <div className="relative" style={{ height: chartHeight + 30 }}>
         {/* Y-axis labels */}
