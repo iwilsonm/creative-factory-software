@@ -3,6 +3,7 @@ import { api } from '../api';
 import Layout from '../components/Layout';
 import InfoTooltip from '../components/InfoTooltip';
 import DragDropUpload from '../components/DragDropUpload';
+import TodoWidget from '../components/TodoWidget';
 import ConfirmDialog from '../components/ConfirmDialog';
 import { useToast } from '../components/Toast';
 
@@ -946,6 +947,9 @@ export default function Settings() {
           </form>
         </div>
       </div>
+
+      {/* Roadmap */}
+      <TodoWidget />
     </Layout>
   );
 }
