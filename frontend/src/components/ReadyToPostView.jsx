@@ -1335,9 +1335,6 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
               </div>
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="inline-block px-2 py-0.5 rounded bg-navy/10 text-navy text-[9px] font-bold uppercase tracking-wider">Ad Format: Flexible</span>
-                {plannedDate && (
-                  <span className="inline-block px-2 py-0.5 rounded bg-teal/10 text-teal text-[9px] font-bold uppercase tracking-wider">Start Date: {plannedDate}</span>
-                )}
               </div>
             </div>
             <div className="flex gap-1 flex-shrink-0">
@@ -1361,6 +1358,46 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
               Added to Ready to Post: {formatAddedDate(flexAd.created_at)}
             </div>
           )}
+
+          {/* Start Date — ad set launch date */}
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] text-textmid font-medium">Start Date:</span>
+            {!isPoster ? (
+              <div className="flex items-center gap-1">
+                <input
+                  type="date"
+                  value={flexAd.planned_date ? flexAd.planned_date.split('T')[0] : ''}
+                  onChange={async (e) => {
+                    const value = e.target.value || null;
+                    setFlexAds(prev => prev.map(f => f.id === flexAd.id ? { ...f, planned_date: value } : f));
+                    try { await api.updateFlexAd(flexAd.id, { planned_date: value }); }
+                    catch { addToast('Failed to save start date', 'error'); }
+                  }}
+                  className="input-apple text-[11px] py-1 px-2 w-[140px]"
+                />
+                {flexAd.planned_date && (
+                  <button
+                    onClick={async () => {
+                      setFlexAds(prev => prev.map(f => f.id === flexAd.id ? { ...f, planned_date: null } : f));
+                      try { await api.updateFlexAd(flexAd.id, { planned_date: null }); }
+                      catch { addToast('Failed to clear start date', 'error'); }
+                    }}
+                    className="text-textlight hover:text-red-400 transition-colors p-0.5"
+                    title="Clear date"
+                  >
+                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+                    </svg>
+                  </button>
+                )}
+              </div>
+            ) : (
+              <span className="text-[11px] text-textdark">
+                {flexAd.planned_date ? new Date(flexAd.planned_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'Not set'}
+              </span>
+            )}
+            <span className="text-[9px] text-textlight">Ad set launch date in Ads Manager</span>
+          </div>
 
           {/* Campaign + Ad Set + Duplicate Ad Set — always visible */}
           <PostInSection campaignName={campaignName} adSetName={adSetName} duplicateAdSetName={flexAd.duplicate_adset_name} adName={flexAd.name || 'Flex Ad'} cardKey={flexId} />
