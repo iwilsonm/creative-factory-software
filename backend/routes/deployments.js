@@ -851,13 +851,19 @@ router.post('/deployments/flex', requireRole('admin', 'manager'), async (req, re
       if (adSet?.campaign_id) campaignId = adSet.campaign_id;
     } catch {}
 
+    // Deduplicate ad_ids to prevent the same image appearing twice in a flex ad
+    const uniqueAdIds = [...new Set(ad_ids)];
+    if (uniqueAdIds.length < ad_ids.length) {
+      console.log(`[Deployments] Flex ad dedup: removed ${ad_ids.length - uniqueAdIds.length} duplicate ad_ids`);
+    }
+
     // Create individual deployments for each ad
     const deploymentIds = [];
     const depStatus = status === 'ready' ? 'ready_to_post' : (status || 'selected');
     const ptJson = JSON.stringify(primary_texts || []);
     const hlJson = JSON.stringify(headlines || []);
 
-    for (const adId of ad_ids) {
+    for (const adId of uniqueAdIds) {
       const depId = crypto.randomUUID();
       let ad;
       try { ad = await getAd(adId); } catch {}
@@ -901,7 +907,7 @@ router.post('/deployments/flex', requireRole('admin', 'manager'), async (req, re
       id: flexId,
       project_id,
       ad_set_id,
-      name: name || `Filter Flex Ad (${ad_ids.length} images)`,
+      name: name || `Filter Flex Ad (${uniqueAdIds.length} images)`,
       child_deployment_ids: deploymentIds,
       primary_texts: primary_texts || [],
       headlines: headlines || [],

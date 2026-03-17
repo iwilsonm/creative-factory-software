@@ -315,6 +315,7 @@ export const getCompletedDirectorBatchStats = query({
         project_id: b.project_id,
         batch_size: b.batch_size,
         completed_at: b.completed_at,
+        used_template_ids: b.used_template_ids || null,
       }));
   },
 });

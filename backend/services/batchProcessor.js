@@ -16,7 +16,7 @@ import {
 import {
   getProject, getLatestDoc, getBatchJob, updateBatchJob,
   uploadBuffer, downloadToBuffer, getRecentHeadlineHistoryByAngle, recordHeadlineHistory,
-  claimBatchResultsProcessing,
+  claimBatchResultsProcessing, getCompletedDirectorBatchStats,
   convexClient, api
 } from '../convexClient.js';
 import { logGeminiCost } from './costTracker.js';
@@ -438,6 +438,24 @@ async function generateBatchPrompts(batch, project, docs, onProgress, options = 
   let usedTemplateIds = [];
   if (batch.used_template_ids) {
     try { usedTemplateIds = JSON.parse(batch.used_template_ids); } catch {}
+  }
+  // Also load used_template_ids from recent completed batches (cross-batch dedup)
+  try {
+    const sevenDaysAgo = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString().split('T')[0];
+    const recentBatches = await getCompletedDirectorBatchStats(sevenDaysAgo);
+    const projectBatches = recentBatches.filter(b => b.project_id === batch.project_id && b.used_template_ids);
+    for (const rb of projectBatches) {
+      try {
+        const ids = JSON.parse(rb.used_template_ids);
+        if (Array.isArray(ids)) usedTemplateIds.push(...ids);
+      } catch {}
+    }
+    if (usedTemplateIds.length > 0) {
+      usedTemplateIds = [...new Set(usedTemplateIds)]; // deduplicate
+      console.log(`[BatchProcessor] Cross-batch dedup: ${usedTemplateIds.length} previously used template IDs loaded`);
+    }
+  } catch (err) {
+    console.warn(`[BatchProcessor] Cross-batch template dedup failed: ${err.message}`);
   }
   const newlyUsedTemplateIds = [];
 
