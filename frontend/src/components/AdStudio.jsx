@@ -2002,6 +2002,16 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
                 </p>
               </div>
 
+              {(angle.trim() || headline.trim() || bodyCopy.trim()) && (
+                <div className="flex justify-end mb-1">
+                  <button
+                    onClick={() => { setAngle(''); setHeadline(''); setBodyCopy(''); setSourceQuoteId(null); }}
+                    className="text-[10px] text-textlight hover:text-red-400 transition-colors"
+                  >
+                    Clear fields
+                  </button>
+                </div>
+              )}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mb-5">
                 {/* Ad Topic / Angle */}
                 <div>
