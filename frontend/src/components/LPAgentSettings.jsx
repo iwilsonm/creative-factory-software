@@ -1082,8 +1082,8 @@ export default function LPAgentSettings({ projectId }) {
             </div>
           )}
 
-          {/* Progress */}
-          {gauntletRunning && (
+          {/* Progress — only show gauntlet bar when no dry-run bar is already visible */}
+          {gauntletRunning && !activeDryRun && (
             <PipelineProgress
               progress={gauntletProgress}
               message={gauntletPhase}
