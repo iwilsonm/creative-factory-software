@@ -80,6 +80,7 @@ export default function LPAgentSettings({ projectId }) {
   // Recent generations
   const [recentGenerations, setRecentGenerations] = useState([]);
   const [expandedBatches, setExpandedBatches] = useState({});
+  const [publishingLPId, setPublishingLPId] = useState(null);
 
   // Debounced save
   const saveTimerRef = useRef(null);
@@ -329,6 +330,20 @@ export default function LPAgentSettings({ projectId }) {
       setRecentGenerations(status?.recent_generations || []);
     } catch { /* ignore */ }
   }, [projectId]);
+
+  const handlePublishLP = async (e, lpId) => {
+    e.stopPropagation();
+    setPublishingLPId(lpId);
+    try {
+      await api.publishLandingPage(projectId, lpId);
+      toast.success('Landing page published to Shopify!');
+      await refreshRecentGenerations();
+    } catch (err) {
+      toast.error(`Publish failed: ${err.message}`);
+    } finally {
+      setPublishingLPId(null);
+    }
+  };
 
   const updateDryRunQueueItem = useCallback((queueId, updates) => {
     setDryRunQueue(prev => prev.map(item => item.id === queueId ? { ...item, ...updates } : item));
@@ -1326,6 +1341,15 @@ export default function LPAgentSettings({ projectId }) {
                                       <span className={`text-[9px] font-medium px-1.5 py-0.5 rounded-full ${statusBg}`}>
                                         {statusText}
                                       </span>
+                                      {!isPublished && !isGenerating && !isFailed && (
+                                        <button
+                                          onClick={(e) => handlePublishLP(e, lp.id)}
+                                          disabled={publishingLPId === lp.id}
+                                          className="text-[9px] font-medium px-1.5 py-0.5 rounded-full bg-teal/10 text-teal hover:bg-teal/20 transition-colors disabled:opacity-50"
+                                        >
+                                          {publishingLPId === lp.id ? 'Publishing...' : 'Publish'}
+                                        </button>
+                                      )}
                                       {(lp.gauntlet_status === 'passed' || lp.gauntlet_status === 'published') && (
                                         <span className="text-teal text-[10px]">✓</span>
                                       )}
@@ -1388,6 +1412,15 @@ export default function LPAgentSettings({ projectId }) {
                         <span className="text-[11px] text-textdark truncate">{lp.name}</span>
                         {lp.angle && <span className="text-[9px] text-navy font-medium flex-shrink-0">{lp.angle}</span>}
                         <span className={`text-[9px] font-medium px-1.5 py-0.5 rounded-full flex-shrink-0 ${badgeClass}`}>{badgeText}</span>
+                        {!isPublished && !isGenerating && !isFailed && (
+                          <button
+                            onClick={(e) => handlePublishLP(e, lp.id)}
+                            disabled={publishingLPId === lp.id}
+                            className="text-[9px] font-medium px-1.5 py-0.5 rounded-full bg-teal/10 text-teal hover:bg-teal/20 transition-colors flex-shrink-0 disabled:opacity-50"
+                          >
+                            {publishingLPId === lp.id ? 'Publishing...' : 'Publish'}
+                          </button>
+                        )}
                       </div>
                       <div className="flex items-center gap-2 flex-shrink-0 ml-2">
                         {timestamp && <span className="text-[9px] text-textlight">{timestamp}</span>}
@@ -1396,6 +1429,15 @@ export default function LPAgentSettings({ projectId }) {
                         </svg>
                       </div>
                     </div>
+                    {isPublished && lp.published_url && (
+                      <span
+                        className="text-[9px] font-mono text-gold hover:text-gold/80 truncate block mt-0.5 max-w-[280px] ml-1"
+                        onClick={(e) => { e.stopPropagation(); navigator.clipboard.writeText(lp.published_url); toast.success('URL copied'); }}
+                        title="Click to copy URL"
+                      >
+                        {lp.published_url}
+                      </span>
+                    )}
                   </div>
                 );
               });
