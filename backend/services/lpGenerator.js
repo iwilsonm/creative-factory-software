@@ -2374,7 +2374,8 @@ REQUIREMENTS:
 4. The page must remain mobile-responsive
 5. Do NOT add any structural elements that are not in the template skeleton — no urgency banners, sticky bars, floating CTAs, countdown timers, notification bars, or any other elements the template doesn't already contain. The template defines the page structure; you populate it.
 6. PLACEHOLDER WRAPPING RULE: Do NOT wrap copy placeholders in <p> tags. Write {{headline}}, {{lead}}, {{problem}} etc. directly inside their container elements WITHOUT a <p> wrapper. The assembly system handles paragraph wrapping automatically. WRONG: <p>{{lead}}</p>. CORRECT: {{lead}}. WRONG: <h2><p>{{problem}}</p></h2>. CORRECT: <h2>{{problem}}</h2>.
-7. BACKGROUND COLOR RULE — MANDATORY: Every section or container background color MUST have an HSL lightness of 60% or above. Text should be dark/black. Allowed: pastels, light tints, cream, soft washes of any color (sage green, mint, pale blue, light gold). NOT allowed: dark green, dark blue, dark teal, dark gray, forest green, navy, charcoal, or any deeply saturated color as a background. Use the reference design's color palette but shift any dark background colors to their light tint equivalents. CTA button backgrounds can be darker (the button text should be white), but section/container backgrounds must be light.${editorialPlan ? '\n8. Follow editorial plan instructions for section ordering, emphasis, and callout placement — but do NOT add structural elements the template doesn\'t have, even if the editorial plan suggests them' : ''}`
+7. STRUCTURAL WRAPPERS ARE MANDATORY: Every letter/personal-note section must be wrapped in <div class="letter-block">. Every comparison section must have <div class="comparison-section"><div class="comparison-grid">. Do NOT omit structural wrapper divs even if the content inside them is a placeholder.
+8. BACKGROUND COLOR RULE — MANDATORY: Every section or container background color MUST have an HSL lightness of 60% or above. Text should be dark/black. Allowed: pastels, light tints, cream, soft washes of any color (sage green, mint, pale blue, light gold). NOT allowed: dark green, dark blue, dark teal, dark gray, forest green, navy, charcoal, or any deeply saturated color as a background. Use the reference design's color palette but shift any dark background colors to their light tint equivalents. CTA button backgrounds can be darker (the button text should be white), but section/container backgrounds must be light.${editorialPlan ? '\n9. Follow editorial plan instructions for section ordering, emphasis, and callout placement — but do NOT add structural elements the template doesn\'t have, even if the editorial plan suggests them' : ''}`
     : `Generate a complete, self-contained HTML landing page based on this design specification and placeholder system.
 
 DESIGN SPECIFICATION:
@@ -2398,7 +2399,8 @@ REQUIREMENTS:
 14. Add a viewport meta tag for mobile
 15. Target a professional, premium look — clean spacing, readable typography
 16. PLACEHOLDER WRAPPING RULE: Do NOT wrap copy placeholders in <p> tags. Write {{headline}}, {{lead}}, {{problem}} etc. directly inside their container elements WITHOUT a <p> wrapper. The assembly system handles paragraph wrapping automatically. WRONG: <p>{{lead}}</p>. CORRECT: {{lead}}. WRONG: <h2><p>{{problem}}</p></h2>. CORRECT: <h2>{{problem}}</h2>.
-17. BACKGROUND COLOR RULE — MANDATORY: Every section or container background color MUST have an HSL lightness of 60% or above. Text should be dark/black. Allowed: pastels, light tints, cream, soft washes of any color (sage green, mint, pale blue, light gold). NOT allowed: dark green, dark blue, dark teal, dark gray, forest green, navy, charcoal, or any deeply saturated color as a background. Use the reference design's color palette but shift any dark background colors to their light tint equivalents. CTA button backgrounds can be darker (the button text should be white), but section/container backgrounds must be light.${editorialPlan ? '\n18. Follow ALL editorial plan instructions above — they override default section ordering and layout decisions' : ''}`;
+17. STRUCTURAL WRAPPERS ARE MANDATORY: Every letter/personal-note section must be wrapped in <div class="letter-block">. Every comparison section must have <div class="comparison-section"><div class="comparison-grid">. Do NOT omit structural wrapper divs even if the content inside them is a placeholder.
+18. BACKGROUND COLOR RULE — MANDATORY: Every section or container background color MUST have an HSL lightness of 60% or above. Text should be dark/black. Allowed: pastels, light tints, cream, soft washes of any color (sage green, mint, pale blue, light gold). NOT allowed: dark green, dark blue, dark teal, dark gray, forest green, navy, charcoal, or any deeply saturated color as a background. Use the reference design's color palette but shift any dark background colors to their light tint equivalents. CTA button backgrounds can be darker (the button text should be white), but section/container backgrounds must be light.${editorialPlan ? '\n19. Follow ALL editorial plan instructions above — they override default section ordering and layout decisions' : ''}`;
 
   const messages = [
     { role: 'system', content: systemPrompt },
@@ -2593,6 +2595,15 @@ export function assembleLandingPage({
   const fallbackCtaText = safeCtas[0]?.text_suggestion || 'Order Now';
   html = html.replace(/\{\{cta_(\d+)_url\}\}/gi, '#order');
   html = html.replace(/\{\{cta_(\d+)_text\}\}/gi, fallbackCtaText);
+
+  // ── Structural validation: log unreplaced placeholders ──
+  const unreplaced = [...html.matchAll(/\{\{([^}]+)\}\}/g)].map(m => m[1]);
+  if (unreplaced.length > 0) {
+    console.warn(`[assembleLandingPage] ${unreplaced.length} unreplaced placeholders: ${unreplaced.join(', ')}`);
+  }
+
+  // Remove comparison cards that are completely empty (all children are empty/placeholder-only)
+  html = html.replace(/<div class="comparison-card[^"]*">\s*<div class="card-title">\s*<\/div>\s*<div class="card-price">\s*<\/div>\s*<ul>\s*<\/ul>\s*<\/div>/gi, '');
 
   // ── Post-assembly cleanup ──────────────────────────────────────────────────
 

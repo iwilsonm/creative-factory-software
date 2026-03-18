@@ -346,6 +346,59 @@ async function bakeFinalHtml(page, pdpUrl) {
  * @param {string} projectId - Project externalId
  * @returns {object} - { published_url, shopify_page_id, shopify_handle }
  */
+
+/**
+ * Final HTML sanitization pass — runs immediately before Shopify publish.
+ * Catches empty elements that survive assembly, template generation, and fragment conversion.
+ * This is the last-mile defense against markup issues on published pages.
+ */
+export function sanitizeBeforePublish(html) {
+  if (!html) return html;
+  let clean = html;
+
+  // ── Pass 1: Fix structural nesting issues ──
+
+  // Unwrap <p> from inside headings: <h2><p>text</p></h2> → <h2>text</h2>
+  clean = clean.replace(/<(h[1-6])([^>]*)>\s*<p[^>]*>([\s\S]*?)<\/p>\s*<\/\1>/gi, '<$1$2>$3</$1>');
+
+  // Fix double-wrapped paragraphs: <p><p>text</p></p> → <p>text</p>
+  clean = clean.replace(/<p([^>]*)>\s*(<p[> ])/gi, '$2');
+  clean = clean.replace(/<\/p>\s*<\/p>/gi, '</p>');
+
+  // Strip <p> wrappers from inside hero-specific containers
+  clean = clean.replace(
+    /<div([^>]*class="(?:hero-subheadline|hero-byline|hero-image-caption|hero-category)"[^>]*)>\s*<p[^>]*>([\s\S]*?)<\/p>\s*<\/div>/gi,
+    '<div$1>$2</div>'
+  );
+
+  // Unwrap <p> from <li> when li contains exactly one <p>
+  clean = clean.replace(/<li([^>]*)>\s*<p[^>]*>([\s\S]*?)<\/p>\s*<\/li>/gi, (match, liAttrs, inner) => {
+    if (inner.includes('<p>') || inner.includes('<p ')) return match;
+    return `<li${liAttrs}>${inner}</li>`;
+  });
+
+  // ── Pass 2: Remove empty elements ──
+
+  // Remove empty text/heading elements (NOT div — templates use empty divs as spacers)
+  clean = clean.replace(/<(p|h[1-6]|span|li)([^>]*)>\s*<\/\1>/gi, '');
+
+  // Remove empty <style> blocks
+  clean = clean.replace(/<style[^>]*>\s*<\/style>/gi, '');
+
+  // ── Pass 3: Second empty-element pass (first pass can create new empties) ──
+  clean = clean.replace(/<(p|h[1-6]|span|li)([^>]*)>\s*<\/\1>/gi, '');
+
+  // ── Pass 4: Clean misc artifacts ──
+
+  // Clean entity-encoded <p> tags from image alt attributes
+  clean = clean.replace(/alt="(&lt;p&gt;)([\s\S]*?)(&lt;\/p&gt;)"/gi, (m, o, text) => `alt="${text}"`);
+
+  // Fix common templating artifacts in testimonial names (e.g., "Angela N.s" → "Angela N.")
+  clean = clean.replace(/([A-Z])\.(\s*)s\b/g, '$1.$2');
+
+  return clean;
+}
+
 export async function publishToShopify(pageId, projectId) {
   const page = await getLandingPage(pageId);
   if (!page) throw new Error('Landing page not found');
@@ -489,6 +542,13 @@ export async function publishToShopify(pageId, projectId) {
   // Shopify renders body_html inside the active page template, so send a safe
   // fragment instead of a nested full document.
   finalHtml = convertToShopifyFragment(finalHtml);
+
+  // Last-mile sanitization — catches empty elements that survive all prior processing
+  finalHtml = sanitizeBeforePublish(finalHtml);
+  const remainingEmptyP = (finalHtml.match(/<p[^>]*>\s*<\/p>/gi) || []).length;
+  if (remainingEmptyP > 0) {
+    console.warn(`[publishToShopify] WARNING: ${remainingEmptyP} empty <p> tags remain after final sanitization`);
+  }
 
   // Determine slug — use headline from copy, not full LP name
   const pageTitle = resolveLandingPageTitle(page);
