@@ -538,7 +538,7 @@ export async function publishToShopify(pageId, projectId) {
   if (!finalHtml.includes('p:empty')) {
     finalHtml = '<style>p:empty,h1:empty,h2:empty,h3:empty,h4:empty,h5:empty,h6:empty{display:none;margin:0;padding:0}</style>\n' + finalHtml;
   }
-  console.log(`[LP Publisher] Pre-publish empty <p> count: ${(finalHtml.match(/<p[^>]*>\\s*<\\/p>/gi) || []).length}`);
+  console.log(`[LP Publisher] Pre-publish empty <p> count: ${(finalHtml.match(/<p[^>]*>\s*<\/p>/gi) || []).length}`);
 
   // Determine slug — use headline from copy, not full LP name
   const pageTitle = resolveLandingPageTitle(page);
