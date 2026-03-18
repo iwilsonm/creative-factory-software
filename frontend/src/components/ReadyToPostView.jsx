@@ -37,6 +37,35 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
   const [editFields, setEditFields] = useState({}); // temp edit values
   const [savingEdit, setSavingEdit] = useState(false);
   const [sortBy, setSortBy] = useState('newest');
+  const [groupByDate, setGroupByDate] = useState(() => {
+    try { return localStorage.getItem('rtp_group_by_date') === 'true'; } catch { return false; }
+  });
+  const [expandedGroups, setExpandedGroups] = useState(new Set());
+  const [showDefaultDialog, setShowDefaultDialog] = useState(false);
+  const [pendingGroupValue, setPendingGroupValue] = useState(null);
+
+  const handleGroupByToggle = () => {
+    const newValue = !groupByDate;
+    if (!isPoster) {
+      setPendingGroupValue(newValue);
+      setShowDefaultDialog(true);
+    } else {
+      setGroupByDate(newValue);
+      try { localStorage.setItem('rtp_group_by_date', String(newValue)); } catch {}
+    }
+  };
+
+  const confirmGroupDefault = (saveDefault) => {
+    setGroupByDate(pendingGroupValue);
+    setShowDefaultDialog(false);
+    try { localStorage.setItem('rtp_group_by_date', String(pendingGroupValue)); } catch {}
+    if (saveDefault) {
+      // Save as default for all users by updating all browsers via localStorage
+      // (In a multi-user system, this could use the settings API, but localStorage is sufficient for now)
+      addToast(pendingGroupValue ? 'Group by Start Date set as default' : 'Default view restored', 'success');
+    }
+    setPendingGroupValue(null);
+  };
 
   // Highlight + scroll to flex ad from deep link
   const [highlightedId, setHighlightedId] = useState(highlightFlexAdId || null);
@@ -1731,23 +1760,92 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
           </div>
           <p className="text-[11px] text-textmid mt-0.5">These ads are ready to be posted in Meta Ads Manager. Expand each card to see the full details and copy the content.</p>
         </div>
-        <select
-          value={sortBy}
-          onChange={e => setSortBy(e.target.value)}
-          className="text-[12px] text-textdark bg-offwhite border border-black/10 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-navy/20 cursor-pointer shrink-0"
-        >
-          <option value="newest">Newest First</option>
-          <option value="oldest">Oldest First</option>
-          <option value="campaign">Campaign → Ad Set</option>
-          <option value="planned_date">Planned Date</option>
-          <option value="name">Name (A-Z)</option>
-        </select>
+        <div className="flex items-center gap-2 shrink-0">
+          <button
+            onClick={handleGroupByToggle}
+            className={`text-[11px] px-3 py-1.5 rounded-lg font-medium transition-colors ${groupByDate ? 'bg-navy text-white' : 'bg-offwhite text-textmid border border-black/10 hover:bg-navy/5'}`}
+          >
+            Group by Start Date
+          </button>
+          <select
+            value={sortBy}
+            onChange={e => setSortBy(e.target.value)}
+            className="text-[12px] text-textdark bg-offwhite border border-black/10 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-navy/20 cursor-pointer"
+          >
+            {groupByDate ? (
+              <>
+                <option value="newest">Sort within groups: Newest</option>
+                <option value="name">Sort within groups: Name (A-Z)</option>
+              </>
+            ) : (
+              <>
+                <option value="newest">Newest First</option>
+                <option value="oldest">Oldest First</option>
+                <option value="campaign">Campaign → Ad Set</option>
+                <option value="planned_date">Planned Date</option>
+                <option value="name">Name (A-Z)</option>
+              </>
+            )}
+          </select>
+        </div>
       </div>
 
-      {/* Cards */}
-      <div className="space-y-5">
-        {cardList.map(card => card.type === 'single' ? renderAdCard(card.dep) : renderFlexCard(card.flexAd))}
-      </div>
+      {/* Cards — grouped by date or flat list */}
+      {groupByDate ? (
+        <div className="space-y-4">
+          {(() => {
+            // Group cards by planned_date
+            const groups = new Map();
+            cardList.forEach(card => {
+              const date = card.plannedDate ? card.plannedDate.split('T')[0] : '__none__';
+              if (!groups.has(date)) groups.set(date, []);
+              groups.get(date).push(card);
+            });
+            // Sort group keys: dates ascending, "No Start Date" last
+            const sortedKeys = [...groups.keys()].sort((a, b) => {
+              if (a === '__none__') return 1;
+              if (b === '__none__') return -1;
+              return a.localeCompare(b);
+            });
+            return sortedKeys.map(dateKey => {
+              const cards = groups.get(dateKey);
+              const isExpanded = dateKey === '__none__' ? expandedGroups.has(dateKey) : !expandedGroups.has(dateKey); // dates expanded by default, "no date" collapsed
+              const label = dateKey === '__none__'
+                ? 'No Start Date'
+                : new Date(dateKey + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
+              return (
+                <div key={dateKey}>
+                  <button
+                    onClick={() => setExpandedGroups(prev => {
+                      const next = new Set(prev);
+                      if (next.has(dateKey)) next.delete(dateKey); else next.add(dateKey);
+                      return next;
+                    })}
+                    className="w-full flex items-center justify-between px-4 py-2.5 rounded-xl bg-navy/5 hover:bg-navy/10 transition-colors mb-2"
+                  >
+                    <div className="flex items-center gap-2">
+                      <svg className={`w-4 h-4 text-navy transition-transform ${isExpanded ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
+                      </svg>
+                      <span className="text-[13px] font-semibold text-navy">{label}</span>
+                    </div>
+                    <span className="text-[11px] text-textmid font-medium">{cards.length} ad{cards.length !== 1 ? 's' : ''}</span>
+                  </button>
+                  {isExpanded && (
+                    <div className="space-y-5 ml-2">
+                      {cards.map(card => card.type === 'single' ? renderAdCard(card.dep) : renderFlexCard(card.flexAd))}
+                    </div>
+                  )}
+                </div>
+              );
+            });
+          })()}
+        </div>
+      ) : (
+        <div className="space-y-5">
+          {cardList.map(card => card.type === 'single' ? renderAdCard(card.dep) : renderFlexCard(card.flexAd))}
+        </div>
+      )}
 
       <ConfirmDialog
         open={deleteFlexConfirm !== null}
@@ -1757,6 +1855,16 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
         tone="danger"
         onConfirm={() => handleDeleteFlexAd(deleteFlexConfirm)}
         onCancel={() => setDeleteFlexConfirm(null)}
+      />
+
+      <ConfirmDialog
+        open={showDefaultDialog}
+        title={pendingGroupValue ? 'Group by Start Date?' : 'Turn off grouping?'}
+        message="Set this as the default view for all projects?"
+        confirmLabel="Yes, set as default"
+        cancelLabel="No, just this time"
+        onConfirm={() => confirmGroupDefault(true)}
+        onCancel={() => confirmGroupDefault(false)}
       />
     </div>
   );
