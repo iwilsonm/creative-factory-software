@@ -121,7 +121,7 @@ export function buildAutoSwipeReferenceText({ swipeText = '', autoContext = null
   if (directSwipe) return directSwipe;
   const cachedReference = String(autoContext?.swipeReferenceText || '').trim();
   if (cachedReference) return cachedReference;
-  return 'No swipe advertorial text was provided. Use the existing template structure and current best direct-response judgment as the swipe reference.';
+  return null;  // No swipe available — caller should skip the swipe turn entirely
 }
 
 export function buildLegacySOPWritePrompt({
@@ -192,7 +192,7 @@ Important:
 - ${hasWordCountTarget ? `Keep the final sectioned output at approximately ${wordCount} words total` : 'Do not force a target word count if one was not provided'}
 - Keep the narrative frame obvious from the section flow itself
 - Keep the page aligned to the angle/message already expressed in the advertorial
-- CRITICAL: The comparison section MUST only reference the actual product being sold. Do NOT invent product names or brand names.
+- CRITICAL: The comparison section MUST only reference the actual product being sold. Do NOT invent competitor product names, brand names, supplement formulations, or ingredient lists. If specific competitor details were not in the source copy, describe alternatives generically (e.g. "Standard supplements" or "Typical approaches") rather than fabricating specific brand or product names.
 - If template-specific slots are listed, include them all
 ${templateSlots?.length > 0 ? `
 TEMPLATE-SPECIFIC SECTIONS:
@@ -1357,86 +1357,88 @@ ${docs.offer_brief}
 === NECESSARY BELIEFS DOCUMENT ===
 ${docs.necessary_beliefs}`;
 
+  // ── Multi-turn conversation: mirrors the SOP's conversational context build-up ──
+  // Each turn sees the full prior conversation, so the model stays grounded in
+  // the foundational docs and swipe throughout the entire writing process.
+  const conversationMessages = [];
+
+  // Turn 1: Foundational docs analysis
   let docsAnalysis = String(legacySOPCache?.docsAnalysis || '').trim();
   if (!docsAnalysis) {
     sendEvent({ type: 'progress', step: 'calling_api', message: 'Claude is studying the foundational documents...' });
-    docsAnalysis = await chat([
-      { role: 'user', content: docsPayload },
-    ], 'claude-sonnet-4-6', {
+    conversationMessages.push({ role: 'user', content: docsPayload });
+    docsAnalysis = await chat([...conversationMessages], 'claude-sonnet-4-6', {
       max_tokens: 4096,
       operation: 'lp_legacy_docs_analysis',
       projectId,
       timeout: 300000,
     });
+    conversationMessages.push({ role: 'assistant', content: docsAnalysis });
     if (legacySOPCache) legacySOPCache.docsAnalysis = String(docsAnalysis || '').trim();
   } else {
     sendEvent({ type: 'progress', step: 'calling_api', message: 'Reusing cached foundational-doc analysis...' });
+    // Seed conversation with cached content so later turns have context
+    conversationMessages.push({ role: 'user', content: docsPayload });
+    conversationMessages.push({ role: 'assistant', content: docsAnalysis });
   }
 
+  // Turn 2: Swipe analysis — ONLY if a real swipe was provided
+  const hasRealSwipe = swipeReferenceText !== null;
   let swipeAnalysis = String(legacySOPCache?.swipeAnalysis || '').trim();
-  if (!swipeAnalysis) {
-    sendEvent({ type: 'progress', step: 'calling_api', message: 'Claude is studying the swipe advertorial...' });
-    swipeAnalysis = await chat([
-      {
-        role: 'user',
-        content: `${LEGACY_LP_SOP_SWIPE_PROMPT}
 
-${swipeReferenceText}`,
-      },
-    ], 'claude-sonnet-4-6', {
-      max_tokens: 4096,
-      operation: 'lp_legacy_swipe_analysis',
-      projectId,
-      timeout: 300000,
-    });
-    if (legacySOPCache) legacySOPCache.swipeAnalysis = String(swipeAnalysis || '').trim();
+  if (hasRealSwipe) {
+    if (!swipeAnalysis) {
+      sendEvent({ type: 'progress', step: 'calling_api', message: 'Claude is studying the swipe advertorial...' });
+      const swipeMessage = `${LEGACY_LP_SOP_SWIPE_PROMPT}\n\n${swipeReferenceText}`;
+      conversationMessages.push({ role: 'user', content: swipeMessage });
+      swipeAnalysis = await chat([...conversationMessages], 'claude-sonnet-4-6', {
+        max_tokens: 4096,
+        operation: 'lp_legacy_swipe_analysis',
+        projectId,
+        timeout: 300000,
+      });
+      conversationMessages.push({ role: 'assistant', content: swipeAnalysis });
+      if (legacySOPCache) legacySOPCache.swipeAnalysis = String(swipeAnalysis || '').trim();
+    } else {
+      sendEvent({ type: 'progress', step: 'calling_api', message: 'Reusing cached swipe advertorial analysis...' });
+      const swipeMessage = `${LEGACY_LP_SOP_SWIPE_PROMPT}\n\n${swipeReferenceText}`;
+      conversationMessages.push({ role: 'user', content: swipeMessage });
+      conversationMessages.push({ role: 'assistant', content: swipeAnalysis });
+    }
   } else {
-    sendEvent({ type: 'progress', step: 'calling_api', message: 'Reusing cached swipe advertorial analysis...' });
+    sendEvent({ type: 'progress', step: 'skipping_swipe', message: 'No swipe advertorial provided — writing from foundational docs only...' });
   }
 
-  const firstHalfPrompt = `${buildLegacySOPWritePrompt({
+  // Turn 3: Write first half (now sees docs + swipe context from prior turns)
+  const firstHalfPrompt = buildLegacySOPWritePrompt({
     productName,
     productDescription: project?.product_description || '',
     angle,
     frameLine,
     additionalDirection,
     wordCount,
-  })}
-
-For context, here are your foundational research notes:
-${String(docsAnalysis || '').slice(0, 5000)}
-
-Here are your swipe advertorial notes:
-${String(swipeAnalysis || '').slice(0, 5000)}`;
-
+  });
   sendEvent({ type: 'progress', step: 'calling_api', message: 'Claude is writing the first half...' });
-  const firstHalf = await chat([
-    { role: 'user', content: firstHalfPrompt },
-  ], 'claude-sonnet-4-6', {
+  conversationMessages.push({ role: 'user', content: firstHalfPrompt });
+  const firstHalf = await chat([...conversationMessages], 'claude-sonnet-4-6', {
     max_tokens: 8192,
     operation: 'lp_legacy_first_half',
     projectId,
     timeout: 300000,
   });
+  conversationMessages.push({ role: 'assistant', content: firstHalf });
 
+  // Turn 4: Write second half (now sees full conversation: docs + swipe + first half)
   sendEvent({ type: 'progress', step: 'calling_api', message: 'Claude is writing the second half...' });
-  const firstHalfSummary = summarizeAdvertorialHalf(firstHalf);
-  const secondHalf = await chat([
-    {
-      role: 'user',
-      content: buildLegacySOPSecondHalfPrompt({
-        firstHalf,
-        firstHalfSummary,
-      }),
-    },
-  ], 'claude-sonnet-4-6', {
+  conversationMessages.push({ role: 'user', content: LEGACY_LP_SOP_WRITE_SECOND_HALF });
+  const secondHalf = await chat([...conversationMessages], 'claude-sonnet-4-6', {
     max_tokens: 8192,
     operation: 'lp_legacy_second_half',
     projectId,
     timeout: 300000,
   });
 
-  const fullDraft = `${String(firstHalf || '').trim()}\n\n${String(secondHalf || '').trim()}`.trim();
+  let fullDraft = `${String(firstHalf || '').trim()}\n\n${String(secondHalf || '').trim()}`.trim();
 
   const assemblySystemPrompt = `You are an elite direct response copywriter specializing in high-converting landing pages for e-commerce and direct-to-consumer brands.
 
@@ -1445,6 +1447,8 @@ CRITICAL: You must respond with a valid JSON object containing an array of copy 
 IMPORTANT: Generate content ONLY for the slots defined in the template. Do not suggest or create content for elements that don't have a corresponding slot in the template.
 
 TESTIMONIAL ATTRIBUTION: When writing testimonials, social proof quotes, or customer reviews, ALWAYS use a realistic first name + last initial.
+
+PRODUCT ACCURACY: Never invent, fabricate, or hallucinate product names, brand names, ingredient lists, or competitor products. Only reference products, brands, and ingredients that appear in the source advertorial draft.
 
 AUTHOR METADATA: Generate an appropriate author name and title for this article's byline and include:
   "generated_author_name": "Carol H.",
@@ -2517,6 +2521,18 @@ export function assembleLandingPage({
     /<div([^>]*class="(?:hero-subheadline|hero-byline|hero-image-caption)"[^>]*)>\s*<p>([\s\S]*?)<\/p>\s*<\/div>/gi,
     '<div$1>$2</div>',
   );
+
+  // Strip <p> wrapper from inside <li> when the <li> contains exactly one <p>
+  html = html.replace(/<li([^>]*)>\s*<p>([\s\S]*?)<\/p>\s*<\/li>/gi, (match, liAttrs, innerContent) => {
+    if (innerContent.includes('<p>') || innerContent.includes('<p ')) return match;
+    return `<li${liAttrs}>${innerContent}</li>`;
+  });
+
+  // Clean entity-encoded HTML from image alt attributes
+  html = html.replace(/alt="(&lt;p&gt;)([\s\S]*?)(&lt;\/p&gt;)"/gi, (match, open, text, close) => `alt="${text}"`);
+
+  // Remove empty <style> blocks
+  html = html.replace(/<style[^>]*>\s*<\/style>/gi, '');
 
   return html;
 }

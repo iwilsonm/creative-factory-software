@@ -233,9 +233,13 @@ export function extractHeadlineForSlug(page) {
       }
     } catch { /* ignore parse errors */ }
   }
-  // Fallback to angle
+  // Fallback to angle — but only if it looks like a headline, not a prompt instruction
   if (page.angle) {
-    return page.angle.slice(0, 80);
+    const angle = page.angle.trim();
+    const looksLikeDirective = /^(structure|write|create|generate|use|make|format|build|design|include|ensure|add|implement|follow|organize|present|arrange|compose|draft|outline|develop|craft|produce|construct|prepare|set up|lay out)\b/i.test(angle);
+    if (!looksLikeDirective && angle.length > 5) {
+      return angle.slice(0, 80);
+    }
   }
   // Fallback to name, stripped of "Test LP — FrameName: " prefix
   const name = (page.name || 'lp')
