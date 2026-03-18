@@ -16,6 +16,7 @@ import { generateImage } from './gemini.js';
 import crypto from 'crypto';
 import { getDocsByProject, uploadBuffer, getStorageUrl, getLPTemplate, getProject, downloadToBuffer, getLPAgentConfig, upsertLPAgentConfig } from '../convexClient.js';
 import { getNarrativeFrameBlueprint, getNarrativeFrameHeadlineContract, validateLPContentAlignment } from './lpHeadlineValidation.js';
+import { convertToShopifyFragment } from './shopifyFragment.js';
 
 /**
  * Detect the actual MIME type of an image buffer by reading magic bytes.
@@ -125,6 +126,7 @@ export function buildAutoSwipeReferenceText({ swipeText = '', autoContext = null
 
 export function buildLegacySOPWritePrompt({
   productName,
+  productDescription,
   angle,
   frameLine,
   additionalDirection,
@@ -141,6 +143,9 @@ export function buildLegacySOPWritePrompt({
     prompt += `\n\nAdditional direction:\n${additionalDirection}`;
   }
   prompt += `\n\nCRITICAL: The swipe was from a competitor selling a DIFFERENT product. Write EXCLUSIVELY about ${productName || 'this product'}. Do not import any ingredients, mechanisms, claims, or science from the swipe. Every factual claim must come from the foundational documents only. The swipe gave you structure only.`;
+  if (productDescription) {
+    prompt += `\n\nPRODUCT DETAILS — USE THESE EXACT DETAILS. Do NOT invent product names, ingredients, brand names, or features not described here:\n${productDescription}`;
+  }
   prompt += `\n\nANGLE GUARDRAIL: If the product being sold is a grounding sheet, earthing sheet, or any grounding product, the copy must NEVER attack grounding as a category or suggest grounding does not work. The correct villain is cheap, counterfeit, or poorly-made grounding products (Amazon knockoffs, Chinese factory brands, products with no real silver content or continuity testing). The hero is THIS product — real materials, genuine construction, proven connection. Attacking the grounding category destroys the sale because the reader would conclude grounding itself is a scam and stop reading. The angle is always: grounding works, but most products on the market are fake — this one is real.`;
   return prompt;
 }
@@ -187,6 +192,7 @@ Important:
 - ${hasWordCountTarget ? `Keep the final sectioned output at approximately ${wordCount} words total` : 'Do not force a target word count if one was not provided'}
 - Keep the narrative frame obvious from the section flow itself
 - Keep the page aligned to the angle/message already expressed in the advertorial
+- CRITICAL: The comparison section MUST only reference the actual product being sold. Do NOT invent product names or brand names.
 - If template-specific slots are listed, include them all
 ${templateSlots?.length > 0 ? `
 TEMPLATE-SPECIFIC SECTIONS:
@@ -1390,6 +1396,7 @@ ${swipeReferenceText}`,
 
   const firstHalfPrompt = `${buildLegacySOPWritePrompt({
     productName,
+    productDescription: project?.product_description || '',
     angle,
     frameLine,
     additionalDirection,
@@ -4046,6 +4053,48 @@ async function runImageLoadCheck(page) {
 }
 
 /**
+ * Sanitize comparison sections — safety net against hallucinated product names.
+ * Scans for capitalized multi-word brand-like names that are NOT the actual product
+ * and replaces them with generic category references.
+ */
+function sanitizeComparisonSections(html, productName) {
+  // Match common comparison/vs patterns in the HTML
+  // Look for TitleCase brand-like names (2-4 capitalized words) that aren't the real product
+  const productWords = productName.toLowerCase().split(/\s+/);
+  const productPattern = productWords.map(w => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('\\s+');
+  const productRegex = new RegExp(productPattern, 'i');
+
+  // Pattern: Capitalized words that look like brand names (e.g., "RestoreWave Pro", "BiOptimizers")
+  // Matches 1-4 capitalized words, optionally with numbers
+  const brandPattern = /\b([A-Z][a-z]+(?:[A-Z][a-z]+)+(?:\s+[A-Z][a-z]+)*(?:\s+(?:Pro|Plus|Max|Ultra|Elite|Premium))?)\b/g;
+
+  let result = html;
+  let match;
+  const replaced = new Set();
+
+  while ((match = brandPattern.exec(html)) !== null) {
+    const candidate = match[1];
+    // Skip if it's the actual product name
+    if (productRegex.test(candidate)) continue;
+    // Skip common non-brand words
+    const skipWords = ['United States', 'New York', 'San Francisco', 'Los Angeles', 'Health Wellness',
+      'Order Now', 'Learn More', 'Read More', 'Click Here', 'Sign Up', 'Free Shipping',
+      'Special Report', 'Breaking News', 'Limited Time', 'Money Back'];
+    if (skipWords.some(w => w.toLowerCase() === candidate.toLowerCase())) continue;
+    // Skip HTML/CSS class names
+    if (candidate.length < 4) continue;
+
+    if (!replaced.has(candidate)) {
+      result = result.replaceAll(candidate, 'other products');
+      replaced.add(candidate);
+      console.log(`[LP-FIX] Sanitized hallucinated brand name: "${candidate}" → "other products"`);
+    }
+  }
+
+  return result;
+}
+
+/**
  * Remove empty elements left behind after placeholder stripping.
  * Targets: <span></span>, <p></p>, <div></div>, <strong></strong>, etc.
  * Repeats until stable (nested empty elements may need multiple passes).
@@ -4172,6 +4221,16 @@ export function postProcessLP(html, { project = null, agentConfig = null, angle 
     infoWarnings.push('Deduplicated pullquote content');
   }
 
+  // 5d. Sanitize comparison sections — safety net against hallucinated product names
+  if (project?.name || project?.brand_name) {
+    const productName = project.brand_name || project.name;
+    const preSanitize = processed;
+    processed = sanitizeComparisonSections(processed, productName);
+    if (processed !== preSanitize) {
+      criticalWarnings.push('Sanitized hallucinated product names in comparison section(s)');
+    }
+  }
+
   // 6. Enforce background lightness floor — lighten any dark backgrounds to HSL L≥65%
   const lightnessResult = enforceBackgroundLightness(processed);
   processed = lightnessResult.html;
@@ -4181,6 +4240,9 @@ export function postProcessLP(html, { project = null, agentConfig = null, angle 
 
   // 7. Inject proactive contrast safety CSS (still needed for edge cases)
   processed = injectContrastSafetyCSS(processed);
+
+  // 8. Convert full HTML document to Shopify-safe fragment (idempotent — fragments pass through unchanged)
+  processed = convertToShopifyFragment(processed);
 
   console.log(`[LP-FIX] postProcessLP() complete. Output HTML length: ${processed.length}, critical: ${criticalWarnings.length}, info: ${infoWarnings.length}`);
   return {

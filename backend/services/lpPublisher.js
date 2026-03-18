@@ -190,13 +190,27 @@ function validateStructuralHtml(html) {
  * Generate a Shopify page handle in the format: lp-{4-digit number}-{slugified-headline}
  * The "lp-" prefix is required for URL pattern matching (e.g. excluding pop-ups on LPs).
  */
+// Words that indicate prompt instructions leaked into the headline text
+const PROMPT_LEAK_WORDS = new Set([
+  'structure', 'write', 'create', 'generate', 'use',
+  'make', 'format', 'build', 'design', 'include', 'ensure',
+]);
+
 export function generateSlug(name) {
   const num = String(Math.floor(1000 + Math.random() * 9000)); // 4-digit, 1000-9999
-  const slugified = name
+  let slugified = name
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, '-')
     .replace(/^-+|-+$/g, '')
     .replace(/-{2,}/g, '-');
+
+  // Strip leading prompt-instruction words (e.g., "structure-your-landing-page..." → "your-landing-page...")
+  let parts = slugified.split('-');
+  while (parts.length > 1 && PROMPT_LEAK_WORDS.has(parts[0])) {
+    parts.shift();
+  }
+  slugified = parts.join('-');
+
   const prefix = `lp-${num}-`;
   const maxHeadlineLen = 255 - prefix.length;
   const headline = slugified.slice(0, maxHeadlineLen).replace(/-$/, '');
