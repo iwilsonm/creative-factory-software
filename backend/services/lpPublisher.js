@@ -24,7 +24,7 @@ import {
 import { v4 as uuidv4 } from 'uuid';
 import { withRetry } from './retry.js';
 import fetch from 'node-fetch';
-import { extractTemplatePlaceholders, getRequiredPlaceholderNames, postProcessLP, runCanonicalBenchmark } from './lpGenerator.js';
+import { extractTemplatePlaceholders, getRequiredPlaceholderNames, postProcessLP, runCanonicalBenchmark, replaceCopySectionsInHtml } from './lpGenerator.js';
 import { inspectVisiblePlaceholdersInHtml } from './lpSmokeTest.js';
 import { convertToShopifyFragment } from './shopifyFragment.js';
 
@@ -276,22 +276,8 @@ async function bakeFinalHtml(page, pdpUrl) {
   const ctaLinks = page.cta_links ? JSON.parse(page.cta_links) : [];
   const imageSlots = page.image_slots ? JSON.parse(page.image_slots) : [];
 
-  let html = htmlTemplate;
-
-  // Replace copy section placeholders
-  for (const section of copySections) {
-    const placeholder = `{{${section.type}}}`;
-    const htmlContent = section.content
-      .split(/\n\n+/)
-      .map(para => para.trim())
-      .filter(para => para.length > 0)
-      .map(para => {
-        if (para.length < 100 && !para.includes('.')) return para;
-        return `<p>${para.replace(/\n/g, '<br>')}</p>`;
-      })
-      .join('\n');
-    html = html.replaceAll(placeholder, htmlContent);
-  }
+  let html = replaceCopySectionsInHtml(htmlTemplate, copySections);
+  console.log('[bakeFinalHtml] Context-aware copy replacement applied');
 
   // Replace image placeholders with Convex storage URLs
   for (let i = 0; i < imageSlots.length; i++) {
@@ -543,12 +529,16 @@ export async function publishToShopify(pageId, projectId) {
   // fragment instead of a nested full document.
   finalHtml = convertToShopifyFragment(finalHtml);
 
-  // Last-mile sanitization — catches empty elements that survive all prior processing
+  // Last-mile sanitization + CSS fallback for Shopify HTML re-processing
   finalHtml = sanitizeBeforePublish(finalHtml);
-  const remainingEmptyP = (finalHtml.match(/<p[^>]*>\s*<\/p>/gi) || []).length;
-  if (remainingEmptyP > 0) {
-    console.warn(`[publishToShopify] WARNING: ${remainingEmptyP} empty <p> tags remain after final sanitization`);
+  finalHtml = finalHtml.replace(/<(p|h[1-6]|span|li)([^>]*)>\s*<\/\1>/gi, '');
+  finalHtml = finalHtml.replace(/<style[^>]*>\s*<\/style>/gi, '');
+  finalHtml = finalHtml.replace(/<(p|h[1-6]|span|li)([^>]*)>\s*<\/\1>/gi, '');
+  finalHtml = finalHtml.replace(/alt="(&lt;p&gt;)([\s\S]*?)(&lt;\/p&gt;)"/gi, (m, o, text) => `alt="${text}"`);
+  if (!finalHtml.includes('p:empty')) {
+    finalHtml = '<style>p:empty,h1:empty,h2:empty,h3:empty,h4:empty,h5:empty,h6:empty{display:none;margin:0;padding:0}</style>\n' + finalHtml;
   }
+  console.log(`[LP Publisher] Pre-publish empty <p> count: ${(finalHtml.match(/<p[^>]*>\\s*<\\/p>/gi) || []).length}`);
 
   // Determine slug — use headline from copy, not full LP name
   const pageTitle = resolveLandingPageTitle(page);

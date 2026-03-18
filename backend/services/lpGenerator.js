@@ -2439,6 +2439,125 @@ REQUIREMENTS:
 // ─── Phase 2E: Placeholder replacement — assemble final HTML ────────────────
 
 /**
+ * Context-aware copy section replacement — shared by assembleLandingPage and bakeFinalHtml.
+ * Detects whether each placeholder sits inside a heading, <p>, inline element, or standalone
+ * context, and applies the appropriate wrapping strategy.
+ */
+export function replaceCopySectionsInHtml(html, copySections) {
+  if (!html || !copySections || copySections.length === 0) return html;
+
+  function stripSinglePWrapper(text) {
+    const trimmed = text.trim();
+    const match = trimmed.match(/^<p[^>]*>([\s\S]*?)<\/p>$/i);
+    if (!match) return trimmed;
+    const inner = match[1];
+    if (inner.includes('<p>') || inner.includes('<p ')) return trimmed;
+    return inner.trim();
+  }
+
+  function escapeRegex(str) {
+    return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+  }
+
+  const INLINE_SECTION_TYPES = new Set([
+    'headline', 'subheadline', 'hero_headline', 'hero_subheadline',
+    'byline', 'author_name', 'author_title', 'category',
+    'cta', 'cta_text', 'top_bar_text', 'warning_box_text',
+    'product_name', 'card_title',
+  ]);
+
+  let result = html;
+
+  for (const section of copySections) {
+    const placeholder = `{{${section.type}}}`;
+    if (!result.includes(placeholder)) continue;
+
+    const trimmedContent = (section.content || '').trim();
+    if (!trimmedContent) continue;
+
+    const escapedPlaceholder = escapeRegex(placeholder);
+
+    const headingPattern = new RegExp(
+      `<(h[1-6])([^>]*)>[\\s\\S]*?${escapedPlaceholder}[\\s\\S]*?<\\/(h[1-6])>`, 'i'
+    );
+    const headingMatch = result.match(headingPattern);
+    const isInsideHeading = headingMatch && headingMatch[1].toLowerCase() === headingMatch[3].toLowerCase();
+
+    const pWrapperPattern = new RegExp(
+      `<p([^>]*)>\\s*${escapedPlaceholder}\\s*<\\/p>`, 'i'
+    );
+    const isInsidePTag = pWrapperPattern.test(result);
+
+    const isInlineType = INLINE_SECTION_TYPES.has(section.type);
+
+    if (isInsideHeading) {
+      // Route A: placeholder inside heading
+      const paragraphs = trimmedContent.split(/\n\n+/).map(p => p.trim()).filter(p => p.length > 0);
+      const headingText = stripSinglePWrapper(paragraphs[0] || '');
+      const bodyParagraphs = paragraphs.slice(1).map(para => {
+        const stripped = stripSinglePWrapper(para);
+        if (/^<(p|div|ul|ol|blockquote|table|figure)[> ]/i.test(stripped)) return stripped;
+        return `<p>${stripped.replace(/\n/g, '<br>')}</p>`;
+      }).join('\n');
+      result = result.replace(headingPattern, (match, openTag, attrs, closeTag) => {
+        const heading = `<${openTag}${attrs}>${headingText}</${closeTag}>`;
+        return bodyParagraphs ? `${heading}\n      ${bodyParagraphs}` : heading;
+      });
+
+    } else if (isInsidePTag && !isInlineType) {
+      // Route B: placeholder inside <p>
+      const paragraphs = trimmedContent.split(/\n\n+/).map(p => p.trim()).filter(p => p.length > 0)
+        .map(para => {
+          const stripped = stripSinglePWrapper(para);
+          if (/^<(p|div|ul|ol|blockquote|table|figure|h[1-6])[> ]/i.test(stripped)) return stripped;
+          if (stripped.length < 100 && !stripped.includes('.')) return stripped;
+          return `<p>${stripped.replace(/\n/g, '<br>')}</p>`;
+        }).join('\n');
+      result = result.replace(pWrapperPattern, paragraphs);
+
+    } else if (isInlineType) {
+      // Route C: inline type
+      const firstPara = trimmedContent.split(/\n\n+/)[0] || '';
+      const plainText = stripSinglePWrapper(firstPara.trim());
+      result = result.replaceAll(placeholder, plainText);
+
+    } else {
+      // Route D: standard body content
+      const htmlContent = trimmedContent.split(/\n\n+/).map(p => p.trim()).filter(p => p.length > 0)
+        .map(para => {
+          const stripped = stripSinglePWrapper(para);
+          if (/^<(p|div|ul|ol|blockquote|table|figure|h[1-6])[> ]/i.test(stripped)) return stripped;
+          if (stripped.length < 100 && !stripped.includes('.')) return stripped;
+          return `<p>${stripped.replace(/\n/g, '<br>')}</p>`;
+        }).join('\n');
+      result = result.replaceAll(placeholder, htmlContent);
+    }
+  }
+
+  // Post-replacement cleanup
+  result = result.replace(/<(p|h[1-6]|span|li)([^>]*)>\s*<\/\1>/gi, '');
+  result = result.replace(/<(h[1-6])([^>]*)>\s*<p[^>]*>([\s\S]*?)<\/p>\s*<\/\1>/gi, '<$1$2>$3</$1>');
+  result = result.replace(/<p([^>]*)>\s*(<p[> ])/gi, '$2');
+  result = result.replace(/<\/p>\s*<\/p>/gi, '</p>');
+  result = result.replace(/<div([^>]*class="[^"]*(?:subheadline|byline|image-caption|category)[^"]*"[^>]*)>\s*<p[^>]*>([\s\S]*?)<\/p>\s*<\/div>/gi, '<div$1>$2</div>');
+  result = result.replace(/<li([^>]*)>\s*<p[^>]*>([\s\S]*?)<\/p>\s*<\/li>/gi, (match, liAttrs, inner) => {
+    if (inner.includes('<p>') || inner.includes('<p ')) return match;
+    return `<li${liAttrs}>${inner}</li>`;
+  });
+  result = result.replace(/alt="(&lt;p&gt;)([\s\S]*?)(&lt;\/p&gt;)"/gi, (m, o, text) => `alt="${text}"`);
+  result = result.replace(/<style[^>]*>\s*<\/style>/gi, '');
+  result = result.replace(/<(p|h[1-6]|span|li)([^>]*)>\s*<\/\1>/gi, '');
+
+  const emptyPCount = (result.match(/<p[^>]*>\s*<\/p>/gi) || []).length;
+  const emptyHCount = (result.match(/<h[1-6][^>]*>\s*<\/h[1-6]>/gi) || []).length;
+  if (emptyPCount > 0 || emptyHCount > 0) {
+    console.warn(`[replaceCopySectionsInHtml] Post-cleanup: ${emptyPCount} empty <p>, ${emptyHCount} empty <h> tags remain`);
+  }
+
+  return result;
+}
+
+/**
  * Replace placeholders in the HTML template with actual copy, image URLs, and CTA values.
  *
  * @param {object} params
@@ -2454,121 +2573,7 @@ export function assembleLandingPage({
   imageSlots,
   ctaElements,
 }) {
-  let html = htmlTemplate;
-
-  // ── Helper: strip a single outer <p> wrapper if the entire string is one <p> block ──
-  function stripSinglePWrapper(text) {
-    const trimmed = text.trim();
-    const match = trimmed.match(/^<p[^>]*>([\s\S]*?)<\/p>$/i);
-    if (!match) return trimmed;
-    const inner = match[1];
-    if (inner.includes('<p>') || inner.includes('<p ')) return trimmed;
-    return inner.trim();
-  }
-
-  // ── Section types that should NEVER be wrapped in <p> tags ──
-  const INLINE_SECTION_TYPES = new Set([
-    'headline', 'subheadline', 'hero_headline', 'hero_subheadline',
-    'byline', 'author_name', 'author_title', 'category',
-    'cta', 'cta_text', 'top_bar_text', 'warning_box_text',
-    'product_name', 'card_title',
-  ]);
-
-  // Replace copy section placeholders: {{section_type}} → actual content
-  // Context-aware: detects whether placeholder sits inside a heading, <p>, or standalone
-  for (const section of copySections) {
-    const placeholder = `{{${section.type}}}`;
-    if (!html.includes(placeholder)) continue;
-
-    const trimmedContent = (section.content || '').trim();
-    if (!trimmedContent) continue;
-
-    // ── Detect placeholder context in the template HTML ──
-    const escapedPlaceholder = placeholder.replace(/[{}]/g, '\\$&');
-
-    // Check: is placeholder inside a heading tag?
-    const headingPattern = new RegExp(
-      `<(h[1-6])([^>]*)>[\\s\\S]*?${escapedPlaceholder}[\\s\\S]*?<\\/(h[1-6])>`,
-      'i'
-    );
-    const headingMatch = html.match(headingPattern);
-    const isInsideHeading = headingMatch && headingMatch[1].toLowerCase() === headingMatch[3].toLowerCase();
-
-    // Check: is placeholder inside a <p> tag?
-    const pWrapperPattern = new RegExp(
-      `<p([^>]*)>\\s*${escapedPlaceholder}\\s*<\\/p>`,
-      'i'
-    );
-    const isInsidePTag = pWrapperPattern.test(html);
-
-    // Check: is this an inline section type?
-    const isInlineType = INLINE_SECTION_TYPES.has(section.type);
-
-    // ── Route A: Placeholder inside a heading tag ──
-    if (isInsideHeading) {
-      const paragraphs = trimmedContent
-        .split(/\n\n+/)
-        .map(para => para.trim())
-        .filter(para => para.length > 0);
-
-      // First paragraph = heading text (strip <p> wrapper if present)
-      const headingText = stripSinglePWrapper(paragraphs[0] || '');
-
-      // Remaining paragraphs = body text, placed AFTER the heading element
-      const bodyParagraphs = paragraphs.slice(1)
-        .map(para => {
-          const stripped = stripSinglePWrapper(para);
-          if (/^<(p|div|ul|ol|blockquote|table|figure)[> ]/i.test(stripped)) return stripped;
-          return `<p>${stripped.replace(/\n/g, '<br>')}</p>`;
-        })
-        .join('\n');
-
-      // Replace the entire heading element with: heading containing only the title + body after
-      html = html.replace(headingPattern, (match, openTag, attrs, closeTag) => {
-        const result = `<${openTag}${attrs}>${headingText}</${closeTag}>`;
-        return bodyParagraphs ? `${result}\n      ${bodyParagraphs}` : result;
-      });
-
-    // ── Route B: Placeholder inside a <p> tag ──
-    } else if (isInsidePTag && !isInlineType) {
-      const paragraphs = trimmedContent
-        .split(/\n\n+/)
-        .map(para => para.trim())
-        .filter(para => para.length > 0)
-        .map(para => {
-          const stripped = stripSinglePWrapper(para);
-          if (/^<(p|div|ul|ol|blockquote|table|figure|h[1-6])[> ]/i.test(stripped)) return stripped;
-          if (stripped.length < 100 && !stripped.includes('.')) return stripped;
-          return `<p>${stripped.replace(/\n/g, '<br>')}</p>`;
-        })
-        .join('\n');
-
-      // Replace the entire <p>{{placeholder}}</p> — not just the placeholder
-      html = html.replace(pWrapperPattern, paragraphs);
-
-    // ── Route C: Inline section type (headline, byline, etc.) ──
-    } else if (isInlineType) {
-      const firstPara = trimmedContent.split(/\n\n+/)[0] || '';
-      const plainText = stripSinglePWrapper(firstPara.trim());
-      html = html.replaceAll(placeholder, plainText);
-
-    // ── Route D: Standard body content ──
-    } else {
-      const htmlContent = trimmedContent
-        .split(/\n\n+/)
-        .map(para => para.trim())
-        .filter(para => para.length > 0)
-        .map(para => {
-          const stripped = stripSinglePWrapper(para);
-          if (/^<(p|div|ul|ol|blockquote|table|figure|h[1-6])[> ]/i.test(stripped)) return stripped;
-          if (stripped.length < 100 && !stripped.includes('.')) return stripped;
-          return `<p>${stripped.replace(/\n/g, '<br>')}</p>`;
-        })
-        .join('\n');
-
-      html = html.replaceAll(placeholder, htmlContent);
-    }
-  }
+  let html = replaceCopySectionsInHtml(htmlTemplate, copySections);
 
   // Replace image placeholders: {{image_N}} → actual storage URL or placeholder
   if (imageSlots && imageSlots.length > 0) {
@@ -2595,55 +2600,6 @@ export function assembleLandingPage({
   const fallbackCtaText = safeCtas[0]?.text_suggestion || 'Order Now';
   html = html.replace(/\{\{cta_(\d+)_url\}\}/gi, '#order');
   html = html.replace(/\{\{cta_(\d+)_text\}\}/gi, fallbackCtaText);
-
-  // ── Structural validation: log unreplaced placeholders ──
-  const unreplaced = [...html.matchAll(/\{\{([^}]+)\}\}/g)].map(m => m[1]);
-  if (unreplaced.length > 0) {
-    console.warn(`[assembleLandingPage] ${unreplaced.length} unreplaced placeholders: ${unreplaced.join(', ')}`);
-  }
-
-  // Remove comparison cards that are completely empty (all children are empty/placeholder-only)
-  html = html.replace(/<div class="comparison-card[^"]*">\s*<div class="card-title">\s*<\/div>\s*<div class="card-price">\s*<\/div>\s*<ul>\s*<\/ul>\s*<\/div>/gi, '');
-
-  // ── Post-assembly cleanup ──────────────────────────────────────────────────
-
-  // Remove empty text/heading elements (NOT div — templates use empty divs as spacers)
-  html = html.replace(/<(p|h[1-6]|span|li)([^>]*)>\s*<\/\1>/gi, '');
-
-  // Unwrap <p> from inside headings: <h2><p>text</p></h2> → <h2>text</h2>
-  html = html.replace(/<(h[1-6])([^>]*)>\s*<p[^>]*>([\s\S]*?)<\/p>\s*<\/\1>/gi, '<$1$2>$3</$1>');
-
-  // Fix double-wrapped paragraphs: <p><p>text</p></p> → <p>text</p>
-  html = html.replace(/<p([^>]*)>\s*(<p[> ])/gi, '$2');
-  html = html.replace(/<\/p>\s*<\/p>/gi, '</p>');
-
-  // Strip paragraph wrappers inside the hero-specific divs
-  html = html.replace(
-    /<div([^>]*class="(?:hero-subheadline|hero-byline|hero-image-caption)"[^>]*)>\s*<p>([\s\S]*?)<\/p>\s*<\/div>/gi,
-    '<div$1>$2</div>',
-  );
-
-  // Unwrap <p> from <li> when li contains exactly one <p>
-  html = html.replace(/<li([^>]*)>\s*<p[^>]*>([\s\S]*?)<\/p>\s*<\/li>/gi, (match, liAttrs, inner) => {
-    if (inner.includes('<p>') || inner.includes('<p ')) return match;
-    return `<li${liAttrs}>${inner}</li>`;
-  });
-
-  // Clean entity-encoded <p> tags from image alt attributes
-  html = html.replace(/alt="(&lt;p&gt;)([\s\S]*?)(&lt;\/p&gt;)"/gi, (m, o, text) => `alt="${text}"`);
-
-  // Remove empty <style> blocks
-  html = html.replace(/<style[^>]*>\s*<\/style>/gi, '');
-
-  // Second pass: catch empty elements created by first cleanup pass
-  html = html.replace(/<(p|h[1-6]|span|li)([^>]*)>\s*<\/\1>/gi, '');
-
-  // ── Assembly validation logging ──
-  const emptyPCount = (html.match(/<p[^>]*>\s*<\/p>/gi) || []).length;
-  const emptyHeadingCount = (html.match(/<h[1-6][^>]*>\s*<\/h[1-6]>/gi) || []).length;
-  if (emptyPCount > 0 || emptyHeadingCount > 0) {
-    console.warn(`[assembleLandingPage] Post-cleanup: ${emptyPCount} empty <p>, ${emptyHeadingCount} empty <h> tags remain`);
-  }
 
   return html;
 }
