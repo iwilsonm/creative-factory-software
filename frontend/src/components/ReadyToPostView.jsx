@@ -3,6 +3,7 @@ import JSZip from 'jszip';
 import { api } from '../api';
 import { ensureArray } from '../utils/collections';
 import ConfirmDialog from './ConfirmDialog';
+import BulkEditPanel from './BulkEditPanel';
 
 /**
  * ReadyToPostView — Employee-facing view for posting ads to Meta Ads Manager.
@@ -39,6 +40,7 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
   const [sortBy, setSortBy] = useState('newest');
   const [selectedCards, setSelectedCards] = useState(new Map()); // Map<cardKey, 'flex'|'single'>
   const [bulkMarking, setBulkMarking] = useState(false);
+  const [bulkEditing, setBulkEditing] = useState(false);
 
   const toggleCardSelection = (cardKey, cardType) => {
     setSelectedCards(prev => {
@@ -1888,9 +1890,30 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
               >
                 {bulkMarking ? 'Marking...' : `Mark as Posted (${selectedCards.size})`}
               </button>
+              <button
+                onClick={() => setBulkEditing(true)}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium bg-gold text-white hover:bg-gold/90 transition-colors"
+              >
+                Edit Selected ({selectedCards.size})
+              </button>
             </div>
           )}
         </div>
+      )}
+
+      {/* Bulk Edit Panel */}
+      {bulkEditing && selectedCards.size > 0 && (
+        <BulkEditPanel
+          selectedCards={selectedCards}
+          campaigns={campaigns}
+          addToast={addToast}
+          onSave={() => {
+            setBulkEditing(false);
+            setSelectedCards(new Map());
+            loadDeployments();
+          }}
+          onCancel={() => setBulkEditing(false)}
+        />
       )}
 
       {/* Cards — grouped by date or flat list */}
