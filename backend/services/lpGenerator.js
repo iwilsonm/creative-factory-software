@@ -2373,7 +2373,8 @@ REQUIREMENTS:
 3. Ensure all copy section placeholders are placed in the correct sections
 4. The page must remain mobile-responsive
 5. Do NOT add any structural elements that are not in the template skeleton — no urgency banners, sticky bars, floating CTAs, countdown timers, notification bars, or any other elements the template doesn't already contain. The template defines the page structure; you populate it.
-6. BACKGROUND COLOR RULE — MANDATORY: Every section or container background color MUST have an HSL lightness of 60% or above. Text should be dark/black. Allowed: pastels, light tints, cream, soft washes of any color (sage green, mint, pale blue, light gold). NOT allowed: dark green, dark blue, dark teal, dark gray, forest green, navy, charcoal, or any deeply saturated color as a background. Use the reference design's color palette but shift any dark background colors to their light tint equivalents. CTA button backgrounds can be darker (the button text should be white), but section/container backgrounds must be light.${editorialPlan ? '\n7. Follow editorial plan instructions for section ordering, emphasis, and callout placement — but do NOT add structural elements the template doesn\'t have, even if the editorial plan suggests them' : ''}`
+6. PLACEHOLDER WRAPPING RULE: Do NOT wrap copy placeholders in <p> tags. Write {{headline}}, {{lead}}, {{problem}} etc. directly inside their container elements WITHOUT a <p> wrapper. The assembly system handles paragraph wrapping automatically. WRONG: <p>{{lead}}</p>. CORRECT: {{lead}}. WRONG: <h2><p>{{problem}}</p></h2>. CORRECT: <h2>{{problem}}</h2>.
+7. BACKGROUND COLOR RULE — MANDATORY: Every section or container background color MUST have an HSL lightness of 60% or above. Text should be dark/black. Allowed: pastels, light tints, cream, soft washes of any color (sage green, mint, pale blue, light gold). NOT allowed: dark green, dark blue, dark teal, dark gray, forest green, navy, charcoal, or any deeply saturated color as a background. Use the reference design's color palette but shift any dark background colors to their light tint equivalents. CTA button backgrounds can be darker (the button text should be white), but section/container backgrounds must be light.${editorialPlan ? '\n8. Follow editorial plan instructions for section ordering, emphasis, and callout placement — but do NOT add structural elements the template doesn\'t have, even if the editorial plan suggests them' : ''}`
     : `Generate a complete, self-contained HTML landing page based on this design specification and placeholder system.
 
 DESIGN SPECIFICATION:
@@ -2396,7 +2397,8 @@ REQUIREMENTS:
 13. CTA buttons should be prominently styled per the design spec
 14. Add a viewport meta tag for mobile
 15. Target a professional, premium look — clean spacing, readable typography
-16. BACKGROUND COLOR RULE — MANDATORY: Every section or container background color MUST have an HSL lightness of 60% or above. Text should be dark/black. Allowed: pastels, light tints, cream, soft washes of any color (sage green, mint, pale blue, light gold). NOT allowed: dark green, dark blue, dark teal, dark gray, forest green, navy, charcoal, or any deeply saturated color as a background. Use the reference design's color palette but shift any dark background colors to their light tint equivalents. CTA button backgrounds can be darker (the button text should be white), but section/container backgrounds must be light.${editorialPlan ? '\n17. Follow ALL editorial plan instructions above — they override default section ordering and layout decisions' : ''}`;
+16. PLACEHOLDER WRAPPING RULE: Do NOT wrap copy placeholders in <p> tags. Write {{headline}}, {{lead}}, {{problem}} etc. directly inside their container elements WITHOUT a <p> wrapper. The assembly system handles paragraph wrapping automatically. WRONG: <p>{{lead}}</p>. CORRECT: {{lead}}. WRONG: <h2><p>{{problem}}</p></h2>. CORRECT: <h2>{{problem}}</h2>.
+17. BACKGROUND COLOR RULE — MANDATORY: Every section or container background color MUST have an HSL lightness of 60% or above. Text should be dark/black. Allowed: pastels, light tints, cream, soft washes of any color (sage green, mint, pale blue, light gold). NOT allowed: dark green, dark blue, dark teal, dark gray, forest green, navy, charcoal, or any deeply saturated color as a background. Use the reference design's color palette but shift any dark background colors to their light tint equivalents. CTA button backgrounds can be darker (the button text should be white), but section/container backgrounds must be light.${editorialPlan ? '\n18. Follow ALL editorial plan instructions above — they override default section ordering and layout decisions' : ''}`;
 
   const messages = [
     { role: 'system', content: systemPrompt },
@@ -2452,27 +2454,118 @@ export function assembleLandingPage({
 }) {
   let html = htmlTemplate;
 
+  // ── Helper: strip a single outer <p> wrapper if the entire string is one <p> block ──
+  function stripSinglePWrapper(text) {
+    const trimmed = text.trim();
+    const match = trimmed.match(/^<p[^>]*>([\s\S]*?)<\/p>$/i);
+    if (!match) return trimmed;
+    const inner = match[1];
+    if (inner.includes('<p>') || inner.includes('<p ')) return trimmed;
+    return inner.trim();
+  }
+
+  // ── Section types that should NEVER be wrapped in <p> tags ──
+  const INLINE_SECTION_TYPES = new Set([
+    'headline', 'subheadline', 'hero_headline', 'hero_subheadline',
+    'byline', 'author_name', 'author_title', 'category',
+    'cta', 'cta_text', 'top_bar_text', 'warning_box_text',
+    'product_name', 'card_title',
+  ]);
+
   // Replace copy section placeholders: {{section_type}} → actual content
-  // Wrap content in proper HTML (convert newlines to <p> tags)
+  // Context-aware: detects whether placeholder sits inside a heading, <p>, or standalone
   for (const section of copySections) {
     const placeholder = `{{${section.type}}}`;
-    const trimmedContent = (section.content || '').trim();
-    // Convert plain text to HTML paragraphs
-    const htmlContent = trimmedContent
-      .split(/\n\n+/)
-      .map(para => para.trim())
-      .filter(para => para.length > 0)
-      .map(para => {
-        // If it looks like a heading (short, no period), keep as-is
-        if (para.length < 100 && !para.includes('.')) {
-          return para;
-        }
-        // Convert single newlines to <br> within paragraphs
-        return `<p>${para.replace(/\n/g, '<br>')}</p>`;
-      })
-      .join('\n');
+    if (!html.includes(placeholder)) continue;
 
-    html = html.replaceAll(placeholder, htmlContent);
+    const trimmedContent = (section.content || '').trim();
+    if (!trimmedContent) continue;
+
+    // ── Detect placeholder context in the template HTML ──
+    const escapedPlaceholder = placeholder.replace(/[{}]/g, '\\$&');
+
+    // Check: is placeholder inside a heading tag?
+    const headingPattern = new RegExp(
+      `<(h[1-6])([^>]*)>[\\s\\S]*?${escapedPlaceholder}[\\s\\S]*?<\\/(h[1-6])>`,
+      'i'
+    );
+    const headingMatch = html.match(headingPattern);
+    const isInsideHeading = headingMatch && headingMatch[1].toLowerCase() === headingMatch[3].toLowerCase();
+
+    // Check: is placeholder inside a <p> tag?
+    const pWrapperPattern = new RegExp(
+      `<p([^>]*)>\\s*${escapedPlaceholder}\\s*<\\/p>`,
+      'i'
+    );
+    const isInsidePTag = pWrapperPattern.test(html);
+
+    // Check: is this an inline section type?
+    const isInlineType = INLINE_SECTION_TYPES.has(section.type);
+
+    // ── Route A: Placeholder inside a heading tag ──
+    if (isInsideHeading) {
+      const paragraphs = trimmedContent
+        .split(/\n\n+/)
+        .map(para => para.trim())
+        .filter(para => para.length > 0);
+
+      // First paragraph = heading text (strip <p> wrapper if present)
+      const headingText = stripSinglePWrapper(paragraphs[0] || '');
+
+      // Remaining paragraphs = body text, placed AFTER the heading element
+      const bodyParagraphs = paragraphs.slice(1)
+        .map(para => {
+          const stripped = stripSinglePWrapper(para);
+          if (/^<(p|div|ul|ol|blockquote|table|figure)[> ]/i.test(stripped)) return stripped;
+          return `<p>${stripped.replace(/\n/g, '<br>')}</p>`;
+        })
+        .join('\n');
+
+      // Replace the entire heading element with: heading containing only the title + body after
+      html = html.replace(headingPattern, (match, openTag, attrs, closeTag) => {
+        const result = `<${openTag}${attrs}>${headingText}</${closeTag}>`;
+        return bodyParagraphs ? `${result}\n      ${bodyParagraphs}` : result;
+      });
+
+    // ── Route B: Placeholder inside a <p> tag ──
+    } else if (isInsidePTag && !isInlineType) {
+      const paragraphs = trimmedContent
+        .split(/\n\n+/)
+        .map(para => para.trim())
+        .filter(para => para.length > 0)
+        .map(para => {
+          const stripped = stripSinglePWrapper(para);
+          if (/^<(p|div|ul|ol|blockquote|table|figure|h[1-6])[> ]/i.test(stripped)) return stripped;
+          if (stripped.length < 100 && !stripped.includes('.')) return stripped;
+          return `<p>${stripped.replace(/\n/g, '<br>')}</p>`;
+        })
+        .join('\n');
+
+      // Replace the entire <p>{{placeholder}}</p> — not just the placeholder
+      html = html.replace(pWrapperPattern, paragraphs);
+
+    // ── Route C: Inline section type (headline, byline, etc.) ──
+    } else if (isInlineType) {
+      const firstPara = trimmedContent.split(/\n\n+/)[0] || '';
+      const plainText = stripSinglePWrapper(firstPara.trim());
+      html = html.replaceAll(placeholder, plainText);
+
+    // ── Route D: Standard body content ──
+    } else {
+      const htmlContent = trimmedContent
+        .split(/\n\n+/)
+        .map(para => para.trim())
+        .filter(para => para.length > 0)
+        .map(para => {
+          const stripped = stripSinglePWrapper(para);
+          if (/^<(p|div|ul|ol|blockquote|table|figure|h[1-6])[> ]/i.test(stripped)) return stripped;
+          if (stripped.length < 100 && !stripped.includes('.')) return stripped;
+          return `<p>${stripped.replace(/\n/g, '<br>')}</p>`;
+        })
+        .join('\n');
+
+      html = html.replaceAll(placeholder, htmlContent);
+    }
   }
 
   // Replace image placeholders: {{image_N}} → actual storage URL or placeholder
@@ -2501,38 +2594,45 @@ export function assembleLandingPage({
   html = html.replace(/\{\{cta_(\d+)_url\}\}/gi, '#order');
   html = html.replace(/\{\{cta_(\d+)_text\}\}/gi, fallbackCtaText);
 
-  // Remove empty block elements left behind when placeholder replacement
-  // pushes actual content into sibling tags.
-  html = html.replace(/<(p|h[1-6]|div|span|li)([^>]*)>\s*<\/\1>/gi, '');
+  // ── Post-assembly cleanup ──────────────────────────────────────────────────
 
-  // Collapse <p><p>...</p></p> style double-wrapping into a single paragraph.
-  html = html.replace(/<p([^>]*)>\s*(<p(?:\s|>))/gi, '$2');
+  // Remove empty text/heading elements (NOT div — templates use empty divs as spacers)
+  html = html.replace(/<(p|h[1-6]|span|li)([^>]*)>\s*<\/\1>/gi, '');
+
+  // Unwrap <p> from inside headings: <h2><p>text</p></h2> → <h2>text</h2>
+  html = html.replace(/<(h[1-6])([^>]*)>\s*<p[^>]*>([\s\S]*?)<\/p>\s*<\/\1>/gi, '<$1$2>$3</$1>');
+
+  // Fix double-wrapped paragraphs: <p><p>text</p></p> → <p>text</p>
+  html = html.replace(/<p([^>]*)>\s*(<p[> ])/gi, '$2');
   html = html.replace(/<\/p>\s*<\/p>/gi, '</p>');
 
-  // Strip paragraph wrappers that ended up inside headings.
-  html = html.replace(
-    /<(h[1-6])([^>]*)>\s*<p>([\s\S]*?)<\/p>\s*<\/\1>/gi,
-    '<$1$2>$3</$1>',
-  );
-
-  // Strip paragraph wrappers inside the hero-specific divs that should render
-  // plain text instead of nested paragraph tags.
+  // Strip paragraph wrappers inside the hero-specific divs
   html = html.replace(
     /<div([^>]*class="(?:hero-subheadline|hero-byline|hero-image-caption)"[^>]*)>\s*<p>([\s\S]*?)<\/p>\s*<\/div>/gi,
     '<div$1>$2</div>',
   );
 
-  // Strip <p> wrapper from inside <li> when the <li> contains exactly one <p>
-  html = html.replace(/<li([^>]*)>\s*<p>([\s\S]*?)<\/p>\s*<\/li>/gi, (match, liAttrs, innerContent) => {
-    if (innerContent.includes('<p>') || innerContent.includes('<p ')) return match;
-    return `<li${liAttrs}>${innerContent}</li>`;
+  // Unwrap <p> from <li> when li contains exactly one <p>
+  html = html.replace(/<li([^>]*)>\s*<p[^>]*>([\s\S]*?)<\/p>\s*<\/li>/gi, (match, liAttrs, inner) => {
+    if (inner.includes('<p>') || inner.includes('<p ')) return match;
+    return `<li${liAttrs}>${inner}</li>`;
   });
 
-  // Clean entity-encoded HTML from image alt attributes
-  html = html.replace(/alt="(&lt;p&gt;)([\s\S]*?)(&lt;\/p&gt;)"/gi, (match, open, text, close) => `alt="${text}"`);
+  // Clean entity-encoded <p> tags from image alt attributes
+  html = html.replace(/alt="(&lt;p&gt;)([\s\S]*?)(&lt;\/p&gt;)"/gi, (m, o, text) => `alt="${text}"`);
 
   // Remove empty <style> blocks
   html = html.replace(/<style[^>]*>\s*<\/style>/gi, '');
+
+  // Second pass: catch empty elements created by first cleanup pass
+  html = html.replace(/<(p|h[1-6]|span|li)([^>]*)>\s*<\/\1>/gi, '');
+
+  // ── Assembly validation logging ──
+  const emptyPCount = (html.match(/<p[^>]*>\s*<\/p>/gi) || []).length;
+  const emptyHeadingCount = (html.match(/<h[1-6][^>]*>\s*<\/h[1-6]>/gi) || []).length;
+  if (emptyPCount > 0 || emptyHeadingCount > 0) {
+    console.warn(`[assembleLandingPage] Post-cleanup: ${emptyPCount} empty <p>, ${emptyHeadingCount} empty <h> tags remain`);
+  }
 
   return html;
 }
