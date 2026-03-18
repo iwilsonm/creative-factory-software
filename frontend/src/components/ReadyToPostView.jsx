@@ -37,12 +37,27 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
   const [editFields, setEditFields] = useState({}); // temp edit values
   const [savingEdit, setSavingEdit] = useState(false);
   const [sortBy, setSortBy] = useState('newest');
+  const [selectedCards, setSelectedCards] = useState(new Map()); // Map<cardKey, 'flex'|'single'>
+  const [bulkMarking, setBulkMarking] = useState(false);
+
+  const toggleCardSelection = (cardKey, cardType) => {
+    setSelectedCards(prev => {
+      const next = new Map(prev);
+      if (next.has(cardKey)) next.delete(cardKey);
+      else next.set(cardKey, cardType);
+      return next;
+    });
+  };
+
   const [groupByDate, setGroupByDate] = useState(() => {
     try { return localStorage.getItem('rtp_group_by_date') === 'true'; } catch { return false; }
   });
   const [expandedGroups, setExpandedGroups] = useState(new Set());
   const [showDefaultDialog, setShowDefaultDialog] = useState(false);
   const [pendingGroupValue, setPendingGroupValue] = useState(null);
+
+  // Clear selection on sort/group change
+  useEffect(() => { setSelectedCards(new Map()); }, [sortBy, groupByDate]);
 
   const handleGroupByToggle = () => {
     const newValue = !groupByDate;
@@ -1183,6 +1198,16 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
         <div className="px-5 py-4 space-y-3">
           {/* Ad Name + Format badge */}
           <div className="flex items-start justify-between gap-3">
+            {!isPoster && (
+              <label className="flex-shrink-0 mt-1 cursor-pointer" onClick={e => e.stopPropagation()}>
+                <input
+                  type="checkbox"
+                  checked={selectedCards.has(dep.id)}
+                  onChange={() => toggleCardSelection(dep.id, 'single')}
+                  className="rounded border-navy/30 text-navy focus:ring-navy/20 w-4 h-4"
+                />
+              </label>
+            )}
             <div className="flex-1 min-w-0">
               <div className="text-[14px] leading-tight mb-1.5">
                 <span className="text-textmid font-medium">Ad Name: </span>
@@ -1357,6 +1382,16 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
         <div className="px-5 py-4 space-y-3">
           {/* Ad Name + Format badge + small thumbnails */}
           <div className="flex items-start justify-between gap-3">
+            {!isPoster && (
+              <label className="flex-shrink-0 mt-1 cursor-pointer" onClick={e => e.stopPropagation()}>
+                <input
+                  type="checkbox"
+                  checked={selectedCards.has(flexId)}
+                  onChange={() => toggleCardSelection(flexId, 'flex')}
+                  className="rounded border-navy/30 text-navy focus:ring-navy/20 w-4 h-4"
+                />
+              </label>
+            )}
             <div className="flex-1 min-w-0">
               <div className="text-[14px] leading-tight mb-1.5">
                 <span className="text-textmid font-medium">Ad Name: </span>
@@ -1789,6 +1824,74 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
           </select>
         </div>
       </div>
+
+      {/* Bulk actions toolbar — visible when cards are selected or for select all */}
+      {!isPoster && cardList.length > 0 && (
+        <div className="flex items-center justify-between px-3 py-2 bg-offwhite rounded-xl">
+          <div className="flex items-center gap-3">
+            <label className="flex items-center gap-2 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={selectedCards.size > 0 && selectedCards.size === cardList.length}
+                onChange={() => {
+                  if (selectedCards.size === cardList.length) {
+                    setSelectedCards(new Map());
+                  } else {
+                    const all = new Map();
+                    cardList.forEach(c => all.set(c.key, c.type));
+                    setSelectedCards(all);
+                  }
+                }}
+                className="rounded border-navy/30 text-navy focus:ring-navy/20 w-4 h-4"
+              />
+              <span className="text-[11px] text-textmid font-medium">
+                {selectedCards.size === cardList.length ? 'Deselect All' : 'Select All'}
+              </span>
+            </label>
+            {selectedCards.size > 0 && (
+              <span className="text-[11px] text-navy font-semibold">{selectedCards.size} selected</span>
+            )}
+          </div>
+          {selectedCards.size > 0 && (
+            <div className="flex items-center gap-2">
+              <button
+                onClick={async () => {
+                  setBulkMarking(true);
+                  try {
+                    const updates = [];
+                    for (const [cardKey, cardType] of selectedCards) {
+                      if (cardType === 'flex') {
+                        const fa = flexAds.find(f => `flex-${f.id}` === cardKey);
+                        if (fa) {
+                          const children = getFlexChildDeps(fa);
+                          children.forEach(d => updates.push(api.updateDeploymentStatus(d.id, 'posted')));
+                        }
+                      } else {
+                        updates.push(api.updateDeploymentStatus(cardKey, 'posted'));
+                      }
+                    }
+                    await Promise.all(updates);
+                    setDeployments(prev => prev.map(d => selectedCards.has(d.id) || [...selectedCards.keys()].some(k => {
+                      const fa = flexAds.find(f => `flex-${f.id}` === k);
+                      return fa && getFlexChildDeps(fa).some(cd => cd.id === d.id);
+                    }) ? { ...d, status: 'posted', posted_date: new Date().toISOString() } : d));
+                    addToast(`Marked ${selectedCards.size} ad${selectedCards.size !== 1 ? 's' : ''} as posted`, 'success');
+                    setSelectedCards(new Map());
+                  } catch {
+                    addToast('Failed to mark as posted', 'error');
+                  } finally {
+                    setBulkMarking(false);
+                  }
+                }}
+                disabled={bulkMarking}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium bg-teal text-white hover:bg-teal/90 transition-colors disabled:opacity-50"
+              >
+                {bulkMarking ? 'Marking...' : `Mark as Posted (${selectedCards.size})`}
+              </button>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Cards — grouped by date or flat list */}
       {groupByDate ? (
