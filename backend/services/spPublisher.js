@@ -57,7 +57,12 @@ function mapSectionToShopify(sectionId, data) {
     if (schema && schema.blockArrays && schema.blockArrays.includes(key) && Array.isArray(value)) {
       // Prefer explicit blockTypeMap over naive /s$/ → '' derivation
       const blockType = (schema.blockTypeMap?.[key]) || key.replace(/s$/, '');
-      const mapped = mapArrayToBlocks(value, blockType);
+      // Enforce Shopify max_blocks limit — truncate rather than let Shopify reject with 422
+      const limit = schema.maxBlocks?.[key];
+      const items = (limit && value.length > limit)
+        ? (console.warn(`[SP Publisher] Truncating ${sectionId}.${key}: ${value.length} → ${limit}`), value.slice(0, limit))
+        : value;
+      const mapped = mapArrayToBlocks(items, blockType);
       blocks = { ...blocks, ...mapped.blocks };
       blockOrder = [...blockOrder, ...mapped.block_order];
     } else {

@@ -59,6 +59,9 @@ Return ONLY the JSON object. No commentary.`;
 
 
 // ── Section Schemas ──────────────────────────────────────────
+// maxBlocks values MUST match the max_blocks in the corresponding Shopify
+// Liquid section schemas. If you change these, re-push the theme files to
+// the store (Install Theme button or pushShopifyTheme.js).
 
 export const SECTION_SCHEMAS = {
   announcement_bar: {
@@ -73,6 +76,7 @@ export const SECTION_SCHEMAS = {
     purpose: 'Primary conversion unit. Communicates the core value proposition, price anchoring, and bundle options. This is where the majority of purchases originate — every word must earn its place.',
     outputSchema: '{ product_title: string, rating_score: string, rating_count: string, price: string, compare_price: string, discount_badge: string, emoji_benefit_1: string, emoji_benefit_2: string, cta_text: string, bundle_tiers: [{ tier_name: string, tier_price: string, tier_compare_price: string, tier_savings: string, free_gift_text: string, is_best_value: boolean }] }',
     blockArrays: ['bundle_tiers'],
+    maxBlocks: { bundle_tiers: 5 },
   },
 
   product_faq: {
@@ -80,6 +84,7 @@ export const SECTION_SCHEMAS = {
     purpose: 'Handles immediate objections that arise right after seeing the product and price. Prevents early bounce by addressing "does this work for me?" and "is this safe?" questions before the visitor has to scroll further.',
     outputSchema: '{ faq_items: [{ question: string, answer: string (richtext HTML) }] }',
     blockArrays: ['faq_items'],
+    maxBlocks: { faq_items: 8 },
   },
 
   trust_badges: {
@@ -87,6 +92,7 @@ export const SECTION_SCHEMAS = {
     purpose: 'Visual credibility strip that reduces perceived risk. Communicates manufacturing quality, safety standards, and logistical convenience through scannable icon + text pairs.',
     outputSchema: '{ badges: [{ icon: string, text: string }] }',
     blockArrays: ['badges'],
+    maxBlocks: { badges: 5 },
   },
 
   video_testimonials: {
@@ -94,6 +100,7 @@ export const SECTION_SCHEMAS = {
     purpose: 'Social proof through customer video stories. Placeholder section — videos are uploaded separately. Copy here sets the framing context.',
     outputSchema: '{ videos: [] }',
     blockArrays: ['videos'],
+    maxBlocks: { videos: 6 },
   },
 
   education_concept: {
@@ -116,6 +123,7 @@ export const SECTION_SCHEMAS = {
     outputSchema: '{ heading: string, tabs: [{ tab_label: string, tab_heading: string, tab_body: string (richtext HTML) }] }',
     blockArrays: ['tabs'],
     blockTypeMap: { tabs: 'benefit_tab' },  // 'tab' (auto-derived) would be wrong
+    maxBlocks: { tabs: 14 },
   },
 
   how_it_works: {
@@ -123,6 +131,7 @@ export const SECTION_SCHEMAS = {
     purpose: 'Step-by-step simplification of the product experience. Reduces perceived complexity and makes the path to results feel achievable. Each step should build confidence.',
     outputSchema: '{ heading: string, steps: [{ step_title: string, step_description: string }] }',
     blockArrays: ['steps'],
+    maxBlocks: { steps: 5 },
   },
 
   results_stats: {
@@ -130,6 +139,7 @@ export const SECTION_SCHEMAS = {
     purpose: 'Quantitative proof section. Numbers create certainty. Stats must feel real (not round numbers), be properly attributed, and paint a picture of widespread positive outcomes.',
     outputSchema: '{ heading: string, intro_text: string, stats: [{ percentage: string, description: string }], caption: string }',
     blockArrays: ['stats'],
+    maxBlocks: { stats: 4 },
   },
 
   written_testimonials: {
@@ -137,6 +147,7 @@ export const SECTION_SCHEMAS = {
     purpose: 'Extended social proof with emotional detail. Each testimonial should represent a different segment of the customer avatar and address a different objection or benefit. Star ratings add visual anchoring.',
     outputSchema: '{ heading: string, testimonials: [{ star_rating: number, headline: string, quote: string, customer_name: string }] }',
     blockArrays: ['testimonials'],
+    maxBlocks: { testimonials: 6 },
   },
 
   guarantee: {
@@ -144,6 +155,7 @@ export const SECTION_SCHEMAS = {
     purpose: 'Risk reversal. Eliminates the last barrier to purchase by making the buying decision feel safe. The guarantee should be bold, specific, and framed as confidence in the product rather than a refund policy.',
     outputSchema: '{ heading: string, body_text: string (richtext HTML), guarantee_badges: [{ text: string, icon: string }] }',
     blockArrays: ['guarantee_badges'],
+    maxBlocks: { guarantee_badges: 3 },
   },
 
   buying_faq: {
@@ -151,6 +163,7 @@ export const SECTION_SCHEMAS = {
     purpose: 'Final objection handling before the close. Addresses shipping, ingredients, compatibility, and "is this right for me?" questions. Answers should sell, not just inform — every answer is an opportunity to reinforce value.',
     outputSchema: '{ heading: string, faq_items: [{ question: string, answer: string (richtext HTML) }] }',
     blockArrays: ['faq_items'],
+    maxBlocks: { faq_items: 10 },
   },
 };
 
@@ -260,7 +273,7 @@ Now generate the copy for SECTIONS 1 through 7 of the sales page. Return a JSON 
 
 9. **product_faq gets 4-6 questions.** Focus on: "Does this work for [my specific situation]?", "What's in it?", "How fast will I see results?", "Is it safe?", and one objection-specific to this product category.
 
-10. **trust_badges gets 4-6 badges.** Must include: a safety/quality standard, a shipping/logistics benefit, a satisfaction guarantee reference, and at least one product-specific credential.
+10. **trust_badges gets 4-5 badges. Do NOT exceed 5.** Must include: a safety/quality standard, a shipping/logistics benefit, a satisfaction guarantee reference, and at least one product-specific credential.
 
 Return ONLY the JSON object. No markdown fences. No commentary.`;
 }
@@ -367,7 +380,7 @@ Generate the copy for SECTIONS 8 through 13. Return a JSON object with exactly t
 
 3. **how_it_works gets exactly 3 steps.** Keep it brain-dead simple. A confused mind doesn't buy. The steps are: choose/order, use/experience, enjoy results.
 
-4. **results_stats gets 3-5 stats.** At least one stat must address efficacy, one must address satisfaction/loyalty, and one must address speed of results. NO round numbers.
+4. **results_stats gets 3-4 stats. Do NOT exceed 4.** At least one stat must address efficacy, one must address satisfaction/loyalty, and one must address speed of results. NO round numbers.
 
 5. **written_testimonials gets 4-6 testimonials.** Each must represent a different demographic or use case from the customer avatar. At least one should mention initial skepticism. At least one should reference a specific timeframe. Names must be demographically appropriate. Include one 4-star review for believability — the 4-star review should have a minor quibble but overall positivity.
 
