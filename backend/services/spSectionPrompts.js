@@ -74,7 +74,7 @@ export const SECTION_SCHEMAS = {
   product_hero: {
     name: 'Product Hero',
     purpose: 'Primary conversion unit. Communicates the core value proposition, price anchoring, and bundle options. This is where the majority of purchases originate — every word must earn its place.',
-    outputSchema: '{ product_title: string, rating_score: string, rating_count: string, price: string, compare_price: string, discount_badge: string, emoji_benefit_1: string, emoji_benefit_2: string, cta_text: string, cta_link: string, product_description: string, hero_image_url_1: string, hero_image_url_2: string, hero_image_url_3: string, hero_image_url_4: string, bundle_tiers: [{ tier_name: string, tier_price: string, tier_compare_price: string, tier_savings: string, free_gift_text: string, is_best_value: boolean }] }',
+    outputSchema: '{ product_title: string, rating_score: string, rating_count: string, price: string, compare_price: string, discount_badge: string, emoji_benefit_1: string, emoji_benefit_2: string, cta_text: string, bundle_tiers: [{ tier_name: string, tier_price: string, tier_compare_price: string, tier_savings: string, free_gift_text: string, is_best_value: boolean }] }',
     blockArrays: ['bundle_tiers'],
     maxBlocks: { bundle_tiers: 5 },
     // settingsMap: generator field name → Shopify setting ID (for fields that differ between the two)
@@ -210,12 +210,6 @@ Now generate the copy for SECTIONS 1 through 7 of the sales page. Return a JSON 
     "emoji_benefit_1": "Emoji + short benefit, e.g., 'Clinically studied ingredients'. Must be the #1 differentiator.",
     "emoji_benefit_2": "Emoji + short benefit, e.g., '90-day money-back guarantee'. Must address the #1 purchase hesitation.",
     "cta_text": "Action-oriented button text. NOT 'Buy Now' or 'Add to Cart'. Use benefit-driven language like 'Start Sleeping Through the Night' or 'Get Your [Timeframe] Supply'.",
-    "cta_link": "External checkout URL from the product brief if provided, otherwise empty string.",
-    "product_description": "1-2 sentences summarizing the product. Used in hero when no Shopify product is linked.",
-    "hero_image_url_1": "First image URL from the product brief's image_urls array. Empty string if not provided.",
-    "hero_image_url_2": "Second image URL from the product brief's image_urls array. Empty string if not provided.",
-    "hero_image_url_3": "Third image URL from the product brief's image_urls array. Empty string if not provided.",
-    "hero_image_url_4": "Fourth image URL from the product brief's image_urls array. Empty string if not provided.",
     "bundle_tiers": [
       {
         "tier_name": "e.g., '6-Month Supply' or '3-Month Supply'",

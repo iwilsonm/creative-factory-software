@@ -102,6 +102,7 @@ export default function SalesPageGen({ projectId, project }) {
   const [comparePrice, setComparePrice] = useState('');
   const [category, setCategory] = useState('Health & Wellness');
   const [imageUrls, setImageUrls] = useState([]);
+  const [ctaUrl, setCtaUrl] = useState('');
 
   // Load pages
   const loadPages = useCallback(async () => {
@@ -147,6 +148,7 @@ export default function SalesPageGen({ projectId, project }) {
       compare_price: comparePrice.trim() || undefined,
       category,
       image_urls: imageUrls.length > 0 ? imageUrls : undefined,
+      cta_url: ctaUrl.trim() || undefined,
     };
 
     setView('generating');
@@ -277,6 +279,7 @@ export default function SalesPageGen({ projectId, project }) {
         setComparePrice(brief.compare_price || '');
         setCategory(brief.category || 'Health & Wellness');
         setImageUrls(brief.image_urls || []);
+        setCtaUrl(brief.cta_url || '');
       } catch { /* ignore parse errors */ }
     }
   };
@@ -573,13 +576,25 @@ export default function SalesPageGen({ projectId, project }) {
 
           <div>
             <label className="block text-sm font-medium text-textdark mb-1">Product Image URLs</label>
-            <p className="text-xs text-textmid mb-1.5">Optional. Press Enter to add URLs.</p>
+            <p className="text-xs text-textmid mb-1.5">Paste product image URLs (from supplier or hosted images). First image is the main hero image.</p>
             <MultiInput
               items={imageUrls}
               onAdd={(url) => setImageUrls([...imageUrls, url])}
               onRemove={(i) => setImageUrls(imageUrls.filter((_, idx) => idx !== i))}
               placeholder="https://..."
             />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium text-textdark mb-1">Checkout / Buy URL</label>
+            <input
+              type="url"
+              value={ctaUrl}
+              onChange={e => setCtaUrl(e.target.value)}
+              placeholder="https://..."
+              className="input-apple w-full"
+            />
+            <p className="text-xs text-textmid mt-1">Where the buy button links to (Stripe checkout, product page, external cart, etc.)</p>
           </div>
 
           {(project?.docCount ?? 0) === 0 && (

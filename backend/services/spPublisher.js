@@ -111,6 +111,10 @@ async function _publishSalesPage(salesPageId, projectId) {
     ? JSON.parse(page.section_data)
     : page.section_data;
 
+  const productBrief = typeof page.product_brief === 'string'
+    ? JSON.parse(page.product_brief)
+    : (page.product_brief || {});
+
   // 2. Get Shopify config
   const config = await getLPAgentConfig(projectId);
   if (!config || !config.shopify_store_domain || !config.shopify_access_token) {
@@ -158,6 +162,16 @@ async function _publishSalesPage(salesPageId, projectId) {
           const ft = mapSectionToShopify('trust_badges', sectionData['trust_badges']);
           templateCopy.sections['footer_trust'].blocks = ft.blocks || {};
           templateCopy.sections['footer_trust'].block_order = ft.block_order || [];
+        }
+        // Inject product brief images + cta_url into hero settings
+        if (templateCopy.sections['hero']) {
+          const heroSettings = templateCopy.sections['hero'].settings;
+          if (productBrief?.image_urls?.length) {
+            productBrief.image_urls.slice(0, 4).forEach((url, i) => {
+              if (url) heroSettings[`hero_image_url_${i + 1}`] = url;
+            });
+          }
+          if (productBrief?.cta_url) heroSettings.cta_link = productBrief.cta_url;
         }
       }
 
@@ -212,6 +226,16 @@ async function _publishSalesPage(salesPageId, projectId) {
       const ft = mapSectionToShopify('trust_badges', sectionData['trust_badges']);
       templateCopy.sections['footer_trust'].blocks = ft.blocks || {};
       templateCopy.sections['footer_trust'].block_order = ft.block_order || [];
+    }
+    // Inject product brief images + cta_url into hero settings
+    if (templateCopy.sections['hero']) {
+      const heroSettings = templateCopy.sections['hero'].settings;
+      if (productBrief?.image_urls?.length) {
+        productBrief.image_urls.slice(0, 4).forEach((url, i) => {
+          if (url) heroSettings[`hero_image_url_${i + 1}`] = url;
+        });
+      }
+      if (productBrief?.cta_url) heroSettings.cta_link = productBrief.cta_url;
     }
   }
 

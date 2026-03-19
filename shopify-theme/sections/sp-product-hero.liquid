@@ -88,7 +88,11 @@
             <div class="sp-bundle-tiers">
               {% for block in section.blocks %}
                 {% if block.type == 'bundle_tier' %}
-                  <div class="sp-bundle-tier sp-bundle-tier-{{ section.id }}{% if forloop.first %} selected{% endif %}" {{ block.shopify_attributes }}>
+                  <div class="sp-bundle-tier sp-bundle-tier-{{ section.id }}{% if forloop.first %} selected{% endif %}"
+                       data-tier-price="{{ block.settings.tier_price }}"
+                       data-tier-compare-price="{{ block.settings.tier_compare_price }}"
+                       style="cursor:pointer;"
+                       {{ block.shopify_attributes }}>
                     {% if block.settings.is_best_value %}
                       <div class="sp-best-value-badge sp-best-value-badge-{{ section.id }}">Best Value</div>
                     {% endif %}
@@ -123,9 +127,9 @@
               </div>
             {% elsif section.settings.price_text != blank %}
               <div style="font-size:1.5rem;font-weight:800;margin-bottom:var(--sp-spacing-md);">
-                {{ section.settings.price_text }}
+                <span class="sp-price-current-{{ section.id }}">{{ section.settings.price_text }}</span>
                 {% if section.settings.compare_price_text != blank %}
-                  <span style="text-decoration:line-through;opacity:0.5;font-size:1rem;">{{ section.settings.compare_price_text }}</span>
+                  <span class="sp-price-compare-{{ section.id }}" style="text-decoration:line-through;opacity:0.5;font-size:1rem;">{{ section.settings.compare_price_text }}</span>
                 {% endif %}
               </div>
             {% endif %}
@@ -143,10 +147,6 @@
             <a href="{{ section.settings.cta_link }}" class="sp-cta-btn sp-hero-cta-{{ section.id }}">
               {{ section.settings.cta_text | default: 'Shop Now' }}
             </a>
-          {% else %}
-            <button class="sp-cta-btn sp-hero-cta-{{ section.id }}">
-              {{ section.settings.cta_text | default: 'Shop Now' }}
-            </button>
           {% endif %}
 
           {% if product == blank and section.settings.product_description != blank %}
@@ -172,6 +172,26 @@
     </div>
   </div>
 {% endif %}
+
+<script>
+(function() {
+  var sectionId = '{{ section.id }}';
+  var tiers = document.querySelectorAll('.sp-bundle-tier-' + sectionId);
+  var priceEl = document.querySelector('.sp-price-current-' + sectionId);
+  var compareEl = document.querySelector('.sp-price-compare-' + sectionId);
+  if (!tiers.length) return;
+  tiers.forEach(function(tier) {
+    tier.addEventListener('click', function() {
+      tiers.forEach(function(t) { t.classList.remove('selected'); });
+      tier.classList.add('selected');
+      var price = tier.getAttribute('data-tier-price');
+      var compare = tier.getAttribute('data-tier-compare-price');
+      if (price && priceEl) priceEl.textContent = price;
+      if (compare && compareEl) compareEl.textContent = compare;
+    });
+  });
+})();
+</script>
 
 {% schema %}
 {
