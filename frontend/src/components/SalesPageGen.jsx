@@ -93,7 +93,7 @@ export default function SalesPageGen({ projectId, project }) {
   const loadPages = useCallback(async () => {
     try {
       const data = await api.getSalesPages(projectId);
-      setPages(data || []);
+      setPages(data?.pages || []);
     } catch (err) {
       console.error('Failed to load sales pages:', err);
     } finally {
