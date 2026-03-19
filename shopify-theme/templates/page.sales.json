@@ -1,5 +1,4 @@
 {
-  "_sp_version": "1.0.0",
   "sections": {
     "announcement": { "type": "sp-announcement-bar", "settings": {}, "disabled": false },
     "hero": { "type": "sp-product-hero", "settings": {}, "blocks": {}, "block_order": [] },

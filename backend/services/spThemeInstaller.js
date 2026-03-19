@@ -43,7 +43,7 @@ function collectFiles(dir, base = dir) {
 
 /**
  * Check whether the Sales Page theme files are installed on the store's active theme.
- * Detects presence via the `_sp_version` marker in templates/page.sales.json.
+ * Detects presence via `sp-version:` comment in assets/sp-sections.css.
  */
 export async function checkThemeStatus(domain, token) {
   const themesResp = await shopifyFetch(domain, token, 'GET', '/themes.json');
@@ -53,10 +53,11 @@ export async function checkThemeStatus(domain, token) {
   try {
     const assetResp = await shopifyFetch(
       domain, token, 'GET',
-      `/themes/${mainTheme.id}/assets.json?asset[key]=templates/page.sales.json`
+      `/themes/${mainTheme.id}/assets.json?asset[key]=assets/sp-sections.css`
     );
-    const template = JSON.parse(assetResp.asset.value);
-    const version = template._sp_version || null;
+    const css = assetResp.asset?.value || '';
+    const match = css.match(/sp-version:\s*([\d.]+)/);
+    const version = match ? match[1] : null;
     if (version) {
       return { installed: true, version, themeId: mainTheme.id, themeName: mainTheme.name };
     }
