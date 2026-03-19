@@ -71,15 +71,15 @@ export const SECTION_SCHEMAS = {
   product_hero: {
     name: 'Product Hero',
     purpose: 'Primary conversion unit. Communicates the core value proposition, price anchoring, and bundle options. This is where the majority of purchases originate — every word must earn its place.',
-    outputSchema: '{ product_title: string, rating_score: string, rating_count: string, price: string, compare_price: string, discount_badge: string, emoji_benefit_1: string, emoji_benefit_2: string, cta_text: string, bundle_tiers: [{ name: string, price: string, items: string, free_gift: string }] }',
+    outputSchema: '{ product_title: string, rating_score: string, rating_count: string, price: string, compare_price: string, discount_badge: string, emoji_benefit_1: string, emoji_benefit_2: string, cta_text: string, bundle_tiers: [{ tier_name: string, tier_price: string, tier_compare_price: string, tier_savings: string, free_gift_text: string, is_best_value: boolean }] }',
     blockArrays: ['bundle_tiers'],
   },
 
   product_faq: {
     name: 'Product FAQ (Below Hero)',
     purpose: 'Handles immediate objections that arise right after seeing the product and price. Prevents early bounce by addressing "does this work for me?" and "is this safe?" questions before the visitor has to scroll further.',
-    outputSchema: '{ accordion_items: [{ question: string, answer: string (richtext HTML) }] }',
-    blockArrays: ['accordion_items'],
+    outputSchema: '{ faq_items: [{ question: string, answer: string (richtext HTML) }] }',
+    blockArrays: ['faq_items'],
   },
 
   trust_badges: {
@@ -142,7 +142,7 @@ export const SECTION_SCHEMAS = {
   guarantee: {
     name: 'Guarantee',
     purpose: 'Risk reversal. Eliminates the last barrier to purchase by making the buying decision feel safe. The guarantee should be bold, specific, and framed as confidence in the product rather than a refund policy.',
-    outputSchema: '{ heading: string, body_text: string (richtext HTML), guarantee_badges: [{ badge_text: string, badge_icon: string }] }',
+    outputSchema: '{ heading: string, body_text: string (richtext HTML), guarantee_badges: [{ text: string, icon: string }] }',
     blockArrays: ['guarantee_badges'],
   },
 
@@ -193,16 +193,18 @@ Now generate the copy for SECTIONS 1 through 7 of the sales page. Return a JSON 
     "cta_text": "Action-oriented button text. NOT 'Buy Now' or 'Add to Cart'. Use benefit-driven language like 'Start Sleeping Through the Night' or 'Get Your [Timeframe] Supply'.",
     "bundle_tiers": [
       {
-        "name": "e.g., 'Best Value' or '6-Month Supply'",
-        "price": "e.g., '$33.25/bottle'",
-        "items": "e.g., '6 Bottles (180-Day Supply)'",
-        "free_gift": "e.g., 'Free Shipping + Bonus eBook' or empty string if none"
+        "tier_name": "e.g., '6-Month Supply' or '3-Month Supply'",
+        "tier_price": "e.g., '$33.25/bottle' — per-unit price",
+        "tier_compare_price": "e.g., '$59.95/bottle' — crossed-out original price. Empty string if no discount.",
+        "tier_savings": "e.g., 'Save $20' or 'Best Value' — short savings callout. Empty string if none.",
+        "free_gift_text": "e.g., 'Free Shipping + Bonus eBook' — empty string if no gift",
+        "is_best_value": false
       }
     ]
   },
 
   "product_faq": {
-    "accordion_items": [
+    "faq_items": [
       {
         "question": "A real question a skeptical buyer would ask immediately after seeing the product. Not softball questions.",
         "answer": "<p>Richtext HTML answer. Must be specific, cite evidence where available, and end with a confidence-building statement. 2-4 sentences. Use <strong> for key claims.</p>"
@@ -340,8 +342,8 @@ Generate the copy for SECTIONS 8 through 13. Return a JSON object with exactly t
     "body_text": "<p>Richtext HTML. 2-3 paragraphs. First paragraph: state the guarantee boldly and specifically — timeframe, what's covered, how to claim it. Second paragraph: reframe the guarantee as a sign of product confidence, not a refund policy. Third paragraph: make the buying decision feel like the lowest-risk option ('The only risk is doing nothing').</p>",
     "guarantee_badges": [
       {
-        "badge_text": "e.g., '90-Day Money Back' or 'Free Returns'. 3-5 words max.",
-        "badge_icon": "Descriptive icon name (e.g., 'shield-check', 'refresh', 'heart', 'clock')"
+        "text": "e.g., '90-Day Money Back' or 'Free Returns'. 3-5 words max.",
+        "icon": "Descriptive icon name (e.g., 'shield-check', 'refresh', 'heart', 'clock')"
       }
     ]
   },
@@ -475,7 +477,7 @@ Return a JSON object with exactly this structure:
 ### 10. Section-Level Schema Compliance
 - Does every section's output match the required JSON schema exactly?
 - Are all richtext fields using proper HTML (<p>, <strong>, <em> tags)?
-- Are blockArray items (bundle_tiers, accordion_items, badges, tabs, steps, stats, testimonials, guarantee_badges, faq_items) properly structured as arrays of objects?
+- Are blockArray items (bundle_tiers, faq_items, badges, tabs, steps, stats, testimonials, guarantee_badges) properly structured as arrays of objects?
 
 ## REVISION RULES:
 - Make the MINIMUM changes necessary to fix issues. Do not rewrite sections that are already strong.
