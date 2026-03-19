@@ -22,6 +22,14 @@
 
   {%- if product != blank -%}
     <div id="sp-product-data" data-product="{{ product | json | escape }}"></div>
+  {%- elsif section.settings.headline_override != blank -%}
+    <div id="sp-product-data"
+      data-mode="text"
+      data-title="{{ section.settings.headline_override | escape }}"
+      data-price="{{ section.settings.price_text | escape }}"
+      data-image="{{ section.settings.hero_image_url_1 | escape }}"
+      data-cta-link="{{ section.settings.cta_link | escape }}">
+    </div>
   {%- endif -%}
 
   <div class="sp-section sp-product-hero-section sp-product-hero-{{ section.id }}">
@@ -32,6 +40,13 @@
         <div class="sp-hero-gallery">
           {% if product != blank and product.featured_image != blank %}
             {{ product.featured_image | image_url: width: 800 | image_tag: class: 'sp-hero-main-img', loading: 'eager', alt: product.title }}
+          {% else %}
+            {% for i in (1..4) %}
+              {% assign img_key = 'hero_image_url_' | append: i %}
+              {% if section.settings[img_key] != blank %}
+                <img src="{{ section.settings[img_key] }}" alt="{{ section.settings.headline_override }}" class="sp-hero-main-img" loading="{% if forloop.first %}eager{% else %}lazy{% endif %}">
+              {% endif %}
+            {% endfor %}
           {% endif %}
         </div>
 
@@ -106,6 +121,13 @@
                   <span style="text-decoration:line-through;opacity:0.5;font-size:1rem;">{{ product.compare_at_price | money }}</span>
                 {% endif %}
               </div>
+            {% elsif section.settings.price_text != blank %}
+              <div style="font-size:1.5rem;font-weight:800;margin-bottom:var(--sp-spacing-md);">
+                {{ section.settings.price_text }}
+                {% if section.settings.compare_price_text != blank %}
+                  <span style="text-decoration:line-through;opacity:0.5;font-size:1rem;">{{ section.settings.compare_price_text }}</span>
+                {% endif %}
+              </div>
             {% endif %}
           {% endif %}
 
@@ -117,10 +139,18 @@
                 {{ section.settings.cta_text | default: 'Add to Cart' }}
               </button>
             </form>
+          {% elsif section.settings.cta_link != blank %}
+            <a href="{{ section.settings.cta_link }}" class="sp-cta-btn sp-hero-cta-{{ section.id }}">
+              {{ section.settings.cta_text | default: 'Shop Now' }}
+            </a>
           {% else %}
             <button class="sp-cta-btn sp-hero-cta-{{ section.id }}">
-              {{ section.settings.cta_text | default: 'Add to Cart' }}
+              {{ section.settings.cta_text | default: 'Shop Now' }}
             </button>
+          {% endif %}
+
+          {% if product == blank and section.settings.product_description != blank %}
+            <p style="margin-top:var(--sp-spacing-md);opacity:0.8;font-size:0.9rem;">{{ section.settings.product_description }}</p>
           {% endif %}
 
           {% if section.settings.show_upsell and section.settings.upsell_product != blank %}
@@ -159,7 +189,15 @@
     { "type": "color", "id": "cta_color", "label": "CTA Button Color", "default": "#1B4332" },
     { "type": "checkbox", "id": "show_upsell", "label": "Show Upsell", "default": false },
     { "type": "product", "id": "upsell_product", "label": "Upsell Product" },
-    { "type": "text", "id": "upsell_description", "label": "Upsell Description" }
+    { "type": "text", "id": "upsell_description", "label": "Upsell Description" },
+    { "type": "text", "id": "price_text", "label": "Price (Mode B)", "info": "e.g. $49.95 — used when no Shopify product is linked" },
+    { "type": "text", "id": "compare_price_text", "label": "Compare Price (Mode B)", "info": "e.g. $99.95 — crossed-out original price" },
+    { "type": "textarea", "id": "product_description", "label": "Product Description (Mode B)" },
+    { "type": "url", "id": "cta_link", "label": "CTA Link (Mode B)", "info": "External checkout URL. Used when no Shopify product is linked." },
+    { "type": "text", "id": "hero_image_url_1", "label": "Product Image URL 1 (Mode B)" },
+    { "type": "text", "id": "hero_image_url_2", "label": "Product Image URL 2 (Mode B)" },
+    { "type": "text", "id": "hero_image_url_3", "label": "Product Image URL 3 (Mode B)" },
+    { "type": "text", "id": "hero_image_url_4", "label": "Product Image URL 4 (Mode B)" }
   ],
   "blocks": [
     {

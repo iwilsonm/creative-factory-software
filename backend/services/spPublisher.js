@@ -66,7 +66,8 @@ function mapSectionToShopify(sectionId, data) {
       blocks = { ...blocks, ...mapped.blocks };
       blockOrder = [...blockOrder, ...mapped.block_order];
     } else {
-      settings[key] = value;
+      const mappedKey = (schema?.settingsMap?.[key]) || key;
+      settings[mappedKey] = value;
     }
   }
 
@@ -152,6 +153,12 @@ async function _publishSalesPage(salesPageId, projectId) {
             if (mapped.blocks) { sectionDef.blocks = mapped.blocks; sectionDef.block_order = mapped.block_order; }
           }
         }
+        // Duplicate trust_badges blocks into footer_trust (same block type: 'badge')
+        if (sectionData['trust_badges'] && templateCopy.sections['footer_trust']) {
+          const ft = mapSectionToShopify('trust_badges', sectionData['trust_badges']);
+          templateCopy.sections['footer_trust'].blocks = ft.blocks || {};
+          templateCopy.sections['footer_trust'].block_order = ft.block_order || [];
+        }
       }
 
       await shopifyApi(domain, token, 'PUT', `/themes/${themeId}/assets.json`, {
@@ -199,6 +206,12 @@ async function _publishSalesPage(salesPageId, projectId) {
           sectionDef.block_order = mapped.block_order;
         }
       }
+    }
+    // Duplicate trust_badges blocks into footer_trust (same block type: 'badge')
+    if (sectionData['trust_badges'] && templateCopy.sections['footer_trust']) {
+      const ft = mapSectionToShopify('trust_badges', sectionData['trust_badges']);
+      templateCopy.sections['footer_trust'].blocks = ft.blocks || {};
+      templateCopy.sections['footer_trust'].block_order = ft.block_order || [];
     }
   }
 

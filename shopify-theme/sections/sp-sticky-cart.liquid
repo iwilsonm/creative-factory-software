@@ -33,25 +33,37 @@
 
       if (dataEl) {
         try {
-          var product = JSON.parse(dataEl.getAttribute('data-product') || '{}');
-          if (product.title) titleEl.textContent = product.title;
-          if (product.variants && product.variants[0]) {
-            var price = (product.variants[0].price / 100).toFixed(2);
-            priceEl.textContent = '$' + price;
-          }
-          if (btn) {
-            btn.addEventListener('click', function() {
-              var variantId = product.variants && product.variants[0] ? product.variants[0].id : null;
-              if (variantId) {
-                fetch('/cart/add.js', {
-                  method: 'POST',
-                  headers: { 'Content-Type': 'application/json' },
-                  body: JSON.stringify({ id: variantId, quantity: 1 })
-                }).then(function() {
-                  window.location.href = '/cart';
-                });
-              }
-            });
+          var mode = dataEl.getAttribute('data-mode');
+          if (mode === 'text') {
+            var title = dataEl.getAttribute('data-title') || '';
+            var price = dataEl.getAttribute('data-price') || '';
+            var ctaLink = dataEl.getAttribute('data-cta-link') || '';
+            if (title) titleEl.textContent = title;
+            if (price) priceEl.textContent = price;
+            if (btn && ctaLink) {
+              btn.addEventListener('click', function() { window.location.href = ctaLink; });
+            }
+          } else {
+            var product = JSON.parse(dataEl.getAttribute('data-product') || '{}');
+            if (product.title) titleEl.textContent = product.title;
+            if (product.variants && product.variants[0]) {
+              var price = (product.variants[0].price / 100).toFixed(2);
+              priceEl.textContent = '$' + price;
+            }
+            if (btn) {
+              btn.addEventListener('click', function() {
+                var variantId = product.variants && product.variants[0] ? product.variants[0].id : null;
+                if (variantId) {
+                  fetch('/cart/add.js', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ id: variantId, quantity: 1 })
+                  }).then(function() {
+                    window.location.href = '/cart';
+                  });
+                }
+              });
+            }
           }
         } catch(e) {}
       }
