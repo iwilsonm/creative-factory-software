@@ -3,6 +3,7 @@ import { api } from '../api';
 import { useToast } from './Toast';
 import PipelineProgress from './PipelineProgress';
 import MultiInput from './MultiInput';
+import InfoTooltip from './InfoTooltip';
 
 // Step progress mapping for PipelineProgress
 const SP_STEP_PROGRESS = {
@@ -25,6 +26,7 @@ const STATUS_BADGES = {
   partial: { label: 'Partial', bg: 'bg-gold/10', text: 'text-gold' },
   completed: { label: 'Completed', bg: 'bg-teal/10', text: 'text-teal' },
   failed: { label: 'Failed', bg: 'bg-red-50', text: 'text-red-600' },
+  publish_failed: { label: 'Publish Failed', bg: 'bg-red-50', text: 'text-red-600' },
   published: { label: 'Published', bg: 'bg-teal/15', text: 'text-teal' },
   unpublished: { label: 'Unpublished', bg: 'bg-navy/10', text: 'text-textmid' },
 };
@@ -81,6 +83,7 @@ export default function SalesPageGen({ projectId, project }) {
   // Publishing state
   const [publishing, setPublishing] = useState(false);
   const [publishResult, setPublishResult] = useState(null);
+  const [shopifyConfigured, setShopifyConfigured] = useState(null); // null = loading
 
   // Product brief form
   const [productName, setProductName] = useState('');
@@ -109,7 +112,10 @@ export default function SalesPageGen({ projectId, project }) {
 
   useEffect(() => {
     loadPages();
-  }, [loadPages]);
+    api.getShopifyStatus(projectId)
+      .then((d) => setShopifyConfigured(d.configured))
+      .catch(() => setShopifyConfigured(false));
+  }, [loadPages, projectId]);
 
   // Generate
   const handleGenerate = async () => {
@@ -325,12 +331,12 @@ export default function SalesPageGen({ projectId, project }) {
                 <div
                   key={page.id}
                   className={`card p-4 transition-shadow ${
-                    page.status === 'completed' || page.status === 'published' || page.status === 'unpublished' || page.status === 'partial' || page.status === 'failed'
+                    ['completed', 'published', 'unpublished', 'partial', 'publish_failed', 'failed'].includes(page.status)
                       ? 'cursor-pointer hover:shadow-card-hover'
                       : ''
                   }`}
                   onClick={() => {
-                    if (page.status === 'completed' || page.status === 'published' || page.status === 'unpublished' || page.status === 'partial') openPage(page);
+                    if (['completed', 'published', 'unpublished', 'partial', 'publish_failed'].includes(page.status)) openPage(page);
                     else if (page.status === 'failed') retryPage(page);
                   }}
                 >
@@ -516,6 +522,15 @@ export default function SalesPageGen({ projectId, project }) {
             />
           </div>
 
+          {(project?.docCount ?? 0) === 0 && (
+            <div className="rounded-lg border border-gold/40 bg-gold/5 px-4 py-3">
+              <p className="text-sm text-textmid">
+                <span className="font-medium text-gold">No foundational docs yet.</span>{' '}
+                Generation will work but copy quality may be reduced. Generate docs first for best results.
+              </p>
+            </div>
+          )}
+
           <button
             onClick={handleGenerate}
             disabled={!productName.trim()}
@@ -578,14 +593,23 @@ export default function SalesPageGen({ projectId, project }) {
                 Open Preview
               </a>
             )}
-            {(selectedPage.status === 'completed' || selectedPage.status === 'unpublished') && (
-              <button
-                onClick={handlePublish}
-                disabled={publishing}
-                className="btn-primary text-sm px-3 py-1.5 disabled:opacity-50"
-              >
-                {publishing ? 'Publishing...' : 'Publish to Shopify'}
-              </button>
+            {(selectedPage.status === 'completed' || selectedPage.status === 'unpublished' || selectedPage.status === 'publish_failed') && (
+              shopifyConfigured === false ? (
+                <div className="flex items-center gap-1.5">
+                  <button disabled className="btn-primary text-sm px-3 py-1.5 opacity-40 cursor-not-allowed">
+                    Publish to Shopify
+                  </button>
+                  <InfoTooltip text="Configure Shopify in LP Agent settings to enable publishing" position="bottom" />
+                </div>
+              ) : (
+                <button
+                  onClick={handlePublish}
+                  disabled={publishing}
+                  className="btn-primary text-sm px-3 py-1.5 disabled:opacity-50"
+                >
+                  {publishing ? 'Publishing...' : 'Publish to Shopify'}
+                </button>
+              )
             )}
             {selectedPage.status === 'published' && (
               <button onClick={handleUnpublish} className="btn-secondary text-sm px-3 py-1.5">

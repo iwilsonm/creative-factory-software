@@ -5,9 +5,12 @@ import { SECTION_SCHEMAS } from './spSectionPrompts.js';
 
 // ── Shopify API helper ──────────────────────────────────────
 
+// Shopify API version — pinned. See https://shopify.dev/docs/api/usage/versioning
+const SHOPIFY_API_VERSION = '2024-10';
+
 async function shopifyApi(domain, accessToken, method, path, body) {
   return withRetry(async () => {
-    const url = `https://${domain}/admin/api/2024-01${path}`;
+    const url = `https://${domain}/admin/api/${SHOPIFY_API_VERSION}${path}`;
     const opts = {
       method,
       headers: {
@@ -52,7 +55,9 @@ function mapSectionToShopify(sectionId, data) {
 
   for (const [key, value] of Object.entries(data)) {
     if (schema && schema.blockArrays && schema.blockArrays.includes(key) && Array.isArray(value)) {
-      const mapped = mapArrayToBlocks(value, key.replace(/s$/, ''));
+      // Prefer explicit blockTypeMap over naive /s$/ → '' derivation
+      const blockType = (schema.blockTypeMap?.[key]) || key.replace(/s$/, '');
+      const mapped = mapArrayToBlocks(value, blockType);
       blocks = { ...blocks, ...mapped.blocks };
       blockOrder = [...blockOrder, ...mapped.block_order];
     } else {
@@ -71,6 +76,17 @@ function mapSectionToShopify(sectionId, data) {
 // ── Publish ─────────────────────────────────────────────────
 
 export async function publishSalesPage(salesPageId, projectId) {
+  try {
+    return await _publishSalesPage(salesPageId, projectId);
+  } catch (err) {
+    try {
+      await updateSalesPage(salesPageId, { status: 'publish_failed', error_message: err.message });
+    } catch (_) { /* best-effort */ }
+    throw err;
+  }
+}
+
+async function _publishSalesPage(salesPageId, projectId) {
   // 1. Load and validate sales page
   const page = await getSalesPage(salesPageId);
   if (!page) throw new Error(`Sales page not found: ${salesPageId}`);
@@ -95,6 +111,57 @@ export async function publishSalesPage(salesPageId, projectId) {
   if (!mainTheme) throw new Error('No active (main) theme found on Shopify store');
   const themeId = mainTheme.id;
 
+  // 3.5. Re-publish check — update existing page instead of creating duplicate
+  if (page.shopify_page_id && page.template_key) {
+    let existingPage = null;
+    try {
+      const resp = await shopifyApi(domain, token, 'GET', `/pages/${page.shopify_page_id}.json`);
+      existingPage = resp.page;
+    } catch (err) {
+      if (!err.message.includes('404')) throw err;
+      // Shopify page was deleted externally — clear stale IDs and fall through to create
+      await updateSalesPage(salesPageId, { shopify_page_id: '', published_url: '' }).catch(() => {});
+    }
+
+    if (existingPage) {
+      const baseTemplateResp = await shopifyApi(domain, token, 'GET',
+        `/themes/${themeId}/assets.json?asset[key]=templates/page.sales.json`);
+      const baseTemplate = JSON.parse(baseTemplateResp.asset.value);
+      const templateCopy = JSON.parse(JSON.stringify(baseTemplate));
+
+      if (templateCopy.sections) {
+        for (const [sectionKey, sectionDef] of Object.entries(templateCopy.sections)) {
+          const rawType = sectionDef.type || sectionKey;
+          const sectionId = rawType.replace(/^sp-/, '').replace(/-/g, '_');
+          if (sectionData[sectionId]) {
+            const mapped = mapSectionToShopify(sectionId, sectionData[sectionId]);
+            sectionDef.settings = { ...(sectionDef.settings || {}), ...mapped.settings };
+            if (mapped.blocks) { sectionDef.blocks = mapped.blocks; sectionDef.block_order = mapped.block_order; }
+          }
+        }
+      }
+
+      await shopifyApi(domain, token, 'PUT', `/themes/${themeId}/assets.json`, {
+        asset: { key: page.template_key, value: JSON.stringify(templateCopy) },
+      });
+
+      const newVersion = (page.current_version || 0) + 1;
+      await createSalesPageVersion({
+        id: uuidv4(), sales_page_id: salesPageId, version: newVersion,
+        section_data: typeof page.section_data === 'string' ? page.section_data : JSON.stringify(page.section_data),
+        source: 'pre-publish',
+      });
+      await updateSalesPage(salesPageId, { status: 'published', current_version: newVersion });
+
+      const id8 = salesPageId.slice(0, 8);
+      return {
+        published_url: page.published_url,
+        shopify_page_id: existingPage.id,
+        editor_url: `https://${domain}/admin/themes/${themeId}/editor?template=page.sales-${id8}`,
+      };
+    }
+  }
+
   // 4. Read base sales page template
   const baseTemplateResp = await shopifyApi(
     domain, token, 'GET',
@@ -108,7 +175,9 @@ export async function publishSalesPage(salesPageId, projectId) {
 
   if (templateCopy.sections) {
     for (const [sectionKey, sectionDef] of Object.entries(templateCopy.sections)) {
-      const sectionId = sectionDef.type || sectionKey;
+      // Normalize: "sp-announcement-bar" → "announcement_bar" to match generator output keys
+      const rawType = sectionDef.type || sectionKey;
+      const sectionId = rawType.replace(/^sp-/, '').replace(/-/g, '_');
       if (sectionData[sectionId]) {
         const mapped = mapSectionToShopify(sectionId, sectionData[sectionId]);
         sectionDef.settings = { ...(sectionDef.settings || {}), ...mapped.settings };
@@ -129,20 +198,29 @@ export async function publishSalesPage(salesPageId, projectId) {
     },
   });
 
-  // 7. Create Shopify page
+  // 7. Create Shopify page — clean up template asset if this fails
   const slug = generateSlug(page.name || 'sales-page');
-  const pageResp = await shopifyApi(domain, token, 'POST', '/pages.json', {
-    page: {
-      title: page.name || 'Sales Page',
-      handle: slug,
-      template_suffix: `sales-${id8}`,
-      published: false,
-    },
-  });
+  let shopifyPage;
+  try {
+    const pageResp = await shopifyApi(domain, token, 'POST', '/pages.json', {
+      page: {
+        title: page.name || 'Sales Page',
+        handle: slug,
+        template_suffix: `sales-${id8}`,
+        published: false,
+      },
+    });
+    shopifyPage = pageResp.page;
+  } catch (err) {
+    try {
+      await shopifyApi(domain, token, 'DELETE',
+        `/themes/${themeId}/assets.json?asset[key]=${encodeURIComponent(templateKey)}`);
+    } catch (_) { /* best-effort cleanup */ }
+    throw new Error(`Failed to create Shopify page (template cleaned up): ${err.message}`);
+  }
 
-  const shopifyPage = pageResp.page;
   const publishedUrl = `https://${domain}/pages/${shopifyPage.handle}`;
-  const editorUrl = `https://${domain}/admin/pages/${shopifyPage.id}`;
+  const editorUrl = `https://${domain}/admin/themes/${themeId}/editor?template=page.sales-${id8}`;
 
   // 8. Create version snapshot
   await createSalesPageVersion({
@@ -212,5 +290,6 @@ export async function unpublishSalesPage(salesPageId, projectId) {
   await updateSalesPage(salesPageId, {
     status: 'unpublished',
     shopify_page_id: '',
+    published_url: '',
   });
 }

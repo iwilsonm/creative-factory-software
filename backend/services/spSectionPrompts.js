@@ -115,6 +115,7 @@ export const SECTION_SCHEMAS = {
     purpose: 'Organizes the product benefits into scannable, categorized tabs. Each tab targets a different motivation cluster from the customer avatar. Allows visitors to self-select the benefit that matters most to them.',
     outputSchema: '{ heading: string, tabs: [{ tab_label: string, tab_heading: string, tab_body: string (richtext HTML) }] }',
     blockArrays: ['tabs'],
+    blockTypeMap: { tabs: 'benefit_tab' },  // 'tab' (auto-derived) would be wrong
   },
 
   how_it_works: {

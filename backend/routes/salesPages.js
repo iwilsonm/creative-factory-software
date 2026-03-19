@@ -8,7 +8,7 @@ import {
   updateSalesPage,
   deleteSalesPage,
   getSalesPageVersions,
-  getDocsByProject,
+  getLPAgentConfig,
 } from '../convexClient.js';
 import { generateSalesPage } from '../services/spGenerator.js';
 import { publishSalesPage, unpublishSalesPage } from '../services/spPublisher.js';
@@ -44,12 +44,6 @@ router.post('/:projectId/generate-sales-page', async (req, res) => {
   const { product_brief } = req.body;
   if (!product_brief || !product_brief.name) {
     return res.status(400).json({ error: 'Product brief with name is required' });
-  }
-
-  // Verify foundational docs exist
-  const docs = await getDocsByProject(req.params.projectId);
-  if (!docs || docs.length === 0) {
-    return res.status(400).json({ error: 'Foundational docs not yet generated for this project. Generate docs first.' });
   }
 
   // Create the sales page record
@@ -145,6 +139,13 @@ router.post('/:projectId/sales-pages/:pageId/unpublish', async (req, res) => {
 router.get('/:projectId/sales-pages/:pageId/versions', async (req, res) => {
   const versions = await getSalesPageVersions(req.params.pageId);
   res.json({ versions: versions || [] });
+});
+
+// Check if Shopify is configured for a project
+router.get('/:projectId/shopify-status', async (req, res) => {
+  const config = await getLPAgentConfig(req.params.projectId);
+  const configured = !!(config?.shopify_store_domain && config?.shopify_access_token);
+  res.json({ configured });
 });
 
 export default router;

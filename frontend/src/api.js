@@ -637,6 +637,8 @@ export const api = {
     request(`/projects/${projectId}/sales-pages/${pageId}/publish`, { method: 'POST' }),
   unpublishSalesPage: (projectId, pageId) =>
     request(`/projects/${projectId}/sales-pages/${pageId}/unpublish`, { method: 'POST' }),
+  getShopifyStatus: (projectId) =>
+    request(`/projects/${projectId}/shopify-status`),
 
   // LP Templates
   getLPTemplates: (projectId) =>
