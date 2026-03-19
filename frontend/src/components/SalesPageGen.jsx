@@ -85,6 +85,11 @@ export default function SalesPageGen({ projectId, project }) {
   const [publishResult, setPublishResult] = useState(null);
   const [shopifyConfigured, setShopifyConfigured] = useState(null); // null = loading
 
+  // Theme install state
+  const [themeStatus, setThemeStatus] = useState(null);
+  const [installingTheme, setInstallingTheme] = useState(false);
+  const [themeInstallProgress, setThemeInstallProgress] = useState({ message: '', pct: 0 });
+
   // Product brief form
   const [productName, setProductName] = useState('');
   const [tagline, setTagline] = useState('');
@@ -112,9 +117,15 @@ export default function SalesPageGen({ projectId, project }) {
 
   useEffect(() => {
     loadPages();
-    api.getShopifyStatus(projectId)
-      .then((d) => setShopifyConfigured(d.configured))
-      .catch(() => setShopifyConfigured(false));
+    api.getSalesPageThemeStatus(projectId)
+      .then((d) => {
+        setThemeStatus(d);
+        setShopifyConfigured(d.shopifyConfigured);
+      })
+      .catch(() => {
+        setThemeStatus({ installed: false, shopifyConfigured: false });
+        setShopifyConfigured(false);
+      });
   }, [loadPages, projectId]);
 
   // Generate
@@ -278,6 +289,33 @@ export default function SalesPageGen({ projectId, project }) {
     setView('configure');
   };
 
+  // Install Sales Page theme files
+  const handleInstallTheme = useCallback(async () => {
+    setInstallingTheme(true);
+    setThemeInstallProgress({ message: 'Starting installation...', pct: 0 });
+    try {
+      await api.installSalesPageTheme(projectId, (event) => {
+        if (event.type === 'progress') {
+          const pct = event.total ? Math.round((event.ok / event.total) * 100) : 0;
+          setThemeInstallProgress({ message: event.message, pct: Math.max(pct, 5) });
+        }
+        if (event.type === 'complete') {
+          setThemeInstallProgress({ message: 'Installation complete!', pct: 100 });
+        }
+        if (event.type === 'error') {
+          toast.error(event.message || 'Theme installation failed');
+        }
+      });
+      toast.success('Sales page theme installed successfully');
+      const updated = await api.getSalesPageThemeStatus(projectId);
+      setThemeStatus(updated);
+    } catch (err) {
+      toast.error(err.message || 'Theme installation failed');
+    } finally {
+      setInstallingTheme(false);
+    }
+  }, [projectId, toast]);
+
   // ==================== VIEWS ====================
 
   // LIST VIEW
@@ -310,6 +348,28 @@ export default function SalesPageGen({ projectId, project }) {
             New Sales Page
           </button>
         </div>
+
+        {shopifyConfigured && themeStatus && !themeStatus.installed && (
+          <div className="rounded-lg bg-gold/5 border border-gold/30 p-4 flex items-center justify-between gap-4">
+            <div>
+              <p className="text-sm font-medium text-textdark">Sales Page Theme Not Installed</p>
+              <p className="text-xs text-textmid mt-0.5">Install the theme files to your Shopify store to enable publishing.</p>
+            </div>
+            <button
+              onClick={handleInstallTheme}
+              disabled={installingTheme}
+              className="btn-primary text-sm px-4 py-2 shrink-0 disabled:opacity-50"
+            >
+              {installingTheme ? 'Installing...' : 'Install Sales Page Theme'}
+            </button>
+          </div>
+        )}
+
+        {installingTheme && (
+          <div className="card p-4">
+            <PipelineProgress progress={themeInstallProgress.pct} message={themeInstallProgress.message} />
+          </div>
+        )}
 
         {loading ? (
           <div className="text-center py-12 text-textmid">Loading...</div>

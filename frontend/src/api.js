@@ -639,6 +639,10 @@ export const api = {
     request(`/projects/${projectId}/sales-pages/${pageId}/unpublish`, { method: 'POST' }),
   getShopifyStatus: (projectId) =>
     request(`/projects/${projectId}/shopify-status`),
+  getSalesPageThemeStatus: (projectId) =>
+    request(`/projects/${projectId}/sales-pages/theme-status`),
+  installSalesPageTheme: (projectId, onEvent) =>
+    streamSSE(`/projects/${projectId}/sales-pages/install-theme`, onEvent),
 
   // LP Templates
   getLPTemplates: (projectId) =>

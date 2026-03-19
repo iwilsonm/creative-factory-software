@@ -13,6 +13,7 @@ import {
 import { generateSalesPage } from '../services/spGenerator.js';
 import { publishSalesPage, unpublishSalesPage } from '../services/spPublisher.js';
 import { renderSalesPageHtml } from '../services/spPreviewRenderer.js';
+import { installTheme, checkThemeStatus } from '../services/spThemeInstaller.js';
 import { createSSEStream } from '../utils/sseHelper.js';
 
 const router = Router();
@@ -147,6 +148,39 @@ router.get('/:projectId/shopify-status', async (req, res) => {
   const config = await getLPAgentConfig(req.params.projectId);
   const configured = !!(config?.shopify_store_domain && config?.shopify_access_token);
   res.json({ configured });
+});
+
+// Check if the Sales Page theme files are installed on the store
+router.get('/:projectId/sales-pages/theme-status', async (req, res) => {
+  try {
+    const config = await getLPAgentConfig(req.params.projectId);
+    if (!config?.shopify_store_domain || !config?.shopify_access_token) {
+      return res.json({ installed: false, shopifyConfigured: false });
+    }
+    const domain = config.shopify_store_domain.replace(/^https?:\/\//, '').replace(/\/+$/, '');
+    const status = await checkThemeStatus(domain, config.shopify_access_token);
+    res.json({ ...status, shopifyConfigured: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Install Sales Page theme files to the store's active theme (SSE stream)
+router.post('/:projectId/sales-pages/install-theme', async (req, res) => {
+  const { sendEvent, end } = createSSEStream(req, res);
+  try {
+    const config = await getLPAgentConfig(req.params.projectId);
+    if (!config?.shopify_store_domain || !config?.shopify_access_token) {
+      sendEvent({ type: 'error', message: 'Shopify not configured for this project' });
+      return end();
+    }
+    const domain = config.shopify_store_domain.replace(/^https?:\/\//, '').replace(/\/+$/, '');
+    await installTheme(domain, config.shopify_access_token, sendEvent);
+  } catch (err) {
+    sendEvent({ type: 'error', message: err.message });
+  } finally {
+    end();
+  }
 });
 
 export default router;

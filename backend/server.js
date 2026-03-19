@@ -165,6 +165,7 @@ process.on('uncaughtException', (err) => {
   app.use('/api/cmo/run', llmRateLimit);
   app.use('/api/cmo/dry-run', llmRateLimit);
   app.use('/api/projects/:id/generate-sales-page', llmRateLimit);
+  app.use('/api/projects/:id/sales-pages/install-theme', llmRateLimit);
   // NOTE: Generated images are no longer served from local disk.
   // They are served via 302 redirect to Convex storage URLs in the ads route.
 
