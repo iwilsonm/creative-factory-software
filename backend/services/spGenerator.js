@@ -84,7 +84,7 @@ export async function generateSalesPage({ projectId, productBrief, pageId }, sen
         { role: 'user', content: turn1UserMessage },
       ],
       'claude-sonnet-4-6',
-      { operation: 'sp_foundation_analysis', projectId }
+      { operation: 'sp_foundation_analysis', projectId, timeout: 180000 }
     );
 
     const preWriteAnalysis = parseJSONResponse(turn1Response);
