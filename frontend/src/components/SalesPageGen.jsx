@@ -617,6 +617,11 @@ export default function SalesPageGen({ projectId, project }) {
               </button>
             )}
           </div>
+          {selectedPage.status === 'publish_failed' && selectedPage.error_message && (
+            <p className="text-sm text-red-600 mt-1">
+              Last error: {selectedPage.error_message}
+            </p>
+          )}
         </div>
 
         {/* Publish result banner */}

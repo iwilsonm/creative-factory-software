@@ -114,8 +114,9 @@ router.post('/:projectId/sales-pages/:pageId/publish', async (req, res) => {
   const page = await getSalesPage(req.params.pageId);
   if (!page) return res.status(404).json({ error: 'Sales page not found' });
 
-  if (page.status !== 'completed' && page.status !== 'unpublished') {
-    return res.status(400).json({ error: `Cannot publish page with status "${page.status}". Must be completed or unpublished.` });
+  const PUBLISHABLE_STATUSES = ['completed', 'unpublished', 'publish_failed'];
+  if (!PUBLISHABLE_STATUSES.includes(page.status)) {
+    return res.status(400).json({ error: `Cannot publish page with status "${page.status}". Must be completed, unpublished, or publish_failed.` });
   }
 
   const result = await publishSalesPage(req.params.pageId, req.params.projectId);

@@ -91,7 +91,15 @@ async function _publishSalesPage(salesPageId, projectId) {
   const page = await getSalesPage(salesPageId);
   if (!page) throw new Error(`Sales page not found: ${salesPageId}`);
   if (!page.section_data) throw new Error('Sales page has no section_data');
-  if (page.status !== 'completed' && page.status !== 'unpublished') throw new Error(`Sales page status is "${page.status}", expected "completed" or "unpublished"`);
+  const PUBLISHABLE_STATUSES = ['completed', 'unpublished', 'publish_failed'];
+  if (!PUBLISHABLE_STATUSES.includes(page.status)) {
+    throw new Error(`Sales page status is "${page.status}", expected one of: ${PUBLISHABLE_STATUSES.join(', ')}`);
+  }
+
+  // Clear previous error if retrying from publish_failed (non-blocking)
+  if (page.status === 'publish_failed') {
+    updateSalesPage(salesPageId, { error_message: '' }).catch(() => {});
+  }
 
   const sectionData = typeof page.section_data === 'string'
     ? JSON.parse(page.section_data)
