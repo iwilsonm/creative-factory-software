@@ -226,9 +226,15 @@ export default function SalesPageGen({ projectId, project }) {
 
   // Pre-fill configure form from existing page
   const handleRegenerate = () => {
-    if (selectedPage?.product_brief) {
+    prefillFromPage(selectedPage);
+    setView('configure');
+  };
+
+  // Pre-fill form fields from a page's product_brief
+  const prefillFromPage = (page) => {
+    if (page?.product_brief) {
       try {
-        const brief = JSON.parse(selectedPage.product_brief);
+        const brief = JSON.parse(page.product_brief);
         setProductName(brief.name || '');
         setFeatures(brief.features || []);
         setPrice(brief.price || '');
@@ -237,6 +243,13 @@ export default function SalesPageGen({ projectId, project }) {
         setImageUrls(brief.image_urls || []);
       } catch { /* ignore parse errors */ }
     }
+  };
+
+  // Retry a failed page — go directly to configure with form pre-filled + error shown
+  const [retryError, setRetryError] = useState(null);
+  const retryPage = (page) => {
+    prefillFromPage(page);
+    setRetryError(page.error_message || 'Unknown error');
     setView('configure');
   };
 
@@ -259,6 +272,7 @@ export default function SalesPageGen({ projectId, project }) {
               setComparePrice('');
               setCategory('Health & Wellness');
               setImageUrls([]);
+              setRetryError(null);
               setView('configure');
             }}
             className="btn-primary text-sm px-4 py-2"
@@ -286,11 +300,15 @@ export default function SalesPageGen({ projectId, project }) {
               return (
                 <div
                   key={page.id}
-                  className="card p-4 cursor-pointer hover:shadow-card-hover transition-shadow"
-                  onClick={() => page.status === 'completed' || page.status === 'published' || page.status === 'unpublished'
-                    ? openPage(page)
-                    : null
-                  }
+                  className={`card p-4 transition-shadow ${
+                    page.status === 'completed' || page.status === 'published' || page.status === 'unpublished' || page.status === 'failed'
+                      ? 'cursor-pointer hover:shadow-card-hover'
+                      : ''
+                  }`}
+                  onClick={() => {
+                    if (page.status === 'completed' || page.status === 'published' || page.status === 'unpublished') openPage(page);
+                    else if (page.status === 'failed') retryPage(page);
+                  }}
                 >
                   <div className="flex items-start justify-between mb-2">
                     <h3 className="font-medium text-textdark text-sm truncate flex-1 mr-2">{page.name}</h3>
@@ -300,6 +318,9 @@ export default function SalesPageGen({ projectId, project }) {
                   </div>
                   {page.error_message && (
                     <p className="text-xs text-red-500 mt-1 truncate">{page.error_message}</p>
+                  )}
+                  {page.status === 'failed' && (
+                    <p className="text-xs text-gold mt-1">Click to retry →</p>
                   )}
                   {page.published_url && (
                     <p className="text-xs text-teal mt-1 truncate">{page.published_url}</p>
@@ -332,11 +353,18 @@ export default function SalesPageGen({ projectId, project }) {
     return (
       <div className="space-y-6 max-w-2xl">
         <div className="flex items-center gap-3">
-          <button onClick={() => setView('list')} className="text-textmid hover:text-textdark text-sm">
+          <button onClick={() => { setRetryError(null); setView('list'); }} className="text-textmid hover:text-textdark text-sm">
             &larr; Back
           </button>
           <h2 className="text-lg font-semibold text-textdark">New Sales Page</h2>
         </div>
+
+        {retryError && (
+          <div className="rounded-lg bg-red-50 border border-red-200 px-4 py-3">
+            <p className="text-xs font-medium text-red-700">Previous attempt failed:</p>
+            <p className="text-xs text-red-600 mt-0.5">{retryError}</p>
+          </div>
+        )}
 
         <div className="card p-6 space-y-5">
           <div>
