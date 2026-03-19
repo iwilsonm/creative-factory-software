@@ -488,6 +488,16 @@ export default function SalesPageGen({ projectId, project }) {
             <button onClick={handleRegenerate} className="btn-secondary text-sm px-3 py-1.5">
               Regenerate
             </button>
+            {sectionData && (
+              <a
+                href={`/api/projects/${projectId}/sales-pages/${selectedPage.id}/preview`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="btn-secondary text-sm px-3 py-1.5"
+              >
+                Open Preview
+              </a>
+            )}
             {(selectedPage.status === 'completed' || selectedPage.status === 'unpublished') && (
               <button
                 onClick={handlePublish}

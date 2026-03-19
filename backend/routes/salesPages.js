@@ -12,6 +12,7 @@ import {
 } from '../convexClient.js';
 import { generateSalesPage } from '../services/spGenerator.js';
 import { publishSalesPage, unpublishSalesPage } from '../services/spPublisher.js';
+import { renderSalesPageHtml } from '../services/spPreviewRenderer.js';
 import { createSSEStream } from '../utils/sseHelper.js';
 
 const router = Router();
@@ -82,6 +83,18 @@ router.post('/:projectId/generate-sales-page', async (req, res) => {
       sse.sendEvent({ type: 'error', message: err.message, error: err.message });
       sse.end();
     });
+});
+
+// HTML preview of a sales page
+router.get('/:projectId/sales-pages/:pageId/preview', async (req, res) => {
+  const page = await getSalesPage(req.params.pageId);
+  if (!page) return res.status(404).send('<h1>Sales page not found</h1>');
+  if (!page.section_data) return res.status(400).send('<h1>No content generated yet</h1>');
+
+  const sectionData = JSON.parse(page.section_data);
+  const html = renderSalesPageHtml({ ...page, section_data: sectionData });
+  res.setHeader('Content-Type', 'text/html; charset=utf-8');
+  res.send(html);
 });
 
 // Update a sales page
