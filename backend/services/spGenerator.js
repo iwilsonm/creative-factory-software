@@ -74,7 +74,7 @@ export async function generateSalesPage({ projectId, productBrief, pageId }, sen
       { operation: 'sp_foundation_analysis', projectId }
     );
 
-    const preWriteAnalysis = parseJSONResponse(turn1Response.content);
+    const preWriteAnalysis = parseJSONResponse(turn1Response);
 
     // ── 3. Turn 2 — Sections 1-7 (Sonnet) ─────────────────────────────
     sendEvent({ type: 'progress', step: 'sections_1_7', message: 'Writing hero, education & trust sections...' });
@@ -85,14 +85,14 @@ export async function generateSalesPage({ projectId, productBrief, pageId }, sen
       [
         { role: 'system', content: FOUNDATION_ANALYSIS_PROMPT },
         { role: 'user', content: turn1UserMessage },
-        { role: 'assistant', content: turn1Response.content },
+        { role: 'assistant', content: turn1Response },
         { role: 'user', content: turn2UserMessage },
       ],
       'claude-sonnet-4-6',
       { operation: 'sp_sections_1_7', projectId, max_tokens: 8000 }
     );
 
-    const firstHalfSections = parseJSONResponse(turn2Response.content);
+    const firstHalfSections = parseJSONResponse(turn2Response);
 
     // ── 4. Turn 3 — Sections 8-13 (Sonnet) ────────────────────────────
     sendEvent({ type: 'progress', step: 'sections_8_13', message: 'Writing benefits, proof & FAQ sections...' });
@@ -103,16 +103,16 @@ export async function generateSalesPage({ projectId, productBrief, pageId }, sen
       [
         { role: 'system', content: FOUNDATION_ANALYSIS_PROMPT },
         { role: 'user', content: turn1UserMessage },
-        { role: 'assistant', content: turn1Response.content },
+        { role: 'assistant', content: turn1Response },
         { role: 'user', content: turn2UserMessage },
-        { role: 'assistant', content: turn2Response.content },
+        { role: 'assistant', content: turn2Response },
         { role: 'user', content: turn3UserMessage },
       ],
       'claude-sonnet-4-6',
       { operation: 'sp_sections_8_13', projectId, max_tokens: 8000 }
     );
 
-    const secondHalfSections = parseJSONResponse(turn3Response.content);
+    const secondHalfSections = parseJSONResponse(turn3Response);
 
     // ── 5. Merge sections ──────────────────────────────────────────────
     const sectionData = { ...firstHalfSections, ...secondHalfSections };
@@ -131,7 +131,7 @@ export async function generateSalesPage({ projectId, productBrief, pageId }, sen
       { operation: 'sp_editorial_pass', projectId, max_tokens: 12000 }
     );
 
-    const editorialResult = parseJSONResponse(editorialResponse.content);
+    const editorialResult = parseJSONResponse(editorialResponse);
     const finalSectionData = editorialResult.section_data || sectionData;
     const rawNotes = editorialResult.editorial_notes || '';
     const editorialNotes = typeof rawNotes === 'string' ? rawNotes : JSON.stringify(rawNotes, null, 2);
