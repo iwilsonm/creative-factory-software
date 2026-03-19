@@ -45,29 +45,38 @@ export async function generateSalesPage({ projectId, productBrief, pageId }, sen
     // ── 1. Load foundational docs ──────────────────────────────────────
     currentStep = 'load_docs';
     const docs = await getDocsByProject(projectId);
-    if (!docs || docs.length === 0) {
-      throw new Error('Foundational docs not yet generated for this project');
+    let hasDocs = false;
+    let foundationalContent = '';
+
+    if (docs && docs.length > 0) {
+      hasDocs = true;
+      const research = docs.find((d) => d.doc_type === 'research');
+      const avatar = docs.find((d) => d.doc_type === 'avatar');
+      const offerBrief = docs.find((d) => d.doc_type === 'offer_brief');
+      const beliefs = docs.find((d) => d.doc_type === 'beliefs');
+
+      foundationalContent = [
+        research && `## Research\n${research.content}`,
+        avatar && `## Customer Avatar\n${avatar.content}`,
+        offerBrief && `## Offer Brief\n${offerBrief.content}`,
+        beliefs && `## Beliefs Document\n${beliefs.content}`,
+      ]
+        .filter(Boolean)
+        .join('\n\n');
+    } else {
+      sendEvent({
+        type: 'warning',
+        message: 'No foundational docs found — generating from product brief only. Copy quality may be reduced.',
+      });
     }
-
-    const research = docs.find((d) => d.doc_type === 'research');
-    const avatar = docs.find((d) => d.doc_type === 'avatar');
-    const offerBrief = docs.find((d) => d.doc_type === 'offer_brief');
-    const beliefs = docs.find((d) => d.doc_type === 'beliefs');
-
-    const foundationalContent = [
-      research && `## Research\n${research.content}`,
-      avatar && `## Customer Avatar\n${avatar.content}`,
-      offerBrief && `## Offer Brief\n${offerBrief.content}`,
-      beliefs && `## Beliefs Document\n${beliefs.content}`,
-    ]
-      .filter(Boolean)
-      .join('\n\n');
 
     // ── 2. Turn 1 — Foundation Analysis (Sonnet) ──────────────────────
     currentStep = 'sp_foundation_analysis';
     sendEvent({ type: 'progress', step: 'foundation_analysis', message: 'Analyzing product & audience...' });
 
-    const turn1UserMessage = `Here are the foundational docs for this product:\n\n${foundationalContent}\n\nProduct Brief:\n${JSON.stringify(productBrief, null, 2)}`;
+    const turn1UserMessage = hasDocs
+      ? `Here are the foundational docs for this product:\n\n${foundationalContent}\n\nProduct Brief:\n${JSON.stringify(productBrief, null, 2)}`
+      : `No foundational docs available. Generate the best possible sales page using only this product brief:\n\n${JSON.stringify(productBrief, null, 2)}`;
 
     const turn1Response = await anthropicChat(
       [
@@ -106,6 +115,8 @@ export async function generateSalesPage({ projectId, productBrief, pageId }, sen
     }
 
     const firstHalfSections = parseJSONResponse(turn2Response);
+    // Save partial — sections 1-7 preserved if turn 3 or editorial fails
+    updateSalesPage(pageId, { section_data: JSON.stringify(firstHalfSections), status: 'partial' }).catch(() => {});
 
     // ── 4. Turn 3 — Sections 8-13 (Sonnet) ────────────────────────────
     currentStep = 'sp_sections_8_13';
@@ -138,6 +149,8 @@ export async function generateSalesPage({ projectId, productBrief, pageId }, sen
 
     // ── 5. Merge sections ──────────────────────────────────────────────
     const sectionData = { ...firstHalfSections, ...secondHalfSections };
+    // Save partial — all 13 sections preserved if editorial pass fails
+    updateSalesPage(pageId, { section_data: JSON.stringify(sectionData), status: 'partial' }).catch(() => {});
 
     // ── 6. Editorial Pass (Opus) ───────────────────────────────────────
     currentStep = 'sp_editorial_pass';

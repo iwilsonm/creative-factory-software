@@ -22,6 +22,7 @@ const SP_STEP_LABELS = {
 const STATUS_BADGES = {
   draft: { label: 'Draft', bg: 'bg-navy/10', text: 'text-navy' },
   generating: { label: 'Generating', bg: 'bg-gold/15', text: 'text-gold' },
+  partial: { label: 'Partial', bg: 'bg-gold/10', text: 'text-gold' },
   completed: { label: 'Completed', bg: 'bg-teal/10', text: 'text-teal' },
   failed: { label: 'Failed', bg: 'bg-red-50', text: 'text-red-600' },
   published: { label: 'Published', bg: 'bg-teal/15', text: 'text-teal' },
@@ -83,6 +84,11 @@ export default function SalesPageGen({ projectId, project }) {
 
   // Product brief form
   const [productName, setProductName] = useState('');
+  const [tagline, setTagline] = useState('');
+  const [targetAudience, setTargetAudience] = useState('');
+  const [keyBenefit, setKeyBenefit] = useState('');
+  const [mechanism, setMechanism] = useState('');
+  const [guaranteePeriod, setGuaranteePeriod] = useState('');
   const [features, setFeatures] = useState([]);
   const [price, setPrice] = useState('');
   const [comparePrice, setComparePrice] = useState('');
@@ -114,6 +120,11 @@ export default function SalesPageGen({ projectId, project }) {
 
     const productBrief = {
       name: productName.trim(),
+      tagline: tagline.trim() || undefined,
+      target_audience: targetAudience.trim() || undefined,
+      key_benefit: keyBenefit.trim() || undefined,
+      mechanism: mechanism.trim() || undefined,
+      guarantee_period: guaranteePeriod.trim() || undefined,
       features,
       price: price.trim() || undefined,
       compare_price: comparePrice.trim() || undefined,
@@ -129,6 +140,9 @@ export default function SalesPageGen({ projectId, project }) {
 
     try {
       await api.generateSalesPage(projectId, { product_brief: productBrief }, (event) => {
+        if (event.type === 'warning') {
+          setProgressMessage(event.message || '');
+        }
         if (event.type === 'progress') {
           const stepProgress = SP_STEP_PROGRESS[event.step] || 0;
           setProgress(prev => Math.max(prev, stepProgress));
@@ -236,6 +250,11 @@ export default function SalesPageGen({ projectId, project }) {
       try {
         const brief = JSON.parse(page.product_brief);
         setProductName(brief.name || '');
+        setTagline(brief.tagline || '');
+        setTargetAudience(brief.target_audience || '');
+        setKeyBenefit(brief.key_benefit || '');
+        setMechanism(brief.mechanism || '');
+        setGuaranteePeriod(brief.guarantee_period || '');
         setFeatures(brief.features || []);
         setPrice(brief.price || '');
         setComparePrice(brief.compare_price || '');
@@ -267,6 +286,11 @@ export default function SalesPageGen({ projectId, project }) {
           <button
             onClick={() => {
               setProductName('');
+              setTagline('');
+              setTargetAudience('');
+              setKeyBenefit('');
+              setMechanism('');
+              setGuaranteePeriod('');
               setFeatures([]);
               setPrice('');
               setComparePrice('');
@@ -301,12 +325,12 @@ export default function SalesPageGen({ projectId, project }) {
                 <div
                   key={page.id}
                   className={`card p-4 transition-shadow ${
-                    page.status === 'completed' || page.status === 'published' || page.status === 'unpublished' || page.status === 'failed'
+                    page.status === 'completed' || page.status === 'published' || page.status === 'unpublished' || page.status === 'partial' || page.status === 'failed'
                       ? 'cursor-pointer hover:shadow-card-hover'
                       : ''
                   }`}
                   onClick={() => {
-                    if (page.status === 'completed' || page.status === 'published' || page.status === 'unpublished') openPage(page);
+                    if (page.status === 'completed' || page.status === 'published' || page.status === 'unpublished' || page.status === 'partial') openPage(page);
                     else if (page.status === 'failed') retryPage(page);
                   }}
                 >
@@ -423,6 +447,62 @@ export default function SalesPageGen({ projectId, project }) {
                 <option key={cat} value={cat}>{cat}</option>
               ))}
             </select>
+          </div>
+
+          <div className="border-t border-black/5 pt-4">
+            <p className="text-xs font-semibold text-textmid uppercase tracking-wide mb-4">Product Story <span className="font-normal normal-case">(optional — improves copy quality)</span></p>
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-textdark mb-1">Tagline</label>
+                <input
+                  type="text"
+                  value={tagline}
+                  onChange={(e) => setTagline(e.target.value)}
+                  placeholder="e.g., Electrolyte Hangover Defense"
+                  className="input-apple w-full"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-textdark mb-1">Who It's For</label>
+                <input
+                  type="text"
+                  value={targetAudience}
+                  onChange={(e) => setTargetAudience(e.target.value)}
+                  placeholder="e.g., Social drinkers aged 25–40"
+                  className="input-apple w-full"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-textdark mb-1">Key Benefit</label>
+                <input
+                  type="text"
+                  value={keyBenefit}
+                  onChange={(e) => setKeyBenefit(e.target.value)}
+                  placeholder="e.g., Wake up feeling refreshed after a night out"
+                  className="input-apple w-full"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-textdark mb-1">How It Works</label>
+                <input
+                  type="text"
+                  value={mechanism}
+                  onChange={(e) => setMechanism(e.target.value)}
+                  placeholder="e.g., Replenishes electrolytes before they're depleted"
+                  className="input-apple w-full"
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-textdark mb-1">Guarantee Period</label>
+                <input
+                  type="text"
+                  value={guaranteePeriod}
+                  onChange={(e) => setGuaranteePeriod(e.target.value)}
+                  placeholder="e.g., 90 days, Lifetime"
+                  className="input-apple w-full"
+                />
+              </div>
+            </div>
           </div>
 
           <div>
