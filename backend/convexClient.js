@@ -1617,6 +1617,90 @@ export async function deleteLPTemplate(externalId) {
 }
 
 // =============================================
+// Sales Page helpers
+// =============================================
+
+function convexSalesPageToRow(raw) {
+  return {
+    id: raw.externalId,
+    project_id: raw.project_id || null,
+    name: raw.name || null,
+    status: raw.status || null,
+    product_brief: raw.product_brief || null,
+    section_data: raw.section_data || null,
+    editorial_notes: raw.editorial_notes || null,
+    published_url: raw.published_url || null,
+    published_at: raw.published_at || null,
+    shopify_page_id: raw.shopify_page_id || null,
+    shopify_theme_id: raw.shopify_theme_id || null,
+    template_key: raw.template_key || null,
+    current_version: raw.current_version ?? null,
+    error_message: raw.error_message || null,
+    generation_model: raw.generation_model || null,
+    created_at: raw.created_at || null,
+    updated_at: raw.updated_at || null,
+  };
+}
+
+export async function getSalesPagesByProject(projectId) {
+  const pages = ensureArray(await cachedQuery('sales_pages', api.salesPages.getByProject, { projectId }), 'convexClient.getSalesPagesByProject');
+  return pages.map(convexSalesPageToRow);
+}
+
+export async function getSalesPage(externalId) {
+  const page = await cachedQuery('sales_pages', api.salesPages.getByExternalId, { externalId });
+  if (!page) return null;
+  return convexSalesPageToRow(page);
+}
+
+export async function createSalesPage({ id, project_id, name, status, product_brief, generation_model }) {
+  await mutationWithRetry(api.salesPages.create, {
+    externalId: id,
+    project_id,
+    name,
+    status: status || 'draft',
+    product_brief: product_brief || undefined,
+    generation_model: generation_model || undefined,
+  });
+  invalidateQueryCache('sales_pages');
+}
+
+const SALES_PAGE_UPDATE_WHITELIST = [
+  'name', 'status', 'product_brief', 'section_data', 'editorial_notes',
+  'published_url', 'published_at', 'shopify_page_id', 'shopify_theme_id',
+  'template_key', 'current_version', 'error_message', 'generation_model',
+];
+
+export async function updateSalesPage(externalId, fields) {
+  const filtered = {};
+  for (const key of SALES_PAGE_UPDATE_WHITELIST) {
+    if (fields[key] !== undefined) filtered[key] = fields[key];
+  }
+  if (Object.keys(filtered).length === 0) return;
+  await mutationWithRetry(api.salesPages.update, { externalId, ...filtered });
+  invalidateQueryCache('sales_pages');
+}
+
+export async function deleteSalesPage(externalId) {
+  await mutationWithRetry(api.salesPages.remove, { externalId });
+  invalidateQueryCache('sales_pages');
+}
+
+export async function createSalesPageVersion({ id, sales_page_id, version, section_data, source }) {
+  await mutationWithRetry(api.salesPageVersions.create, {
+    externalId: id,
+    sales_page_id,
+    version,
+    section_data: section_data || undefined,
+    source,
+  });
+}
+
+export async function getSalesPageVersions(salesPageId) {
+  return await cachedQuery('sales_page_versions', api.salesPageVersions.getBySalesPage, { salesPageId });
+}
+
+// =============================================
 // User helpers
 // =============================================
 

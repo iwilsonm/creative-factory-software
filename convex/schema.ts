@@ -903,6 +903,52 @@ export default defineSchema({
     .index("by_project", ["project_id"])
     .index("by_project_and_run", ["project_id", "cmo_run_id"]),
 
+  // =============================================
+  // Sales Page Generator
+  // =============================================
+
+  sales_pages: defineTable({
+    externalId: v.string(),
+    project_id: v.string(),              // → projects.externalId
+    name: v.string(),
+    status: v.string(),                  // draft | generating | completed | failed | published | unpublished
+
+    // Input
+    product_brief: v.optional(v.string()), // JSON: { name, features, price, compare_price, category, image_urls, variant_options }
+
+    // Generated output
+    section_data: v.optional(v.string()),  // JSON: keyed by section_id, each containing section settings
+    editorial_notes: v.optional(v.string()), // Opus editorial pass notes
+
+    // Publishing
+    published_url: v.optional(v.string()),
+    published_at: v.optional(v.string()),
+    shopify_page_id: v.optional(v.string()),
+    shopify_theme_id: v.optional(v.string()),
+    template_key: v.optional(v.string()), // e.g., "templates/page.sales-abc12345.json"
+
+    // Meta
+    current_version: v.optional(v.number()),
+    error_message: v.optional(v.string()),
+    generation_model: v.optional(v.string()),
+    created_at: v.string(),
+    updated_at: v.string(),
+  })
+    .index("by_externalId", ["externalId"])
+    .index("by_project", ["project_id"])
+    .index("by_project_and_created_at", ["project_id", "created_at"]),
+
+  sales_page_versions: defineTable({
+    externalId: v.string(),
+    sales_page_id: v.string(),           // → sales_pages.externalId
+    version: v.number(),
+    section_data: v.optional(v.string()), // JSON: section data snapshot
+    source: v.string(),                  // generated | pre-publish
+    created_at: v.string(),
+  })
+    .index("by_externalId", ["externalId"])
+    .index("by_sales_page", ["sales_page_id"]),
+
   fixer_playbook: defineTable({
     issue_category: v.string(),          // "batch_stuck" | "filter_stalled" | etc.
     occurrences: v.number(),

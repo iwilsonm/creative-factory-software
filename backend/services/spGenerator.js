@@ -1,0 +1,157 @@
+import { chat as anthropicChat } from './anthropic.js';
+import { getDocsByProject, updateSalesPage } from '../convexClient.js';
+import {
+  FOUNDATION_ANALYSIS_PROMPT,
+  buildTurn2Prompt,
+  buildTurn3Prompt,
+  EDITORIAL_PASS_PROMPT,
+} from './spSectionPrompts.js';
+
+/**
+ * Parse JSON from Claude's response text.
+ * Handles cases where Claude wraps JSON in explanatory text.
+ */
+function parseJSONResponse(text) {
+  try {
+    return JSON.parse(text);
+  } catch (_e) {
+    // Fall back: extract the first top-level { ... } block
+    const firstBrace = text.indexOf('{');
+    const lastBrace = text.lastIndexOf('}');
+    if (firstBrace !== -1 && lastBrace > firstBrace) {
+      try {
+        return JSON.parse(text.substring(firstBrace, lastBrace + 1));
+      } catch (_e2) {
+        // fall through
+      }
+    }
+    throw new Error(`Failed to parse JSON from LLM response. Raw text starts with: "${text.substring(0, 120)}..."`);
+  }
+}
+
+/**
+ * Generate a full sales page via 3-turn Claude conversation + Opus editorial pass.
+ *
+ * @param {object} params
+ * @param {string} params.projectId - Project external ID
+ * @param {object} params.productBrief - Product brief data
+ * @param {string} params.pageId - Sales page external ID to update
+ * @param {function} sendEvent - SSE event emitter
+ */
+export async function generateSalesPage({ projectId, productBrief, pageId }, sendEvent) {
+  try {
+    // ── 1. Load foundational docs ──────────────────────────────────────
+    const docs = await getDocsByProject(projectId);
+    if (!docs || docs.length === 0) {
+      throw new Error('Foundational docs not yet generated for this project');
+    }
+
+    const research = docs.find((d) => d.doc_type === 'research');
+    const avatar = docs.find((d) => d.doc_type === 'avatar');
+    const offerBrief = docs.find((d) => d.doc_type === 'offer_brief');
+    const beliefs = docs.find((d) => d.doc_type === 'beliefs');
+
+    const foundationalContent = [
+      research && `## Research\n${research.content}`,
+      avatar && `## Customer Avatar\n${avatar.content}`,
+      offerBrief && `## Offer Brief\n${offerBrief.content}`,
+      beliefs && `## Beliefs Document\n${beliefs.content}`,
+    ]
+      .filter(Boolean)
+      .join('\n\n');
+
+    // ── 2. Turn 1 — Foundation Analysis (Sonnet) ──────────────────────
+    sendEvent({ type: 'progress', step: 'foundation_analysis', message: 'Analyzing product & audience...' });
+
+    const turn1UserMessage = `Here are the foundational docs for this product:\n\n${foundationalContent}\n\nProduct Brief:\n${JSON.stringify(productBrief, null, 2)}`;
+
+    const turn1Response = await anthropicChat(
+      [
+        { role: 'system', content: FOUNDATION_ANALYSIS_PROMPT },
+        { role: 'user', content: turn1UserMessage },
+      ],
+      'claude-sonnet-4-6',
+      { operation: 'sp_foundation_analysis', projectId }
+    );
+
+    const preWriteAnalysis = parseJSONResponse(turn1Response.content);
+
+    // ── 3. Turn 2 — Sections 1-7 (Sonnet) ─────────────────────────────
+    sendEvent({ type: 'progress', step: 'sections_1_7', message: 'Writing hero, education & trust sections...' });
+
+    const turn2UserMessage = buildTurn2Prompt(preWriteAnalysis, productBrief);
+
+    const turn2Response = await anthropicChat(
+      [
+        { role: 'system', content: FOUNDATION_ANALYSIS_PROMPT },
+        { role: 'user', content: turn1UserMessage },
+        { role: 'assistant', content: turn1Response.content },
+        { role: 'user', content: turn2UserMessage },
+      ],
+      'claude-sonnet-4-6',
+      { operation: 'sp_sections_1_7', projectId, max_tokens: 8000 }
+    );
+
+    const firstHalfSections = parseJSONResponse(turn2Response.content);
+
+    // ── 4. Turn 3 — Sections 8-13 (Sonnet) ────────────────────────────
+    sendEvent({ type: 'progress', step: 'sections_8_13', message: 'Writing benefits, proof & FAQ sections...' });
+
+    const turn3UserMessage = buildTurn3Prompt(preWriteAnalysis, productBrief, firstHalfSections);
+
+    const turn3Response = await anthropicChat(
+      [
+        { role: 'system', content: FOUNDATION_ANALYSIS_PROMPT },
+        { role: 'user', content: turn1UserMessage },
+        { role: 'assistant', content: turn1Response.content },
+        { role: 'user', content: turn2UserMessage },
+        { role: 'assistant', content: turn2Response.content },
+        { role: 'user', content: turn3UserMessage },
+      ],
+      'claude-sonnet-4-6',
+      { operation: 'sp_sections_8_13', projectId, max_tokens: 8000 }
+    );
+
+    const secondHalfSections = parseJSONResponse(turn3Response.content);
+
+    // ── 5. Merge sections ──────────────────────────────────────────────
+    const sectionData = { ...firstHalfSections, ...secondHalfSections };
+
+    // ── 6. Editorial Pass (Opus) ───────────────────────────────────────
+    sendEvent({ type: 'progress', step: 'editorial_pass', message: 'Opus editorial review...' });
+
+    const editorialUserMessage = `Here is the full section data for editorial review:\n\n${JSON.stringify(sectionData, null, 2)}\n\nProduct Brief:\n${JSON.stringify(productBrief, null, 2)}`;
+
+    const editorialResponse = await anthropicChat(
+      [
+        { role: 'system', content: EDITORIAL_PASS_PROMPT },
+        { role: 'user', content: editorialUserMessage },
+      ],
+      'claude-opus-4-6',
+      { operation: 'sp_editorial_pass', projectId, max_tokens: 12000 }
+    );
+
+    const editorialResult = parseJSONResponse(editorialResponse.content);
+    const finalSectionData = editorialResult.section_data || sectionData;
+    const rawNotes = editorialResult.editorial_notes || '';
+    const editorialNotes = typeof rawNotes === 'string' ? rawNotes : JSON.stringify(rawNotes, null, 2);
+
+    // ── 7. Save to Convex ──────────────────────────────────────────────
+    await updateSalesPage(pageId, {
+      section_data: JSON.stringify(finalSectionData),
+      editorial_notes: editorialNotes,
+      status: 'completed',
+      generation_model: 'claude-sonnet-4-6 + claude-opus-4-6',
+    });
+
+    // ── 8. Send complete event ─────────────────────────────────────────
+    sendEvent({ type: 'complete', pageId, sectionCount: Object.keys(finalSectionData).length });
+  } catch (err) {
+    try {
+      await updateSalesPage(pageId, { status: 'failed', error_message: err.message });
+    } catch (_saveErr) {
+      // Best-effort save; don't mask the original error
+    }
+    sendEvent({ type: 'error', message: err.message, error: err.message });
+  }
+}

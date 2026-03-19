@@ -210,6 +210,23 @@ export const remove = mutation({
       .withIndex("by_externalId", (q) => q.eq("externalId", args.externalId))
       .first();
     if (!project) throw new Error("Project not found");
+
+    // Cascade-delete sales_pages and their versions
+    const salesPages = await ctx.db
+      .query("sales_pages")
+      .withIndex("by_project", (q: any) => q.eq("project_id", args.externalId))
+      .collect();
+    for (const salesPage of salesPages) {
+      const versions = await ctx.db
+        .query("sales_page_versions")
+        .withIndex("by_sales_page", (q: any) => q.eq("sales_page_id", salesPage.externalId))
+        .collect();
+      for (const version of versions) {
+        await ctx.db.delete(version._id);
+      }
+      await ctx.db.delete(salesPage._id);
+    }
+
     await ctx.db.delete(project._id);
   },
 });
