@@ -1,0 +1,179 @@
+{{ 'sp-sections.css' | asset_url | stylesheet_tag }}
+
+{% assign product = section.settings.product %}
+
+{% if product != blank or section.settings.headline_override != blank %}
+  <style>
+    .sp-product-hero-{{ section.id }} {
+      padding: var(--sp-spacing-xl) 0;
+    }
+    .sp-hero-cta-{{ section.id }} {
+      background-color: {{ section.settings.cta_color }};
+      color: #ffffff;
+    }
+    .sp-bundle-tier-{{ section.id }}.selected {
+      border-color: {{ section.settings.cta_color }};
+    }
+    .sp-best-value-badge-{{ section.id }} {
+      background-color: {{ section.settings.cta_color }};
+      color: #ffffff;
+    }
+  </style>
+
+  {%- if product != blank -%}
+    <div id="sp-product-data" data-product="{{ product | json | escape }}"></div>
+  {%- endif -%}
+
+  <div class="sp-section sp-product-hero-section sp-product-hero-{{ section.id }}">
+    <div class="sp-container">
+      <div class="sp-hero-grid">
+
+        {%- comment -%} Left: Image Gallery {%- endcomment -%}
+        <div class="sp-hero-gallery">
+          {% if product != blank and product.featured_image != blank %}
+            {{ product.featured_image | image_url: width: 800 | image_tag: class: 'sp-hero-main-img', loading: 'eager', alt: product.title }}
+          {% endif %}
+        </div>
+
+        {%- comment -%} Right: Product Info {%- endcomment -%}
+        <div>
+          {% if section.settings.discount_badge != blank %}
+            <div style="display:inline-block;background:#FEF3C7;color:#92400E;padding:4px 12px;border-radius:20px;font-size:0.875rem;font-weight:600;margin-bottom:12px;">
+              {{ section.settings.discount_badge }}
+            </div>
+          {% endif %}
+
+          <h1 style="font-size:clamp(1.5rem,3vw,2.25rem);font-weight:800;margin-bottom:var(--sp-spacing-sm);">
+            {% if section.settings.headline_override != blank %}
+              {{ section.settings.headline_override }}
+            {% elsif product != blank %}
+              {{ product.title }}
+            {% endif %}
+          </h1>
+
+          <div style="display:flex;align-items:center;gap:8px;margin-bottom:var(--sp-spacing-md);">
+            <span style="color:#F59E0B;">★★★★★</span>
+            <span style="font-weight:700;">{{ section.settings.rating_score }}</span>
+            <span style="opacity:0.6;font-size:0.875rem;">({{ section.settings.rating_count }})</span>
+          </div>
+
+          {% if section.settings.emoji_benefit_1 != blank or section.settings.emoji_benefit_2 != blank %}
+            <div style="display:flex;gap:var(--sp-spacing-md);margin-bottom:var(--sp-spacing-md);flex-wrap:wrap;">
+              {% if section.settings.emoji_benefit_1 != blank %}
+                <span style="font-size:0.9rem;">{{ section.settings.emoji_benefit_1 }}</span>
+              {% endif %}
+              {% if section.settings.emoji_benefit_2 != blank %}
+                <span style="font-size:0.9rem;">{{ section.settings.emoji_benefit_2 }}</span>
+              {% endif %}
+            </div>
+          {% endif %}
+
+          {%- comment -%} Bundle Tiers {%- endcomment -%}
+          {% if section.blocks.size > 0 %}
+            <div class="sp-bundle-tiers">
+              {% for block in section.blocks %}
+                {% if block.type == 'bundle_tier' %}
+                  <div class="sp-bundle-tier sp-bundle-tier-{{ section.id }}{% if forloop.first %} selected{% endif %}" {{ block.shopify_attributes }}>
+                    {% if block.settings.is_best_value %}
+                      <div class="sp-best-value-badge sp-best-value-badge-{{ section.id }}">Best Value</div>
+                    {% endif %}
+                    <div style="display:flex;justify-content:space-between;align-items:center;">
+                      <div>
+                        <div style="font-weight:700;">{{ block.settings.tier_name }}</div>
+                        {% if block.settings.free_gift_text != blank %}
+                          <div style="font-size:0.8rem;color:#16a34a;margin-top:2px;">🎁 {{ block.settings.free_gift_text }}</div>
+                        {% endif %}
+                      </div>
+                      <div style="text-align:right;">
+                        <div style="font-weight:800;font-size:1.1rem;">{{ block.settings.tier_price }}</div>
+                        {% if block.settings.tier_compare_price != blank %}
+                          <div style="text-decoration:line-through;opacity:0.5;font-size:0.875rem;">{{ block.settings.tier_compare_price }}</div>
+                        {% endif %}
+                        {% if block.settings.tier_savings != blank %}
+                          <div style="font-size:0.75rem;color:#16a34a;">Save {{ block.settings.tier_savings }}</div>
+                        {% endif %}
+                      </div>
+                    </div>
+                  </div>
+                {% endif %}
+              {% endfor %}
+            </div>
+          {% else %}
+            {% if product != blank %}
+              <div style="font-size:1.5rem;font-weight:800;margin-bottom:var(--sp-spacing-md);">
+                {{ product.price | money }}
+                {% if product.compare_at_price > product.price %}
+                  <span style="text-decoration:line-through;opacity:0.5;font-size:1rem;">{{ product.compare_at_price | money }}</span>
+                {% endif %}
+              </div>
+            {% endif %}
+          {% endif %}
+
+          {% if product != blank %}
+            <form action="/cart/add" method="post">
+              <input type="hidden" name="id" value="{{ product.variants.first.id }}">
+              <input type="hidden" name="quantity" value="1">
+              <button type="submit" class="sp-cta-btn sp-hero-cta-{{ section.id }}">
+                {{ section.settings.cta_text | default: 'Add to Cart' }}
+              </button>
+            </form>
+          {% else %}
+            <button class="sp-cta-btn sp-hero-cta-{{ section.id }}">
+              {{ section.settings.cta_text | default: 'Add to Cart' }}
+            </button>
+          {% endif %}
+
+          {% if section.settings.show_upsell and section.settings.upsell_product != blank %}
+            <div style="margin-top:var(--sp-spacing-md);padding:var(--sp-spacing-md);border:1px solid #e5e7eb;border-radius:var(--sp-radius);">
+              <label style="display:flex;gap:12px;align-items:center;cursor:pointer;">
+                <input type="checkbox" name="id" value="{{ section.settings.upsell_product.variants.first.id }}" style="width:18px;height:18px;">
+                <div>
+                  <div style="font-weight:600;font-size:0.9rem;">Add: {{ section.settings.upsell_product.title }}</div>
+                  {% if section.settings.upsell_description != blank %}
+                    <div style="font-size:0.8rem;opacity:0.7;">{{ section.settings.upsell_description }}</div>
+                  {% endif %}
+                  <div style="font-weight:700;margin-top:2px;">{{ section.settings.upsell_product.price | money }}</div>
+                </div>
+              </label>
+            </div>
+          {% endif %}
+        </div>
+      </div>
+    </div>
+  </div>
+{% endif %}
+
+{% schema %}
+{
+  "name": "SP Product Hero",
+  "max_blocks": 5,
+  "settings": [
+    { "type": "product", "id": "product", "label": "Product" },
+    { "type": "text", "id": "headline_override", "label": "Headline Override (optional)", "info": "Overrides product title" },
+    { "type": "text", "id": "rating_score", "label": "Rating Score", "default": "4.8" },
+    { "type": "text", "id": "rating_count", "label": "Rating Count", "default": "0 reviews" },
+    { "type": "text", "id": "discount_badge", "label": "Discount Badge (optional)", "info": "e.g. Save 20% Today" },
+    { "type": "text", "id": "emoji_benefit_1", "label": "Emoji Benefit 1", "info": "e.g. ✓ Free shipping" },
+    { "type": "text", "id": "emoji_benefit_2", "label": "Emoji Benefit 2", "info": "e.g. ✓ 30-day guarantee" },
+    { "type": "text", "id": "cta_text", "label": "CTA Button Text", "default": "Add to Cart" },
+    { "type": "color", "id": "cta_color", "label": "CTA Button Color", "default": "#1B4332" },
+    { "type": "checkbox", "id": "show_upsell", "label": "Show Upsell", "default": false },
+    { "type": "product", "id": "upsell_product", "label": "Upsell Product" },
+    { "type": "text", "id": "upsell_description", "label": "Upsell Description" }
+  ],
+  "blocks": [
+    {
+      "type": "bundle_tier",
+      "name": "Bundle Tier",
+      "settings": [
+        { "type": "text", "id": "tier_name", "label": "Tier Name" },
+        { "type": "text", "id": "tier_price", "label": "Price" },
+        { "type": "text", "id": "tier_compare_price", "label": "Compare Price (optional)" },
+        { "type": "text", "id": "tier_savings", "label": "Savings Text (optional)", "info": "e.g. $20" },
+        { "type": "text", "id": "free_gift_text", "label": "Free Gift Text (optional)" },
+        { "type": "checkbox", "id": "is_best_value", "label": "Mark as Best Value", "default": false }
+      ]
+    }
+  ]
+}
+{% endschema %}

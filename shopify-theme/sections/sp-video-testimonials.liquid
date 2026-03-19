@@ -1,0 +1,67 @@
+{{ 'sp-sections.css' | asset_url | stylesheet_tag }}
+
+{% if section.blocks.size > 0 %}
+  <style>
+    .sp-video-testimonials-{{ section.id }} {
+      padding: var(--sp-spacing-xl) 0;
+    }
+    .sp-video-grid-{{ section.id }} {
+      grid-template-columns: repeat({{ section.settings.columns }}, 1fr);
+    }
+  </style>
+
+  <div class="sp-section sp-video-testimonials-{{ section.id }}">
+    <div class="sp-container">
+      {% if section.settings.heading != blank %}
+        <h2 class="sp-section-heading">{{ section.settings.heading }}</h2>
+      {% endif %}
+
+      <div class="sp-video-grid sp-video-grid-{{ section.id }}">
+        {% for block in section.blocks %}
+          {% if block.type == 'video' %}
+            <div class="sp-video-card" {{ block.shopify_attributes }}>
+              {% if block.settings.video_url != blank %}
+                <video
+                  src="{{ block.settings.video_url }}"
+                  {% if block.settings.thumbnail != blank %}
+                    poster="{{ block.settings.thumbnail | image_url: width: 405 }}"
+                  {% endif %}
+                  controls
+                  playsinline
+                  style="width:100%;border-radius:var(--sp-radius);"
+                ></video>
+              {% elsif block.settings.thumbnail != blank %}
+                {{ block.settings.thumbnail | image_url: width: 405 | image_tag: class: 'sp-video-thumb', loading: 'lazy', alt: block.settings.caption }}
+              {% endif %}
+              {% if block.settings.caption != blank %}
+                <p style="margin-top:8px;font-size:0.875rem;text-align:center;">{{ block.settings.caption }}</p>
+              {% endif %}
+            </div>
+          {% endif %}
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+{% endif %}
+
+{% schema %}
+{
+  "name": "SP Video Testimonials",
+  "max_blocks": 6,
+  "settings": [
+    { "type": "text", "id": "heading", "label": "Heading (optional)" },
+    { "type": "range", "id": "columns", "label": "Columns", "min": 2, "max": 4, "step": 1, "default": 3 }
+  ],
+  "blocks": [
+    {
+      "type": "video",
+      "name": "Video",
+      "settings": [
+        { "type": "video_url", "id": "video_url", "label": "Video URL", "accept": ["youtube", "vimeo"] },
+        { "type": "image_picker", "id": "thumbnail", "label": "Thumbnail", "info": "Recommended: 405x720px (9:16)" },
+        { "type": "text", "id": "caption", "label": "Caption (optional)" }
+      ]
+    }
+  ]
+}
+{% endschema %}

@@ -1,0 +1,73 @@
+{{ 'sp-sections.css' | asset_url | stylesheet_tag }}
+
+{% if section.settings.heading != blank or section.blocks.size > 0 %}
+  <style>
+    .sp-written-testimonials-{{ section.id }} {
+      padding: var(--sp-spacing-xl) 0;
+    }
+    .sp-testimonial-card-{{ section.id }} {
+      background-color: #f8f8f6;
+    }
+  </style>
+
+  <div class="sp-section sp-written-testimonials-{{ section.id }}">
+    <div class="sp-container">
+      {% if section.settings.heading != blank %}
+        <h2 class="sp-section-heading">{{ section.settings.heading }}</h2>
+      {% endif %}
+
+      <div class="sp-testimonials-grid">
+        {% for block in section.blocks %}
+          {% if block.type == 'testimonial' %}
+            <div class="sp-testimonial-card sp-testimonial-card-{{ section.id }}" {{ block.shopify_attributes }}>
+              <div class="sp-stars">
+                {% for i in (1..block.settings.star_rating) %}★{% endfor %}
+              </div>
+              {% if block.settings.headline != blank %}
+                <div class="sp-testimonial-headline">{{ block.settings.headline }}</div>
+              {% endif %}
+              {% if block.settings.quote != blank %}
+                <p class="sp-testimonial-quote">"{{ block.settings.quote }}"</p>
+              {% endif %}
+              <div class="sp-testimonial-author">
+                {% if block.settings.customer_photo != blank %}
+                  {{ block.settings.customer_photo | image_url: width: 80 | image_tag: class: 'sp-author-photo', alt: block.settings.customer_name }}
+                {% endif %}
+                <div>
+                  <div style="font-weight:600;">{{ block.settings.customer_name }}</div>
+                  {% if block.settings.verified %}
+                    <div style="font-size:0.75rem;opacity:0.6;">✓ Verified Purchase</div>
+                  {% endif %}
+                </div>
+              </div>
+            </div>
+          {% endif %}
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+{% endif %}
+
+{% schema %}
+{
+  "name": "SP Written Testimonials",
+  "max_blocks": 6,
+  "settings": [
+    { "type": "text", "id": "heading", "label": "Heading" }
+  ],
+  "blocks": [
+    {
+      "type": "testimonial",
+      "name": "Testimonial",
+      "settings": [
+        { "type": "range", "id": "star_rating", "label": "Star Rating", "min": 1, "max": 5, "step": 1, "default": 5 },
+        { "type": "text", "id": "headline", "label": "Headline" },
+        { "type": "textarea", "id": "quote", "label": "Quote" },
+        { "type": "text", "id": "customer_name", "label": "Customer Name" },
+        { "type": "image_picker", "id": "customer_photo", "label": "Customer Photo (optional)", "info": "Recommended: 200x200px (1:1)" },
+        { "type": "checkbox", "id": "verified", "label": "Show Verified Purchase", "default": true }
+      ]
+    }
+  ]
+}
+{% endschema %}

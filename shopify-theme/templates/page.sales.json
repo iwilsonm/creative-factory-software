@@ -1,0 +1,38 @@
+{
+  "sections": {
+    "announcement": { "type": "sp-announcement-bar", "settings": {}, "disabled": false },
+    "hero": { "type": "sp-product-hero", "settings": {}, "blocks": {}, "block_order": [] },
+    "product_faq": { "type": "sp-product-faq", "settings": {}, "blocks": {}, "block_order": [] },
+    "trust_badges": { "type": "sp-trust-badges", "settings": {}, "blocks": {}, "block_order": [] },
+    "video_testimonials": { "type": "sp-video-testimonials", "settings": {}, "blocks": {}, "block_order": [] },
+    "education_concept": { "type": "sp-education-concept", "settings": {} },
+    "education_product": { "type": "sp-education-product", "settings": {} },
+    "benefits_tabs": { "type": "sp-benefits-tabs", "settings": {}, "blocks": {}, "block_order": [] },
+    "how_it_works": { "type": "sp-how-it-works", "settings": {}, "blocks": {}, "block_order": [] },
+    "results_stats": { "type": "sp-results-stats", "settings": {}, "blocks": {}, "block_order": [] },
+    "written_testimonials": { "type": "sp-written-testimonials", "settings": {}, "blocks": {}, "block_order": [] },
+    "guarantee": { "type": "sp-guarantee", "settings": {}, "blocks": {}, "block_order": [] },
+    "buying_faq": { "type": "sp-buying-faq", "settings": {}, "blocks": {}, "block_order": [] },
+    "reviews_widget": { "type": "sp-reviews-widget", "settings": {} },
+    "footer_trust": { "type": "sp-footer-trust", "settings": {}, "blocks": {}, "block_order": [] },
+    "sticky_cart": { "type": "sp-sticky-cart", "settings": {} }
+  },
+  "order": [
+    "announcement",
+    "hero",
+    "product_faq",
+    "trust_badges",
+    "video_testimonials",
+    "education_concept",
+    "education_product",
+    "benefits_tabs",
+    "how_it_works",
+    "results_stats",
+    "written_testimonials",
+    "guarantee",
+    "buying_faq",
+    "reviews_widget",
+    "footer_trust",
+    "sticky_cart"
+  ]
+}

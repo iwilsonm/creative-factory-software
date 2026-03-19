@@ -1,0 +1,29 @@
+{{ 'sp-sections.css' | asset_url | stylesheet_tag }}
+
+{% if section.settings.announcement_text != blank %}
+  <style>
+    .sp-announcement-bar-{{ section.id }} {
+      background-color: {{ section.settings.bg_color }};
+      color: {{ section.settings.text_color }};
+      font-size: {{ section.settings.font_size }}px;
+    }
+  </style>
+
+  <div class="sp-section sp-announcement-bar-{{ section.id }}">
+    <div class="sp-container" style="padding-top:10px;padding-bottom:10px;text-align:center;">
+      {{ section.settings.announcement_text }}
+    </div>
+  </div>
+{% endif %}
+
+{% schema %}
+{
+  "name": "SP Announcement Bar",
+  "settings": [
+    { "type": "text", "id": "announcement_text", "label": "Announcement Text" },
+    { "type": "color", "id": "bg_color", "label": "Background Color", "default": "#1B4332" },
+    { "type": "color", "id": "text_color", "label": "Text Color", "default": "#ffffff" },
+    { "type": "range", "id": "font_size", "label": "Font Size", "min": 12, "max": 18, "step": 1, "unit": "px", "default": 14 }
+  ]
+}
+{% endschema %}

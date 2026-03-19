@@ -1,0 +1,37 @@
+{% comment %}
+  Renders a split image+text layout.
+  Usage: {% render 'sp-image-text', heading: ..., body_text: ..., image: ..., image_position: ..., link_text: ..., link_url: ..., bg_color: ..., section_id: ... %}
+  Params:
+    heading        - string
+    body_text      - richtext / string
+    image          - image object
+    image_position - 'left' or 'right'
+    link_text      - string (optional)
+    link_url       - string (optional)
+    bg_color       - color string
+    section_id     - section.id
+{% endcomment %}
+
+<div class="sp-img-text-grid{% if image_position == 'right' %} sp-img-text-reverse{% endif %} sp-img-text-{{ section_id }}">
+  <div class="sp-img-text-image">
+    {% if image != blank %}
+      {{ image | image_url: width: 800 | image_tag: class: 'sp-img-cover', loading: 'lazy', alt: heading }}
+    {% endif %}
+  </div>
+
+  <div class="sp-img-text-content">
+    {% if heading != blank %}
+      <h2>{{ heading }}</h2>
+    {% endif %}
+
+    {% if body_text != blank %}
+      <div>{{ body_text }}</div>
+    {% endif %}
+
+    {% if link_text != blank %}
+      <a href="{{ link_url }}" style="display:inline-block;margin-top:var(--sp-spacing-md);font-weight:600;text-decoration:underline;">
+        {{ link_text }}
+      </a>
+    {% endif %}
+  </div>
+</div>
