@@ -80,9 +80,9 @@ export default function Projects() {
             ))}
           </div>
         ) : safeProjects.length === 0 ? (
-          <div className="card p-16 text-center fade-in">
-            <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-black/5 flex items-center justify-center">
-              <svg className="w-8 h-8 text-textlight" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+          <div className="card p-16 text-center fade-in border-2 border-dashed border-navy/20">
+            <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-navy/5 flex items-center justify-center">
+              <svg className="w-8 h-8 text-navy" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 4.5v15m7.5-7.5h-15" />
               </svg>
             </div>

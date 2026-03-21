@@ -299,10 +299,10 @@ export default function Dashboard() {
             <>
               <button
                 onClick={() => setRecurringExpanded(prev => !prev)}
-                className="flex items-center gap-1 text-[10px] text-textlight hover:text-textmid cursor-pointer mt-1 ml-11 transition-colors"
+                className="inline-flex items-center gap-1 text-[12px] font-medium text-navy hover:text-navy/80 bg-navy/5 hover:bg-navy/10 px-2 py-1 rounded-md cursor-pointer mt-2 ml-11 transition-all"
               >
                 <svg
-                  className={`w-3 h-3 transition-transform duration-200 ${recurringExpanded ? 'rotate-180' : ''}`}
+                  className={`w-3.5 h-3.5 transition-transform duration-200 ${recurringExpanded ? 'rotate-180' : ''}`}
                   fill="none"
                   stroke="currentColor"
                   viewBox="0 0 24 24"

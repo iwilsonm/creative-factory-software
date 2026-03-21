@@ -574,12 +574,12 @@ export default function ProjectDetail() {
                     onDragEnter={(e) => { e.preventDefault(); e.stopPropagation(); setProductDragOver(true); }}
                     onDragLeave={(e) => { e.preventDefault(); e.stopPropagation(); setProductDragOver(false); }}
                     onDrop={handleProductDrop}
-                    className={`border-2 border-dashed rounded-xl p-4 text-center cursor-pointer transition-all ${
-                      productDragOver ? 'border-gold bg-gold/5' :
-                      'border-black/10 hover:border-gold hover:bg-offwhite'
+                    className={`border-2 border-dashed rounded-xl p-4 text-center cursor-pointer group transition-all duration-300 ${
+                      productDragOver ? 'border-navy bg-navy/5' :
+                      'border-navy/20 hover:border-navy hover:bg-navy/5'
                     }`}
                   >
-                    <svg className="w-6 h-6 mx-auto mb-1.5 text-textlight/60" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <svg className="w-6 h-6 mx-auto mb-1.5 text-textlight/60 group-hover:scale-110 group-hover:text-navy transition-all duration-300" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909M3.75 21h16.5a2.25 2.25 0 002.25-2.25V6.75a2.25 2.25 0 00-2.25-2.25H3.75a2.25 2.25 0 00-2.25 2.25v12a2.25 2.25 0 002.25 2.25z" />
                     </svg>
                     {productImageUploading ? (

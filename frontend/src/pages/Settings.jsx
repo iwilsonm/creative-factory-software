@@ -720,8 +720,14 @@ export default function Settings() {
                 />
                 <button
                   onClick={() => testConnection('openai')}
-                  className="btn-secondary text-[13px] whitespace-nowrap"
+                  disabled={testResults.openai === 'testing...'}
+                  className="btn-secondary text-[13px] whitespace-nowrap inline-flex items-center gap-1.5"
                 >
+                  {testResults.openai === 'testing...' && (
+                    <svg className="w-3.5 h-3.5 animate-spin" viewBox="0 0 24 24" fill="none">
+                      <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" strokeDasharray="31.4 31.4" strokeLinecap="round" />
+                    </svg>
+                  )}
                   Test
                 </button>
               </div>
@@ -751,8 +757,14 @@ export default function Settings() {
                 />
                 <button
                   onClick={() => testConnection('gemini')}
-                  className="btn-secondary text-[13px] whitespace-nowrap"
+                  disabled={testResults.gemini === 'testing...'}
+                  className="btn-secondary text-[13px] whitespace-nowrap inline-flex items-center gap-1.5"
                 >
+                  {testResults.gemini === 'testing...' && (
+                    <svg className="w-3.5 h-3.5 animate-spin" viewBox="0 0 24 24" fill="none">
+                      <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" strokeDasharray="31.4 31.4" strokeLinecap="round" />
+                    </svg>
+                  )}
                   Test
                 </button>
               </div>
@@ -780,8 +792,14 @@ export default function Settings() {
                 />
                 <button
                   onClick={() => testConnection('perplexity')}
-                  className="btn-secondary text-[13px] whitespace-nowrap"
+                  disabled={testResults.perplexity === 'testing...'}
+                  className="btn-secondary text-[13px] whitespace-nowrap inline-flex items-center gap-1.5"
                 >
+                  {testResults.perplexity === 'testing...' && (
+                    <svg className="w-3.5 h-3.5 animate-spin" viewBox="0 0 24 24" fill="none">
+                      <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" strokeDasharray="31.4 31.4" strokeLinecap="round" />
+                    </svg>
+                  )}
                   Test
                 </button>
               </div>

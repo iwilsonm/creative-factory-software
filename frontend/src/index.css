@@ -86,6 +86,12 @@
     background: rgba(255, 255, 255, 0.4);
     box-shadow: none;
   }
+  .btn-secondary:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    pointer-events: none;
+    box-shadow: none;
+  }
 
   /* Premium Inputs */
   .input-apple {
@@ -150,28 +156,37 @@
 
   /* Links & Accents */
   .action-link {
-    @apply inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium transition-colors text-navy;
+    @apply inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium transition-all duration-200 text-navy;
     background: rgba(11, 29, 58, 0.05);
   }
   .action-link:hover {
     background: rgba(11, 29, 58, 0.1);
   }
+  .action-link:active {
+    transform: scale(0.95);
+  }
 
   .action-link-muted {
-    @apply inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium transition-colors text-gray-500;
+    @apply inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium transition-all duration-200 text-gray-500;
   }
   .action-link-muted:hover {
     background: rgba(0, 0, 0, 0.04);
     @apply text-gray-800;
   }
+  .action-link-muted:active {
+    transform: scale(0.95);
+  }
 
   .action-link-danger {
-    @apply inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium transition-colors text-[#DC2626];
+    @apply inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium transition-all duration-200 text-[#DC2626];
     background: rgba(220, 38, 38, 0.06);
   }
   .action-link-danger:hover {
     background: rgba(220, 38, 38, 0.12);
     color: #B91C1C;
+  }
+  .action-link-danger:active {
+    transform: scale(0.95);
   }
 
   .icon-button {
@@ -252,11 +267,12 @@
   .info-tooltip .info-tooltip-text {
     @apply invisible opacity-0 absolute z-50 px-3.5 py-2.5 text-[11px] leading-relaxed
            font-normal tracking-wide rounded-xl whitespace-normal pointer-events-none transition-all duration-200;
+    transition-delay: 50ms;
     color: #fff;
-    background: rgba(11, 29, 58, 0.95);
+    background: rgba(11, 29, 58, 0.90);
     backdrop-filter: blur(12px);
     -webkit-backdrop-filter: blur(12px);
-    border: 1px solid rgba(255, 255, 255, 0.1);
+    border: 1px solid rgba(255, 255, 255, 0.2);
     box-shadow: 0 12px 48px rgba(11, 29, 58, 0.2);
     width: max-content;
     max-width: 250px;
@@ -264,6 +280,7 @@
   }
   .info-tooltip:hover .info-tooltip-text {
     @apply visible opacity-100;
+    transition-delay: 0ms;
     transform: translateY(0) translateX(-50%);
   }
   /* Tooltip pos */
@@ -277,6 +294,7 @@
     transform: translateY(-4px) translateX(-50%);
   }
   .info-tooltip-bottom:hover .info-tooltip-text {
+    transition-delay: 0ms;
     transform: translateY(0) translateX(-50%);
   }
   .info-tooltip-left .info-tooltip-text {
@@ -285,6 +303,7 @@
     transform: translateY(-50%) translateX(4px);
   }
   .info-tooltip-left:hover .info-tooltip-text {
+    transition-delay: 0ms;
     transform: translateY(-50%) translateX(0);
   }
   .info-tooltip-right .info-tooltip-text {
@@ -293,6 +312,7 @@
     transform: translateY(-50%) translateX(-4px);
   }
   .info-tooltip-right:hover .info-tooltip-text {
+    transition-delay: 0ms;
     transform: translateY(-50%) translateX(0);
   }
 }
