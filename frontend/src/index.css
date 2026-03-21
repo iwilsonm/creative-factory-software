@@ -7,57 +7,66 @@
     -webkit-font-smoothing: antialiased;
     -moz-osx-font-smoothing: grayscale;
     text-rendering: optimizeLegibility;
+    /* Base background transitions for theme toggle */
+    @apply transition-colors duration-500 bg-[#FAFAFA] dark:bg-darkbg text-black dark:text-gray-100;
   }
 
   ::selection {
-    background-color: rgba(196, 151, 90, 0.2);
+    @apply bg-gold/20 dark:bg-neonpurple/30;
   }
 }
 
 @layer components {
-  /* Clean navbar */
+  /* Minimalist light navbar / Aurora neon dark navbar */
   .glass-nav {
-    @apply bg-white/80 dark:bg-darkcard/80 backdrop-blur-md;
-    border-bottom: 1px solid rgba(0, 0, 0, 0.06);
-    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.03);
+    @apply bg-white/80 dark:bg-darkbg/50 backdrop-blur-xl transition-all duration-500 border-b border-gray-100 dark:border-white/5;
   }
   .dark .glass-nav {
-    border-bottom: 1px solid rgba(255, 255, 255, 0.05);
-    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.2);
+    box-shadow: 0 1px 24px rgba(181, 52, 255, 0.1);
   }
 
-  /* Card styling */
+  /* Minimalist light card / Aurora glass card */
   .card {
-    @apply bg-white/90 dark:bg-darkcard/90 backdrop-blur-sm rounded-2xl transition-all duration-300;
-    border: 1px solid rgba(0, 0, 0, 0.06);
-    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.04);
+    @apply bg-white dark:bg-darkcard/80 backdrop-blur-xl rounded-2xl transition-all duration-500 border border-gray-100 dark:border-white/10;
+    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.02);
   }
   .dark .card {
-    border: 1px solid rgba(255, 255, 255, 0.05);
-    box-shadow: 0 4px 24px rgba(0, 0, 0, 0.2);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255,255,255,0.05);
   }
   .card:hover {
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.08);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.04);
     transform: translateY(-2px);
   }
   .dark .card:hover {
-    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
+    box-shadow: 0 8px 32px rgba(0, 240, 255, 0.15), inset 0 1px 0 rgba(255,255,255,0.1);
+    border-color: rgba(0, 240, 255, 0.3);
   }
 
-  /* Gold primary button */
+  /* Primary Button (Minimalist Dark Slate in Light mode, Aurora Gradient in Dark mode) */
   .btn-primary {
-    @apply px-5 py-2 rounded-xl text-sm font-semibold text-white transition-all duration-200;
-    background: linear-gradient(135deg, #D4AA6A 0%, #C4975A 100%);
-    box-shadow: 0 4px 20px rgba(196, 151, 90, 0.35);
+    @apply px-5 py-2.5 rounded-xl text-sm font-semibold text-white transition-all duration-300;
+    background: #111827; /* Dark slate for minimalist light mode */
+    box-shadow: 0 4px 14px rgba(17, 24, 39, 0.2);
+  }
+  .dark .btn-primary {
+    background: linear-gradient(135deg, #B534FF 0%, #00F0FF 100%);
+    box-shadow: 0 4px 24px rgba(181, 52, 255, 0.4);
   }
   .btn-primary:hover {
-    background: linear-gradient(135deg, #C4975A 0%, #B3874A 100%);
-    box-shadow: 0 6px 24px rgba(196, 151, 90, 0.5);
+    background: #000000;
     transform: translateY(-2px) scale(1.02);
+    box-shadow: 0 6px 20px rgba(0, 0, 0, 0.25);
+  }
+  .dark .btn-primary:hover {
+    background: linear-gradient(135deg, #FF007F 0%, #00F0FF 100%);
+    box-shadow: 0 8px 32px rgba(0, 240, 255, 0.5);
   }
   .btn-primary:active {
     transform: translateY(0) scale(0.98);
-    box-shadow: 0 2px 10px rgba(196, 151, 90, 0.25);
+    box-shadow: 0 2px 10px rgba(0, 0, 0, 0.2);
+  }
+  .dark .btn-primary:active {
+    box-shadow: 0 2px 14px rgba(181, 52, 255, 0.4);
   }
   .btn-primary:disabled {
     opacity: 0.5;
@@ -68,141 +77,146 @@
 
   /* Secondary button */
   .btn-secondary {
-    @apply px-4 py-2 rounded-xl text-sm font-medium transition-all duration-200 dark:text-textlight;
+    @apply px-4 py-2 rounded-xl text-sm font-medium transition-all duration-300 dark:text-gray-300;
     background: transparent;
-    border: 1px solid rgba(0, 0, 0, 0.08);
+    border: 1px solid #E5E7EB;
   }
   .dark .btn-secondary {
-    border-color: rgba(255, 255, 255, 0.1);
+    border-color: rgba(255, 255, 255, 0.15);
   }
   .btn-secondary:hover {
-    background: rgba(0, 0, 0, 0.03);
-    @apply text-textdark dark:text-white dark:bg-white/5;
+    background: #F3F4F6;
+    @apply text-black dark:text-white dark:bg-white/10 dark:border-white/20;
   }
   .btn-secondary:active {
-    background: rgba(0, 0, 0, 0.06);
-    @apply dark:bg-white/10;
+    background: #E5E7EB;
+    @apply dark:bg-white/15;
   }
 
   /* Input field */
   .input-apple {
-    @apply w-full rounded-xl px-3.5 py-2.5 text-sm transition-all duration-200 dark:bg-darkbg dark:text-white dark:border-white/10;
-    background: rgba(0, 0, 0, 0.02);
-    border: 1px solid rgba(0, 0, 0, 0.08);
+    @apply w-full rounded-xl px-3.5 py-2.5 text-sm transition-all duration-300 dark:bg-[#07050E] dark:text-white dark:border-white/10;
+    background: #F9FAFB;
+    border: 1px solid #E5E7EB;
     outline: none;
-    box-shadow: inset 0 2px 4px rgba(0,0,0,0.01);
   }
   .input-apple::placeholder {
-    @apply text-textlight dark:text-textmid;
+    @apply text-gray-400 dark:text-gray-500;
   }
   .input-apple:focus {
-    @apply bg-white dark:bg-darkcard border-gold;
-    box-shadow: 0 0 0 3px rgba(196, 151, 90, 0.15), inset 0 2px 4px rgba(0,0,0,0.01);
+    @apply bg-white dark:bg-darkcard border-black dark:border-neoncian;
+    box-shadow: 0 0 0 3px rgba(0, 0, 0, 0.05), inset 0 2px 4px rgba(0,0,0,0.01);
+  }
+  .dark .input-apple:focus {
+    box-shadow: 0 0 0 3px rgba(0, 240, 255, 0.2), inset 0 2px 4px rgba(0,0,0,0.1);
   }
 
   /* Segmented control */
   .segmented-control {
-    @apply inline-flex rounded-xl p-0.5 max-w-full overflow-x-auto scrollbar-thin dark:bg-darkbg;
-    background: rgba(0, 0, 0, 0.04);
+    @apply inline-flex rounded-xl p-0.5 max-w-full overflow-x-auto scrollbar-thin dark:bg-[#07050E] border border-gray-100 dark:border-white/10;
+    background: #F3F4F6;
     white-space: nowrap;
   }
   .segmented-control button,
   .segmented-control a {
-    @apply px-3 py-1.5 rounded-[10px] text-xs font-semibold transition-all duration-200 flex-shrink-0 dark:text-textlight;
-    color: #8A96A8;
+    @apply px-3 py-1.5 rounded-[10px] text-xs font-semibold transition-all duration-300 flex-shrink-0 dark:text-gray-400;
+    color: #6B7280;
     text-decoration: none;
   }
   .segmented-control button.active,
   .segmented-control a.active {
-    @apply bg-navy dark:bg-white text-white dark:text-navy;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.2);
+    @apply bg-white dark:bg-darkcard text-black dark:text-white;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.1);
+  }
+  .dark .segmented-control button.active,
+  .dark .segmented-control a.active {
+    box-shadow: 0 1px 8px rgba(181, 52, 255, 0.3), inset 0 1px 0 rgba(255,255,255,0.1);
   }
 
   /* Badge / pill */
   .badge {
-    @apply inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold tracking-wide;
+    @apply inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold tracking-wide transition-colors;
   }
 
   .tab-strip {
     @apply flex gap-1 p-1 rounded-xl max-w-full overflow-x-auto scrollbar-thin dark:bg-darkbg;
-    background: rgba(0, 0, 0, 0.03);
+    background: #F9FAFB;
     white-space: nowrap;
   }
-
   .tab-chip {
-    @apply px-3 py-1.5 rounded-lg text-[12px] font-medium transition-all duration-200 flex-shrink-0 dark:text-textlight;
-    color: #4A5568;
+    @apply px-3 py-1.5 rounded-lg text-[12px] font-medium transition-all duration-300 flex-shrink-0 dark:text-gray-400;
+    color: #6B7280;
   }
   .tab-chip:hover {
-    @apply text-textdark dark:text-white dark:bg-white/5;
-    background: rgba(0, 0, 0, 0.04);
+    @apply text-black dark:text-white dark:bg-white/5;
+    background: #F3F4F6;
   }
   .tab-chip.active {
-    @apply bg-white dark:bg-darkcard text-textdark dark:text-white;
-    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+    @apply bg-white dark:bg-darkcard text-black dark:text-white;
+    box-shadow: 0 1px 3px rgba(0, 0, 0, 0.05);
   }
 
   .action-link {
-    @apply inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium transition-colors dark:text-gold dark:bg-gold/10;
-    color: #0B1D3A;
-    background: rgba(11, 29, 58, 0.06);
+    @apply inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium transition-colors dark:text-neoncian dark:bg-neoncian/10;
+    color: #111827;
+    background: #F3F4F6;
   }
   .action-link:hover {
-    @apply dark:bg-gold/20;
-    background: rgba(11, 29, 58, 0.1);
+    @apply dark:bg-neoncian/20 dark:text-white;
+    background: #E5E7EB;
   }
 
   .action-link-muted {
-    @apply inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium transition-colors dark:text-textlight;
-    color: #4A5568;
+    @apply inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium transition-colors dark:text-gray-400 dark:bg-transparent;
+    color: #6B7280;
   }
   .action-link-muted:hover {
     @apply dark:bg-white/10 dark:text-white;
-    background: rgba(0, 0, 0, 0.04);
-    color: #1A1A2E;
+    background: #F3F4F6;
+    color: #111827;
   }
 
   .action-link-danger {
-    @apply inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium transition-colors dark:text-red-400 dark:bg-red-400/10;
-    color: #DC2626;
-    background: rgba(220, 38, 38, 0.06);
+    @apply inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-medium transition-colors dark:text-neonpink dark:bg-neonpink/10;
+    color: #EF4444;
+    background: #FEF2F2;
   }
   .action-link-danger:hover {
-    @apply dark:bg-red-400/20;
-    background: rgba(220, 38, 38, 0.12);
+    @apply dark:bg-neonpink/20 dark:text-white;
+    background: #FEE2E2;
     color: #B91C1C;
   }
 
   .icon-button {
-    @apply inline-flex items-center justify-center rounded-lg transition-colors dark:text-textlight dark:bg-white/5;
+    @apply inline-flex items-center justify-center rounded-lg transition-colors dark:text-gray-400 dark:bg-white/5;
     width: 1.875rem;
     height: 1.875rem;
-    color: #8A96A8;
-    background: rgba(0, 0, 0, 0.03);
+    color: #6B7280;
+    background: transparent;
   }
   .icon-button:hover {
-    @apply text-textdark dark:text-white dark:bg-white/10;
-    background: rgba(11, 29, 58, 0.08);
+    @apply text-black dark:text-white dark:bg-white/10;
+    background: #F3F4F6;
   }
 
   .icon-button-danger {
-    @apply inline-flex items-center justify-center rounded-lg transition-colors dark:text-textlight dark:bg-white/5;
+    @apply inline-flex items-center justify-center rounded-lg transition-colors dark:text-gray-400 dark:bg-white/5;
     width: 1.875rem;
     height: 1.875rem;
-    color: #8A96A8;
-    background: rgba(0, 0, 0, 0.03);
+    color: #6B7280;
+    background: transparent;
   }
   .icon-button-danger:hover {
-    @apply text-red-600 dark:text-red-400 dark:bg-red-400/10;
-    background: rgba(220, 38, 38, 0.08);
+    @apply text-red-600 dark:text-neonpink dark:bg-neonpink/10;
+    background: #FEF2F2;
   }
 
   /* Smooth content transitions */
   .fade-in {
-    animation: fadeIn 0.3s ease-out;
+    animation: fadeIn 0.4s cubic-bezier(0.16, 1, 0.3, 1);
   }
   @keyframes fadeIn {
-    from { opacity: 0; transform: translateY(4px); }
+    from { opacity: 0; transform: translateY(6px); }
     to { opacity: 1; transform: translateY(0); }
   }
 
@@ -227,10 +241,10 @@
   /* Custom scrollbar */
   .scrollbar-thin {
     scrollbar-width: thin;
-    scrollbar-color: rgba(0, 0, 0, 0.12) transparent;
+    scrollbar-color: rgba(0, 0, 0, 0.1) transparent;
   }
   .dark .scrollbar-thin {
-    scrollbar-color: rgba(255, 255, 255, 0.1) transparent;
+    scrollbar-color: rgba(255, 255, 255, 0.15) transparent;
   }
   .scrollbar-thin::-webkit-scrollbar {
     width: 6px;
@@ -240,32 +254,32 @@
     background: transparent;
   }
   .scrollbar-thin::-webkit-scrollbar-thumb {
-    background: rgba(0, 0, 0, 0.12);
+    background: rgba(0, 0, 0, 0.1);
     border-radius: 10px;
   }
   .dark .scrollbar-thin::-webkit-scrollbar-thumb {
-    background: rgba(255, 255, 255, 0.1);
+    background: rgba(255, 255, 255, 0.15);
   }
   .scrollbar-thin::-webkit-scrollbar-thumb:hover {
-    background: rgba(0, 0, 0, 0.22);
+    background: rgba(0, 0, 0, 0.2);
   }
   .dark .scrollbar-thin::-webkit-scrollbar-thumb:hover {
-    background: rgba(255, 255, 255, 0.2);
+    background: rgba(255, 255, 255, 0.25);
   }
 
-  /* Info tooltip — pure CSS, dark bg, white text */
+  /* Info tooltip — pure CSS */
   .info-tooltip {
     @apply relative inline-flex items-center ml-1;
   }
   .info-tooltip .info-tooltip-text {
     @apply invisible opacity-0 absolute z-50 px-3 py-2 text-[11px] leading-relaxed
-           font-normal tracking-normal rounded-lg whitespace-normal
-           pointer-events-none transition-all duration-200;
+           font-normal tracking-normal rounded-xl whitespace-normal border border-white/10
+           pointer-events-none transition-all duration-300;
     color: #fff;
-    background: rgba(11, 29, 58, 0.95);
-    backdrop-filter: blur(8px);
-    -webkit-backdrop-filter: blur(8px);
-    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
+    background: rgba(5, 5, 10, 0.95); 
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
     width: max-content;
     max-width: 240px;
     transform: translateY(4px) translateX(-50%);
