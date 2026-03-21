@@ -20,20 +20,12 @@ export default function Layout({ children }) {
   const location = useLocation();
   const { user, setUser } = useContext(AuthContext);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
-  const [theme, setTheme] = useState(() => localStorage.getItem('theme') || 'light');
 
+  // Force removal of any lingering dark mode classes from the DOM
   useEffect(() => {
-    if (theme === 'dark') {
-      document.documentElement.classList.add('dark');
-    } else {
-      document.documentElement.classList.remove('dark');
-    }
-    localStorage.setItem('theme', theme);
-  }, [theme]);
-
-  const toggleTheme = () => {
-    setTheme(prev => prev === 'light' ? 'dark' : 'light');
-  };
+    document.documentElement.classList.remove('dark');
+    localStorage.removeItem('theme');
+  }, []);
 
   const handleLogout = async () => {
     try {
@@ -99,15 +91,8 @@ export default function Layout({ children }) {
                 </div>
               )}
               <button
-                onClick={toggleTheme}
-                className="text-[16px] text-textlight hover:text-black dark:text-gray-400 dark:hover:text-white transition-colors duration-200 hidden md:block"
-                title="Toggle Theme"
-              >
-                {theme === 'light' ? '🌙' : '☀️'}
-              </button>
-              <button
                 onClick={handleLogout}
-                className="text-[13px] text-textlight hover:text-black dark:text-gray-400 dark:hover:text-white transition-colors duration-200 hidden md:block"
+                className="text-[13px] text-textlight hover:text-black transition-colors duration-200 hidden md:block"
               >
                 Sign Out
               </button>
@@ -163,14 +148,8 @@ export default function Layout({ children }) {
                 );
               })}
               <button
-                onClick={() => { setMobileMenuOpen(false); toggleTheme(); }}
-                className="block w-full text-left px-3 py-2 rounded-xl text-[14px] font-medium text-textmid hover:bg-black/10 dark:text-gray-300 dark:hover:bg-white/10 transition-colors"
-              >
-                {theme === 'light' ? '🌙 Dark Mode' : '☀️ Light Mode'}
-              </button>
-              <button
                 onClick={() => { setMobileMenuOpen(false); handleLogout(); }}
-                className="block w-full text-left px-3 py-2 rounded-xl text-[14px] font-medium text-red-500 hover:bg-red-50/50 dark:hover:bg-red-500/10 transition-colors"
+                className="block w-full text-left px-3 py-2 rounded-xl text-[14px] font-medium text-red-500 hover:bg-red-50/50 transition-colors"
               >
                 Sign Out
               </button>
