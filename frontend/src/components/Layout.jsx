@@ -55,7 +55,9 @@ export default function Layout({ children }) {
   const isProjectsActive = location.pathname === '/projects' || isProjectSubPage;
 
   return (
-    <div className="min-h-screen bg-offwhite dark:bg-darkbg text-textdark dark:text-offwhite transition-colors duration-300">
+    <div className="min-h-screen text-textdark font-sans relative">
+      {/* Top Banner Gradient Accent */}
+      <div className="h-[3px] w-full bg-gradient-to-r from-navy via-teal to-gold absolute top-0 z-50"></div>
       <nav className="glass-nav sticky top-0 z-40">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex justify-between h-14">
