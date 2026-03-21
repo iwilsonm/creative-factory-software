@@ -528,23 +528,28 @@ export default function BatchManager({ projectId, project, onBatchComplete }) {
           </div>
         </div>
 
-        <div className="flex items-center gap-2">
-          {activeBatches.length > 0 && (
-            <span className="badge bg-navy/10 text-navy">
-              {activeBatches.length} active
-            </span>
-          )}
-          {awaitingFilterBatches.length > 0 && (
-            <span className="badge bg-gold/10 text-gold">
-              {awaitingFilterBatches.length} awaiting filter
-            </span>
-          )}
-          <svg
-            className={`w-5 h-5 text-textlight transition-transform duration-200 ${expanded ? 'rotate-180' : ''}`}
-            fill="none" stroke="currentColor" viewBox="0 0 24 24"
-          >
-            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
-          </svg>
+        <div className="flex items-center gap-3">
+          <div className="flex items-center gap-2">
+            {activeBatches.length > 0 && (
+              <span className="badge bg-navy/10 text-navy">
+                {activeBatches.length} active
+              </span>
+            )}
+            {awaitingFilterBatches.length > 0 && (
+              <span className="badge bg-gold/10 text-gold">
+                {awaitingFilterBatches.length} awaiting filter
+              </span>
+            )}
+          </div>
+          <span className="inline-flex items-center gap-1 text-[12px] font-medium text-navy hover:text-navy/80 bg-navy/5 hover:bg-navy/10 px-2 py-1 rounded-md transition-all">
+            Details
+            <svg
+              className={`w-3.5 h-3.5 transition-transform duration-200 ${expanded ? 'rotate-180' : ''}`}
+              fill="none" stroke="currentColor" viewBox="0 0 24 24"
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+            </svg>
+          </span>
         </div>
       </button>
 

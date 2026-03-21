@@ -173,7 +173,7 @@ export default function PostedView({ projectId, deployments, setDeployments, add
           {(dep.destination_url || dep.display_link || dep.cta_button || dep.facebook_page) && (
             <button
               onClick={() => toggleCardExpanded(dep.id)}
-              className="w-full flex items-center justify-center gap-2 py-1.5 rounded-xl bg-offwhite hover:bg-navy/5 transition-colors text-[11px] font-medium text-navy"
+              className="flex items-center justify-center w-full gap-1 text-[12px] font-medium text-navy hover:text-navy/80 bg-navy/5 hover:bg-navy/10 py-1.5 rounded-md cursor-pointer transition-all mt-2"
             >
               <svg className={`w-3.5 h-3.5 transition-transform ${isExpanded ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
@@ -283,7 +283,7 @@ export default function PostedView({ projectId, deployments, setDeployments, add
           {/* Expand toggle */}
           <button
             onClick={() => toggleCardExpanded(flexId)}
-            className="w-full flex items-center justify-center gap-2 py-1.5 rounded-xl bg-offwhite hover:bg-navy/5 transition-colors text-[11px] font-medium text-navy"
+            className="flex items-center justify-center w-full gap-1 text-[12px] font-medium text-navy hover:text-navy/80 bg-navy/5 hover:bg-navy/10 py-1.5 rounded-md cursor-pointer transition-all mt-2"
           >
             <svg className={`w-3.5 h-3.5 transition-transform ${isExpanded ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />

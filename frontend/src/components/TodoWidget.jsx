@@ -279,9 +279,9 @@ export default function TodoWidget() {
         <div className={pending.length > 0 ? 'mt-3 pt-3 border-t border-black/5' : ''}>
           <button
             onClick={() => setShowCompleted(prev => !prev)}
-            className="flex items-center gap-1 text-[10px] font-medium text-textlight/60 uppercase tracking-wider mb-1 hover:text-textmid transition-colors cursor-pointer"
+            className="inline-flex items-center gap-1 text-[12px] font-medium text-navy hover:text-navy/80 bg-navy/5 hover:bg-navy/10 px-2 py-1 rounded-md cursor-pointer transition-all mb-1"
           >
-            <svg className={`w-3 h-3 transition-transform duration-200 ${showCompleted ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg className={`w-3.5 h-3.5 transition-transform duration-200 ${showCompleted ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
             </svg>
             Completed ({completed.length})

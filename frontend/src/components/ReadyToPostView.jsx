@@ -1248,14 +1248,14 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
           {/* Expand/Collapse toggle */}
           <button
             onClick={() => toggleCardExpanded(dep.id)}
-            className="w-full flex items-center justify-center gap-2 py-2 rounded-xl bg-offwhite hover:bg-navy/5 transition-colors text-[12px] font-medium text-navy"
+            className="flex items-center justify-center w-full gap-1 text-[12px] font-medium text-navy hover:text-navy/80 bg-navy/5 hover:bg-navy/10 py-1.5 rounded-md cursor-pointer transition-all mt-2"
           >
-            <svg className={`w-4 h-4 transition-transform ${isExpanded ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg className={`w-3.5 h-3.5 transition-transform ${isExpanded ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
             </svg>
             {isExpanded ? 'Hide Ad Details' : 'Show Ad Details'}
             {!isExpanded && (
-              <span className="text-[10px] text-textmid font-normal">
+              <span className="text-[10px] text-navy/70 font-normal">
                 ({[dep.primary_texts && parseCount(dep.primary_texts) > 0 && 'Primary Text', dep.ad_headlines && parseCount(dep.ad_headlines) > 0 && 'Headline', dep.destination_url && 'Website URL', dep.display_link && 'Display Link', dep.cta_button && 'Call to Action', dep.facebook_page && 'Facebook Page'].filter(Boolean).join(', ') || 'No details'})
               </span>
             )}
@@ -1476,14 +1476,14 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
           {/* Expand/Collapse toggle */}
           <button
             onClick={() => toggleCardExpanded(flexId)}
-            className="w-full flex items-center justify-center gap-2 py-2 rounded-xl bg-offwhite hover:bg-navy/5 transition-colors text-[12px] font-medium text-navy"
+            className="flex items-center justify-center w-full gap-1 text-[12px] font-medium text-navy hover:text-navy/80 bg-navy/5 hover:bg-navy/10 py-1.5 rounded-md cursor-pointer transition-all mt-2"
           >
-            <svg className={`w-4 h-4 transition-transform ${isExpanded ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg className={`w-3.5 h-3.5 transition-transform ${isExpanded ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
             </svg>
             {isExpanded ? 'Hide Ad Details' : 'Show Ad Details'}
             {!isExpanded && (
-              <span className="text-[10px] text-textmid font-normal">
+              <span className="text-[10px] text-navy/70 font-normal">
                 ({[depsWithImages.length > 0 && `${depsWithImages.length} Ad Creatives`, flexAd.primary_texts && parseCount(flexAd.primary_texts) > 0 && 'Primary Text', flexAd.headlines && parseCount(flexAd.headlines) > 0 && 'Headline', flexAd.destination_url && 'Website URL', flexAd.display_link && 'Display Link', flexAd.cta_button && 'Call to Action', flexAd.facebook_page && 'Facebook Page'].filter(Boolean).join(', ') || 'No details'})
               </span>
             )}

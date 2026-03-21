@@ -1442,9 +1442,12 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
                             <div className="text-[10px] text-textlight truncate mt-0.5">{d.ad.body_copy}</div>
                           )}
                         </div>
-                        <svg className={`w-4 h-4 text-textlight flex-shrink-0 transition-transform ${isExpanded ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-                        </svg>
+                        <span className="inline-flex items-center gap-1 text-[12px] font-medium text-navy hover:text-navy/80 bg-navy/5 hover:bg-navy/10 px-2 py-1 rounded-md transition-all whitespace-nowrap">
+                          Details
+                          <svg className={`w-3.5 h-3.5 flex-shrink-0 transition-transform ${isExpanded ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+                          </svg>
+                        </span>
                       </button>
                       {isExpanded && d.imageUrl && (
                         <div className="px-2.5 pb-2.5">

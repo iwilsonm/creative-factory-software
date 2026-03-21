@@ -1972,12 +1972,15 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
               <p className="text-[12px] font-semibold text-textmid uppercase tracking-wider">Optional Fields</p>
               <p className="text-[11px] text-textlight mt-0.5">Topic, headline, body copy, image generator, and prompt guidelines.</p>
             </div>
-            <svg
-              className={`w-4 h-4 text-textlight transition-transform duration-200 ${optionalOpen ? 'rotate-180' : ''}`}
-              fill="none" stroke="currentColor" viewBox="0 0 24 24"
-            >
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
-            </svg>
+            <span className="inline-flex items-center gap-1 text-[12px] font-medium text-navy hover:text-navy/80 bg-navy/5 hover:bg-navy/10 px-2 py-1 rounded-md cursor-pointer transition-all">
+              Details
+              <svg
+                className={`w-3.5 h-3.5 transition-transform duration-200 ${optionalOpen ? 'rotate-180' : ''}`}
+                fill="none" stroke="currentColor" viewBox="0 0 24 24"
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+              </svg>
+            </span>
           </button>
 
           {optionalOpen && (
