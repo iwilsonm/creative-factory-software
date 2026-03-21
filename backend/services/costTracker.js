@@ -257,14 +257,13 @@ export async function syncOpenAICosts() {
 
         if (amount <= 0) continue;
 
-        // Map line items to operation types
-        let operation = 'other';
+        // Map line items to model-specific billing operations
+        let operation = 'openai_billing';
         const lowerItem = lineItem.toLowerCase();
-        if (lowerItem.includes('gpt-5') || lowerItem.includes('gpt-4')) {
-          operation = lowerItem.includes('image') ? 'ad_creative_director' : 'foundational_docs';
-        } else if (lowerItem.includes('o3') || lowerItem.includes('deep-research')) {
-          operation = 'foundational_docs';
-        }
+        if (lowerItem.includes('gpt-5')) operation = 'openai_billing_gpt5';
+        else if (lowerItem.includes('gpt-4.1-mini') || lowerItem.includes('gpt-4o-mini')) operation = 'openai_billing_gpt4_mini';
+        else if (lowerItem.includes('gpt-4')) operation = 'openai_billing_gpt4';
+        else if (lowerItem.includes('o3') || lowerItem.includes('deep-research')) operation = 'openai_billing_research';
 
         await logCost({
           id: uuidv4(),

@@ -6,29 +6,109 @@ const PERIODS = [
   { key: 'month', label: 'Spent This Month' }
 ];
 
+// Every operation maps to a group for the collapsed detail view
 const OPERATION_META = {
-  image_generation: { label: 'Images (manual)', color: 'bg-teal', icon: '' },
-  image_generation_batch: { label: 'Images (batch)', color: 'bg-teal/70', icon: '' },
-  ad_creative_director: { label: 'Creative direction', color: 'bg-[#5B8DEF]', icon: '' },
-  foundational_docs: { label: 'Docs & research', color: 'bg-[#5B8DEF]/70', icon: '' },
-  doc_correction: { label: 'Doc corrections', color: 'bg-[#7C6DCD]', icon: '' },
-  batch_brief_extraction: { label: 'Brief extraction', color: 'bg-[#7C6DCD]/70', icon: '' },
-  batch_headline_generation: { label: 'Headlines (batch)', color: 'bg-[#7C6DCD]', icon: '' },
-  batch_body_copy: { label: 'Body copy (batch)', color: 'bg-[#7C6DCD]/70', icon: '' },
-  batch_image_prompt: { label: 'Image prompts (batch)', color: 'bg-[#7C6DCD]', icon: '' },
-  ad_angle_generation: { label: 'Angle generation', color: 'bg-[#7C6DCD]/70', icon: '' },
-  ad_headline_generation: { label: 'Headline generation', color: 'bg-[#7C6DCD]', icon: '' },
-  headline_generation: { label: 'Headlines', color: 'bg-[#7C6DCD]/70', icon: '' },
-  headline_generation_per_quote: { label: 'Headlines (per quote)', color: 'bg-[#7C6DCD]', icon: '' },
-  headline_generation_more: { label: 'Headlines (more)', color: 'bg-[#7C6DCD]/70', icon: '' },
-  quote_mining: { label: 'Quote mining (Perplexity)', color: 'bg-gold', icon: '' },
-  quote_mining_web_search: { label: 'Quote mining (Claude)', color: 'bg-[#7C6DCD]/70', icon: '' },
-  lp_design_analysis: { label: 'LP design analysis', color: 'bg-[#7C6DCD]/70', icon: '' },
-  lp_generation: { label: 'LP copy generation', color: 'bg-[#7C6DCD]', icon: '' },
-  lp_html_generation: { label: 'LP HTML generation', color: 'bg-[#7C6DCD]/70', icon: '' },
-  lp_image_generation: { label: 'LP images', color: 'bg-teal/70', icon: '' },
-  other: { label: 'Other', color: 'bg-textlight/50', icon: '' },
-  unknown: { label: 'Other', color: 'bg-textlight/50', icon: '' },
+  // Ad Generation
+  ad_creative_director:          { group: 'ad_gen' },
+  ad_generation_mode1:           { group: 'ad_gen' },
+  ad_generation_mode2:           { group: 'ad_gen' },
+  ad_headline_extraction:        { group: 'ad_gen' },
+  ad_angle_generation:           { group: 'ad_gen' },
+  ad_headline_generation:        { group: 'ad_gen' },
+  ad_headline_generation_sidebar:{ group: 'ad_gen' },
+  ad_image_generation:           { group: 'ad_gen' },
+  prompt_guideline_review:       { group: 'ad_gen' },
+  prompt_edit:                   { group: 'ad_gen' },
+  cmo_angle_writing:             { group: 'ad_gen' },
+  primary_text_generation:       { group: 'ad_gen' },
+  // Batch Pipeline
+  batch_brief_extraction:        { group: 'batch' },
+  batch_headline_generation:     { group: 'batch' },
+  batch_body_copy:               { group: 'batch' },
+  batch_body_copy_repair:        { group: 'batch' },
+  batch_image_prompt:            { group: 'batch' },
+  batch_ocr_extraction:          { group: 'batch' },
+  // Image Generation
+  image_generation:              { group: 'images' },
+  image_generation_batch:        { group: 'images' },
+  lp_image_generation:           { group: 'images' },
+  lp_autofix_image:              { group: 'images' },
+  lp_image_prescore_retry:       { group: 'images' },
+  lp_gauntlet_image_regen:       { group: 'images' },
+  // Docs & Research
+  foundational_docs:             { group: 'docs' },
+  deep_research:                 { group: 'docs' },
+  doc_correction:                { group: 'docs' },
+  auto_describe:                 { group: 'docs' },
+  template_analysis:             { group: 'docs' },
+  // Quote Mining
+  quote_mining:                  { group: 'quotes' },
+  quote_mining_web_search:       { group: 'quotes' },
+  quote_mining_suggestions:      { group: 'quotes' },
+  quote_merge_rank:              { group: 'quotes' },
+  quote_deduplication:           { group: 'quotes' },
+  body_copy_generation:          { group: 'quotes' },
+  // Headlines
+  headline_generation:           { group: 'headlines' },
+  headline_generation_per_quote: { group: 'headlines' },
+  headline_generation_more:      { group: 'headlines' },
+  // LP Generation
+  lp_generation:                 { group: 'lp_gen' },
+  lp_html_generation:            { group: 'lp_gen' },
+  lp_design_analysis:            { group: 'lp_gen' },
+  lp_editorial_pass:             { group: 'lp_gen' },
+  lp_image_context_extraction:   { group: 'lp_gen' },
+  lp_title_only_generation:      { group: 'lp_gen' },
+  lp_template_extraction:        { group: 'lp_gen' },
+  lp_legacy_docs_analysis:       { group: 'lp_gen' },
+  lp_legacy_swipe_analysis:      { group: 'lp_gen' },
+  lp_legacy_first_half:          { group: 'lp_gen' },
+  lp_legacy_second_half:         { group: 'lp_gen' },
+  // LP Quality & Fixes
+  lp_visual_qa:                  { group: 'lp_qa' },
+  lp_quality_gate:               { group: 'lp_qa' },
+  lp_canonical_benchmark:        { group: 'lp_qa' },
+  lp_headline_repair:            { group: 'lp_qa' },
+  lp_content_alignment_repair:   { group: 'lp_qa' },
+  lp_autofix_css:                { group: 'lp_qa' },
+  lp_image_prescore:             { group: 'lp_qa' },
+  lp_gauntlet_score:             { group: 'lp_qa' },
+  // Creative Filter
+  filter_score_ad:               { group: 'filter' },
+  filter_group_ads:              { group: 'filter' },
+  filter_primary_text_generation:{ group: 'filter' },
+  filter_headline_generation:    { group: 'filter' },
+  // Director
+  conductor_angle_generation:    { group: 'conductor' },
+  conductor_learning_analysis:   { group: 'conductor' },
+  // Copywriter Chat
+  copywriter_chat_init:          { group: 'chat' },
+  copywriter_chat:               { group: 'chat' },
+  // OpenAI Billing API (org-wide, not operation-specific)
+  openai_billing:                { group: 'billing' },
+  openai_billing_gpt5:           { group: 'billing' },
+  openai_billing_gpt4:           { group: 'billing' },
+  openai_billing_gpt4_mini:      { group: 'billing' },
+  openai_billing_research:       { group: 'billing' },
+  // Fallbacks
+  other:                         { group: 'other' },
+  unknown:                       { group: 'other' },
+};
+
+const OPERATION_GROUPS = {
+  ad_gen:    { label: 'Ad Generation',       color: 'bg-[#5B8DEF]' },
+  batch:     { label: 'Batch Pipeline',      color: 'bg-[#7C6DCD]' },
+  images:    { label: 'Image Generation',    color: 'bg-teal' },
+  docs:      { label: 'Docs & Research',     color: 'bg-[#5B8DEF]/70' },
+  quotes:    { label: 'Quote Mining',        color: 'bg-gold' },
+  headlines: { label: 'Headlines',           color: 'bg-[#7C6DCD]/70' },
+  lp_gen:    { label: 'LP Generation',       color: 'bg-[#7C6DCD]' },
+  lp_qa:     { label: 'LP Quality & Fixes',  color: 'bg-[#7C6DCD]/70' },
+  filter:    { label: 'Creative Filter',     color: 'bg-[#7C6DCD]' },
+  conductor: { label: 'Director',            color: 'bg-[#7C6DCD]' },
+  chat:      { label: 'Copywriter Chat',     color: 'bg-[#7C6DCD]' },
+  billing:   { label: 'OpenAI Billing Sync', color: 'bg-[#5B8DEF]/50' },
+  other:     { label: 'Other',              color: 'bg-textlight/50' },
 };
 
 // Service definitions for the breakdown bar + legend
@@ -93,16 +173,25 @@ export default function CostSummaryCards({ costs, loading }) {
         const batchImages = data.batchImageCount || 0;
         const totalImages = manualImages + batchImages;
 
-        // Operation breakdown — sorted by cost descending
+        // Operation breakdown — grouped by category, sorted by cost descending
         const ops = data.byOperation || {};
-        const opEntries = Object.entries(ops)
-          .map(([key, val]) => {
-            // Handle both old format (number) and new format ({ cost, imageCount })
-            const cost = typeof val === 'number' ? val : (val?.cost || 0);
-            const imgCount = typeof val === 'number' ? 0 : (val?.imageCount || 0);
-            return { key, cost, imageCount: imgCount };
-          })
-          .filter(e => e.cost > 0)
+        const grouped = {};
+        for (const [key, val] of Object.entries(ops)) {
+          const cost = typeof val === 'number' ? val : (val?.cost || 0);
+          const imgCount = typeof val === 'number' ? 0 : (val?.imageCount || 0);
+          if (cost <= 0) continue;
+          const groupKey = (OPERATION_META[key] || OPERATION_META.other).group;
+          if (!grouped[groupKey]) grouped[groupKey] = { cost: 0, imageCount: 0 };
+          grouped[groupKey].cost += cost;
+          grouped[groupKey].imageCount += imgCount;
+        }
+        const opEntries = Object.entries(grouped)
+          .map(([key, data]) => ({
+            key,
+            cost: data.cost,
+            imageCount: data.imageCount,
+            ...(OPERATION_GROUPS[key] || OPERATION_GROUPS.other),
+          }))
           .sort((a, b) => b.cost - a.cost);
 
         return (
@@ -155,10 +244,10 @@ export default function CostSummaryCards({ costs, loading }) {
                   <>
                     <button
                       onClick={() => toggleCard(period.key)}
-                      className="flex items-center gap-1 text-[10px] text-textlight hover:text-textmid cursor-pointer mt-1 transition-colors"
+                      className="inline-flex items-center gap-1 text-[12px] font-medium text-navy hover:text-navy/80 bg-navy/5 hover:bg-navy/10 px-2 py-1 rounded-md cursor-pointer mt-2 transition-all"
                     >
                       <svg
-                        className={`w-3 h-3 transition-transform duration-200 ${expandedCards.has(period.key) ? 'rotate-180' : ''}`}
+                        className={`w-3.5 h-3.5 transition-transform duration-200 ${expandedCards.has(period.key) ? 'rotate-180' : ''}`}
                         fill="none"
                         stroke="currentColor"
                         viewBox="0 0 24 24"
@@ -170,25 +259,22 @@ export default function CostSummaryCards({ costs, loading }) {
 
                     {expandedCards.has(period.key) && (
                       <div className="border-t border-black/5 pt-2 mt-1.5 space-y-1.5">
-                        {opEntries.map(op => {
-                          const meta = OPERATION_META[op.key] || OPERATION_META.other;
-                          return (
-                            <div key={op.key} className="flex items-center justify-between text-[11px]">
-                              <div className="flex items-center gap-1.5 text-textmid">
-                                <span className={`w-1.5 h-1.5 rounded-full ${meta.color}`} />
-                                <span>{meta.label}</span>
-                                {op.imageCount > 0 && (
-                                  <span className="text-textlight/60">
-                                    ({op.imageCount} img{op.imageCount !== 1 ? 's' : ''})
-                                  </span>
-                                )}
-                              </div>
-                              <span className="text-textmid font-medium tabular-nums">
-                                {formatCost(op.cost)}
-                              </span>
+                        {opEntries.map(op => (
+                          <div key={op.key} className="flex items-center justify-between text-[11px]">
+                            <div className="flex items-center gap-1.5 text-textmid">
+                              <span className={`w-1.5 h-1.5 rounded-full ${op.color}`} />
+                              <span>{op.label}</span>
+                              {op.imageCount > 0 && (
+                                <span className="text-textlight/60">
+                                  ({op.imageCount} img{op.imageCount !== 1 ? 's' : ''})
+                                </span>
+                              )}
                             </div>
-                          );
-                        })}
+                            <span className="text-textmid font-medium tabular-nums">
+                              {formatCost(op.cost)}
+                            </span>
+                          </div>
+                        ))}
                       </div>
                     )}
                   </>
