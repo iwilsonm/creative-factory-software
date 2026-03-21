@@ -267,8 +267,8 @@ export function buildImageRequestText(angle, aspectRatio, hasProductImage = fals
  * @returns {{ base64: string, mimeType: string, fileId: string }}
  */
 export async function selectInspirationImage(projectId, inspirationImageId, excludeIds = []) {
-  // Use global pool (shared across all projects) and deduplicate by drive_file_id
-  const allImages = await getAllInspirationImages();
+  // Scope to current project's inspiration images and deduplicate by drive_file_id
+  const allImages = await getInspirationImages(projectId);
   const seen = new Set();
   const images = allImages.filter(img => {
     if (seen.has(img.drive_file_id)) return false;
