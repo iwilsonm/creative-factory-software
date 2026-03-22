@@ -1,0 +1,39 @@
+{% comment %}
+  Renders an FAQ accordion list.
+  Usage: {% render 'sp-faq-accordion', blocks: section.blocks, section_id: section.id %}
+{% endcomment %}
+
+<div class="sp-faq-list-{{ section_id }}">
+  {% for block in blocks %}
+    {% if block.type == 'faq_item' %}
+      <div class="sp-faq-item sp-faq-item-{{ section_id }}" id="sp-faq-{{ section_id }}-{{ forloop.index }}" {{ block.shopify_attributes }}>
+        <div
+          class="sp-faq-question"
+          onclick="spFaqToggle('sp-faq-{{ section_id }}-{{ forloop.index }}')"
+          aria-expanded="false"
+          role="button"
+          tabindex="0"
+          onkeydown="if(event.key==='Enter'||event.key===' ')spFaqToggle('sp-faq-{{ section_id }}-{{ forloop.index }}')"
+        >
+          <span>{{ block.settings.question }}</span>
+          <span class="sp-faq-icon">+</span>
+        </div>
+        <div class="sp-faq-answer">
+          {{ block.settings.answer }}
+        </div>
+      </div>
+    {% endif %}
+  {% endfor %}
+</div>
+
+<script>
+  function spFaqToggle(id) {
+    var item = document.getElementById(id);
+    if (!item) return;
+    item.classList.toggle('sp-faq-open');
+    var btn = item.querySelector('.sp-faq-question');
+    if (btn) {
+      btn.setAttribute('aria-expanded', item.classList.contains('sp-faq-open') ? 'true' : 'false');
+    }
+  }
+</script>

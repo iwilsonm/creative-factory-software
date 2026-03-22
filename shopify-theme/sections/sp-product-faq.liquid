@@ -1,0 +1,38 @@
+{{ 'sp-sections.css' | asset_url | stylesheet_tag }}
+
+{% if section.blocks.size > 0 %}
+  <style>
+    .sp-product-faq-{{ section.id }} {
+      padding: var(--sp-spacing-lg) 0;
+    }
+  </style>
+
+  <div class="sp-section sp-product-faq-{{ section.id }}">
+    <div class="sp-container" style="max-width:700px;">
+      {% if section.settings.heading != blank %}
+        <h2 class="sp-section-heading" style="text-align:left;">{{ section.settings.heading }}</h2>
+      {% endif %}
+      {% render 'sp-faq-accordion', blocks: section.blocks, section_id: section.id %}
+    </div>
+  </div>
+{% endif %}
+
+{% schema %}
+{
+  "name": "SP Product FAQ",
+  "max_blocks": 8,
+  "settings": [
+    { "type": "text", "id": "heading", "label": "Heading (optional)" }
+  ],
+  "blocks": [
+    {
+      "type": "faq_item",
+      "name": "FAQ Item",
+      "settings": [
+        { "type": "text", "id": "question", "label": "Question" },
+        { "type": "richtext", "id": "answer", "label": "Answer" }
+      ]
+    }
+  ]
+}
+{% endschema %}

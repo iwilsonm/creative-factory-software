@@ -1,0 +1,90 @@
+{{ 'sp-sections.css' | asset_url | stylesheet_tag }}
+
+{% if section.settings.enabled %}
+  <style>
+    .sp-sticky-cart-{{ section.id }} {
+      background-color: {{ section.settings.bg_color }};
+    }
+    .sp-sticky-cta-{{ section.id }} {
+      background-color: {{ section.settings.cta_color }};
+      color: #ffffff;
+    }
+  </style>
+
+  <div class="sp-sticky-cart sp-sticky-cart-{{ section.id }}" id="sp-sticky-{{ section.id }}">
+    <div class="sp-sticky-product-info" id="sp-sticky-info-{{ section.id }}">
+      <img id="sp-sticky-img-{{ section.id }}" style="width:48px;height:48px;object-fit:cover;border-radius:6px;display:none;" alt="">
+      <div id="sp-sticky-text-{{ section.id }}">
+        <div style="font-weight:600;font-size:0.95rem;" id="sp-sticky-title-{{ section.id }}"></div>
+        <div style="font-size:0.875rem;opacity:0.7;" id="sp-sticky-price-{{ section.id }}"></div>
+      </div>
+    </div>
+    <button class="sp-sticky-cta sp-sticky-cta-{{ section.id }}" id="sp-sticky-btn-{{ section.id }}">
+      {{ section.settings.cta_text }}
+    </button>
+  </div>
+
+  <script>
+    (function() {
+      var bar = document.getElementById('sp-sticky-{{ section.id }}');
+      var titleEl = document.getElementById('sp-sticky-title-{{ section.id }}');
+      var priceEl = document.getElementById('sp-sticky-price-{{ section.id }}');
+      var imgEl = document.getElementById('sp-sticky-img-{{ section.id }}');
+      var btn = document.getElementById('sp-sticky-btn-{{ section.id }}');
+      var dataEl = document.getElementById('sp-product-data');
+
+      if (!bar || !dataEl) return;
+
+      var title, price, image, ctaLink;
+      var mode = dataEl.getAttribute('data-mode');
+
+      if (mode === 'text') {
+        title = dataEl.getAttribute('data-title') || '';
+        price = dataEl.getAttribute('data-price') || '';
+        image = dataEl.getAttribute('data-image') || '';
+        ctaLink = dataEl.getAttribute('data-cta-link') || '';
+      } else {
+        try {
+          var product = JSON.parse(dataEl.getAttribute('data-product') || '{}');
+          title = product.title || '';
+          price = product.variants && product.variants[0]
+            ? '$' + (product.variants[0].price / 100).toFixed(2)
+            : '';
+          image = product.featured_image || '';
+          ctaLink = '';
+        } catch(e) { return; }
+      }
+
+      if (!title && !price) return;
+
+      if (titleEl) titleEl.textContent = title;
+      if (priceEl) priceEl.textContent = price;
+      if (imgEl && image) { imgEl.src = image; imgEl.style.display = 'block'; }
+      if (btn && ctaLink) {
+        btn.addEventListener('click', function() { window.location.href = ctaLink; });
+      }
+
+      var heroEl = document.querySelector('.sp-product-hero-section');
+      bar.style.display = 'none';
+
+      if (heroEl && window.IntersectionObserver) {
+        var observer = new IntersectionObserver(function(entries) {
+          bar.style.display = entries[0].isIntersecting ? 'none' : 'flex';
+        }, { threshold: 0 });
+        observer.observe(heroEl);
+      }
+    })();
+  </script>
+{% endif %}
+
+{% schema %}
+{
+  "name": "SP Sticky Cart",
+  "settings": [
+    { "type": "checkbox", "id": "enabled", "label": "Enable Sticky Cart", "default": true },
+    { "type": "color", "id": "bg_color", "label": "Background Color", "default": "#ffffff" },
+    { "type": "text", "id": "cta_text", "label": "Button Text", "default": "Add to Cart" },
+    { "type": "color", "id": "cta_color", "label": "Button Color", "default": "#1B4332" }
+  ]
+}
+{% endschema %}

@@ -1,0 +1,57 @@
+{{ 'sp-sections.css' | asset_url | stylesheet_tag }}
+
+{% if section.settings.heading != blank or section.blocks.size > 0 %}
+  <style>
+    .sp-how-it-works-{{ section.id }} {
+      padding: var(--sp-spacing-xl) 0;
+    }
+  </style>
+
+  <div class="sp-section sp-how-it-works-{{ section.id }}">
+    <div class="sp-container">
+      {% if section.settings.heading != blank %}
+        <h2 class="sp-section-heading">{{ section.settings.heading }}</h2>
+      {% endif %}
+
+      <div class="sp-steps-grid">
+        {% for block in section.blocks %}
+          {% if block.type == 'step' %}
+            <div {{ block.shopify_attributes }} style="text-align:center;">
+              {% if block.settings.step_image != blank %}
+                {{ block.settings.step_image | image_url: width: 600 | image_tag: class: 'sp-step-img', loading: 'lazy', alt: block.settings.step_title }}
+              {% endif %}
+              <div style="font-size:2rem;font-weight:900;opacity:0.15;margin-bottom:4px;">{{ forloop.index }}</div>
+              {% if block.settings.step_title != blank %}
+                <h3 class="sp-step-title">{{ block.settings.step_title }}</h3>
+              {% endif %}
+              {% if block.settings.step_description != blank %}
+                <p style="line-height:1.6;opacity:0.8;">{{ block.settings.step_description }}</p>
+              {% endif %}
+            </div>
+          {% endif %}
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+{% endif %}
+
+{% schema %}
+{
+  "name": "SP How It Works",
+  "max_blocks": 5,
+  "settings": [
+    { "type": "text", "id": "heading", "label": "Heading" }
+  ],
+  "blocks": [
+    {
+      "type": "step",
+      "name": "Step",
+      "settings": [
+        { "type": "image_picker", "id": "step_image", "label": "Step Image", "info": "Recommended: 600x450px (4:3)" },
+        { "type": "text", "id": "step_title", "label": "Step Title" },
+        { "type": "text", "id": "step_description", "label": "Step Description" }
+      ]
+    }
+  ]
+}
+{% endschema %}

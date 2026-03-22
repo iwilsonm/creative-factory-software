@@ -1,0 +1,50 @@
+{% comment %}
+  Renders a horizontal row of trust/icon badges.
+  Usage: {% render 'sp-trust-bar', blocks: section.blocks, bg_color: ..., section_id: ... %}
+  Params:
+    blocks     - section.blocks
+    bg_color   - color string
+    section_id - section.id
+
+  Icon mapping:
+    check   → ✓
+    undo    → ↩
+    heart   → ♥
+    lock    → 🔒
+    flag_us → 🇺🇸
+    shield  → 🛡
+    star    → ★
+{% endcomment %}
+
+<div class="sp-trust-bar sp-trust-bar-{{ section_id }}">
+  {% for block in blocks %}
+    {% if block.type == 'badge' %}
+      {% assign icon_val = block.settings.icon %}
+      {% case icon_val %}
+        {% when 'check' %}
+          {% assign icon_display = '✓' %}
+        {% when 'undo' %}
+          {% assign icon_display = '↩' %}
+        {% when 'heart' %}
+          {% assign icon_display = '♥' %}
+        {% when 'lock' %}
+          {% assign icon_display = '🔒' %}
+        {% when 'flag_us' %}
+          {% assign icon_display = '🇺🇸' %}
+        {% when 'shield' %}
+          {% assign icon_display = '🛡' %}
+        {% when 'star' %}
+          {% assign icon_display = '★' %}
+        {% else %}
+          {% assign icon_display = '✓' %}
+      {% endcase %}
+
+      <div class="sp-trust-badge" {{ block.shopify_attributes }}>
+        <span class="sp-trust-icon">{{ icon_display }}</span>
+        {% if block.settings.text != blank %}
+          <span>{{ block.settings.text }}</span>
+        {% endif %}
+      </div>
+    {% endif %}
+  {% endfor %}
+</div>

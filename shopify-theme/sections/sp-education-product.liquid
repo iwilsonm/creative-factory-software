@@ -1,0 +1,39 @@
+{{ 'sp-sections.css' | asset_url | stylesheet_tag }}
+
+{% if section.settings.heading != blank %}
+  <style>
+    .sp-education-product-{{ section.id }} {
+      background-color: {{ section.settings.bg_color }};
+      padding: var(--sp-spacing-xl) 0;
+    }
+  </style>
+
+  <div class="sp-section sp-education-product-{{ section.id }}">
+    <div class="sp-container">
+      {% render 'sp-image-text',
+        heading: section.settings.heading,
+        body_text: section.settings.body_text,
+        image: section.settings.image,
+        image_position: section.settings.image_position,
+        link_text: section.settings.link_text,
+        link_url: section.settings.link_url,
+        bg_color: section.settings.bg_color,
+        section_id: section.id %}
+    </div>
+  </div>
+{% endif %}
+
+{% schema %}
+{
+  "name": "SP Education Product",
+  "settings": [
+    { "type": "text", "id": "heading", "label": "Heading" },
+    { "type": "richtext", "id": "body_text", "label": "Body Text" },
+    { "type": "image_picker", "id": "image", "label": "Image", "info": "Recommended: 800x600px (4:3)" },
+    { "type": "select", "id": "image_position", "label": "Image Position", "options": [{ "value": "left", "label": "Left" }, { "value": "right", "label": "Right" }], "default": "left" },
+    { "type": "text", "id": "link_text", "label": "Link Text (optional)" },
+    { "type": "url", "id": "link_url", "label": "Link URL (optional)" },
+    { "type": "color", "id": "bg_color", "label": "Background Color", "default": "#ffffff" }
+  ]
+}
+{% endschema %}

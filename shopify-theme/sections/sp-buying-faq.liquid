@@ -1,0 +1,38 @@
+{{ 'sp-sections.css' | asset_url | stylesheet_tag }}
+
+{% if section.blocks.size > 0 %}
+  <style>
+    .sp-buying-faq-{{ section.id }} {
+      padding: var(--sp-spacing-xl) 0;
+    }
+  </style>
+
+  <div class="sp-section sp-buying-faq-{{ section.id }}">
+    <div class="sp-container" style="max-width:800px;">
+      {% if section.settings.heading != blank %}
+        <h2 class="sp-section-heading">{{ section.settings.heading }}</h2>
+      {% endif %}
+      {% render 'sp-faq-accordion', blocks: section.blocks, section_id: section.id %}
+    </div>
+  </div>
+{% endif %}
+
+{% schema %}
+{
+  "name": "SP Buying FAQ",
+  "max_blocks": 10,
+  "settings": [
+    { "type": "text", "id": "heading", "label": "Heading", "default": "Frequently Asked Questions" }
+  ],
+  "blocks": [
+    {
+      "type": "faq_item",
+      "name": "FAQ Item",
+      "settings": [
+        { "type": "text", "id": "question", "label": "Question" },
+        { "type": "richtext", "id": "answer", "label": "Answer" }
+      ]
+    }
+  ]
+}
+{% endschema %}

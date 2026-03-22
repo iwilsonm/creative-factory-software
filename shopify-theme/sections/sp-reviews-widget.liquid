@@ -1,0 +1,31 @@
+{{ 'sp-sections.css' | asset_url | stylesheet_tag }}
+
+{% if section.settings.reviews_app != 'none' and section.settings.app_widget_code != blank %}
+  <style>
+    .sp-reviews-widget-{{ section.id }} {
+      padding: var(--sp-spacing-xl) 0;
+    }
+  </style>
+
+  <div class="sp-section sp-reviews-widget-{{ section.id }}">
+    <div class="sp-container">
+      {{ section.settings.app_widget_code }}
+    </div>
+  </div>
+{% endif %}
+
+{% schema %}
+{
+  "name": "SP Reviews Widget",
+  "settings": [
+    { "type": "select", "id": "reviews_app", "label": "Reviews App", "options": [
+      { "value": "none", "label": "None" },
+      { "value": "stamped", "label": "Stamped.io" },
+      { "value": "judge_me", "label": "Judge.me" },
+      { "value": "loox", "label": "Loox" },
+      { "value": "yotpo", "label": "Yotpo" }
+    ], "default": "none" },
+    { "type": "html", "id": "app_widget_code", "label": "Widget Embed Code", "info": "Paste the embed code from your reviews app here." }
+  ]
+}
+{% endschema %}

@@ -39,6 +39,8 @@ rsync -avz --delete \
   --exclude '.env.local' \
   --exclude 'logs' \
   "${LOCAL_DIR}/" "${VPS_USER}@${VPS_HOST}:${REMOTE_DIR}/"
+# Note: shopify-theme/ is intentionally NOT excluded above — it syncs to VPS so
+# spThemeInstaller.js can read the files at runtime for the Auto-Install feature.
 
 echo "=== Installing backend dependencies ==="
 ssh "${VPS_USER}@${VPS_HOST}" "cd ${REMOTE_DIR}/backend && npm install --production"

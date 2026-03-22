@@ -1,0 +1,70 @@
+{{ 'sp-sections.css' | asset_url | stylesheet_tag }}
+
+{% if section.settings.heading != blank %}
+  <style>
+    .sp-guarantee-{{ section.id }} {
+      background-color: {{ section.settings.bg_color }};
+      padding: var(--sp-spacing-xl) 0;
+    }
+  </style>
+
+  <div class="sp-section sp-guarantee-{{ section.id }}">
+    <div class="sp-container">
+      <div class="sp-guarantee-layout">
+        <div>
+          <h2 style="font-size:clamp(1.5rem,2.5vw,2rem);font-weight:700;margin-bottom:var(--sp-spacing-md);">{{ section.settings.heading }}</h2>
+          {% if section.settings.body_text != blank %}
+            <div style="line-height:1.7;">{{ section.settings.body_text }}</div>
+          {% endif %}
+        </div>
+        {% if section.blocks.size > 0 %}
+          <div class="sp-guarantee-badges">
+            {% for block in section.blocks %}
+              {% if block.type == 'guarantee_badge' %}
+                {% assign icon_val = block.settings.icon %}
+                {% case icon_val %}
+                  {% when 'shield' %}{% assign icon_emoji = '🛡️' %}
+                  {% when 'refresh' %}{% assign icon_emoji = '🔄' %}
+                  {% when 'check' %}{% assign icon_emoji = '✅' %}
+                  {% when 'heart' %}{% assign icon_emoji = '❤️' %}
+                  {% else %}{% assign icon_emoji = '✓' %}
+                {% endcase %}
+                <div class="sp-guarantee-badge-item" {{ block.shopify_attributes }}>
+                  <span class="sp-guarantee-badge-icon">{{ icon_emoji }}</span>
+                  <span>{{ block.settings.text }}</span>
+                </div>
+              {% endif %}
+            {% endfor %}
+          </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+{% endif %}
+
+{% schema %}
+{
+  "name": "SP Guarantee",
+  "max_blocks": 3,
+  "settings": [
+    { "type": "text", "id": "heading", "label": "Heading" },
+    { "type": "richtext", "id": "body_text", "label": "Body Text" },
+    { "type": "color", "id": "bg_color", "label": "Background Color", "default": "#FAFAF8" }
+  ],
+  "blocks": [
+    {
+      "type": "guarantee_badge",
+      "name": "Guarantee Badge",
+      "settings": [
+        { "type": "select", "id": "icon", "label": "Icon", "options": [
+          { "value": "shield", "label": "Shield" },
+          { "value": "refresh", "label": "Refresh/Return" },
+          { "value": "check", "label": "Checkmark" },
+          { "value": "heart", "label": "Heart" }
+        ], "default": "shield" },
+        { "type": "text", "id": "text", "label": "Text" }
+      ]
+    }
+  ]
+}
+{% endschema %}

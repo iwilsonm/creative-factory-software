@@ -1,0 +1,43 @@
+{{ 'sp-sections.css' | asset_url | stylesheet_tag }}
+
+{% if section.blocks.size > 0 %}
+  <style>
+    .sp-trust-badges-{{ section.id }} {
+      background-color: {{ section.settings.bg_color }};
+    }
+  </style>
+
+  <div class="sp-section sp-trust-badges-{{ section.id }}">
+    <div class="sp-container">
+      {% render 'sp-trust-bar', blocks: section.blocks, bg_color: section.settings.bg_color, section_id: section.id %}
+    </div>
+  </div>
+{% endif %}
+
+{% schema %}
+{
+  "name": "SP Trust Badges",
+  "max_blocks": 5,
+  "settings": [
+    { "type": "color", "id": "bg_color", "label": "Background Color", "default": "#ffffff" }
+  ],
+  "blocks": [
+    {
+      "type": "badge",
+      "name": "Badge",
+      "settings": [
+        { "type": "select", "id": "icon", "label": "Icon", "options": [
+          { "value": "check", "label": "Checkmark" },
+          { "value": "undo", "label": "Undo/Return" },
+          { "value": "heart", "label": "Heart" },
+          { "value": "lock", "label": "Lock" },
+          { "value": "flag_us", "label": "US Flag" },
+          { "value": "shield", "label": "Shield" },
+          { "value": "star", "label": "Star" }
+        ], "default": "check" },
+        { "type": "text", "id": "text", "label": "Text" }
+      ]
+    }
+  ]
+}
+{% endschema %}
