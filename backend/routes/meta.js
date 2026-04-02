@@ -35,14 +35,14 @@ callbackRouter.get('/meta/callback', async (req, res) => {
       }
     }
 
-    const redirectBase = projectId ? `/projects/${projectId}` : '/settings';
+    const redirectBase = projectId ? `/admin/projects/${projectId}` : '/admin/settings';
 
     if (oauthError) {
       return res.redirect(`${redirectBase}?meta=error&message=${encodeURIComponent(oauthError)}`);
     }
 
     if (!projectId) {
-      return res.redirect('/settings?meta=error&message=Missing+project+context');
+      return res.redirect('/admin/settings?meta=error&message=Missing+project+context');
     }
 
     const redirectUri = getRedirectUri(req);
@@ -51,7 +51,7 @@ callbackRouter.get('/meta/callback', async (req, res) => {
     res.redirect(`${redirectBase}?meta=connected`);
   } catch (err) {
     console.error('[Meta] OAuth callback error:', err);
-    res.redirect('/settings?meta=error&message=' + encodeURIComponent(err.message));
+    res.redirect('/admin/settings?meta=error&message=' + encodeURIComponent(err.message));
   }
 });
 

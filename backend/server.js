@@ -300,16 +300,16 @@ process.on('uncaughtException', (err) => {
     });
   });
 
-  // Serve frontend in production
+  // Serve frontend in production at /admin subpath
   if (process.env.NODE_ENV === 'production') {
     const frontendDist = path.join(__dirname, '..', 'frontend', 'dist');
     // Vite hashed assets (JS/CSS) — cache for 1 year (immutable content-hash filenames)
-    app.use('/assets', express.static(path.join(frontendDist, 'assets'), {
+    app.use('/admin/assets', express.static(path.join(frontendDist, 'assets'), {
       maxAge: '1y',
       immutable: true
     }));
-    // Other static files (favicon, etc.) — short cache
-    app.use(express.static(frontendDist, {
+    // Other static files (favicon, fonts, etc.) — short cache
+    app.use('/admin', express.static(frontendDist, {
       maxAge: '5m',
       setHeaders: (res, filePath) => {
         // Never cache index.html — ensures new deploys are picked up immediately
@@ -318,7 +318,12 @@ process.on('uncaughtException', (err) => {
         }
       }
     }));
-    app.get('*', (req, res) => {
+    // SPA catch-all: any /admin route that doesn't match a file -> index.html
+    app.get('/admin/*', (req, res) => {
+      res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+      res.sendFile(path.join(frontendDist, 'index.html'));
+    });
+    app.get('/admin', (req, res) => {
       res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
       res.sendFile(path.join(frontendDist, 'index.html'));
     });
