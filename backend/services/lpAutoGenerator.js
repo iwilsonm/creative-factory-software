@@ -1320,7 +1320,7 @@ export async function runGauntlet(projectId, options = {}, sendEventRaw) {
               angle: frameAngle,
               angleBrief,
               narrativeFrame: frame.instruction,
-              editorialPassEnabled: config.editorial_pass_enabled !== false,
+              editorialPassEnabled: false, // Editorial pass replaced by Chief Checkpoint; flag forced off pending Phase D removal of the param.
               useProductReferenceImages: config.use_product_reference_images !== false,
               agentConfig: config,
               approvedAds,

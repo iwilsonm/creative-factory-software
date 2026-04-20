@@ -802,20 +802,20 @@ export default function LPAgentSettings({ projectId }) {
         </h3>
 
         <div className="space-y-3">
-            {/* Editorial pass toggle */}
+            {/* Chief Checkpoint toggle — replaces the old Opus Editorial Pass */}
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-[12px] font-medium text-textdark">Opus Editorial Pass</p>
-                <p className="text-[10px] text-textlight">Claude Opus reviews copy for strategic improvements before HTML assembly</p>
+                <p className="text-[12px] font-medium text-textdark">Chief Checkpoint</p>
+                <p className="text-[10px] text-textlight">Require human review of each landing page before it publishes to Shopify</p>
               </div>
               <button
-                onClick={() => handleSaveConfig({ editorial_pass_enabled: config?.editorial_pass_enabled === false ? true : false })}
+                onClick={() => handleSaveConfig({ chief_checkpoint_enabled: config?.chief_checkpoint_enabled === false ? true : false })}
                 className={`relative inline-flex h-5 w-9 shrink-0 cursor-pointer rounded-full border-2 border-transparent transition-colors duration-200 ease-in-out focus:outline-none ${
-                  config?.editorial_pass_enabled !== false ? 'bg-navy' : 'bg-gray-200'
+                  config?.chief_checkpoint_enabled !== false ? 'bg-navy' : 'bg-gray-200'
                 }`}
               >
                 <span className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow ring-0 transition duration-200 ease-in-out ${
-                  config?.editorial_pass_enabled !== false ? 'translate-x-4' : 'translate-x-0'
+                  config?.chief_checkpoint_enabled !== false ? 'translate-x-4' : 'translate-x-0'
                 }`} />
               </button>
             </div>

@@ -471,7 +471,7 @@ export default defineSchema({
     swipe_filename: v.optional(v.string()), // Legacy: original swipe PDF filename
     swipe_url: v.optional(v.string()),               // URL of swipe page
     swipe_screenshot_storageId: v.optional(v.string()), // Convex storage ID for full-page screenshot
-    status: v.string(),                  // draft | generating | completed | failed
+    status: v.string(),                  // draft | generating | completed | failed | pending_review | published | unpublished | live | publish_failed | smoke_failed | expired_review | angle_derivation_failed
     error_message: v.optional(v.string()),
     copy_sections: v.optional(v.string()), // JSON: generated copy sections
     // Phase 2 fields
@@ -539,6 +539,10 @@ export default defineSchema({
     gauntlet_batch_started_at: v.optional(v.string()),  // ISO timestamp when batch run began
     gauntlet_batch_completed_at: v.optional(v.string()), // ISO timestamp when batch run finished
     generation_duration_ms: v.optional(v.float64()),     // How long generation took in milliseconds
+    // Angle derivation (auto-gen path: Filter-triggered from flex-ad images)
+    source_angle: v.optional(v.string()),                // The batch's library angle (audit only)
+    derived_angle: v.optional(v.string()),               // JSON brief derived from flex-ad images
+    angle_derivation_image_urls: v.optional(v.string()), // JSON array of Convex storage URLs used in derivation
     created_at: v.string(),
     updated_at: v.string(),
   })
@@ -763,9 +767,9 @@ export default defineSchema({
     // Product page
     pdp_url: v.optional(v.string()),
     // Generation settings
-    default_narrative_frames: v.optional(v.string()), // JSON array of enabled frame IDs
+    default_narrative_frames: v.optional(v.string()), // JSON array of enabled frame IDs (listicle-only post-refactor)
     template_selection_mode: v.optional(v.string()),   // "random" | "weighted"
-    editorial_pass_enabled: v.optional(v.boolean()),
+    chief_checkpoint_enabled: v.optional(v.boolean()), // Require human approval before Shopify publish (default true)
     lp_default_mode: v.optional(v.string()),             // "all" | "opt_in" — default "opt_in"
     auto_publish: v.optional(v.boolean()),
     // Budget

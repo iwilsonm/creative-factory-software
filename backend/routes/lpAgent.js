@@ -43,7 +43,7 @@ router.put('/:id/lp-agent/config', async (req, res) => {
   try {
     const allowedFields = [
       'enabled', 'pdp_url', 'default_narrative_frames', 'template_selection_mode',
-      'editorial_pass_enabled', 'auto_publish', 'daily_budget_cents',
+      'chief_checkpoint_enabled', 'auto_publish', 'daily_budget_cents',
       'use_product_reference_images', 'lifestyle_image_style',
       'default_author_name', 'default_author_title', 'default_warning_text',
       'visual_qa_enabled',
@@ -273,7 +273,7 @@ router.post('/:id/lp-agent/generate-test', async (req, res) => {
       angle: angle_description,
       narrativeFrame: frame.instruction,
       batchJobId: null,
-      editorialPassEnabled: agentConfig?.editorial_pass_enabled !== false,
+      editorialPassEnabled: false, // Editorial pass replaced by Chief Checkpoint; flag forced off pending Phase D removal of the param.
       useProductReferenceImages: agentConfig?.use_product_reference_images !== false,
       agentConfig,
     }, sendEvent, { visualQAEnabled });
@@ -422,7 +422,7 @@ router.get('/:id/lp-agent/status', async (req, res) => {
       shopify_domain: config?.shopify_store_domain || null,
       template_count: readyTemplates.length,
       has_pdp_url: hasPdpUrl,
-      editorial_pass_enabled: config?.editorial_pass_enabled !== false,
+      chief_checkpoint_enabled: config?.chief_checkpoint_enabled !== false,
       auto_publish: config?.auto_publish !== false,
       recent_generations: recentLPs.map(lp => ({
         id: lp.externalId || lp.id,
