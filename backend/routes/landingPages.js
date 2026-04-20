@@ -19,6 +19,7 @@ import {
   getStorageUrl,
   uploadBuffer,
   getLPTemplate,
+  getDocsByProject,
 } from '../convexClient.js';
 import {
   generateLandingPageCopy,
@@ -34,6 +35,7 @@ import {
   extractImageContext,
   generateAutoLP,
   runVisualQA,
+  assignBeliefOrObjectionToSlots,
   NARRATIVE_FRAMES,
 } from '../services/lpGenerator.js';
 import { fetchSwipePage } from '../services/lpSwipeFetcher.js';
@@ -361,13 +363,25 @@ router.post('/:projectId/landing-pages/generate', async (req, res) => {
         sse.sendEvent({ type: 'phase', phase: 'image_generation', message: `Generating ${imageSlots.length} images...` });
         // Load avatar/product context for image prompts (non-fatal if missing)
         const imageContext = await extractImageContext(req.params.projectId);
+
+        // Mark-SOP: assign each slot a belief to install or objection to remove,
+        // drawn from the project's Necessary Beliefs + Research docs. Non-fatal;
+        // rides inside section 1 of the 10-part image prompt. Gated on the
+        // project's daily budget cap.
+        try {
+          const foundationalDocs = await getDocsByProject(req.params.projectId);
+          await assignBeliefOrObjectionToSlots(imageSlots, foundationalDocs, req.params.projectId, sse.sendEvent);
+        } catch (err) {
+          console.warn('[LPGen] Belief/objection enrichment skipped:', err.message);
+        }
+
         populatedImageSlots = await generateSlotImages({
           imageSlots,
           copySections: copyResult.sections,
           angle: angle.trim(),
           brandColors: designAnalysis?.colors || null,
           projectId: req.params.projectId,
-          autoContext: { imageContext },
+          autoContext: { imageContext, brandColors: designAnalysis?.colors || null },
         }, sse.sendEvent);
 
         // Save image slots (with storageIds)

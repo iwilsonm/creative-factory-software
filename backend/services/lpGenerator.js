@@ -14,7 +14,7 @@
 import { chat, chatWithImage, chatWithMultipleImages, extractJSON } from './anthropic.js';
 import { generateImage } from './gemini.js';
 import crypto from 'crypto';
-import { getDocsByProject, uploadBuffer, getStorageUrl, getLPTemplate, getProject, downloadToBuffer, getLPAgentConfig, upsertLPAgentConfig } from '../convexClient.js';
+import { getDocsByProject, uploadBuffer, getStorageUrl, getLPTemplate, getProject, downloadToBuffer, getLPAgentConfig, upsertLPAgentConfig, getCostAggregates } from '../convexClient.js';
 import { getNarrativeFrameBlueprint, getNarrativeFrameHeadlineContract, validateLPContentAlignment } from './lpHeadlineValidation.js';
 import { convertToShopifyFragment } from './shopifyFragment.js';
 
@@ -1919,30 +1919,257 @@ const SLOT_ROLE_DIRECTIONS = {
 };
 
 /**
- * Build a rich, context-aware image prompt for Gemini.
- * Assembles slot role direction + avatar + product + narrative context + constraints.
+ * Belief/objection directive attached to an image slot.
+ * @typedef {{ mode: 'install_belief' | 'remove_objection' | 'skip', statement: string }} SlotBeliefOrObjection
+ */
+
+/**
+ * Check whether today's LP-related spend for this project is already at/over
+ * the configured `lp_agent_config.daily_budget_cents` cap. Returns true when
+ * the caller should skip a spendy step. Never throws — a failed lookup is
+ * treated as "under budget" so the pipeline never blocks on telemetry.
  *
- * @param {object} slot - Image slot definition
+ * @param {string} projectId
+ * @returns {Promise<{overBudget: boolean, spentUsd: number|null, budgetUsd: number|null}>}
+ */
+async function isProjectOverDailyBudget(projectId) {
+  try {
+    const config = await getLPAgentConfig(projectId);
+    const budgetCents = Number(config?.daily_budget_cents);
+    if (!Number.isFinite(budgetCents) || budgetCents <= 0) {
+      return { overBudget: false, spentUsd: null, budgetUsd: null };
+    }
+    const budgetUsd = budgetCents / 100;
+    const today = new Date().toISOString().split('T')[0];
+    const aggregates = await getCostAggregates(today, today, projectId);
+    const spentUsd = Number(aggregates?.total) || 0;
+    return { overBudget: spentUsd >= budgetUsd, spentUsd, budgetUsd };
+  } catch (err) {
+    console.warn('[LPGen] Budget lookup failed (treating as under budget):', err.message);
+    return { overBudget: false, spentUsd: null, budgetUsd: null };
+  }
+}
+
+/**
+ * Enrich each image slot with a belief-to-install or objection-to-remove
+ * directive sourced from the project's Necessary Beliefs + Research docs.
+ * The directive later rides inside section 1 (Subject/Action) of the 10-part
+ * image prompt via `formatBeliefOrObjectionDirective`.
+ *
+ * Non-fatal: any failure (over-budget, LLM error, malformed JSON, contradictory
+ * docs) returns slots untouched and emits a skipped/failed progress event.
+ *
+ * @param {Array<object>} imageSlots - Will be mutated in place (and also returned).
+ * @param {{research?:string, avatar?:string, offer_brief?:string, necessary_beliefs?:string}} foundationalDocs
+ * @param {string} projectId
+ * @param {(event:object)=>void} [sendEvent]
+ * @returns {Promise<Array<object>>} same `imageSlots` array
+ */
+export async function assignBeliefOrObjectionToSlots(imageSlots, foundationalDocs, projectId, sendEvent = () => {}) {
+  if (!Array.isArray(imageSlots) || imageSlots.length === 0) return imageSlots;
+
+  // Cost gate — skip entirely if this project has already blown its daily cap.
+  const budget = await isProjectOverDailyBudget(projectId);
+  if (budget.overBudget) {
+    sendEvent({
+      type: 'progress',
+      step: 'image_concepts_skipped',
+      message: `Over daily budget ($${budget.spentUsd?.toFixed(2)} of $${budget.budgetUsd?.toFixed(2)}) — skipping belief/objection assignment.`,
+    });
+    return imageSlots;
+  }
+
+  sendEvent({ type: 'progress', step: 'image_concepts', message: 'Assigning belief or objection to each image slot...' });
+
+  const docs = foundationalDocs || {};
+  const beliefsText = String(docs.necessary_beliefs || '').slice(0, 3000).trim();
+  const researchText = String(docs.research || '').slice(0, 2000).trim();
+  const avatarText = String(docs.avatar || '').slice(0, 1500).trim();
+
+  // No foundational grounding to draw from — skip rather than hallucinate.
+  if (!beliefsText && !researchText) {
+    sendEvent({
+      type: 'progress',
+      step: 'image_concepts_skipped',
+      message: 'No beliefs/research docs available — skipping belief/objection assignment.',
+    });
+    return imageSlots;
+  }
+
+  const slotDescriptions = imageSlots.map((slot, i) => {
+    const id = slot.slot_id || `image_${i + 1}`;
+    const description = String(slot.description || slot.type || 'generic').trim();
+    return `- ${id}: ${description}`;
+  }).join('\n');
+
+  const systemPrompt = `You are a senior direct-response creative director. Your job is to assign every landing-page image slot a single belief-installation or objection-removal directive, grounded in the project's Necessary Beliefs and Research docs. Every image earns its place on the page by doing ONE of:
+1) Installing an empowering belief that moves the reader toward purchase.
+2) Removing a specific objection blocking the purchase.
+
+If the Necessary Beliefs and Research docs contradict each other on a slot (e.g. the beliefs list asserts X but research shows the avatar rejects X), return {"mode": "skip", "statement": ""} for that slot — do not fabricate a directive.`;
+
+  const userPrompt = `NECESSARY BELIEFS (authoritative list of beliefs to install):
+${beliefsText || '(not provided)'}
+
+RESEARCH (customer pains, objections, validated truths):
+${researchText || '(not provided)'}
+
+AVATAR (target customer):
+${avatarText || '(not provided)'}
+
+IMAGE SLOTS (${imageSlots.length} total):
+${slotDescriptions}
+
+For each slot, return a JSON object with this exact shape:
+{
+  "assignments": [
+    { "slot_id": "<id>", "mode": "install_belief" | "remove_objection" | "skip", "statement": "<one concise sentence or empty if mode='skip'>" }
+  ]
+}
+
+Rules:
+- Exactly one assignment per slot, in the same order the slots were listed.
+- "statement" is the belief or objection phrased as a single sentence the image should evoke — not a description of the image itself.
+- Use "skip" only when the docs genuinely contradict each other on that slot, not as a default.
+- Do not repeat the exact same statement across slots. If the same belief fits multiple slots, rephrase each occurrence.`;
+
+  try {
+    const response = await chat(
+      [
+        { role: 'system', content: systemPrompt },
+        { role: 'user', content: userPrompt },
+      ],
+      'claude-sonnet-4-6',
+      {
+        max_tokens: 2000,
+        response_format: { type: 'json_object' },
+        operation: 'lp_image_belief_or_objection',
+        projectId,
+        timeout: 120000,
+      }
+    );
+
+    let parsed;
+    try {
+      parsed = typeof response === 'object' && response !== null ? response : JSON.parse(response);
+    } catch {
+      parsed = extractJSON(response);
+    }
+    const assignments = Array.isArray(parsed?.assignments) ? parsed.assignments : [];
+    const byId = new Map();
+    for (const entry of assignments) {
+      if (!entry || typeof entry !== 'object') continue;
+      const id = String(entry.slot_id || '').trim();
+      if (!id) continue;
+      const mode = ['install_belief', 'remove_objection', 'skip'].includes(entry.mode) ? entry.mode : 'skip';
+      const statement = String(entry.statement || '').trim();
+      byId.set(id, { mode, statement });
+    }
+
+    let attached = 0;
+    for (let i = 0; i < imageSlots.length; i++) {
+      const slot = imageSlots[i];
+      const id = slot.slot_id || `image_${i + 1}`;
+      const directive = byId.get(id);
+      if (directive && directive.mode !== 'skip' && directive.statement) {
+        slot.belief_or_objection = directive;
+        attached += 1;
+      } else {
+        slot.belief_or_objection = { mode: 'skip', statement: '' };
+      }
+    }
+
+    sendEvent({
+      type: 'progress',
+      step: 'image_concepts_complete',
+      message: `Assigned belief/objection directives to ${attached}/${imageSlots.length} slots.`,
+    });
+  } catch (err) {
+    console.warn('[LPGen] Belief/objection assignment failed (non-fatal):', err.message);
+    sendEvent({
+      type: 'progress',
+      step: 'image_concepts_skipped',
+      message: `Belief/objection assignment failed — using slot descriptions only: ${err.message}`,
+    });
+  }
+
+  return imageSlots;
+}
+
+/**
+ * Camera / lighting / composition treatments keyed on the detected slot role.
+ * Every role populates sections 3-5 of Mark's 10-part prompt structure.
+ */
+const SLOT_ROLE_CAMERA_AND_LIGHTING = {
+  hero:            { lighting: 'soft warm morning light, golden-hour feel', camera: 'medium-wide shot, eye level, 35mm lens', composition: 'subject centered with breathing room, shallow depth of field' },
+  problem:         { lighting: 'low-key moody daylight, a hint of desaturation', camera: 'tight close-up or medium shot, slightly low angle', composition: 'subject off-center, negative space emphasizing isolation' },
+  product:         { lighting: 'bright, even natural light — no hard shadows on the product', camera: 'medium macro shot, eye level, 50mm lens', composition: 'rule of thirds, product as the clear focal point on a clean surface' },
+  solution:        { lighting: 'soft natural daylight, warm tone', camera: 'medium shot, eye level', composition: 'balanced composition showing the product in use, gentle leading lines toward the product' },
+  results:         { lighting: 'bright warm light, golden-hour bias', camera: 'medium shot, eye level', composition: 'subject relaxed and content, open posture, uncluttered background' },
+  proof:           { lighting: 'natural editorial daylight, soft fill', camera: 'medium close-up, interview framing', composition: 'subject mid-gesture or mid-sentence, rule of thirds, context visible in background' },
+  social_proof:    { lighting: 'warm natural light, community-scene feel', camera: 'medium-wide shot, eye level', composition: 'small group interaction, layered depth, faces clearly readable' },
+  lifestyle:       { lighting: 'golden hour or soft diffuse daylight', camera: 'wide lifestyle shot, 35mm lens', composition: 'environmental context dominant, subject integrated into the scene' },
+  transformation:  { lighting: 'bright even daylight', camera: 'medium shot, eye level', composition: 'clear visual contrast between problem and result — diptych framing if slot supports it, otherwise single-image "after" state with obvious positive shift' },
+  general:         { lighting: 'natural warm daylight', camera: 'medium shot, eye level, 50mm lens', composition: 'rule of thirds, shallow depth of field' },
+};
+
+/**
+ * Format a belief/objection directive onto the Subject/Action line.
+ * Returns '' when the slot has no directive, an empty statement, or mode='skip'.
+ */
+export function formatBeliefOrObjectionDirective(slotDirective) {
+  if (!slotDirective || typeof slotDirective !== 'object') return '';
+  const mode = String(slotDirective.mode || '').toLowerCase();
+  const statement = String(slotDirective.statement || '').trim();
+  if (!statement || mode === 'skip') return '';
+  if (mode === 'install_belief') {
+    return ` — image should emotionally convey the belief: ${statement}`;
+  }
+  if (mode === 'remove_objection') {
+    return ` — image should visually dismantle the objection: ${statement}`;
+  }
+  return '';
+}
+
+/**
+ * Build a Mark-SOP-compliant 10-part image prompt for Gemini / Nano Banana Pro.
+ *
+ * Structure:
+ *   1. Subject/Action
+ *   2. Art Style
+ *   3. Lighting
+ *   4. Camera/Angle
+ *   5. Composition (with listicle modifier)
+ *   6. Brand Colors
+ *   7. Product Representation
+ *   8. Specific Text (negative — no text/logos/UI)
+ *   9. Clarity
+ *  10. --ar <aspect ratio>
+ *
+ * Followed by a NEGATIVE CONSTRAINTS block for demographic / product-shape
+ * guardrails and the grounding-sheet special case.
+ *
+ * @param {object} slot - Image slot definition (may carry `belief_or_objection`)
  * @param {string} angle - Marketing angle
  * @param {string} copyContext - Condensed copy sections for tone matching
- * @param {object|null} autoContext - { narrativeFrame, editorialPlan, imageContext }
- * @param {number} slotIndex - 0-based index
+ * @param {object|null} autoContext - { narrativeFrame, imageContext, brandColors, angle }
+ * @param {number} slotIndex - 0-based slot index
  * @param {number} totalSlots - Total number of image slots
+ * @param {object|null} angleBrief - Optional structured angle brief
+ * @param {object|null} brandColors - Normalized hex palette (overrides autoContext)
  * @returns {string} Complete Gemini prompt
  */
-function buildImagePrompt(slot, angle, copyContext, autoContext, slotIndex, totalSlots, angleBrief = null, brandColors = null) {
+export function buildImagePrompt(slot, angle, copyContext, autoContext, slotIndex, totalSlots, angleBrief = null, brandColors = null) {
   const imageContext = autoContext?.imageContext || {};
   const slotRole = detectSlotRole(slot, slotIndex, totalSlots);
-  const roleDirection = SLOT_ROLE_DIRECTIONS[slotRole] || SLOT_ROLE_DIRECTIONS.general;
+  const cameraLighting = SLOT_ROLE_CAMERA_AND_LIGHTING[slotRole] || SLOT_ROLE_CAMERA_AND_LIGHTING.general;
 
   // Pull LLM-extracted visuals if available (richer than regex-based strings)
   const pv = imageContext.productVisual; // { productName, productType, physicalDescription, usageContext, notThisProduct[] }
   const av = imageContext.avatarVisual;  // { gender, ageRange, lifestyle, emotionalState, settingCues, notThisPerson[] }
 
-  // ── Build SUBJECT description (WHO + WHAT — the most important part) ──
-  // This goes first so Gemini reads it before anything else
+  // ── Part 1: Subject/Action ──────────────────────────────────────────────
   let subjectDescription;
-
   if (slotRole === 'product' && (pv || imageContext.productContext)) {
     if (pv) {
       subjectDescription = `${pv.productName || pv.productType}: ${pv.physicalDescription || ''}. Photographed in a natural editorial style — close-up or medium shot showing the product clearly.`;
@@ -1950,27 +2177,24 @@ function buildImagePrompt(slot, angle, copyContext, autoContext, slotIndex, tota
       subjectDescription = `A ${imageContext.productContext}, photographed in a natural editorial style. Close-up or medium shot showing the product clearly.`;
     }
   } else if ((av || imageContext.avatarContext) && (pv || imageContext.productContext)) {
-    // Person + product scene
     const personDesc = av
       ? `A ${av.gender === 'female' ? 'woman' : av.gender === 'male' ? 'man' : 'person'} in ${av.gender === 'female' ? 'her' : av.gender === 'male' ? 'his' : 'their'} ${av.ageRange || '50s-60s'}. ${av.lifestyle ? av.lifestyle.split('.')[0] + '.' : ''} ${av.emotionalState ? av.emotionalState.split('.')[0] + '.' : ''}`
       : `A ${imageContext.avatarContext}`;
     const productDesc = pv
       ? `${pv.productName || pv.productType} (${pv.productType || ''}) — ${pv.physicalDescription || ''}`
       : imageContext.productContext;
-    subjectDescription = `${personDesc}\nUsing or near: ${productDesc}.\nNatural pose, authentic expression, real setting.`;
+    subjectDescription = `${personDesc} Using or near: ${productDesc}. Natural pose, authentic expression, real setting.`;
   } else if (av || imageContext.avatarContext) {
     const personDesc = av
       ? `A ${av.gender === 'female' ? 'woman' : av.gender === 'male' ? 'man' : 'person'} in ${av.gender === 'female' ? 'her' : av.gender === 'male' ? 'his' : 'their'} ${av.ageRange || '50s-60s'}. ${av.lifestyle ? av.lifestyle.split('.')[0] + '.' : ''}`
       : `A ${imageContext.avatarContext}`;
-    subjectDescription = `${personDesc}\nNatural pose, authentic setting, genuine expression.`;
+    subjectDescription = `${personDesc} Natural pose, authentic setting, genuine expression.`;
   } else {
     subjectDescription = slot.description || 'Editorial lifestyle photograph for a health/wellness article';
   }
 
-  // ── Build SCENE context (secondary — where and why) ──
   const settingHint = av?.settingCues ? ` Setting: ${av.settingCues}.` : '';
-  const usageHint = pv?.usageContext ? ` Usage: ${pv.usageContext}` : '';
-  // Enrich scene with structured brief context when available
+  const usageHint = pv?.usageContext ? ` Usage: ${pv.usageContext}.` : '';
   let angleHint = `Marketing angle: ${angle}.`;
   if (angleBrief && (angleBrief.scene || angleBrief.tone)) {
     const parts = [`Marketing angle: ${angle}.`];
@@ -1978,16 +2202,29 @@ function buildImagePrompt(slot, angle, copyContext, autoContext, slotIndex, tota
     if (angleBrief.tone) parts.push(`Tone: ${angleBrief.tone}.`);
     angleHint = parts.join(' ');
   }
-  const sceneDescription = `${slot.description || 'Lifestyle scene'}. ${angleHint}${settingHint}${usageHint}`;
+  const subjectPlus = `${subjectDescription} ${angleHint}${settingHint}${usageHint}${formatBeliefOrObjectionDirective(slot.belief_or_objection)}`.trim();
 
-  // ── Listicle image style (only remaining frame post-Mark-SOP refactor) ──
-  const narrativeHint = '\nLISTICLE FRAME — Organized, editorial, magazine-style. Clean backgrounds, good separation of elements. Each image should feel like it belongs in a curated list article. Professional, crisp, well-composed.';
+  // ── Part 5: Composition — slot-role base + listicle-frame modifier ──────
+  const compositionLine = `${cameraLighting.composition}. Editorial magazine layout — clean separation of elements, suitable for a numbered list article.`;
 
-  // Editorial direction per-slot override — REMOVED. The Opus editorial pass
-  // that produced image_direction_updates was retired in favor of the Chief
-  // Checkpoint. The editorialHint below stays empty so the rest of the prompt
-  // assembly continues to work without special-casing.
-  const editorialHint = '';
+  // ── Part 6: Brand Colors ────────────────────────────────────────────────
+  const effectiveBrandColors = brandColors || autoContext?.brandColors || null;
+  const brandColorsLine = buildBrandColorsLine(effectiveBrandColors);
+
+  // ── Part 7: Product Representation ──────────────────────────────────────
+  let productRepresentation;
+  if (pv) {
+    productRepresentation = `${pv.productName || pv.productType}: ${pv.physicalDescription || 'show the product with accurate form factor'}. Hero framing when the slot is product-focused; integrated into the scene otherwise.`;
+  } else if (imageContext.productContext) {
+    productRepresentation = `${imageContext.productContext}. Correct form factor, integrated naturally into the scene.`;
+  } else {
+    productRepresentation = 'No product required for this slot — focus on the subject and scene.';
+  }
+
+  // ── Part 10: Aspect ratio ───────────────────────────────────────────────
+  const aspectRatio = (slot.aspect_ratio && String(slot.aspect_ratio).replace(/\s/g, '')) || '16:9';
+
+  // ── Negative constraints block ──────────────────────────────────────────
   const productDescriptor = [
     pv?.productName,
     pv?.productType,
@@ -1997,57 +2234,55 @@ function buildImagePrompt(slot, angle, copyContext, autoContext, slotIndex, tota
   ].filter(Boolean).join(' ').toLowerCase();
   const isGroundingSheetProduct = /\b(grounding|conductive)\b/.test(productDescriptor) && /\b(sheet|bedsheet|fitted sheet)\b/.test(productDescriptor);
 
-  // ── Constraints (negative prompting — works best at end for Gemini) ──
-  let constraints = `STRICT REQUIREMENTS:
-- Photorealistic editorial photography — like a real photo in a magazine feature article
-- ABSOLUTELY NO TEXT, WORDS, LETTERS, NUMBERS, WATERMARKS, OR LOGOS anywhere in the image — not on screens, not on products, not on clothing, not on signs, not on labels, nowhere
-- No UI elements, buttons, banners, overlays, or graphic design elements
-- No phones, tablets, laptop screens, or any device displaying text or graphics
-- Warm, natural lighting. Shallow depth of field where appropriate
-- Clean composition, intentional framing, professional color grading
-- If people are shown, they must look natural and authentic — real expressions, real settings, NOT posed stock photography`;
+  const negatives = [];
+  negatives.push('No UI elements, buttons, banners, overlays, or graphic design elements.');
+  negatives.push('No phones, tablets, laptop screens, or any device displaying text or graphics.');
+  negatives.push('If people are shown, they must look natural and authentic — real expressions, real settings, NOT posed stock photography.');
 
-  // Rich demographic constraints from LLM extraction
   if (av) {
     const genderWord = av.gender === 'female' ? 'woman' : av.gender === 'male' ? 'man' : 'person';
-    constraints += `\n- The person MUST be: a ${genderWord}, age ${av.ageRange || '50-70'}`;
+    negatives.push(`The person MUST be: a ${genderWord}, age ${av.ageRange || '50-70'}.`);
     if (av.notThisPerson && av.notThisPerson.length > 0) {
-      constraints += `\n- Do NOT show: ${av.notThisPerson.join(', ')}`;
+      negatives.push(`Do NOT show: ${av.notThisPerson.join(', ')}.`);
     }
   } else if (imageContext.avatarContext) {
-    constraints += `\n- People in the image MUST match the target customer demographic: ${imageContext.avatarContext}`;
+    negatives.push(`People in the image MUST match the target customer demographic: ${imageContext.avatarContext}.`);
   }
 
-  // Rich product constraints from LLM extraction — with "THIS IS NOT" block
   if (pv) {
-    constraints += `\n- The product MUST be: ${pv.productType || ''} — ${pv.physicalDescription || ''}`;
+    negatives.push(`The product MUST be: ${pv.productType || ''} — ${pv.physicalDescription || ''}.`);
     if (pv.notThisProduct && pv.notThisProduct.length > 0) {
-      constraints += `\n- THIS IS NOT: ${pv.notThisProduct.join(', ')}. If the product is a ${pv.productType || 'product'}, show a ${pv.productType || 'product'} — NOT a ${pv.notThisProduct[0]}`;
+      negatives.push(`THIS IS NOT: ${pv.notThisProduct.join(', ')}. Show a ${pv.productType || 'product'} — NOT a ${pv.notThisProduct[0]}.`);
     }
   } else if (imageContext.productContext) {
-    constraints += `\n- Any product shown MUST be: ${imageContext.productContext} — correct form factor, NOT a different product`;
-  }
-  if (isGroundingSheetProduct) {
-    constraints += `\n- For grounding-sheet imagery, the bed MUST clearly show a fitted grounding sheet on the mattress, not a plain flat sheet, blanket, topper, bare mattress, or yoga mat`;
-    constraints += `\n- Show the grounding cord or visible connection point whenever the product is featured prominently`;
-    constraints += `\n- Make the conductive-sheet identity obvious through the fitted-sheet form factor and grounded-bed context`;
+    negatives.push(`Any product shown MUST be: ${imageContext.productContext} — correct form factor, NOT a different product.`);
   }
 
-  const brandColorsLine = buildBrandColorsLine(brandColors);
+  if (isGroundingSheetProduct) {
+    negatives.push('Grounding-sheet imagery MUST clearly show a fitted grounding sheet on the mattress — not a plain flat sheet, blanket, topper, bare mattress, or yoga mat.');
+    negatives.push('Show the grounding cord or visible connection point whenever the product is featured prominently.');
+    negatives.push('Make the conductive-sheet identity obvious through the fitted-sheet form factor and grounded-bed context.');
+  }
+
+  const negativesBlock = `NEGATIVE CONSTRAINTS:\n- ${negatives.join('\n- ')}`;
 
   return `Generate a photorealistic editorial photograph.
 
-SUBJECT: ${subjectDescription}
-
-SCENE: ${sceneDescription}
-IMAGE ROLE: ${slotRole.toUpperCase()} — ${roleDirection}${narrativeHint}${editorialHint}
-
-${brandColorsLine}
+1. Subject/Action: ${subjectPlus}
+2. Art Style: Photorealistic editorial photography — magazine feature article, not stock photo.
+3. Lighting: ${cameraLighting.lighting}.
+4. Camera/Angle: ${cameraLighting.camera}.
+5. Composition: ${compositionLine}
+6. ${brandColorsLine}
+7. Product Representation: ${productRepresentation}
+8. Specific Text: No text, words, letters, numbers, watermarks, logos, or UI elements anywhere in the image.
+9. Clarity: Sharp focus on the subject; natural bokeh on the background; avoid motion blur unless the slot role is "lifestyle".
+10. --ar ${aspectRatio}
 
 CONTEXT FROM THE ARTICLE:
-${copyContext}
+${copyContext || '(no copy context provided)'}
 
-${constraints}`;
+${negativesBlock}`;
 }
 
 /**
@@ -4767,6 +5002,11 @@ For "uncovered_beliefs", list any necessary beliefs from the document that the c
     sendEvent({ type: 'progress', step: 'images_cached', message: 'Using pre-scored images' });
     audit('images', 'cached', `${imageSlots.filter(s => s.generated).length} pre-scored images`);
   } else {
+    // Mark-SOP: assign each slot a belief to install or objection to remove,
+    // pulled from the foundational docs. Non-fatal; feeds section 1 of the
+    // 10-part image prompt. Gated on `daily_budget_cents`.
+    await assignBeliefOrObjectionToSlots(designAnalysis.image_slots, foundationalDocs, projectId, sendEvent);
+
     imageSlots = await generateSlotImages({
       imageSlots: designAnalysis.image_slots,
       copySections,

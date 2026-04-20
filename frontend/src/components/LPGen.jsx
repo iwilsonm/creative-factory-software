@@ -1897,6 +1897,7 @@ export default function LPGen({ projectId, project }) {
     'half_one': 24, 'half_one_retry': 26, 'half_one_validated': 30,
     'half_one_soft_warning': 30, 'half_two': 34,
     'parsing': 37, 'copy_complete': 40,
+    'image_concepts': 48, 'image_concepts_complete': 54, 'image_concepts_skipped': 54,
     'images_starting': 58, 'image_generating': 62, 'images_complete': 80, 'images_skipped': 80,
     'html_generating': 82, 'html_complete': 92,
     'qa_running': 94, 'qa_complete': 97,
