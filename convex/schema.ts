@@ -770,6 +770,11 @@ export default defineSchema({
     default_narrative_frames: v.optional(v.string()), // JSON array of enabled frame IDs (listicle-only post-refactor)
     template_selection_mode: v.optional(v.string()),   // "random" | "weighted"
     chief_checkpoint_enabled: v.optional(v.boolean()), // Require human approval before Shopify publish (default true)
+    // DEPRECATED — Opus editorial pass retired by Phase D; Chief Checkpoint
+    // replaces it. Kept as an optional field so existing production rows
+    // still validate. Drop once a data migration strips the field from
+    // every row.
+    editorial_pass_enabled: v.optional(v.boolean()),
     lp_default_mode: v.optional(v.string()),             // "all" | "opt_in" — default "opt_in"
     auto_publish: v.optional(v.boolean()),
     // Budget
