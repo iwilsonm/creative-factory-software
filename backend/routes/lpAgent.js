@@ -273,7 +273,6 @@ router.post('/:id/lp-agent/generate-test', async (req, res) => {
       angle: angle_description,
       narrativeFrame: frame.instruction,
       batchJobId: null,
-      editorialPassEnabled: false, // Editorial pass replaced by Chief Checkpoint; flag forced off pending Phase D removal of the param.
       useProductReferenceImages: agentConfig?.use_product_reference_images !== false,
       agentConfig,
     }, sendEvent, { visualQAEnabled });
@@ -320,9 +319,10 @@ router.post('/:id/lp-agent/generate-test', async (req, res) => {
     });
     updateFields.slug = generateSlug(slugSource);
 
-    // Persist audit trail + editorial plan
+    // Persist audit trail. Editorial plan is always null post-Mark-SOP refactor
+    // (Chief Checkpoint replaced the Opus editorial pass), so we never write
+    // the field — existing historical LP rows keep their editorial_plan intact.
     if (result.auditTrail) updateFields.audit_trail = JSON.stringify(result.auditTrail);
-    if (result.editorialPlan) updateFields.editorial_plan = JSON.stringify(result.editorialPlan);
 
     // Save QA results
     if (qaReport) {

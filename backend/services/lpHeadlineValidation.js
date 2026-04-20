@@ -20,93 +20,10 @@ const TITLE_FAMILY_STOPWORDS = new Set([
   'trip', 'trips', 'use', 'using', 'worst',
 ]);
 
+// Listicle-only post-Mark-SOP refactor. Historical LPs may carry legacy frame
+// ids in their narrative_frame column — getNarrativeFrameBlueprint() falls
+// back to a generic blueprint below so their records still render safely.
 const FRAME_BLUEPRINTS = {
-  testimonial: {
-    contract: 'Headline must read like a lived story, a personal result, or a journey moment.',
-    titleFamily: 'testimonial_journey',
-    titleShape: 'lived-result story',
-    openingMove: 'Lead with a lived moment, dread, relief, or before/after result.',
-    sectionEmphasis: ['lead', 'story', 'proof', 'offer'],
-    proofStyle: 'personal before/after specifics and named customer proof',
-    persuasionPattern: 'struggle -> turning point -> result',
-    ctaStyle: 'personal invitation tied to the result',
-    forbiddenStructuralPatterns: ['mechanism explainer opener', 'myth/truth opener', 'numbered list opener'],
-    requiredHeadlineGroups: [
-      { label: 'lived perspective', patterns: [/^(i|my|we)\b/i, /\b(i|my|we)\b/i] },
-      { label: 'story/result movement', patterns: [/\b(for years|finally|one night|after|dreaded|spent|woke|changed|stopped)\b/i] },
-    ],
-    requiredCopyGroups: [
-      { label: 'first-person story voice', patterns: [/\b(i|my|we)\b/i, /\bone night\b/i, /\bfor years\b/i] },
-      { label: 'journey progression', patterns: [/\b(before|after|finally|then|until)\b/i, /\b(struggl|changed|stopped|relief)\b/i] },
-    ],
-    requiredSectionTypes: ['lead', 'proof'],
-    forbiddenHeadlinePatterns: [/^\s*(\d+|one|two|three|four|five|six|seven|eight|nine|ten)\b/i, /\b(myth|wrong|truth|people think)\b/i, /^(how|why|what)\b/i],
-    forbiddenCopyPatterns: [/\b(myth|people think|the real reason|reason one|reason two)\b/i],
-  },
-  mechanism: {
-    contract: 'Headline must lead with how, why, hidden cause, or explanatory curiosity.',
-    titleFamily: 'mechanism_explainer',
-    titleShape: 'explanatory curiosity',
-    openingMove: 'Lead with how/why or the hidden cause that explains the problem.',
-    sectionEmphasis: ['lead', 'solution', 'benefits', 'proof'],
-    proofStyle: 'cause-and-effect explanation supported by practical proof',
-    persuasionPattern: 'curiosity -> cause -> explanation -> solution',
-    ctaStyle: 'resolve the hidden cause',
-    forbiddenStructuralPatterns: ['first-person testimonial opener', 'generic myth framing', 'numbered list opener'],
-    requiredHeadlineGroups: [
-      { label: 'mechanism opener', patterns: [/^(how|why|what)\b/i, /\b(real reason|hidden cause|blocking|trigger|behind|keeps)\b/i] },
-    ],
-    requiredCopyGroups: [
-      { label: 'causal explanation', patterns: [/\b(because|reason|trigger|cause|mechanism|signals?|switch|nervous system|stays on)\b/i] },
-      { label: 'why alternatives fail', patterns: [/\b(traditional|usual|common|nothing else|doesnt work|fails?|root cause|doesnt address|doesn't address|only helps|misses what happens|surface level|surface-level)\b/i] },
-    ],
-    requiredSectionTypes: ['lead', 'solution'],
-    forbiddenHeadlinePatterns: [/^\s*(\d+|one|two|three|four|five|six|seven|eight|nine|ten)\b/i, /\b(myth|wrong|truth|people think)\b/i, /^(i|my|we)\b/i],
-    forbiddenCopyPatterns: [/\b(reason one|reason two|myth)\b/i],
-  },
-  problem_agitation: {
-    contract: 'Headline must open on the recurring pain pattern, symptom, or frustration.',
-    titleFamily: 'pain_pattern_agitation',
-    titleShape: 'pain-led symptom moment',
-    openingMove: 'Lead with the painful recurring moment the reader instantly recognizes.',
-    sectionEmphasis: ['lead', 'problem', 'solution', 'offer'],
-    proofStyle: 'pain recognition followed by relief-oriented proof',
-    persuasionPattern: 'pain pattern -> frustration -> escalation -> relief transition',
-    ctaStyle: 'urgent relief from the recurring problem',
-    forbiddenStructuralPatterns: ['first-person testimonial opener', 'pure mechanism explainer opener', 'numbered list opener'],
-    requiredHeadlineGroups: [
-      { label: 'pain or symptom moment', patterns: [/\b(wake|wakes|bathroom|pee|back in bed|wide awake|worst part|cannot fall back asleep|cant fall back asleep)\b/i] },
-      { label: 'friction or distress', patterns: [/\b(exhausted|frustrat|dawn|clock|again|night after night|lie there)\b/i, /\byou\b/i] },
-    ],
-    requiredCopyGroups: [
-      { label: 'reader-focused pain voice', patterns: [/\byou\b/i, /\b(your|night after night|again)\b/i] },
-      { label: 'specific symptom friction', patterns: [/\b(bathroom|pee|back in bed|wide awake|ceiling|clock|dawn|worst part)\b/i] },
-    ],
-    requiredSectionTypes: ['lead', 'problem'],
-    forbiddenHeadlinePatterns: [/^\s*(\d+|one|two|three|four|five|six|seven|eight|nine|ten)\b/i, /\b(myth|wrong|truth|people think)\b/i],
-    forbiddenCopyPatterns: [/\b(reason one|reason two|myth|people think)\b/i],
-  },
-  myth_busting: {
-    contract: 'Headline must challenge a mistaken belief or common assumption.',
-    titleFamily: 'belief_reversal',
-    titleShape: 'belief challenge',
-    openingMove: 'Lead by challenging a mistaken belief, false explanation, or conventional wisdom.',
-    sectionEmphasis: ['lead', 'problem', 'solution', 'proof'],
-    proofStyle: 'belief reversal supported by corrective explanation and evidence',
-    persuasionPattern: 'common belief -> why it feels true -> what is actually true',
-    ctaStyle: 'act on the corrected truth',
-    forbiddenStructuralPatterns: ['first-person testimonial opener', 'generic why/how mechanism opener without belief reversal', 'numbered list opener'],
-    requiredHeadlineGroups: [
-      { label: 'belief-challenge language', patterns: [/\b(myth|mistake|wrong|truth|people think|youve been told|not the real reason|isnt|doesnt)\b/i] },
-    ],
-    requiredCopyGroups: [
-      { label: 'belief reversal copy', patterns: [/\b(people think|youve been told|most people|actually|truth|wrong|myth)\b/i] },
-      { label: 'correction language', patterns: [/\b(instead|real reason|what is actually happening|not the real reason)\b/i] },
-    ],
-    requiredSectionTypes: ['lead', 'solution'],
-    forbiddenHeadlinePatterns: [/^\s*(\d+|one|two|three|four|five|six|seven|eight|nine|ten)\b/i, /^(i|my|we)\b/i],
-    forbiddenCopyPatterns: [/\b(reason one|reason two)\b/i],
-  },
   listicle: {
     contract: 'Headline must use an explicit numbered or list-driven structure.',
     titleFamily: 'numbered_list',
@@ -131,42 +48,6 @@ const FRAME_BLUEPRINTS = {
 };
 
 const TITLE_BLUEPRINTS = {
-  testimonial: {
-    conceptFamily: 'story_result',
-    requiredTitleGoal: 'Anchor the title in a lived experience, turning point, or result moment.',
-    requiredOpeningShape: 'story_led',
-    requiredClaimType: 'story_result',
-    requiredSceneAnchorBehavior: 'scene_as_personal_story',
-    forbiddenClaimTypes: ['hidden_cause', 'belief_reversal', 'numbered_promise'],
-    forbiddenOpeningShapes: ['numbered_list', 'belief_reversal', 'why_explainer'],
-  },
-  mechanism: {
-    conceptFamily: 'hidden_cause',
-    requiredTitleGoal: 'Reveal the hidden cause or the exact why behind the wake-to-pee / back-to-bed problem.',
-    requiredOpeningShape: 'why_explainer',
-    requiredClaimType: 'hidden_cause',
-    requiredSceneAnchorBehavior: 'scene_as_hidden_cause',
-    forbiddenClaimTypes: ['story_result', 'belief_reversal', 'numbered_promise'],
-    forbiddenOpeningShapes: ['numbered_list', 'first_person_story'],
-  },
-  problem_agitation: {
-    conceptFamily: 'pain_pattern',
-    requiredTitleGoal: 'Center the painful recurring moment itself and the friction it creates.',
-    requiredOpeningShape: 'pain_scene',
-    requiredClaimType: 'pain_pattern',
-    requiredSceneAnchorBehavior: 'scene_as_recurring_pain',
-    forbiddenClaimTypes: ['story_result', 'belief_reversal', 'numbered_promise'],
-    forbiddenOpeningShapes: ['numbered_list', 'first_person_story'],
-  },
-  myth_busting: {
-    conceptFamily: 'belief_reversal',
-    requiredTitleGoal: 'Challenge a false belief or common explanation about the same angle.',
-    requiredOpeningShape: 'belief_reversal',
-    requiredClaimType: 'belief_reversal',
-    requiredSceneAnchorBehavior: 'scene_as_false_explanation',
-    forbiddenClaimTypes: ['story_result', 'numbered_promise'],
-    forbiddenOpeningShapes: ['numbered_list', 'first_person_story'],
-  },
   listicle: {
     conceptFamily: 'numbered_promise',
     requiredTitleGoal: 'Make an explicit numbered promise tied to the same angle and payoff.',

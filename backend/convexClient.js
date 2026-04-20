@@ -1800,7 +1800,27 @@ export async function getAllConductorConfigs() {
 // =============================================
 
 export async function getLPAgentConfig(projectId) {
-  return await cachedQuery('lp_agent_config', api.lpAgentConfig.getByProject, { projectId });
+  const config = await cachedQuery('lp_agent_config', api.lpAgentConfig.getByProject, { projectId });
+  // Listicle-only post-Mark-SOP refactor: coerce legacy default_narrative_frames
+  // values (e.g. ["testimonial","listicle"]) down to listicle at read-time so
+  // downstream selection code never sees a retired frame. Paired with the
+  // defensive clamp in runGauntlet for belt-and-suspenders.
+  if (config && typeof config.default_narrative_frames === 'string' && config.default_narrative_frames.length > 0) {
+    try {
+      const parsed = JSON.parse(config.default_narrative_frames);
+      if (Array.isArray(parsed)) {
+        const coerced = parsed.filter((id) => id === 'listicle');
+        const nextValue = coerced.length > 0 ? coerced : ['listicle'];
+        const nextJSON = JSON.stringify(nextValue);
+        if (nextJSON !== config.default_narrative_frames) {
+          config.default_narrative_frames = nextJSON;
+        }
+      }
+    } catch {
+      // Malformed JSON in config — leave untouched so a migration or UI save can heal it.
+    }
+  }
+  return config;
 }
 
 export async function upsertLPAgentConfig(projectId, fields) {

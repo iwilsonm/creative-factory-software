@@ -92,7 +92,7 @@ describe('lpGenerator helpers', () => {
       standardCopy: ['headline', 'proof', 'offer', 'guarantee'],
       templateCopy: ['custom_story_block'],
       cta: ['cta_1_url', 'cta_1_text'],
-    }, 'problem_agitation');
+    }, 'listicle');
 
     expect(required).toEqual(expect.arrayContaining(['proof', 'offer', 'guarantee', 'cta']));
   });
@@ -120,7 +120,7 @@ describe('lpGenerator helpers', () => {
     expect(missing).not.toContain('proof');
   });
 
-  it('treats stripped myth-busting problem/proof placeholders as required failures', () => {
+  it('treats stripped problem/proof placeholders as required failures', () => {
     const failures = extractRequiredPlaceholderFailures(
       ['Stripped 3 unfilled placeholder(s): problem, benefits, proof'],
       ['lead', 'problem', 'solution', 'proof', 'cta'],
@@ -163,17 +163,15 @@ describe('lpGenerator helpers', () => {
     expect(result.warnings).toEqual(expect.arrayContaining(['decorative_note']));
   });
 
-  it('returns the approved minor frame-specific SOP line per narrative frame', () => {
-    expect(getLegacySOPFrameLine('mechanism')).toContain('mechanism lens');
-    expect(getLegacySOPFrameLine('myth_busting')).toContain('myth-busting lens');
-    expect(getLegacySOPFrameLine('testimonial')).toContain('testimonial / lived-result lens');
+  it('returns the listicle SOP line for the listicle frame', () => {
+    expect(getLegacySOPFrameLine('listicle')).toContain('listicle lens');
   });
 
   it('keeps the legacy SOP write prompt nearly verbatim while appending the frame line', () => {
     const prompt = buildLegacySOPWritePrompt({
       productName: 'Grounding Sheets',
       angle: 'Wakes to Pee, Then Cannot Fall Back Asleep',
-      frameLine: getLegacySOPFrameLine('problem_agitation'),
+      frameLine: getLegacySOPFrameLine('listicle'),
       additionalDirection: '',
       wordCount: null,
     });
@@ -181,7 +179,7 @@ describe('lpGenerator helpers', () => {
     expect(prompt).toContain("Great, now I want you to please rewrite this advertorial");
     expect(prompt).toContain('Grounding Sheets');
     expect(prompt).toContain('Wakes to Pee, Then Cannot Fall Back Asleep');
-    expect(prompt).toContain('problem-agitation lens');
+    expect(prompt).toContain('listicle lens');
     expect(prompt).not.toContain('Aim for approximately');
   });
 
@@ -196,8 +194,8 @@ describe('lpGenerator helpers', () => {
 
   it('keeps template slot mapping in the SOP assembly prompt', () => {
     const prompt = buildLegacySOPAssemblyPrompt({
-      narrativeInstruction: 'Narrative frame: mechanism\n',
-      frameCopyGuardrails: 'Keep the mechanism obvious.\n',
+      narrativeInstruction: 'Narrative frame: listicle\n',
+      frameCopyGuardrails: 'Keep the numbered list structure obvious.\n',
       headlineConstraintInstruction: 'Headline contract.\n',
       campaignMessageInstruction: 'Campaign message.\n',
       fullDraft: 'First half.\n\nSecond half.',

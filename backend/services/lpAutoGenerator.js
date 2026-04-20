@@ -169,38 +169,6 @@ function buildFrameSpecificTitleBrief(frameId, messageBrief = null, sameFrameHis
     .filter(Boolean)
     .slice(0, 10);
   switch (frameId) {
-    case 'testimonial':
-      brief.title_goal = 'Sound like a lived-result story or turning-point realization.';
-      brief.persuasion_pattern = 'personal moment -> emotional release -> result';
-      brief.scene_handling = `Keep the same scene, but phrase it as a lived experience or moment of relief tied to ${coreScene}.`;
-      brief.message_emphasis = `Emphasize the emotional result or turning point while staying inside ${beliefShift}.`;
-      brief.avoid_angles = ['generic why headline', 'numbered list', 'belief reversal'];
-      brief.differentiation_rule = 'Do not explain the mechanism or argue with a myth; make it feel like someone lived through it.';
-      break;
-    case 'mechanism':
-      brief.title_goal = 'Reveal the hidden cause behind why the exact scene keeps happening.';
-      brief.persuasion_pattern = 'curiosity -> hidden cause -> why alternatives fail';
-      brief.scene_handling = `Keep the same wake-to-pee / back-to-bed scene, but frame it as the hidden cause behind what happens next: ${coreScene}.`;
-      brief.message_emphasis = 'Explain what is really happening and why normal fixes miss the trigger.';
-      brief.avoid_angles = ['testimonial result', 'numbered list', 'generic myth reversal'];
-      brief.differentiation_rule = 'The title must feel like a mechanism deep-dive, not a pain rant or belief reversal.';
-      break;
-    case 'problem_agitation':
-      brief.title_goal = 'Center the painful recurring friction of the same night-time moment.';
-      brief.persuasion_pattern = 'pain moment -> frustration -> emotional friction';
-      brief.scene_handling = `Stay locked to the recurring painful moment itself: ${coreScene}.`;
-      brief.message_emphasis = 'Make the recurring symptom and friction feel immediate and recognizable.';
-      brief.avoid_angles = ['hidden cause explainer', 'testimonial result', 'numbered list'];
-      brief.differentiation_rule = 'The title must feel like the pain pattern itself, not the explanation for it.';
-      break;
-    case 'myth_busting':
-      brief.title_goal = 'Challenge a false belief or wrong explanation about this exact angle.';
-      brief.persuasion_pattern = 'belief challenge -> correction -> truth';
-      brief.scene_handling = `Keep the same scene, but frame it as evidence that the usual explanation is wrong: ${coreScene}.`;
-      brief.message_emphasis = 'Highlight the mistaken belief and the corrected truth without drifting off-angle.';
-      brief.avoid_angles = ['plain why headline', 'testimonial result', 'numbered list'];
-      brief.differentiation_rule = 'The title must explicitly feel like a myth bust, not just another explanation.';
-      break;
     case 'listicle':
       brief.title_goal = 'Make a numbered promise tied to the same scene and same message.';
       brief.persuasion_pattern = 'explicit count -> list promise -> payoff';
@@ -611,7 +579,10 @@ export async function triggerLPGeneration(batchJobId, projectId, angle) {
         messageBrief,
       }, makeLogger);
 
-      // Store LP URLs on the batch for filter.sh to pick up
+      // Store LP URLs on the batch for filter.sh to pick up.
+      // Listicle-only post-Mark-SOP refactor: auto-gen now produces exactly one
+      // listicle per batch — the lpUrls.length > 1 branch is preserved only for
+      // legacy batches and retries that already produced a secondary LP.
       if (report.lpUrls && report.lpUrls.length > 0) {
         const updates = {
           gauntlet_lp_urls: JSON.stringify(report.lpUrls),
@@ -673,7 +644,9 @@ export async function triggerLPGeneration(batchJobId, projectId, angle) {
  * Only returns a URL if both QA and smoke test pass.
  * @returns {{ lpId, publishedUrl, verified }}
  */
-async function generateAndPublishLP({ projectId, batchJobId, angle, template, frame, label, sendEvent, editorialPassEnabled = true, useProductReferenceImages = true, agentConfig = null }) {
+async function generateAndPublishLP({ projectId, batchJobId, angle, template, frame, label, sendEvent, useProductReferenceImages = true, agentConfig = null }) {
+  // Editorial pass retired — Chief Checkpoint replaces it. `editorialPassEnabled`
+  // is no longer accepted as a param; any inbound value is ignored.
   const lpId = uuidv4();
   const lpName = `${angle.slice(0, 50)} — ${frame.name} (Auto)`;
 
@@ -699,7 +672,6 @@ async function generateAndPublishLP({ projectId, batchJobId, angle, template, fr
       angle,
       narrativeFrame: frame.instruction,
       batchJobId,
-      editorialPassEnabled,
       useProductReferenceImages,
       agentConfig,
     }, sendEvent, { visualQAEnabled });
@@ -733,9 +705,10 @@ async function generateAndPublishLP({ projectId, batchJobId, angle, template, fr
       fix_attempts: fixAttempts,
     };
 
-    // Persist audit trail + editorial plan
+    // Persist audit trail. Editorial plan is always null post-Mark-SOP refactor
+    // (Chief Checkpoint replaced the Opus editorial pass), so we never write
+    // the field — existing historical LP rows keep their editorial_plan intact.
     if (result.auditTrail) updateFields.audit_trail = JSON.stringify(result.auditTrail);
-    if (result.editorialPlan) updateFields.editorial_plan = JSON.stringify(result.editorialPlan);
 
     if (qaReport) {
       let qaScreenshotStorageId = null;
@@ -804,12 +777,10 @@ export async function retryLP(batchJobId, which, { switchTemplate, fullRegenerat
     throw new Error('No ready templates available for retry');
   }
 
-  // Parse existing narrative frames
-  let existingFrames = [];
-  try {
-    existingFrames = JSON.parse(batch.lp_narrative_frames || '[]');
-  } catch {}
-
+  // Listicle-only post-Mark-SOP refactor: both primary and secondary retries
+  // use the listicle frame. Secondary is always 'skipped' in auto-gen now,
+  // so retrySecondary is preserved only for legacy batches that already have
+  // a secondary LP row.
   const retryPrimary = which === 'primary' || which === 'both';
   const retrySecondary = which === 'secondary' || which === 'both';
 
@@ -830,7 +801,7 @@ export async function retryLP(batchJobId, which, { switchTemplate, fullRegenerat
     // Pick template — switch if requested or on 4th+ retry
     const templateIdx = (switchTemplate || retryCount >= 4) ? Math.floor(Math.random() * readyTemplates.length) : 0;
     const template = readyTemplates[templateIdx];
-    const frame = NARRATIVE_FRAMES.find(f => f.id === existingFrames[0]) || NARRATIVE_FRAMES[0];
+    const frame = NARRATIVE_FRAMES[0]; // Listicle — only frame remaining.
 
     try {
       const result = await generateAndPublishLP({
@@ -868,7 +839,7 @@ export async function retryLP(batchJobId, which, { switchTemplate, fullRegenerat
       ? Math.floor(Math.random() * readyTemplates.length)
       : Math.min(1, readyTemplates.length - 1);
     const template = readyTemplates[templateIdx];
-    const frame = NARRATIVE_FRAMES.find(f => f.id === existingFrames[1]) || NARRATIVE_FRAMES[1];
+    const frame = NARRATIVE_FRAMES[0]; // Listicle — only frame remaining. Legacy secondary LPs retry as listicle too.
 
     try {
       const result = await generateAndPublishLP({
@@ -986,6 +957,12 @@ export async function runGauntlet(projectId, options = {}, sendEventRaw) {
       framesToRun = filtered;
     }
   }
+
+  // Listicle-only post-Mark-SOP refactor: defensive clamp so legacy config rows
+  // (or explicit frameIds requests) never run a non-listicle frame. Layered
+  // with the read-side coercion in convexClient.getLPAgentConfig.
+  framesToRun = framesToRun.filter((frame) => frame.id === 'listicle');
+  if (framesToRun.length === 0) framesToRun = [NARRATIVE_FRAMES[0]];
 
   // Track results per frame
   const frameResults = [];
@@ -1320,7 +1297,6 @@ export async function runGauntlet(projectId, options = {}, sendEventRaw) {
               angle: frameAngle,
               angleBrief,
               narrativeFrame: frame.instruction,
-              editorialPassEnabled: false, // Editorial pass replaced by Chief Checkpoint; flag forced off pending Phase D removal of the param.
               useProductReferenceImages: config.use_product_reference_images !== false,
               agentConfig: config,
               approvedAds,

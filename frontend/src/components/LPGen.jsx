@@ -1806,12 +1806,14 @@ const STATUS_CONFIG = {
 };
 
 // ─── Narrative frame display labels ──────────────────────────────────────────
+// Listicle-only post-Mark-SOP refactor. Legacy frame ids on historical LP rows
+// still render here (suffixed "(legacy)") so the audit trail stays readable.
 const FRAME_LABELS = {
-  testimonial: 'Testimonial Journey',
-  mechanism: 'Mechanism Deep-Dive',
-  problem_agitation: 'Problem Agitation',
-  myth_busting: 'Myth Busting',
   listicle: 'Listicle',
+  testimonial: 'Testimonial Journey (legacy)',
+  mechanism: 'Mechanism Deep-Dive (legacy)',
+  problem_agitation: 'Problem Agitation (legacy)',
+  myth_busting: 'Myth Busting (legacy)',
 };
 
 // ═══════════════════════════════════════════════════════════════════════════
@@ -1880,12 +1882,14 @@ export default function LPGen({ projectId, project }) {
   const [genPercent, setGenPercent] = useState(0);
   const abortRef = useRef(null);
 
-  // Step-weighted progress map (matches LP Agent pattern)
+  // Step-weighted progress map (matches LP Agent pattern).
+  // The editorial_* steps from the retired Opus editorial pass are omitted —
+  // if a stale event still arrives, the Math.max(prev, …) guard in the SSE
+  // handler keeps the bar monotonic; no mapping means no forward jump.
   const LP_STEP_PROGRESS = {
     'fetch': 2, 'screenshot': 5,
     'design_analyzing': 8, 'design_complete': 15,
     'loading_docs': 18, 'generating': 20, 'calling_api': 22, 'parsing': 35, 'copy_complete': 40,
-    'editorial_starting': 42, 'editorial_complete': 55, 'editorial_skipped': 55, 'editorial_failed': 55,
     'images_starting': 58, 'image_generating': 62, 'images_complete': 80, 'images_skipped': 80,
     'html_generating': 82, 'html_complete': 92,
     'qa_running': 94, 'qa_complete': 97,
@@ -1893,7 +1897,7 @@ export default function LPGen({ projectId, project }) {
   };
   const LP_PHASE_PROGRESS = {
     'fetch': 2, 'design_analysis': 8, 'copy_generation': 18,
-    'editorial': 42, 'image_generation': 58, 'html_generation': 82, 'assembling': 98,
+    'image_generation': 58, 'html_generation': 82, 'assembling': 98,
   };
 
   // Elapsed timer during generation

@@ -7,20 +7,22 @@ import PipelineProgress from './PipelineProgress';
 import { usePolling } from '../hooks/usePolling';
 import { ensureArray } from '../utils/collections';
 
+// Listicle-only post-Mark-SOP refactor. Legacy frame ids on historical LP rows
+// still render as their label below (via FRAME_LABELS fallback logic) for
+// display purposes.
 const NARRATIVE_FRAMES = [
-  { id: 'testimonial', name: 'Testimonial Journey' },
-  { id: 'mechanism', name: 'Mechanism Deep-Dive' },
-  { id: 'problem_agitation', name: 'Problem Agitation' },
-  { id: 'myth_busting', name: 'Myth Busting' },
   { id: 'listicle', name: 'Listicle' },
 ];
 
 const FRAME_LABELS = {
-  testimonial: 'Testimonial Journey',
-  mechanism: 'Mechanism Deep-Dive',
-  problem_agitation: 'Problem Agitation',
-  myth_busting: 'Myth Busting',
   listicle: 'Listicle',
+  // Legacy fallbacks for historical LPs whose narrative_frame column still
+  // carries a retired frame id — shown read-only in the recent-generations
+  // list, never selectable.
+  testimonial: 'Testimonial Journey (legacy)',
+  mechanism: 'Mechanism Deep-Dive (legacy)',
+  problem_agitation: 'Problem Agitation (legacy)',
+  myth_busting: 'Myth Busting (legacy)',
 };
 
 function safeParseQueue(value) {
@@ -88,15 +90,10 @@ export default function LPAgentSettings({ projectId }) {
   const saveInFlightRef = useRef(false);
 
   // ── Derived state ──
-  const enabledFrames = (() => {
-    try {
-      const parsed = JSON.parse(config?.default_narrative_frames || '[]');
-      // Default to all frames if none are saved yet
-      return parsed.length > 0 ? parsed : NARRATIVE_FRAMES.map(f => f.id);
-    } catch {
-      return NARRATIVE_FRAMES.map(f => f.id);
-    }
-  })();
+  // Listicle-only post-Mark-SOP refactor. The generator no longer supports
+  // other frames, so this is effectively a constant — but we preserve the
+  // same shape (array of ids) so downstream call sites don't need to change.
+  const enabledFrames = ['listicle'];
 
   // ── Load config + Shopify status + templates ──
   const loadData = useCallback(async () => {
@@ -897,34 +894,13 @@ export default function LPAgentSettings({ projectId }) {
         </h3>
 
         <div className="space-y-3">
-          {/* Narrative frame checkboxes */}
+          {/* Narrative frame (read-only post-Mark-SOP refactor — listicle only) */}
           <div>
-            <label className="text-[11px] text-textmid font-medium block mb-2">Narrative Frames</label>
-            <div className="space-y-1.5">
-              {NARRATIVE_FRAMES.map(f => {
-                const checked = enabledFrames.includes(f.id);
-                return (
-                  <label key={f.id} className="flex items-center gap-2 cursor-pointer">
-                    <input
-                      type="checkbox"
-                      checked={checked}
-                      onChange={() => {
-                        const next = checked
-                          ? enabledFrames.filter(id => id !== f.id)
-                          : [...enabledFrames, f.id];
-                        if (next.length === 0) return; // at least 1 required
-                        handleSaveConfig({ default_narrative_frames: JSON.stringify(next) });
-                      }}
-                      className="w-3.5 h-3.5 rounded border-gray-300 text-navy focus:ring-navy/50 cursor-pointer"
-                    />
-                    <span className="text-[12px] text-textdark">{f.name}</span>
-                  </label>
-                );
-              })}
+            <label className="text-[11px] text-textmid font-medium block mb-2">Narrative Frame</label>
+            <div className="px-3 py-2 rounded-lg bg-black/[0.03] border border-black/5">
+              <p className="text-[12px] text-textdark">Listicle</p>
+              <p className="text-[9px] text-textlight mt-0.5">One listicle per batch — following the Mark Builds Brands SOP.</p>
             </div>
-            <p className="text-[9px] text-textlight mt-1.5">
-              {enabledFrames.length} frame{enabledFrames.length !== 1 ? 's' : ''} selected — will generate {enabledFrames.length} LP{enabledFrames.length !== 1 ? 's' : ''} per batch
-            </p>
           </div>
 
           {/* Quality settings */}

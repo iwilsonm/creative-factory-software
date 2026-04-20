@@ -1,42 +1,17 @@
 import { describe, expect, it } from 'vitest';
 
 import {
-  buildLPTitleConceptProfile,
   buildLPHeadlineHistoryEntry,
   buildLPHeadlineSignature,
   evaluateTitleConceptSeparation,
   evaluateHistoryHeadlineUniqueness,
   evaluateSameRunHeadlineUniqueness,
   evaluateTitleFamilyUniqueness,
-  validateLPContentAlignment,
-  validateLPFrameBlueprint,
   validateLPHeadlineFrameAlignment,
   validateLPHeadlineSourceAlignment,
 } from '../services/lpHeadlineValidation.js';
 
 describe('lpHeadlineValidation', () => {
-  it('accepts a testimonial-style headline for the testimonial frame', () => {
-    const result = validateLPHeadlineFrameAlignment({
-      headline: 'I stopped waking at 3:12 after one change to my bed setup',
-      narrativeFrame: 'testimonial',
-      angle: 'Wakes to Pee, Then Cannot Fall Back Asleep',
-    });
-
-    expect(result.passed).toBe(true);
-    expect(result.classifier).toBe('testimonial');
-  });
-
-  it('rejects a mechanism-style headline for the testimonial frame', () => {
-    const result = validateLPHeadlineFrameAlignment({
-      headline: 'Why your 2 AM bathroom wake-up can keep your body in alert mode',
-      narrativeFrame: 'testimonial',
-      angle: 'Wakes to Pee, Then Cannot Fall Back Asleep',
-    });
-
-    expect(result.passed).toBe(false);
-    expect(result.reason).toContain('testimonial');
-  });
-
   it('requires listicle headlines to use a real numbered/list structure', () => {
     const passResult = validateLPHeadlineFrameAlignment({
       headline: '5 reasons you wake to pee and stay awake after 2 AM',
@@ -51,17 +26,6 @@ describe('lpHeadlineValidation', () => {
 
     expect(passResult.passed).toBe(true);
     expect(failResult.passed).toBe(false);
-  });
-
-  it('accepts a pain-led problem agitation headline', () => {
-    const result = validateLPHeadlineFrameAlignment({
-      headline: 'You wake up to use the bathroom and then the worst part of the night begins',
-      narrativeFrame: 'problem_agitation',
-      angle: 'Wakes to Pee, Then Cannot Fall Back Asleep',
-    });
-
-    expect(result.passed).toBe(true);
-    expect(result.classifier).toBe('problem_agitation');
   });
 
   it('rejects same-run near-duplicate LP headlines', () => {
@@ -142,30 +106,6 @@ describe('lpHeadlineValidation', () => {
 
     expect(result.passed).toBe(false);
     expect(result.reason).toContain('same family');
-  });
-
-  it('builds distinct title concept profiles for different frame structures', () => {
-    const testimonial = buildLPTitleConceptProfile({
-      headline: 'For three years I got back into bed at 2 a.m. and never once fell back asleep',
-      narrativeFrame: 'testimonial',
-      angle: 'Wakes to Pee, Then Cannot Fall Back Asleep',
-    });
-    const mechanism = buildLPTitleConceptProfile({
-      headline: 'Why your bathroom trip at 2 a.m. flips the wrong switch in your body',
-      narrativeFrame: 'mechanism',
-      angle: 'Wakes to Pee, Then Cannot Fall Back Asleep',
-    });
-    const listicle = buildLPTitleConceptProfile({
-      headline: '5 reasons you wake up to pee and stay awake for hours afterward',
-      narrativeFrame: 'listicle',
-      angle: 'Wakes to Pee, Then Cannot Fall Back Asleep',
-    });
-
-    expect(testimonial.titleConceptFamily).toBe('story_result');
-    expect(mechanism.titleConceptFamily).toBe('hidden_cause');
-    expect(listicle.titleConceptFamily).toBe('numbered_promise');
-    expect(testimonial.titleConceptSignature).not.toBe(mechanism.titleConceptSignature);
-    expect(mechanism.titleConceptSignature).not.toBe(listicle.titleConceptSignature);
   });
 
   it('rejects titles that are still the same concept with different wording', () => {
@@ -265,87 +205,4 @@ describe('lpHeadlineValidation', () => {
     expect(result.hits.scene).toContain('return to sleep');
   });
 
-  it('accepts copy that stays aligned with the angle and frame', () => {
-    const result = validateLPContentAlignment({
-      narrativeFrame: 'problem_agitation',
-      angle: 'Wakes to Pee, Then Cannot Fall Back Asleep',
-      headline: 'You wake to pee and then the worst part of the night begins',
-      subheadline: 'Getting back into bed is when the real problem starts.',
-      messageBrief: {
-        sourceMode: 'director_ads',
-        angleSummary: 'Wakes to Pee, Then Cannot Fall Back Asleep',
-        coreScene: 'You wake in the night, use the bathroom, climb back into bed, and cannot fall asleep again.',
-        desiredBeliefShift: 'The bathroom trip is not the end of the story; the problem is what happens when you get back into bed.',
-        headlineExamples: ['You wake to pee and then lie there wide awake for an hour.'],
-        openingExamples: ['The bathroom trip is not the worst part. The worst part starts when you get back into bed.'],
-        messageKeywords: ['bathroom', 'pee', 'back', 'bed', 'wide', 'awake'],
-      },
-      copySections: [
-        { type: 'headline', content: 'You wake to pee and then the worst part of the night begins' },
-        { type: 'lead', content: 'You shuffle to the bathroom half asleep, crawl back under the covers, and then stare at the ceiling wide awake. Night after night, the worst part starts after you get back into bed.' },
-        { type: 'problem', content: 'It is exhausting, frustrating, and specific to that exact middle-of-the-night bathroom trip.' },
-      ],
-    });
-
-    expect(result.passed).toBe(true);
-  });
-
-  it('rejects pages whose copy structure does not match the frame blueprint', () => {
-    const result = validateLPFrameBlueprint({
-      headline: 'Why your body stays alert after a 2 AM bathroom trip',
-      narrativeFrame: 'mechanism',
-      angle: 'Wakes to Pee, Then Cannot Fall Back Asleep',
-      copySections: [
-        { type: 'headline', content: 'Why your body stays alert after a 2 AM bathroom trip' },
-        { type: 'lead', content: 'I dreaded every bathroom trip because I knew I would not sleep again until morning.' },
-        { type: 'proof', content: 'For years I felt broken until one night everything changed.' },
-      ],
-    });
-
-    expect(result.passed).toBe(false);
-    expect(result.reason).toContain('mechanism');
-  });
-
-  it('accepts template slot aliases as valid frame structure', () => {
-    const result = validateLPFrameBlueprint({
-      headline: 'Why your body stays alert after a 2 AM bathroom trip',
-      narrativeFrame: 'mechanism',
-      angle: 'Wakes to Pee, Then Cannot Fall Back Asleep',
-      copySections: [
-        { type: 'headline', content: 'Why your body stays alert after a 2 AM bathroom trip' },
-        { type: 'opening_paragraph', content: 'You get back into bed after the bathroom and your system stays switched on because your body interprets that wake-up as a full restart.' },
-        { type: 'discovery_copy_1', content: 'That is why the usual sleep tricks fail: they never address the signal that keeps your nervous system alert.' },
-        { type: 'results_copy_1', content: 'Once that signal is calmed, getting back to sleep becomes much easier.' },
-      ],
-    });
-
-    expect(result.passed).toBe(true);
-  });
-
-  it('accepts a long template where the mechanism explanation appears after early decorative slots', () => {
-    const result = validateLPContentAlignment({
-      narrativeFrame: 'mechanism',
-      angle: 'Wakes to Pee, Then Cannot Fall Back Asleep',
-      headline: 'Why your body stays alert after a 2 AM bathroom trip',
-      subheadline: 'The bathroom trip is not the whole problem — what happens when you get back into bed is.',
-      copySections: [
-        { type: 'page_title', content: 'Why your body stays alert after a 2 AM bathroom trip' },
-        { type: 'category_label', content: 'Sleep Support' },
-        { type: 'byline', content: 'Debra Holloway' },
-        { type: 'image_1_alt', content: 'Woman lying awake in bed at 2 AM' },
-        { type: 'image_caption', content: 'What feels like a bathroom issue is often a signaling issue.' },
-        { type: 'opening_paragraph', content: 'You get back into bed after the bathroom and your whole system feels more awake than it did before you stood up.' },
-        { type: 'problem_heading', content: 'Why it feels so confusing' },
-        { type: 'problem_copy_1', content: 'Most people think the bathroom trip is the full explanation, but the real friction starts when you return to bed and your system never downshifts again.' },
-        { type: 'comparison_heading', content: 'Why the usual sleep fixes fail here' },
-        { type: 'bad_feature_1', content: 'Sleep supplements only try to make you drowsy — they do not address the trigger your nervous system is reacting to after that middle-of-the-night wake-up.' },
-        { type: 'bad_feature_2', content: 'Bedtime routines may help you fall asleep initially, but they miss what happens after you get back into bed at 2 or 3 AM.' },
-        { type: 'discovery_heading', content: 'The mechanism most people miss' },
-        { type: 'discovery_copy_1', content: 'The hidden issue is that your body can stay electrically and neurologically alert after the interruption, which is why common alternatives fail to calm the real trigger.' },
-        { type: 'results_copy_1', content: 'Once that alert signal is addressed, getting back to sleep becomes much easier.' },
-      ],
-    });
-
-    expect(result.passed).toBe(true);
-  });
 });

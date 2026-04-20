@@ -46,27 +46,11 @@ export function detectImageMimeType(buffer) {
 
 // ─── Narrative Frame Library ─────────────────────────────────────────────────
 
+// Listicle-only post-Mark-SOP refactor. Historical LPs may carry legacy frame
+// ids (testimonial, mechanism, problem_agitation, myth_busting) in their
+// narrative_frame column — that data still renders for display purposes, but
+// the generator never selects anything but listicle going forward.
 export const NARRATIVE_FRAMES = [
-  {
-    id: 'testimonial',
-    name: 'Testimonial Journey',
-    instruction: 'Write this as a first-person testimonial story. The narrator is a real customer describing their journey from struggling with the problem to discovering the product and experiencing results. Use vivid, emotional language. Include specific details like timeframes, before/after descriptions, and moments of doubt overcome by results.',
-  },
-  {
-    id: 'mechanism',
-    name: 'Mechanism Deep-Dive',
-    instruction: 'Write this as an educational explanation of the unique mechanism behind the product. Lead with curiosity and a surprising scientific or clinical insight. Explain WHY traditional approaches fail, then reveal the specific mechanism that makes this product different. Use simple analogies to make complex concepts accessible.',
-  },
-  {
-    id: 'problem_agitation',
-    name: 'Problem Agitation',
-    instruction: 'Lead with the customer\'s deepest pain points and frustrations. Agitate the problem by describing how it affects every area of their life — relationships, confidence, daily routines, future outlook. Make the reader feel deeply understood before presenting the solution. Use "you" language extensively.',
-  },
-  {
-    id: 'myth_busting',
-    name: 'Myth Busting',
-    instruction: 'Challenge 3-5 common beliefs or myths about the problem/solution category. Start with a provocative statement that contradicts conventional wisdom. For each myth, explain why most people believe it, then reveal the truth with evidence. Position the product as the solution that aligns with the real truth.',
-  },
   {
     id: 'listicle',
     name: 'Listicle',
@@ -98,22 +82,9 @@ const LEGACY_LP_SOP_WRITE_FIRST_HALF_BASE = `Great, now I want you to please rew
 
 const LEGACY_LP_SOP_WRITE_SECOND_HALF = `great work!! Let's continue onto the second half`;
 
-export function getLegacySOPFrameLine(narrativeFrame = '') {
-  const frameId = resolveNarrativeFrameId(narrativeFrame);
-  switch (frameId) {
-    case 'testimonial':
-      return 'Please write this through a testimonial / lived-result lens, so it feels like a personal journey and result story.';
-    case 'mechanism':
-      return 'Please write this through a mechanism lens, so it explains what is really happening and why the usual solutions are missing the real issue.';
-    case 'problem_agitation':
-      return 'Please write this through a problem-agitation lens, so it emphasizes the recurring pain, frustration, and symptom pattern of the problem.';
-    case 'myth_busting':
-      return 'Please write this through a myth-busting lens, so it challenges a false belief and replaces it with the truth.';
-    case 'listicle':
-      return 'Please write this through a listicle lens, so it becomes a true numbered advertorial and clearly honors the promised count from beginning to end.';
-    default:
-      return '';
-  }
+export function getLegacySOPFrameLine(_narrativeFrame = '') {
+  // Listicle-only: legacy frame ids collapse to the listicle line.
+  return 'Please write this through a listicle lens, so it becomes a true numbered advertorial and clearly honors the promised count from beginning to end.';
 }
 
 export function buildAutoSwipeReferenceText({ swipeText = '', autoContext = null } = {}) {
@@ -366,24 +337,9 @@ Return JSON:
   };
 }
 
-function buildNarrativeFrameCopyGuardrails(narrativeFrame = '') {
-  const frameId = resolveNarrativeFrameId(narrativeFrame);
-  if (frameId === 'mechanism') {
-    return `
-MECHANISM FRAME MUST-HAVES:
-- Explicitly explain why common or traditional alternatives fail.
-- Name the competing approaches directly (for example: sleep supplements, bedtime routines, sleep meds, generic sleep hygiene) and explain why they miss this specific after-the-bathroom wake-up problem.
-- Use language like "doesn't address the real trigger", "misses what happens after you get back into bed", or an equivalent causal explanation.
-- Do not stop at explaining grounding in general; show why other approaches fail to solve this exact problem.
-- Include at least one dedicated subsection or paragraph that makes the alternatives-fail logic unmistakable.
-- Keep that explanation anchored to the same wake-up / bathroom-trip / back-into-bed moment.`;
-  }
-  if (frameId === 'problem_agitation') {
-    return `
-PROBLEM AGITATION FRAME MUST-HAVES:
-- Stay anchored to the recurring pain pattern and frustration of the same wake-to-pee moment.
-- Do not drift into testimonial storytelling or mechanism education before the pain is fully established.`;
-  }
+function buildNarrativeFrameCopyGuardrails(_narrativeFrame = '') {
+  // Listicle-only: frame-specific mechanism / problem-agitation guardrails
+  // retired with the non-listicle frames.
   return '';
 }
 
@@ -1542,210 +1498,17 @@ AUTHOR METADATA: Generate an appropriate author name and title for this article'
   return { sections: validSections, autoGeneratedAuthor: Object.keys(autoGeneratedAuthor).length > 0 ? autoGeneratedAuthor : null, wordCountWarning: (totalWords < minWords || totalWords > maxWords) ? `Word count ${totalWords} outside target range ${minWords}–${maxWords} (target ${wordCount})` : null };
 }
 
-// ─── Opus Editorial Intelligence Layer ──────────────────────────────────────
-
-/**
- * Run Opus 4.6 editorial pass on generated copy sections.
- * Acts as a senior direct response creative director reviewing the LP holistically.
- *
- * @param {object} params
- * @param {Array} params.copySections - Generated copy sections from Phase B
- * @param {object} params.designAnalysis - Design spec from Phase 2A
- * @param {string} params.angle - The marketing angle
- * @param {string} params.narrativeFrame - Narrative frame name
- * @param {object} params.foundationalDocs - { research, avatar, offer_brief, necessary_beliefs }
- * @param {string} params.pdpUrl - Product page URL
- * @param {string} params.projectId - For cost logging
- * @param {(event: object) => void} sendEvent - SSE event callback
- * @returns {Promise<object|null>} Editorial plan JSON or null on failure
- */
-export async function runEditorialPass({
-  copySections,
-  designAnalysis,
-  angle,
-  narrativeFrame,
-  foundationalDocs,
-  approvedAds = [],
-  messageBrief = null,
-  pdpUrl,
-  projectId,
-  headlineConstraints = null,
-}, sendEvent) {
-  sendEvent({ type: 'progress', step: 'editorial_starting', message: 'Opus editorial review starting...' });
-
-  const sectionsSummary = copySections
-    .map(s => `## ${s.type}\n${s.content}`)
-    .join('\n\n---\n\n');
-
-  const docsContext = [
-    foundationalDocs?.avatar ? `CUSTOMER AVATAR:\n${foundationalDocs.avatar.slice(0, 2000)}` : null,
-    foundationalDocs?.offer_brief ? `OFFER BRIEF:\n${foundationalDocs.offer_brief.slice(0, 2000)}` : null,
-    foundationalDocs?.necessary_beliefs ? `NECESSARY BELIEFS:\n${foundationalDocs.necessary_beliefs.slice(0, 1500)}` : null,
-  ].filter(Boolean).join('\n\n');
-
-  const sectionTypes = (designAnalysis?.sections || []).map(s => s.type || s.id).join(', ');
-  const imageSlotDescs = (designAnalysis?.image_slots || []).map((s, i) => `image_${i + 1}: ${s.description}`).join('\n');
-
-  const systemPrompt = `You are a senior direct response creative director with 20+ years of experience writing high-converting advertorial landing pages. You are reviewing a draft landing page to make strategic editorial decisions that will maximize conversion rate.
-
-Your job is NOT to rewrite the copy — it's to make high-level strategic decisions about:
-1. What the headline and subheadline should be (concise, punchy, curiosity-driven)
-2. Whether to add a top banner text (urgency/scarcity) — ONLY if the template skeleton already has a banner element
-3. How to reorder or restructure sections for maximum impact
-4. Where to add callout boxes (testimonial snippets, stat highlights, trust badges)
-5. Which paragraphs deserve visual emphasis (bold, highlight, pullquote treatment)
-6. Whether any sections should be cut entirely
-7. Updated image direction if the editorial plan changes the focus
-8. Where CTAs should appear (after which sections)
-
-You think in terms of: hook → story → mechanism → proof → offer → urgency → CTA.
-
-NARRATIVE FRAME ALIGNMENT: The headline and subheadline MUST reflect the specific narrative frame being used. A testimonial frame should have a personal, first-person headline. A mechanism frame should lead with curiosity about the "how." A problem agitation frame should hook with the reader's pain. A myth-busting frame should challenge a common belief. A listicle frame should use a numbered format. The headline is the #1 signal that differentiates each narrative frame — never produce a generic headline that could work for any frame.
-
-FRAME BLUEPRINT ENFORCEMENT: The page must also look structurally like the assigned frame, not just sound like it in one sentence. Your editorial plan must preserve that structural identity from headline to lead to proof to CTA. If the title is too close to another frame headline, make the frame distinction clearer without drifting away from the angle or source message.
-
-TEMPLATE FIDELITY: Your editorial plan must work within the template structure. You can reorder sections, adjust emphasis, insert callout blocks at specified positions, and refine copy — but you CANNOT add entirely new structural elements that don't exist in the template skeleton. For example, do NOT add a sticky urgency banner if the template doesn't have one. Do NOT add floating CTAs, countdown timers, notification bars, or any other conversion elements unless they already exist in the template. The template is the blueprint — optimize within it, don't expand beyond it. Set "top_banner_text" to null if the template has no banner element.
-
-DUPLICATE HEADING CHECK: Check all callout blocks and data boxes for duplicate heading text. If a callout's body paragraph begins with the same text as its heading label (e.g., heading="USDA DATA" and body starts with "USDA DATA:"), remove the duplicate from the body.
-
-CRITICAL: Also scan the copy for any remaining {{placeholder}} template tags (e.g., {{author_name}}, {{publish_date}}, {{TRENDING_CATEGORY}}). If you find any, provide replacement text in the "placeholder_fills" field of your response.`;
-
-  // Build ad reference for editorial pass
-  let editorialAdReference = '';
-  if (approvedAds.length > 0) {
-    const adHeadlines = approvedAds
-      .filter(ad => ad.headline)
-      .map((ad, i) => `  ${i + 1}. ${ad.headline}`)
-      .join('\n');
-    editorialAdReference = `
-APPROVED AD HEADLINES FROM THIS CAMPAIGN:
-A reader clicked on one of these ads and landed on this page. Your LP headline and editorial choices must deliver on the same promise and message direction that drew them in. Treat these as the campaign message contract, not loose inspiration.
-
-${adHeadlines}
-`;
-  }
-
-  const userPrompt = `Review this landing page draft and provide your editorial plan.
-
-MARKETING ANGLE: ${angle}
-NARRATIVE FRAME: ${narrativeFrame || 'general'}
-IMPORTANT: The headline MUST be unique to this narrative frame. It should reflect the storytelling approach described above — a testimonial frame headline reads completely differently from a mechanism or listicle headline.
-HEADLINE CONTRACT: ${headlineConstraints?.contract || getNarrativeFrameHeadlineContract(narrativeFrame)}
-${buildHeadlineConstraintInstruction(headlineConstraints)}
-${buildCampaignMessageInstruction(messageBrief)}
-${editorialAdReference}PDP URL: ${pdpUrl || 'not set'}
-PAGE SECTIONS: ${sectionTypes}
-
-${docsContext ? `FOUNDATIONAL DOCS:\n${docsContext}\n` : ''}
-IMAGE SLOTS:
-${imageSlotDescs || 'No image slots defined'}
-
----
-
-CURRENT COPY SECTIONS:
-
-${sectionsSummary}
-
----
-
-Respond with a JSON object containing your editorial plan:
-
-{
-  "headline": "Your optimized headline reflecting this frame's unique voice (max 15 words)",
-  "subheadline": "Supporting subheadline (max 25 words)",
-  "top_banner_text": "Urgency/scarcity banner text or null if not needed",
-  "sections_order": ["section_type_1", "section_type_2", ...],
-  "sections_emphasis": {
-    "section_type": "high" | "medium" | "low"
-  },
-  "callouts": [
-    { "after_section": "section_type", "type": "stat" | "testimonial" | "trust", "content": "The callout text" }
-  ],
-  "paragraph_emphasis": [
-    { "section": "section_type", "keyword_or_phrase": "phrase to emphasize", "treatment": "bold" | "highlight" | "pullquote" }
-  ],
-  "sections_to_cut": ["section_type_to_remove"],
-  "image_direction_updates": [
-    { "slot": "image_1", "updated_direction": "New direction based on editorial plan" }
-  ],
-  "cta_positions": ["after_hero", "after_benefits", "after_testimonials"],
-  "placeholder_fills": { "placeholder_name": "actual text to replace the {{placeholder_name}} tag" },
-  "decisions": ["plain language decision 1 — be specific about what you changed and why", "decision 2"],
-  "editorial_notes": "Brief explanation of your strategic reasoning"
-}
-
-Along with your editorial plan, return a "decisions" array — a list of plain-language strings describing each significant editorial choice you made. Examples: "Moved USDA stat from paragraph 4 to opening callout for maximum impact", "Cut redundant vinegar anecdote", "Elevated social proof before mechanism reveal". Be specific — these appear in the editor audit trail.`;
-
-  // ── P2: Retry editorial pass on failure (up to 2 attempts) ──
-  const MAX_EDITORIAL_ATTEMPTS = 2;
-  for (let attempt = 1; attempt <= MAX_EDITORIAL_ATTEMPTS; attempt++) {
-    try {
-      const response = await chat(
-        [
-          { role: 'system', content: systemPrompt },
-          { role: 'user', content: userPrompt },
-        ],
-        'claude-sonnet-4-6',
-        {
-          max_tokens: 16384,
-          timeout: 300000,
-          response_format: { type: 'json_object' },
-          operation: 'lp_editorial_pass',
-          projectId,
-        }
-      );
-
-      // Parse the editorial plan
-      let editorialPlan;
-      try {
-        editorialPlan = JSON.parse(response);
-      } catch {
-        // The anthropic wrapper auto-extracts JSON, so response might already be an object
-        if (typeof response === 'object' && response !== null) {
-          editorialPlan = response;
-        } else {
-          console.warn(`[LPGen] Editorial pass attempt ${attempt}/${MAX_EDITORIAL_ATTEMPTS} returned non-JSON response`);
-          if (attempt < MAX_EDITORIAL_ATTEMPTS) {
-            sendEvent({ type: 'progress', step: 'editorial_retrying', message: `Editorial review returned invalid format — retrying (attempt ${attempt + 1})...` });
-            continue; // Retry
-          }
-          sendEvent({ type: 'progress', step: 'editorial_skipped', message: 'Editorial review returned invalid format after retry — proceeding without it' });
-          return { plan: null, noEditorialPlan: true };
-        }
-      }
-
-      // Validate minimum shape
-      if (!editorialPlan.headline && !editorialPlan.sections_order) {
-        console.warn(`[LPGen] Editorial plan attempt ${attempt}/${MAX_EDITORIAL_ATTEMPTS} missing required fields`);
-        if (attempt < MAX_EDITORIAL_ATTEMPTS) {
-          sendEvent({ type: 'progress', step: 'editorial_retrying', message: `Editorial plan incomplete — retrying (attempt ${attempt + 1})...` });
-          continue; // Retry
-        }
-        sendEvent({ type: 'progress', step: 'editorial_skipped', message: 'Editorial plan incomplete after retry — proceeding without it' });
-        return { plan: null, noEditorialPlan: true };
-      }
-
-      sendEvent({
-        type: 'progress',
-        step: 'editorial_complete',
-        message: `Editorial review complete: ${editorialPlan.callouts?.length || 0} callouts, ${editorialPlan.sections_to_cut?.length || 0} cuts`,
-      });
-
-      return { plan: editorialPlan, noEditorialPlan: false };
-    } catch (err) {
-      console.warn(`[LPGen] Editorial pass attempt ${attempt}/${MAX_EDITORIAL_ATTEMPTS} failed:`, err.message);
-      if (attempt < MAX_EDITORIAL_ATTEMPTS) {
-        sendEvent({ type: 'progress', step: 'editorial_retrying', message: `Editorial review failed — retrying (attempt ${attempt + 1})...` });
-        continue; // Retry
-      }
-      sendEvent({ type: 'progress', step: 'editorial_failed', message: `Editorial review failed after ${MAX_EDITORIAL_ATTEMPTS} attempts — proceeding without it: ${err.message}` });
-      return { plan: null, noEditorialPlan: true };
-    }
-  }
-
-  // Should not reach here, but safety fallback
+// ─── Opus Editorial Intelligence Layer — REMOVED ─────────────────────────────
+// The Opus editorial pass was replaced by the Chief Checkpoint (human review)
+// as part of the Mark Builds Brands SOP refactor. The function signature is
+// preserved only as a no-op stub so any late caller that slipped past Phase D
+// cleanup doesn't crash — it just emits a skipped event and returns null.
+// Delete this stub once no call sites remain.
+export async function runEditorialPass(_args, sendEvent = () => {}) {
+  sendEvent({ type: 'progress', step: 'editorial_skipped', message: 'Editorial pass retired — Chief Checkpoint handles review.' });
   return { plan: null, noEditorialPlan: true };
 }
+
 
 export async function repairLPHeadline({
   projectId,
@@ -2049,42 +1812,14 @@ function buildImagePrompt(slot, angle, copyContext, autoContext, slotIndex, tota
   }
   const sceneDescription = `${slot.description || 'Lifestyle scene'}. ${angleHint}${settingHint}${usageHint}`;
 
-  // ── P4: Narrative frame–specific image style hints ──
-  const NARRATIVE_IMAGE_STYLES = {
-    testimonial: 'TESTIMONIAL FRAME — Intimate, personal, warm feel. Show real moments of a person sharing their story. Candid, documentary-style composition. Emotion-forward: relief, gratitude, genuine joy. Like a photo from a personal blog post.',
-    mechanism: 'MECHANISM FRAME — Clean, scientific, explanatory feel. Show the product or process clearly. Well-lit, almost clinical composition but still warm. Focus on the "how it works" — ingredient close-ups, product in use, cause-and-effect visuals.',
-    problem_agitation: 'PROBLEM AGITATION FRAME — Show the struggle, frustration, discomfort of the before-state. Slightly desaturated or moody lighting. The person should look tired, overwhelmed, or struggling. Evoke empathy — the viewer should recognize their own pain.',
-    myth_busting: 'MYTH BUSTING FRAME — Surprising, eye-opening, counter-intuitive feel. Show unexpected juxtapositions or reveals. Bright, attention-grabbing. The image should make the viewer stop and think "I didn\'t know that."',
-    listicle: 'LISTICLE FRAME — Organized, editorial, magazine-style. Clean backgrounds, good separation of elements. Each image should feel like it belongs in a curated list article. Professional, crisp, well-composed.',
-  };
+  // ── Listicle image style (only remaining frame post-Mark-SOP refactor) ──
+  const narrativeHint = '\nLISTICLE FRAME — Organized, editorial, magazine-style. Clean backgrounds, good separation of elements. Each image should feel like it belongs in a curated list article. Professional, crisp, well-composed.';
 
-  // Match narrative frame to style hint
-  let narrativeHint = '';
-  if (autoContext?.narrativeFrame) {
-    const frameKey = Object.keys(NARRATIVE_IMAGE_STYLES).find(key =>
-      autoContext.narrativeFrame.toLowerCase().includes(key)
-    );
-    if (frameKey) {
-      narrativeHint = `\n${NARRATIVE_IMAGE_STYLES[frameKey]}`;
-    } else {
-      narrativeHint = `\nNARRATIVE STYLE: "${autoContext.narrativeFrame}" storytelling approach. Match the image mood to this narrative.`;
-    }
-  }
-
-  // Editorial direction per-slot override
-  const editorialImageUpdates = {};
-  if (autoContext?.editorialPlan?.image_direction_updates) {
-    for (const update of autoContext.editorialPlan.image_direction_updates) {
-      if (update.slot && update.updated_direction) {
-        editorialImageUpdates[update.slot] = update.updated_direction;
-      }
-    }
-  }
-  const slotId = slot.slot_id || `image_${slotIndex + 1}`;
-  const editorialDirection = editorialImageUpdates[slotId];
-  const editorialHint = editorialDirection
-    ? `\nEDITORIAL DIRECTION: ${editorialDirection}`
-    : '';
+  // Editorial direction per-slot override — REMOVED. The Opus editorial pass
+  // that produced image_direction_updates was retired in favor of the Chief
+  // Checkpoint. The editorialHint below stays empty so the rest of the prompt
+  // assembly continues to work without special-casing.
+  const editorialHint = '';
   const productDescriptor = [
     pv?.productName,
     pv?.productType,
@@ -4359,14 +4094,17 @@ export function postProcessLP(html, { project = null, agentConfig = null, angle 
  * @param {string} params.angle - The marketing angle/hook
  * @param {string} params.narrativeFrame - Narrative frame instruction text
  * @param {string} params.batchJobId - Associated batch job
- * @param {boolean} [params.editorialPassEnabled=true] - Whether to run Opus editorial review
  * @param {boolean} [params.useProductReferenceImages=true] - Whether to use product image as reference
  * @param {(event: object) => void} sendEvent - SSE/progress callback
  * @returns {Promise<object>} { copySections, imageSlots, htmlTemplate, assembledHtml, designAnalysis, editorialPlan, auditTrail }
+ *
+ * NOTE: The `editorialPassEnabled` option and the Opus editorial rewrite it
+ * gated are retired as part of the Mark Builds Brands SOP refactor. The
+ * Chief Checkpoint (human review) replaces it. Any caller still passing
+ * `editorialPassEnabled` is ignored.
  */
 export async function generateAutoLP({
   projectId, templateId, angle, angleBrief = null, narrativeFrame, batchJobId,
-  editorialPassEnabled = true,
   useProductReferenceImages = true,
   agentConfig = null,
   approvedAds = [],  // Approved batch ads for messaging alignment
@@ -4675,33 +4413,12 @@ export async function generateAutoLP({
     foundationalDocs = {};
   }
 
+  // Editorial pass retired — the Chief Checkpoint (human review in LPGen.jsx)
+  // takes its place. editorialPlan stays null so downstream null-checks (in
+  // buildImagePrompt, generateHtmlTemplate, the post-processing chain) fall
+  // through to their non-editorial defaults.
   let editorialPlan = null;
-  if (editorialPassEnabled) {
-    const editorialResult = await runEditorialPass({
-      copySections,
-      designAnalysis,
-      angle,
-      narrativeFrame,
-      foundationalDocs,
-      approvedAds,
-      messageBrief,
-      pdpUrl: null, // Will be set by publisher
-      projectId,
-      headlineConstraints,
-    }, sendEvent);
-
-    editorialPlan = editorialResult.plan;
-    if (editorialPlan) {
-      audit('editorial', 'completed',
-        `Headline: "${(editorialPlan.headline || '').slice(0, 60)}", callouts: ${editorialPlan.callouts?.length || 0}, cuts: ${editorialPlan.sections_to_cut?.length || 0}`,
-        { decisions: editorialPlan.decisions || [] });
-    } else {
-      audit('editorial', editorialResult.noEditorialPlan ? 'failed' : 'skipped',
-        editorialResult.noEditorialPlan ? 'Editorial pass failed after retries — no editorial plan applied' : 'Editorial pass returned null or was not run');
-    }
-  } else {
-    audit('editorial', 'disabled', 'Editorial pass disabled by config');
-  }
+  audit('editorial', 'skipped', 'Editorial pass removed — Chief Checkpoint takes its place.');
 
   endPhase('editorial_pass');
 
@@ -4736,24 +4453,7 @@ export async function generateAutoLP({
       copySections.length = 0;
       copySections.push(...repairedContent.sections);
 
-      if (editorialPassEnabled) {
-        const repairedEditorial = await runEditorialPass({
-          copySections,
-          designAnalysis,
-          angle,
-          narrativeFrame,
-          foundationalDocs,
-          approvedAds,
-          messageBrief,
-          pdpUrl: null,
-          projectId,
-          headlineConstraints,
-        }, sendEvent);
-        if (repairedEditorial.plan) {
-          editorialPlan = repairedEditorial.plan;
-        }
-      }
-
+      // Editorial pass retired — no re-run after a content-alignment repair.
       contentAlignment = validateLPContentAlignment({
         copySections,
         narrativeFrame,
@@ -4865,17 +4565,7 @@ For "uncovered_beliefs", list any necessary beliefs from the document that the c
               Object.assign(autoGeneratedAuthor || {}, retryResult.autoGeneratedAuthor);
             }
             audit('quality_gate', 'retried', `Regenerated copy after low quality score (${qualityResult.score}/5)`);
-
-            // Re-run editorial pass on improved copy
-            if (editorialPassEnabled) {
-              const retryEditorial = await runEditorialPass({
-                copySections, designAnalysis, angle, narrativeFrame, foundationalDocs, approvedAds, messageBrief, pdpUrl: null, projectId, headlineConstraints,
-              }, sendEvent);
-              if (retryEditorial.plan) {
-                editorialPlan = retryEditorial.plan;
-                audit('editorial', 'retried', `Re-ran editorial after quality gate retry. Headline: "${(editorialPlan.headline || '').slice(0, 60)}"`);
-              }
-            }
+            // Editorial pass retired — no re-run after a quality-gate retry.
           }
         } catch (err) {
           console.warn(`[LPGen] Copy quality retry failed (non-fatal):`, err.message);
