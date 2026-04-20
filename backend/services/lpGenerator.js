@@ -103,7 +103,8 @@ export function buildLegacySOPWritePrompt({
   additionalDirection,
   // `wordCount` is accepted for backwards compatibility but intentionally
   // ignored — Mark Builds Brands SOP has no word-count target; the listicle
-  // is whatever length it needs to be.
+  // is whatever length it needs to be. Kept for API compat (hotfix 2026-04-20);
+  // do not remove without a coordinated change across all callers.
   wordCount: _wordCount,
 }) {
   let prompt = LEGACY_LP_SOP_WRITE_FIRST_HALF_BASE
@@ -129,7 +130,8 @@ export function buildLegacySOPAssemblyPrompt({
   fullDraft,
   templateSlots,
   // `wordCount` is accepted for backwards compatibility but intentionally
-  // ignored — Mark Builds Brands SOP has no word-count target.
+  // ignored — Mark Builds Brands SOP has no word-count target. Kept for API
+  // compat (hotfix 2026-04-20); do not remove without updating all callers.
   wordCount: _wordCount,
 }) {
   return `You are converting a finished advertorial draft into the structured landing-page section JSON used by our app.
@@ -1390,7 +1392,8 @@ export async function generateLandingPageCopy({
   swipeText,
   // `wordCount` is accepted for backwards compatibility but ignored — Mark
   // Builds Brands SOP has no word-count target. The diagnostic min/max
-  // validation below was also removed as part of that simplification.
+  // validation below was also removed as part of that simplification. Kept
+  // for API compat (hotfix 2026-04-20); do not remove without updating all callers.
   wordCount: _wordCount,
   additionalDirection,
   approvedAds = [],  // Approved batch ads for messaging alignment
@@ -1497,7 +1500,6 @@ ${docs.necessary_beliefs}`;
     angle,
     frameLine,
     additionalDirection,
-    wordCount,
   });
   sendEvent({ type: 'progress', step: 'half_one', message: 'Claude is writing the first half...' });
   conversationMessages.push({ role: 'user', content: firstHalfPrompt });
@@ -1588,7 +1590,6 @@ AUTHOR METADATA: Generate an appropriate author name and title for this article'
     campaignMessageInstruction,
     fullDraft,
     templateSlots: autoContext?.templateSlots || [],
-    wordCount,
   });
 
   sendEvent({ type: 'progress', step: 'calling_api', message: 'Claude is mapping the advertorial into landing-page sections...' });
