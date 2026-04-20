@@ -22,6 +22,29 @@ const USER_AGENT =
 const MAX_SCREENSHOT_HEIGHT = 7900; // Claude API rejects images >8000px in any dimension
 const NAVIGATION_TIMEOUT = 45000;
 
+// Transient Chromium navigation errors — the remote edge briefly dropped us,
+// usually Cloudflare/anti-bot flap or a momentary TCP reset. Retrying after
+// a short wait almost always works on the second try.
+const TRANSIENT_NAV_ERROR_CODES = [
+  'ERR_CONNECTION_RESET',
+  'ERR_CONNECTION_CLOSED',
+  'ERR_CONNECTION_ABORTED',
+  'ERR_ABORTED',
+  'ERR_NETWORK_CHANGED',
+  'ERR_HTTP2_PROTOCOL_ERROR',
+  'ERR_EMPTY_RESPONSE',
+];
+const MAX_TRANSIENT_RETRIES = 2;
+const RETRY_BASE_DELAY_MS = 1500;
+
+function isTransientNavError(message = '') {
+  return TRANSIENT_NAV_ERROR_CODES.some((code) => message.includes(code));
+}
+
+async function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 /**
  * Fetch a swipe page URL using a headless browser.
  *
@@ -65,7 +88,12 @@ export async function fetchSwipePage(url, sendEvent) {
 
   let browser;
   try {
-    // Launch headless Chromium — use 'new' headless mode for better compatibility
+    // Launch headless Chromium — use 'new' headless mode for better compatibility.
+    // --single-process was dropped: it saved ~50MB of RAM but caused sporadic
+    // ERR_CONNECTION_RESET against sites behind Cloudflare/anti-bot (the
+    // single-process fingerprint is unusual enough to trip edge flap).
+    // --disable-blink-features=AutomationControlled suppresses the
+    // `navigator.webdriver` flag so basic bot checks pass.
     browser = await puppeteer.launch({
       headless: 'new',
       args: [
@@ -74,7 +102,7 @@ export async function fetchSwipePage(url, sendEvent) {
         '--disable-dev-shm-usage',     // Use /tmp instead of /dev/shm (limited on VPS)
         '--disable-gpu',
         '--disable-software-rasterizer',
-        '--single-process',             // Reduce memory on constrained VPS
+        '--disable-blink-features=AutomationControlled',
       ],
     });
 
@@ -85,44 +113,76 @@ export async function fetchSwipePage(url, sendEvent) {
     // Navigate to URL — try networkidle2 first (allows 2 outstanding connections),
     // fall back to domcontentloaded + manual wait if that times out.
     // networkidle0 is too strict — modern sites with analytics/tracking never reach zero connections.
+    // Transient Chromium errors (ERR_CONNECTION_RESET etc. — typically a
+    // Cloudflare/anti-bot flap) get retried up to MAX_TRANSIENT_RETRIES times
+    // with a short backoff before we surface them to the user.
     let usedFallback = false;
-    try {
-      await page.goto(url, {
-        waitUntil: 'networkidle2',
-        timeout: NAVIGATION_TIMEOUT,
-      });
-    } catch (navErr) {
-      const msg = navErr.message || '';
-      // Non-timeout errors — rethrow with friendly messages
-      if (msg.includes('net::ERR_NAME_NOT_RESOLVED')) {
-        throw new Error(`Could not resolve domain "${parsedUrl.hostname}". Check the URL and try again.`);
-      }
-      if (msg.includes('net::ERR_CONNECTION_REFUSED')) {
-        throw new Error(`Connection refused by "${parsedUrl.hostname}". The site may be down.`);
-      }
-      if (msg.includes('net::ERR_SSL')) {
-        throw new Error(`SSL error connecting to "${parsedUrl.hostname}". The site may have certificate issues.`);
-      }
-      // Timeout — fall back to domcontentloaded + manual wait
-      if (msg.includes('timeout') || msg.includes('TimeoutError')) {
-        sendEvent({ type: 'progress', step: 'fetch_loading', message: 'Page loading slowly, retrying with fallback...' });
-        try {
-          await page.goto(url, {
-            waitUntil: 'domcontentloaded',
-            timeout: NAVIGATION_TIMEOUT,
-          });
-          usedFallback = true;
-        } catch (fallbackErr) {
-          const fbMsg = fallbackErr.message || '';
-          if (fbMsg.includes('timeout') || fbMsg.includes('TimeoutError')) {
-            throw new Error(`Page took too long to load (>${NAVIGATION_TIMEOUT / 1000}s). The site may be slow or blocking automated access. Try a different URL.`);
-          }
-          throw new Error(`Failed to load page: ${fbMsg}`);
+    let transientAttempts = 0;
+    let lastTransientMessage = '';
+    // eslint-disable-next-line no-constant-condition
+    while (true) {
+      try {
+        await page.goto(url, {
+          waitUntil: 'networkidle2',
+          timeout: NAVIGATION_TIMEOUT,
+        });
+        break;
+      } catch (navErr) {
+        const msg = navErr.message || '';
+
+        // Permanent errors — rethrow immediately with friendly messages.
+        if (msg.includes('net::ERR_NAME_NOT_RESOLVED')) {
+          throw new Error(`Could not resolve domain "${parsedUrl.hostname}". Check the URL and try again.`);
         }
-      } else {
+        if (msg.includes('net::ERR_CONNECTION_REFUSED')) {
+          throw new Error(`Connection refused by "${parsedUrl.hostname}". The site may be down.`);
+        }
+        if (msg.includes('net::ERR_SSL')) {
+          throw new Error(`SSL error connecting to "${parsedUrl.hostname}". The site may have certificate issues.`);
+        }
+
+        // Transient network error — retry a couple of times with backoff.
+        if (isTransientNavError(msg) && transientAttempts < MAX_TRANSIENT_RETRIES) {
+          transientAttempts += 1;
+          lastTransientMessage = msg;
+          const delay = RETRY_BASE_DELAY_MS * transientAttempts;
+          sendEvent({
+            type: 'progress',
+            step: 'fetch_loading',
+            message: `Connection dropped by "${parsedUrl.hostname}" — retrying (${transientAttempts}/${MAX_TRANSIENT_RETRIES}) in ${Math.round(delay / 1000)}s...`,
+          });
+          await sleep(delay);
+          continue;
+        }
+
+        if (isTransientNavError(msg)) {
+          throw new Error(`"${parsedUrl.hostname}" kept dropping the connection after ${MAX_TRANSIENT_RETRIES} retries (${msg.split('\n')[0]}). Try again in a minute, or pick a different URL.`);
+        }
+
+        // Timeout — fall back to domcontentloaded + manual wait.
+        if (msg.includes('timeout') || msg.includes('TimeoutError')) {
+          sendEvent({ type: 'progress', step: 'fetch_loading', message: 'Page loading slowly, retrying with fallback...' });
+          try {
+            await page.goto(url, {
+              waitUntil: 'domcontentloaded',
+              timeout: NAVIGATION_TIMEOUT,
+            });
+            usedFallback = true;
+            break;
+          } catch (fallbackErr) {
+            const fbMsg = fallbackErr.message || '';
+            if (fbMsg.includes('timeout') || fbMsg.includes('TimeoutError')) {
+              throw new Error(`Page took too long to load (>${NAVIGATION_TIMEOUT / 1000}s). The site may be slow or blocking automated access. Try a different URL.`);
+            }
+            throw new Error(`Failed to load page: ${fbMsg}`);
+          }
+        }
+
         throw new Error(`Failed to load page: ${msg}`);
       }
     }
+    // Reference lastTransientMessage so lint stays quiet when MAX_TRANSIENT_RETRIES is 0.
+    void lastTransientMessage;
 
     // Wait for lazy-loaded content — longer wait if we used the fallback strategy
     const contentWaitMs = usedFallback ? 5000 : 2000;
