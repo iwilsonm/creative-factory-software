@@ -216,7 +216,10 @@ router.post('/:projectId/landing-pages/generate', async (req, res) => {
     return res.status(404).json({ error: 'Project not found' });
   }
 
-  const { angle, swipe_url, word_count, additional_direction, swipe_pdf_base64, swipe_pdf_filename } = req.body;
+  // Mark Builds Brands SOP: no word-count target (the listicle is whatever
+  // length it needs to be). We intentionally don't destructure `word_count`
+  // from the body — stale clients that still send it are silently ignored.
+  const { angle, swipe_url, additional_direction, swipe_pdf_base64, swipe_pdf_filename } = req.body;
 
   if (!angle || !angle.trim()) {
     return res.status(400).json({ error: 'Angle is required' });
@@ -232,8 +235,6 @@ router.post('/:projectId/landing-pages/generate', async (req, res) => {
 
   // Create landing page record
   const pageId = uuidv4();
-  const parsedWordCount = Number.parseInt(word_count, 10);
-  const wordCountNum = Number.isFinite(parsedWordCount) && parsedWordCount > 0 ? parsedWordCount : undefined;
   const pageName = `LP — ${angle.trim().slice(0, 60)}`;
 
   await createLandingPage({
@@ -241,7 +242,6 @@ router.post('/:projectId/landing-pages/generate', async (req, res) => {
     project_id: req.params.projectId,
     name: pageName,
     angle: angle.trim(),
-    word_count: wordCountNum,
     additional_direction: additional_direction?.trim() || undefined,
     swipe_url: swipe_url?.trim() || undefined,
     status: 'generating',
@@ -313,7 +313,7 @@ router.post('/:projectId/landing-pages/generate', async (req, res) => {
       const audit = (step, action, detail) => {
         auditTrail.push({ timestamp: new Date().toISOString(), step, action, detail });
       };
-      audit('init', 'started', `Manual generation — angle: "${(angle || '').slice(0, 50)}", wordCount: ${wordCountNum || 'default'}`);
+      audit('init', 'started', `Manual generation — angle: "${(angle || '').slice(0, 50)}"`);
 
       // ── Phase 2A: Design Analysis (only if we have a screenshot) ──
       let designAnalysis = null;
@@ -346,7 +346,6 @@ router.post('/:projectId/landing-pages/generate', async (req, res) => {
         projectId: req.params.projectId,
         angle: angle.trim(),
         swipeText,
-        wordCount: wordCountNum,
         additionalDirection: additional_direction?.trim() || undefined,
       }, sse.sendEvent);
 

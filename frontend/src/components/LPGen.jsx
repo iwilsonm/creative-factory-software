@@ -2138,10 +2138,13 @@ export default function LPGen({ projectId, project }) {
 
   // Configure form
   const [angle, setAngle] = useState('');
-  const [wordCount, setWordCount] = useState(1200);
   const [additionalDirection, setAdditionalDirection] = useState('');
   const [swipeUrl, setSwipeUrl] = useState('');
   const [swipePdf, setSwipePdf] = useState(null); // { file, name }
+  // Template picker — user can select from saved lp_templates to auto-fill the
+  // Swipe Page URL. Keeps the URL field as the single source of truth on submit.
+  const [swipeTemplates, setSwipeTemplates] = useState([]);
+  const [selectedTemplateId, setSelectedTemplateId] = useState('');
 
   // Generation state
   const [generating, setGenerating] = useState(false);
@@ -2254,6 +2257,25 @@ export default function LPGen({ projectId, project }) {
     }
   };
 
+  // Load ready-status LP templates for the Swipe source picker on the generate
+  // form. Non-fatal on failure — the dropdown just shows the empty-state option.
+  useEffect(() => {
+    if (!projectId) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const data = await api.getLPTemplates(projectId);
+        // api.getLPTemplates returns the templates array directly (normalized).
+        const list = Array.isArray(data) ? data : (data?.templates || []);
+        const ready = list.filter(t => t.status === 'ready');
+        if (!cancelled) setSwipeTemplates(ready);
+      } catch (err) {
+        if (!cancelled) setSwipeTemplates([]);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [projectId]);
+
   const checkDocs = async () => {
     try {
       const result = await api.checkLandingPageDocs(projectId);
@@ -2285,7 +2307,6 @@ export default function LPGen({ projectId, project }) {
 
     const body = {
       angle: angle.trim(),
-      word_count: wordCount,
     };
     if (additionalDirection.trim()) {
       body.additional_direction = additionalDirection.trim();
@@ -2374,7 +2395,7 @@ export default function LPGen({ projectId, project }) {
     };
 
     startGeneration();
-  }, [projectId, angle, wordCount, additionalDirection, swipeUrl, swipePdf]);
+  }, [projectId, angle, additionalDirection, swipeUrl, swipePdf]);
 
   const handleCancelGenerate = () => {
     if (abortRef.current) {
@@ -2647,13 +2668,50 @@ export default function LPGen({ projectId, project }) {
           {/* Swipe Reference */}
           <div className="card p-5">
             <label className="block text-[13px] font-medium text-textdark mb-1.5">
+              Swipe source
+              <InfoTooltip text="Pick a saved LP template or paste a URL below. Either way, the AI loads the page, screenshots it, and uses it as design + tonal inspiration." />
+            </label>
+            <select
+              value={selectedTemplateId}
+              onChange={(e) => {
+                const id = e.target.value;
+                setSelectedTemplateId(id);
+                if (!id) return;
+                const chosen = swipeTemplates.find(t => (t.externalId || t.id) === id);
+                if (chosen?.source_url) {
+                  setSwipeUrl(chosen.source_url);
+                  setSwipePdf(null);
+                }
+              }}
+              className="input-apple mb-3"
+            >
+              {swipeTemplates.length === 0 ? (
+                <option value="" disabled>No saved templates yet — extract one from the Templates tab</option>
+              ) : (
+                <>
+                  <option value="">— Pick a saved template —</option>
+                  {swipeTemplates.map(t => {
+                    const id = t.externalId || t.id;
+                    const label = `${t.name || 'Untitled template'} — ${t.source_url || ''}`;
+                    return <option key={id} value={id}>{label}</option>;
+                  })}
+                </>
+              )}
+            </select>
+
+            <label className="block text-[11px] text-textmid mb-1">
               Swipe Page URL
-              <InfoTooltip text="Paste the URL of an advertorial or landing page to use as design and tonal inspiration. The AI will load the page, take a screenshot, analyze its visual design, and produce a styled HTML page." />
             </label>
             <input
               type="url"
               value={swipeUrl}
-              onChange={(e) => { setSwipeUrl(e.target.value); if (e.target.value.trim()) setSwipePdf(null); }}
+              onChange={(e) => {
+                setSwipeUrl(e.target.value);
+                if (e.target.value.trim()) setSwipePdf(null);
+                // User typing overrides the template pick — the URL field is
+                // the single source of truth on submit.
+                if (selectedTemplateId) setSelectedTemplateId('');
+              }}
               className="input-apple"
               placeholder="https://example.com/advertorial"
             />
@@ -2728,24 +2786,6 @@ export default function LPGen({ projectId, project }) {
                 />
               </label>
             )}
-          </div>
-
-          {/* Word Count */}
-          <div className="card p-5">
-            <label className="block text-[13px] font-medium text-textdark mb-1.5">
-              Target Word Count
-              <InfoTooltip text="Approximate word count for the entire landing page. Default is 1200 words." />
-            </label>
-            <input
-              type="number"
-              value={wordCount}
-              onChange={(e) => setWordCount(parseInt(e.target.value) || 1200)}
-              className="input-apple w-32"
-              min={300}
-              max={5000}
-              step={100}
-            />
-            <p className="text-[10px] text-textlight mt-1">Approximate target — actual output may vary slightly.</p>
           </div>
 
           {/* Additional Direction */}
