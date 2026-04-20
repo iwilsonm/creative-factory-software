@@ -11,7 +11,7 @@ import {
 } from '../convexClient.js';
 import { withRetry } from '../services/retry.js';
 import { generateAndValidateLP, NARRATIVE_FRAMES } from '../services/lpGenerator.js';
-import { runGauntlet } from '../services/lpAutoGenerator.js';
+import { runGauntlet, markLPPendingReview, clearChiefReviewTodo, appendLPAuditTrail, chiefReviewTodoExternalId } from '../services/lpAutoGenerator.js';
 import { getProjectProgress } from '../services/gauntletProgress.js';
 import { uploadBuffer } from '../convexClient.js';
 import { publishAndSmokeTest, generateSlug, extractHeadlineForSlug } from '../services/lpPublisher.js';
@@ -338,10 +338,22 @@ router.post('/:id/lp-agent/generate-test', async (req, res) => {
     }
     await updateLandingPage(lpId, updateFields);
 
-    // Auto-publish + smoke test (only if QA passed and Shopify configured)
+    // Auto-publish + smoke test (only if QA passed and Shopify configured).
+    // Chief Checkpoint intercepts here when enabled: QA-passed LPs are flagged
+    // pending_review and a dashboard reminder is posted. A human approves via
+    // /approve-and-publish. QA-failed LPs bypass the gate — they've already
+    // been marked 'failed' above.
     let publishedUrl = null;
-    const shouldAutoPublish = !!publish && agentConfig?.auto_publish !== false;
     const qaOk = !qaReport || qaReport.passed;
+    const chiefCheckpointEnabled = agentConfig?.chief_checkpoint_enabled !== false;
+    if (qaOk && chiefCheckpointEnabled) {
+      await markLPPendingReview({ lpId, projectId, sendEvent });
+      sendEvent({ type: 'complete', page_id: lpId, pending_review: true, status: 'pending_review' });
+      end();
+      return;
+    }
+
+    const shouldAutoPublish = !!publish && agentConfig?.auto_publish !== false;
     if (shouldAutoPublish && qaOk && agentConfig?.shopify_access_token && agentConfig?.shopify_store_domain) {
       try {
         sendEvent({ type: 'phase', phase: 'publishing', message: 'Publishing to Shopify...' });
@@ -415,6 +427,48 @@ router.get('/:id/lp-agent/status', async (req, res) => {
       statusLabel = 'missing_config';
     }
 
+    // Decorate recent generations with Chief Checkpoint flags so the frontend
+    // can render the pending-review queue without a second fetch.
+    const STALE_HOURS = 72; // > 72h in pending_review → amber badge
+    const nowMs = Date.now();
+    const decorateChiefState = (lp) => {
+      const updatedMs = lp.updated_at ? new Date(lp.updated_at).getTime() : null;
+      const hoursInReview = updatedMs ? Math.max(0, (nowMs - updatedMs) / (60 * 60 * 1000)) : null;
+      const pending = lp.status === 'pending_review';
+      const expired = lp.status === 'expired_review';
+      return {
+        pending_review: pending,
+        expired_review: expired,
+        stale_review: pending && hoursInReview !== null && hoursInReview >= STALE_HOURS,
+        hours_in_review: hoursInReview !== null ? Math.round(hoursInReview) : null,
+      };
+    };
+
+    const decoratedRecents = recentLPs.map(lp => ({
+      id: lp.externalId || lp.id,
+      name: lp.name,
+      status: lp.status,
+      created_at: lp.created_at,
+      updated_at: lp.updated_at,
+      published_url: lp.published_url,
+      angle: lp.angle,
+      gauntlet_batch_id: lp.gauntlet_batch_id,
+      gauntlet_frame: lp.gauntlet_frame,
+      narrative_frame: lp.narrative_frame,
+      gauntlet_score: lp.gauntlet_score,
+      gauntlet_status: lp.gauntlet_status,
+      gauntlet_batch_started_at: lp.gauntlet_batch_started_at,
+      gauntlet_batch_completed_at: lp.gauntlet_batch_completed_at,
+      qa_status: lp.qa_status,
+      qa_issues_count: lp.qa_issues_count,
+      smoke_test_status: lp.smoke_test_status,
+      error_message: lp.error_message,
+      ...decorateChiefState(lp),
+    }));
+
+    const pendingReviewCount = decoratedRecents.filter(lp => lp.pending_review).length;
+    const expiredReviewCount = decoratedRecents.filter(lp => lp.expired_review).length;
+
     res.json({
       status: statusLabel,
       enabled: isEnabled,
@@ -424,25 +478,9 @@ router.get('/:id/lp-agent/status', async (req, res) => {
       has_pdp_url: hasPdpUrl,
       chief_checkpoint_enabled: config?.chief_checkpoint_enabled !== false,
       auto_publish: config?.auto_publish !== false,
-      recent_generations: recentLPs.map(lp => ({
-        id: lp.externalId || lp.id,
-        name: lp.name,
-        status: lp.status,
-        created_at: lp.created_at,
-        published_url: lp.published_url,
-        angle: lp.angle,
-        gauntlet_batch_id: lp.gauntlet_batch_id,
-        gauntlet_frame: lp.gauntlet_frame,
-        narrative_frame: lp.narrative_frame,
-        gauntlet_score: lp.gauntlet_score,
-        gauntlet_status: lp.gauntlet_status,
-        gauntlet_batch_started_at: lp.gauntlet_batch_started_at,
-        gauntlet_batch_completed_at: lp.gauntlet_batch_completed_at,
-        qa_status: lp.qa_status,
-        qa_issues_count: lp.qa_issues_count,
-        smoke_test_status: lp.smoke_test_status,
-        error_message: lp.error_message,
-      })),
+      pending_review_count: pendingReviewCount,
+      expired_review_count: expiredReviewCount,
+      recent_generations: decoratedRecents,
     });
   } catch (err) {
     console.error('[LP Agent] Status error:', err.message);

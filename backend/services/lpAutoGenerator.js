@@ -38,7 +38,7 @@ import {
 } from './lpGenerator.js';
 import { getCachedImageContext, getFoundationalDocs } from './lpGenerator.js';
 import { publishAndSmokeTest, generateSlug, extractHeadlineForSlug } from './lpPublisher.js';
-import { uploadBuffer, downloadToBuffer } from '../convexClient.js';
+import { uploadBuffer, downloadToBuffer, upsertDashboardTodo, removeDashboardTodo, getLandingPage } from '../convexClient.js';
 import { setProgress, clearProgress } from './gauntletProgress.js';
 import {
   buildLPHeadlineHistoryEntry,
@@ -88,6 +88,80 @@ async function mirrorBatchLandingPagesToFlexAd(batch) {
     });
   } catch (err) {
     console.warn(`[LPAuto] Failed to mirror LP fields from batch ${batch.externalId?.slice(0, 8) || batch.id?.slice(0, 8) || 'unknown'} to flex ${batch.flex_ad_id.slice(0, 8)}:`, err.message);
+  }
+}
+
+/**
+ * Stable external id for the dashboard-todo reminder attached to an LP that's
+ * waiting in Chief Checkpoint. Embeds the LP id so upsert / remove stay dedup-
+ * safe across concurrent generations.
+ */
+export function chiefReviewTodoExternalId(lpId) {
+  return `lp_chief_review:${lpId}`;
+}
+
+/**
+ * Append an entry to landing_pages.audit_trail (stored as a JSON string).
+ * Non-fatal — a read/parse failure just skips the append.
+ */
+export async function appendLPAuditTrail(lpId, entry) {
+  try {
+    const page = await getLandingPage(lpId);
+    if (!page) return;
+    let trail = [];
+    try {
+      trail = page.audit_trail ? JSON.parse(page.audit_trail) : [];
+      if (!Array.isArray(trail)) trail = [];
+    } catch { trail = []; }
+    trail.push({ timestamp: new Date().toISOString(), ...entry });
+    await updateLandingPage(lpId, { audit_trail: JSON.stringify(trail) });
+  } catch (err) {
+    console.warn(`[LPAuto] appendLPAuditTrail(${lpId}) failed (non-fatal):`, err.message);
+  }
+}
+
+/**
+ * Transition an LP into pending_review (chief checkpoint) and post a
+ * dashboard reminder. Returns the LP row (re-fetched) so callers can surface
+ * title / deep-link data without a second read.
+ */
+export async function markLPPendingReview({ lpId, projectId, sendEvent = () => {} }) {
+  await updateLandingPage(lpId, { status: 'pending_review' });
+  await appendLPAuditTrail(lpId, { step: 'approval', action: 'pending_review' });
+
+  let page = null;
+  try {
+    page = await getLandingPage(lpId);
+  } catch (err) {
+    console.warn(`[LPAuto] markLPPendingReview read failed for ${lpId}:`, err.message);
+  }
+
+  const title = (page?.name || 'Landing page').slice(0, 80);
+  const deepLink = `/admin/projects/${projectId}/lp?lp=${lpId}`;
+  try {
+    await upsertDashboardTodo({
+      externalId: chiefReviewTodoExternalId(lpId),
+      text: `Review & approve: ${title}`,
+      notes: deepLink,
+      priority: 1,
+    });
+  } catch (err) {
+    console.warn(`[LPAuto] Dashboard todo upsert failed for LP ${lpId}:`, err.message);
+  }
+
+  sendEvent({ type: 'progress', step: 'chief_pending', message: 'Landing page is awaiting chief review.' });
+  return page;
+}
+
+/**
+ * Delete the chief-review dashboard reminder for an LP. Safe to call even if
+ * no such reminder exists — the Convex mutation is a no-op in that case.
+ */
+export async function clearChiefReviewTodo(lpId) {
+  try {
+    await removeDashboardTodo(chiefReviewTodoExternalId(lpId));
+  } catch (err) {
+    console.warn(`[LPAuto] Dashboard todo clear failed for LP ${lpId}:`, err.message);
   }
 }
 
@@ -583,7 +657,21 @@ export async function triggerLPGeneration(batchJobId, projectId, angle) {
       // Listicle-only post-Mark-SOP refactor: auto-gen now produces exactly one
       // listicle per batch — the lpUrls.length > 1 branch is preserved only for
       // legacy batches and retries that already produced a secondary LP.
-      if (report.lpUrls && report.lpUrls.length > 0) {
+      // Chief Checkpoint: a frame can come back in 'pending_review' with a
+      // valid lpId but no published URL. We mirror that status onto the batch
+      // so the Filter / retry loop can see the LP is awaiting human approval.
+      const primaryFrame = report.frames?.[0];
+      const primaryPending = primaryFrame && (primaryFrame.pendingReview || primaryFrame.status === 'pending_review');
+      if (primaryPending) {
+        const updates = {
+          gauntlet_lp_urls: JSON.stringify(report.lpUrls || []),
+          lp_primary_url: null,
+          lp_primary_status: 'pending_review',
+          lp_primary_id: primaryFrame.lpId || null,
+          lp_secondary_status: 'skipped',
+        };
+        await updateBatchJobAndMirror(batchJobId, updates);
+      } else if (report.lpUrls && report.lpUrls.length > 0) {
         const updates = {
           gauntlet_lp_urls: JSON.stringify(report.lpUrls),
           lp_primary_url: report.lpUrls[0]?.url || null,
@@ -723,6 +811,20 @@ async function generateAndPublishLP({ projectId, batchJobId, angle, template, fr
     }
 
     await updateLandingPageSafely(lpId, updateFields, { stage: 'store_generate_and_publish_lp' });
+
+    // Chief Checkpoint: stop before Shopify when the agent config says so.
+    // The LP is flagged pending_review and a dashboard reminder is posted;
+    // a human approves via /approve-and-publish. QA failures don't reach
+    // this point — they bail above with status 'failed'.
+    if (agentConfig?.chief_checkpoint_enabled !== false) {
+      await markLPPendingReview({ lpId, projectId, sendEvent });
+      return {
+        lpId,
+        publishedUrl: null,
+        verified: false,
+        pendingReview: true,
+      };
+    }
 
     // Publish + smoke test
     const { publishResult, smokeResult, verified } = await publishAndSmokeTest(lpId, projectId, {
@@ -1420,8 +1522,29 @@ export async function runGauntlet(projectId, options = {}, sendEventRaw) {
           }, { stage: 'store_gauntlet_runtime_summary' });
         }
 
-        // 5i. Publish if passed and not dry run and not multi-variant
-        if (passed && !dryRun && !isMultiVariant) {
+        // 5i. Publish if passed and not dry run and not multi-variant.
+        // Chief Checkpoint intercepts here: when `chief_checkpoint_enabled !== false`
+        // we stop before Shopify, flag the LP pending_review, post a dashboard
+        // reminder, and let a human approve via /approve-and-publish. QA-failed
+        // LPs bypass this gate — they fall through to the 'failed' branch above
+        // so we never queue a broken LP for review.
+        const chiefCheckpointEnabled = config?.chief_checkpoint_enabled !== false;
+
+        if (passed && !dryRun && !isMultiVariant && chiefCheckpointEnabled) {
+          try {
+            await updateLandingPageSafely(lpId, buildGauntletPublishFields(lpResult), {
+              stage: 'store_publish_payload',
+            });
+            await markLPPendingReview({ lpId, projectId, sendEvent });
+            variantFrameResult.status = 'pending_review';
+            variantFrameResult.pendingReview = true;
+            variantFrameResult.publishedUrl = null;
+          } catch (pendingErr) {
+            console.error(`[Gauntlet] Failed to stage pending_review for frame ${frameNum}:`, pendingErr.message);
+            variantFrameResult.status = 'failed';
+            variantFrameResult.error = pendingErr.message;
+          }
+        } else if (passed && !dryRun && !isMultiVariant) {
           sendEvent({ type: 'progress', step: 'gauntlet_publishing', message: `LP ${frameNum} of ${totalFrames} — Publishing to Shopify...` });
 
           try {

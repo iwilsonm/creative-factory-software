@@ -620,6 +620,14 @@ export const api = {
     request(`/projects/${projectId}/landing-pages/${pageId}/publish`, { method: 'POST' }),
   unpublishLandingPage: (projectId, pageId) =>
     request(`/projects/${projectId}/landing-pages/${pageId}/unpublish`, { method: 'POST' }),
+  approveAndPublishLandingPage: (projectId, pageId) =>
+    request(`/projects/${projectId}/landing-pages/${pageId}/approve-and-publish`, { method: 'POST' }),
+  rejectLandingPage: (projectId, pageId, notes) =>
+    request(`/projects/${projectId}/landing-pages/${pageId}/reject-with-notes`, {
+      method: 'POST',
+      body: JSON.stringify({ notes }),
+      headers: { 'Content-Type': 'application/json' },
+    }),
   duplicateLandingPage: (projectId, pageId) =>
     request(`/projects/${projectId}/landing-pages/${pageId}/duplicate`, { method: 'POST' }),
 

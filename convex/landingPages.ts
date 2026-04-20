@@ -123,6 +123,19 @@ export const getByBatchJob = query({
   },
 });
 
+/**
+ * Return every landing page currently sitting in `pending_review`. Used by the
+ * daily expiry scheduler to find rows older than 7 days. No dedicated index
+ * because this runs once a day at most and the table is small.
+ */
+export const getAllPendingReview = query({
+  args: {},
+  handler: async (ctx) => {
+    const rows = await ctx.db.query("landing_pages").collect();
+    return rows.filter((row) => row.status === "pending_review");
+  },
+});
+
 export const getGauntletStatsByProject = query({
   args: { projectId: v.string() },
   handler: async (ctx, args) => {

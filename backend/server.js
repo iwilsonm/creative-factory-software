@@ -166,6 +166,12 @@ process.on('uncaughtException', (err) => {
   app.use('/api/cmo/dry-run', llmRateLimit);
   app.use('/api/projects/:id/generate-sales-page', llmRateLimit);
   app.use('/api/projects/:id/sales-pages/install-theme', llmRateLimit);
+  // Chief Checkpoint write paths — rate-limited because they hit Shopify /
+  // append to audit_trail / touch the dashboard_todos table. Not LLM-heavy
+  // but still worth a 10/min ceiling so a runaway approve button can't flood
+  // Shopify with publish attempts.
+  app.use('/api/projects/:id/landing-pages/:pageId/approve-and-publish', llmRateLimit);
+  app.use('/api/projects/:id/landing-pages/:pageId/reject-with-notes', llmRateLimit);
   // NOTE: Generated images are no longer served from local disk.
   // They are served via 302 redirect to Convex storage URLs in the ads route.
 

@@ -1448,6 +1448,39 @@ export async function replaceDashboardTodos(todos) {
   });
 }
 
+/**
+ * Non-destructive single-row upsert on the dashboard_todos table. Safe to
+ * call concurrently from LP chief-review events — only the row keyed by
+ * externalId is touched.
+ */
+export async function upsertDashboardTodo({ externalId, text, notes, author, priority, sort_order }) {
+  await mutationWithRetry(api.dashboard_todos.upsertByExternalId, {
+    externalId,
+    text,
+    notes,
+    author,
+    priority,
+    sort_order,
+  });
+}
+
+/**
+ * Non-destructive delete of a single dashboard todo by externalId. Used to
+ * clear a pending-review reminder when the LP is approved, rejected, or
+ * expires. No-op if the row doesn't exist.
+ */
+export async function removeDashboardTodo(externalId) {
+  await mutationWithRetry(api.dashboard_todos.removeByExternalId, { externalId });
+}
+
+/**
+ * Return every landing page currently in `pending_review` across the whole
+ * database. Used by the daily expiry scheduler to age out stale reviews.
+ */
+export async function getAllPendingReviewLPs() {
+  return await queryWithRetry(api.landingPages.getAllPendingReview, {});
+}
+
 // =============================================
 // Landing Page helpers
 // =============================================

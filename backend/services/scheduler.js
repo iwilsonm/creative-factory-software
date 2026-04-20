@@ -1,5 +1,5 @@
 import cron from 'node-cron';
-import { getActiveBatchJobs, getScheduledBatchJobs, getBatchJob, updateBatchJob, getMetaEnabledProjects, purgeDeletedDeployments, purgeDeletedFlexAds } from '../convexClient.js';
+import { getActiveBatchJobs, getScheduledBatchJobs, getBatchJob, updateBatchJob, getMetaEnabledProjects, purgeDeletedDeployments, purgeDeletedFlexAds, getAllPendingReviewLPs, updateLandingPage } from '../convexClient.js';
 import { runBatch, pollBatchJob } from './batchProcessor.js';
 import { syncOpenAICosts, refreshGeminiRates } from './costTracker.js';
 import { syncMetaPerformance, refreshMetaTokenIfNeeded } from './metaAds.js';
@@ -61,6 +61,18 @@ export async function initScheduler() {
       await refreshGeminiRates();
       lastRateRefreshAt = new Date().toISOString();
     } catch (e) { console.error('[Scheduler] Gemini rate refresh error:', e.message); }
+  });
+
+  // Expire Chief Checkpoint pending reviews older than 7 days (daily at 2 AM).
+  // Never auto-publishes — moves to 'expired_review' so a human can restore
+  // and re-approve later. The dashboard reminder is cleared at the same time.
+  cron.schedule('0 2 * * *', async () => {
+    try {
+      const expired = await expireStalePendingReviews();
+      if (expired > 0) {
+        console.log(`[Scheduler] Expired ${expired} pending-review LP(s) >7 days old`);
+      }
+    } catch (e) { console.error('[Scheduler] Chief Checkpoint expiry error:', e.message); }
   });
 
   // Sync Meta performance data every 30 minutes (per-project)
@@ -351,4 +363,43 @@ export function getSchedulerStatus() {
     lastDirectorRunAt,
     lastCmoRunAt,
   };
+}
+
+/**
+ * Sweep every LP in `pending_review` older than 7 days into `expired_review`.
+ * Exported so the scheduler cron can call it; also handy for a manual run via
+ * node repl when debugging. Never auto-publishes — expired LPs require a
+ * human to restore them to pending_review before they can ship.
+ *
+ * @returns {Promise<number>} count of LPs expired this run
+ */
+export async function expireStalePendingReviews(thresholdMs = 7 * 24 * 60 * 60 * 1000) {
+  const pending = await getAllPendingReviewLPs();
+  if (!pending || pending.length === 0) return 0;
+
+  // Lazy-load to avoid a circular scheduler <-> lpAutoGenerator import at
+  // module init.
+  const { appendLPAuditTrail, clearChiefReviewTodo } = await import('./lpAutoGenerator.js');
+
+  const now = Date.now();
+  let expired = 0;
+  for (const lp of pending) {
+    const updatedAt = lp.updated_at || lp.created_at;
+    const ageMs = updatedAt ? now - new Date(updatedAt).getTime() : 0;
+    if (ageMs < thresholdMs) continue;
+
+    try {
+      await updateLandingPage(lp.externalId, { status: 'expired_review' });
+      await appendLPAuditTrail(lp.externalId, {
+        step: 'approval',
+        action: 'expired',
+        detail: `Pending review for ${Math.floor(ageMs / (24 * 60 * 60 * 1000))} days`,
+      });
+      await clearChiefReviewTodo(lp.externalId);
+      expired += 1;
+    } catch (err) {
+      console.warn(`[Scheduler] Failed to expire LP ${lp.externalId}:`, err.message);
+    }
+  }
+  return expired;
 }

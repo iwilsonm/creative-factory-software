@@ -392,6 +392,16 @@ function LPEditor({ page: initialPage, onBack, onDelete, projectId }) {
   const [copiedUrl, setCopiedUrl] = useState(false);
   const [shopifyHandle, setShopifyHandle] = useState(initialPage.shopify_handle || '');
 
+  // ── Chief Checkpoint review state ──
+  const [approving, setApproving] = useState(false);
+  const [rejecting, setRejecting] = useState(false);
+  const [sendingToDraft, setSendingToDraft] = useState(false);
+  const [restoringReview, setRestoringReview] = useState(false);
+  const [rejectModalOpen, setRejectModalOpen] = useState(false);
+  const [rejectNotes, setRejectNotes] = useState('Angle drift: ');
+  const [chiefContextOpen, setChiefContextOpen] = useState(true);
+  const chiefActionsRef = useRef(null);
+
   // ── Visual QA state ──
   const [qaRunning, setQaRunning] = useState(false);
   const [qaResult, setQaResult] = useState(() => {
@@ -440,6 +450,21 @@ function LPEditor({ page: initialPage, onBack, onDelete, projectId }) {
     if (Object.keys(updates).length > 0) {
       api.updateLandingPage(projectId, initialPage.externalId, updates).catch(() => {});
     }
+  }, []);
+
+  // ── Deep-link: scroll chief approval panel into view when arriving via ?lp=<id> on a pending-review LP ──
+  useEffect(() => {
+    if (pageStatus !== 'pending_review') return;
+    const search = typeof window !== 'undefined' ? window.location.search : '';
+    if (!search.includes('lp=')) return;
+    // Wait a tick so the approval buttons have rendered before scrolling
+    const t = setTimeout(() => {
+      if (chiefActionsRef.current) {
+        chiefActionsRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    }, 150);
+    return () => clearTimeout(t);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // (Cloudflare config check removed — publishing now uses Shopify via Director config)
@@ -689,6 +714,72 @@ function LPEditor({ page: initialPage, onBack, onDelete, projectId }) {
     setUnpublishing(false);
   };
 
+  // ── Chief Checkpoint: Approve & Publish ──
+  const handleApproveAndPublish = async () => {
+    setApproving(true);
+    try {
+      const result = await api.approveAndPublishLandingPage(projectId, initialPage.externalId);
+      if (result.published_url) setPublishedUrl(result.published_url);
+      if (result.shopify_handle) setShopifyHandle(result.shopify_handle);
+      setPageStatus('published');
+      if (result.already_published) {
+        toast.success('Already live at that URL.');
+      } else {
+        toast.success('Landing page approved and published to Shopify.');
+      }
+    } catch (err) {
+      toast.error(err.message || 'Approve & publish failed');
+    }
+    setApproving(false);
+  };
+
+  // ── Chief Checkpoint: Reject with Notes ──
+  const openRejectModal = () => {
+    setRejectNotes('Angle drift: ');
+    setRejectModalOpen(true);
+  };
+
+  const handleReject = async () => {
+    const notes = rejectNotes.trim();
+    if (!notes) return;
+    setRejecting(true);
+    try {
+      await api.rejectLandingPage(projectId, initialPage.externalId, notes);
+      setPageStatus('draft');
+      setRejectModalOpen(false);
+      toast.success('Landing page rejected — reviewer notes saved to audit trail.');
+    } catch (err) {
+      toast.error(err.message || 'Reject failed');
+    }
+    setRejecting(false);
+  };
+
+  // ── Chief Checkpoint: Send back to Draft (no notes) ──
+  const handleSendBackToDraft = async () => {
+    setSendingToDraft(true);
+    try {
+      await api.updateLandingPage(projectId, initialPage.externalId, { status: 'draft' });
+      setPageStatus('draft');
+      toast.success('Moved back to draft.');
+    } catch (err) {
+      toast.error(err.message || 'Failed to move to draft');
+    }
+    setSendingToDraft(false);
+  };
+
+  // ── Chief Checkpoint: Restore expired review ──
+  const handleRestoreToReview = async () => {
+    setRestoringReview(true);
+    try {
+      await api.updateLandingPage(projectId, initialPage.externalId, { status: 'pending_review' });
+      setPageStatus('pending_review');
+      toast.success('Restored to pending review.');
+    } catch (err) {
+      toast.error(err.message || 'Failed to restore to review');
+    }
+    setRestoringReview(false);
+  };
+
   // ── Copy URL to clipboard ──
   const handleCopyUrl = () => {
     navigator.clipboard.writeText(publishedUrl);
@@ -746,6 +837,22 @@ function LPEditor({ page: initialPage, onBack, onDelete, projectId }) {
     catch { return null; }
   }, [initialPage.editorial_plan]);
 
+  // Parse Chief Review Context (derived angle brief + source flex-ad thumbnails)
+  const derivedAngle = useMemo(() => {
+    try { return initialPage.derived_angle ? JSON.parse(initialPage.derived_angle) : null; }
+    catch { return null; }
+  }, [initialPage.derived_angle]);
+
+  const angleDerivationImages = useMemo(() => {
+    try {
+      if (!initialPage.angle_derivation_image_urls) return [];
+      const parsed = JSON.parse(initialPage.angle_derivation_image_urls);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch { return []; }
+  }, [initialPage.angle_derivation_image_urls]);
+
+  const hasChiefContext = !!derivedAngle;
+
   const TABS = [
     { id: 'copy', label: 'Copy' },
     { id: 'images', label: 'Images', count: imageSlots.length },
@@ -774,9 +881,15 @@ function LPEditor({ page: initialPage, onBack, onDelete, projectId }) {
               pageStatus === 'unpublished' ? 'bg-gold/10 text-gold' :
               pageStatus === 'completed' ? 'bg-teal/10 text-teal' :
               pageStatus === 'failed' ? 'bg-red-50 text-red-600' :
+              pageStatus === 'pending_review' ? 'bg-gold/20 text-gold' :
+              pageStatus === 'expired_review' ? 'bg-red-50 text-red-600' :
+              pageStatus === 'angle_derivation_failed' ? 'bg-red-50 text-red-600' :
               'bg-black/5 text-textmid'
             }`}>
-              {pageStatus}
+              {pageStatus === 'pending_review' ? 'awaiting review' :
+               pageStatus === 'expired_review' ? 'review expired' :
+               pageStatus === 'angle_derivation_failed' ? 'angle derivation failed' :
+               pageStatus}
             </span>
             <span className="text-[10px] font-mono text-textlight bg-black/5 px-1.5 py-0.5 rounded">
               v{currentVersion}
@@ -845,7 +958,54 @@ function LPEditor({ page: initialPage, onBack, onDelete, projectId }) {
           >
             {saveState === 'saving' ? 'Saving Draft...' : 'Save Draft'}
           </button>
-          {publishing ? (
+          {pageStatus === 'pending_review' ? (
+            <div ref={chiefActionsRef} className="flex items-center gap-2">
+              {(approving || rejecting || sendingToDraft) ? (
+                <span className="text-[11px] text-navy flex items-center gap-1.5">
+                  <svg className="w-3.5 h-3.5 animate-spin" viewBox="0 0 24 24" fill="none">
+                    <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" strokeDasharray="31.4 31.4" strokeLinecap="round" />
+                  </svg>
+                  {approving ? 'Approving...' : rejecting ? 'Rejecting...' : 'Moving to draft...'}
+                </span>
+              ) : (
+                <>
+                  <button
+                    onClick={handleApproveAndPublish}
+                    disabled={approving || rejecting || sendingToDraft}
+                    className="text-[11px] px-3 py-1.5 rounded-lg font-semibold text-white transition-colors bg-teal hover:bg-teal/90 disabled:opacity-60"
+                    title="Approve this landing page and publish to Shopify"
+                  >
+                    Approve & Publish
+                  </button>
+                  <button
+                    onClick={openRejectModal}
+                    disabled={approving || rejecting || sendingToDraft}
+                    className="text-[11px] px-3 py-1.5 rounded-lg font-medium transition-colors bg-red-50 text-red-600 hover:bg-red-100 disabled:opacity-60"
+                    title="Reject with reviewer notes"
+                  >
+                    Reject with Notes
+                  </button>
+                  <button
+                    onClick={handleSendBackToDraft}
+                    disabled={approving || rejecting || sendingToDraft}
+                    className="text-[11px] px-3 py-1.5 rounded-lg font-medium transition-colors bg-black/5 text-textmid hover:bg-black/10 disabled:opacity-60"
+                    title="Move back to draft without Shopify changes"
+                  >
+                    Send back to Draft
+                  </button>
+                </>
+              )}
+            </div>
+          ) : pageStatus === 'expired_review' ? (
+            <button
+              onClick={handleRestoreToReview}
+              disabled={restoringReview}
+              className="text-[11px] px-3 py-1.5 rounded-lg font-medium transition-colors bg-gold/10 text-gold hover:bg-gold/20 disabled:opacity-60"
+              title="Flip back to pending_review so the chief can act again"
+            >
+              {restoringReview ? 'Restoring...' : 'Restore to Review'}
+            </button>
+          ) : publishing ? (
             <span className="text-[11px] text-navy flex items-center gap-1.5">
               <svg className="w-3.5 h-3.5 animate-spin" viewBox="0 0 24 24" fill="none">
                 <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" strokeDasharray="31.4 31.4" strokeLinecap="round" />
@@ -916,6 +1076,85 @@ function LPEditor({ page: initialPage, onBack, onDelete, projectId }) {
           </button>
         </div>
       </div>
+
+      {/* ── Chief Review Context (auto-gen LPs with a derived angle) ── */}
+      {hasChiefContext && (
+        <div className="mb-3 rounded-xl border border-navy/15 bg-navy/5 overflow-hidden">
+          <button
+            onClick={() => setChiefContextOpen(v => !v)}
+            className="w-full flex items-center justify-between px-4 py-2.5 hover:bg-navy/10 transition-colors"
+          >
+            <span className="text-[12px] font-semibold text-navy">Chief Review Context</span>
+            <svg
+              className={`w-3.5 h-3.5 text-navy transition-transform ${chiefContextOpen ? 'rotate-180' : ''}`}
+              fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor"
+            >
+              <path strokeLinecap="round" strokeLinejoin="round" d="M19.5 8.25l-7.5 7.5-7.5-7.5" />
+            </svg>
+          </button>
+          {chiefContextOpen && (
+            <div className="px-4 pb-3 pt-1">
+              <div className={`flex flex-col ${angleDerivationImages.length > 0 ? 'md:flex-row' : ''} gap-4`}>
+                {angleDerivationImages.length > 0 && (
+                  <div className="md:w-[40%] flex-shrink-0">
+                    <div className="text-[10px] font-medium text-textmid uppercase tracking-wide mb-1.5">
+                      Source flex-ad frames
+                    </div>
+                    <div className="grid grid-cols-3 gap-1.5">
+                      {angleDerivationImages.map((url, i) => (
+                        <img
+                          key={i}
+                          src={url}
+                          alt={`Source ad frame ${i + 1}`}
+                          className="max-h-24 w-full object-cover rounded"
+                        />
+                      ))}
+                    </div>
+                  </div>
+                )}
+                <div className={`${angleDerivationImages.length > 0 ? 'md:flex-1' : 'w-full'} text-[11px] text-textdark space-y-1.5`}>
+                  {derivedAngle.listicle_promise && (
+                    <div><span className="font-semibold text-navy">Listicle promise:</span> <span className="text-textmid">{derivedAngle.listicle_promise}</span></div>
+                  )}
+                  {derivedAngle.pain_point && (
+                    <div><span className="font-semibold text-navy">Pain point:</span> <span className="text-textmid">{derivedAngle.pain_point}</span></div>
+                  )}
+                  {derivedAngle.desired_outcome && (
+                    <div><span className="font-semibold text-navy">Desired outcome:</span> <span className="text-textmid">{derivedAngle.desired_outcome}</span></div>
+                  )}
+                  {Array.isArray(derivedAngle.installed_beliefs) && derivedAngle.installed_beliefs.length > 0 && (
+                    <div>
+                      <div className="font-semibold text-navy">Beliefs installed:</div>
+                      <ul className="list-disc list-inside ml-1 text-textmid space-y-0.5">
+                        {derivedAngle.installed_beliefs.map((b, i) => <li key={i}>{b}</li>)}
+                      </ul>
+                    </div>
+                  )}
+                  {Array.isArray(derivedAngle.removed_objections) && derivedAngle.removed_objections.length > 0 && (
+                    <div>
+                      <div className="font-semibold text-navy">Objections removed:</div>
+                      <ul className="list-disc list-inside ml-1 text-textmid space-y-0.5">
+                        {derivedAngle.removed_objections.map((o, i) => <li key={i}>{o}</li>)}
+                      </ul>
+                    </div>
+                  )}
+                  {derivedAngle.tone_hint && (
+                    <div><span className="font-semibold text-navy">Tone:</span> <span className="text-textmid">{derivedAngle.tone_hint}</span></div>
+                  )}
+                </div>
+              </div>
+              {initialPage.source_angle && (
+                <div className="mt-3 pt-2 border-t border-navy/10 text-[11px] text-textmid">
+                  <span className="font-semibold text-navy">Source angle (Director batch):</span> {initialPage.source_angle}
+                </div>
+              )}
+              <div className="mt-2 text-textlight italic text-[10px]">
+                Does the listicle below continue the promise of these images?
+              </div>
+            </div>
+          )}
+        </div>
+      )}
 
       {/* ── QA Results Banner ── */}
       {qaResult && qaStatus === 'failed' && qaResult.issues?.length > 0 && (
@@ -992,6 +1231,41 @@ function LPEditor({ page: initialPage, onBack, onDelete, projectId }) {
         onCancel={() => setShowUnpublishConfirm(false)}
         onConfirm={handleUnpublish}
       />
+
+      {/* ── Reject-with-Notes modal ── */}
+      {rejectModalOpen && (
+        <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center">
+          <div className="card p-4 w-[420px]">
+            <h3 className="text-[14px] font-semibold text-textdark mb-2">Reject this LP</h3>
+            <p className="text-[11px] text-textmid mb-2">
+              Notes are saved to the audit trail so the writer can address them.
+            </p>
+            <textarea
+              value={rejectNotes}
+              onChange={(e) => setRejectNotes(e.target.value)}
+              placeholder="Angle drift: "
+              className="w-full h-28 px-3 py-2 text-[12px] text-textdark rounded-lg border border-black/10 focus:border-navy/30 focus:outline-none resize-none bg-white"
+              autoFocus
+            />
+            <div className="flex justify-end gap-2 mt-3">
+              <button
+                onClick={() => setRejectModalOpen(false)}
+                disabled={rejecting}
+                className="text-[11px] px-3 py-1.5 rounded-lg font-medium bg-black/5 text-textmid hover:bg-black/10 disabled:opacity-60"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={handleReject}
+                disabled={rejecting || !rejectNotes.trim()}
+                className="text-[11px] px-3 py-1.5 rounded-lg font-medium bg-red-50 text-red-600 hover:bg-red-100 disabled:opacity-60"
+              >
+                {rejecting ? 'Rejecting...' : 'Submit'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* ── Split Panel ── */}
       <div className="flex flex-col lg:flex-row flex-1 min-h-0 gap-0">
@@ -1902,6 +2176,10 @@ export default function LPGen({ projectId, project }) {
     'html_generating': 82, 'html_complete': 92,
     'qa_running': 94, 'qa_complete': 97,
     'assembling': 98,
+    // Chief Checkpoint terminal state — the pipeline stops here when chief is
+    // ON. The SSE handler renders an "awaiting review" state rather than
+    // continuing toward 100%.
+    'chief_pending': 98,
   };
   const LP_PHASE_PROGRESS = {
     'fetch': 2, 'design_analysis': 8, 'copy_generation': 18,

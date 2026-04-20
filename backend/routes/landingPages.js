@@ -5,7 +5,7 @@ import os from 'os';
 import fs from 'fs';
 import path from 'path';
 import puppeteer from 'puppeteer';
-import { requireAuth } from '../auth.js';
+import { requireAuth, requireRole } from '../auth.js';
 import {
   getProject,
   getLandingPageSummariesByProject,
@@ -42,6 +42,7 @@ import { fetchSwipePage } from '../services/lpSwipeFetcher.js';
 import { generateImage } from '../services/gemini.js';
 import { createSSEStream } from '../utils/sseHelper.js';
 import { publishToShopify, unpublishFromShopify, verifyLive } from '../services/lpPublisher.js';
+import { appendLPAuditTrail, clearChiefReviewTodo } from '../services/lpAutoGenerator.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -897,6 +898,16 @@ router.post('/:projectId/landing-pages/:pageId/publish', async (req, res) => {
     return res.status(404).json({ error: 'Landing page not found' });
   }
 
+  // Chief Checkpoint guard: pages awaiting review must go through
+  // /approve-and-publish so the approval event lands in audit_trail and the
+  // dashboard reminder is cleared. Expired reviews need to be restored first.
+  if (page.status === 'pending_review') {
+    return res.status(400).json({ error: 'Use /approve-and-publish for pages in review.' });
+  }
+  if (page.status === 'expired_review') {
+    return res.status(400).json({ error: 'Restore this page to pending_review before publishing.' });
+  }
+
   try {
     const result = await publishToShopify(req.params.pageId, req.params.projectId);
     res.json({
@@ -910,6 +921,104 @@ router.post('/:projectId/landing-pages/:pageId/publish', async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
+// ─── Approve & publish (Chief Checkpoint) ─────────────────────────────────────
+router.post(
+  '/:projectId/landing-pages/:pageId/approve-and-publish',
+  requireRole('admin', 'manager'),
+  async (req, res) => {
+    const { projectId, pageId } = req.params;
+    const page = await getLandingPage(pageId);
+    if (!page || page.project_id !== projectId) {
+      return res.status(404).json({ error: 'Landing page not found' });
+    }
+
+    // Idempotency: already-published → return the existing URL instead of
+    // double-publishing. In-flight publish → 409 so a rapid double-click
+    // doesn't create a second Shopify page.
+    if (page.status === 'published' && page.shopify_page_id) {
+      return res.json({
+        success: true,
+        already_published: true,
+        published_url: page.published_url,
+        shopify_page_id: page.shopify_page_id,
+        shopify_handle: page.shopify_handle,
+      });
+    }
+    if (page.status === 'publishing') {
+      return res.status(409).json({ error: 'Publish in progress.' });
+    }
+    if (page.status !== 'pending_review') {
+      return res.status(409).json({ error: 'Page is not pending review.' });
+    }
+
+    // Set a mutex status so a double-click lands on the 409 branch above.
+    await updateLandingPage(pageId, { status: 'publishing' });
+    await appendLPAuditTrail(pageId, {
+      step: 'approval',
+      action: 'approved',
+      detail: `approved by ${req.user?.username || 'unknown'}`,
+    });
+
+    try {
+      const result = await publishToShopify(pageId, projectId);
+      // Shopify publisher flips status to 'published' on success; clear the
+      // chief-review dashboard reminder.
+      await clearChiefReviewTodo(pageId);
+      return res.json({
+        success: true,
+        published_url: result.published_url,
+        shopify_page_id: result.shopify_page_id,
+        shopify_handle: result.shopify_handle,
+      });
+    } catch (err) {
+      console.error('[LPChiefApprove] Publish error:', err.message);
+      // Rollback: put the LP back into pending_review so the user can retry.
+      try {
+        await updateLandingPage(pageId, { status: 'pending_review' });
+        await appendLPAuditTrail(pageId, {
+          step: 'approval',
+          action: 'publish_failed',
+          detail: err.message,
+        });
+      } catch (rollbackErr) {
+        console.warn('[LPChiefApprove] Rollback failed:', rollbackErr.message);
+      }
+      return res.status(500).json({ error: err.message });
+    }
+  }
+);
+
+// ─── Reject with notes (Chief Checkpoint) ─────────────────────────────────────
+router.post(
+  '/:projectId/landing-pages/:pageId/reject-with-notes',
+  requireRole('admin', 'manager'),
+  async (req, res) => {
+    const { projectId, pageId } = req.params;
+    const notes = typeof req.body?.notes === 'string' ? req.body.notes.trim() : '';
+    if (!notes) {
+      return res.status(400).json({ error: 'notes is required' });
+    }
+
+    const page = await getLandingPage(pageId);
+    if (!page || page.project_id !== projectId) {
+      return res.status(404).json({ error: 'Landing page not found' });
+    }
+    if (page.status !== 'pending_review') {
+      return res.status(409).json({ error: 'Page is not pending review.' });
+    }
+
+    await updateLandingPage(pageId, { status: 'draft' });
+    await appendLPAuditTrail(pageId, {
+      step: 'approval',
+      action: 'rejected',
+      detail: notes,
+      by: req.user?.username,
+    });
+    await clearChiefReviewTodo(pageId);
+    res.json({ success: true });
+  }
+);
 
 // ─── Unpublish landing page from Shopify ──────────────────────────────────────
 router.post('/:projectId/landing-pages/:pageId/unpublish', async (req, res) => {
