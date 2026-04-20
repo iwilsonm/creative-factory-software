@@ -200,6 +200,58 @@ function summarizeAdvertorialHalf(text = '') {
   return summaryParts.join('\n');
 }
 
+/**
+ * Validate whether a first-half draft actually sets up the listicle structure
+ * (numeric count promise + numbered markers). Pure regex — no LLM call.
+ *
+ * Score 0-100. passed when score >= 60.
+ *   +40 numeric count promise ("7 reasons", "five ways", Unicode numerals)
+ *   +40 numbered markers ("1.", "Reason #1", first/second/third, circled ①)
+ *   +20 list-style opener keyword ("reason", "item", "point", "truth")
+ *
+ * @param {string} text
+ * @returns {{ passed: boolean, score: number, reasons: string[] }}
+ */
+export function validateListicleFirstHalf(text = '') {
+  const sample = String(text || '');
+  const reasons = [];
+  let score = 0;
+
+  // Numeric count promise — arabic digits, written-out counts, or Unicode circled numerals.
+  const countPromise = /\b(\d{1,2}|one|two|three|four|five|six|seven|eight|nine|ten|eleven|twelve)\s+(reasons?|ways?|things?|signs?|truths?|myths?|mistakes?|clues?|secrets?|steps?|rules?|lessons?)\b/i;
+  if (countPromise.test(sample)) {
+    score += 40;
+    reasons.push('numeric_count_promise');
+  }
+
+  // Numbered markers — enumeration patterns anywhere in the draft, including
+  // "Reason #1", "No. 1", circled numerals, and the first-five ordinal words.
+  const numberedMarker = /(^|\s|\n)(\d+\.|#\d+|No\.\s*\d+|Reason\s*#?\s*\d+|[\u2460-\u2473])/m;
+  const ordinalWord = /\b(first(?:ly)?|second(?:ly)?|third(?:ly)?|fourth(?:ly)?|fifth(?:ly)?)\b/i;
+  if (numberedMarker.test(sample) || ordinalWord.test(sample)) {
+    score += 40;
+    reasons.push('numbered_markers');
+  }
+
+  // List-style bullet/keyword opener.
+  const listKeyword = /\b(reason|item|point|truth|sign|mistake|step)\b/i;
+  if (listKeyword.test(sample)) {
+    score += 20;
+    reasons.push('list_keyword');
+  }
+
+  return { passed: score >= 60, score, reasons };
+}
+
+/**
+ * Gentle retry addendum for a first-half that failed `validateListicleFirstHalf`.
+ * Deliberately soft — asks Claude to *surface* the numbered structure rather
+ * than demanding specific markers, so the voice doesn't flatten on retry.
+ */
+function buildListicleFirstHalfRetryAddendum() {
+  return `\n\nNOTE: Your first half should clearly set up the numbered structure (introduce the count, begin enumerating reasons/items). Keep the same voice and tone — just surface the list structure earlier.`;
+}
+
 function buildLegacySOPSecondHalfPrompt({
   firstHalf,
   firstHalfSummary,
@@ -668,7 +720,77 @@ Important:
   // Preserves hue/saturation — just raises lightness to 65% minimum.
   const lightenedSpec = lightenDesignColors(designSpec);
 
+  // Normalize brand-color fields to hex so downstream image-prompt assembly
+  // can embed them without further validation.
+  lightenedSpec.colors = normalizeBrandColors(lightenedSpec.colors || {});
+
   return lightenedSpec;
+}
+
+/**
+ * Normalize a brand-color object from `analyzeSwipeDesign` into `{primary,
+ * secondary, accent, cta}` with hex values or `null`. Accepts hex strings
+ * (`#abc`, `#aabbcc`), CSS rgb/rgba tuples, and returns `null` for anything
+ * it can't confidently convert (e.g. color names like "warm beige").
+ *
+ * @param {object} colors
+ * @returns {{primary:string|null, secondary:string|null, accent:string|null, cta:string|null}}
+ */
+export function normalizeBrandColors(colors = {}) {
+  const coerce = (value) => {
+    if (!value || typeof value !== 'string') return null;
+    const trimmed = value.trim();
+    if (!trimmed) return null;
+
+    // Already hex?
+    const hexMatch = trimmed.match(/^#([0-9a-f]{3}|[0-9a-f]{6})$/i);
+    if (hexMatch) {
+      // Expand 3-char shorthand to 6-char for consistency.
+      const body = hexMatch[1];
+      if (body.length === 3) {
+        return `#${body.split('').map((c) => c + c).join('').toLowerCase()}`;
+      }
+      return `#${body.toLowerCase()}`;
+    }
+
+    // rgb()/rgba()?
+    const rgbMatch = trimmed.match(/^rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/i);
+    if (rgbMatch) {
+      const [r, g, b] = rgbMatch.slice(1, 4).map((n) => Math.max(0, Math.min(255, parseInt(n, 10))));
+      const hex = [r, g, b].map((n) => n.toString(16).padStart(2, '0')).join('');
+      return `#${hex}`;
+    }
+
+    return null;
+  };
+
+  // Accept `cta` or `cta_background` — downstream prompt is indifferent.
+  return {
+    primary: coerce(colors.primary),
+    secondary: coerce(colors.secondary),
+    accent: coerce(colors.accent),
+    cta: coerce(colors.cta ?? colors.cta_background),
+  };
+}
+
+/**
+ * Assemble the "Brand Colors" line that feeds Gemini, given normalized hex
+ * colors. Falls back to a neutral palette instruction when nothing usable
+ * was extracted.
+ */
+export function buildBrandColorsLine(normalized) {
+  if (!normalized) {
+    return 'Brand Colors: natural warm neutrals matching the avatar\'s setting.';
+  }
+  const parts = [];
+  if (normalized.primary) parts.push(`primary ${normalized.primary}`);
+  if (normalized.secondary) parts.push(`secondary ${normalized.secondary}`);
+  if (normalized.accent) parts.push(`accent ${normalized.accent}`);
+  if (normalized.cta) parts.push(`cta ${normalized.cta}`);
+  if (parts.length === 0) {
+    return 'Brand Colors: natural warm neutrals matching the avatar\'s setting.';
+  }
+  return `Brand Colors: ${parts.join(', ')} (use sparingly as props, wall art, or accent elements — never overpower the scene).`;
 }
 
 // ─── Foundational Docs helpers ──────────────────────────────────────────────
@@ -1374,18 +1496,64 @@ ${docs.necessary_beliefs}`;
     additionalDirection,
     wordCount,
   });
-  sendEvent({ type: 'progress', step: 'calling_api', message: 'Claude is writing the first half...' });
+  sendEvent({ type: 'progress', step: 'half_one', message: 'Claude is writing the first half...' });
   conversationMessages.push({ role: 'user', content: firstHalfPrompt });
-  const firstHalf = await chat([...conversationMessages], 'claude-sonnet-4-6', {
+  const firstHalfOriginal = await chat([...conversationMessages], 'claude-sonnet-4-6', {
     max_tokens: 8192,
     operation: 'lp_legacy_first_half',
     projectId,
     timeout: 300000,
   });
-  conversationMessages.push({ role: 'assistant', content: firstHalf });
+  conversationMessages.push({ role: 'assistant', content: firstHalfOriginal });
+
+  // Listicle-structure guardrail: if the first half doesn't clearly set up the
+  // numbered list, retry up to 2× with a soft addendum and pick the best-of-N
+  // candidate (by validator score). Never regresses to a weaker draft.
+  const MAX_FIRST_HALF_RETRIES = 2;
+  const candidates = [{ text: firstHalfOriginal, result: validateListicleFirstHalf(firstHalfOriginal) }];
+  if (!candidates[0].result.passed) {
+    sendEvent({ type: 'progress', step: 'half_one_retry', message: 'Listicle structure not established — retrying...' });
+    for (let retry = 1; retry <= MAX_FIRST_HALF_RETRIES; retry++) {
+      // Roll back the last user+assistant turn so we can re-prompt cleanly.
+      conversationMessages.pop(); // assistant
+      conversationMessages.pop(); // user
+      const retryPrompt = firstHalfPrompt + buildListicleFirstHalfRetryAddendum();
+      conversationMessages.push({ role: 'user', content: retryPrompt });
+      const retryText = await chat([...conversationMessages], 'claude-sonnet-4-6', {
+        max_tokens: 8192,
+        operation: 'lp_legacy_first_half',
+        projectId,
+        timeout: 300000,
+      });
+      conversationMessages.push({ role: 'assistant', content: retryText });
+      candidates.push({ text: retryText, result: validateListicleFirstHalf(retryText) });
+      if (candidates[candidates.length - 1].result.passed) break;
+    }
+  }
+
+  // Pick the best candidate. Ties: prefer the earliest (original) draft.
+  const best = candidates.reduce((winner, cand) => (cand.result.score > winner.result.score ? cand : winner), candidates[0]);
+  const firstHalf = best.text;
+
+  // Normalize the conversation so turn 4 sees the canonical first-half prompt
+  // + the winning draft (never the last retry if an earlier candidate won).
+  if (candidates.length > 1) {
+    conversationMessages.pop(); // remove last assistant
+    conversationMessages.pop(); // remove last user (retry prompt)
+    conversationMessages.push({ role: 'user', content: firstHalfPrompt });
+    conversationMessages.push({ role: 'assistant', content: firstHalf });
+    if (best.result.passed) {
+      sendEvent({ type: 'progress', step: 'half_one_validated', message: 'First-half listicle structure validated.' });
+    } else {
+      sendEvent({ type: 'progress', step: 'half_one_soft_warning', message: 'Listicle structure weak — continuing with best candidate.' });
+    }
+  } else {
+    // Original passed on first try.
+    sendEvent({ type: 'progress', step: 'half_one_validated', message: 'First-half listicle structure validated.' });
+  }
 
   // Turn 4: Write second half (now sees full conversation: docs + swipe + first half)
-  sendEvent({ type: 'progress', step: 'calling_api', message: 'Claude is writing the second half...' });
+  sendEvent({ type: 'progress', step: 'half_two', message: 'Claude is writing the second half...' });
   conversationMessages.push({ role: 'user', content: LEGACY_LP_SOP_WRITE_SECOND_HALF });
   const secondHalf = await chat([...conversationMessages], 'claude-sonnet-4-6', {
     max_tokens: 8192,
@@ -1762,7 +1930,7 @@ const SLOT_ROLE_DIRECTIONS = {
  * @param {number} totalSlots - Total number of image slots
  * @returns {string} Complete Gemini prompt
  */
-function buildImagePrompt(slot, angle, copyContext, autoContext, slotIndex, totalSlots, angleBrief = null) {
+function buildImagePrompt(slot, angle, copyContext, autoContext, slotIndex, totalSlots, angleBrief = null, brandColors = null) {
   const imageContext = autoContext?.imageContext || {};
   const slotRole = detectSlotRole(slot, slotIndex, totalSlots);
   const roleDirection = SLOT_ROLE_DIRECTIONS[slotRole] || SLOT_ROLE_DIRECTIONS.general;
@@ -1865,12 +2033,16 @@ function buildImagePrompt(slot, angle, copyContext, autoContext, slotIndex, tota
     constraints += `\n- Make the conductive-sheet identity obvious through the fitted-sheet form factor and grounded-bed context`;
   }
 
+  const brandColorsLine = buildBrandColorsLine(brandColors);
+
   return `Generate a photorealistic editorial photograph.
 
 SUBJECT: ${subjectDescription}
 
 SCENE: ${sceneDescription}
 IMAGE ROLE: ${slotRole.toUpperCase()} — ${roleDirection}${narrativeHint}${editorialHint}
+
+${brandColorsLine}
 
 CONTEXT FROM THE ARTICLE:
 ${copyContext}
@@ -1894,6 +2066,7 @@ export async function generateSlotImages({
   copySections,
   angle,
   angleBrief = null,  // Structured angle brief (optional)
+  brandColors = null, // Normalized hex palette from analyzeSwipeDesign
   projectId,
   autoContext,  // { narrativeFrame, productImageData, editorialPlan, imageContext } — in auto mode
 }, sendEvent) {
@@ -1932,7 +2105,7 @@ export async function generateSlotImages({
     });
 
     // Build a rich, context-aware prompt for Gemini
-    const imagePrompt = buildImagePrompt(slot, angle, copyContext, autoContext, i, totalSlots, angleBrief);
+    const imagePrompt = buildImagePrompt(slot, angle, copyContext, autoContext, i, totalSlots, angleBrief, brandColors);
 
     // Map slot aspect ratio to Gemini format
     let aspectRatio = '16:9'; // default for landing page images
@@ -4599,12 +4772,14 @@ For "uncovered_beliefs", list any necessary beliefs from the document that the c
       copySections,
       angle,
       angleBrief,
+      brandColors: designAnalysis?.colors || null,
       projectId,
       autoContext: {
         narrativeFrame,
         productImageData,
         editorialPlan,
         imageContext,
+        brandColors: designAnalysis?.colors || null,
       },
     }, sendEvent);
     audit('images', 'generated', `${imageSlots.filter(s => s.generated).length}/${imageSlots.length} images generated`);
@@ -5246,7 +5421,7 @@ export async function preScoreAndRetryImages(imageSlots, angle, autoContext, pro
         });
 
         try {
-          const imagePrompt = buildImagePrompt(slot, angle, '', autoContext, i, updatedSlots.length);
+          const imagePrompt = buildImagePrompt(slot, angle, '', autoContext, i, updatedSlots.length, null, autoContext?.brandColors || null);
           const slotDesc = (slot.description || slot.type || slot.slot_id || '').toLowerCase();
           const isProductSlot = slotDesc.includes('product') || slotDesc.includes('hero');
           const referenceImage = (isProductSlot && autoContext?.productImageData) ? autoContext.productImageData : null;
@@ -5464,7 +5639,7 @@ export async function regenerateFailedImages(assembledHtml, fatalFlaws, imageSlo
     });
 
     try {
-      const imagePrompt = buildImagePrompt(targetSlot, autoContext?.angle || '', '', autoContext, targetSlotIndex, imageSlots.length);
+      const imagePrompt = buildImagePrompt(targetSlot, autoContext?.angle || '', '', autoContext, targetSlotIndex, imageSlots.length, null, autoContext?.brandColors || null);
       const slotDesc = (targetSlot.description || targetSlot.type || targetSlot.slot_id || '').toLowerCase();
       const isProductSlot = slotDesc.includes('product') || slotDesc.includes('hero');
       const referenceImage = (isProductSlot && autoContext?.productImageData) ? autoContext.productImageData : null;

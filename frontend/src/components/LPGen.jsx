@@ -1886,10 +1886,17 @@ export default function LPGen({ projectId, project }) {
   // The editorial_* steps from the retired Opus editorial pass are omitted —
   // if a stale event still arrives, the Math.max(prev, …) guard in the SSE
   // handler keeps the bar monotonic; no mapping means no forward jump.
+  //
+  // half_one_retry (26) sits below half_one (24)? No — it sits above, to show
+  // the retry is making progress. The max-clamp in the SSE handler prevents
+  // the bar from ever regressing even if events arrive out of order.
   const LP_STEP_PROGRESS = {
     'fetch': 2, 'screenshot': 5,
     'design_analyzing': 8, 'design_complete': 15,
-    'loading_docs': 18, 'generating': 20, 'calling_api': 22, 'parsing': 35, 'copy_complete': 40,
+    'loading_docs': 18, 'generating': 20, 'calling_api': 22, 'skipping_swipe': 22,
+    'half_one': 24, 'half_one_retry': 26, 'half_one_validated': 30,
+    'half_one_soft_warning': 30, 'half_two': 34,
+    'parsing': 37, 'copy_complete': 40,
     'images_starting': 58, 'image_generating': 62, 'images_complete': 80, 'images_skipped': 80,
     'html_generating': 82, 'html_complete': 92,
     'qa_running': 94, 'qa_complete': 97,

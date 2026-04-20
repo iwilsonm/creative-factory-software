@@ -365,6 +365,7 @@ router.post('/:projectId/landing-pages/generate', async (req, res) => {
           imageSlots,
           copySections: copyResult.sections,
           angle: angle.trim(),
+          brandColors: designAnalysis?.colors || null,
           projectId: req.params.projectId,
           autoContext: { imageContext },
         }, sse.sendEvent);

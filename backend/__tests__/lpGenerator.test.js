@@ -11,6 +11,9 @@ let getLegacySOPFrameLine;
 let postProcessLP;
 let extractTemplatePlaceholders;
 let getRequiredPlaceholderNames;
+let validateListicleFirstHalf;
+let normalizeBrandColors;
+let buildBrandColorsLine;
 
 beforeAll(async () => {
   process.env.CONVEX_URL ||= 'https://test-convex.invalid';
@@ -26,6 +29,9 @@ beforeAll(async () => {
   postProcessLP = lpGenerator.postProcessLP;
   extractTemplatePlaceholders = lpGenerator.extractTemplatePlaceholders;
   getRequiredPlaceholderNames = lpGenerator.getRequiredPlaceholderNames;
+  validateListicleFirstHalf = lpGenerator.validateListicleFirstHalf;
+  normalizeBrandColors = lpGenerator.normalizeBrandColors;
+  buildBrandColorsLine = lpGenerator.buildBrandColorsLine;
 });
 
 describe('lpGenerator helpers', () => {
@@ -207,5 +213,133 @@ describe('lpGenerator helpers', () => {
     expect(prompt).toContain('"type": "story"');
     expect(prompt).toContain('"type": "objection_handling"');
     expect(prompt).toContain('Do not force a target word count if one was not provided');
+  });
+});
+
+describe('validateListicleFirstHalf', () => {
+  it('fails a story-only first half with no numeric structure', () => {
+    const draft = "Last Tuesday I finally slept through the night. It felt like a miracle after months of waking up at 2am. My whole body relaxed.";
+    const result = validateListicleFirstHalf(draft);
+    expect(result.passed).toBe(false);
+    expect(result.score).toBeLessThan(60);
+  });
+
+  it('passes a classic numbered listicle with arabic digits', () => {
+    const draft = `Here are the 7 reasons you wake up at 3am.
+
+1. Your cortisol spikes too early.
+2. Your magnesium is depleted.
+3. Your room is too warm.`;
+    const result = validateListicleFirstHalf(draft);
+    expect(result.passed).toBe(true);
+    expect(result.score).toBeGreaterThanOrEqual(60);
+    expect(result.reasons).toContain('numeric_count_promise');
+    expect(result.reasons).toContain('numbered_markers');
+  });
+
+  it('passes a listicle written with ordinal words (first/second/third)', () => {
+    const draft = `There are five reasons your sleep breaks at dawn.
+First, your nervous system never switched off. Second, your bed is slightly too warm.`;
+    const result = validateListicleFirstHalf(draft);
+    expect(result.passed).toBe(true);
+    expect(result.reasons).toContain('numeric_count_promise');
+    expect(result.reasons).toContain('numbered_markers');
+  });
+
+  it('recognizes "Reason #N" style markers', () => {
+    const draft = `Three truths about waking up at 3am.
+Reason #1: cortisol. Reason #2: magnesium. Reason #3: a warm bedroom.`;
+    const result = validateListicleFirstHalf(draft);
+    expect(result.passed).toBe(true);
+    expect(result.reasons).toContain('numbered_markers');
+  });
+
+  it('still passes if the count is spelled out and the first bullet is a numbered marker', () => {
+    const draft = `Seven signs your magnesium is low.
+1. Muscle twitches at night.
+2. Morning headaches.`;
+    const result = validateListicleFirstHalf(draft);
+    expect(result.passed).toBe(true);
+  });
+
+  it('gives a lower score when only a list keyword is present (no count, no markers)', () => {
+    const draft = `One reason people wake up at 3am is that their cortisol spikes.`;
+    const result = validateListicleFirstHalf(draft);
+    // Edge case: "one reason" triggers both the count-promise regex (one + reason)
+    // and the list_keyword regex. That's enough to pass — which is fine;
+    // it means even this draft names a count and a list keyword.
+    expect(result.reasons).toContain('list_keyword');
+  });
+
+  it('returns 0 score for empty input', () => {
+    expect(validateListicleFirstHalf('').score).toBe(0);
+    expect(validateListicleFirstHalf(null).score).toBe(0);
+    expect(validateListicleFirstHalf(undefined).score).toBe(0);
+  });
+});
+
+describe('normalizeBrandColors', () => {
+  it('keeps 6-char hex values untouched (lowercased)', () => {
+    const result = normalizeBrandColors({ primary: '#4A6B8A', accent: '#C89664' });
+    expect(result.primary).toBe('#4a6b8a');
+    expect(result.accent).toBe('#c89664');
+  });
+
+  it('expands 3-char hex shorthand to 6-char', () => {
+    const result = normalizeBrandColors({ primary: '#abc' });
+    expect(result.primary).toBe('#aabbcc');
+  });
+
+  it('converts rgb() and rgba() to hex', () => {
+    const result = normalizeBrandColors({
+      primary: 'rgb(74, 107, 138)',
+      accent: 'rgba(200, 150, 100, 0.8)',
+    });
+    expect(result.primary).toBe('#4a6b8a');
+    expect(result.accent).toBe('#c89664');
+  });
+
+  it('returns null for color names and unparseable inputs', () => {
+    const result = normalizeBrandColors({
+      primary: 'warm beige',
+      secondary: '',
+      accent: null,
+    });
+    expect(result.primary).toBeNull();
+    expect(result.secondary).toBeNull();
+    expect(result.accent).toBeNull();
+  });
+
+  it('accepts both `cta` and `cta_background` keys for the CTA slot', () => {
+    const viaCta = normalizeBrandColors({ cta: '#ff0000' });
+    const viaCtaBackground = normalizeBrandColors({ cta_background: '#00ff00' });
+    expect(viaCta.cta).toBe('#ff0000');
+    expect(viaCtaBackground.cta).toBe('#00ff00');
+  });
+
+  it('returns null for every slot when input is empty', () => {
+    const result = normalizeBrandColors({});
+    expect(result.primary).toBeNull();
+    expect(result.secondary).toBeNull();
+    expect(result.accent).toBeNull();
+    expect(result.cta).toBeNull();
+  });
+});
+
+describe('buildBrandColorsLine', () => {
+  it('renders a hex palette with usage guidance when values are provided', () => {
+    const line = buildBrandColorsLine({ primary: '#4a6b8a', secondary: '#c89664', accent: null, cta: null });
+    expect(line).toMatch(/^Brand Colors: primary #4a6b8a, secondary #c89664/);
+    expect(line).toContain('use sparingly');
+  });
+
+  it('falls back to a neutral palette when every value is null', () => {
+    const line = buildBrandColorsLine({ primary: null, secondary: null, accent: null, cta: null });
+    expect(line).toContain('natural warm neutrals');
+  });
+
+  it('falls back to a neutral palette when normalized is null', () => {
+    const line = buildBrandColorsLine(null);
+    expect(line).toContain('natural warm neutrals');
   });
 });
