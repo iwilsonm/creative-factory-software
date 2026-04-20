@@ -44,6 +44,19 @@ export const getByAdId = query({
   },
 });
 
+// Phase K — Filter-triggered LP gen needs to walk flex_ad.child_deployment_ids
+// (which are externalIds) down to ad_creatives.image_storage_id. No existing
+// query fetches a single deployment by externalId; this plugs the gap.
+export const getByExternalId = query({
+  args: { externalId: v.string() },
+  handler: async (ctx, args) => {
+    return await ctx.db
+      .query("ad_deployments")
+      .withIndex("by_externalId", (q) => q.eq("externalId", args.externalId))
+      .first();
+  },
+});
+
 export const create = mutation({
   args: {
     externalId: v.string(),

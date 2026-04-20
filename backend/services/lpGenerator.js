@@ -1965,6 +1965,155 @@ async function isProjectOverDailyBudget(projectId) {
  * @param {(event:object)=>void} [sendEvent]
  * @returns {Promise<Array<object>>} same `imageSlots` array
  */
+/**
+ * Raised by `deriveListicleAngleFromImages` when the winning flex-ad images
+ * can't be resolved into a listicle angle — either Claude flagged the
+ * foundational docs as contradicting the images, or the response was
+ * malformed. Callers catch this and route the LP to `angle_derivation_failed`
+ * without retrying (the failure is upstream of prompt drift).
+ */
+export class AngleDerivationError extends Error {
+  constructor(message, { reason = 'unknown', detail = '' } = {}) {
+    super(message);
+    this.name = 'AngleDerivationError';
+    this.reason = reason;
+    this.detail = detail;
+  }
+}
+
+/**
+ * Read a flex ad's winning images and distill a listicle landing-page angle
+ * that continues the emotional/visual promise the reader just clicked on.
+ * Copy (primary text, headlines) is deliberately NOT sent — the point is
+ * image-only derivation so the LP aligns with what the reader saw, not
+ * what the writer wrote.
+ *
+ * @param {Array<{buffer:Buffer, mimeType:string, storageUrl?:string}>} images - 1-5 flex-ad images
+ * @param {{research?:string, avatar?:string, offer_brief?:string, necessary_beliefs?:string}} foundationalDocs
+ * @param {string} projectId - for cost-tracker grouping
+ * @returns {Promise<{listicle_promise:string, pain_point:string, desired_outcome:string, installed_beliefs:string[], removed_objections:string[], tone_hint:string}>}
+ * @throws {AngleDerivationError} on contradictory docs or malformed response
+ */
+export async function deriveListicleAngleFromImages(images, foundationalDocs, projectId) {
+  if (!Array.isArray(images) || images.length === 0) {
+    throw new AngleDerivationError('No flex-ad images provided for derivation.', { reason: 'no_images' });
+  }
+
+  const docs = foundationalDocs || {};
+  const research = String(docs.research || '').slice(0, 3000).trim();
+  const avatar = String(docs.avatar || '').slice(0, 2000).trim();
+  const offerBrief = String(docs.offer_brief || '').slice(0, 2000).trim();
+  const beliefs = String(docs.necessary_beliefs || '').trim();
+
+  // Hard cap the images actually sent — vision token cost scales with count
+  // and Mark's SOP targets 3-5 hero frames.
+  const MAX_IMAGES = 5;
+  const trimmed = images.slice(0, MAX_IMAGES);
+
+  const systemPrompt = `You are a senior direct-response creative director. You have been handed a small set of ad creative images that just qualified to go live (the Creative Filter chose them). Your job is to read these images as a reader would when they click one of them and land on a pre-sales article page, and distill a listicle landing-page angle that continues the same emotional and visual promise.
+
+You are looking at images only. Do not speculate about primary text or headlines — they are deliberately excluded from this analysis. Work from the images and only the images, with the foundational docs below as sanity-check context.
+
+Return strict JSON. No prose before or after the JSON object.`;
+
+  const userPrompt = `You're analyzing ${trimmed.length} ad creative image${trimmed.length === 1 ? '' : 's'} from a set that just qualified as Ready-to-Post via a creative filter.
+
+Foundational research (ground the angle in it; do not override what the images say):
+
+Research:
+${research || '(not provided)'}
+
+Avatar:
+${avatar || '(not provided)'}
+
+Necessary Beliefs:
+${beliefs || '(not provided)'}
+
+Offer Brief:
+${offerBrief || '(not provided)'}
+
+Return a JSON object with EXACTLY these keys:
+{
+  "listicle_promise": "<the listicle title/promise, e.g. '7 reasons your sleep gets worse as you age (and the one fix that changes everything)'>",
+  "pain_point": "<the specific pain the images evoke>",
+  "desired_outcome": "<the after-state the images hint at>",
+  "installed_beliefs": ["<one concise sentence>", ...],
+  "removed_objections": ["<one concise sentence>", ...],
+  "tone_hint": "<one phrase, e.g. 'warm maternal authority' or 'blunt mechanic who has seen it all'>"
+}
+
+If the images contradict the foundational research (e.g. the images show a demographic the avatar doc excludes), return EXACTLY:
+{ "error": "contradictory_docs", "detail": "<one-sentence explanation of the contradiction>" }
+
+Do not fabricate an angle. Do not infer copy. If the images are too ambiguous to commit to a listicle promise, return the error shape above.`;
+
+  const payloadImages = trimmed.map((img) => ({
+    mimeType: img.mimeType || 'image/jpeg',
+    data: Buffer.isBuffer(img.buffer)
+      ? img.buffer.toString('base64')
+      : typeof img.buffer === 'string'
+        ? img.buffer
+        : '',
+  }));
+
+  let response;
+  try {
+    response = await chatWithMultipleImages(
+      [{ role: 'system', content: systemPrompt }],
+      userPrompt,
+      payloadImages,
+      'claude-sonnet-4-6',
+      {
+        max_tokens: 2000,
+        timeout: 120000,
+        response_format: { type: 'json_object' },
+        operation: 'lp_angle_derivation',
+        projectId,
+      }
+    );
+  } catch (err) {
+    throw new AngleDerivationError(`LLM call failed: ${err.message}`, { reason: 'llm_error', detail: err.message });
+  }
+
+  let parsed;
+  try {
+    parsed = typeof response === 'object' && response !== null ? response : JSON.parse(response);
+  } catch {
+    parsed = extractJSON(response);
+  }
+
+  if (!parsed || typeof parsed !== 'object') {
+    throw new AngleDerivationError('Claude returned a response that was not parseable JSON.', { reason: 'bad_json' });
+  }
+
+  if (parsed.error === 'contradictory_docs') {
+    throw new AngleDerivationError(
+      `Contradictory docs: ${String(parsed.detail || 'images conflict with the foundational docs').trim()}`,
+      { reason: 'contradictory_docs', detail: String(parsed.detail || '').trim() }
+    );
+  }
+
+  const requiredStrings = ['listicle_promise', 'pain_point', 'desired_outcome'];
+  for (const key of requiredStrings) {
+    if (typeof parsed[key] !== 'string' || !parsed[key].trim()) {
+      throw new AngleDerivationError(`Derived angle missing required field: ${key}`, { reason: 'invalid_shape' });
+    }
+  }
+
+  return {
+    listicle_promise: String(parsed.listicle_promise || '').trim(),
+    pain_point: String(parsed.pain_point || '').trim(),
+    desired_outcome: String(parsed.desired_outcome || '').trim(),
+    installed_beliefs: Array.isArray(parsed.installed_beliefs)
+      ? parsed.installed_beliefs.map((s) => String(s || '').trim()).filter(Boolean)
+      : [],
+    removed_objections: Array.isArray(parsed.removed_objections)
+      ? parsed.removed_objections.map((s) => String(s || '').trim()).filter(Boolean)
+      : [],
+    tone_hint: String(parsed.tone_hint || '').trim(),
+  };
+}
+
 export async function assignBeliefOrObjectionToSlots(imageSlots, foundationalDocs, projectId, sendEvent = () => {}) {
   if (!Array.isArray(imageSlots) || imageSlots.length === 0) return imageSlots;
 

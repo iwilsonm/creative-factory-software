@@ -876,6 +876,10 @@ export async function getDeploymentByAdId(adId) {
   return await cachedQuery('ad_deployments', api.ad_deployments.getByAdId, { adId });
 }
 
+export async function getDeploymentByExternalId(externalId) {
+  return await cachedQuery('ad_deployments', api.ad_deployments.getByExternalId, { externalId });
+}
+
 export async function createDeployment({ id, ad_id, project_id, status, ad_name, local_campaign_id }) {
   const result = await mutationWithRetry(api.ad_deployments.create, {
     externalId: id,
@@ -1508,7 +1512,7 @@ export async function getLandingPageGauntletStats(projectId) {
   return await queryWithRetry(api.landingPages.getGauntletStatsByProject, { projectId });
 }
 
-export async function createLandingPage({ id, project_id, name, angle, word_count, additional_direction, swipe_text, swipe_filename, swipe_url, swipe_screenshot_storageId, status, auto_generated, batch_job_id, narrative_frame, template_id, headline_text, subheadline_text, headline_frame_alignment_status, headline_frame_alignment_reason, headline_uniqueness_status, headline_uniqueness_reason, headline_duplicate_of_lp_id, title_family_uniqueness_status, title_family_uniqueness_reason, title_concept_separation_status, title_concept_separation_reason, title_concept_signature, title_concept_family, headline_history_status, headline_history_reason, headline_signature, frame_blueprint_status, frame_blueprint_reason, gauntlet_batch_id, gauntlet_frame, gauntlet_attempt, gauntlet_status, gauntlet_batch_started_at, gauntlet_batch_completed_at }) {
+export async function createLandingPage({ id, project_id, name, angle, word_count, additional_direction, swipe_text, swipe_filename, swipe_url, swipe_screenshot_storageId, status, auto_generated, batch_job_id, narrative_frame, template_id, headline_text, subheadline_text, headline_frame_alignment_status, headline_frame_alignment_reason, headline_uniqueness_status, headline_uniqueness_reason, headline_duplicate_of_lp_id, title_family_uniqueness_status, title_family_uniqueness_reason, title_concept_separation_status, title_concept_separation_reason, title_concept_signature, title_concept_family, headline_history_status, headline_history_reason, headline_signature, frame_blueprint_status, frame_blueprint_reason, gauntlet_batch_id, gauntlet_frame, gauntlet_attempt, gauntlet_status, gauntlet_batch_started_at, gauntlet_batch_completed_at, source_angle, derived_angle, angle_derivation_image_urls }) {
   await mutationWithRetry(api.landingPages.create, {
     externalId: id,
     project_id,
@@ -1549,6 +1553,9 @@ export async function createLandingPage({ id, project_id, name, angle, word_coun
     gauntlet_status: gauntlet_status || undefined,
     gauntlet_batch_started_at: gauntlet_batch_started_at || undefined,
     gauntlet_batch_completed_at: gauntlet_batch_completed_at || undefined,
+    source_angle: source_angle || undefined,
+    derived_angle: derived_angle || undefined,
+    angle_derivation_image_urls: angle_derivation_image_urls || undefined,
   });
   invalidateQueryCache('landing_pages');
 }

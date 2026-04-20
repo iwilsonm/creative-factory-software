@@ -2165,6 +2165,11 @@ export default function LPGen({ projectId, project }) {
   // the retry is making progress. The max-clamp in the SSE handler prevents
   // the bar from ever regressing even if events arrive out of order.
   const LP_STEP_PROGRESS = {
+    // Phase K — angle derivation (auto-gen only, Filter-triggered path).
+    // Runs before anything else. `angle_derivation_failed` is a terminal
+    // error event — mapping to 100 plus the SSE handler's special-case
+    // means the bar stops there and an error banner renders instead.
+    'angle_deriving': 1, 'angle_derived': 3, 'angle_derivation_failed': 100,
     'fetch': 2, 'screenshot': 5,
     'design_analyzing': 8, 'design_complete': 15,
     'loading_docs': 18, 'generating': 20, 'calling_api': 22, 'skipping_swipe': 22,

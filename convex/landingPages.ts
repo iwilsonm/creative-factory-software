@@ -265,6 +265,13 @@ export const create = mutation({
     gauntlet_status: v.optional(v.string()),
     gauntlet_batch_started_at: v.optional(v.string()),
     gauntlet_batch_completed_at: v.optional(v.string()),
+    // Phase K — Filter-triggered angle derivation. `derived_angle` and
+    // `angle_derivation_image_urls` are populated later in the pipeline
+    // once the vision step runs, so they're accepted here only for
+    // completeness / test fixtures.
+    source_angle: v.optional(v.string()),
+    derived_angle: v.optional(v.string()),
+    angle_derivation_image_urls: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const now = new Date().toISOString();
@@ -308,6 +315,9 @@ export const create = mutation({
       gauntlet_status: args.gauntlet_status,
       gauntlet_batch_started_at: args.gauntlet_batch_started_at,
       gauntlet_batch_completed_at: args.gauntlet_batch_completed_at,
+      source_angle: args.source_angle,
+      derived_angle: args.derived_angle,
+      angle_derivation_image_urls: args.angle_derivation_image_urls,
       created_at: now,
       updated_at: now,
     });
@@ -397,6 +407,10 @@ export const update = mutation({
     gauntlet_batch_started_at: v.optional(v.string()),
     gauntlet_batch_completed_at: v.optional(v.string()),
     generation_duration_ms: v.optional(v.float64()),
+    // Chief Checkpoint / Filter-triggered angle derivation (Phase K)
+    source_angle: v.optional(v.string()),
+    derived_angle: v.optional(v.string()),
+    angle_derivation_image_urls: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const doc = await ctx.db
@@ -479,6 +493,9 @@ export const update = mutation({
     if (args.gauntlet_batch_started_at !== undefined) updates.gauntlet_batch_started_at = args.gauntlet_batch_started_at;
     if (args.gauntlet_batch_completed_at !== undefined) updates.gauntlet_batch_completed_at = args.gauntlet_batch_completed_at;
     if (args.generation_duration_ms !== undefined) updates.generation_duration_ms = args.generation_duration_ms;
+    if (args.source_angle !== undefined) updates.source_angle = args.source_angle;
+    if (args.derived_angle !== undefined) updates.derived_angle = args.derived_angle;
+    if (args.angle_derivation_image_urls !== undefined) updates.angle_derivation_image_urls = args.angle_derivation_image_urls;
     await ctx.db.patch(doc._id, updates);
 
     if (wasPublished !== willBePublished) {

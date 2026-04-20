@@ -301,10 +301,12 @@ export async function runDirectorForProject(projectId, runType = 'manual') {
       try {
         console.log(`[Director] Starting batch ${b.batch_id.slice(0, 8)} (${allBatchesCreated.indexOf(b) + 1}/${allBatchesCreated.length})...`);
         await runBatch(b.batch_id);
-        // Trigger LP generation after batch prompts are submitted
-        triggerLPGeneration(b.batch_id, projectId, b.angle_name).catch(err => {
-          console.warn(`[Director] LP trigger for batch ${b.batch_id.slice(0, 8)} failed:`, err.message);
-        });
+        // Phase K: LP generation is no longer fired here. The Creative Filter
+        // triggers it after assembling a Ready-to-Post flex ad — see
+        // /api/projects/:projectId/lp-agent/trigger-from-flex-ad. This lets
+        // the LP's angle be derived from the winning flex-ad images instead
+        // of from the Director's library angle, and prevents LP generation
+        // from starting before the ads exist.
       } catch (err) {
         console.error(`[Director] Batch ${b.batch_id.slice(0, 8)} failed:`, err.message);
       }

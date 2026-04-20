@@ -29,7 +29,7 @@ import landingPageRoutes from './routes/landingPages.js';
 import lpTemplateRoutes from './routes/lpTemplates.js';
 import agentMonitorRoutes, { agentCostRouter } from './routes/agentMonitor.js';
 import conductorRoutes from './routes/conductor.js';
-import lpAgentRoutes from './routes/lpAgent.js';
+import lpAgentRoutes, { filterTriggerRouter } from './routes/lpAgent.js';
 import cmoRoutes from './routes/cmo.js';
 import salesPageRoutes from './routes/salesPages.js';
 import rateLimit from 'express-rate-limit';
@@ -86,6 +86,19 @@ process.on('uncaughtException', (err) => {
   if (!sessionSecret) {
     sessionSecret = crypto.randomBytes(32).toString('hex');
     await setSetting('session_secret', sessionSecret);
+  }
+
+  // Generate or retrieve the Filter shared secret (Phase K). The VPS cron
+  // job in dacia-creative-filter/agents/group.sh sends this as
+  // `X-Filter-Secret` when it POSTs to /api/projects/.../trigger-from-flex-ad
+  // so the handler can bypass session auth. Auto-generated here on first
+  // boot using the same pattern as session_secret; the operator copies the
+  // value from the Settings page into the VPS env.
+  let filterSharedSecret = await getSetting('filter_shared_secret');
+  if (!filterSharedSecret) {
+    filterSharedSecret = crypto.randomBytes(32).toString('hex');
+    await setSetting('filter_shared_secret', filterSharedSecret);
+    console.log('[Server] Generated new filter_shared_secret. Copy it from Settings into the VPS FILTER_SHARED_SECRET env.');
   }
 
   // Request logging
@@ -172,6 +185,10 @@ process.on('uncaughtException', (err) => {
   // Shopify with publish attempts.
   app.use('/api/projects/:id/landing-pages/:pageId/approve-and-publish', llmRateLimit);
   app.use('/api/projects/:id/landing-pages/:pageId/reject-with-notes', llmRateLimit);
+  // Phase K — Filter-triggered LP gen. The Filter cron can POST this every
+  // 30 min per batch, and the handler kicks off Claude Sonnet vision +
+  // full gauntlet behind it, so it's worth a 10/min ceiling.
+  app.use('/api/projects/:id/lp-agent/trigger-from-flex-ad', llmRateLimit);
   // NOTE: Generated images are no longer served from local disk.
   // They are served via 302 redirect to Convex storage URLs in the ads route.
 
@@ -294,6 +311,11 @@ process.on('uncaughtException', (err) => {
   // Routes — agent monitor (admin only)
   app.use('/api/agent-monitor', requireAuth, requireRole('admin'), agentMonitorRoutes);
   app.use('/api/conductor', requireAuth, requireRole('admin', 'manager'), conductorRoutes);
+  // Filter-trigger endpoint must bypass requireAuth so the Creative Filter
+  // cron (which has no user session) can hit it with a shared-secret header.
+  // Mounted BEFORE the requireAuth-protected lpAgentRoutes so Express matches
+  // this specific path here first.
+  app.use('/api/projects', filterTriggerRouter);
   app.use('/api/projects', requireAuth, requireRole('admin', 'manager'), lpAgentRoutes);
   app.use('/api/cmo', requireAuth, requireRole('admin', 'manager'), cmoRoutes);
   app.use('/api/projects', requireAuth, requireRole('admin', 'manager'), salesPageRoutes);

@@ -8,16 +8,122 @@ import {
   createLandingPage,
   updateLandingPage,
   getLandingPagesByProject,
+  getBatchJob,
+  getFlexAd,
+  getSetting,
 } from '../convexClient.js';
 import { withRetry } from '../services/retry.js';
 import { generateAndValidateLP, NARRATIVE_FRAMES } from '../services/lpGenerator.js';
-import { runGauntlet, markLPPendingReview, clearChiefReviewTodo, appendLPAuditTrail, chiefReviewTodoExternalId } from '../services/lpAutoGenerator.js';
+import { runGauntlet, markLPPendingReview, clearChiefReviewTodo, appendLPAuditTrail, chiefReviewTodoExternalId, triggerLPGenerationFromFlexAd } from '../services/lpAutoGenerator.js';
 import { getProjectProgress } from '../services/gauntletProgress.js';
 import { uploadBuffer } from '../convexClient.js';
 import { publishAndSmokeTest, generateSlug, extractHeadlineForSlug } from '../services/lpPublisher.js';
 import { createSSEStream } from '../utils/sseHelper.js';
+import crypto from 'crypto';
 
 const router = Router();
+
+// Second router for endpoints that must bypass requireAuth — the Creative
+// Filter cron runs without a user session and authenticates via the
+// `X-Filter-Secret` header instead. Mounted in server.js BEFORE the main
+// lpAgentRoutes so Express matches this router first for its specific
+// paths.
+export const filterTriggerRouter = Router();
+
+// Timing-safe compare so a rogue caller can't brute-force the shared secret
+// one byte at a time via response-time side-channels.
+function safeEqual(a, b) {
+  if (typeof a !== 'string' || typeof b !== 'string') return false;
+  if (a.length !== b.length) return false;
+  try {
+    return crypto.timingSafeEqual(Buffer.from(a), Buffer.from(b));
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * POST /api/projects/:id/lp-agent/trigger-from-flex-ad
+ *
+ * Phase K — Creative Filter kicks off LP generation here after it assembles
+ * a Ready-to-Post flex ad. The LP's angle will be derived from the flex ad's
+ * images, not the Director's library angle.
+ *
+ * Auth: EITHER a logged-in admin/manager session OR an `X-Filter-Secret`
+ * header that matches the `filter_shared_secret` setting. The filter.sh
+ * cron runs with no session; normal users might also hit this endpoint
+ * from a devtools console when debugging.
+ *
+ * Body: { batch_id: string, flex_ad_id: string }
+ *
+ * Returns 202 Accepted on success. LP generation runs fire-and-forget;
+ * the caller doesn't wait. Idempotent on batch.lp_primary_id.
+ */
+filterTriggerRouter.post('/:id/lp-agent/trigger-from-flex-ad', async (req, res) => {
+  // Dual auth. Session path: normal admin/manager login.
+  const sessionUser = req.session?.userId
+    ? { id: req.session.userId, username: req.session.username, role: req.session.role }
+    : null;
+  const sessionAllowed = sessionUser && (sessionUser.role === 'admin' || sessionUser.role === 'manager');
+
+  // Shared-secret path: filter.sh forwards FILTER_SHARED_SECRET via header.
+  const headerSecret = req.headers['x-filter-secret'];
+  let secretAllowed = false;
+  if (typeof headerSecret === 'string' && headerSecret.length > 0) {
+    const expected = await getSetting('filter_shared_secret');
+    secretAllowed = !!expected && safeEqual(expected, headerSecret);
+  }
+
+  if (!sessionAllowed && !secretAllowed) {
+    return res.status(401).json({ error: 'Unauthorized' });
+  }
+
+  // Set req.user for downstream audit trail entries (uses a synthetic bot
+  // identity when the caller authenticated via shared secret).
+  req.user = sessionUser || { id: 'filter-bot', username: 'creative-filter', role: 'bot' };
+
+  const projectId = req.params.id;
+  const batchId = typeof req.body?.batch_id === 'string' ? req.body.batch_id.trim() : '';
+  const flexAdId = typeof req.body?.flex_ad_id === 'string' ? req.body.flex_ad_id.trim() : '';
+  if (!batchId || !flexAdId) {
+    return res.status(400).json({ error: 'batch_id and flex_ad_id are required' });
+  }
+
+  const batch = await getBatchJob(batchId);
+  if (!batch || batch.project_id !== projectId) {
+    return res.status(404).json({ error: 'Batch not found for this project' });
+  }
+
+  const flexAd = await getFlexAd(flexAdId);
+  if (!flexAd || flexAd.project_id !== projectId) {
+    return res.status(404).json({ error: 'Flex ad not found for this project' });
+  }
+
+  // Idempotency: if an LP has already been triggered for this batch, don't
+  // start a second generation run.
+  if (batch.lp_primary_id) {
+    return res.status(409).json({
+      error: 'LP already triggered for this batch.',
+      lp_id: batch.lp_primary_id,
+    });
+  }
+
+  // Respect the project-level LP agent enable flag — but answer 202 rather
+  // than 4xx so the filter caller just sees "accepted, nothing to do" and
+  // doesn't treat disabled projects as errors.
+  const config = await getLPAgentConfig(projectId);
+  if (!config?.enabled) {
+    return res.status(202).json({ skipped: true, reason: 'LP Agent disabled for this project.' });
+  }
+
+  // Kick off the orchestrator fire-and-forget. The endpoint returns 202
+  // immediately; actual generation happens in the background.
+  triggerLPGenerationFromFlexAd(flexAdId, batchId, projectId).catch((err) => {
+    console.error(`[LPAgent] Filter-triggered LP gen failed for batch ${batchId.slice(0, 8)}:`, err.message);
+  });
+
+  return res.status(202).json({ accepted: true, batch_id: batchId, flex_ad_id: flexAdId });
+});
 
 // ── Config CRUD ──
 

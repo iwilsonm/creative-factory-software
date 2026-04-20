@@ -35,10 +35,12 @@ import {
   regenerateFailedImages,
   detectImageMimeType,
   NARRATIVE_FRAMES,
+  deriveListicleAngleFromImages,
+  AngleDerivationError,
 } from './lpGenerator.js';
 import { getCachedImageContext, getFoundationalDocs } from './lpGenerator.js';
 import { publishAndSmokeTest, generateSlug, extractHeadlineForSlug } from './lpPublisher.js';
-import { uploadBuffer, downloadToBuffer, upsertDashboardTodo, removeDashboardTodo, getLandingPage } from '../convexClient.js';
+import { uploadBuffer, downloadToBuffer, upsertDashboardTodo, removeDashboardTodo, getLandingPage, getFlexAd, getDeploymentByExternalId, getAd, getStorageUrl } from '../convexClient.js';
 import { setProgress, clearProgress } from './gauntletProgress.js';
 import {
   buildLPHeadlineHistoryEntry,
@@ -849,6 +851,196 @@ async function generateAndPublishLP({ projectId, batchJobId, angle, template, fr
 }
 
 /**
+ * Phase K — orchestrator for Filter-triggered LP generation.
+ *
+ * The Creative Filter calls `POST /lp-agent/trigger-from-flex-ad` after it
+ * assembles a winning flex ad. This function:
+ *   1. Resolves the flex ad → its child deployments → their ad_creatives →
+ *      image storage URLs.
+ *   2. Downloads up to 5 image buffers.
+ *   3. Calls `deriveListicleAngleFromImages` with the project's foundational
+ *      docs. Copy (primary text / headlines) is deliberately NOT included —
+ *      the LP's angle comes from what the reader will actually see.
+ *   4. On contradictory docs or LLM failure, flips the batch row to
+ *      `lp_primary_status='angle_derivation_failed'` and exits without
+ *      making an LP. No retry — the failure is upstream of prompt drift.
+ *   5. On success, runs the gauntlet with the derived angle string and
+ *      threads source_angle / derived_angle / angle_derivation_image_urls
+ *      into the LP row via runGauntlet's options bag (consumed inside the
+ *      createLandingPage call). The Chief Checkpoint then gates publish.
+ *
+ * Fire-and-forget — never throws to the caller (the route handler).
+ *
+ * @param {string} flexAdId - flex_ads.externalId
+ * @param {string} batchJobId - batch_jobs.externalId (parent of the flex ad)
+ * @param {string} projectId
+ * @param {(event: object) => void} [sendEvent]
+ */
+export async function triggerLPGenerationFromFlexAd(flexAdId, batchJobId, projectId, sendEvent = () => {}) {
+  const emit = (event) => {
+    try { sendEvent(event); } catch (_e) { /* never let consumer errors block the pipeline */ }
+    if (event?.type === 'progress') console.log(`[LPAuto:FlexTrigger] ${event.step}: ${event.message}`);
+  };
+
+  try {
+    // 1. Load flex ad + parent batch. Sanity-check project scoping.
+    const flexAd = await getFlexAd(flexAdId);
+    if (!flexAd) {
+      console.warn(`[LPAuto:FlexTrigger] Flex ad ${flexAdId} not found — aborting.`);
+      return;
+    }
+    const batch = await getBatchJob(batchJobId);
+    if (!batch) {
+      console.warn(`[LPAuto:FlexTrigger] Batch ${batchJobId} not found — aborting.`);
+      return;
+    }
+
+    const sourceAngle = batch.angle_name || batch.angle || null;
+
+    // 2. Resolve flex ad → deployments → ads → image storage URLs. Cap at 5
+    //    so vision token cost stays bounded (Mark's SOP targets 3-5 hero frames).
+    const MAX_IMAGES = 5;
+    let deploymentIds = [];
+    try {
+      deploymentIds = JSON.parse(flexAd.child_deployment_ids || '[]');
+    } catch {
+      deploymentIds = [];
+    }
+    if (!Array.isArray(deploymentIds) || deploymentIds.length === 0) {
+      console.warn(`[LPAuto:FlexTrigger] Flex ad ${flexAdId.slice(0, 8)} has no child deployments — aborting.`);
+      return;
+    }
+
+    emit({ type: 'progress', step: 'angle_deriving', message: 'Reading flex-ad images for angle derivation...' });
+
+    const candidates = [];
+    for (const depId of deploymentIds) {
+      if (candidates.length >= MAX_IMAGES) break;
+      try {
+        const deployment = await getDeploymentByExternalId(depId);
+        if (!deployment || deployment.deleted_at) continue;
+        const ad = await getAd(deployment.ad_id);
+        const storageId = ad?.storageId;
+        if (!ad || !storageId) continue;
+        const buffer = await downloadToBuffer(storageId);
+        if (!buffer) continue;
+        const storageUrl = await getStorageUrl(storageId);
+        candidates.push({
+          buffer,
+          // The ad creatives table doesn't persist the mime type separately;
+          // Gemini/Claude both handle JPEG fine so default there and let
+          // `detectImageMimeType` rescue us if someone feeds PNG/WebP.
+          mimeType: detectImageMimeType(buffer),
+          storageUrl: storageUrl || null,
+        });
+      } catch (err) {
+        console.warn(`[LPAuto:FlexTrigger] Failed to load image for deployment ${String(depId).slice(0, 8)}: ${err.message}`);
+      }
+    }
+
+    if (candidates.length === 0) {
+      await updateBatchJobAndMirror(batchJobId, {
+        lp_primary_status: 'angle_derivation_failed',
+        lp_primary_error: 'Flex ad had no loadable image creatives.',
+      });
+      emit({ type: 'progress', step: 'angle_derivation_failed', message: 'No flex-ad images available.' });
+      return;
+    }
+
+    // 3. Derive the angle. Foundational docs feed in as grounding context.
+    const foundationalDocs = await getFoundationalDocs(projectId).catch(() => ({}));
+
+    let brief;
+    try {
+      brief = await deriveListicleAngleFromImages(candidates, foundationalDocs, projectId);
+    } catch (err) {
+      const reason = err instanceof AngleDerivationError ? err.reason : 'unknown';
+      const detail = err instanceof AngleDerivationError ? (err.detail || err.message) : err.message;
+      console.warn(`[LPAuto:FlexTrigger] Angle derivation failed (${reason}): ${detail}`);
+      await updateBatchJobAndMirror(batchJobId, {
+        lp_primary_status: 'angle_derivation_failed',
+        lp_primary_error: `Angle derivation failed (${reason}): ${detail}`,
+      });
+      emit({ type: 'progress', step: 'angle_derivation_failed', message: detail });
+      emit({ type: 'error', message: detail });
+      return;
+    }
+
+    emit({ type: 'progress', step: 'angle_derived', message: `Angle derived: ${brief.listicle_promise.slice(0, 80)}` });
+
+    // 4. Assemble the angle string handed into the regular pipeline. This is
+    //    what Claude sees as the "marketing angle" during copy generation.
+    const angleString = [brief.listicle_promise, brief.pain_point, brief.desired_outcome]
+      .filter(Boolean)
+      .join(' — ');
+
+    const imageUrls = candidates.map((c) => c.storageUrl).filter(Boolean);
+
+    // 5. Mark the batch as generating so the Filter sees progress, then run
+    //    the gauntlet. Derivation fields ride via options so runGauntlet can
+    //    stamp them onto the LP row at creation time.
+    await updateBatchJobAndMirror(batchJobId, {
+      lp_primary_status: 'generating',
+    });
+
+    const report = await runGauntlet(projectId, {
+      dryRun: false,
+      batchJobId,
+      angle: angleString,
+      angleBrief: {
+        scene: brief.tone_hint,
+        tone: brief.tone_hint,
+        installed_beliefs: brief.installed_beliefs,
+        removed_objections: brief.removed_objections,
+      },
+      approvedAds: [],
+      sourceAngle,
+      derivedAngleBrief: brief,
+      angleDerivationImageUrls: imageUrls,
+    }, emit);
+
+    // 6. Mirror the gauntlet outcome back onto the batch — same logic as
+    //    triggerLPGeneration's post-gauntlet block, simplified since
+    //    Filter-triggered path is always single-listicle.
+    const primaryFrame = report.frames?.[0];
+    const primaryPending = primaryFrame && (primaryFrame.pendingReview || primaryFrame.status === 'pending_review');
+    if (primaryPending) {
+      await updateBatchJobAndMirror(batchJobId, {
+        gauntlet_lp_urls: JSON.stringify(report.lpUrls || []),
+        lp_primary_url: null,
+        lp_primary_status: 'pending_review',
+        lp_primary_id: primaryFrame.lpId || null,
+        lp_secondary_status: 'skipped',
+      });
+    } else if (report.lpUrls && report.lpUrls.length > 0) {
+      await updateBatchJobAndMirror(batchJobId, {
+        gauntlet_lp_urls: JSON.stringify(report.lpUrls),
+        lp_primary_url: report.lpUrls[0]?.url || null,
+        lp_primary_status: 'live',
+        lp_primary_id: report.frames[0]?.lpId || null,
+        lp_secondary_status: 'skipped',
+      });
+    } else {
+      const terminalStatus = report.summary?.terminalStatus || 'failed';
+      await updateBatchJobAndMirror(batchJobId, {
+        lp_primary_status: terminalStatus,
+        lp_primary_error: 'Filter-triggered gauntlet produced no LP.',
+        lp_secondary_status: 'skipped',
+      });
+    }
+  } catch (err) {
+    console.error(`[LPAuto:FlexTrigger] Fatal error for flex ${flexAdId.slice(0, 8)}:`, err.message);
+    try {
+      await updateBatchJobAndMirror(batchJobId, {
+        lp_primary_status: 'failed',
+        lp_primary_error: err.message,
+        lp_secondary_status: 'skipped',
+      });
+    } catch { /* nothing more we can do */ }
+  }
+}
+
+/**
  * Retry a failed LP for a batch.
  *
  * @param {string} batchJobId - batch_jobs externalId
@@ -1367,6 +1559,12 @@ export async function runGauntlet(projectId, options = {}, sendEventRaw) {
           gauntlet_attempt: 1,
           gauntlet_status: 'generating',
           gauntlet_batch_started_at: batchStartedAt,
+          // Phase K: Filter-triggered derivation context. These come in via
+          // runGauntlet options from triggerLPGenerationFromFlexAd; they're
+          // null for the legacy Director/manual paths.
+          source_angle: options.sourceAngle || undefined,
+          derived_angle: options.derivedAngleBrief ? JSON.stringify(options.derivedAngleBrief) : undefined,
+          angle_derivation_image_urls: options.angleDerivationImageUrls ? JSON.stringify(options.angleDerivationImageUrls) : undefined,
         });
 
         // 5d. Generate LP with pre-generated images + cached template

@@ -708,6 +708,60 @@ deploy_flex_ads() {
     }
 
     log_ok "Deployed: $flex_ad_name → Ready to Post ($headline_count headlines × $primary_text_count texts × ${image_count} images)"
+
+    # Phase K — kick off LP generation keyed on this flex ad. The backend
+    # derives the LP's listicle angle from the flex ad's images (copy is
+    # ignored), then runs the full gauntlet. Auth bypasses the normal
+    # session via FILTER_SHARED_SECRET so the cron doesn't need a login.
+    if [[ "${FILTER_DRY_RUN:-0}" == "1" ]]; then
+      log_info "[DRY RUN] Would trigger LP gen from flex ad"
+    elif [[ -z "${FILTER_SHARED_SECRET:-}" ]]; then
+      log_warn "FILTER_SHARED_SECRET not set — skipping LP trigger (copy it from backend Settings into the cron env)"
+    else
+      local new_flex_id
+      new_flex_id=$(echo "$deploy_response" | jq -r '.flexAdId // empty' 2>/dev/null)
+      if [[ -z "$new_flex_id" ]]; then
+        log_warn "Flex deploy returned no flexAdId — cannot trigger LP gen"
+      else
+        local lp_trigger_attempt=0
+        local lp_trigger_status=""
+        while [[ $lp_trigger_attempt -lt 3 ]]; do
+          lp_trigger_attempt=$((lp_trigger_attempt + 1))
+          local lp_trigger_response
+          lp_trigger_response=$(curl -s -w '\n%{http_code}' -X POST \
+            "${BACKEND_URL}/api/projects/${project_id}/lp-agent/trigger-from-flex-ad" \
+            -H "Content-Type: application/json" \
+            -H "X-Filter-Secret: ${FILTER_SHARED_SECRET}" \
+            -d "$(jq -n \
+              --arg batch_id "$batch_id" \
+              --arg flex_ad_id "$new_flex_id" \
+              '{batch_id: $batch_id, flex_ad_id: $flex_ad_id}')" 2>/dev/null) || true
+          lp_trigger_status=$(echo "$lp_trigger_response" | tail -n1)
+          case "$lp_trigger_status" in
+            202)
+              log_ok "LP generation triggered for flex ad ${new_flex_id:0:8} (batch ${batch_id:0:8})"
+              break
+              ;;
+            409)
+              log_info "LP already triggered for batch ${batch_id:0:8}, skipping"
+              break
+              ;;
+            401)
+              log_err "LP trigger got 401 — FILTER_SHARED_SECRET mismatch. Check backend Settings."
+              break
+              ;;
+            5*)
+              log_warn "LP trigger got $lp_trigger_status (attempt $lp_trigger_attempt/3) — retrying"
+              sleep $(( 5 * lp_trigger_attempt ))
+              ;;
+            *)
+              log_warn "LP trigger got unexpected status $lp_trigger_status — moving on"
+              break
+              ;;
+          esac
+        done
+      fi
+    fi
   done
 
   log_ok "All flex ads deployed for: $project_name"
