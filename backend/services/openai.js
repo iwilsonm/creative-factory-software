@@ -80,22 +80,72 @@ export async function chatStream(messages, onChunk, model = 'gpt-4.1', options =
 }
 
 /**
+ * Detect "model not available" errors from OpenAI. The SDK surfaces these as
+ * APIError instances with status 404 and code/type 'model_not_found'.
+ * Returns the offending model string from the error message if found, else true.
+ */
+function isModelNotFoundError(err) {
+  if (!err) return false;
+  const code = err.code || err.error?.code;
+  const type = err.type || err.error?.type;
+  const status = err.status || err.statusCode;
+  if (code === 'model_not_found' || type === 'model_not_found') return true;
+  if (status === 404 && /model/i.test(err.message || '')) return true;
+  return false;
+}
+
+const OPENAI_FALLBACK_CHAIN = {
+  'gpt-5.4': 'gpt-5.2',     // PEF plan 2026-04-21 — graceful fallback if 5.4 not yet available
+};
+
+/**
  * Send a multi-turn conversation to GPT and get the full response (no streaming).
  * Cost is auto-logged from response.usage.
  *
+ * On `model_not_found`, the wrapper retries ONCE with the configured fallback
+ * model (see OPENAI_FALLBACK_CHAIN). Emits a `warning` event via `options.onWarning`
+ * so the SSE caller can surface the fallback to the user.
+ *
  * @param {Array} messages
  * @param {string} model
- * @param {object} [options] - API options + { operation, projectId } for cost tracking
+ * @param {object} [options] - API options + { operation, projectId, onWarning } for cost tracking
  */
 export async function chat(messages, model = 'gpt-4.1', options = {}) {
   const openai = await getClient();
-  const { operation, projectId, ...apiOptions } = options;
-  const response = await withRetry(
-    () => openai.chat.completions.create({ model, messages, ...apiOptions }),
-    { label: '[OpenAI chat]' }
-  );
-  logCostFromResponse(response, model, { operation, projectId });
-  return response.choices[0].message.content;
+  const { operation, projectId, onWarning, ...apiOptions } = options;
+  let activeModel = model;
+  try {
+    const response = await withRetry(
+      () => openai.chat.completions.create({ model: activeModel, messages, ...apiOptions }),
+      { label: `[OpenAI chat ${activeModel}]` }
+    );
+    logCostFromResponse(response, activeModel, { operation, projectId });
+    return response.choices[0].message.content;
+  } catch (err) {
+    const fallbackModel = OPENAI_FALLBACK_CHAIN[activeModel];
+    if (fallbackModel && isModelNotFoundError(err)) {
+      console.warn(`[OpenAI chat] Model ${activeModel} not found — falling back to ${fallbackModel}`);
+      if (typeof onWarning === 'function') {
+        try {
+          onWarning({
+            type: 'warning',
+            tag: 'model_fallback',
+            from: activeModel,
+            to: fallbackModel,
+            message: `OpenAI model ${activeModel} not available — using ${fallbackModel} instead.`,
+          });
+        } catch { /* swallow */ }
+      }
+      activeModel = fallbackModel;
+      const response = await withRetry(
+        () => openai.chat.completions.create({ model: activeModel, messages, ...apiOptions }),
+        { label: `[OpenAI chat ${activeModel}]` }
+      );
+      logCostFromResponse(response, activeModel, { operation, projectId });
+      return response.choices[0].message.content;
+    }
+    throw err;
+  }
 }
 
 /**

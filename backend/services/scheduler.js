@@ -1,5 +1,5 @@
 import cron from 'node-cron';
-import { getActiveBatchJobs, getScheduledBatchJobs, getBatchJob, updateBatchJob, getMetaEnabledProjects, purgeDeletedDeployments, purgeDeletedFlexAds, getAllPendingReviewLPs, updateLandingPage } from '../convexClient.js';
+import { getActiveBatchJobs, getScheduledBatchJobs, getBatchJob, updateBatchJob, getMetaEnabledProjects, purgeDeletedDeployments, purgeDeletedFlexAds, getAllPendingReviewLPs, getAllPendingImageSelectionLPs, updateLandingPage, purgeStaleLPGenerationLocks, purgeLPCandidateBlobs } from '../convexClient.js';
 import { runBatch, pollBatchJob } from './batchProcessor.js';
 import { syncOpenAICosts, refreshGeminiRates } from './costTracker.js';
 import { syncMetaPerformance, refreshMetaTokenIfNeeded } from './metaAds.js';
@@ -66,13 +66,29 @@ export async function initScheduler() {
   // Expire Chief Checkpoint pending reviews older than 7 days (daily at 2 AM).
   // Never auto-publishes — moves to 'expired_review' so a human can restore
   // and re-approve later. The dashboard reminder is cleared at the same time.
+  // Also expires `pending_image_selection` LPs (PEF plan 2026-04-21) and
+  // purges stale LP generation locks (entries older than their TTL).
   cron.schedule('0 2 * * *', async () => {
     try {
-      const expired = await expireStalePendingReviews();
-      if (expired > 0) {
-        console.log(`[Scheduler] Expired ${expired} pending-review LP(s) >7 days old`);
+      const expiredReview = await expireStalePendingReviews();
+      if (expiredReview > 0) {
+        console.log(`[Scheduler] Expired ${expiredReview} pending-review LP(s) >7 days old`);
       }
     } catch (e) { console.error('[Scheduler] Chief Checkpoint expiry error:', e.message); }
+
+    try {
+      const expiredImageSel = await expireStalePendingImageSelection();
+      if (expiredImageSel > 0) {
+        console.log(`[Scheduler] Expired ${expiredImageSel} pending-image-selection LP(s) >7 days old`);
+      }
+    } catch (e) { console.error('[Scheduler] Image-selection expiry error:', e.message); }
+
+    try {
+      const lockResult = await purgeStaleLPGenerationLocks();
+      if (lockResult?.purged > 0) {
+        console.log(`[Scheduler] Purged ${lockResult.purged} stale LP generation lock(s)`);
+      }
+    } catch (e) { console.error('[Scheduler] LP lock purge error:', e.message); }
   });
 
   // Sync Meta performance data every 30 minutes (per-project)
@@ -399,6 +415,55 @@ export async function expireStalePendingReviews(thresholdMs = 7 * 24 * 60 * 60 *
       expired += 1;
     } catch (err) {
       console.warn(`[Scheduler] Failed to expire LP ${lp.externalId}:`, err.message);
+    }
+  }
+  return expired;
+}
+
+/**
+ * PEF plan 2026-04-21 — sweep `pending_image_selection` LPs older than 7 days
+ * into `expired_review`. Mirrors `expireStalePendingReviews` but for the new
+ * manual-image-selection flow. Schedules a blob purge of unplaced
+ * image_candidates after a 7-day delay (handled by being called again on the
+ * next cron run after the LP has been in `expired_review` long enough — for
+ * Phase 1 we just purge immediately on expiry).
+ *
+ * @returns {Promise<number>} count of LPs expired this run
+ */
+export async function expireStalePendingImageSelection(thresholdMs = 7 * 24 * 60 * 60 * 1000) {
+  const pending = await getAllPendingImageSelectionLPs();
+  if (!pending || pending.length === 0) return 0;
+
+  const { appendLPAuditTrail, clearChiefReviewTodo } = await import('./lpAutoGenerator.js');
+
+  const now = Date.now();
+  let expired = 0;
+  for (const lp of pending) {
+    const updatedAt = lp.updated_at || lp.created_at;
+    const ageMs = updatedAt ? now - new Date(updatedAt).getTime() : 0;
+    if (ageMs < thresholdMs) continue;
+
+    try {
+      await updateLandingPage(lp.externalId, { status: 'expired_review' });
+      await appendLPAuditTrail(lp.externalId, {
+        step: 'image_selection',
+        action: 'expired',
+        detail: `Pending image selection for ${Math.floor(ageMs / (24 * 60 * 60 * 1000))} days`,
+      });
+      await clearChiefReviewTodo(lp.externalId).catch(() => {});
+
+      // Best-effort: purge unplaced candidate blobs to free storage.
+      try {
+        const { purged } = await purgeLPCandidateBlobs(lp.externalId);
+        if (purged > 0) {
+          console.log(`[Scheduler] Purged ${purged} candidate blob(s) for expired LP ${lp.externalId}`);
+        }
+      } catch (purgeErr) {
+        console.warn(`[Scheduler] purgeLPCandidateBlobs failed for ${lp.externalId}:`, purgeErr.message);
+      }
+      expired += 1;
+    } catch (err) {
+      console.warn(`[Scheduler] Failed to expire image-selection LP ${lp.externalId}:`, err.message);
     }
   }
   return expired;

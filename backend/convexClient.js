@@ -1485,6 +1485,14 @@ export async function getAllPendingReviewLPs() {
   return await queryWithRetry(api.landingPages.getAllPendingReview, {});
 }
 
+/**
+ * Return every landing page currently in `pending_image_selection` (PEF plan
+ * 2026-04-21 manual flow). Used by the daily expiry scheduler.
+ */
+export async function getAllPendingImageSelectionLPs() {
+  return await queryWithRetry(api.landingPages.getAllPendingImageSelection, {});
+}
+
 // =============================================
 // Landing Page helpers
 // =============================================
@@ -1499,6 +1507,24 @@ export async function getLandingPageSummariesByProject(projectId) {
 
 export async function getLandingPage(externalId) {
   return await cachedQuery('landing_pages', api.landingPages.getByExternalId, { externalId });
+}
+
+/**
+ * Count LPs created in the current UTC day for a project. Used by the
+ * daily LP generation cap (PEF plan 2026-04-21 invariant — denial-of-wallet
+ * guard). Skips LPs in 'failed' status so a string of failed attempts doesn't
+ * lock Ian out.
+ */
+export async function countLandingPagesCreatedToday(projectId) {
+  const all = await getLandingPagesByProject(projectId);
+  const startOfDay = new Date();
+  startOfDay.setUTCHours(0, 0, 0, 0);
+  const startIso = startOfDay.toISOString();
+  return all.filter((p) => {
+    if (!p?.created_at) return false;
+    if (p.status === 'failed') return false;
+    return p.created_at >= startIso;
+  }).length;
 }
 
 export async function getLandingPagesByBatchJob(batchJobId) {
@@ -1566,6 +1592,14 @@ export async function updateLandingPage(externalId, fields) {
 }
 
 export async function deleteLandingPage(externalId) {
+  // Best-effort: purge any image_candidate blobs held by this LP so storage
+  // doesn't leak. Non-fatal if it fails (the row delete still proceeds).
+  try {
+    await purgeLPCandidateBlobs(externalId);
+  } catch (err) {
+    console.warn(`[convexClient.deleteLandingPage] purgeLPCandidateBlobs failed for ${externalId}: ${err.message}`);
+  }
+
   // Delete all versions first
   const versions = await queryWithRetry(api.landingPageVersions.getByLandingPage, { landingPageId: externalId });
   for (const v of versions) {
@@ -1574,6 +1608,62 @@ export async function deleteLandingPage(externalId) {
   await mutationWithRetry(api.landingPages.remove, { externalId });
   invalidateQueryCache('landing_pages');
   invalidateQueryCache('landing_page_versions');
+}
+
+/**
+ * Delete every image_candidate blob storage entry for an LP.
+ * Used by the LP-delete cascade and the daily expiry cron's blob-purge step.
+ *
+ * Failures on individual deletes are logged but don't abort the loop —
+ * a missing blob shouldn't block the cleanup.
+ */
+export async function purgeLPCandidateBlobs(externalId) {
+  const lp = await queryWithRetry(api.landingPages.getByExternalId, { externalId }).catch(() => null);
+  if (!lp) return { purged: 0, missing: 0 };
+  let purged = 0;
+  let missing = 0;
+  let candidates = [];
+  try {
+    candidates = lp.image_candidates ? JSON.parse(lp.image_candidates) : [];
+  } catch {
+    candidates = [];
+  }
+  if (!Array.isArray(candidates)) return { purged: 0, missing: 0 };
+  for (const c of candidates) {
+    if (!c?.storageId) { missing += 1; continue; }
+    try {
+      await mutationWithRetry(api.fileStorage.deleteFile, { storageId: c.storageId });
+      purged += 1;
+    } catch (err) {
+      console.warn(`[convexClient.purgeLPCandidateBlobs] delete blob failed (${c.storageId}): ${err.message}`);
+    }
+  }
+  return { purged, missing };
+}
+
+// ─── LP Generation Locks ─────────────────────────────────────────────────────
+// Per-project lock that prevents concurrent /generate calls (PEF plan 2026-04-21
+// invariant #9). The lock auto-expires after `ttl_ms` and the daily scheduler
+// cron purges stale entries.
+
+export async function tryAcquireLPGenerationLock(projectId, ttlMs = 600000, holderLabel = null) {
+  return mutationWithRetry(api.lpGenerationLocks.tryAcquire, {
+    project_id: projectId,
+    ttl_ms: ttlMs,
+    holder_label: holderLabel || undefined,
+  });
+}
+
+export async function releaseLPGenerationLock(projectId) {
+  return mutationWithRetry(api.lpGenerationLocks.release, { project_id: projectId });
+}
+
+export async function getLPGenerationLock(projectId) {
+  return queryWithRetry(api.lpGenerationLocks.get, { project_id: projectId });
+}
+
+export async function purgeStaleLPGenerationLocks() {
+  return mutationWithRetry(api.lpGenerationLocks.purgeStale, {});
 }
 
 export async function getLandingPageVersions(landingPageId) {

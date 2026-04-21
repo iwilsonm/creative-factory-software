@@ -20,11 +20,15 @@ import {
   uploadBuffer,
   getLPTemplate,
   getDocsByProject,
+  getSetting,
+  countLandingPagesCreatedToday,
+  tryAcquireLPGenerationLock,
+  releaseLPGenerationLock,
 } from '../convexClient.js';
 import {
   generateLandingPageCopy,
   checkDocsReady,
-  analyzeSwipeDesign,
+  // analyzeSwipeDesign deleted per PEF plan 2026-04-21 — template skeleton supplies design.
   generateSlotImages,
   generateHtmlTemplate,
   assembleLandingPage,
@@ -43,6 +47,48 @@ import { generateImage } from '../services/gemini.js';
 import { createSSEStream } from '../utils/sseHelper.js';
 import { publishToShopify, unpublishFromShopify, verifyLive } from '../services/lpPublisher.js';
 import { appendLPAuditTrail, clearChiefReviewTodo } from '../services/lpAutoGenerator.js';
+import { generateImageConcepts } from '../services/lpImageStrategy.js';
+import { generateImageCandidates } from '../services/lpImageCandidateGenerator.js';
+
+// PEF plan 2026-04-21 — config gates for the new manual image-selection flow.
+const DEFAULT_DAILY_LP_GEN_CAP = 10;
+const DEFAULT_DAILY_LP_REGEN_CAP = 30;
+const CANDIDATE_LIBRARY_CAP = 30;
+
+/**
+ * Read the per-project Chief Image Selection feature flag. Stored in the
+ * `lp_manual_image_selection_enabled_by_project` setting as a JSON string map.
+ * Default: false (existing flow runs).
+ */
+async function isManualImageSelectionEnabled(projectId) {
+  try {
+    const raw = await getSetting('lp_manual_image_selection_enabled_by_project');
+    if (!raw) return false;
+    const map = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    return !!map?.[projectId];
+  } catch {
+    return false;
+  }
+}
+
+async function readDailyCap(key, fallback) {
+  try {
+    const raw = await getSetting(key);
+    const num = parseInt(raw, 10);
+    if (!Number.isFinite(num) || num <= 0) return fallback;
+    return num;
+  } catch {
+    return fallback;
+  }
+}
+
+async function appendChiefImageAuditEntry(pageId, entry) {
+  try {
+    await appendLPAuditTrail(pageId, entry);
+  } catch (err) {
+    console.warn('[LPChiefImage] Audit append failed:', err.message);
+  }
+}
 
 const router = Router();
 router.use(requireAuth);
@@ -233,6 +279,35 @@ router.post('/:projectId/landing-pages/generate', async (req, res) => {
     });
   }
 
+  // ── PEF plan 2026-04-21 invariants — new flow gates ──
+  const useNewFlow = await isManualImageSelectionEnabled(req.params.projectId);
+
+  // Daily LP generation cap — applies to BOTH flows (denial-of-wallet guard).
+  const dailyCap = await readDailyCap('daily_lp_generation_cap', DEFAULT_DAILY_LP_GEN_CAP);
+  const todayCount = await countLandingPagesCreatedToday(req.params.projectId);
+  if (todayCount >= dailyCap) {
+    return res.status(429).json({
+      error: `Daily LP generation cap (${dailyCap}/day) reached for this project. Try again tomorrow or raise the cap in Settings.`,
+      cap: dailyCap,
+      generated_today: todayCount,
+    });
+  }
+
+  // Per-project generation lock — prevents concurrent /generate calls (PEF
+  // invariant #9). Falls into 409 if another LP is already generating.
+  const lockResult = await tryAcquireLPGenerationLock(
+    req.params.projectId,
+    600_000,
+    `manual_generate user=${req.user?.username || 'unknown'}`
+  );
+  if (!lockResult?.acquired) {
+    return res.status(409).json({
+      error: 'Another LP is generating for this project. Try again in a moment.',
+      ms_until_expiry: lockResult?.ms_until_expiry || null,
+      holder_label: lockResult?.holder_label || null,
+    });
+  }
+
   // Create landing page record
   const pageId = uuidv4();
   const pageName = `LP — ${angle.trim().slice(0, 60)}`;
@@ -315,32 +390,15 @@ router.post('/:projectId/landing-pages/generate', async (req, res) => {
       };
       audit('init', 'started', `Manual generation — angle: "${(angle || '').slice(0, 50)}"`);
 
-      // ── Phase 2A: Design Analysis (only if we have a screenshot) ──
-      let designAnalysis = null;
-      if (screenshotBuffer) {
-        try {
-          sse.sendEvent({ type: 'phase', phase: 'design_analysis', message: 'Analyzing swipe page design...' });
-          designAnalysis = await analyzeSwipeDesign(screenshotBuffer, sse.sendEvent, req.params.projectId);
+      // ── Phase 2A REMOVED: Claude vision design analysis ──
+      // Per PEF plan 2026-04-21: template skeletons supply layout/colors/fonts;
+      // the vision call was redundant and added ~$0.05 per LP. designAnalysis
+      // stays null — image_slots come from `template.slot_definitions` (or empty
+      // for the legacy auto-image branch below until the new lpImageStrategy
+      // pipeline is wired in Chunk H).
+      const designAnalysis = null;
 
-          // Save design analysis
-          await updateLandingPage(pageId, {
-            swipe_design_analysis: JSON.stringify(designAnalysis),
-          });
-        } catch (err) {
-          console.error('[LPGen] Design analysis error (non-fatal):', err.message);
-          sse.sendEvent({
-            type: 'progress',
-            step: 'design_error',
-            message: `Design analysis failed: ${err.message}. Continuing with default layout.`,
-          });
-          designAnalysis = null;
-        }
-      }
-      if (designAnalysis) {
-        audit('design', 'analyzed', `${designAnalysis.image_slots?.length || 0} image slots, ${designAnalysis.cta_elements?.length || 0} CTAs`);
-      }
-
-      // ── Phase B: Copy Generation ──
+      // ── Phase B: Copy Generation (Turn 3 → Turn 4 → scrub → parse) ──
       sse.sendEvent({ type: 'phase', phase: 'copy_generation', message: 'Generating landing page copy...' });
       const copyResult = await generateLandingPageCopy({
         projectId: req.params.projectId,
@@ -354,20 +412,77 @@ router.post('/:projectId/landing-pages/generate', async (req, res) => {
         copy_sections: copySectionsJson,
       });
       audit('copy', 'generated', `${copyResult.sections?.length || 0} sections`);
+      if (copyResult.suspiciousHits?.length) {
+        audit('security', 'scan', `Suspicious-command patterns in copy: ${copyResult.suspiciousHits.join(', ')}`);
+      }
 
+      // ── Branch on feature flag ──
+      if (useNewFlow) {
+        // ── PEF plan 2026-04-21 manual-image-selection flow ──
+        // Step 1: GPT-5.4 image-strategy concepts.
+        sse.sendEvent({ type: 'phase', phase: 'image_strategy', message: 'GPT-5.4 is building the image strategy...' });
+        const foundationalDocs = await getDocsByProject(req.params.projectId).catch(() => ({}));
+        const targetDemo = (project?.avatar_summary || project?.avatar || '').toString().trim().slice(0, 240);
+        const problem = (project?.problem_summary || project?.product_description || '').toString().trim().slice(0, 240);
+        const lpCopyText = (copyResult.sections || [])
+          .map((s) => `${s.type}: ${s.content}`)
+          .join('\n\n');
+
+        const { concepts, model: imageStrategyModel } = await generateImageConcepts({
+          projectId: req.params.projectId,
+          lpCopyText,
+          foundationalDocs,
+          targetDemo,
+          problem,
+        }, sse.sendEvent);
+        audit('image_strategy', 'concepts_generated', `${concepts.length} concepts via ${imageStrategyModel}`);
+
+        // Step 2: Nano Banana 2 candidate generation.
+        sse.sendEvent({ type: 'phase', phase: 'image_candidates', message: `Generating ${concepts.length} image candidates with Nano Banana 2...` });
+        const candidates = await generateImageCandidates({
+          projectId: req.params.projectId,
+          lpId: pageId,
+          concepts,
+        }, sse.sendEvent);
+        const succeeded = candidates.filter((c) => c.generation_status === 'succeeded').length;
+        const failed = candidates.length - succeeded;
+        audit('image_candidates', 'generated', `${succeeded}/${candidates.length} succeeded, ${failed} failed`);
+
+        // Step 3: Persist candidates + flip status to pending_image_selection.
+        // HTML assembly + post-processing deferred to Approve & Publish (we
+        // don't know yet which images Ian will place into which slots).
+        await updateLandingPage(pageId, {
+          status: 'pending_image_selection',
+          image_candidates: JSON.stringify(candidates),
+          image_slot_assignments: JSON.stringify([]),
+          audit_trail: JSON.stringify(auditTrail),
+        });
+        audit('flow', 'pending_image_selection', 'Awaiting Chief image selection.');
+
+        sse.sendEvent({
+          type: 'completed',
+          pageId,
+          sections: copyResult.sections,
+          versionId: null, // version snapshot happens at Approve & Publish
+          imageCandidatesCount: candidates.length,
+          imageCandidatesSucceeded: succeeded,
+          imageCandidatesFailed: failed,
+          status: 'pending_image_selection',
+          flow: 'manual_image_selection',
+        });
+        sse.end();
+        return;
+      }
+
+      // ── Legacy flow (feature flag OFF) ──
       // ── Phase 2C: Image Generation (if design analysis has image slots) ──
       let imageSlots = designAnalysis?.image_slots || [];
       let populatedImageSlots = [];
 
       if (imageSlots.length > 0) {
         sse.sendEvent({ type: 'phase', phase: 'image_generation', message: `Generating ${imageSlots.length} images...` });
-        // Load avatar/product context for image prompts (non-fatal if missing)
         const imageContext = await extractImageContext(req.params.projectId);
 
-        // Mark-SOP: assign each slot a belief to install or objection to remove,
-        // drawn from the project's Necessary Beliefs + Research docs. Non-fatal;
-        // rides inside section 1 of the 10-part image prompt. Gated on the
-        // project's daily budget cap.
         try {
           const foundationalDocs = await getDocsByProject(req.params.projectId);
           await assignBeliefOrObjectionToSlots(imageSlots, foundationalDocs, req.params.projectId, sse.sendEvent);
@@ -384,7 +499,6 @@ router.post('/:projectId/landing-pages/generate', async (req, res) => {
           autoContext: { imageContext, brandColors: designAnalysis?.colors || null },
         }, sse.sendEvent);
 
-        // Save image slots (with storageIds)
         await updateLandingPage(pageId, {
           image_slots: JSON.stringify(populatedImageSlots),
         });
@@ -393,8 +507,6 @@ router.post('/:projectId/landing-pages/generate', async (req, res) => {
 
       // ── Phase 2D: HTML Generation ──
       const ctaElements = designAnalysis?.cta_elements || [];
-
-      // If no design analysis, create a default one for HTML generation
       const effectiveDesign = designAnalysis || createDefaultDesignSpec(copyResult.sections);
 
       sse.sendEvent({ type: 'phase', phase: 'html_generation', message: 'Generating HTML template...' });
@@ -421,19 +533,16 @@ router.post('/:projectId/landing-pages/generate', async (req, res) => {
 
       audit('html', 'generated', `HTML template: ${htmlTemplate.length} chars, assembled: ${rawAssembledHtml.length} chars`);
 
-      // Post-process: metadata → strip placeholders → fix duplicate headings → testimonial attribution
       const { html: assembledHtml } = postProcessLP(rawAssembledHtml, { project });
       audit('postprocess', 'applied', `Post-processed: ${rawAssembledHtml.length} → ${assembledHtml.length} chars`);
       audit('complete', 'finished', `Final LP: ${assembledHtml.length} chars`);
 
-      // Save everything
       await updateLandingPage(pageId, {
         status: 'completed',
         assembled_html: assembledHtml,
         audit_trail: JSON.stringify(auditTrail),
       });
 
-      // Create version 1
       const versionId = uuidv4();
       await createLandingPageVersion({
         id: versionId,
@@ -462,6 +571,14 @@ router.post('/:projectId/landing-pages/generate', async (req, res) => {
       });
       sse.sendEvent({ type: 'error', message: err.message, error: err.message });
       sse.end();
+    } finally {
+      // ALWAYS release the per-project generation lock so a stuck-mid-generation
+      // never blocks the next /generate call. PEF plan 2026-04-21 invariant #9.
+      try {
+        await releaseLPGenerationLock(req.params.projectId);
+      } catch (releaseErr) {
+        console.warn('[LPGen] releaseLPGenerationLock failed:', releaseErr.message);
+      }
     }
   })();
 });
@@ -922,6 +1039,11 @@ router.post('/:projectId/landing-pages/:pageId/publish', async (req, res) => {
 });
 
 // ─── Approve & publish (Chief Checkpoint) ─────────────────────────────────────
+// Accepts both `pending_review` (legacy auto-gen flow) AND
+// `pending_image_selection` (PEF plan 2026-04-21 manual flow). For
+// `pending_image_selection`: validates that every required image slot has
+// an assignment, materializes the final image_slots from the assignments,
+// then runs HTML template + assembly + post-processing before publishing.
 router.post(
   '/:projectId/landing-pages/:pageId/approve-and-publish',
   requireRole('admin', 'manager'),
@@ -932,9 +1054,7 @@ router.post(
       return res.status(404).json({ error: 'Landing page not found' });
     }
 
-    // Idempotency: already-published → return the existing URL instead of
-    // double-publishing. In-flight publish → 409 so a rapid double-click
-    // doesn't create a second Shopify page.
+    // Idempotency: already-published → return the existing URL.
     if (page.status === 'published' && page.shopify_page_id) {
       return res.json({
         success: true,
@@ -947,8 +1067,117 @@ router.post(
     if (page.status === 'publishing') {
       return res.status(409).json({ error: 'Publish in progress.' });
     }
-    if (page.status !== 'pending_review') {
+    if (page.status !== 'pending_review' && page.status !== 'pending_image_selection') {
       return res.status(409).json({ error: 'Page is not pending review.' });
+    }
+
+    const fromImageSelection = page.status === 'pending_image_selection';
+
+    // ── pending_image_selection: validate slot assignments + materialize ──
+    if (fromImageSelection) {
+      let assignments = [];
+      let candidates = [];
+      try {
+        assignments = page.image_slot_assignments ? JSON.parse(page.image_slot_assignments) : [];
+        candidates = page.image_candidates ? JSON.parse(page.image_candidates) : [];
+      } catch (parseErr) {
+        return res.status(500).json({ error: `Failed to parse image candidates/assignments: ${parseErr.message}` });
+      }
+
+      // Required slots come from the LP's template.slot_definitions filtered to image slots.
+      // If no template (manual flow without template selected), require at least 1 image.
+      let requiredSlotIds = [];
+      if (page.template_id) {
+        try {
+          const template = await getLPTemplate(page.template_id);
+          const slotDefs = template?.slot_definitions ? (
+            typeof template.slot_definitions === 'string'
+              ? JSON.parse(template.slot_definitions)
+              : template.slot_definitions
+          ) : [];
+          requiredSlotIds = slotDefs
+            .filter((s) => s?.type === 'image' && (s.required ?? true))
+            .map((s) => s.id || s.slot_id || s.name)
+            .filter(Boolean);
+        } catch (tplErr) {
+          console.warn('[LPChiefApprove] Could not load template slot defs:', tplErr.message);
+        }
+      }
+      if (requiredSlotIds.length === 0 && Array.isArray(candidates) && candidates.length > 0) {
+        // No template-declared required slots — require at least one assignment.
+        if (assignments.length === 0) {
+          return res.status(400).json({
+            error: 'No image assignments found. Place at least one image before publishing.',
+          });
+        }
+      } else {
+        const filledSlotIds = new Set(assignments.map((a) => a.slot_id));
+        const missing = requiredSlotIds.filter((id) => !filledSlotIds.has(id));
+        if (missing.length > 0) {
+          return res.status(400).json({
+            error: `Not all image slots filled. Place an image in: ${missing.join(', ')}`,
+            missing_slots: missing,
+          });
+        }
+      }
+
+      // Materialize final image_slots from candidate-assignment join.
+      const candidateById = new Map(candidates.map((c) => [c.candidate_id, c]));
+      const materializedImageSlots = assignments.map((a) => {
+        const candidate = candidateById.get(a.candidate_id);
+        if (!candidate) return null;
+        return {
+          slot_id: a.slot_id,
+          storageId: candidate.storageId,
+          storageUrl: candidate.storageUrl,
+          aspect_ratio: candidate.aspect_ratio,
+          concept_label: candidate.concept_label,
+          assigned_at: a.assigned_at,
+        };
+      }).filter(Boolean);
+
+      await updateLandingPage(pageId, {
+        image_slots: JSON.stringify(materializedImageSlots),
+      });
+
+      // Generate HTML template + assemble + post-process — deferred from /generate.
+      try {
+        let copySections = [];
+        try {
+          copySections = page.copy_sections ? JSON.parse(page.copy_sections) : [];
+        } catch { copySections = []; }
+        const sse = { sendEvent: () => {} };  // approve-and-publish is request/response, no SSE
+        const effectiveDesign = createDefaultDesignSpec(copySections);
+        const htmlTemplate = await generateHtmlTemplate({
+          designAnalysis: effectiveDesign,
+          copySections,
+          imageSlots: materializedImageSlots,
+          ctaElements: [],
+          projectId,
+        }, sse.sendEvent);
+        await updateLandingPage(pageId, { html_template: htmlTemplate });
+
+        const rawAssembledHtml = assembleLandingPage({
+          htmlTemplate,
+          copySections,
+          imageSlots: materializedImageSlots,
+          ctaElements: [],
+        });
+        const project = await getProject(projectId).catch(() => null);
+        const { html: assembledHtml } = postProcessLP(rawAssembledHtml, { project });
+        await updateLandingPage(pageId, { assembled_html: assembledHtml });
+      } catch (htmlErr) {
+        console.error('[LPChiefApprove] HTML assembly failed:', htmlErr.message);
+        return res.status(500).json({ error: `HTML assembly failed: ${htmlErr.message}` });
+      }
+
+      // Write the batched image-selection-session audit entry.
+      await appendChiefImageAuditEntry(pageId, {
+        step: 'image_selection',
+        action: 'session_committed',
+        detail: `${assignments.length} slot assignment(s) committed at approve time`,
+        assignments,
+      });
     }
 
     // Set a mutex status so a double-click lands on the 409 branch above.
@@ -956,25 +1185,25 @@ router.post(
     await appendLPAuditTrail(pageId, {
       step: 'approval',
       action: 'approved',
-      detail: `approved by ${req.user?.username || 'unknown'}`,
+      detail: `approved by ${req.user?.username || 'unknown'}${fromImageSelection ? ' (with chief image selection)' : ''}`,
     });
 
     try {
       const result = await publishToShopify(pageId, projectId);
-      // Shopify publisher flips status to 'published' on success; clear the
-      // chief-review dashboard reminder.
       await clearChiefReviewTodo(pageId);
       return res.json({
         success: true,
         published_url: result.published_url,
         shopify_page_id: result.shopify_page_id,
         shopify_handle: result.shopify_handle,
+        from_image_selection: fromImageSelection,
       });
     } catch (err) {
       console.error('[LPChiefApprove] Publish error:', err.message);
-      // Rollback: put the LP back into pending_review so the user can retry.
+      // Rollback: put the LP back into the previous review status so the user can retry.
+      const rollbackStatus = fromImageSelection ? 'pending_image_selection' : 'pending_review';
       try {
-        await updateLandingPage(pageId, { status: 'pending_review' });
+        await updateLandingPage(pageId, { status: rollbackStatus });
         await appendLPAuditTrail(pageId, {
           step: 'approval',
           action: 'publish_failed',
@@ -988,7 +1217,260 @@ router.post(
   }
 );
 
+// ─── Retry publish (after publish_failed) ─────────────────────────────────────
+// PEF plan 2026-04-21 — when Shopify flakes mid-publish and the LP lands in
+// `publish_failed`, this re-runs the publish step without re-doing copy/images.
+router.post(
+  '/:projectId/landing-pages/:pageId/retry-publish',
+  requireRole('admin', 'manager'),
+  async (req, res) => {
+    const { projectId, pageId } = req.params;
+    const page = await getLandingPage(pageId);
+    if (!page || page.project_id !== projectId) {
+      return res.status(404).json({ error: 'Landing page not found' });
+    }
+    if (page.status !== 'publish_failed' && page.status !== 'smoke_failed') {
+      return res.status(409).json({ error: `Cannot retry publish from status "${page.status}".` });
+    }
+    if (!page.assembled_html) {
+      return res.status(400).json({ error: 'No assembled_html on page; cannot retry publish.' });
+    }
+
+    await updateLandingPage(pageId, { status: 'publishing' });
+    try {
+      const result = await publishToShopify(pageId, projectId);
+      await appendLPAuditTrail(pageId, {
+        step: 'publish',
+        action: 'retry_succeeded',
+        detail: `Retried by ${req.user?.username || 'unknown'}`,
+      });
+      return res.json({ success: true, published_url: result.published_url, shopify_page_id: result.shopify_page_id });
+    } catch (err) {
+      console.error('[LPRetryPublish] Publish error:', err.message);
+      try {
+        await updateLandingPage(pageId, { status: 'publish_failed' });
+      } catch {}
+      await appendLPAuditTrail(pageId, {
+        step: 'publish',
+        action: 'retry_failed',
+        detail: err.message,
+      });
+      return res.status(500).json({ error: err.message });
+    }
+  }
+);
+
+// ─── Place image into a slot (Chief Image Selection) ──────────────────────────
+// PEF plan 2026-04-21 — drag-and-drop placement endpoint. Validates project
+// match (cross-project guard), optimistic-lock on updated_at (concurrent-tab
+// race guard), then upserts into image_slot_assignments.
+router.post(
+  '/:projectId/landing-pages/:pageId/place-image',
+  requireRole('admin', 'manager'),
+  async (req, res) => {
+    const { projectId, pageId } = req.params;
+    const { slot_id, candidate_id, updated_at } = req.body || {};
+    if (!slot_id || typeof slot_id !== 'string') {
+      return res.status(400).json({ error: 'slot_id is required' });
+    }
+    if (!candidate_id || typeof candidate_id !== 'string') {
+      return res.status(400).json({ error: 'candidate_id is required' });
+    }
+
+    const page = await getLandingPage(pageId);
+    if (!page || page.project_id !== projectId) {
+      return res.status(404).json({ error: 'Landing page not found' });
+    }
+    if (page.status !== 'pending_image_selection') {
+      return res.status(409).json({ error: `Cannot place image when LP is in status "${page.status}".` });
+    }
+
+    let candidates = [];
+    try {
+      candidates = page.image_candidates ? JSON.parse(page.image_candidates) : [];
+    } catch (parseErr) {
+      return res.status(500).json({ error: `Failed to parse image_candidates: ${parseErr.message}` });
+    }
+
+    // Cross-project guard — all candidates on a page belong to that page's project.
+    // Verify the candidate is in this LP's library; if not, 403.
+    const candidate = candidates.find((c) => c.candidate_id === candidate_id);
+    if (!candidate) {
+      return res.status(403).json({ error: 'Candidate not in this LP\'s library (cross-project placement forbidden).' });
+    }
+
+    let assignments = [];
+    try {
+      assignments = page.image_slot_assignments ? JSON.parse(page.image_slot_assignments) : [];
+    } catch {
+      assignments = [];
+    }
+
+    // Upsert: replace existing assignment for this slot_id.
+    const filtered = assignments.filter((a) => a.slot_id !== slot_id);
+    filtered.push({ slot_id, candidate_id, assigned_at: new Date().toISOString() });
+
+    try {
+      await updateLandingPage(pageId, {
+        image_slot_assignments: JSON.stringify(filtered),
+        expected_updated_at: updated_at || undefined,
+      });
+    } catch (err) {
+      const msg = String(err.message || '');
+      if (msg.includes('OPTIMISTIC_LOCK_CONFLICT')) {
+        const fresh = await getLandingPage(pageId);
+        return res.status(409).json({
+          error: 'Page changed since you loaded it. Refresh to see latest state.',
+          fresh_updated_at: fresh?.updated_at,
+        });
+      }
+      throw err;
+    }
+
+    return res.json({ success: true, assignments: filtered });
+  }
+);
+
+// ─── Remove image from a slot ────────────────────────────────────────────────
+router.post(
+  '/:projectId/landing-pages/:pageId/remove-image',
+  requireRole('admin', 'manager'),
+  async (req, res) => {
+    const { projectId, pageId } = req.params;
+    const { slot_id, updated_at } = req.body || {};
+    if (!slot_id || typeof slot_id !== 'string') {
+      return res.status(400).json({ error: 'slot_id is required' });
+    }
+
+    const page = await getLandingPage(pageId);
+    if (!page || page.project_id !== projectId) {
+      return res.status(404).json({ error: 'Landing page not found' });
+    }
+    if (page.status !== 'pending_image_selection') {
+      return res.status(409).json({ error: `Cannot remove image when LP is in status "${page.status}".` });
+    }
+
+    let assignments = [];
+    try {
+      assignments = page.image_slot_assignments ? JSON.parse(page.image_slot_assignments) : [];
+    } catch {
+      assignments = [];
+    }
+    const filtered = assignments.filter((a) => a.slot_id !== slot_id);
+
+    try {
+      await updateLandingPage(pageId, {
+        image_slot_assignments: JSON.stringify(filtered),
+        expected_updated_at: updated_at || undefined,
+      });
+    } catch (err) {
+      const msg = String(err.message || '');
+      if (msg.includes('OPTIMISTIC_LOCK_CONFLICT')) {
+        const fresh = await getLandingPage(pageId);
+        return res.status(409).json({
+          error: 'Page changed since you loaded it. Refresh to see latest state.',
+          fresh_updated_at: fresh?.updated_at,
+        });
+      }
+      throw err;
+    }
+
+    return res.json({ success: true, assignments: filtered });
+  }
+);
+
+// ─── Regenerate a single candidate (re-fire Nano Banana 2 with same prompt) ──
+// Library cap of CANDIDATE_LIBRARY_CAP — past that, oldest *unplaced* candidate
+// is evicted (placed candidates are protected).
+router.post(
+  '/:projectId/landing-pages/:pageId/regenerate-candidate',
+  requireRole('admin', 'manager'),
+  async (req, res) => {
+    const { projectId, pageId } = req.params;
+    const { candidate_id } = req.body || {};
+    if (!candidate_id || typeof candidate_id !== 'string') {
+      return res.status(400).json({ error: 'candidate_id is required' });
+    }
+
+    const page = await getLandingPage(pageId);
+    if (!page || page.project_id !== projectId) {
+      return res.status(404).json({ error: 'Landing page not found' });
+    }
+    if (page.status !== 'pending_image_selection') {
+      return res.status(409).json({ error: `Cannot regenerate when LP is in status "${page.status}".` });
+    }
+
+    // Daily regenerate cap.
+    const dailyRegenCap = await readDailyCap('daily_lp_regenerate_cap', DEFAULT_DAILY_LP_REGEN_CAP);
+    // (Cap counter check — best-effort; relies on audit_trail or separate counter
+    // table for full accuracy. For Phase 1 we do a simple per-LP-session count.)
+    let auditTrail = [];
+    try { auditTrail = page.audit_trail ? JSON.parse(page.audit_trail) : []; } catch { auditTrail = []; }
+    const regenToday = auditTrail.filter((e) => e.step === 'regenerate' && e.timestamp?.startsWith(new Date().toISOString().slice(0, 10))).length;
+    if (regenToday >= dailyRegenCap) {
+      return res.status(429).json({
+        error: `Daily regenerate cap (${dailyRegenCap}/day per project) reached. Try again tomorrow.`,
+      });
+    }
+
+    let candidates = [];
+    try { candidates = page.image_candidates ? JSON.parse(page.image_candidates) : []; } catch { candidates = []; }
+    const original = candidates.find((c) => c.candidate_id === candidate_id);
+    if (!original) {
+      return res.status(404).json({ error: 'Candidate not found in library.' });
+    }
+
+    // LRU eviction if at cap. Protect placed candidates.
+    let assignments = [];
+    try { assignments = page.image_slot_assignments ? JSON.parse(page.image_slot_assignments) : []; } catch { assignments = []; }
+    const placedIds = new Set(assignments.map((a) => a.candidate_id));
+    if (candidates.length >= CANDIDATE_LIBRARY_CAP) {
+      // Evict oldest unplaced candidate.
+      const unplaced = candidates.filter((c) => !placedIds.has(c.candidate_id));
+      if (unplaced.length > 0) {
+        unplaced.sort((a, b) => (a.generated_at || '').localeCompare(b.generated_at || ''));
+        const evicted = unplaced[0];
+        candidates = candidates.filter((c) => c.candidate_id !== evicted.candidate_id);
+      }
+    }
+
+    // Re-fire Nano Banana 2 with the same prompt.
+    try {
+      const newCandidates = await generateImageCandidates({
+        projectId,
+        lpId: pageId,
+        concepts: [{
+          concept_label: original.concept_label,
+          nano_banana_prompt: original.nano_banana_prompt,
+          aspect_ratio: original.aspect_ratio,
+          suggested_slot_role: original.suggested_slot_role,
+        }],
+      }, () => {});
+      candidates.push(...newCandidates);
+
+      await updateLandingPage(pageId, {
+        image_candidates: JSON.stringify(candidates),
+      });
+      await appendLPAuditTrail(pageId, {
+        step: 'regenerate',
+        action: 'candidate_regenerated',
+        detail: `Concept: ${original.concept_label}; new candidate count: ${candidates.length}`,
+      });
+
+      return res.json({
+        success: true,
+        new_candidate: newCandidates[0] || null,
+        total_candidates: candidates.length,
+      });
+    } catch (err) {
+      console.error('[LPRegenCandidate] error:', err.message);
+      return res.status(500).json({ error: err.message });
+    }
+  }
+);
+
 // ─── Reject with notes (Chief Checkpoint) ─────────────────────────────────────
+// Accepts both `pending_review` and `pending_image_selection`.
 router.post(
   '/:projectId/landing-pages/:pageId/reject-with-notes',
   requireRole('admin', 'manager'),
@@ -1003,7 +1485,7 @@ router.post(
     if (!page || page.project_id !== projectId) {
       return res.status(404).json({ error: 'Landing page not found' });
     }
-    if (page.status !== 'pending_review') {
+    if (page.status !== 'pending_review' && page.status !== 'pending_image_selection') {
       return res.status(409).json({ error: 'Page is not pending review.' });
     }
 

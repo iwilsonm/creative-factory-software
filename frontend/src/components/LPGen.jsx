@@ -146,6 +146,132 @@ function CopySection({ section, index, defaultExpanded = false }) {
 }
 
 // ═══════════════════════════════════════════════════════════════════════════
+// Chief Image Selection — drop zone + candidate card
+// PEF plan 2026-04-21. Native HTML5 drag-and-drop, no new npm dep.
+// ═══════════════════════════════════════════════════════════════════════════
+
+function ImageSelectionDropZone({ slotId, label, aspectRatio, required = true, assignment, candidates, onDropCandidate, onRemove, setDraggingCandidateId }) {
+  const [hovering, setHovering] = useState(false);
+  const placedCandidate = assignment ? candidates.find(c => c.candidate_id === assignment.candidate_id) : null;
+
+  const handleDragOver = (e) => {
+    e.preventDefault();
+    setHovering(true);
+  };
+  const handleDragLeave = () => setHovering(false);
+  const handleDrop = async (e) => {
+    e.preventDefault();
+    setHovering(false);
+    const candidateId = e.dataTransfer.getData('text/candidate-id');
+    if (!candidateId) return;
+    setDraggingCandidateId(null);
+    await onDropCandidate(slotId, candidateId);
+  };
+
+  return (
+    <div
+      onDragOver={handleDragOver}
+      onDragLeave={handleDragLeave}
+      onDrop={handleDrop}
+      className={`relative border-2 border-dashed rounded-lg p-2 transition-colors ${
+        hovering ? 'border-gold bg-gold/10' : placedCandidate ? 'border-teal/40 bg-teal/5' : 'border-black/15 bg-offwhite'
+      }`}
+    >
+      <div className="flex items-center justify-between mb-1.5">
+        <div className="flex items-center gap-1.5">
+          <span className="text-[10px] font-semibold text-navy">{label}</span>
+          {required && !placedCandidate && (
+            <span className="text-[9px] font-medium px-1.5 py-0.5 rounded bg-red-50 text-red-600 uppercase">Required</span>
+          )}
+          {aspectRatio && (
+            <span className="text-[9px] text-textlight">{aspectRatio}</span>
+          )}
+        </div>
+        {placedCandidate && (
+          <button
+            onClick={() => onRemove(slotId)}
+            className="text-[10px] text-red-500 hover:text-red-700 px-1.5 py-0.5 rounded hover:bg-red-50 transition-colors"
+            title="Remove image from this slot"
+          >
+            Remove
+          </button>
+        )}
+      </div>
+      {placedCandidate ? (
+        <div className="flex items-start gap-2">
+          {placedCandidate.storageUrl && (
+            <img
+              src={placedCandidate.storageUrl}
+              alt={placedCandidate.concept_label}
+              className="max-h-24 rounded shadow-sm"
+            />
+          )}
+          <div className="text-[10px] text-textmid italic">{placedCandidate.concept_label}</div>
+        </div>
+      ) : (
+        <div className="text-[11px] text-textlight italic py-3 text-center">
+          Drop a candidate here
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ImageCandidateCard({ candidate, isPlaced, onDragStart, onDragEnd, onRegenerate, regenerating }) {
+  const handleDragStart = (e) => {
+    if (candidate.generation_status !== 'succeeded') {
+      e.preventDefault();
+      return;
+    }
+    e.dataTransfer.setData('text/candidate-id', candidate.candidate_id);
+    e.dataTransfer.effectAllowed = 'move';
+    onDragStart();
+  };
+
+  const succeeded = candidate.generation_status === 'succeeded';
+  const failed = candidate.generation_status === 'failed_permanent' || candidate.generation_status === 'failed_transient';
+
+  return (
+    <div
+      draggable={succeeded}
+      onDragStart={handleDragStart}
+      onDragEnd={onDragEnd}
+      className={`relative border rounded-lg overflow-hidden transition-all ${
+        isPlaced ? 'border-teal/50 ring-1 ring-teal/30' : 'border-black/10'
+      } ${succeeded ? 'cursor-move hover:shadow-md' : 'opacity-60'}`}
+    >
+      {succeeded && candidate.storageUrl ? (
+        <img src={candidate.storageUrl} alt={candidate.concept_label} className="w-full aspect-square object-cover" />
+      ) : (
+        <div className="w-full aspect-square bg-black/5 flex flex-col items-center justify-center text-[10px] text-textlight p-2 text-center">
+          <span className="text-[24px] mb-1">{failed ? '✗' : '⏳'}</span>
+          <span>{failed ? 'Generation failed' : 'Pending'}</span>
+        </div>
+      )}
+      <div className="p-1.5 bg-white">
+        <div className="text-[10px] font-medium text-textdark truncate" title={candidate.concept_label}>
+          {candidate.concept_label}
+        </div>
+        <div className="flex items-center gap-1 mt-0.5">
+          <span className="text-[9px] text-textlight">{candidate.aspect_ratio || '16:9'}</span>
+          {isPlaced && (
+            <span className="text-[9px] font-medium text-teal">• placed</span>
+          )}
+          <button
+            onClick={(e) => { e.stopPropagation(); onRegenerate(); }}
+            disabled={regenerating}
+            className="ml-auto text-[9px] px-1.5 py-0.5 rounded bg-navy/10 text-navy hover:bg-navy/20 disabled:opacity-60"
+            title="Regenerate this concept (creates a new variant)"
+          >
+            {regenerating ? '...' : '↻'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ═══════════════════════════════════════════════════════════════════════════
 // Sandboxed iframe preview for assembled HTML
 // ═══════════════════════════════════════════════════════════════════════════
 function HtmlPreview({ html, className = '' }) {
@@ -402,6 +528,19 @@ function LPEditor({ page: initialPage, onBack, onDelete, projectId }) {
   const [chiefContextOpen, setChiefContextOpen] = useState(true);
   const chiefActionsRef = useRef(null);
 
+  // ── PEF plan 2026-04-21 — Chief Image Selection state ──
+  const [imageCandidates, setImageCandidates] = useState(() => {
+    try { return initialPage.image_candidates ? JSON.parse(initialPage.image_candidates) : []; } catch { return []; }
+  });
+  const [imageSlotAssignments, setImageSlotAssignments] = useState(() => {
+    try { return initialPage.image_slot_assignments ? JSON.parse(initialPage.image_slot_assignments) : []; } catch { return []; }
+  });
+  const [imageSelectionUpdatedAt, setImageSelectionUpdatedAt] = useState(initialPage.updated_at || '');
+  const [draggingCandidateId, setDraggingCandidateId] = useState(null);
+  const [regeneratingCandidateId, setRegeneratingCandidateId] = useState(null);
+  const [retryingPublish, setRetryingPublish] = useState(false);
+  const imageSelectionRef = useRef(null);
+
   // ── Visual QA state ──
   const [qaRunning, setQaRunning] = useState(false);
   const [qaResult, setQaResult] = useState(() => {
@@ -452,15 +591,18 @@ function LPEditor({ page: initialPage, onBack, onDelete, projectId }) {
     }
   }, []);
 
-  // ── Deep-link: scroll chief approval panel into view when arriving via ?lp=<id> on a pending-review LP ──
+  // ── Deep-link: scroll chief approval panel (or image-selection panel) into
+  // view when arriving via ?lp=<id> on a pending-review or pending-image-selection LP ──
   useEffect(() => {
-    if (pageStatus !== 'pending_review') return;
+    if (pageStatus !== 'pending_review' && pageStatus !== 'pending_image_selection') return;
     const search = typeof window !== 'undefined' ? window.location.search : '';
     if (!search.includes('lp=')) return;
-    // Wait a tick so the approval buttons have rendered before scrolling
     const t = setTimeout(() => {
-      if (chiefActionsRef.current) {
-        chiefActionsRef.current.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      const target = pageStatus === 'pending_image_selection'
+        ? imageSelectionRef.current
+        : chiefActionsRef.current;
+      if (target) {
+        target.scrollIntoView({ behavior: 'smooth', block: 'center' });
       }
     }, 150);
     return () => clearTimeout(t);
@@ -780,6 +922,113 @@ function LPEditor({ page: initialPage, onBack, onDelete, projectId }) {
     setRestoringReview(false);
   };
 
+  // ── PEF plan 2026-04-21 — Chief Image Selection handlers ──
+
+  // Refetch-before-drop: pull the latest LP row to confirm the candidate is
+  // still in the library (handles concurrent-tab race per PEF invariant #4).
+  const refetchImageState = async () => {
+    try {
+      const fresh = await api.getLandingPage(projectId, initialPage.externalId);
+      if (!fresh) return null;
+      const freshCandidates = fresh.image_candidates ? JSON.parse(fresh.image_candidates) : [];
+      const freshAssignments = fresh.image_slot_assignments ? JSON.parse(fresh.image_slot_assignments) : [];
+      setImageCandidates(freshCandidates);
+      setImageSlotAssignments(freshAssignments);
+      setImageSelectionUpdatedAt(fresh.updated_at || imageSelectionUpdatedAt);
+      return { candidates: freshCandidates, assignments: freshAssignments, updated_at: fresh.updated_at };
+    } catch (err) {
+      console.warn('[LPGen] refetchImageState failed:', err.message);
+      return null;
+    }
+  };
+
+  const handlePlaceImage = async (slotId, candidateId) => {
+    // Refetch-before-drop guard.
+    const fresh = await refetchImageState();
+    if (fresh) {
+      const stillThere = fresh.candidates.some((c) => c.candidate_id === candidateId);
+      if (!stillThere) {
+        toast.info('Library changed — refreshing.');
+        return;
+      }
+    }
+    try {
+      const result = await api.placeLandingPageImage(projectId, initialPage.externalId, {
+        slot_id: slotId,
+        candidate_id: candidateId,
+        updated_at: imageSelectionUpdatedAt,
+      });
+      setImageSlotAssignments(result.assignments || []);
+      // Re-fetch to update the updated_at watermark.
+      await refetchImageState();
+    } catch (err) {
+      if (err.message && /Page changed/i.test(err.message)) {
+        toast.info('Library changed — refreshing.');
+        await refetchImageState();
+        return;
+      }
+      if (err.message && /cross-project/i.test(err.message)) {
+        toast.error('Cross-project placement is not allowed.');
+        return;
+      }
+      toast.error(err.message || 'Failed to place image');
+    }
+  };
+
+  const handleRemoveImage = async (slotId) => {
+    try {
+      const result = await api.removeLandingPageImage(projectId, initialPage.externalId, {
+        slot_id: slotId,
+        updated_at: imageSelectionUpdatedAt,
+      });
+      setImageSlotAssignments(result.assignments || []);
+      await refetchImageState();
+    } catch (err) {
+      if (err.message && /Page changed/i.test(err.message)) {
+        toast.info('Library changed — refreshing.');
+        await refetchImageState();
+        return;
+      }
+      toast.error(err.message || 'Failed to remove image');
+    }
+  };
+
+  const handleRegenerateCandidate = async (candidateId) => {
+    setRegeneratingCandidateId(candidateId);
+    try {
+      const result = await api.regenerateLandingPageCandidate(projectId, initialPage.externalId, { candidate_id: candidateId });
+      if (result?.new_candidate) {
+        toast.success(`New candidate added (${result.total_candidates} total).`);
+      }
+      await refetchImageState();
+    } catch (err) {
+      toast.error(err.message || 'Failed to regenerate candidate');
+    }
+    setRegeneratingCandidateId(null);
+  };
+
+  const handleRetryPublish = async () => {
+    setRetryingPublish(true);
+    try {
+      const result = await api.retryPublishLandingPage(projectId, initialPage.externalId);
+      if (result.published_url) setPublishedUrl(result.published_url);
+      setPageStatus('published');
+      toast.success('Publish retry succeeded.');
+    } catch (err) {
+      toast.error(err.message || 'Retry publish failed');
+    }
+    setRetryingPublish(false);
+  };
+
+  // Compute which slots are filled (for Approve & Publish disabled state).
+  const isImageSelectionComplete = () => {
+    if (pageStatus !== 'pending_image_selection') return true; // n/a
+    // For Phase 1: require at least one assignment if any candidates exist.
+    // Template-required slots will be enforced server-side at /approve-and-publish.
+    if (imageCandidates.length === 0) return true;
+    return imageSlotAssignments.length > 0;
+  };
+
   // ── Copy URL to clipboard ──
   const handleCopyUrl = () => {
     navigator.clipboard.writeText(publishedUrl);
@@ -958,7 +1207,7 @@ function LPEditor({ page: initialPage, onBack, onDelete, projectId }) {
           >
             {saveState === 'saving' ? 'Saving Draft...' : 'Save Draft'}
           </button>
-          {pageStatus === 'pending_review' ? (
+          {(pageStatus === 'pending_review' || pageStatus === 'pending_image_selection') ? (
             <div ref={chiefActionsRef} className="flex items-center gap-2">
               {(approving || rejecting || sendingToDraft) ? (
                 <span className="text-[11px] text-navy flex items-center gap-1.5">
@@ -971,9 +1220,13 @@ function LPEditor({ page: initialPage, onBack, onDelete, projectId }) {
                 <>
                   <button
                     onClick={handleApproveAndPublish}
-                    disabled={approving || rejecting || sendingToDraft}
-                    className="text-[11px] px-3 py-1.5 rounded-lg font-semibold text-white transition-colors bg-teal hover:bg-teal/90 disabled:opacity-60"
-                    title="Approve this landing page and publish to Shopify"
+                    disabled={approving || rejecting || sendingToDraft || !isImageSelectionComplete()}
+                    className="text-[11px] px-3 py-1.5 rounded-lg font-semibold text-white transition-colors bg-teal hover:bg-teal/90 disabled:opacity-60 disabled:cursor-not-allowed"
+                    title={
+                      !isImageSelectionComplete()
+                        ? 'Place at least one image into a slot before publishing'
+                        : 'Approve this landing page and publish to Shopify'
+                    }
                   >
                     Approve & Publish
                   </button>
@@ -996,6 +1249,15 @@ function LPEditor({ page: initialPage, onBack, onDelete, projectId }) {
                 </>
               )}
             </div>
+          ) : pageStatus === 'publish_failed' || pageStatus === 'smoke_failed' ? (
+            <button
+              onClick={handleRetryPublish}
+              disabled={retryingPublish}
+              className="text-[11px] px-3 py-1.5 rounded-lg font-semibold text-white transition-colors bg-gold hover:bg-gold/90 disabled:opacity-60"
+              title="Re-run Shopify publish without re-doing copy or images"
+            >
+              {retryingPublish ? 'Retrying...' : 'Retry Publish'}
+            </button>
           ) : pageStatus === 'expired_review' ? (
             <button
               onClick={handleRestoreToReview}
@@ -1153,6 +1415,91 @@ function LPEditor({ page: initialPage, onBack, onDelete, projectId }) {
               </div>
             </div>
           )}
+        </div>
+      )}
+
+      {/* ── PEF plan 2026-04-21 — Chief Image Selection Panel ── */}
+      {pageStatus === 'pending_image_selection' && (
+        <div ref={imageSelectionRef} className="mb-4 rounded-xl border border-gold/30 bg-gold/5 overflow-hidden">
+          <div className="flex items-center justify-between px-4 py-3 bg-gold/10">
+            <div>
+              <span className="text-[13px] font-semibold text-navy">Chief Image Selection</span>
+              <span className="ml-2 text-[11px] text-textmid">
+                Drag an image into each slot, or click Regenerate for a new variant of any concept.
+              </span>
+            </div>
+            <span className="text-[11px] text-navy font-medium">
+              {imageSlotAssignments.length} placed / {imageCandidates.length} candidate{imageCandidates.length !== 1 ? 's' : ''}
+            </span>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-5 gap-3 p-3">
+            {/* Left: HTML mockup with drop zones (3/5 cols) */}
+            <div className="md:col-span-3">
+              <div className="text-[10px] font-medium text-textmid uppercase tracking-wide mb-1.5">
+                Mockup — drop image candidates into the slots below
+              </div>
+              <div className="space-y-2 bg-white rounded-lg border border-black/10 p-3 max-h-[600px] overflow-y-auto">
+                {imageSlots.length === 0 && copySections.length > 0 ? (
+                  // No template-declared slots — show one generic "hero" drop zone.
+                  <ImageSelectionDropZone
+                    slotId="hero"
+                    label="Hero image"
+                    assignment={imageSlotAssignments.find(a => a.slot_id === 'hero')}
+                    candidates={imageCandidates}
+                    onDropCandidate={handlePlaceImage}
+                    onRemove={handleRemoveImage}
+                    setDraggingCandidateId={setDraggingCandidateId}
+                  />
+                ) : (
+                  imageSlots.map((slot, i) => {
+                    const slotId = slot.slot_id || slot.id || `image_${i + 1}`;
+                    const assignment = imageSlotAssignments.find(a => a.slot_id === slotId);
+                    return (
+                      <ImageSelectionDropZone
+                        key={slotId}
+                        slotId={slotId}
+                        label={slot.location || slot.description || `Image ${i + 1}`}
+                        aspectRatio={slot.aspect_ratio}
+                        required={slot.required ?? true}
+                        assignment={assignment}
+                        candidates={imageCandidates}
+                        onDropCandidate={handlePlaceImage}
+                        onRemove={handleRemoveImage}
+                        setDraggingCandidateId={setDraggingCandidateId}
+                      />
+                    );
+                  })
+                )}
+              </div>
+            </div>
+
+            {/* Right: Candidate library (2/5 cols) */}
+            <div className="md:col-span-2">
+              <div className="text-[10px] font-medium text-textmid uppercase tracking-wide mb-1.5">
+                Candidate library
+              </div>
+              <div className="grid grid-cols-2 gap-2 max-h-[600px] overflow-y-auto pr-1">
+                {imageCandidates.length === 0 ? (
+                  <div className="col-span-2 text-[11px] text-textlight italic p-4 text-center">
+                    No candidates generated yet.
+                  </div>
+                ) : (
+                  imageCandidates.map((c) => (
+                    <ImageCandidateCard
+                      key={c.candidate_id}
+                      candidate={c}
+                      isPlaced={imageSlotAssignments.some(a => a.candidate_id === c.candidate_id)}
+                      onDragStart={() => setDraggingCandidateId(c.candidate_id)}
+                      onDragEnd={() => setDraggingCandidateId(null)}
+                      onRegenerate={() => handleRegenerateCandidate(c.candidate_id)}
+                      regenerating={regeneratingCandidateId === c.candidate_id}
+                    />
+                  ))
+                )}
+              </div>
+            </div>
+          </div>
         </div>
       )}
 
@@ -2176,21 +2523,30 @@ export default function LPGen({ projectId, project }) {
     'fetch': 2, 'screenshot': 5,
     'design_analyzing': 8, 'design_complete': 15,
     'loading_docs': 18, 'generating': 20, 'calling_api': 22, 'skipping_swipe': 22,
+    'swipe_analysis': 22,
+    // Legacy step names (still emitted by lpAutoGenerator.js auto-gen path).
     'half_one': 24, 'half_one_retry': 26, 'half_one_validated': 30,
     'half_one_soft_warning': 30, 'half_two': 34,
+    // PEF plan 2026-04-21 — new step names emitted by the manual /generate flow.
+    'first_half': 24,
+    'second_half_attempt_1': 32, 'second_half_attempt_2': 33, 'second_half_attempt_3': 34,
     'parsing': 37, 'copy_complete': 40,
+    // PEF plan 2026-04-21 — image-strategy + candidate gen (manual flow only).
+    'image_strategy_a': 44, 'image_strategy_b': 48, 'image_strategy_c': 52,
+    'image_strategy_complete': 55,
+    'image_candidates': 60, 'image_candidates_complete': 78,
+    // Legacy auto-gen image steps (kept for backward compat).
     'image_concepts': 48, 'image_concepts_complete': 54, 'image_concepts_skipped': 54,
     'images_starting': 58, 'image_generating': 62, 'images_complete': 80, 'images_skipped': 80,
     'html_generating': 82, 'html_complete': 92,
     'qa_running': 94, 'qa_complete': 97,
     'assembling': 98,
-    // Chief Checkpoint terminal state — the pipeline stops here when chief is
-    // ON. The SSE handler renders an "awaiting review" state rather than
-    // continuing toward 100%.
+    // Chief Checkpoint terminal states — pipeline stops here.
     'chief_pending': 98,
   };
   const LP_PHASE_PROGRESS = {
     'fetch': 2, 'design_analysis': 8, 'copy_generation': 18,
+    'image_strategy': 44, 'image_candidates': 60,
     'image_generation': 58, 'html_generation': 82, 'assembling': 98,
   };
 

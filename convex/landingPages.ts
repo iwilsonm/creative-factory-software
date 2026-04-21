@@ -136,6 +136,20 @@ export const getAllPendingReview = query({
   },
 });
 
+/**
+ * Return every landing page currently sitting in `pending_image_selection`
+ * (PEF plan 2026-04-21 manual flow). Used by the daily expiry cron to age out
+ * stale image-selection LPs the same way `getAllPendingReview` does for the
+ * legacy chief-review queue.
+ */
+export const getAllPendingImageSelection = query({
+  args: {},
+  handler: async (ctx) => {
+    const rows = await ctx.db.query("landing_pages").collect();
+    return rows.filter((row) => row.status === "pending_image_selection");
+  },
+});
+
 export const getGauntletStatsByProject = query({
   args: { projectId: v.string() },
   handler: async (ctx, args) => {
@@ -411,6 +425,13 @@ export const update = mutation({
     source_angle: v.optional(v.string()),
     derived_angle: v.optional(v.string()),
     angle_derivation_image_urls: v.optional(v.string()),
+    // Chief Image Selection (PEF plan 2026-04-21)
+    image_candidates: v.optional(v.string()),
+    image_slot_assignments: v.optional(v.string()),
+    // Optimistic-lock check on status transitions. If `expected_updated_at` is
+    // provided and doesn't match the DB row, the mutation throws a structured
+    // 409 the route can catch. PEF plan 2026-04-21 invariant #2.
+    expected_updated_at: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const doc = await ctx.db
@@ -496,6 +517,15 @@ export const update = mutation({
     if (args.source_angle !== undefined) updates.source_angle = args.source_angle;
     if (args.derived_angle !== undefined) updates.derived_angle = args.derived_angle;
     if (args.angle_derivation_image_urls !== undefined) updates.angle_derivation_image_urls = args.angle_derivation_image_urls;
+    if (args.image_candidates !== undefined) updates.image_candidates = args.image_candidates;
+    if (args.image_slot_assignments !== undefined) updates.image_slot_assignments = args.image_slot_assignments;
+
+    // Optimistic-lock guard. We throw a tagged error string the route handler
+    // can pattern-match on to return HTTP 409 with a fresh row.
+    if (args.expected_updated_at !== undefined && doc.updated_at !== args.expected_updated_at) {
+      throw new Error(`OPTIMISTIC_LOCK_CONFLICT:${doc.updated_at}`);
+    }
+
     await ctx.db.patch(doc._id, updates);
 
     if (wasPublished !== willBePublished) {

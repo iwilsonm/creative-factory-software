@@ -69,6 +69,24 @@ export function extractJSON(text) {
 }
 
 /**
+ * Detect Anthropic "model not available" errors. The SDK surfaces these as
+ * Anthropic.NotFoundError (status 404) typically with a message containing
+ * "model" or the offending model name.
+ */
+function isModelNotFoundError(err) {
+  if (!err) return false;
+  const status = err.status || err.statusCode;
+  const type = err.error?.type || err.type;
+  if (type === 'not_found_error' && /model/i.test(err.message || '')) return true;
+  if (status === 404 && /model/i.test(err.message || '')) return true;
+  return false;
+}
+
+const ANTHROPIC_FALLBACK_CHAIN = {
+  'claude-sonnet-4-6': 'claude-sonnet-4-5',  // PEF plan 2026-04-21 — graceful fallback if 4.6 deprecated mid-deploy
+};
+
+/**
  * Fire-and-forget cost logging for an Anthropic API response.
  * Extracts token usage from the response and logs to api_costs.
  */
@@ -127,33 +145,56 @@ export async function chat(messages, model = 'claude-sonnet-4-6', options = {}) 
     systemPrompt = systemPrompt ? systemPrompt + jsonInstruction : jsonInstruction;
   }
 
-  const createParams = {
-    model,
-    max_tokens: options.max_tokens || 16384,
-    messages: anthropicMessages,
-  };
-
-  if (systemPrompt) {
-    createParams.system = systemPrompt;
-  }
-
   // Use timeout if specified (in ms), default 120s
   const timeoutMs = options.timeout || 120000;
 
-  const response = await withRetry(
-    () => {
-      const apiCall = anthropic.messages.create(createParams);
-      // Race against timeout to prevent hanging calls
-      const timeoutPromise = new Promise((_, reject) =>
-        setTimeout(() => reject(new Error(`Anthropic API call timed out after ${Math.round(timeoutMs / 1000)}s`)), timeoutMs)
-      );
-      return Promise.race([apiCall, timeoutPromise]);
-    },
-    { label: '[Anthropic chat]', maxRetries: options.maxRetries ?? 3 }
-  );
+  const callWithModel = async (activeModel) => {
+    const createParams = {
+      model: activeModel,
+      max_tokens: options.max_tokens || 16384,
+      messages: anthropicMessages,
+    };
+    if (systemPrompt) createParams.system = systemPrompt;
+    return withRetry(
+      () => {
+        const apiCall = anthropic.messages.create(createParams);
+        const timeoutPromise = new Promise((_, reject) =>
+          setTimeout(() => reject(new Error(`Anthropic API call timed out after ${Math.round(timeoutMs / 1000)}s`)), timeoutMs)
+        );
+        return Promise.race([apiCall, timeoutPromise]);
+      },
+      { label: `[Anthropic chat ${activeModel}]`, maxRetries: options.maxRetries ?? 3 }
+    );
+  };
 
-  // Log cost from token usage (fire-and-forget)
-  logCostFromResponse(response, model, options);
+  let activeModel = model;
+  let response;
+  try {
+    response = await callWithModel(activeModel);
+  } catch (err) {
+    const fallbackModel = ANTHROPIC_FALLBACK_CHAIN[activeModel];
+    if (fallbackModel && isModelNotFoundError(err)) {
+      console.warn(`[Anthropic chat] Model ${activeModel} not found — falling back to ${fallbackModel}`);
+      if (typeof options.onWarning === 'function') {
+        try {
+          options.onWarning({
+            type: 'warning',
+            tag: 'anthropic_model_fallback',
+            from: activeModel,
+            to: fallbackModel,
+            message: `Anthropic model ${activeModel} not available — using ${fallbackModel} instead.`,
+          });
+        } catch { /* swallow */ }
+      }
+      activeModel = fallbackModel;
+      response = await callWithModel(activeModel);
+    } else {
+      throw err;
+    }
+  }
+
+  // Log cost from token usage (fire-and-forget) — uses the model that actually responded.
+  logCostFromResponse(response, activeModel, options);
 
   let text = response.content
     .filter(block => block.type === 'text')

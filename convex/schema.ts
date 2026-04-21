@@ -7,6 +7,17 @@ export default defineSchema({
     value: v.string(),
   }).index("by_key", ["key"]),
 
+  // Per-project LP generation lock — prevents concurrent /generate calls
+  // racing through the pipeline and burning Gemini quota twice.
+  // PEF plan 2026-04-21. Auto-released by scheduler after ttl_ms elapses
+  // (covers stuck-mid-generation cases where the route handler never released).
+  lp_generation_locks: defineTable({
+    project_id: v.string(),         // → projects.externalId; one lock per project
+    acquired_at: v.float64(),       // ms since epoch
+    ttl_ms: v.float64(),            // expires_at = acquired_at + ttl_ms
+    holder_label: v.optional(v.string()),  // For debugging which call holds the lock
+  }).index("by_project", ["project_id"]),
+
   projects: defineTable({
     externalId: v.string(),
     name: v.string(),
@@ -471,7 +482,7 @@ export default defineSchema({
     swipe_filename: v.optional(v.string()), // Legacy: original swipe PDF filename
     swipe_url: v.optional(v.string()),               // URL of swipe page
     swipe_screenshot_storageId: v.optional(v.string()), // Convex storage ID for full-page screenshot
-    status: v.string(),                  // draft | generating | completed | failed | pending_review | published | unpublished | live | publish_failed | smoke_failed | expired_review | angle_derivation_failed
+    status: v.string(),                  // draft | generating | completed | failed | pending_review | pending_image_selection | published | unpublished | live | publish_failed | smoke_failed | expired_review | angle_derivation_failed
     error_message: v.optional(v.string()),
     copy_sections: v.optional(v.string()), // JSON: generated copy sections
     // Phase 2 fields
@@ -543,6 +554,10 @@ export default defineSchema({
     source_angle: v.optional(v.string()),                // The batch's library angle (audit only)
     derived_angle: v.optional(v.string()),               // JSON brief derived from flex-ad images
     angle_derivation_image_urls: v.optional(v.string()), // JSON array of Convex storage URLs used in derivation
+    // Chief Image Selection (PEF plan 2026-04-21) — populated by the manual flow when
+    // `lp_manual_image_selection_enabled` is true for the project.
+    image_candidates: v.optional(v.string()),            // JSON: [{ candidate_id, concept_label, nano_banana_prompt, storageId, storageUrl, aspect_ratio, suggested_slot_role, generation_status, generation_error, generated_at }]
+    image_slot_assignments: v.optional(v.string()),      // JSON: [{ slot_id, candidate_id, assigned_at }]
     created_at: v.string(),
     updated_at: v.string(),
   })

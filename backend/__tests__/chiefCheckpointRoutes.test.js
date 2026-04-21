@@ -34,6 +34,18 @@ vi.mock('../convexClient.js', () => ({
   getFlexAd: vi.fn(),
   getSetting: vi.fn(),
   getCostAggregates: vi.fn(),
+  // PEF plan 2026-04-21 — new helpers the route file imports
+  countLandingPagesCreatedToday: vi.fn(),
+  tryAcquireLPGenerationLock: vi.fn(),
+  releaseLPGenerationLock: vi.fn(),
+}));
+
+// New services the route file imports (PEF plan 2026-04-21)
+vi.mock('../services/lpImageStrategy.js', () => ({
+  generateImageConcepts: vi.fn(),
+}));
+vi.mock('../services/lpImageCandidateGenerator.js', () => ({
+  generateImageCandidates: vi.fn(),
 }));
 
 vi.mock('../services/lpPublisher.js', () => ({
@@ -47,7 +59,7 @@ vi.mock('../services/lpPublisher.js', () => ({
 vi.mock('../services/lpGenerator.js', () => ({
   generateLandingPageCopy: vi.fn(),
   checkDocsReady: vi.fn(),
-  analyzeSwipeDesign: vi.fn(),
+  // analyzeSwipeDesign deleted per PEF plan 2026-04-21
   generateSlotImages: vi.fn(),
   generateHtmlTemplate: vi.fn(),
   assembleLandingPage: vi.fn(),

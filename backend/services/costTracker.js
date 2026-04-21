@@ -7,6 +7,7 @@ import { withRetry } from './retry.js';
 const ANTHROPIC_RATES = {
   'claude-opus-4-6':   { input: 5.00, output: 25.00 },    // $5/M in, $25/M out (same as Opus 4.5)
   'claude-sonnet-4-6': { input: 3.00, output: 15.00 },    // $3/M in, $15/M out
+  'claude-sonnet-4-5': { input: 3.00, output: 15.00 },    // Fallback target for anthropic.js model_not_found path
   'claude-haiku-3-5':  { input: 0.80, output: 4.00 },     // $0.80/M in, $4/M out
 };
 
@@ -15,7 +16,8 @@ const ANTHROPIC_RATES = {
 // Note: per-call calculated logging complements the hourly billing API sync.
 // Calculated records use source='calculated', billing API uses source='billing_api'.
 const OPENAI_RATES = {
-  'gpt-5.2':            { input: 2.00, output: 8.00 },
+  'gpt-5.4':            { input: 2.50, output: 10.00 }, // PEF plan 2026-04-21 — Phase 1 LP image-strategy model
+  'gpt-5.2':            { input: 2.00, output: 8.00 },  // Fallback model when gpt-5.4 returns model_not_found
   'gpt-4.1':            { input: 2.00, output: 8.00 },
   'gpt-4.1-mini':       { input: 0.40, output: 1.60 },
   'gpt-4o-mini':        { input: 0.15, output: 0.60 },

@@ -631,6 +631,28 @@ export const api = {
   duplicateLandingPage: (projectId, pageId) =>
     request(`/projects/${projectId}/landing-pages/${pageId}/duplicate`, { method: 'POST' }),
 
+  // LP Editor — Chief Image Selection (PEF plan 2026-04-21)
+  placeLandingPageImage: (projectId, pageId, { slot_id, candidate_id, updated_at }) =>
+    request(`/projects/${projectId}/landing-pages/${pageId}/place-image`, {
+      method: 'POST',
+      body: JSON.stringify({ slot_id, candidate_id, updated_at }),
+      headers: { 'Content-Type': 'application/json' },
+    }),
+  removeLandingPageImage: (projectId, pageId, { slot_id, updated_at }) =>
+    request(`/projects/${projectId}/landing-pages/${pageId}/remove-image`, {
+      method: 'POST',
+      body: JSON.stringify({ slot_id, updated_at }),
+      headers: { 'Content-Type': 'application/json' },
+    }),
+  regenerateLandingPageCandidate: (projectId, pageId, { candidate_id }) =>
+    request(`/projects/${projectId}/landing-pages/${pageId}/regenerate-candidate`, {
+      method: 'POST',
+      body: JSON.stringify({ candidate_id }),
+      headers: { 'Content-Type': 'application/json' },
+    }),
+  retryPublishLandingPage: (projectId, pageId) =>
+    request(`/projects/${projectId}/landing-pages/${pageId}/retry-publish`, { method: 'POST' }),
+
   // Sales Pages
   getSalesPages: (projectId) =>
     request(`/projects/${projectId}/sales-pages`).then(data => normalizeArrayResponse(data, 'pages', 'api.getSalesPages.pages')),
