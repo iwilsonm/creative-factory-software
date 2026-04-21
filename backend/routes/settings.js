@@ -42,7 +42,13 @@ router.put('/', async (req, res) => {
     'gemini_rate_4k',
     'cloudflare_account_id',
     'cloudflare_api_token',
-    'cloudflare_pages_projects'
+    'cloudflare_pages_projects',
+    // Phase 1 + 2 LP-image-selection settings
+    'openai_lp_image_strategy_model',
+    'daily_lp_generation_cap',
+    'daily_lp_regenerate_cap',
+    'daily_gemini_lp_budget_usd',
+    'lp_manual_image_selection_enabled_by_project',
   ];
 
   for (const key of allowed) {
@@ -67,6 +73,54 @@ router.post('/test-openai', async (req, res) => {
       return res.status(400).json({ error: `OpenAI API returned ${response.status}` });
     }
     res.json({ success: true, message: 'OpenAI API key is valid' });
+  } catch (err) {
+    res.status(500).json({ error: `Connection failed: ${err.message}` });
+  }
+});
+
+// Phase 2 (PEF item G) — verify a specific OpenAI chat model is callable
+// before Ian saves it as `openai_lp_image_strategy_model`. Catches typos and
+// model deprecations at config time instead of at runtime mid-generation.
+router.post('/test-model', async (req, res) => {
+  const { model } = req.body || {};
+  if (!model || typeof model !== 'string') {
+    return res.status(400).json({ error: 'model (string) required in body' });
+  }
+  const apiKey = await getSetting('openai_api_key');
+  if (!apiKey) return res.status(400).json({ error: 'OpenAI API key not configured' });
+
+  try {
+    // Fire a 1-token chat call. If the model is invalid OpenAI returns 404
+    // model_not_found. If it's valid, the call returns a tiny response.
+    const response = await fetch('https://api.openai.com/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Authorization': `Bearer ${apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        model: model.trim(),
+        messages: [{ role: 'user', content: 'hi' }],
+        max_tokens: 1,
+      }),
+    });
+
+    if (response.ok) {
+      return res.json({ success: true, model: model.trim(), message: `Model "${model.trim()}" is available.` });
+    }
+
+    let errorBody = null;
+    try { errorBody = await response.json(); } catch { errorBody = null; }
+    const errorCode = errorBody?.error?.code || null;
+    const errorMsg = errorBody?.error?.message || `HTTP ${response.status}`;
+
+    if (response.status === 404 || errorCode === 'model_not_found') {
+      return res.status(400).json({
+        error: `Model "${model.trim()}" not available. ${errorMsg}`,
+        code: 'model_not_found',
+      });
+    }
+    return res.status(400).json({ error: errorMsg, code: errorCode });
   } catch (err) {
     res.status(500).json({ error: `Connection failed: ${err.message}` });
   }

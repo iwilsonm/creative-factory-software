@@ -23,6 +23,9 @@ vi.mock('../services/gemini.js', () => ({
 vi.mock('../convexClient.js', () => ({
   uploadBuffer: (...args) => mockUploadBuffer(...args),
   getStorageUrl: (...args) => mockGetStorageUrl(...args),
+  // Phase 2 (PEF item J) — daily Gemini budget cap. Default mock returns 0 spend.
+  getTodayGeminiSpend: vi.fn(async () => 0),
+  getSetting: vi.fn(async () => null), // null setting → use default cap
 }));
 
 let generateImageCandidates;

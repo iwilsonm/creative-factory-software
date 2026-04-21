@@ -345,6 +345,13 @@ export const api = {
   updateSettings: (data) => request('/settings', { method: 'PUT', body: JSON.stringify(data) }),
   testOpenAI: () => request('/settings/test-openai', { method: 'POST' }),
   testGemini: () => request('/settings/test-gemini', { method: 'POST' }),
+  // Phase 2 (PEF item G) — verify a specific OpenAI chat model is available.
+  testOpenAIModel: (model) =>
+    request('/settings/test-model', {
+      method: 'POST',
+      body: JSON.stringify({ model }),
+      headers: { 'Content-Type': 'application/json' },
+    }),
   testDrive: () => request('/settings/test-drive', { method: 'POST' }),
   refreshGeminiRates: () => request('/settings/refresh-gemini-rates', { method: 'POST' }),
 
@@ -652,6 +659,12 @@ export const api = {
     }),
   retryPublishLandingPage: (projectId, pageId) =>
     request(`/projects/${projectId}/landing-pages/${pageId}/retry-publish`, { method: 'POST' }),
+  // Phase 2 (PEF item D) — per-LP cost rollup
+  getLandingPageCostEstimate: (projectId, pageId) =>
+    request(`/projects/${projectId}/landing-pages/${pageId}/cost-estimate`),
+  // Phase 2 (PEF item H) — unplaced candidates archive
+  getUnplacedCandidatesArchive: (projectId) =>
+    request(`/projects/${projectId}/landing-pages-archive/unplaced-candidates`),
 
   // Sales Pages
   getSalesPages: (projectId) =>

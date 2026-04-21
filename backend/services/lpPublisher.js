@@ -433,6 +433,28 @@ export async function publishToShopify(pageId, projectId) {
   });
   finalHtml = processedHtml;
 
+  // Phase 2 (PEF item K) — pre-publish size guard. Shopify's actual page-body
+  // limit is ~10MB but we hard-fail at 2MB to keep a wide safety margin and
+  // catch pathological cases (runaway listicle, image data-URIs leaking into
+  // HTML, etc.) before they ship as silently-truncated pages.
+  const SIZE_CAP_BYTES = 2 * 1024 * 1024; // 2MB
+  const finalHtmlBytes = Buffer.byteLength(finalHtml, 'utf8');
+  if (finalHtmlBytes > SIZE_CAP_BYTES) {
+    const err = new Error(
+      `Assembled HTML is ${(finalHtmlBytes / 1024 / 1024).toFixed(2)} MB — exceeds the ${SIZE_CAP_BYTES / 1024 / 1024} MB safety cap for Shopify publish. ` +
+      `Trim copy or remove embedded data-URIs before retrying.`
+    );
+    await updateLandingPage(pageId, {
+      smoke_test_status: 'failed',
+      smoke_test_report: JSON.stringify({
+        passed: false,
+        failedCount: 1,
+        checks: [{ name: 'html_size_cap', passed: false, detail: err.message }],
+      }),
+    });
+    throw err;
+  }
+
   // Structural HTML validation (runs on fully baked HTML)
   const structuralErrors = validateStructuralHtml(finalHtml);
   if (structuralErrors.length > 0) {

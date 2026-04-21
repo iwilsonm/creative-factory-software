@@ -24,6 +24,8 @@ import {
   countLandingPagesCreatedToday,
   tryAcquireLPGenerationLock,
   releaseLPGenerationLock,
+  getLPCostEstimate,
+  getLPsWithCandidatesByProject,
 } from '../convexClient.js';
 import {
   generateLandingPageCopy,
@@ -184,6 +186,63 @@ router.get('/:projectId/landing-pages/:pageId', async (req, res) => {
   }
 
   res.json(page);
+});
+
+// ─── Phase 2 (PEF item H) — unplaced candidates archive ────────────────────
+// Returns every candidate across the project's LPs that wasn't placed in a
+// slot, with the source LP context. Used by the new Archive view.
+router.get('/:projectId/landing-pages-archive/unplaced-candidates', async (req, res) => {
+  try {
+    const lps = await getLPsWithCandidatesByProject(req.params.projectId);
+    const items = [];
+    for (const lp of (lps || [])) {
+      let candidates = [];
+      let assignments = [];
+      try { candidates = lp.image_candidates ? JSON.parse(lp.image_candidates) : []; } catch { candidates = []; }
+      try { assignments = lp.image_slot_assignments ? JSON.parse(lp.image_slot_assignments) : []; } catch { assignments = []; }
+      const placedIds = new Set(assignments.map(a => a.candidate_id).filter(Boolean));
+      for (const c of candidates) {
+        if (!c?.candidate_id || placedIds.has(c.candidate_id)) continue;
+        if (c.generation_status !== 'succeeded') continue;
+        if (!c.storageUrl) continue;
+        items.push({
+          candidate_id: c.candidate_id,
+          concept_label: c.concept_label,
+          aspect_ratio: c.aspect_ratio,
+          storageUrl: c.storageUrl,
+          generated_at: c.generated_at,
+          source_lp_id: lp.externalId,
+          source_lp_name: lp.name,
+          source_lp_status: lp.status,
+        });
+      }
+    }
+    // Sort newest first.
+    items.sort((a, b) => (b.generated_at || '').localeCompare(a.generated_at || ''));
+    res.json({ items, count: items.length });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ─── Phase 2 (PEF item D) — per-LP cost rollup ──────────────────────────────
+router.get('/:projectId/landing-pages/:pageId/cost-estimate', async (req, res) => {
+  const page = await getLandingPage(req.params.pageId);
+  if (!page || page.project_id !== req.params.projectId) {
+    return res.status(404).json({ error: 'Landing page not found' });
+  }
+  try {
+    const result = await getLPCostEstimate(req.params.projectId, page.created_at);
+    res.json({
+      lpId: page.externalId,
+      created_at: page.created_at,
+      total_usd: result.totalUsd,
+      by_operation: result.byOperation,
+      note: 'Approximate — sums all LP-tagged costs for this project on the LP creation date.',
+    });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // ─── Download landing page as PDF ────────────────────────────────────────────
@@ -428,12 +487,28 @@ router.post('/:projectId/landing-pages/generate', async (req, res) => {
           .map((s) => `${s.type}: ${s.content}`)
           .join('\n\n');
 
+        // Phase 2 (PEF item F) — pass template slot count if a template was selected.
+        let templateSlotCount = null;
+        try {
+          const templateId = req.body?.template_id || null;
+          if (templateId) {
+            const tpl = await getLPTemplate(templateId).catch(() => null);
+            if (tpl?.slot_definitions) {
+              const slotDefs = typeof tpl.slot_definitions === 'string'
+                ? JSON.parse(tpl.slot_definitions)
+                : tpl.slot_definitions;
+              templateSlotCount = (slotDefs || []).filter(s => s?.type === 'image').length;
+            }
+          }
+        } catch { /* fall back to default */ }
+
         const { concepts, model: imageStrategyModel } = await generateImageConcepts({
           projectId: req.params.projectId,
           lpCopyText,
           foundationalDocs,
           targetDemo,
           problem,
+          templateSlotCount,
         }, sse.sendEvent);
         audit('image_strategy', 'concepts_generated', `${concepts.length} concepts via ${imageStrategyModel}`);
 

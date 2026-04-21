@@ -132,11 +132,22 @@ export async function chat(messages, model = 'claude-sonnet-4-6', options = {}) 
     ? systemMessages.map(m => m.content).join('\n\n')
     : undefined;
 
-  // Convert messages — Anthropic requires alternating user/assistant
-  const anthropicMessages = conversationMessages.map(m => ({
-    role: m.role === 'user' ? 'user' : 'assistant',
-    content: typeof m.content === 'string' ? m.content : m.content,
-  }));
+  // Convert messages — Anthropic requires alternating user/assistant.
+  // Phase 2 (PEF item I): if a message carries `cache_control`, convert its
+  // string content into a content-block array with the cache marker so
+  // Anthropic's prompt cache can hit. Caller sets the marker on the docs +
+  // swipe turns (Turn 1 + Turn 2) — large, repeated, project-stable payloads.
+  // Per PEF invariant #2, Turn 4 must NEVER set this marker.
+  const anthropicMessages = conversationMessages.map(m => {
+    const role = m.role === 'user' ? 'user' : 'assistant';
+    if (m.cache_control && typeof m.content === 'string') {
+      return {
+        role,
+        content: [{ type: 'text', text: m.content, cache_control: m.cache_control }],
+      };
+    }
+    return { role, content: typeof m.content === 'string' ? m.content : m.content };
+  });
 
   // Handle JSON mode — add instruction to system prompt (no prefill, current models do not support it)
   const wantJSON = options.response_format?.type === 'json_object';

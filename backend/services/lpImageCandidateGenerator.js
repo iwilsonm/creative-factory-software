@@ -14,9 +14,10 @@
 
 import { v4 as uuidv4 } from 'uuid';
 import { generateImage } from './gemini.js';
-import { uploadBuffer, getStorageUrl } from '../convexClient.js';
+import { uploadBuffer, getStorageUrl, getTodayGeminiSpend, getSetting } from '../convexClient.js';
 
 const NANO_BANANA_2_MODEL_KEY = 'nano-banana-2'; // Resolves to 'gemini-3.1-flash-image-preview' in gemini.js
+const DEFAULT_DAILY_GEMINI_LP_BUDGET_USD = 5.00; // PEF item J — denial-of-wallet floor
 
 const SUPPORTED_ASPECT_RATIOS = ['16:9', '1:1', '3:2', '4:5', '9:16'];
 
@@ -123,6 +124,40 @@ export async function generateImageCandidates({
 }, sendEvent = () => {}) {
   if (!Array.isArray(concepts) || concepts.length === 0) {
     return [];
+  }
+
+  // Phase 2 (PEF item J) — Gemini daily budget cap. If the project has already
+  // spent over the cap on Gemini today, hard-fail BEFORE firing any image
+  // calls. Setting `daily_gemini_lp_budget_usd` overrides the default; pass 0
+  // to disable the cap entirely.
+  try {
+    const rawBudget = await getSetting('daily_gemini_lp_budget_usd');
+    const budgetUsd = (() => {
+      const n = parseFloat(rawBudget);
+      if (!Number.isFinite(n)) return DEFAULT_DAILY_GEMINI_LP_BUDGET_USD;
+      return n; // 0 disables
+    })();
+    if (budgetUsd > 0) {
+      const spentToday = await getTodayGeminiSpend(projectId);
+      if (spentToday >= budgetUsd) {
+        const err = new Error(
+          `Daily Gemini LP image budget reached: $${spentToday.toFixed(2)} of $${budgetUsd.toFixed(2)} cap. Try again tomorrow or raise the cap in Settings (daily_gemini_lp_budget_usd).`
+        );
+        err.code = 'GEMINI_DAILY_BUDGET_EXCEEDED';
+        sendEvent({
+          type: 'error',
+          step: 'image_candidates_budget_blocked',
+          message: err.message,
+          spentToday,
+          budgetUsd,
+        });
+        throw err;
+      }
+    }
+  } catch (err) {
+    if (err?.code === 'GEMINI_DAILY_BUDGET_EXCEEDED') throw err;
+    // Cost-tracker failures shouldn't block generation — log and continue.
+    console.warn('[lpImageCandidateGenerator] Budget check failed (non-fatal):', err.message);
   }
 
   const total = concepts.length;

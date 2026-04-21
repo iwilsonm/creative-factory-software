@@ -71,6 +71,13 @@ const FALLBACK_PROBLEM = 'with their key health and lifestyle goals';
 const MIN_CONCEPTS = 5;
 const MAX_DOC_CHARS = 6000;     // per doc; total ≤ ~24k chars (~6k tokens)
 const MAX_LISTICLE_CHARS = 24000; // ~6k tokens, conservative
+// Phase 2 (PEF item F) — template-aware concept count. Default minimum 10
+// covers the unbounded-template / no-template case. When a template's slot
+// count is known, we ask for `slot_definitions.length + 3` (three extras give
+// Ian alternates per slot). Lower bound 10 ensures Mark's full category
+// coverage stays intact even for tiny templates.
+const DEFAULT_MIN_CONCEPT_COUNT = 10;
+const CONCEPT_COUNT_OVERHEAD = 3;
 
 /**
  * Truncate a single doc to MAX_DOC_CHARS, preserving start + end with a marker.
@@ -133,6 +140,7 @@ export async function generateImageConcepts({
   targetDemo,
   problem,
   modelOverride = null,
+  templateSlotCount = null,  // Phase 2 (PEF item F): template-aware concept count
 }, sendEvent = () => {}) {
   // Resolve model
   let model = modelOverride;
@@ -185,8 +193,15 @@ export async function generateImageConcepts({
   conversation.push({ role: 'assistant', content: responseB });
 
   // ── Call C: Concepts + Nano Banana prompts ───────────────────────────
-  sendEvent({ type: 'progress', step: 'image_strategy_c', message: 'GPT-5.4 is generating image concepts + Nano Banana 2 prompts...' });
-  conversation.push({ role: 'user', content: PROMPT_C_CONCEPTS });
+  // Phase 2 (PEF item F) — append a template-aware count hint to Ian's verbatim
+  // prompt body. The hint is supplemental; Ian's prompt text itself is unchanged.
+  const targetCount = (() => {
+    if (typeof templateSlotCount !== 'number' || templateSlotCount < 0) return DEFAULT_MIN_CONCEPT_COUNT;
+    return Math.max(DEFAULT_MIN_CONCEPT_COUNT, templateSlotCount + CONCEPT_COUNT_OVERHEAD);
+  })();
+  const promptCWithCount = `${PROMPT_C_CONCEPTS}\n\nPlease produce at least ${targetCount} concepts (this template has ${templateSlotCount ?? 'an unknown number of'} image slot${templateSlotCount === 1 ? '' : 's'}).`;
+  sendEvent({ type: 'progress', step: 'image_strategy_c', message: `GPT-5.4 is generating image concepts + Nano Banana 2 prompts (target: ${targetCount})...` });
+  conversation.push({ role: 'user', content: promptCWithCount });
 
   const callCWithFormat = (extraSystem) => {
     const messagesWithSystem = extraSystem

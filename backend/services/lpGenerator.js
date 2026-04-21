@@ -1494,11 +1494,16 @@ ${docs.necessary_beliefs}`;
   // the foundational docs and swipe throughout the entire writing process.
   const conversationMessages = [];
 
-  // Turn 1: Foundational docs analysis (unchanged).
+  // Turn 1: Foundational docs analysis.
+  // Phase 2 (PEF item I) — mark with `cache_control: ephemeral` so Anthropic's
+  // prompt cache hits on repeat generations within ~5 min for the same project.
+  // Foundational docs are large (~25k tokens) and project-stable; perfect cache
+  // candidates. PEF invariant #2: NEVER set cache_control on Turn 4 (cross-
+  // conversation leakage risk).
   let docsAnalysis = String(legacySOPCache?.docsAnalysis || '').trim();
   if (!docsAnalysis) {
     sendEvent({ type: 'progress', step: 'calling_api', message: 'Claude is studying the foundational documents...' });
-    conversationMessages.push({ role: 'user', content: docsPayload });
+    conversationMessages.push({ role: 'user', content: docsPayload, cache_control: { type: 'ephemeral' } });
     docsAnalysis = await chat([...conversationMessages], 'claude-sonnet-4-6', {
       max_tokens: 4096,
       operation: 'lp_legacy_docs_analysis',
@@ -1509,7 +1514,7 @@ ${docs.necessary_beliefs}`;
     if (legacySOPCache) legacySOPCache.docsAnalysis = String(docsAnalysis || '').trim();
   } else {
     sendEvent({ type: 'progress', step: 'calling_api', message: 'Reusing cached foundational-doc analysis...' });
-    conversationMessages.push({ role: 'user', content: docsPayload });
+    conversationMessages.push({ role: 'user', content: docsPayload, cache_control: { type: 'ephemeral' } });
     conversationMessages.push({ role: 'assistant', content: docsAnalysis });
   }
 
@@ -1522,9 +1527,11 @@ ${docs.necessary_beliefs}`;
   if (hasRealSwipe) {
     const defensiveSwipe = buildDefensiveSwipePayload(swipeReferenceText);
     const swipeMessage = `${LEGACY_LP_SOP_SWIPE_PROMPT}\n\n${defensiveSwipe}`;
+    // Phase 2 (PEF item I) — Turn 2 swipe payload is also large (~5k tokens)
+    // and project+swipe-stable. Mark for cache.
     if (!swipeAnalysis) {
       sendEvent({ type: 'progress', step: 'swipe_analysis', message: 'Claude is studying the swipe listicle...' });
-      conversationMessages.push({ role: 'user', content: swipeMessage });
+      conversationMessages.push({ role: 'user', content: swipeMessage, cache_control: { type: 'ephemeral' } });
       swipeAnalysis = await chat([...conversationMessages], 'claude-sonnet-4-6', {
         max_tokens: 4096,
         operation: 'lp_legacy_swipe_analysis',
@@ -1535,7 +1542,7 @@ ${docs.necessary_beliefs}`;
       if (legacySOPCache) legacySOPCache.swipeAnalysis = String(swipeAnalysis || '').trim();
     } else {
       sendEvent({ type: 'progress', step: 'calling_api', message: 'Reusing cached swipe listicle analysis...' });
-      conversationMessages.push({ role: 'user', content: swipeMessage });
+      conversationMessages.push({ role: 'user', content: swipeMessage, cache_control: { type: 'ephemeral' } });
       conversationMessages.push({ role: 'assistant', content: swipeAnalysis });
     }
   } else {

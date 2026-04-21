@@ -150,6 +150,49 @@ export const getAllPendingImageSelection = query({
   },
 });
 
+/**
+ * Phase 2 (PEF item B) — return every PUBLISHED landing page that still has
+ * `image_candidates` populated. Used by the daily candidate-cleanup cron to
+ * purge unplaced candidate blobs after the LP has been live for N days.
+ */
+export const getPublishedLPsWithCandidates = query({
+  args: {},
+  handler: async (ctx) => {
+    const rows = await ctx.db.query("landing_pages").collect();
+    return rows.filter((row) =>
+      (row.status === "published" || row.status === "live")
+      && typeof row.image_candidates === "string"
+      && row.image_candidates.length > 2  // not "[]" or empty
+    );
+  },
+});
+
+/**
+ * Phase 2 (PEF item H) — return ALL LPs across the database that have
+ * image_candidates populated, scoped to a project_id. Used by the unplaced-
+ * candidates archive view so Ian can browse + repurpose candidate images
+ * he didn't end up placing.
+ */
+export const getLPsWithCandidatesByProject = query({
+  args: { projectId: v.string() },
+  handler: async (ctx, args) => {
+    const rows = await ctx.db
+      .query("landing_pages")
+      .withIndex("by_project", (q) => q.eq("project_id", args.projectId))
+      .collect();
+    return rows
+      .filter((row) => typeof row.image_candidates === "string" && row.image_candidates.length > 2)
+      .map((row) => ({
+        externalId: row.externalId,
+        name: row.name,
+        status: row.status,
+        created_at: row.created_at,
+        image_candidates: row.image_candidates,
+        image_slot_assignments: row.image_slot_assignments || "[]",
+      }));
+  },
+});
+
 export const getGauntletStatsByProject = query({
   args: { projectId: v.string() },
   handler: async (ctx, args) => {

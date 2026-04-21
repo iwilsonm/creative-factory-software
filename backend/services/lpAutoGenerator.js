@@ -40,7 +40,9 @@ import {
 } from './lpGenerator.js';
 import { getCachedImageContext, getFoundationalDocs } from './lpGenerator.js';
 import { publishAndSmokeTest, generateSlug, extractHeadlineForSlug } from './lpPublisher.js';
-import { uploadBuffer, downloadToBuffer, upsertDashboardTodo, removeDashboardTodo, getLandingPage, getFlexAd, getDeploymentByExternalId, getAd, getStorageUrl } from '../convexClient.js';
+import { uploadBuffer, downloadToBuffer, upsertDashboardTodo, removeDashboardTodo, getLandingPage, getFlexAd, getDeploymentByExternalId, getAd, getStorageUrl, getSetting, getLPTemplate, getDocsByProject } from '../convexClient.js';
+import { generateImageConcepts } from './lpImageStrategy.js';
+import { generateImageCandidates } from './lpImageCandidateGenerator.js';
 import { setProgress, clearProgress } from './gauntletProgress.js';
 import {
   buildLPHeadlineHistoryEntry,
@@ -127,6 +129,105 @@ export async function appendLPAuditTrail(lpId, entry) {
  * dashboard reminder. Returns the LP row (re-fetched) so callers can surface
  * title / deep-link data without a second read.
  */
+/**
+ * Phase 2 (PEF item A) — feature-flag check for the per-project Chief Image
+ * Selection flow. Auto-gen LPs honor the same flag the manual flow uses; when
+ * ON, the winning auto-gen LP runs through image-strategy + candidate-gen and
+ * lands in `pending_image_selection` instead of `pending_review`.
+ */
+export async function isManualImageSelectionEnabledForProject(projectId) {
+  try {
+    const raw = await getSetting('lp_manual_image_selection_enabled_by_project');
+    if (!raw) return false;
+    const map = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    return !!map?.[projectId];
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Phase 2 (PEF item A) — run image-strategy + Nano Banana 2 candidate gen on
+ * a finished auto-gen LP, then flip status to `pending_image_selection`. Reuses
+ * the same lpImageStrategy + lpImageCandidateGenerator services as the manual
+ * /generate flow, so Ian's UX is identical regardless of which path created
+ * the LP.
+ */
+export async function runChiefImageSelectionForLP({ lpId, projectId, agentConfig, sendEvent = () => {} }) {
+  const lp = await getLandingPage(lpId);
+  if (!lp) throw new Error(`LP ${lpId} not found`);
+
+  // Build inputs for image-strategy. Foundational docs come from the project;
+  // listicle text comes from the LP's parsed copy_sections (concatenated).
+  const foundationalDocs = await getDocsByProject(projectId).catch(() => ({}));
+  const project = await getProject(projectId).catch(() => null);
+  const targetDemo = (project?.avatar_summary || project?.avatar || '').toString().trim().slice(0, 240);
+  const problem = (project?.problem_summary || project?.product_description || '').toString().trim().slice(0, 240);
+  let copySections = [];
+  try { copySections = lp.copy_sections ? JSON.parse(lp.copy_sections) : []; } catch { copySections = []; }
+  const lpCopyText = (copySections || [])
+    .map((s) => `${s.type}: ${s.content}`)
+    .join('\n\n');
+
+  // Template-aware concept count (PEF item F) — pull from the LP's template if any.
+  let templateSlotCount = null;
+  if (lp.template_id) {
+    try {
+      const tpl = await getLPTemplate(lp.template_id).catch(() => null);
+      if (tpl?.slot_definitions) {
+        const slotDefs = typeof tpl.slot_definitions === 'string'
+          ? JSON.parse(tpl.slot_definitions)
+          : tpl.slot_definitions;
+        templateSlotCount = (slotDefs || []).filter(s => s?.type === 'image').length;
+      }
+    } catch { /* fall back to default */ }
+  }
+
+  sendEvent({ type: 'progress', step: 'auto_image_strategy', message: 'Auto-gen LP: GPT-5.4 building image strategy for Chief selection...' });
+  const { concepts } = await generateImageConcepts({
+    projectId,
+    lpCopyText,
+    foundationalDocs,
+    targetDemo,
+    problem,
+    templateSlotCount,
+  }, sendEvent);
+
+  sendEvent({ type: 'progress', step: 'auto_image_candidates', message: `Auto-gen LP: generating ${concepts.length} Nano Banana 2 candidates...` });
+  const candidates = await generateImageCandidates({
+    projectId,
+    lpId,
+    concepts,
+  }, sendEvent);
+
+  await updateLandingPage(lpId, {
+    image_candidates: JSON.stringify(candidates),
+    image_slot_assignments: JSON.stringify([]),
+    status: 'pending_image_selection',
+  });
+  await appendLPAuditTrail(lpId, {
+    step: 'image_selection',
+    action: 'auto_gen_handoff',
+    detail: `Auto-gen LP handed off to Chief Image Selection — ${candidates.length} candidates ready`,
+  });
+
+  // Post a dashboard reminder so the LP shows up in Ian's review queue.
+  try {
+    await upsertDashboardTodo({
+      externalId: chiefReviewTodoExternalId(lpId),
+      project_id: projectId,
+      label: `Chief Image Selection — LP ${lpId.slice(0, 8)}`,
+      url: `/admin?project=${projectId}&lp=${lpId}`,
+      status: 'open',
+      priority: 'high',
+    });
+  } catch (todoErr) {
+    console.warn(`[LPAuto] upsertDashboardTodo failed for ${lpId} (non-fatal):`, todoErr.message);
+  }
+
+  return { lpId, status: 'pending_image_selection', candidatesGenerated: candidates.length };
+}
+
 export async function markLPPendingReview({ lpId, projectId, sendEvent = () => {} }) {
   await updateLandingPage(lpId, { status: 'pending_review' });
   await appendLPAuditTrail(lpId, { step: 'approval', action: 'pending_review' });
@@ -815,10 +916,29 @@ async function generateAndPublishLP({ projectId, batchJobId, angle, template, fr
     await updateLandingPageSafely(lpId, updateFields, { stage: 'store_generate_and_publish_lp' });
 
     // Chief Checkpoint: stop before Shopify when the agent config says so.
-    // The LP is flagged pending_review and a dashboard reminder is posted;
-    // a human approves via /approve-and-publish. QA failures don't reach
-    // this point — they bail above with status 'failed'.
+    // The LP is flagged pending_review (legacy) or pending_image_selection
+    // (Phase 2 PEF item A — when the per-project feature flag is on, the
+    // winning auto-gen LP also goes through Chief Image Selection so Ian
+    // picks images instead of accepting auto-generated slot fills).
+    // QA failures don't reach this point — they bail above with status 'failed'.
     if (agentConfig?.chief_checkpoint_enabled !== false) {
+      const useImageSelection = await isManualImageSelectionEnabledForProject(projectId);
+      if (useImageSelection) {
+        try {
+          await runChiefImageSelectionForLP({ lpId, projectId, agentConfig, sendEvent });
+          return {
+            lpId,
+            publishedUrl: null,
+            verified: false,
+            pendingReview: true,
+            pendingImageSelection: true,
+          };
+        } catch (imageSelErr) {
+          console.warn(`[LPAuto] Image-selection setup failed for ${lpId} — falling back to legacy pending_review:`, imageSelErr.message);
+          // Fall through to legacy pending_review path so a transient error
+          // doesn't block the gauntlet outright.
+        }
+      }
       await markLPPendingReview({ lpId, projectId, sendEvent });
       return {
         lpId,

@@ -1,5 +1,5 @@
 import cron from 'node-cron';
-import { getActiveBatchJobs, getScheduledBatchJobs, getBatchJob, updateBatchJob, getMetaEnabledProjects, purgeDeletedDeployments, purgeDeletedFlexAds, getAllPendingReviewLPs, getAllPendingImageSelectionLPs, updateLandingPage, purgeStaleLPGenerationLocks, purgeLPCandidateBlobs } from '../convexClient.js';
+import { getActiveBatchJobs, getScheduledBatchJobs, getBatchJob, updateBatchJob, getMetaEnabledProjects, purgeDeletedDeployments, purgeDeletedFlexAds, getAllPendingReviewLPs, getAllPendingImageSelectionLPs, updateLandingPage, purgeStaleLPGenerationLocks, purgeLPCandidateBlobs, getPublishedLPsWithCandidates, deleteStorageBlob } from '../convexClient.js';
 import { runBatch, pollBatchJob } from './batchProcessor.js';
 import { syncOpenAICosts, refreshGeminiRates } from './costTracker.js';
 import { syncMetaPerformance, refreshMetaTokenIfNeeded } from './metaAds.js';
@@ -89,6 +89,13 @@ export async function initScheduler() {
         console.log(`[Scheduler] Purged ${lockResult.purged} stale LP generation lock(s)`);
       }
     } catch (e) { console.error('[Scheduler] LP lock purge error:', e.message); }
+
+    try {
+      const purgeResult = await purgeOldUnplacedCandidates();
+      if (purgeResult.lpsTouched > 0 || purgeResult.blobsPurged > 0) {
+        console.log(`[Scheduler] Candidate cleanup: ${purgeResult.blobsPurged} blob(s) purged across ${purgeResult.lpsTouched} published LP(s)`);
+      }
+    } catch (e) { console.error('[Scheduler] Candidate cleanup error:', e.message); }
   });
 
   // Sync Meta performance data every 30 minutes (per-project)
@@ -430,6 +437,65 @@ export async function expireStalePendingReviews(thresholdMs = 7 * 24 * 60 * 60 *
  *
  * @returns {Promise<number>} count of LPs expired this run
  */
+/**
+ * Phase 2 (PEF item B) — purge UNPLACED image_candidate blobs from PUBLISHED
+ * LPs once they've been live for `thresholdMs` (default 7 days). Placed
+ * candidates (those still referenced by image_slot_assignments) are protected
+ * — leave them alone in case the LP is republished later.
+ *
+ * Returns `{ lpsTouched, blobsPurged }`.
+ */
+export async function purgeOldUnplacedCandidates(thresholdMs = 7 * 24 * 60 * 60 * 1000) {
+  const candidates = await getPublishedLPsWithCandidates();
+  if (!candidates || candidates.length === 0) return { lpsTouched: 0, blobsPurged: 0 };
+
+  const now = Date.now();
+  let lpsTouched = 0;
+  let blobsPurged = 0;
+
+  for (const lp of candidates) {
+    const referenceTime = lp.published_at || lp.updated_at || lp.created_at;
+    const ageMs = referenceTime ? now - new Date(referenceTime).getTime() : 0;
+    if (ageMs < thresholdMs) continue;
+
+    let parsedCandidates = [];
+    let parsedAssignments = [];
+    try { parsedCandidates = lp.image_candidates ? JSON.parse(lp.image_candidates) : []; } catch { parsedCandidates = []; }
+    try { parsedAssignments = lp.image_slot_assignments ? JSON.parse(lp.image_slot_assignments) : []; } catch { parsedAssignments = []; }
+
+    if (!Array.isArray(parsedCandidates) || parsedCandidates.length === 0) continue;
+    const placedIds = new Set(parsedAssignments.map(a => a.candidate_id).filter(Boolean));
+    const unplaced = parsedCandidates.filter(c => !placedIds.has(c.candidate_id));
+    if (unplaced.length === 0) continue;
+
+    // Purge each unplaced candidate's blob, then update the LP row to reflect
+    // only the placed candidates surviving.
+    let lpBlobsPurged = 0;
+    for (const c of unplaced) {
+      if (!c?.storageId) continue;
+      try {
+        await deleteStorageBlob(c.storageId);
+        lpBlobsPurged += 1;
+      } catch (err) {
+        console.warn(`[Scheduler] Failed to purge blob ${c.storageId} for LP ${lp.externalId}:`, err.message);
+      }
+    }
+
+    const survivingCandidates = parsedCandidates.filter(c => placedIds.has(c.candidate_id));
+    try {
+      await updateLandingPage(lp.externalId, {
+        image_candidates: JSON.stringify(survivingCandidates),
+      });
+      blobsPurged += lpBlobsPurged;
+      lpsTouched += 1;
+    } catch (err) {
+      console.warn(`[Scheduler] Failed to update LP ${lp.externalId} after candidate purge:`, err.message);
+    }
+  }
+
+  return { lpsTouched, blobsPurged };
+}
+
 export async function expireStalePendingImageSelection(thresholdMs = 7 * 24 * 60 * 60 * 1000) {
   const pending = await getAllPendingImageSelectionLPs();
   if (!pending || pending.length === 0) return 0;

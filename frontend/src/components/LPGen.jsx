@@ -150,9 +150,13 @@ function CopySection({ section, index, defaultExpanded = false }) {
 // PEF plan 2026-04-21. Native HTML5 drag-and-drop, no new npm dep.
 // ═══════════════════════════════════════════════════════════════════════════
 
-function ImageSelectionDropZone({ slotId, label, aspectRatio, required = true, assignment, candidates, onDropCandidate, onRemove, setDraggingCandidateId }) {
+function ImageSelectionDropZone({ slotId, label, aspectRatio, required = true, assignment, candidates, hoveredCandidate, onDropCandidate, onRemove, setDraggingCandidateId, onClickToPlace }) {
   const [hovering, setHovering] = useState(false);
   const placedCandidate = assignment ? candidates.find(c => c.candidate_id === assignment.candidate_id) : null;
+
+  // Phase 2 (PEF item E) — ghost preview while hovering a candidate in the
+  // library. Shows what the slot would look like without committing.
+  const previewCandidate = !placedCandidate && hoveredCandidate ? hoveredCandidate : null;
 
   const handleDragOver = (e) => {
     e.preventDefault();
@@ -167,15 +171,25 @@ function ImageSelectionDropZone({ slotId, label, aspectRatio, required = true, a
     setDraggingCandidateId(null);
     await onDropCandidate(slotId, candidateId);
   };
+  const handleClickPlace = async () => {
+    // Phase 2 (PEF item E) — click-to-place on the previewed candidate.
+    if (previewCandidate) {
+      await onClickToPlace(slotId, previewCandidate.candidate_id);
+    }
+  };
 
   return (
     <div
       onDragOver={handleDragOver}
       onDragLeave={handleDragLeave}
       onDrop={handleDrop}
+      onClick={previewCandidate ? handleClickPlace : undefined}
       className={`relative border-2 border-dashed rounded-lg p-2 transition-colors ${
-        hovering ? 'border-gold bg-gold/10' : placedCandidate ? 'border-teal/40 bg-teal/5' : 'border-black/15 bg-offwhite'
+        hovering ? 'border-gold bg-gold/10' :
+        previewCandidate ? 'border-gold/60 bg-gold/5 cursor-pointer' :
+        placedCandidate ? 'border-teal/40 bg-teal/5' : 'border-black/15 bg-offwhite'
       }`}
+      title={previewCandidate ? 'Click to place this candidate' : undefined}
     >
       <div className="flex items-center justify-between mb-1.5">
         <div className="flex items-center gap-1.5">
@@ -189,7 +203,7 @@ function ImageSelectionDropZone({ slotId, label, aspectRatio, required = true, a
         </div>
         {placedCandidate && (
           <button
-            onClick={() => onRemove(slotId)}
+            onClick={(e) => { e.stopPropagation(); onRemove(slotId); }}
             className="text-[10px] text-red-500 hover:text-red-700 px-1.5 py-0.5 rounded hover:bg-red-50 transition-colors"
             title="Remove image from this slot"
           >
@@ -208,6 +222,17 @@ function ImageSelectionDropZone({ slotId, label, aspectRatio, required = true, a
           )}
           <div className="text-[10px] text-textmid italic">{placedCandidate.concept_label}</div>
         </div>
+      ) : previewCandidate ? (
+        <div className="flex items-start gap-2 opacity-70">
+          {previewCandidate.storageUrl && (
+            <img
+              src={previewCandidate.storageUrl}
+              alt={previewCandidate.concept_label}
+              className="max-h-24 rounded shadow-sm border border-gold/40"
+            />
+          )}
+          <div className="text-[10px] text-gold italic">Preview: {previewCandidate.concept_label}<br/><span className="text-textlight">click to place</span></div>
+        </div>
       ) : (
         <div className="text-[11px] text-textlight italic py-3 text-center">
           Drop a candidate here
@@ -217,7 +242,7 @@ function ImageSelectionDropZone({ slotId, label, aspectRatio, required = true, a
   );
 }
 
-function ImageCandidateCard({ candidate, isPlaced, onDragStart, onDragEnd, onRegenerate, regenerating }) {
+function ImageCandidateCard({ candidate, isPlaced, onDragStart, onDragEnd, onRegenerate, regenerating, onHover }) {
   const handleDragStart = (e) => {
     if (candidate.generation_status !== 'succeeded') {
       e.preventDefault();
@@ -236,9 +261,11 @@ function ImageCandidateCard({ candidate, isPlaced, onDragStart, onDragEnd, onReg
       draggable={succeeded}
       onDragStart={handleDragStart}
       onDragEnd={onDragEnd}
+      onMouseEnter={() => succeeded && onHover && onHover(candidate)}
+      onMouseLeave={() => onHover && onHover(null)}
       className={`relative border rounded-lg overflow-hidden transition-all ${
         isPlaced ? 'border-teal/50 ring-1 ring-teal/30' : 'border-black/10'
-      } ${succeeded ? 'cursor-move hover:shadow-md' : 'opacity-60'}`}
+      } ${succeeded ? 'cursor-move hover:shadow-md hover:border-gold/40' : 'opacity-60'}`}
     >
       {succeeded && candidate.storageUrl ? (
         <img src={candidate.storageUrl} alt={candidate.concept_label} className="w-full aspect-square object-cover" />
@@ -539,7 +566,18 @@ function LPEditor({ page: initialPage, onBack, onDelete, projectId }) {
   const [draggingCandidateId, setDraggingCandidateId] = useState(null);
   const [regeneratingCandidateId, setRegeneratingCandidateId] = useState(null);
   const [retryingPublish, setRetryingPublish] = useState(false);
+  const [hoveredCandidate, setHoveredCandidate] = useState(null); // Phase 2 (PEF item E) — hover preview
   const imageSelectionRef = useRef(null);
+
+  // Phase 2 (PEF item D) — per-LP cost rollup
+  const [costEstimate, setCostEstimate] = useState(null); // { totalUsd, byOperation } | null
+  const [costLoading, setCostLoading] = useState(false);
+  const [costExpanded, setCostExpanded] = useState(false);
+
+  // Phase 2 (PEF item H) — unplaced candidates archive
+  const [archiveOpen, setArchiveOpen] = useState(false);
+  const [archiveItems, setArchiveItems] = useState([]);
+  const [archiveLoading, setArchiveLoading] = useState(false);
 
   // ── Visual QA state ──
   const [qaRunning, setQaRunning] = useState(false);
@@ -1020,6 +1058,45 @@ function LPEditor({ page: initialPage, onBack, onDelete, projectId }) {
     setRetryingPublish(false);
   };
 
+  // Phase 2 (PEF item H) — open archive of unplaced candidates across this project
+  const handleOpenArchive = async () => {
+    setArchiveOpen(true);
+    if (archiveItems.length > 0) return; // already loaded
+    setArchiveLoading(true);
+    try {
+      const result = await api.getUnplacedCandidatesArchive(projectId);
+      setArchiveItems(result.items || []);
+    } catch (err) {
+      toast.error(err.message || 'Failed to load archive');
+    }
+    setArchiveLoading(false);
+  };
+
+  const handleDownloadArchiveImage = (storageUrl, conceptLabel) => {
+    if (!storageUrl) return;
+    // Open in new tab — user can right-click → save. Avoids CORS issues vs
+    // forcing a download via fetch + Blob.
+    window.open(storageUrl, '_blank', 'noopener,noreferrer');
+  };
+
+  // Phase 2 (PEF item D) — load cost estimate when expanded
+  const handleLoadCostEstimate = async () => {
+    if (costEstimate && !costExpanded) {
+      setCostExpanded(true);
+      return;
+    }
+    if (costEstimate) { setCostExpanded(false); return; }
+    setCostLoading(true);
+    try {
+      const result = await api.getLandingPageCostEstimate(projectId, initialPage.externalId);
+      setCostEstimate({ totalUsd: result.total_usd || 0, byOperation: result.by_operation || {} });
+      setCostExpanded(true);
+    } catch (err) {
+      toast.error(err.message || 'Failed to load cost estimate');
+    }
+    setCostLoading(false);
+  };
+
   // Compute which slots are filled (for Approve & Publish disabled state).
   const isImageSelectionComplete = () => {
     if (pageStatus !== 'pending_image_selection') return true; // n/a
@@ -1418,6 +1495,48 @@ function LPEditor({ page: initialPage, onBack, onDelete, projectId }) {
         </div>
       )}
 
+      {/* ── Phase 2 (PEF items D + H) — Cost estimate + Archive button ── */}
+      <div className="mb-3 inline-flex items-center gap-2 flex-wrap">
+        <button
+          onClick={handleOpenArchive}
+          className="text-[11px] px-2.5 py-1 rounded-md bg-gold/10 text-gold hover:bg-gold/20 transition-colors inline-flex items-center gap-1.5"
+          title="Browse images you generated but didn't place — useful for repurposing on social/email/ads"
+        >
+          📦 Image Archive
+        </button>
+        <button
+          onClick={handleLoadCostEstimate}
+          disabled={costLoading}
+          className="text-[11px] px-2.5 py-1 rounded-md bg-navy/5 text-navy hover:bg-navy/10 transition-colors disabled:opacity-60 inline-flex items-center gap-1.5"
+          title="Estimated total LLM spend on this LP (Claude + GPT-5.4 + Nano Banana 2)"
+        >
+          {costLoading ? '…' : costEstimate ? (
+            <>
+              <span>${costEstimate.totalUsd.toFixed(3)}</span>
+              <span className="text-textlight">{costExpanded ? '▾' : '▸'}</span>
+            </>
+          ) : (
+            <span>$ Cost</span>
+          )}
+        </button>
+        {costEstimate && costExpanded && (
+          <div className="text-[10px] bg-white border border-black/5 rounded-md px-2 py-1.5 space-y-0.5">
+            {Object.entries(costEstimate.byOperation)
+              .sort((a, b) => b[1] - a[1])
+              .map(([op, cost]) => (
+                <div key={op} className="flex items-center gap-3">
+                  <span className="text-textmid font-mono">{op}</span>
+                  <span className="text-textdark ml-auto">${cost.toFixed(3)}</span>
+                </div>
+              ))}
+            <div className="border-t border-black/10 pt-0.5 mt-0.5 flex items-center gap-3 font-medium">
+              <span className="text-navy">Total</span>
+              <span className="text-navy ml-auto">${costEstimate.totalUsd.toFixed(3)}</span>
+            </div>
+          </div>
+        )}
+      </div>
+
       {/* ── PEF plan 2026-04-21 — Chief Image Selection Panel ── */}
       {pageStatus === 'pending_image_selection' && (
         <div ref={imageSelectionRef} className="mb-4 rounded-xl border border-gold/30 bg-gold/5 overflow-hidden">
@@ -1447,7 +1566,9 @@ function LPEditor({ page: initialPage, onBack, onDelete, projectId }) {
                     label="Hero image"
                     assignment={imageSlotAssignments.find(a => a.slot_id === 'hero')}
                     candidates={imageCandidates}
+                    hoveredCandidate={hoveredCandidate}
                     onDropCandidate={handlePlaceImage}
+                    onClickToPlace={handlePlaceImage}
                     onRemove={handleRemoveImage}
                     setDraggingCandidateId={setDraggingCandidateId}
                   />
@@ -1464,7 +1585,9 @@ function LPEditor({ page: initialPage, onBack, onDelete, projectId }) {
                         required={slot.required ?? true}
                         assignment={assignment}
                         candidates={imageCandidates}
+                        hoveredCandidate={hoveredCandidate}
                         onDropCandidate={handlePlaceImage}
+                        onClickToPlace={handlePlaceImage}
                         onRemove={handleRemoveImage}
                         setDraggingCandidateId={setDraggingCandidateId}
                       />
@@ -1494,6 +1617,7 @@ function LPEditor({ page: initialPage, onBack, onDelete, projectId }) {
                       onDragEnd={() => setDraggingCandidateId(null)}
                       onRegenerate={() => handleRegenerateCandidate(c.candidate_id)}
                       regenerating={regeneratingCandidateId === c.candidate_id}
+                      onHover={setHoveredCandidate}
                     />
                   ))
                 )}
@@ -1579,6 +1703,71 @@ function LPEditor({ page: initialPage, onBack, onDelete, projectId }) {
         onConfirm={handleUnpublish}
       />
 
+      {/* ── Phase 2 (PEF item H) — Unplaced Candidates Archive Modal ── */}
+      {archiveOpen && (
+        <div
+          className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center"
+          onClick={() => setArchiveOpen(false)}
+        >
+          <div
+            className="card p-4 w-[90vw] max-w-[1100px] max-h-[85vh] overflow-y-auto"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between mb-3">
+              <div>
+                <h3 className="text-[15px] font-semibold text-textdark">Image Archive — Unplaced Candidates</h3>
+                <p className="text-[11px] text-textmid mt-0.5">
+                  Images you generated but didn't place. Click any thumbnail to open in a new tab — useful for repurposing on social, email, or ads.
+                </p>
+              </div>
+              <button
+                onClick={() => setArchiveOpen(false)}
+                className="text-[11px] px-3 py-1.5 rounded-lg bg-black/5 hover:bg-black/10 text-textmid transition-colors"
+              >
+                Close
+              </button>
+            </div>
+
+            {archiveLoading ? (
+              <div className="text-center py-12 text-textlight text-[13px]">Loading archive…</div>
+            ) : archiveItems.length === 0 ? (
+              <div className="text-center py-12 text-textlight text-[13px]">
+                No unplaced candidates in this project yet.
+              </div>
+            ) : (
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
+                {archiveItems.map((item) => (
+                  <div
+                    key={item.candidate_id}
+                    className="border border-black/10 rounded-lg overflow-hidden hover:shadow-md transition-shadow cursor-pointer"
+                    onClick={() => handleDownloadArchiveImage(item.storageUrl, item.concept_label)}
+                    title="Click to open in new tab"
+                  >
+                    <img
+                      src={item.storageUrl}
+                      alt={item.concept_label}
+                      className="w-full aspect-square object-cover"
+                    />
+                    <div className="p-1.5 bg-white">
+                      <div className="text-[10px] font-medium text-textdark truncate" title={item.concept_label}>
+                        {item.concept_label}
+                      </div>
+                      <div className="text-[9px] text-textlight truncate mt-0.5" title={item.source_lp_name}>
+                        from: {item.source_lp_name}
+                      </div>
+                      <div className="text-[9px] text-textlight">
+                        {item.aspect_ratio || '16:9'}
+                        {item.generated_at && ' · ' + new Date(item.generated_at).toLocaleDateString()}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
       {/* ── Reject-with-Notes modal ── */}
       {rejectModalOpen && (
         <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center">
@@ -1655,11 +1844,49 @@ function LPEditor({ page: initialPage, onBack, onDelete, projectId }) {
           {activeTab === 'copy' && (
             <div className="space-y-3">
               <div className="flex items-center justify-between mb-1">
-                <p className="text-[11px] text-textmid">{copySections.length} sections · {totalWords} words</p>
+                <p className="text-[11px] text-textmid">
+                  {copySections.length} sections · {totalWords} words
+                  {copySections.some(s => /^item_\d+$/.test(s.type)) && (
+                    <span className="ml-2 text-[10px] text-textlight italic">— drag listicle items to reorder</span>
+                  )}
+                </p>
               </div>
               {copySections.map((section, i) => (
-                <div key={i} className="border border-black/5 rounded-xl overflow-hidden">
+                <div
+                  key={i}
+                  draggable={/^item_\d+$/.test(section.type)}
+                  onDragStart={(e) => {
+                    if (!/^item_\d+$/.test(section.type)) return;
+                    e.dataTransfer.setData('text/listicle-item-index', String(i));
+                    e.dataTransfer.effectAllowed = 'move';
+                  }}
+                  onDragOver={(e) => {
+                    if (!/^item_\d+$/.test(section.type)) return;
+                    e.preventDefault();
+                  }}
+                  onDrop={(e) => {
+                    if (!/^item_\d+$/.test(section.type)) return;
+                    e.preventDefault();
+                    const fromIdx = parseInt(e.dataTransfer.getData('text/listicle-item-index'), 10);
+                    if (Number.isNaN(fromIdx) || fromIdx === i) return;
+                    setCopySections(prev => {
+                      const next = [...prev];
+                      const [moved] = next.splice(fromIdx, 1);
+                      next.splice(i, 0, moved);
+                      // Renumber item_* sections sequentially after the move.
+                      let n = 1;
+                      return next.map(s => /^item_\d+$/.test(s.type) ? { ...s, type: `item_${n++}` } : s);
+                    });
+                    setIsDirty(true);
+                  }}
+                  className={`border border-black/5 rounded-xl overflow-hidden ${
+                    /^item_\d+$/.test(section.type) ? 'cursor-move hover:border-gold/40' : ''
+                  }`}
+                >
                   <div className="flex items-center gap-2 px-3 py-2 bg-offwhite">
+                    {/^item_\d+$/.test(section.type) && (
+                      <span className="text-textlight" title="Drag to reorder">⋮⋮</span>
+                    )}
                     <span className="text-[10px] font-mono text-textlight w-4">{i + 1}</span>
                     <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${getSectionColor(section.type)}`}>
                       {getSectionLabel(section.type)}

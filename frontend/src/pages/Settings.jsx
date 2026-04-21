@@ -535,7 +535,15 @@ export default function Settings() {
     gemini_rate_1k: '',
     gemini_rate_2k: '',
     gemini_rate_4k: '',
+    // Phase 1 + 2 LP image-selection settings
+    openai_lp_image_strategy_model: '',
+    daily_lp_generation_cap: '',
+    daily_lp_regenerate_cap: '',
+    daily_gemini_lp_budget_usd: '',
+    lp_manual_image_selection_enabled_by_project: '',
   });
+  const [modelTestResult, setModelTestResult] = useState(null); // { success, message } | null
+  const [modelTesting, setModelTesting] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
@@ -562,6 +570,11 @@ export default function Settings() {
         gemini_rate_1k: data.gemini_rate_1k || '',
         gemini_rate_2k: data.gemini_rate_2k || '',
         gemini_rate_4k: data.gemini_rate_4k || '',
+        openai_lp_image_strategy_model: data.openai_lp_image_strategy_model || '',
+        daily_lp_generation_cap: data.daily_lp_generation_cap || '',
+        daily_lp_regenerate_cap: data.daily_lp_regenerate_cap || '',
+        daily_gemini_lp_budget_usd: data.daily_gemini_lp_budget_usd || '',
+        lp_manual_image_selection_enabled_by_project: data.lp_manual_image_selection_enabled_by_project || '',
       }));
       // (Cloudflare Pages projects removed — LP publishing now uses Shopify via Director config)
     } catch (err) {
@@ -584,6 +597,12 @@ export default function Settings() {
       if (form.gemini_rate_1k) payload.gemini_rate_1k = form.gemini_rate_1k;
       if (form.gemini_rate_2k) payload.gemini_rate_2k = form.gemini_rate_2k;
       if (form.gemini_rate_4k) payload.gemini_rate_4k = form.gemini_rate_4k;
+      // Phase 1 + 2 LP image-selection settings
+      if (form.openai_lp_image_strategy_model) payload.openai_lp_image_strategy_model = form.openai_lp_image_strategy_model;
+      if (form.daily_lp_generation_cap) payload.daily_lp_generation_cap = form.daily_lp_generation_cap;
+      if (form.daily_lp_regenerate_cap) payload.daily_lp_regenerate_cap = form.daily_lp_regenerate_cap;
+      if (form.daily_gemini_lp_budget_usd) payload.daily_gemini_lp_budget_usd = form.daily_gemini_lp_budget_usd;
+      if (form.lp_manual_image_selection_enabled_by_project) payload.lp_manual_image_selection_enabled_by_project = form.lp_manual_image_selection_enabled_by_project;
       await api.updateSettings(payload);
       toast.success('Settings saved');
       setMessage('');
@@ -594,6 +613,21 @@ export default function Settings() {
     } finally {
       setSaving(false);
     }
+  };
+
+  // Phase 2 (PEF item G) — verify the LP image-strategy model is callable.
+  const testImageStrategyModel = async () => {
+    const target = (form.openai_lp_image_strategy_model || settings.openai_lp_image_strategy_model || 'gpt-5.4').trim();
+    if (!target) { setModelTestResult({ success: false, message: 'Enter a model name first.' }); return; }
+    setModelTesting(true);
+    setModelTestResult(null);
+    try {
+      const result = await api.testOpenAIModel(target);
+      setModelTestResult({ success: true, message: result.message || `Model "${target}" is available.` });
+    } catch (err) {
+      setModelTestResult({ success: false, message: err.message || 'Model test failed.' });
+    }
+    setModelTesting(false);
   };
 
   const testConnection = async (service) => {
@@ -769,6 +803,105 @@ export default function Settings() {
                 </button>
               </div>
               {testResults.gemini && <p className="text-[12px] text-textlight mt-1">{testResults.gemini}</p>}
+            </div>
+
+            {/* ── Phase 1 + 2 — LP Image Selection settings ── */}
+            <div className="border-t border-black/5 pt-4 mt-4">
+              <p className="text-[11px] text-textlight mb-3 flex items-center gap-1.5">
+                <span className="inline-flex items-center px-1.5 py-0.5 rounded-md bg-gold/15 text-gold font-medium">LP Image Selection</span>
+                Manual image-selection flow (PEF plan 2026-04-21)
+              </p>
+            </div>
+
+            <div>
+              <label className="block text-[13px] font-medium text-textmid mb-1.5">
+                LP image-strategy model
+                <span className="ml-1 text-[11px] text-textlight font-normal">(default: gpt-5.4 → falls back to gpt-5.2)</span>
+              </label>
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={form.openai_lp_image_strategy_model}
+                  onChange={e => setForm(p => ({ ...p, openai_lp_image_strategy_model: e.target.value }))}
+                  className="input-apple flex-1"
+                  placeholder={settings.openai_lp_image_strategy_model || 'gpt-5.4'}
+                />
+                <button
+                  onClick={testImageStrategyModel}
+                  disabled={modelTesting}
+                  className="btn-secondary text-[13px] whitespace-nowrap inline-flex items-center gap-1.5"
+                  title="Fire a 1-token chat call to verify the model is available now (catches typos + deprecations at config time)"
+                >
+                  {modelTesting && (
+                    <svg className="w-3.5 h-3.5 animate-spin" viewBox="0 0 24 24" fill="none">
+                      <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" strokeDasharray="31.4 31.4" strokeLinecap="round" />
+                    </svg>
+                  )}
+                  Test Model
+                </button>
+              </div>
+              {modelTestResult && (
+                <p className={`text-[12px] mt-1 ${modelTestResult.success ? 'text-teal' : 'text-red-600'}`}>
+                  {modelTestResult.success ? '✓ ' : '✗ '}{modelTestResult.message}
+                </p>
+              )}
+            </div>
+
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
+              <div>
+                <label className="block text-[13px] font-medium text-textmid mb-1.5">Daily LP gen cap</label>
+                <input
+                  type="number"
+                  min="0"
+                  value={form.daily_lp_generation_cap}
+                  onChange={e => setForm(p => ({ ...p, daily_lp_generation_cap: e.target.value }))}
+                  className="input-apple"
+                  placeholder={settings.daily_lp_generation_cap || '10'}
+                />
+                <p className="text-[10px] text-textlight mt-1">LPs/day per project</p>
+              </div>
+              <div>
+                <label className="block text-[13px] font-medium text-textmid mb-1.5">Daily regen cap</label>
+                <input
+                  type="number"
+                  min="0"
+                  value={form.daily_lp_regenerate_cap}
+                  onChange={e => setForm(p => ({ ...p, daily_lp_regenerate_cap: e.target.value }))}
+                  className="input-apple"
+                  placeholder={settings.daily_lp_regenerate_cap || '30'}
+                />
+                <p className="text-[10px] text-textlight mt-1">Image regens/day/project</p>
+              </div>
+              <div>
+                <label className="block text-[13px] font-medium text-textmid mb-1.5">Daily Gemini $ cap</label>
+                <input
+                  type="number"
+                  step="0.50"
+                  min="0"
+                  value={form.daily_gemini_lp_budget_usd}
+                  onChange={e => setForm(p => ({ ...p, daily_gemini_lp_budget_usd: e.target.value }))}
+                  className="input-apple"
+                  placeholder={settings.daily_gemini_lp_budget_usd || '5.00'}
+                />
+                <p className="text-[10px] text-textlight mt-1">USD/day. 0 disables.</p>
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-[13px] font-medium text-textmid mb-1.5">
+                Manual image-selection enabled (per-project JSON map)
+                <span className="ml-1 text-[11px] text-textlight font-normal">e.g. {`{"project-id": true}`}</span>
+              </label>
+              <textarea
+                rows={2}
+                value={form.lp_manual_image_selection_enabled_by_project}
+                onChange={e => setForm(p => ({ ...p, lp_manual_image_selection_enabled_by_project: e.target.value }))}
+                className="input-apple font-mono text-[12px]"
+                placeholder={settings.lp_manual_image_selection_enabled_by_project || '{}'}
+              />
+              <p className="text-[10px] text-textlight mt-1">
+                Set a project ID to <code>true</code> to enable the new image-selection flow on that project. Leave empty for default (off, legacy flow).
+              </p>
             </div>
 
             <div className="border-t border-black/5 pt-4 mt-4">

@@ -716,6 +716,50 @@ export async function getCostAggregates(startDate, endDate, projectId = null) {
   });
 }
 
+/**
+ * Phase 2 (PEF item D) — sum LLM costs attributed to a single LP. We can't
+ * tag individual cost records by LP id (the cost tracker uses operation +
+ * projectId), so we approximate by:
+ *   1. Fetch all api_costs for the project on the LP's creation date.
+ *   2. Filter to operations whose tags strongly imply LP work
+ *      (lp_legacy_*, lp_image_strategy_*, lp_image_candidate, lp_generation,
+ *       lp_html_generation, lp_visual_qa).
+ *   3. Sum cost_usd.
+ * Approximate but useful for "this LP cost roughly $X" surfacing.
+ */
+export async function getLPCostEstimate(projectId, lpCreatedAtIso) {
+  if (!projectId || !lpCreatedAtIso) return { totalUsd: 0, byOperation: {} };
+  const dateStr = lpCreatedAtIso.slice(0, 10);
+  const aggregates = await getCostAggregates(dateStr, dateStr, projectId).catch(() => null);
+  if (!aggregates?.byOperation) return { totalUsd: 0, byOperation: {} };
+  const lpOpPrefixes = ['lp_legacy_', 'lp_image_strategy', 'lp_image_candidate', 'lp_generation', 'lp_html', 'lp_visual_qa', 'lp_design_analysis', 'lp_image_prescore', 'lp_gauntlet'];
+  let totalUsd = 0;
+  const byOperation = {};
+  for (const [op, data] of Object.entries(aggregates.byOperation)) {
+    const matches = lpOpPrefixes.some(prefix => op.startsWith(prefix));
+    if (!matches) continue;
+    byOperation[op] = data.cost || 0;
+    totalUsd += data.cost || 0;
+  }
+  return { totalUsd, byOperation };
+}
+
+/**
+ * Phase 2 (PEF item J) — return today's Gemini spend in USD for a project.
+ * Used by the LP image-candidate generator to enforce a daily budget cap and
+ * prevent denial-of-wallet from runaway candidate regeneration.
+ */
+export async function getTodayGeminiSpend(projectId) {
+  if (!projectId) return 0;
+  const today = new Date().toISOString().split('T')[0];
+  const aggregates = await getCostAggregates(today, today, projectId).catch(() => null);
+  if (!aggregates) return 0;
+  const byService = aggregates.byService || {};
+  // The cost tracker stores Gemini under either 'gemini' or 'google' depending
+  // on the wrapper version — sum both to be safe.
+  return (byService.gemini || 0) + (byService.google || 0);
+}
+
 export async function getAgentCosts(startDate, endDate) {
   return await cachedQuery('api_costs', api.apiCosts.getAgentCosts, { startDate, endDate });
 }
@@ -1491,6 +1535,32 @@ export async function getAllPendingReviewLPs() {
  */
 export async function getAllPendingImageSelectionLPs() {
   return await queryWithRetry(api.landingPages.getAllPendingImageSelection, {});
+}
+
+/**
+ * Phase 2 (PEF item B) — return every published LP that still has
+ * image_candidates populated. Used by the daily cleanup cron to purge
+ * unplaced candidate blobs after the LP has been live for N days.
+ */
+export async function getPublishedLPsWithCandidates() {
+  return await queryWithRetry(api.landingPages.getPublishedLPsWithCandidates, {});
+}
+
+/**
+ * Delete a single blob from Convex storage by storageId. Used by the
+ * candidate-cleanup cron to purge individual unplaced image blobs without
+ * removing the LP's placed candidates.
+ */
+export async function deleteStorageBlob(storageId) {
+  return mutationWithRetry(api.fileStorage.deleteFile, { storageId });
+}
+
+/**
+ * Phase 2 (PEF item H) — return every LP for a project that has candidates,
+ * for the unplaced-candidates archive view.
+ */
+export async function getLPsWithCandidatesByProject(projectId) {
+  return queryWithRetry(api.landingPages.getLPsWithCandidatesByProject, { projectId });
 }
 
 // =============================================
