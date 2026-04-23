@@ -25,7 +25,6 @@ import deploymentRoutes from './routes/deployments.js';
 import quoteMiningRoutes from './routes/quoteMining.js';
 import agentMonitorRoutes, { agentCostRouter } from './routes/agentMonitor.js';
 import conductorRoutes from './routes/conductor.js';
-import cmoRoutes from './routes/cmo.js';
 import rateLimit from 'express-rate-limit';
 import { getRateLimiterStats } from './services/rateLimiter.js';
 import { syncOpenAICosts, refreshGeminiRates } from './services/costTracker.js';
@@ -282,7 +281,6 @@ try {
   // Routes — agent monitor (admin only)
   app.use('/api/agent-monitor', requireAuth, requireRole('admin'), agentMonitorRoutes);
   app.use('/api/conductor', requireAuth, requireRole('admin', 'manager'), conductorRoutes);
-  app.use('/api/cmo', requireAuth, requireRole('admin', 'manager'), cmoRoutes);
 
   // Catch-all error handler
   app.use((err, req, res, _next) => {
