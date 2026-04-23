@@ -3,7 +3,7 @@
   "buildCommand": "cd frontend && pnpm build",
   "outputDirectory": "frontend/dist",
   "functions": {
-    "api/[[...slug]].js": { "memory": 2048, "maxDuration": 60 }
+    "api/[...slug].js": { "memory": 2048, "maxDuration": 60 }
   },
   "rewrites": [
     { "source": "/((?!api|assets|fonts|favicon|logo).*)", "destination": "/index.html" }
