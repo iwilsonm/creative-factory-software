@@ -474,25 +474,5 @@ export const api = {
   testPerplexity: () => request('/settings/test-perplexity', { method: 'POST' }),
   testAnthropic: () => request('/settings/test-anthropic', { method: 'POST' }),
 
-  // Meta Ads — feature stripped in Creative Factory fork. Stubs keep existing
-  // UI components from crashing; they silently show "not connected" state.
-  // TODO: remove the Meta UI chrome in a follow-up pass.
-  getMetaStatus: async () => ({ connected: false, appConfigured: false }),
-  getMetaAuthUrl: async () => ({ url: '' }),
-  disconnectMeta: async () => ({ success: true }),
-  getMetaAdAccounts: async () => ({ accounts: [] }),
-  selectMetaAdAccount: async () => ({ success: true }),
-  getMetaCampaigns: async () => ({ campaigns: [] }),
-  getMetaAdSets: async () => ({ adsets: [] }),
-  getMetaAds: async () => ({ ads: [] }),
-  linkMetaAd: async () => ({ success: false, error: 'Meta integration disabled' }),
-  unlinkMetaAd: async () => ({ success: true }),
-  getMetaPerformance: async () => ({ performance: null }),
-  getMetaPerformanceSummary: async () => ({ summary: null }),
-  syncMetaPerformance: async () => ({ synced: 0 }),
-
-  // LP retry
-  retryBatchLP: (batchId, options = {}) =>
-    request(`/batches/${batchId}/retry-lp`, { method: 'POST', body: JSON.stringify(options), headers: { 'Content-Type': 'application/json' } }),
 
 };

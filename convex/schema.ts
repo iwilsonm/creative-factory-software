@@ -277,9 +277,6 @@ export default defineSchema({
     notes: v.optional(v.string()),
     planned_date: v.optional(v.string()),
     posted_date: v.optional(v.string()),
-    meta_campaign_id: v.optional(v.string()),
-    meta_adset_id: v.optional(v.string()),
-    meta_ad_id: v.optional(v.string()),
     local_campaign_id: v.optional(v.string()),  // → campaigns.externalId or "unplanned"
     local_adset_id: v.optional(v.string()),     // → ad_sets.externalId
     flex_ad_id: v.optional(v.string()),          // → flex_ads.externalId
@@ -349,8 +346,6 @@ export default defineSchema({
     angle_rotation: v.string(),         // "round_robin" | "weighted" | "random"
     headline_style: v.optional(v.string()),      // freeform prompt guidance
     primary_text_style: v.optional(v.string()),  // freeform prompt guidance
-    meta_campaign_name: v.optional(v.string()),  // default campaign name template
-    meta_adset_defaults: v.optional(v.string()), // JSON: default adset settings
     default_campaign_id: v.optional(v.string()),  // → campaigns.externalId for auto-deployed flex ads
     run_schedule: v.string(),           // "daily" | "weekdays" | "weekly_monday" | "custom" | "manual_only"
     run_schedule_days: v.optional(v.string()),   // JSON array of day numbers (0=Sun...6=Sat) for custom schedule

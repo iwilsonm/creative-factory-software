@@ -72,7 +72,6 @@ const TABLE_TTL = {
   conductor:            2 * 60 * 1000,
   lp_agent_config:      5 * 60 * 1000,
   template_images:      5 * 60 * 1000,
-  meta_performance:     2 * 60 * 1000,
   headline_history:     1 * 60 * 1000,
 };
 const DEFAULT_QUERY_TTL = 60 * 1000;
@@ -1233,26 +1232,6 @@ export async function createDeploymentDuplicate({ id, ad_id, project_id, status,
   });
   invalidateQueryCache('ad_deployments');
   return result;
-}
-
-// =============================================
-// Meta Performance helpers
-// =============================================
-
-export async function getMetaPerformanceByDeployment(deploymentId) {
-  return await queryWithRetry(api.metaPerformance.getByDeployment, { deploymentId });
-}
-
-export async function getMetaPerformanceByMetaAdId(metaAdId) {
-  return await queryWithRetry(api.metaPerformance.getByMetaAdId, { metaAdId });
-}
-
-export async function upsertMetaPerformance(record) {
-  return await mutationWithRetry(api.metaPerformance.upsert, record);
-}
-
-export async function deleteMetaPerformanceByDeployment(deploymentId) {
-  return await mutationWithRetry(api.metaPerformance.removeByDeployment, { deploymentId });
 }
 
 // =============================================

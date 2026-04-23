@@ -178,8 +178,7 @@ router.put('/config/:projectId', async (req, res) => {
       'enabled', 'daily_flex_target', 'ads_per_batch', 'angle_mode',
       'angle_rotation', 'explore_ratio', 'run_schedule', 'run_schedule_days', 'run_schedule_hour', 'posting_days',
       'score_threshold', 'auto_learn',
-      'headline_style', 'primary_text_style', 'meta_campaign_name',
-      'meta_adset_defaults', 'default_campaign_id',
+      'headline_style', 'primary_text_style', 'default_campaign_id',
     ];
     const fields = {};
     for (const key of allowedConfigFields) {

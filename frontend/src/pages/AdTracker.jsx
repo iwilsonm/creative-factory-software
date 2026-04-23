@@ -65,59 +65,11 @@ export default function AdTracker({ projectId, userRole, searchParams, setSearch
   const [tagPopover, setTagPopover] = useState(null); // { depId, adId, projectId, tags } or null
   const [tagInput, setTagInput] = useState('');
   const [isBulkDownloading, setIsBulkDownloading] = useState(false);
-  // Meta linking state
-  const [metaConnected, setMetaConnected] = useState(false);
-  const [linkingDepId, setLinkingDepId] = useState(null); // deployment id for campaign browser
-  const [campaignBrowser, setCampaignBrowser] = useState({ step: 'campaigns', campaigns: [], adsets: [], ads: [], loading: false, selectedCampaign: null, selectedAdset: null });
-  const [perfSummary, setPerfSummary] = useState(null); // { totalSpend, totalImpressions, totalClicks, avgCTR, avgCPC, ads: [] }
-  const [perfLoading, setPerfLoading] = useState(false);
-  const [metaSyncing, setMetaSyncing] = useState(false);
-  const [publishedLPs, setPublishedLPs] = useState([]);
-  const [metaStatusLoaded, setMetaStatusLoaded] = useState(false);
-  const [publishedLPsLoaded, setPublishedLPsLoaded] = useState(false);
-  const [loadingPublishedLPs, setLoadingPublishedLPs] = useState(false);
   const editRef = useRef(null);
   const notesRef = useRef(null);
   const statusDropdownRef = useRef(null);
   const tagPopoverRef = useRef(null);
   const { addToast } = useToast();
-
-  useEffect(() => {
-    setMetaConnected(false);
-    setMetaStatusLoaded(false);
-    setPerfSummary(null);
-    setPublishedLPs([]);
-    setPublishedLPsLoaded(false);
-    setLoadingPublishedLPs(false);
-  }, [projectId]);
-
-  useEffect(() => {
-    if (activeView !== 'status' || metaStatusLoaded) return;
-    setMetaStatusLoaded(true);
-    checkMetaConnection();
-  }, [activeView, metaStatusLoaded]);
-
-  const loadPublishedLPs = useCallback(async () => {
-    if (publishedLPsLoaded || loadingPublishedLPs) return;
-    setLoadingPublishedLPs(true);
-    try {
-      const data = await api.getLandingPages(projectId);
-      const published = (data.pages || []).filter(p => p.status === 'published' && p.published_url);
-      setPublishedLPs(published);
-      setPublishedLPsLoaded(true);
-    } catch {
-      // allow retry
-    } finally {
-      setLoadingPublishedLPs(false);
-    }
-  }, [projectId, publishedLPsLoaded, loadingPublishedLPs]);
-
-  useEffect(() => {
-    if (activeView !== 'status') return;
-    if (bulkEditOpen || editingCell?.field === 'landing_page_url') {
-      loadPublishedLPs();
-    }
-  }, [activeView, bulkEditOpen, editingCell, loadPublishedLPs]);
 
   // Focus input when editing cell changes
   useEffect(() => {
@@ -169,113 +121,6 @@ export default function AdTracker({ projectId, userRole, searchParams, setSearch
     }
   }, [tagPopover]);
 
-
-  // ─── Meta connection & performance ──────────────────────────────────────────
-  const checkMetaConnection = async () => {
-    try {
-      const status = await api.getMetaStatus(projectId);
-      setMetaConnected(status.connected && !!status.adAccountId);
-      if (status.connected && status.adAccountId) {
-        loadPerformanceSummary();
-      }
-    } catch {
-      setMetaConnected(false);
-    }
-  };
-
-  const loadPerformanceSummary = async () => {
-    setPerfLoading(true);
-    try {
-      const data = await api.getMetaPerformanceSummary(projectId);
-      setPerfSummary(data);
-    } catch {
-      setPerfSummary(null);
-    } finally {
-      setPerfLoading(false);
-    }
-  };
-
-  const handleMetaSync = async () => {
-    setMetaSyncing(true);
-    try {
-      await api.syncMetaPerformance(projectId);
-      addToast('Meta performance synced', 'success');
-      await loadPerformanceSummary();
-    } catch (err) {
-      addToast('Sync failed: ' + err.message, 'error');
-    } finally {
-      setMetaSyncing(false);
-    }
-  };
-
-  // ─── Campaign Browser ────────────────────────────────────────────────────
-  const openCampaignBrowser = async (depId) => {
-    setLinkingDepId(depId);
-    setCampaignBrowser({ step: 'campaigns', campaigns: [], adsets: [], ads: [], loading: true, selectedCampaign: null, selectedAdset: null });
-    try {
-      const { campaigns } = await api.getMetaCampaigns(projectId);
-      setCampaignBrowser(prev => ({ ...prev, campaigns: campaigns || [], loading: false }));
-    } catch (err) {
-      addToast('Failed to load campaigns: ' + err.message, 'error');
-      setCampaignBrowser(prev => ({ ...prev, loading: false }));
-    }
-  };
-
-  const selectCampaign = async (campaign) => {
-    setCampaignBrowser(prev => ({ ...prev, step: 'adsets', selectedCampaign: campaign, adsets: [], ads: [], loading: true }));
-    try {
-      const { adsets } = await api.getMetaAdSets(projectId, campaign.id);
-      setCampaignBrowser(prev => ({ ...prev, adsets: adsets || [], loading: false }));
-    } catch (err) {
-      addToast('Failed to load ad sets: ' + err.message, 'error');
-      setCampaignBrowser(prev => ({ ...prev, loading: false }));
-    }
-  };
-
-  const selectAdset = async (adset) => {
-    setCampaignBrowser(prev => ({ ...prev, step: 'ads', selectedAdset: adset, ads: [], loading: true }));
-    try {
-      const { ads } = await api.getMetaAds(projectId, adset.id);
-      setCampaignBrowser(prev => ({ ...prev, ads: ads || [], loading: false }));
-    } catch (err) {
-      addToast('Failed to load ads: ' + err.message, 'error');
-      setCampaignBrowser(prev => ({ ...prev, loading: false }));
-    }
-  };
-
-  const selectMetaAd = async (metaAd) => {
-    if (!linkingDepId) return;
-    try {
-      const result = await api.linkMetaAd(
-        projectId,
-        linkingDepId,
-        metaAd.id,
-        campaignBrowser.selectedCampaign?.id,
-        campaignBrowser.selectedAdset?.id
-      );
-      setDeployments(prev => prev.map(d =>
-        d.id === linkingDepId ? { ...d, meta_ad_id: metaAd.id, meta_campaign_id: campaignBrowser.selectedCampaign?.id, meta_adset_id: campaignBrowser.selectedAdset?.id } : d
-      ));
-      setLinkingDepId(null);
-      addToast('Linked to Meta Ad', 'success');
-      loadPerformanceSummary();
-    } catch (err) {
-      addToast('Failed to link: ' + err.message, 'error');
-    }
-  };
-
-  const handleUnlink = async (depId) => {
-    try {
-      await api.unlinkMetaAd(projectId, depId);
-      setDeployments(prev => prev.map(d =>
-        d.id === depId ? { ...d, meta_ad_id: null, meta_campaign_id: null, meta_adset_id: null } : d
-      ));
-      addToast('Unlinked from Meta', 'success');
-      loadPerformanceSummary();
-    } catch (err) {
-      addToast('Failed to unlink: ' + err.message, 'error');
-    }
-  };
 
   // ─── Filtering & Sorting ──────────────────────────────────────────────────
   // Campaigns = any deployment with local_campaign_id set
@@ -348,9 +193,6 @@ export default function AdTracker({ projectId, userRole, searchParams, setSearch
 
   // ─── Inline Edit ──────────────────────────────────────────────────────────
   const startEdit = (id, field, currentValue) => {
-    if (field === 'landing_page_url') {
-      void loadPublishedLPs();
-    }
     setEditingCell({ id, field });
     setEditValue(currentValue || '');
   };
@@ -989,21 +831,11 @@ export default function AdTracker({ projectId, userRole, searchParams, setSearch
               </label>
               <input
                 type="url"
-                list="lp-urls-bulk"
                 value={bulkFields.landing_page_url}
                 onChange={(e) => setBulkFields(prev => ({ ...prev, landing_page_url: e.target.value }))}
-                placeholder={publishedLPs.length > 0 ? 'Select a landing page or enter URL...' : 'e.g. https://...'}
+                placeholder="e.g. https://..."
                 className="input-apple text-[12px] w-full"
               />
-              {publishedLPs.length > 0 && (
-                <datalist id="lp-urls-bulk">
-                  {publishedLPs.map(lp => (
-                    <option key={lp.externalId} value={lp.published_url}>
-                      {lp.name}
-                    </option>
-                  ))}
-                </datalist>
-              )}
             </div>
           </div>
           <button
@@ -1361,10 +1193,8 @@ export default function AdTracker({ projectId, userRole, searchParams, setSearch
                           dep={dep}
                           field="landing_page_url"
                           value={dep.landing_page_url}
-                          placeholder={publishedLPs.length > 0 ? 'Select or enter URL...' : 'Add URL...'}
+                          placeholder="Add URL..."
                           type="url"
-                          datalistId={`lp-urls-${dep.id}`}
-                          datalistOptions={publishedLPs.map(lp => ({ value: lp.published_url, label: lp.name }))}
                         />
                       </td>
 
@@ -1387,30 +1217,6 @@ export default function AdTracker({ projectId, userRole, searchParams, setSearch
                             >
                               ← Ready to Post
                             </button>
-                          )}
-                          {/* Meta link/unlink button */}
-                          {metaConnected && (
-                            dep.meta_ad_id ? (
-                              <button
-                                onClick={() => handleUnlink(dep.id)}
-                                className="text-navy hover:text-navy-light hover:bg-navy/5 transition-all p-1 rounded-md"
-                                title="Linked to Meta — click to unlink"
-                              >
-                                <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 24 24">
-                                  <path d="M10.59 13.41c.41.39.41 1.03 0 1.42-.39.39-1.03.39-1.42 0a5.003 5.003 0 010-7.07l3.54-3.54a5.003 5.003 0 017.07 0 5.003 5.003 0 010 7.07l-1.49 1.49c.01-.82-.12-1.64-.4-2.42l.47-.48a3.004 3.004 0 000-4.24 3.004 3.004 0 00-4.24 0l-3.53 3.53a3.004 3.004 0 000 4.24zm2.82-4.24c.39-.39 1.03-.39 1.42 0a5.003 5.003 0 010 7.07l-3.54 3.54a5.003 5.003 0 01-7.07 0 5.003 5.003 0 010-7.07l1.49-1.49c-.01.82.12 1.64.4 2.42l-.47.48a3.004 3.004 0 000 4.24 3.004 3.004 0 004.24 0l3.53-3.53a3.004 3.004 0 000-4.24.973.973 0 010-1.42z" />
-                                </svg>
-                              </button>
-                            ) : (
-                              <button
-                                onClick={() => openCampaignBrowser(dep.id)}
-                                className="text-textlight/60 hover:text-navy hover:bg-navy/5 transition-all p-1 rounded-md"
-                                title="Link to Meta Ad"
-                              >
-                                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m9.86-4.553a4.5 4.5 0 00-6.364-6.364l-4.5 4.5a4.5 4.5 0 001.242 7.244" />
-                                </svg>
-                              </button>
-                            )
                           )}
                           {dep.imageUrl && (
                             <button
@@ -1462,309 +1268,6 @@ export default function AdTracker({ projectId, userRole, searchParams, setSearch
 
       </>}
 
-      {/* Performance section — only show on status table views, not Planner or Ready to Post */}
-      {activeView === 'status' && <div className="mt-8">
-        {!metaConnected ? (
-          /* Not connected — prompt to connect */
-          <div className="card p-8 text-center">
-            <div className="flex items-center justify-center gap-3 mb-2">
-              <svg className="w-5 h-5 text-gold/40" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z" />
-              </svg>
-              <h3 className="text-[13px] font-semibold text-textdark">Performance Tracking</h3>
-            </div>
-            <p className="text-[12px] text-textlight max-w-md mx-auto mb-3">
-              Connect your Meta account in the Overview tab to pull live ad performance data for this project.
-            </p>
-          </div>
-        ) : perfLoading ? (
-          /* Loading */
-          <div className="card p-6">
-            <div className="flex items-center gap-2 mb-4">
-              <div className="h-4 w-40 bg-gray-200 rounded animate-pulse" />
-            </div>
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-4">
-              {[0, 1, 2, 3].map(i => (
-                <div key={i} className="bg-gray-50 rounded-xl p-4 animate-pulse">
-                  <div className="h-3 w-20 bg-gray-200 rounded mb-2" />
-                  <div className="h-6 w-16 bg-gray-200 rounded" />
-                </div>
-              ))}
-            </div>
-          </div>
-        ) : perfSummary && (perfSummary.totalSpend > 0 || perfSummary.ads?.length > 0) ? (
-          /* Performance Dashboard */
-          <div className="card p-6">
-            <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center gap-2">
-                <svg className="w-4 h-4 text-gold" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 13.125C3 12.504 3.504 12 4.125 12h2.25c.621 0 1.125.504 1.125 1.125v6.75C7.5 20.496 6.996 21 6.375 21h-2.25A1.125 1.125 0 013 19.875v-6.75zM9.75 8.625c0-.621.504-1.125 1.125-1.125h2.25c.621 0 1.125.504 1.125 1.125v11.25c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V8.625zM16.5 4.125c0-.621.504-1.125 1.125-1.125h2.25C20.496 3 21 3.504 21 4.125v15.75c0 .621-.504 1.125-1.125 1.125h-2.25a1.125 1.125 0 01-1.125-1.125V4.125z" />
-                </svg>
-                <h3 className="text-[14px] font-semibold text-textdark">Meta Performance</h3>
-                <span className="text-[10px] px-2 py-0.5 rounded-full bg-gold/10 text-gold font-medium">
-                  {perfSummary.ads?.length || 0} linked ad{(perfSummary.ads?.length || 0) !== 1 ? 's' : ''}
-                </span>
-              </div>
-              <button
-                onClick={handleMetaSync}
-                disabled={metaSyncing}
-                className="btn-secondary text-[11px] inline-flex items-center gap-1.5 px-3 py-1.5"
-              >
-                {metaSyncing ? (
-                  <>
-                    <svg className="w-3 h-3 animate-spin" viewBox="0 0 24 24" fill="none">
-                      <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" strokeDasharray="31.4 31.4" strokeLinecap="round" />
-                    </svg>
-                    Syncing...
-                  </>
-                ) : (
-                  <>
-                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182" />
-                    </svg>
-                    Sync Now
-                  </>
-                )}
-              </button>
-            </div>
-
-            {/* Summary metric cards */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-5">
-              <div className="bg-teal/5 rounded-xl p-4 border border-teal/15">
-                <p className="text-[10px] uppercase tracking-wider font-medium text-teal mb-1">Total Spend</p>
-                <p className="text-[20px] font-bold text-textdark">${perfSummary.totalSpend?.toFixed(2) || '0.00'}</p>
-              </div>
-              <div className="bg-navy/5 rounded-xl p-4 border border-navy/10">
-                <p className="text-[10px] uppercase tracking-wider font-medium text-navy mb-1">Impressions</p>
-                <p className="text-[20px] font-bold text-textdark">{(perfSummary.totalImpressions || 0).toLocaleString()}</p>
-              </div>
-              <div className="bg-gold/5 rounded-xl p-4 border border-gold/15">
-                <p className="text-[10px] uppercase tracking-wider font-medium text-gold mb-1">Avg CTR</p>
-                <p className="text-[20px] font-bold text-textdark">{(perfSummary.avgCTR || 0).toFixed(2)}%</p>
-              </div>
-              <div className="bg-gold/5 rounded-xl p-4 border border-gold/10">
-                <p className="text-[10px] uppercase tracking-wider font-medium text-gold mb-1">Avg CPC</p>
-                <p className="text-[20px] font-bold text-textdark">${(perfSummary.avgCPC || 0).toFixed(2)}</p>
-              </div>
-            </div>
-
-            {/* Per-ad performance table */}
-            {perfSummary.ads?.length > 0 && (
-              <div className="overflow-x-auto">
-                <table className="w-full text-left">
-                  <thead>
-                    <tr className="border-b border-gray-100">
-                      <th className="px-3 py-2 text-[10px] uppercase tracking-wider font-medium text-textlight">Ad</th>
-                      <th className="px-3 py-2 text-[10px] uppercase tracking-wider font-medium text-textlight text-right">Spend</th>
-                      <th className="px-3 py-2 text-[10px] uppercase tracking-wider font-medium text-textlight text-right">Impressions</th>
-                      <th className="px-3 py-2 text-[10px] uppercase tracking-wider font-medium text-textlight text-right">Clicks</th>
-                      <th className="px-3 py-2 text-[10px] uppercase tracking-wider font-medium text-textlight text-right">CTR</th>
-                      <th className="px-3 py-2 text-[10px] uppercase tracking-wider font-medium text-textlight text-right">CPC</th>
-                      <th className="px-3 py-2 text-[10px] uppercase tracking-wider font-medium text-textlight text-right">CPM</th>
-                      <th className="px-3 py-2 text-[10px] uppercase tracking-wider font-medium text-textlight text-right">ROAS</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {perfSummary.ads.map((ad, idx) => {
-                      // Count how many deployments share this Meta Ad ID
-                      const sharedCount = deployments.filter(d => d.meta_ad_id === ad.metaAdId).length;
-                      return (
-                        <tr key={ad.metaAdId || idx} className="border-b border-gray-50 last:border-0 hover:bg-gray-50/50">
-                          <td className="px-3 py-2.5">
-                            <span className="text-[12px] font-medium text-textdark">{ad.adName || ad.metaAdId?.slice(0, 8)}</span>
-                            {sharedCount > 1 && (
-                              <span className="ml-1.5 text-[9px] px-1.5 py-0.5 rounded-full bg-navy/10 text-navy font-medium">
-                                Shared ({sharedCount})
-                              </span>
-                            )}
-                          </td>
-                          <td className="px-3 py-2.5 text-[12px] text-textdark text-right font-medium">${ad.spend?.toFixed(2)}</td>
-                          <td className="px-3 py-2.5 text-[12px] text-textmid text-right">{(ad.impressions || 0).toLocaleString()}</td>
-                          <td className="px-3 py-2.5 text-[12px] text-textmid text-right">{(ad.clicks || 0).toLocaleString()}</td>
-                          <td className="px-3 py-2.5 text-[12px] text-textmid text-right">{ad.ctr?.toFixed(2)}%</td>
-                          <td className="px-3 py-2.5 text-[12px] text-textmid text-right">${ad.cpc?.toFixed(2)}</td>
-                          <td className="px-3 py-2.5 text-[12px] text-textmid text-right">${ad.cpm?.toFixed(2)}</td>
-                          <td className="px-3 py-2.5 text-[12px] text-textmid text-right font-medium">
-                            {ad.roas > 0 ? `${ad.roas.toFixed(2)}x` : '—'}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </div>
-            )}
-          </div>
-        ) : metaConnected ? (
-          /* Connected but no linked ads */
-          <div className="card p-8 text-center">
-            <div className="flex items-center justify-center gap-3 mb-2">
-              <svg className="w-5 h-5 text-gold/40" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m9.86-4.553a4.5 4.5 0 00-6.364-6.364l-4.5 4.5a4.5 4.5 0 001.242 7.244" />
-              </svg>
-              <h3 className="text-[13px] font-semibold text-textdark">Performance Tracking</h3>
-            </div>
-            <p className="text-[12px] text-textlight max-w-md mx-auto">
-              Meta is connected! Click the link icon
-              <svg className="w-3.5 h-3.5 inline mx-1 text-textlight" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m9.86-4.553a4.5 4.5 0 00-6.364-6.364l-4.5 4.5a4.5 4.5 0 001.242 7.244" />
-              </svg>
-              on any deployment to link it to a Meta Ad and start tracking performance.
-            </p>
-          </div>
-        ) : null}
-      </div>}
-
-      {/* Campaign Browser Modal */}
-      {linkingDepId && (
-        <div
-          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-50 flex items-center justify-center p-6 fade-in"
-          onClick={() => setLinkingDepId(null)}
-        >
-          <div
-            className="bg-white rounded-2xl shadow-card-hover w-full max-w-lg max-h-[70vh] flex flex-col"
-            onClick={(e) => e.stopPropagation()}
-          >
-            {/* Header with breadcrumbs */}
-            <div className="px-5 py-4 border-b border-gray-100">
-              <div className="flex items-center justify-between mb-2">
-                <h3 className="text-[15px] font-semibold text-textdark">Link to Meta Ad</h3>
-                <button
-                  onClick={() => setLinkingDepId(null)}
-                  className="text-textlight/60 hover:text-textmid transition-colors"
-                >
-                  <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                  </svg>
-                </button>
-              </div>
-              {/* Breadcrumbs */}
-              <div className="flex items-center gap-1 text-[11px]">
-                <button
-                  onClick={() => setCampaignBrowser(prev => ({ ...prev, step: 'campaigns', selectedCampaign: null, selectedAdset: null, adsets: [], ads: [] }))}
-                  className={`px-2 py-0.5 rounded-md transition-colors ${campaignBrowser.step === 'campaigns' ? 'bg-navy/10 text-navy font-medium' : 'text-textlight hover:text-textmid'}`}
-                >
-                  Campaigns
-                </button>
-                {campaignBrowser.selectedCampaign && (
-                  <>
-                    <svg className="w-3 h-3 text-textlight/60" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                    </svg>
-                    <button
-                      onClick={() => setCampaignBrowser(prev => ({ ...prev, step: 'adsets', selectedAdset: null, ads: [] }))}
-                      className={`px-2 py-0.5 rounded-md transition-colors truncate max-w-[120px] ${campaignBrowser.step === 'adsets' ? 'bg-navy/10 text-navy font-medium' : 'text-textlight hover:text-textmid'}`}
-                      title={campaignBrowser.selectedCampaign.name}
-                    >
-                      {campaignBrowser.selectedCampaign.name}
-                    </button>
-                  </>
-                )}
-                {campaignBrowser.selectedAdset && (
-                  <>
-                    <svg className="w-3 h-3 text-textlight/60" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                    </svg>
-                    <span className="px-2 py-0.5 rounded-md bg-navy/10 text-navy font-medium truncate max-w-[120px]" title={campaignBrowser.selectedAdset.name}>
-                      {campaignBrowser.selectedAdset.name}
-                    </span>
-                  </>
-                )}
-              </div>
-            </div>
-
-            {/* Content */}
-            <div className="flex-1 overflow-y-auto px-5 py-3">
-              {campaignBrowser.loading ? (
-                <div className="space-y-2 py-4">
-                  {[0, 1, 2, 3].map(i => (
-                    <div key={i} className="h-10 bg-gray-100 rounded-lg animate-pulse" />
-                  ))}
-                </div>
-              ) : campaignBrowser.step === 'campaigns' ? (
-                campaignBrowser.campaigns.length === 0 ? (
-                  <p className="text-[12px] text-textlight py-8 text-center">No campaigns found in this ad account.</p>
-                ) : (
-                  <div className="space-y-1.5">
-                    {campaignBrowser.campaigns.map(c => (
-                      <button
-                        key={c.id}
-                        onClick={() => selectCampaign(c)}
-                        className="w-full text-left px-3 py-2.5 rounded-lg border border-gray-200 hover:border-navy/30 hover:bg-navy/5 transition-colors flex items-center justify-between group"
-                      >
-                        <div>
-                          <span className="text-[12px] font-medium text-textdark">{c.name}</span>
-                          {c.status && (
-                            <span className={`ml-2 text-[9px] px-1.5 py-0.5 rounded-full font-medium ${
-                              c.status === 'ACTIVE' ? 'bg-teal/10 text-teal' : 'bg-gray-100 text-textmid'
-                            }`}>{c.status}</span>
-                          )}
-                        </div>
-                        <svg className="w-4 h-4 text-textlight/60 group-hover:text-navy" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                        </svg>
-                      </button>
-                    ))}
-                  </div>
-                )
-              ) : campaignBrowser.step === 'adsets' ? (
-                campaignBrowser.adsets.length === 0 ? (
-                  <p className="text-[12px] text-textlight py-8 text-center">No ad sets found in this campaign.</p>
-                ) : (
-                  <div className="space-y-1.5">
-                    {campaignBrowser.adsets.map(as => (
-                      <button
-                        key={as.id}
-                        onClick={() => selectAdset(as)}
-                        className="w-full text-left px-3 py-2.5 rounded-lg border border-gray-200 hover:border-navy/30 hover:bg-navy/5 transition-colors flex items-center justify-between group"
-                      >
-                        <div>
-                          <span className="text-[12px] font-medium text-textdark">{as.name}</span>
-                          {as.status && (
-                            <span className={`ml-2 text-[9px] px-1.5 py-0.5 rounded-full font-medium ${
-                              as.status === 'ACTIVE' ? 'bg-teal/10 text-teal' : 'bg-gray-100 text-textmid'
-                            }`}>{as.status}</span>
-                          )}
-                        </div>
-                        <svg className="w-4 h-4 text-textlight/60 group-hover:text-navy" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                        </svg>
-                      </button>
-                    ))}
-                  </div>
-                )
-              ) : campaignBrowser.step === 'ads' ? (
-                campaignBrowser.ads.length === 0 ? (
-                  <p className="text-[12px] text-textlight py-8 text-center">No ads found in this ad set.</p>
-                ) : (
-                  <div className="space-y-1.5">
-                    {campaignBrowser.ads.map(ad => (
-                      <button
-                        key={ad.id}
-                        onClick={() => selectMetaAd(ad)}
-                        className="w-full text-left px-3 py-2.5 rounded-lg border border-gray-200 hover:border-teal/30 hover:bg-teal/5 transition-colors flex items-center justify-between group"
-                      >
-                        <div>
-                          <span className="text-[12px] font-medium text-textdark">{ad.name}</span>
-                          {ad.status && (
-                            <span className={`ml-2 text-[9px] px-1.5 py-0.5 rounded-full font-medium ${
-                              ad.status === 'ACTIVE' ? 'bg-teal/10 text-teal' : 'bg-gray-100 text-textmid'
-                            }`}>{ad.status}</span>
-                          )}
-                          <span className="block text-[10px] text-textlight mt-0.5">ID: {ad.id}</span>
-                        </div>
-                        <span className="text-[10px] text-teal font-medium opacity-0 group-hover:opacity-100 transition-opacity">
-                          Select
-                        </span>
-                      </button>
-                    ))}
-                  </div>
-                )
-              ) : null}
-            </div>
-          </div>
-        </div>
-      )}
 
       {/* Image preview modal */}
       {previewDep && (
