@@ -1,6 +1,7 @@
 {
   "name": "creative-factory-software",
   "private": true,
+  "type": "module",
   "dependencies": {
     "convex": "^1.18.0"
   }
