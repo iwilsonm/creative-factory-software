@@ -91,7 +91,10 @@ router.get('/:id', async (req, res) => {
 // Create project
 router.post('/', requireRole('admin', 'manager'), async (req, res) => {
   try {
-    const { name, brand_name, niche, product_description, sales_page_content, drive_folder_id, inspiration_folder_id } = req.body;
+    // `sales_page_content` is transient — the frontend sends it so auto-describe
+    // can run, but the field was removed from the Convex `projects` schema during
+    // the strip pass. Destructure it off and don't forward.
+    const { name, brand_name, niche, product_description, drive_folder_id, inspiration_folder_id } = req.body;
     if (!name) return res.status(400).json({ error: 'Project name is required' });
 
     const id = uuidv4();
@@ -101,7 +104,6 @@ router.post('/', requireRole('admin', 'manager'), async (req, res) => {
       brand_name: brand_name || '',
       niche: niche || '',
       product_description: product_description || '',
-      sales_page_content: sales_page_content || '',
       drive_folder_id: drive_folder_id || '',
       inspiration_folder_id: inspiration_folder_id || ''
     });

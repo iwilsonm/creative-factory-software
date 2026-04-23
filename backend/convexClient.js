@@ -134,14 +134,13 @@ export async function getAllSettings() {
 // Project helpers
 // =============================================
 
-export async function createProject({ id, name, brand_name, niche, product_description, sales_page_content, drive_folder_id, inspiration_folder_id }) {
+export async function createProject({ id, name, brand_name, niche, product_description, drive_folder_id, inspiration_folder_id }) {
   await mutationWithRetry(api.projects.create, {
     externalId: id,
     name,
     brand_name: brand_name || '',
     niche: niche || '',
     product_description: product_description || '',
-    sales_page_content: sales_page_content || '',
     drive_folder_id: drive_folder_id || '',
     inspiration_folder_id: inspiration_folder_id || '',
   });
@@ -174,7 +173,7 @@ export async function getAllProjectsWithStats() {
 }
 
 export async function updateProject(id, fields) {
-  const allowed = ['name', 'brand_name', 'niche', 'product_description', 'sales_page_content', 'drive_folder_id', 'inspiration_folder_id', 'prompt_guidelines', 'status', 'meta_app_id', 'meta_app_secret', 'meta_access_token', 'meta_token_expires_at', 'meta_ad_account_id', 'meta_user_name', 'meta_user_id', 'meta_last_sync_at', 'scout_enabled', 'scout_default_campaign', 'scout_cta', 'scout_display_link', 'scout_facebook_page', 'scout_score_threshold', 'scout_daily_flex_ads', 'scout_destination_url', 'scout_destination_urls', 'scout_duplicate_adset_name'];
+  const allowed = ['name', 'brand_name', 'niche', 'product_description', 'drive_folder_id', 'inspiration_folder_id', 'prompt_guidelines', 'status', 'scout_enabled', 'scout_default_campaign', 'scout_cta', 'scout_display_link', 'scout_facebook_page', 'scout_score_threshold', 'scout_daily_flex_ads', 'scout_destination_url', 'scout_destination_urls', 'scout_duplicate_adset_name'];
   const updates = { externalId: id };
   for (const key of allowed) {
     if (fields[key] !== undefined) {
@@ -204,20 +203,11 @@ function convexProjectToRow(p) {
     brand_name: p.brand_name || null,
     niche: p.niche || null,
     product_description: p.product_description || null,
-    sales_page_content: p.sales_page_content || null,
     drive_folder_id: p.drive_folder_id || null,
     inspiration_folder_id: p.inspiration_folder_id || null,
     prompt_guidelines: p.prompt_guidelines || null,
     product_image_storageId: p.product_image_storageId || null,
     status: p.status || 'setup',
-    meta_app_id: p.meta_app_id || null,
-    meta_app_secret: p.meta_app_secret || null,
-    meta_access_token: p.meta_access_token || null,
-    meta_token_expires_at: p.meta_token_expires_at || null,
-    meta_ad_account_id: p.meta_ad_account_id || null,
-    meta_user_name: p.meta_user_name || null,
-    meta_user_id: p.meta_user_id || null,
-    meta_last_sync_at: p.meta_last_sync_at || null,
     // Dacia Creative Filter per-project config
     scout_enabled: p.scout_enabled ?? null,
     scout_default_campaign: p.scout_default_campaign || null,
@@ -1397,14 +1387,6 @@ export async function upsertMetaPerformance(record) {
 
 export async function deleteMetaPerformanceByDeployment(deploymentId) {
   return await mutationWithRetry(api.metaPerformance.removeByDeployment, { deploymentId });
-}
-
-/**
- * Get all projects that have a Meta access token set (for scheduler sync).
- */
-export async function getMetaEnabledProjects() {
-  const all = await getAllProjects();
-  return all.filter(p => p.meta_access_token);
 }
 
 // =============================================
