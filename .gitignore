@@ -57,3 +57,6 @@ WATCHDOG_INSTRUCTIONS.md
 # Claude
 .claude/
 .vercel
+
+.env.local
+.vercel
