@@ -12,6 +12,7 @@ import EPub from 'epub';
 import XLSX from 'xlsx';
 import { requireAuth } from '../auth.js';
 import { chat as openaiChat } from '../services/openai.js';
+import { fetchUrlText, safeUrlForLogs } from '../services/urlFetcher.js';
 
 const uploadDir = os.tmpdir();
 
@@ -145,6 +146,26 @@ router.post('/auto-describe', async (req, res) => {
     res.json({ description: description.trim() });
   } catch (err) {
     res.status(500).json({ error: `Auto-describe failed: ${err.message}` });
+  }
+});
+
+// Fetch a public URL and extract readable text. Used by the "Sales Page from URL"
+// input in ProjectSetup. Mounted under /api/upload which is already requireAuth-gated
+// (admin/manager roles) in server.js, so this is not an open proxy.
+router.post('/fetch-url', async (req, res) => {
+  const { url } = req.body || {};
+  if (!url || typeof url !== 'string') return res.status(400).json({ error: 'url required' });
+  try {
+    const result = await fetchUrlText(url);
+    res.json({
+      sales_page_content: result.text,
+      title: result.title,
+      truncated: result.truncated,
+      sparse: result.sparse,
+    });
+  } catch (err) {
+    console.warn(`[fetch-url] ${safeUrlForLogs(url)}: ${err.message}`);
+    res.status(400).json({ error: err.message || 'Failed to fetch URL' });
   }
 });
 

@@ -379,7 +379,12 @@ export default function ProjectDetail() {
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
           </svg>
         </Link>
-        <h1 className="text-2xl font-semibold text-textdark tracking-tight">{project.brand_name || project.name}</h1>
+        <div className="flex-1 min-w-0">
+          <h1 className="text-2xl font-semibold text-textdark tracking-tight">{project.brand_name || project.name}</h1>
+          {project.brand_name && project.name && (
+            <p className="text-[13px] text-textmid mt-0.5">{project.name}</p>
+          )}
+        </div>
         <span className={`badge ${status.bg} ${status.text}`}>
           {status.label}
         </span>

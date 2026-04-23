@@ -238,6 +238,7 @@ export const api = {
     return data;
   },
   autoDescribe: (salesPageContent) => request('/upload/auto-describe', { method: 'POST', body: JSON.stringify({ sales_page_content: salesPageContent }) }),
+  fetchSalesPageFromUrl: (url) => request('/upload/fetch-url', { method: 'POST', body: JSON.stringify({ url }) }),
 
   // Google Drive
   driveStatus: () => request('/drive/status'),

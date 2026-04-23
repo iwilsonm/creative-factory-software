@@ -17,8 +17,13 @@ export default function ProjectSetup() {
   const [loading, setLoading] = useState(false);
 
   // Sales page upload state
-  const [salesInputMode, setSalesInputMode] = useState('upload'); // 'upload' or 'paste'
+  const [salesInputMode, setSalesInputMode] = useState('upload'); // 'upload' | 'paste' | 'url'
   const [uploadedFile, setUploadedFile] = useState(null);
+
+  // URL fetch state
+  const [urlInput, setUrlInput] = useState('');
+  const [urlFetching, setUrlFetching] = useState(false);
+  const [fetchedMeta, setFetchedMeta] = useState(null); // { title, host, sparse, truncated }
 
   // Auto-describe state
   const [describing, setDescribing] = useState(false);
@@ -55,9 +60,34 @@ export default function ProjectSetup() {
     }
   };
 
+  // Fetch sales page from a URL
+  const handleFetchUrl = async () => {
+    const url = urlInput.trim();
+    if (!url || urlFetching) return;
+    setUrlFetching(true);
+    setFetchedMeta(null);
+    try {
+      const { sales_page_content, title, sparse, truncated } = await api.fetchSalesPageFromUrl(url);
+      setForm(prev => ({ ...prev, sales_page_content }));
+      let host = '';
+      try { host = new URL(url).hostname; } catch { host = url; }
+      setFetchedMeta({ title, host, sparse, truncated });
+      // Explicitly trigger auto-describe (don't rely on blur event).
+      autoDescribe(sales_page_content);
+    } catch (err) {
+      setError(err.message || 'Failed to fetch URL');
+    } finally {
+      setUrlFetching(false);
+    }
+  };
+
   const handleSubmit = async (e) => {
     e.preventDefault();
     setError('');
+    if (!form.name.trim() || !form.brand_name.trim()) {
+      setError('Product Name and Brand Name are both required.');
+      return;
+    }
     setLoading(true);
 
     try {
@@ -85,10 +115,10 @@ export default function ProjectSetup() {
         )}
 
         <form onSubmit={handleSubmit} className="card p-6 space-y-5">
-          {/* Project Name */}
+          {/* Product Name (stored as `name`) */}
           <div>
             <label className="block text-[13px] font-medium text-textmid mb-1.5">
-              Project Name <span className="text-red-400">*</span>
+              Product Name <span className="text-red-400">*</span>
             </label>
             <input
               name="name"
@@ -96,31 +126,36 @@ export default function ProjectSetup() {
               onChange={handleChange}
               className="input-apple"
               required
-              placeholder="e.g., Brain Supplement Launch"
+              placeholder="e.g., Focus Supplement X"
             />
+            <p className="text-[11px] text-textlight mt-1">What is being sold.</p>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-            <div>
-              <label className="block text-[13px] font-medium text-textmid mb-1.5">Brand Name</label>
-              <input
-                name="brand_name"
-                value={form.brand_name}
-                onChange={handleChange}
-                className="input-apple"
-                placeholder="e.g., NeuroVitality"
-              />
-            </div>
-            <div>
-              <label className="block text-[13px] font-medium text-textmid mb-1.5">Niche</label>
-              <input
-                name="niche"
-                value={form.niche}
-                onChange={handleChange}
-                className="input-apple"
-                placeholder="e.g., Nootropics / Brain Health"
-              />
-            </div>
+          {/* Brand Name */}
+          <div>
+            <label className="block text-[13px] font-medium text-textmid mb-1.5">
+              Brand Name <span className="text-red-400">*</span>
+            </label>
+            <input
+              name="brand_name"
+              value={form.brand_name}
+              onChange={handleChange}
+              className="input-apple"
+              required
+              placeholder="e.g., NeuroLabs"
+            />
+            <p className="text-[11px] text-textlight mt-1">Who sells it. Shown as the primary label on the project dashboard.</p>
+          </div>
+
+          <div>
+            <label className="block text-[13px] font-medium text-textmid mb-1.5">Niche</label>
+            <input
+              name="niche"
+              value={form.niche}
+              onChange={handleChange}
+              className="input-apple"
+              placeholder="e.g., Nootropics / Brain Health"
+            />
           </div>
 
           {/* Sales Page Content */}
@@ -133,19 +168,26 @@ export default function ProjectSetup() {
                   onClick={() => setSalesInputMode('upload')}
                   className={salesInputMode === 'upload' ? 'active' : ''}
                 >
-                  Upload PDF
+                  Upload
                 </button>
                 <button
                   type="button"
                   onClick={() => setSalesInputMode('paste')}
                   className={salesInputMode === 'paste' ? 'active' : ''}
                 >
-                  Paste Text
+                  Paste
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setSalesInputMode('url')}
+                  className={salesInputMode === 'url' ? 'active' : ''}
+                >
+                  From URL
                 </button>
               </div>
             </div>
 
-            {salesInputMode === 'upload' ? (
+            {salesInputMode === 'upload' && (
               <div>
                 <DragDropUpload
                   label="Drop your PDP / Sales Page here, or click to browse"
@@ -178,7 +220,9 @@ export default function ProjectSetup() {
                   </div>
                 )}
               </div>
-            ) : (
+            )}
+
+            {salesInputMode === 'paste' && (
               <div>
                 <textarea
                   name="sales_page_content"
@@ -189,6 +233,64 @@ export default function ProjectSetup() {
                   className="input-apple resize-none"
                   placeholder="Paste the text content from your sales page here..."
                 />
+              </div>
+            )}
+
+            {salesInputMode === 'url' && (
+              <div>
+                <div className="flex gap-2">
+                  <input
+                    type="url"
+                    value={urlInput}
+                    onChange={(e) => setUrlInput(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleFetchUrl(); } }}
+                    className="input-apple flex-1"
+                    placeholder="https://example.com/product"
+                    disabled={urlFetching}
+                  />
+                  <button
+                    type="button"
+                    onClick={handleFetchUrl}
+                    disabled={urlFetching || !urlInput.trim()}
+                    className="btn-primary whitespace-nowrap"
+                  >
+                    {urlFetching ? 'Fetching...' : 'Fetch'}
+                  </button>
+                </div>
+                <p className="text-[11px] text-textlight mt-1">
+                  We'll fetch the page and extract the main text. JS-rendered sales pages (SPAs) may return little content — switch to Paste if needed.
+                </p>
+                {fetchedMeta && form.sales_page_content && (
+                  <div className="mt-3 bg-offwhite border border-black/5 rounded-xl p-3">
+                    <div className="flex items-center justify-between mb-1.5">
+                      <span className="text-[12px] text-textlight">
+                        Fetched from <span className="text-textmid">{fetchedMeta.host}</span>
+                        {fetchedMeta.title ? ` — "${fetchedMeta.title}"` : ''}
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setSalesInputMode('paste')}
+                        className="text-[12px] text-gold hover:text-gold-light transition-colors"
+                      >
+                        View / edit full content
+                      </button>
+                    </div>
+                    {fetchedMeta.sparse && (
+                      <p className="text-[11px] text-red-500 mb-1.5">
+                        Page had little readable text — likely JS-rendered. Try pasting the content manually.
+                      </p>
+                    )}
+                    {fetchedMeta.truncated && (
+                      <p className="text-[11px] text-gold mb-1.5">
+                        Extracted text was truncated to 50,000 characters for cost safety.
+                      </p>
+                    )}
+                    <div className="text-[12px] text-textmid whitespace-pre-wrap max-h-20 overflow-hidden">
+                      {form.sales_page_content.slice(0, 200)}
+                      {form.sales_page_content.length > 200 ? '…' : ''}
+                    </div>
+                  </div>
+                )}
               </div>
             )}
           </div>
