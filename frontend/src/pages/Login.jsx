@@ -68,7 +68,7 @@ export default function Login() {
         <div className="card p-8">
           {/* App icon */}
           <div className="text-center mb-6">
-            <img src="/logo.png" alt="Creative Factory" className="h-14 mx-auto mb-4" style={{ filter: 'invert(1)' }} />
+            <img src="/logo.png" alt="Creative Factory" className="h-14 mx-auto mb-4" />
             <p className="text-[13px] text-textmid mt-1">
               {isSetup ? 'Create your admin account to get started' : 'Sign in to continue'}
             </p>
