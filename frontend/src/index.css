@@ -170,14 +170,54 @@
     @apply inline-flex items-center px-2 py-0.5 rounded-full text-[11px] font-bold tracking-wide transition-colors;
   }
 
+  /* Page-level primary tabs — full-width Apple-style segmented control.
+     Used at the top of ProjectDetail (Ad Studio / Ad Pipeline / Project Settings).
+     Designed for 3–4 equal-width tabs; `flex-1` splits the row evenly. */
+  .page-tabs {
+    @apply flex w-full rounded-xl p-1 gap-1;
+    background: rgba(255, 255, 255, 0.4);
+    backdrop-filter: blur(10px);
+    border: 1px solid rgba(255, 255, 255, 0.5);
+  }
+  .page-tabs button,
+  .page-tabs a {
+    @apply flex-1 inline-flex items-center justify-center gap-1.5
+           px-4 py-2 rounded-[10px]
+           min-h-[40px] sm:min-h-0
+           text-[13px] font-semibold text-gray-500
+           transition-colors duration-200;
+    text-decoration: none;
+  }
+  .page-tabs button:not(.active):hover,
+  .page-tabs a:not(.active):hover {
+    @apply text-textdark bg-white/40;
+  }
+  .page-tabs button:focus-visible,
+  .page-tabs a:focus-visible {
+    @apply outline-none;
+    box-shadow: 0 0 0 2px rgba(11, 29, 58, 0.3);
+  }
+  .page-tabs button.active,
+  .page-tabs a.active {
+    @apply text-white;
+    background: linear-gradient(135deg, #132B52 0%, #0B1D3A 100%);
+    box-shadow: 0 2px 4px rgba(11, 29, 58, 0.15);
+    border: none;
+  }
+
+  /* Sub-tab strip — used inside ProjectDetail's Project Settings tab. Full-width
+     for visual consistency with .page-tabs. Only consumer is ProjectDetail. */
   .tab-strip {
-    @apply flex flex-wrap gap-1 p-1 rounded-xl max-w-full;
+    @apply flex w-full gap-1 p-1 rounded-xl;
     background: rgba(255, 255, 255, 0.5);
     backdrop-filter: blur(8px);
     border: 1px solid rgba(255, 255, 255, 0.7);
   }
   .tab-chip {
-    @apply px-3 py-1.5 rounded-lg text-[12px] font-medium transition-all duration-200 flex-shrink-0 text-gray-500;
+    @apply flex-1 inline-flex items-center justify-center
+           px-3 py-1.5 rounded-lg
+           text-[12px] font-medium text-gray-500
+           transition-colors duration-200;
   }
   .tab-chip:hover {
     @apply text-[#1A1A2E] bg-white/60;

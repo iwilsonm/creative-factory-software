@@ -289,9 +289,9 @@ export default function ProjectDetail() {
         </div>
       )}
 
-      {/* Tab navigation — segmented control style */}
+      {/* Tab navigation — full-width Apple-style segmented control */}
       <div className="mb-6">
-        <div className="segmented-control">
+        <div className="page-tabs">
           {tabs.map(t => (
             <button
               key={t.id}
