@@ -6,7 +6,13 @@ import {
   updateBatchJob, deleteBatchJob, uploadBuffer
 } from '../convexClient.js';
 import { runBatch } from '../services/batchProcessor.js';
-import { registerCronJob, unregisterCronJob, loadScheduledBatches } from '../services/scheduler.js';
+
+// Scheduler stubs: scheduler.js was removed. Scheduled-batch cron registration
+// is deferred to a future Convex crons migration. Batches can still be created
+// with scheduled=true; they just won't fire automatically until that migration.
+const registerCronJob = () => console.warn('[batches] Cron registration skipped — Convex cron migration pending');
+const unregisterCronJob = () => {};
+const loadScheduledBatches = () => [];
 
 const router = Router();
 router.use(requireAuth);

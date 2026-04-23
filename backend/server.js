@@ -28,7 +28,6 @@ import agentMonitorRoutes, { agentCostRouter } from './routes/agentMonitor.js';
 import conductorRoutes from './routes/conductor.js';
 import cmoRoutes from './routes/cmo.js';
 import rateLimit from 'express-rate-limit';
-import { initScheduler, getSchedulerStatus } from './services/scheduler.js';
 import { getRateLimiterStats } from './services/rateLimiter.js';
 import { syncOpenAICosts, refreshGeminiRates } from './services/costTracker.js';
 
@@ -66,7 +65,9 @@ process.on('uncaughtException', (err) => {
 });
 
 // Wrap startup in async IIFE since getSetting is now async
-(async () => {
+// Top-level await used so `app` is fully configured before this module's exports resolve.
+// Vercel catch-all handler imports `app` and needs it ready on first request.
+try {
   // Trust proxy when behind Nginx (needed for rate limiting, secure cookies)
   if (process.env.NODE_ENV === 'production') {
     app.set('trust proxy', 1);
@@ -198,9 +199,6 @@ process.on('uncaughtException', (err) => {
       checks.convex = 'error';
     }
 
-    // Scheduler status
-    checks.scheduler = getSchedulerStatus();
-
     // Rate limiter
     checks.rateLimiter = getRateLimiterStats();
 
@@ -326,11 +324,14 @@ process.on('uncaughtException', (err) => {
     });
   }
 
-  app.listen(PORT, () => {
-    console.log(`Ad Platform backend running on port ${PORT}`);
-    initScheduler();
-  });
-})().catch(err => {
+  if (!process.env.VERCEL) {
+    app.listen(PORT, () => {
+      console.log(`Creative Factory backend running on port ${PORT}`);
+    });
+  }
+} catch (err) {
   console.error('Failed to start server:', err);
-  process.exit(1);
-});
+  if (!process.env.VERCEL) process.exit(1);
+}
+
+export default app;
