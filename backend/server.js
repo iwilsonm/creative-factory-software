@@ -27,7 +27,6 @@ import metaRoutes, { metaCallbackRouter } from './routes/meta.js';
 import agentMonitorRoutes, { agentCostRouter } from './routes/agentMonitor.js';
 import conductorRoutes from './routes/conductor.js';
 import cmoRoutes from './routes/cmo.js';
-import salesPageRoutes from './routes/salesPages.js';
 import rateLimit from 'express-rate-limit';
 import { initScheduler, getSchedulerStatus } from './services/scheduler.js';
 import { getRateLimiterStats } from './services/rateLimiter.js';
@@ -169,8 +168,6 @@ process.on('uncaughtException', (err) => {
   app.use('/api/conductor/learn', llmRateLimit);
   app.use('/api/cmo/run', llmRateLimit);
   app.use('/api/cmo/dry-run', llmRateLimit);
-  app.use('/api/projects/:id/generate-sales-page', llmRateLimit);
-  app.use('/api/projects/:id/sales-pages/install-theme', llmRateLimit);
   // NOTE: Generated images are no longer served from local disk.
   // They are served via 302 redirect to Convex storage URLs in the ads route.
 
@@ -291,7 +288,6 @@ process.on('uncaughtException', (err) => {
   app.use('/api/agent-monitor', requireAuth, requireRole('admin'), agentMonitorRoutes);
   app.use('/api/conductor', requireAuth, requireRole('admin', 'manager'), conductorRoutes);
   app.use('/api/cmo', requireAuth, requireRole('admin', 'manager'), cmoRoutes);
-  app.use('/api/projects', requireAuth, requireRole('admin', 'manager'), salesPageRoutes);
 
   // Catch-all error handler
   app.use((err, req, res, _next) => {

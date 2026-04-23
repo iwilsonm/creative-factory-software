@@ -15,7 +15,6 @@ const TemplateImages = lazy(() => import('../components/TemplateImages'));
 const AdStudio = lazy(() => import('../components/AdStudio'));
 const AdTracker = lazy(() => import('./AdTracker'));
 const QuoteMiner = lazy(() => import('../components/QuoteMiner'));
-const SalesPageGen = lazy(() => import('../components/SalesPageGen'));
 const CreativeFilterSettings = lazy(() => import('../components/CreativeFilterSettings'));
 const AdPerformance = lazy(() => import('../components/AdPerformance'));
 
@@ -39,7 +38,7 @@ export default function ProjectDetail() {
   const [deletingProject, setDeletingProject] = useState(false);
   const [availableDocTypes, setAvailableDocTypes] = useState(new Set());
   // Persist active tab in URL search params so it survives page refresh
-  const validTabs = ['quotes', 'ads', 'tracker', 'performance', 'salespages', 'overview', 'docs', 'templates'];
+  const validTabs = ['quotes', 'ads', 'tracker', 'performance', 'overview', 'docs', 'templates'];
   const defaultTab = user?.role === 'poster' ? 'tracker' : 'ads';
   const tabFromUrl = searchParams.get('tab');
   const [tab, setTabState] = useState(
@@ -362,7 +361,6 @@ export default function ProjectDetail() {
   const allTabs = [
     { id: 'quotes', label: 'Copywriter', tooltip: 'Mine quotes, generate headlines, and turn them into ads.' },
     { id: 'ads', label: 'Ad Studio', tooltip: 'Generate individual ads or run batch generation.' },
-    { id: 'salespages', label: 'Sales Pages', tooltip: 'Generate product sales pages and publish to Shopify.' },
     { id: 'tracker', label: 'Ad Pipeline', tooltip: 'Plan, organize, and deploy ads to campaigns and ad sets.' },
     { id: 'performance', label: 'Ad Performance', tooltip: 'Monitor ad performance, evaluate angles, and run the CMO Agent.' },
     { id: 'overview', label: 'Project Settings', tooltip: 'Project configuration, foundational docs, and template library.' }
@@ -933,13 +931,6 @@ export default function ProjectDetail() {
         {tab === 'performance' && (
           <ErrorBoundary level="tab" key="performance">
             <AdPerformance projectId={id} project={project} />
-          </ErrorBoundary>
-        )}
-        {tab === 'salespages' && (
-          <ErrorBoundary level="tab" key="salespages">
-            <Suspense fallback={<div className="p-8 text-center text-textmid">Loading...</div>}>
-              <SalesPageGen projectId={id} project={project} />
-            </Suspense>
           </ErrorBoundary>
         )}
         {tab === 'quotes' && (

@@ -546,38 +546,6 @@ export const api = {
   getMetaPerformanceSummary: (projectId) => request(`/projects/${projectId}/meta/performance/summary`),
   syncMetaPerformance: (projectId) => request(`/projects/${projectId}/meta/sync`, { method: 'POST' }),
 
-  // Sales Pages
-  getSalesPages: (projectId) =>
-    request(`/projects/${projectId}/sales-pages`).then(data => normalizeArrayResponse(data, 'pages', 'api.getSalesPages.pages')),
-  getSalesPage: (projectId, pageId) => request(`/projects/${projectId}/sales-pages/${pageId}`),
-  generateSalesPage: (projectId, body, onEvent) =>
-    streamSSEWithBody(`/projects/${projectId}/generate-sales-page`, body, onEvent),
-  updateSalesPage: (projectId, pageId, data) =>
-    request(`/projects/${projectId}/sales-pages/${pageId}`, { method: 'PUT', body: JSON.stringify(data) }),
-  deleteSalesPage: (projectId, pageId) =>
-    request(`/projects/${projectId}/sales-pages/${pageId}`, { method: 'DELETE' }),
-  publishSalesPage: (projectId, pageId) =>
-    request(`/projects/${projectId}/sales-pages/${pageId}/publish`, { method: 'POST' }),
-  unpublishSalesPage: (projectId, pageId) =>
-    request(`/projects/${projectId}/sales-pages/${pageId}/unpublish`, { method: 'POST' }),
-  getShopifyStatus: (projectId) =>
-    request(`/projects/${projectId}/shopify-status`),
-  getSalesPageThemeStatus: (projectId) =>
-    request(`/projects/${projectId}/sales-pages/theme-status`),
-  installSalesPageTheme: (projectId, onEvent) =>
-    streamSSE(`/projects/${projectId}/sales-pages/install-theme`, onEvent),
-
-  // LP Templates
-  getLPTemplates: (projectId) =>
-    request(`/projects/${projectId}/lp-templates`).then(data => normalizeArrayResponse(data, 'templates', 'api.getLPTemplates.templates')),
-  getLPTemplate: (projectId, templateId) =>
-    request(`/projects/${projectId}/lp-templates/${templateId}`),
-  extractLPTemplate: (projectId, url, onEvent) =>
-    streamSSEWithBody(`/projects/${projectId}/lp-templates`, { url }, onEvent),
-  updateLPTemplate: (projectId, templateId, data) =>
-    request(`/projects/${projectId}/lp-templates/${templateId}`, { method: 'PUT', body: JSON.stringify(data), headers: { 'Content-Type': 'application/json' } }),
-  deleteLPTemplate: (projectId, templateId) =>
-    request(`/projects/${projectId}/lp-templates/${templateId}`, { method: 'DELETE' }),
 
   // LP retry
   retryBatchLP: (batchId, options = {}) =>
