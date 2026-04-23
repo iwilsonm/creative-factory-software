@@ -13,7 +13,7 @@ async function request(path, options = {}) {
   });
 
   if (res.status === 401 && !path.includes('/auth/')) {
-    window.location.href = '/admin/login';
+    window.location.href = '/login';
     throw new Error('Not authenticated');
   }
 
