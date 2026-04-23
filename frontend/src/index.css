@@ -2,6 +2,18 @@
 @tailwind components;
 @tailwind utilities;
 
+/* ─── Mobile Optimization Tokens ─────────────────────────────────────────
+   Z-index stack: nav(50) < modal(60) < sheet(70). Keep in sync in JSX.
+   Tap targets: all buttons get min 44x44 on mobile, compact 32-36 on desktop.
+   Use `.tap-compact` to opt out (tight icon buttons).
+   Use `.modal-sheet` for mobile bottom-anchored / desktop centered dialogs.
+*/
+:root {
+  --z-nav: 50;
+  --z-modal: 60;
+  --z-sheet: 70;
+}
+
 @layer base {
   body {
     -webkit-font-smoothing: antialiased;
@@ -20,6 +32,16 @@
 
   ::selection {
     @apply bg-gold/20 text-navy;
+  }
+
+  /* Mobile tap target baseline — every <button> gets a 44px min hit area
+     on phones. On md+ desktops, let the component's own sizing win (buttons
+     often 28-36px tall there). Opt out with .tap-compact for deliberately
+     tight icon buttons. */
+  @media (max-width: 767px) {
+    button:not(.tap-compact):not(.segmented-control button) {
+      min-height: 44px;
+    }
   }
 }
 
@@ -91,6 +113,19 @@
     cursor: not-allowed;
     pointer-events: none;
     box-shadow: none;
+  }
+
+  /* Helper: explicit 44x44 tap target for icon-only or tight buttons that
+     need to remain tappable on touch but keep their visual size. */
+  .tap-target {
+    @apply min-h-[44px] min-w-[44px] inline-flex items-center justify-center;
+  }
+
+  /* Mobile-anchored modal / desktop-centered. Mobile = bottom sheet with
+     rounded top corners; desktop (sm+) = centered dialog with rounded corners. */
+  .modal-sheet {
+    @apply fixed inset-x-0 bottom-0 sm:inset-0 sm:m-auto sm:max-w-md sm:h-fit
+           rounded-t-2xl sm:rounded-2xl;
   }
 
   /* Premium Inputs */
@@ -278,7 +313,8 @@
     max-width: 250px;
     transform: translateY(4px) translateX(-50%);
   }
-  .info-tooltip:hover .info-tooltip-text {
+  .info-tooltip:hover .info-tooltip-text,
+  .info-tooltip.info-tooltip-open .info-tooltip-text {
     @apply visible opacity-100;
     transition-delay: 0ms;
     transform: translateY(0) translateX(-50%);
@@ -293,7 +329,8 @@
     left: 50%;
     transform: translateY(-4px) translateX(-50%);
   }
-  .info-tooltip-bottom:hover .info-tooltip-text {
+  .info-tooltip-bottom:hover .info-tooltip-text,
+  .info-tooltip-bottom.info-tooltip-open .info-tooltip-text {
     transition-delay: 0ms;
     transform: translateY(0) translateX(-50%);
   }
@@ -302,7 +339,8 @@
     top: 50%;
     transform: translateY(-50%) translateX(4px);
   }
-  .info-tooltip-left:hover .info-tooltip-text {
+  .info-tooltip-left:hover .info-tooltip-text,
+  .info-tooltip-left.info-tooltip-open .info-tooltip-text {
     transition-delay: 0ms;
     transform: translateY(-50%) translateX(0);
   }
@@ -311,7 +349,8 @@
     top: 50%;
     transform: translateY(-50%) translateX(-4px);
   }
-  .info-tooltip-right:hover .info-tooltip-text {
+  .info-tooltip-right:hover .info-tooltip-text,
+  .info-tooltip-right.info-tooltip-open .info-tooltip-text {
     transition-delay: 0ms;
     transform: translateY(-50%) translateX(0);
   }

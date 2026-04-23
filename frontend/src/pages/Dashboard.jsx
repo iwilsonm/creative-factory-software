@@ -320,8 +320,9 @@ export default function Dashboard() {
                   </p>
 
                   {recurringCosts.breakdown && recurringCosts.breakdown.length > 0 && (
-                    <div className="mt-4 ml-11">
-                      <table className="w-full text-[11px]">
+                    <div className="mt-4 ml-0 md:ml-11">
+                      {/* Desktop: table */}
+                      <table className="hidden md:table w-full text-[11px]">
                         <thead>
                           <tr className="border-b border-black/5">
                             <th className="text-left font-medium text-textlight uppercase tracking-wider pb-2 pr-3">Component</th>
@@ -363,6 +364,30 @@ export default function Dashboard() {
                           </tfoot>
                         )}
                       </table>
+
+                      {/* Mobile: card stack */}
+                      <div className="md:hidden space-y-2">
+                        {recurringCosts.breakdown.map((row, i) => (
+                          <div key={i} className={`bg-white/40 border border-black/5 rounded-lg p-2.5 text-[12px]${row.collecting ? ' opacity-50' : ''}`}>
+                            <div className="font-medium text-textdark mb-0.5">{row.label}</div>
+                            <div className="text-[10px] text-textlight mb-1.5">
+                              {row.collecting ? 'collecting data...' : row.description}
+                              {row.per_ad > 0 && <> — ${row.per_ad.toFixed(3)}/ad</>}
+                            </div>
+                            <div className="grid grid-cols-3 gap-2 text-[11px]">
+                              <div><div className="text-textlight uppercase text-[9px] tracking-wide">7d</div><div className="text-textmid">${(row.period_total || 0).toFixed(2)}</div></div>
+                              <div><div className="text-textlight uppercase text-[9px] tracking-wide">Daily</div><div className="font-medium text-textdark">{row.collecting ? '—' : `$${(row.daily_avg || 0).toFixed(2)}`}</div></div>
+                              <div><div className="text-textlight uppercase text-[9px] tracking-wide">Share</div><div className="text-textmid">{row.collecting ? '—' : `${row.pct || 0}%`}</div></div>
+                            </div>
+                          </div>
+                        ))}
+                        {recurringCosts.breakdown.length > 1 && (
+                          <div className="pt-2 border-t border-black/10 flex justify-between text-[12px]">
+                            <span className="font-medium text-textmid">Total daily</span>
+                            <span className="font-semibold text-textdark">${(recurringCosts.estimatedDailyCost || 0).toFixed(2)}</span>
+                          </div>
+                        )}
+                      </div>
                     </div>
                   )}
                 </>

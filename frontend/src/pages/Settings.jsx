@@ -2,212 +2,9 @@ import { useState, useEffect } from 'react';
 import { api } from '../api';
 import Layout from '../components/Layout';
 import InfoTooltip from '../components/InfoTooltip';
-import DragDropUpload from '../components/DragDropUpload';
 import TodoWidget from '../components/TodoWidget';
 import ConfirmDialog from '../components/ConfirmDialog';
 import { useToast } from '../components/Toast';
-
-// ─── Single reference doc upload slot (reusable) ─────────────────────────
-function ReferenceDocSlot({ docKey, label, description, content, onSave, onDelete }) {
-  const toast = useToast();
-  const [pasteContent, setPasteContent] = useState('');
-  const [saving, setSaving] = useState(false);
-  const [editing, setEditing] = useState(false);
-  const [expanded, setExpanded] = useState(false);
-  const [deleting, setDeleting] = useState(false);
-  const [confirmingDelete, setConfirmingDelete] = useState(false);
-
-  const handleSave = async () => {
-    if (!pasteContent.trim()) { toast.error('Please enter or upload content'); return; }
-    setSaving(true);
-    try {
-      await onSave(docKey, pasteContent.trim());
-      toast.success(`${label} saved`);
-      setPasteContent('');
-      setEditing(false);
-    } catch (err) {
-      toast.error('Failed to save: ' + (err.message || 'Unknown error'));
-    } finally { setSaving(false); }
-  };
-
-  const handleDelete = async () => {
-    setDeleting(true);
-    try {
-      await onDelete(docKey);
-      toast.success(`${label} removed`);
-      setConfirmingDelete(false);
-    } catch (err) {
-      toast.error('Failed to delete: ' + (err.message || 'Unknown error'));
-    } finally { setDeleting(false); }
-  };
-
-  const handleFileExtracted = (result) => {
-    setPasteContent(result.text);
-    toast.success(`Extracted ${result.charCount.toLocaleString()} characters from ${result.filename}`);
-  };
-
-  const deleteDialog = (
-    <ConfirmDialog
-      open={confirmingDelete}
-      title={`Remove ${label}?`}
-      message="This removes the stored reference document from settings."
-      confirmLabel="Remove"
-      busy={deleting}
-      onCancel={() => setConfirmingDelete(false)}
-      onConfirm={handleDelete}
-    />
-  );
-
-  if (content && !editing) {
-    return (
-      <>
-        <div className="card p-3">
-          <div className="flex items-start justify-between mb-1">
-            <div className="flex items-center gap-2">
-              <h4 className="text-[12px] font-medium text-textdark">{label}</h4>
-              <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-teal/10 text-teal">Uploaded</span>
-            </div>
-            <div className="flex items-center gap-2">
-              <button onClick={() => { setEditing(true); setPasteContent(content); }} className="action-link">Replace</button>
-              <button onClick={() => setConfirmingDelete(true)} disabled={deleting} className="action-link-danger disabled:opacity-50">
-                {deleting ? 'Removing...' : 'Remove'}
-              </button>
-            </div>
-          </div>
-          <div className="flex items-center gap-3 mb-1 text-[10px] text-textlight">
-            <span>{content.length.toLocaleString()} characters</span>
-          </div>
-          <button onClick={() => setExpanded(prev => !prev)} className="text-[10px] text-textmid hover:text-textdark flex items-center gap-1">
-            <svg className={`w-2.5 h-2.5 transition-transform ${expanded ? 'rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-              <path strokeLinecap="round" strokeLinejoin="round" d="M8.25 4.5l7.5 7.5-7.5 7.5" />
-            </svg>
-            {expanded ? 'Hide' : 'Preview'}
-          </button>
-          {expanded && (
-            <div className="mt-2 max-h-[200px] overflow-y-auto text-[11px] text-textmid whitespace-pre-wrap bg-offwhite rounded-lg p-2.5 border border-black/5">
-              {content.slice(0, 2000)}{content.length > 2000 ? '...' : ''}
-            </div>
-          )}
-        </div>
-        {deleteDialog}
-      </>
-    );
-  }
-
-  return (
-    <>
-      <div className="card p-3 border-dashed border-black/10 space-y-2">
-        <p className="text-[12px] font-medium text-textdark">{label}</p>
-        {description && <p className="text-[10px] text-textlight">{description}</p>}
-        <DragDropUpload
-          onTextExtracted={handleFileExtracted}
-          accept=".pdf,.docx,.epub,.mobi,.txt,.html,.htm,.md,.markdown"
-          label="Drop file (PDF, DOCX, TXT, etc.)"
-          compact
-        />
-        <textarea
-          value={pasteContent}
-          onChange={(e) => setPasteContent(e.target.value)}
-          placeholder="Or paste content here..."
-          rows={3}
-          className="input-apple w-full text-[12px] resize-y"
-        />
-        {pasteContent && <p className="text-[10px] text-textlight">{pasteContent.length.toLocaleString()} characters</p>}
-        <div className="flex items-center gap-2">
-          <button onClick={handleSave} disabled={saving || !pasteContent.trim()} className="btn-primary text-[11px] px-3 py-1 disabled:opacity-50">
-            {saving ? 'Saving...' : 'Save'}
-          </button>
-          {editing && (
-            <button onClick={() => { setEditing(false); setPasteContent(''); }} className="btn-secondary text-[11px] px-3 py-1">Cancel</button>
-          )}
-        </div>
-      </div>
-      {deleteDialog}
-    </>
-  );
-}
-
-// ─── Headline Generator Reference Docs (3 documents for Copywriter) ─────
-function HeadlineGeneratorRefsSection() {
-  const [docs, setDocs] = useState({ engine: null, greatest: null, swipe: null });
-  const [loading, setLoading] = useState(true);
-
-  useEffect(() => { loadDocs(); }, []);
-
-  const loadDocs = async () => {
-    try {
-      const data = await api.getHeadlineReferences();
-      setDocs({
-        engine: data.engine || null,
-        greatest: data.greatest || null,
-        swipe: data.swipe || null,
-      });
-    } catch (err) {
-      console.error('Failed to load headline references:', err);
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const handleSave = async (docKey, content) => {
-    await api.uploadHeadlineRef(docKey, content);
-    await loadDocs();
-  };
-
-  const handleDelete = async (docKey) => {
-    await api.deleteHeadlineRef(docKey);
-    await loadDocs();
-  };
-
-  if (loading) return null;
-
-  const uploadedCount = [docs.engine, docs.greatest, docs.swipe].filter(Boolean).length;
-
-  return (
-    <div className="card p-6">
-      <div className="flex items-center gap-2 mb-1">
-        <div className="w-6 h-6 rounded-lg bg-navy/10 flex items-center justify-center">
-          <svg className="w-3.5 h-3.5 text-navy" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-            <path strokeLinecap="round" strokeLinejoin="round" d="M3.75 13.5l10.5-11.25L12 10.5h8.25L9.75 21.75 12 13.5H3.75z" />
-          </svg>
-        </div>
-        <h2 className="text-[15px] font-semibold text-textdark tracking-tight">Headline Generator Reference Docs</h2>
-        <span className="text-[10px] font-medium px-2 py-0.5 rounded-full bg-navy/10 text-navy">Copywriter</span>
-        <InfoTooltip text="Upload 3 reference documents used by the Copywriter's headline generation step. Claude uses these as frameworks when creating direct response headlines from mined quotes." />
-      </div>
-      <p className="text-[12px] text-textmid mb-4">
-        {uploadedCount}/3 documents uploaded. These power the "Generate Headlines" button in the Copywriter.
-      </p>
-
-      <div className="space-y-3">
-        <ReferenceDocSlot
-          docKey="engine"
-          label="1. Headline Engine (Methodology)"
-          description="THE DIRECT RESPONSE HEADLINE ENGINE — headline writing methodology and rules"
-          content={docs.engine}
-          onSave={handleSave}
-          onDelete={handleDelete}
-        />
-        <ReferenceDocSlot
-          docKey="greatest"
-          label="2. 100 Greatest Headlines"
-          description="100 Greatest Headlines Ever Used — classic headline examples"
-          content={docs.greatest}
-          onSave={handleSave}
-          onDelete={handleDelete}
-        />
-        <ReferenceDocSlot
-          docKey="swipe"
-          label="3. 349 Headlines Swipe File"
-          description="349 Great Headlines / Halbert Swipe File — direct response templates"
-          content={docs.swipe}
-          onSave={handleSave}
-          onDelete={handleDelete}
-        />
-      </div>
-    </div>
-  );
-}
 
 // ─── User Management Card ─────────────────────────────────────────────
 const ROLE_OPTIONS = [
@@ -535,15 +332,7 @@ export default function Settings() {
     gemini_rate_1k: '',
     gemini_rate_2k: '',
     gemini_rate_4k: '',
-    // Phase 1 + 2 LP image-selection settings
-    openai_lp_image_strategy_model: '',
-    daily_lp_generation_cap: '',
-    daily_lp_regenerate_cap: '',
-    daily_gemini_lp_budget_usd: '',
-    lp_manual_image_selection_enabled_by_project: '',
   });
-  const [modelTestResult, setModelTestResult] = useState(null); // { success, message } | null
-  const [modelTesting, setModelTesting] = useState(false);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
@@ -570,11 +359,6 @@ export default function Settings() {
         gemini_rate_1k: data.gemini_rate_1k || '',
         gemini_rate_2k: data.gemini_rate_2k || '',
         gemini_rate_4k: data.gemini_rate_4k || '',
-        openai_lp_image_strategy_model: data.openai_lp_image_strategy_model || '',
-        daily_lp_generation_cap: data.daily_lp_generation_cap || '',
-        daily_lp_regenerate_cap: data.daily_lp_regenerate_cap || '',
-        daily_gemini_lp_budget_usd: data.daily_gemini_lp_budget_usd || '',
-        lp_manual_image_selection_enabled_by_project: data.lp_manual_image_selection_enabled_by_project || '',
       }));
       // (Cloudflare Pages projects removed — LP publishing now uses Shopify via Director config)
     } catch (err) {
@@ -597,12 +381,6 @@ export default function Settings() {
       if (form.gemini_rate_1k) payload.gemini_rate_1k = form.gemini_rate_1k;
       if (form.gemini_rate_2k) payload.gemini_rate_2k = form.gemini_rate_2k;
       if (form.gemini_rate_4k) payload.gemini_rate_4k = form.gemini_rate_4k;
-      // Phase 1 + 2 LP image-selection settings
-      if (form.openai_lp_image_strategy_model) payload.openai_lp_image_strategy_model = form.openai_lp_image_strategy_model;
-      if (form.daily_lp_generation_cap) payload.daily_lp_generation_cap = form.daily_lp_generation_cap;
-      if (form.daily_lp_regenerate_cap) payload.daily_lp_regenerate_cap = form.daily_lp_regenerate_cap;
-      if (form.daily_gemini_lp_budget_usd) payload.daily_gemini_lp_budget_usd = form.daily_gemini_lp_budget_usd;
-      if (form.lp_manual_image_selection_enabled_by_project) payload.lp_manual_image_selection_enabled_by_project = form.lp_manual_image_selection_enabled_by_project;
       await api.updateSettings(payload);
       toast.success('Settings saved');
       setMessage('');
@@ -613,21 +391,6 @@ export default function Settings() {
     } finally {
       setSaving(false);
     }
-  };
-
-  // Phase 2 (PEF item G) — verify the LP image-strategy model is callable.
-  const testImageStrategyModel = async () => {
-    const target = (form.openai_lp_image_strategy_model || settings.openai_lp_image_strategy_model || 'gpt-5.4').trim();
-    if (!target) { setModelTestResult({ success: false, message: 'Enter a model name first.' }); return; }
-    setModelTesting(true);
-    setModelTestResult(null);
-    try {
-      const result = await api.testOpenAIModel(target);
-      setModelTestResult({ success: true, message: result.message || `Model "${target}" is available.` });
-    } catch (err) {
-      setModelTestResult({ success: false, message: err.message || 'Model test failed.' });
-    }
-    setModelTesting(false);
   };
 
   const testConnection = async (service) => {
@@ -805,115 +568,10 @@ export default function Settings() {
               {testResults.gemini && <p className="text-[12px] text-textlight mt-1">{testResults.gemini}</p>}
             </div>
 
-            {/* ── Phase 1 + 2 — LP Image Selection settings ── */}
-            <div className="border-t border-black/5 pt-4 mt-4">
-              <p className="text-[11px] text-textlight mb-3 flex items-center gap-1.5">
-                <span className="inline-flex items-center px-1.5 py-0.5 rounded-md bg-gold/15 text-gold font-medium">LP Image Selection</span>
-                Manual image-selection flow (PEF plan 2026-04-21)
-              </p>
-            </div>
-
-            <div>
-              <label className="block text-[13px] font-medium text-textmid mb-1.5">
-                LP image-strategy model
-                <span className="ml-1 text-[11px] text-textlight font-normal">(default: gpt-5.4 → falls back to gpt-5.2)</span>
-              </label>
-              <div className="flex gap-2">
-                <input
-                  type="text"
-                  value={form.openai_lp_image_strategy_model}
-                  onChange={e => setForm(p => ({ ...p, openai_lp_image_strategy_model: e.target.value }))}
-                  className="input-apple flex-1"
-                  placeholder={settings.openai_lp_image_strategy_model || 'gpt-5.4'}
-                />
-                <button
-                  onClick={testImageStrategyModel}
-                  disabled={modelTesting}
-                  className="btn-secondary text-[13px] whitespace-nowrap inline-flex items-center gap-1.5"
-                  title="Fire a 1-token chat call to verify the model is available now (catches typos + deprecations at config time)"
-                >
-                  {modelTesting && (
-                    <svg className="w-3.5 h-3.5 animate-spin" viewBox="0 0 24 24" fill="none">
-                      <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" strokeDasharray="31.4 31.4" strokeLinecap="round" />
-                    </svg>
-                  )}
-                  Test Model
-                </button>
-              </div>
-              {modelTestResult && (
-                <p className={`text-[12px] mt-1 ${modelTestResult.success ? 'text-teal' : 'text-red-600'}`}>
-                  {modelTestResult.success ? '✓ ' : '✗ '}{modelTestResult.message}
-                </p>
-              )}
-            </div>
-
-            <div className="grid grid-cols-1 md:grid-cols-3 gap-3">
-              <div>
-                <label className="block text-[13px] font-medium text-textmid mb-1.5">Daily LP gen cap</label>
-                <input
-                  type="number"
-                  min="0"
-                  value={form.daily_lp_generation_cap}
-                  onChange={e => setForm(p => ({ ...p, daily_lp_generation_cap: e.target.value }))}
-                  className="input-apple"
-                  placeholder={settings.daily_lp_generation_cap || '10'}
-                />
-                <p className="text-[10px] text-textlight mt-1">LPs/day per project</p>
-              </div>
-              <div>
-                <label className="block text-[13px] font-medium text-textmid mb-1.5">Daily regen cap</label>
-                <input
-                  type="number"
-                  min="0"
-                  value={form.daily_lp_regenerate_cap}
-                  onChange={e => setForm(p => ({ ...p, daily_lp_regenerate_cap: e.target.value }))}
-                  className="input-apple"
-                  placeholder={settings.daily_lp_regenerate_cap || '30'}
-                />
-                <p className="text-[10px] text-textlight mt-1">Image regens/day/project</p>
-              </div>
-              <div>
-                <label className="block text-[13px] font-medium text-textmid mb-1.5">Daily Gemini $ cap</label>
-                <input
-                  type="number"
-                  step="0.50"
-                  min="0"
-                  value={form.daily_gemini_lp_budget_usd}
-                  onChange={e => setForm(p => ({ ...p, daily_gemini_lp_budget_usd: e.target.value }))}
-                  className="input-apple"
-                  placeholder={settings.daily_gemini_lp_budget_usd || '5.00'}
-                />
-                <p className="text-[10px] text-textlight mt-1">USD/day. 0 disables.</p>
-              </div>
-            </div>
-
-            <div>
-              <label className="block text-[13px] font-medium text-textmid mb-1.5">
-                Manual image-selection enabled (per-project JSON map)
-                <span className="ml-1 text-[11px] text-textlight font-normal">e.g. {`{"project-id": true}`}</span>
-              </label>
-              <textarea
-                rows={2}
-                value={form.lp_manual_image_selection_enabled_by_project}
-                onChange={e => setForm(p => ({ ...p, lp_manual_image_selection_enabled_by_project: e.target.value }))}
-                className="input-apple font-mono text-[12px]"
-                placeholder={settings.lp_manual_image_selection_enabled_by_project || '{}'}
-              />
-              <p className="text-[10px] text-textlight mt-1">
-                Set a project ID to <code>true</code> to enable the new image-selection flow on that project. Leave empty for default (off, legacy flow).
-              </p>
-            </div>
-
-            <div className="border-t border-black/5 pt-4 mt-4">
-              <p className="text-[11px] text-textlight mb-3 flex items-center gap-1.5">
-                <span className="inline-flex items-center px-1.5 py-0.5 rounded-md bg-navy/5 text-navy font-medium">Copywriter</span>
-                Required for the Copywriter feature
-              </p>
-            </div>
-
             <div>
               <label className="block text-[13px] font-medium text-textmid mb-1.5">
                 Perplexity API Key
+                <span className="ml-1 text-[11px] text-textlight font-normal">(used by Quote Mining search)</span>
               </label>
               <div className="flex gap-2">
                 <input
@@ -1043,11 +701,6 @@ export default function Settings() {
             Sync OpenAI Costs Now
           </button>
         </div>
-
-        {/* Cloudflare Pages section removed — LP publishing now uses Shopify via Director config in Agent Dashboard */}
-
-        {/* Headline Generator Reference Docs (Copywriter + Ad Studio Juicer) */}
-        <HeadlineGeneratorRefsSection />
 
         {/* Save button */}
         <button
