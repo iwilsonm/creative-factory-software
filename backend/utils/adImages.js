@@ -4,7 +4,7 @@
  * Extracted from routes/ads.js to keep route handlers thin.
  */
 
-import { downloadToBuffer, getAdImageUrl, getQuoteBankQuote } from '../convexClient.js';
+import { downloadToBuffer, getAdImageUrl } from '../convexClient.js';
 import { withRetry } from '../services/retry.js';
 import sharp from 'sharp';
 import fs from 'fs';
@@ -24,32 +24,6 @@ export async function getProjectProductImage(project) {
     console.warn('[Ads] Could not load project product image:', err.message);
     return null;
   }
-}
-
-/**
- * Enrich an ads array with image URLs and resolved source quote text.
- * @param {Array<object>} ads - Array of ad creative records from Convex
- * @param {string} projectId
- * @returns {Promise<Array<object>>} Ads with imageUrl, thumbnailUrl, and source_quote_text added
- */
-export async function enrichAdsWithQuotes(ads, projectId) {
-  // Resolve source quote text for ads linked to quote bank
-  const quoteIds = [...new Set(ads.filter(a => a.source_quote_id).map(a => a.source_quote_id))];
-  const quoteTexts = {};
-  await Promise.all(quoteIds.map(async (qid) => {
-    try {
-      const q = await getQuoteBankQuote(qid);
-      if (q) quoteTexts[qid] = q.quote;
-    } catch { /* non-critical */ }
-  }));
-
-  return ads.map(ad => ({
-    ...ad,
-    imageUrl: ad.resolvedImageUrl
-      || (ad.storageId ? `/api/projects/${projectId}/ads/${ad.id}/image` : null),
-    thumbnailUrl: ad.storageId ? `/api/projects/${projectId}/ads/${ad.id}/thumbnail` : null,
-    source_quote_text: ad.source_quote_id ? (quoteTexts[ad.source_quote_id] || null) : null,
-  }));
 }
 
 /**

@@ -1,7 +1,9 @@
 import OpenAI from 'openai';
+import { toFile } from 'openai/uploads';
+import sharp from 'sharp';
 import { getSetting } from '../convexClient.js';
 import { withRetry } from './retry.js';
-import { logOpenAICost } from './costTracker.js';
+import { logOpenAICost, logOpenAIImageCost } from './costTracker.js';
 
 let client = null;
 let lastApiKey = null;
@@ -326,3 +328,92 @@ export async function chatWithImages(messages, text, images, model = 'gpt-4.1', 
   logCostFromResponse(response, model, { operation, projectId });
   return response.choices[0].message.content;
 }
+
+// =============================================
+// Image generation — OpenAI gpt-image-2 family
+// =============================================
+
+// gpt-image-2 supports "flexible image sizes" per docs but specific allowed strings
+// aren't enumerated publicly. These map to values that gpt-image-1 accepted — if
+// gpt-image-2 rejects any, the API error surfaces in the caller's toast verbatim.
+const ASPECT_TO_SIZE = {
+  '1:1': '1024x1024',
+  '4:5': '1024x1280',
+  '9:16': '1024x1536',
+  '16:9': '1536x1024',
+};
+const SIZE_FALLBACK = '1024x1024';
+const DEFAULT_IMAGE_MODEL = 'gpt-image-2-2026-04-21';
+
+/**
+ * Generate an ad image via OpenAI's Images API.
+ *
+ * Signature intentionally matches `gemini.js#generateImage` so `adGenerator.js`
+ * can branch between providers without per-call shape changes.
+ *
+ * @param {string} prompt - Image generation prompt
+ * @param {string} [aspectRatio='1:1'] - '1:1' | '4:5' | '9:16' | '16:9'
+ * @param {Buffer|null} [productImage=null] - Optional product reference image
+ * @param {object} [options]
+ * @param {string|null} [options.projectId]
+ * @param {string} [options.operation='ad_image_generation']
+ * @param {string} [options.imageModel] - Defaults to gpt-image-2-2026-04-21
+ * @returns {Promise<{ imageBuffer: Buffer, mimeType: string, textResponse: string }>}
+ */
+export async function generateImage(prompt, aspectRatio = '1:1', productImage = null, options = {}) {
+  const {
+    projectId = null,
+    operation = 'ad_image_generation',
+    imageModel = DEFAULT_IMAGE_MODEL,
+  } = options;
+
+  const openai = await getClient();
+  const size = ASPECT_TO_SIZE[aspectRatio] || SIZE_FALLBACK;
+
+  const response = await withRetry(
+    async () => {
+      if (productImage) {
+        // /v1/images/edits expects a PNG file-like for the reference image.
+        const pngBuffer = await sharp(productImage).png().toBuffer();
+        const file = await toFile(pngBuffer, 'reference.png', { type: 'image/png' });
+        return openai.images.edit({
+          model: imageModel,
+          image: file,
+          prompt,
+          size,
+          n: 1,
+          response_format: 'b64_json',
+        });
+      }
+      return openai.images.generate({
+        model: imageModel,
+        prompt,
+        size,
+        n: 1,
+        response_format: 'b64_json',
+      });
+    },
+    {
+      maxRetries: 2,
+      label: '[OpenAI generateImage]',
+      shouldRetry: (err) => {
+        // Don't retry fatal states — model-not-found, auth, tier gate.
+        const status = err?.status || err?.response?.status;
+        if (status === 400 || status === 401 || status === 403 || status === 404) return false;
+        const msg = String(err?.message || '').toLowerCase();
+        if (msg.includes('model') && (msg.includes('not found') || msg.includes('does not exist'))) return false;
+        return true;
+      },
+    }
+  );
+
+  const b64 = response?.data?.[0]?.b64_json;
+  if (!b64) throw new Error('OpenAI image generation returned no image data');
+  const imageBuffer = Buffer.from(b64, 'base64');
+
+  // Fire-and-forget cost log — matches logGeminiCost pattern.
+  logOpenAIImageCost(projectId, operation, size, imageModel).catch(() => {});
+
+  return { imageBuffer, mimeType: 'image/png', textResponse: '' };
+}
+

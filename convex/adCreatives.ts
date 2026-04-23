@@ -74,7 +74,6 @@ export const getGalleryByProject = query({
       parent_ad_id: ad.parent_ad_id,
       tags: ad.tags,
       is_favorite: ad.is_favorite,
-      source_quote_id: ad.source_quote_id,
       drive_file_id: ad.drive_file_id,
       drive_url: ad.drive_url,
       has_image_prompt: !!ad.image_prompt,
@@ -165,7 +164,6 @@ export const create = mutation({
     status: v.optional(v.string()),
     auto_generated: v.optional(v.boolean()),
     parent_ad_id: v.optional(v.string()),
-    source_quote_id: v.optional(v.string()),
     batch_job_id: v.optional(v.string()),
     tags: v.optional(v.array(v.string())),
     sub_angle: v.optional(v.string()),
@@ -240,18 +238,6 @@ export const remove = mutation({
     }
     await ctx.db.delete(ad._id);
     await adjustProjectCounters(ctx, ad.project_id, { adCount: -1 });
-  },
-});
-
-// Get ads that have a source_quote_id (linked to quote bank)
-export const getByProjectWithSourceQuote = query({
-  args: { projectId: v.string() },
-  handler: async (ctx, args) => {
-    const ads = await ctx.db
-      .query("ad_creatives")
-      .withIndex("by_project", (q) => q.eq("project_id", args.projectId))
-      .collect();
-    return ads.filter((ad) => ad.source_quote_id);
   },
 });
 

@@ -119,7 +119,7 @@ export async function logOpenAICost({ model, operation, inputTokens, outputToken
  *
  * @param {object} params
  * @param {string} params.model - e.g. 'sonar-pro'
- * @param {string} params.operation - e.g. 'quote_mining'
+ * @param {string} params.operation - descriptive operation name
  * @param {number} params.inputTokens - input tokens used
  * @param {number} params.outputTokens - output tokens used
  * @param {string|null} [params.projectId] - project ID if applicable
@@ -196,6 +196,44 @@ export async function logGeminiCost(projectId, imageCount = 1, resolution = '2K'
 
   } catch (err) {
     console.error('[CostTracker] Failed to log Gemini cost:', err.message);
+    return null;
+  }
+}
+
+/**
+ * Log an OpenAI image-generation cost (fire-and-forget).
+ * Rate is configurable via the `openai_image_rate_per_image` setting (default 0.04 USD).
+ * Separate from logOpenAICost (which is token-based for chat models).
+ *
+ * @param {string|null} projectId
+ * @param {string} operation - e.g. 'ad_image_generation'
+ * @param {string} size - e.g. '1024x1024'
+ * @param {string} [model] - The model used, stored in operation breakdown
+ * @returns {Promise<object|null>} The cost record (or null on failure)
+ */
+export async function logOpenAIImageCost(projectId, operation, size, model) {
+  try {
+    const rateStr = await getSetting('openai_image_rate_per_image');
+    const rate = rateStr ? parseFloat(rateStr) : 0.04;
+    if (!Number.isFinite(rate) || rate <= 0) return null;
+
+    const record = {
+      id: uuidv4(),
+      project_id: projectId || null,
+      service: 'openai',
+      operation: operation || 'ad_image_generation',
+      cost_usd: Math.round(rate * 1000000) / 1000000,
+      rate_used: rate,
+      image_count: 1,
+      resolution: size,
+      source: 'calculated',
+      period_date: new Date().toISOString().split('T')[0],
+    };
+
+    await logCost(record);
+    return record;
+  } catch (err) {
+    console.error('[CostTracker] Failed to log OpenAI image cost:', err.message);
     return null;
   }
 }

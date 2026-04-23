@@ -23,8 +23,6 @@ import type * as foundationalDocs from "../foundationalDocs.js";
 import type * as headlineHistory from "../headlineHistory.js";
 import type * as inspirationImages from "../inspirationImages.js";
 import type * as projects from "../projects.js";
-import type * as quote_bank from "../quote_bank.js";
-import type * as quote_mining_runs from "../quote_mining_runs.js";
 import type * as sessions from "../sessions.js";
 import type * as settings from "../settings.js";
 import type * as templateImages from "../templateImages.js";
@@ -52,8 +50,6 @@ declare const fullApi: ApiFromModules<{
   headlineHistory: typeof headlineHistory;
   inspirationImages: typeof inspirationImages;
   projects: typeof projects;
-  quote_bank: typeof quote_bank;
-  quote_mining_runs: typeof quote_mining_runs;
   sessions: typeof sessions;
   settings: typeof settings;
   templateImages: typeof templateImages;

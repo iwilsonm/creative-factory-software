@@ -71,13 +71,9 @@ const TABLE_TTL = {
   lp_templates:         5 * 60 * 1000,
   conductor:            2 * 60 * 1000,
   lp_agent_config:      5 * 60 * 1000,
-  quote_bank:           2 * 60 * 1000,
-  quote_mining_runs:    2 * 60 * 1000,
   template_images:      5 * 60 * 1000,
   meta_performance:     2 * 60 * 1000,
   headline_history:     1 * 60 * 1000,
-  lp_headline_history:  1 * 60 * 1000,
-  cmo:                  2 * 60 * 1000,
 };
 const DEFAULT_QUERY_TTL = 60 * 1000;
 
@@ -489,7 +485,6 @@ function convexAdToRow(a) {
     parent_ad_id: a.parent_ad_id || null,
     tags: a.tags || [],
     is_favorite: !!a.is_favorite,
-    source_quote_id: a.source_quote_id || null,
     text_model: a.text_model || null,
     image_model: a.image_model || null,
     created_at: a.created_at,
@@ -523,7 +518,6 @@ function convexAdSummaryToRow(a) {
     parent_ad_id: a.parent_ad_id || null,
     tags: a.tags || [],
     is_favorite: !!a.is_favorite,
-    source_quote_id: a.source_quote_id || null,
     drive_file_id: a.drive_file_id || null,
     drive_url: a.drive_url || null,
     has_edit_prompt: !!a.has_image_prompt,
@@ -1239,134 +1233,6 @@ export async function createDeploymentDuplicate({ id, ad_id, project_id, status,
   });
   invalidateQueryCache('ad_deployments');
   return result;
-}
-
-// =============================================
-// Quote Mining Run helpers
-// =============================================
-
-export async function getQuoteMiningRunsByProject(projectId) {
-  const runs = ensureArray(await cachedQuery('quote_mining_runs', api.quote_mining_runs.getByProject, { projectId }), 'convexClient.getQuoteMiningRunsByProject');
-  return runs.map(r => ({
-    id: r.externalId,
-    project_id: r.project_id,
-    status: r.status,
-    target_demographic: r.target_demographic,
-    problem: r.problem,
-    root_cause: r.root_cause || null,
-    keywords: r.keywords,
-    subreddits: r.subreddits || null,
-    forums: r.forums || null,
-    num_quotes: r.num_quotes || 20,
-    quotes: r.quotes || null,
-    quote_count: r.quote_count || 0,
-    sources_used: r.sources_used || null,
-    error_message: r.error_message || null,
-    duration_ms: r.duration_ms || null,
-    created_at: r.created_at,
-    completed_at: r.completed_at || null,
-  }));
-}
-
-export async function getQuoteMiningRun(externalId) {
-  const r = await queryWithRetry(api.quote_mining_runs.getByExternalId, { externalId });
-  if (!r) return null;
-  return {
-    id: r.externalId,
-    project_id: r.project_id,
-    status: r.status,
-    target_demographic: r.target_demographic,
-    problem: r.problem,
-    root_cause: r.root_cause || null,
-    keywords: r.keywords,
-    subreddits: r.subreddits || null,
-    forums: r.forums || null,
-    num_quotes: r.num_quotes || 20,
-    quotes: r.quotes || null,
-    perplexity_raw: r.perplexity_raw || null,
-    claude_raw: r.claude_raw || null,
-    quote_count: r.quote_count || 0,
-    sources_used: r.sources_used || null,
-    error_message: r.error_message || null,
-    duration_ms: r.duration_ms || null,
-    headlines: r.headlines || null,
-    headlines_generated_at: r.headlines_generated_at || null,
-    created_at: r.created_at,
-    completed_at: r.completed_at || null,
-  };
-}
-
-// =============================================
-// Quote Bank helpers
-// =============================================
-
-export async function getQuoteBankByProject(projectId) {
-  const quotes = ensureArray(await cachedQuery('quote_bank', api.quote_bank.getByProject, { projectId }), 'convexClient.getQuoteBankByProject');
-  return quotes.map(q => ({
-    id: q.externalId,
-    project_id: q.project_id,
-    quote: q.quote,
-    source: q.source || null,
-    source_url: q.source_url || null,
-    emotion: q.emotion || null,
-    emotional_intensity: q.emotional_intensity || null,
-    context: q.context || null,
-    run_id: q.run_id,
-    problem: q.problem || null,
-    tags: q.tags || [],
-    is_favorite: q.is_favorite || false,
-    headlines: q.headlines || null,
-    headlines_generated_at: q.headlines_generated_at || null,
-    created_at: q.created_at,
-  }));
-}
-
-export async function getQuoteBankQuote(externalId) {
-  const q = await queryWithRetry(api.quote_bank.getByExternalId, { externalId });
-  if (!q) return null;
-  return {
-    id: q.externalId,
-    project_id: q.project_id,
-    quote: q.quote,
-    source: q.source || null,
-    source_url: q.source_url || null,
-    emotion: q.emotion || null,
-    emotional_intensity: q.emotional_intensity || null,
-    context: q.context || null,
-    run_id: q.run_id,
-    problem: q.problem || null,
-    tags: q.tags || [],
-    is_favorite: q.is_favorite || false,
-    headlines: q.headlines || null,
-    headlines_generated_at: q.headlines_generated_at || null,
-    created_at: q.created_at,
-  };
-}
-
-export async function updateQuoteBankQuote(externalId, updates) {
-  await mutationWithRetry(api.quote_bank.update, { externalId, ...updates });
-}
-
-export async function deleteQuoteBankQuote(externalId) {
-  await mutationWithRetry(api.quote_bank.remove, { externalId });
-}
-
-export async function getAdsWithSourceQuote(projectId) {
-  const ads = await queryWithRetry(api.adCreatives.getByProjectWithSourceQuote, { projectId });
-  return ads.map(ad => ({
-    id: ad.externalId,
-    source_quote_id: ad.source_quote_id,
-    headline: ad.headline || null,
-    body_copy: ad.body_copy || null,
-    status: ad.status || null,
-    created_at: ad.created_at,
-  }));
-}
-
-export async function backfillQuoteBankProblems(updates) {
-  return await mutationWithRetry(api.quote_bank.backfillProblems, {
-    updates: JSON.stringify(updates),
-  });
 }
 
 // =============================================

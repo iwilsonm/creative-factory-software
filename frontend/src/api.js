@@ -456,42 +456,7 @@ export const api = {
   generateAdHeadlines: (deploymentId, primaryTexts, flexAdId, direction, messages) =>
     request(`/deployments/${deploymentId}/generate-ad-headlines`, { method: 'POST', body: JSON.stringify({ primaryTexts, flexAdId, direction, messages }) }),
 
-  // Quote Mining
-  getQuoteMiningRuns: (projectId) =>
-    request(`/projects/${projectId}/quote-mining`).then(data => normalizeArrayResponse(data, 'runs', 'api.getQuoteMiningRuns.runs')),
-  getQuoteMiningRun: (projectId, runId) => request(`/projects/${projectId}/quote-mining/${runId}`),
-  startQuoteMining: (projectId, config, onEvent) =>
-    streamSSEWithBody(`/projects/${projectId}/quote-mining`, config, onEvent),
-  deleteQuoteMiningRun: (projectId, runId) =>
-    request(`/projects/${projectId}/quote-mining/${runId}`, { method: 'DELETE' }),
-
-  // Quote Miner — auto-suggest keywords/subreddits/forums/facebook groups
-  getQuoteMinerSuggestions: (projectId, targetDemographic, problem) =>
-    request(`/projects/${projectId}/quote-mining/suggestions`, {
-      method: 'POST',
-      body: JSON.stringify({ target_demographic: targetDemographic, problem })
-    }),
-
-  // Headline Generation (from quote mining results)
-  generateHeadlines: (projectId, runId, onEvent) =>
-    streamSSEWithBody(`/projects/${projectId}/quote-mining/${runId}/headlines`, {}, onEvent),
-
-  // Quote Bank
-  getQuoteBank: (projectId) =>
-    request(`/projects/${projectId}/quote-bank`).then(data => normalizeArrayResponse(data, 'quotes', 'api.getQuoteBank.quotes')),
-  toggleQuoteFavorite: (projectId, quoteId) =>
-    request(`/projects/${projectId}/quote-bank/${quoteId}/favorite`, { method: 'PATCH' }),
-  deleteQuoteBankQuote: (projectId, quoteId) =>
-    request(`/projects/${projectId}/quote-bank/${quoteId}`, { method: 'DELETE' }),
-  generateBankHeadlines: (projectId, body, onEvent) =>
-    streamSSEWithBody(`/projects/${projectId}/quote-bank/headlines`, body, onEvent),
-  generateMoreHeadlines: (projectId, quoteId, body, onEvent) =>
-    streamSSEWithBody(`/projects/${projectId}/quote-bank/${quoteId}/generate-more-headlines`, body, onEvent),
-  generateBodyCopy: (projectId, quoteId, headline, targetDemographic, problem, style) =>
-    request(`/projects/${projectId}/quote-bank/${quoteId}/body-copy`, {
-      method: 'POST',
-      body: JSON.stringify({ headline, target_demographic: targetDemographic, problem, style: style || 'short' })
-    }),
+  // Ad Studio — inline generation helpers for composing a single ad
   generateAdAngle: (projectId) =>
     request(`/projects/${projectId}/generate-angle`, { method: 'POST' }),
   generateAdHeadline: (projectId, { angle }) =>
@@ -499,33 +464,13 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ angle: angle || undefined })
     }),
-  generateAdBodyCopy: (projectId, { headline, angle, style, sourceQuoteId }) =>
+  generateAdBodyCopy: (projectId, { headline, angle, style }) =>
     request(`/projects/${projectId}/generate-body-copy`, {
       method: 'POST',
-      body: JSON.stringify({ headline, angle, style: style || 'short', source_quote_id: sourceQuoteId || undefined })
+      body: JSON.stringify({ headline, angle, style: style || 'short' })
     }),
-  getQuoteBankUsage: (projectId) => request(`/projects/${projectId}/quote-bank/usage`),
-  addRunToBank: (projectId, runId) =>
-    request(`/projects/${projectId}/quote-mining/${runId}/add-to-bank`, { method: 'POST' }),
-  importAllRunsToBank: (projectId) =>
-    request(`/projects/${projectId}/quote-mining/import-all`, { method: 'POST' }),
-  backfillQuoteBankProblems: (projectId) =>
-    request(`/projects/${projectId}/quote-bank/backfill-problems`, { method: 'POST' }),
-  updateQuoteBankTags: (projectId, quoteId, tags) =>
-    request(`/projects/${projectId}/quote-bank/${quoteId}/tags`, { method: 'PATCH', body: JSON.stringify({ tags }) }),
-  updateQuoteBankQuote: (projectId, quoteId, fields) =>
-    request(`/projects/${projectId}/quote-bank/${quoteId}`, { method: 'PATCH', body: JSON.stringify(fields) }),
-  bulkUpdateQuoteBank: (projectId, quoteIds, updates) =>
-    request(`/projects/${projectId}/quote-bank/bulk-update`, { method: 'POST', body: JSON.stringify({ quoteIds, updates }) }),
 
-  // Headline Generator Reference Docs (3 separate documents)
-  getHeadlineReferences: () => request('/settings/headline-references'),
-  uploadHeadlineRef: (docKey, content) =>
-    request(`/settings/headline-references/${docKey}`, { method: 'PUT', body: JSON.stringify({ content }) }),
-  deleteHeadlineRef: (docKey) =>
-    request(`/settings/headline-references/${docKey}`, { method: 'DELETE' }),
-
-  // Settings test — Quote Miner
+  // Settings — API-key connectivity tests
   testPerplexity: () => request('/settings/test-perplexity', { method: 'POST' }),
   testAnthropic: () => request('/settings/test-anthropic', { method: 'POST' }),
 

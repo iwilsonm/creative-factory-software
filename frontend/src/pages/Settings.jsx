@@ -332,6 +332,7 @@ export default function Settings() {
     gemini_rate_1k: '',
     gemini_rate_2k: '',
     gemini_rate_4k: '',
+    openai_image_rate_per_image: '',
   });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -359,6 +360,7 @@ export default function Settings() {
         gemini_rate_1k: data.gemini_rate_1k || '',
         gemini_rate_2k: data.gemini_rate_2k || '',
         gemini_rate_4k: data.gemini_rate_4k || '',
+        openai_image_rate_per_image: data.openai_image_rate_per_image || '',
       }));
       // (Cloudflare Pages projects removed — LP publishing now uses Shopify via Director config)
     } catch (err) {
@@ -381,6 +383,7 @@ export default function Settings() {
       if (form.gemini_rate_1k) payload.gemini_rate_1k = form.gemini_rate_1k;
       if (form.gemini_rate_2k) payload.gemini_rate_2k = form.gemini_rate_2k;
       if (form.gemini_rate_4k) payload.gemini_rate_4k = form.gemini_rate_4k;
+      if (form.openai_image_rate_per_image) payload.openai_image_rate_per_image = form.openai_image_rate_per_image;
       await api.updateSettings(payload);
       toast.success('Settings saved');
       setMessage('');
@@ -685,6 +688,19 @@ export default function Settings() {
                 placeholder="e.g., 0.xxx"
               />
             </div>
+          </div>
+
+          <div className="mt-5 pt-5 border-t border-black/5">
+            <label className="block text-[12px] font-medium text-textmid mb-1.5 flex items-center gap-1">
+              OpenAI Image ($/image)
+              <InfoTooltip text="Per-image cost used when Ad Studio generates with GPT Image 2. Adjust when OpenAI publishes real pricing. Defaults to $0.04." position="right" />
+            </label>
+            <input
+              value={form.openai_image_rate_per_image}
+              onChange={e => setForm(p => ({ ...p, openai_image_rate_per_image: e.target.value }))}
+              className="input-apple max-w-xs"
+              placeholder="e.g., 0.04"
+            />
           </div>
         </div>
 

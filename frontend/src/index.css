@@ -146,13 +146,12 @@
     box-shadow: 0 0 0 3px rgba(42, 157, 143, 0.15), inset 0 2px 4px rgba(11, 29, 58, 0.01);
   }
 
-  /* Segmented control / Tabs */
+  /* Segmented control / Tabs — wrap to a new row instead of scrolling horizontally. */
   .segmented-control {
-    @apply inline-flex rounded-xl p-1 max-w-full overflow-x-auto scrollbar-thin;
+    @apply inline-flex flex-wrap rounded-xl p-1 max-w-full gap-1;
     background: rgba(255, 255, 255, 0.4);
     backdrop-filter: blur(10px);
     border: 1px solid rgba(255, 255, 255, 0.5);
-    white-space: nowrap;
   }
   .segmented-control button,
   .segmented-control a {
@@ -172,11 +171,10 @@
   }
 
   .tab-strip {
-    @apply flex gap-1 p-1 rounded-xl max-w-full overflow-x-auto scrollbar-thin;
+    @apply flex flex-wrap gap-1 p-1 rounded-xl max-w-full;
     background: rgba(255, 255, 255, 0.5);
     backdrop-filter: blur(8px);
     border: 1px solid rgba(255, 255, 255, 0.7);
-    white-space: nowrap;
   }
   .tab-chip {
     @apply px-3 py-1.5 rounded-lg text-[12px] font-medium transition-all duration-200 flex-shrink-0 text-gray-500;

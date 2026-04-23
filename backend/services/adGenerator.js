@@ -1,7 +1,25 @@
 import { v4 as uuidv4 } from 'uuid';
 import { chat, chatWithImage, chatWithImages } from './openai.js';
 import { chat as claudeChat, chatWithImage as claudeChatWithImage } from './anthropic.js';
-import { generateImage } from './gemini.js';
+import { generateImage as geminiGenerateImage } from './gemini.js';
+import { generateImage as openaiGenerateImage } from './openai.js';
+
+// Whitelist of allowed image-model strings + which provider handles each.
+// Prevents devtools-injected arbitrary strings from reaching the API.
+const GEMINI_MODELS = new Set(['nano-banana-pro', 'nano-banana-2', 'gemini-3-pro']);
+const OPENAI_IMAGE_MODELS = new Set(['gpt-image-2-2026-04-21', 'gpt-image-2']);
+
+function resolveImageProvider(imageModel) {
+  if (!imageModel || GEMINI_MODELS.has(imageModel)) return geminiGenerateImage;
+  if (OPENAI_IMAGE_MODELS.has(imageModel)) return openaiGenerateImage;
+  throw new Error(`Unknown image model: ${imageModel}`);
+}
+
+function imageModelLabel(imageModel) {
+  if (imageModel === 'nano-banana-2') return 'Nano Banana 2';
+  if (imageModel === 'gpt-image-2-2026-04-21' || imageModel === 'gpt-image-2') return 'GPT Image 2';
+  return 'Nano Banana Pro';
+}
 import { withHeavyLLMLimit } from './rateLimiter.js';
 import {
   getProject, getLatestDoc, uploadBuffer, downloadToBuffer,
@@ -397,7 +415,7 @@ export async function selectTemplateImage(templateImageId) {
  * @returns {Promise<object>} The completed ad creative record
  */
 export async function generateAd(projectId, options = {}) {
-  const { angle, aspectRatio = '1:1', imageModel, inspirationImageId, uploadedImageBase64, uploadedImageMimeType, productImageBase64, productImageMimeType, headline, bodyCopy, sourceQuoteId, onEvent } = options;
+  const { angle, aspectRatio = '1:1', imageModel, inspirationImageId, uploadedImageBase64, uploadedImageMimeType, productImageBase64, productImageMimeType, headline, bodyCopy, onEvent } = options;
 
   const emit = (event) => {
     if (onEvent) {
@@ -418,7 +436,6 @@ export async function generateAd(projectId, options = {}) {
     aspect_ratio: aspectRatio,
     status: 'generating_copy',
     inspiration_image_id: inspirationImageId || undefined,
-    source_quote_id: sourceQuoteId || undefined,
     text_model: 'gpt-5.2',
     image_model: imageModel || 'gemini-3-pro',
   });
@@ -565,13 +582,13 @@ export async function generateAd(projectId, options = {}) {
  * Used by both generateAd() (full pipeline) and regenerateImageOnly() (prompt-only).
  */
 async function generateAndSaveImage({ adId, projectId, project, imagePrompt, aspectRatio, angle, productImage, imageModel, emit, modeLabel = 'Mode1' }) {
-  // Gemini image generation
-  const modelLabel = imageModel === 'nano-banana-2' ? 'Nano Banana 2' : 'Nano Banana Pro';
+  const modelLabel = imageModelLabel(imageModel);
+  const imageGen = resolveImageProvider(imageModel);
   emit({ type: 'status', status: 'generating_image', message: productImage
     ? `Generating image with ${modelLabel} (with product reference)...`
     : `Generating image with ${modelLabel}...`, progress: 70 });
 
-  const { imageBuffer, mimeType: imgMime } = await generateImage(imagePrompt, aspectRatio, productImage, {
+  const { imageBuffer, mimeType: imgMime } = await imageGen(imagePrompt, aspectRatio, productImage, {
     projectId, operation: 'ad_image_generation', imageModel, imageSize: '2K',
   });
 
@@ -633,7 +650,7 @@ async function generateAndSaveImage({ adId, projectId, project, imagePrompt, asp
  * @returns {Promise<object>} The completed ad creative record
  */
 export async function generateAdMode2(projectId, options = {}) {
-  const { templateImageId, angle, aspectRatio = '1:1', imageModel, productImageBase64, productImageMimeType, headline, bodyCopy, sourceQuoteId, onEvent } = options;
+  const { templateImageId, angle, aspectRatio = '1:1', imageModel, productImageBase64, productImageMimeType, headline, bodyCopy, onEvent } = options;
 
   const emit = (event) => {
     if (onEvent) {
@@ -658,7 +675,6 @@ export async function generateAdMode2(projectId, options = {}) {
     aspect_ratio: aspectRatio,
     status: 'generating_copy',
     template_image_id: templateImageId,
-    source_quote_id: sourceQuoteId || undefined,
     text_model: 'gpt-5.2',
     image_model: imageModel || 'gemini-3-pro',
   });

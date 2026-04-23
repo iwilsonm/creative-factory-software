@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { requireAuth } from '../auth.js';
-import { getProject, getLatestDoc, getAdsByProject, getInProgressAdsByProject, getAd, getAdImageUrl, getQuoteBankQuote, convexClient, api } from '../convexClient.js';
+import { getProject, getLatestDoc, getAdsByProject, getInProgressAdsByProject, getAd, getAdImageUrl, convexClient, api } from '../convexClient.js';
 import { generateAd, generateAdMode2, regenerateImageOnly, applyPromptEdit } from '../services/adGenerator.js';
 import { generateBodyCopy } from '../services/bodyCopyGenerator.js';
 import { chat as claudeChat } from '../services/anthropic.js';
@@ -34,7 +34,7 @@ router.post('/:projectId/generate-ad', async (req, res) => {
   const project = await getProject(req.params.projectId);
   if (!project) return res.status(404).json({ error: 'Project not found' });
 
-  let { mode = 'mode1', aspect_ratio, angle, inspiration_image_id, uploaded_image, uploaded_image_mime, product_image, product_image_mime, headline, body_copy, template_image_id, source_quote_id, skip_product_image, image_model } = req.body;
+  let { mode = 'mode1', aspect_ratio, angle, inspiration_image_id, uploaded_image, uploaded_image_mime, product_image, product_image_mime, headline, body_copy, template_image_id, skip_product_image, image_model } = req.body;
 
   // Auto-inject project-level product image if none provided (and not explicitly skipped)
   if (!product_image && !skip_product_image && project.product_image_storageId) {
@@ -64,7 +64,6 @@ router.post('/:projectId/generate-ad', async (req, res) => {
         productImageMimeType: product_image_mime || undefined,
         headline: headline || undefined,
         bodyCopy: body_copy || undefined,
-        sourceQuoteId: source_quote_id || undefined,
         onEvent: sendEvent
       });
     } else {
@@ -79,7 +78,6 @@ router.post('/:projectId/generate-ad', async (req, res) => {
         productImageMimeType: product_image_mime || undefined,
         headline: headline || undefined,
         bodyCopy: body_copy || undefined,
-        sourceQuoteId: source_quote_id || undefined,
         onEvent: sendEvent
       });
     }
@@ -239,26 +237,21 @@ Return ONLY the headline text. No quotes, no labels, no explanation. Under 15 wo
   }
 });
 
-// Generate body copy for Ad Studio (standalone, without a specific quote bank entry)
+// Generate body copy for Ad Studio
 router.post('/:projectId/generate-body-copy', async (req, res) => {
   try {
-    const { headline, angle, style, source_quote_id } = req.body;
+    const { headline, angle, style } = req.body;
     if (!headline) {
       return res.status(400).json({ error: 'headline is required' });
     }
 
-    let quote;
-    if (source_quote_id) {
-      quote = await getQuoteBankQuote(source_quote_id);
-    }
-
-    if (!quote) {
-      quote = {
-        quote: headline,
-        emotion: 'persuasive',
-        emotional_intensity: 'medium',
-      };
-    }
+    // Synthesize a minimal quote object for bodyCopyGenerator's signature.
+    // The real quote-bank integration was removed with Quote Mining.
+    const quote = {
+      quote: headline,
+      emotion: 'persuasive',
+      emotional_intensity: 'medium',
+    };
 
     const project = await getProject(req.params.projectId);
     const targetDemographic = project?.niche || '';
@@ -299,18 +292,7 @@ router.get('/:projectId/ads/:adId', async (req, res) => {
     return res.status(404).json({ error: 'Ad not found' });
   }
 
-  let sourceQuoteText = null;
-  if (ad.source_quote_id) {
-    try {
-      const quote = await getQuoteBankQuote(ad.source_quote_id);
-      sourceQuoteText = quote?.quote || null;
-    } catch {}
-  }
-
-  res.json({
-    ...attachAdMedia(req.params.projectId, ad),
-    source_quote_text: sourceQuoteText,
-  });
+  res.json(attachAdMedia(req.params.projectId, ad));
 });
 
 // Update tags on an ad

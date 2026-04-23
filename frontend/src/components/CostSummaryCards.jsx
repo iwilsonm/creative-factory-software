@@ -41,17 +41,8 @@ const OPERATION_META = {
   doc_correction:                { group: 'docs' },
   auto_describe:                 { group: 'docs' },
   template_analysis:             { group: 'docs' },
-  // Quote Mining
-  quote_mining:                  { group: 'quotes' },
-  quote_mining_web_search:       { group: 'quotes' },
-  quote_mining_suggestions:      { group: 'quotes' },
-  quote_merge_rank:              { group: 'quotes' },
-  quote_deduplication:           { group: 'quotes' },
-  body_copy_generation:          { group: 'quotes' },
-  // Headlines
-  headline_generation:           { group: 'headlines' },
-  headline_generation_per_quote: { group: 'headlines' },
-  headline_generation_more:      { group: 'headlines' },
+  // Ad Studio inline body-copy generation (used by the per-ad compose form)
+  body_copy_generation:          { group: 'ad_gen' },
   // LP Generation
   lp_generation:                 { group: 'lp_gen' },
   lp_html_generation:            { group: 'lp_gen' },
@@ -81,9 +72,6 @@ const OPERATION_META = {
   // Director
   conductor_angle_generation:    { group: 'conductor' },
   conductor_learning_analysis:   { group: 'conductor' },
-  // Copywriter Chat
-  copywriter_chat_init:          { group: 'chat' },
-  copywriter_chat:               { group: 'chat' },
   // OpenAI Billing API (org-wide, not operation-specific)
   openai_billing:                { group: 'billing' },
   openai_billing_gpt5:           { group: 'billing' },
@@ -100,13 +88,10 @@ const OPERATION_GROUPS = {
   batch:     { label: 'Batch Pipeline',      color: 'bg-[#7C6DCD]' },
   images:    { label: 'Image Generation',    color: 'bg-teal' },
   docs:      { label: 'Docs & Research',     color: 'bg-[#5B8DEF]/70' },
-  quotes:    { label: 'Quote Mining',        color: 'bg-gold' },
-  headlines: { label: 'Headlines',           color: 'bg-[#7C6DCD]/70' },
   lp_gen:    { label: 'LP Generation',       color: 'bg-[#7C6DCD]' },
   lp_qa:     { label: 'LP Quality & Fixes',  color: 'bg-[#7C6DCD]/70' },
   filter:    { label: 'Creative Filter',     color: 'bg-[#7C6DCD]' },
   conductor: { label: 'Director',            color: 'bg-[#7C6DCD]' },
-  chat:      { label: 'Copywriter Chat',     color: 'bg-[#7C6DCD]' },
   billing:   { label: 'OpenAI Billing Sync', color: 'bg-[#5B8DEF]/50' },
   other:     { label: 'Other',              color: 'bg-textlight/50' },
 };

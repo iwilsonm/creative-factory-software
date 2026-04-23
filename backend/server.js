@@ -22,7 +22,6 @@ import adRoutes from './routes/ads.js';
 import batchRoutes from './routes/batches.js';
 import costsRoutes from './routes/costs.js';
 import deploymentRoutes from './routes/deployments.js';
-import quoteMiningRoutes from './routes/quoteMining.js';
 import agentMonitorRoutes, { agentCostRouter } from './routes/agentMonitor.js';
 import conductorRoutes from './routes/conductor.js';
 import rateLimit from 'express-rate-limit';
@@ -163,11 +162,8 @@ try {
   app.use('/api/deployments/generate-ad-copy', llmRateLimit);
   app.use('/api/deployments/generate-ad-headlines', llmRateLimit);
   app.use('/api/deployments/filter/generate-copy', llmRateLimit);
-  app.use('/api/quote-mining/start', llmRateLimit);
   app.use('/api/conductor/run', llmRateLimit);
   app.use('/api/conductor/learn', llmRateLimit);
-  app.use('/api/cmo/run', llmRateLimit);
-  app.use('/api/cmo/dry-run', llmRateLimit);
   // NOTE: Generated images are no longer served from local disk.
   // They are served via 302 redirect to Convex storage URLs in the ads route.
 
@@ -278,7 +274,6 @@ try {
   app.use('/api/projects', requireAuth, requireRole('admin', 'manager'), batchRoutes);
   app.use('/api/batches', requireAuth, requireRole('admin', 'manager'), batchRoutes);  // Flat mount for Dacia Fixer retry endpoint
   app.use('/api', requireAuth, requireRole('admin', 'manager'), costsRoutes);
-  app.use('/api/projects', requireAuth, requireRole('admin', 'manager'), quoteMiningRoutes);
   // Routes — agent monitor (admin only)
   app.use('/api/agent-monitor', requireAuth, requireRole('admin'), agentMonitorRoutes);
   app.use('/api/conductor', requireAuth, requireRole('admin', 'manager'), conductorRoutes);

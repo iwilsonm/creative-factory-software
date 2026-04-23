@@ -83,10 +83,12 @@ function normalizeAdRecord(ad) {
 }
 
 function hasAdDetail(ad) {
-  return !!ad && Object.prototype.hasOwnProperty.call(ad, 'source_quote_text');
+  // Detect whether an ad has been fully hydrated (ad list endpoints return a lighter shape).
+  // Uses presence of the `imageUrl` or `headline` fields, which only the single-ad endpoint returns.
+  return !!ad && (Object.prototype.hasOwnProperty.call(ad, 'imageUrl') || Object.prototype.hasOwnProperty.call(ad, 'headline'));
 }
 
-export default function AdStudio({ projectId, project, prefill, onPrefillConsumed }) {
+export default function AdStudio({ projectId, project }) {
   const toast = useToast();
 
   // Prompt guidelines (editable on Ad Studio, synced to project)
@@ -106,7 +108,6 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
   // Body copy generation
   const [bodyCopyStyle, setBodyCopyStyle] = useState('short');
   const [generatingBody, setGeneratingBody] = useState(false);
-  const [sourceQuoteId, setSourceQuoteId] = useState(null);
 
   // Auto-generate states for optional fields
   const [generatingAngle, setGeneratingAngle] = useState(false);
@@ -373,60 +374,10 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
     }, 1500);
   };
 
-  // ── Prefill from Copywriter tab (headline → Ad Studio) ──
-  // Use a ref to track prefill-triggered body copy gen so template analysis doesn't race
+  // Prefill was previously populated from the Copywriter tab's Quote Mining flow.
+  // That feature has been removed; the ref stays as a template-analysis-race guard in case
+  // any future prefill source triggers body-copy generation on mount.
   const prefillBodyGenRef = useRef(false);
-
-  useEffect(() => {
-    if (!prefill) return;
-
-    // Pre-fill the form
-    if (prefill.headline) setHeadline(prefill.headline);
-    if (prefill.problem) setAngle(prefill.problem);
-    if (prefill.sourceQuoteId) setSourceQuoteId(prefill.sourceQuoteId);
-
-    // Open optional fields to show the pre-filled data
-    setOptionalOpen(true);
-
-    // Clear the custom prompt mode if active
-    setCustomPrompt('');
-    setParentAdId(null);
-
-    // Auto-generate body copy (mark prefill as source to prevent template analysis race)
-    if (prefill.headline) {
-      prefillBodyGenRef.current = true;
-      setGeneratingBody(true);
-      api.generateAdBodyCopy(projectId, {
-        headline: prefill.headline,
-        angle: prefill.problem || '',
-        style: bodyCopyStyle,
-        sourceQuoteId: prefill.sourceQuoteId || undefined,
-      }).then(data => {
-        setBodyCopy(data.body_copy || '');
-      }).catch(err => {
-        console.error('Failed to auto-generate body copy:', err);
-        toast.error('Body copy generation failed');
-      }).finally(() => {
-        setGeneratingBody(false);
-        // Allow template analysis to regen body after a brief delay
-        setTimeout(() => { prefillBodyGenRef.current = false; }, 2000);
-      });
-    }
-
-    // Show confirmation toast
-    toast.success(
-      <span>
-        Headline loaded into Ad Studio
-        {prefill.problem ? <span className="text-teal/70"> · Angle: {prefill.problem}</span> : ''}
-      </span>
-    );
-
-    // Notify parent that prefill was consumed
-    if (onPrefillConsumed) onPrefillConsumed();
-
-    // Scroll to top
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  }, [prefill]);
 
   // Load all templates when selecting "Pick a Template"
   useEffect(() => {
@@ -542,7 +493,6 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
             headline: headlineData.headline,
             angle: angle || '',
             style: bodyCopyStyle,
-            sourceQuoteId: sourceQuoteId || undefined,
           });
           setBodyCopy(bodyData.body_copy || '');
         } catch (bodyErr) {
@@ -572,7 +522,6 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
         headline: headline.trim(),
         angle: angle || '',
         style: useStyle,
-        sourceQuoteId: sourceQuoteId || undefined,
       });
       setBodyCopy(data.body_copy || '');
     } catch (err) {
@@ -915,7 +864,6 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
         angle: angle || undefined,
         headline: headline || undefined,
         body_copy: bodyCopy || undefined,
-        source_quote_id: sourceQuoteId || undefined,
         skip_product_image: skipProductImage || undefined
       };
 
@@ -940,7 +888,6 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
         angle: angle || undefined,
         headline: headline || undefined,
         body_copy: bodyCopy || undefined,
-        source_quote_id: sourceQuoteId || undefined,
         skip_product_image: skipProductImage || undefined
       };
 
@@ -1997,18 +1944,19 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
                 >
                   <option value="nano-banana-pro">Nano Banana Pro (Gemini 3 Pro)</option>
                   <option value="nano-banana-2">Nano Banana 2 (Gemini 3.1 Flash)</option>
+                  <option value="gpt-image-2-2026-04-21">GPT Image 2 (OpenAI)</option>
                 </select>
                 <p className="text-[10px] text-textlight mt-1">
-                  {imageModel === 'nano-banana-pro'
-                    ? 'Current default — high-fidelity image generation'
-                    : 'Faster generation, improved text rendering, up to 4K resolution'}
+                  {imageModel === 'nano-banana-pro' && 'High-fidelity Gemini image generation (current default).'}
+                  {imageModel === 'nano-banana-2' && 'Faster Gemini generation with improved text rendering, up to 4K.'}
+                  {imageModel === 'gpt-image-2-2026-04-21' && "OpenAI's newest image model — strong text rendering and reference-image support. Requires OpenAI Tier 1+."}
                 </p>
               </div>
 
               {(angle.trim() || headline.trim() || bodyCopy.trim()) && (
                 <div className="flex justify-end mb-1">
                   <button
-                    onClick={() => { setAngle(''); setHeadline(''); setBodyCopy(''); setSourceQuoteId(null); }}
+                    onClick={() => { setAngle(''); setHeadline(''); setBodyCopy(''); }}
                     className="text-[10px] text-textlight hover:text-red-400 transition-colors"
                   >
                     Clear fields
@@ -2169,14 +2117,6 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
                     className="input-apple resize-none text-[13px]"
                     disabled={generatingBody}
                   />
-                  {sourceQuoteId && (
-                    <p className="text-[10px] text-navy mt-1 flex items-center gap-1">
-                      <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-                        <path strokeLinecap="round" strokeLinejoin="round" d="M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m9.86-3.07a4.5 4.5 0 00-1.242-7.244l4.5-4.5a4.5 4.5 0 016.364 6.364l-1.757 1.757" />
-                      </svg>
-                      Linked to source quote for emotional context
-                    </p>
-                  )}
                 </div>
               </div>
 
@@ -3220,14 +3160,6 @@ export default function AdStudio({ projectId, project, prefill, onPrefillConsume
                       />
                       <span className="text-textmid text-[12px]">{getTemplateName(viewAd.template_image_id)}</span>
                     </div>
-                  </div>
-                )}
-                {viewAd.source_quote_text && (
-                  <div>
-                    <p className="text-[11px] text-textlight mb-0.5">Source Quote</p>
-                    <p className="text-textmid text-[12px] leading-relaxed italic bg-navy/5 p-2.5 rounded-xl border border-navy/10">
-                      &ldquo;{viewAd.source_quote_text}&rdquo;
-                    </p>
                   </div>
                 )}
                 {viewAd.parent_ad_id && (

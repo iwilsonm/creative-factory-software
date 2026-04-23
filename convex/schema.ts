@@ -95,7 +95,6 @@ export default defineSchema({
     parent_ad_id: v.optional(v.string()),
     tags: v.optional(v.array(v.string())),
     is_favorite: v.optional(v.boolean()),    // Heart/favorite toggle in gallery
-    source_quote_id: v.optional(v.string()), // → quote_bank.externalId (ad created from quote)
     batch_job_id: v.optional(v.string()),    // → batch_jobs.externalId (batch that generated this ad)
     copy_framework: v.optional(v.string()),  // Legacy: from removed diversity features
     sub_angle: v.optional(v.string()),       // Secondary variation label within a hook lane
@@ -312,53 +311,6 @@ export default defineSchema({
   })
     .index("by_project", ["project_id"])
     .index("by_project_and_drive_id", ["project_id", "drive_file_id"]),
-
-  quote_mining_runs: defineTable({
-    externalId: v.string(),
-    project_id: v.string(),              // → projects.externalId
-    status: v.string(),                  // running | completed | failed
-    target_demographic: v.string(),
-    problem: v.string(),
-    root_cause: v.optional(v.string()),
-    keywords: v.string(),               // JSON array of keyword strings
-    subreddits: v.optional(v.string()), // JSON array of subreddit names
-    forums: v.optional(v.string()),     // JSON array of forum URLs/names
-    facebook_groups: v.optional(v.string()), // JSON array of Facebook group names
-    num_quotes: v.optional(v.number()), // Target number of quotes (default 20)
-    quotes: v.optional(v.string()),     // JSON array of quote objects
-    perplexity_raw: v.optional(v.string()),
-    claude_raw: v.optional(v.string()),
-    sources_used: v.optional(v.string()),
-    quote_count: v.optional(v.number()),
-    error_message: v.optional(v.string()),
-    duration_ms: v.optional(v.number()),
-    headlines: v.optional(v.string()),              // JSON array of headline strings
-    headlines_generated_at: v.optional(v.string()), // ISO timestamp
-    created_at: v.string(),
-    completed_at: v.optional(v.string()),
-  })
-    .index("by_externalId", ["externalId"])
-    .index("by_project", ["project_id"]),
-
-  quote_bank: defineTable({
-    externalId: v.string(),
-    project_id: v.string(),                        // → projects.externalId
-    quote: v.string(),                             // Verbatim quote text
-    source: v.optional(v.string()),                // e.g., "Reddit r/health"
-    source_url: v.optional(v.string()),
-    emotion: v.optional(v.string()),               // frustration, desperation, anger, etc.
-    emotional_intensity: v.optional(v.string()),    // "high" or "medium"
-    context: v.optional(v.string()),               // 1-sentence context
-    run_id: v.string(),                            // → quote_mining_runs.externalId
-    problem: v.optional(v.string()),               // Denormalized from run — the "angle"
-    tags: v.optional(v.array(v.string())),         // User-applied custom tags
-    is_favorite: v.optional(v.boolean()),
-    headlines: v.optional(v.string()),             // JSON array of headline strings
-    headlines_generated_at: v.optional(v.string()), // ISO timestamp
-    created_at: v.string(),
-  })
-    .index("by_externalId", ["externalId"])
-    .index("by_project", ["project_id"]),
 
   correction_history: defineTable({
     externalId: v.string(),
