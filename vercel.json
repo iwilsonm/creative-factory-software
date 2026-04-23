@@ -1,0 +1,9 @@
+{
+  "buildCommand": "pnpm install --no-frozen-lockfile && cd frontend && pnpm install --no-frozen-lockfile && pnpm build",
+  "outputDirectory": "frontend/dist",
+  "installCommand": "cd backend && pnpm install --no-frozen-lockfile",
+  "functions": {
+    "api/[[...slug]].js": { "memory": 3008, "maxDuration": 300, "runtime": "nodejs22.x" },
+    "api/health.js": { "runtime": "nodejs22.x" }
+  }
+}
