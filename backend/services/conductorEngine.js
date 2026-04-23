@@ -1899,12 +1899,6 @@ async function finalizeSuccessfulTestRun({
     }),
   });
 
-  if (!skipLPGen && bestRound?.batch_id) {
-    triggerLPGeneration(bestRound.batch_id, projectId, angleName).catch((err) => {
-      console.warn(`[Pipeline] LP trigger for ${triggerLabel} ${runId.slice(0, 8)} failed:`, err.message);
-    });
-  }
-
   return {
     readyToPostCount,
     flexAdId,
@@ -2504,9 +2498,6 @@ export async function runTestBatch(projectId, sendEvent, { skipBatchLaunch = fal
       emit({ type: 'progress', step: 'launching_batch', message: `Launching batch pipeline for "${angleInfo.name}"...` });
       runBatch(batchInfo.batch_id).catch(err => {
         console.error(`[Director] Test batch ${batchInfo.batch_id.slice(0, 8)} failed:`, err.message);
-      });
-      triggerLPGeneration(batchInfo.batch_id, projectId, angleInfo.name).catch(err => {
-        console.warn(`[Director] LP trigger for test batch ${batchInfo.batch_id.slice(0, 8)} failed:`, err.message);
       });
     } else {
       emit({ type: 'progress', step: 'launching_batch', message: 'Batch created, starting full pipeline...' });

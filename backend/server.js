@@ -24,11 +24,8 @@ import costsRoutes from './routes/costs.js';
 import deploymentRoutes from './routes/deployments.js';
 import quoteMiningRoutes from './routes/quoteMining.js';
 import metaRoutes, { metaCallbackRouter } from './routes/meta.js';
-import landingPageRoutes from './routes/landingPages.js';
-import lpTemplateRoutes from './routes/lpTemplates.js';
 import agentMonitorRoutes, { agentCostRouter } from './routes/agentMonitor.js';
 import conductorRoutes from './routes/conductor.js';
-import lpAgentRoutes, { filterTriggerRouter } from './routes/lpAgent.js';
 import cmoRoutes from './routes/cmo.js';
 import salesPageRoutes from './routes/salesPages.js';
 import rateLimit from 'express-rate-limit';
@@ -164,10 +161,6 @@ process.on('uncaughtException', (err) => {
   // Apply to generation-heavy routes
   app.use('/api/projects/:id/generate-docs', llmRateLimit);
   app.use('/api/projects/:id/generate-ad', llmRateLimit);
-  app.use('/api/projects/:id/generate-landing-page', llmRateLimit);
-  app.use('/api/projects/:id/lp-agent/generate-test', llmRateLimit);
-  app.use('/api/projects/:id/lp-agent/gauntlet-test', llmRateLimit);
-  app.use('/api/projects/:id/lp-agent/shopify/connect', llmRateLimit);
   app.use('/api/deployments/generate-ad-copy', llmRateLimit);
   app.use('/api/deployments/generate-ad-headlines', llmRateLimit);
   app.use('/api/deployments/filter/generate-copy', llmRateLimit);
@@ -178,16 +171,6 @@ process.on('uncaughtException', (err) => {
   app.use('/api/cmo/dry-run', llmRateLimit);
   app.use('/api/projects/:id/generate-sales-page', llmRateLimit);
   app.use('/api/projects/:id/sales-pages/install-theme', llmRateLimit);
-  // Chief Checkpoint write paths — rate-limited because they hit Shopify /
-  // append to audit_trail / touch the dashboard_todos table. Not LLM-heavy
-  // but still worth a 10/min ceiling so a runaway approve button can't flood
-  // Shopify with publish attempts.
-  app.use('/api/projects/:id/landing-pages/:pageId/approve-and-publish', llmRateLimit);
-  app.use('/api/projects/:id/landing-pages/:pageId/reject-with-notes', llmRateLimit);
-  // Phase K — Filter-triggered LP gen. The Filter cron can POST this every
-  // 30 min per batch, and the handler kicks off Claude Sonnet vision +
-  // full gauntlet behind it, so it's worth a 10/min ceiling.
-  app.use('/api/projects/:id/lp-agent/trigger-from-flex-ad', llmRateLimit);
   // NOTE: Generated images are no longer served from local disk.
   // They are served via 302 redirect to Convex storage URLs in the ads route.
 
@@ -304,17 +287,9 @@ process.on('uncaughtException', (err) => {
   app.use('/api', requireAuth, requireRole('admin', 'manager'), costsRoutes);
   app.use('/api/projects', requireAuth, requireRole('admin', 'manager'), quoteMiningRoutes);
   app.use('/api', requireAuth, requireRole('admin', 'manager'), metaRoutes);
-  app.use('/api/projects', requireAuth, requireRole('admin', 'manager'), landingPageRoutes);
-  app.use('/api/projects', requireAuth, requireRole('admin', 'manager'), lpTemplateRoutes);
   // Routes — agent monitor (admin only)
   app.use('/api/agent-monitor', requireAuth, requireRole('admin'), agentMonitorRoutes);
   app.use('/api/conductor', requireAuth, requireRole('admin', 'manager'), conductorRoutes);
-  // Filter-trigger endpoint must bypass requireAuth so the Creative Filter
-  // cron (which has no user session) can hit it with a shared-secret header.
-  // Mounted BEFORE the requireAuth-protected lpAgentRoutes so Express matches
-  // this specific path here first.
-  app.use('/api/projects', filterTriggerRouter);
-  app.use('/api/projects', requireAuth, requireRole('admin', 'manager'), lpAgentRoutes);
   app.use('/api/cmo', requireAuth, requireRole('admin', 'manager'), cmoRoutes);
   app.use('/api/projects', requireAuth, requireRole('admin', 'manager'), salesPageRoutes);
 

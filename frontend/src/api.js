@@ -364,20 +364,6 @@ export const api = {
   updateConductorConfig: (projectId, data) => request(`/conductor/config/${projectId}`, { method: 'PUT', body: JSON.stringify(data) }).then(r => { invalidateCache(`/conductor/config/${projectId}`, '/conductor/pipeline-status'); return r; }),
   getAllConductorConfigs: () => cachedRequest('/conductor/configs'),
 
-  // LP Agent config
-  getLPAgentConfig: (projectId) => request(`/projects/${projectId}/lp-agent/config`),
-  updateLPAgentConfig: (projectId, data) => request(`/projects/${projectId}/lp-agent/config`, { method: 'PUT', body: JSON.stringify(data) }),
-  connectLPAgentShopify: (projectId, data) => request(`/projects/${projectId}/lp-agent/shopify/connect`, { method: 'POST', body: JSON.stringify(data) }),
-  disconnectLPAgentShopify: (projectId) => request(`/projects/${projectId}/lp-agent/shopify/disconnect`, { method: 'POST' }),
-  getLPAgentShopifyStatus: (projectId) => request(`/projects/${projectId}/lp-agent/shopify/status`),
-  generateTestLP: (projectId, body, onEvent) =>
-    streamSSEWithBody(`/projects/${projectId}/lp-agent/generate-test`, body, onEvent),
-  runGauntletTest: (projectId, body, onEvent) =>
-    streamSSEWithBody(`/projects/${projectId}/lp-agent/gauntlet-test`, body, onEvent),
-  getLPAgentStatus: (projectId) =>
-    request(`/projects/${projectId}/lp-agent/status`).then(data => normalizeArrayResponse(data, 'recent_generations', 'api.getLPAgentStatus.recent_generations')),
-  getGauntletProgress: (projectId) => request(`/projects/${projectId}/lp-agent/gauntlet-progress`).then(r => r.progress),
-
   getConductorAngles: (projectId) =>
     cachedRequest(`/conductor/angles/${projectId}`).then(data => normalizeArrayResponse(data, 'angles', 'api.getConductorAngles.angles')),
   getConductorActiveAngles: (projectId) =>
@@ -387,8 +373,6 @@ export const api = {
   deleteConductorAngle: (projectId, angleId) => request(`/conductor/angles/${projectId}/${angleId}`, { method: 'DELETE' }).then(r => { invalidateCache(`/conductor/angles/${projectId}`, `/conductor/angles/${projectId}/active`); return r; }),
   getConductorRuns: (projectId, limit) =>
     request(`/conductor/runs/${projectId}${limit ? `?limit=${limit}` : ''}`).then(data => normalizeArrayResponse(data, 'runs', 'api.getConductorRuns.runs')),
-  getConductorBatchLPDetails: (projectId, batchId) =>
-    request(`/conductor/run-batch-lp/${projectId}/${batchId}`),
   triggerConductorRun: (projectId) => request(`/conductor/run/${projectId}`, { method: 'POST' }),
   triggerConductorTestRun: (projectId, body, onEvent) => streamSSEWithBody(`/conductor/test-run/${projectId}`, body, onEvent),
   getTestRunProgress: (projectId) => request(`/conductor/test-run/progress/${projectId}`),
@@ -414,7 +398,6 @@ export const api = {
   getFilterVolumes: () =>
     request('/agent-monitor/filter/volumes').then(data => normalizeArrayResponse(data, 'projects', 'api.getFilterVolumes.projects')),
   updateFilterVolume: (projectId, value) => request(`/agent-monitor/filter/volumes/${projectId}`, { method: 'PUT', body: JSON.stringify({ scout_daily_flex_ads: value }) }),
-  getGauntletStats: (projectId) => request(`/agent-monitor/gauntlet-stats?projectId=${projectId}`),
 
   // Performance Tracker / Deployments
   getDeployments: () =>
@@ -562,103 +545,6 @@ export const api = {
   getMetaPerformance: (projectId, deploymentId) => request(`/projects/${projectId}/meta/performance/${deploymentId}`),
   getMetaPerformanceSummary: (projectId) => request(`/projects/${projectId}/meta/performance/summary`),
   syncMetaPerformance: (projectId) => request(`/projects/${projectId}/meta/sync`, { method: 'POST' }),
-
-  // Landing Pages (LP Gen)
-  getLandingPages: (projectId) =>
-    request(`/projects/${projectId}/landing-pages`).then(data => normalizeArrayResponse(data, 'pages', 'api.getLandingPages.pages')),
-  getLandingPage: (projectId, pageId) => request(`/projects/${projectId}/landing-pages/${pageId}`),
-  checkLandingPageDocs: (projectId) => request(`/projects/${projectId}/landing-pages-check`),
-  generateLandingPage: (projectId, body, onEvent) =>
-    streamSSEWithBody(`/projects/${projectId}/landing-pages/generate`, body, onEvent),
-  updateLandingPage: (projectId, pageId, data) =>
-    request(`/projects/${projectId}/landing-pages/${pageId}`, { method: 'PUT', body: JSON.stringify(data) }),
-  deleteLandingPage: (projectId, pageId) =>
-    request(`/projects/${projectId}/landing-pages/${pageId}`, { method: 'DELETE' }),
-
-  // LP Editor — Image management
-  regenerateLPImage: (projectId, pageId, body, onEvent) =>
-    streamSSEWithBody(`/projects/${projectId}/landing-pages/${pageId}/regenerate-image`, body, onEvent),
-  uploadLPImage: async (projectId, pageId, file, slotIndex, options = {}) => {
-    const formData = new FormData();
-    formData.append('image', file);
-    formData.append('slot_index', String(slotIndex));
-    if (options.persist !== undefined) formData.append('persist', String(options.persist));
-    if (options.draft_state) formData.append('draft_state', JSON.stringify(options.draft_state));
-    const res = await fetch(`${API_BASE}/projects/${projectId}/landing-pages/${pageId}/upload-image`, {
-      method: 'POST',
-      credentials: 'include',
-      body: formData,
-    });
-    if (!res.ok) {
-      const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
-      throw new Error(err.error || `Upload failed with ${res.status}`);
-    }
-    return res.json();
-  },
-  revertLPImage: (projectId, pageId, slotIndex, options = {}) =>
-    request(`/projects/${projectId}/landing-pages/${pageId}/revert-image`, {
-      method: 'POST',
-      body: JSON.stringify({ slot_index: slotIndex, ...options }),
-    }),
-
-  // LP Visual QA
-  runLPVisualQA: (projectId, pageId) =>
-    request(`/projects/${projectId}/landing-pages/${pageId}/visual-qa`, { method: 'POST' }),
-
-  // LP Editor — Versions
-  getLPVersions: (projectId, pageId) =>
-    request(`/projects/${projectId}/landing-pages/${pageId}/versions`),
-  saveLPVersion: (projectId, pageId) =>
-    request(`/projects/${projectId}/landing-pages/${pageId}/versions`, { method: 'POST' }),
-  restoreLPVersion: (projectId, pageId, versionId) =>
-    request(`/projects/${projectId}/landing-pages/${pageId}/versions/${versionId}/restore`, { method: 'POST' }),
-
-  // LP Editor — Publishing (Shopify)
-  downloadLandingPagePdf: (projectId, pageId) => {
-    window.open(`${API_BASE}/projects/${projectId}/landing-pages/${pageId}/download-pdf`, '_blank');
-  },
-  publishLandingPage: (projectId, pageId) =>
-    request(`/projects/${projectId}/landing-pages/${pageId}/publish`, { method: 'POST' }),
-  unpublishLandingPage: (projectId, pageId) =>
-    request(`/projects/${projectId}/landing-pages/${pageId}/unpublish`, { method: 'POST' }),
-  approveAndPublishLandingPage: (projectId, pageId) =>
-    request(`/projects/${projectId}/landing-pages/${pageId}/approve-and-publish`, { method: 'POST' }),
-  rejectLandingPage: (projectId, pageId, notes) =>
-    request(`/projects/${projectId}/landing-pages/${pageId}/reject-with-notes`, {
-      method: 'POST',
-      body: JSON.stringify({ notes }),
-      headers: { 'Content-Type': 'application/json' },
-    }),
-  duplicateLandingPage: (projectId, pageId) =>
-    request(`/projects/${projectId}/landing-pages/${pageId}/duplicate`, { method: 'POST' }),
-
-  // LP Editor — Chief Image Selection (PEF plan 2026-04-21)
-  placeLandingPageImage: (projectId, pageId, { slot_id, candidate_id, updated_at }) =>
-    request(`/projects/${projectId}/landing-pages/${pageId}/place-image`, {
-      method: 'POST',
-      body: JSON.stringify({ slot_id, candidate_id, updated_at }),
-      headers: { 'Content-Type': 'application/json' },
-    }),
-  removeLandingPageImage: (projectId, pageId, { slot_id, updated_at }) =>
-    request(`/projects/${projectId}/landing-pages/${pageId}/remove-image`, {
-      method: 'POST',
-      body: JSON.stringify({ slot_id, updated_at }),
-      headers: { 'Content-Type': 'application/json' },
-    }),
-  regenerateLandingPageCandidate: (projectId, pageId, { candidate_id }) =>
-    request(`/projects/${projectId}/landing-pages/${pageId}/regenerate-candidate`, {
-      method: 'POST',
-      body: JSON.stringify({ candidate_id }),
-      headers: { 'Content-Type': 'application/json' },
-    }),
-  retryPublishLandingPage: (projectId, pageId) =>
-    request(`/projects/${projectId}/landing-pages/${pageId}/retry-publish`, { method: 'POST' }),
-  // Phase 2 (PEF item D) — per-LP cost rollup
-  getLandingPageCostEstimate: (projectId, pageId) =>
-    request(`/projects/${projectId}/landing-pages/${pageId}/cost-estimate`),
-  // Phase 2 (PEF item H) — unplaced candidates archive
-  getUnplacedCandidatesArchive: (projectId) =>
-    request(`/projects/${projectId}/landing-pages-archive/unplaced-candidates`),
 
   // Sales Pages
   getSalesPages: (projectId) =>

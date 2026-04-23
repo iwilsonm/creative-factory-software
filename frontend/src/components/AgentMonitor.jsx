@@ -1,7 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { api } from '../api';
-import LPAgentSettings from './LPAgentSettings';
 import PipelineProgress from './PipelineProgress';
 import { useToast } from './Toast';
 import { ensureArray } from '../utils/collections';
@@ -904,7 +903,7 @@ function buildServerQueueItem(active, existing = null) {
   };
 }
 
-const VALID_AGENT_TABS = ['director', 'lp_agent', 'filter', 'fixer'];
+const VALID_AGENT_TABS = ['director', 'filter', 'fixer'];
 
 export default function AgentMonitor() {
   const [searchParams, setSearchParams] = useSearchParams();
@@ -999,7 +998,6 @@ export default function AgentMonitor() {
 
   const tabs = [
     { id: 'director', label: 'Creative Director' },
-    { id: 'lp_agent', label: 'LP Agent' },
     { id: 'filter', label: 'Creative Filter' },
     { id: 'fixer', label: 'Fixer' },
   ];
@@ -1065,7 +1063,6 @@ export default function AgentMonitor() {
         </div>
 
         {activeTab === 'director' && <DirectorTab onRefresh={loadStatus} />}
-        {activeTab === 'lp_agent' && <LPAgentTab />}
         {activeTab === 'filter' && filterData && <FilterPanel data={filterData} onRefresh={loadStatus} />}
         {activeTab === 'fixer' && fixerData && <FixerPanel data={fixerData} onRefresh={loadStatus} />}
       </div>
@@ -1160,216 +1157,6 @@ function PipelineOverview({ data, fixerData, filterData }) {
   );
 }
 
-// =============================================
-// LP Generation Stats Panel
-// =============================================
-function GauntletStatsPanel({ projectId }) {
-  const [data, setData] = useState(null);
-  const [loading, setLoading] = useState(false);
-  const [expanded, setExpanded] = useState(false);
-  const [loadedProjectId, setLoadedProjectId] = useState(null);
-
-  useEffect(() => {
-    setExpanded(false);
-    setData(null);
-    setLoading(false);
-    setLoadedProjectId(null);
-  }, [projectId]);
-
-  useEffect(() => {
-    if (!projectId || !expanded || loadedProjectId === projectId) return;
-    setLoading(true);
-    api.getGauntletStats(projectId)
-      .then(res => {
-        setData(res);
-        setLoadedProjectId(projectId);
-      })
-      .catch(() => {
-        setData(null);
-        setLoadedProjectId(null);
-      })
-      .finally(() => setLoading(false));
-  }, [expanded, loadedProjectId, projectId]);
-
-  const s = data?.stats || null;
-  const FRAME_LABELS = {
-    testimonial: 'Testimonial',
-    mechanism: 'Mechanism',
-    problem_agitation: 'Problem',
-    myth_busting: 'Myth Bust',
-    listicle: 'Listicle',
-  };
-
-  return (
-    <div className="card p-4 space-y-3 mb-4">
-      <div className="flex items-start justify-between gap-3">
-        <div>
-          <h3 className="text-[13px] font-semibold text-navy">LP Generation Stats</h3>
-          <p className="text-[10px] text-textlight mt-0.5">Loaded on demand so the LP Agent tab opens faster.</p>
-        </div>
-        <button
-          type="button"
-          onClick={() => setExpanded(prev => !prev)}
-          className="btn-secondary text-[11px] px-3 py-1.5 shrink-0"
-        >
-          {expanded ? 'Hide Stats' : loadedProjectId === projectId ? 'Show Stats' : 'Load Stats'}
-        </button>
-      </div>
-
-      {!expanded ? (
-        <div className="rounded-xl bg-black/[0.02] border border-black/5 px-3 py-2.5">
-          <p className="text-[11px] text-textmid">Open this panel only when you need gauntlet pass/fail and score breakdowns.</p>
-        </div>
-      ) : loading ? (
-        <div className="py-3 text-center text-[11px] text-textmid">Loading LP stats...</div>
-      ) : !data?.hasData ? (
-        <div className="rounded-xl bg-black/[0.02] border border-black/5 px-3 py-2.5">
-          <p className="text-[11px] text-textmid">No gauntlet runs found for this project yet.</p>
-        </div>
-      ) : (
-        <>
-
-          {/* Summary grid */}
-          <div className="grid grid-cols-4 gap-3">
-            <div className="bg-offwhite rounded-lg p-2.5 text-center">
-              <div className="text-[18px] font-bold text-navy">{s.gauntletRuns}</div>
-              <div className="text-[10px] text-textmid">Runs</div>
-            </div>
-            <div className="bg-offwhite rounded-lg p-2.5 text-center">
-              <div className="text-[18px] font-bold text-teal">{s.passRate}%</div>
-              <div className="text-[10px] text-textmid">Pass Rate</div>
-            </div>
-            <div className="bg-offwhite rounded-lg p-2.5 text-center">
-              <div className="text-[18px] font-bold text-navy">{s.avgScore ?? '—'}</div>
-              <div className="text-[10px] text-textmid">Avg Score</div>
-            </div>
-            <div className="bg-offwhite rounded-lg p-2.5 text-center">
-              <div className="text-[18px] font-bold text-gold">{s.retryRate}%</div>
-              <div className="text-[10px] text-textmid">Retry Rate</div>
-            </div>
-          </div>
-
-          {/* Detail stats */}
-          <div className="grid grid-cols-3 gap-2 text-[11px]">
-            <div className="bg-offwhite rounded-lg px-2.5 py-2">
-              <span className="text-textmid">Total LPs: </span>
-              <span className="font-medium text-navy">{s.totalLPs}</span>
-            </div>
-            <div className="bg-offwhite rounded-lg px-2.5 py-2">
-              <span className="text-textmid">Passed: </span>
-              <span className="font-medium text-teal">{s.passed}</span>
-            </div>
-            <div className="bg-offwhite rounded-lg px-2.5 py-2">
-              <span className="text-textmid">Failed: </span>
-              <span className="font-medium text-red-400">{s.failed}</span>
-            </div>
-            <div className="bg-offwhite rounded-lg px-2.5 py-2">
-              <span className="text-textmid">Image 1st Pass: </span>
-              <span className="font-medium text-navy">{s.firstPassRate != null ? `${s.firstPassRate}%` : '—'}</span>
-            </div>
-            <div className="bg-offwhite rounded-lg px-2.5 py-2">
-              <span className="text-textmid">Avg Img Retries: </span>
-              <span className="font-medium text-navy">{s.avgPrescoreAttempts ?? '—'}</span>
-            </div>
-            <div className="bg-offwhite rounded-lg px-2.5 py-2">
-              <span className="text-textmid">Score Range: </span>
-              <span className="font-medium text-navy">{s.minScore != null ? `${s.minScore}–${s.maxScore}` : '—'}</span>
-            </div>
-          </div>
-
-          {/* Score by frame (mini bar chart) */}
-          {Object.keys(s.scoreByFrame || {}).length > 0 && (
-            <div className="space-y-1.5">
-              <div className="text-[10px] font-semibold text-textmid uppercase tracking-wide">Score by Frame</div>
-              {Object.entries(s.scoreByFrame).map(([frame, score]) => (
-                <div key={frame} className="flex items-center gap-2">
-                  <span className="text-[10px] text-textmid w-20 flex-shrink-0 truncate">{FRAME_LABELS[frame] || frame}</span>
-                  <div className="flex-1 h-4 bg-offwhite rounded-full overflow-hidden">
-                    <div
-                      className="h-full bg-navy/70 rounded-full transition-all"
-                      style={{ width: `${Math.min(100, (score / 10) * 100)}%` }}
-                    />
-                  </div>
-                  <span className="text-[10px] font-medium text-navy w-8 text-right">{score}</span>
-                </div>
-              ))}
-            </div>
-          )}
-        </>
-      )}
-    </div>
-  );
-}
-
-// =============================================
-// LP Agent Tab
-// =============================================
-function LPAgentTab() {
-  const [searchParams, setSearchParams] = useSearchParams();
-  const [projects, setProjects] = useState([]);
-  const [selectedProject, setSelectedProjectState] = useState('');
-  const [loading, setLoading] = useState(true);
-
-  const setSelectedProject = useCallback((projectId) => {
-    setSelectedProjectState(projectId);
-    setSearchParams(prev => {
-      const next = new URLSearchParams(prev);
-      if (projectId) next.set('project', projectId);
-      else next.delete('project');
-      return next;
-    }, { replace: true });
-  }, [setSearchParams]);
-  const safeProjects = ensureArray(projects, 'AgentMonitor.lpAgent.projectsState');
-
-  useEffect(() => {
-    (async () => {
-      try {
-        const res = await api.getProjectOptions();
-        const list = ensureArray(res?.projects ?? res, 'AgentMonitor.lpAgent.projects');
-        setProjects(list);
-        const projectFromUrl = searchParams.get('project');
-        if (projectFromUrl && list.some(p => p.id === projectFromUrl)) {
-          setSelectedProjectState(projectFromUrl);
-        } else if (list.length > 0) {
-          setSelectedProject(list[0].id);
-        }
-      } catch { /* ignore */ }
-      finally { setLoading(false); }
-    })();
-  }, []);
-
-  if (loading) {
-    return <div className="py-4 text-center text-[12px] text-textmid">Loading...</div>;
-  }
-
-  return (
-    <div>
-      {/* Project selector */}
-      {safeProjects.length > 1 && (
-        <div className="mb-4">
-          <select
-            value={selectedProject}
-            onChange={e => setSelectedProject(e.target.value)}
-            className="input-apple text-[12px]"
-          >
-            {safeProjects.map(p => (
-              <option key={p.id} value={p.id}>{p.displayName || p.brand_name || p.name}</option>
-            ))}
-          </select>
-        </div>
-      )}
-
-      {selectedProject ? (
-        <>
-          <GauntletStatsPanel projectId={selectedProject} />
-          <LPAgentSettings projectId={selectedProject} />
-        </>
-      ) : (
-        <div className="py-6 text-center text-[12px] text-textmid">No projects found. Create a project first.</div>
-      )}
-    </div>
-  );
-}
 
 // =============================================
 // Creative Director Tab
