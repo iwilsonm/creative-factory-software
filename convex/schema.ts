@@ -7,24 +7,12 @@ export default defineSchema({
     value: v.string(),
   }).index("by_key", ["key"]),
 
-  // Per-project LP generation lock — prevents concurrent /generate calls
-  // racing through the pipeline and burning Gemini quota twice.
-  // PEF plan 2026-04-21. Auto-released by scheduler after ttl_ms elapses
-  // (covers stuck-mid-generation cases where the route handler never released).
-  lp_generation_locks: defineTable({
-    project_id: v.string(),         // → projects.externalId; one lock per project
-    acquired_at: v.float64(),       // ms since epoch
-    ttl_ms: v.float64(),            // expires_at = acquired_at + ttl_ms
-    holder_label: v.optional(v.string()),  // For debugging which call holds the lock
-  }).index("by_project", ["project_id"]),
-
   projects: defineTable({
     externalId: v.string(),
     name: v.string(),
     brand_name: v.optional(v.string()),
     niche: v.optional(v.string()),
     product_description: v.optional(v.string()),
-    sales_page_content: v.optional(v.string()),
     drive_folder_id: v.optional(v.string()),
     inspiration_folder_id: v.optional(v.string()),
     prompt_guidelines: v.optional(v.string()),
@@ -34,15 +22,6 @@ export default defineSchema({
     lpCount: v.optional(v.float64()),
     lpPublishedCount: v.optional(v.float64()),
     status: v.optional(v.string()),
-    // Meta Ads (per-project — each project has its own Meta App + OAuth)
-    meta_app_id: v.optional(v.string()),
-    meta_app_secret: v.optional(v.string()),
-    meta_access_token: v.optional(v.string()),
-    meta_token_expires_at: v.optional(v.string()),
-    meta_ad_account_id: v.optional(v.string()),
-    meta_user_name: v.optional(v.string()),
-    meta_user_id: v.optional(v.string()),
-    meta_last_sync_at: v.optional(v.string()),
     // Dacia Creative Filter (Recursive Agent #2) — per-project config
     scout_enabled: v.optional(v.boolean()),
     scout_default_campaign: v.optional(v.string()),
@@ -153,25 +132,6 @@ export default defineSchema({
     .index("by_batch_job", ["batch_job_id"])
     .index("by_run", ["conductor_run_id"]),
 
-  lp_headline_history: defineTable({
-    externalId: v.string(),
-    project_id: v.string(),
-    angle_name: v.string(),
-    narrative_frame: v.string(),
-    landing_page_id: v.optional(v.string()),
-    gauntlet_batch_id: v.optional(v.string()),
-    headline_text: v.string(),
-    subheadline_text: v.optional(v.string()),
-    normalized_headline: v.string(),
-    headline_signature: v.optional(v.string()),
-    created_at: v.string(),
-  })
-    .index("by_externalId", ["externalId"])
-    .index("by_project_angle_frame_and_created_at", ["project_id", "angle_name", "narrative_frame", "created_at"])
-    .index("by_project_angle_and_created_at", ["project_id", "angle_name", "created_at"])
-    .index("by_landing_page", ["landing_page_id"])
-    .index("by_gauntlet_batch", ["gauntlet_batch_id"]),
-
   batch_jobs: defineTable({
     externalId: v.string(),
     project_id: v.string(),
@@ -276,7 +236,7 @@ export default defineSchema({
   flex_ads: defineTable({
     externalId: v.string(),
     project_id: v.string(),                     // → projects.externalId
-    ad_set_id: v.string(),                      // → ad_sets.externalId
+    ad_set_id: v.optional(v.string()),          // → ad_sets.externalId (optional — CF fork has no pre-seeded ad sets)
     name: v.string(),
     child_deployment_ids: v.string(),            // JSON string array of deployment externalIds
     primary_texts: v.optional(v.string()),       // JSON string array (up to 5)
@@ -400,33 +360,6 @@ export default defineSchema({
     .index("by_externalId", ["externalId"])
     .index("by_project", ["project_id"]),
 
-  chat_threads: defineTable({
-    externalId: v.string(),
-    project_id: v.string(),              // → projects.externalId
-    agent_id: v.optional(v.string()),    // agency agent id (null for copywriter chat)
-    title: v.optional(v.string()),
-    status: v.string(),                  // active | archived
-    created_at: v.string(),
-    updated_at: v.string(),
-  })
-    .index("by_externalId", ["externalId"])
-    .index("by_project", ["project_id"])
-    .index("by_project_and_status", ["project_id", "status"])
-    .index("by_project_agent_status", ["project_id", "agent_id", "status"]),
-
-  chat_messages: defineTable({
-    externalId: v.string(),
-    thread_id: v.string(),               // → chat_threads.externalId
-    project_id: v.string(),              // denormalized for easy querying
-    role: v.string(),                    // user | assistant
-    content: v.string(),
-    is_context_message: v.optional(v.boolean()), // hides priming message in UI
-    created_at: v.string(),
-  })
-    .index("by_externalId", ["externalId"])
-    .index("by_thread", ["thread_id"])
-    .index("by_project", ["project_id"]),
-
   correction_history: defineTable({
     externalId: v.string(),
     project_id: v.string(),        // → projects.externalId
@@ -449,176 +382,6 @@ export default defineSchema({
   })
     .index("by_externalId", ["externalId"]),
 
-  meta_performance: defineTable({
-    externalId: v.string(),
-    deployment_id: v.string(),       // → ad_deployments.externalId
-    meta_ad_id: v.string(),          // Meta Ad ID
-    date: v.string(),                // YYYY-MM-DD
-    impressions: v.number(),
-    clicks: v.number(),
-    spend: v.number(),               // USD
-    reach: v.number(),
-    ctr: v.number(),                 // click-through rate %
-    cpc: v.number(),                 // cost per click
-    cpm: v.number(),                 // cost per 1000 impressions
-    conversions: v.number(),
-    conversion_value: v.number(),    // for ROAS calculation
-    frequency: v.number(),
-    updated_at: v.string(),
-  })
-    .index("by_externalId", ["externalId"])
-    .index("by_deployment", ["deployment_id"])
-    .index("by_meta_ad_id", ["meta_ad_id"])
-    .index("by_meta_ad_and_date", ["meta_ad_id", "date"]),
-
-  landing_pages: defineTable({
-    externalId: v.string(),
-    project_id: v.string(),              // → projects.externalId
-    name: v.string(),                    // User-facing name (auto-generated or manual)
-    angle: v.optional(v.string()),       // The angle/hook for this LP
-    word_count: v.optional(v.number()),  // Optional target word count
-    additional_direction: v.optional(v.string()), // Extra instructions from user
-    swipe_text: v.optional(v.string()),  // Extracted text from swipe page
-    swipe_filename: v.optional(v.string()), // Legacy: original swipe PDF filename
-    swipe_url: v.optional(v.string()),               // URL of swipe page
-    swipe_screenshot_storageId: v.optional(v.string()), // Convex storage ID for full-page screenshot
-    status: v.string(),                  // draft | generating | completed | failed | pending_review | pending_image_selection | published | unpublished | live | publish_failed | smoke_failed | expired_review | angle_derivation_failed
-    error_message: v.optional(v.string()),
-    copy_sections: v.optional(v.string()), // JSON: generated copy sections
-    // Phase 2 fields
-    swipe_design_analysis: v.optional(v.string()),  // JSON: design spec from Claude vision analysis
-    image_slots: v.optional(v.string()),             // JSON: array of image slot objects with storageId
-    html_template: v.optional(v.string()),           // Raw HTML template with placeholders
-    assembled_html: v.optional(v.string()),          // Final HTML with placeholders replaced
-    slug: v.optional(v.string()),                    // URL slug for publishing
-    cta_links: v.optional(v.string()),               // JSON: array of CTA link objects [{cta_id, text, url}]
-    current_version: v.optional(v.number()),         // Current version number
-    // Phase 4 publishing fields
-    published_url: v.optional(v.string()),           // Live URL after publishing
-    published_at: v.optional(v.string()),            // ISO timestamp of last publish
-    final_html: v.optional(v.string()),              // Baked HTML sent to hosting
-    hosting_metadata: v.optional(v.string()),        // JSON: hosting deployment info
-    // Auto-generation fields (LP pipeline)
-    auto_generated: v.optional(v.boolean()),         // True if created by automated pipeline
-    batch_job_id: v.optional(v.string()),            // → batch_jobs.externalId
-    narrative_frame: v.optional(v.string()),          // Which narrative frame was used
-    template_id: v.optional(v.string()),             // → lp_templates.externalId
-    shopify_page_id: v.optional(v.string()),         // Shopify page ID for updates/deletion
-    shopify_handle: v.optional(v.string()),          // Shopify URL handle
-    headline_text: v.optional(v.string()),
-    subheadline_text: v.optional(v.string()),
-    headline_frame_alignment_status: v.optional(v.string()),
-    headline_frame_alignment_reason: v.optional(v.string()),
-    headline_uniqueness_status: v.optional(v.string()),
-    headline_uniqueness_reason: v.optional(v.string()),
-    headline_duplicate_of_lp_id: v.optional(v.string()),
-    title_family_uniqueness_status: v.optional(v.string()),
-    title_family_uniqueness_reason: v.optional(v.string()),
-    title_concept_separation_status: v.optional(v.string()),
-    title_concept_separation_reason: v.optional(v.string()),
-    title_concept_signature: v.optional(v.string()),
-    title_concept_family: v.optional(v.string()),
-    headline_history_status: v.optional(v.string()),
-    headline_history_reason: v.optional(v.string()),
-    headline_signature: v.optional(v.string()),
-    frame_blueprint_status: v.optional(v.string()),
-    frame_blueprint_reason: v.optional(v.string()),
-    // Visual QA fields
-    qa_status: v.optional(v.string()),               // pending | running | passed | failed | skipped
-    qa_report: v.optional(v.string()),               // JSON: full QA report from Claude Opus vision
-    qa_issues_count: v.optional(v.number()),         // Number of issues found
-    qa_screenshot_storageId: v.optional(v.string()), // Convex storage ID for QA screenshot
-    qa_score: v.optional(v.number()),                // 0-100 from visual QA
-    generation_attempts: v.optional(v.number()),      // How many full generation attempts
-    fix_attempts: v.optional(v.number()),             // How many auto-fix passes attempted
-    // Smoke test fields
-    smoke_test_status: v.optional(v.string()),        // passed | failed | pending
-    smoke_test_report: v.optional(v.string()),        // JSON
-    smoke_test_at: v.optional(v.string()),            // ISO timestamp
-    // Audit trail fields
-    audit_trail: v.optional(v.string()),              // JSON: generation audit trail entries
-    editorial_plan: v.optional(v.string()),           // JSON: Opus editorial plan
-    // Gauntlet fields
-    gauntlet_batch_id: v.optional(v.string()),        // Groups LPs from same gauntlet run
-    gauntlet_frame: v.optional(v.string()),           // Which narrative frame in this gauntlet run
-    gauntlet_attempt: v.optional(v.float64()),        // Which attempt # for this frame
-    gauntlet_retry_type: v.optional(v.string()),      // "image" | "full" | null
-    gauntlet_score: v.optional(v.float64()),          // 0-10 score from Sonnet vision
-    gauntlet_score_reasoning: v.optional(v.string()), // Full scoring reasoning
-    gauntlet_status: v.optional(v.string()),          // "pending" | "scoring" | "passed" | "failed" | "retrying"
-    gauntlet_image_prescore_attempts: v.optional(v.float64()), // Total image prescore retries
-    gauntlet_batch_started_at: v.optional(v.string()),  // ISO timestamp when batch run began
-    gauntlet_batch_completed_at: v.optional(v.string()), // ISO timestamp when batch run finished
-    generation_duration_ms: v.optional(v.float64()),     // How long generation took in milliseconds
-    // Angle derivation (auto-gen path: Filter-triggered from flex-ad images)
-    source_angle: v.optional(v.string()),                // The batch's library angle (audit only)
-    derived_angle: v.optional(v.string()),               // JSON brief derived from flex-ad images
-    angle_derivation_image_urls: v.optional(v.string()), // JSON array of Convex storage URLs used in derivation
-    // Chief Image Selection (PEF plan 2026-04-21) — populated by the manual flow when
-    // `lp_manual_image_selection_enabled` is true for the project.
-    image_candidates: v.optional(v.string()),            // JSON: [{ candidate_id, concept_label, nano_banana_prompt, storageId, storageUrl, aspect_ratio, suggested_slot_role, generation_status, generation_error, generated_at }]
-    image_slot_assignments: v.optional(v.string()),      // JSON: [{ slot_id, candidate_id, assigned_at }]
-    created_at: v.string(),
-    updated_at: v.string(),
-  })
-    .index("by_externalId", ["externalId"])
-    .index("by_project", ["project_id"])
-    .index("by_batch_job", ["batch_job_id"])
-    .index("by_project_angle_and_created_at", ["project_id", "angle", "created_at"])
-    .index("by_project_angle_frame_and_created_at", ["project_id", "angle", "narrative_frame", "created_at"]),
-
-  lp_templates: defineTable({
-    externalId: v.string(),
-    project_id: v.string(),              // → projects.externalId
-    source_url: v.string(),              // Original URL template was extracted from
-    name: v.string(),                    // User-editable display name
-    skeleton_html: v.string(),           // HTML template with placeholder slot markers
-    design_brief: v.string(),            // JSON: styling patterns, colors, typography, spacing
-    slot_definitions: v.string(),        // JSON: array of slot objects with id, type, position, content_type
-    screenshot_storage_id: v.optional(v.string()), // Convex storage ID for captured screenshot
-    status: v.string(),                  // extracting | ready | failed
-    error_message: v.optional(v.string()),
-    created_at: v.string(),
-  })
-    .index("by_externalId", ["externalId"])
-    .index("by_project", ["project_id"]),
-
-  users: defineTable({
-    externalId: v.string(),
-    username: v.string(),
-    display_name: v.string(),
-    password_hash: v.string(),
-    role: v.string(),              // 'admin' | 'manager' | 'poster'
-    is_active: v.boolean(),
-    created_by: v.optional(v.string()),
-    created_at: v.string(),
-    updated_at: v.string(),
-  })
-    .index("by_externalId", ["externalId"])
-    .index("by_username", ["username"]),
-
-  sessions: defineTable({
-    sid: v.string(),
-    session_data: v.string(),
-    expires_at: v.number(),
-  })
-    .index("by_sid", ["sid"])
-    .index("by_expires_at", ["expires_at"]),
-
-  landing_page_versions: defineTable({
-    externalId: v.string(),
-    landing_page_id: v.string(),         // → landing_pages.externalId
-    version: v.number(),
-    copy_sections: v.string(),           // JSON: copy sections snapshot
-    source: v.string(),                  // generated | edited
-    image_slots: v.optional(v.string()),           // JSON: image slot snapshot
-    cta_links: v.optional(v.string()),             // JSON: CTA links snapshot
-    html_template: v.optional(v.string()),         // HTML template snapshot
-    assembled_html: v.optional(v.string()),        // Assembled HTML snapshot
-    created_at: v.string(),
-  })
-    .index("by_externalId", ["externalId"])
-    .index("by_landing_page", ["landing_page_id"]),
 
   // =============================================
   // Dacia Creative Director — Agent Team tables
@@ -766,212 +529,27 @@ export default defineSchema({
     .index("by_project", ["project_id"])
     .index("by_project_and_angle", ["project_id", "angle_name"]),
 
-  // =============================================
-  // Landing Page Agent — Agent #3 config
-  // =============================================
-
-  lp_agent_config: defineTable({
+  users: defineTable({
     externalId: v.string(),
-    project_id: v.string(),              // → projects.externalId
-    enabled: v.optional(v.boolean()),
-    // Shopify connection
-    shopify_store_domain: v.optional(v.string()),
-    shopify_access_token: v.optional(v.string()),
-    shopify_client_id: v.optional(v.string()),
-    shopify_connected: v.optional(v.boolean()),
-    // Product page
-    pdp_url: v.optional(v.string()),
-    // Generation settings
-    default_narrative_frames: v.optional(v.string()), // JSON array of enabled frame IDs (listicle-only post-refactor)
-    template_selection_mode: v.optional(v.string()),   // "random" | "weighted"
-    chief_checkpoint_enabled: v.optional(v.boolean()), // Require human approval before Shopify publish (default true)
-    // DEPRECATED — Opus editorial pass retired by Phase D; Chief Checkpoint
-    // replaces it. Kept as an optional field so existing production rows
-    // still validate. Drop once a data migration strips the field from
-    // every row.
-    editorial_pass_enabled: v.optional(v.boolean()),
-    lp_default_mode: v.optional(v.string()),             // "all" | "opt_in" — default "opt_in"
-    auto_publish: v.optional(v.boolean()),
-    // Budget
-    daily_budget_cents: v.optional(v.number()),
-    // Images
-    use_product_reference_images: v.optional(v.boolean()),
-    lifestyle_image_style: v.optional(v.string()),
-    // Page metadata defaults
-    default_author_name: v.optional(v.string()),
-    default_author_title: v.optional(v.string()),
-    default_warning_text: v.optional(v.string()),
-    visual_qa_enabled: v.optional(v.boolean()),       // Toggle visual QA (default true)
-    // Cached image context (LLM-extracted from foundational docs, JSON strings)
-    cached_product_visual_context: v.optional(v.string()),  // JSON: { sourceHash, extractedAt, data }
-    cached_avatar_visual_context: v.optional(v.string()),   // JSON: { sourceHash, extractedAt, data }
-    // Generation pipeline config
-    lp_frame_count: v.optional(v.float64()),                // DEPRECATED — replaced by default_narrative_frames
-    gauntlet_score_threshold: v.optional(v.float64()),      // Min score to pass (default 6)
-    gauntlet_max_image_retries: v.optional(v.float64()),    // Max image prescore retries (default 5)
-    gauntlet_max_lp_retries: v.optional(v.float64()),       // Max full LP retries (default 2)
-    // Word count
-    default_word_count: v.optional(v.float64()),             // Optional global default word count
-    frame_word_counts: v.optional(v.string()),               // JSON: { "testimonial": 1800, "listicle": 600 }
-    // Canonical benchmark
-    canonical_page_url: v.optional(v.string()),              // URL of canonical LP for structural benchmarking
-    // Timestamps
-    created_at: v.optional(v.string()),
-    updated_at: v.optional(v.string()),
-  })
-    .index("by_project", ["project_id"])
-    .index("by_externalId", ["externalId"]),
-
-  // =============================================
-  // CMO Agent — Ad Performance Management tables
-  // =============================================
-
-  cmo_config: defineTable({
-    project_id: v.string(),              // → projects.externalId
-    enabled: v.boolean(),
-    review_schedule: v.string(),         // "weekly" | "manual_only"
-    review_day_of_week: v.number(),      // 0=Sun, 1=Mon, ..., 6=Sat
-    review_hour_utc: v.number(),         // 0-23
-    target_cpa: v.optional(v.float64()), // Target CPA in USD
-    target_roas: v.optional(v.float64()), // Target ROAS multiplier
-    min_highest_angles: v.number(),      // Minimum angles at highest priority (default 8)
-    evaluation_window_days: v.number(),  // Minimum days before judging (default 12)
-    meta_campaign_id: v.optional(v.string()), // Meta campaign ID to monitor
-    tracking_start_date: v.optional(v.string()), // YYYY-MM-DD
-    tw_api_key: v.optional(v.string()),
-    tw_shopify_domain: v.optional(v.string()),
-    ga4_property_id: v.optional(v.string()),
-    ga4_credentials_json: v.optional(v.string()), // JSON service account credentials
-    notifications_enabled: v.boolean(),
-    auto_execute: v.boolean(),           // false = dry-run by default
-    created_at: v.string(),
-    updated_at: v.string(),
-  })
-    .index("by_project", ["project_id"]),
-
-  cmo_runs: defineTable({
-    externalId: v.string(),
-    project_id: v.string(),
-    run_type: v.string(),                // "weekly" | "manual" | "dry_run"
-    status: v.string(),                  // "running" | "completed" | "failed"
-    run_at: v.string(),                  // ISO timestamp
-    duration_ms: v.optional(v.float64()),
-    tw_summary: v.optional(v.string()),  // JSON: Triple Whale blended metrics
-    meta_ads_count: v.optional(v.float64()),
-    ga4_pages_count: v.optional(v.float64()),
-    angle_evaluations: v.optional(v.string()), // JSON: angle tier/spend evaluation results
-    lp_diagnostics: v.optional(v.string()),    // JSON: LP diagnostic results
-    decisions: v.optional(v.string()),         // JSON array of decision objects
-    decisions_applied: v.optional(v.boolean()),
-    decisions_count: v.optional(v.float64()),
-    pipeline_health: v.optional(v.string()),   // JSON: pipeline health check results
-    angles_written: v.optional(v.string()),    // JSON: new angles generated
-    notifications_sent: v.optional(v.float64()),
-    error: v.optional(v.string()),
-    error_stage: v.optional(v.string()),
-    created_at: v.string(),
-  })
-    .index("by_externalId", ["externalId"])
-    .index("by_project", ["project_id"])
-    .index("by_project_and_run_at", ["project_id", "run_at"]),
-
-  cmo_angle_history: defineTable({
-    externalId: v.string(),
-    project_id: v.string(),
-    angle_name: v.string(),
-    snapshot_date: v.string(),           // YYYY-MM-DD
-    cmo_run_id: v.string(),              // → cmo_runs.externalId
-    spend: v.float64(),
-    impressions: v.float64(),
-    clicks: v.float64(),
-    conversions: v.float64(),
-    conversion_value: v.float64(),
-    cpa: v.optional(v.float64()),
-    roas: v.optional(v.float64()),
-    ctr: v.optional(v.float64()),
-    cpc: v.optional(v.float64()),
-    tier: v.string(),                    // "T1" | "T2" | "T3" | "T4" | "too_early"
-    spend_class: v.string(),             // "STRONG" | "MODERATE" | "WEAK" | "NEGLIGIBLE" | "ZERO"
-    priority_at_snapshot: v.optional(v.string()),
-    status_at_snapshot: v.optional(v.string()),
-    ad_count: v.optional(v.float64()),
-    days_active: v.optional(v.float64()),
-    spend_trend: v.optional(v.string()), // "up" | "down" | "flat"
-    cpa_trend: v.optional(v.string()),   // "up" | "down" | "flat"
-    lp_bounce_rate: v.optional(v.float64()),
-    lp_cvr: v.optional(v.float64()),
-    lp_sessions: v.optional(v.float64()),
-    created_at: v.string(),
-  })
-    .index("by_externalId", ["externalId"])
-    .index("by_project_and_angle", ["project_id", "angle_name"])
-    .index("by_project_angle_and_date", ["project_id", "angle_name", "snapshot_date"])
-    .index("by_project_and_date", ["project_id", "snapshot_date"])
-    .index("by_cmo_run", ["cmo_run_id"]),
-
-  cmo_notifications: defineTable({
-    externalId: v.string(),
-    project_id: v.string(),
-    cmo_run_id: v.string(),              // → cmo_runs.externalId
-    rule: v.string(),                    // Which notification rule triggered
-    severity: v.string(),               // "info" | "warning" | "critical"
-    title: v.string(),
-    message: v.string(),
-    angle_name: v.optional(v.string()),
-    data: v.optional(v.string()),        // JSON: extra structured data
-    acknowledged: v.boolean(),
-    acknowledged_at: v.optional(v.string()),
-    created_at: v.string(),
-  })
-    .index("by_externalId", ["externalId"])
-    .index("by_project", ["project_id"])
-    .index("by_project_and_run", ["project_id", "cmo_run_id"]),
-
-  // =============================================
-  // Sales Page Generator
-  // =============================================
-
-  sales_pages: defineTable({
-    externalId: v.string(),
-    project_id: v.string(),              // → projects.externalId
-    name: v.string(),
-    status: v.string(),                  // draft | generating | completed | failed | published | unpublished
-
-    // Input
-    product_brief: v.optional(v.string()), // JSON: { name, features, price, compare_price, category, image_urls, variant_options }
-
-    // Generated output
-    section_data: v.optional(v.string()),  // JSON: keyed by section_id, each containing section settings
-    editorial_notes: v.optional(v.string()), // Opus editorial pass notes
-
-    // Publishing
-    published_url: v.optional(v.string()),
-    published_at: v.optional(v.string()),
-    shopify_page_id: v.optional(v.string()),
-    shopify_theme_id: v.optional(v.string()),
-    template_key: v.optional(v.string()), // e.g., "templates/page.sales-abc12345.json"
-
-    // Meta
-    current_version: v.optional(v.number()),
-    error_message: v.optional(v.string()),
-    generation_model: v.optional(v.string()),
+    username: v.string(),
+    display_name: v.string(),
+    password_hash: v.string(),
+    role: v.string(),              // 'admin' | 'manager' | 'poster'
+    is_active: v.boolean(),
+    created_by: v.optional(v.string()),
     created_at: v.string(),
     updated_at: v.string(),
   })
     .index("by_externalId", ["externalId"])
-    .index("by_project", ["project_id"])
-    .index("by_project_and_created_at", ["project_id", "created_at"]),
+    .index("by_username", ["username"]),
 
-  sales_page_versions: defineTable({
-    externalId: v.string(),
-    sales_page_id: v.string(),           // → sales_pages.externalId
-    version: v.number(),
-    section_data: v.optional(v.string()), // JSON: section data snapshot
-    source: v.string(),                  // generated | pre-publish
-    created_at: v.string(),
+  sessions: defineTable({
+    sid: v.string(),
+    session_data: v.string(),
+    expires_at: v.number(),
   })
-    .index("by_externalId", ["externalId"])
-    .index("by_sales_page", ["sales_page_id"]),
+    .index("by_sid", ["sid"])
+    .index("by_expires_at", ["expires_at"]),
 
   fixer_playbook: defineTable({
     issue_category: v.string(),          // "batch_stuck" | "filter_stalled" | etc.

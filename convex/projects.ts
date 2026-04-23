@@ -52,16 +52,12 @@ async function countProjectAssets(ctx: any, projectId: string): Promise<ProjectS
     .query("ad_creatives")
     .withIndex("by_project", (q: any) => q.eq("project_id", projectId))
     .collect();
-  const lps = await ctx.db
-    .query("landing_pages")
-    .withIndex("by_project", (q: any) => q.eq("project_id", projectId))
-    .collect();
 
   return {
     docCount: docs.length,
     adCount: ads.length,
-    lpCount: lps.length,
-    lpPublishedCount: lps.filter((lp: any) => lp.status === "published").length,
+    lpCount: 0,
+    lpPublishedCount: 0,
   };
 }
 
@@ -111,7 +107,6 @@ export const create = mutation({
     brand_name: v.optional(v.string()),
     niche: v.optional(v.string()),
     product_description: v.optional(v.string()),
-    sales_page_content: v.optional(v.string()),
     drive_folder_id: v.optional(v.string()),
     inspiration_folder_id: v.optional(v.string()),
   },
@@ -154,20 +149,10 @@ export const update = mutation({
     brand_name: v.optional(v.string()),
     niche: v.optional(v.string()),
     product_description: v.optional(v.string()),
-    sales_page_content: v.optional(v.string()),
     drive_folder_id: v.optional(v.string()),
     inspiration_folder_id: v.optional(v.string()),
     prompt_guidelines: v.optional(v.string()),
     status: v.optional(v.string()),
-    // Meta Ads (per-project — each project has its own Meta App + OAuth)
-    meta_app_id: v.optional(v.string()),
-    meta_app_secret: v.optional(v.string()),
-    meta_access_token: v.optional(v.string()),
-    meta_token_expires_at: v.optional(v.string()),
-    meta_ad_account_id: v.optional(v.string()),
-    meta_user_name: v.optional(v.string()),
-    meta_user_id: v.optional(v.string()),
-    meta_last_sync_at: v.optional(v.string()),
     // Dacia Creative Filter (Recursive Agent #2)
     scout_enabled: v.optional(v.boolean()),
     scout_default_campaign: v.optional(v.string()),
@@ -210,22 +195,6 @@ export const remove = mutation({
       .withIndex("by_externalId", (q) => q.eq("externalId", args.externalId))
       .first();
     if (!project) throw new Error("Project not found");
-
-    // Cascade-delete sales_pages and their versions
-    const salesPages = await ctx.db
-      .query("sales_pages")
-      .withIndex("by_project", (q: any) => q.eq("project_id", args.externalId))
-      .collect();
-    for (const salesPage of salesPages) {
-      const versions = await ctx.db
-        .query("sales_page_versions")
-        .withIndex("by_sales_page", (q: any) => q.eq("sales_page_id", salesPage.externalId))
-        .collect();
-      for (const version of versions) {
-        await ctx.db.delete(version._id);
-      }
-      await ctx.db.delete(salesPage._id);
-    }
 
     await ctx.db.delete(project._id);
   },
