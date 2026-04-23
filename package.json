@@ -4,5 +4,8 @@
   "type": "module",
   "dependencies": {
     "convex": "^1.18.0"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": ["bcrypt", "better-sqlite3", "sharp", "esbuild"]
   }
 }
