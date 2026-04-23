@@ -545,12 +545,6 @@ export const api = {
   testPerplexity: () => request('/settings/test-perplexity', { method: 'POST' }),
   testAnthropic: () => request('/settings/test-anthropic', { method: 'POST' }),
 
-  // Chat (Copywriter Chat Widget)
-  getChatThread: (projectId) => request(`/projects/${projectId}/chat/thread`),
-  sendChatMessage: (projectId, message, onEvent, { images } = {}) =>
-    streamSSEWithBody(`/projects/${projectId}/chat/send`, { message, images: images || undefined }, onEvent),
-  clearChat: (projectId) => request(`/projects/${projectId}/chat/clear`, { method: 'POST' }),
-
   // Meta Ads Integration (per-project)
   getMetaStatus: (projectId) => request(`/projects/${projectId}/meta/status`),
   getMetaAuthUrl: (projectId) => request(`/projects/${projectId}/meta/auth-url`),

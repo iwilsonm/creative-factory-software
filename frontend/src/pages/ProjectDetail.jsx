@@ -17,7 +17,6 @@ const AdTracker = lazy(() => import('./AdTracker'));
 const QuoteMiner = lazy(() => import('../components/QuoteMiner'));
 const LPGen = lazy(() => import('../components/LPGen'));
 const SalesPageGen = lazy(() => import('../components/SalesPageGen'));
-const CopywriterChat = lazy(() => import('../components/CopywriterChat'));
 const CreativeFilterSettings = lazy(() => import('../components/CreativeFilterSettings'));
 const AdPerformance = lazy(() => import('../components/AdPerformance'));
 
@@ -965,8 +964,6 @@ export default function ProjectDetail() {
         )}
       </div>
 
-      {/* Floating Copywriter Chat Widget */}
-      <CopywriterChat projectId={id} projectName={project.name} />
       <ConfirmDialog
         open={showDeleteConfirm}
         title="Delete project?"

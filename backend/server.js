@@ -23,7 +23,6 @@ import batchRoutes from './routes/batches.js';
 import costsRoutes from './routes/costs.js';
 import deploymentRoutes from './routes/deployments.js';
 import quoteMiningRoutes from './routes/quoteMining.js';
-import chatRoutes from './routes/chat.js';
 import metaRoutes, { metaCallbackRouter } from './routes/meta.js';
 import landingPageRoutes from './routes/landingPages.js';
 import lpTemplateRoutes from './routes/lpTemplates.js';
@@ -304,7 +303,6 @@ process.on('uncaughtException', (err) => {
   app.use('/api/batches', requireAuth, requireRole('admin', 'manager'), batchRoutes);  // Flat mount for Dacia Fixer retry endpoint
   app.use('/api', requireAuth, requireRole('admin', 'manager'), costsRoutes);
   app.use('/api/projects', requireAuth, requireRole('admin', 'manager'), quoteMiningRoutes);
-  app.use('/api/projects', requireAuth, requireRole('admin', 'manager'), chatRoutes);
   app.use('/api', requireAuth, requireRole('admin', 'manager'), metaRoutes);
   app.use('/api/projects', requireAuth, requireRole('admin', 'manager'), landingPageRoutes);
   app.use('/api/projects', requireAuth, requireRole('admin', 'manager'), lpTemplateRoutes);
