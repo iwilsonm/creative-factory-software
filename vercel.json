@@ -3,7 +3,6 @@
   "outputDirectory": "frontend/dist",
   "installCommand": "cd backend && pnpm install --no-frozen-lockfile",
   "functions": {
-    "api/[[...slug]].js": { "memory": 2048, "maxDuration": 60, "runtime": "nodejs22.x" },
-    "api/health.js": { "runtime": "nodejs22.x" }
+    "api/[[...slug]].js": { "memory": 2048, "maxDuration": 60 }
   }
 }
