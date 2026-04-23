@@ -202,7 +202,6 @@ export default function AdStudio({ projectId, project }) {
     setAngle('');
     setHeadline('');
     setBodyCopy('');
-    setSourceQuoteId(null);
     setCustomPrompt('');
     setParentAdId(null);
     setSelectedTemplate(null);
