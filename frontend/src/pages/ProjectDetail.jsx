@@ -16,7 +16,6 @@ const AdStudio = lazy(() => import('../components/AdStudio'));
 const AdTracker = lazy(() => import('./AdTracker'));
 const QuoteMiner = lazy(() => import('../components/QuoteMiner'));
 const CreativeFilterSettings = lazy(() => import('../components/CreativeFilterSettings'));
-const AdPerformance = lazy(() => import('../components/AdPerformance'));
 
 const STATUS_CONFIG = {
   setup: { label: 'Setup', bg: 'bg-gold/10', text: 'text-gold' },
@@ -38,7 +37,7 @@ export default function ProjectDetail() {
   const [deletingProject, setDeletingProject] = useState(false);
   const [availableDocTypes, setAvailableDocTypes] = useState(new Set());
   // Persist active tab in URL search params so it survives page refresh
-  const validTabs = ['quotes', 'ads', 'tracker', 'performance', 'overview', 'docs', 'templates'];
+  const validTabs = ['quotes', 'ads', 'tracker', 'overview', 'docs', 'templates'];
   const defaultTab = user?.role === 'poster' ? 'tracker' : 'ads';
   const tabFromUrl = searchParams.get('tab');
   const [tab, setTabState] = useState(
@@ -362,7 +361,6 @@ export default function ProjectDetail() {
     { id: 'quotes', label: 'Copywriter', tooltip: 'Mine quotes, generate headlines, and turn them into ads.' },
     { id: 'ads', label: 'Ad Studio', tooltip: 'Generate individual ads or run batch generation.' },
     { id: 'tracker', label: 'Ad Pipeline', tooltip: 'Plan, organize, and deploy ads to campaigns and ad sets.' },
-    { id: 'performance', label: 'Ad Performance', tooltip: 'Monitor ad performance, evaluate angles, and run the CMO Agent.' },
     { id: 'overview', label: 'Project Settings', tooltip: 'Project configuration, foundational docs, and template library.' }
   ];
 
@@ -926,11 +924,6 @@ export default function ProjectDetail() {
         {tab === 'tracker' && (
           <ErrorBoundary level="tab" key="tracker">
             <AdTracker projectId={id} userRole={user?.role} searchParams={searchParams} setSearchParams={setSearchParams} />
-          </ErrorBoundary>
-        )}
-        {tab === 'performance' && (
-          <ErrorBoundary level="tab" key="performance">
-            <AdPerformance projectId={id} project={project} />
           </ErrorBoundary>
         )}
         {tab === 'quotes' && (
