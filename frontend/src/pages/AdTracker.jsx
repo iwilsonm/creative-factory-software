@@ -1061,13 +1061,13 @@ export default function AdTracker({ projectId, userRole, searchParams, setSearch
       {!loading && sorted.length > 0 && (
         <div className="card overflow-hidden">
           <div className="overflow-x-auto">
-            <table className="w-full text-left min-w-[800px]">
+            <table className="w-full text-left min-w-[420px] md:min-w-[800px]">
               <thead>
                 <tr className="bg-offwhite border-b border-black/5">
                   <th className="px-3 py-2.5 w-10">
                     <button
                       onClick={toggleSelectAll}
-                      className={`w-[16px] h-[16px] rounded flex items-center justify-center transition-colors ${
+                      className={`tap-compact w-[16px] h-[16px] rounded flex items-center justify-center transition-colors ${
                         selectedIds.size === sorted.length && sorted.length > 0
                           ? 'bg-navy'
                           : 'border-[1.5px] border-textlight/60 hover:border-navy/40'
@@ -1080,7 +1080,7 @@ export default function AdTracker({ projectId, userRole, searchParams, setSearch
                       )}
                     </button>
                   </th>
-                  <th className="px-2 py-2.5 w-16" />
+                  <th className="px-2 py-2.5 w-16 hidden sm:table-cell" />
                   <th className="px-3 py-2.5 text-[10px] uppercase tracking-wider font-medium text-textlight">
                     Ad Name
                   </th>
@@ -1136,8 +1136,8 @@ export default function AdTracker({ projectId, userRole, searchParams, setSearch
                         </button>
                       </td>
 
-                      {/* Thumbnail */}
-                      <td className="px-2 py-2.5">
+                      {/* Thumbnail — hidden on narrow mobile to save width */}
+                      <td className="px-2 py-2.5 hidden sm:table-cell">
                         {dep.imageUrl ? (
                           <img
                             src={dep.imageUrl}
