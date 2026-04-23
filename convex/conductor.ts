@@ -160,7 +160,6 @@ export const updateAngle = mutation({
     prompt_hints: v.optional(v.string()),
     status: v.optional(v.string()),
     focused: v.optional(v.boolean()),
-    lp_enabled: v.optional(v.boolean()),
     // Structured creative brief fields
     priority: v.optional(v.string()),
     frame: v.optional(v.string()),
@@ -251,7 +250,6 @@ export const createRun = mutation({
     flex_ad_id: v.optional(v.string()),
     rounds_json: v.optional(v.string()),
     error_stage: v.optional(v.string()),
-    skip_lp_gen: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     await ctx.db.insert("conductor_runs", {
@@ -284,7 +282,6 @@ export const updateRun = mutation({
     flex_ad_id: v.optional(v.string()),
     rounds_json: v.optional(v.string()),
     error_stage: v.optional(v.string()),
-    skip_lp_gen: v.optional(v.boolean()),
   },
   handler: async (ctx, args) => {
     const run = await ctx.db

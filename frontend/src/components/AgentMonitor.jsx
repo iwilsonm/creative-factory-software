@@ -888,6 +888,150 @@ function RoundLandingPageFunnel({ batchId, lpDetailState, loading }) {
   );
 }
 
+/**
+ * Builds a self-contained LLM prompt that, when pasted into ChatGPT/Claude, asks the
+ * model to return a markdown file matching the exact format the "Import Angles" flow
+ * in this component parses. The produced markdown can be saved as .md and dropped
+ * into the Import panel directly.
+ *
+ * Output format reference: `parseAnglesMarkdown` in this file expects:
+ *   ## <Angle Name>
+ *   - **Status**: active
+ *   - **Priority**: highest|high|medium|test
+ *   - **Frame**: symptom-first|scam|objection-first|identity-first|MAHA|news-first|consequence-first
+ *   ### Core Buyer
+ *   ### Symptom Pattern
+ *   ### Failed Solutions
+ *   ### Current Belief
+ *   ### Objection
+ *   ### Emotional State
+ *   ### Scene to Center the Ad On
+ *   ### Desired Belief Shift
+ *   ### Tone
+ *   ### Avoid
+ *   ---
+ *   (next angle...)
+ */
+function buildAnglePromptText({ brand, productName, niche, productDesc }) {
+  const productLine = productName && brand && productName !== brand
+    ? `${brand} — ${productName}`
+    : brand;
+
+  return `You are a world-class direct-response copywriter brainstorming Facebook ad angles for the brand below.
+
+Return **8 distinct angles** as a single markdown document, formatted *exactly* as specified at the bottom of this message. The markdown will be imported verbatim into an ad-generation system; any deviation from the format will cause angles to be silently dropped.
+
+=============================
+BRAND CONTEXT
+=============================
+Brand: ${productLine}
+Niche / market: ${niche}
+Product description: ${productDesc}
+
+=============================
+WHAT AN ANGLE IS
+=============================
+An "angle" is a single creative lens — a specific emotional story, buyer identity, or belief shift — that a whole batch of ads can be generated around. A good angle set covers the same product from meaningfully different emotional entry points.
+
+Each angle must include these 13 properties:
+
+1. **Name** — a short, evocative label (4-10 words). Use the ad's core idea, not the product. Example: "The 2 AM Wake-Up Nobody Talks About".
+
+2. **Status** — always "active" for new angles.
+
+3. **Priority** — one of: \`highest\`, \`high\`, \`medium\`, \`test\`. Use "highest" for 1-2 angles you're most confident about; "high" for solid bets; "medium" for supporting angles; "test" for exploratory ideas.
+
+4. **Frame** — the persuasion archetype. Choose exactly one of:
+   - \`symptom-first\` — open with a visceral specific symptom the buyer is living through
+   - \`scam\` — the incumbent industry is misleading them; here's the truth
+   - \`objection-first\` — address the #1 skepticism up front and flip it
+   - \`identity-first\` — speak to who they believe they are ("People like us don't need…")
+   - \`MAHA\` — Make America Healthy Again / populist-health framing (skip if not health-adjacent)
+   - \`news-first\` — a recent finding, study, or event justifies the product
+   - \`consequence-first\` — lead with the cost of inaction
+
+5. **Core Buyer** — 1-2 sentences describing who this specific ad is for. Be concrete: age, gender, life stage, income bracket only when relevant, current role of the problem in their life.
+
+6. **Symptom Pattern** — the exact lived experience the ad centers on. Not a category ("poor sleep") — a moment ("wakes at 2:47 AM, lies there calculating hours left until the alarm"). 2-4 sentences.
+
+7. **Failed Solutions** — what they've already tried that hasn't worked. Be specific. 1-3 sentences or a short bulleted list in prose form.
+
+8. **Current Belief** — the limiting or incorrect belief they hold right now about the problem or about products like this one. 1-2 sentences.
+
+9. **Objection** — the single strongest reason this buyer would scroll past this ad. 1 sentence.
+
+10. **Emotional State** — the dominant feeling in the moment the ad catches them. Specific emotion words — "weary resignation", "quiet panic", "self-blame", not "bad" or "sad". 1 sentence.
+
+11. **Scene to Center the Ad On** — the concrete physical scene the ad visually and narratively anchors to. One sentence describing a moment in time and space (location + what the buyer is doing).
+
+12. **Desired Belief Shift** — the single belief this angle needs to move the buyer toward. Complete the sentence: "After this ad, they should believe that ___." 1 sentence.
+
+13. **Tone** — 3-6 adjectives describing the voice. Example: "Calm, specific, skeptical-friendly, free of hype."
+
+14. **Avoid** — 2-5 specific things the copy or visuals must not do. Example: "No young models. No generic insomnia language. No 'secret trick' phrasing."
+
+=============================
+RULES FOR THE ANGLE SET
+=============================
+- 8 angles total. No fewer.
+- Every angle must use a different **Frame** if possible. If you repeat a Frame, the Core Buyer or Symptom Pattern must be meaningfully different.
+- No two angles may share the same Symptom Pattern or the same Scene.
+- At least one angle each at priority "highest" and "high". Up to two "test".
+- Write in plain, specific English. No marketing-ese. No hype. No em-dashes as hedges.
+- If a field would be empty, put a concrete guess — never "N/A" or "(none)".
+
+=============================
+OUTPUT FORMAT — COPY EXACTLY
+=============================
+Return the full document as a single markdown code block. For each angle, use this exact structure. Separate angles with a line containing only three dashes on its own line.
+
+\`\`\`markdown
+## <Angle Name>
+
+- **Status**: active
+- **Priority**: <highest|high|medium|test>
+- **Frame**: <symptom-first|scam|objection-first|identity-first|MAHA|news-first|consequence-first>
+
+### Core Buyer
+<text>
+
+### Symptom Pattern
+<text>
+
+### Failed Solutions
+<text>
+
+### Current Belief
+<text>
+
+### Objection
+<text>
+
+### Emotional State
+<text>
+
+### Scene to Center the Ad On
+<text>
+
+### Desired Belief Shift
+<text>
+
+### Tone
+<text>
+
+### Avoid
+<text>
+
+---
+
+## <Next Angle Name>
+
+... (same 10 sections, then another \`---\`)
+\`\`\`
+
+Produce the document now. No preamble, no commentary — just the markdown.`;
+}
+
 function buildServerQueueItem(active, existing = null) {
   return {
     id: existing?.id || active?.runId || active?.id || crypto.randomUUID(),
@@ -897,7 +1041,6 @@ function buildServerQueueItem(active, existing = null) {
     startTime: existing?.startTime || active?.startTime || Date.now(),
     result: active?.result || existing?.result || null,
     angleId: existing?.angleId || null,
-    generateLP: existing?.generateLP ?? false,
     sseConnected: false,
     serverRunId: active?.runId || active?.id || existing?.serverRunId || null,
   };
@@ -1192,9 +1335,8 @@ function DirectorTab({ onRefresh }) {
 
   const [campaigns, setCampaigns] = useState([]);
 
-  // Angle selection and LP toggle for test runs
+  // Angle selection for test runs
   const [selectedAngleId, setSelectedAngleId] = useState('');
-  const [generateLP, setGenerateLP] = useState(false);
 
   // Test run queue — persisted to localStorage so it survives refresh/navigation
   const QUEUE_KEY = 'dacia_testRunQueue';
@@ -1206,8 +1348,7 @@ function DirectorTab({ onRefresh }) {
       // Clear stale items older than 2 hours
       const cutoff = Date.now() - 2 * 60 * 60 * 1000;
       return parsed
-        .filter(r => r.startTime ? r.startTime > cutoff : true)
-        .map((item) => ({ ...item, generateLP: item?.generateLP === true }));
+        .filter(r => r.startTime ? r.startTime > cutoff : true);
     } catch { return []; }
   });
   const safeTestRunQueue = ensureArray(testRunQueue, 'AgentMonitor.director.testRunQueue');
@@ -1482,7 +1623,7 @@ function DirectorTab({ onRefresh }) {
   };
 
   const handleTestRun = () => {
-    const queueItem = { id: crypto.randomUUID(), status: 'queued', progress: 0, phase: '', startTime: null, result: null, angleId: selectedAngleId || null, generateLP, sseConnected: false, serverRunId: null };
+    const queueItem = { id: crypto.randomUUID(), status: 'queued', progress: 0, phase: '', startTime: null, result: null, angleId: selectedAngleId || null, sseConnected: false, serverRunId: null };
     setTestRunQueue(prev => [...prev, queueItem]);
     setSubTab('history');
   };
@@ -1588,7 +1729,6 @@ function DirectorTab({ onRefresh }) {
 
     const body = {
       ...(nextQueued.angleId ? { angle_id: nextQueued.angleId } : {}),
-      generate_lp: nextQueued.generateLP ?? false,
     };
 
     let sawEvent = false;
@@ -1814,23 +1954,30 @@ function DirectorTab({ onRefresh }) {
     setAngleOptions(prev => ensureArray(prev, 'AgentMonitor.director.angleOptionsState').map(a => a.externalId === angleId ? { ...a, ...updates } : a));
   };
 
-  const handleToggleLPEnabled = async (angleId, lpEnabled) => {
-    try {
-      await api.updateConductorAngle(selectedProject, angleId, { lp_enabled: lpEnabled });
-      setAngles(prev => ensureArray(prev, 'AgentMonitor.director.anglesState').map(a => a.externalId === angleId ? { ...a, lp_enabled: lpEnabled } : a));
-    } catch (err) {
-      console.error('[AgentMonitor] Failed to toggle LP enabled:', err);
-    }
-  };
+  // --- Copy LLM prompt for generating a new angle list ---
+  // Builds a detailed prompt, embedding the project's brand/product context, that the user
+  // can paste into ChatGPT/Claude to get back markdown that pastes directly into Import.
+  const [copyingPrompt, setCopyingPrompt] = useState(false);
 
-  const handleToggleAllLP = async (lpEnabled) => {
-    const active = ensureArray(angles, 'AgentMonitor.director.anglesState').filter(a => a.status === 'active');
-    // Optimistic update
-    setAngles(prev => ensureArray(prev, 'AgentMonitor.director.anglesState').map(a => a.status === 'active' ? { ...a, lp_enabled: lpEnabled } : a));
-    // Fire all API calls in parallel
-    await Promise.allSettled(
-      active.map(a => api.updateConductorAngle(selectedProject, a.externalId, { lp_enabled: lpEnabled }))
-    );
+  const handleCopyAnglePrompt = async () => {
+    if (!selectedProject) return;
+    setCopyingPrompt(true);
+    try {
+      const project = await api.getProject(selectedProject);
+      const brand = project?.brand_name || project?.name || '(unknown brand)';
+      const productName = project?.name || '';
+      const niche = project?.niche || '(not specified)';
+      const productDesc = project?.product_description || '(not specified)';
+
+      const promptText = buildAnglePromptText({ brand, productName, niche, productDesc });
+      await navigator.clipboard.writeText(promptText);
+      toast.success('Prompt copied. Paste it into ChatGPT/Claude, then save the reply as a .md file and import it here.');
+    } catch (err) {
+      console.error('[AgentMonitor] Copy angle prompt failed:', err);
+      toast.error('Could not copy prompt. ' + (err?.message || ''));
+    } finally {
+      setCopyingPrompt(false);
+    }
   };
 
   // --- Export angles as markdown ---
@@ -2099,10 +2246,6 @@ function DirectorTab({ onRefresh }) {
               <option key={a.externalId} value={a.externalId}>{a.name}</option>
             ))}
           </select>
-          <label className="flex items-center gap-1.5 text-[11px] text-textmid cursor-pointer select-none">
-            <input type="checkbox" checked={generateLP} onChange={e => setGenerateLP(e.target.checked)} className="rounded border-black/20" />
-            Generate LPs
-          </label>
           <button
             onClick={handleTestRun}
             disabled={!canTriggerTestRun}
@@ -2283,7 +2426,7 @@ function DirectorTab({ onRefresh }) {
           )}
 
           {/* Export / Import toolbar */}
-          <div className="flex items-center gap-2 mb-3">
+          <div className="flex items-center gap-2 mb-3 flex-wrap">
             <button
               onClick={handleDownloadAngles}
               disabled={safeAngles.length === 0}
@@ -2298,6 +2441,19 @@ function DirectorTab({ onRefresh }) {
             >
               <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M17 8l-5-5m0 0L7 8m5-5v12" /></svg>
               Import
+            </button>
+            <button
+              onClick={handleCopyAnglePrompt}
+              disabled={!selectedProject || copyingPrompt}
+              title="Copy a ready-made prompt that you can paste into ChatGPT or Claude to generate a list of angles in the exact import format."
+              className="btn-secondary text-[11px] px-3 py-1.5 flex items-center gap-1.5 disabled:opacity-40"
+            >
+              {copyingPrompt ? (
+                <svg className="w-3 h-3 animate-spin" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" strokeDasharray="31.4 31.4" strokeLinecap="round" /></svg>
+              ) : (
+                <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" /></svg>
+              )}
+              {copyingPrompt ? 'Copying...' : 'Copy LLM Prompt'}
             </button>
           </div>
 
@@ -2380,26 +2536,10 @@ function DirectorTab({ onRefresh }) {
           {/* Active angles */}
           {activeAngles.length > 0 && (
             <div className="mb-4">
-              <div className="flex items-center justify-between mb-2">
-                <p className="text-[10px] text-textlight font-medium uppercase tracking-wider">Active</p>
-                <div className="flex items-center gap-2">
-                  <span className="text-[10px] text-textmid">Generate landing pages for all angles</span>
-                  <button
-                    onClick={() => handleToggleAllLP(!activeAngles.every(a => a.lp_enabled))}
-                    title={activeAngles.every(a => a.lp_enabled) ? 'Disable LPs for all angles' : 'Enable LPs for all angles'}
-                    className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
-                      activeAngles.every(a => a.lp_enabled) ? 'bg-teal' : 'bg-gray-200'
-                    }`}
-                  >
-                    <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${
-                      activeAngles.every(a => a.lp_enabled) ? 'translate-x-[18px]' : 'translate-x-[3px]'
-                    }`} />
-                  </button>
-                </div>
-              </div>
+              <p className="text-[10px] text-textlight font-medium uppercase tracking-wider mb-2">Active</p>
               <div className="space-y-2">
                 {activeAngles.map(a => (
-                  <AngleCard key={a.externalId} angle={a} playbooks={playbooks} onStatusChange={handleAngleStatusChange} onToggleLPEnabled={handleToggleLPEnabled} onUpdate={handleUpdateAngle} />
+                  <AngleCard key={a.externalId} angle={a} playbooks={playbooks} onStatusChange={handleAngleStatusChange} onUpdate={handleUpdateAngle} />
                 ))}
               </div>
             </div>
@@ -2441,7 +2581,8 @@ function DirectorTab({ onRefresh }) {
 
           {!baseLoading && activeAngles.length === 0 && testingAngles.length === 0 && archivedAngles.length === 0 && (
             <div className="rounded-xl bg-black/[0.02] border border-black/5 px-3 py-3 mb-4">
-              <p className="text-[11px] text-textmid">No angles yet. Add one to start using the Creative Director.</p>
+              <p className="text-[11px] text-textmid mb-1.5">No angles yet.</p>
+              <p className="text-[11px] text-textlight">Add one below, or click <span className="font-medium text-textmid">Copy LLM Prompt</span> above, paste it into ChatGPT or Claude, save the reply as a <code className="bg-black/5 px-1 rounded">.md</code> file, and use <span className="font-medium text-textmid">Import</span> to bulk-load a starter set.</p>
             </div>
           )}
 
@@ -2918,7 +3059,7 @@ function DirectorTab({ onRefresh }) {
 const PRIORITY_OPTIONS = ['highest', 'high', 'medium', 'test'];
 const FRAME_OPTIONS = ['symptom-first', 'scam', 'objection-first', 'identity-first', 'MAHA', 'news-first', 'consequence-first'];
 
-function AngleCard({ angle, playbooks, onStatusChange, onToggleLPEnabled, onUpdate, showActions }) {
+function AngleCard({ angle, playbooks, onStatusChange, onUpdate, showActions }) {
   const pb = ensureArray(playbooks, 'AgentMonitor.angleCard.playbooks').find(p => p.angle_name === angle.name);
   const [expanded, setExpanded] = useState(false);
   const [editingField, setEditingField] = useState(null);
@@ -3126,22 +3267,6 @@ function AngleCard({ angle, playbooks, onStatusChange, onToggleLPEnabled, onUpda
         </div>
       )}
 
-      {onToggleLPEnabled && angle.status === 'active' && (
-        <div className="flex items-center justify-end gap-2 px-3 py-2 border-t border-black/5">
-          <span className="text-[10px] text-textmid">Generate landing pages</span>
-          <button
-            onClick={() => onToggleLPEnabled(angle.externalId, !angle.lp_enabled)}
-            title={angle.lp_enabled ? 'Disable LP generation for this angle' : 'Enable LP generation for this angle'}
-            className={`relative inline-flex h-5 w-9 items-center rounded-full transition-colors ${
-              angle.lp_enabled ? 'bg-teal' : 'bg-gray-200'
-            }`}
-          >
-            <span className={`inline-block h-3.5 w-3.5 transform rounded-full bg-white shadow transition-transform ${
-              angle.lp_enabled ? 'translate-x-[18px]' : 'translate-x-[3px]'
-            }`} />
-          </button>
-        </div>
-      )}
     </div>
   );
 }

@@ -23,7 +23,6 @@ import {
 } from '../convexClient.js';
 import { getAdaptiveBatchSize } from './conductorLearning.js';
 import { runBatch, pollBatchJob } from './batchProcessor.js';
-import { triggerLPGeneration } from './lpAutoGenerator.js';
 import { buildStructuredAnglePrompt, hasStructuredBrief, buildAngleBriefJSON } from '../utils/angleParser.js';
 import {
   cleanupImageData,
@@ -1848,7 +1847,6 @@ async function finalizeSuccessfulTestRun({
   totalAdsPassed,
   finalizeResult,
   durationMs,
-  skipLPGen = false,
   triggerLabel = 'test run',
 }) {
   const readyToPostCount = finalizeResult.ready_to_post_count || 0;
@@ -2242,7 +2240,6 @@ async function continueBackgroundTestRun(run) {
         totalAdsPassed,
         finalizeResult,
         durationMs: Date.now() - run.run_at,
-        skipLPGen: !!run.skip_lp_gen,
         triggerLabel: 'background test run',
       });
 
@@ -2584,7 +2581,7 @@ export function cancelTestRun(projectId) {
  * @param {{ angleOverride?: string }} options
  * @returns {object} Combined result from Director + Filter phases
  */
-export async function runFullTestPipeline(projectId, sendEvent, { angleOverride = null, skipLPGen = false } = {}) {
+export async function runFullTestPipeline(projectId, sendEvent, { angleOverride = null } = {}) {
   const rawEmit = sendEvent || (() => {});
 
   if (findTrackedTestRun(projectId) || await hasDurableActiveTestRun(projectId)) {
@@ -2672,7 +2669,6 @@ export async function runFullTestPipeline(projectId, sendEvent, { angleOverride 
       required_passes: TEST_RUN_REQUIRED_PASSES,
       ads_per_round: TEST_RUN_INITIAL_ADS_PER_ROUND,
       max_rounds: TEST_RUN_MAX_ROUNDS,
-      skip_lp_gen: !!skipLPGen,
     });
 
     throwIfRunCancelled();
@@ -2890,7 +2886,6 @@ export async function runFullTestPipeline(projectId, sendEvent, { angleOverride 
           totalAdsPassed,
           finalizeResult,
           durationMs: Date.now() - runProgress.startTime,
-          skipLPGen,
           triggerLabel: 'test run',
         });
 

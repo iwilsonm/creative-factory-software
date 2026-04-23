@@ -284,7 +284,7 @@ router.put('/angles/:projectId/:angleId', async (req, res) => {
   try {
     // Whitelist allowed fields to prevent arbitrary field injection
     const allowedAngleFields = [
-      'name', 'description', 'prompt_hints', 'status', 'source', 'focused', 'lp_enabled',
+      'name', 'description', 'prompt_hints', 'status', 'source', 'focused',
       'priority', 'frame', 'core_buyer', 'symptom_pattern', 'failed_solutions',
       'current_belief', 'objection', 'emotional_state', 'scene',
       'desired_belief_shift', 'tone', 'avoid_list', 'destination_urls',
@@ -455,9 +455,9 @@ router.post('/run/:projectId', async (req, res) => {
 // POST /api/conductor/test-run/:projectId — full pipeline: Director → batch → Gemini → Filter → Ready to Post
 router.post('/test-run/:projectId', async (req, res) => {
   streamService(req, res, async (sendEvent) => {
-    const { angle_id, generate_lp } = req.body || {};
+    const { angle_id } = req.body || {};
     const { runFullTestPipeline } = await import('../services/conductorEngine.js');
-    const result = await runFullTestPipeline(req.params.projectId, sendEvent, { angleOverride: angle_id || null, skipLPGen: generate_lp === false });
+    const result = await runFullTestPipeline(req.params.projectId, sendEvent, { angleOverride: angle_id || null });
     if (result.pipeline_failed) {
       sendEvent({ type: 'error', message: result.failure_reason, ...result });
     } else if (result.run_in_background) {

@@ -371,7 +371,6 @@ export default defineSchema({
     source: v.string(),                  // "manual" | "imported" | "auto_generated"
     status: v.string(),                  // "active" | "testing" | "archived"
     focused: v.optional(v.boolean()),    // When true + active, Director only uses focused angles
-    lp_enabled: v.optional(v.boolean()), // Per-angle LP override: true=always, false=never, null=use project default
     // Structured creative brief fields
     priority: v.optional(v.string()),    // "highest" | "high" | "medium" | "test"
     frame: v.optional(v.string()),       // "symptom-first" | "scam" | "objection-first" | "identity-first" | "MAHA" | "news-first" | "consequence-first"
@@ -423,7 +422,6 @@ export default defineSchema({
     flex_ad_id: v.optional(v.string()),
     rounds_json: v.optional(v.string()),
     error_stage: v.optional(v.string()),
-    skip_lp_gen: v.optional(v.boolean()),
     created_at: v.number(),
   })
     .index("by_externalId", ["externalId"])
