@@ -528,24 +528,22 @@ export const api = {
   testPerplexity: () => request('/settings/test-perplexity', { method: 'POST' }),
   testAnthropic: () => request('/settings/test-anthropic', { method: 'POST' }),
 
-  // Meta Ads Integration (per-project)
-  getMetaStatus: (projectId) => request(`/projects/${projectId}/meta/status`),
-  getMetaAuthUrl: (projectId) => request(`/projects/${projectId}/meta/auth-url`),
-  disconnectMeta: (projectId) => request(`/projects/${projectId}/meta/disconnect`, { method: 'POST' }),
-  getMetaAdAccounts: (projectId) => request(`/projects/${projectId}/meta/ad-accounts`),
-  selectMetaAdAccount: (projectId, adAccountId) =>
-    request(`/projects/${projectId}/meta/ad-account`, { method: 'POST', body: JSON.stringify({ adAccountId }) }),
-  getMetaCampaigns: (projectId) => request(`/projects/${projectId}/meta/campaigns`),
-  getMetaAdSets: (projectId, campaignId) => request(`/projects/${projectId}/meta/campaigns/${campaignId}/adsets`),
-  getMetaAds: (projectId, adsetId) => request(`/projects/${projectId}/meta/adsets/${adsetId}/ads`),
-  linkMetaAd: (projectId, deploymentId, metaAdId, metaCampaignId, metaAdsetId) =>
-    request(`/projects/${projectId}/meta/link`, { method: 'POST', body: JSON.stringify({ deploymentId, metaAdId, metaCampaignId, metaAdsetId }) }),
-  unlinkMetaAd: (projectId, deploymentId) =>
-    request(`/projects/${projectId}/meta/unlink`, { method: 'POST', body: JSON.stringify({ deploymentId }) }),
-  getMetaPerformance: (projectId, deploymentId) => request(`/projects/${projectId}/meta/performance/${deploymentId}`),
-  getMetaPerformanceSummary: (projectId) => request(`/projects/${projectId}/meta/performance/summary`),
-  syncMetaPerformance: (projectId) => request(`/projects/${projectId}/meta/sync`, { method: 'POST' }),
-
+  // Meta Ads — feature stripped in Creative Factory fork. Stubs keep existing
+  // UI components from crashing; they silently show "not connected" state.
+  // TODO: remove the Meta UI chrome in a follow-up pass.
+  getMetaStatus: async () => ({ connected: false, appConfigured: false }),
+  getMetaAuthUrl: async () => ({ url: '' }),
+  disconnectMeta: async () => ({ success: true }),
+  getMetaAdAccounts: async () => ({ accounts: [] }),
+  selectMetaAdAccount: async () => ({ success: true }),
+  getMetaCampaigns: async () => ({ campaigns: [] }),
+  getMetaAdSets: async () => ({ adsets: [] }),
+  getMetaAds: async () => ({ ads: [] }),
+  linkMetaAd: async () => ({ success: false, error: 'Meta integration disabled' }),
+  unlinkMetaAd: async () => ({ success: true }),
+  getMetaPerformance: async () => ({ performance: null }),
+  getMetaPerformanceSummary: async () => ({ summary: null }),
+  syncMetaPerformance: async () => ({ synced: 0 }),
 
   // LP retry
   retryBatchLP: (batchId, options = {}) =>
