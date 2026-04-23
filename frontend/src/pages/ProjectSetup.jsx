@@ -16,8 +16,8 @@ export default function ProjectSetup() {
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
 
-  // Sales page upload state
-  const [salesInputMode, setSalesInputMode] = useState('upload'); // 'upload' | 'paste' | 'url'
+  // Sales page upload state — default to 'url' (fastest path)
+  const [salesInputMode, setSalesInputMode] = useState('url'); // 'url' | 'paste' | 'upload'
   const [uploadedFile, setUploadedFile] = useState(null);
 
   // URL fetch state
@@ -165,10 +165,10 @@ export default function ProjectSetup() {
               <div className="segmented-control">
                 <button
                   type="button"
-                  onClick={() => setSalesInputMode('upload')}
-                  className={salesInputMode === 'upload' ? 'active' : ''}
+                  onClick={() => setSalesInputMode('url')}
+                  className={salesInputMode === 'url' ? 'active' : ''}
                 >
-                  Upload
+                  From URL
                 </button>
                 <button
                   type="button"
@@ -179,10 +179,10 @@ export default function ProjectSetup() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => setSalesInputMode('url')}
-                  className={salesInputMode === 'url' ? 'active' : ''}
+                  onClick={() => setSalesInputMode('upload')}
+                  className={salesInputMode === 'upload' ? 'active' : ''}
                 >
-                  From URL
+                  Upload
                 </button>
               </div>
             </div>
