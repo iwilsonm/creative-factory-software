@@ -1,7 +1,16 @@
 import { v4 as uuidv4 } from 'uuid';
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import { chat, chatStream, deepResearch } from './openai.js';
 import { chat as claudeChat } from './anthropic.js';
 import { getProject, getLatestDoc, updateProject, convexClient, api } from '../convexClient.js';
+
+const __docgen_dirname = path.dirname(fileURLToPath(import.meta.url));
+const RESEARCH_METHODOLOGY_PROMPT = fs.readFileSync(
+  path.join(__docgen_dirname, 'prompts', 'research-methodology.txt'),
+  'utf-8'
+);
 
 // The 8 prompts from the SOP, organized as functions that return prompt text.
 // Steps 1-3 produce the research prompt (prep work via GPT-4.1).
@@ -18,104 +27,7 @@ function prompt1_AnalyzeSalesPage(productDescription, salesPageContent) {
 }
 
 function prompt2_ResearchMethodology() {
-  return `Great work! I'm going to send you two documents that teach how to do deep research for your product in order to effectively write highly persuasive copy. Please analyze them and let me know your thoughts:
-
---- RESEARCH METHODOLOGY PART 1: THE FRAMEWORK ---
-
-The foundation of great direct response copy is deep market research. The market will write your copy for you — if you listen. Your job isn't to invent language or guess at pain points. It's to excavate what already exists in forums, reviews, and communities, then reflect it back with precision.
-
-Your research must be organized into four distinct layers:
-
-LAYER 1: DEMOGRAPHIC & PSYCHOGRAPHIC PROFILE
-Research and document:
-- Who they are (age, gender, income, education, occupation)
-- What they believe (religious attitudes, political leanings, social views, economic outlook)
-- What they want (hopes, dreams, aspirations — in their exact words)
-- Where they've been (victories they're proud of, failures that haunt them)
-- Who they blame (outside forces they hold responsible for their problems)
-- What assumptions they hold (prejudices, tribal markers, in-group/out-group dynamics)
-- Core belief summary: a single statement capturing their worldview about this problem
-
-LAYER 2: EXISTING SOLUTION LANDSCAPE
-Research and document:
-- What solutions they're currently using or have tried
-- What they liked about those solutions (specific features, feelings, outcomes)
-- What they hated about those solutions (frustrations, side effects, broken promises)
-- Horror stories — the worst experiences with existing solutions, told in vivid detail
-- Whether they believe ANY solution actually works (and why or why not)
-- What would make them try something new vs. give up entirely
-
-LAYER 3: CURIOSITY / HISTORICAL ANGLES
-Research and document:
-- Old, forgotten, or suppressed attempts to solve this problem
-- Pre-1960 solutions or discoveries (the "lost discovery" hook)
-- "What did people do before [modern approach]?" angles
-- Conspiratorial or suppression narratives ("they don't want you to know")
-- Any isolated groups or cultures that don't have this problem (and why)
-- Scientific discoveries that haven't reached mainstream awareness
-
-LAYER 4: CORRUPTION / "FALL FROM EDEN"
-Research and document:
-- When and why this problem got worse (historical turning point)
-- Outside forces that created or exacerbated the problem
-- The "villain" — who or what is responsible (corporations, government, industry, cultural shift)
-- "Fall from Eden" narrative: there was a time when this wasn't a problem, and here's what changed
-- Isolated populations that still live in the "before" state
-
---- RESEARCH METHODOLOGY PART 2: THE LIVE METHOD ---
-
-Here is the practical workflow for conducting this research:
-
-PRIMARY SOURCES:
-1. Forums (Reddit, niche forums, Facebook groups, community boards)
-2. Amazon reviews (for competing products or related products)
-3. Google searches for specific angles
-4. YouTube comments on related videos
-5. Quora threads
-6. App store reviews (if applicable)
-
-FORUM MINING STRATEGY:
-- Sort threads by REPLIES (engagement signal — these are active pain points people argue about)
-- Sort threads by VIEWS (attention signal — these thread titles could become email subject lines or hooks)
-- Look for confessional/journal-style posts — one deeply personal account is worth more than 50 surface-level comments
-- Look for threads with arguments — these reveal conflicting beliefs in the market
-- CRITICAL: Copy-paste verbatim. Do NOT paraphrase, do NOT clean up grammar. The prospect's exact words are your most powerful copy asset.
-
-AMAZON REVIEW MINING:
-- 5-star reviews: What worked, what they loved, what surprised them, what they'd tell a friend
-- 1-star reviews: What failed, side effects, broken promises, horror stories, frustrations
-- 3-star reviews: What was "meh" — reveals expectations vs. reality gaps
-- Pay attention to volume of reviews as a signal of category interest and market size
-
-KEY TECHNIQUE — "THE TINA DISCOVERY":
-One deeply confessional source is worth more than 50 surface-level comments. Look for:
-- Forum users who post journal-style updates about their struggle
-- Multi-paragraph confessions that reveal hopes, fears, family dynamics, cycles of failure
-- The actual emotional language (e.g., "I want my husband to look at me with pride" is infinitely more powerful than "wants to look attractive")
-- Read between the lines: what they SAY they want vs. what they ACTUALLY want (e.g., admiration vs. sexual attraction — don't assume)
-
-SUBJECT LINE HARVESTING:
-- Forum thread titles with high view counts can become email subject lines or ad hooks
-- These are pre-tested — the market has already shown interest by clicking
-
-GOOGLE SEARCHES FOR ANGLES:
-- "[Problem] horror stories"
-- "[Problem] history"
-- "Popular [solutions] from the 1900s"
-- "Why is [problem] getting worse"
-- "Places where [problem] doesn't exist"
-- "[Product category] scam" or "[Product category] doesn't work"
-
-OUTPUT REQUIREMENTS:
-Your research document should be:
-- Minimum 6 full pages of content
-- Rich with direct quotes from real consumers (verbatim, not paraphrased)
-- Organized by the four layers above
-- Written in plain language
-- Optimized for direct response copywriting use
-- Do NOT summarize vaguely or generalize without specific examples
-- Do NOT invent beliefs — all insights must be grounded in real consumer language
-- Prioritize emotional truth over technical explanation`;
+  return RESEARCH_METHODOLOGY_PROMPT;
 }
 
 function prompt3_GenerateResearchPrompt(productName) {

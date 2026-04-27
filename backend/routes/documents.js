@@ -117,7 +117,7 @@ router.get('/:projectId/research-prompts', async (req, res) => {
       {
         step: 2,
         title: 'Step 2: Teach the Research Methodology',
-        instruction: 'After getting the response from Step 1, send this second prompt in the SAME conversation. This teaches the AI the 4-layer research framework.',
+        instruction: 'After getting the response from Step 1, send this second prompt in the SAME conversation. This teaches the AI the deep research methodology with a fully worked example.',
         prompt: prompt2_ResearchMethodology()
       },
       {
