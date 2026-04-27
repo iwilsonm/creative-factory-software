@@ -919,6 +919,20 @@ export default function FoundationalDocs({ projectId, projectStatus }) {
                 <div>
                   <h4 className="font-medium text-textdark">{p.title}</h4>
                   <p className="text-xs text-textmid">{p.instruction}</p>
+                  {p.tip && (
+                    <p className="text-xs text-textmid mt-1 italic">
+                      {p.tip.text}{' '}
+                      <a
+                        href={p.tip.linkUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        onClick={(e) => e.stopPropagation()}
+                        className="text-gold hover:text-gold-light underline"
+                      >
+                        {p.tip.linkLabel}
+                      </a>
+                    </p>
+                  )}
                 </div>
               </div>
               <span className="text-textlight text-lg">

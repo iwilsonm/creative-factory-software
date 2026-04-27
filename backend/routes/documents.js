@@ -103,10 +103,15 @@ router.get('/:projectId/research-prompts', async (req, res) => {
       {
         step: 1,
         title: 'Step 1: Analyze Your Sales Page',
-        instruction: 'Start a new conversation in ChatGPT or Claude. Copy and paste this entire prompt. It sends your sales page content for initial analysis.',
+        instruction: 'Start a new conversation in ChatGPT or Claude. Create a PDF of your current PDP (product detail page) and attach it to your message along with this prompt. Then copy and paste the prompt below.',
+        tip: {
+          text: 'Tip: You can use this tool to convert your PDP into a PDF (current suggestion, may change):',
+          linkLabel: 'webtopdf.com',
+          linkUrl: 'https://webtopdf.com/'
+        },
         prompt: prompt1_AnalyzeSalesPage(
           project.product_description,
-          project.sales_page_content || 'No sales page content provided.'
+          project.sales_page_content
         )
       },
       {

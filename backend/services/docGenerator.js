@@ -12,9 +12,9 @@ import { getProject, getLatestDoc, updateProject, convexClient, api } from '../c
 // Step 8 produces the Necessary Beliefs (synthesis via GPT-4.1).
 
 function prompt1_AnalyzeSalesPage(productDescription, salesPageContent) {
-  return `You are my expert copywriter and you specialize in writing highly persuasive direct response style copy for my ecommerce brand that sells ${productDescription}. I'm going to send you a PDF screenshot of my current sales page, and I want you to analyze it and please let me know your thoughts.
-
-${salesPageContent}`;
+  const intro = `You are my expert copywriter and you specialize in writing highly persuasive direct response style copy for my ecommerce brand that sells ${productDescription}. I'm going to send you a PDF screenshot of my current sales page, and I want you to analyze it and please let me know your thoughts.`;
+  const trimmed = (salesPageContent || '').trim();
+  return trimmed ? `${intro}\n\n${trimmed}` : intro;
 }
 
 function prompt2_ResearchMethodology() {
@@ -419,7 +419,7 @@ export async function generateAllDocs(projectId, onEvent) {
           case 1:
             promptText = prompt1_AnalyzeSalesPage(
               project.product_description,
-              project.sales_page_content || 'No sales page content provided.'
+              project.sales_page_content
             );
             break;
           case 2:
@@ -590,7 +590,7 @@ export async function regenerateDoc(projectId, docType, onEvent) {
       // Re-run deep research — needs the research prompt from step 3
       // Build steps 1-3 to get the prompt
       const chatMessages = [];
-      chatMessages.push({ role: 'user', content: prompt1_AnalyzeSalesPage(project.product_description, project.sales_page_content || 'No sales page content provided.') });
+      chatMessages.push({ role: 'user', content: prompt1_AnalyzeSalesPage(project.product_description, project.sales_page_content) });
       chatMessages.push({ role: 'assistant', content: 'I have analyzed the sales page. Ready to proceed.' });
       chatMessages.push({ role: 'user', content: prompt2_ResearchMethodology() });
       chatMessages.push({ role: 'assistant', content: 'I have studied the research methodology framework. Ready to proceed.' });
@@ -736,7 +736,7 @@ export async function generateFromManualResearch(projectId, researchContent, onE
       role: 'user',
       content: prompt1_AnalyzeSalesPage(
         project.product_description,
-        project.sales_page_content || 'No sales page content provided.'
+        project.sales_page_content
       )
     },
     {
