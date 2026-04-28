@@ -1896,7 +1896,7 @@ export default function AdStudio({ projectId, project }) {
               <p className={`text-[11px] font-medium ${productDragOver ? 'text-navy' : 'text-textmid'}`}>
                 {productDragOver ? 'Drop product image here' : 'Drop a product image, or click to browse'}
               </p>
-              <p className="text-[10px] text-textlight mt-0.5">Or set one on the project Overview for all ads</p>
+              <p className="text-[10px] text-textlight mt-0.5">Or set one in Project Settings for all ads</p>
             </div>
           ) : null}
           <input
