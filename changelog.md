@@ -1,5 +1,27 @@
 # Creative Factory — Changelog
 
+## 2026-04-28 — Templates flow: drop Drive sync, add multi-file direct upload (up to 500 at a time)
+
+**What changed**
+- `frontend/src/components/TemplateImages.jsx`: removed the Drive Templates section entirely. Replaced single-file upload with multi-file batch upload — `<input multiple>`, drag-drop accepts multiple files. Added sliding-window concurrency (5 in flight at a time, not chunked rounds). Progress UI: bar + "X of Y" + failure counter. Cancel button via AbortController. Per-file failure summary with reasons (unsupported format / exceeds 20 MB / too large for upload (server limit) / network error). Hard cap of 1000 files per session. Incremental gallery append on each successful upload (no full reload at end). Dropped the now-unused `inspirationFolderId` prop.
+- `frontend/src/api.js`: `uploadTemplate` extended with optional `signal` for AbortController support. Backwards-compatible with existing string-`description` callers (BatchManager). Treats Vercel HTTP 413 (gateway-rejected) specifically as "too large for upload (server limit)" rather than a generic JSON-parse error.
+- `frontend/src/components/AdStudio.jsx`: empty-state message and "Random from Templates Folder" copy no longer mention Google Drive — both now reference uploaded templates.
+- `frontend/src/components/BatchManager.jsx`: same template-messaging update in two locations (random-template hint + no-templates empty state).
+- `frontend/src/pages/ProjectDetail.jsx`: dropped the `inspirationFolderId` prop passed to `<TemplateImages />`.
+
+**Why**
+- Marco couldn't connect Google Drive in the UI to sync templates — the Drive UI never existed (only backend routes + an unused `DriveFolderPicker` component). The original Drive integration assumed a service-account JSON on disk, which doesn't fit Vercel's read-only serverless filesystem. Rather than build out a full Convex-backed service-account flow, the user opted to drop Drive from the templates flow entirely and use direct multi-file upload (up to 500 at a time, the practical ceiling for a single user session).
+- Concurrency = 5 is a starting heuristic — tunable in `UPLOAD_CONCURRENCY` constant. Drop to 3 if Vercel rate-limits or Convex throttles; raise if uploads feel slow and there's headroom.
+
+**Out of scope (deliberate v1 choices)**
+- Client-side image resize for files >4 MB (Vercel Hobby gateway limit). v1 surfaces 413s clearly so the user can resize externally.
+- In-place "Retry failed" button. v1 reports failures; user re-selects files manually to retry.
+- Pre-upload review modal ("X selected, Y will be skipped, proceed?"). Goes straight to upload.
+- ETA display, gallery virtualization, backend hash dedup, full Drive UI revival.
+
+**Inspiration sync left intact**
+- The separate `InspirationFolder.jsx` flow (uses `drive_folder_id` per project) still references Drive sync. Not touched in this change. The unused `DriveFolderPicker.jsx` component and `api.driveStatus`/`api.driveFolders` methods are kept since `DriveFolderPicker` may be reachable from `InspirationFolder` setup.
+
 ## 2026-04-28 — Vercel function bundling fix + production topology lock-in
 
 **What changed**

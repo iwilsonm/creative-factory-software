@@ -255,16 +255,30 @@ export const api = {
   // Template Images
   getTemplates: (projectId) =>
     request(`/projects/${projectId}/templates`).then(data => normalizeArrayResponse(data, 'templates', 'api.getTemplates.templates')),
-  uploadTemplate: async (projectId, file, description = '') => {
+  uploadTemplate: async (projectId, file, descriptionOrOptions = '') => {
+    // Backwards-compatible: 3rd arg may be a string (legacy `description`) or an options object `{ description, signal }`.
+    const opts = typeof descriptionOrOptions === 'string'
+      ? { description: descriptionOrOptions }
+      : (descriptionOrOptions || {});
+    const { description = '', signal } = opts;
     const formData = new FormData();
     formData.append('image', file);
     if (description) formData.append('description', description);
     const res = await fetch(`${API_BASE}/projects/${projectId}/templates`, {
       method: 'POST',
       credentials: 'include',
-      body: formData
+      body: formData,
+      signal
     });
-    const data = await res.json();
+    let data;
+    try {
+      data = await res.json();
+    } catch {
+      // Vercel gateway 413 (request too large) returns non-JSON before the function runs.
+      if (res.status === 413) throw new Error('too large for upload (server limit)');
+      if (!res.ok) throw new Error(`Upload failed with ${res.status}`);
+      throw new Error('Invalid response from server');
+    }
     if (!res.ok) throw new Error(data.error || `Upload failed with ${res.status}`);
     return data;
   },

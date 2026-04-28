@@ -4,27 +4,25 @@ import InfoTooltip from './InfoTooltip';
 import ConfirmDialog from './ConfirmDialog';
 import { useAsyncData } from '../hooks/useAsyncData';
 
-/**
- * Unified Templates tab — shows both:
- * 1. Drive Templates (synced from a Google Drive folder — the default pool for generation)
- * 2. Uploaded Templates (manually uploaded reference ads)
- */
-export default function TemplateImages({ projectId, inspirationFolderId }) {
-  // Drive-synced templates (formerly "Inspiration")
-  const { data: driveImages, setData: setDriveImages, loading: loadingDrive } = useAsyncData(
-    () => api.getInspirationImages(projectId).then(d => d.images || []),
-    [projectId, inspirationFolderId],
-    { enabled: !!inspirationFolderId }
-  );
-  const [syncing, setSyncing] = useState(false);
-  const [syncResult, setSyncResult] = useState(null);
+const ALLOWED_EXTS = ['.jpg', '.jpeg', '.png', '.webp', '.gif'];
+const MAX_FILE_BYTES = 20 * 1024 * 1024; // matches multer's 20 MB limit on the backend
+const HARD_CAP_FILES = 1000;             // defensive ceiling against a stray "select all" of a Pictures folder
+const UPLOAD_CONCURRENCY = 5;            // sliding-window: 5 in flight at any time
 
-  // Uploaded templates
-  const { data: templates, setData: setTemplates, loading: loadingTemplates, refetch: loadTemplates } = useAsyncData(
+/**
+ * Templates tab — direct multi-file upload (no Google Drive sync).
+ * Up to 500 files at a time (HARD_CAP_FILES is the absolute ceiling), 5 in parallel.
+ */
+export default function TemplateImages({ projectId }) {
+  // Uploaded templates (the only source — Drive sync was dropped)
+  const { data: templates, setData: setTemplates, loading: loadingTemplates } = useAsyncData(
     () => api.getTemplates(projectId).then(d => d.templates || []),
     [projectId]
   );
-  const [uploading, setUploading] = useState(false);
+
+  // Batch upload state
+  const [batch, setBatch] = useState(null); // { total, completed, succeeded, failed: [{ name, reason }] }
+  const abortRef = useRef(null);
 
   // Shared
   const [error, setError] = useState('');
@@ -36,58 +34,89 @@ export default function TemplateImages({ projectId, inspirationFolderId }) {
   const [pendingDeleteImage, setPendingDeleteImage] = useState(null);
   const fileInputRef = useRef(null);
 
-  const [driveError, setDriveError] = useState('');
+  const uploading = !!batch && batch.completed < batch.total;
 
-  const handleSync = async () => {
-    setSyncing(true);
+  const handleBatchUpload = useCallback(async (rawFiles) => {
     setError('');
-    setDriveError('');
-    setSyncResult(null);
-    try {
-      const result = await api.syncInspiration(projectId);
-      setDriveImages(result.images || []);
-      setSyncResult({ synced: result.synced, removed: result.removed, total: result.total });
-      setTimeout(() => setSyncResult(null), 5000);
-    } catch (err) {
-      // Show service-account errors inline in the Drive section, not as a page-level error
-      if (err.message?.toLowerCase().includes('service account')) {
-        setDriveError(err.message);
-      } else {
-        setError(err.message);
-      }
-    } finally {
-      setSyncing(false);
-    }
-  };
+    const incoming = Array.from(rawFiles || []);
+    if (incoming.length === 0) return;
 
-  const handleUpload = useCallback(async (file) => {
-    if (!file) return;
-    const ext = '.' + file.name.split('.').pop().toLowerCase();
-    const allowed = ['.jpg', '.jpeg', '.png', '.webp', '.gif'];
-    if (!allowed.includes(ext)) {
-      setError(`File type ${ext} not supported. Use JPG, PNG, WebP, or GIF.`);
+    // Filter & collect skip reasons up front so the user sees rejections immediately.
+    const accepted = [];
+    const skipped = [];
+    for (const f of incoming) {
+      if (accepted.length >= HARD_CAP_FILES) {
+        skipped.push({ name: f.name, reason: `over ${HARD_CAP_FILES}-file cap` });
+        continue;
+      }
+      const ext = '.' + (f.name.split('.').pop() || '').toLowerCase();
+      if (!ALLOWED_EXTS.includes(ext)) {
+        skipped.push({ name: f.name, reason: 'unsupported format' });
+        continue;
+      }
+      if (f.size > MAX_FILE_BYTES) {
+        skipped.push({ name: f.name, reason: 'exceeds 20 MB limit' });
+        continue;
+      }
+      accepted.push(f);
+    }
+
+    if (accepted.length === 0) {
+      setBatch({ total: skipped.length, completed: skipped.length, succeeded: 0, failed: skipped });
       return;
     }
-    setUploading(true);
-    setError('');
-    try {
-      await api.uploadTemplate(projectId, file);
-      await loadTemplates();
-    } catch (err) {
-      setError(err.message);
-    } finally {
-      setUploading(false);
-      if (fileInputRef.current) fileInputRef.current.value = '';
+
+    const total = accepted.length + skipped.length;
+    setBatch({ total, completed: skipped.length, succeeded: 0, failed: [...skipped] });
+
+    abortRef.current = new AbortController();
+    const signal = abortRef.current.signal;
+
+    let cursor = 0;
+    const next = () => (cursor < accepted.length ? accepted[cursor++] : null);
+
+    const worker = async () => {
+      while (!signal.aborted) {
+        const file = next();
+        if (!file) return;
+        try {
+          const created = await api.uploadTemplate(projectId, file, { signal });
+          // Incremental gallery append — user watches the library fill up.
+          setTemplates(prev => (prev ? [created, ...prev] : [created]));
+          setBatch(b => b && { ...b, completed: b.completed + 1, succeeded: b.succeeded + 1 });
+        } catch (err) {
+          if (err?.name === 'AbortError' || signal.aborted) return; // silent on user cancel
+          setBatch(b => b && {
+            ...b,
+            completed: b.completed + 1,
+            failed: [...b.failed, { name: file.name, reason: err.message || 'upload failed' }]
+          });
+        }
+      }
+    };
+
+    const workerCount = Math.min(UPLOAD_CONCURRENCY, accepted.length);
+    await Promise.all(Array.from({ length: workerCount }, () => worker()));
+
+    abortRef.current = null;
+    if (fileInputRef.current) fileInputRef.current.value = '';
+  }, [projectId, setTemplates]);
+
+  const handleCancelUpload = useCallback(() => {
+    if (abortRef.current) {
+      abortRef.current.abort();
+      abortRef.current = null;
     }
-  }, [projectId]);
+  }, []);
+
+  const handleDismissBatchSummary = useCallback(() => setBatch(null), []);
 
   const handleDrop = useCallback((e) => {
     e.preventDefault();
     e.stopPropagation();
     setDragOver(false);
-    const file = e.dataTransfer?.files?.[0];
-    if (file) handleUpload(file);
-  }, [handleUpload]);
+    if (e.dataTransfer?.files?.length) handleBatchUpload(e.dataTransfer.files);
+  }, [handleBatchUpload]);
 
   const handleDragOver = useCallback((e) => {
     e.preventDefault();
@@ -126,11 +155,12 @@ export default function TemplateImages({ projectId, inspirationFolderId }) {
     }
   };
 
-  const isLoading = loadingDrive || loadingTemplates;
-
-  if (isLoading) {
+  if (loadingTemplates) {
     return <div className="text-textlight text-center py-8 animate-pulse text-sm">Loading templates...</div>;
   }
+
+  const progressPct = batch && batch.total > 0 ? Math.round((batch.completed / batch.total) * 100) : 0;
+  const batchDone = !!batch && batch.completed >= batch.total;
 
   return (
     <div className="space-y-6">
@@ -141,110 +171,15 @@ export default function TemplateImages({ projectId, inspirationFolderId }) {
         </div>
       )}
 
-      {/* Sync result */}
-      {syncResult && (
-        <div className="p-3 bg-teal/5 border border-teal/15 text-teal text-[13px] rounded-xl fade-in">
-          Sync complete: {syncResult.total} images total
-          {syncResult.synced > 0 && `, ${syncResult.synced} new`}
-          {syncResult.removed > 0 && `, ${syncResult.removed} removed`}
-        </div>
-      )}
-
-      {/* ===== SECTION 1: Drive Templates ===== */}
-      <div className="card p-6">
-        <div className="flex items-center justify-between mb-4">
-          <div>
-            <h3 className="text-[15px] font-semibold text-textdark tracking-tight mb-0.5 flex items-center gap-1">
-              Drive Templates
-              <InfoTooltip text="Reference images synced from Google Drive. These are used as the default template pool for AI ad generation." position="right" />
-            </h3>
-            <p className="text-[12px] text-textlight">
-              {inspirationFolderId
-                ? `${driveImages.length} template${driveImages.length !== 1 ? 's' : ''} synced from Google Drive`
-                : 'No Templates Folder configured'}
-            </p>
-          </div>
-          {inspirationFolderId && (
-            <button
-              onClick={handleSync}
-              disabled={syncing}
-              className="btn-secondary text-[12px] flex items-center gap-1.5"
-            >
-              <svg className={`w-3.5 h-3.5 ${syncing ? 'animate-spin' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
-              </svg>
-              {syncing ? 'Syncing...' : 'Sync Now'}
-            </button>
-          )}
-        </div>
-
-        {driveError && (
-          <div className="p-3 mb-4 bg-gold/5 border border-gold/15 text-gold text-[12px] rounded-xl">
-            <span className="font-medium">Drive sync requires a Google service account.</span>{' '}
-            Upload one in Settings → Google Drive, or use the Uploaded Templates section below instead.
-          </div>
-        )}
-
-        {!inspirationFolderId ? (
-          <div className="p-6 bg-offwhite border border-black/5 rounded-xl text-center">
-            <div className="w-10 h-10 mx-auto mb-2 rounded-xl bg-gray-100 flex items-center justify-center">
-              <svg className="w-5 h-5 text-textlight" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.25 12.75V12A2.25 2.25 0 014.5 9.75h15A2.25 2.25 0 0121.75 12v.75m-8.69-6.44l-2.12-2.12a1.5 1.5 0 00-1.061-.44H4.5A2.25 2.25 0 002.25 6v12a2.25 2.25 0 002.25 2.25h15A2.25 2.25 0 0021.75 18V9a2.25 2.25 0 00-2.25-2.25h-5.379a1.5 1.5 0 01-1.06-.44z" />
-              </svg>
-            </div>
-            <p className="text-[13px] text-textmid font-medium mb-1">No Templates Folder</p>
-            <p className="text-[11px] text-textlight max-w-sm mx-auto">
-              Set a Templates Folder ID in the Overview tab to sync reference images from Google Drive. These are used as the default template pool for ad generation.
-            </p>
-          </div>
-        ) : driveImages.length === 0 ? (
-          <div className="p-6 bg-offwhite border border-black/5 rounded-xl text-center">
-            <div className="w-10 h-10 mx-auto mb-2 rounded-xl bg-gray-100 flex items-center justify-center">
-              <svg className="w-5 h-5 text-textlight" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909M3.75 21h16.5a2.25 2.25 0 002.25-2.25V6.75a2.25 2.25 0 00-2.25-2.25H3.75a2.25 2.25 0 00-2.25 2.25v12a2.25 2.25 0 002.25 2.25z" />
-              </svg>
-            </div>
-            <p className="text-[13px] text-textmid font-medium mb-1">No Images Found</p>
-            <p className="text-[11px] text-textlight max-w-sm mx-auto">
-              Add images to your Google Drive templates folder, then click "Sync Now" to pull them in.
-            </p>
-          </div>
-        ) : (
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-3">
-            {driveImages.map(img => (
-              <div
-                key={img.id}
-                className="group card overflow-hidden cursor-pointer transition-all duration-300 hover:-translate-y-0.5"
-                onClick={() => setViewImage({ ...img, source: 'drive' })}
-              >
-                <div className="aspect-square bg-gray-50">
-                  <img
-                    src={img.thumbnailUrl}
-                    alt={img.name}
-                    className="w-full h-full object-cover group-hover:scale-[1.02] transition-transform duration-500"
-                    loading="lazy"
-                  />
-                </div>
-                <div className="p-2">
-                  <p className="text-[11px] text-textmid truncate" title={img.name}>
-                    {img.name}
-                  </p>
-                </div>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
-
-      {/* ===== SECTION 2: Uploaded Templates ===== */}
+      {/* ===== Templates ===== */}
       <div className="card p-6">
         <div className="mb-4">
           <h3 className="text-[15px] font-semibold text-textdark tracking-tight mb-0.5 flex items-center gap-1">
-            Uploaded Templates
-            <InfoTooltip text="Manually uploaded reference ad images. Use these as specific style guides for AI generation." position="right" />
+            Templates
+            <InfoTooltip text="Reference ad images used as style guides for AI ad generation. Upload up to 500 at a time." position="right" />
           </h3>
           <p className="text-[12px] text-textlight">
-            {templates.length} uploaded template{templates.length !== 1 ? 's' : ''} — upload specific reference ads to recreate
+            {templates.length} template{templates.length !== 1 ? 's' : ''} uploaded
           </p>
         </div>
 
@@ -255,18 +190,36 @@ export default function TemplateImages({ projectId, inspirationFolderId }) {
           onDragEnter={handleDragOver}
           onDragLeave={handleDragLeave}
           onDrop={handleDrop}
-          className={`border-2 border-dashed rounded-xl p-5 text-center cursor-pointer transition-all mb-4 ${
-            dragOver ? 'border-gold bg-gold/5' :
-            uploading ? 'border-black/10 bg-offwhite opacity-60 cursor-not-allowed' :
-            'border-black/10 hover:border-gold hover:bg-offwhite'
+          className={`border-2 border-dashed rounded-xl p-5 text-center transition-all mb-4 ${
+            uploading ? 'border-black/10 bg-offwhite cursor-default' :
+            dragOver ? 'border-gold bg-gold/5 cursor-pointer' :
+            'border-black/10 hover:border-gold hover:bg-offwhite cursor-pointer'
           }`}
         >
-          {uploading ? (
-            <div>
-              <div className="w-8 h-8 mx-auto mb-2 rounded-lg bg-gold/10 flex items-center justify-center">
-                <div className="w-4 h-4 rounded-full border-2 border-gold/30 border-t-gold animate-spin" />
+          {batch ? (
+            <div className="space-y-3" onClick={(e) => e.stopPropagation()}>
+              <div className="flex items-center justify-between text-[12px]">
+                <span className="text-textmid font-medium">
+                  {uploading ? 'Uploading…' : 'Upload complete'}
+                </span>
+                <span className="text-textlight">
+                  {batch.completed} of {batch.total}
+                  {batch.failed.length > 0 && <> · <span className="text-red-600">{batch.failed.length} failed</span></>}
+                </span>
               </div>
-              <p className="text-[13px] text-gold font-medium">Uploading...</p>
+              <div className="h-1.5 w-full bg-black/5 rounded-full overflow-hidden">
+                <div
+                  className="h-full bg-gold transition-all duration-300"
+                  style={{ width: `${progressPct}%` }}
+                />
+              </div>
+              <div className="flex items-center justify-end gap-2">
+                {uploading ? (
+                  <button onClick={handleCancelUpload} className="btn-secondary text-[12px]">Cancel</button>
+                ) : (
+                  <button onClick={handleDismissBatchSummary} className="btn-secondary text-[12px]">Dismiss</button>
+                )}
+              </div>
             </div>
           ) : (
             <div>
@@ -276,26 +229,44 @@ export default function TemplateImages({ projectId, inspirationFolderId }) {
                 </svg>
               </div>
               <p className={`text-[13px] font-medium ${dragOver ? 'text-gold' : 'text-textmid'}`}>
-                {dragOver ? 'Drop image here' : 'Drop a template image here, or click to browse'}
+                {dragOver ? 'Drop images here' : 'Drop up to 500 template images here, or click to browse'}
               </p>
-              <p className="text-[10px] text-textlight mt-0.5">JPG, PNG, WebP, or GIF — up to 20MB</p>
+              <p className="text-[10px] text-textlight mt-0.5">JPG, PNG, WebP, or GIF — up to 20 MB each</p>
             </div>
           )}
         </div>
+
+        {/* Failure summary (only when batch is done AND there are failures) */}
+        {batch && batchDone && batch.failed.length > 0 && (
+          <div className="mb-4 p-3 bg-red-50/80 border border-red-200/60 rounded-xl">
+            <p className="text-[12px] font-medium text-red-700 mb-1.5">
+              {batch.failed.length} file{batch.failed.length !== 1 ? 's' : ''} failed
+            </p>
+            <ul className="text-[11px] text-red-600 space-y-0.5 max-h-40 overflow-y-auto">
+              {batch.failed.map((f, i) => (
+                <li key={i} className="truncate" title={`${f.name} — ${f.reason}`}>
+                  <span className="font-medium">{f.name}</span> — {f.reason}
+                </li>
+              ))}
+            </ul>
+            <p className="text-[10px] text-red-500 mt-1.5">To retry, re-select these files and upload again.</p>
+          </div>
+        )}
 
         <input
           ref={fileInputRef}
           type="file"
           accept=".jpg,.jpeg,.png,.webp,.gif"
-          onChange={e => { if (e.target.files?.[0]) handleUpload(e.target.files[0]); }}
+          multiple
+          onChange={e => { if (e.target.files?.length) handleBatchUpload(e.target.files); }}
           className="hidden"
         />
 
-        {/* Uploaded templates grid */}
+        {/* Templates grid */}
         {templates.length === 0 ? (
           <div className="text-center py-2">
             <p className="text-[11px] text-textlight">
-              Upload specific reference ads you want to recreate for your brand.
+              Upload reference ads you want the AI to use as style guides.
             </p>
           </div>
         ) : (
@@ -307,7 +278,7 @@ export default function TemplateImages({ projectId, inspirationFolderId }) {
               >
                 <div
                   className="aspect-square bg-gray-50 cursor-pointer"
-                  onClick={() => setViewImage({ ...tmpl, source: 'uploaded' })}
+                  onClick={() => setViewImage(tmpl)}
                 >
                   <img
                     src={tmpl.thumbnailUrl}
@@ -399,23 +370,18 @@ export default function TemplateImages({ projectId, inspirationFolderId }) {
           >
             <div className="flex items-center justify-between p-4 border-b border-gray-200/60">
               <div>
-                <p className="text-[14px] font-semibold text-textdark">{viewImage.name || viewImage.filename}</p>
+                <p className="text-[14px] font-semibold text-textdark">{viewImage.filename || viewImage.name}</p>
                 {viewImage.description && (
                   <p className="text-[12px] text-textmid">{viewImage.description}</p>
                 )}
-                <span className={`badge mt-1 ${viewImage.source === 'drive' ? 'bg-navy/10 text-navy' : 'bg-gold/10 text-gold'}`}>
-                  {viewImage.source === 'drive' ? 'Drive' : 'Uploaded'}
-                </span>
               </div>
               <div className="flex items-center gap-3">
-                {viewImage.source === 'uploaded' && (
-                  <button
-                    onClick={() => setPendingDeleteImage(viewImage)}
-                    className="action-link-danger"
-                  >
-                    Delete
-                  </button>
-                )}
+                <button
+                  onClick={() => setPendingDeleteImage(viewImage)}
+                  className="action-link-danger"
+                >
+                  Delete
+                </button>
                 <button
                   onClick={() => setViewImage(null)}
                   className="w-7 h-7 rounded-lg bg-black/5 flex items-center justify-center text-textlight hover:text-textmid hover:bg-black/10 transition-all"

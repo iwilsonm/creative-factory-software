@@ -1551,7 +1551,7 @@ export default function AdStudio({ projectId, project }) {
                   <p className="text-[13px] font-medium text-textmid">Random from Templates Folder</p>
                 </div>
                 <p className="text-[11px] text-textlight">
-                  The system will randomly pick a template from your synced Google Drive templates folder.
+                  The system will randomly pick a template from your uploaded templates.
                 </p>
               </div>
             )}
@@ -1627,7 +1627,7 @@ export default function AdStudio({ projectId, project }) {
                     </div>
                     <p className="text-[13px] text-textmid font-medium mb-1">No Templates Available</p>
                     <p className="text-[11px] text-textlight">
-                      Sync your Google Drive templates folder or upload reference ads in the Templates tab.
+                      Upload reference templates in the Template Library tab to use them here.
                     </p>
                   </div>
                 ) : (

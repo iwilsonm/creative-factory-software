@@ -643,7 +643,7 @@ export default function BatchManager({ projectId, project, onBatchComplete }) {
               {templateSource === TEMPLATE_RANDOM && (
                 <div className="p-3 bg-offwhite border border-black/5 rounded-xl">
                   <p className="text-[11px] text-textmid">
-                    Each ad in the batch will use a <strong>different random template</strong> from your synced Google Drive templates folder.
+                    Each ad in the batch will use a <strong>different random template</strong> from your uploaded templates.
                   </p>
                 </div>
               )}
@@ -707,7 +707,7 @@ export default function BatchManager({ projectId, project, onBatchComplete }) {
                     <div className="p-4 bg-offwhite border border-black/5 rounded-xl text-center">
                       <p className="text-[12px] text-textmid font-medium mb-0.5">No Templates Available</p>
                       <p className="text-[10px] text-textlight">
-                        Sync your Google Drive templates folder or upload templates in the Template Library tab.
+                        Upload templates in the Template Library tab to use them here.
                       </p>
                     </div>
                   ) : (

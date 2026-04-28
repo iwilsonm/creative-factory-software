@@ -540,7 +540,7 @@ export default function ProjectDetail() {
           )}
           {settingsSubTab === 'templates' && (
             <ErrorBoundary level="tab" key="templates">
-              <TemplateImages projectId={id} inspirationFolderId={project.inspiration_folder_id} />
+              <TemplateImages projectId={id} />
             </ErrorBoundary>
           )}
           </>
