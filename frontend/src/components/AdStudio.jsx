@@ -8,6 +8,17 @@ import { useToast } from './Toast';
 import { useAsyncData } from '../hooks/useAsyncData';
 import { usePolling } from '../hooks/usePolling';
 import { ensureArray } from '../utils/collections';
+import { resizeImageForUpload, estimateBase64BodyBytes, MAX_COMBINED_BODY_BYTES } from '../utils/imageResize';
+
+// Helper: resize a file then base64-encode it. Logs the size delta to console for diagnostics.
+async function resizeAndBase64(file) {
+  const resized = await resizeImageForUpload(file);
+  if (file.size > resized.size) {
+    console.info(`[AdStudio] Image resized: ${(file.size / 1024 / 1024).toFixed(2)} MB -> ${(resized.size / 1024 / 1024).toFixed(2)} MB`);
+  }
+  const base64 = await fileToBase64(resized);
+  return { base64, mime: resized.type, file: resized };
+}
 
 const ASPECT_RATIOS = [
   { value: '1:1', label: '1:1 (Square)' },
@@ -785,15 +796,33 @@ export default function AdStudio({ projectId, project }) {
       </span>
     );
 
-    // Helper: attach product image if present
+    // Track resized File objects across all attachments for the pre-flight combined-size check.
+    const resizedFiles = [];
+
+    // Helper: pre-flight check combined-attachment size against Vercel's gateway limit.
+    const exceedsCombinedSizeLimit = () => {
+      if (estimateBase64BodyBytes(resizedFiles) > MAX_COMBINED_BODY_BYTES) {
+        updateGen(genId, {
+          error: 'Combined image data is too large. Try fewer or smaller images.',
+          status: null
+        });
+        return true;
+      }
+      return false;
+    };
+
+    // Helper: attach product image if present (with auto-resize for Vercel body limits)
     const attachProductImage = async (opts) => {
       if (productFile) {
+        const sourceFile = productFile;
         try {
-          const productBase64 = await fileToBase64(productFile);
-          opts.product_image = productBase64;
-          opts.product_image_mime = productFile.type || 'image/jpeg';
-        } catch {
-          updateGen(genId, { error: 'Failed to read the product image.', status: null });
+          const { base64, mime, file: resized } = await resizeAndBase64(sourceFile);
+          if (sourceFile !== productFile) return false; // user replaced mid-resize; abandon this generation
+          opts.product_image = base64;
+          opts.product_image_mime = mime;
+          resizedFiles.push(resized);
+        } catch (err) {
+          updateGen(genId, { error: err.message || 'Failed to read the product image.', status: null });
           return false;
         }
       }
@@ -846,13 +875,18 @@ export default function AdStudio({ projectId, project }) {
 
       // If no product image attached but there's an edit reference image, use it as the product image for Gemini
       if (!options.product_image && editReferenceFile) {
+        const sourceRef = editReferenceFile;
         try {
-          const refBase64 = await fileToBase64(editReferenceFile);
-          options.product_image = refBase64;
-          options.product_image_mime = editReferenceFile.type || 'image/jpeg';
-        } catch { /* non-fatal */ }
+          const { base64, mime, file: resized } = await resizeAndBase64(sourceRef);
+          if (sourceRef === editReferenceFile) {
+            options.product_image = base64;
+            options.product_image_mime = mime;
+            resizedFiles.push(resized);
+          }
+        } catch { /* non-fatal — proceed without the reference image */ }
       }
 
+      if (exceedsCombinedSizeLimit()) return;
       stream = api.regenerateImage(projectId, options, handleEvent);
     } else if (templateSource === TEMPLATE_SELECT && selectedTemplate) {
       updateGen(genId, { status: 'generating_copy', message: 'Starting template-based generation...' });
@@ -876,6 +910,7 @@ export default function AdStudio({ projectId, project }) {
 
       if (!(await attachProductImage(options))) return;
 
+      if (exceedsCombinedSizeLimit()) return;
       stream = api.generateAd(projectId, options, handleEvent);
     } else {
       updateGen(genId, { status: 'generating_copy', message: 'Starting ad generation...' });
@@ -891,18 +926,22 @@ export default function AdStudio({ projectId, project }) {
       };
 
       if (templateSource === TEMPLATE_UPLOAD && uploadedFile) {
+        const sourceUploaded = uploadedFile;
         try {
-          const base64 = await fileToBase64(uploadedFile);
+          const { base64, mime, file: resized } = await resizeAndBase64(sourceUploaded);
+          if (sourceUploaded !== uploadedFile) return; // user replaced mid-resize; abandon
           options.uploaded_image = base64;
-          options.uploaded_image_mime = uploadedFile.type || 'image/jpeg';
-        } catch {
-          updateGen(genId, { error: 'Failed to read the uploaded image.', status: null });
+          options.uploaded_image_mime = mime;
+          resizedFiles.push(resized);
+        } catch (err) {
+          updateGen(genId, { error: err.message || 'Failed to read the uploaded image.', status: null });
           return;
         }
       }
 
       if (!(await attachProductImage(options))) return;
 
+      if (exceedsCombinedSizeLimit()) return;
       stream = api.generateAd(projectId, options, handleEvent);
     }
 
@@ -1356,16 +1395,20 @@ export default function AdStudio({ projectId, project }) {
     }
     setIsApplyingEdit(true);
     try {
-      // If a reference image is attached, convert to base64 and send along
+      // If a reference image is attached, resize + base64-encode and send along
       let referenceImage = null;
       let referenceImageMime = null;
       if (editReferenceFile) {
+        const sourceRef = editReferenceFile;
         try {
-          referenceImage = await fileToBase64(editReferenceFile);
-          referenceImageMime = editReferenceFile.type || 'image/jpeg';
-        } catch {
+          const { base64, mime } = await resizeAndBase64(sourceRef);
+          if (sourceRef === editReferenceFile) {
+            referenceImage = base64;
+            referenceImageMime = mime;
+          }
+        } catch (err) {
           // Non-fatal — proceed without the image
-          console.warn('Failed to read reference image, proceeding without it.');
+          console.warn('Failed to read reference image, proceeding without it:', err.message);
         }
       }
       const result = await api.editPrompt(projectId, customPrompt, editInstruction.trim(), referenceImage, referenceImageMime);

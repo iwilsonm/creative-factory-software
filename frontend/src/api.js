@@ -2,6 +2,22 @@ import { normalizeArrayFields, normalizeArrayResponse } from './utils/collection
 
 const API_BASE = '/api';
 
+// Shared error path for non-OK responses across all fetch wrappers.
+// Vercel's gateway returns plain-text bodies for 413 (Request Entity Too Large) before
+// the function runs, so JSON parsing must be tolerant.
+async function throwForResponseError(res) {
+  if (res.status === 413) {
+    throw new Error('Request body too large. Please reduce image size.');
+  }
+  let err;
+  try {
+    err = await res.json();
+  } catch {
+    err = { error: `HTTP ${res.status}` };
+  }
+  throw new Error(err.error || `Request failed with ${res.status}`);
+}
+
 async function request(path, options = {}) {
   const res = await fetch(`${API_BASE}${path}`, {
     credentials: 'include',
@@ -17,17 +33,15 @@ async function request(path, options = {}) {
     throw new Error('Not authenticated');
   }
 
+  if (!res.ok) {
+    await throwForResponseError(res);
+  }
+
   let data;
   try {
     data = await res.json();
   } catch {
-    if (!res.ok) {
-      throw new Error(`Request failed with ${res.status}`);
-    }
     throw new Error('Invalid response from server');
-  }
-  if (!res.ok) {
-    throw new Error(data.error || `Request failed with ${res.status}`);
   }
   return data;
 }
@@ -50,8 +64,7 @@ function streamSSE(path, onEvent) {
     });
 
     if (!res.ok) {
-      const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
-      throw new Error(err.error || `Request failed with ${res.status}`);
+      await throwForResponseError(res);
     }
 
     const reader = res.body.getReader();
@@ -102,8 +115,7 @@ function streamSSEWithBody(path, body, onEvent) {
     });
 
     if (!res.ok) {
-      const err = await res.json().catch(() => ({ error: `HTTP ${res.status}` }));
-      throw new Error(err.error || `Request failed with ${res.status}`);
+      await throwForResponseError(res);
     }
 
     const reader = res.body.getReader();

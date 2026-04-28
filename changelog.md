@@ -1,5 +1,21 @@
 # Creative Factory — Changelog
 
+## 2026-04-29 — Fix HTTP 413 in Ad Studio generation (client-side image resize + DRY error handling)
+
+**What changed**
+- `frontend/src/utils/imageResize.js` — **new shared utility**. `resizeImageForUpload(file)` downscales any image >1.5 MB via canvas to JPEG (max 2048×2048, iterative quality 0.92 → 0.85 → 0.75 → 0.6 → 0.45). Skips already-small files entirely (preserves PNG transparency, GIF animation). Refuses HEIC/HEIF (detected by both extension and content signature) with a clear "Convert to JPEG or PNG first" message. Refuses files >20 MB (prevents browser OOM). Uses `createImageBitmap` with an Image-element fallback for older Safari quirks. Also exports `estimateBase64BodyBytes(files)` and `MAX_COMBINED_BODY_BYTES = 4 MB` for pre-flight checks.
+- `frontend/src/api.js` — added `throwForResponseError(res)` helper that handles HTTP 413 specifically with the message "Request body too large. Please reduce image size." instead of leaking a JSON.parse SyntaxError. Applied in `request()`, `streamSSE`, and `streamSSEWithBody` (the three shared fetch paths). `uploadTemplate` keeps its own pre-existing 413 handler with template-specific wording.
+- `frontend/src/components/AdStudio.jsx` — added `resizeAndBase64(file)` helper that resizes then base64-encodes (with a `console.info` diagnostic on every actual resize). Wrapped all four `fileToBase64` callsites (productFile, uploadedFile, editReferenceFile in custom-prompt mode, referenceImage in edit-prompt flow) to resize-first. Added a pre-flight combined-size check via `exceedsCombinedSizeLimit()` that runs before `api.generateAd` / `api.regenerateImage` and aborts with "Combined image data is too large. Try fewer or smaller images." if the JSON body would exceed 4 MB. Added race-condition guards (capture file ref at start of resize, abandon if the source field changed mid-resize).
+
+**Why**
+- User reported two errors while generating an ad: a cryptic `Unexpected token 'R', "Request En"... is not valid JSON` toast and a `1:1 HTTP 413` line in the Ad Queue. Same root cause: per-generation image attachments (productFile / uploadedFile / editReferenceFile) were base64-encoded inline into the JSON body. With multiple attachments or one moderate-size attachment, the body crossed Vercel Hobby's 4.5 MB inbound gateway limit and was rejected before reaching the backend. The frontend then tried to JSON.parse Vercel's plain-text 413 body, leaking a SyntaxError to the toast.
+- Client-side resize closes the user-facing bug at lower cost than a backend refactor (no new endpoints, no Convex changes). For typical ad inputs (product photos, lifestyle shots), 2048×2048 JPEG q=0.92 is visually indistinguishable from full-res at viewing size.
+
+**Out of scope (future work)**
+- Architectural refactor to upload-then-reference (image IDs in body instead of base64).
+- Server-side body-size validation (Vercel's gateway is the de facto enforcer; not defensible if we move to a tier with higher limits).
+- Applying the same resize utility to `uploadProductImage` (project-level) — same Vercel limit applies; small follow-up.
+
 ## 2026-04-28 — Templates flow: drop Drive sync, add multi-file direct upload (up to 500 at a time)
 
 **What changed**
