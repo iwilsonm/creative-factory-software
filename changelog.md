@@ -1,5 +1,19 @@
 # Creative Factory — Changelog
 
+## 2026-04-28 — Vercel function bundling fix + production topology lock-in
+
+**What changed**
+- `vercel.json`: added `"includeFiles": "backend/services/prompts/**"` to the `api/index.js` function config so Vercel's NFT bundler always ships the prompt text files with the serverless function.
+- Locked the topology fact: **Vercel is the only production deployment for Creative Factory.** The VPS deploy script (`deploy/deploy.sh`, target `daciaautomation.com`) is not used by any actual user for this project. Future work should target Vercel only.
+
+**Why**
+- Marco was still seeing the OLD Step 2 prompt because (a) my prior two commits (Step 1 fix + Step 2 swap) were deployed only to the unused VPS, and (b) Vercel auto-deploy from GitHub had silently stopped triggering ~4 days prior — last successful Vercel deployment was 2026-04-24, and the new `fs.readFileSync` for the .txt file would not have been bundled by NFT anyway because the path is dynamic. The `includeFiles` glob makes the bundling explicit and future-proofs any new file added to `backend/services/prompts/`.
+- Recorded the Vercel-only fact in this changelog so future debugging doesn't waste cycles on the VPS deployment.
+
+**What was tried that didn't work**
+- Two prior `deploy.sh` runs to the VPS (commits f547a2e, 621f3d0) — code is live on the VPS but no user sees it.
+- Relying on Vercel auto-deploy from git push — broken since 2026-04-24, separate concern from this fix.
+
 ## 2026-04-27 — Step 2 prompt replaced with deep-research teaching transcript
 
 **What changed**

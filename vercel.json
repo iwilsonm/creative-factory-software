@@ -3,7 +3,10 @@
   "buildCommand": "cd frontend && pnpm build",
   "outputDirectory": "frontend/dist",
   "functions": {
-    "api/index.js": { "maxDuration": 60 }
+    "api/index.js": {
+      "maxDuration": 60,
+      "includeFiles": "backend/services/prompts/**"
+    }
   },
   "rewrites": [
     { "source": "/api/health", "destination": "/api/health" },
