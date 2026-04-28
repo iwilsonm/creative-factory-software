@@ -919,20 +919,6 @@ export default function FoundationalDocs({ projectId, projectStatus }) {
                 <div>
                   <h4 className="font-medium text-textdark">{p.title}</h4>
                   <p className="text-xs text-textmid">{p.instruction}</p>
-                  {p.tip && (
-                    <p className="text-xs text-textmid mt-1 italic">
-                      {p.tip.text}{' '}
-                      <a
-                        href={p.tip.linkUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        onClick={(e) => e.stopPropagation()}
-                        className="text-gold hover:text-gold-light underline"
-                      >
-                        {p.tip.linkLabel}
-                      </a>
-                    </p>
-                  )}
                 </div>
               </div>
               <span className="text-textlight text-lg">
@@ -957,12 +943,29 @@ export default function FoundationalDocs({ projectId, projectStatus }) {
                 <pre className="bg-gray-900 text-gray-100 rounded p-4 text-xs overflow-x-auto max-h-96 overflow-y-auto whitespace-pre-wrap">
                   {p.prompt}
                 </pre>
-                {p.alert && (
+                {(p.alert || p.tip) && (
                   <div className="mt-3 flex gap-3 rounded-md border-l-4 border-amber-500 bg-amber-50 p-3">
                     <span aria-hidden="true" className="text-lg leading-none text-amber-600">⚠</span>
-                    <p className="text-sm text-amber-900">
-                      <strong className="font-semibold">Important:</strong> {p.alert}
-                    </p>
+                    <div className="space-y-2 text-sm text-amber-900">
+                      {p.alert && (
+                        <p>
+                          <strong className="font-semibold">Important:</strong> {p.alert}
+                        </p>
+                      )}
+                      {p.tip && (
+                        <p className="text-amber-800">
+                          {p.tip.text}{' '}
+                          <a
+                            href={p.tip.linkUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="font-medium text-amber-900 underline hover:text-amber-700"
+                          >
+                            {p.tip.linkLabel}
+                          </a>
+                        </p>
+                      )}
+                    </div>
                   </div>
                 )}
               </div>
