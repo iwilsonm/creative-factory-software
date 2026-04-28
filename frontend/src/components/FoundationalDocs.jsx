@@ -957,6 +957,14 @@ export default function FoundationalDocs({ projectId, projectStatus }) {
                 <pre className="bg-gray-900 text-gray-100 rounded p-4 text-xs overflow-x-auto max-h-96 overflow-y-auto whitespace-pre-wrap">
                   {p.prompt}
                 </pre>
+                {p.alert && (
+                  <div className="mt-3 flex gap-3 rounded-md border-l-4 border-amber-500 bg-amber-50 p-3">
+                    <span aria-hidden="true" className="text-lg leading-none text-amber-600">⚠</span>
+                    <p className="text-sm text-amber-900">
+                      <strong className="font-semibold">Important:</strong> {p.alert}
+                    </p>
+                  </div>
+                )}
               </div>
             )}
           </div>

@@ -109,6 +109,7 @@ router.get('/:projectId/research-prompts', async (req, res) => {
           linkLabel: 'webtopdf.com',
           linkUrl: 'https://webtopdf.com/'
         },
+        alert: 'You need to attach a PDF of your PDP (product detail page) to the ChatGPT or Claude message along with this prompt. Without it, the AI has nothing to analyze.',
         prompt: prompt1_AnalyzeSalesPage(
           project.product_description,
           project.sales_page_content
