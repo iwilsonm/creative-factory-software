@@ -14,6 +14,10 @@
 - Two prior `deploy.sh` runs to the VPS (commits f547a2e, 621f3d0) — code is live on the VPS but no user sees it.
 - Relying on Vercel auto-deploy from git push — broken since 2026-04-24, separate concern from this fix.
 
+**Auto-deploy verification**
+- Vercel git integration confirmed connected via API (`link.type: github`, `link.repo: iwilsonm/creative-factory-software`, `productionBranch: main`).
+- Pushing this commit to test whether GitHub webhook fires a `via GIT` deployment.
+
 ## 2026-04-27 — Step 2 prompt replaced with deep-research teaching transcript
 
 **What changed**
