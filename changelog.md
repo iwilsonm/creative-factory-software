@@ -1,5 +1,37 @@
 # Creative Factory — Changelog
 
+## 2026-04-30 — Cascade angle Generate → headline + body copy when those fields already have content
+
+**Request (Marco)**
+- "If you press the Generate button for the ad topic/angle, it should rewrite the headline if it's been written already and the body copy if it's been written already. If not, it doesn't have to do anything. The ad angle will dictate what kind of headline it needs to be written and what kind of body copy needs to be written."
+
+**Behavior**
+- Click angle Generate, nothing else filled in → only the angle populates.
+- Click angle Generate, headline filled in → angle populates, then headline regenerates against the new angle.
+- Click angle Generate, headline + body copy filled in → angle populates, headline regenerates, body copy regenerates against the new angle + new headline. Sequential, ~10–20s for full cascade.
+- Click angle Generate, body copy only (no headline) → angle populates, body copy regenerates anchored on the new angle (the body-copy backend's project-context fallback handles the missing headline).
+- Headline regeneration failure aborts the body cascade — body would otherwise be anchored on a stale headline mismatched with the new angle.
+
+**Implementation**
+- `frontend/src/components/AdStudio.jsx` — `handleGenerateAngle` rewritten with sequential cascade.
+- Snapshots `hadHeadline` and `hadBodyCopy` at function start so the cascade reflects user INTENT, not whatever React state ends up being mid-cascade.
+- Passes `newAngle` and `newHeadline` as explicit local variables to downstream API calls — no reliance on async/batched React state updates.
+- Each stage has its own loading state and try/catch so a downstream failure doesn't break the upstream success.
+
+**Antipattern note for future devs**
+- When chaining state-dependent async ops in React, capture inputs as local variables and pass them explicitly through the chain. Don't read from `someState` after a `setSomeState()` call — React batches updates and the local read may see stale data.
+
+**Files modified**
+- `frontend/src/components/AdStudio.jsx`
+
+**Out of scope**
+- Streaming the cascade. Today: synchronous one-shot per stage.
+- Cascade behavior on the headline Generate button (only angle cascades to headline + body).
+- A "preserve body copy" opt-out toggle.
+- Cancellation mid-cascade.
+
+---
+
 ## 2026-04-30 — Stop the template analysis from auto-toggling the product-image switch
 
 **Symptom (Marco)**

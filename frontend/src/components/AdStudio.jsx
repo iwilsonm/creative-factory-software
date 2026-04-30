@@ -481,19 +481,70 @@ export default function AdStudio({ projectId, project }) {
     return () => { cancelled = true; };
   }, [selectedTemplate?.id]);
 
-  // Auto-generate an angle from foundational docs
+  // Auto-generate an angle from foundational docs. If a headline / body copy
+  // already exist, regenerate them against the new angle (cascade) — the angle
+  // dictates the tone for downstream copy, so they need to be re-aligned.
   const handleGenerateAngle = async () => {
+    // Snapshot whether downstream fields are populated BEFORE we change anything.
+    const hadHeadline = !!headline.trim();
+    const hadBodyCopy = !!bodyCopy.trim();
+
     setGeneratingAngle(true);
+    let newAngle = '';
     try {
       const data = await api.generateAdAngle(projectId);
-      if (data.angle) {
-        setAngle(data.angle);
+      if (!data.angle) {
+        setGeneratingAngle(false);
+        return;
       }
+      newAngle = data.angle;
+      setAngle(newAngle);
     } catch (err) {
       console.error('Failed to generate angle:', err);
       toast.error(err.message || 'Angle generation failed');
-    } finally {
       setGeneratingAngle(false);
+      return;
+    }
+    setGeneratingAngle(false);
+
+    // Cascade 1: if a headline was set, regenerate it against the new angle.
+    let newHeadline = headline.trim();
+    let headlineFailed = false;
+    if (hadHeadline) {
+      setGeneratingHeadline(true);
+      try {
+        const headlineData = await api.generateAdHeadline(projectId, { angle: newAngle });
+        if (headlineData.headline) {
+          newHeadline = headlineData.headline;
+          setHeadline(newHeadline);
+        }
+      } catch (err) {
+        headlineFailed = true;
+        console.error('Failed to regenerate headline:', err);
+        toast.error(err.message || 'Headline regeneration failed');
+      } finally {
+        setGeneratingHeadline(false);
+      }
+    }
+
+    // Cascade 2: if body copy was set, regenerate it against the new angle.
+    // Skip if headline regeneration failed — the body would be anchored on a
+    // stale headline mismatched with the new angle.
+    if (hadBodyCopy && !headlineFailed) {
+      setGeneratingBody(true);
+      try {
+        const bodyData = await api.generateAdBodyCopy(projectId, {
+          headline: newHeadline,
+          angle: newAngle,
+          style: bodyCopyStyle,
+        });
+        setBodyCopy(bodyData.body_copy || '');
+      } catch (err) {
+        console.error('Failed to regenerate body copy:', err);
+        toast.error(err.message || 'Body copy regeneration failed');
+      } finally {
+        setGeneratingBody(false);
+      }
     }
   };
 
