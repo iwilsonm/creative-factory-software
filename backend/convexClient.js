@@ -263,6 +263,10 @@ export async function setProjectProductImage(projectId, storageId) {
     externalId: projectId,
     storageId: storageId || undefined,
   });
+  // Bust the cached project so the next GET reflects the new (or cleared)
+  // product image without waiting for the TTL. Without this, the UI keeps
+  // showing the old image until refresh.
+  invalidateQueryCache('projects');
 }
 
 // =============================================

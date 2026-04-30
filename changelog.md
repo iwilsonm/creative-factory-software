@@ -1,5 +1,25 @@
 # Creative Factory — Changelog
 
+## 2026-04-30 — Fix product-image Remove requires page refresh to reflect
+
+**Bug**
+- Marco: "I just pressed the Remove button on the product image for Heal Naturally. It did remove the image, but I had to refresh the page in order to see that."
+
+**Cause**
+- `backend/convexClient.js:setProjectProductImage` patched the project's storage ID via the Convex mutation, but did NOT call `invalidateQueryCache('projects')`. The backend's in-memory project query cache (used by `getProject` via `cachedQuery`) kept serving the pre-delete data until the TTL expired. The frontend's `loadProject()` after the delete fetched the stale cached version, so the UI kept showing the old image.
+- All sibling project mutations (`updateProject`, `deleteProject`, `createProject`, `backfillProjectStats`) already invalidate the cache. `setProjectProductImage` was the missing one.
+
+**Fix**
+- `backend/convexClient.js` — added `invalidateQueryCache('projects')` to `setProjectProductImage` after the mutation completes. The next GET fetches fresh data; UI reflects upload OR delete instantly.
+
+**Antipattern note**
+- When a backend wraps a mutation that mutates a cached entity, the wrapper must invalidate the matching cache table — otherwise reads serve stale data until TTL.
+
+**Files modified**
+- `backend/convexClient.js`
+
+---
+
 ## 2026-04-30 — Fix tab info-tooltips rendering underneath the page body
 
 **Bug**
