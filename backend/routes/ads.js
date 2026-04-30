@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { requireAuth } from '../auth.js';
-import { getProject, getLatestDoc, getAdsByProject, getInProgressAdsByProject, getAd, getAdImageUrl, markStaleAdsAsFailed, convexClient, api } from '../convexClient.js';
+import { getProject, getLatestDoc, getAdsByProject, getInProgressAdsByProject, getAd, getAdImageUrl, markStaleAdsAsFailed, uploadBuffer, setProjectProductImage, convexClient, api } from '../convexClient.js';
 
 // Vercel function maxDuration is 60s. Anything older is definitively a zombie.
 // Allow 4-min buffer for cold starts and clock skew. Update if vercel.json maxDuration changes.
@@ -41,7 +41,22 @@ router.post('/:projectId/generate-ad', async (req, res) => {
   const project = await getProject(req.params.projectId);
   if (!project) return res.status(404).json({ error: 'Project not found' });
 
-  let { mode = 'mode1', aspect_ratio, angle, inspiration_image_id, uploaded_image, uploaded_image_mime, product_image, product_image_mime, headline, body_copy, template_image_id, skip_product_image, image_model } = req.body;
+  let { mode = 'mode1', aspect_ratio, angle, inspiration_image_id, uploaded_image, uploaded_image_mime, product_image, product_image_mime, headline, body_copy, template_image_id, skip_product_image, image_model, save_as_project_default } = req.body;
+
+  // If user opted to save the per-ad product image as the project default,
+  // persist it BEFORE generation so the image is saved even if generation fails.
+  // Only fires when there's a per-ad upload AND the project has no image yet.
+  if (save_as_project_default && product_image && product_image_mime && !project.product_image_storageId) {
+    try {
+      const buffer = Buffer.from(product_image, 'base64');
+      const storageId = await uploadBuffer(buffer, product_image_mime);
+      await setProjectProductImage(req.params.projectId, storageId);
+      project.product_image_storageId = storageId;  // keep local var in sync for downstream code
+    } catch (err) {
+      console.warn('[Ads] Failed to save product image as project default:', err.message);
+      // Non-fatal — proceed with ad generation regardless.
+    }
+  }
 
   // Auto-inject project-level product image if none provided (and not explicitly skipped).
   // If the fetch fails (dead storageId, transient Convex error, etc.), capture a warning
@@ -110,7 +125,19 @@ router.post('/:projectId/regenerate-image', async (req, res) => {
   const project = await getProject(req.params.projectId);
   if (!project) return res.status(404).json({ error: 'Project not found' });
 
-  let { image_prompt, aspect_ratio, parent_ad_id, product_image, product_image_mime, angle, headline, body_copy, skip_product_image, image_model } = req.body;
+  let { image_prompt, aspect_ratio, parent_ad_id, product_image, product_image_mime, angle, headline, body_copy, skip_product_image, image_model, save_as_project_default } = req.body;
+
+  // Same save-as-project-default flow as in the generate-ad route.
+  if (save_as_project_default && product_image && product_image_mime && !project.product_image_storageId) {
+    try {
+      const buffer = Buffer.from(product_image, 'base64');
+      const storageId = await uploadBuffer(buffer, product_image_mime);
+      await setProjectProductImage(req.params.projectId, storageId);
+      project.product_image_storageId = storageId;
+    } catch (err) {
+      console.warn('[Ads] Failed to save product image as project default:', err.message);
+    }
+  }
 
   // Auto-inject project-level product image if none provided (and not explicitly skipped).
   // Surface fetch failures as an SSE warning instead of silently dropping the image.

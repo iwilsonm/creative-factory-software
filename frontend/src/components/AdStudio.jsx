@@ -174,6 +174,10 @@ export default function AdStudio({ projectId, project }) {
   // Product image
   const [productFile, setProductFile] = useState(null);
   const [productPreview, setProductPreview] = useState(null);
+  // When the user uploads a per-ad product image AND the project has none yet,
+  // they can opt to also persist this upload as the project's default product
+  // image. Toggle is OFF by default; reset on project change.
+  const [saveProductAsDefault, setSaveProductAsDefault] = useState(false);
   const [productDragOver, setProductDragOver] = useState(false);
   const productFileInputRef = useRef(null);
 
@@ -222,6 +226,7 @@ export default function AdStudio({ projectId, project }) {
     setSelectedTemplate(null);
     setTemplateAnalysis(null);
     setSkipProductImage(false);
+    setSaveProductAsDefault(false);
     setViewAd(null);
     setViewAdLoading(false);
     setOptionalOpen(false);
@@ -940,7 +945,8 @@ export default function AdStudio({ projectId, project }) {
         angle: angle || undefined,
         headline: headline || undefined,
         body_copy: bodyCopy || undefined,
-        skip_product_image: skipProductImage || undefined
+        skip_product_image: skipProductImage || undefined,
+        save_as_project_default: saveProductAsDefault || undefined
       };
 
       if (!(await attachProductImage(options))) return;
@@ -969,7 +975,8 @@ export default function AdStudio({ projectId, project }) {
         angle: angle || undefined,
         headline: headline || undefined,
         body_copy: bodyCopy || undefined,
-        skip_product_image: skipProductImage || undefined
+        skip_product_image: skipProductImage || undefined,
+        save_as_project_default: saveProductAsDefault || undefined
       };
 
       if (selectedTemplate.source === 'drive') {
@@ -994,7 +1001,8 @@ export default function AdStudio({ projectId, project }) {
         angle: angle || undefined,
         headline: headline || undefined,
         body_copy: bodyCopy || undefined,
-        skip_product_image: skipProductImage || undefined
+        skip_product_image: skipProductImage || undefined,
+        save_as_project_default: saveProductAsDefault || undefined
       };
 
       if (templateSource === TEMPLATE_UPLOAD && uploadedFile) {
@@ -2038,25 +2046,42 @@ export default function AdStudio({ projectId, project }) {
 
           {/* Per-ad override: show when user has uploaded one OR when no project image */}
           {productFile && productPreview ? (
-            <div className="flex items-center gap-3 p-3 bg-offwhite border border-black/5 rounded-xl">
-              <img
-                src={productPreview}
-                alt="Product image"
-                className="w-12 h-12 object-cover rounded-lg border border-black/5"
-              />
-              <div className="flex-1 min-w-0">
-                <p className="text-[12px] font-medium text-textdark truncate">{productFile.name}</p>
-                <p className="text-[10px] text-textlight">
-                  {(productFile.size / 1024).toFixed(0)} KB
-                  {project?.productImageUrl ? ' — overrides project image' : ''}
-                </p>
+            <div className="space-y-2">
+              <div className="flex items-center gap-3 p-3 bg-offwhite border border-black/5 rounded-xl">
+                <img
+                  src={productPreview}
+                  alt="Product image"
+                  className="w-12 h-12 object-cover rounded-lg border border-black/5"
+                />
+                <div className="flex-1 min-w-0">
+                  <p className="text-[12px] font-medium text-textdark truncate">{productFile.name}</p>
+                  <p className="text-[10px] text-textlight">
+                    {(productFile.size / 1024).toFixed(0)} KB
+                    {project?.productImageUrl ? ' — overrides project image' : ''}
+                  </p>
+                </div>
+                <button
+                  onClick={clearProductImage}
+                  className="text-[11px] text-red-400 hover:text-red-500 transition-colors"
+                >
+                  Remove
+                </button>
               </div>
-              <button
-                onClick={clearProductImage}
-                className="text-[11px] text-red-400 hover:text-red-500 transition-colors"
-              >
-                Remove
-              </button>
+              {/* Save-as-project-default toggle — only when project has no image yet */}
+              {!project?.productImageUrl && (
+                <label className="flex items-start gap-2 px-3 py-2 bg-navy/5 border border-navy/10 rounded-lg cursor-pointer hover:bg-navy/[0.07] transition-colors">
+                  <input
+                    type="checkbox"
+                    checked={saveProductAsDefault}
+                    onChange={e => setSaveProductAsDefault(e.target.checked)}
+                    className="w-4 h-4 mt-0.5 rounded border-navy/30 text-navy focus:ring-navy/20 cursor-pointer"
+                  />
+                  <span className="text-[11px] text-navy/80 leading-snug">
+                    <span className="font-semibold">Save as project default</span>
+                    <span className="block text-navy/60 mt-0.5">Future ads in this project will automatically use this image.</span>
+                  </span>
+                </label>
+              )}
             </div>
           ) : !project?.productImageUrl ? (
             <div

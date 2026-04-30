@@ -1,5 +1,5 @@
 import { v4 as uuidv4 } from 'uuid';
-import { getSetting, setSetting, logCost, getCostAggregates, getDailyCostHistory, deleteCostsBySource, getAllScheduledBatchesForCost, getAllProjects, getAllConductorConfigs, getAllLPAgentConfigs, getCompletedDirectorBatchStats } from '../convexClient.js';
+import { getSetting, setSetting, logCost, getCostAggregates, getDailyCostHistory, getDailyCostHistoryRange, deleteCostsBySource, getAllScheduledBatchesForCost, getAllProjects, getAllConductorConfigs, getAllLPAgentConfigs, getCompletedDirectorBatchStats } from '../convexClient.js';
 import { withRetry } from './retry.js';
 
 // ── Anthropic Claude pricing (per million tokens) ──────────────────────────────
@@ -22,13 +22,6 @@ const OPENAI_RATES = {
   'gpt-4.1-mini':       { input: 0.40, output: 1.60 },
   'gpt-4o-mini':        { input: 0.15, output: 0.60 },
   'o3-deep-research':   { input: 0, output: 0 },      // billed via billing API only
-};
-
-// ── Perplexity pricing (per million tokens) ────────────────────────────────────
-// Source: https://docs.perplexity.ai/docs/pricing
-const PERPLEXITY_RATES = {
-  'sonar-pro':  { input: 3.00, output: 15.00 },  // $3/M in, $15/M out
-  'sonar':      { input: 1.00, output: 1.00 },    // $1/M in, $1/M out
 };
 
 /**
@@ -110,46 +103,6 @@ export async function logOpenAICost({ model, operation, inputTokens, outputToken
     return record;
   } catch (err) {
     console.error('[CostTracker] Failed to log OpenAI cost:', err.message);
-    return null;
-  }
-}
-
-/**
- * Log a Perplexity API cost (fire-and-forget).
- *
- * @param {object} params
- * @param {string} params.model - e.g. 'sonar-pro'
- * @param {string} params.operation - descriptive operation name
- * @param {number} params.inputTokens - input tokens used
- * @param {number} params.outputTokens - output tokens used
- * @param {string|null} [params.projectId] - project ID if applicable
- */
-export async function logPerplexityCost({ model, operation, inputTokens, outputTokens, projectId = null }) {
-  try {
-    const rates = PERPLEXITY_RATES[model] || PERPLEXITY_RATES['sonar-pro'];
-    const inputCost = (inputTokens / 1_000_000) * rates.input;
-    const outputCost = (outputTokens / 1_000_000) * rates.output;
-    const totalCost = inputCost + outputCost;
-
-    if (totalCost <= 0) return null;
-
-    const record = {
-      id: uuidv4(),
-      project_id: projectId,
-      service: 'perplexity',
-      operation,
-      cost_usd: Math.round(totalCost * 1000000) / 1000000,
-      rate_used: null,
-      image_count: null,
-      resolution: null,
-      source: 'calculated',
-      period_date: new Date().toISOString().split('T')[0]
-    };
-
-    await logCost(record);
-    return record;
-  } catch (err) {
-    console.error('[CostTracker] Failed to log Perplexity cost:', err.message);
     return null;
   }
 }
@@ -499,6 +452,10 @@ export async function getCostSummary(projectId = null) {
  */
 export async function getCostHistoryData(days = 30, projectId = null) {
   return await getDailyCostHistory(days, projectId);
+}
+
+export async function getCostHistoryRangeData(startDate, endDate, projectId = null) {
+  return await getDailyCostHistoryRange(startDate, endDate, projectId);
 }
 
 /**

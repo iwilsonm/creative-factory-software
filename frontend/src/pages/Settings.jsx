@@ -6,6 +6,28 @@ import TodoWidget from '../components/TodoWidget';
 import ConfirmDialog from '../components/ConfirmDialog';
 import { useToast } from '../components/Toast';
 
+// ─── Helpers ──────────────────────────────────────────────────────────
+
+// Small status pill for API key fields. Shows ● Configured (teal) when the
+// key is set, ○ Not set (muted) when missing. Backend masks key values to
+// `prefix...suffix` on GET, so a non-empty string from settings means "set".
+function KeyStatusPill({ set }) {
+  if (set) {
+    return (
+      <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-teal/10 text-teal">
+        <span className="w-1.5 h-1.5 rounded-full bg-teal" />
+        Configured
+      </span>
+    );
+  }
+  return (
+    <span className="inline-flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-full bg-black/5 text-textlight">
+      <span className="w-1.5 h-1.5 rounded-full bg-textlight/60" />
+      Not set
+    </span>
+  );
+}
+
 // ─── User Management Card ─────────────────────────────────────────────
 const ROLE_OPTIONS = [
   { value: 'admin', label: 'Admin', description: 'Full access to everything' },
@@ -327,7 +349,6 @@ export default function Settings() {
     openai_api_key: '',
     openai_admin_key: '',
     gemini_api_key: '',
-    perplexity_api_key: '',
     anthropic_api_key: '',
     gemini_rate_1k: '',
     gemini_rate_2k: '',
@@ -378,7 +399,6 @@ export default function Settings() {
       if (form.openai_api_key) payload.openai_api_key = form.openai_api_key;
       if (form.openai_admin_key) payload.openai_admin_key = form.openai_admin_key;
       if (form.gemini_api_key) payload.gemini_api_key = form.gemini_api_key;
-      if (form.perplexity_api_key) payload.perplexity_api_key = form.perplexity_api_key;
       if (form.anthropic_api_key) payload.anthropic_api_key = form.anthropic_api_key;
       if (form.gemini_rate_1k) payload.gemini_rate_1k = form.gemini_rate_1k;
       if (form.gemini_rate_2k) payload.gemini_rate_2k = form.gemini_rate_2k;
@@ -387,7 +407,7 @@ export default function Settings() {
       await api.updateSettings(payload);
       toast.success('Settings saved');
       setMessage('');
-      setForm(prev => ({ ...prev, openai_api_key: '', openai_admin_key: '', gemini_api_key: '', perplexity_api_key: '', anthropic_api_key: '' }));
+      setForm(prev => ({ ...prev, openai_api_key: '', openai_admin_key: '', gemini_api_key: '', anthropic_api_key: '' }));
       await loadSettings();
     } catch (err) {
       toast.error(err.message);
@@ -402,7 +422,6 @@ export default function Settings() {
       let result;
       if (service === 'openai') result = await api.testOpenAI();
       else if (service === 'gemini') result = await api.testGemini();
-      else if (service === 'perplexity') result = await api.testPerplexity();
       else if (service === 'anthropic') result = await api.testAnthropic();
       setTestResults(prev => ({ ...prev, [service]: result.message || 'Connected!' }));
     } catch (err) {
@@ -509,7 +528,10 @@ export default function Settings() {
 
           <div className="space-y-4">
             <div>
-              <label className="block text-[13px] font-medium text-textmid mb-1.5">OpenAI API Key</label>
+              <label className="text-[13px] font-medium text-textmid mb-1.5 flex items-center gap-2">
+                OpenAI API Key
+                <KeyStatusPill set={!!settings.openai_api_key} />
+              </label>
               <div className="flex gap-2">
                 <input
                   type="password"
@@ -535,7 +557,10 @@ export default function Settings() {
             </div>
 
             <div>
-              <label className="block text-[13px] font-medium text-textmid mb-1.5">OpenAI Admin Key (for billing)</label>
+              <label className="text-[13px] font-medium text-textmid mb-1.5 flex items-center gap-2">
+                OpenAI Admin Key (for billing)
+                <KeyStatusPill set={!!settings.openai_admin_key} />
+              </label>
               <input
                 type="password"
                 value={form.openai_admin_key}
@@ -546,7 +571,10 @@ export default function Settings() {
             </div>
 
             <div>
-              <label className="block text-[13px] font-medium text-textmid mb-1.5">Gemini API Key</label>
+              <label className="text-[13px] font-medium text-textmid mb-1.5 flex items-center gap-2">
+                Gemini API Key
+                <KeyStatusPill set={!!settings.gemini_api_key} />
+              </label>
               <div className="flex gap-2">
                 <input
                   type="password"
@@ -572,37 +600,9 @@ export default function Settings() {
             </div>
 
             <div>
-              <label className="block text-[13px] font-medium text-textmid mb-1.5">
-                Perplexity API Key
-                <span className="ml-1 text-[11px] text-textlight font-normal">(used by Quote Mining search)</span>
-              </label>
-              <div className="flex gap-2">
-                <input
-                  type="password"
-                  value={form.perplexity_api_key}
-                  onChange={e => setForm(p => ({ ...p, perplexity_api_key: e.target.value }))}
-                  className="input-apple flex-1"
-                  placeholder={settings.perplexity_api_key || 'Enter Perplexity API key'}
-                />
-                <button
-                  onClick={() => testConnection('perplexity')}
-                  disabled={testResults.perplexity === 'testing...'}
-                  className="btn-secondary text-[13px] whitespace-nowrap inline-flex items-center gap-1.5"
-                >
-                  {testResults.perplexity === 'testing...' && (
-                    <svg className="w-3.5 h-3.5 animate-spin" viewBox="0 0 24 24" fill="none">
-                      <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" strokeDasharray="31.4 31.4" strokeLinecap="round" />
-                    </svg>
-                  )}
-                  Test
-                </button>
-              </div>
-              {testResults.perplexity && <p className="text-[12px] text-textlight mt-1">{testResults.perplexity}</p>}
-            </div>
-
-            <div>
-              <label className="block text-[13px] font-medium text-textmid mb-1.5">
+              <label className="text-[13px] font-medium text-textmid mb-1.5 flex items-center gap-2">
                 Anthropic API Key
+                <KeyStatusPill set={!!settings.anthropic_api_key} />
               </label>
               <div className="flex gap-2">
                 <input

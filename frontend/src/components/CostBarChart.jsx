@@ -12,12 +12,11 @@ function formatDateLabel(dateStr) {
   return d.toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 }
 
-// Stacked bar segments (bottom to top): OpenAI → Anthropic → Gemini → Perplexity
+// Stacked bar segments (bottom to top): OpenAI → Anthropic → Gemini
 const SERVICES = [
   { key: 'openai',     label: 'OpenAI',     color: '#5B8DEF', hoverColor: '#4A7ADE', legendColor: 'bg-[#5B8DEF]',  tooltipColor: 'text-[#8BAFF5]' },
   { key: 'anthropic',  label: 'Anthropic',   color: '#7C6DCD', hoverColor: '#6B5CBC', legendColor: 'bg-[#7C6DCD]',  tooltipColor: 'text-[#9D91DA]' },
   { key: 'gemini',     label: 'Gemini',      color: '#2A9D8F', hoverColor: '#238B7F', legendColor: 'bg-teal',        tooltipColor: 'text-teal' },
-  { key: 'perplexity', label: 'Perplexity',  color: '#C4975A', hoverColor: '#B3874A', legendColor: 'bg-gold',        tooltipColor: 'text-gold' },
 ];
 
 export default function CostBarChart({ data, loading, rangeLabel, historyRange, setHistoryRange, historyRanges, customStart, setCustomStart, customEnd, setCustomEnd }) {

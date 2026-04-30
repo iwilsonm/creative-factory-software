@@ -1,5 +1,48 @@
 # Creative Factory — Changelog
 
+## 2026-04-30 — Settings clarity + Perplexity removal + project pinning + save-as-default product image
+
+**Marco's batch of 4 asks**
+
+**1. Settings — make it clear which API keys are configured.**
+- `frontend/src/pages/Settings.jsx` — added a `KeyStatusPill` helper component that renders next to each API key label. Green ● Configured pill when the key is set; gray ○ Not set otherwise. Backend masks keys to `prefix...suffix` on GET, so a non-empty string from settings means "set." Crystal clear at a glance.
+
+**2. Remove Perplexity entirely.**
+- Removed Perplexity from: Settings UI form field + handler, `api.testPerplexity`, `routes/settings.js` allowed key list + `/test-perplexity` endpoint, `services/costTracker.js` `PERPLEXITY_RATES` + `logPerplexityCost`, `CostBarChart` and `CostSummaryCards` segment definitions.
+- Convex aggregation (`convex/apiCosts.ts`) still has a `perplexity` field; it's harmless dead data, can be cleaned up in a follow-up Convex deploy. The frontend no longer reads it.
+
+**3. Project pinning on the Projects page.**
+- `frontend/src/pages/Projects.jsx` — pin icon on each project card (top-right, next to status badge). Pinned projects sort to the top in pin order; unpinned keep server-default order.
+- Storage: `pinned_project_ids` setting in the Convex `settings` table (JSON-stringified array). Added to the allowed-keys list in `backend/routes/settings.js`. No Convex schema change needed.
+- Pin state is global to the install (single-tenant). Per-user pinning is out of scope.
+
+**4. Save-as-project-default product image toggle.**
+- `frontend/src/components/AdStudio.jsx` — when a per-ad product image is uploaded AND the project has no project-level image yet, a toggle appears: "Save as project default — Future ads in this project will automatically use this image." Off by default.
+- `backend/routes/ads.js` — both `generate-ad` and `regenerate-image` routes now accept `save_as_project_default`. When set + a per-ad product image is provided + the project has no image yet, the buffer is uploaded to Convex storage and persisted via `setProjectProductImage` BEFORE generation. If generation fails, the project image is still saved (non-fatal failure — generation proceeds).
+- The toggle is gated on `!project?.productImageUrl` so it can't accidentally overwrite an existing project image. To replace, the user clears the project image in Project Settings first.
+
+**Antipattern note**
+- Don't gate UX clarity behind placeholder text alone. Use explicit visual indicators (status pills, badges) for binary state that the user needs to act on.
+
+**Files modified**
+- `frontend/src/pages/Settings.jsx` — status pills + Perplexity removal.
+- `frontend/src/pages/Projects.jsx` — pin button + sort logic + settings read/write.
+- `frontend/src/components/AdStudio.jsx` — save-as-default toggle + payload flag (3 generate paths).
+- `frontend/src/api.js` — removed `testPerplexity`.
+- `frontend/src/components/CostBarChart.jsx` — removed Perplexity segment.
+- `frontend/src/components/CostSummaryCards.jsx` — removed Perplexity row.
+- `backend/routes/settings.js` — removed Perplexity from API_KEY_KEYS / allowed list / test endpoint; added `pinned_project_ids` to allowed list.
+- `backend/services/costTracker.js` — removed `PERPLEXITY_RATES` + `logPerplexityCost`.
+- `backend/routes/ads.js` — `save_as_project_default` flag handling at both generate-ad and regenerate-image.
+
+**Out of scope**
+- Per-user pinning (settings table is shared across the install).
+- Drag-reorder of pinned projects.
+- Cleaning up the dormant `perplexity` field in `convex/apiCosts.ts`.
+- A "Replace project default" UX when an image is already set.
+
+---
+
 ## 2026-04-30 — Fix bulk action bar centering bug + aesthetic redesign
 
 **Bug**

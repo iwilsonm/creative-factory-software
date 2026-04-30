@@ -101,7 +101,6 @@ const SERVICE_DEFS = [
   { key: 'openai', label: 'OpenAI', barClass: 'bg-[#5B8DEF]', dotClass: 'bg-[#5B8DEF]' },
   { key: 'anthropic', label: 'Anthropic', barClass: 'bg-[#7C6DCD]', dotClass: 'bg-[#7C6DCD]' },
   { key: 'gemini', label: 'Gemini', barClass: 'bg-teal', dotClass: 'bg-teal' },
-  { key: 'perplexity', label: 'Perplexity', barClass: 'bg-gold', dotClass: 'bg-gold' },
 ];
 
 function formatCost(value) {

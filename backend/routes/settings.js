@@ -9,7 +9,7 @@ router.use(requireAuth, requireRole('admin'));
 
 // Sensitive keys that should be masked when returning
 const SENSITIVE_KEYS = ['auth_password_hash', 'session_secret'];
-const API_KEY_KEYS = ['openai_api_key', 'openai_admin_key', 'gemini_api_key', 'perplexity_api_key', 'anthropic_api_key', 'cloudflare_api_token'];
+const API_KEY_KEYS = ['openai_api_key', 'openai_admin_key', 'gemini_api_key', 'anthropic_api_key', 'cloudflare_api_token'];
 
 // Get all settings (mask sensitive values)
 router.get('/', async (req, res) => {
@@ -34,7 +34,6 @@ router.put('/', async (req, res) => {
     'openai_api_key',
     'openai_admin_key',
     'gemini_api_key',
-    'perplexity_api_key',
     'anthropic_api_key',
     'default_drive_folder_id',
     'gemini_rate_1k',
@@ -44,6 +43,7 @@ router.put('/', async (req, res) => {
     'cloudflare_account_id',
     'cloudflare_api_token',
     'cloudflare_pages_projects',
+    'pinned_project_ids',  // JSON array of project externalIds (global pinning)
   ];
 
   for (const key of allowed) {
@@ -148,34 +148,6 @@ router.post('/test-drive', async (req, res) => {
     });
   } catch (err) {
     res.status(500).json({ error: `Drive connection failed: ${err.message}` });
-  }
-});
-
-// Test Perplexity connection
-router.post('/test-perplexity', async (req, res) => {
-  const apiKey = await getSetting('perplexity_api_key');
-  if (!apiKey) return res.status(400).json({ error: 'Perplexity API key not configured' });
-
-  try {
-    const response = await fetch('https://api.perplexity.ai/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${apiKey}`,
-        'Content-Type': 'application/json'
-      },
-      body: JSON.stringify({
-        model: 'sonar',
-        messages: [{ role: 'user', content: 'Hello' }],
-        max_tokens: 5
-      })
-    });
-    if (!response.ok) {
-      const body = await response.text();
-      return res.status(400).json({ error: `Perplexity API returned ${response.status}: ${body.slice(0, 200)}` });
-    }
-    res.json({ success: true, message: 'Perplexity API key is valid' });
-  } catch (err) {
-    res.status(500).json({ error: `Connection failed: ${err.message}` });
   }
 });
 

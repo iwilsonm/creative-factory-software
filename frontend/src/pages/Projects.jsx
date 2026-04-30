@@ -1,4 +1,4 @@
-import { useContext } from 'react';
+import { useContext, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api';
 import { AuthContext } from '../App';
@@ -7,6 +7,18 @@ import InfoTooltip from '../components/InfoTooltip';
 import { useToast } from '../components/Toast';
 import { useAsyncData } from '../hooks/useAsyncData';
 import { ensureArray } from '../utils/collections';
+
+// Parse the pinned_project_ids setting (JSON string array). Falls back to []
+// on parse failure so a malformed setting doesn't break the Projects page.
+function parsePinnedIds(raw) {
+  if (!raw) return [];
+  try {
+    const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    return Array.isArray(parsed) ? parsed.filter(id => typeof id === 'string') : [];
+  } catch {
+    return [];
+  }
+}
 
 const STATUS_CONFIG = {
   setup: { label: 'Setup', bg: 'bg-gold/10', text: 'text-gold' },
@@ -30,7 +42,40 @@ export default function Projects() {
     () => api.getProjects(),
     []
   );
-  const safeProjects = ensureArray(projects, 'Projects.page.projects');
+  const baseProjects = ensureArray(projects, 'Projects.page.projects');
+
+  // Pinning — read pinned_project_ids from settings on mount.
+  const [pinnedIds, setPinnedIds] = useState([]);
+  useEffect(() => {
+    api.getSettings()
+      .then(s => setPinnedIds(parsePinnedIds(s?.pinned_project_ids)))
+      .catch(() => { /* non-fatal — projects render without pin state */ });
+  }, []);
+
+  const togglePin = async (projectId) => {
+    const next = pinnedIds.includes(projectId)
+      ? pinnedIds.filter(id => id !== projectId)
+      : [...pinnedIds, projectId];
+    setPinnedIds(next);  // optimistic
+    try {
+      await api.updateSettings({ pinned_project_ids: JSON.stringify(next) });
+    } catch (err) {
+      setPinnedIds(pinnedIds);  // revert
+      toast.error(err.message || 'Failed to update pinned projects');
+    }
+  };
+
+  // Sort: pinned projects first (in pin order), then unpinned (server-default order).
+  const safeProjects = [...baseProjects].sort((a, b) => {
+    const aIdx = pinnedIds.indexOf(a.id);
+    const bIdx = pinnedIds.indexOf(b.id);
+    const aPinned = aIdx !== -1;
+    const bPinned = bIdx !== -1;
+    if (aPinned && !bPinned) return -1;
+    if (!aPinned && bPinned) return 1;
+    if (aPinned && bPinned) return aIdx - bIdx;
+    return 0;
+  });
 
   return (
     <Layout>
@@ -98,6 +143,7 @@ export default function Projects() {
             {safeProjects.map(project => {
               const status = STATUS_CONFIG[project.status] || { label: project.status, bg: 'bg-black/5', text: 'text-textmid' };
               const borderColor = STATUS_COLORS[project.status] || '#D1D5DB';
+              const isPinned = pinnedIds.includes(project.id);
               return (
                 <Link
                   key={project.id}
@@ -105,11 +151,32 @@ export default function Projects() {
                   className="card p-5 transition-all duration-300 group border-l-2"
                   style={{ borderLeftColor: borderColor }}
                 >
-                  <div className="flex items-start justify-between mb-3">
-                    <h3 className="font-semibold text-[15px] text-textdark tracking-tight group-hover:text-gold transition-colors">{project.brand_name || project.name}</h3>
-                    <span className={`badge ${status.bg} ${status.text}`}>
-                      {status.label}
-                    </span>
+                  <div className="flex items-start justify-between mb-3 gap-2">
+                    <h3 className="font-semibold text-[15px] text-textdark tracking-tight group-hover:text-gold transition-colors flex-1 min-w-0 truncate">{project.brand_name || project.name}</h3>
+                    <div className="flex items-center gap-1.5 flex-shrink-0">
+                      <button
+                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); togglePin(project.id); }}
+                        className={`w-6 h-6 rounded-md flex items-center justify-center transition-all ${
+                          isPinned
+                            ? 'text-gold bg-gold/10 hover:bg-gold/15'
+                            : 'text-textlight/40 opacity-0 group-hover:opacity-100 hover:text-textlight hover:bg-black/5'
+                        }`}
+                        title={isPinned ? 'Unpin project' : 'Pin to top'}
+                      >
+                        <svg
+                          className="w-3.5 h-3.5"
+                          fill={isPinned ? 'currentColor' : 'none'}
+                          stroke="currentColor"
+                          viewBox="0 0 24 24"
+                          strokeWidth={isPinned ? 1 : 1.75}
+                        >
+                          <path strokeLinecap="round" strokeLinejoin="round" d="M16 12V4h1V2H7v2h1v8l-2 2v2h5.2v6h1.6v-6H18v-2l-2-2z" />
+                        </svg>
+                      </button>
+                      <span className={`badge ${status.bg} ${status.text}`}>
+                        {status.label}
+                      </span>
+                    </div>
                   </div>
                   {project.brand_name && (
                     <p className="text-[13px] text-textmid mb-0.5">{project.name}</p>

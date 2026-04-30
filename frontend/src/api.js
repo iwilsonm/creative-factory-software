@@ -362,6 +362,11 @@ export const api = {
     if (projectId) url += `&project_id=${projectId}`;
     return cachedRequest(url);
   },
+  getCostHistoryRange: (startDate, endDate, projectId) => {
+    const params = new URLSearchParams({ start: startDate, end: endDate });
+    if (projectId) params.set('project_id', projectId);
+    return cachedRequest(`/costs/history?${params.toString()}`);
+  },
   getRecurringCosts: () => cachedRequest('/costs/recurring'),
   getCostRates: () => cachedRequest('/costs/rates'),
   syncCosts: () => request('/costs/sync', { method: 'POST' }),
@@ -497,7 +502,6 @@ export const api = {
     }),
 
   // Settings — API-key connectivity tests
-  testPerplexity: () => request('/settings/test-perplexity', { method: 'POST' }),
   testAnthropic: () => request('/settings/test-anthropic', { method: 'POST' }),
 
 
