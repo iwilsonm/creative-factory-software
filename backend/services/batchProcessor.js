@@ -14,7 +14,7 @@ import {
   cleanupImageData,
 } from './adGenerator.js';
 import {
-  getProject, getLatestDoc, getBatchJob, updateBatchJob,
+  getProject, getLatestDoc, getBatchJob, updateBatchJob, getSetting,
   uploadBuffer, downloadToBuffer, getRecentHeadlineHistoryByAngle, recordHeadlineHistory,
   claimBatchResultsProcessing, getCompletedDirectorBatchStats,
   convexClient, api
@@ -154,6 +154,15 @@ export async function runBatch(batchId, onProgress, options = {}) {
     throw new Error('Project not found');
   }
 
+  // Pre-flight: Anthropic API key must be configured (Stage 1 headline generation depends on it)
+  const anthropicKey = await getSetting('anthropic_api_key');
+  if (!anthropicKey || !anthropicKey.trim()) {
+    const msg = '[Stage 1] Anthropic API key not configured. Set it in Settings → API Keys.';
+    await updateBatchJob(batchId, { status: 'failed', error_message: msg });
+    throw new Error(msg);
+  }
+  console.info(`[BatchProcessor] Pre-flight: Anthropic API key present (length=${anthropicKey.length})`);
+
   // Load foundational docs in parallel
   const [research, avatar, offer_brief, necessary_beliefs] = await Promise.all([
     getLatestDoc(batch.project_id, 'research'),
@@ -165,8 +174,9 @@ export async function runBatch(batchId, onProgress, options = {}) {
 
   const docCount = Object.values(docs).filter(d => d && d.content).length;
   if (docCount === 0) {
-    await updateBatchJob(batchId, { status: 'failed', error_message: 'No foundational documents found. Generate docs first.' });
-    throw new Error('No foundational documents found.');
+    const msg = '[Stage 1] Project has no foundational docs. Generate at least one (avatar / offer_brief / research / necessary_beliefs) in the Foundational Docs tab first.';
+    await updateBatchJob(batchId, { status: 'failed', error_message: msg });
+    throw new Error(msg);
   }
 
   try {
@@ -219,10 +229,22 @@ export async function runBatch(batchId, onProgress, options = {}) {
     emit({ type: 'error', error: errorMsg });
     console.error(`[BatchProcessor] Batch ${batchId.slice(0, 8)} pipeline failed:`, err.message);
     console.error(`[BatchProcessor] Stack:`, err.stack?.split('\n').slice(0, 3).join('\n'));
+    // Side-channel: structured diagnostic for post-mortem inspection (Vercel Hobby doesn't persist logs).
+    const diagnostic = {
+      stage: 'pipeline',
+      failed_at: new Date().toISOString(),
+      error_message: err.message,
+      error_status: err.status ?? err.statusCode ?? null,
+      error_type: err.error?.type ?? err.type ?? null,
+    };
     // Mark batch as failed — retry the status update in case Convex is also having issues
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
-        await updateBatchJob(batchId, { status: 'failed', error_message: errorMsg.slice(0, 500) });
+        await updateBatchJob(batchId, {
+          status: 'failed',
+          error_message: errorMsg.slice(0, 500),
+          pipeline_state: JSON.stringify(diagnostic),
+        });
         break;
       } catch (updateErr) {
         console.error(`[BatchProcessor] Failed to mark batch as failed (attempt ${attempt + 1}/3):`, updateErr.message);
@@ -341,7 +363,21 @@ async function generateBatchPrompts(batch, project, docs, onProgress, options = 
   }
 
   if (finalHeadlines.length === 0) {
-    throw new Error('Stage 1 failed to produce any usable headline candidates after diversity filtering.');
+    const totalCandidates = initialCandidates.length;
+    const sceneRejected = sceneAlignedPool.rejected?.length || 0;
+    const sceneSurvived = sceneAlignedPool.survivors?.length || 0;
+    const dedupRejected =
+      (dedupedPool.rejectedInBatch?.length || 0) +
+      (dedupedPool.rejectedByHistory?.length || 0);
+    const regenInfo = regenCandidateCount > 0
+      ? ` (regen produced ${regenCandidateCount} more, still 0 survived)`
+      : '';
+    const full = `[Stage 1] All ${totalCandidates} headlines from Claude filtered out` + regenInfo +
+      ` — ${sceneRejected} rejected by scene alignment (${sceneSurvived} survived), ` +
+      `${dedupRejected} rejected by history/in-batch dedup. ` +
+      `Check the angle's scene constraints or recent headline history.`;
+    const message = full.length > 480 ? full.slice(0, 477) + '...' : full;
+    throw new Error(message);
   }
 
   const laneDistribution = finalHeadlines.reduce((distribution, headline) => {

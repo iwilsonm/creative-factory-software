@@ -1,5 +1,21 @@
 # Creative Factory — Changelog
 
+## 2026-04-29 — Stage 1 batch failure: surface root cause + harden pre-flight
+
+**What changed**
+- `backend/services/adGenerator.js` — captures `lastError` in the headline-generation retry loop (lines ~1204-1311). Replaced the generic "Claude may be experiencing issues" fallback throw with a structured, length-capped message that puts the most actionable diagnostic FIRST so it survives the History panel's 50-char inline truncation. Examples: "[Stage 1] Anthropic auth error (401) after 3 attempts...", "[Stage 1] Anthropic rate-limited (429) after 3 attempts...". Uses defensive existence checks on Anthropic SDK error fields (`err.status`, `err.error?.type`).
+- `backend/services/batchProcessor.js` — added API-key pre-flight check inside `runBatch` (right after the project-found check). Throws "[Stage 1] Anthropic API key not configured. Set it in Settings → API Keys." with the actionable message in the first 50 chars. Updated the existing zero-foundational-docs throw to follow the same `[Stage 1]` prefix convention. Replaced the generic diversity-filter throw at ~line 343 with a context-rich message that includes the actual filter rejection counts (`sceneAlignedPool.rejected.length`, `dedupedPool.rejectedInBatch.length`, `dedupedPool.rejectedByHistory.length` — verified field names from `headlineDiversity.js`). Catch block now also writes a structured `pipeline_state` JSON diagnostic (stage, failed_at, error_message, error_status, error_type) for post-mortem inspection in Convex when Vercel logs aren't available. Imported `getSetting` from `convexClient.js`.
+
+**Why**
+- User ran a batch of 5 ads and got the History row "Pipeline failed: [Stage 1] All headline generation". The generic message didn't tell us which of 5 plausible failure modes actually fired (API key issue, rate limit, scene-locked angle, missing docs, bad JSON). With Vercel Hobby not persisting historical logs, the next debugger had nothing to go on.
+- The fix doesn't try to guess the root cause — it makes the next failure self-diagnosing. Once we see the actual diagnostic in the History panel, the targeted root-cause fix becomes a separate (small) PR.
+
+**Out of scope (future work)**
+- Actual root-cause fix for whatever the diagnostic reveals (separate PR once we have signal).
+- Loosening the diversity filter — it exists for valid reasons; if it's rejecting everything, we want to know.
+- Persistent log aggregation (Sentry / Logtail) — error-message-as-diagnostic gets us 80% at 0% cost.
+- Live Anthropic key validation in pre-flight — diagnostic now correctly surfaces the 401 if a non-empty-but-revoked key is set.
+
 ## 2026-04-29 — Fix HTTP 413 in Ad Studio generation (client-side image resize + DRY error handling)
 
 **What changed**

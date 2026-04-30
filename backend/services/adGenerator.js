@@ -1200,6 +1200,7 @@ Return ONLY valid JSON:
 }`;
 
   let lastResult = null;
+  let lastError = null;
 
   for (let attempt = 1; attempt <= 3; attempt++) {
     try {
@@ -1296,6 +1297,7 @@ Return ONLY valid JSON:
 
       return result;
     } catch (err) {
+      lastError = err;
       console.error(`[Pipeline Stage 1] Attempt ${attempt}/3 failed:`, err.message);
       if (attempt < 3) {
         await new Promise((resolve) => setTimeout(resolve, 5000 * attempt));
@@ -1308,7 +1310,32 @@ Return ONLY valid JSON:
     return lastResult;
   }
 
-  throw new Error('[Stage 1] All headline generation attempts failed. Claude may be experiencing issues — try again in a few minutes.');
+  // Build a self-diagnosing error: most actionable info first (so 50-char inline truncation still surfaces it).
+  // Fields below use defensive existence checks — Anthropic SDK shape may vary.
+  const status = lastError?.status ?? lastError?.statusCode ?? null;
+  const errorType = lastError?.error?.type ?? lastError?.type ?? null;
+  const baseMessage = lastError?.message ?? 'unknown error';
+
+  let leadingDiagnostic;
+  if (status === 401 || errorType === 'authentication_error') {
+    leadingDiagnostic = 'Anthropic auth error (401)';
+  } else if (status === 429 || errorType === 'rate_limit_error') {
+    leadingDiagnostic = 'Anthropic rate-limited (429)';
+  } else if (status === 404 || errorType === 'not_found_error') {
+    leadingDiagnostic = 'Anthropic model not found (404)';
+  } else if (typeof status === 'number' && status >= 500) {
+    leadingDiagnostic = `Anthropic server error (${status})`;
+  } else if (errorType) {
+    leadingDiagnostic = `Anthropic ${errorType}`;
+  } else {
+    leadingDiagnostic = 'Headline generation failed';
+  }
+
+  const partialCount = lastResult?.headlines?.length || 0;
+  const full = `[Stage 1] ${leadingDiagnostic} after 3 attempts. ${baseMessage}; partial: ${partialCount} headlines`;
+  const message = full.length > 480 ? full.slice(0, 477) + '...' : full;
+
+  throw new Error(message);
 }
 
 /**
