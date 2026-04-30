@@ -1,5 +1,37 @@
 # Creative Factory — Changelog
 
+## 2026-04-30 — Fix `drive_folder_id` ArgumentValidationError on project save
+
+**Bug**
+- Marco tried to add a product image to the Heal Naturally project and got `ArgumentValidationError: Path: .drive_folder_id Value: null Validator: v.string()`. The error did not come from the product image upload itself — `setProductImage` only patches `product_image_storageId` + `updated_at`. It came from a `PUT /api/projects/:id` (project save) round-trip.
+
+**Root cause chain**
+1. `convex/schema.ts` and `convex/projects.ts` declare `drive_folder_id: v.optional(v.string())` — accepts undefined or string, rejects null.
+2. Heal Naturally has no `drive_folder_id` set (legitimately optional).
+3. `backend/convexClient.js:convexProjectToRow` was coercing missing optional strings to `null` for the API response (`p.drive_folder_id || null`).
+4. The frontend `loadProject()` set `form.drive_folder_id = null`; `handleSave()` round-tripped the form (including the null) back via `api.updateProject`.
+5. `backend/convexClient.js:updateProject` filtered with `if (fields[key] !== undefined)` — null passed through, hit the validator, rejected.
+
+**Fix (single commit, two-layer defense)**
+- **Layer 1** (`backend/convexClient.js:updateProject`) — filter drops both `undefined` AND `null`. Boundary defense; protects every future call site without per-component discipline. Inline comment locks in the lesson for future devs.
+- **Layer 2** (`backend/convexClient.js:convexProjectToRow`) — optional simple-string fields now emit `''` instead of `null`. Contract going OUT matches contract going BACK. Frontend already uses `value={form.x || ''}` patterns, so no UI regression.
+
+**Carve-outs (intentionally unchanged)**
+- `product_image_storageId` — Convex storage ID; frontend null-checks for image rendering.
+- `scout_destination_urls` — JSON-array-as-string per Critical Invariant #2; `''` would break `JSON.parse`.
+- `scout_enabled` / `scout_score_threshold` / `scout_daily_flex_ads` — nullable boolean/number; Layer 1 filter handles them at the boundary.
+
+**Pre-flight verification (run before edits)**
+- Grepped `(===|!==|==|!=) *null` across `backend/`, `frontend/src/` for the affected fields. Zero matches — no consumer relies on `null` specifically.
+- Confirmed working tree clean for `convexClient.js`. HEAD at `6e7e65f` (favicon commit), 0 commits ahead of origin/main.
+
+**Out of scope**
+- Auditing other mappers (`convexAdToRow`, `convexBatchToRow`, etc.) for the same null-coercion pattern. Deferred — fix when (if) they bite.
+- Schema-level change to `v.optional(v.union(v.string(), v.null()))`. Would require Convex deploy (auth-mismatch risk per prior session) and codifies a less clean contract.
+- Cleanup of any legacy stored nulls in other projects. Layer 1 makes them safe to save going forward.
+
+---
+
 ## 2026-04-30 — Refactor batch pipeline off Anthropic onto OpenAI (no Anthropic key required for batches)
 
 **Diagnostic findings**

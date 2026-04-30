@@ -171,7 +171,12 @@ export async function updateProject(id, fields) {
   const allowed = ['name', 'brand_name', 'niche', 'product_description', 'drive_folder_id', 'inspiration_folder_id', 'prompt_guidelines', 'status', 'scout_enabled', 'scout_default_campaign', 'scout_cta', 'scout_display_link', 'scout_facebook_page', 'scout_score_threshold', 'scout_daily_flex_ads', 'scout_destination_url', 'scout_destination_urls', 'scout_duplicate_adset_name'];
   const updates = { externalId: id };
   for (const key of allowed) {
-    if (fields[key] !== undefined) {
+    // Drop both undefined and null. Convex v.optional(v.string()) rejects null
+    // (only undefined or string). The convexProjectToRow mapper used to emit
+    // null for unset optional strings, which round-tripped through the
+    // frontend form and triggered ArgumentValidationError on save. Any new
+    // optional field added to `allowed` is automatically protected here.
+    if (fields[key] !== undefined && fields[key] !== null) {
       updates[key] = fields[key];
     }
   }
@@ -192,28 +197,34 @@ export async function backfillProjectStats(force = false) {
 }
 
 function convexProjectToRow(p) {
+  // Optional simple-string fields emit '' (not null) so the contract going OUT
+  // matches the contract going BACK to projects.update. Convex's v.optional(v.string())
+  // rejects null but accepts '' as a valid string. Carve-outs:
+  //   - product_image_storageId: Convex storage ID; frontend null-checks for image rendering
+  //   - scout_destination_urls: JSON-array-as-string per Critical Invariant #2; '' would break JSON.parse
+  //   - scout_enabled / scout_score_threshold / scout_daily_flex_ads: nullable boolean/number
   return {
     id: p.externalId,
     name: p.name,
-    brand_name: p.brand_name || null,
-    niche: p.niche || null,
-    product_description: p.product_description || null,
-    drive_folder_id: p.drive_folder_id || null,
-    inspiration_folder_id: p.inspiration_folder_id || null,
-    prompt_guidelines: p.prompt_guidelines || null,
+    brand_name: p.brand_name || '',
+    niche: p.niche || '',
+    product_description: p.product_description || '',
+    drive_folder_id: p.drive_folder_id || '',
+    inspiration_folder_id: p.inspiration_folder_id || '',
+    prompt_guidelines: p.prompt_guidelines || '',
     product_image_storageId: p.product_image_storageId || null,
     status: p.status || 'setup',
     // Dacia Creative Filter per-project config
     scout_enabled: p.scout_enabled ?? null,
-    scout_default_campaign: p.scout_default_campaign || null,
-    scout_cta: p.scout_cta || null,
-    scout_display_link: p.scout_display_link || null,
-    scout_facebook_page: p.scout_facebook_page || null,
+    scout_default_campaign: p.scout_default_campaign || '',
+    scout_cta: p.scout_cta || '',
+    scout_display_link: p.scout_display_link || '',
+    scout_facebook_page: p.scout_facebook_page || '',
     scout_score_threshold: p.scout_score_threshold ?? null,
     scout_daily_flex_ads: p.scout_daily_flex_ads ?? null,
-    scout_destination_url: p.scout_destination_url || null,
+    scout_destination_url: p.scout_destination_url || '',
     scout_destination_urls: p.scout_destination_urls || null,
-    scout_duplicate_adset_name: p.scout_duplicate_adset_name || null,
+    scout_duplicate_adset_name: p.scout_duplicate_adset_name || '',
     docCount: p.docCount ?? 0,
     adCount: p.adCount ?? 0,
     lpCount: p.lpCount ?? 0,
