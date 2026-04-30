@@ -1425,9 +1425,18 @@ export default function AdStudio({ projectId, project }) {
   };
 
   // Filtered ads based on gallery filter (type) then date range
+  // Stale-detection threshold: matches backend STUCK_ADS_THRESHOLD_MIN.
+  // Vercel function maxDuration is 60s; ads older than this are zombies.
+  const STUCK_THRESHOLD_MS = 5 * 60 * 1000;
   const typeFilteredAds = ads.filter(ad => {
-    // Hide in-progress ads from gallery (they show in the queue instead)
-    if (ad.status === 'generating_copy' || ad.status === 'generating_image') return false;
+    // Hide in-progress ads from gallery (they show in the queue instead) — but only if FRESH.
+    // Ads stuck in generating_* > 5 min are zombies (Vercel function timeout, crash, etc.).
+    // Surface them so Marco can see and dismiss them. Backend cleanup will flip status to 'failed' on next gallery load.
+    if (ad.status === 'generating_copy' || ad.status === 'generating_image') {
+      const ts = new Date(ad.created_at).getTime();
+      const isStale = Number.isFinite(ts) && (Date.now() - ts > STUCK_THRESHOLD_MS);
+      if (!isStale) return false;
+    }
     if (galleryFilter === 'favorites') return !!ad.is_favorite;
     if (galleryFilter === 'individual') return !ad.auto_generated && !ad.batch_job_id;
     if (galleryFilter === 'batch') return !!ad.auto_generated || !!ad.batch_job_id;

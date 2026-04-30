@@ -1,5 +1,25 @@
 # Creative Factory — Changelog
 
+## 2026-04-30 — Fix stuck `generating_copy` / `generating_image` ads (zombie ad-creatives)
+
+**Diagnostic findings**
+- User Marco reported a generated ad "disappeared" from his Wedding System project. Direct Convex query showed: ad records exist in the database with `status: generating_copy` from 24+ hours ago. Not deleted — hidden by the gallery filter at `AdStudio.jsx:1428` which assumes those statuses mean "actively in progress."
+- Most plausible root cause: Vercel function `maxDuration: 60`. Ad generation typically takes ~50s; OpenAI 429 retries can push past 60s; Vercel kills the function mid-stream; orchestrator's catch block never runs; ad's status stays at `generating_copy` forever. Other plausible causes (backend crash, SSE drop) leave the same fingerprint.
+
+**What changed**
+- `backend/convexClient.js` — new `markStaleAdsAsFailed(projectId, opts)` helper. Reads ads via existing `getByProject` query, filters to `generating_copy`/`generating_image` status with `created_at` older than threshold (default 5 min), calls existing `adCreatives.update` mutation per stuck ad to flip status to `failed`. Idempotent (status precondition checked); bounded by `maxRepairs` (default 100) to avoid Convex rate-limit blowups. No Convex schema changes — uses the existing `update` mutation's whitelisted `status` field.
+- `backend/routes/ads.js` — fire-and-forget auto-cleanup in the `GET /:projectId/ads` handler (runs every gallery load). Errors logged via `console.warn`, not silently swallowed. New admin/manager-only `POST /:projectId/ads/cleanup-stuck` endpoint accepting optional `olderThanMinutes` (default 5, validated > 0) for forced cleanup. Single source-of-truth constant `STUCK_ADS_THRESHOLD_MIN = 5`.
+- `frontend/src/components/AdStudio.jsx` — gallery filter at line 1428 now distinguishes "fresh" from "stuck": ads in `generating_copy`/`generating_image` are hidden ONLY if `created_at` is within the 5-minute window (matches backend threshold). Older zombies fall through and surface in the gallery, where the existing failed-ad treatment (red icon, red badge) renders + the existing per-card Delete button lets Marco dismiss them. Stale-detection runs BEFORE the type filter (`galleryFilter === 'individual'/'batch'`) so stuck batch ads also surface.
+
+**Why**
+- Marco's specific case: 2 zombie ads in the Wedding System project from 2026-04-29 will auto-resolve on his next gallery load — no manual intervention. Future zombies surface within 5 minutes instead of vanishing silently for 24+ hours.
+- 5-min threshold tied to Vercel's 60s `maxDuration` + 4-min buffer for cold starts and clock skew. After 5 minutes, the function is definitively dead — no race risk with a legitimately long-running generation.
+
+**Out of scope (future work)**
+- Fixing the underlying Vercel timeout. Requires Pro tier upgrade (allows 300s `maxDuration`), splitting the orchestrator into shorter stages, or queue-based architecture. Cleanup approach surfaces the symptom; root-cause fix is a separate decision.
+- Retry-from-stuck-state UI button. v1 marks zombies failed; user re-generates manually via the existing Generate button. Existing per-card Delete button is the dismiss path.
+- Adding `error_message` / `pipeline_state` / `updated_at` fields to `ad_creatives` schema. Would require Convex deploy and schema migration. Not blocking the fix; status alone is sufficient signal.
+
 ## 2026-04-29 — Stage 1 batch failure: surface root cause + harden pre-flight
 
 **What changed**

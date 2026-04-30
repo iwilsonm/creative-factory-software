@@ -1,6 +1,10 @@
 import { Router } from 'express';
 import { requireAuth } from '../auth.js';
-import { getProject, getLatestDoc, getAdsByProject, getInProgressAdsByProject, getAd, getAdImageUrl, convexClient, api } from '../convexClient.js';
+import { getProject, getLatestDoc, getAdsByProject, getInProgressAdsByProject, getAd, getAdImageUrl, markStaleAdsAsFailed, convexClient, api } from '../convexClient.js';
+
+// Vercel function maxDuration is 60s. Anything older is definitively a zombie.
+// Allow 4-min buffer for cold starts and clock skew. Update if vercel.json maxDuration changes.
+const STUCK_ADS_THRESHOLD_MIN = 5;
 import { generateAd, generateAdMode2, regenerateImageOnly, applyPromptEdit } from '../services/adGenerator.js';
 import { generateBodyCopy } from '../services/bodyCopyGenerator.js';
 import { chat as claudeChat } from '../services/anthropic.js';
@@ -270,9 +274,33 @@ router.get('/:projectId/ads', async (req, res) => {
   const project = await getProject(req.params.projectId);
   if (!project) return res.status(404).json({ error: 'Project not found' });
 
+  // Fire-and-forget cleanup: mark any ads stuck in generating_* > threshold as failed.
+  // Idempotent (status precondition); errors logged not thrown.
+  markStaleAdsAsFailed(req.params.projectId, { olderThanMinutes: STUCK_ADS_THRESHOLD_MIN })
+    .then((result) => {
+      if (result?.repaired > 0) {
+        console.info(`[ads-cleanup] repaired ${result.repaired} stale generating ads in project ${req.params.projectId}`);
+      }
+    })
+    .catch((err) => console.warn(`[ads-cleanup] failed for project ${req.params.projectId}:`, err.message));
+
   const ads = await getAdsByProject(req.params.projectId);
   const withUrls = ads.map(ad => attachAdMedia(req.params.projectId, ad));
   res.json({ ads: withUrls, total: withUrls.length });
+});
+
+// Admin emergency endpoint: forced cleanup of stuck ads with custom threshold.
+router.post('/:projectId/ads/cleanup-stuck', async (req, res) => {
+  const olderThanMinutes = Number(req.body?.olderThanMinutes ?? STUCK_ADS_THRESHOLD_MIN);
+  if (!Number.isFinite(olderThanMinutes) || olderThanMinutes <= 0) {
+    return res.status(400).json({ error: 'olderThanMinutes must be a positive number' });
+  }
+  try {
+    const result = await markStaleAdsAsFailed(req.params.projectId, { olderThanMinutes });
+    res.json({ success: true, repaired: result.repaired });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
 });
 
 // Get in-progress ads for queue restoration

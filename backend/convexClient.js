@@ -452,6 +452,39 @@ export async function getAdsByBatchId(batchId) {
   return ads.map(a => convexAdToRow(a));
 }
 
+// Mark ads stuck in generating_* status (older than threshold) as failed.
+// Implemented via the existing adCreatives.update mutation (status field is whitelisted).
+// Idempotent (status precondition checked before update); bounded by maxRepairs.
+export async function markStaleAdsAsFailed(projectId, opts = {}) {
+  const olderThanMinutes = opts.olderThanMinutes ?? 5;
+  const maxRepairs = opts.maxRepairs ?? 100;
+  const cutoff = Date.now() - olderThanMinutes * 60 * 1000;
+
+  const candidates = ensureArray(
+    await queryWithRetry(api.adCreatives.getByProject, { projectId }),
+    'convexClient.markStaleAdsAsFailed.getByProject'
+  );
+
+  let repaired = 0;
+  for (const ad of candidates) {
+    if (repaired >= maxRepairs) break;
+    // Status precondition: only act on ads still in generating state.
+    if (ad.status !== 'generating_copy' && ad.status !== 'generating_image') continue;
+    const ts = new Date(ad.created_at).getTime();
+    if (!Number.isFinite(ts) || ts > cutoff) continue;
+    try {
+      await convexClient.mutation(api.adCreatives.update, {
+        externalId: ad.externalId,
+        status: 'failed',
+      });
+      repaired += 1;
+    } catch (err) {
+      console.warn(`[markStaleAdsAsFailed] failed to update ad ${ad.externalId}: ${err.message}`);
+    }
+  }
+  return { repaired };
+}
+
 function convexAdToRow(a) {
   return {
     id: a.externalId,
@@ -754,6 +787,14 @@ export async function getDailyCostHistory(days = 30, projectId = null) {
 
   return await cachedQuery('api_costs', api.apiCosts.getDailyHistory, {
     startDate: startStr,
+    projectId: projectId || undefined,
+  });
+}
+
+export async function getDailyCostHistoryRange(startDate, endDate, projectId = null) {
+  return await cachedQuery('api_costs', api.apiCosts.getDailyHistory, {
+    startDate,
+    endDate,
     projectId: projectId || undefined,
   });
 }
