@@ -143,7 +143,12 @@ export async function createProject({ id, name, brand_name, niche, product_descr
 }
 
 export async function getProject(id) {
-  const project = await cachedQuery('projects', api.projects.getByExternalId, { externalId: id });
+  // No caching here. On Vercel, function invocations may run on different
+  // containers; an in-memory `cachedQuery` invalidation in container A doesn't
+  // reach container B's cache. That made post-mutation reads inconsistently
+  // stale (e.g., delete product image → next GET sometimes returned the old
+  // value). Convex queries are fast enough that always fetching fresh is fine.
+  const project = await queryWithRetry(api.projects.getByExternalId, { externalId: id });
   if (!project) return null;
   return convexProjectToRow(project);
 }

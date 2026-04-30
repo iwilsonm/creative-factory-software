@@ -1,5 +1,25 @@
 # Creative Factory — Changelog
 
+## 2026-04-30 — Fix product-image Remove still required refresh (per-container cache on Vercel)
+
+**Bug**
+- After commit `0750dc5` invalidated the `projects` query cache on `setProjectProductImage`, Marco STILL had to refresh the page after pressing Remove to see the image disappear.
+
+**Cause**
+- The `cachedQuery` machinery in `backend/convexClient.js` stores results in an in-memory `Map` (per Node process). Vercel serverless functions can be served by different containers across invocations — a DELETE that runs on container A and invalidates A's local cache doesn't reach B's. The subsequent GET sometimes lands on a different container with stale cache and returns the pre-delete project. In-memory caches simply don't work as cross-request state on Vercel.
+
+**Fix**
+- `backend/convexClient.js` — `getProject` no longer uses `cachedQuery`. Calls `queryWithRetry(api.projects.getByExternalId, ...)` directly. Every GET fetches fresh from Convex. Performance hit is one fast Convex roundtrip per request — negligible, and it's only called once per HTTP handler.
+- The Convex strong-consistency guarantee (a query after a mutation must see the mutation's effect) now applies cleanly to project reads.
+
+**Antipattern note for future devs**
+- In-memory caches on serverless platforms (Vercel, AWS Lambda) are per-container and provide no cross-request consistency. Use them only for within-request memoization, OR move to a shared cache (Redis), OR drop them entirely. Trying to "invalidate" them is unreliable when state needs to be visible across requests.
+
+**Files modified**
+- `backend/convexClient.js`
+
+---
+
 ## 2026-04-30 — Random Template falls back to uploaded templates + save-as-default uses a real toggle
 
 **Bug 1 — Random Template threw "No inspiration images cached"**
