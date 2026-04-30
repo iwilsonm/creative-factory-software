@@ -1,5 +1,32 @@
 # Creative Factory — Changelog
 
+## 2026-04-30 — Fix bulk action bar centering bug + aesthetic redesign
+
+**Bug**
+- Marco: "It should be floating. It should be sticking with my scroll. Right now it just hangs out in the bottom. You don't know where it is when you select images."
+- Cause: the bar at `AdStudio.jsx:3422` used `fixed bottom-6 left-1/2 -translate-x-1/2 z-50 fade-in` for centering. The `.fade-in` keyframe ends at `transform: none` (forwards fill), which **overrode the static `translateX(-50%)`** after the 0.4s entrance animation. The bar's left edge sat at viewport `left: 50%`, pushing the bar into the right half of the screen — often partially or fully off-screen. Marco saw the bar pop in centered, then "disappear."
+
+**Fix — centering**
+- Switched the wrapper from `left-1/2 -translate-x-1/2` to `inset-x-0 mx-auto w-fit`. Margin-based centering doesn't conflict with `transform: none`. Inline comment on the wrapper warns future devs not to revert to the transform-based pattern.
+
+**Aesthetic redesign**
+- Marco: "The spacing in that is a little awkward. Can you please redesign that to be a little bit more aesthetic for desktop?"
+- Pill shape (`rounded-full`) instead of `rounded-2xl` rectangle.
+- Gold count badge (e.g. `5`) + concise "selected" label, replacing verbose "5 ads selected".
+- Tighter button spacing (`gap-1.5`), smaller padding (`pl-2 pr-2 py-1.5`), `text-[12px]`.
+- Stronger elevation: `shadow-2xl shadow-navy/30` with navy tint.
+- `backdrop-blur-md` for crisper glass effect.
+- Close button restyled as a subtle circular icon button.
+- Verbose labels trimmed: "Send to Ad Pipeline" → "Send to Pipeline", "Download Zip" → "Download".
+
+**Antipattern note**
+- Don't combine `transform`-based centering (e.g. `-translate-x-1/2`) with an animation whose end state is `transform: none`. The keyframe overrides the static transform via `forwards` fill. Use margin-based centering (`inset-x-0 mx-auto`) on animated elements.
+
+**Files modified**
+- `frontend/src/components/AdStudio.jsx`
+
+---
+
 ## 2026-04-30 — Fix ad-detail modal layout (Edit Image overflow) + surface silent product-image fetch failures
 
 **Bug A — modal layout**

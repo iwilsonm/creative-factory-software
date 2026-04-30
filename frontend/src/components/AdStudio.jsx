@@ -3419,7 +3419,11 @@ export default function AdStudio({ projectId, project }) {
       {/* (Queue is now inline above the Ad Gallery) */}
       {/* Floating bulk action bar */}
       {selectedCount > 0 && (
-        <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 fade-in">
+        // Centering: use `inset-x-0 mx-auto w-fit` (margin-based) instead of
+        // `left-1/2 -translate-x-1/2`. The `fade-in` keyframe ends on
+        // `transform: none` (forwards fill), which would override translateX(-50%)
+        // and shift the bar off-center after the 0.4s entrance animation.
+        <div className="fixed bottom-6 inset-x-0 mx-auto w-fit z-50 fade-in">
           {/* Bulk tag popover — floats above the action bar */}
           {bulkTagOpen && (() => {
             // Compute union of tags across all selected ads with counts
@@ -3497,17 +3501,23 @@ export default function AdStudio({ projectId, project }) {
             );
           })()}
 
-          <div className="flex items-center gap-3 px-5 py-3 bg-navy/95 backdrop-blur-sm rounded-2xl shadow-lg border border-white/10">
-            <span className="text-[13px] text-white font-medium">
-              {selectedCount} ad{selectedCount !== 1 ? 's' : ''} selected
-            </span>
+          <div className="flex items-center gap-1.5 pl-2 pr-2 py-1.5 bg-navy/95 backdrop-blur-md rounded-full shadow-2xl shadow-navy/30 border border-white/10">
+            {/* Count badge + label */}
+            <div className="flex items-center gap-2 pl-2 pr-1">
+              <span className="inline-flex items-center justify-center min-w-[24px] h-6 px-1.5 rounded-full bg-gold/20 text-gold-light text-[11px] font-bold">
+                {selectedCount}
+              </span>
+              <span className="text-[12px] text-white/90 font-medium">
+                selected
+              </span>
+            </div>
 
-            <div className="w-px h-5 bg-white/20" />
+            <div className="w-px h-5 bg-white/15" />
 
             <button
               onClick={handleDeploy}
               disabled={isDeploying}
-              className="flex items-center gap-1.5 px-4 py-1.5 bg-teal hover:bg-teal/90 disabled:bg-teal/60 text-white text-[13px] font-medium rounded-xl transition-colors"
+              className="flex items-center gap-1.5 px-3.5 py-1.5 bg-teal hover:bg-teal/90 disabled:bg-teal/60 text-white text-[12px] font-medium rounded-full transition-colors"
             >
               {isDeploying ? (
                 <>
@@ -3519,14 +3529,14 @@ export default function AdStudio({ projectId, project }) {
                   <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.59 14.37a6 6 0 01-5.84 7.38v-4.8m5.84-2.58a14.98 14.98 0 006.16-12.12A14.98 14.98 0 009.631 8.41m5.96 5.96a14.926 14.926 0 01-5.841 2.58m-.119-8.54a6 6 0 00-7.381 5.84h4.8m2.58-5.84a14.927 14.927 0 00-2.58 5.84m2.699 2.7c-.103.021-.207.041-.311.06a15.09 15.09 0 01-2.448-2.448 14.9 14.9 0 01.06-.312m-2.24 2.39a4.493 4.493 0 00-1.757 4.306 4.493 4.493 0 004.306-1.758M16.5 9a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0z" />
                   </svg>
-                  Send to Ad Pipeline
+                  Send to Pipeline
                 </>
               )}
             </button>
 
             <button
               onClick={() => { if (bulkTagOpen) { clearSelection(); } else { setBulkTagOpen(true); setBulkTagInput(''); } }}
-              className={`flex items-center gap-1.5 px-4 py-1.5 text-white text-[13px] font-medium rounded-xl transition-colors ${bulkTagOpen ? 'bg-violet-600 hover:bg-violet-700' : 'bg-violet-500 hover:bg-violet-600'}`}
+              className={`flex items-center gap-1.5 px-3.5 py-1.5 text-white text-[12px] font-medium rounded-full transition-colors ${bulkTagOpen ? 'bg-violet-600 hover:bg-violet-700' : 'bg-violet-500 hover:bg-violet-600'}`}
             >
               <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M7 7h.01M7 3h5c.512 0 1.024.195 1.414.586l7 7a2 2 0 010 2.828l-7 7a2 2 0 01-2.828 0l-7-7A1.994 1.994 0 013 12V7a4 4 0 014-4z" />
@@ -3537,7 +3547,7 @@ export default function AdStudio({ projectId, project }) {
             <button
               onClick={handleBulkDownload}
               disabled={isBulkDownloading}
-              className="flex items-center gap-1.5 px-4 py-1.5 bg-navy hover:bg-navy-light disabled:bg-navy/60 text-white text-[13px] font-medium rounded-xl transition-colors"
+              className="flex items-center gap-1.5 px-3.5 py-1.5 bg-navy-light hover:bg-navy-mid disabled:bg-navy-light/60 text-white text-[12px] font-medium rounded-full transition-colors"
             >
               {isBulkDownloading ? (
                 <>
@@ -3549,7 +3559,7 @@ export default function AdStudio({ projectId, project }) {
                   <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
                   </svg>
-                  Download Zip
+                  Download
                 </>
               )}
             </button>
@@ -3557,7 +3567,7 @@ export default function AdStudio({ projectId, project }) {
             <button
               onClick={handleBulkDelete}
               disabled={isBulkDeleting}
-              className="flex items-center gap-1.5 px-4 py-1.5 bg-red-500 hover:bg-red-600 disabled:bg-red-400 text-white text-[13px] font-medium rounded-xl transition-colors"
+              className="flex items-center gap-1.5 px-3.5 py-1.5 bg-red-500 hover:bg-red-600 disabled:bg-red-400 text-white text-[12px] font-medium rounded-full transition-colors"
             >
               {isBulkDeleting ? (
                 <>
@@ -3574,9 +3584,11 @@ export default function AdStudio({ projectId, project }) {
               )}
             </button>
 
+            <div className="w-px h-5 bg-white/15" />
+
             <button
               onClick={clearSelection}
-              className="text-white/60 hover:text-white/90 transition-colors"
+              className="w-7 h-7 rounded-full bg-white/5 hover:bg-white/15 text-white/70 hover:text-white flex items-center justify-center transition-colors"
               title="Clear selection"
             >
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
