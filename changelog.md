@@ -1,5 +1,25 @@
 # Creative Factory — Changelog
 
+## 2026-04-30 — Fix tab info-tooltips rendering underneath the page body
+
+**Bug**
+- Marco: "When I put my cursor over the Ad Studio tab, there's an info button. That info button then gives text that explains what that tab is for, but right now that text is translucent and it's underneath the generate ad section, so it's kind of hard to read. That's the same for the info graphic with the ad pipeline and also the project settings."
+
+**Cause**
+- `.page-tabs` (the Ad Studio / Ad Pipeline / Project Settings segmented control) has `backdrop-filter: blur(10px)`, which creates a stacking context per CSS spec. The InfoTooltip's `z-index: 50` only applies WITHIN that stacking context. `.page-tabs` itself sat at `z-index: auto` — so when downstream `.card` elements (Generate Ad form, also a stacking context via `backdrop-blur-2xl`) appeared LATER in the DOM, they painted ON TOP of the entire tabs container, including the tooltip text. Marco saw the tooltip text bleed-through against the Generate Ad form.
+
+**Fix**
+- `frontend/src/index.css` — added `position: relative; z-index: 30;` to `.page-tabs`. The whole tabs container now sits above downstream page content (under `.glass-nav` at z-40). Tooltip text renders cleanly on top.
+- Inline comment locks in the lesson for future devs.
+
+**Antipattern note**
+- When an element has `backdrop-filter` (or `transform`, `filter`, `will-change`, `position: sticky`), it creates a stacking context. Descendant `z-index` values are scoped to that context. To "win" against later sibling stacking contexts, the ancestor itself needs an explicit `z-index`.
+
+**Files modified**
+- `frontend/src/index.css`
+
+---
+
 ## 2026-04-30 — Settings clarity + Perplexity removal + project pinning + save-as-default product image
 
 **Marco's batch of 4 asks**

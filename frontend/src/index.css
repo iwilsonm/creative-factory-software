@@ -179,10 +179,16 @@
      Used at the top of ProjectDetail (Ad Studio / Ad Pipeline / Project Settings).
      Designed for 3–4 equal-width tabs; `flex-1` splits the row evenly. */
   .page-tabs {
-    @apply flex w-full rounded-xl p-1 gap-1;
+    @apply flex w-full rounded-xl p-1 gap-1 relative;
     background: rgba(255, 255, 255, 0.4);
     backdrop-filter: blur(10px);
     border: 1px solid rgba(255, 255, 255, 0.5);
+    /* `backdrop-filter` creates a stacking context; without an explicit z-index,
+       the tabs (and their descendant tooltips) sit at z-index: auto and get
+       painted UNDER downstream `.card` elements (which also create stacking
+       contexts via their own backdrop-blur). Lifting to z-30 ensures the tabs
+       and tooltip text render above the page body. Stays under .glass-nav (z-40). */
+    z-index: 30;
   }
   .page-tabs button,
   .page-tabs a {
