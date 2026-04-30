@@ -1,8 +1,12 @@
 import { v4 as uuidv4 } from 'uuid';
 import { chat, chatWithImage, chatWithImages } from './openai.js';
-import { chat as claudeChat, chatWithImage as claudeChatWithImage } from './anthropic.js';
 import { generateImage as geminiGenerateImage } from './gemini.js';
 import { generateImage as openaiGenerateImage } from './openai.js';
+
+// Batch-pipeline LLM model selection (per-call-type, chosen for capability).
+// Migrated off Anthropic 2026-04-30 — see changelog for rationale.
+const BATCH_TEXT_MODEL = 'gpt-5.2';     // copy generation: brief extraction, headlines, body copy, repair, image-prompt-text
+const BATCH_VISION_MODEL = 'gpt-4.1';   // image-prompt-with-vision: 4.1 has reliable vision regardless of OpenAI tier
 
 // Whitelist of allowed image-model strings + which provider handles each.
 // Prevents devtools-injected arbitrary strings from reaching the API.
@@ -1029,7 +1033,7 @@ ${beliefsContent}`;
   for (let attempt = 1; attempt <= 2; attempt++) {
     try {
       const briefPacket = await withHeavyLLMLimit(async () => {
-        return await claudeChat([{ role: 'user', content: prompt }], 'claude-sonnet-4-6', {
+        return await chat([{ role: 'user', content: prompt }], BATCH_TEXT_MODEL, {
           operation: 'batch_brief_extraction',
           projectId: project?.id || null,
         });
@@ -1205,14 +1209,14 @@ Return ONLY valid JSON:
   for (let attempt = 1; attempt <= 3; attempt++) {
     try {
       const response = await withHeavyLLMLimit(async () => {
-        return await claudeChat(
+        return await chat(
           [{
             role: 'user',
             content: attempt > 1
               ? prompt + `\n\nIMPORTANT: Your previous attempt did not succeed. Generate exactly ${count} headlines, use only the allowed lanes, and return valid JSON.`
               : prompt
           }],
-          'claude-sonnet-4-6',
+          BATCH_TEXT_MODEL,
           {
             response_format: { type: 'json_object' },
             operation: 'batch_headline_generation',
@@ -1311,22 +1315,25 @@ Return ONLY valid JSON:
   }
 
   // Build a self-diagnosing error: most actionable info first (so 50-char inline truncation still surfaces it).
-  // Fields below use defensive existence checks — Anthropic SDK shape may vary.
+  // Fields below use defensive existence checks — both Anthropic and OpenAI SDK shapes are handled.
   const status = lastError?.status ?? lastError?.statusCode ?? null;
   const errorType = lastError?.error?.type ?? lastError?.type ?? null;
+  const errorCode = lastError?.error?.code ?? lastError?.code ?? null;
   const baseMessage = lastError?.message ?? 'unknown error';
 
   let leadingDiagnostic;
-  if (status === 401 || errorType === 'authentication_error') {
-    leadingDiagnostic = 'Anthropic auth error (401)';
-  } else if (status === 429 || errorType === 'rate_limit_error') {
-    leadingDiagnostic = 'Anthropic rate-limited (429)';
+  if (status === 401 || errorType === 'authentication_error' || errorCode === 'invalid_api_key') {
+    leadingDiagnostic = 'LLM auth error (401)';
+  } else if (status === 429 || errorType === 'rate_limit_error' || errorCode === 'rate_limit_exceeded') {
+    leadingDiagnostic = 'LLM rate-limited (429)';
   } else if (status === 404 || errorType === 'not_found_error') {
-    leadingDiagnostic = 'Anthropic model not found (404)';
+    leadingDiagnostic = 'LLM model not found (404)';
+  } else if (errorCode === 'content_policy_violation' || errorCode === 'content_filter') {
+    leadingDiagnostic = 'OpenAI content policy rejected the prompt — try rephrasing';
   } else if (typeof status === 'number' && status >= 500) {
-    leadingDiagnostic = `Anthropic server error (${status})`;
+    leadingDiagnostic = `LLM server error (${status})`;
   } else if (errorType) {
-    leadingDiagnostic = `Anthropic ${errorType}`;
+    leadingDiagnostic = `LLM ${errorType}`;
   } else {
     leadingDiagnostic = 'Headline generation failed';
   }
@@ -1468,9 +1475,9 @@ OUTPUT FORMAT — respond as JSON only:
     for (let attempt = 1; attempt <= 2 && !batchSuccess; attempt++) {
       try {
         const response = await withHeavyLLMLimit(async () => {
-          return await claudeChat(
+          return await chat(
             [{ role: 'user', content: prompt }],
-            'claude-sonnet-4-6',
+            BATCH_TEXT_MODEL,
             {
               response_format: { type: 'json_object' },
               operation: 'batch_body_copy',
@@ -1556,9 +1563,9 @@ Return JSON only:
 
           try {
             const repairResponse = await withHeavyLLMLimit(async () => {
-              return await claudeChat(
+              return await chat(
                 [{ role: 'user', content: repairPrompt }],
-                'claude-sonnet-4-6',
+                BATCH_TEXT_MODEL,
                 {
                   response_format: { type: 'json_object' },
                   operation: 'batch_body_copy_repair',
@@ -1741,18 +1748,18 @@ Output the image generation prompt as a single text block ready to paste into th
   const imagePrompt = await withHeavyLLMLimit(async () => {
     if (imageData) {
       const imageBase64 = readImageBase64(imageData);
-      return await claudeChatWithImage(
+      return await chatWithImage(
         [],
         promptText,
         imageBase64,
         imageData.mimeType,
-        'claude-sonnet-4-6',
+        BATCH_VISION_MODEL,
         { operation: 'batch_image_prompt', projectId: project?.id || null }
       );
     }
-    return await claudeChat(
+    return await chat(
       [{ role: 'user', content: promptText }],
-      'claude-sonnet-4-6',
+      BATCH_TEXT_MODEL,
       { operation: 'batch_image_prompt', projectId: project?.id || null }
     );
   }, `[Stage 3 Image Prompt]`);
@@ -1836,18 +1843,18 @@ Each prompt should be a complete, standalone image generation prompt.`;
   const result = await withHeavyLLMLimit(async () => {
     if (imageData) {
       const imageBase64 = readImageBase64(imageData);
-      return await claudeChatWithImage(
+      return await chatWithImage(
         [],
         promptText,
         imageBase64,
         imageData.mimeType,
-        'claude-sonnet-4-6',
+        BATCH_VISION_MODEL,
         { operation: 'batch_image_prompt', projectId: project?.id || null }
       );
     }
-    return await claudeChat(
+    return await chat(
       [{ role: 'user', content: promptText }],
-      'claude-sonnet-4-6',
+      BATCH_TEXT_MODEL,
       { operation: 'batch_image_prompt', projectId: project?.id || null }
     );
   }, `[Stage 3 Image Prompt Batch x${ads.length}]`);
@@ -1935,9 +1942,9 @@ Return JSON only:
 }`;
 
   const response = await withHeavyLLMLimit(async () => {
-    return await claudeChat(
+    return await chat(
       [{ role: 'user', content: prompt }],
-      'claude-sonnet-4-6',
+      BATCH_TEXT_MODEL,
       {
         response_format: { type: 'json_object' },
         operation: 'batch_body_copy_repair',

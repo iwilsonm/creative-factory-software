@@ -98,6 +98,7 @@ function isModelNotFoundError(err) {
 
 const OPENAI_FALLBACK_CHAIN = {
   'gpt-5.4': 'gpt-5.2',     // PEF plan 2026-04-21 — graceful fallback if 5.4 not yet available
+  'gpt-5.2': 'gpt-4.1',     // PEF plan 2026-04-30 — fallback if account tier doesn't include 5.2 (used by batch pipeline)
 };
 
 /**

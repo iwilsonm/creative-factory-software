@@ -1,5 +1,33 @@
 # Creative Factory — Changelog
 
+## 2026-04-30 — Refactor batch pipeline off Anthropic onto OpenAI (no Anthropic key required for batches)
+
+**Diagnostic findings**
+- User Marco reported "I tried a batch job and it failed at headline generation." Direct Convex query confirmed the Anthropic API key was NULL in the settings table while OpenAI was set, and zero `batch_headline_generation` / `batch_brief_extraction` cost rows existed for that day. Root cause: Stage 1 calls Claude, but no Anthropic key was configured.
+- The single-ad flow (Ad Studio "Generate Ad") already used GPT-5.2 + Gemini with no Anthropic dependency. The batch pipeline used Claude for all 4 copy stages (brief extraction, headlines, body copy, image prompts) plus OCR — a model-preference choice baked into the code, not an architectural requirement.
+
+**What changed**
+- `backend/services/adGenerator.js` — defined `BATCH_TEXT_MODEL = 'gpt-5.2'` and `BATCH_VISION_MODEL = 'gpt-4.1'` constants. Migrated 9 Claude call sites to OpenAI: Stage 0 brief extraction, Stage 1 headlines (with `response_format: { type: 'json_object' }`), Stage 2 body copy + repair, Stage 3 image prompts (with vision via `chatWithImage` + non-vision via `chat`), repair fallback. Dropped the Anthropic imports. Generalized the `lastError → leadingDiagnostic` mapping (originally added in commit `617eada`) to handle BOTH Anthropic and OpenAI error shapes — uses `err.error?.code` / `err.code` in addition to `err.error?.type`. Labels switched from "Anthropic xxx" to "LLM xxx" since the same diagnostic now serves both providers. Added explicit OpenAI content-policy violation case ("Prompt was rejected by OpenAI content policy — try rephrasing.").
+- `backend/services/batchProcessor.js` — defined `BATCH_OCR_MODEL = 'gpt-4.1-mini'` and migrated the OCR text-extraction call (was Claude Haiku). Updated stored `text_model` label on ad_creatives from `'claude-sonnet-4-6'` to `'gpt-5.2'`. Swapped the pre-flight key check from Anthropic to OpenAI: error message now reads `[Stage 1] OpenAI API key not configured. Set it in Settings → API Keys.` Removed the `claudeChatWithImage` import (replaced with `chatWithImage` from openai.js).
+- `backend/services/openai.js` — extended `OPENAI_FALLBACK_CHAIN` with `'gpt-5.2': 'gpt-4.1'`. If Marco's OpenAI tier doesn't grant 5.2, the existing fallback machinery at line 127 engages and uses GPT-4.1 instead.
+
+**Why**
+- Marco's primary use case (batch ad generation) shouldn't require him to manage three LLM providers when only OpenAI + Gemini are needed structurally. Eliminating the Anthropic dependency for batches removes a setup hurdle and makes the failure mode easier to debug (only 2 keys can be missing; not 3).
+- The pre-flight error from commit `617eada` would have caught his original failure cleanly ("[Stage 1] Anthropic API key not configured"), but the better fix is to remove the dependency entirely.
+
+**Cost note**
+- Cost-per-batch may shift after this change (GPT-5.2 vs Claude Sonnet pricing varies by stage and token volume). Monitor for the first week. If costs jump materially or quality drops, the migration is a clean single-PR `git revert` away.
+
+**Anthropic still required for non-batch features**
+- LP generator (`lpGenerator.js`), copywriter chat, conductor learning (`conductorLearning.js`), quote miner, creative filter (`creativeFilterService.js`), foundational doc generator (`docGenerator.js`) all still call Claude. Marco needs to keep the Anthropic key set if he uses any of those features. Only the batch pipeline is migrated by this PR.
+
+**Out of scope (explicit)**
+- Prompt tuning for GPT-5.2. v1 keeps prompts byte-identical to the Claude versions. If quality drops materially in production, separate PR for tuning.
+- Hybrid mode (use Claude when Anthropic key set, fall back to OpenAI otherwise). Defer; revisit only if needed.
+- Removing Anthropic from the codebase entirely. Out of scope.
+
+**Dashboard banner for missing keys** — separate follow-up PR after this lands and Marco's batch is verified working. Will surface missing OpenAI/Gemini keys at app load.
+
 ## 2026-04-30 — Fix stuck `generating_copy` / `generating_image` ads (zombie ad-creatives)
 
 **Diagnostic findings**

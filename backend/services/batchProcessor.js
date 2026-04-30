@@ -28,7 +28,10 @@ import {
   normalizeHeadlineText,
   selectDiverseHeadlines,
 } from './headlineDiversity.js';
-import { chatWithImage as claudeChatWithImage } from './anthropic.js';
+import { chatWithImage } from './openai.js';
+
+// Batch OCR model — simple text extraction from a generated image. Cheap and vision-capable.
+const BATCH_OCR_MODEL = 'gpt-4.1-mini';
 
 // Drive upload skipped for batch images — Service Account has no storage quota.
 // Images are stored in Convex storage and viewable in the UI.
@@ -51,12 +54,12 @@ async function extractRenderedCopy(imageBuffer, mimeType, projectId) {
 If no headline is visible, set headline to null. If no body copy is visible, set body_copy to null.
 Return ONLY the JSON object, nothing else.`;
 
-  const response = await claudeChatWithImage(
+  const response = await chatWithImage(
     [],
     prompt,
     base64Image,
     mimeType,
-    'claude-haiku-4-5-20251001',
+    BATCH_OCR_MODEL,
     { operation: 'batch_ocr_extraction', projectId }
   );
 
@@ -154,14 +157,14 @@ export async function runBatch(batchId, onProgress, options = {}) {
     throw new Error('Project not found');
   }
 
-  // Pre-flight: Anthropic API key must be configured (Stage 1 headline generation depends on it)
-  const anthropicKey = await getSetting('anthropic_api_key');
-  if (!anthropicKey || !anthropicKey.trim()) {
-    const msg = '[Stage 1] Anthropic API key not configured. Set it in Settings → API Keys.';
+  // Pre-flight: OpenAI API key must be configured (Stage 1 headline generation depends on it)
+  const openaiKey = await getSetting('openai_api_key');
+  if (!openaiKey || !openaiKey.trim()) {
+    const msg = '[Stage 1] OpenAI API key not configured. Set it in Settings → API Keys.';
     await updateBatchJob(batchId, { status: 'failed', error_message: msg });
     throw new Error(msg);
   }
-  console.info(`[BatchProcessor] Pre-flight: Anthropic API key present (length=${anthropicKey.length})`);
+  console.info(`[BatchProcessor] Pre-flight: OpenAI API key present (length=${openaiKey.length})`);
 
   // Load foundational docs in parallel
   const [research, avatar, offer_brief, necessary_beliefs] = await Promise.all([
@@ -950,7 +953,7 @@ async function processBatchResults(batchId, job) {
           ? promptObj.visual_reference_id
           : undefined) || undefined,
         batch_job_id: batchId,
-        text_model: 'claude-sonnet-4-6',
+        text_model: 'gpt-5.2',
         image_model: 'gemini-3-pro',
       });
 
