@@ -102,7 +102,7 @@ export default function Projects() {
                 <Link
                   key={project.id}
                   to={`/projects/${project.id}`}
-                  className="card p-5 transition-all duration-300 hover:-translate-y-0.5 group border-l-2"
+                  className="card p-5 transition-all duration-300 group border-l-2"
                   style={{ borderLeftColor: borderColor }}
                 >
                   <div className="flex items-start justify-between mb-3">

@@ -274,7 +274,7 @@ export default function TemplateImages({ projectId }) {
             {templates.map(tmpl => (
               <div
                 key={tmpl.id}
-                className="group card overflow-hidden transition-all duration-300 hover:-translate-y-0.5"
+                className="group card overflow-hidden transition-all duration-300"
               >
                 <div
                   className="aspect-square bg-gray-50 cursor-pointer"

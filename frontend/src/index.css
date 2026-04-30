@@ -55,7 +55,13 @@
 
   /* Frosted Glassmorphism Card */
   .card {
-    @apply bg-white/60 backdrop-blur-2xl rounded-2xl transition-all duration-300;
+    @apply bg-white/60 backdrop-blur-2xl rounded-2xl;
+    /* Specific properties only — never `transition: all` here. A `:hover` lift via
+       transform: translateY would create a flicker loop during scroll: the lift
+       moves the card out from under the stationary cursor, hover ends, lift
+       removed, cursor over card again, hover restarts. */
+    transition: box-shadow 300ms cubic-bezier(0.16, 1, 0.3, 1),
+                background-color 300ms cubic-bezier(0.16, 1, 0.3, 1);
     /* Frost Edge / Glass rim lighting */
     border: 1px solid rgba(255, 255, 255, 0.6);
     border-top: 1px solid rgba(255, 255, 255, 0.9);
@@ -64,7 +70,6 @@
   }
   .card:hover {
     box-shadow: 0 12px 48px rgba(11, 29, 58, 0.06);
-    transform: translateY(-2px);
     @apply bg-white/70;
   }
 

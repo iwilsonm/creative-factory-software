@@ -2667,7 +2667,7 @@ export default function AdStudio({ projectId, project }) {
             {visibleAds.map(ad => (
               <div
                 key={ad.id}
-                className={`group card overflow-hidden transition-all duration-300 hover:-translate-y-0.5 ${
+                className={`group card overflow-hidden transition-all duration-300 ${
                   selectedAdIds.has(ad.id) ? 'ring-2 ring-navy ring-offset-1' : ''
                 }`}
               >

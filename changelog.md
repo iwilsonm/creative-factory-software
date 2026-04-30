@@ -1,5 +1,31 @@
 # Creative Factory — Changelog
 
+## 2026-04-30 — Fix dark "flash on scroll" caused by `:hover { translateY }` antipattern on cards
+
+**Bug**
+- Marco reported that scrolling down past the Generate Ad button toward the Ad Gallery caused a dark flash, repeatedly, in the area "right underneath the Generate Ad button" — a 600ms-cycle pulse of dark navy shadow on whatever card was crossing the cursor's screen Y position during scroll.
+
+**Root cause**
+- `.card:hover` defined `transform: translateY(-2px)` PLUS a heavier shadow + `bg-white/70`, all transitioned via `transition-all duration-300`. When the cursor was stationary and the page scrolled, every card whose top edge crossed the cursor's Y position would: (1) trigger `:hover`, (2) lift up by 2px (moving the card edge above the cursor), (3) end `:hover` (cursor no longer on it), (4) drop back to neutral position (cursor over it again), (5) restart at step 1. Visible 300ms transitions made it a slow, obvious dark/light pulse. The "dark" is the heavier navy shadow appearing on each cycle.
+- Same antipattern existed at three Tailwind callsites: `hover:-translate-y-0.5` on the gallery grid cards in `AdStudio.jsx`, the template grid cards in `TemplateImages.jsx`, and the project list cards in `Projects.jsx` — all of which would flicker as the user scrolled past them.
+
+**Fix (single commit, ~10 lines across 4 files)**
+- `frontend/src/index.css` — removed `transform: translateY(-2px)` from `.card:hover`. Kept the heavier shadow + brighter background so cards still respond to mouse hover. Tightened `.card`'s transition from `transition-all` to specific properties (`box-shadow, background-color`) so any future Tailwind transform class on a `.card` won't reintroduce the flicker. Added inline comment explaining the antipattern.
+- `frontend/src/components/AdStudio.jsx`, `frontend/src/components/TemplateImages.jsx`, `frontend/src/pages/Projects.jsx` — removed `hover:-translate-y-0.5` from the three card grid call sites.
+
+**Carve-outs (intentionally unchanged)**
+- `.btn-primary:hover { transform: translateY(-2px) scale(1.02) }` — buttons are smaller targets and clicked-not-scrolled-past, so the flicker risk is much lower. Left as-is. If a button-flicker is reported later, the follow-up will switch to scale-only.
+- `group-hover:scale-[1.02]` on `<img>` elements inside cards — the image is a child of an `overflow-hidden` card; the image scales WITHIN a fixed frame, so the card outer geometry doesn't move. No flicker risk. Provides per-card hover delight without touching the card's hit area.
+- Other `transition-all` callsites across the codebase — out of scope for this hotfix; CLAUDE.md guardrail covers them as a future migration.
+
+**Pre-flight verification**
+- `grep -rEn "hover:.?-?translate-y|translateY\(-?[0-9]" frontend/src/` confirmed only the four sites above. After fix, the same grep on `frontend/src/components/` and `frontend/src/pages/` returns zero `hover:-translate-y` matches. Remaining `translateY` references in `index.css` are: `.btn-primary` (intentional carve-out), `@keyframes fadeIn`/`slideUp` (one-shot mount animations), and `.info-tooltip` positioning (not on hover-on-card surfaces).
+
+**Antipattern note for future devs**
+- DO NOT add `:hover { transform: translate(...) }` (or Tailwind `hover:-translate-*`) to elements that the user typically scrolls past, especially elements taller than ~50px. The translate moves the element out from under the cursor, ending hover, restarting the loop. Use shadow / background / border-color / opacity for hover affordance instead. If a lift is essential, scope it to `@media (hover: hover) and (pointer: fine)` AND add a meaningful `transition-delay` (~100ms) so quick crossings don't trigger.
+
+---
+
 ## 2026-04-30 — Fix `drive_folder_id` ArgumentValidationError on project save
 
 **Bug**
