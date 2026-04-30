@@ -116,6 +116,15 @@ const OPENAI_FALLBACK_CHAIN = {
 export async function chat(messages, model = 'gpt-4.1', options = {}) {
   const openai = await getClient();
   const { operation, projectId, onWarning, ...apiOptions } = options;
+
+  // Normalize legacy `max_tokens` → `max_completion_tokens`. Reasoning-class
+  // models (gpt-5.x, o1, o3) reject `max_tokens` with a 400; the new param
+  // works on every OpenAI chat-completion model. Same upper-bound semantics.
+  if (apiOptions.max_tokens != null && apiOptions.max_completion_tokens == null) {
+    apiOptions.max_completion_tokens = apiOptions.max_tokens;
+  }
+  delete apiOptions.max_tokens;
+
   let activeModel = model;
   try {
     const response = await withRetry(

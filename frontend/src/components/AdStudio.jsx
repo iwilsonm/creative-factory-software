@@ -548,10 +548,6 @@ export default function AdStudio({ projectId, project }) {
   // Generate / regenerate body copy from current headline + style
   const handleRegenerateBody = async (styleOverride) => {
     const useStyle = styleOverride || bodyCopyStyle;
-    if (!headline.trim() && !angle.trim()) {
-      toast.error('Enter an angle or a headline first.');
-      return;
-    }
     setGeneratingBody(true);
     try {
       const data = await api.generateAdBodyCopy(projectId, {
@@ -562,7 +558,7 @@ export default function AdStudio({ projectId, project }) {
       setBodyCopy(data.body_copy || '');
     } catch (err) {
       console.error('Failed to generate body copy:', err);
-      toast.error('Body copy generation failed');
+      toast.error(err?.message || 'Body copy generation failed');
     } finally {
       setGeneratingBody(false);
     }
@@ -2192,9 +2188,8 @@ export default function AdStudio({ projectId, project }) {
                     </label>
                     <button
                       onClick={() => handleRegenerateBody()}
-                      disabled={generatingBody || (!headline.trim() && !angle.trim())}
-                      title={(!headline.trim() && !angle.trim()) ? 'Enter an angle or headline first to generate body copy' : undefined}
-                      className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-gold hover:text-gold/80 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                      disabled={generatingBody}
+                      className="inline-flex items-center gap-1 text-[11px] font-semibold text-gold hover:text-gold/80 disabled:opacity-50 transition-colors"
                     >
                       {generatingBody ? (
                         <>
@@ -2204,9 +2199,9 @@ export default function AdStudio({ projectId, project }) {
                       ) : (
                         <>
                           <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182" />
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M9.813 15.904L9 18.75l-.813-2.846a4.5 4.5 0 00-3.09-3.09L2.25 12l2.846-.813a4.5 4.5 0 003.09-3.09L9 5.25l.813 2.846a4.5 4.5 0 003.09 3.09L15.75 12l-2.846.813a4.5 4.5 0 00-3.09 3.09zM18.259 8.715L18 9.75l-.259-1.035a3.375 3.375 0 00-2.455-2.456L14.25 6l1.036-.259a3.375 3.375 0 002.455-2.456L18 2.25l.259 1.035a3.375 3.375 0 002.455 2.456L21.75 6l-1.036.259a3.375 3.375 0 00-2.455 2.456z" />
                           </svg>
-                          {bodyCopy ? 'Regenerate' : 'Generate'}
+                          Generate
                         </>
                       )}
                     </button>

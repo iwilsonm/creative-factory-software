@@ -1,5 +1,38 @@
 # Creative Factory — Changelog
 
+## 2026-04-30 — Fix `max_tokens` 400 on GPT-5.2; body-copy Generate button matches sibling buttons exactly
+
+**Bug A — Headline + Angle Generate buttons returned 400 from OpenAI**
+- Marco saw: `400 Unsupported parameter: 'max_tokens' is not supported with this model. Use 'max_completion_tokens' instead.`
+- Cause: commit `0976d83` migrated angle + headline routes to `gpt-5.2` while keeping the legacy `max_tokens` parameter. Reasoning-class models (gpt-5.x, o1, o3) reject `max_tokens` and require `max_completion_tokens`. The wrapper at `backend/services/openai.js:chat()` was passing options through verbatim with no normalization.
+
+**Fix A — wrapper-level normalization (universal future-proofing)**
+- `backend/services/openai.js` — `chat()` now normalizes `max_tokens` → `max_completion_tokens` before spreading apiOptions into the API call. Same upper-bound semantics; works on every OpenAI chat-completion model. Existing callers (`routes/upload.js`, `routes/settings.js`, `routes/ads.js`) keep working without changes; future callers using gpt-5.x are auto-fixed.
+- Guard: `apiOptions.max_completion_tokens == null` check protects callers that already use the new param name.
+
+**Bug B — body-copy Generate button visually mismatched the sibling buttons**
+- The button used a refresh-arrow icon, `gap-1.5`, label-flipping (`Generate` / `Regenerate`), an input pre-condition gate (grayed out when no headline/angle), a `title` tooltip, and `disabled:cursor-not-allowed`. The angle/headline siblings use the sparkles icon, `gap-1`, static `Generate` label, and disable only while generating.
+
+**Fix B — match the sibling pattern exactly**
+- `frontend/src/components/AdStudio.jsx` — body-copy button now uses the sparkles icon, `gap-1`, `disabled={generatingBody}` only, no `title`, no extra cursor class, label always `Generate`. `handleRegenerateBody` drops the input pre-condition; backend handles the empty-input case via the project-context fallback.
+- `backend/routes/ads.js` — `generate-body-copy` route falls back to `project.product_description → project.brand_name → project.name` when both headline and angle are empty. Only 400s when there's truly no usable text on the project record.
+
+**Antipattern note for future devs**
+- For OpenAI calls, prefer `max_completion_tokens` over `max_tokens`. The wrapper in `backend/services/openai.js:chat()` normalizes either to the new param name, but new code should write `max_completion_tokens` directly for clarity.
+
+**Files modified**
+- `backend/services/openai.js`
+- `backend/routes/ads.js`
+- `frontend/src/components/AdStudio.jsx`
+
+**Out of scope**
+- Migrating other Anthropic-using endpoints. They legitimately use Claude.
+- Streaming the angle/headline/body-copy responses.
+- Removing `max_tokens` references everywhere in favor of `max_completion_tokens`. Wrapper handles it transparently; future PR can refactor.
+- `temperature` normalization for reasoning models (some restrict temperature). Not currently a problem.
+
+---
+
 ## 2026-04-30 — Auto-collapse the Pick Template grid after a template is selected
 
 **Request (Marco)**

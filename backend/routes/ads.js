@@ -249,24 +249,34 @@ router.post('/:projectId/generate-body-copy', async (req, res) => {
   try {
     const { headline, angle, style } = req.body;
 
-    // Body copy can be generated from headline OR from angle alone — at least one must exist.
+    const project = await getProject(req.params.projectId);
+    if (!project) return res.status(404).json({ error: 'Project not found' });
+
+    // Anchor priority: explicit headline → explicit angle → project product
+    // description → project brand name → project name. The Generate button is
+    // always clickable (matches angle/headline siblings), so the route must
+    // succeed for any project that has any usable text on its record.
     const headlineForCopy = (headline || '').trim();
     const angleForCopy = (angle || '').trim();
-    if (!headlineForCopy && !angleForCopy) {
-      return res.status(400).json({ error: 'Provide a headline or an angle before generating body copy.' });
+    const anchor =
+      headlineForCopy ||
+      angleForCopy ||
+      (project.product_description || '').trim() ||
+      (project.brand_name || '').trim() ||
+      (project.name || '').trim();
+
+    if (!anchor) {
+      return res.status(400).json({ error: 'Add a project name or product description first.' });
     }
 
     // Synthesize a minimal quote object for bodyCopyGenerator's signature.
-    // When no headline is provided, use the angle as the channel for emotion + topic anchor.
-    const anchor = headlineForCopy || angleForCopy;
     const quote = {
       quote: anchor,
       emotion: 'persuasive',
       emotional_intensity: 'medium',
     };
 
-    const project = await getProject(req.params.projectId);
-    const targetDemographic = project?.niche || '';
+    const targetDemographic = project.niche || '';
     const problem = angleForCopy;
 
     const bodyCopy = await generateBodyCopy(anchor, quote, targetDemographic, problem, style || 'short');
