@@ -32,6 +32,23 @@ import {
   selectInspirationImage,
   selectTemplateImage,
 } from './adGenerator.js';
+import { copyStorageBlob } from '../utils/adImages.js';
+
+/**
+ * Copy the project's product image into a fresh storage blob owned by the new batch.
+ * Returns undefined if the project has no image OR the source blob is dead.
+ * Director-triggered batches use this so cleanup of an old batch doesn't wipe the
+ * project's product image (see routes/batches.js for the matching path).
+ */
+async function copyProjectProductImageForBatch(project) {
+  if (!project?.product_image_storageId) return undefined;
+  try {
+    return await copyStorageBlob(project.product_image_storageId);
+  } catch (err) {
+    console.warn(`[Conductor] Project product image storageId is dead, proceeding without: ${err.message}`);
+    return undefined;
+  }
+}
 
 /**
  * Check if a project's schedule matches the current time (ICT = UTC+7).
@@ -224,7 +241,7 @@ export async function runDirectorForProject(projectId, runType = 'manual') {
           batch_size: batchSize,
           angle: anglePrompt,  // Injected into the ad generator's "angle" field
           aspect_ratio: '1:1',
-          product_image_storageId: project.product_image_storageId || undefined,
+          product_image_storageId: await copyProjectProductImageForBatch(project),
           filter_assigned: true,
           posting_day: pd.date,
           conductor_run_id: runId,
@@ -1062,7 +1079,7 @@ async function createTestBatchRound({
     batch_size: batchSize,
     angle: anglePrompt,
     aspect_ratio: '1:1',
-    product_image_storageId: project.product_image_storageId || undefined,
+    product_image_storageId: await copyProjectProductImageForBatch(project),
     filter_assigned: true,
     posting_day: 'test',
     conductor_run_id: runId,

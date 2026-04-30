@@ -4,11 +4,24 @@
  * Extracted from routes/ads.js to keep route handlers thin.
  */
 
-import { downloadToBuffer, getAdImageUrl } from '../convexClient.js';
+import { downloadToBuffer, uploadBuffer, getAdImageUrl } from '../convexClient.js';
 import { withRetry } from '../services/retry.js';
 import sharp from 'sharp';
 import fs from 'fs';
 import path from 'path';
+
+/**
+ * Copy a Convex storage blob to a NEW storage ID with independent ownership.
+ * Used when a child record (e.g., a batch) needs its own copy of a parent's
+ * (e.g., project's) product image so deleting the child doesn't wipe the parent's blob.
+ * @param {string} sourceStorageId - The blob to copy
+ * @param {string} contentType - Defaults to 'image/png'
+ * @returns {Promise<string>} - The new storage ID
+ */
+export async function copyStorageBlob(sourceStorageId, contentType = 'image/png') {
+  const buf = await downloadToBuffer(sourceStorageId);
+  return await uploadBuffer(buf, contentType);
+}
 
 /**
  * Load project-level product image as base64 if available.

@@ -1,5 +1,57 @@
 # Creative Factory — Changelog
 
+## 2026-04-30 — Fix two bugs: ad-detail modal opens off-screen + Heal Naturally product image disappears
+
+**Bug A — Ad-detail modal opens far up the page**
+
+Symptom: clicking an ad in the gallery opened the modal way above the current viewport; user had to scroll up to find it.
+
+Root cause: `Layout.jsx` wraps every page in `<main className="... animate-fade-in-up">`. The `fade-in-up` keyframe in `tailwind.config.js` ended on `transform: 'translateY(0)'` with `forwards` fill mode, so `<main>` retained a non-`none` transform indefinitely. Per CSS spec, any element with a non-`none` `transform` becomes a containing block for fixed-positioned descendants — so the modal's `position: fixed; inset: 0` was calculated relative to `<main>`'s bounding box (which extends from below the navbar to the bottom of all rendered content), not the viewport. After scrolling, `<main>`'s top is way above the viewport, so the modal opened way above too.
+
+Same antipattern existed in three CSS keyframes in `index.css` (`fadeIn`, `slideUp`, `slideInRight`).
+
+Fix: change the final keyframe from `transform: translateY(0)` / `translateX(0)` / `scale(1)` to `transform: none`. Visually identical (translateY(0) and none look the same) but `none` does NOT create a containing block. Modal now opens dead-center in the viewport.
+
+**Bug B — Heal Naturally product image disappeared on its own; ads now generate without it**
+
+Symptom: Marco uploaded a product image, then it disappeared; subsequent ad generations no longer included the product image.
+
+Root cause: storage-ID double-ownership between `projects.product_image_storageId` and `batch_jobs.product_image_storageId`. When a batch was created without uploading a separate image, `routes/batches.js:59` and `services/conductorEngine.js:227, 1065` set the batch's `product_image_storageId` field to the *exact same Convex storage ID* the project was using. Later, when ANY batch sharing that ID was deleted, `convex/batchJobs.ts:remove` unconditionally called `ctx.storage.delete(batch.product_image_storageId)`, which wiped the underlying blob. The project's field still pointed to the now-dead storage ID. Convex returned no URL for it; the UI showed no product image; ad-generation paths gracefully fell through to "no product image" because `downloadToBuffer` returns nothing for a dead storage ID. Hence "now it's making ads without it."
+
+Fix (clean ownership):
+- New helper `copyStorageBlob(sourceStorageId, contentType)` in `backend/utils/adImages.js` — downloads the source blob and re-uploads it to a new storage ID.
+- `routes/batches.js`: when re-using project's image, copy buffer to new storage ID (with try/catch — if the project's source is already dead, log + proceed without).
+- `services/conductorEngine.js`: same pattern at the two Director batch-creation sites, via local `copyProjectProductImageForBatch(project)` helper.
+- `routes/projects.js`: GET project now self-heals — if `getStorageUrl` returns null for a set `product_image_storageId`, fire-and-forget call to `setProjectProductImage(undefined)` clears the dead pointer. Race-safe (idempotent patch). User sees "no image set" on next reload and can re-upload cleanly.
+
+Storage cost of the copy: ~50–200 KB per batch, <$0.05/year at Marco's scale. Negligible.
+
+**Antipattern note for future devs (animation keyframes)**
+- NEVER end a CSS animation on `transform: translateY(0)` / `translateX(0)` / `scale(1)` with `animation-fill-mode: forwards`. Use `transform: none`. The two are visually identical but only `none` avoids creating a containing block for fixed-positioned descendants.
+
+**Antipattern note for future devs (storage IDs)**
+- NEVER share a Convex storage ID across two records (e.g., `project.product_image_storageId` and `batch.product_image_storageId`) without an explicit shared-ownership flag. The `remove` mutation of either record will unconditionally delete the blob. Always copy buffer to a new storage ID per record, even if it costs a small download/re-upload.
+
+**Pre-flight verification**
+- Grepped `frontend/src/index.css` and `frontend/tailwind.config.js` for `@keyframes` / `animation: ... forwards` — confirmed all four animation final-states updated.
+- Grepped `backend/` for `project.product_image_storageId` direct assignments to a child record — found exactly the three sites fixed (routes/batches.js + 2x conductorEngine.js).
+
+**Files modified**
+- `frontend/tailwind.config.js`
+- `frontend/src/index.css`
+- `backend/utils/adImages.js` (added `copyStorageBlob` helper)
+- `backend/routes/batches.js`
+- `backend/services/conductorEngine.js`
+- `backend/routes/projects.js`
+
+**Out of scope**
+- Backfill stale `product_image_storageId` on all projects (Layer 2 self-heals on read; one-shot Convex script overkill for hotfix).
+- React portal refactor for modals (Layer 1 keyframe fix avoids the issue without portals).
+- Auditing every other Convex storage-deletion path (focused grep confirmed only the project↔batch pair is affected; templateImages, adCreatives, inspirationImages own their storage IDs distinctly).
+- `prefers-reduced-motion` support (future PR).
+
+---
+
 ## 2026-04-30 — Fix dark "flash on scroll" caused by `:hover { translateY }` antipattern on cards
 
 **Bug**

@@ -6,6 +6,7 @@ import {
   updateBatchJob, deleteBatchJob, uploadBuffer
 } from '../convexClient.js';
 import { runBatch } from '../services/batchProcessor.js';
+import { copyStorageBlob } from '../utils/adImages.js';
 
 // Scheduler stubs: scheduler.js was removed. Scheduled-batch cron registration
 // is deferred to a future Convex crons migration. Batches can still be created
@@ -63,8 +64,15 @@ router.post('/:projectId/batches', async (req, res) => {
     const buffer = Buffer.from(product_image, 'base64');
     productImageStorageId = await uploadBuffer(buffer, product_image_mime);
   } else if (project.product_image_storageId) {
-    // Re-use the project-level product image (no need to re-upload)
-    productImageStorageId = project.product_image_storageId;
+    // Copy the project's product image into a new storage blob owned by THIS batch.
+    // Sharing the storage ID would mean batchJobs.remove() deletes the project's image
+    // when the batch is cleaned up, breaking the project's product image silently.
+    try {
+      productImageStorageId = await copyStorageBlob(project.product_image_storageId);
+    } catch (err) {
+      console.warn(`[batches] Project product image storageId is dead, proceeding without: ${err.message}`);
+      productImageStorageId = undefined;
+    }
   }
 
   try {

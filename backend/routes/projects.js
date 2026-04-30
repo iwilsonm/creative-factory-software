@@ -77,9 +77,19 @@ router.get('/:id', async (req, res) => {
     const project = await getProject(req.params.id);
     if (!project) return res.status(404).json({ error: 'Project not found' });
 
-    const productImageUrl = project.product_image_storageId
-      ? await getStorageUrl(project.product_image_storageId).catch(() => null)
-      : null;
+    let productImageUrl = null;
+    if (project.product_image_storageId) {
+      productImageUrl = await getStorageUrl(project.product_image_storageId).catch(() => null);
+      if (productImageUrl === null) {
+        // Stale storageId — the underlying blob was deleted (historically caused by
+        // batchJobs.remove deleting a shared storageId, fixed in this commit).
+        // Fire-and-forget clear so the UI doesn't show a phantom "image set" state
+        // and the user can re-upload cleanly. Idempotent + race-safe.
+        setProjectProductImage(req.params.id, undefined).catch(err =>
+          console.warn(`[Projects] Failed to clear stale product_image_storageId: ${err.message}`)
+        );
+      }
+    }
 
     res.json({ ...project, productImageUrl });
   } catch (err) {

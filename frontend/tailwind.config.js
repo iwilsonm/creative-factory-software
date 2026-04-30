@@ -38,8 +38,12 @@ export default {
       },
       keyframes: {
         'fade-in-up': {
+          // End state MUST be `transform: 'none'`, NOT 'translateY(0)'. A non-none
+          // transform on an ancestor (especially <main>, which uses this animation)
+          // creates a containing block for fixed-positioned descendants — modals
+          // would open relative to that ancestor's bounding box instead of the viewport.
           '0%': { opacity: 0, transform: 'translateY(12px)' },
-          '100%': { opacity: 1, transform: 'translateY(0)' },
+          '100%': { opacity: 1, transform: 'none' },
         },
         'pulse-glow': {
           '0%, 100%': { boxShadow: '0 0 0 0 rgba(181, 52, 255, 0.4)' },

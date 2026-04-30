@@ -297,9 +297,13 @@
   .fade-in {
     animation: fadeIn 0.4s cubic-bezier(0.16, 1, 0.3, 1) forwards;
   }
+  /* End state must be `transform: none`, not translateY(0)/scale(1)/translateX(0).
+     A non-none transform creates a new containing block for fixed-positioned
+     descendants — modals inside an animated ancestor would open relative to that
+     ancestor's bounding box instead of the viewport. */
   @keyframes fadeIn {
     from { opacity: 0; transform: translateY(8px); }
-    to { opacity: 1; transform: translateY(0); }
+    to { opacity: 1; transform: none; }
   }
 
   .animate-slide-up {
@@ -307,7 +311,7 @@
   }
   @keyframes slideUp {
     from { opacity: 0; transform: translateY(16px) scale(0.97); }
-    to { opacity: 1; transform: translateY(0) scale(1); }
+    to { opacity: 1; transform: none; }
   }
 
   .animate-slide-in-right {
@@ -315,7 +319,7 @@
   }
   @keyframes slideInRight {
     from { transform: translateX(100%); }
-    to { transform: translateX(0); }
+    to { transform: none; }
   }
 
   /* Elegant thin scrollbars */
