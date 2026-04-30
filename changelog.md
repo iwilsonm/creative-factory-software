@@ -1,5 +1,35 @@
 # Creative Factory — Changelog
 
+## 2026-04-30 — Fix product-image toggle silently flipping OFF when navigating template-source tabs
+
+**Bug**
+- Marco reported: "I went to the Pick Template tab — product image was turned ON. I clicked Manual Upload, then Random Template — and somehow the product image got switched OFF. It seems to happen when I click Manual Upload and then go back to Random Template."
+
+**Root cause**
+- In `AdStudio.jsx`, the template-analysis useEffect (deps: `[selectedTemplate?.id]`) calls `setSkipProductImage(!analysis.needs_product_image)` when an uploaded template is selected — sometimes synchronously (cached), sometimes asynchronously (API call).
+- When the user clicked Pick Template and selected an uploaded template (`T1`), the API analyze call started in the background.
+- When the user then clicked Manual Upload or Random Template, `selectedTemplate` was NOT cleared. The async `analyzeTemplate` call eventually returned, fired `setSkipProductImage(true)` AFTER the user had moved tabs — so the toggle visibly flipped OFF on whichever tab the user was now viewing. To Marco it looked like the act of switching tabs caused the flip.
+- Additionally, the early-return path in the analysis useEffect (when no uploaded template is selected) reset `templateAnalysis` to null but left `skipProductImage` at its prior value — so any "off" decision made by a previous analysis lingered after deselect, switching to a Drive template, or other state changes.
+
+**Fix (single commit, two surgical changes in `AdStudio.jsx`)**
+- **Change A**: New `useEffect` on `[templateSource]`. When `templateSource` is no longer `TEMPLATE_SELECT` and `selectedTemplate` is set, clear `selectedTemplate`. This causes the analysis useEffect to re-run with a null selection — its existing `cancelled = true` cleanup blocks the in-flight API callback, and the early-return path runs.
+- **Change B**: In the analysis useEffect's early-return path, also call `setSkipProductImage(false)`. The toggle returns to its default ON state whenever no analyzable template is selected (deselect, Drive template, tab leave via Change A).
+
+**Coordination with handleRedo**
+- `handleRedo` does `setTemplateSource(TEMPLATE_SELECT)` BEFORE `setSelectedTemplate(...)`. Change A's effect only fires when leaving SELECT, so it doesn't interfere — the redo flow correctly enters Pick Template with the right template selected and analysis fires.
+
+**Antipattern note for future devs**
+- Side effects that mutate state X based on state Y must clean up X when Y is no longer applicable. Otherwise stale X values linger and look like bugs to users.
+
+**Files modified**
+- `frontend/src/components/AdStudio.jsx` (~7 lines added)
+
+**Out of scope**
+- Manual-toggle persistence across template selections (existing UX inconsistency: an analysis still overrides a manually-set toggle when an uploaded template is selected). User did not report this as a bug.
+- Visual feedback for in-flight analysis (greyed toggle / spinner). Future polish.
+
+---
+
 ## 2026-04-30 — Fix two bugs: ad-detail modal opens off-screen + Heal Naturally product image disappears
 
 **Bug A — Ad-detail modal opens far up the page**

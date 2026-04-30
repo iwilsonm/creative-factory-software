@@ -396,12 +396,25 @@ export default function AdStudio({ projectId, project }) {
     }
   }, [templateSource]);
 
+  // Clear selectedTemplate when leaving the Pick Template tab. Otherwise a
+  // previously-selected template lingers and its async analysis can flip
+  // skipProductImage AFTER the user has moved to a different mode.
+  useEffect(() => {
+    if (templateSource !== TEMPLATE_SELECT && selectedTemplate) {
+      setSelectedTemplate(null);
+    }
+  }, [templateSource]);
+
   // ── Template analysis (GPT-4.1-mini vision) — triggers when an uploaded template is selected ──
   useEffect(() => {
     // Only analyze uploaded templates (not Drive inspiration images)
     if (!selectedTemplate || selectedTemplate.source !== 'uploaded') {
       setTemplateAnalysis(null);
       setAnalyzingTemplate(false);
+      // Reset toggle to default ON when no analyzable template is selected,
+      // so a stale "off" from a previous analysis doesn't linger after deselect /
+      // tab-leave / Drive-template selection.
+      setSkipProductImage(false);
       return;
     }
 
