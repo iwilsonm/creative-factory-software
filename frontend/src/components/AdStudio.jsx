@@ -158,6 +158,10 @@ export default function AdStudio({ projectId, project }) {
   const [loadingTemplates, setLoadingTemplates] = useState(false);
   // Selection stores both the id and the source ('drive' or 'uploaded')
   const [selectedTemplate, setSelectedTemplate] = useState(null); // { id, source }
+  // Auto-collapse the Pick Template grid once a template is selected, so the
+  // user doesn't have to scroll past hundreds of pixels of thumbnails to reach
+  // the rest of the form. A "Change" button on the compact pill re-expands.
+  const [pickerCollapsed, setPickerCollapsed] = useState(false);
 
   // Template analysis (GPT-4.1-mini vision)
   const [templateAnalysis, setTemplateAnalysis] = useState(null);
@@ -404,6 +408,15 @@ export default function AdStudio({ projectId, project }) {
       setSelectedTemplate(null);
     }
   }, [templateSource]);
+
+  // Mirror picker collapsed/expanded state to the current selection. Selection
+  // present → grid hidden, compact pill shown. Selection absent → grid shown.
+  // The "Change" button manually flips this back to expanded WITHOUT changing
+  // selectedTemplate; picking a new template inside the re-expanded grid then
+  // re-fires this effect (selectedTemplate.id changes) and auto-collapses again.
+  useEffect(() => {
+    setPickerCollapsed(!!selectedTemplate);
+  }, [selectedTemplate?.id]);
 
   // ── Template analysis (GPT-4.1-mini vision) — triggers when an uploaded template is selected ──
   useEffect(() => {
@@ -1681,7 +1694,7 @@ export default function AdStudio({ projectId, project }) {
             {/* Pick from all templates (Drive + Uploaded) */}
             {templateSource === TEMPLATE_SELECT && (
               <div>
-                {loadingTemplates ? (
+                {!pickerCollapsed && (loadingTemplates ? (
                   <div className="text-textlight text-center py-8 text-sm">Loading templates...</div>
                 ) : driveImages.length === 0 && uploadedTemplates.length === 0 ? (
                   <div className="p-6 bg-offwhite border border-black/5 rounded-xl text-center">
@@ -1800,9 +1813,63 @@ export default function AdStudio({ projectId, project }) {
                       </div>
                     )}
                   </div>
-                )}
+                ))}
 
-                {selectedTemplate && (
+                {/* Compact pill — auto-replaces the grid once a template is selected,
+                    so the user doesn't have to scroll past hundreds of pixels of thumbnails
+                    to reach the rest of the form. Click "Change" to re-expand the grid. */}
+                {pickerCollapsed && selectedTemplate && (() => {
+                  const matchedDrive = selectedTemplate.source === 'drive'
+                    ? driveImages.find(i => i.id === selectedTemplate.id)
+                    : null;
+                  const matchedUploaded = selectedTemplate.source === 'uploaded'
+                    ? uploadedTemplates.find(t => t.id === selectedTemplate.id)
+                    : null;
+                  const thumbnailUrl = matchedDrive?.thumbnailUrl || matchedUploaded?.thumbnailUrl;
+                  const displayName = matchedDrive
+                    ? (matchedDrive.name || selectedTemplate.id).slice(0, 30)
+                    : getTemplateName(selectedTemplate.id);
+                  return (
+                    <div className="flex items-center gap-3 p-3 bg-navy/5 border border-navy/15 rounded-xl">
+                      {thumbnailUrl ? (
+                        <img
+                          src={thumbnailUrl}
+                          alt="Selected template"
+                          className="w-12 h-12 object-cover rounded-lg border border-navy/15 flex-shrink-0"
+                        />
+                      ) : (
+                        <div className="w-12 h-12 rounded-lg bg-navy/10 border border-navy/15 flex items-center justify-center flex-shrink-0">
+                          <svg className="w-5 h-5 text-navy/40" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909M3.75 21h16.5a2.25 2.25 0 002.25-2.25V6.75a2.25 2.25 0 00-2.25-2.25H3.75a2.25 2.25 0 00-2.25 2.25v12a2.25 2.25 0 002.25 2.25z" />
+                          </svg>
+                        </div>
+                      )}
+                      <div className="flex-1 min-w-0">
+                        <p className="text-[12px] font-medium text-navy truncate">
+                          Selected template: {displayName}
+                        </p>
+                        <p className="text-[10px] text-navy/60">
+                          {selectedTemplate.source === 'drive' ? 'Drive' : 'Uploaded'} template — click Change to pick a different one
+                        </p>
+                      </div>
+                      <button
+                        onClick={() => setPickerCollapsed(false)}
+                        className="text-[11px] font-semibold text-navy hover:text-navy/80 px-2.5 py-1.5 rounded-md bg-white/50 hover:bg-white border border-navy/15 transition-colors flex-shrink-0"
+                      >
+                        Change
+                      </button>
+                      <button
+                        onClick={() => setSelectedTemplate(null)}
+                        className="text-[11px] text-textlight hover:text-red-500 transition-colors flex-shrink-0"
+                      >
+                        Clear
+                      </button>
+                    </div>
+                  );
+                })()}
+
+                {/* Existing text indicator — only when grid is expanded (collapsed view uses the pill above instead) */}
+                {selectedTemplate && !pickerCollapsed && (
                   <div className="mt-2">
                     <div className="flex items-center gap-2">
                       <span className="text-[11px] text-navy font-medium">
@@ -1821,47 +1888,49 @@ export default function AdStudio({ projectId, project }) {
                         Clear
                       </button>
                     </div>
+                  </div>
+                )}
 
-                    {/* Template analysis indicator */}
-                    {analyzingTemplate && (
-                      <div className="mt-2 flex items-center gap-2 p-2.5 bg-navy/5 border border-navy/15 rounded-xl">
-                        <svg className="w-3.5 h-3.5 text-navy animate-spin flex-shrink-0" fill="none" viewBox="0 0 24 24">
-                          <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                          <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                        </svg>
-                        <span className="text-[11px] text-navy">Analyzing template layout...</span>
-                      </div>
-                    )}
+                {/* Template analysis card — visible whenever there's a selection,
+                    regardless of collapsed state, since the layout/style/product-image
+                    info is relevant to the rest of the form. */}
+                {selectedTemplate && analyzingTemplate && (
+                  <div className="mt-2 flex items-center gap-2 p-2.5 bg-navy/5 border border-navy/15 rounded-xl">
+                    <svg className="w-3.5 h-3.5 text-navy animate-spin flex-shrink-0" fill="none" viewBox="0 0 24 24">
+                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+                    </svg>
+                    <span className="text-[11px] text-navy">Analyzing template layout...</span>
+                  </div>
+                )}
 
-                    {templateAnalysis && !analyzingTemplate && selectedTemplate.source === 'uploaded' && (
-                      <div className="mt-2 p-2.5 bg-navy/5 border border-navy/15 rounded-xl space-y-1">
-                        <p className="text-[11px] text-navy font-medium flex items-center gap-1.5">
-                          <svg className="w-3 h-3 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                          </svg>
-                          Template Analysis
-                        </p>
-                        <p className="text-[10px] text-navy/70">{templateAnalysis.layout_description}</p>
-                        <div className="flex flex-wrap gap-1.5 mt-1">
-                          <span className="text-[9px] px-1.5 py-0.5 bg-navy/10 text-navy rounded-full">
-                            Style: {templateAnalysis.recommended_style}
-                          </span>
-                          <span className="text-[9px] px-1.5 py-0.5 bg-navy/10 text-navy rounded-full">
-                            Text space: {templateAnalysis.text_space}
-                          </span>
-                          <span className="text-[9px] px-1.5 py-0.5 bg-navy/10 text-navy rounded-full">
-                            {templateAnalysis.visual_tone}
-                          </span>
-                          <span className={`text-[9px] px-1.5 py-0.5 rounded-full ${
-                            templateAnalysis.needs_product_image
-                              ? 'bg-teal/10 text-teal'
-                              : 'bg-gold/10 text-gold'
-                          }`}>
-                            Product image: {templateAnalysis.needs_product_image ? 'recommended' : 'not needed'}
-                          </span>
-                        </div>
-                      </div>
-                    )}
+                {selectedTemplate && templateAnalysis && !analyzingTemplate && selectedTemplate.source === 'uploaded' && (
+                  <div className="mt-2 p-2.5 bg-navy/5 border border-navy/15 rounded-xl space-y-1">
+                    <p className="text-[11px] text-navy font-medium flex items-center gap-1.5">
+                      <svg className="w-3 h-3 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                      Template Analysis
+                    </p>
+                    <p className="text-[10px] text-navy/70">{templateAnalysis.layout_description}</p>
+                    <div className="flex flex-wrap gap-1.5 mt-1">
+                      <span className="text-[9px] px-1.5 py-0.5 bg-navy/10 text-navy rounded-full">
+                        Style: {templateAnalysis.recommended_style}
+                      </span>
+                      <span className="text-[9px] px-1.5 py-0.5 bg-navy/10 text-navy rounded-full">
+                        Text space: {templateAnalysis.text_space}
+                      </span>
+                      <span className="text-[9px] px-1.5 py-0.5 bg-navy/10 text-navy rounded-full">
+                        {templateAnalysis.visual_tone}
+                      </span>
+                      <span className={`text-[9px] px-1.5 py-0.5 rounded-full ${
+                        templateAnalysis.needs_product_image
+                          ? 'bg-teal/10 text-teal'
+                          : 'bg-gold/10 text-gold'
+                      }`}>
+                        Product image: {templateAnalysis.needs_product_image ? 'recommended' : 'not needed'}
+                      </span>
+                    </div>
                   </div>
                 )}
               </div>

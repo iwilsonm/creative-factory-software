@@ -1,5 +1,34 @@
 # Creative Factory — Changelog
 
+## 2026-04-30 — Auto-collapse the Pick Template grid after a template is selected
+
+**Request (Marco)**
+- "When I use the Pick Template tab and I select a template, I have to scroll through all the templates to now get to the bottom. It would be nice if there's a way to collapse that menu so I could continue on there and make more adjustments and generate that."
+
+**What changed**
+- `frontend/src/components/AdStudio.jsx` — added `pickerCollapsed` state and an effect that mirrors it to `selectedTemplate`: selection present → grid auto-hides, compact pill shows; selection absent → grid auto-expands. The compact pill renders the selected template thumbnail, name, source label, and two buttons: **Change** (re-expand the grid without losing the selection) and **Clear** (deselect).
+- The existing text indicator ("Selected: <name> (source) [Clear]") is gated to render only in expanded mode (it's redundant with the pill).
+- The template-analysis card was hoisted out of the original `{selectedTemplate && (...)}` wrapper and now renders whenever there's a selection, regardless of collapsed/expanded state — the analysis info (layout, recommended style, product-image-needed flag) stays useful below the pill.
+- Pill thumbnail has a fallback placeholder div if the underlying template was deleted between selection and render.
+
+**Behavior**
+- Click a template → grid disappears, pill appears, downstream form is immediately reachable. ✓
+- Click Change → grid re-renders. Click a different template → auto-collapse to new pill. ✓
+- Click Clear → selection cleared, grid expands. ✓
+- Tab-leave (Manual Upload / Random Template) → prior fix clears `selectedTemplate`, this effect resets `pickerCollapsed` to false → next visit to Pick Template shows the grid. ✓
+- handleRedo (Redo on a gallery ad) → sets `templateSource = SELECT` then `selectedTemplate`; effect fires → pill renders for the redo target. ✓
+
+**Files modified**
+- `frontend/src/components/AdStudio.jsx`
+
+**Out of scope**
+- Manual collapse before selection (no UX benefit when browsing).
+- Per-section collapse (Drive vs Uploaded). One selection at a time.
+- Slide/fade animation on collapse/expand. Future polish.
+- Persisting `pickerCollapsed` across reloads. Selection is ephemeral.
+
+---
+
 ## 2026-04-30 — Migrate Ad Studio's angle + headline generators off Anthropic; surface body-copy Generate button without requiring a headline
 
 **Bug**
