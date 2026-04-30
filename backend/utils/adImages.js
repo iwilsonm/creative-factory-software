@@ -35,7 +35,11 @@ export async function getProjectProductImage(project) {
     return { base64: buffer.toString('base64'), mimeType: 'image/png' };
   } catch (err) {
     console.warn('[Ads] Could not load project product image:', err.message);
-    return null;
+    // Throw with a tagged code so the route can emit a user-visible SSE warning
+    // instead of silently generating without the product image.
+    const wrapped = new Error(`Project product image could not be loaded: ${err.message}`);
+    wrapped.code = 'product_image_fetch_failed';
+    throw wrapped;
   }
 }
 

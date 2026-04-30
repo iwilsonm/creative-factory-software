@@ -1,5 +1,38 @@
 # Creative Factory — Changelog
 
+## 2026-04-30 — Fix ad-detail modal layout (Edit Image overflow) + surface silent product-image fetch failures
+
+**Bug A — modal layout**
+- Marco: "When I click an ad in the Ad Gallery, the dialog box is not big enough for the Edit Image button. The layout doesn't work correctly."
+- Cause: Quick Actions row in the modal at `AdStudio.jsx:3225` was a 3-button `flex` row inside a 280px content area. With three `flex-1` buttons + gaps, each button was ~88px — too narrow for the "Edit Image" label + icon + padding.
+- Fix: changed to `grid grid-cols-2 gap-2`. Download + Regenerate sit side-by-side on row 1; Edit Image (when shown) gets `col-span-2` and takes a full-width row 2 below. Edit Image now has ~270px to render comfortably.
+
+**Bug B — product image silently dropped**
+- Marco: "I'm generating ads, but it doesn't seem to be using the product image, even though the toggle is on."
+- Cause: `backend/utils/adImages.js:getProjectProductImage` swallowed any download failure and returned `null`. The route then proceeded to `generateAd` without `productImageBase64`. Marco saw an ad without the product reference — no warning, no log surface, total silence.
+- Fix: `getProjectProductImage` now throws a tagged `Error` with `code: 'product_image_fetch_failed'` instead of returning null on failure. Both `routes/ads.js:generate-ad` and `routes/ads.js:regenerate-image` catch this and emit an SSE `{ type: 'warning', tag: 'product_image_fetch_failed', message: ... }` event at the start of the stream. The frontend's existing `handleEvent` (`AdStudio.jsx:918–920`) renders the warning text on the generation queue card. Marco now sees: "⚠ Project product image could not be loaded — generating without it. Try re-uploading the image in Project Settings."
+
+**Why fetches were failing in the first place**
+- A self-heal block in `routes/projects.js:GET` was overly aggressive: if `getStorageUrl(storageId)` returned `null` even once (transient Convex hiccup), the route would fire `setProjectProductImage(undefined)` which deleted the underlying blob AND cleared the project field. A single transient failure permanently destroyed the user's just-uploaded product image, leaving a stale field that subsequent generations would silently fall back to "no product image" on.
+- The self-heal was originally added to clean up stale storageIds left by the batch-deletion bug, which itself was fixed in commit `2627947` (per-batch buffer copies). Net new state can't enter that stuck condition anymore, so the self-heal is no longer needed.
+- Fix: removed the self-heal entirely. If `getStorageUrl` returns null, `productImageUrl` is null in the GET response. The frontend's toggle UI is gated on `productImageUrl`, so it auto-hides — implicitly prompting the user to re-upload. No silent destruction. No more accidental loss of valid storage IDs.
+
+**Antipattern note for future devs**
+- Don't auto-mutate persisted state on a single transient null/falsy result. Surface the failure to the user; let them recover via their natural workflow. Auto-mutation looks like "self-healing" but is destructive when the null is a transient hiccup, not genuinely stale state.
+
+**Files modified**
+- `frontend/src/components/AdStudio.jsx` — modal action row layout.
+- `backend/routes/ads.js` — try/catch around `getProjectProductImage` + SSE warning emit at both call sites (generate-ad + regenerate-image).
+- `backend/utils/adImages.js` — `getProjectProductImage` throws tagged error instead of swallowing.
+- `backend/routes/projects.js` — removed self-heal block from GET project route.
+
+**Out of scope**
+- Investigating the root cause of Marco's specific storageId being unreachable. The fix surfaces the failure so we can diagnose from logs if it recurs. Removing self-heal eliminates the prime suspect.
+- A diagnostic panel showing storage health.
+- Backfilling stale storageIds project-wide.
+
+---
+
 ## 2026-04-30 — Cascade angle Generate → headline + body copy when those fields already have content
 
 **Request (Marco)**

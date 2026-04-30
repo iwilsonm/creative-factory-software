@@ -43,12 +43,23 @@ router.post('/:projectId/generate-ad', async (req, res) => {
 
   let { mode = 'mode1', aspect_ratio, angle, inspiration_image_id, uploaded_image, uploaded_image_mime, product_image, product_image_mime, headline, body_copy, template_image_id, skip_product_image, image_model } = req.body;
 
-  // Auto-inject project-level product image if none provided (and not explicitly skipped)
+  // Auto-inject project-level product image if none provided (and not explicitly skipped).
+  // If the fetch fails (dead storageId, transient Convex error, etc.), capture a warning
+  // to surface via SSE so the user knows their toggle was ON but the image was dropped.
+  let productImageWarning = null;
   if (!product_image && !skip_product_image && project.product_image_storageId) {
-    const projImg = await getProjectProductImage(project);
-    if (projImg) {
-      product_image = projImg.base64;
-      product_image_mime = projImg.mimeType;
+    try {
+      const projImg = await getProjectProductImage(project);
+      if (projImg) {
+        product_image = projImg.base64;
+        product_image_mime = projImg.mimeType;
+      }
+    } catch (err) {
+      if (err.code === 'product_image_fetch_failed') {
+        productImageWarning = 'Project product image could not be loaded — generating without it. Try re-uploading the image in Project Settings.';
+      } else {
+        throw err;
+      }
     }
   }
 
@@ -61,6 +72,9 @@ router.post('/:projectId/generate-ad', async (req, res) => {
   }
 
   streamService(req, res, async (sendEvent) => {
+    if (productImageWarning) {
+      sendEvent({ type: 'warning', tag: 'product_image_fetch_failed', message: productImageWarning });
+    }
     if (mode === 'mode2') {
       await generateAdMode2(req.params.projectId, {
         templateImageId: template_image_id,
@@ -98,12 +112,22 @@ router.post('/:projectId/regenerate-image', async (req, res) => {
 
   let { image_prompt, aspect_ratio, parent_ad_id, product_image, product_image_mime, angle, headline, body_copy, skip_product_image, image_model } = req.body;
 
-  // Auto-inject project-level product image if none provided (and not explicitly skipped)
+  // Auto-inject project-level product image if none provided (and not explicitly skipped).
+  // Surface fetch failures as an SSE warning instead of silently dropping the image.
+  let productImageWarning = null;
   if (!product_image && !skip_product_image && project.product_image_storageId) {
-    const projImg = await getProjectProductImage(project);
-    if (projImg) {
-      product_image = projImg.base64;
-      product_image_mime = projImg.mimeType;
+    try {
+      const projImg = await getProjectProductImage(project);
+      if (projImg) {
+        product_image = projImg.base64;
+        product_image_mime = projImg.mimeType;
+      }
+    } catch (err) {
+      if (err.code === 'product_image_fetch_failed') {
+        productImageWarning = 'Project product image could not be loaded — regenerating without it. Try re-uploading the image in Project Settings.';
+      } else {
+        throw err;
+      }
     }
   }
 
@@ -112,6 +136,9 @@ router.post('/:projectId/regenerate-image', async (req, res) => {
   }
 
   streamService(req, res, async (sendEvent) => {
+    if (productImageWarning) {
+      sendEvent({ type: 'warning', tag: 'product_image_fetch_failed', message: productImageWarning });
+    }
     await regenerateImageOnly(req.params.projectId, {
       imagePrompt: image_prompt.trim(),
       aspectRatio: aspect_ratio || '1:1',

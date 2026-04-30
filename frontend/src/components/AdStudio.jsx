@@ -3221,11 +3221,11 @@ export default function AdStudio({ projectId, project }) {
                 </button>
               </div>
 
-              {/* Quick Actions */}
-              <div className="flex gap-2 mb-5">
+              {/* Quick Actions — 2-column grid; Edit Image (when present) wraps to its own full-width row */}
+              <div className="grid grid-cols-2 gap-2 mb-5">
                 <button
                   onClick={(e) => handleDownload(viewAd, e)}
-                  className="flex-1 flex items-center justify-center gap-1.5 py-2 px-3 bg-navy text-white rounded-xl text-[12px] font-medium hover:bg-navy-light transition-colors"
+                  className="flex items-center justify-center gap-1.5 py-2 px-3 bg-navy text-white rounded-xl text-[12px] font-medium hover:bg-navy-light transition-colors"
                 >
                   <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5M16.5 12L12 16.5m0 0L7.5 12m4.5 4.5V3" />
@@ -3234,7 +3234,7 @@ export default function AdStudio({ projectId, project }) {
                 </button>
                 <button
                   onClick={(e) => handleRegenerate(viewAd, e)}
-                  className="flex-1 flex items-center justify-center gap-1.5 py-2 px-3 bg-orange-500 text-white rounded-xl text-[12px] font-medium hover:bg-orange-600 transition-colors"
+                  className="flex items-center justify-center gap-1.5 py-2 px-3 bg-orange-500 text-white rounded-xl text-[12px] font-medium hover:bg-orange-600 transition-colors"
                 >
                   <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182M20.015 4.356v4.992" />
@@ -3244,7 +3244,7 @@ export default function AdStudio({ projectId, project }) {
                 {(viewAd.has_edit_prompt || viewAd.image_prompt) && (
                   <button
                     onClick={(e) => handleEditPrompt(viewAd, e)}
-                    className="flex-1 flex items-center justify-center gap-1.5 py-2 px-3 bg-navy text-white rounded-xl text-[12px] font-medium hover:bg-navy-light transition-colors"
+                    className="col-span-2 flex items-center justify-center gap-1.5 py-2 px-3 bg-navy text-white rounded-xl text-[12px] font-medium hover:bg-navy-light transition-colors"
                   >
                     <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16.862 4.487l1.687-1.688a1.875 1.875 0 112.652 2.652L10.582 16.07a4.5 4.5 0 01-1.897 1.13L6 18l.8-2.685a4.5 4.5 0 011.13-1.897l8.932-8.931zm0 0L19.5 7.125M18 14v4.75A2.25 2.25 0 0115.75 21H5.25A2.25 2.25 0 013 18.75V8.25A2.25 2.25 0 015.25 6H10" />
