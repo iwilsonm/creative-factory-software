@@ -1,5 +1,31 @@
 # Creative Factory — Changelog
 
+## 2026-04-30 — Random Template falls back to uploaded templates + save-as-default uses a real toggle
+
+**Bug 1 — Random Template threw "No inspiration images cached"**
+- Marco: clicked Random Template + Generate, got "No inspiration images cached. Sync your inspiration folder first." His project has uploaded templates in the Templates Library but no Drive inspiration sync (Drive sync was removed earlier in favor of multi-file upload).
+- Cause: `services/adGenerator.js#selectInspirationImage` queried `inspiration_images` (Drive) only, throwing when empty. The frontend Random Template panel description says "random from your uploaded templates" — UI promised one thing, backend did another.
+- Fix: `selectInspirationImage` now falls back to `template_images` (uploaded templates) when `inspiration_images` is empty for random selection. Specific-ID lookups (from redo / batch flows) still query `inspiration_images` only — that path is unchanged.
+- Cleaner error when truly empty: "No templates available. Upload templates in the Template Library first."
+- Refactored the storage-download + temp-file logic into a shared `loadInspirationFromStorage` helper used by both branches.
+- Added `getTemplateImagesByProject` helper in `convexClient.js` (uses `cachedQuery` for consistency with sibling helpers).
+
+**Bug 2 — save-as-default was a checkbox, should be a toggle**
+- Marco: "The checkbox for saving a product image as a project default needs to be a toggle, like I asked!"
+- Replaced the `<input type="checkbox">` with the same toggle pattern used elsewhere on the Ad Studio page (custom button + sliding span). Container background tints teal-on / navy-off so the on-state is clearly distinguishable.
+
+**Files modified**
+- `backend/convexClient.js` — added `getTemplateImagesByProject` helper.
+- `backend/services/adGenerator.js` — `selectInspirationImage` template fallback + `loadInspirationFromStorage` extraction.
+- `frontend/src/components/AdStudio.jsx` — toggle pattern for save-as-default.
+
+**Out of scope**
+- Removing Random Template entirely when no templates exist.
+- Random across BOTH inspiration_images AND template_images simultaneously (when both populated, inspiration_images still takes precedence).
+- Migrating to a shared `<Toggle>` React component (two copies of toggle markup is acceptable).
+
+---
+
 ## 2026-04-30 — Fix product-image Remove requires page refresh to reflect
 
 **Bug**

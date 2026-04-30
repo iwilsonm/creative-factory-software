@@ -28,6 +28,7 @@ import { withHeavyLLMLimit } from './rateLimiter.js';
 import {
   getProject, getLatestDoc, uploadBuffer, downloadToBuffer,
   getInspirationImages, getAllInspirationImages, getInspirationImageUrl,
+  getTemplateImagesByProject,
   getAdImageUrl, getSetting, convexClient, api
 } from '../convexClient.js';
 import sharp from 'sharp';
@@ -283,50 +284,66 @@ export function buildImageRequestText(angle, aspectRatio, hasProductImage = fals
 }
 
 /**
- * Select an inspiration image from Convex storage.
+ * Select an inspiration image from Convex storage. For Random Template
+ * (inspirationImageId === null) the function tries `inspiration_images` (the
+ * Drive-synced folder) first; if empty, it falls back to `template_images`
+ * (uploaded templates) so projects without Drive sync still work.
+ *
  * @param {string} projectId
  * @param {string|null} inspirationImageId - Specific Drive file ID to use, or null for random
- * @returns {{ base64: string, mimeType: string, fileId: string }}
+ * @returns {{ tmpPath: string, mimeType: string, fileId: string }}
  */
 export async function selectInspirationImage(projectId, inspirationImageId, excludeIds = []) {
   // Scope to current project's inspiration images and deduplicate by drive_file_id
-  const allImages = await getInspirationImages(projectId);
+  const inspirationImages = await getInspirationImages(projectId);
   const seen = new Set();
-  const images = allImages.filter(img => {
+  const dedupedInspiration = inspirationImages.filter(img => {
     if (seen.has(img.drive_file_id)) return false;
     seen.add(img.drive_file_id);
     return true;
   });
-  if (!images || images.length === 0) {
-    throw new Error('No inspiration images cached. Sync your inspiration folder first.');
-  }
 
-  let selected;
+  // If a specific Drive inspiration ID was requested, only the inspiration_images table is valid.
   if (inspirationImageId) {
-    selected = images.find(img => img.drive_file_id === inspirationImageId);
+    const selected = dedupedInspiration.find(img => img.drive_file_id === inspirationImageId);
     if (!selected) {
       throw new Error(`Inspiration image ${inspirationImageId} not found in cache.`);
     }
-  } else {
-    // Random selection, excluding previously used IDs
-    let pool = images;
-    if (excludeIds.length > 0) {
-      const excludeSet = new Set(excludeIds);
-      const filtered = images.filter(img => !excludeSet.has(img.drive_file_id));
-      // Only use filtered pool if it has enough images; otherwise reset
-      if (filtered.length > 0) {
-        pool = filtered;
-      }
-      // If all images are excluded, use the full pool (reset)
-    }
-    selected = pool[Math.floor(Math.random() * pool.length)];
+    return await loadInspirationFromStorage(selected, selected.drive_file_id);
   }
 
+  // Random selection — try inspiration_images first, fall back to uploaded templates.
+  let candidates = dedupedInspiration;
+  let usingTemplates = false;
+  if (!candidates.length) {
+    const templates = await getTemplateImagesByProject(projectId);
+    candidates = templates.filter(t => t.storageId);
+    usingTemplates = true;
+  }
+  if (!candidates.length) {
+    throw new Error('No templates available. Upload templates in the Template Library first.');
+  }
+
+  let pool = candidates;
+  if (excludeIds.length > 0) {
+    const excludeSet = new Set(excludeIds);
+    const filtered = candidates.filter(c => !excludeSet.has(usingTemplates ? c.externalId : c.drive_file_id));
+    if (filtered.length > 0) pool = filtered;
+    // If all candidates are excluded, reset to full pool.
+  }
+  const selected = pool[Math.floor(Math.random() * pool.length)];
+  const fileId = usingTemplates ? selected.externalId : selected.drive_file_id;
+  return await loadInspirationFromStorage(selected, fileId);
+}
+
+/**
+ * Download a stored image (from inspiration_images OR template_images) to a
+ * temp file and return the metadata expected by the rest of the ad pipeline.
+ */
+async function loadInspirationFromStorage(selected, fileId) {
   if (!selected.storageId) {
-    throw new Error('Inspiration image has no stored file. Re-sync your inspiration folder.');
+    throw new Error('Selected template has no stored file. Re-upload or re-sync.');
   }
-
-  // Download from Convex storage
   const buffer = await downloadToBuffer(selected.storageId);
   const mimeType = selected.mimeType || 'image/jpeg';
 
@@ -335,7 +352,7 @@ export async function selectInspirationImage(projectId, inspirationImageId, excl
   const tmpPath = path.join(os.tmpdir(), `insp_${Date.now()}_${Math.random().toString(36).slice(2)}${ext}`);
   fs.writeFileSync(tmpPath, buffer);
 
-  return { tmpPath, mimeType, fileId: selected.drive_file_id };
+  return { tmpPath, mimeType, fileId };
 }
 
 /**

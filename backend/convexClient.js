@@ -930,6 +930,10 @@ export async function getTemplateImageUrl(externalId) {
   return await queryWithRetry(api.templateImages.getImageUrl, { externalId });
 }
 
+export async function getTemplateImagesByProject(projectId) {
+  return await cachedQuery('template_images', api.templateImages.getByProject, { projectId });
+}
+
 export async function getAllTemplateImages() {
   // Use indexed per-project queries instead of unindexed getAll (which crashes on large tables)
   const projects = await getAllProjects();

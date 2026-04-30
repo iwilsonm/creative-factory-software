@@ -2067,20 +2067,35 @@ export default function AdStudio({ projectId, project }) {
                   Remove
                 </button>
               </div>
-              {/* Save-as-project-default toggle — only when project has no image yet */}
+              {/* Save-as-project-default toggle — only when project has no image yet.
+                  Matches the Product Image toggle pattern elsewhere on this page. */}
               {!project?.productImageUrl && (
-                <label className="flex items-start gap-2 px-3 py-2 bg-navy/5 border border-navy/10 rounded-lg cursor-pointer hover:bg-navy/[0.07] transition-colors">
-                  <input
-                    type="checkbox"
-                    checked={saveProductAsDefault}
-                    onChange={e => setSaveProductAsDefault(e.target.checked)}
-                    className="w-4 h-4 mt-0.5 rounded border-navy/30 text-navy focus:ring-navy/20 cursor-pointer"
-                  />
-                  <span className="text-[11px] text-navy/80 leading-snug">
-                    <span className="font-semibold">Save as project default</span>
-                    <span className="block text-navy/60 mt-0.5">Future ads in this project will automatically use this image.</span>
-                  </span>
-                </label>
+                <div className={`flex items-start gap-3 p-2.5 rounded-xl ${
+                  saveProductAsDefault
+                    ? 'bg-teal/5 border border-teal/15'
+                    : 'bg-navy/5 border border-navy/10'
+                }`}>
+                  <button
+                    type="button"
+                    onClick={() => setSaveProductAsDefault(prev => !prev)}
+                    aria-label="Save as project default"
+                    className={`relative w-9 h-[20px] rounded-full transition-colors flex-shrink-0 cursor-pointer mt-0.5 ${
+                      saveProductAsDefault ? 'bg-teal' : 'bg-textlight'
+                    }`}
+                  >
+                    <span className={`absolute top-[2px] left-[2px] w-4 h-4 bg-white rounded-full shadow transition-transform ${
+                      saveProductAsDefault ? 'translate-x-[16px]' : ''
+                    }`} />
+                  </button>
+                  <div className="flex-1 min-w-0">
+                    <p className={`text-[11px] font-semibold leading-snug ${saveProductAsDefault ? 'text-teal' : 'text-navy/80'}`}>
+                      Save as project default
+                    </p>
+                    <p className={`text-[10px] mt-0.5 leading-snug ${saveProductAsDefault ? 'text-teal/80' : 'text-navy/60'}`}>
+                      Future ads in this project will automatically use this image.
+                    </p>
+                  </div>
+                </div>
               )}
             </div>
           ) : !project?.productImageUrl ? (
