@@ -1,5 +1,35 @@
 # Creative Factory — Changelog
 
+## 2026-04-30 — Stop the template analysis from auto-toggling the product-image switch
+
+**Symptom (Marco)**
+- "When I pick a template, it is turning off the product image. It shouldn't be doing that. The product image should stay on all the time unless turned off manually."
+
+**Cause**
+- The template-analysis useEffect in `AdStudio.jsx` had THREE auto-mutations of the `skipProductImage` toggle: cached-analysis path (line 441), API-analysis path (line 461), and an early-return reset to ON (line 430). When an uploaded template's analysis returned `needs_product_image: false`, the toggle silently flipped from ON to OFF without any user click. The early-return reset also undid manual OFF clicks when the user left Pick Template or picked a Drive template.
+
+**Fix**
+- `frontend/src/components/AdStudio.jsx` — removed all three auto-mutations. The toggle is now purely user-controlled. `templateAnalysis` is still set, and the analysis card's "Product image: recommended / not needed" badge still renders as a **visible recommendation**. The system informs; the user decides.
+
+**State-mutation surface (post-fix)**
+- Default `false` (ON) on mount.
+- Reset to `false` on project change (preserves project isolation; same pattern as `angle`, `headline`, `bodyCopy`, `selectedTemplate` reset).
+- Toggled on user click (three button locations).
+- Nothing else touches it.
+
+**Antipattern note for future devs**
+- For user-facing toggles that represent a CHOICE, only manual clicks should mutate the state. Programmatic mutations from background analysis or auto-effects create surprise-changes that violate user trust.
+
+**Files modified**
+- `frontend/src/components/AdStudio.jsx` (3 deletions + 1 comment block update)
+
+**Out of scope**
+- Body-copy auto-regenerate when picking a template (lines 443–445 / 469–471). Marco didn't mention it.
+- Auto-set of `bodyCopyStyle` from `analysis.recommended_style` (lines 440 / 460). Same.
+- Badge wording polish on the analysis card.
+
+---
+
 ## 2026-04-30 — Fix `max_tokens` 400 on GPT-5.2; body-copy Generate button matches sibling buttons exactly
 
 **Bug A — Headline + Angle Generate buttons returned 400 from OpenAI**

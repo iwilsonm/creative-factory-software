@@ -424,10 +424,11 @@ export default function AdStudio({ projectId, project }) {
     if (!selectedTemplate || selectedTemplate.source !== 'uploaded') {
       setTemplateAnalysis(null);
       setAnalyzingTemplate(false);
-      // Reset toggle to default ON when no analyzable template is selected,
-      // so a stale "off" from a previous analysis doesn't linger after deselect /
-      // tab-leave / Drive-template selection.
-      setSkipProductImage(false);
+      // Note: do NOT auto-mutate skipProductImage here. The toggle is purely
+      // user-controlled — the analysis card's "Product image: recommended /
+      // not needed" badge is informational only. Resetting it would undo a
+      // user's manual choice when they leave the picker or pick a Drive
+      // template (which doesn't get analyzed).
       return;
     }
 
@@ -438,7 +439,6 @@ export default function AdStudio({ projectId, project }) {
         const parsed = typeof cached.analysis === 'string' ? JSON.parse(cached.analysis) : cached.analysis;
         setTemplateAnalysis(parsed);
         if (parsed.recommended_style) setBodyCopyStyle(parsed.recommended_style);
-        setSkipProductImage(!parsed.needs_product_image);
         // Auto-regenerate body copy if headline exists and prefill isn't actively generating
         if (headline.trim() && parsed.recommended_style && !prefillBodyGenRef.current) {
           handleRegenerateBody(parsed.recommended_style);
@@ -458,7 +458,6 @@ export default function AdStudio({ projectId, project }) {
         const analysis = data.analysis;
         setTemplateAnalysis(analysis);
         if (analysis.recommended_style) setBodyCopyStyle(analysis.recommended_style);
-        setSkipProductImage(!analysis.needs_product_image);
 
         // Update local cache so re-selecting doesn't re-fetch
         setUploadedTemplates(prev => prev.map(t =>
