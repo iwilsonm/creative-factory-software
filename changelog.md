@@ -1,5 +1,32 @@
 # Creative Factory — Changelog
 
+## 2026-04-30 — Migrate Ad Studio's angle + headline generators off Anthropic; surface body-copy Generate button without requiring a headline
+
+**Bug**
+- Marco reported the Generate buttons above "Ad Topic / Angle" and "Headline" weren't working — they "still attached to the Anthropic key." Confirmed: `backend/routes/ads.js:165` and `:211` still called `claudeChat` with `claude-sonnet-4-6`. These were missed when commit `76c8109` migrated the *batch* pipeline off Anthropic. Marco's project doesn't have an Anthropic key set (intentionally — we removed that requirement for batches), so those single-ad helpers failed.
+
+**Feature**
+- Marco asked for a Generate button on the body-copy section. The button existed but was hidden behind a `headline.trim()` gate, AND the backend rejected missing-headline requests with 400.
+
+**Fix (single commit, three logical changes)**
+- `backend/routes/ads.js` — migrated `POST /generate-angle` and `POST /generate-headline` from `claudeChat` (`claude-sonnet-4-6`) to OpenAI's `chat` (`gpt-5.2`), matching the batch-pipeline pattern. Added `SINGLE_AD_TEXT_MODEL = 'gpt-5.2'` constant. Operation labels (`ad_angle_generation`, `ad_headline_generation`) and prompts are byte-identical so cost-tracking history is continuous (provider field flips Anthropic → OpenAI, operation field unchanged). Dropped the `claudeChat` import (no remaining call sites).
+- `backend/routes/ads.js` — relaxed `POST /generate-body-copy` to accept either a headline OR an angle. When no headline is provided, the angle is used as the topic anchor passed into `generateBodyCopy`. Both must be empty for a 400; otherwise the existing `bodyCopyGenerator.js` (which already uses OpenAI / GPT-4.1-mini) handles generation.
+- `frontend/src/components/AdStudio.jsx` — ungated the body-copy Generate button. It now always renders, and is `disabled={generatingBody || (!headline.trim() && !angle.trim())}` with a `title` tooltip for the disabled hint. `handleRegenerateBody` accepts angle-only input. Most discoverable UX: button is always visible, greys out until there's input to anchor copy generation.
+
+**Antipattern note for future devs**
+- Routes in `backend/routes/ads.js` are now OpenAI-only by design. Anthropic is retained ONLY for: LP generator, copywriter chat, conductor (Director) learning, quote miner, foundational doc generator, creative filter agent. Marco needs an Anthropic key for those features specifically.
+
+**Pre-flight verification**
+- `grep -n "claudeChat" backend/routes/ads.js` → zero matches after fix.
+- `grep -n "generateAdBodyCopy" frontend/src/` → only AdStudio.jsx call site (no other consumers of the relaxed validator).
+
+**Out of scope**
+- Migrating LP generator / copywriter chat / conductor / quote miner / doc generator / filter agent off Anthropic — they legitimately use Claude.
+- Streaming the angle / headline / body-copy responses (today: synchronous one-shot, ~5–10s spinner).
+- Prompt-tuning for the angle-only body-copy path. Functional today; tighter results when a real headline is provided. Future polish if quality drops.
+
+---
+
 ## 2026-04-30 — Fix product-image toggle silently flipping OFF when navigating template-source tabs
 
 **Bug**

@@ -535,8 +535,8 @@ export default function AdStudio({ projectId, project }) {
   // Generate / regenerate body copy from current headline + style
   const handleRegenerateBody = async (styleOverride) => {
     const useStyle = styleOverride || bodyCopyStyle;
-    if (!headline.trim()) {
-      toast.error('Enter a headline first to generate body copy.');
+    if (!headline.trim() && !angle.trim()) {
+      toast.error('Enter an angle or a headline first.');
       return;
     }
     setGeneratingBody(true);
@@ -2121,27 +2121,26 @@ export default function AdStudio({ projectId, project }) {
                     <label className="block text-[13px] font-medium text-textmid">
                       Body Copy
                     </label>
-                    {headline.trim() && (
-                      <button
-                        onClick={() => handleRegenerateBody()}
-                        disabled={generatingBody}
-                        className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-gold hover:text-gold/80 disabled:opacity-50 transition-colors"
-                      >
-                        {generatingBody ? (
-                          <>
-                            <div className="w-3 h-3 rounded-full border-2 border-navy/30 border-t-navy animate-spin" />
-                            Generating...
-                          </>
-                        ) : (
-                          <>
-                            <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
-                              <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182" />
-                            </svg>
-                            {bodyCopy ? 'Regenerate' : 'Generate'}
-                          </>
-                        )}
-                      </button>
-                    )}
+                    <button
+                      onClick={() => handleRegenerateBody()}
+                      disabled={generatingBody || (!headline.trim() && !angle.trim())}
+                      title={(!headline.trim() && !angle.trim()) ? 'Enter an angle or headline first to generate body copy' : undefined}
+                      className="inline-flex items-center gap-1.5 text-[11px] font-semibold text-gold hover:text-gold/80 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                    >
+                      {generatingBody ? (
+                        <>
+                          <div className="w-3 h-3 rounded-full border-2 border-navy/30 border-t-navy animate-spin" />
+                          Generating...
+                        </>
+                      ) : (
+                        <>
+                          <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" strokeWidth={2} stroke="currentColor">
+                            <path strokeLinecap="round" strokeLinejoin="round" d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182" />
+                          </svg>
+                          {bodyCopy ? 'Regenerate' : 'Generate'}
+                        </>
+                      )}
+                    </button>
                   </div>
 
                   {/* Style selector */}

@@ -7,7 +7,10 @@ import { getProject, getLatestDoc, getAdsByProject, getInProgressAdsByProject, g
 const STUCK_ADS_THRESHOLD_MIN = 5;
 import { generateAd, generateAdMode2, regenerateImageOnly, applyPromptEdit } from '../services/adGenerator.js';
 import { generateBodyCopy } from '../services/bodyCopyGenerator.js';
-import { chat as claudeChat } from '../services/anthropic.js';
+import { chat } from '../services/openai.js';
+
+// Same model the batch pipeline uses for copy generation (see commit 76c8109).
+const SINGLE_AD_TEXT_MODEL = 'gpt-5.2';
 import { getProjectProductImage, generateThumbnail } from '../utils/adImages.js';
 import { streamService } from '../utils/sseHelper.js';
 import fs from 'fs';
@@ -162,7 +165,7 @@ router.post('/:projectId/generate-angle', async (req, res) => {
       return res.status(400).json({ error: 'Generate foundational docs first.' });
     }
 
-    const result = await claudeChat([{
+    const result = await chat([{
       role: 'user',
       content: `You are a direct response ad strategist. Based on the brand and audience docs below, suggest ONE specific, unexpected ad angle/topic.
 
@@ -177,7 +180,7 @@ ${offerSnippet}
 
 Return ONLY a short angle phrase (3-10 words). No explanation, no quotes, no numbering. Just the angle.
 Examples of good angles: "the 3am bathroom trip nobody talks about", "why your doctor never mentioned this", "what grandma knew that science just proved"`,
-    }], 'claude-sonnet-4-6', { max_tokens: 100, operation: 'ad_angle_generation', projectId: req.params.projectId });
+    }], SINGLE_AD_TEXT_MODEL, { max_tokens: 100, operation: 'ad_angle_generation', projectId: req.params.projectId });
 
     const angle = result.trim().replace(/^["'"]+|["'"]+$/g, '');
     res.json({ angle });
@@ -208,7 +211,7 @@ router.post('/:projectId/generate-headline', async (req, res) => {
       return res.status(400).json({ error: 'Generate foundational docs first.' });
     }
 
-    const result = await claudeChat([{
+    const result = await chat([{
       role: 'user',
       content: `You are a world-class direct response copywriter who writes scroll-stopping Facebook ad headlines for health/wellness products targeting women 55-75.
 
@@ -231,7 +234,7 @@ Write ONE scroll-stopping headline that:
 - ${angle ? `Focuses on the angle: "${angle}"` : 'Picks a compelling angle from the docs'}
 
 Return ONLY the headline text. No quotes, no labels, no explanation. Under 15 words.`,
-    }], 'claude-sonnet-4-6', { max_tokens: 150, operation: 'ad_headline_generation', projectId: req.params.projectId });
+    }], SINGLE_AD_TEXT_MODEL, { max_tokens: 150, operation: 'ad_headline_generation', projectId: req.params.projectId });
 
     const headline = result.trim().replace(/^["'"]+|["'"]+$/g, '');
     res.json({ headline });
@@ -245,23 +248,28 @@ Return ONLY the headline text. No quotes, no labels, no explanation. Under 15 wo
 router.post('/:projectId/generate-body-copy', async (req, res) => {
   try {
     const { headline, angle, style } = req.body;
-    if (!headline) {
-      return res.status(400).json({ error: 'headline is required' });
+
+    // Body copy can be generated from headline OR from angle alone — at least one must exist.
+    const headlineForCopy = (headline || '').trim();
+    const angleForCopy = (angle || '').trim();
+    if (!headlineForCopy && !angleForCopy) {
+      return res.status(400).json({ error: 'Provide a headline or an angle before generating body copy.' });
     }
 
     // Synthesize a minimal quote object for bodyCopyGenerator's signature.
-    // The real quote-bank integration was removed with Quote Mining.
+    // When no headline is provided, use the angle as the channel for emotion + topic anchor.
+    const anchor = headlineForCopy || angleForCopy;
     const quote = {
-      quote: headline,
+      quote: anchor,
       emotion: 'persuasive',
       emotional_intensity: 'medium',
     };
 
     const project = await getProject(req.params.projectId);
     const targetDemographic = project?.niche || '';
-    const problem = angle || '';
+    const problem = angleForCopy;
 
-    const bodyCopy = await generateBodyCopy(headline, quote, targetDemographic, problem, style || 'short');
+    const bodyCopy = await generateBodyCopy(anchor, quote, targetDemographic, problem, style || 'short');
     res.json({ body_copy: bodyCopy });
   } catch (err) {
     console.error('Failed to generate body copy:', err);
