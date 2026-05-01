@@ -2163,12 +2163,12 @@ export default function AdStudio({ projectId, project }) {
                 >
                   <option value="nano-banana-pro">Nano Banana Pro (Gemini 3 Pro)</option>
                   <option value="nano-banana-2">Nano Banana 2 (Gemini 3.1 Flash)</option>
-                  <option value="gpt-image-2-2026-04-21">GPT Image 2 (OpenAI)</option>
+                  <option value="gpt-image-2">GPT Image 2 (OpenAI)</option>
                 </select>
                 <p className="text-[10px] text-textlight mt-1">
                   {imageModel === 'nano-banana-pro' && 'High-fidelity Gemini image generation (current default).'}
                   {imageModel === 'nano-banana-2' && 'Faster Gemini generation with improved text rendering, up to 4K.'}
-                  {imageModel === 'gpt-image-2-2026-04-21' && "OpenAI's newest image model — strong text rendering and reference-image support. Requires OpenAI Tier 1+."}
+                  {imageModel === 'gpt-image-2' && "OpenAI's newest image model — strong text rendering and reference-image support. Requires OpenAI Tier 1+."}
                 </p>
               </div>
 

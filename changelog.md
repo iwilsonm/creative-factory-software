@@ -1,5 +1,31 @@
 # Creative Factory — Changelog
 
+## 2026-05-01 — Fix GPT Image 2 "Value must be 'dall-e-2'" — use the alias, not the dated snapshot
+
+**Bug**
+- Marco: "Now I'm getting this error message: `400 Invalid value: 'gpt...-21'. Value must be 'dall-e-2'.`"
+
+**Cause**
+- The codebase passed the dated snapshot name `gpt-image-2-2026-04-21` to OpenAI's `images.edit` and `images.generate` APIs. Per OpenAI's May 2026 documentation, `images.edit` rejects dated snapshots — only the alias `gpt-image-2` is accepted. The error "Value must be 'dall-e-2'" is OpenAI's generic fall-through when an unrecognized model string is passed to the edit endpoint.
+- Same pattern as their chat API: `gpt-4.1` (alias) works everywhere; specific snapshots like `gpt-4.1-2025-XX-XX` may only resolve in some endpoints.
+
+**Fix**
+- Dropped the `-2026-04-21` suffix from all callsites. Marco still gets the actual GPT Image 2 model — just under its alias name. Aliases auto-track the latest production version (desirable for ad creative).
+- Updated 6 callsites across 3 files: frontend dropdown (option value + label conditional), backend `DEFAULT_IMAGE_MODEL` constant, `OPENAI_IMAGE_MODELS` Set, `imageModelLabel` lookup. Pre-flight grep + post-fix grep confirm zero remaining snapshot references.
+
+**Antipattern note**
+- Avoid passing dated model snapshots to OpenAI APIs unless explicitly required for version pinning. Aliases (`gpt-image-2`, `gpt-4.1`, `gpt-5.2`) are universally accepted across endpoints and auto-track the latest production version.
+
+**Files modified**
+- `frontend/src/components/AdStudio.jsx`
+- `backend/services/openai.js`
+- `backend/services/adGenerator.js`
+
+**Note on historical records**
+- Existing ad-creative records have `text_model: 'gpt-image-2-2026-04-21'` stored. Future records will have `text_model: 'gpt-image-2'`. Audit-only data, not callable identifiers; no impact on cost reporting (which aggregates by service, not model name).
+
+---
+
 ## 2026-05-01 — Fix GPT Image 2 "input file is missing" — productImage object passed raw to sharp()
 
 **Bug**

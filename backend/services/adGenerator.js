@@ -11,7 +11,7 @@ const BATCH_VISION_MODEL = 'gpt-4.1';   // image-prompt-with-vision: 4.1 has rel
 // Whitelist of allowed image-model strings + which provider handles each.
 // Prevents devtools-injected arbitrary strings from reaching the API.
 const GEMINI_MODELS = new Set(['nano-banana-pro', 'nano-banana-2', 'gemini-3-pro']);
-const OPENAI_IMAGE_MODELS = new Set(['gpt-image-2-2026-04-21', 'gpt-image-2']);
+const OPENAI_IMAGE_MODELS = new Set(['gpt-image-2']);
 
 function resolveImageProvider(imageModel) {
   if (!imageModel || GEMINI_MODELS.has(imageModel)) return geminiGenerateImage;
@@ -21,7 +21,7 @@ function resolveImageProvider(imageModel) {
 
 function imageModelLabel(imageModel) {
   if (imageModel === 'nano-banana-2') return 'Nano Banana 2';
-  if (imageModel === 'gpt-image-2-2026-04-21' || imageModel === 'gpt-image-2') return 'GPT Image 2';
+  if (imageModel === 'gpt-image-2') return 'GPT Image 2';
   return 'Nano Banana Pro';
 }
 import { withHeavyLLMLimit } from './rateLimiter.js';

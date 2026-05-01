@@ -353,7 +353,11 @@ const ASPECT_TO_SIZE = {
   '16:9': '1536x1024',
 };
 const SIZE_FALLBACK = '1024x1024';
-const DEFAULT_IMAGE_MODEL = 'gpt-image-2-2026-04-21';
+// Use the alias `gpt-image-2`, NOT a dated snapshot. OpenAI's /v1/images/edits
+// endpoint rejects dated snapshots with "Value must be 'dall-e-2'" — only the
+// alias resolves correctly across both edit + generate paths. Aliases also
+// auto-track the latest production version, which is desirable for ad creative.
+const DEFAULT_IMAGE_MODEL = 'gpt-image-2';
 
 /**
  * Generate an ad image via OpenAI's Images API.
@@ -367,7 +371,7 @@ const DEFAULT_IMAGE_MODEL = 'gpt-image-2-2026-04-21';
  * @param {object} [options]
  * @param {string|null} [options.projectId]
  * @param {string} [options.operation='ad_image_generation']
- * @param {string} [options.imageModel] - Defaults to gpt-image-2-2026-04-21
+ * @param {string} [options.imageModel] - Defaults to gpt-image-2 (alias)
  * @returns {Promise<{ imageBuffer: Buffer, mimeType: string, textResponse: string }>}
  */
 export async function generateImage(prompt, aspectRatio = '1:1', productImage = null, options = {}) {
