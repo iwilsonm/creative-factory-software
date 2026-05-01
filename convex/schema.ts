@@ -39,6 +39,16 @@ export default defineSchema({
     filter_quality_threshold: v.optional(v.number()),     // 0-1, Filter agent pass threshold; default 0.6
     ad_sets_per_cycle: v.optional(v.number()),            // Director: how many ad sets to generate per cycle; default 5
     ads_per_ad_set: v.optional(v.number()),               // Director: ads per ad set; default 3, hard cap 20
+    // Phase 2A — Meta integration (per-project OAuth + ad account binding)
+    meta_access_token: v.optional(v.string()),            // long-lived (60-day) FB Marketing API token; powers both direct API + MCP paths
+    meta_token_expires_at: v.optional(v.number()),        // unix ms; refresh trigger
+    meta_user_id: v.optional(v.string()),                 // connected FB user ID
+    meta_user_name: v.optional(v.string()),               // for "Connected as ___" display
+    meta_account_id: v.optional(v.string()),              // selected ad account (act_XXX format)
+    meta_account_name: v.optional(v.string()),
+    meta_business_id: v.optional(v.string()),             // Business Manager ID (if applicable)
+    meta_integration_path: v.optional(v.string()),        // "mcp" | "api" — defaults to "mcp"
+    meta_connected_at: v.optional(v.number()),            // unix ms; when OAuth completed
     created_at: v.string(),
     updated_at: v.string(),
   }).index("by_externalId", ["externalId"]),

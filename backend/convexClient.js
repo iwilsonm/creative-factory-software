@@ -154,6 +154,23 @@ export async function getProject(id) {
   return convexProjectToRow(project);
 }
 
+// Phase 2A — Meta integration. Server-side only. Returns the raw project row
+// INCLUDING `meta_access_token`. NEVER return this to the frontend; it's only
+// for backend service code (metaApi.js) that needs the bearer token to call
+// graph.facebook.com or mcp.facebook.com. Frontend reads use getProject() which
+// applies convexProjectToRow() and redacts the token.
+export async function getProjectRawForMeta(id) {
+  const project = await queryWithRetry(api.projects.getByExternalId, { externalId: id });
+  if (!project) return null;
+  return project;
+}
+
+// Phase 2A — Meta integration. List projects with tokens expiring soon.
+// Used by the daily Vercel Cron at /api/meta/oauth/refresh.
+export async function getProjectsWithExpiringMetaTokens(withinMs) {
+  return await queryWithRetry(api.projects.getWithExpiringMetaTokens, { withinMs });
+}
+
 export async function getAllProjects() {
   const projects = await cachedQuery('projects', api.projects.getAll, {});
   return projects.map(convexProjectToRow);
@@ -176,7 +193,9 @@ export async function getAllProjectsWithStats() {
 export async function updateProject(id, fields) {
   const allowed = ['name', 'brand_name', 'niche', 'product_description', 'drive_folder_id', 'inspiration_folder_id', 'prompt_guidelines', 'status', 'scout_enabled', 'scout_default_campaign', 'scout_cta', 'scout_display_link', 'scout_facebook_page', 'scout_score_threshold', 'scout_daily_flex_ads', 'scout_destination_url', 'scout_destination_urls', 'scout_duplicate_adset_name',
     // Phase 1 — Staging Page + Director cycle config
-    'default_campaign_id', 'adset_default_template', 'filter_quality_threshold', 'ad_sets_per_cycle', 'ads_per_ad_set'];
+    'default_campaign_id', 'adset_default_template', 'filter_quality_threshold', 'ad_sets_per_cycle', 'ads_per_ad_set',
+    // Phase 2A — Meta integration
+    'meta_access_token', 'meta_token_expires_at', 'meta_user_id', 'meta_user_name', 'meta_account_id', 'meta_account_name', 'meta_business_id', 'meta_integration_path', 'meta_connected_at'];
   const updates = { externalId: id };
   for (const key of allowed) {
     // Drop both undefined and null. Convex v.optional(v.string()) rejects null
@@ -243,6 +262,17 @@ function convexProjectToRow(p) {
     filter_quality_threshold: p.filter_quality_threshold ?? null,
     ad_sets_per_cycle: p.ad_sets_per_cycle ?? null,
     ads_per_ad_set: p.ads_per_ad_set ?? null,
+    // Phase 2A — Meta integration. Token NEVER returned to frontend; only the fact-of-connection.
+    // Backend code that needs the raw token must read it via convexClient helpers (server-side).
+    meta_connected: !!p.meta_access_token,
+    meta_token_expires_at: p.meta_token_expires_at ?? null,
+    meta_user_id: p.meta_user_id || null,
+    meta_user_name: p.meta_user_name || null,
+    meta_account_id: p.meta_account_id || null,
+    meta_account_name: p.meta_account_name || null,
+    meta_business_id: p.meta_business_id || null,
+    meta_integration_path: p.meta_integration_path || 'mcp',  // default mcp
+    meta_connected_at: p.meta_connected_at ?? null,
     created_at: p.created_at,
     updated_at: p.updated_at,
   };

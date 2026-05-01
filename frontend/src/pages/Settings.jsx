@@ -354,6 +354,9 @@ export default function Settings() {
     gemini_rate_2k: '',
     gemini_rate_4k: '',
     openai_image_rate_per_image: '',
+    // Phase 2A — Meta integration global config
+    meta_app_id: '',
+    meta_app_secret: '',
   });
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
@@ -404,10 +407,13 @@ export default function Settings() {
       if (form.gemini_rate_2k) payload.gemini_rate_2k = form.gemini_rate_2k;
       if (form.gemini_rate_4k) payload.gemini_rate_4k = form.gemini_rate_4k;
       if (form.openai_image_rate_per_image) payload.openai_image_rate_per_image = form.openai_image_rate_per_image;
+      // Phase 2A — Meta integration
+      if (form.meta_app_id) payload.meta_app_id = form.meta_app_id;
+      if (form.meta_app_secret) payload.meta_app_secret = form.meta_app_secret;
       await api.updateSettings(payload);
       toast.success('Settings saved');
       setMessage('');
-      setForm(prev => ({ ...prev, openai_api_key: '', openai_admin_key: '', gemini_api_key: '', anthropic_api_key: '' }));
+      setForm(prev => ({ ...prev, openai_api_key: '', openai_admin_key: '', gemini_api_key: '', anthropic_api_key: '', meta_app_id: '', meta_app_secret: '' }));
       await loadSettings();
     } catch (err) {
       toast.error(err.message);
@@ -620,6 +626,40 @@ export default function Settings() {
                 </button>
               </div>
               {testResults.anthropic && <p className="text-[12px] text-textlight mt-1">{testResults.anthropic}</p>}
+            </div>
+
+            {/* Phase 2A — Meta App credentials. Used for the Facebook OAuth flow when projects connect their ad accounts. */}
+            <div>
+              <label className="text-[13px] font-medium text-textmid mb-1.5 flex items-center gap-2">
+                Meta App ID
+                <KeyStatusPill set={!!settings.meta_app_id} />
+              </label>
+              <input
+                type="text"
+                value={form.meta_app_id}
+                onChange={e => setForm(p => ({ ...p, meta_app_id: e.target.value }))}
+                className="input-apple w-full"
+                placeholder={settings.meta_app_id || 'e.g. 1234567890123456'}
+              />
+              <p className="text-[11px] text-textlight mt-1">
+                Create a Facebook App at <a className="underline" href="https://developers.facebook.com" target="_blank" rel="noopener noreferrer">developers.facebook.com</a>.
+                Set redirect URI to <code className="bg-cream px-1 rounded">https://creative-factory-software.vercel.app/api/meta/oauth/callback</code>.
+                Required for any project to connect its Meta ad account.
+              </p>
+            </div>
+
+            <div>
+              <label className="text-[13px] font-medium text-textmid mb-1.5 flex items-center gap-2">
+                Meta App Secret
+                <KeyStatusPill set={!!settings.meta_app_secret} />
+              </label>
+              <input
+                type="password"
+                value={form.meta_app_secret}
+                onChange={e => setForm(p => ({ ...p, meta_app_secret: e.target.value }))}
+                className="input-apple w-full"
+                placeholder={settings.meta_app_secret ? '••••••••' : 'Enter Meta App Secret'}
+              />
             </div>
           </div>
         </div>

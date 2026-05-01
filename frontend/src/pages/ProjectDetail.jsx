@@ -18,6 +18,8 @@ const CreativeFilterSettings = lazy(() => import('../components/CreativeFilterSe
 // Phase 1 — Staging Page (gated by per-project feature flag)
 const StagingPage = lazy(() => import('../components/StagingPage'));
 const CreativeDirectorSettings = lazy(() => import('../components/CreativeDirectorSettings'));
+// Phase 2A — Meta integration sub-tab in Project Settings
+const MetaConnectPanel = lazy(() => import('../components/MetaConnectPanel'));
 
 const STATUS_CONFIG = {
   setup: { label: 'Setup', bg: 'bg-gold/10', text: 'text-gold' },
@@ -351,6 +353,7 @@ export default function ProjectDetail() {
               { id: 'docs', label: 'Foundational Docs' },
               { id: 'filter', label: 'Creative Filter' },
               { id: 'creative_director', label: 'Creative Director' },
+              { id: 'meta', label: 'Meta' },
               { id: 'templates', label: 'Template Library' },
             ].map(st => (
               <button
@@ -561,6 +564,11 @@ export default function ProjectDetail() {
           {settingsSubTab === 'creative_director' && (
             <ErrorBoundary level="tab" key="creative_director">
               <CreativeDirectorSettings project={project} onSaved={loadProject} />
+            </ErrorBoundary>
+          )}
+          {settingsSubTab === 'meta' && (
+            <ErrorBoundary level="tab" key="meta">
+              <MetaConnectPanel projectId={id} />
             </ErrorBoundary>
           )}
           {settingsSubTab === 'templates' && (

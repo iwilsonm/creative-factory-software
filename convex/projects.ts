@@ -174,6 +174,16 @@ export const update = mutation({
     filter_quality_threshold: v.optional(v.number()),
     ad_sets_per_cycle: v.optional(v.number()),
     ads_per_ad_set: v.optional(v.number()),
+    // Phase 2A — Meta integration
+    meta_access_token: v.optional(v.string()),
+    meta_token_expires_at: v.optional(v.number()),
+    meta_user_id: v.optional(v.string()),
+    meta_user_name: v.optional(v.string()),
+    meta_account_id: v.optional(v.string()),
+    meta_account_name: v.optional(v.string()),
+    meta_business_id: v.optional(v.string()),
+    meta_integration_path: v.optional(v.string()),
+    meta_connected_at: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     const project = await ctx.db
@@ -307,5 +317,28 @@ export const backfillStoredStats = mutation({
     }
 
     return { updated };
+  },
+});
+
+// Phase 2A — Meta integration: list projects whose tokens expire within `withinMs` from now.
+// Used by the daily Vercel Cron Job at /api/meta/oauth/refresh to keep tokens fresh.
+export const getWithExpiringMetaTokens = query({
+  args: { withinMs: v.number() },
+  handler: async (ctx, args) => {
+    const now = Date.now();
+    const cutoff = now + args.withinMs;
+    const projects = await ctx.db.query("projects").collect();
+    return projects
+      .filter((p) =>
+        !!p.meta_access_token &&
+        typeof p.meta_token_expires_at === "number" &&
+        p.meta_token_expires_at <= cutoff
+      )
+      .map((p) => ({
+        externalId: p.externalId,
+        meta_access_token: p.meta_access_token,
+        meta_token_expires_at: p.meta_token_expires_at,
+        meta_user_id: p.meta_user_id,
+      }));
   },
 });

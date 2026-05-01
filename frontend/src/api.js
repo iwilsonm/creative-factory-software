@@ -417,6 +417,22 @@ export const api = {
   getConductorHealth: (limit) => request(`/conductor/health${limit ? `?limit=${limit}` : ''}`),
   getFixerPlaybooks: () => request('/conductor/fixer-playbooks'),
 
+  // Phase 2A — Meta integration
+  initMetaOAuth: (projectId) =>
+    request('/meta/oauth/init', { method: 'POST', body: JSON.stringify({ projectId }) }),
+  getMetaConnectionStatus: (projectId) =>
+    request(`/meta/connection-status?projectId=${projectId}`),
+  getMetaAdAccounts: (projectId) =>
+    request(`/meta/ad-accounts?projectId=${projectId}`).then(d => d?.accounts ?? []),
+  selectMetaAdAccount: (projectId, payload) =>
+    request('/meta/select-account', { method: 'POST', body: JSON.stringify({ projectId, ...payload }) }),
+  setMetaIntegrationPath: (projectId, path) =>
+    request('/meta/integration-path', { method: 'POST', body: JSON.stringify({ projectId, path }) }),
+  disconnectMeta: (projectId) =>
+    request('/meta/disconnect', { method: 'POST', body: JSON.stringify({ projectId }) }),
+  getMetaCampaigns: (projectId) =>
+    request(`/meta/campaigns?projectId=${projectId}`).then(d => d?.campaigns ?? []),
+
   // Phase 1 — Staging Page
   getStagingPending: (projectId) =>
     request(`/projects/${projectId}/staging/pending`).then(data => data?.groups ?? []),

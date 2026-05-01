@@ -26,6 +26,7 @@ import agentMonitorRoutes, { agentCostRouter } from './routes/agentMonitor.js';
 import conductorRoutes from './routes/conductor.js';
 import lpAgentRoutes from './routes/lpAgent.js';
 import stagingRoutes from './routes/staging.js';
+import metaRoutes from './routes/meta.js';
 import rateLimit from 'express-rate-limit';
 import { getRateLimiterStats } from './services/rateLimiter.js';
 import { syncOpenAICosts, refreshGeminiRates } from './services/costTracker.js';
@@ -286,6 +287,9 @@ try {
   app.use('/api/batches', requireAuth, requireRole('admin', 'manager'), batchRoutes);  // Flat mount for Dacia Fixer retry endpoint
   // Phase 1 — Staging Page routes (admin/manager only). Auth + role enforced inside the router.
   app.use('/api/projects', stagingRoutes);
+  // Phase 2A — Meta integration routes. Most require admin/manager (enforced inside router);
+  // /oauth/callback is public (Facebook redirects with no session cookie).
+  app.use('/api/meta', metaRoutes);
   app.use('/api', requireAuth, requireRole('admin', 'manager'), costsRoutes);
   // Routes — agent monitor (admin only)
   app.use('/api/agent-monitor', requireAuth, requireRole('admin'), agentMonitorRoutes);
