@@ -38,6 +38,15 @@ export const create = mutation({
     project_id: v.string(),
     name: v.string(),
     sort_order: v.number(),
+    // Phase 1 — Staging Page + Director-driven angle testing (all optional on create)
+    angle_id: v.optional(v.string()),
+    lifecycle_status: v.optional(v.string()),
+    meta_targeting: v.optional(v.string()),
+    meta_budget_type: v.optional(v.string()),
+    meta_budget_amount_cents: v.optional(v.number()),
+    meta_schedule: v.optional(v.string()),
+    meta_optimization_goal: v.optional(v.string()),
+    meta_billing_event: v.optional(v.string()),
     created_at: v.string(),
     updated_at: v.string(),
   },
@@ -53,6 +62,17 @@ export const update = mutation({
       name: v.optional(v.string()),
       sort_order: v.optional(v.number()),
       campaign_id: v.optional(v.string()),
+      // Phase 1 — Staging Page + Director-driven angle testing
+      angle_id: v.optional(v.string()),
+      lifecycle_status: v.optional(v.string()),
+      meta_targeting: v.optional(v.string()),
+      meta_budget_type: v.optional(v.string()),
+      meta_budget_amount_cents: v.optional(v.number()),
+      meta_schedule: v.optional(v.string()),
+      meta_optimization_goal: v.optional(v.string()),
+      meta_billing_event: v.optional(v.string()),
+      posted_at: v.optional(v.string()),
+      meta_adset_id: v.optional(v.string()),
     }),
   },
   handler: async (ctx, args) => {
@@ -63,6 +83,30 @@ export const update = mutation({
     if (!doc) throw new Error("Ad set not found");
     const updates: Record<string, any> = { ...args.fields, updated_at: new Date().toISOString() };
     await ctx.db.patch(doc._id, updates);
+  },
+});
+
+// Phase 1 — Staging Page queries
+
+export const getByProjectAndLifecycle = query({
+  args: { projectId: v.string(), lifecycle_status: v.string() },
+  handler: async (ctx, args) => {
+    return await ctx.db
+      .query("ad_sets")
+      .withIndex("by_project_and_lifecycle", (q) =>
+        q.eq("project_id", args.projectId).eq("lifecycle_status", args.lifecycle_status)
+      )
+      .collect();
+  },
+});
+
+export const getByAngle = query({
+  args: { angle_id: v.string() },
+  handler: async (ctx, args) => {
+    return await ctx.db
+      .query("ad_sets")
+      .withIndex("by_angle", (q) => q.eq("angle_id", args.angle_id))
+      .collect();
   },
 });
 

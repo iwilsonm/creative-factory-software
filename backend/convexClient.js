@@ -173,7 +173,9 @@ export async function getAllProjectsWithStats() {
 }
 
 export async function updateProject(id, fields) {
-  const allowed = ['name', 'brand_name', 'niche', 'product_description', 'drive_folder_id', 'inspiration_folder_id', 'prompt_guidelines', 'status', 'scout_enabled', 'scout_default_campaign', 'scout_cta', 'scout_display_link', 'scout_facebook_page', 'scout_score_threshold', 'scout_daily_flex_ads', 'scout_destination_url', 'scout_destination_urls', 'scout_duplicate_adset_name'];
+  const allowed = ['name', 'brand_name', 'niche', 'product_description', 'drive_folder_id', 'inspiration_folder_id', 'prompt_guidelines', 'status', 'scout_enabled', 'scout_default_campaign', 'scout_cta', 'scout_display_link', 'scout_facebook_page', 'scout_score_threshold', 'scout_daily_flex_ads', 'scout_destination_url', 'scout_destination_urls', 'scout_duplicate_adset_name',
+    // Phase 1 — Staging Page + Director cycle config
+    'default_campaign_id', 'adset_default_template', 'filter_quality_threshold', 'ad_sets_per_cycle', 'ads_per_ad_set'];
   const updates = { externalId: id };
   for (const key of allowed) {
     // Drop both undefined and null. Convex v.optional(v.string()) rejects null
@@ -234,6 +236,12 @@ function convexProjectToRow(p) {
     adCount: p.adCount ?? 0,
     lpCount: p.lpCount ?? 0,
     lpPublishedCount: p.lpPublishedCount ?? 0,
+    // Phase 1 — Staging Page + Director cycle config
+    default_campaign_id: p.default_campaign_id || '',
+    adset_default_template: p.adset_default_template || null,  // JSON-as-string; null when unset
+    filter_quality_threshold: p.filter_quality_threshold ?? null,
+    ad_sets_per_cycle: p.ad_sets_per_cycle ?? null,
+    ads_per_ad_set: p.ads_per_ad_set ?? null,
     created_at: p.created_at,
     updated_at: p.updated_at,
   };
@@ -539,6 +547,11 @@ function convexAdToRow(a) {
     is_favorite: !!a.is_favorite,
     text_model: a.text_model || null,
     image_model: a.image_model || null,
+    // Phase 1 — Staging Page + Filter agent
+    ad_set_id: a.ad_set_id || null,
+    filter_score: a.filter_score ?? null,
+    filter_verdict: a.filter_verdict || null,
+    filter_reasons: a.filter_reasons || null,  // JSON array as string; null when unset
     created_at: a.created_at,
   };
 }
@@ -1070,47 +1083,55 @@ export async function deleteCampaign(id) {
 // Ad Set helpers (local ad set organization)
 // =============================================
 
+function convexAdSetToRow(a) {
+  return {
+    id: a.externalId,
+    campaign_id: a.campaign_id,
+    project_id: a.project_id,
+    name: a.name,
+    sort_order: a.sort_order,
+    // Phase 1 — Staging Page + Director-driven angle testing
+    angle_id: a.angle_id || null,
+    lifecycle_status: a.lifecycle_status || null,
+    meta_targeting: a.meta_targeting || null,                    // JSON-as-string; null when unset
+    meta_budget_type: a.meta_budget_type || null,
+    meta_budget_amount_cents: a.meta_budget_amount_cents ?? null,
+    meta_schedule: a.meta_schedule || null,                      // JSON-as-string
+    meta_optimization_goal: a.meta_optimization_goal || null,
+    meta_billing_event: a.meta_billing_event || null,
+    posted_at: a.posted_at || null,
+    meta_adset_id: a.meta_adset_id || null,
+    created_at: a.created_at,
+    updated_at: a.updated_at,
+  };
+}
+
 export async function getAdSet(id) {
   const adSet = await cachedQuery('ad_sets', api.adSets.getByExternalId, { externalId: id });
   if (!adSet) return null;
-  return {
-    id: adSet.externalId,
-    campaign_id: adSet.campaign_id,
-    project_id: adSet.project_id,
-    name: adSet.name,
-    sort_order: adSet.sort_order,
-    created_at: adSet.created_at,
-    updated_at: adSet.updated_at,
-  };
+  return convexAdSetToRow(adSet);
 }
 
 export async function getAdSetsByProject(projectId) {
   const adSets = ensureArray(await cachedQuery('ad_sets', api.adSets.getByProject, { projectId }), 'convexClient.getAdSetsByProject');
-  return adSets.map(a => ({
-    id: a.externalId,
-    campaign_id: a.campaign_id,
-    project_id: a.project_id,
-    name: a.name,
-    sort_order: a.sort_order,
-    created_at: a.created_at,
-    updated_at: a.updated_at,
-  }));
+  return adSets.map(convexAdSetToRow);
 }
 
 export async function getAdSetsByCampaign(campaignId) {
   const adSets = await cachedQuery('ad_sets', api.adSets.getByCampaign, { campaignId });
-  return adSets.map(a => ({
-    id: a.externalId,
-    campaign_id: a.campaign_id,
-    project_id: a.project_id,
-    name: a.name,
-    sort_order: a.sort_order,
-    created_at: a.created_at,
-    updated_at: a.updated_at,
-  }));
+  return adSets.map(convexAdSetToRow);
 }
 
-export async function createAdSet({ id, campaign_id, project_id, name, sort_order }) {
+// Phase 1 — staging-lifecycle queries
+export async function getAdSetsByProjectAndLifecycle(projectId, lifecycleStatus) {
+  const adSets = ensureArray(
+    await queryWithRetry(api.adSets.getByProjectAndLifecycle, { projectId, lifecycle_status: lifecycleStatus }),
+    'convexClient.getAdSetsByProjectAndLifecycle'
+  );
+  return adSets.map(convexAdSetToRow);
+}
+
+export async function createAdSet({ id, campaign_id, project_id, name, sort_order, angle_id, lifecycle_status, meta_targeting, meta_budget_type, meta_budget_amount_cents, meta_schedule, meta_optimization_goal, meta_billing_event }) {
   const now = new Date().toISOString();
   const result = await mutationWithRetry(api.adSets.create, {
     externalId: id,
@@ -1118,6 +1139,15 @@ export async function createAdSet({ id, campaign_id, project_id, name, sort_orde
     project_id,
     name,
     sort_order: sort_order || 0,
+    // Phase 1 fields (all optional)
+    angle_id,
+    lifecycle_status,
+    meta_targeting,
+    meta_budget_type,
+    meta_budget_amount_cents,
+    meta_schedule,
+    meta_optimization_goal,
+    meta_billing_event,
     created_at: now,
     updated_at: now,
   });
@@ -1126,6 +1156,8 @@ export async function createAdSet({ id, campaign_id, project_id, name, sort_orde
 }
 
 export async function updateAdSet(id, fields) {
+  // Whitelist enforcement is handled inside convex/adSets.ts:update via v.object().
+  // Caller passes fields supported by that whitelist.
   const result = await mutationWithRetry(api.adSets.update, { externalId: id, fields });
   invalidateQueryCache('ad_sets');
   return result;
@@ -1135,6 +1167,84 @@ export async function deleteAdSet(id) {
   const result = await mutationWithRetry(api.adSets.remove, { externalId: id });
   invalidateQueryCache('ad_sets');
   invalidateQueryCache('flex_ads');
+  return result;
+}
+
+// =============================================
+// Phase 1 — Staging Page operations
+// =============================================
+
+export async function getStagingPending(projectId) {
+  // Returns [{ adSet: {...}, ads: [...] }]
+  const result = await queryWithRetry(api.staging.getPendingByProject, { projectId });
+  if (!Array.isArray(result)) return [];
+  return result.map(({ adSet, ads }) => ({
+    adSet: convexAdSetToRow(adSet),
+    ads: ads.map(convexAdToRow),
+  }));
+}
+
+export async function getStagingPromoted(projectId) {
+  const result = ensureArray(
+    await queryWithRetry(api.staging.getPromotedByProject, { projectId }),
+    'convexClient.getStagingPromoted'
+  );
+  return result.map(convexAdSetToRow);
+}
+
+export async function getStagingRejected(projectId) {
+  const result = ensureArray(
+    await queryWithRetry(api.adCreatives.getRejectedByProject, { projectId }),
+    'convexClient.getStagingRejected'
+  );
+  return result.map(convexAdToRow);
+}
+
+export async function promoteAdSet(adSetExternalId) {
+  const result = await mutationWithRetry(api.staging.promote, { externalId: adSetExternalId });
+  invalidateQueryCache('ad_sets');
+  return result;
+}
+
+export async function regroupAds(adIds, targetAdSetId) {
+  const result = await mutationWithRetry(api.staging.regroupAds, { adIds, targetAdSetId });
+  invalidateQueryCache('ad_creatives');
+  return result;
+}
+
+export async function createEmptyAdSet({ id, project_id, campaign_id, angle_id, name, sort_order, meta_targeting, meta_budget_type, meta_budget_amount_cents, meta_schedule, meta_optimization_goal, meta_billing_event }) {
+  const result = await mutationWithRetry(api.staging.createEmptyAdSet, {
+    externalId: id,
+    project_id,
+    campaign_id,
+    angle_id,
+    name,
+    sort_order: sort_order || 0,
+    meta_targeting,
+    meta_budget_type,
+    meta_budget_amount_cents,
+    meta_schedule,
+    meta_optimization_goal,
+    meta_billing_event,
+  });
+  invalidateQueryCache('ad_sets');
+  return result;
+}
+
+export async function setFilterVerdict(adId, { score, verdict, reasons }) {
+  const result = await mutationWithRetry(api.adCreatives.setFilterVerdict, {
+    externalId: adId,
+    filter_score: score,
+    filter_verdict: verdict,
+    filter_reasons: reasons || undefined,
+  });
+  invalidateQueryCache('ad_creatives');
+  return result;
+}
+
+export async function forcePromoteAd(adId) {
+  const result = await mutationWithRetry(api.adCreatives.forcePromote, { externalId: adId });
+  invalidateQueryCache('ad_creatives');
   return result;
 }
 

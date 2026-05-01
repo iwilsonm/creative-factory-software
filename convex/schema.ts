@@ -33,6 +33,12 @@ export default defineSchema({
     scout_destination_url: v.optional(v.string()),        // Default website/landing page URL (legacy single)
     scout_destination_urls: v.optional(v.string()),       // JSON array of default LP URLs (overrides single)
     scout_duplicate_adset_name: v.optional(v.string()),   // Default "duplicate this ad set" name for Meta
+    // Phase 1 — Staging Page + Director cycle config
+    default_campaign_id: v.optional(v.string()),          // → campaigns.externalId; default Meta campaign for new ad sets
+    adset_default_template: v.optional(v.string()),       // JSON: { targeting, budget_type, budget_amount_cents, schedule, optimization_goal, billing_event }
+    filter_quality_threshold: v.optional(v.number()),     // 0-1, Filter agent pass threshold; default 0.6
+    ad_sets_per_cycle: v.optional(v.number()),            // Director: how many ad sets to generate per cycle; default 5
+    ads_per_ad_set: v.optional(v.number()),               // Director: ads per ad set; default 3, hard cap 20
     created_at: v.string(),
     updated_at: v.string(),
   }).index("by_externalId", ["externalId"]),
@@ -100,12 +106,19 @@ export default defineSchema({
     sub_angle: v.optional(v.string()),       // Secondary variation label within a hook lane
     text_model: v.optional(v.string()),      // LLM used for copy (e.g., "gpt-5.2")
     image_model: v.optional(v.string()),     // Model used for image (e.g., "nano-banana-2")
+    // Phase 1 — Staging Page + Filter agent
+    ad_set_id: v.optional(v.string()),       // → ad_sets.externalId; set when ad joins a Staging Page ad set
+    filter_score: v.optional(v.number()),    // 0-1, Filter agent quality score
+    filter_verdict: v.optional(v.string()),  // "passed" | "rejected" | null (null = not yet scored)
+    filter_reasons: v.optional(v.string()),  // JSON array of reason strings (for rejected ads)
+    // status field above accepts new values: "staging" | "quality_rejected"
     created_at: v.string(),
   })
     .index("by_externalId", ["externalId"])
     .index("by_project", ["project_id"])
     .index("by_batch_job", ["batch_job_id"])
-    .index("by_project_and_angle_name", ["project_id", "angle_name"]),
+    .index("by_project_and_angle_name", ["project_id", "angle_name"])
+    .index("by_ad_set", ["ad_set_id"]),
 
   headline_history: defineTable({
     externalId: v.string(),
@@ -225,12 +238,25 @@ export default defineSchema({
     project_id: v.string(),      // → projects.externalId (denormalized)
     name: v.string(),
     sort_order: v.number(),
+    // Phase 1 — Staging Page + Director-driven angle testing
+    angle_id: v.optional(v.string()),                  // → conductor_angles.externalId; the angle this ad set tests
+    lifecycle_status: v.optional(v.string()),          // "staging" | "promoted" | "posted" (Phase 3 adds: observing | passed | failed)
+    meta_targeting: v.optional(v.string()),            // JSON audience targeting spec
+    meta_budget_type: v.optional(v.string()),          // "daily" | "lifetime"
+    meta_budget_amount_cents: v.optional(v.number()),
+    meta_schedule: v.optional(v.string()),             // JSON: { start_time, end_time? }
+    meta_optimization_goal: v.optional(v.string()),
+    meta_billing_event: v.optional(v.string()),
+    posted_at: v.optional(v.string()),                 // ISO timestamp; Day 1 of Phase 3 observation
+    meta_adset_id: v.optional(v.string()),             // Meta's ad set ID after posting
     created_at: v.string(),
     updated_at: v.string(),
   })
     .index("by_externalId", ["externalId"])
     .index("by_campaign", ["campaign_id"])
-    .index("by_project", ["project_id"]),
+    .index("by_project", ["project_id"])
+    .index("by_project_and_lifecycle", ["project_id", "lifecycle_status"])
+    .index("by_angle", ["angle_id"]),
 
   flex_ads: defineTable({
     externalId: v.string(),

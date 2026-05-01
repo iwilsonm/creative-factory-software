@@ -168,6 +168,12 @@ export const update = mutation({
     adCount: v.optional(v.float64()),
     lpCount: v.optional(v.float64()),
     lpPublishedCount: v.optional(v.float64()),
+    // Phase 1 — Staging Page + Director cycle config
+    default_campaign_id: v.optional(v.string()),
+    adset_default_template: v.optional(v.string()),
+    filter_quality_threshold: v.optional(v.number()),
+    ad_sets_per_cycle: v.optional(v.number()),
+    ads_per_ad_set: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     const project = await ctx.db

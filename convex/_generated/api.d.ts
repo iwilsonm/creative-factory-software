@@ -22,9 +22,11 @@ import type * as flexAds from "../flexAds.js";
 import type * as foundationalDocs from "../foundationalDocs.js";
 import type * as headlineHistory from "../headlineHistory.js";
 import type * as inspirationImages from "../inspirationImages.js";
+import type * as migrations from "../migrations.js";
 import type * as projects from "../projects.js";
 import type * as sessions from "../sessions.js";
 import type * as settings from "../settings.js";
+import type * as staging from "../staging.js";
 import type * as templateImages from "../templateImages.js";
 import type * as users from "../users.js";
 
@@ -49,9 +51,11 @@ declare const fullApi: ApiFromModules<{
   foundationalDocs: typeof foundationalDocs;
   headlineHistory: typeof headlineHistory;
   inspirationImages: typeof inspirationImages;
+  migrations: typeof migrations;
   projects: typeof projects;
   sessions: typeof sessions;
   settings: typeof settings;
+  staging: typeof staging;
   templateImages: typeof templateImages;
   users: typeof users;
 }>;

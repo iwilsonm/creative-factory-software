@@ -169,6 +169,11 @@ export const create = mutation({
     sub_angle: v.optional(v.string()),
     text_model: v.optional(v.string()),
     image_model: v.optional(v.string()),
+    // Phase 1 — Staging Page + Filter agent
+    ad_set_id: v.optional(v.string()),
+    filter_score: v.optional(v.number()),
+    filter_verdict: v.optional(v.string()),
+    filter_reasons: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const now = new Date().toISOString();
@@ -207,6 +212,11 @@ export const update = mutation({
     is_favorite: v.optional(v.boolean()),
     text_model: v.optional(v.string()),
     image_model: v.optional(v.string()),
+    // Phase 1 — Staging Page + Filter agent
+    ad_set_id: v.optional(v.string()),
+    filter_score: v.optional(v.number()),
+    filter_verdict: v.optional(v.string()),
+    filter_reasons: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const ad = await ctx.db
@@ -261,5 +271,72 @@ export const getImageUrl = query({
       .first();
     if (!ad || !ad.storageId) return null;
     return await ctx.storage.getUrl(ad.storageId);
+  },
+});
+
+// Phase 1 — Staging Page + Filter agent
+
+export const getByAdSet = query({
+  args: { adSetId: v.string() },
+  handler: async (ctx, args) => {
+    return await ctx.db
+      .query("ad_creatives")
+      .withIndex("by_ad_set", (q) => q.eq("ad_set_id", args.adSetId))
+      .collect();
+  },
+});
+
+export const getRejectedByProject = query({
+  args: { projectId: v.string() },
+  handler: async (ctx, args) => {
+    const ads = await ctx.db
+      .query("ad_creatives")
+      .withIndex("by_project", (q) => q.eq("project_id", args.projectId))
+      .collect();
+    return ads.filter((a) => a.status === "quality_rejected");
+  },
+});
+
+// Filter agent writes its verdict here. Sets filter_score, filter_verdict, filter_reasons.
+// Also flips status to "staging" or "quality_rejected" based on verdict.
+export const setFilterVerdict = mutation({
+  args: {
+    externalId: v.string(),
+    filter_score: v.number(),
+    filter_verdict: v.string(), // "passed" | "rejected"
+    filter_reasons: v.optional(v.string()), // JSON array
+  },
+  handler: async (ctx, args) => {
+    const ad = await ctx.db
+      .query("ad_creatives")
+      .withIndex("by_externalId", (q) => q.eq("externalId", args.externalId))
+      .first();
+    if (!ad) throw new Error("Ad creative not found");
+    const newStatus = args.filter_verdict === "passed" ? "staging" : "quality_rejected";
+    await ctx.db.patch(ad._id, {
+      filter_score: args.filter_score,
+      filter_verdict: args.filter_verdict,
+      filter_reasons: args.filter_reasons,
+      status: newStatus,
+    });
+  },
+});
+
+// Operator override: flip a quality_rejected ad back to staging.
+export const forcePromote = mutation({
+  args: { externalId: v.string() },
+  handler: async (ctx, args) => {
+    const ad = await ctx.db
+      .query("ad_creatives")
+      .withIndex("by_externalId", (q) => q.eq("externalId", args.externalId))
+      .first();
+    if (!ad) throw new Error("Ad creative not found");
+    if (ad.status !== "quality_rejected") {
+      throw new Error(`Cannot force-promote ad with status "${ad.status}" — only "quality_rejected" is eligible`);
+    }
+    await ctx.db.patch(ad._id, {
+      status: "staging",
+      filter_verdict: "passed",
+    });
   },
 });
