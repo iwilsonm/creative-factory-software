@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from 'react';
+import { useEffect, useRef, useState, useCallback } from 'react';
 import { api } from '../api';
 import { useToast } from './Toast';
 
@@ -66,6 +66,21 @@ export default function MetaConnectPanel({ projectId }) {
     return () => window.removeEventListener('message', onMessage);
   }, [loadStatus, toast]);
 
+  // Polling state for the OAuth-completion fallback (postMessage from the popup
+  // can be blocked by Cross-Origin-Opener-Policy when the popup navigates to
+  // facebook.com and back). We poll connection-status until the backend shows
+  // a token, or until the popup is closed, or until a 5-minute timeout.
+  const pollIntervalRef = useRef(null);
+  const pollTimeoutRef = useRef(null);
+  const popupRef = useRef(null);
+
+  const stopPolling = useCallback(() => {
+    if (pollIntervalRef.current) { clearInterval(pollIntervalRef.current); pollIntervalRef.current = null; }
+    if (pollTimeoutRef.current) { clearTimeout(pollTimeoutRef.current); pollTimeoutRef.current = null; }
+  }, []);
+
+  useEffect(() => () => stopPolling(), [stopPolling]);
+
   const handleConnect = async () => {
     setBusy(true); setError('');
     try {
@@ -73,7 +88,35 @@ export default function MetaConnectPanel({ projectId }) {
       const w = 600, h = 720;
       const left = window.screenX + (window.outerWidth - w) / 2;
       const top = window.screenY + (window.outerHeight - h) / 2;
-      window.open(authUrl, 'meta-oauth', `width=${w},height=${h},left=${left},top=${top}`);
+      const popup = window.open(authUrl, 'meta-oauth', `width=${w},height=${h},left=${left},top=${top}`);
+      popupRef.current = popup;
+
+      // Capture a snapshot of "currently connected?" before the user authorizes
+      // so we can detect the transition false → true. Otherwise on a re-connect
+      // we'd see "still connected" and stop polling immediately.
+      const beforeStatus = await api.getMetaConnectionStatus(projectId).catch(() => null);
+      const wasConnectedBefore = !!beforeStatus?.connected;
+
+      // Polling fallback: every 2s, check backend status. Stop on detect, on
+      // popup close, or after 5 min.
+      stopPolling();
+      pollIntervalRef.current = setInterval(async () => {
+        try {
+          const s = await api.getMetaConnectionStatus(projectId);
+          if (s?.connected && !wasConnectedBefore) {
+            stopPolling();
+            toast.success('Meta account connected');
+            try { popupRef.current?.close(); } catch {}
+            await loadStatus();
+          } else if (popupRef.current && popupRef.current.closed) {
+            // Popup closed without completing — stop polling silently
+            stopPolling();
+          }
+        } catch { /* keep polling */ }
+      }, 2000);
+      pollTimeoutRef.current = setTimeout(() => {
+        stopPolling();
+      }, 5 * 60 * 1000);
     } catch (err) {
       setError(err?.message || 'Could not start Meta OAuth');
       toast.error(err?.message || 'Could not start Meta OAuth');

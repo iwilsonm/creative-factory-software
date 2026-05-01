@@ -68,7 +68,20 @@ export default function ProjectDetail() {
   // Product image state
   const [productImageUploading, setProductImageUploading] = useState(false);
   const [productImageDeleting, setProductImageDeleting] = useState(false);
-  const [settingsSubTab, setSettingsSubTab] = useState('general');
+  // settingsSubTab persists in URL `?subtab=` so refresh holds position.
+  const validSubTabs = ['general', 'docs', 'filter', 'creative_director', 'meta', 'templates'];
+  const subTabFromUrl = searchParams.get('subtab');
+  const [settingsSubTab, setSettingsSubTabState] = useState(
+    subTabFromUrl && validSubTabs.includes(subTabFromUrl) ? subTabFromUrl : 'general'
+  );
+  const setSettingsSubTab = useCallback((newSubTab) => {
+    setSettingsSubTabState(newSubTab);
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev);
+      next.set('subtab', newSubTab);
+      return next;
+    }, { replace: true });
+  }, [setSearchParams]);
   const [productDragOver, setProductDragOver] = useState(false);
   const productFileInputRef = useRef(null);
 
