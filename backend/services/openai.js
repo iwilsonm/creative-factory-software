@@ -394,13 +394,27 @@ export async function generateImage(prompt, aspectRatio = '1:1', productImage = 
         // users should pick Gemini (Nano Banana Pro / Nano Banana 2).
         // When OpenAI ships gpt-image-2 edit support, swap `dall-e-2` back to
         // `imageModel` (one-line change).
+        //
+        // dall-e-2 has a 1000-char prompt limit — gpt-image-2's prompts (which
+        // this codebase generates via adGenerator.js) are typically 2000-3000
+        // chars. Truncate the TAIL to fit. We preserve the END of the prompt
+        // because that's where the visual-direction content (headline/body
+        // copy, aspect ratio, style cues) sits in the existing prompt template
+        // — most important for image generation. The opening brand/avatar
+        // context is less critical here because the reference image itself
+        // carries the brand visual identity.
+        const DALLE_2_PROMPT_MAX = 1000;
+        const dallePrompt = prompt.length > DALLE_2_PROMPT_MAX
+          ? prompt.slice(prompt.length - DALLE_2_PROMPT_MAX)
+          : prompt;
+
         const inputBuffer = Buffer.from(productImage.base64, 'base64');
         const pngBuffer = await sharp(inputBuffer).png().toBuffer();
         const file = await toFile(pngBuffer, 'reference.png', { type: 'image/png' });
         return openai.images.edit({
           model: 'dall-e-2',
           image: file,
-          prompt,
+          prompt: dallePrompt,
           size,
           n: 1,
           response_format: 'b64_json',

@@ -1,5 +1,35 @@
 # Creative Factory — Changelog
 
+## 2026-05-01 — Truncate prompts to ≤1000 chars when calling dall-e-2 (PEF-fortified)
+
+**Bug**
+- Marco: "Now I'm getting this error message: `400 Invalid 'prompt': string too long. Expected a string with maximum length 1000, but got a string with length 2582 instead.`"
+
+**Cause**
+- The previous fix routed the OpenAI image-edit path through `dall-e-2`. dall-e-2 has a hard 1000-char prompt limit (verified by the API error message itself + OpenAI docs). The codebase's prompt generator at `backend/services/adGenerator.js` is built around gpt-image-2's larger token budget — typical generated prompts run 2000–3000 chars (brand context + foundational docs + angle direction + headline/body copy + visual style). dall-e-2 rejects anything over 1000.
+- The Gemini path doesn't have this limit, so the prompt-generation pipeline never had to constrain length. Now that we route to dall-e-2 for the edit path, we hit the cap.
+
+**Fix**
+- `backend/services/openai.js#generateImage` — in the productImage (edit) branch, truncate the prompt to ≤1000 chars before passing to `images.edit`. Slice the **tail** of the prompt (last 1000 chars), not the head. The visual-direction content (headline/body copy, aspect ratio cue, style direction) sits at the END of the prompt template — most actionable for image generation. The opening brand/avatar context is less critical here because the reference image itself carries brand visual identity.
+- Generate endpoint (no productImage) is untouched — gpt-image-2 keeps the full prompt.
+- Gemini paths are untouched.
+
+**Why tail truncation, not head**
+- `buildImageRequestText` in adGenerator.js orders content as: brand → product → avatar → angle → aspect ratio → headline → body copy. Visual direction is at the bottom. Slicing the LAST 1000 chars preserves visual cues; slicing the first 1000 would keep brand context but drop the actual visual prompt — worse for image gen. The product image passed as a reference compensates for the dropped brand context.
+
+**Edge case**
+- If `prompt.length <= 1000` (rare but possible), no truncation; `dallePrompt === prompt`.
+
+**Out of scope**
+- Smarter prompt compression (LLM-based summarization to fit in 1000 chars while preserving meaning). Adds complexity + extra API call. Defer; if dall-e-2 quality with naïve truncation is poor, this would be the next step.
+- Switching to Responses API + image_generation tool for higher-quality OpenAI edits. Defer; Gemini already provides this path.
+- Aspect-ratio mapping for dall-e-2 (256/512/1024 only). Carried forward as still-pending follow-up.
+
+**Files modified**
+- `backend/services/openai.js`
+
+---
+
 ## 2026-05-01 — Use dall-e-2 for the OpenAI image-edit path (gpt-image-2 still rejected)
 
 **Bug**
