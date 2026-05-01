@@ -16,8 +16,8 @@ const ANTHROPIC_RATES = {
 // Note: per-call calculated logging complements the hourly billing API sync.
 // Calculated records use source='calculated', billing API uses source='billing_api'.
 const OPENAI_RATES = {
-  'gpt-5.4':            { input: 2.50, output: 10.00 }, // PEF plan 2026-04-21 — Phase 1 LP image-strategy model
-  'gpt-5.2':            { input: 2.00, output: 8.00 },  // Fallback model when gpt-5.4 returns model_not_found
+  'gpt-5.4':            { input: 2.50, output: 10.00 }, // PEF plan 2026-04-21 — Phase 1 LP image-strategy model. Re-verify against the OpenAI dashboard if cost reporting feels off.
+  'gpt-5.2':            { input: 1.75, output: 14.00 }, // Verified May 1 2026 against OpenAI's official pricing. Was $2/$8 — output rate corrected from understated $8.
   'gpt-4.1':            { input: 2.00, output: 8.00 },
   'gpt-4.1-mini':       { input: 0.40, output: 1.60 },
   'gpt-4o-mini':        { input: 0.15, output: 0.60 },

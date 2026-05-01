@@ -1,5 +1,43 @@
 # Creative Factory — Changelog
 
+## 2026-05-01 — API cost rate audit + GPT-5.2 rate corrected
+
+**Audit performed**
+- Cross-referenced `backend/services/costTracker.js` rate tables against verified May 1 2026 pricing for OpenAI, Anthropic, and Google AI.
+- All Anthropic rates correct (Opus 4.6 $5/$25, Sonnet 4.6/4.5 $3/$15).
+- All Gemini Pro Image rates correct (1K/2K $0.134, 4K $0.24).
+- All OpenAI rates correct EXCEPT GPT-5.2 (see below).
+
+**Bug — GPT-5.2 rate was wrong**
+- Code had `gpt-5.2: { input: 2.00, output: 8.00 }`. Verified May 2026 rate is `{ input: 1.75, output: 14.00 }`.
+- Input was 14% overstated. Output was 43% understated. Net per-call cost was understated by ~25–30% on average.
+- GPT-5.2 is the workhorse for Marco's setup: single-ad text generation (commit `0976d83`) + batch pipeline (commit `76c8109`). All ad-generation cost rows logged since these migrations have understated `cost_usd`.
+
+**Fix**
+- `backend/services/costTracker.js:20` — GPT-5.2 rate corrected to $1.75 / $14.00.
+- Effective May 1 2026. All NEW cost rows from this point forward use the correct rate.
+
+**Historical impact**
+- Records logged before May 1 2026 with `service: 'openai'` for GPT-5.2-derived operations (`ad_creative_director`, `ad_generation_mode1/mode2`, `batch_brief_extraction`, `batch_headline_generation`, `batch_body_copy`, `batch_body_copy_repair`, `batch_image_prompt`, `ad_angle_generation`, `ad_headline_generation`) are ~25–30% understated.
+- The `api_costs` Convex schema does NOT store input/output token counts, only `cost_usd`. Precise retroactive recalculation is impossible without the source data.
+- **Estimate true pre-fix GPT-5.2 spend by multiplying historical OpenAI/GPT-5.2 totals by ~1.27.**
+
+**Antipattern note for future devs**
+- The `api_costs` schema is rate-coupled — when a rate changes, historical accuracy is lost because token counts aren't stored. A future PR could add `input_tokens` + `output_tokens` columns + a recompute endpoint, enabling future-proof rate changes. Out of scope for this hotfix (Convex schema deploy needed).
+
+**Other rates flagged**
+- GPT-5.4 ($2.50 / $10) — couldn't confirm exact base rate via search; mini variant is $0.75/$4.50. Marco/Ian to verify against OpenAI dashboard if LP-pipeline cost reporting feels off. GPT-5.4 is minimally used in primary flows (only referenced in fallback chain).
+- Anthropic Haiku 3.5 ($0.80 / $4) — vestigial entry. No production code currently uses Haiku 3.5; safe to leave or drop.
+
+**Files modified**
+- `backend/services/costTracker.js`
+
+**Verification post-deploy**
+- Generate one ad after deploy. Convex query `api_costs` for that record. `cost_usd` should reflect the new $1.75/$14.00 rate (typical small ad: ~$0.005 instead of ~$0.004).
+- Daily OpenAI cost on the dashboard should show ~25–30% increase from May 1 onwards relative to similar-volume days in April.
+
+---
+
 ## 2026-04-30 — Fix product-image Remove still required refresh (per-container cache on Vercel)
 
 **Bug**
