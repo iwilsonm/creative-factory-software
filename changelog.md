@@ -1,5 +1,41 @@
 # Creative Factory — Changelog
 
+## 2026-05-01 — Bump Vercel maxDuration to 300s (Pro tier) + clean up orphaned batches
+
+**Problem**
+- Marco's Heal Naturally Director test run died at the 60-second Vercel function timeout. `conductorEngine.js:319` does `await runBatch(b.batch_id)`, which means the entire batch pipeline (~2-5 min for 18 ads) tries to complete inside one serverless invocation. On Hobby tier (60s cap), batches get killed mid-Stage-1 (headlines), leaving the batch + run records orphaned forever in `generating_prompts` / `running` states. Two batches (`179e1cff` today, `e2b8efbc-ffa9-4493-a57f-4eeccdda2fbe` yesterday) and one conductor run (`91678eaf-03e0-4243-b315-4355cbc3e647`) were stuck this way.
+- Manual single-ad generation (Mode 1/2 in AdStudio) was unaffected because it fits inside 60s. Batches don't.
+
+**Fix**
+- Marco upgraded to Vercel Pro (300s default function-timeout cap). `vercel.json#functions[api/index.js].maxDuration` bumped from `60` → `300`. All endpoints inherit the new cap.
+- 5 minutes is sufficient headroom for current 18-ad batches (~2-3 min total). 800s is available with Fluid Compute config but unnecessary for current batch sizes; chose 300s for tighter cost-control on metered Pro execution.
+
+**Cleanup mutations**
+- Marked the 2 orphaned batches as `failed` with `error_message` prefix `[ARCHITECTURE]` (so future filtering is possible by string-match) explaining the timeout root cause + resolution.
+- Marked the orphaned conductor run as `failed` with similar attribution.
+
+**Why 300s, not 800s**
+- Conservative blast radius on hung-route bugs: a buggy endpoint stuck in an infinite loop now wastes up to 5 min of compute per request before Vercel kills it (vs 13+ min at 800s). 300s is the lower-cost option that still solves the actual problem.
+- Future escalation: if batches grow to 30+ ads or hit external-API slow patches, bump to 800s with Fluid Compute config. Tracked in plan's Out of Scope.
+
+**Out of scope**
+- Refactoring `conductorEngine.js:319` from sequential `await` to fire-and-forget. Current pattern works fine within 300s for current batch sizes.
+- Adding scheduler-side stalled-batch detection for Stages 1-3. With timeouts now unlikely, the orphan-cleanup tax is near-zero.
+- Per-route timeout config (e.g., 60s for auth, 300s for batches). Would require multi-function `vercel.json` setup. Defer.
+- Backfilling old ad records' `image_model` field. Same disposition as prior changelog entries.
+
+**Risk + rollback**
+- Permission-widening change only (more time allowed, never less). One-line revert on `vercel.json` reverses it. Cleanup mutations are not reversible but the records were already dead — no data lost.
+
+**Files modified**
+- `vercel.json` — `maxDuration: 60` → `300`.
+
+**Convex mutations executed (no file change)**
+- `batchJobs:updateStatus` × 2 (one per orphaned batch).
+- `conductor:updateRun` × 1 (orphaned conductor run).
+
+---
+
 ## 2026-05-01 — Switch default image model to Nano Banana 2 (Creative Director + Agent)
 
 **Change**
