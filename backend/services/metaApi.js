@@ -14,10 +14,15 @@ const GRAPH_BASE = 'https://graph.facebook.com/v25.0';
 const OAUTH_AUTHORIZE = 'https://www.facebook.com/v25.0/dialog/oauth';
 const OAUTH_TOKEN = `${GRAPH_BASE}/oauth/access_token`;
 
+// Phase 2A — only the scopes needed for direct Marketing API reads + writes
+// for ads/ad sets/campaigns. `catalog_management` was originally requested
+// (Meta MCP server lists it as required) but it requires Advanced Access App
+// Review, which most apps haven't gone through — and Phase 2A doesn't manage
+// catalogs anyway. Add catalog_management back here if Phase 2C/3+ needs it
+// AND the app has been approved for it.
 export const META_OAUTH_SCOPES = [
   'ads_management',
   'ads_read',
-  'catalog_management',
   'business_management',
 ];
 
