@@ -280,14 +280,16 @@ export async function postAdSetToMeta(adSetId, projectId) {
     }
   }
 
-  // 6. Persist ad set side
+  // 6. Persist ad set side. Phase 3: flip lifecycle directly to "observing"
+  // (posted → observing happens atomically; the daily cron picks it up from
+  // here on for snapshots and eventual benchmark evaluation).
   await updateAdSet(adSetId, {
     meta_adset_id: metaAdsetId,
     meta_campaign_id: metaCampaignId,
     meta_post_path: pathUsed,
     meta_post_error: null,
     posted_at: new Date().toISOString(),
-    lifecycle_status: 'posted',
+    lifecycle_status: 'observing',
   });
 
   return { meta_adset_id: metaAdsetId, meta_ad_ids: metaAdIds, path_used: pathUsed };

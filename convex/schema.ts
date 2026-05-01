@@ -52,6 +52,8 @@ export default defineSchema({
     // Phase 2B — Facebook Page selected for posting ads (one Page per project)
     meta_page_id: v.optional(v.string()),
     meta_page_name: v.optional(v.string()),
+    // Phase 3 — Account currency (fetched once on connect; benchmarks stored in this currency)
+    meta_account_currency: v.optional(v.string()),
     created_at: v.string(),
     updated_at: v.string(),
   }).index("by_externalId", ["externalId"]),
@@ -273,6 +275,10 @@ export default defineSchema({
     meta_campaign_id: v.optional(v.string()),          // resolved-or-created Meta campaign for this ad set
     meta_post_error: v.optional(v.string()),           // error message if posting failed
     meta_post_path: v.optional(v.string()),            // "mcp" | "api" — which path was used (audit)
+    // Phase 3 — Observation pause/resume + extension
+    observation_paused_at: v.optional(v.string()),     // ISO timestamp when paused; null when running
+    observation_paused_total_ms: v.optional(v.number()), // cumulative paused milliseconds
+    extension_days: v.optional(v.number()),             // user-extended days beyond default window
     created_at: v.string(),
     updated_at: v.string(),
   })
@@ -614,4 +620,69 @@ export default defineSchema({
     .index("by_project", ["project_id"])
     .index("by_owner", ["owner_user_id"])
     .index("by_project_and_scope", ["project_id", "scope"]),
+
+  // ─────────────────────────────────────────────────────────
+  // Phase 3 — Observation lifecycle, daily snapshots, terminal verdicts
+  // ─────────────────────────────────────────────────────────
+
+  // Daily metric snapshot per observing ad set (one row per ad_set_id × day_index).
+  // Populated by the Phase 3 cron from Meta /insights with time_increment=1.
+  observation_snapshots: defineTable({
+    externalId: v.string(),
+    project_id: v.string(),                 // → projects.externalId
+    ad_set_id: v.string(),                  // → ad_sets.externalId
+    meta_adset_id: v.string(),              // Meta-side ad set id for cross-reference
+    day_index: v.number(),                  // 1-based; day 1 = posted_at calendar day in account tz
+    snapshot_at: v.string(),                // ISO timestamp of write
+    // Daily-delta metrics (single day, NOT lifetime)
+    spend: v.number(),
+    impressions: v.number(),
+    clicks: v.number(),
+    ctr: v.number(),
+    cpm: v.number(),
+    cpc: v.number(),
+    roas: v.optional(v.number()),
+    cpa: v.optional(v.number()),
+    conversions: v.optional(v.number()),
+    raw_insights: v.optional(v.string()),   // JSON of original Meta row for audit
+    account_currency: v.optional(v.string()),
+  })
+    .index("by_externalId", ["externalId"])
+    .index("by_ad_set", ["ad_set_id"])
+    .index("by_ad_set_and_day", ["ad_set_id", "day_index"])
+    .index("by_project_and_snapshot", ["project_id", "snapshot_at"]),
+
+  // Terminal observation verdict. One row per ad set's first terminal evaluation;
+  // manual overrides write a new row pointing back via replaces_external_id.
+  observation_results: defineTable({
+    externalId: v.string(),
+    project_id: v.string(),                 // → projects.externalId
+    ad_set_id: v.string(),                  // → ad_sets.externalId
+    angle_id: v.optional(v.string()),       // → conductor_angles.externalId
+    posted_at: v.string(),                  // copied from ad_sets at evaluation time
+    observed_through: v.string(),           // ISO timestamp of evaluation
+    days_observed: v.number(),
+    verdict: v.string(),                    // "passed" | "failed" | "failed_external" | "insufficient_data" | "manual_passed" | "manual_failed"
+    fail_reason_code: v.optional(v.string()), // "starved" | "underperforming" | "external_deletion" | null
+    // Lifetime metrics for the observation window
+    spend: v.number(),
+    impressions: v.number(),
+    clicks: v.number(),
+    ctr: v.number(),
+    roas: v.optional(v.number()),
+    cpa: v.optional(v.number()),
+    conversions: v.optional(v.number()),
+    // Provenance + traceability
+    benchmark_used: v.string(),             // JSON snapshot of resolved benchmark at evaluation time
+    benchmark_version: v.number(),
+    reason: v.string(),                     // human-readable
+    evaluated_by: v.string(),               // "cron" | "user_<uuid>"
+    account_currency: v.string(),
+    replaces_external_id: v.optional(v.string()), // for manual overrides
+    created_at: v.string(),
+  })
+    .index("by_externalId", ["externalId"])
+    .index("by_ad_set", ["ad_set_id"])
+    .index("by_angle", ["angle_id"])
+    .index("by_project_and_created", ["project_id", "created_at"]),
 });

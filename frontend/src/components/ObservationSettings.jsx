@@ -1,0 +1,267 @@
+// Phase 3 — Observation settings sub-tab in Project Settings.
+// Composite benchmark: min_spend gate + ROAS|CPA primary + optional CTR floor.
+
+import { useState, useEffect } from 'react';
+import { api } from '../api';
+import { useToast } from './Toast';
+import InfoTooltip from './InfoTooltip';
+
+export default function ObservationSettings({ projectId }) {
+  const toast = useToast();
+  const [config, setConfig] = useState(null);
+  const [currency, setCurrency] = useState('USD');
+  const [version, setVersion] = useState(1);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [observingCount, setObservingCount] = useState(0);
+  const [form, setForm] = useState({});
+
+  useEffect(() => {
+    if (!projectId) return;
+    (async () => {
+      setLoading(true);
+      try {
+        const [{ benchmark, account_currency, version }, health] = await Promise.all([
+          api.getObservationConfig(projectId),
+          api.getObservationHealth(projectId).catch(() => ({ counts: { observing: 0 } })),
+        ]);
+        setConfig(benchmark);
+        setCurrency(account_currency);
+        setVersion(version);
+        setObservingCount(health?.counts?.observing || 0);
+        setForm({
+          observation_enabled: benchmark.enabled !== false,
+          observation_window_days: benchmark.window_days,
+          benchmark_min_spend: benchmark.min_spend,
+          benchmark_primary_gate: benchmark.primary_gate,
+          benchmark_roas_min: benchmark.roas_min,
+          benchmark_cpa_max: benchmark.cpa_max,
+          benchmark_ctr_min: benchmark.ctr_min,
+          benchmark_action_type: benchmark.action_type,
+          archive_min_sample: benchmark.min_sample,
+          archive_min_unique_posting_days: benchmark.min_unique_posting_days,
+        });
+      } catch (err) {
+        toast.error(err.message);
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, [projectId]);
+
+  const set = (k, v) => setForm((p) => ({ ...p, [k]: v }));
+
+  const handleSave = async () => {
+    setSaving(true);
+    try {
+      const result = await api.updateObservationConfig(projectId, form);
+      setVersion(result.version);
+      toast.success('Saved');
+    } catch (err) {
+      toast.error(err.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleSuggest = async () => {
+    setSaving(true);
+    try {
+      const { suggestion, based_on } = await api.suggestObservationDefaults(projectId);
+      if (!confirm(
+        `Suggested defaults from your last 90 days:\n\n` +
+        `  Min spend: ${suggestion.min_spend} ${currency}\n` +
+        `  ROAS minimum: ${suggestion.roas_min}\n\n` +
+        `Based on ${based_on?.daily_avg_spend?.toFixed(2) || '—'} ${currency}/day average spend, ` +
+        `${based_on?.last_90d_median_roas?.toFixed(2) || '—'} median ROAS.\n\n` +
+        `Apply?`
+      )) return;
+      setForm((p) => ({
+        ...p,
+        benchmark_min_spend: suggestion.min_spend,
+        benchmark_roas_min: suggestion.roas_min,
+      }));
+      toast.success('Defaults loaded — click Save to apply');
+    } catch (err) {
+      toast.error(err.message);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  if (loading) {
+    return <div className="text-[12px] text-textlight">Loading observation settings…</div>;
+  }
+
+  return (
+    <div className="space-y-5">
+      <div className="card p-5">
+        <div className="flex items-start justify-between mb-4">
+          <div>
+            <h3 className="text-[14px] font-semibold text-textdark">Observation & Benchmark</h3>
+            <p className="text-[11px] text-textlight mt-0.5">
+              Posted ad sets are observed for the window below. Verdicts use the benchmark — failures contribute to angle archive.
+            </p>
+            <p className="text-[10px] text-textlight mt-1">
+              Account currency: <strong>{currency}</strong> · Benchmark version: v{version}
+            </p>
+          </div>
+          <button onClick={handleSuggest} disabled={saving} className="btn-secondary text-[11px]">
+            Auto-suggest from 90d
+          </button>
+        </div>
+
+        {observingCount > 0 && (
+          <div className="mb-4 p-3 rounded-lg bg-gold/5 border border-gold/30 text-[11px] text-textdark">
+            <strong>{observingCount} ad set{observingCount === 1 ? '' : 's'} currently observing.</strong> Changes you save will apply to their next evaluation.
+          </div>
+        )}
+
+        <div className="space-y-4">
+          <Toggle
+            label="Observation enabled"
+            tooltip="When off, no daily snapshots or terminal evaluations run for this project."
+            value={form.observation_enabled}
+            onChange={(v) => set('observation_enabled', v)}
+          />
+
+          <Field
+            label="Observation window (days)"
+            tooltip="Days to observe before evaluating verdict. Default 12."
+            type="number" min={1} max={60}
+            value={form.observation_window_days}
+            onChange={(v) => set('observation_window_days', parseInt(v, 10) || 12)}
+          />
+
+          <hr className="border-gray-100" />
+
+          <h4 className="text-[12px] font-semibold text-textmid uppercase tracking-wider">Benchmark gates</h4>
+
+          <Field
+            label={`Min spend (${currency}) — below this is "starved" (fail) or "insufficient data"`}
+            tooltip="Sub-$0.50: starved (Meta refused to spend). Below min_spend but ≥ $0.50: insufficient_data. ≥ min_spend: evaluate primary metric."
+            type="number" step="0.01" min={0}
+            value={form.benchmark_min_spend}
+            onChange={(v) => set('benchmark_min_spend', parseFloat(v) || 0)}
+          />
+
+          <SegmentedControl
+            label="Primary metric"
+            value={form.benchmark_primary_gate}
+            options={[
+              { id: 'roas', label: 'ROAS (return on ad spend)' },
+              { id: 'cpa', label: 'CPA (cost per action)' },
+            ]}
+            onChange={(v) => set('benchmark_primary_gate', v)}
+          />
+
+          {form.benchmark_primary_gate === 'roas' ? (
+            <Field
+              label="Minimum ROAS"
+              type="number" step="0.1" min={0}
+              value={form.benchmark_roas_min}
+              onChange={(v) => set('benchmark_roas_min', parseFloat(v) || 0)}
+            />
+          ) : (
+            <Field
+              label={`Maximum CPA (${currency})`}
+              type="number" step="0.01" min={0}
+              value={form.benchmark_cpa_max}
+              onChange={(v) => set('benchmark_cpa_max', parseFloat(v) || 0)}
+            />
+          )}
+
+          <Field
+            label="CTR floor (fraction; empty = no floor)"
+            tooltip="Optional minimum CTR. Enter 0.01 for 1%, or leave blank to skip."
+            type="text"
+            placeholder="e.g. 0.01 or leave blank"
+            value={form.benchmark_ctr_min === '' || form.benchmark_ctr_min == null ? '' : String(form.benchmark_ctr_min)}
+            onChange={(v) => set('benchmark_ctr_min', v === '' ? '' : v)}
+          />
+
+          <Field
+            label="Action type (Meta event name driving ROAS/CPA)"
+            tooltip="Most stores use 'purchase'. Lead-gen uses 'lead'. Subscription uses 'complete_registration'. Must match what's tracked in Meta Pixel."
+            type="text"
+            value={form.benchmark_action_type}
+            onChange={(v) => set('benchmark_action_type', v)}
+          />
+
+          <hr className="border-gray-100" />
+
+          <h4 className="text-[12px] font-semibold text-textmid uppercase tracking-wider">Angle archive</h4>
+
+          <Field
+            label="Min ad sets tested before archive considered"
+            tooltip="Don't archive until the angle has been tested this many times. Marco's spec: 5."
+            type="number" min={1} max={100}
+            value={form.archive_min_sample}
+            onChange={(v) => set('archive_min_sample', parseInt(v, 10) || 5)}
+          />
+
+          <Field
+            label="Min distinct posting days for archive"
+            tooltip="Failed ad sets must span at least this many distinct calendar days to count for archive. Prevents same-day cohort gaming."
+            type="number" min={1} max={30}
+            value={form.archive_min_unique_posting_days}
+            onChange={(v) => set('archive_min_unique_posting_days', parseInt(v, 10) || 1)}
+          />
+        </div>
+
+        <div className="mt-5 flex justify-end gap-2">
+          <button onClick={handleSave} disabled={saving} className="btn-primary text-[12px]">
+            {saving ? 'Saving…' : 'Save'}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function Field({ label, tooltip, type = 'text', value, onChange, ...rest }) {
+  return (
+    <div>
+      <label className="block text-[12px] font-medium text-textmid mb-1">
+        {label}
+        {tooltip && <InfoTooltip text={tooltip} position="right" />}
+      </label>
+      <input
+        type={type}
+        value={value ?? ''}
+        onChange={(e) => onChange(e.target.value)}
+        className="input-apple text-[13px]"
+        {...rest}
+      />
+    </div>
+  );
+}
+
+function Toggle({ label, tooltip, value, onChange }) {
+  return (
+    <label className="flex items-center gap-2 cursor-pointer">
+      <input type="checkbox" checked={!!value} onChange={(e) => onChange(e.target.checked)} className="w-4 h-4" />
+      <span className="text-[12px] text-textdark">{label}</span>
+      {tooltip && <InfoTooltip text={tooltip} position="right" />}
+    </label>
+  );
+}
+
+function SegmentedControl({ label, value, options, onChange }) {
+  return (
+    <div>
+      <label className="block text-[12px] font-medium text-textmid mb-1">{label}</label>
+      <div className="segmented-control">
+        {options.map((opt) => (
+          <button
+            key={opt.id}
+            onClick={() => onChange(opt.id)}
+            className={value === opt.id ? 'active' : ''}
+          >
+            {opt.label}
+          </button>
+        ))}
+      </div>
+    </div>
+  );
+}

@@ -22,6 +22,9 @@ const CreativeDirectorSettings = lazy(() => import('../components/CreativeDirect
 const MetaConnectPanel = lazy(() => import('../components/MetaConnectPanel'));
 // Phase 5 — Notion-style Analytics tab
 const AnalyticsTab = lazy(() => import('../components/AnalyticsTab'));
+// Phase 3 — Observation tab + settings
+const ObservationTab = lazy(() => import('../components/ObservationTab'));
+const ObservationSettings = lazy(() => import('../components/ObservationSettings'));
 
 const STATUS_CONFIG = {
   setup: { label: 'Setup', bg: 'bg-gold/10', text: 'text-gold' },
@@ -48,7 +51,7 @@ export default function ProjectDetail() {
   const [conductorAngles, setConductorAngles] = useState([]);
 
   // Persist active tab in URL search params so it survives page refresh
-  const validTabs = ['ads', 'tracker', 'overview', 'docs', 'templates', 'staging', 'analytics'];
+  const validTabs = ['ads', 'tracker', 'overview', 'docs', 'templates', 'staging', 'analytics', 'observation'];
   const defaultTab = user?.role === 'poster' ? 'tracker' : 'ads';
   const tabFromUrl = searchParams.get('tab');
   const [tab, setTabState] = useState(
@@ -71,7 +74,7 @@ export default function ProjectDetail() {
   const [productImageUploading, setProductImageUploading] = useState(false);
   const [productImageDeleting, setProductImageDeleting] = useState(false);
   // settingsSubTab persists in URL `?subtab=` so refresh holds position.
-  const validSubTabs = ['general', 'docs', 'filter', 'creative_director', 'meta', 'templates'];
+  const validSubTabs = ['general', 'docs', 'filter', 'creative_director', 'meta', 'observation', 'templates'];
   const subTabFromUrl = searchParams.get('subtab');
   const [settingsSubTab, setSettingsSubTabState] = useState(
     subTabFromUrl && validSubTabs.includes(subTabFromUrl) ? subTabFromUrl : 'general'
@@ -274,6 +277,7 @@ export default function ProjectDetail() {
     ...(stagingFlagEnabled ? [{ id: 'staging', label: 'Staging', tooltip: 'Review pre-grouped ad sets, regroup if needed, and promote to Ready-to-Post.' }] : []),
     { id: 'tracker', label: 'Ad Pipeline', tooltip: 'Plan, organize, and deploy ads to campaigns and ad sets.' },
     { id: 'analytics', label: 'Analytics', tooltip: 'Notion-style table of campaigns / ad sets / ads from Meta with tagging and saved views.' },
+    { id: 'observation', label: 'Observation', tooltip: 'Track posted ad sets through the 12-day observation window. Verdicts feed angle archive.' },
     { id: 'overview', label: 'Project Settings', tooltip: 'Project configuration, foundational docs, and template library.' }
   ];
 
@@ -370,6 +374,7 @@ export default function ProjectDetail() {
               { id: 'filter', label: 'Creative Filter' },
               { id: 'creative_director', label: 'Creative Director' },
               { id: 'meta', label: 'Meta' },
+              { id: 'observation', label: 'Observation' },
               { id: 'templates', label: 'Template Library' },
             ].map(st => (
               <button
@@ -587,6 +592,11 @@ export default function ProjectDetail() {
               <MetaConnectPanel projectId={id} />
             </ErrorBoundary>
           )}
+          {settingsSubTab === 'observation' && (
+            <ErrorBoundary level="tab" key="observation_settings">
+              <ObservationSettings projectId={id} />
+            </ErrorBoundary>
+          )}
           {settingsSubTab === 'templates' && (
             <ErrorBoundary level="tab" key="templates">
               <TemplateImages projectId={id} />
@@ -612,6 +622,11 @@ export default function ProjectDetail() {
         {tab === 'analytics' && (
           <ErrorBoundary level="tab" key="analytics">
             <AnalyticsTab projectId={id} />
+          </ErrorBoundary>
+        )}
+        {tab === 'observation' && (
+          <ErrorBoundary level="tab" key="observation">
+            <ObservationTab projectId={id} />
           </ErrorBoundary>
         )}
       </div>

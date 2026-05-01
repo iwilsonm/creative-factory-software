@@ -24,6 +24,8 @@ import type * as foundationalDocs from "../foundationalDocs.js";
 import type * as headlineHistory from "../headlineHistory.js";
 import type * as inspirationImages from "../inspirationImages.js";
 import type * as migrations from "../migrations.js";
+import type * as observationResults from "../observationResults.js";
+import type * as observationSnapshots from "../observationSnapshots.js";
 import type * as projects from "../projects.js";
 import type * as sessions from "../sessions.js";
 import type * as settings from "../settings.js";
@@ -56,6 +58,8 @@ declare const fullApi: ApiFromModules<{
   headlineHistory: typeof headlineHistory;
   inspirationImages: typeof inspirationImages;
   migrations: typeof migrations;
+  observationResults: typeof observationResults;
+  observationSnapshots: typeof observationSnapshots;
   projects: typeof projects;
   sessions: typeof sessions;
   settings: typeof settings;

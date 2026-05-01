@@ -204,6 +204,60 @@ export const deleteAngle = mutation({
   },
 });
 
+// Phase 3 — angle archive / unarchive
+// Idempotent: archiveAngle no-ops if status is already "archived".
+export const archiveAngle = mutation({
+  args: {
+    externalId: v.string(),
+    performance_note: v.optional(v.string()),
+    source: v.optional(v.string()),  // "auto" | "manual"
+  },
+  handler: async (ctx, args) => {
+    const angle = await ctx.db
+      .query("conductor_angles")
+      .withIndex("by_externalId", (q) => q.eq("externalId", args.externalId))
+      .first();
+    if (!angle) throw new Error("Angle not found");
+    if (angle.status === "archived") return; // idempotent
+    const updates: Record<string, any> = {
+      status: "archived",
+      updated_at: Date.now(),
+    };
+    if (args.performance_note !== undefined) {
+      const prefix = args.source === "auto" ? "Auto-archived" : "Manually archived";
+      updates.performance_note = `${prefix}: ${args.performance_note}`;
+    }
+    await ctx.db.patch(angle._id, updates);
+  },
+});
+
+export const unarchiveAngle = mutation({
+  args: { externalId: v.string() },
+  handler: async (ctx, args) => {
+    const angle = await ctx.db
+      .query("conductor_angles")
+      .withIndex("by_externalId", (q) => q.eq("externalId", args.externalId))
+      .first();
+    if (!angle) throw new Error("Angle not found");
+    await ctx.db.patch(angle._id, {
+      status: "active",
+      updated_at: Date.now(),
+    });
+  },
+});
+
+export const getArchivedAngles = query({
+  args: { projectId: v.string() },
+  handler: async (ctx, args) => {
+    return await ctx.db
+      .query("conductor_angles")
+      .withIndex("by_project_and_status", (q) =>
+        q.eq("project_id", args.projectId).eq("status", "archived")
+      )
+      .collect();
+  },
+});
+
 // =============================================
 // conductor_runs — audit log
 // =============================================

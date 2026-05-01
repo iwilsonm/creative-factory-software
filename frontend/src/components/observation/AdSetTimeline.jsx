@@ -1,0 +1,243 @@
+// Phase 3 — Drawer showing snapshots, sparkline, manual actions for one ad set.
+
+import { useState, useEffect } from 'react';
+import { api } from '../../api';
+import { useToast } from '../Toast';
+
+export default function AdSetTimeline({ projectId, adSetId, open, onClose, onChanged }) {
+  const toast = useToast();
+  const [data, setData] = useState(null);
+  const [loading, setLoading] = useState(false);
+  const [busy, setBusy] = useState(false);
+
+  useEffect(() => {
+    if (!open || !adSetId) return;
+    (async () => {
+      setLoading(true);
+      try {
+        const payload = await api.getObservationAdSet(projectId, adSetId);
+        setData(payload);
+      } catch (err) {
+        toast.error(err.message);
+      } finally {
+        setLoading(false);
+      }
+    })();
+  }, [open, adSetId, projectId]);
+
+  if (!open) return null;
+
+  const adSet = data?.ad_set;
+  const snapshots = data?.snapshots || [];
+  const result = (data?.results || [])[0];
+  const benchmark = data?.benchmark;
+  const currency = adSet?.account_currency || 'USD';
+
+  const handleAction = async (fn, successMsg) => {
+    setBusy(true);
+    try {
+      await fn();
+      toast.success(successMsg);
+      const fresh = await api.getObservationAdSet(projectId, adSetId);
+      setData(fresh);
+      onChanged?.();
+    } catch (err) {
+      toast.error(err.message);
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="fixed inset-0 z-40 flex justify-end bg-black/40" onClick={onClose}>
+      <div
+        className="bg-white w-[520px] max-w-[92vw] h-full overflow-y-auto shadow-card"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <div className="sticky top-0 bg-white border-b border-gray-100 px-5 py-3 flex items-center justify-between">
+          <div className="min-w-0 flex-1">
+            <h3 className="text-[14px] font-semibold text-textdark truncate">
+              {adSet?.name || 'Loading…'}
+            </h3>
+            {result && (
+              <p className="text-[11px] text-textlight truncate">{result.reason}</p>
+            )}
+          </div>
+          <button onClick={onClose} className="text-textmid hover:text-textdark text-[18px] leading-none ml-3">×</button>
+        </div>
+
+        {loading && <div className="p-5 text-[12px] text-textlight">Loading…</div>}
+
+        {!loading && data && (
+          <div className="p-5 space-y-5">
+            <BenchmarkSummary adSet={adSet} result={result} benchmark={benchmark} currency={currency} />
+            <Sparkline snapshots={snapshots} currency={currency} />
+            <Snapshots snapshots={snapshots} currency={currency} />
+
+            <div className="border-t border-gray-100 pt-4 space-y-2">
+              <h4 className="text-[12px] font-semibold text-textdark">Actions</h4>
+              {(adSet.lifecycle_status === 'observing') && (
+                <>
+                  <div className="flex gap-2 flex-wrap">
+                    {adSet.is_paused ? (
+                      <button
+                        disabled={busy}
+                        onClick={() => handleAction(() => api.resumeObservation(projectId, adSetId), 'Observation resumed')}
+                        className="btn-secondary text-[11px]"
+                      >
+                        Resume
+                      </button>
+                    ) : (
+                      <button
+                        disabled={busy}
+                        onClick={() => handleAction(() => api.pauseObservation(projectId, adSetId), 'Observation paused')}
+                        className="btn-secondary text-[11px]"
+                      >
+                        Pause
+                      </button>
+                    )}
+                    <button
+                      disabled={busy}
+                      onClick={() => {
+                        const n = parseInt(prompt('Extend by how many additional days?', '12'), 10);
+                        if (n > 0) handleAction(() => api.extendObservation(projectId, adSetId, n), `Extended by ${n} days`);
+                      }}
+                      className="btn-secondary text-[11px]"
+                    >
+                      Extend window
+                    </button>
+                    <button
+                      disabled={busy}
+                      onClick={() => handleAction(() => api.refreshObservationSnapshot(projectId, adSetId), 'Snapshot refreshed')}
+                      className="btn-secondary text-[11px]"
+                    >
+                      Refresh snapshot
+                    </button>
+                  </div>
+                  <div className="flex gap-2 flex-wrap pt-2">
+                    <ManualMarkButton
+                      kind="passed"
+                      onMark={(reason) => handleAction(() => api.markObservation(projectId, adSetId, { verdict: 'manual_passed', reason }), 'Marked passed')}
+                    />
+                    <ManualMarkButton
+                      kind="failed"
+                      angleId={adSet.angle_id}
+                      onMark={(reason) => handleAction(() => api.markObservation(projectId, adSetId, { verdict: 'manual_failed', reason }), 'Marked failed')}
+                    />
+                  </div>
+                </>
+              )}
+              {(adSet.lifecycle_status !== 'observing') && (
+                <p className="text-[11px] text-textlight">
+                  This ad set has reached a terminal verdict. Re-extend to resume observation.
+                </p>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function BenchmarkSummary({ adSet, result, benchmark, currency }) {
+  if (!benchmark) return null;
+  const fmtMoney = (v) => currency === 'USD' ? `$${(v || 0).toFixed(2)}` : `${Math.round(v || 0).toLocaleString()} ${currency}`;
+  const fmtNum = (v) => (v || 0).toLocaleString();
+  const fmtPct = (v) => `${(v || 0).toFixed(2)}%`;
+  const m = result || adSet;
+
+  return (
+    <div className="card p-4 bg-gray-50/40">
+      <div className="text-[11px] font-semibold text-textmid uppercase tracking-wider mb-2">
+        Benchmark — {benchmark.primary_gate.toUpperCase()} ≥ {benchmark.primary_gate === 'roas' ? benchmark.roas_min : fmtMoney(benchmark.cpa_max)}, min {fmtMoney(benchmark.min_spend)} spend
+      </div>
+      <div className="grid grid-cols-3 gap-3">
+        <Metric label="Spend" value={fmtMoney(m.spend || 0)} />
+        <Metric label="Impressions" value={fmtNum(m.impressions || 0)} />
+        <Metric label="Clicks" value={fmtNum(m.clicks || 0)} />
+        <Metric label="CTR" value={fmtPct(m.ctr || 0)} />
+        <Metric label="ROAS" value={(m.roas || 0).toFixed(2)} />
+        <Metric label="Conversions" value={fmtNum(m.conversions || 0)} />
+      </div>
+    </div>
+  );
+}
+
+function Metric({ label, value }) {
+  return (
+    <div>
+      <div className="text-[10px] text-textlight">{label}</div>
+      <div className="text-[14px] font-semibold text-textdark tabular-nums">{value}</div>
+    </div>
+  );
+}
+
+function Sparkline({ snapshots, currency }) {
+  if (!snapshots || snapshots.length === 0) return null;
+  const w = 460, h = 80, pad = 8;
+  const data = snapshots.map((s) => s.spend || 0);
+  const max = Math.max(...data, 0.01);
+  const points = data.map((v, i) => {
+    const x = pad + (i / Math.max(1, data.length - 1)) * (w - pad * 2);
+    const y = h - pad - (v / max) * (h - pad * 2);
+    return `${x.toFixed(1)},${y.toFixed(1)}`;
+  }).join(' ');
+
+  return (
+    <div>
+      <div className="text-[11px] font-semibold text-textmid uppercase tracking-wider mb-1">Daily spend</div>
+      <svg viewBox={`0 0 ${w} ${h}`} className="w-full h-20 bg-white rounded border border-gray-100">
+        <polyline points={points} fill="none" stroke="#C4975A" strokeWidth="1.5" />
+        {data.map((v, i) => {
+          const x = pad + (i / Math.max(1, data.length - 1)) * (w - pad * 2);
+          const y = h - pad - (v / max) * (h - pad * 2);
+          return <circle key={i} cx={x} cy={y} r="2" fill="#C4975A" />;
+        })}
+      </svg>
+    </div>
+  );
+}
+
+function Snapshots({ snapshots, currency }) {
+  if (!snapshots || snapshots.length === 0) {
+    return <div className="text-[11px] text-textlight">No daily snapshots yet.</div>;
+  }
+  const fmtMoney = (v) => currency === 'USD' ? `$${(v || 0).toFixed(2)}` : `${Math.round(v || 0).toLocaleString()} ${currency}`;
+  return (
+    <div>
+      <div className="text-[11px] font-semibold text-textmid uppercase tracking-wider mb-1">Day-by-day</div>
+      <div className="text-[11px] divide-y divide-gray-100">
+        {snapshots.map((s) => (
+          <div key={s.day_index} className="flex items-center gap-3 py-1">
+            <span className="text-textlight w-12">Day {s.day_index}</span>
+            <span className="text-textdark tabular-nums w-20">{fmtMoney(s.spend)}</span>
+            <span className="text-textmid tabular-nums w-16">{s.clicks || 0} clicks</span>
+            {s.roas != null && <span className="text-textmid tabular-nums">ROAS {s.roas.toFixed(2)}</span>}
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ManualMarkButton({ kind, angleId, onMark }) {
+  const cls = kind === 'passed'
+    ? 'btn-secondary text-[11px] text-teal border-teal/30 hover:border-teal'
+    : 'btn-secondary text-[11px] text-red-500 border-red-200 hover:border-red-400';
+  const label = kind === 'passed' ? 'Mark Passed' : 'Mark Failed';
+  return (
+    <button
+      onClick={() => {
+        const consequence = kind === 'failed' && angleId
+          ? '\n\nThis may contribute to angle archive if the angle hits its failure threshold.'
+          : '';
+        const reason = prompt(`${label} — reason (optional):${consequence}`, '');
+        if (reason !== null) onMark(reason);
+      }}
+      className={cls}
+    >
+      {label}
+    </button>
+  );
+}

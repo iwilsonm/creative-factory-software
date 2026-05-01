@@ -14,6 +14,7 @@
     { "source": "/((?!api|assets|fonts|favicon|logo).*)", "destination": "/index.html" }
   ],
   "crons": [
-    { "path": "/api/meta/oauth/refresh", "schedule": "0 3 * * *" }
+    { "path": "/api/meta/oauth/refresh", "schedule": "0 3 * * *" },
+    { "path": "/api/cron/observation",   "schedule": "0 18 * * *" }
   ]
 }

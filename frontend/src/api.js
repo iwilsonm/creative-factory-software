@@ -598,4 +598,52 @@ export const api = {
     }),
   deleteSavedView: (projectId, viewId) =>
     request(`/projects/${projectId}/analytics/views/${viewId}`, { method: 'DELETE' }),
+
+  // ────────────────────────────────────────────────
+  // Phase 3 — Observation, benchmark, archive
+  // ────────────────────────────────────────────────
+  getObservationConfig: (projectId) => request(`/projects/${projectId}/observation/config`),
+  updateObservationConfig: (projectId, body) =>
+    request(`/projects/${projectId}/observation/config`, { method: 'PUT', body: JSON.stringify(body) }),
+  suggestObservationDefaults: (projectId) =>
+    request(`/projects/${projectId}/observation/suggest`, { method: 'POST' }),
+
+  getObservationAdSets: (projectId) =>
+    request(`/projects/${projectId}/observation/ad-sets`),
+  getObservationAdSet: (projectId, adSetId) =>
+    request(`/projects/${projectId}/observation/ad-sets/${adSetId}`),
+  refreshObservationSnapshot: (projectId, adSetId) =>
+    request(`/projects/${projectId}/observation/ad-sets/${adSetId}/snapshot`, { method: 'POST' }),
+  markObservation: (projectId, adSetId, { verdict, reason }) =>
+    request(`/projects/${projectId}/observation/ad-sets/${adSetId}/mark`, {
+      method: 'POST',
+      body: JSON.stringify({ verdict, reason }),
+    }),
+  pauseObservation: (projectId, adSetId) =>
+    request(`/projects/${projectId}/observation/ad-sets/${adSetId}/pause`, { method: 'POST' }),
+  resumeObservation: (projectId, adSetId) =>
+    request(`/projects/${projectId}/observation/ad-sets/${adSetId}/resume`, { method: 'POST' }),
+  extendObservation: (projectId, adSetId, additional_days) =>
+    request(`/projects/${projectId}/observation/ad-sets/${adSetId}/extend`, {
+      method: 'POST',
+      body: JSON.stringify({ additional_days }),
+    }),
+
+  getObservationHealth: (projectId) =>
+    request(`/projects/${projectId}/observation/health`),
+
+  getArchivedAngles: (projectId) =>
+    request(`/projects/${projectId}/angles/archived`),
+  archiveAngle: (projectId, angleId, reason) =>
+    request(`/projects/${projectId}/angles/${angleId}/archive`, {
+      method: 'POST',
+      body: JSON.stringify({ reason }),
+    }),
+  unarchiveAngle: (projectId, angleId) =>
+    request(`/projects/${projectId}/angles/${angleId}/unarchive`, { method: 'POST' }),
+
+  // Admin
+  runObservationCron: (dryRun = false) =>
+    request(`/admin/observation/cron-run${dryRun ? '?dry_run=1' : ''}`, { method: 'POST' }),
+  getLastObservationCron: () => request('/admin/observation/last-cron'),
 };

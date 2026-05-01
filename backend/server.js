@@ -28,6 +28,8 @@ import lpAgentRoutes from './routes/lpAgent.js';
 import stagingRoutes from './routes/staging.js';
 import metaRoutes from './routes/meta.js';
 import analyticsRoutes from './routes/analytics.js';
+import observationRoutes from './routes/observation.js';
+import cronRoutes from './routes/cron.js';
 import rateLimit from 'express-rate-limit';
 import { getRateLimiterStats } from './services/rateLimiter.js';
 import { syncOpenAICosts, refreshGeminiRates } from './services/costTracker.js';
@@ -298,6 +300,12 @@ try {
   app.use('/api/projects', stagingRoutes);
   // Phase 5 — Analytics tab routes (analytics, tags, saved views).
   app.use('/api/projects', analyticsRoutes);
+  // Phase 3 — Observation tab routes + admin observation triggers.
+  // Mounted at /api so the /admin/observation/* paths work too.
+  app.use('/api', observationRoutes);
+  // Phase 3 — Vercel Cron entrypoint. No auth middleware; cron.js validates
+  // CRON_SECRET internally with timing-safe compare.
+  app.use('/api/cron', cronRoutes);
   app.use('/api', requireAuth, requireRole('admin', 'manager'), costsRoutes);
   // Routes — agent monitor (admin only)
   app.use('/api/agent-monitor', requireAuth, requireRole('admin'), agentMonitorRoutes);

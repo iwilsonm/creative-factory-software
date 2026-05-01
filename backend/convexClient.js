@@ -197,7 +197,9 @@ export async function updateProject(id, fields) {
     // Phase 2A — Meta integration
     'meta_access_token', 'meta_token_expires_at', 'meta_user_id', 'meta_user_name', 'meta_account_id', 'meta_account_name', 'meta_business_id', 'meta_integration_path', 'meta_connected_at',
     // Phase 2B
-    'meta_page_id', 'meta_page_name'];
+    'meta_page_id', 'meta_page_name',
+    // Phase 3 — observation
+    'meta_account_currency'];
   const updates = { externalId: id };
   for (const key of allowed) {
     // Drop both undefined and null. Convex v.optional(v.string()) rejects null

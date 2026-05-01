@@ -187,6 +187,8 @@ export const update = mutation({
     // Phase 2B
     meta_page_id: v.optional(v.string()),
     meta_page_name: v.optional(v.string()),
+    // Phase 3 — account currency cached from Meta
+    meta_account_currency: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const project = await ctx.db
