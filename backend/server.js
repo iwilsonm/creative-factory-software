@@ -271,10 +271,18 @@ try {
   // Routes — projects (all roles can list/view projects for navigation)
   app.use('/api/projects', lpAgentRoutes);
   app.use('/api/projects', projectRoutes);
+  // Phase 2A — Meta integration routes. MUST be mounted before deploymentRoutes
+  // (which has `router.use(requireAuth)` and is mounted at /api). Without this
+  // ordering, the OAuth callback at /api/meta/oauth/callback can never run
+  // because Facebook's redirect arrives without a session cookie (sameSite=strict
+  // blocks the session cookie on top-level cross-site navigation), and
+  // deploymentRoutes' router-wide requireAuth would reject before metaRoutes
+  // is reached. Other Meta routes still enforce auth via per-route middleware.
+  app.use('/api/meta', metaRoutes);
   // Routes — deployments (poster has limited access — controlled per-route inside)
   // IMPORTANT: Must be mounted BEFORE broad /api routes with requireRole('admin', 'manager')
   // because Express runs middleware in order and those broad /api mounts would block poster users
-  // from reaching deployment routes (costsRoutes and metaRoutes are mounted on /api prefix)
+  // from reaching deployment routes (costsRoutes is mounted on /api prefix)
   app.use('/api', deploymentRoutes);
   // Routes — admin/manager only
   app.use('/api/projects', requireAuth, requireRole('admin', 'manager'), documentRoutes);
@@ -287,9 +295,6 @@ try {
   app.use('/api/batches', requireAuth, requireRole('admin', 'manager'), batchRoutes);  // Flat mount for Dacia Fixer retry endpoint
   // Phase 1 — Staging Page routes (admin/manager only). Auth + role enforced inside the router.
   app.use('/api/projects', stagingRoutes);
-  // Phase 2A — Meta integration routes. Most require admin/manager (enforced inside router);
-  // /oauth/callback is public (Facebook redirects with no session cookie).
-  app.use('/api/meta', metaRoutes);
   app.use('/api', requireAuth, requireRole('admin', 'manager'), costsRoutes);
   // Routes — agent monitor (admin only)
   app.use('/api/agent-monitor', requireAuth, requireRole('admin'), agentMonitorRoutes);
