@@ -13,6 +13,8 @@ import {
   getAdsByBatchId, getAd, downloadToBuffer,
   createAdSet, createFlexAd, createDeploymentDuplicate, updateDeployment,
   getFlexAdsByProject, getConductorConfig, getActiveConductorAngles,
+  // Phase 1 — Staging Page lifecycle
+  setFilterVerdict,
 } from '../convexClient.js';
 import { filterHeadlineCandidatePool, selectDiverseHeadlines } from './headlineDiversity.js';
 
@@ -846,9 +848,36 @@ export async function scoreBatchForInlineFilter(batchId, projectId, onProgress, 
       scoredAds.push({ ad, score });
       if (score.pass) passCount++;
       console.log(`[FilterService] Round ${roundNumber} ad ${ad.id.slice(0, 8)}: score=${score.overall_score}, pass=${score.pass}`);
+      // Phase 1 — Staging Page lifecycle: write the verdict to the ad_creative.
+      // Flips status to "staging" (passed) or "quality_rejected" (rejected),
+      // making the ad eligible for the Staging Page Pending or Rejected views.
+      // Score normalized 0-10 → 0-1 to fit setFilterVerdict's contract.
+      // filter_reasons combines weaknesses + image_issues for the Rejected card.
+      try {
+        const reasons = [
+          ...(Array.isArray(score.weaknesses) ? score.weaknesses : []),
+          ...(Array.isArray(score.image_issues) ? score.image_issues : []),
+        ].filter(Boolean);
+        await setFilterVerdict(ad.id, {
+          score: Math.max(0, Math.min(1, (score.overall_score || 0) / 10)),
+          verdict: score.pass ? 'passed' : 'rejected',
+          reasons: reasons.length > 0 ? JSON.stringify(reasons) : undefined,
+        });
+      } catch (verdictErr) {
+        console.warn(`[FilterService] setFilterVerdict failed for ad ${ad.id.slice(0, 8)}: ${verdictErr.message}`);
+      }
     } catch (err) {
       console.error(`[FilterService] Failed to score ad ${ad.id.slice(0, 8)}: ${err.message}`);
       scoredAds.push({ ad, score: { ad_id: ad.id, overall_score: 0, pass: false, error: err.message } });
+      // Score failed entirely → mark as rejected with the error as the reason
+      // so the ad doesn't sit in limbo on the Staging Page.
+      try {
+        await setFilterVerdict(ad.id, {
+          score: 0,
+          verdict: 'rejected',
+          reasons: JSON.stringify([`Scoring error: ${err.message}`]),
+        });
+      } catch {}
     }
   }
 

@@ -30,9 +30,9 @@ A single-tenant web app for direct response copywriters and e-commerce brands. S
 6. **Landing Page Template Extraction** — Puppeteer capture + Claude vision analysis to extract reusable HTML skeleton templates from any URL.
 7. **Autonomous Agent System** — Three agents (Fixer, Creative Filter, Director) that auto-test, auto-heal, score ads, create flex ads, plan batches, auto-generate LPs, and learn from results.
 
-**Live at**: `daciaautomation.com` (VPS: `76.13.219.6`)
-**Convex deployment**: `prod:strong-civet-577` at `https://energized-hare-760.convex.cloud`
-**GitHub**: `daciaventures/dacia-automation`
+**Live at**: `creative-factory-software.vercel.app` (Vercel Pro)
+**Convex deployment**: `dev:elated-mastiff-709` at `https://elated-mastiff-709.convex.cloud` (single deployment serves both dev + prod traffic for this project)
+**GitHub**: `iwilsonm/creative-factory-software` (auto-deploy from main → Vercel)
 
 ### Tech Stack
 
@@ -49,39 +49,26 @@ A single-tenant web app for direct response copywriters and e-commerce brands. S
 | External | Google Drive API v3 (service account); Meta Marketing API v21.0 (per-project OAuth); Shopify Admin API (per-project, for LP publishing); Cloudflare Pages API |
 | Auth | bcrypt + express-session + Convex-backed session store + role-based access (Admin/Manager/Poster) |
 | Security | helmet (CSP), express-rate-limit, SSRF protection, field whitelisting |
-| Scheduling | node-cron + scheduler service polling Gemini Batch API |
-| Process Manager | PM2 (production) |
-| Reverse Proxy | Nginx + Let's Encrypt SSL |
+| Scheduling | Inline service calls during Director runs (`creativeFilterService.js`); the legacy `scheduler.js` cron poll-loop is gated off in Vercel via `if (!process.env.VERCEL)` |
+| Hosting | **Vercel Pro** — serverless functions, `maxDuration: 300s`, `api/index.js` is the catch-all Express handler; `api/health.js` is a separate stub |
 
 ### Deployment
 
-**VPS**: `76.13.219.6` | **App path**: `/opt/ad-platform` | **Port**: 3001 | **PM2**: single instance, 2GB max
+**Hosting**: Vercel Pro. Auto-deploys on `git push origin main`. Function `maxDuration: 300s` is configured in `vercel.json` (handles 18-ad batches comfortably; Phase 4's sub-angle generation may need 800s with Fluid Compute).
 
-**Frontend + Backend**:
-```bash
-VPS_HOST=76.13.219.6 bash deploy/deploy.sh
-```
+**Frontend + Backend**: ship together via `git push origin main`. Vercel handles install + build + deploy.
 
-**Convex (schema/function changes) — SEPARATE STEP**:
+**Convex (schema/function changes) — SEPARATE STEP**: run from your local machine, not from any VPS.
 ```bash
-ssh root@76.13.219.6 "cd /opt/ad-platform && CONVEX_DEPLOYMENT=prod:strong-civet-577 npx convex deploy -y"
+npx convex dev --once --typecheck=disable   # dev deploy + sanity-check
+# OR
+npx convex deploy -y                         # prod deploy (when CONVEX_DEPLOY_KEY is set)
 ```
+Convex deploys are independent of Vercel — they push schema + functions directly to the Convex cloud. Always run after schema changes.
 
-**Build Frontend Locally**:
-```bash
-source ~/.zshrc 2>/dev/null && cd frontend && npm run build
-```
+**Adding a New npm Dependency**: edit `backend/package.json` or `frontend/package.json`, commit, push. Vercel reinstalls on every deploy.
 
-**Agent Script Updates** (`deploy.sh` does NOT sync agent dirs):
-```bash
-scp dacia-creative-filter/filter.sh root@76.13.219.6:/opt/ad-platform/dacia-creative-filter/
-scp dacia-fixer/fixer.sh root@76.13.219.6:/opt/ad-platform/dacia-fixer/
-```
-
-**Adding a New npm Dependency** (`package.json` is excluded from rsync):
-```bash
-ssh root@76.13.219.6 "cd /opt/ad-platform/backend && npm install <package>"
-```
+**About the legacy `dacia-creative-filter/` and `dacia-fixer/` directories**: bash scripts (`filter.sh`, `fixer.sh`) inside these folders were the original execution model when the system ran on a separate VPS. **They do not run anywhere in the Vercel deployment.** The actual Filter logic now lives in `backend/services/creativeFilterService.js` (a Node.js port called inline during Director runs). The dirs remain because `backend/routes/agentMonitor.js` reads log paths inside them for the Agent Dashboard UI; deleting the dirs would break that page. Treat the bash scripts themselves as fossils.
 
 ### Settings
 
@@ -99,11 +86,9 @@ All API keys and config are stored in the Convex `settings` table (not .env):
 | `gemini_rate_*` | Gemini pricing rates (auto-refreshed daily) |
 | `headline_ref_1`, `headline_ref_2`, `headline_ref_3` | Reference copywriting docs for headlines |
 
-PM2 env vars: `NODE_ENV=production`, `PORT=3001`, `CONVEX_URL=https://energized-hare-760.convex.cloud`
+Vercel env vars (set via Vercel project settings, not `.env`): `CONVEX_URL=https://elated-mastiff-709.convex.cloud`. Most secrets live in the Convex `settings` table (auto-loaded at runtime).
 
-Agent env vars (cron): `ANTHROPIC_API_KEY`, `FILTER_USERNAME`, `FILTER_PASSWORD`
-
-On disk (gitignored): `config/service-account.json` (Google Drive service account)
+On disk (gitignored): `config/service-account.json` (Google Drive service account; deployed via Vercel build).
 
 ### Styling
 
@@ -130,20 +115,22 @@ On disk (gitignored): `config/service-account.json` (Google Drive service accoun
 ### Layer Diagram
 
 ```
-Browser -> Nginx (443) -> Express (3001) -> Convex Cloud
-                                          -> OpenAI API
-                                          -> Anthropic API
-                                          -> Google Gemini API
-                                          -> Perplexity API
-                                          -> Google Drive API
-                                          -> Meta Marketing API
-                                          -> Shopify Admin API
-                                          -> Cloudflare Pages API
+Browser -> Vercel CDN -> Vercel serverless function (api/index.js)
+                            -> Express app -> Convex Cloud
+                                            -> OpenAI API
+                                            -> Anthropic API
+                                            -> Google Gemini API
+                                            -> Perplexity API
+                                            -> Google Drive API
+                                            -> Meta Marketing API
+                                            -> Shopify Admin API
+                                            -> Cloudflare Pages API
 
-Cron (VPS) -> filter.sh -> Express (3001) -> Convex Cloud
-Cron (VPS) -> fixer.sh  -> Express (3001) -> Convex Cloud
-Scheduler  -> conductorEngine.js -> Convex Cloud + Anthropic API
+Inline Filter (creativeFilterService.js, called during Director runs)
+Inline Director (conductorEngine.js, triggered manually or via batch routes)
 ```
+
+Note: legacy bash scripts in `dacia-creative-filter/filter.sh` and `dacia-fixer/fixer.sh` do not run in Vercel — they were originally invoked by VPS cron in a previous deployment model. The Filter logic is now inlined via `creativeFilterService.js`.
 
 Frontend calls `api.js` methods -> Express route handlers -> services call LLM APIs + Convex mutations -> results stored in Convex -> frontend fetches updated data.
 
@@ -264,9 +251,9 @@ Rate-limited endpoints (10 req/min per user): `/generate-docs`, `/generate-ad`, 
 
 **LP Agent** (`backend/services/lpAutoGenerator.js`, `backend/services/lpGenerator.js`) — Generates two advertorials per batch with different narrative frames. Uses Opus 4.6 editorial pass for strategic content decisions. Passes project product images as reference for hero/product image slots. Publishes to Shopify. Visual QA with auto-fix loop (up to 3 attempts). Smoke test (7 automated checks). Config in `lp_agent_config` table per project. Triggered by Director after batch creation.
 
-**Creative Filter** (`dacia-creative-filter/filter.sh`) — Scores completed batch ads via Claude Sonnet vision, groups winners into flex ads (1 per batch), deploys to Ready to Post. Runs every 30 min via VPS cron. Budget: $20/day. Opt-in per batch (`filter_assigned=true`). Sub-agents: `score.sh` (vision scoring), `group.sh` (flex ad clustering), `validate.sh` (copy validation), `regenerate.sh` (copy fallback).
+**Creative Filter** (`backend/services/creativeFilterService.js` — Node.js port; the bash version in `dacia-creative-filter/filter.sh` is a legacy fossil that does not run in Vercel). Scores completed batch ads via Claude Sonnet vision. Phase 1+: writes `filter_score`/`filter_verdict`/`filter_reasons` to `ad_creatives` and flips status to `staging` (passed) or `quality_rejected` (rejected) — driving the Staging Page lifecycle. Pre-Phase-1 behavior also created `flex_ads` (now wiped from CF). Runs inline during Director batch processing.
 
-**Fixer** (`dacia-fixer/fixer.sh`) — Runs test suite, diagnoses failures via Gemini Flash, fixes via Claude Sonnet, resurrects failed batches. Health probes: backend health, filter liveness, pass rate, disk space. Runs every 5 min via VPS cron. Budget: $1.33/day. Commits fixes to `fixer/auto-fixes` branch.
+**Fixer** (legacy bash agent at `dacia-fixer/fixer.sh` — does not run in Vercel; preserved as a directory because `agentMonitor.js` reads log paths from inside it for the Agent Dashboard UI). Originally ran every 5 min via VPS cron with health probes + auto-fix capability. Currently dormant; no equivalent Node port exists yet.
 
 Filter and Fixer agents use: lock files (`/tmp/dacia-{agent}.lock` with PID check), `flock` for atomic spend file reads/writes, session cookie auth with 24h expiry + auto-re-auth, daily log rotation.
 
@@ -830,7 +817,7 @@ UUID generation for `externalId` fields across the entire backend.
 
 ### `convex/schema.ts` — All Convex functions
 
-29 tables. Schema changes require a **separate** `npx convex deploy -y` on VPS.
+29 tables. Schema changes require a **separate** `npx convex deploy -y` (run locally; Convex pushes directly to its cloud, independent of Vercel).
 
 * `convex/schema.ts` → used by:
   - Every file in `convex/` (26 function files)
@@ -940,7 +927,7 @@ Rules that must never be violated. Breaking these causes silent failures or data
 4. Add helper functions in `convexClient.js` with field whitelists for updates
 5. Add route handler to read/write the field
 6. Add API method in `frontend/src/api.js`
-7. Deploy Convex separately: `npx convex deploy -y` on VPS
+7. Deploy Convex separately: `npx convex deploy -y` (run locally; Convex pushes directly to its cloud, independent of Vercel)
 8. If hierarchical: implement cascade deletion in parent's `remove()` mutation
 
 ### Adding a New LLM Call
@@ -966,7 +953,7 @@ Rules that must never be violated. Breaking these causes silent failures or data
 
 ## 6. Common Pitfalls
 
-1. **Forgetting Convex deploy** — `deploy.sh` only deploys backend + frontend. Schema/function changes require separate `npx convex deploy -y` on VPS.
+1. **Forgetting Convex deploy** — `deploy.sh` only deploys backend + frontend. Schema/function changes require separate `npx convex deploy -y` (run locally; Convex pushes directly to its cloud, independent of Vercel).
 
 2. **Missing field in whitelist** — `convexClient.js` helper functions use explicit field whitelists. Adding a field to schema + mutation but not the whitelist means updates silently drop the field.
 
@@ -986,7 +973,7 @@ Rules that must never be violated. Breaking these causes silent failures or data
 
 10. **Meta token expiry** — Tokens expire ~60 days. Scheduler auto-refreshes weekly. No proactive expiry warning.
 
-11. **Agent scripts not in deploy.sh** — Must SCP agent directories manually to VPS.
+11. **Legacy `deploy/` directory + `dacia-*/` bash scripts** — vestigial from the pre-Vercel deployment. Do not run anywhere; preserved on disk because `agentMonitor.js` reads paths from `dacia-creative-filter/` and `dacia-fixer/`. Don't delete without refactoring `agentMonitor.js` first.
 
 12. **`dashboard_todos.replaceAll` is destructive** — Deletes ALL existing todos, inserts new ones. Not an update.
 
@@ -994,7 +981,7 @@ Rules that must never be violated. Breaking these causes silent failures or data
 
 14. **No enum for status strings** — `"selected"`, `"ready_to_post"`, `"posted"`, `"analyzing"` are raw strings everywhere. Renaming requires updating every file that references them.
 
-15. **VPS constraints** — 2GB RAM max (PM2 `max_memory_restart`), single instance only.
+15. **Vercel function constraints** — `maxDuration: 300s` (configured in `vercel.json`), per-function memory cap. Long-running Director batches with 18+ ads typically complete in 2-3 min. Phase 4's sub-angle generation may need a bump to 800s with Fluid Compute.
 
 16. **`conductorLearning.js` bug** — Has `messages.filter is not a function` error in learning step. Data shape issue, pre-existing.
 
@@ -1008,7 +995,7 @@ Rules that must never be violated. Breaking these causes silent failures or data
 
 21. **LP auto-save overwrites post-processing** — Any time the editor auto-saves (copy edit, CTA change), it sends rebuilt HTML to the PUT endpoint. The PUT endpoint's safety net re-applies placeholder fixes + contrast CSS. New post-processing steps need a corresponding safety net.
 
-22. **Puppeteer memory** — LP Visual QA, smoke tests, and template extraction all launch headless Chromium. On the 2GB VPS, concurrent Puppeteer instances can OOM. The LP auto-generator runs sequentially (not parallel) for this reason.
+22. **Puppeteer memory** — LP Visual QA, smoke tests, and template extraction all launch headless Chromium. Vercel functions have memory limits per invocation; concurrent Puppeteer instances can exhaust the function memory. The LP auto-generator runs sequentially (not parallel) for this reason.
 
 23. **Convex retry logic** — `convexClient.js` has its own retry predicate (`convexShouldRetry`) separate from the LLM retry logic. It retries on server errors, network failures, and rate limits. 3 retries with 2s base delay.
 
@@ -1178,10 +1165,7 @@ ad-platform/
 |   +-- logs/                        # Daily log files + spend tracking
 |
 +-- deploy/
-|   +-- deploy.sh                    # Rsync -> npm install -> build -> PM2 restart
-|   +-- setup.sh                     # VPS initial setup (Node 22, PM2, Nginx)
-|   +-- ecosystem.config.cjs         # PM2 config (port 3001, 2GB max, single instance)
-|   +-- nginx.conf                   # Reverse proxy + SSL + 300s timeout + SSE support
+|   +-- (LEGACY) deploy.sh, setup.sh, ecosystem.config.cjs, nginx.conf — pre-Vercel VPS artifacts; not used by current deployment but kept on disk
 |
 +-- frontend/
     +-- package.json                 # React 18, Vite 5.4, Tailwind 3.4, JSZip
