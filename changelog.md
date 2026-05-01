@@ -1,5 +1,38 @@
 # Creative Factory — Changelog
 
+## 2026-05-01 — Switch default image model to Nano Banana 2 (Creative Director + Agent)
+
+**Change**
+- Default image model for both ad-generation flows is now `nano-banana-2` (Gemini 3.1 Flash Image Preview), was `nano-banana-pro` (Gemini 3 Pro Image Preview).
+- Affects: AdStudio dropdown initial state (manual single-ad gen), and the Director-triggered batch processor (autonomous batch gen).
+- Nano Banana Pro stays in the dropdown — users can still pick it manually. Default-only change.
+
+**Why**
+- Marco's call: Flash is faster, cheaper, supports up to 4K, and has improved text rendering vs Pro for the kind of structured ad layouts the Creative Director generates. After the dall-e-2 quality-ceiling experience, Marco wants the higher-quality Gemini path as the default for both manual and autonomous ad generation.
+
+**Locations changed**
+- `frontend/src/components/AdStudio.jsx:172` — `useState('nano-banana-pro')` → `useState('nano-banana-2')`. Plus dropdown-description "(current default)" annotation moved from Pro to 2.
+- `backend/services/adGenerator.js:475, 714, 2071` — three metadata fallbacks switched from legacy label `'gemini-3-pro'` to `'nano-banana-2'`. This also fixes a pre-existing inconsistency: `gemini.js#generateImage` already auto-defaulted to `nano-banana-2` when no model was passed, but these stored-metadata fallbacks recorded `'gemini-3-pro'` (a legacy label not in the current GEMINI_MODELS map). Stored metadata now matches what actually ran.
+- `backend/services/batchProcessor.js:738` — Gemini Batch API model string switched from `'gemini-3-pro-image-preview'` to `'gemini-3.1-flash-image-preview'`. This is the actual API model name used in the `ai.batches.create({ model, ... })` call (the batch path bypasses our `gemini.js` wrapper, so this hardcoded string is the only switch).
+- `backend/services/batchProcessor.js:957` — stored metadata label switched from `'gemini-3-pro'` to `'nano-banana-2'`.
+- `convex/schema.ts:102` — comment example updated. No schema change.
+
+**Out of scope**
+- LP Agent (`lpGenerator.js#generateSlotImages`): not changed. Marco's request was about ad generation; LP Agent is a separate subsystem with its own image flow. If LP Agent should also flip, that's a follow-up.
+- Removing Nano Banana Pro from the dropdown: kept as a manual option.
+- Per-project default model setting: not added. All sessions still start from the global default.
+- Backfilling old `image_model` field on existing ad records: not done. Old records keep whatever was stored.
+- Removing the legacy `'gemini-3-pro'` entry from `adGenerator.js#GEMINI_MODELS` validation Set: deferred. Harmless legacy whitelist entry; cleanup belongs in a future tidy-up commit.
+
+**Risk + rollback**
+- Gemini Batch API support for `gemini-3.1-flash-image-preview` is not explicitly documented as identical to `models.generate_content`. If the next Director batch fails 400 with "unsupported model," revert this commit (single one-line literal swap on `batchProcessor.js:738`).
+- All other changes are purely metadata / frontend defaults — those revert with the same single commit.
+
+**Cost note**
+- `gemini_rate_*` settings auto-refresh daily. If `gemini_rate_gemini-3.1-flash-image-preview` hasn't yet been pulled, the first day's nano-banana-2 generations may log $0 cost until the next midnight refresh. Cosmetic only — actual API spend is unaffected.
+
+---
+
 ## 2026-05-01 — Purpose-build short prompts for dall-e-2 (no more decapitation)
 
 **Problem**

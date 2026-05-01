@@ -472,7 +472,7 @@ export async function generateAd(projectId, options = {}) {
     status: 'generating_copy',
     inspiration_image_id: inspirationImageId || undefined,
     text_model: 'gpt-5.2',
-    image_model: imageModel || 'gemini-3-pro',
+    image_model: imageModel || 'nano-banana-2',
   });
 
   try {
@@ -711,7 +711,7 @@ export async function generateAdMode2(projectId, options = {}) {
     status: 'generating_copy',
     template_image_id: templateImageId,
     text_model: 'gpt-5.2',
-    image_model: imageModel || 'gemini-3-pro',
+    image_model: imageModel || 'nano-banana-2',
   });
 
   try {
@@ -2068,7 +2068,7 @@ export async function regenerateImageOnly(projectId, options = {}) {
     image_prompt: imagePrompt.trim(),
     gpt_creative_output: imagePrompt.trim(),
     parent_ad_id: parentAdId || undefined,
-    image_model: imageModel || 'gemini-3-pro',
+    image_model: imageModel || 'nano-banana-2',
   });
 
   emit({ type: 'status', status: 'generating_image', message: 'Preparing image generation...', progress: 5, adId });

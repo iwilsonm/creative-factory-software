@@ -99,7 +99,7 @@ export default defineSchema({
     copy_framework: v.optional(v.string()),  // Legacy: from removed diversity features
     sub_angle: v.optional(v.string()),       // Secondary variation label within a hook lane
     text_model: v.optional(v.string()),      // LLM used for copy (e.g., "gpt-5.2")
-    image_model: v.optional(v.string()),     // Model used for image (e.g., "gemini-3-pro")
+    image_model: v.optional(v.string()),     // Model used for image (e.g., "nano-banana-2")
     created_at: v.string(),
   })
     .index("by_externalId", ["externalId"])

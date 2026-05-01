@@ -169,7 +169,7 @@ export default function AdStudio({ projectId, project }) {
   const [skipProductImage, setSkipProductImage] = useState(false);
 
   // Image generation model
-  const [imageModel, setImageModel] = useState('nano-banana-pro');
+  const [imageModel, setImageModel] = useState('nano-banana-2');
 
   // Product image
   const [productFile, setProductFile] = useState(null);
@@ -2166,8 +2166,8 @@ export default function AdStudio({ projectId, project }) {
                   <option value="gpt-image-2">GPT Image 2 (OpenAI)</option>
                 </select>
                 <p className="text-[10px] text-textlight mt-1">
-                  {imageModel === 'nano-banana-pro' && 'High-fidelity Gemini image generation (current default).'}
-                  {imageModel === 'nano-banana-2' && 'Faster Gemini generation with improved text rendering, up to 4K.'}
+                  {imageModel === 'nano-banana-pro' && 'High-fidelity Gemini image generation.'}
+                  {imageModel === 'nano-banana-2' && 'Faster Gemini generation with improved text rendering, up to 4K (current default).'}
                   {imageModel === 'gpt-image-2' && "OpenAI's newest image model — strong text rendering and reference-image support. Requires OpenAI Tier 1+."}
                 </p>
               </div>

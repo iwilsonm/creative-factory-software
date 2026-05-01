@@ -735,7 +735,7 @@ async function submitGeminiBatch(batchId, prompts, aspectRatio, projectName, pro
 
   const batchJob = await withRetry(
     () => ai.batches.create({
-      model: 'gemini-3-pro-image-preview',
+      model: 'gemini-3.1-flash-image-preview',
       src: inlineRequests,
       config: {
         displayName: `${projectName}_batch_${batchId.slice(0, 8)}_${timestamp}`
@@ -954,7 +954,7 @@ async function processBatchResults(batchId, job) {
           : undefined) || undefined,
         batch_job_id: batchId,
         text_model: 'gpt-5.2',
-        image_model: 'gemini-3-pro',
+        image_model: 'nano-banana-2',
       });
 
       if (batch.angle_name && typeof promptObj === 'object' && promptObj?.headline) {
