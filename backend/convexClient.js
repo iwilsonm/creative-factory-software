@@ -11,6 +11,7 @@
 import { ConvexHttpClient } from 'convex/browser';
 import { api } from '../convex/_generated/api.js';
 import fetch from 'node-fetch';
+import { v4 as uuidv4 } from 'uuid';
 import { withRetry } from './services/retry.js';
 import { ensureArray } from './utils/collections.js';
 
@@ -1246,6 +1247,81 @@ export async function forcePromoteAd(adId) {
   const result = await mutationWithRetry(api.adCreatives.forcePromote, { externalId: adId });
   invalidateQueryCache('ad_creatives');
   return result;
+}
+
+// Phase 1 — auxiliary helpers used by batchProcessor when creating ad_sets per batch.
+
+// Lookup an angle's externalId by its name within a project. Returns null if not found.
+// Used when bridging between batch.angle_name (string) and ad_sets.angle_id (externalId).
+export async function findConductorAngleByName(projectId, name) {
+  if (!name) return null;
+  const angles = await getConductorAngles(projectId);
+  const match = angles.find((a) => a.name === name);
+  return match ? match.externalId : null;
+}
+
+// Get or create the project's default Meta campaign (used when an ad_set is created
+// and no explicit campaign is selected). Caches the resolved campaign id back onto
+// the project so subsequent lookups are direct. Idempotent.
+export async function ensureDefaultCampaign(project) {
+  if (project?.default_campaign_id) {
+    return project.default_campaign_id;
+  }
+  // Try to find an existing "Default" campaign for the project before creating one.
+  const existingCampaigns = await getCampaignsByProject(project.id);
+  let campaign = existingCampaigns.find((c) => c.name === `[Default] ${project.name}`);
+  if (!campaign) {
+    const newId = uuidv4();
+    await createCampaign({
+      id: newId,
+      project_id: project.id,
+      name: `[Default] ${project.name}`,
+      sort_order: 0,
+    });
+    campaign = { id: newId };
+  }
+  // Persist on the project so the next call short-circuits.
+  await updateProject(project.id, { default_campaign_id: campaign.id });
+  return campaign.id;
+}
+
+// Read project's adset_default_template JSON safely. Returns an object with the standard
+// Meta-set fields (targeting, budget, schedule, optimization, billing). Missing keys → null.
+// All values are passed through as JSON-stringified or primitive types matching the schema.
+export function parseAdSetDefaults(project) {
+  if (!project?.adset_default_template) {
+    return {
+      meta_targeting: null,
+      meta_budget_type: null,
+      meta_budget_amount_cents: null,
+      meta_schedule: null,
+      meta_optimization_goal: null,
+      meta_billing_event: null,
+    };
+  }
+  let parsed;
+  try {
+    parsed = typeof project.adset_default_template === 'string'
+      ? JSON.parse(project.adset_default_template)
+      : project.adset_default_template;
+  } catch {
+    return {
+      meta_targeting: null,
+      meta_budget_type: null,
+      meta_budget_amount_cents: null,
+      meta_schedule: null,
+      meta_optimization_goal: null,
+      meta_billing_event: null,
+    };
+  }
+  return {
+    meta_targeting: parsed.targeting ? JSON.stringify(parsed.targeting) : null,
+    meta_budget_type: parsed.budget_type || null,
+    meta_budget_amount_cents: typeof parsed.budget_amount_cents === 'number' ? parsed.budget_amount_cents : null,
+    meta_schedule: parsed.schedule ? JSON.stringify(parsed.schedule) : null,
+    meta_optimization_goal: parsed.optimization_goal || null,
+    meta_billing_event: parsed.billing_event || null,
+  };
 }
 
 // =============================================

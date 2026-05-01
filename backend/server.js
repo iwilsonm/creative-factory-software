@@ -24,9 +24,12 @@ import costsRoutes from './routes/costs.js';
 import deploymentRoutes from './routes/deployments.js';
 import agentMonitorRoutes, { agentCostRouter } from './routes/agentMonitor.js';
 import conductorRoutes from './routes/conductor.js';
+import lpAgentRoutes from './routes/lpAgent.js';
+import stagingRoutes from './routes/staging.js';
 import rateLimit from 'express-rate-limit';
 import { getRateLimiterStats } from './services/rateLimiter.js';
 import { syncOpenAICosts, refreshGeminiRates } from './services/costTracker.js';
+import { getSchedulerStatus, initializeScheduler } from './services/scheduler.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const app = express();
@@ -182,6 +185,10 @@ try {
       console.error('[Projects] Stored stats backfill error:', err.message);
     });
 
+  if (!process.env.VERCEL) {
+    initializeScheduler();
+  }
+
   // Health check — no auth required (used by Dacia Fixer health probes)
   app.get('/api/health', async (req, res) => {
     const checks = {};
@@ -196,6 +203,9 @@ try {
 
     // Rate limiter
     checks.rateLimiter = getRateLimiterStats();
+
+    // Batch scheduler/poller
+    checks.scheduler = getSchedulerStatus();
 
     // Memory
     const mem = process.memoryUsage();
@@ -258,6 +268,7 @@ try {
   app.use('/api/users', userRoutes);
   app.use('/api/settings', settingsRoutes);
   // Routes — projects (all roles can list/view projects for navigation)
+  app.use('/api/projects', lpAgentRoutes);
   app.use('/api/projects', projectRoutes);
   // Routes — deployments (poster has limited access — controlled per-route inside)
   // IMPORTANT: Must be mounted BEFORE broad /api routes with requireRole('admin', 'manager')
@@ -273,6 +284,8 @@ try {
   app.use('/api/projects', requireAuth, requireRole('admin', 'manager'), adRoutes);
   app.use('/api/projects', requireAuth, requireRole('admin', 'manager'), batchRoutes);
   app.use('/api/batches', requireAuth, requireRole('admin', 'manager'), batchRoutes);  // Flat mount for Dacia Fixer retry endpoint
+  // Phase 1 — Staging Page routes (admin/manager only). Auth + role enforced inside the router.
+  app.use('/api/projects', stagingRoutes);
   app.use('/api', requireAuth, requireRole('admin', 'manager'), costsRoutes);
   // Routes — agent monitor (admin only)
   app.use('/api/agent-monitor', requireAuth, requireRole('admin'), agentMonitorRoutes);

@@ -17,6 +17,8 @@ import {
   getProject, getLatestDoc, getBatchJob, updateBatchJob, getSetting,
   uploadBuffer, downloadToBuffer, getRecentHeadlineHistoryByAngle, recordHeadlineHistory,
   claimBatchResultsProcessing, getCompletedDirectorBatchStats,
+  // Phase 1 — Staging Page
+  getAdSet, createAdSet, ensureDefaultCampaign, findConductorAngleByName, parseAdSetDefaults,
   convexClient, api
 } from '../convexClient.js';
 import { logGeminiCost } from './costTracker.js';
@@ -32,6 +34,50 @@ import { chatWithImage } from './openai.js';
 
 // Batch OCR model — simple text extraction from a generated image. Cheap and vision-capable.
 const BATCH_OCR_MODEL = 'gpt-4.1-mini';
+
+/**
+ * Phase 1 — Staging Page. Get-or-create the ad_set this batch's ads belong to.
+ * Uses a deterministic externalId (`adset-${batchId}`) so retries land on the same
+ * ad_set. Pulls campaign + Meta defaults from the project. Resolves angle by name
+ * (batch.angle_name → conductor_angles.externalId).
+ *
+ * Created in `lifecycle_status: "staging"` so it appears on the Staging Page Pending
+ * tab when the user views it. The ad_set is created here rather than at batch
+ * creation time so existing batch-creation paths (route handlers + conductor) don't
+ * need to be updated synchronously — Phase 1 is non-breaking for those paths.
+ */
+async function ensureBatchAdSet(batch, project) {
+  const adSetId = `adset-${batch.externalId || batch.id}`;
+  const existing = await getAdSet(adSetId);
+  if (existing) return adSetId;
+
+  const campaignId = await ensureDefaultCampaign(project);
+  const angleId = await findConductorAngleByName(project.id, batch.angle_name);
+  const defaults = parseAdSetDefaults(project);
+  const dateLabel = batch.posting_day
+    || (batch.created_at || '').slice(0, 10)
+    || new Date().toISOString().slice(0, 10);
+  const setName = batch.angle_name
+    ? `${batch.angle_name} — ${dateLabel}`
+    : `Batch ${(batch.externalId || batch.id || '').slice(0, 8)} — ${dateLabel}`;
+
+  await createAdSet({
+    id: adSetId,
+    project_id: project.id,
+    campaign_id: campaignId,
+    angle_id: angleId || undefined,
+    name: setName,
+    sort_order: 0,
+    lifecycle_status: 'staging',
+    meta_targeting: defaults.meta_targeting,
+    meta_budget_type: defaults.meta_budget_type,
+    meta_budget_amount_cents: defaults.meta_budget_amount_cents,
+    meta_schedule: defaults.meta_schedule,
+    meta_optimization_goal: defaults.meta_optimization_goal,
+    meta_billing_event: defaults.meta_billing_event,
+  });
+  return adSetId;
+}
 
 // Drive upload skipped for batch images — Service Account has no storage quota.
 // Images are stored in Convex storage and viewable in the UI.
@@ -837,6 +883,18 @@ async function processBatchResults(batchId, job) {
   const project = await getProject(batch.project_id);
   const prompts = JSON.parse(batch.gpt_prompts || '[]');
 
+  // Phase 1 — Staging Page: ensure the ad_set this batch's ads will join exists.
+  // Deterministic id (`adset-<batchId>`) makes this idempotent if processBatchResults
+  // is retried. Failure to set up the ad_set is non-fatal — ads will still be created
+  // without `ad_set_id` and will appear as orphan ads (not surfaced in the Staging
+  // Page until a manual fix). Logged so it's not silent.
+  let stagingAdSetId = null;
+  try {
+    stagingAdSetId = await ensureBatchAdSet(batch, project);
+  } catch (err) {
+    console.warn(`[BatchProcessor] Could not ensure ad_set for batch ${batchId.slice(0, 8)}: ${err.message}. Ads will be created without ad_set_id.`);
+  }
+
   // Get responses from the batch job
   const responses = job.dest?.inlinedResponses || [];
 
@@ -955,6 +1013,10 @@ async function processBatchResults(batchId, job) {
         batch_job_id: batchId,
         text_model: 'gpt-5.2',
         image_model: 'nano-banana-2',
+        // Phase 1 — Staging Page: link the ad to its parent ad_set if one was created.
+        // Falls back to undefined when ensureBatchAdSet failed; ad becomes an orphan
+        // (visible in AdStudio gallery, not in Staging Page) until manually grouped.
+        ad_set_id: stagingAdSetId || undefined,
       });
 
       if (batch.angle_name && typeof promptObj === 'object' && promptObj?.headline) {

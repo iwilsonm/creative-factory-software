@@ -210,8 +210,15 @@ export async function runDirectorForProject(projectId, runType = 'manual') {
         };
         const batchId = uuidv4();
 
-        // Adaptive batch size: smaller for emergency runs, learns from pass rates
-        const baseBatchSize = runType === 'emergency' ? 12 : config.ads_per_batch;
+        // Adaptive batch size: smaller for emergency runs, learns from pass rates.
+        // Phase 1 — Creative Director cycle config: project.ads_per_ad_set (when set)
+        // takes precedence over the legacy config.ads_per_batch. Hard cap 20 per
+        // Phase 1 plan (Marco's spec; Meta recommends 3-5 for delivery efficiency
+        // but no longer enforces a hard limit).
+        const directorCycleSize = typeof project.ads_per_ad_set === 'number' && project.ads_per_ad_set > 0
+          ? Math.min(project.ads_per_ad_set, 20)
+          : config.ads_per_batch;
+        const baseBatchSize = runType === 'emergency' ? 12 : directorCycleSize;
         const batchSize = await getAdaptiveBatchSize(projectId, angleInfo.name, baseBatchSize);
 
         // Build the angle prompt — use structured fields if available, else legacy description
