@@ -384,7 +384,12 @@ export async function generateImage(prompt, aspectRatio = '1:1', productImage = 
     async () => {
       if (productImage) {
         // /v1/images/edits expects a PNG file-like for the reference image.
-        const pngBuffer = await sharp(productImage).png().toBuffer();
+        // productImage shape is { base64, mimeType } (matches the Gemini sibling
+        // in services/gemini.js) — decode the base64 to a Buffer before handing
+        // to sharp. Passing the raw object made sharp produce empty output and
+        // OpenAI rejected with "input file is missing".
+        const inputBuffer = Buffer.from(productImage.base64, 'base64');
+        const pngBuffer = await sharp(inputBuffer).png().toBuffer();
         const file = await toFile(pngBuffer, 'reference.png', { type: 'image/png' });
         return openai.images.edit({
           model: imageModel,

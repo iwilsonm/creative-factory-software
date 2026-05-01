@@ -1,5 +1,24 @@
 # Creative Factory — Changelog
 
+## 2026-05-01 — Fix GPT Image 2 "input file is missing" — productImage object passed raw to sharp()
+
+**Bug**
+- Marco: "I've tried to generate a couple of ads in the ad generator using ChatGPT Image 2. It doesn't seem like they are able to generate. I'm getting an 'input file is missing' error message."
+
+**Cause**
+- In `backend/services/openai.js#generateImage`, the product-image branch called `sharp(productImage).png().toBuffer()` — passing the WHOLE `{ base64, mimeType }` object as sharp's input. Sharp's constructor doesn't accept that shape, so it silently produced empty output. The empty buffer was wrapped via `toFile` and uploaded to OpenAI's `/v1/images/edits` endpoint, which rejected with "input file is missing." The Gemini sibling at `gemini.js:46–55` correctly destructures `productImage.base64` and `productImage.mimeType`.
+
+**Fix**
+- `backend/services/openai.js` — decode `productImage.base64` to a Buffer first, then pass to sharp. Sharp re-encodes to PNG (required by `/v1/images/edits`), the file uploads cleanly. One-line fix plus a comment explaining the shape contract.
+
+**Antipattern note**
+- When a function signature is shared across providers (e.g., Gemini and OpenAI both take `productImage`), make sure the IMPLEMENTATION accesses the shape consistently. The OpenAI path was originally written assuming `productImage` was a Buffer, but the producers always pass `{ base64, mimeType }`. The bug was masked by sharp not throwing on the wrong-shape input.
+
+**Files modified**
+- `backend/services/openai.js`
+
+---
+
 ## 2026-05-01 — API cost rate audit + GPT-5.2 rate corrected
 
 **Audit performed**
