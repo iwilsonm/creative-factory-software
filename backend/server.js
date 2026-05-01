@@ -282,6 +282,11 @@ try {
   // deploymentRoutes' router-wide requireAuth would reject before metaRoutes
   // is reached. Other Meta routes still enforce auth via per-route middleware.
   app.use('/api/meta', metaRoutes);
+  // Phase 3 — Vercel Cron entrypoint. MUST be mounted before deploymentRoutes
+  // (which has router-wide requireAuth) for the same reason /api/meta is —
+  // Vercel Cron requests arrive with no session cookie, just an
+  // Authorization: Bearer header; routes/cron.js validates that internally.
+  app.use('/api/cron', cronRoutes);
   // Routes — deployments (poster has limited access — controlled per-route inside)
   // IMPORTANT: Must be mounted BEFORE broad /api routes with requireRole('admin', 'manager')
   // because Express runs middleware in order and those broad /api mounts would block poster users
@@ -303,9 +308,6 @@ try {
   // Phase 3 — Observation tab routes + admin observation triggers.
   // Mounted at /api so the /admin/observation/* paths work too.
   app.use('/api', observationRoutes);
-  // Phase 3 — Vercel Cron entrypoint. No auth middleware; cron.js validates
-  // CRON_SECRET internally with timing-safe compare.
-  app.use('/api/cron', cronRoutes);
   app.use('/api', requireAuth, requireRole('admin', 'manager'), costsRoutes);
   // Routes — agent monitor (admin only)
   app.use('/api/agent-monitor', requireAuth, requireRole('admin'), agentMonitorRoutes);
