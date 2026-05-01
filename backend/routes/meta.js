@@ -23,6 +23,7 @@ import {
   refreshLongLivedToken,
   getMe,
   getAdAccounts,
+  getPages,
   getCampaigns,
   getAdSets,
   getAds,
@@ -222,6 +223,9 @@ router.get('/connection-status', requireAuth, requireRole('admin', 'manager'), a
       integration_path: project.meta_integration_path || 'mcp',
       connected_at: project.meta_connected_at,
       token_expires_at: project.meta_token_expires_at,
+      // Phase 2B
+      page_id: project.meta_page_id,
+      page_name: project.meta_page_name,
     });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -275,6 +279,45 @@ router.get('/ad-accounts', requireAuth, requireRole('admin', 'manager'), async (
       }
       throw err;
     }
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Phase 2B — list available Facebook Pages for the connected user
+router.get('/pages', requireAuth, requireRole('admin', 'manager'), async (req, res) => {
+  try {
+    const { projectId } = req.query;
+    if (!projectId) return res.status(400).json({ error: 'projectId required' });
+    const raw = await getProjectRawForMeta(projectId);
+    if (!raw?.meta_access_token) {
+      return res.status(400).json({ error: 'Project not connected to Meta' });
+    }
+    try {
+      const pages = await getPages(raw.meta_access_token);
+      res.json({ pages });
+    } catch (err) {
+      if (isTokenInvalidError(err)) {
+        await updateProject(projectId, { meta_access_token: '', meta_token_expires_at: 0 });
+        return res.status(401).json({ error: 'Meta token expired. Please reconnect.' });
+      }
+      throw err;
+    }
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Phase 2B — persist FB Page selection on the project
+router.post('/select-page', requireAuth, requireRole('admin', 'manager'), async (req, res) => {
+  try {
+    const { projectId, pageId, pageName } = req.body || {};
+    if (!projectId || !pageId) return res.status(400).json({ error: 'projectId + pageId required' });
+    await updateProject(projectId, {
+      meta_page_id: pageId,
+      meta_page_name: pageName || '',
+    });
+    res.json({ success: true });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

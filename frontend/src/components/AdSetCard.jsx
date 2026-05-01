@@ -17,8 +17,11 @@ export default function AdSetCard({
   onEditMetaSettings,      // (adSet) => void
   onPromote,               // (adSet) => void
   onForcePromoteAd,        // (adId) => void  // only used in Rejected view
-  readOnly = false,        // for Promoted history view
-  variant = 'pending',     // 'pending' | 'rejected' | 'promoted'
+  onPostToMeta,            // (adSet) => void  // Phase 2B: Promoted variant only
+  isPosting = false,       // Phase 2B: Promoted variant only
+  metaAccountId = null,    // Phase 2B: for Ads Manager link on Posted variant
+  readOnly = false,
+  variant = 'pending',     // 'pending' | 'rejected' | 'promoted' | 'posted'
 }) {
   const [promoting, setPromoting] = useState(false);
   const [promoteError, setPromoteError] = useState('');
@@ -48,7 +51,7 @@ export default function AdSetCard({
           <div className="text-sm font-semibold text-textdark truncate">{adSet.name || `Ad set ${adSet.id.slice(0, 8)}`}</div>
           <div className="text-xs text-textmid mt-0.5">{adCount} ad{adCount === 1 ? '' : 's'}</div>
         </div>
-        {!readOnly && !regroupMode && (
+        {!readOnly && !regroupMode && variant === 'pending' && (
           <div className="flex items-center gap-2">
             <button
               type="button"
@@ -65,6 +68,35 @@ export default function AdSetCard({
             >
               {promoting ? 'Promoting…' : 'Promote to Ready-to-Post'}
             </button>
+          </div>
+        )}
+        {/* Phase 2B — Promoted variant: Post-to-Meta button */}
+        {variant === 'promoted' && !readOnly && (
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => onPostToMeta?.(adSet)}
+              disabled={isPosting}
+              className="btn-primary text-xs px-2 py-1 disabled:opacity-50 disabled:cursor-not-allowed"
+            >
+              {isPosting ? 'Posting…' : 'Post to Meta'}
+            </button>
+          </div>
+        )}
+        {/* Phase 2B — Posted variant: link to Ads Manager */}
+        {variant === 'posted' && (
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-teal font-semibold">✓ Posted</span>
+            {adSet.meta_adset_id && metaAccountId && (
+              <a
+                href={`https://business.facebook.com/adsmanager/manage/adsets?act=${metaAccountId.replace(/^act_/, '')}&selected_adset_ids=${adSet.meta_adset_id}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="btn-secondary text-xs px-2 py-1"
+              >
+                Open in Ads Manager →
+              </a>
+            )}
           </div>
         )}
       </div>

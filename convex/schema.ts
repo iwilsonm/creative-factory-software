@@ -49,6 +49,9 @@ export default defineSchema({
     meta_business_id: v.optional(v.string()),             // Business Manager ID (if applicable)
     meta_integration_path: v.optional(v.string()),        // "mcp" | "api" — defaults to "mcp"
     meta_connected_at: v.optional(v.number()),            // unix ms; when OAuth completed
+    // Phase 2B — Facebook Page selected for posting ads (one Page per project)
+    meta_page_id: v.optional(v.string()),
+    meta_page_name: v.optional(v.string()),
     created_at: v.string(),
     updated_at: v.string(),
   }).index("by_externalId", ["externalId"]),
@@ -122,6 +125,11 @@ export default defineSchema({
     filter_verdict: v.optional(v.string()),  // "passed" | "rejected" | null (null = not yet scored)
     filter_reasons: v.optional(v.string()),  // JSON array of reason strings (for rejected ads)
     // status field above accepts new values: "staging" | "quality_rejected"
+    // Phase 2B — Meta-side IDs after posting to Meta
+    meta_ad_id: v.optional(v.string()),       // Meta-side ad ID after posting
+    meta_creative_id: v.optional(v.string()), // Meta-side creative ID
+    meta_image_hash: v.optional(v.string()),  // hash returned by /adimages upload (idempotent)
+    meta_post_error: v.optional(v.string()),  // error message if posting failed
     created_at: v.string(),
   })
     .index("by_externalId", ["externalId"])
@@ -259,6 +267,10 @@ export default defineSchema({
     meta_billing_event: v.optional(v.string()),
     posted_at: v.optional(v.string()),                 // ISO timestamp; Day 1 of Phase 3 observation
     meta_adset_id: v.optional(v.string()),             // Meta's ad set ID after posting
+    // Phase 2B — Meta posting metadata
+    meta_campaign_id: v.optional(v.string()),          // resolved-or-created Meta campaign for this ad set
+    meta_post_error: v.optional(v.string()),           // error message if posting failed
+    meta_post_path: v.optional(v.string()),            // "mcp" | "api" — which path was used (audit)
     created_at: v.string(),
     updated_at: v.string(),
   })

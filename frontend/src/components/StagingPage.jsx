@@ -1,9 +1,10 @@
-import { useState, useCallback, useMemo } from 'react';
+import { useState, useCallback, useEffect, useMemo } from 'react';
 import { api } from '../api';
 import { useAsyncData } from '../hooks/useAsyncData';
 import { useToast } from './Toast';
 import AdSetCard from './AdSetCard';
 import MetaSettingsDialog from './MetaSettingsDialog';
+import ApiWarningDialog, { shouldShowApiWarning, markApiWarningDismissed } from './ApiWarningDialog';
 
 // Phase 1 — Staging Page. Per-project tab.
 // Three sub-views:
@@ -50,6 +51,72 @@ export default function StagingPage({ projectId, project, conductorAngles }) {
 
   // Meta settings dialog
   const [editingAdSet, setEditingAdSet] = useState(null);
+
+  // Phase 2B — Meta connection status (path + page presence + account presence)
+  // Used to gate the Post-to-Meta button and decide whether to show the API warning.
+  const [metaStatus, setMetaStatus] = useState(null);
+  useEffect(() => {
+    let cancelled = false;
+    api.getMetaConnectionStatus(projectId).then((s) => {
+      if (!cancelled) setMetaStatus(s);
+    }).catch(() => { if (!cancelled) setMetaStatus(null); });
+    return () => { cancelled = true; };
+  }, [projectId]);
+
+  // Pending Post action — captured while the warning dialog is open (when path = api)
+  const [pendingPostAdSet, setPendingPostAdSet] = useState(null);
+  const [postingAdSetId, setPostingAdSetId] = useState(null);
+
+  const performPost = useCallback(async (adSet) => {
+    setPostingAdSetId(adSet.id);
+    try {
+      const result = await api.postAdSetToMeta(projectId, adSet.id);
+      const adsLink = result.meta_adset_id
+        ? `https://business.facebook.com/adsmanager/manage/adsets?selected_adset_ids=${result.meta_adset_id}`
+        : null;
+      toast.success(
+        adsLink
+          ? `Posted to Meta via ${result.path_used === 'mcp' ? 'MCP' : 'API'} — opening Ads Manager`
+          : `Posted to Meta via ${result.path_used === 'mcp' ? 'MCP' : 'API'}`
+      );
+      if (adsLink) window.open(adsLink, '_blank', 'noopener');
+      refetchPending();
+      refetchPromoted();
+    } catch (err) {
+      const code = err?.code || (err?.message || '');
+      if (/TOKEN_EXPIRED/i.test(code) || /token expired/i.test(err?.message || '')) {
+        toast.error('Meta token expired. Reconnect in Project Settings → Meta.');
+      } else if (/MCP_NOT_AUTHORIZED/i.test(code)) {
+        toast.error('Meta MCP not authorized for this app. Switch to API path or get app allowlisted.');
+      } else if (/NO_PAGE/i.test(code)) {
+        toast.error('Pick a Facebook Page first (Project Settings → Meta).');
+      } else if (/NO_ACCOUNT|NOT_CONNECTED/i.test(code)) {
+        toast.error('Connect Meta + select an ad account first.');
+      } else {
+        toast.error(err?.message || 'Post to Meta failed');
+      }
+    } finally {
+      setPostingAdSetId(null);
+    }
+  }, [projectId, refetchPending, refetchPromoted, toast]);
+
+  const handlePostToMeta = useCallback((adSet) => {
+    if (!metaStatus?.connected || !metaStatus?.account_id || !metaStatus?.page_id) {
+      toast.error('Connect Meta + pick an ad account + Page in Project Settings → Meta first.');
+      return;
+    }
+    if (metaStatus.integration_path === 'api' && shouldShowApiWarning(projectId)) {
+      setPendingPostAdSet(adSet);
+      return;
+    }
+    performPost(adSet);
+  }, [metaStatus, projectId, performPost, toast]);
+
+  const handleConfirmApiPost = useCallback(() => {
+    markApiWarningDismissed(projectId);
+    if (pendingPostAdSet) performPost(pendingPostAdSet);
+    setPendingPostAdSet(null);
+  }, [pendingPostAdSet, performPost, projectId]);
 
   const handleSaveMetaSettings = useCallback(async (adSetId, fields) => {
     await api.updateAdSetMetaSettings(projectId, adSetId, fields);
@@ -202,8 +269,11 @@ export default function StagingPage({ projectId, project, conductorAngles }) {
                 key={adSet.id}
                 adSet={adSet}
                 ads={[]}  /* Phase 1: history shows the set + lifecycle status; ad thumbnails come in Phase 5 Analytics tab */
-                readOnly
-                variant="promoted"
+                readOnly={adSet.lifecycle_status === 'posted'}
+                variant={adSet.lifecycle_status === 'posted' ? 'posted' : 'promoted'}
+                onPostToMeta={handlePostToMeta}
+                isPosting={postingAdSetId === adSet.id}
+                metaAccountId={metaStatus?.account_id}
               />
             ))}
           </div>
@@ -215,6 +285,12 @@ export default function StagingPage({ projectId, project, conductorAngles }) {
         adSet={editingAdSet}
         onClose={() => setEditingAdSet(null)}
         onSave={handleSaveMetaSettings}
+      />
+
+      <ApiWarningDialog
+        open={!!pendingPostAdSet}
+        onCancel={() => setPendingPostAdSet(null)}
+        onConfirm={handleConfirmApiPost}
       />
     </div>
   );

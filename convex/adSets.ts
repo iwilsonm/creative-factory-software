@@ -73,6 +73,10 @@ export const update = mutation({
       meta_billing_event: v.optional(v.string()),
       posted_at: v.optional(v.string()),
       meta_adset_id: v.optional(v.string()),
+      // Phase 2B
+      meta_campaign_id: v.optional(v.string()),
+      meta_post_error: v.optional(v.string()),
+      meta_post_path: v.optional(v.string()),
     }),
   },
   handler: async (ctx, args) => {

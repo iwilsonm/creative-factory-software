@@ -195,7 +195,9 @@ export async function updateProject(id, fields) {
     // Phase 1 — Staging Page + Director cycle config
     'default_campaign_id', 'adset_default_template', 'filter_quality_threshold', 'ad_sets_per_cycle', 'ads_per_ad_set',
     // Phase 2A — Meta integration
-    'meta_access_token', 'meta_token_expires_at', 'meta_user_id', 'meta_user_name', 'meta_account_id', 'meta_account_name', 'meta_business_id', 'meta_integration_path', 'meta_connected_at'];
+    'meta_access_token', 'meta_token_expires_at', 'meta_user_id', 'meta_user_name', 'meta_account_id', 'meta_account_name', 'meta_business_id', 'meta_integration_path', 'meta_connected_at',
+    // Phase 2B
+    'meta_page_id', 'meta_page_name'];
   const updates = { externalId: id };
   for (const key of allowed) {
     // Drop both undefined and null. Convex v.optional(v.string()) rejects null
@@ -273,6 +275,9 @@ function convexProjectToRow(p) {
     meta_business_id: p.meta_business_id || null,
     meta_integration_path: p.meta_integration_path || 'mcp',  // default mcp
     meta_connected_at: p.meta_connected_at ?? null,
+    // Phase 2B — Meta Page selection
+    meta_page_id: p.meta_page_id || null,
+    meta_page_name: p.meta_page_name || null,
     created_at: p.created_at,
     updated_at: p.updated_at,
   };
@@ -583,6 +588,11 @@ function convexAdToRow(a) {
     filter_score: a.filter_score ?? null,
     filter_verdict: a.filter_verdict || null,
     filter_reasons: a.filter_reasons || null,  // JSON array as string; null when unset
+    // Phase 2B — Meta posting
+    meta_ad_id: a.meta_ad_id || null,
+    meta_creative_id: a.meta_creative_id || null,
+    meta_image_hash: a.meta_image_hash || null,
+    meta_post_error: a.meta_post_error || null,
     created_at: a.created_at,
   };
 }
@@ -1132,6 +1142,10 @@ function convexAdSetToRow(a) {
     meta_billing_event: a.meta_billing_event || null,
     posted_at: a.posted_at || null,
     meta_adset_id: a.meta_adset_id || null,
+    // Phase 2B
+    meta_campaign_id: a.meta_campaign_id || null,
+    meta_post_error: a.meta_post_error || null,
+    meta_post_path: a.meta_post_path || null,
     created_at: a.created_at,
     updated_at: a.updated_at,
   };

@@ -432,6 +432,13 @@ export const api = {
     request('/meta/disconnect', { method: 'POST', body: JSON.stringify({ projectId }) }),
   getMetaCampaigns: (projectId) =>
     request(`/meta/campaigns?projectId=${projectId}`).then(d => d?.campaigns ?? []),
+  // Phase 2B
+  getMetaPages: (projectId) =>
+    request(`/meta/pages?projectId=${projectId}`).then(d => d?.pages ?? []),
+  selectMetaPage: (projectId, payload) =>
+    request('/meta/select-page', { method: 'POST', body: JSON.stringify({ projectId, ...payload }) }),
+  postAdSetToMeta: (projectId, adSetId) =>
+    request(`/projects/${projectId}/staging/adsets/${adSetId}/post-to-meta`, { method: 'POST' }),
 
   // Phase 1 — Staging Page
   getStagingPending: (projectId) =>

@@ -14,6 +14,9 @@ export default function MetaConnectPanel({ projectId }) {
   const [loading, setLoading] = useState(true);
   const [accounts, setAccounts] = useState([]);
   const [accountsLoading, setAccountsLoading] = useState(false);
+  // Phase 2B — Facebook Page picker
+  const [pages, setPages] = useState([]);
+  const [pagesLoading, setPagesLoading] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
 
@@ -36,8 +39,22 @@ export default function MetaConnectPanel({ projectId }) {
         } finally {
           setAccountsLoading(false);
         }
+        // Phase 2B — load Pages too. Independent of accounts; Pages are
+        // user-scoped (`/me/accounts`) not account-scoped.
+        setPagesLoading(true);
+        try {
+          const list = await api.getMetaPages(projectId);
+          setPages(list);
+        } catch (err) {
+          // Don't bail the whole panel; just log
+          console.warn('Pages load failed:', err?.message);
+          setPages([]);
+        } finally {
+          setPagesLoading(false);
+        }
       } else {
         setAccounts([]);
+        setPages([]);
       }
     } catch (err) {
       setError(err?.message || 'Failed to load connection status');
@@ -156,6 +173,23 @@ export default function MetaConnectPanel({ projectId }) {
     }
   };
 
+  // Phase 2B — pick a Facebook Page for posting ads from
+  const handleSelectPage = async (pg) => {
+    setBusy(true);
+    try {
+      await api.selectMetaPage(projectId, {
+        pageId: pg.id,
+        pageName: pg.name,
+      });
+      toast.success(`Page set to ${pg.name}`);
+      await loadStatus();
+    } catch (err) {
+      toast.error(err?.message || 'Could not select Page');
+    } finally {
+      setBusy(false);
+    }
+  };
+
   const handleTogglePath = async (path) => {
     setBusy(true);
     try {
@@ -250,6 +284,53 @@ export default function MetaConnectPanel({ projectId }) {
                   </div>
                 )}
               </div>
+            )}
+          </div>
+
+          {/* Phase 2B — Facebook Page picker */}
+          <div>
+            <div className="text-xs font-semibold text-textmid mb-1">Facebook Page</div>
+            {!status.account_id ? (
+              <div className="text-xs text-textlight">Pick an ad account first.</div>
+            ) : (
+              <>
+                {status.page_id && (
+                  <div className="bg-cream rounded p-2 text-sm flex items-center justify-between">
+                    <div>
+                      <div className="font-semibold">{status.page_name || status.page_id}</div>
+                      <div className="text-xs text-textlight">{status.page_id}</div>
+                    </div>
+                    <span className="text-xs text-teal">✓ Page selected</span>
+                  </div>
+                )}
+                {pagesLoading && <div className="text-xs text-textlight">Loading Pages…</div>}
+                {!pagesLoading && pages.length === 0 && (
+                  <div className="text-xs text-textlight bg-cream rounded p-2">
+                    No Pages available for this Meta user. Posting requires admin/editor access on at least one Facebook Page. Add yourself as an admin in Meta Business Manager and refresh.
+                  </div>
+                )}
+                {!pagesLoading && pages.length > 0 && (
+                  <div className="mt-2">
+                    <div className="text-xs text-textmid mb-1">
+                      {status.page_id ? 'Switch to a different Page:' : 'Select the Page to post ads from:'}
+                    </div>
+                    <div className="space-y-1 max-h-40 overflow-y-auto">
+                      {pages.map((p) => (
+                        <button
+                          key={p.id}
+                          type="button"
+                          onClick={() => handleSelectPage(p)}
+                          disabled={busy || p.id === status.page_id}
+                          className={`w-full text-left p-2 rounded text-sm transition ${p.id === status.page_id ? 'bg-teal/10 border border-teal/30' : 'hover:bg-cream'} disabled:cursor-not-allowed`}
+                        >
+                          <div className="font-semibold">{p.name}</div>
+                          <div className="text-xs text-textlight">{p.id} · {p.category || 'Page'}</div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </>
             )}
           </div>
 

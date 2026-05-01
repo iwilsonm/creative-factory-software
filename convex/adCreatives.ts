@@ -217,6 +217,11 @@ export const update = mutation({
     filter_score: v.optional(v.number()),
     filter_verdict: v.optional(v.string()),
     filter_reasons: v.optional(v.string()),
+    // Phase 2B — Meta posting
+    meta_ad_id: v.optional(v.string()),
+    meta_creative_id: v.optional(v.string()),
+    meta_image_hash: v.optional(v.string()),
+    meta_post_error: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const ad = await ctx.db

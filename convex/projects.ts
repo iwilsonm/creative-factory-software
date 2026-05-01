@@ -184,6 +184,9 @@ export const update = mutation({
     meta_business_id: v.optional(v.string()),
     meta_integration_path: v.optional(v.string()),
     meta_connected_at: v.optional(v.number()),
+    // Phase 2B
+    meta_page_id: v.optional(v.string()),
+    meta_page_name: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const project = await ctx.db

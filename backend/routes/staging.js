@@ -18,6 +18,7 @@ import {
   ensureDefaultCampaign,
   parseAdSetDefaults,
 } from '../convexClient.js';
+import { postAdSetToMeta } from '../services/metaWriter.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -177,6 +178,36 @@ router.post('/:projectId/staging/adsets/new', requireRole('admin', 'manager'), a
     res.json({ success: true, adSetId });
   } catch (err) {
     res.status(500).json({ error: err.message });
+  }
+});
+
+// Phase 2B — POST a promoted ad set to Meta. Creates Meta-side campaign (if
+// needed), ad set, and ads from the local data. Branches on the project's
+// integration_path setting (mcp vs api).
+router.post('/:projectId/staging/adsets/:adSetId/post-to-meta', requireRole('admin', 'manager'), async (req, res) => {
+  try {
+    const project = await getProject(req.params.projectId);
+    if (!project) return res.status(404).json({ error: 'Project not found' });
+    const adSet = await getAdSet(req.params.adSetId);
+    if (!adSet) return res.status(404).json({ error: 'Ad set not found' });
+    if (adSet.project_id !== project.id) {
+      return res.status(403).json({ error: 'Ad set does not belong to this project' });
+    }
+    if (adSet.lifecycle_status !== 'promoted') {
+      return res.status(400).json({
+        error: `Cannot post ad set with lifecycle "${adSet.lifecycle_status}" — only promoted sets can be posted`,
+      });
+    }
+    const result = await postAdSetToMeta(req.params.adSetId, req.params.projectId);
+    res.json({ success: true, ...result });
+  } catch (err) {
+    // Surface error code so frontend can react (reconnect prompt, etc.)
+    const status = err.code === 'TOKEN_EXPIRED' ? 401
+      : err.code === 'NO_PAGE' || err.code === 'NO_ACCOUNT' || err.code === 'NOT_CONNECTED' || err.code === 'NO_ADS' ? 400
+      : err.code === 'WRONG_PROJECT' ? 403
+      : err.code === 'MCP_NOT_AUTHORIZED' ? 403
+      : 500;
+    res.status(status).json({ error: err.message, code: err.code || null });
   }
 });
 
