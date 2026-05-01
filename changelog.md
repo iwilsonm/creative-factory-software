@@ -1,5 +1,30 @@
 # Creative Factory — Changelog
 
+## 2026-05-01 — Use dall-e-2 for the OpenAI image-edit path (gpt-image-2 still rejected)
+
+**Bug**
+- Marco: "Now I'm getting this error: `400 Invalid value: 'gpt-image-2'. Value must be 'dall-e-2'.`" + "Why aren't we using `dall-e-2`?"
+
+**Cause**
+- OpenAI's `/v1/images/edits` endpoint is hardcoded to accept only `dall-e-2` (verified May 2026 via OpenAI docs + developer community reports). All gpt-image-* variants are rejected. This is a server-side OpenAI limitation, not a tier restriction. The error message itself names the only acceptable model.
+
+**Fix**
+- `backend/services/openai.js` — when productImage is present (edit endpoint), hardcode `model: 'dall-e-2'` regardless of the user's selected `imageModel`. Generate endpoint (no productImage) keeps using the user's selected model (gpt-image-2).
+- The dropdown UX is unchanged: users still see "GPT Image 2 (OpenAI)" and pick it. The substitution is silent at the API layer.
+- Inline comment documents the OpenAI limitation + the one-line swap-back path when OpenAI ships gpt-image-2 edit support.
+
+**Quality note**
+- dall-e-2 is older (2022-vintage) and produces lower-quality images than gpt-image-2. For higher quality with a product reference, users should pick **Gemini (Nano Banana Pro / Nano Banana 2)** — both accept product images natively at full quality. The "GPT Image 2 (OpenAI)" option is most useful for projects WITHOUT a product image, where it can use full gpt-image-2 quality on the generate endpoint.
+
+**Out of scope**
+- Switching to OpenAI's Responses API + image_generation tool to get gpt-image-2 quality with a reference image. Defer; Gemini already provides this path. Future PR if needed.
+- Aspect-ratio compatibility: dall-e-2 only accepts `256x256`, `512x512`, `1024x1024`. Non-1:1 aspect ratios will fail with size errors. 1:1 (the default) works. Future PR.
+
+**Files modified**
+- `backend/services/openai.js`
+
+---
+
 ## 2026-05-01 — Fix GPT Image 2 "Value must be 'dall-e-2'" — use the alias, not the dated snapshot
 
 **Bug**

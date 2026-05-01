@@ -387,16 +387,18 @@ export async function generateImage(prompt, aspectRatio = '1:1', productImage = 
   const response = await withRetry(
     async () => {
       if (productImage) {
-        // /v1/images/edits expects a PNG file-like for the reference image.
-        // productImage shape is { base64, mimeType } (matches the Gemini sibling
-        // in services/gemini.js) — decode the base64 to a Buffer before handing
-        // to sharp. Passing the raw object made sharp produce empty output and
-        // OpenAI rejected with "input file is missing".
+        // OpenAI's /v1/images/edits is hardcoded to `dall-e-2` (May 2026) —
+        // it rejects gpt-image-2, gpt-image-1.5, gpt-image-1, etc. with
+        // "Value must be 'dall-e-2'." Until OpenAI updates the edit endpoint,
+        // we use dall-e-2 here. For higher quality with a product reference,
+        // users should pick Gemini (Nano Banana Pro / Nano Banana 2).
+        // When OpenAI ships gpt-image-2 edit support, swap `dall-e-2` back to
+        // `imageModel` (one-line change).
         const inputBuffer = Buffer.from(productImage.base64, 'base64');
         const pngBuffer = await sharp(inputBuffer).png().toBuffer();
         const file = await toFile(pngBuffer, 'reference.png', { type: 'image/png' });
         return openai.images.edit({
-          model: imageModel,
+          model: 'dall-e-2',
           image: file,
           prompt,
           size,
