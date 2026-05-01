@@ -20,6 +20,8 @@ const StagingPage = lazy(() => import('../components/StagingPage'));
 const CreativeDirectorSettings = lazy(() => import('../components/CreativeDirectorSettings'));
 // Phase 2A — Meta integration sub-tab in Project Settings
 const MetaConnectPanel = lazy(() => import('../components/MetaConnectPanel'));
+// Phase 5 — Notion-style Analytics tab
+const AnalyticsTab = lazy(() => import('../components/AnalyticsTab'));
 
 const STATUS_CONFIG = {
   setup: { label: 'Setup', bg: 'bg-gold/10', text: 'text-gold' },
@@ -46,7 +48,7 @@ export default function ProjectDetail() {
   const [conductorAngles, setConductorAngles] = useState([]);
 
   // Persist active tab in URL search params so it survives page refresh
-  const validTabs = ['ads', 'tracker', 'overview', 'docs', 'templates', 'staging'];
+  const validTabs = ['ads', 'tracker', 'overview', 'docs', 'templates', 'staging', 'analytics'];
   const defaultTab = user?.role === 'poster' ? 'tracker' : 'ads';
   const tabFromUrl = searchParams.get('tab');
   const [tab, setTabState] = useState(
@@ -271,6 +273,7 @@ export default function ProjectDetail() {
     // Phase 1 — Staging tab is gated by the per-project feature flag
     ...(stagingFlagEnabled ? [{ id: 'staging', label: 'Staging', tooltip: 'Review pre-grouped ad sets, regroup if needed, and promote to Ready-to-Post.' }] : []),
     { id: 'tracker', label: 'Ad Pipeline', tooltip: 'Plan, organize, and deploy ads to campaigns and ad sets.' },
+    { id: 'analytics', label: 'Analytics', tooltip: 'Notion-style table of campaigns / ad sets / ads from Meta with tagging and saved views.' },
     { id: 'overview', label: 'Project Settings', tooltip: 'Project configuration, foundational docs, and template library.' }
   ];
 
@@ -604,6 +607,11 @@ export default function ProjectDetail() {
         {tab === 'staging' && stagingFlagEnabled && (
           <ErrorBoundary level="tab" key="staging">
             <StagingPage projectId={id} project={project} conductorAngles={conductorAngles} />
+          </ErrorBoundary>
+        )}
+        {tab === 'analytics' && (
+          <ErrorBoundary level="tab" key="analytics">
+            <AnalyticsTab projectId={id} />
           </ErrorBoundary>
         )}
       </div>

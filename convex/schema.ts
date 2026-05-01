@@ -244,6 +244,8 @@ export default defineSchema({
     project_id: v.string(),      // → projects.externalId
     name: v.string(),
     sort_order: v.number(),
+    // Phase 5 — Meta-side ID for cross-referencing in the Analytics tab
+    meta_campaign_id: v.optional(v.string()),
     created_at: v.string(),
     updated_at: v.string(),
   })
@@ -557,4 +559,59 @@ export default defineSchema({
     last_updated: v.number(),
   })
     .index("by_category", ["issue_category"]),
+
+  // ─────────────────────────────────────────────────────────
+  // Phase 5 — Analytics tab + tagging + saved views
+  // ─────────────────────────────────────────────────────────
+
+  // Project-scoped tags. Flat (no hierarchy). Color stored as hex string.
+  // Each entity (Meta-side or CF-side) is tagged independently — no inheritance.
+  tags: defineTable({
+    externalId: v.string(),
+    project_id: v.string(),       // → projects.externalId
+    name: v.string(),
+    color: v.string(),
+    created_at: v.string(),
+    updated_at: v.string(),
+  })
+    .index("by_externalId", ["externalId"])
+    .index("by_project", ["project_id"]),
+
+  // Many-to-many tag → entity relationships. entity_type identifies what's tagged
+  // (campaign / ad_set / ad). entity_id is the Meta-side ID OR a local CF UUID,
+  // disambiguated by entity_id_kind. The same (tag_id, entity_id, entity_type)
+  // tuple should not duplicate — mutations enforce upsert semantics.
+  tag_assignments: defineTable({
+    externalId: v.string(),
+    project_id: v.string(),
+    tag_id: v.string(),                  // → tags.externalId
+    entity_type: v.string(),             // "ad" | "ad_set" | "campaign"
+    entity_id: v.string(),
+    entity_id_kind: v.string(),          // "meta" | "cf"
+    created_at: v.string(),
+  })
+    .index("by_externalId", ["externalId"])
+    .index("by_project", ["project_id"])
+    .index("by_tag", ["tag_id"])
+    .index("by_entity", ["entity_id", "entity_type"])
+    .index("by_project_and_entity", ["project_id", "entity_type"]),
+
+  // Notion-style saved views. Each view captures the active level + date range
+  // + filters + sort + columns at save time. Scope is "private" (visible only
+  // to the owner) or "project" (visible to all teammates on the project).
+  analytics_saved_views: defineTable({
+    externalId: v.string(),
+    project_id: v.string(),
+    owner_user_id: v.string(),
+    scope: v.string(),                   // "private" | "project"
+    name: v.string(),
+    level: v.string(),                   // "campaigns" | "adsets" | "ads"
+    config: v.string(),                  // JSON: { date_range, filters, sort, columns }
+    created_at: v.string(),
+    updated_at: v.string(),
+  })
+    .index("by_externalId", ["externalId"])
+    .index("by_project", ["project_id"])
+    .index("by_owner", ["owner_user_id"])
+    .index("by_project_and_scope", ["project_id", "scope"]),
 });

@@ -41,6 +41,8 @@ export const update = mutation({
     fields: v.object({
       name: v.optional(v.string()),
       sort_order: v.optional(v.number()),
+      // Phase 5
+      meta_campaign_id: v.optional(v.string()),
     }),
   },
   handler: async (ctx, args) => {

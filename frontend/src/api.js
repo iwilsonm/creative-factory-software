@@ -545,5 +545,57 @@ export const api = {
   // Settings — API-key connectivity tests
   testAnthropic: () => request('/settings/test-anthropic', { method: 'POST' }),
 
+  // ────────────────────────────────────────────────
+  // Phase 5 — Analytics tab
+  // ────────────────────────────────────────────────
+  getAnalyticsCampaigns: (projectId, opts = {}) => {
+    const qs = new URLSearchParams(Object.entries(opts).filter(([, v]) => v != null && v !== '')).toString();
+    return request(`/projects/${projectId}/analytics/campaigns${qs ? `?${qs}` : ''}`);
+  },
+  getAnalyticsAdSets: (projectId, opts = {}) => {
+    const qs = new URLSearchParams(Object.entries(opts).filter(([, v]) => v != null && v !== '')).toString();
+    return request(`/projects/${projectId}/analytics/adsets${qs ? `?${qs}` : ''}`);
+  },
+  getAnalyticsAds: (projectId, opts = {}) => {
+    const qs = new URLSearchParams(Object.entries(opts).filter(([, v]) => v != null && v !== '')).toString();
+    return request(`/projects/${projectId}/analytics/ads${qs ? `?${qs}` : ''}`);
+  },
 
+  // Tags CRUD
+  getTags: (projectId) => request(`/projects/${projectId}/tags`),
+  createTag: (projectId, { name, color }) =>
+    request(`/projects/${projectId}/tags`, { method: 'POST', body: JSON.stringify({ name, color }) }),
+  updateTag: (projectId, tagId, { name, color }) =>
+    request(`/projects/${projectId}/tags/${tagId}`, { method: 'PUT', body: JSON.stringify({ name, color }) }),
+  deleteTag: (projectId, tagId) =>
+    request(`/projects/${projectId}/tags/${tagId}`, { method: 'DELETE' }),
+
+  // Tag assignments
+  getTagAssignments: (projectId, entityType) =>
+    request(`/projects/${projectId}/tags/assignments?entity_type=${encodeURIComponent(entityType)}`),
+  applyTag: (projectId, { tag_id, entity_type, entity_id, entity_id_kind = 'meta' }) =>
+    request(`/projects/${projectId}/tags/assignments`, {
+      method: 'POST',
+      body: JSON.stringify({ tag_id, entity_type, entity_id, entity_id_kind }),
+    }),
+  removeTagAssignment: (projectId, { tag_id, entity_id, entity_type }) =>
+    request(`/projects/${projectId}/tags/assignments`, {
+      method: 'DELETE',
+      body: JSON.stringify({ tag_id, entity_id, entity_type }),
+    }),
+
+  // Saved views
+  getSavedViews: (projectId) => request(`/projects/${projectId}/analytics/views`),
+  createSavedView: (projectId, { name, scope, level, config }) =>
+    request(`/projects/${projectId}/analytics/views`, {
+      method: 'POST',
+      body: JSON.stringify({ name, scope, level, config }),
+    }),
+  updateSavedView: (projectId, viewId, updates) =>
+    request(`/projects/${projectId}/analytics/views/${viewId}`, {
+      method: 'PUT',
+      body: JSON.stringify(updates),
+    }),
+  deleteSavedView: (projectId, viewId) =>
+    request(`/projects/${projectId}/analytics/views/${viewId}`, { method: 'DELETE' }),
 };

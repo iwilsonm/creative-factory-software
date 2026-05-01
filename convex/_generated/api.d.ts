@@ -11,6 +11,7 @@
 import type * as adCreatives from "../adCreatives.js";
 import type * as adSets from "../adSets.js";
 import type * as ad_deployments from "../ad_deployments.js";
+import type * as analyticsSavedViews from "../analyticsSavedViews.js";
 import type * as apiCosts from "../apiCosts.js";
 import type * as batchJobs from "../batchJobs.js";
 import type * as campaigns from "../campaigns.js";
@@ -27,6 +28,8 @@ import type * as projects from "../projects.js";
 import type * as sessions from "../sessions.js";
 import type * as settings from "../settings.js";
 import type * as staging from "../staging.js";
+import type * as tagAssignments from "../tagAssignments.js";
+import type * as tags from "../tags.js";
 import type * as templateImages from "../templateImages.js";
 import type * as users from "../users.js";
 
@@ -40,6 +43,7 @@ declare const fullApi: ApiFromModules<{
   adCreatives: typeof adCreatives;
   adSets: typeof adSets;
   ad_deployments: typeof ad_deployments;
+  analyticsSavedViews: typeof analyticsSavedViews;
   apiCosts: typeof apiCosts;
   batchJobs: typeof batchJobs;
   campaigns: typeof campaigns;
@@ -56,6 +60,8 @@ declare const fullApi: ApiFromModules<{
   sessions: typeof sessions;
   settings: typeof settings;
   staging: typeof staging;
+  tagAssignments: typeof tagAssignments;
+  tags: typeof tags;
   templateImages: typeof templateImages;
   users: typeof users;
 }>;
