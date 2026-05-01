@@ -417,6 +417,24 @@ export const api = {
   getConductorHealth: (limit) => request(`/conductor/health${limit ? `?limit=${limit}` : ''}`),
   getFixerPlaybooks: () => request('/conductor/fixer-playbooks'),
 
+  // Phase 1 — Staging Page
+  getStagingPending: (projectId) =>
+    request(`/projects/${projectId}/staging/pending`).then(data => data?.groups ?? []),
+  getStagingRejected: (projectId) =>
+    request(`/projects/${projectId}/staging/rejected`).then(data => data?.ads ?? []),
+  getStagingPromoted: (projectId) =>
+    request(`/projects/${projectId}/staging/promoted`).then(data => data?.adSets ?? []),
+  updateAdSetMetaSettings: (projectId, adSetId, fields) =>
+    request(`/projects/${projectId}/staging/adsets/${adSetId}/meta-settings`, { method: 'PUT', body: JSON.stringify(fields) }),
+  promoteAdSet: (projectId, adSetId) =>
+    request(`/projects/${projectId}/staging/adsets/${adSetId}/promote`, { method: 'POST' }),
+  regroupAds: (projectId, adIds, targetAdSetId) =>
+    request(`/projects/${projectId}/staging/regroup`, { method: 'POST', body: JSON.stringify({ adIds, targetAdSetId }) }),
+  createEmptyAdSet: (projectId, body) =>
+    request(`/projects/${projectId}/staging/adsets/new`, { method: 'POST', body: JSON.stringify(body) }),
+  forcePromoteAd: (projectId, adId) =>
+    request(`/projects/${projectId}/ads/${adId}/force-promote`, { method: 'POST' }),
+
   // Agent Monitor (Dacia Fixer — Agent #1)
   getAgentMonitorStatus: () => request('/agent-monitor/status'),
   runAgentFixer: () => request('/agent-monitor/run', { method: 'POST' }),

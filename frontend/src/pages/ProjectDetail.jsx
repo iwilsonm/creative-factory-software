@@ -15,6 +15,9 @@ const TemplateImages = lazy(() => import('../components/TemplateImages'));
 const AdStudio = lazy(() => import('../components/AdStudio'));
 const AdTracker = lazy(() => import('./AdTracker'));
 const CreativeFilterSettings = lazy(() => import('../components/CreativeFilterSettings'));
+// Phase 1 — Staging Page (gated by per-project feature flag)
+const StagingPage = lazy(() => import('../components/StagingPage'));
+const CreativeDirectorSettings = lazy(() => import('../components/CreativeDirectorSettings'));
 
 const STATUS_CONFIG = {
   setup: { label: 'Setup', bg: 'bg-gold/10', text: 'text-gold' },
@@ -35,8 +38,13 @@ export default function ProjectDetail() {
   const [saving, setSaving] = useState(false);
   const [deletingProject, setDeletingProject] = useState(false);
   const [availableDocTypes, setAvailableDocTypes] = useState(new Set());
+  // Phase 1 — Staging Page feature flag (per-project, stored in settings table).
+  // When enabled, the Staging tab is shown alongside the existing tabs.
+  const [stagingFlagEnabled, setStagingFlagEnabled] = useState(false);
+  const [conductorAngles, setConductorAngles] = useState([]);
+
   // Persist active tab in URL search params so it survives page refresh
-  const validTabs = ['ads', 'tracker', 'overview', 'docs', 'templates'];
+  const validTabs = ['ads', 'tracker', 'overview', 'docs', 'templates', 'staging'];
   const defaultTab = user?.role === 'poster' ? 'tracker' : 'ads';
   const tabFromUrl = searchParams.get('tab');
   const [tab, setTabState] = useState(
@@ -107,6 +115,24 @@ export default function ProjectDetail() {
       loadProjectStats();
     }
   }, [tab, id]);
+
+  // Phase 1 — Read the per-project staging feature flag (stored in settings table)
+  // and load active conductor angles for the regroup dropdown. Both are cheap.
+  useEffect(() => {
+    if (!id) return;
+    (async () => {
+      try {
+        const settings = await api.getSettings();
+        const flagKey = `enable_phase1_staging:${id}`;
+        const flagVal = settings?.[flagKey];
+        setStagingFlagEnabled(flagVal === 'true' || flagVal === true);
+      } catch { setStagingFlagEnabled(false); }
+      try {
+        const angles = await api.getConductorAngles(id);
+        setConductorAngles(Array.isArray(angles) ? angles : []);
+      } catch { setConductorAngles([]); }
+    })();
+  }, [id]);
 
   const loadProjectCosts = async () => {
     setCostsLoading(true);
@@ -227,6 +253,8 @@ export default function ProjectDetail() {
 
   const allTabs = [
     { id: 'ads', label: 'Ad Studio', tooltip: 'Generate individual ads or run batch generation.' },
+    // Phase 1 — Staging tab is gated by the per-project feature flag
+    ...(stagingFlagEnabled ? [{ id: 'staging', label: 'Staging', tooltip: 'Review pre-grouped ad sets, regroup if needed, and promote to Ready-to-Post.' }] : []),
     { id: 'tracker', label: 'Ad Pipeline', tooltip: 'Plan, organize, and deploy ads to campaigns and ad sets.' },
     { id: 'overview', label: 'Project Settings', tooltip: 'Project configuration, foundational docs, and template library.' }
   ];
@@ -322,6 +350,7 @@ export default function ProjectDetail() {
               { id: 'general', label: 'General' },
               { id: 'docs', label: 'Foundational Docs' },
               { id: 'filter', label: 'Creative Filter' },
+              { id: 'creative_director', label: 'Creative Director' },
               { id: 'templates', label: 'Template Library' },
             ].map(st => (
               <button
@@ -471,15 +500,6 @@ export default function ProjectDetail() {
               </div>
 
               <div>
-                <label className="block text-[13px] font-medium text-textmid mb-1.5">Sales Page Content</label>
-                <textarea
-                  value={form.sales_page_content}
-                  onChange={e => setForm(p => ({ ...p, sales_page_content: e.target.value }))}
-                  rows={6}
-                  className="input-apple resize-none"
-                />
-              </div>
-              <div>
                 <label className="block text-[13px] font-medium text-textmid mb-1.5">
                   Prompt Guidelines
                 </label>
@@ -538,6 +558,11 @@ export default function ProjectDetail() {
           {settingsSubTab === 'filter' && (
             <CreativeFilterSettings projectId={id} project={project} onSave={loadProject} />
           )}
+          {settingsSubTab === 'creative_director' && (
+            <ErrorBoundary level="tab" key="creative_director">
+              <CreativeDirectorSettings project={project} onSaved={loadProject} />
+            </ErrorBoundary>
+          )}
           {settingsSubTab === 'templates' && (
             <ErrorBoundary level="tab" key="templates">
               <TemplateImages projectId={id} />
@@ -553,6 +578,11 @@ export default function ProjectDetail() {
         {tab === 'tracker' && (
           <ErrorBoundary level="tab" key="tracker">
             <AdTracker projectId={id} userRole={user?.role} searchParams={searchParams} setSearchParams={setSearchParams} />
+          </ErrorBoundary>
+        )}
+        {tab === 'staging' && stagingFlagEnabled && (
+          <ErrorBoundary level="tab" key="staging">
+            <StagingPage projectId={id} project={project} conductorAngles={conductorAngles} />
           </ErrorBoundary>
         )}
       </div>
