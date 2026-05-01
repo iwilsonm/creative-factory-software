@@ -1,5 +1,26 @@
 # Creative Factory — Changelog
 
+## 2026-05-01 — dall-e-2 truncation: switch from JS chars to UTF-8 bytes
+
+**Bug**
+- After the previous fix shipped, Marco hit a follow-up: `400 Invalid 'prompt': string too long. Expected a string with maximum length 1000, but got a string with length 1017 instead.`
+
+**Cause**
+- OpenAI's 1000-limit on dall-e-2 is measured in **UTF-8 bytes**, not JS UTF-16 code units. The prior fix used `prompt.length` and `prompt.slice()` — which work on UTF-16 code units. Many prompts contain Latin-1 supplements (é, ñ, ß), em-dashes (—), smart quotes (" "), or emojis. Each costs 2-4 bytes in UTF-8 but 1-2 code units in JS. A "1000 char" prompt by JS counting can be 1017+ bytes when sent over HTTP, blowing OpenAI's limit.
+- In Marco's case the prompt was 1017 JS chars but those 17 extra-vs-1000 chars must have been multi-byte (likely em-dashes, since GPT-5.2 loves them in copywriting) — the prompt sailed through `length > 1000` truncation but tipped over OpenAI's byte counter.
+
+**Fix**
+- `backend/services/openai.js#generateImage` — measure prompt size with `Buffer.byteLength(prompt, 'utf8')` instead of `.length`. Estimate the cut point by character count (cheap), then refine with a tail-trim loop while byte length still exceeds 1000. Tail truncation strategy unchanged — only the measurement metric is corrected.
+- Smoke-tested with adversarial inputs: 2582-byte ASCII (truncates to 1000), 1017-char prompt with 17 em-dashes (truncates to 1000 bytes), 600-char string of all 4-byte emojis (truncates to 500 chars / 1000 bytes), and edge cases at exactly 1000 + 1001 chars. All pass.
+
+**Why iterative trim, not Buffer slicing**
+- Buffer-byte slicing risks cutting a multi-byte char mid-codepoint and producing invalid UTF-8 (decoded as `�`). Iterating `.slice(1)` on the JS string and re-measuring guarantees character boundaries. The estimate-first step keeps the loop O(few iterations) on typical prompts.
+
+**Files modified**
+- `backend/services/openai.js`
+
+---
+
 ## 2026-05-01 — Truncate prompts to ≤1000 chars when calling dall-e-2 (PEF-fortified)
 
 **Bug**

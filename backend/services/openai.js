@@ -395,18 +395,31 @@ export async function generateImage(prompt, aspectRatio = '1:1', productImage = 
         // When OpenAI ships gpt-image-2 edit support, swap `dall-e-2` back to
         // `imageModel` (one-line change).
         //
-        // dall-e-2 has a 1000-char prompt limit — gpt-image-2's prompts (which
-        // this codebase generates via adGenerator.js) are typically 2000-3000
-        // chars. Truncate the TAIL to fit. We preserve the END of the prompt
-        // because that's where the visual-direction content (headline/body
-        // copy, aspect ratio, style cues) sits in the existing prompt template
-        // — most important for image generation. The opening brand/avatar
-        // context is less critical here because the reference image itself
-        // carries the brand visual identity.
-        const DALLE_2_PROMPT_MAX = 1000;
-        const dallePrompt = prompt.length > DALLE_2_PROMPT_MAX
-          ? prompt.slice(prompt.length - DALLE_2_PROMPT_MAX)
-          : prompt;
+        // dall-e-2 has a 1000-BYTE prompt limit (UTF-8). gpt-image-2's prompts
+        // (which this codebase generates via adGenerator.js) typically run
+        // 2000-3000 bytes. Truncate the TAIL to fit — preserving the END of
+        // the prompt because that's where the visual-direction content
+        // (headline/body copy, aspect ratio, style cues) sits in the existing
+        // prompt template, most actionable for image generation. The opening
+        // brand/avatar context is less critical because the reference image
+        // itself carries the brand visual identity.
+        //
+        // We measure by UTF-8 byte length (Buffer.byteLength), not JS .length
+        // (which counts UTF-16 code units). Latin-1 chars (é, smart quotes,
+        // em-dashes), special punctuation, and emojis are 2-4 bytes in UTF-8
+        // but 1-2 code units in JS — a "1000-char" prompt by JS count can be
+        // 1017+ bytes when sent to OpenAI, blowing the limit.
+        const DALLE_2_PROMPT_MAX_BYTES = 1000;
+        let dallePrompt = prompt;
+        if (Buffer.byteLength(dallePrompt, 'utf8') > DALLE_2_PROMPT_MAX_BYTES) {
+          // Estimate: drop enough leading chars that even all-ASCII would fit.
+          const startEstimate = Math.max(0, dallePrompt.length - DALLE_2_PROMPT_MAX_BYTES);
+          dallePrompt = dallePrompt.slice(startEstimate);
+          // Refine: trim more from the front if multi-byte chars push us over.
+          while (Buffer.byteLength(dallePrompt, 'utf8') > DALLE_2_PROMPT_MAX_BYTES) {
+            dallePrompt = dallePrompt.slice(1);
+          }
+        }
 
         const inputBuffer = Buffer.from(productImage.base64, 'base64');
         const pngBuffer = await sharp(inputBuffer).png().toBuffer();
