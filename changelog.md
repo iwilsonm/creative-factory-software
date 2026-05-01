@@ -1,5 +1,36 @@
 # Creative Factory — Changelog
 
+## 2026-05-01 — Purpose-build short prompts for dall-e-2 (no more decapitation)
+
+**Problem**
+- The previous fixes solved the dall-e-2 byte-limit error by tail-truncating the prompt: keep the last 1000 bytes, drop the head. Marco flagged the right concern: the prompt was engineered for gpt-image-2's larger budget, then sliced — losing the brand/avatar opening. Cohesion suffers; the model sees the back half of a document rather than a complete brief.
+
+**Fix**
+- `backend/services/adGenerator.js#buildImageRequestText` now accepts an `imageModel` parameter. When `hasProductImage && imageModel === 'gpt-image-2'` (the dall-e-2 routing condition), Message 2 to GPT-5.2 gets a final extra: "LENGTH LIMIT: ... keep your prompt under 900 bytes ... prioritize: scene, product reference, headline, body copy, angle. Drop or shorten: verbose brand background, avatar psychographics, foundational-doc context."
+- GPT-5.2 produces a compact, purpose-built prompt for dall-e-2's budget instead of its usual 2000-3000 byte output. dall-e-2 receives a complete brief sized for its capability.
+- Both single-ad callers updated to pass `imageModel` (Mode 1 angle path + Mode 2 template path). Other paths default to `null` (no constraint, no behavior change).
+
+**Why 900 bytes (not 1000)**
+- 100-byte safety margin against (a) GPT-5.2 mildly overshooting, (b) multi-byte chars (em-dashes/smart-quotes/accented brand names) inflating UTF-8 byte count beyond JS char count, (c) the optional gpt-4.1-mini guideline review re-inflating the prompt slightly.
+
+**Truncation is now a safety net, not the primary fix**
+- The byte-truncation in `backend/services/openai.js#generateImage` (commit 218e867) stays in place. With the upstream constraint, it should rarely or never trigger. If GPT-5.2 ignores the constraint and overshoots 1000 bytes, the truncation still catches it — but the overshoot is bounded much closer to 1000, so head loss is minimized rather than the original 1500+ byte chop.
+- Comment in `openai.js` updated to label the block as a safety net and point to the upstream constraint.
+
+**Cost impact**
+- Constraint adds ~80 input tokens (~$0.00014 per ad at GPT-5.2's $1.75/M rate). Compact output saves ~400 output tokens (~$0.0056 per ad at $14.00/M output rate). Net savings: ~$0.0055 per dall-e-2 ad. Cheaper, not more expensive.
+
+**Out of scope**
+- `reviewPromptWithGuidelines` re-inflation (the gpt-4.1-mini review explicitly says "Do NOT shorten" — could push a tight prompt back over 1000 bytes if the project has guidelines set). Truncation safety net catches it.
+- OpenAI Responses API + image_generation tool (would unlock gpt-image-2 quality with reference image, no 1000-byte limit). Bigger refactor; defer.
+- dall-e-2 aspect-ratio mapping (256/512/1024 only). Still pending.
+
+**Files modified**
+- `backend/services/adGenerator.js` — new `imageModel` param on `buildImageRequestText`, conditional length-limit extra, two caller updates.
+- `backend/services/openai.js` — comment-only update labeling the truncation as a safety net.
+
+---
+
 ## 2026-05-01 — dall-e-2 truncation: switch from JS chars to UTF-8 bytes
 
 **Bug**

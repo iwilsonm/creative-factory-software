@@ -395,14 +395,16 @@ export async function generateImage(prompt, aspectRatio = '1:1', productImage = 
         // When OpenAI ships gpt-image-2 edit support, swap `dall-e-2` back to
         // `imageModel` (one-line change).
         //
-        // dall-e-2 has a 1000-BYTE prompt limit (UTF-8). gpt-image-2's prompts
-        // (which this codebase generates via adGenerator.js) typically run
-        // 2000-3000 bytes. Truncate the TAIL to fit — preserving the END of
-        // the prompt because that's where the visual-direction content
-        // (headline/body copy, aspect ratio, style cues) sits in the existing
-        // prompt template, most actionable for image generation. The opening
-        // brand/avatar context is less critical because the reference image
-        // itself carries the brand visual identity.
+        // dall-e-2 has a 1000-BYTE prompt limit (UTF-8). The PRIMARY fix is
+        // upstream: adGenerator.js#buildImageRequestText injects a "LENGTH
+        // LIMIT: under 900 bytes" instruction into Message 2 when the image
+        // path is gpt-image-2 + productImage, so GPT-5.2 produces a compact
+        // purpose-built prompt rather than its usual 2000-3000 byte output.
+        // This block is the SAFETY NET for the rare case where GPT-5.2
+        // overshoots the upstream constraint — it head-truncates to keep the
+        // visual-direction tail (headline/body copy, aspect ratio, style cues)
+        // and drops the brand/avatar opening (carried by the reference image
+        // anyway).
         //
         // We measure by UTF-8 byte length (Buffer.byteLength), not JS .length
         // (which counts UTF-16 code units). Latin-1 chars (é, smart quotes,

@@ -246,8 +246,13 @@ ${beliefsContent}`;
  * Build the image prompt request (Message 2) text.
  * Per the SOP, the core instruction is exactly "make a prompt for an image like this".
  * Angle, aspect ratio, product image, headline, and body copy are appended as additional direction.
+ *
+ * Pass `imageModel` when known so we can add model-specific constraints. Currently:
+ * - `gpt-image-2` + productImage routes to dall-e-2 (1000-byte UTF-8 prompt cap) →
+ *   we tell GPT-5.2 to produce a compact prompt up front instead of letting the
+ *   tail-truncation in openai.js#generateImage chop the head off later.
  */
-export function buildImageRequestText(angle, aspectRatio, hasProductImage = false, headline = null, bodyCopy = null, angleBrief = null) {
+export function buildImageRequestText(angle, aspectRatio, hasProductImage = false, headline = null, bodyCopy = null, angleBrief = null, imageModel = null) {
   let text = 'make a prompt for an image like this';
 
   const extras = [];
@@ -274,6 +279,15 @@ export function buildImageRequestText(angle, aspectRatio, hasProductImage = fals
   }
   if (aspectRatio && aspectRatio !== '1:1') {
     extras.push(`Use ${aspectRatio} aspect ratio instead of 1:1`);
+  }
+
+  // dall-e-2 routing: OpenAI's edit endpoint is hardcoded to dall-e-2 with a
+  // 1000-byte UTF-8 prompt limit. Tell GPT-5.2 to produce a compact prompt
+  // up front rather than its usual 2000-3000 byte output — keeps the prompt
+  // cohesive instead of getting head-truncated later in openai.js. Targets
+  // 900 bytes for safety margin against multi-byte chars and minor overshoot.
+  if (hasProductImage && imageModel === 'gpt-image-2') {
+    extras.push("LENGTH LIMIT: this prompt will be sent to OpenAI's dall-e-2 model which has a strict 1000-byte UTF-8 limit. Keep your prompt under 900 bytes (roughly 800 ASCII characters, fewer if you use em-dashes/smart-quotes/accented characters). Be concise and visual. Prioritize: scene direction, product reference, headline, body copy, angle. Drop or shorten: verbose brand background, avatar psychographics, foundational-doc context. Output the prompt as a single tight paragraph");
   }
 
   if (extras.length > 0) {
@@ -511,7 +525,7 @@ export async function generateAd(projectId, options = {}) {
         ? 'GPT-5.2 analyzing inspiration image + product image...'
         : 'GPT-5.2 analyzing inspiration image...', progress: 35 });
 
-      const imageRequestText_inner = buildImageRequestText(angle, aspectRatio, hasProductImage, headline, bodyCopy);
+      const imageRequestText_inner = buildImageRequestText(angle, aspectRatio, hasProductImage, headline, bodyCopy, null, imageModel);
       const conversationSoFar = [
         { role: 'user', content: creativeDirectorPrompt_inner },
         { role: 'assistant', content: acknowledgment }
@@ -738,7 +752,7 @@ export async function generateAdMode2(projectId, options = {}) {
         ? 'GPT-5.2 analyzing template image + product image...'
         : 'GPT-5.2 analyzing template image...', progress: 35 });
 
-      const imageRequestText_inner = buildImageRequestText(angle, aspectRatio, hasProductImage, headline, bodyCopy);
+      const imageRequestText_inner = buildImageRequestText(angle, aspectRatio, hasProductImage, headline, bodyCopy, null, imageModel);
       const conversationSoFar = [
         { role: 'user', content: creativeDirectorPrompt_inner },
         { role: 'assistant', content: acknowledgment }
