@@ -28,7 +28,9 @@ import {
 } from '../services/subAngleDeriver.js';
 
 const router = Router();
+const adminRouter = Router();
 router.use(requireAuth);
+adminRouter.use(requireAuth);
 const DEMO_OBSERVATION_NAME = '[Demo] Observation Test Ad Set';
 const DEMO_CAMPAIGN_NAME = '[Demo] Observation Campaign';
 
@@ -590,7 +592,7 @@ router.post('/:projectId/angles/:angleId/reject', requireRole('admin', 'manager'
 });
 
 // Admin — recompute angle stats out-of-band (useful for testing).
-router.post('/admin/projects/:projectId/recompute-angle-stats', requireRole('admin'), async (req, res) => {
+adminRouter.post('/projects/:projectId/recompute-angle-stats', requireRole('admin'), async (req, res) => {
   try {
     const result = await computeAngleStatsForProject(req.params.projectId);
     res.json({ success: true, ...result });
@@ -603,7 +605,7 @@ router.post('/admin/projects/:projectId/recompute-angle-stats', requireRole('adm
 // Admin — manual cron trigger + freshness
 // ────────────────────────────────────────────────
 
-router.post('/admin/observation/cron-run', requireRole('admin'), async (req, res) => {
+adminRouter.post('/observation/cron-run', requireRole('admin'), async (req, res) => {
   try {
     const dryRun = req.query.dry_run === '1' || req.query.dry_run === 'true';
     const result = await runAllProjectsObservation({ dryRun });
@@ -613,7 +615,7 @@ router.post('/admin/observation/cron-run', requireRole('admin'), async (req, res
   }
 });
 
-router.get('/admin/observation/last-cron', requireRole('admin'), async (req, res) => {
+adminRouter.get('/observation/last-cron', requireRole('admin'), async (req, res) => {
   try {
     const lastRunRaw = await getSetting('phase3_last_cron_run_at');
     const durationRaw = await getSetting('phase3_last_cron_duration_ms');
@@ -628,4 +630,5 @@ router.get('/admin/observation/last-cron', requireRole('admin'), async (req, res
   }
 });
 
+export { adminRouter as observationAdminRouter };
 export default router;

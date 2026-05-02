@@ -34,7 +34,7 @@ import conductorRoutes from './routes/conductor.js';
 import adSetRoutes, { adSetsFlatRouter } from './routes/adSets.js';
 import metaRoutes from './routes/meta.js';
 import analyticsRoutes from './routes/analytics.js';
-import observationRoutes from './routes/observation.js';
+import observationRoutes, { observationAdminRouter } from './routes/observation.js';
 import cronRoutes from './routes/cron.js';
 import rateLimit from 'express-rate-limit';
 import { getRateLimiterStats } from './services/rateLimiter.js';
@@ -329,8 +329,8 @@ try {
   // Phase 5 — Analytics tab routes (analytics, tags, saved views).
   app.use('/api/projects', analyticsRoutes);
   // Phase 3 — Observation tab routes + admin observation triggers.
-  // Mounted at /api so the /admin/observation/* paths work too.
-  app.use('/api', observationRoutes);
+  app.use('/api/projects', observationRoutes);
+  app.use('/api/admin', observationAdminRouter);
   app.use('/api', requireAuth, requireRole('admin', 'manager'), costsRoutes);
   // Routes — agent monitor (admin only)
   app.use('/api/agent-monitor', requireAuth, requireRole('admin'), agentMonitorRoutes);

@@ -2810,11 +2810,6 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
             ? 'Generate Image'
             : 'Generate Ad'}
         </button>
-        <div className="min-h-[22px] mt-1.5 flex items-start">
-          <p className={`text-[11px] text-textlight transition-opacity ${activeGenCount > 0 ? 'opacity-100' : 'opacity-0'}`} aria-hidden={activeGenCount === 0}>
-            {activeGenCount} generation{activeGenCount !== 1 ? 's' : ''} in progress — you can generate more while waiting
-          </p>
-        </div>
 
       </div>
 

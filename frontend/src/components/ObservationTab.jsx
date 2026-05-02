@@ -19,12 +19,16 @@ export default function ObservationTab({ projectId }) {
   const load = useCallback(async () => {
     setLoading(true);
     try {
-      const [adRes, archRes] = await Promise.all([
-        api.getObservationAdSets(projectId),
-        api.getArchivedAngles(projectId),
-      ]);
+      const adRes = await api.getObservationAdSets(projectId);
       setAdSets(adRes.ad_sets || []);
-      setArchived(archRes.angles || []);
+
+      try {
+        const archRes = await api.getArchivedAngles(projectId);
+        setArchived(archRes.angles || []);
+      } catch (err) {
+        setArchived([]);
+        toast.error(`Archived angles could not load: ${err.message}`);
+      }
     } catch (err) {
       toast.error(err.message);
     } finally {
