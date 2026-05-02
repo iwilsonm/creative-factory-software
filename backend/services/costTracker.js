@@ -24,6 +24,14 @@ const OPENAI_RATES = {
   'o3-deep-research':   { input: 0, output: 0 },      // billed via billing API only
 };
 
+export function normalizeGeminiResolution(resolution = '2K') {
+  const value = String(resolution || '').trim().toUpperCase();
+  if (['4K', '4096', '4096PX'].includes(value)) return '4K';
+  if (['2K', '2048', '2048PX'].includes(value)) return '2K';
+  if (['1K', '1024', '1024PX', '512', '512PX'].includes(value)) return '1K';
+  return '2K';
+}
+
 /**
  * Log an Anthropic Claude API cost (fire-and-forget).
  * Uses token counts from the API response to calculate exact cost.
@@ -119,7 +127,8 @@ export async function logOpenAICost({ model, operation, inputTokens, outputToken
  */
 export async function logGeminiCost(projectId, imageCount = 1, resolution = '2K', isBatch = false, operationOverride = null) {
   try {
-    const rateKey = `gemini_rate_${resolution.toLowerCase()}`;
+    const normalizedResolution = normalizeGeminiResolution(resolution);
+    const rateKey = `gemini_rate_${normalizedResolution.toLowerCase()}`;
     const rateStr = await getSetting(rateKey);
     const baseRate = rateStr ? parseFloat(rateStr) : 0;
 
@@ -139,7 +148,7 @@ export async function logGeminiCost(projectId, imageCount = 1, resolution = '2K'
       cost_usd: Math.round(cost * 1000000) / 1000000, // 6 decimal precision
       rate_used: rate,
       image_count: imageCount,
-      resolution,
+      resolution: normalizedResolution,
       source: 'calculated',
       period_date: new Date().toISOString().split('T')[0]
     };

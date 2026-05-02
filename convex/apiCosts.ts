@@ -1,6 +1,42 @@
 import { query, mutation } from "./_generated/server";
 import { v } from "convex/values";
 
+const GEMINI_IMAGE_MODELS = new Set([
+  "nano-banana-pro",
+  "nano-banana-2",
+  "gemini-3-pro",
+  "gemini-3-pro-image-preview",
+  "gemini-3.1-flash-image-preview",
+]);
+
+function isGeminiImageModel(model: string | undefined) {
+  if (!model) return true;
+  return GEMINI_IMAGE_MODELS.has(model) || model.startsWith("nano-banana") || model.startsWith("gemini-");
+}
+
+function normalizeGeminiResolution(resolution: string | undefined) {
+  const value = String(resolution || "").trim().toUpperCase();
+  if (value === "4K" || value === "4096" || value === "4096PX") return "4K";
+  if (value === "2K" || value === "2048" || value === "2048PX") return "2K";
+  if (value === "1K" || value === "1024" || value === "1024PX" || value === "512" || value === "512PX") return "1K";
+  return "2K";
+}
+
+async function getSettingNumber(ctx: any, key: string) {
+  const row = await ctx.db
+    .query("settings")
+    .withIndex("by_key", (q: any) => q.eq("key", key))
+    .first();
+  const parsed = row ? parseFloat(row.value) : NaN;
+  return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
+}
+
+function rateForResolution(resolution: string, rates: { rate1k: number; rate2k: number; rate4k: number }) {
+  if (resolution === "1K") return rates.rate1k;
+  if (resolution === "4K") return rates.rate4k;
+  return rates.rate2k;
+}
+
 export const log = mutation({
   args: {
     externalId: v.string(),
@@ -170,6 +206,145 @@ export const getAgentCosts = query({
   },
 });
 
+export const backfillGeminiImageCosts = mutation({
+  args: {
+    startDate: v.string(),
+    endDate: v.string(),
+    dryRun: v.optional(v.boolean()),
+  },
+  handler: async (ctx, args) => {
+    const [rate1k, rate2k, rate4k] = await Promise.all([
+      getSettingNumber(ctx, "gemini_rate_1k"),
+      getSettingNumber(ctx, "gemini_rate_2k"),
+      getSettingNumber(ctx, "gemini_rate_4k"),
+    ]);
+
+    if (!rate1k || !rate2k || !rate4k) {
+      throw new Error("Gemini rate settings must be configured before backfilling costs.");
+    }
+
+    const rates = { rate1k, rate2k, rate4k };
+    const ads = await ctx.db.query("ad_creatives").collect();
+    const changes: Array<{
+      id: string;
+      projectId: string;
+      date: string;
+      operation: string;
+      imageModel: string;
+      resolution: string;
+      rate: number;
+      cost: number;
+      existing: boolean;
+    }> = [];
+
+    let candidates = 0;
+    let inserted = 0;
+    let skippedExisting = 0;
+    let skippedStatus = 0;
+    let skippedNoImage = 0;
+    let skippedNonGemini = 0;
+    let skippedOutOfRange = 0;
+    let totalCost = 0;
+
+    for (const ad of ads) {
+      const periodDate = String(ad.created_at || "").slice(0, 10);
+      if (!periodDate || periodDate < args.startDate || periodDate > args.endDate) {
+        skippedOutOfRange++;
+        continue;
+      }
+
+      if (ad.status !== "completed") {
+        skippedStatus++;
+        continue;
+      }
+
+      if (!ad.storageId) {
+        skippedNoImage++;
+        continue;
+      }
+
+      const imageModel = ad.image_model || "nano-banana-2";
+      if (!isGeminiImageModel(imageModel)) {
+        skippedNonGemini++;
+        continue;
+      }
+
+      candidates++;
+      const operation = ad.batch_job_id ? "image_generation_batch" : "ad_image_generation";
+      const resolution = normalizeGeminiResolution("2K");
+      const baseRate = rateForResolution(resolution, rates);
+      const rate = ad.batch_job_id ? baseRate * 0.5 : baseRate;
+      const cost = Math.round(rate * 1000000) / 1000000;
+      const externalId = `gemini-ad:${ad.externalId}`;
+
+      const existing = await ctx.db
+        .query("api_costs")
+        .withIndex("by_externalId", (q) => q.eq("externalId", externalId))
+        .first();
+
+      if (existing) {
+        skippedExisting++;
+        changes.push({
+          id: externalId,
+          projectId: ad.project_id,
+          date: periodDate,
+          operation,
+          imageModel,
+          resolution,
+          rate,
+          cost,
+          existing: true,
+        });
+        continue;
+      }
+
+      changes.push({
+        id: externalId,
+        projectId: ad.project_id,
+        date: periodDate,
+        operation,
+        imageModel,
+        resolution,
+        rate,
+        cost,
+        existing: false,
+      });
+      totalCost += cost;
+
+      if (!args.dryRun) {
+        await ctx.db.insert("api_costs", {
+          externalId,
+          project_id: ad.project_id,
+          service: "gemini",
+          operation,
+          cost_usd: cost,
+          rate_used: rate,
+          image_count: 1,
+          resolution,
+          source: "calculated_backfill",
+          period_date: periodDate,
+          created_at: new Date().toISOString(),
+        });
+        inserted++;
+      }
+    }
+
+    return {
+      dryRun: !!args.dryRun,
+      rates,
+      candidates,
+      inserted,
+      skippedExisting,
+      skippedStatus,
+      skippedNoImage,
+      skippedNonGemini,
+      skippedOutOfRange,
+      totalCost: Math.round(totalCost * 1000000) / 1000000,
+      changes,
+    };
+  },
+});
+
 /**
  * One-time migration: recalculate cost_usd for all Gemini records that used
  * incorrect rates (e.g. $18/image instead of $0.134). For each Gemini record,
@@ -202,7 +377,7 @@ export const recalcGeminiCosts = mutation({
 
     for (const c of geminiCosts) {
       const images = c.image_count || 1;
-      const resolution = (c.resolution || "2K").toUpperCase();
+      const resolution = normalizeGeminiResolution(c.resolution || "2K");
       const isBatch = c.operation === "image_generation_batch";
 
       // Determine correct base rate

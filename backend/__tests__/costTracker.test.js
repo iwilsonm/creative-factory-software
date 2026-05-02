@@ -1,4 +1,4 @@
-import { describe, it, expect, vi } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 
 // Mock convexClient to avoid importing Convex generated code
 vi.mock('../convexClient.js', () => ({
@@ -7,12 +7,21 @@ vi.mock('../convexClient.js', () => ({
   logCost: vi.fn(),
   getCostAggregates: vi.fn(),
   getDailyCostHistory: vi.fn(),
+  getDailyCostHistoryRange: vi.fn(),
   deleteCostsBySource: vi.fn(),
   getAllScheduledBatchesForCost: vi.fn(),
   getAllProjects: vi.fn(),
+  getAllConductorConfigs: vi.fn(),
+  getAllLPAgentConfigs: vi.fn(),
+  getCompletedDirectorBatchStats: vi.fn(),
 }));
 
-import { parseGeminiImageRates, estimateRunsPerDay } from '../services/costTracker.js';
+import { getSetting, logCost } from '../convexClient.js';
+import { parseGeminiImageRates, estimateRunsPerDay, normalizeGeminiResolution, logGeminiCost } from '../services/costTracker.js';
+
+beforeEach(() => {
+  vi.clearAllMocks();
+});
 
 // ── parseGeminiImageRates ───────────────────────────────────────────────────
 
@@ -79,6 +88,63 @@ describe('parseGeminiImageRates', () => {
   it('returns null on parse error (non-string input)', () => {
     expect(parseGeminiImageRates(null)).toBeNull();
     expect(parseGeminiImageRates(undefined)).toBeNull();
+  });
+});
+
+// ── normalizeGeminiResolution ───────────────────────────────────────────────
+
+describe('normalizeGeminiResolution', () => {
+  it('preserves supported Gemini image resolutions', () => {
+    expect(normalizeGeminiResolution('1K')).toBe('1K');
+    expect(normalizeGeminiResolution('2K')).toBe('2K');
+    expect(normalizeGeminiResolution('4K')).toBe('4K');
+  });
+
+  it('maps legacy pixel sizes to configured rate buckets', () => {
+    expect(normalizeGeminiResolution('512')).toBe('1K');
+    expect(normalizeGeminiResolution('1024')).toBe('1K');
+    expect(normalizeGeminiResolution('2048')).toBe('2K');
+    expect(normalizeGeminiResolution('4096')).toBe('4K');
+  });
+
+  it('defaults unknown values to 2K', () => {
+    expect(normalizeGeminiResolution()).toBe('2K');
+    expect(normalizeGeminiResolution('')).toBe('2K');
+    expect(normalizeGeminiResolution('banana')).toBe('2K');
+  });
+});
+
+// ── logGeminiCost ───────────────────────────────────────────────────────────
+
+describe('logGeminiCost', () => {
+  it('uses the configured 2K Gemini rate for 2K image requests', async () => {
+    vi.mocked(getSetting).mockResolvedValue('0.02');
+
+    const record = await logGeminiCost('project-1', 1, '2K', false, 'ad_image_generation');
+
+    expect(getSetting).toHaveBeenCalledWith('gemini_rate_2k');
+    expect(logCost).toHaveBeenCalledWith(expect.objectContaining({
+      project_id: 'project-1',
+      service: 'gemini',
+      operation: 'ad_image_generation',
+      cost_usd: 0.02,
+      rate_used: 0.02,
+      image_count: 1,
+      resolution: '2K',
+    }));
+    expect(record).toEqual(expect.objectContaining({ cost_usd: 0.02, resolution: '2K' }));
+  });
+
+  it('maps legacy 512 logging to the 1K Gemini rate instead of skipping', async () => {
+    vi.mocked(getSetting).mockResolvedValue('0.01');
+
+    await logGeminiCost('project-1', 1, '512', false, 'ad_image_generation');
+
+    expect(getSetting).toHaveBeenCalledWith('gemini_rate_1k');
+    expect(logCost).toHaveBeenCalledWith(expect.objectContaining({
+      cost_usd: 0.01,
+      resolution: '1K',
+    }));
   });
 });
 

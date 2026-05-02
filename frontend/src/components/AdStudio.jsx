@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { createPortal } from 'react-dom';
 import JSZip from 'jszip';
 import { api } from '../api';
 import BatchManager from './BatchManager';
@@ -1668,6 +1669,8 @@ export default function AdStudio({ projectId, project }) {
       setBulkTagInput('');
     }
   }, [bulkBarInGalleryRange, bulkTagOpen]);
+
+  const shouldShowBulkBar = selectedCount > 0 && bulkBarInGalleryRange && typeof document !== 'undefined';
 
   // Find template name for modal display
   const getTemplateName = (templateId) => {
@@ -3543,12 +3546,9 @@ export default function AdStudio({ projectId, project }) {
       )}
       {/* (Queue is now inline above the Ad Gallery) */}
       {/* Floating bulk action bar */}
-      {selectedCount > 0 && bulkBarInGalleryRange && (
-        // Centering: use `inset-x-0 mx-auto w-fit` (margin-based) instead of
-        // `left-1/2 -translate-x-1/2`. The `fade-in` keyframe ends on
-        // `transform: none` (forwards fill), which would override translateX(-50%)
-        // and shift the bar off-center after the 0.4s entrance animation.
-        <div className="fixed bottom-6 inset-x-0 mx-auto w-fit z-50 fade-in">
+      {shouldShowBulkBar && createPortal(
+        (
+          <div className="fixed left-3 right-3 sm:inset-x-0 bottom-4 sm:bottom-6 mx-auto sm:w-fit max-w-[calc(100vw-1.5rem)] z-[70] fade-in pb-[env(safe-area-inset-bottom)] pointer-events-none">
           {/* Bulk tag popover — floats above the action bar */}
           {bulkTagOpen && (() => {
             // Compute union of tags across all selected ads with counts
@@ -3564,7 +3564,7 @@ export default function AdStudio({ projectId, project }) {
 
             return (
               <div
-                className="absolute bottom-full left-1/2 -translate-x-1/2 mb-3 bg-white rounded-2xl shadow-xl border border-black/5 p-4 w-80"
+                className="absolute bottom-full left-1/2 -translate-x-1/2 mb-3 bg-white rounded-2xl shadow-xl border border-black/5 p-4 w-80 max-w-[calc(100vw-1.5rem)] pointer-events-auto"
                 onClick={e => e.stopPropagation()}
               >
                 <div className="flex items-center justify-between mb-3">
@@ -3626,7 +3626,7 @@ export default function AdStudio({ projectId, project }) {
             );
           })()}
 
-          <div className="flex items-center gap-1.5 pl-2 pr-2 py-1.5 bg-navy/95 backdrop-blur-md rounded-full shadow-2xl shadow-navy/30 border border-white/10">
+          <div className="pointer-events-auto flex items-center gap-1.5 max-w-full overflow-x-auto pl-2 pr-2 py-1.5 bg-navy/95 backdrop-blur-md rounded-2xl sm:rounded-full shadow-2xl shadow-navy/30 border border-white/10">
             {/* Count badge + label */}
             <div className="flex items-center gap-2 pl-2 pr-1">
               <span className="inline-flex items-center justify-center min-w-[24px] h-6 px-1.5 rounded-full bg-gold/20 text-gold-light text-[11px] font-bold">
@@ -3728,7 +3728,9 @@ export default function AdStudio({ projectId, project }) {
               </svg>
             </button>
           </div>
-        </div>
+          </div>
+        ),
+        document.body
       )}
     </div>
   );
