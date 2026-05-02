@@ -417,8 +417,8 @@ export default function ObservationTab({ projectId }) {
         </div>
       )}
 
-      <div className="card overflow-hidden">
-        <div className="overflow-x-auto">
+      <div className="card overflow-visible">
+        <div className="overflow-x-auto overflow-y-visible">
           <table className="w-full text-[12px]">
             <thead className="bg-gray-50/60 border-b border-gray-100">
               <tr>

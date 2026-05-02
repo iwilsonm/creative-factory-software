@@ -1,4 +1,5 @@
 import { useState, useRef, useEffect } from 'react';
+import { createPortal } from 'react-dom';
 
 export const TAG_COLORS = [
   { name: 'gray',   hex: '#787774' },
@@ -17,7 +18,36 @@ export default function TagPicker({ allTags, appliedTagIds, onApply, onRemove, o
   const [creating, setCreating] = useState(false);
   const [newName, setNewName] = useState('');
   const [newColor, setNewColor] = useState(TAG_COLORS[0].hex);
+  const [position, setPosition] = useState({ top: 0, left: 0 });
   const ref = useRef(null);
+  const width = 256;
+
+  useEffect(() => {
+    function updatePosition() {
+      const anchor = anchorRef?.current;
+      if (!anchor) return;
+      const rect = anchor.getBoundingClientRect();
+      const gap = 6;
+      const menuHeight = Math.min(creating ? 240 : 290, window.innerHeight - gap * 2);
+      const opensUp = rect.bottom + gap + menuHeight > window.innerHeight && rect.top > menuHeight;
+      const top = opensUp
+        ? Math.max(gap, rect.top - menuHeight - gap)
+        : Math.min(window.innerHeight - gap, rect.bottom + gap);
+      const left = Math.min(
+        Math.max(gap, rect.left),
+        Math.max(gap, window.innerWidth - width - gap)
+      );
+      setPosition({ top, left });
+    }
+
+    updatePosition();
+    window.addEventListener('resize', updatePosition);
+    window.addEventListener('scroll', updatePosition, true);
+    return () => {
+      window.removeEventListener('resize', updatePosition);
+      window.removeEventListener('scroll', updatePosition, true);
+    };
+  }, [anchorRef, creating]);
 
   useEffect(() => {
     function onDocClick(e) {
@@ -33,8 +63,12 @@ export default function TagPicker({ allTags, appliedTagIds, onApply, onRemove, o
     !query || t.name.toLowerCase().includes(query.toLowerCase())
   );
 
-  return (
-    <div ref={ref} className="absolute z-30 mt-1 w-64 bg-white border border-gray-200 rounded-xl shadow-card p-2">
+  return createPortal(
+    <div
+      ref={ref}
+      className="fixed z-50 w-64 bg-white border border-gray-200 rounded-xl shadow-card p-2"
+      style={{ top: position.top, left: position.left }}
+    >
       <input
         autoFocus
         value={query}
@@ -116,6 +150,7 @@ export default function TagPicker({ allTags, appliedTagIds, onApply, onRemove, o
           </div>
         )}
       </div>
-    </div>
+    </div>,
+    document.body
   );
 }
