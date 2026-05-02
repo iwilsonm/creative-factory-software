@@ -122,6 +122,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
   const [primaryTextOpen, setPrimaryTextOpen] = useState(false);
   const [headlinesOpen, setHeadlinesOpen] = useState(false);
   const [expandedFlexChild, setExpandedFlexChild] = useState(null);
+  const [expandedAdSetIds, setExpandedAdSetIds] = useState(new Set());
 
   // ─── Undo system ───────────────────────────────────────────────────────
   const [undoState, setUndoState] = useState(null);
@@ -353,6 +354,30 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
     try { return JSON.parse(f.child_deployment_ids || '[]'); } catch { return []; }
   }));
   const standaloneStagingDeps = plannedDeps.filter(d => !flexChildIdSet.has(d.id));
+
+  const stagingAdSetIdsKey = stagingFlexAds.map(f => f.id).sort().join('|');
+  useEffect(() => {
+    setExpandedAdSetIds(prev => {
+      if (prev.size === 0) return prev;
+      const visibleIds = new Set(stagingAdSetIdsKey ? stagingAdSetIdsKey.split('|') : []);
+      let changed = false;
+      const next = new Set();
+      for (const id of prev) {
+        if (visibleIds.has(id)) next.add(id);
+        else changed = true;
+      }
+      return changed ? next : prev;
+    });
+  }, [stagingAdSetIdsKey]);
+
+  const toggleAdSetExpanded = (adSetId) => {
+    setExpandedAdSetIds(prev => {
+      const next = new Set(prev);
+      if (next.has(adSetId)) next.delete(adSetId);
+      else next.add(adSetId);
+      return next;
+    });
+  };
 
   // Helper to resolve campaign/ad set label for a deployment
   const resolvePlacement = (dep) => {
@@ -594,17 +619,17 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
     // All deployment IDs for the new flex: standalone + children from old flex ads
     const allDepIds = [...new Set([...standaloneDepIds, ...resolvedChildIds])];
     if (allDepIds.length < 2) {
-      addToast('Need at least 2 ads to create a Flex', 'info');
+      addToast('Need at least 2 ads to create an Ad Set', 'info');
       setCombiningFlex(false);
       return;
     }
     if (allDepIds.length > 10) {
-      addToast(`Maximum 10 ads per Flex ad (you selected ${allDepIds.length}). Deselect some ads and try again.`, 'error');
+      addToast(`Maximum 10 ads per ad set (you selected ${allDepIds.length}). Deselect some ads and try again.`, 'error');
       setCombiningFlex(false);
       return;
     }
 
-    const name = `Flexible Ad (${allDepIds.length} images)`;
+    const name = `Ad Set (${allDepIds.length} ads)`;
 
     // Snapshot for undo — captures local state for visual restore. Phase 6.20b
     // server-side: ungroup the new ad_set if found; dissolved ad_sets cannot
@@ -635,7 +660,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
       allDepIds.includes(d.id) ? { ...d, flex_ad_id: tempFlexId } : d
     ));
     setSelectedInStaging(new Set());
-    addToast('Flexible ad created', 'success');
+    addToast('Ad set created', 'success');
 
     try {
       // Phase 6.20b — native ungroup of dissolved ad_sets, native createAdSet
@@ -683,7 +708,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
           ownedChildIds.includes(d.id) ? { ...d, flex_ad_id: '' } : d
         ));
       }
-      addToast('Flexible ad ungrouped', 'success');
+      addToast('Ad set ungrouped', 'success');
       try {
         // Phase 6.20b — native ungroup detaches deployments + deletes ad_set
         await api.ungroupAdSet(projectId, flexAdId);
@@ -1347,116 +1372,199 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
     const childDeps = childIds.map(id => deployments.find(d => d.id === id)).filter(Boolean);
     const isSelected = selectedInStaging.has(flexAd.id);
     const placement = resolveFlexPlacement(flexAd);
+    const isExpanded = expandedAdSetIds.has(flexAd.id);
 
     return (
       <div
         key={flexAd.id}
-        onClick={() => openSidebar({ type: 'flex', flexAd, deps: childDeps })}
-        className={`relative group flex items-center gap-2.5 p-2 rounded-xl border transition-all cursor-pointer ${
+        className={`relative group rounded-xl border transition-all overflow-hidden ${
           isSelected ? 'border-navy/40 bg-navy/5' : 'border-gray-200 bg-white hover:border-navy/20 hover:shadow-sm'
         }`}
       >
-        {/* Checkbox */}
-        <button
-          onClick={(e) => { e.stopPropagation(); toggleStagingSelect(flexAd.id); }}
-          className={`w-[14px] h-[14px] rounded flex-shrink-0 flex items-center justify-center transition-colors ${
-            isSelected ? 'bg-navy' : 'border-[1.5px] border-textlight/60 hover:border-navy/40'
-          }`}
-        >
-          {isSelected && (
-            <svg className="w-2 h-2 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
-            </svg>
-          )}
-        </button>
-        <div className="min-w-0 flex-1">
-          <div className="text-[12px] font-medium text-textdark truncate">{flexAd.name}</div>
-          <div className="text-[10px] text-textlight">{childDeps.length} image{childDeps.length !== 1 ? 's' : ''}</div>
-          {placement && (
-            <div className="text-[9px] text-gold truncate">
-              {placement.campaignName}{placement.adSetName ? ` \u203A ${placement.adSetName}` : ''}
-            </div>
-          )}
-          {(flexAd.lp_primary_url || flexAd.lp_secondary_url) && (
-            <div className="flex items-center gap-2 text-[9px]">
-              {flexAd.lp_primary_url && (
-                <a href={flexAd.lp_primary_url} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className="text-teal hover:text-teal/80 underline underline-offset-2">LP1</a>
-              )}
-              {flexAd.lp_secondary_url && (
-                <a href={flexAd.lp_secondary_url} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className="text-teal hover:text-teal/80 underline underline-offset-2">LP2</a>
-              )}
-            </div>
-          )}
-        </div>
-        <div className="flex items-center gap-1 flex-shrink-0">
-          {childDeps.slice(0, 4).map(d => (
-            d.imageUrl ? (
-              <img key={d.id} src={d.imageUrl} alt="" className="w-11 h-11 object-cover rounded-lg bg-gray-100 cursor-zoom-in hover:ring-2 hover:ring-navy/30 transition-all" loading="lazy" onClick={(e) => { e.stopPropagation(); setPreviewImage(d.imageUrl); }} title="Click to preview" />
-            ) : (
-              <div key={d.id} className="w-11 h-11 rounded-lg bg-gray-200" />
-            )
-          ))}
-          {childDeps.length > 4 && (
-            <div className="w-11 h-11 rounded-lg bg-gray-200 flex items-center justify-center text-[10px] text-textlight">
-              +{childDeps.length - 4}
-            </div>
-          )}
-        </div>
-        <span className="text-[9px] font-bold text-navy bg-navy/10 px-1.5 py-0.5 rounded tracking-wide flex-shrink-0">Flexible</span>
+        <div className="flex items-center gap-2.5 p-2">
+          {/* Checkbox */}
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); toggleStagingSelect(flexAd.id); }}
+            className={`w-[14px] h-[14px] rounded flex-shrink-0 flex items-center justify-center transition-colors ${
+              isSelected ? 'bg-navy' : 'border-[1.5px] border-textlight/60 hover:border-navy/40'
+            }`}
+            aria-label={`Select ad set ${flexAd.name || ''}`}
+          >
+            {isSelected && (
+              <svg className="w-2 h-2 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d="M5 13l4 4L19 7" />
+              </svg>
+            )}
+          </button>
 
-        {/* Hover actions / Confirmation */}
-        {flexActionConfirm?.id === flexAd.id ? (
-          <div className="flex items-center gap-1 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
-            <span className="text-[10px] text-textmid">
-              {flexActionConfirm.action === 'ungroup' ? 'Ungroup?' : flexActionConfirm.action === 'unplan' ? 'Move to queue?' : 'Remove from planner?'}
-            </span>
-            <button
-              onClick={() => handleFlexAction(flexAd.id, flexActionConfirm.action)}
-              className={`text-[10px] px-1.5 py-0.5 rounded text-white transition-colors ${
-                flexActionConfirm.action === 'remove' ? 'bg-red-500 hover:bg-red-600' : 'bg-navy hover:bg-navy-light'
-              }`}
-            >
-              Confirm
-            </button>
-            <button
-              onClick={() => setFlexActionConfirm(null)}
-              className="text-[10px] px-1.5 py-0.5 rounded text-textmid hover:bg-gray-100 transition-colors"
-            >
-              Cancel
-            </button>
+          <button
+            type="button"
+            onClick={(e) => { e.stopPropagation(); toggleAdSetExpanded(flexAd.id); }}
+            className="w-6 h-6 rounded-lg flex-shrink-0 flex items-center justify-center text-textlight hover:text-navy hover:bg-navy/5 transition-colors"
+            aria-expanded={isExpanded}
+            aria-label={`${isExpanded ? 'Collapse' : 'Expand'} ad set ${flexAd.name || ''}`}
+            title={isExpanded ? 'Collapse ad set' : 'Expand ad set'}
+          >
+            <svg className={`w-4 h-4 transition-transform ${isExpanded ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+            </svg>
+          </button>
+
+          <div className="min-w-0 flex-1">
+            <div className="text-[12px] font-medium text-textdark truncate">{flexAd.name}</div>
+            <div className="text-[10px] text-textlight">{childDeps.length} ad{childDeps.length !== 1 ? 's' : ''}</div>
+            {placement && (
+              <div className="text-[9px] text-gold truncate">
+                {placement.campaignName}{placement.adSetName ? ` \u203A ${placement.adSetName}` : ''}
+              </div>
+            )}
+            {(flexAd.lp_primary_url || flexAd.lp_secondary_url) && (
+              <div className="flex items-center gap-2 text-[9px]">
+                {flexAd.lp_primary_url && (
+                  <a href={flexAd.lp_primary_url} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className="text-teal hover:text-teal/80 underline underline-offset-2">LP1</a>
+                )}
+                {flexAd.lp_secondary_url && (
+                  <a href={flexAd.lp_secondary_url} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className="text-teal hover:text-teal/80 underline underline-offset-2">LP2</a>
+                )}
+              </div>
+            )}
           </div>
-        ) : (
-          <div className="opacity-100 md:opacity-0 md:group-hover:opacity-100 flex items-center gap-1 flex-shrink-0 transition-opacity">
-            {/* Ungroup */}
-            <button
-              onClick={(e) => { e.stopPropagation(); setFlexActionConfirm({ id: flexAd.id, action: 'ungroup' }); }}
-              className="p-1 rounded-lg hover:bg-navy/10 text-textlight hover:text-navy transition-colors"
-              title="Ungroup"
-            >
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
-              </svg>
-            </button>
-            {/* Move to unplanned */}
-            <button
-              onClick={(e) => { e.stopPropagation(); setFlexActionConfirm({ id: flexAd.id, action: 'unplan' }); }}
-              className="p-1 rounded-lg hover:bg-gold/10 text-textlight hover:text-gold transition-colors"
-              title="Move to queue"
-            >
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
-              </svg>
-            </button>
-            {/* Remove from planner */}
-            <button
-              onClick={(e) => { e.stopPropagation(); setFlexActionConfirm({ id: flexAd.id, action: 'remove' }); }}
-              className="p-1 rounded-lg hover:bg-red-50 text-textlight hover:text-red-500 transition-colors"
-              title="Remove from planner"
-            >
-              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
-              </svg>
-            </button>
+
+          <div className="hidden sm:flex items-center gap-1 flex-shrink-0">
+            {childDeps.slice(0, 3).map(d => (
+              d.imageUrl ? (
+                <img key={d.id} src={d.imageUrl} alt="" className="w-9 h-9 object-cover rounded-lg bg-gray-100 cursor-zoom-in hover:ring-2 hover:ring-navy/30 transition-all" loading="lazy" onClick={(e) => { e.stopPropagation(); setPreviewImage(d.imageUrl); }} title="Click to preview" />
+              ) : (
+                <div key={d.id} className="w-9 h-9 rounded-lg bg-gray-200" />
+              )
+            ))}
+            {childDeps.length > 3 && (
+              <div className="w-9 h-9 rounded-lg bg-gray-200 flex items-center justify-center text-[10px] text-textlight">
+                +{childDeps.length - 3}
+              </div>
+            )}
+          </div>
+          <span className="text-[9px] font-bold text-navy bg-navy/10 px-1.5 py-0.5 rounded tracking-wide flex-shrink-0">Ad Set</span>
+
+          {/* Hover actions / Confirmation */}
+          {flexActionConfirm?.id === flexAd.id ? (
+            <div className="flex items-center gap-1 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
+              <span className="text-[10px] text-textmid">
+                {flexActionConfirm.action === 'ungroup' ? 'Ungroup?' : flexActionConfirm.action === 'unplan' ? 'Move to queue?' : 'Remove from planner?'}
+              </span>
+              <button
+                type="button"
+                onClick={() => handleFlexAction(flexAd.id, flexActionConfirm.action)}
+                className={`text-[10px] px-1.5 py-0.5 rounded text-white transition-colors ${
+                  flexActionConfirm.action === 'remove' ? 'bg-red-500 hover:bg-red-600' : 'bg-navy hover:bg-navy-light'
+                }`}
+              >
+                Confirm
+              </button>
+              <button
+                type="button"
+                onClick={() => setFlexActionConfirm(null)}
+                className="text-[10px] px-1.5 py-0.5 rounded text-textmid hover:bg-gray-100 transition-colors"
+              >
+                Cancel
+              </button>
+            </div>
+          ) : (
+            <div className="opacity-100 md:opacity-0 md:group-hover:opacity-100 flex items-center gap-1 flex-shrink-0 transition-opacity">
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); openSidebar({ type: 'flex', flexAd, deps: childDeps }); }}
+                className="px-2 py-1 rounded-lg bg-navy/5 hover:bg-navy/10 text-[10px] font-medium text-navy transition-colors"
+                title="Open ad set details"
+              >
+                Details
+              </button>
+              {/* Ungroup */}
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); setFlexActionConfirm({ id: flexAd.id, action: 'ungroup' }); }}
+                className="p-1 rounded-lg hover:bg-navy/10 text-textlight hover:text-navy transition-colors"
+                title="Ungroup"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
+                </svg>
+              </button>
+              {/* Move to unplanned */}
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); setFlexActionConfirm({ id: flexAd.id, action: 'unplan' }); }}
+                className="p-1 rounded-lg hover:bg-gold/10 text-textlight hover:text-gold transition-colors"
+                title="Move to queue"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
+                </svg>
+              </button>
+              {/* Remove from planner */}
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); setFlexActionConfirm({ id: flexAd.id, action: 'remove' }); }}
+                className="p-1 rounded-lg hover:bg-red-50 text-textlight hover:text-red-500 transition-colors"
+                title="Remove from planner"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                </svg>
+              </button>
+            </div>
+          )}
+        </div>
+
+        {isExpanded && (
+          <div className="border-t border-gray-100 bg-offwhite/40 px-3 py-2">
+            {childDeps.length === 0 ? (
+              <div className="pl-7 text-[11px] text-textlight py-2">No ads found in this ad set.</div>
+            ) : (
+              <div className="pl-7 space-y-1.5">
+                {childDeps.map(d => {
+                  const adName = d.ad?.headline || d.ad?.angle || d.ad_name || `Ad ${(d.id || '').slice(0, 6)}`;
+                  const addedAt = d.created_at ? (() => {
+                    try {
+                      const date = new Date(d.created_at);
+                      return date.toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) + ' at ' + date.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' });
+                    } catch { return ''; }
+                  })() : '';
+                  return (
+                    <button
+                      key={d.id}
+                      type="button"
+                      onClick={(e) => { e.stopPropagation(); openSidebar({ type: 'single', deployment: d, ad: d.ad }); }}
+                      className="w-full flex items-center gap-2.5 p-2 rounded-lg border border-gray-100 bg-white hover:border-navy/20 hover:shadow-sm transition-all text-left"
+                    >
+                      {d.imageUrl ? (
+                        <img
+                          src={d.imageUrl}
+                          alt=""
+                          className="w-11 h-11 object-cover rounded-lg bg-gray-100 flex-shrink-0 cursor-zoom-in hover:ring-2 hover:ring-navy/30 transition-all"
+                          loading="lazy"
+                          onClick={(e) => { e.stopPropagation(); setPreviewImage(d.imageUrl); }}
+                          title="Click to preview"
+                        />
+                      ) : (
+                        <div className="w-11 h-11 rounded-lg bg-gray-100 flex-shrink-0" />
+                      )}
+                      <div className="min-w-0 flex-1">
+                        <div className="text-[12px] font-medium text-textdark truncate">{adName}</div>
+                        {d.ad?.body_copy && (
+                          <div className="text-[10px] text-textlight truncate mt-0.5">{d.ad.body_copy}</div>
+                        )}
+                        {addedAt && (
+                          <div className="text-[9px] text-textlight mt-0.5">Added {addedAt}</div>
+                        )}
+                      </div>
+                      <span className="text-[10px] text-navy font-medium flex-shrink-0">Details</span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
           </div>
         )}
       </div>
@@ -1481,7 +1589,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
           {/* Header */}
           <div className="sticky top-0 bg-white border-b border-gray-100 px-5 py-4 flex items-center justify-between z-10">
             <div className="flex items-center gap-2">
-              {isFlex && <span className="text-[9px] font-bold text-navy bg-navy/10 px-1.5 py-0.5 rounded tracking-wide">Flexible</span>}
+              {isFlex && <span className="text-[9px] font-bold text-navy bg-navy/10 px-1.5 py-0.5 rounded tracking-wide">Ad Set</span>}
               <h3 className="text-[14px] font-semibold text-textdark">
                 Ad Details
               </h3>
@@ -1957,7 +2065,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
                   <svg className="w-3 h-3 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                   </svg>
-                  Saving will duplicate this {isFlex ? 'flexible ad' : 'ad'} for each extra URL ({sidebarForm.destination_urls.length - 1} duplicate{sidebarForm.destination_urls.length > 2 ? 's' : ''}).
+                  Saving will duplicate this {isFlex ? 'ad set' : 'ad'} for each extra URL ({sidebarForm.destination_urls.length - 1} duplicate{sidebarForm.destination_urls.length > 2 ? 's' : ''}).
                 </p>
               )}
             </div>
@@ -2121,7 +2229,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
                   </div>
                   <div>
                     <p className="text-[12px] font-semibold text-textdark">
-                      Duplicate {isFlex ? 'flexible ad' : 'ad'} for {duplicateConfirm.urls.length} URLs?
+                      Duplicate {isFlex ? 'ad set' : 'ad'} for {duplicateConfirm.urls.length} URLs?
                     </p>
                     <p className="text-[11px] text-textmid mt-1">
                       {isFlex
