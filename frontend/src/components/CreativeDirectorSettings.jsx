@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { api } from '../api';
 import { useToast } from './Toast';
 
-// Per-project Creative Director / Staging cycle settings.
+// Per-project Creative Director deployment settings.
 // Fields:
 //   - ad_sets_per_cycle: integer, Director cycle config (legacy fallback: config.ads_per_batch)
 //   - ads_per_ad_set: integer (1-20 hard cap), Director cycle config
@@ -17,7 +17,10 @@ export default function CreativeDirectorSettings({ project, onSaved, embedded = 
   const [campaigns, setCampaigns] = useState([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
-  // Phase 4 — sub-angle derivation + health-biased Director
+  const showProductionShape = !embedded;
+  const showDefaultCampaign = !embedded;
+
+  // Learning and angle-expansion settings.
   const [healthBias, setHealthBias] = useState(false);
   const [derivationEnabled, setDerivationEnabled] = useState(true);
   const [derivationMode, setDerivationMode] = useState('auto');
@@ -31,7 +34,7 @@ export default function CreativeDirectorSettings({ project, onSaved, embedded = 
     setError('');
   }, [project]);
 
-  // Load campaigns for the default-campaign picker + Phase 4 conductor_config
+  // Load campaigns for the default-campaign picker + learning config.
   useEffect(() => {
     if (!project?.id) return;
     (async () => {
@@ -39,7 +42,7 @@ export default function CreativeDirectorSettings({ project, onSaved, embedded = 
         const list = await api.getCampaigns?.(project.id);
         setCampaigns(Array.isArray(list?.campaigns) ? list.campaigns : Array.isArray(list) ? list : []);
       } catch { setCampaigns([]); }
-      // Phase 4 — load conductor_config Phase 4 fields
+      // Load conductor_config learning fields.
       try {
         const cfg = await api.getConductorConfig?.(project.id);
         if (cfg) {
@@ -53,14 +56,14 @@ export default function CreativeDirectorSettings({ project, onSaved, embedded = 
 
   const handleSave = async () => {
     setError('');
-    // Validate ads_per_ad_set hard cap
+    // Validate ads_per_ad_set hard cap.
     const aps = adsPerAdSet ? Number(adsPerAdSet) : null;
-    if (aps != null && (!Number.isInteger(aps) || aps < 1 || aps > 20)) {
+    if (showProductionShape && aps != null && (!Number.isInteger(aps) || aps < 1 || aps > 20)) {
       setError('Ads per ad set must be an integer between 1 and 20');
       return;
     }
     const asc = adSetsPerCycle ? Number(adSetsPerCycle) : null;
-    if (asc != null && (!Number.isInteger(asc) || asc < 1)) {
+    if (showProductionShape && asc != null && (!Number.isInteger(asc) || asc < 1)) {
       setError('Ad sets per cycle must be a positive integer');
       return;
     }
@@ -72,14 +75,14 @@ export default function CreativeDirectorSettings({ project, onSaved, embedded = 
     setSaving(true);
     try {
       const fields = {};
-      if (asc != null) fields.ad_sets_per_cycle = asc;
-      if (aps != null) fields.ads_per_ad_set = aps;
-      if (defaultCampaignId) fields.default_campaign_id = defaultCampaignId;
+      if (showProductionShape && asc != null) fields.ad_sets_per_cycle = asc;
+      if (showProductionShape && aps != null) fields.ads_per_ad_set = aps;
+      if (showDefaultCampaign && defaultCampaignId) fields.default_campaign_id = defaultCampaignId;
       if (adsetTemplate?.trim()) fields.adset_default_template = adsetTemplate.trim();
       if (Object.keys(fields).length > 0) {
         await api.updateProject(project.id, fields);
       }
-      // Phase 4 — save conductor_config Phase 4 fields (best-effort if endpoint exists)
+      // Save learning fields (best-effort if endpoint exists).
       try {
         await api.updateConductorConfig?.(project.id, {
           health_bias: healthBias,
@@ -98,46 +101,52 @@ export default function CreativeDirectorSettings({ project, onSaved, embedded = 
 
   return (
     <div className={embedded ? 'space-y-5' : 'card p-6 space-y-5'}>
-      <div>
-        <h2 className="text-[15px] font-semibold text-textdark tracking-tight">Creative Director — Staging cycle</h2>
-        <p className="text-xs text-textmid mt-1">Per-project config for the Director's generation cycle.</p>
-      </div>
+      {!embedded && (
+        <div>
+          <h2 className="text-[15px] font-semibold text-textdark tracking-tight">Creative Director Deployment Settings</h2>
+          <p className="text-xs text-textmid mt-1">Advanced defaults for automated ad sets and angle learning.</p>
+        </div>
+      )}
 
-      <div className="grid grid-cols-2 gap-4">
-        <Field label="Ad sets per cycle" hint="How many ad sets the Director generates each run.">
-          <input
-            type="number" min="1"
-            value={adSetsPerCycle}
-            onChange={(e) => setAdSetsPerCycle(e.target.value)}
-            placeholder="default 5"
+      {showProductionShape && (
+        <div className="grid grid-cols-2 gap-4">
+          <Field label="Ad set target" hint="How many ad sets the Director generates each run.">
+            <input
+              type="number" min="1"
+              value={adSetsPerCycle}
+              onChange={(e) => setAdSetsPerCycle(e.target.value)}
+              placeholder="default 5"
+              className="input-apple w-full"
+            />
+          </Field>
+          <Field label="Ads per ad set" hint="1-20. Meta recommends 3-5 for delivery.">
+            <input
+              type="number" min="1" max="20"
+              value={adsPerAdSet}
+              onChange={(e) => setAdsPerAdSet(e.target.value)}
+              placeholder="default 3"
+              className="input-apple w-full"
+            />
+          </Field>
+        </div>
+      )}
+
+      {showDefaultCampaign && (
+        <Field label="Default Meta campaign" hint="Every new ad set inherits this campaign unless overridden in Ad Automation or the Ad Pipeline.">
+          <select
+            value={defaultCampaignId}
+            onChange={(e) => setDefaultCampaignId(e.target.value)}
             className="input-apple w-full"
-          />
+          >
+            <option value="">None - auto-create [Default] on first generation run</option>
+            {campaigns.map((c) => (
+              <option key={c.id} value={c.id}>{c.name}</option>
+            ))}
+          </select>
         </Field>
-        <Field label="Ads per ad set" hint="1–20. Meta recommends 3–5 for delivery.">
-          <input
-            type="number" min="1" max="20"
-            value={adsPerAdSet}
-            onChange={(e) => setAdsPerAdSet(e.target.value)}
-            placeholder="default 3"
-            className="input-apple w-full"
-          />
-        </Field>
-      </div>
+      )}
 
-      <Field label="Default Meta campaign" hint="Every new ad set inherits this campaign unless overridden in Ad Automation or the Ad Pipeline.">
-        <select
-          value={defaultCampaignId}
-          onChange={(e) => setDefaultCampaignId(e.target.value)}
-          className="input-apple w-full"
-        >
-          <option value="">— None (auto-create [Default] on first batch) —</option>
-          {campaigns.map((c) => (
-            <option key={c.id} value={c.id}>{c.name}</option>
-          ))}
-        </select>
-      </Field>
-
-      <Field label="Ad-Set defaults (JSON)" hint="Meta-side template applied to every new ad set: targeting, budget, schedule, optimization_goal, billing_event.">
+      <Field label="Advanced Meta defaults (JSON)" hint="Optional Meta-side defaults applied to every new ad set: targeting, budget, schedule, optimization_goal, billing_event.">
         <textarea
           rows={6}
           value={adsetTemplate}
@@ -147,9 +156,8 @@ export default function CreativeDirectorSettings({ project, onSaved, embedded = 
         />
       </Field>
 
-      {/* Phase 4 — Director behavior */}
       <div className="border-t border-cream pt-4 space-y-3">
-        <h3 className="text-[13px] font-semibold text-textdark">Director behavior (Phase 4)</h3>
+        <h3 className="text-[13px] font-semibold text-textdark">Learning & Angle Expansion</h3>
 
         <label className="flex items-start gap-3 cursor-pointer">
           <input
@@ -159,7 +167,7 @@ export default function CreativeDirectorSettings({ project, onSaved, embedded = 
             className="w-5 h-5 mt-0.5"
           />
           <div>
-            <div className="text-[13px] font-semibold text-textdark">Health-bias angle selection</div>
+            <div className="text-[13px] font-semibold text-textdark">Favor proven angles</div>
             <div className="text-[11px] text-textmid">When on, angles with higher real-world pass rates are selected more often. New sub-angles get a 14-day exploration boost so they get tested before random rotation buries them. Off by default until validated.</div>
           </div>
         </label>
@@ -172,14 +180,14 @@ export default function CreativeDirectorSettings({ project, onSaved, embedded = 
             className="w-5 h-5 mt-0.5"
           />
           <div>
-            <div className="text-[13px] font-semibold text-textdark">Auto-derive sub-angles from winners</div>
-            <div className="text-[11px] text-textmid">When an angle accumulates 3+ passing observations (depth-doubled per generation), Claude proposes 1-3 sub-angle variations preserving brand identity. Auto-tagged via Phase 5.</div>
+            <div className="text-[13px] font-semibold text-textdark">Create new angle variations from winners</div>
+            <div className="text-[11px] text-textmid">When an angle accumulates 3+ passing observations, Claude proposes 1-3 related angle variations that preserve brand identity.</div>
           </div>
         </label>
 
         {derivationEnabled && (
           <div className="ml-8">
-            <div className="text-[11px] font-medium text-textmid mb-1">Derivation mode</div>
+            <div className="text-[11px] font-medium text-textmid mb-1">Angle variation approval</div>
             <div className="space-y-1">
               <label className="flex items-center gap-2 cursor-pointer">
                 <input type="radio" checked={derivationMode === 'auto'} onChange={() => setDerivationMode('auto')} />
@@ -187,7 +195,7 @@ export default function CreativeDirectorSettings({ project, onSaved, embedded = 
               </label>
               <label className="flex items-center gap-2 cursor-pointer">
                 <input type="radio" checked={derivationMode === 'review'} onChange={() => setDerivationMode('review')} />
-                <span className="text-[12px] text-textdark">Review — sub-angles wait in pending_review until you approve</span>
+                <span className="text-[12px] text-textdark">Review — sub-angles wait for approval before activation</span>
               </label>
             </div>
           </div>

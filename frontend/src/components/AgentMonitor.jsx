@@ -6,6 +6,7 @@ import { useToast } from './Toast';
 import { ensureArray } from '../utils/collections';
 import CreativeDirectorSettings from './CreativeDirectorSettings';
 import CreativeFilterSettings from './CreativeFilterSettings';
+import InfoTooltip from './InfoTooltip';
 
 const LEVEL_CONFIG = {
   OK:        { color: 'text-teal',       icon: '\u2713', bg: 'bg-teal/10' },
@@ -933,7 +934,7 @@ Product description: ${productDesc}
 =============================
 WHAT AN ANGLE IS
 =============================
-An "angle" is a single creative lens — a specific emotional story, buyer identity, or belief shift — that a whole batch of ads can be generated around. A good angle set covers the same product from meaningfully different emotional entry points.
+An "angle" is a single creative lens — a specific emotional story, buyer identity, or belief shift — that a whole ad set can be generated around. A good angle set covers the same product from meaningfully different emotional entry points.
 
 Each angle must include these 13 properties:
 
@@ -1329,6 +1330,7 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
   const [runsLoading, setRunsLoading] = useState(false);
   const [playbooksLoading, setPlaybooksLoading] = useState(false);
   const [campaignsLoading, setCampaignsLoading] = useState(false);
+  const [adsPerAdSetDraft, setAdsPerAdSetDraft] = useState(null);
   const [anglesLoadedFor, setAnglesLoadedFor] = useState('');
   const [angleOptionsLoadedFor, setAngleOptionsLoadedFor] = useState('');
   const [runsLoadedFor, setRunsLoadedFor] = useState('');
@@ -1488,6 +1490,7 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
     setRunsLoadedFor('');
     setPlaybooksLoadedFor('');
     setCampaignsLoadedFor('');
+    setAdsPerAdSetDraft(null);
     (async () => {
       try {
         const [cfgRes] = await Promise.allSettled([
@@ -1632,6 +1635,21 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
     if (debounceRef.current) clearTimeout(debounceRef.current);
     debounceRef.current = setTimeout(flushPendingConfig, 500);
   }, [flushPendingConfig]);
+
+  const handleSaveAdsPerAdSet = useCallback((rawValue) => {
+    const parsed = parseInt(rawValue, 10);
+    const nextValue = Number.isFinite(parsed) ? Math.max(1, Math.min(parsed, 20)) : 3;
+    setAdsPerAdSetDraft(nextValue);
+    handleSaveConfig({ ads_per_batch: nextValue });
+
+    if (embedded && selectedProject) {
+      api.updateProject(selectedProject, { ads_per_ad_set: nextValue })
+        .then(() => onProjectRefresh?.())
+        .catch((err) => {
+          toast.error(err?.message || 'Could not save ads per ad set');
+        });
+    }
+  }, [embedded, handleSaveConfig, onProjectRefresh, selectedProject, toast]);
 
   const STEP_PROGRESS = {
     // Director phase (~5s) — 0-2%
@@ -2214,6 +2232,11 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
   const safeRuns = ensureArray(runs, 'AgentMonitor.director.runsState');
   const safePlaybooks = ensureArray(playbooks, 'AgentMonitor.director.playbooksState');
   const safeCampaigns = ensureArray(campaigns, 'AgentMonitor.director.campaignsState');
+  const adsPerAdSetValue = adsPerAdSetDraft ?? (
+    embedded && externalProject?.ads_per_ad_set != null
+      ? externalProject.ads_per_ad_set
+      : config?.ads_per_batch
+  );
 
   if (projectLoading) return <div className="text-[11px] text-textlight py-4">{embedded ? 'Loading Director...' : 'Loading projects...'}</div>;
   if (!embedded && safeProjects.length === 0) return <div className="text-[11px] text-textlight py-4">No projects found.</div>;
@@ -2424,8 +2447,8 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
 
       {/* Quick stats */}
       <div className="grid grid-cols-4 gap-2 mb-4">
-        <StatCell value={config?.daily_flex_target ?? '—'} label="Daily Target" color="text-textdark" />
-        <StatCell value={config?.ads_per_batch ?? '—'} label="Ads/Batch" color="text-textdark" />
+        <StatCell value={config?.daily_flex_target ?? '—'} label="Ad Set Target" color="text-textdark" />
+        <StatCell value={adsPerAdSetValue ?? '—'} label="Ads/Ad Set" color="text-textdark" />
         <StatCell value={anglesLoadedFor === selectedProject ? activeAngles.length : '—'} label="Angles" color="text-navy" />
         <StatCell value={runsLoadedFor === selectedProject ? safeRuns.filter(r => r.status === 'completed').length : '—'} label="Runs" color="text-teal" />
       </div>
@@ -2689,7 +2712,7 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
           {playbooksLoading && playbooksLoadedFor !== selectedProject ? (
             <p className="text-[11px] text-textlight py-4">Loading playbooks...</p>
           ) : safePlaybooks.length === 0 ? (
-            <p className="text-[11px] text-textlight py-4">No playbooks yet. Playbooks are created automatically after the Creative Filter scores batches for each angle.</p>
+            <p className="text-[11px] text-textlight py-4">No playbooks yet. Playbooks are created automatically after the Creative Filter scores generated ads for each angle.</p>
           ) : (
             <div className="space-y-3">
               {safePlaybooks.map(pb => (
@@ -2741,179 +2764,199 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
 
       {subTab === 'settings' && config && (
         <div className="space-y-4">
-          {/* Run Schedule */}
-          <div className="mb-4">
-            <label className="text-[11px] text-textmid font-medium block mb-1">Run Schedule</label>
-            <select
-              value={config?.run_schedule || 'weekdays'}
-              onChange={e => handleSaveConfig({ run_schedule: e.target.value })}
-              className="input-apple w-full text-[12px]"
-            >
-              <option value="daily">Daily (midnight ICT)</option>
-              <option value="weekdays">Weekdays — Mon-Fri (midnight ICT)</option>
-              <option value="weekly_monday">Weekly on Monday (midnight ICT)</option>
-              <option value="custom">Custom</option>
-              <option value="manual_only">Manual only</option>
-            </select>
-            {(config?.run_schedule || 'weekdays') === 'custom' && (
-              <div className="mt-2 space-y-2">
-                <div className="flex items-center gap-1.5 flex-wrap">
-                  {['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map((day, i) => {
-                    let selectedDays = [];
-                    try { selectedDays = JSON.parse(config?.run_schedule_days || '[]'); } catch {}
-                    const isSelected = selectedDays.includes(i);
-                    return (
-                      <button
-                        key={day}
-                        onClick={() => {
-                          const updated = isSelected ? selectedDays.filter(d => d !== i) : [...selectedDays, i];
-                          handleSaveConfig({ run_schedule_days: JSON.stringify(updated.sort()) });
-                        }}
-                        className={`text-[10px] px-2.5 py-1 rounded-md font-medium transition-colors ${isSelected ? 'bg-navy text-white' : 'bg-gray-100 text-textmid hover:bg-gray-200'}`}
-                      >
-                        {day}
-                      </button>
-                    );
-                  })}
+          <div className="rounded-xl bg-navy/5 border border-navy/10 px-3 py-3">
+            <p className="text-[12px] font-medium text-textdark">How the Director builds ad sets</p>
+            <p className="text-[11px] text-textmid mt-1 leading-relaxed">
+              Each ad set targets one angle. The ads inside that ad set are variations of the same angle, using different templates or creative executions.
+            </p>
+          </div>
+
+          <SettingsSection title="Schedule" description="Choose when the Creative Director should run for this project.">
+            <div>
+              <FieldLabel>Run Schedule</FieldLabel>
+              <select
+                value={config?.run_schedule || 'weekdays'}
+                onChange={e => handleSaveConfig({ run_schedule: e.target.value })}
+                className="input-apple w-full text-[12px]"
+              >
+                <option value="daily">Daily (midnight ICT)</option>
+                <option value="weekdays">Weekdays — Mon-Fri (midnight ICT)</option>
+                <option value="weekly_monday">Weekly on Monday (midnight ICT)</option>
+                <option value="custom">Custom</option>
+                <option value="manual_only">Manual only</option>
+              </select>
+              {(config?.run_schedule || 'weekdays') === 'custom' && (
+                <div className="mt-2 space-y-2">
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    {['Sun','Mon','Tue','Wed','Thu','Fri','Sat'].map((day, i) => {
+                      let selectedDays = [];
+                      try { selectedDays = JSON.parse(config?.run_schedule_days || '[]'); } catch {}
+                      const isSelected = selectedDays.includes(i);
+                      return (
+                        <button
+                          key={day}
+                          onClick={() => {
+                            const updated = isSelected ? selectedDays.filter(d => d !== i) : [...selectedDays, i];
+                            handleSaveConfig({ run_schedule_days: JSON.stringify(updated.sort()) });
+                          }}
+                          className={`text-[10px] px-2.5 py-1 rounded-md font-medium transition-colors ${isSelected ? 'bg-navy text-white' : 'bg-gray-100 text-textmid hover:bg-gray-200'}`}
+                        >
+                          {day}
+                        </button>
+                      );
+                    })}
+                  </div>
+                  <div>
+                    <label className="text-[10px] text-textlight block mb-0.5">Run at (ICT)</label>
+                    <select
+                      value={config?.run_schedule_hour ?? 0}
+                      onChange={e => handleSaveConfig({ run_schedule_hour: parseInt(e.target.value, 10) })}
+                      className="input-apple text-[11px] w-auto"
+                    >
+                      {Array.from({ length: 24 }, (_, h) => (
+                        <option key={h} value={h}>{String(h).padStart(2, '0')}:00</option>
+                      ))}
+                    </select>
+                  </div>
                 </div>
-                <div>
-                  <label className="text-[10px] text-textlight block mb-0.5">Run at (ICT)</label>
-                  <select
-                    value={config?.run_schedule_hour ?? 0}
-                    onChange={e => handleSaveConfig({ run_schedule_hour: parseInt(e.target.value) })}
-                    className="input-apple text-[11px] w-auto"
-                  >
-                    {Array.from({ length: 24 }, (_, h) => (
-                      <option key={h} value={h}>{String(h).padStart(2, '0')}:00</option>
-                    ))}
-                  </select>
-                </div>
+              )}
+            </div>
+          </SettingsSection>
+
+          <SettingsSection title="Ad Set Production" description="Control how many angle-based ad sets are created and how many ad variations each set contains.">
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <FieldLabel tooltip="How many ad sets the Creative Director should try to create. Each ad set is centered on one angle.">Ad Set Target</FieldLabel>
+                <input
+                  type="number"
+                  min="0"
+                  max="20"
+                  value={config.daily_flex_target ?? 5}
+                  onChange={e => {
+                    const parsed = parseInt(e.target.value, 10);
+                    handleSaveConfig({ daily_flex_target: Number.isFinite(parsed) ? parsed : 5 });
+                  }}
+                  className="input-apple w-full text-[12px]"
+                />
+              </div>
+              <div>
+                <FieldLabel tooltip="How many ad variations to generate inside each ad set. These ads share the same angle, but use different templates or creative executions.">Ads Per Ad Set</FieldLabel>
+                <input
+                  type="number"
+                  min="1"
+                  max="20"
+                  value={adsPerAdSetValue ?? 3}
+                  onChange={e => handleSaveAdsPerAdSet(e.target.value)}
+                  className="input-apple w-full text-[12px]"
+                />
+                <p className="text-[9px] text-textlight mt-0.5">Number of ad variations generated for each angle-based ad set.</p>
+              </div>
+            </div>
+
+            <div>
+              <FieldLabel tooltip="The Meta campaign that automated ad sets will be assigned to unless changed later in the Ad Pipeline.">Default Campaign</FieldLabel>
+              {campaignsLoading && campaignsLoadedFor !== selectedProject ? (
+                <p className="text-[11px] text-textlight">Loading campaigns...</p>
+              ) : safeCampaigns.length > 0 ? (
+                <select
+                  value={config.default_campaign_id || ''}
+                  onChange={e => handleSaveConfig({ default_campaign_id: e.target.value })}
+                  className="text-[12px] text-textdark bg-offwhite border border-black/10 rounded-lg px-3 py-1.5 cursor-pointer w-full"
+                >
+                  <option value="">Select a campaign...</option>
+                  {safeCampaigns.map(c => (
+                    <option key={c.externalId || c.id} value={c.externalId || c.id}>
+                      {c.name}
+                    </option>
+                  ))}
+                </select>
+              ) : (
+                <p className="text-[11px] text-textlight">No campaigns found — create one in the Ad Pipeline tab first.</p>
+              )}
+              <p className="text-[9px] text-textlight mt-0.5">Automated ad sets from the Director pipeline will use this campaign by default.</p>
+            </div>
+          </SettingsSection>
+
+          <SettingsSection title="Angle Selection" description="Choose how the Director picks the angle each new ad set is built around.">
+            <div>
+              <FieldLabel tooltip="Controls where angles come from: manual angles, automatically generated angles, or a mix of both.">Angle Mode</FieldLabel>
+              <div className="flex gap-3">
+                {['manual', 'auto', 'mixed'].map(mode => (
+                  <label key={mode} className="flex items-center gap-1.5 text-[11px] text-textdark cursor-pointer">
+                    <input
+                      type="radio"
+                      name="angle_mode"
+                      checked={config.angle_mode === mode}
+                      onChange={() => handleSaveConfig({ angle_mode: mode })}
+                      className="accent-navy"
+                    />
+                    {mode.charAt(0).toUpperCase() + mode.slice(1)}
+                  </label>
+                ))}
+              </div>
+            </div>
+
+            {config.angle_mode === 'mixed' && (
+              <div>
+                <FieldLabel tooltip="In mixed mode, this controls how often the Director explores new auto-generated angles instead of using existing manual angles.">Explore Ratio</FieldLabel>
+                <input
+                  type="number"
+                  min="0"
+                  max="1"
+                  step="0.1"
+                  value={config.explore_ratio || 0.2}
+                  onChange={e => {
+                    const parsed = parseFloat(e.target.value);
+                    handleSaveConfig({ explore_ratio: Number.isFinite(parsed) ? parsed : 0.2 });
+                  }}
+                  className="input-apple w-24 text-[12px]"
+                />
+                <p className="text-[9px] text-textlight mt-0.5">Fraction of generation runs used to explore auto-generated angles.</p>
               </div>
             )}
-          </div>
 
-          <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="text-[11px] text-textmid font-medium block mb-1">Daily Ad Set Target</label>
-              <input
-                type="number"
-                min="0"
-                max="20"
-                value={config.daily_flex_target ?? 5}
-                onChange={e => handleSaveConfig({ daily_flex_target: parseInt(e.target.value) ?? 5 })}
-                className="input-apple w-full text-[12px]"
-              />
-            </div>
-            <div>
-              <label className="text-[11px] text-textmid font-medium block mb-1">Ads Per Batch</label>
-              <input
-                type="number"
-                min="6"
-                max="30"
-                value={config.ads_per_batch || 18}
-                onChange={e => handleSaveConfig({ ads_per_batch: parseInt(e.target.value) || 18 })}
-                className="input-apple w-full text-[12px]"
-              />
-              <p className="text-[9px] text-textlight mt-0.5">Auto-adjusts with learning</p>
-            </div>
-          </div>
-
-          <div>
-            <label className="text-[11px] text-textmid font-medium block mb-1">Angle Mode</label>
-            <div className="flex gap-3">
-              {['manual', 'auto', 'mixed'].map(mode => (
-                <label key={mode} className="flex items-center gap-1.5 text-[11px] text-textdark cursor-pointer">
-                  <input
-                    type="radio"
-                    name="angle_mode"
-                    checked={config.angle_mode === mode}
-                    onChange={() => handleSaveConfig({ angle_mode: mode })}
-                    className="accent-navy"
-                  />
-                  {mode.charAt(0).toUpperCase() + mode.slice(1)}
-                </label>
-              ))}
-            </div>
-          </div>
-
-          {config.angle_mode === 'mixed' && (
-            <div>
-              <label className="text-[11px] text-textmid font-medium block mb-1">Explore Ratio</label>
-              <input
-                type="number"
-                min="0"
-                max="1"
-                step="0.1"
-                value={config.explore_ratio || 0.2}
-                onChange={e => handleSaveConfig({ explore_ratio: parseFloat(e.target.value) || 0.2 })}
-                className="input-apple w-24 text-[12px]"
-              />
-              <p className="text-[9px] text-textlight mt-0.5">Fraction of batches using auto-generated angles</p>
-            </div>
-          )}
-
-          <div>
-            <label className="text-[11px] text-textmid font-medium block mb-1">Rotation Strategy</label>
-            <select
-              value={config.angle_rotation || 'round_robin'}
-              onChange={e => handleSaveConfig({ angle_rotation: e.target.value })}
-              className="text-[12px] text-textdark bg-offwhite border border-black/10 rounded-lg px-3 py-1.5 cursor-pointer"
-            >
-              <option value="round_robin">Round Robin</option>
-              <option value="weighted">Weighted (favor least-used)</option>
-              <option value="random">Random (weighted)</option>
-            </select>
-          </div>
-
-          <div>
-            <label className="text-[11px] text-textmid font-medium block mb-1">Headline Style (optional)</label>
-            <input
-              type="text"
-              placeholder="e.g., Short, punchy, curiosity-driven"
-              value={config.headline_style || ''}
-              onChange={e => handleSaveConfig({ headline_style: e.target.value })}
-              className="input-apple w-full text-[12px]"
-            />
-          </div>
-
-          <div>
-            <label className="text-[11px] text-textmid font-medium block mb-1">Primary Text Style (optional)</label>
-            <input
-              type="text"
-              placeholder="e.g., Story-based, emotional, 3 paragraphs"
-              value={config.primary_text_style || ''}
-              onChange={e => handleSaveConfig({ primary_text_style: e.target.value })}
-              className="input-apple w-full text-[12px]"
-            />
-          </div>
-
-          <div>
-            <label className="text-[11px] text-textmid font-medium block mb-1">Default Campaign for Auto-Deployed Ads</label>
-            {campaignsLoading && campaignsLoadedFor !== selectedProject ? (
-              <p className="text-[11px] text-textlight">Loading campaigns...</p>
-            ) : safeCampaigns.length > 0 ? (
+              <FieldLabel tooltip="Controls how the Director chooses between available angles when creating new ad sets.">Rotation Strategy</FieldLabel>
               <select
-                value={config.default_campaign_id || ''}
-                onChange={e => handleSaveConfig({ default_campaign_id: e.target.value })}
-                className="text-[12px] text-textdark bg-offwhite border border-black/10 rounded-lg px-3 py-1.5 cursor-pointer w-full"
+                value={config.angle_rotation || 'round_robin'}
+                onChange={e => handleSaveConfig({ angle_rotation: e.target.value })}
+                className="text-[12px] text-textdark bg-offwhite border border-black/10 rounded-lg px-3 py-1.5 cursor-pointer"
               >
-                <option value="">Select a campaign...</option>
-                {safeCampaigns.map(c => (
-                  <option key={c.externalId || c.id} value={c.externalId || c.id}>
-                    {c.name}
-                  </option>
-                ))}
+                <option value="round_robin">Round Robin</option>
+                <option value="weighted">Weighted (favor least-used)</option>
+                <option value="random">Random (weighted)</option>
               </select>
-            ) : (
-              <p className="text-[11px] text-textlight">No campaigns found — create one in the project's Creative Filter settings or Ad Pipeline tab first.</p>
-            )}
-            <p className="text-[9px] text-textlight mt-0.5">Ad sets from the Director pipeline will auto-deploy to this campaign</p>
-          </div>
+            </div>
+          </SettingsSection>
+
+          <SettingsSection title="Prompt Guidance" description="Optional copy direction added to Creative Director prompts. Leave blank when you want the angle brief to lead.">
+            <div>
+              <FieldLabel>Headline Style</FieldLabel>
+              <input
+                type="text"
+                placeholder="e.g., Short, punchy, curiosity-driven"
+                value={config.headline_style || ''}
+                onChange={e => handleSaveConfig({ headline_style: e.target.value })}
+                className="input-apple w-full text-[12px]"
+              />
+            </div>
+
+            <div>
+              <FieldLabel>Primary Text Style</FieldLabel>
+              <input
+                type="text"
+                placeholder="e.g., Story-based, emotional, 3 paragraphs"
+                value={config.primary_text_style || ''}
+                onChange={e => handleSaveConfig({ primary_text_style: e.target.value })}
+                className="input-apple w-full text-[12px]"
+              />
+            </div>
+          </SettingsSection>
 
           {saving && <p className="text-[10px] text-textlight">Saving...</p>}
           {embedded && externalProject && (
             <div className="border-t border-black/5 pt-4 mt-4">
-              <h3 className="text-[13px] font-semibold text-textdark mb-3">Deployment Settings</h3>
+              <h3 className="text-[13px] font-semibold text-textdark mb-3">Advanced Meta Defaults & Learning</h3>
               <CreativeDirectorSettings
                 project={externalProject}
                 onSaved={onProjectRefresh || (() => {})}
@@ -3625,6 +3668,27 @@ function StatCell({ value, label, color }) {
     <div className="text-center py-1.5 px-1 rounded-lg bg-white/60">
       <p className={`text-base font-semibold ${color} tabular-nums leading-tight`}>{value}</p>
       <p className="text-[9px] text-textlight uppercase tracking-wider mt-0.5">{label}</p>
+    </div>
+  );
+}
+
+function SettingsSection({ title, description, children }) {
+  return (
+    <section className="rounded-xl bg-white/60 border border-black/5 p-3 space-y-3">
+      <div>
+        <h3 className="text-[12px] font-semibold text-textdark">{title}</h3>
+        {description && <p className="text-[10px] text-textlight mt-0.5 leading-relaxed">{description}</p>}
+      </div>
+      <div className="space-y-3">{children}</div>
+    </section>
+  );
+}
+
+function FieldLabel({ children, tooltip }) {
+  return (
+    <div className="text-[11px] text-textmid font-medium mb-1 flex items-center gap-1">
+      {children}
+      {tooltip && <InfoTooltip text={tooltip} position="right" />}
     </div>
   );
 }
