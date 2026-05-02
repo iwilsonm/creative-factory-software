@@ -549,19 +549,6 @@ export default defineSchema({
     .index("by_project_and_posting_day", ["project_id", "posting_day"])
     .index("by_project_posting_day_and_slot", ["project_id", "posting_day", "slot_index"]),
 
-  conductor_health: defineTable({
-    externalId: v.string(),
-    agent: v.string(),                   // "creative_director" | "creative_filter"
-    check_at: v.number(),                // timestamp
-    status: v.string(),                  // "healthy" | "stalled" | "failed" | "recovered"
-    details: v.optional(v.string()),
-    action_taken: v.optional(v.string()),
-    batches_stuck: v.optional(v.number()),
-    batches_recovered: v.optional(v.number()),
-  })
-    .index("by_externalId", ["externalId"])
-    .index("by_agent", ["agent"]),
-
   conductor_playbooks: defineTable({
     project_id: v.string(),              // → projects.externalId
     angle_name: v.string(),              // matches conductor_angles.name
@@ -601,20 +588,6 @@ export default defineSchema({
   })
     .index("by_sid", ["sid"])
     .index("by_expires_at", ["expires_at"]),
-
-  fixer_playbook: defineTable({
-    issue_category: v.string(),          // "batch_stuck" | "filter_stalled" | etc.
-    occurrences: v.number(),
-    last_occurred: v.number(),
-    root_causes: v.optional(v.string()),
-    resolution_steps: v.optional(v.string()),
-    prevention_hints: v.optional(v.string()),
-    avg_resolution_ms: v.optional(v.number()),
-    auto_resolved: v.number(),
-    escalated: v.number(),
-    last_updated: v.number(),
-  })
-    .index("by_category", ["issue_category"]),
 
   // ─────────────────────────────────────────────────────────
   // Phase 5 — Analytics tab + tagging + saved views

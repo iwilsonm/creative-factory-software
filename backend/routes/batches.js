@@ -241,7 +241,7 @@ router.post('/:projectId/batches/:batchId/cancel', async (req, res) => {
 });
 
 /**
- * POST /retry/:batchId — Retry a failed batch (used by Dacia Fixer)
+ * POST /retry/:batchId — Retry a failed batch
  * This route is mounted at /api/batches/retry/:batchId (flat, no project nesting)
  */
 router.post('/retry/:batchId', async (req, res) => {

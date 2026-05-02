@@ -4,9 +4,7 @@ import {
   getConductorConfig, upsertConductorConfig, getAllConductorConfigs,
   getConductorAngles, getActiveConductorAngles, createConductorAngle, updateConductorAngle, deleteConductorAngle,
   getConductorRuns, createConductorRun,
-  getConductorHealth, createConductorHealth,
   getConductorPlaybooks, getConductorPlaybook,
-  getFixerPlaybooks, upsertFixerPlaybook,
   getConductorSlots,
   getAdSetsByProject, getBatchesByProject,
   getProjectOptions,
@@ -581,86 +579,6 @@ router.get('/pipeline-status', async (req, res) => {
     res.json(await getCachedPipelineStatus());
   } catch (err) {
     console.error('[Conductor] Pipeline status error:', err.message);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// =============================================
-// Conductor Health — Fixer monitoring log
-// =============================================
-
-// GET /api/conductor/health
-router.get('/health', async (req, res) => {
-  try {
-    const limit = parseInt(req.query.limit) || 50;
-    const health = await getConductorHealth(limit);
-    res.json({ health });
-  } catch (err) {
-    console.error('[Conductor] Get health error:', err.message);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// POST /api/conductor/health — log a health check (from Fixer)
-router.post('/health', async (req, res) => {
-  try {
-    const { externalId, agent, check_at, status, details, action_taken, batches_stuck, batches_recovered } = req.body;
-    if (!externalId || !agent || !status) {
-      return res.status(400).json({ error: 'externalId, agent, and status required' });
-    }
-    await createConductorHealth({
-      externalId,
-      agent,
-      check_at: check_at || Date.now(),
-      status,
-      details: details || '',
-      action_taken: action_taken || '',
-      batches_stuck: batches_stuck || 0,
-      batches_recovered: batches_recovered || 0,
-    });
-    res.json({ success: true });
-  } catch (err) {
-    console.error('[Conductor] Create health error:', err.message);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// =============================================
-// Fixer Playbook — Fixer learning memory
-// =============================================
-
-// GET /api/conductor/fixer-playbooks
-router.get('/fixer-playbooks', async (req, res) => {
-  try {
-    const playbooks = await getFixerPlaybooks();
-    res.json({ playbooks });
-  } catch (err) {
-    console.error('[Conductor] Get fixer playbooks error:', err.message);
-    res.status(500).json({ error: err.message });
-  }
-});
-
-// POST /api/conductor/fixer-playbooks — upsert a fixer playbook entry
-router.post('/fixer-playbooks', async (req, res) => {
-  try {
-    const { issue_category, occurrences, last_occurred, root_causes, resolution_steps, prevention_hints, avg_resolution_ms, auto_resolved, escalated } = req.body;
-    if (!issue_category) {
-      return res.status(400).json({ error: 'issue_category required' });
-    }
-    await upsertFixerPlaybook({
-      issue_category,
-      occurrences: occurrences || 1,
-      last_occurred: last_occurred || Date.now(),
-      root_causes: root_causes || '',
-      resolution_steps: resolution_steps || '',
-      prevention_hints: prevention_hints || '',
-      avg_resolution_ms: avg_resolution_ms || 0,
-      auto_resolved: auto_resolved || 0,
-      escalated: escalated || 0,
-    });
-    res.json({ success: true });
-  } catch (err) {
-    console.error('[Conductor] Upsert fixer playbook error:', err.message);
     res.status(500).json({ error: err.message });
   }
 });

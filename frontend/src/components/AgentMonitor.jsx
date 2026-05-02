@@ -1046,11 +1046,10 @@ function buildServerQueueItem(active, existing = null) {
   };
 }
 
-const VALID_AGENT_TABS = ['director', 'filter', 'fixer'];
+const VALID_AGENT_TABS = ['director', 'filter'];
 
 export default function AgentMonitor() {
   const [searchParams, setSearchParams] = useSearchParams();
-  const [fixerData, setFixerData] = useState(null);
   const [filterData, setFilterData] = useState(null);
   const [pipelineStatus, setPipelineStatus] = useState(null);
   // Persist active tab in URL search params so it survives page refresh
@@ -1073,27 +1072,19 @@ export default function AgentMonitor() {
     setStatusLoading(true);
     try {
       if (activeTab === 'director') {
-        const [fixer, filter, pipeline] = await Promise.allSettled([
-          api.getAgentMonitorStatus(),
+        const [filter, pipeline] = await Promise.allSettled([
           api.getFilterStatus(),
           api.getConductorPipelineStatus(),
         ]);
-        if (fixer.status === 'fulfilled') setFixerData(fixer.value);
         if (filter.status === 'fulfilled') setFilterData(filter.value);
         if (pipeline.status === 'fulfilled') setPipelineStatus(pipeline.value);
         setError(
-          fixer.status === 'rejected' &&
           filter.status === 'rejected' &&
           pipeline.status === 'rejected'
         );
       } else if (activeTab === 'filter') {
         const filter = await api.getFilterStatus();
         setFilterData(filter);
-        setPipelineStatus(null);
-        setError(false);
-      } else if (activeTab === 'fixer') {
-        const fixer = await api.getAgentMonitorStatus();
-        setFixerData(fixer);
         setPipelineStatus(null);
         setError(false);
       } else {
@@ -1129,20 +1120,17 @@ export default function AgentMonitor() {
 
   const hasActiveTabData =
     activeTab === 'director'
-      ? !!pipelineStatus || !!fixerData || !!filterData
+      ? !!pipelineStatus || !!filterData
       : activeTab === 'filter'
         ? !!filterData
-        : activeTab === 'fixer'
-          ? !!fixerData
-          : true;
+        : true;
 
-  const agentsOnline = [fixerData, filterData].filter(d => d?.status === 'online').length;
-  const agentsTotal = [fixerData, filterData].filter(Boolean).length;
+  const agentsOnline = [filterData].filter(d => d?.status === 'online').length + (pipelineStatus ? 1 : 0);
+  const agentsTotal = [filterData].filter(Boolean).length + 1;
 
   const tabs = [
     { id: 'director', label: 'Creative Director' },
     { id: 'filter', label: 'Creative Filter' },
-    { id: 'fixer', label: 'Fixer' },
   ];
 
   return (
@@ -1158,7 +1146,7 @@ export default function AgentMonitor() {
             </div>
             <div>
               <h2 className="text-[15px] font-semibold text-textdark tracking-tight">Agent Dashboard</h2>
-              <p className="text-[11px] text-textlight">Four automation systems managing your creative pipeline</p>
+              <p className="text-[11px] text-textlight">Creative Director and Creative Filter keep the pipeline moving</p>
             </div>
           </div>
           <span className="text-[11px] text-textmid font-medium">{agentsOnline}/{agentsTotal} online</span>
@@ -1175,7 +1163,7 @@ export default function AgentMonitor() {
             <p className="text-[11px] text-textlight">Agent status is temporarily unavailable. The page shell stays interactive while the status endpoints recover.</p>
           </div>
         ) : activeTab === 'director' ? (
-          <PipelineOverview data={pipelineStatus} fixerData={fixerData} filterData={filterData} />
+          <PipelineOverview data={pipelineStatus} filterData={filterData} />
         ) : (
           <div className="rounded-xl bg-black/[0.02] border border-black/5 p-4">
             <p className="text-[12px] font-medium text-textmid mb-1">Status Summary</p>
@@ -1185,7 +1173,6 @@ export default function AgentMonitor() {
             <div className="flex items-center gap-4 mt-3 text-[10px] text-textmid">
               <span>Director: open tab to load</span>
               <span>Filter: {filterData?.status === 'online' ? '\u2713' : '\u2013'}</span>
-              <span>Fixer: {fixerData?.status === 'online' ? '\u2713' : '\u2013'}</span>
             </div>
           </div>
         )}
@@ -1207,7 +1194,6 @@ export default function AgentMonitor() {
 
         {activeTab === 'director' && <DirectorTab onRefresh={loadStatus} />}
         {activeTab === 'filter' && filterData && <FilterPanel data={filterData} onRefresh={loadStatus} />}
-        {activeTab === 'fixer' && fixerData && <FixerPanel data={fixerData} onRefresh={loadStatus} />}
       </div>
     </div>
   );
@@ -1216,7 +1202,7 @@ export default function AgentMonitor() {
 // =============================================
 // Pipeline Overview
 // =============================================
-function PipelineOverview({ data, fixerData, filterData }) {
+function PipelineOverview({ data, filterData }) {
   const projects = ensureArray(data?.projects, 'AgentMonitor.pipeline.projects');
   const dayNames = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
 
@@ -1249,7 +1235,6 @@ function PipelineOverview({ data, fixerData, filterData }) {
         <div className="flex items-center gap-4 mt-3 text-[10px] text-textmid">
           <span>Director: {'\u2013'}</span>
           <span>Filter: {filterData?.status === 'online' ? '\u2713' : '\u2013'}</span>
-          <span>Fixer: {fixerData?.status === 'online' ? '\u2713' : '\u2013'}</span>
         </div>
       </div>
     );
@@ -1294,7 +1279,6 @@ function PipelineOverview({ data, fixerData, filterData }) {
       <div className="flex items-center gap-4 mt-3 pt-2 border-t border-black/5 text-[10px] text-textmid">
         <span>Director {'\u2713'}</span>
         <span>Filter: {filterData?.status === 'online' ? '\u2713' : '\u2717'}</span>
-        <span>Fixer: {fixerData?.status === 'online' ? '\u2713' : '\u2717'}</span>
       </div>
     </div>
   );
@@ -3313,150 +3297,7 @@ function AgentPanel({ children, icon, name, subtitle, status, paused, onTogglePa
 }
 
 // =============================================
-// Fixer Panel (Agent #1)
-// =============================================
-function FixerPanel({ data, onRefresh }) {
-  const [expanded, setExpanded] = useState(false);
-  const [runningAction, setRunningAction] = useState(null);
-  const [togglingPause, setTogglingPause] = useState(false);
-  const [fixerPlaybooks, setFixerPlaybooks] = useState([]);
-  const [healthRecords, setHealthRecords] = useState([]);
-
-  useEffect(() => {
-    (async () => {
-      const [pbRes, healthRes] = await Promise.allSettled([
-        api.getFixerPlaybooks(),
-        api.getConductorHealth(10),
-      ]);
-      if (pbRes.status === 'fulfilled') setFixerPlaybooks(pbRes.value?.playbooks || []);
-      if (healthRes.status === 'fulfilled') setHealthRecords(healthRes.value?.health || []);
-    })();
-  }, []);
-
-  const handleRun = async () => {
-    setRunningAction('run');
-    try {
-      await api.runAgentFixer();
-      setTimeout(onRefresh, 3000);
-    } catch { /* ignore */ }
-    finally { setRunningAction(null); }
-  };
-
-  const handleResurrect = async () => {
-    setRunningAction('resurrect');
-    try {
-      await api.runAgentResurrect();
-      setTimeout(onRefresh, 3000);
-    } catch { /* ignore */ }
-    finally { setRunningAction(null); }
-  };
-
-  const handleTogglePause = async () => {
-    setTogglingPause(true);
-    try {
-      await api.toggleFixerPause();
-      await onRefresh();
-    } catch { /* ignore */ }
-    finally { setTogglingPause(false); }
-  };
-
-  const budgetPct = data.budget.daily_budget_cents > 0
-    ? (data.budget.spent_cents / data.budget.daily_budget_cents) * 100
-    : 0;
-  const budgetBarColor = budgetPct < 50 ? 'bg-teal' : budgetPct < 80 ? 'bg-gold' : 'bg-red-400';
-
-  return (
-    <AgentPanel
-      name="Dacia Fixer"
-      subtitle="Runs every 5 min — tests code, auto-fixes, resurrects stuck batches, monitors agent team"
-      status={data.status}
-      paused={data.paused}
-      onTogglePause={handleTogglePause}
-      togglingPause={togglingPause}
-      icon={
-        <svg className="w-3 h-3 text-navy" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.066 2.573c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.573 1.066c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.066-2.573c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" />
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" />
-        </svg>
-      }
-    >
-      <BudgetBar spent={data.budget.spent_cents} total={data.budget.daily_budget_cents} pct={budgetPct} barColor={budgetBarColor} />
-
-      <div className="grid grid-cols-4 gap-2 mb-3">
-        <StatCell value={data.stats.runs} label="Runs" color="text-textdark" />
-        <StatCell value={data.stats.fixes} label="Fixes" color="text-teal" />
-        <StatCell value={data.stats.failures} label="Fails" color={data.stats.failures > 0 ? 'text-red-400' : 'text-textdark'} />
-        <StatCell value={data.stats.resurrections} label="Resurrects" color="text-navy-light" />
-      </div>
-
-      <p className="text-[10px] text-textmid mb-2.5">
-        Last: <span className="font-medium text-textdark">{timeAgo(data.lastRun)}</span>
-        {data.paused ? (
-          <span className="text-textlight ml-1">{'\u00B7'} Paused</span>
-        ) : data.nextRun ? (
-          <>{' \u00B7 '} Next: <span className="font-medium text-textdark">{timeUntil(data.nextRun)}</span></>
-        ) : null}
-      </p>
-
-      <div className="flex gap-2 mb-3">
-        <button
-          onClick={handleRun}
-          disabled={!!runningAction}
-          className="btn-primary text-[11px] px-2.5 py-1 flex items-center gap-1 disabled:opacity-50"
-        >
-          {runningAction === 'run' ? <><Spinner /> Running...</> : <>{'\u25B6'} Run Now</>}
-        </button>
-        <button
-          onClick={handleResurrect}
-          disabled={!!runningAction}
-          className="btn-secondary text-[11px] px-2.5 py-1 flex items-center gap-1 disabled:opacity-50"
-        >
-          {runningAction === 'resurrect' ? <><Spinner /> Checking...</> : <>{'\u21BB'} Resurrect</>}
-        </button>
-      </div>
-
-      {/* Health checks (from Fixer's agent monitoring) */}
-      {healthRecords.length > 0 && (
-        <div className="border-t border-black/5 pt-2.5 mb-2.5">
-          <p className="text-[11px] font-medium text-textmid mb-1.5">Health Checks</p>
-          <div className="space-y-1 max-h-32 overflow-y-auto">
-            {healthRecords.slice(0, 5).map((hc, i) => (
-              <div key={i} className="flex items-start gap-1.5 py-0.5 px-1 text-[10px]">
-                <span className={hc.status === 'ok' ? 'text-teal' : 'text-gold'}>{hc.status === 'ok' ? '\u2713' : '\u26A0'}</span>
-                <span className="text-textmid">{hc.details || 'Health check'}</span>
-                <span className="text-textlight ml-auto">{timeAgo(new Date(hc.check_at).toISOString())}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      {/* Fixer playbook */}
-      {fixerPlaybooks.length > 0 && (
-        <div className="border-t border-black/5 pt-2.5 mb-2.5">
-          <p className="text-[11px] font-medium text-textmid mb-1.5">Fixer Playbook (learned patterns)</p>
-          <div className="space-y-1">
-            {fixerPlaybooks.map((pb, i) => (
-              <div key={i} className="text-[10px] px-2 py-1.5 rounded-lg bg-white/60">
-                <span className="font-medium text-textdark">{pb.issue_category}</span>
-                <span className="text-textlight ml-1">{'\u2014'} {pb.occurrences} occurrences, {pb.auto_resolved} auto-resolved</span>
-                {pb.occurrences >= 10 && <span className="text-teal ml-1 font-medium">PREVENTIVE</span>}
-                {pb.resolution_steps && (
-                  <p className="text-textmid mt-0.5">"{pb.resolution_steps.slice(0, 100)}"</p>
-                )}
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
-      <ActivityLog activity={data.activity} expanded={expanded} onToggle={() => setExpanded(!expanded)} />
-    </AgentPanel>
-  );
-}
-
-// =============================================
-// Creative Filter Panel (Agent #2)
+// Creative Filter Panel
 // =============================================
 function FilterPanel({ data, onRefresh }) {
   const [expanded, setExpanded] = useState(false);

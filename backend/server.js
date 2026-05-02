@@ -199,7 +199,7 @@ try {
     initializeScheduler();
   }
 
-  // Health check — no auth required (used by Dacia Fixer health probes)
+  // Health check — no auth required
   app.get('/api/health', async (req, res) => {
     const checks = {};
     checks.convexHost = getConvexHost();
@@ -324,7 +324,7 @@ try {
   app.use('/api/projects', requireAuth, requireRole('admin', 'manager'), templateRoutes);
   app.use('/api/projects', requireAuth, requireRole('admin', 'manager'), adRoutes);
   app.use('/api/projects', requireAuth, requireRole('admin', 'manager'), batchRoutes);
-  app.use('/api/batches', requireAuth, requireRole('admin', 'manager'), batchRoutes);  // Flat mount for Dacia Fixer retry endpoint
+  app.use('/api/batches', requireAuth, requireRole('admin', 'manager'), batchRoutes);  // Flat mount for retry endpoint
   // Phase 6 — staging.js DELETED; routes consolidated into adSetRoutes mounted above.
   // Phase 5 — Analytics tab routes (analytics, tags, saved views).
   app.use('/api/projects', analyticsRoutes);

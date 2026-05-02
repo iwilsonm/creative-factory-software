@@ -336,7 +336,7 @@ export const claimResultsProcessing = mutation({
   },
 });
 
-// Used by Dacia Fixer for batch resurrection
+// Used by batch retry/recovery routes.
 export const getByStatus = query({
   args: { status: v.string() },
   handler: async (ctx, args) => {
@@ -347,7 +347,7 @@ export const getByStatus = query({
   },
 });
 
-// Used by Dacia Fixer — returns all batch jobs (limited to recent 100 to avoid response size limits)
+// Returns recent batch jobs for retry/recovery views.
 export const list = query({
   args: {},
   handler: async (ctx) => {
@@ -370,7 +370,7 @@ export const getFilterable = query({
   },
 });
 
-// Used by Dacia Fixer for batch resurrection — reset a failed batch
+// Reset a failed batch for retry.
 export const updateStatus = mutation({
   args: {
     externalId: v.string(),

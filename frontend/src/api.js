@@ -430,8 +430,6 @@ export const api = {
   getConductorPlaybook: (projectId, angleName) => request(`/conductor/playbooks/${projectId}/${encodeURIComponent(angleName)}`),
   triggerLearningStep: (projectId, angleName, scoredAds) => request('/conductor/learn', { method: 'POST', body: JSON.stringify({ projectId, angleName, scoredAds }) }),
   getConductorPipelineStatus: () => cachedRequest('/conductor/pipeline-status'),
-  getConductorHealth: (limit) => request(`/conductor/health${limit ? `?limit=${limit}` : ''}`),
-  getFixerPlaybooks: () => request('/conductor/fixer-playbooks'),
 
   // Phase 2A — Meta integration
   initMetaOAuth: (projectId) =>
@@ -474,12 +472,7 @@ export const api = {
   forcePromoteAd: (projectId, adId) =>
     request(`/projects/${projectId}/ads/${adId}/force-promote`, { method: 'POST' }),
 
-  // Agent Monitor (Dacia Fixer — Agent #1)
-  getAgentMonitorStatus: () => request('/agent-monitor/status'),
-  runAgentFixer: () => request('/agent-monitor/run', { method: 'POST' }),
-  runAgentResurrect: () => request('/agent-monitor/resurrect', { method: 'POST' }),
-  toggleFixerPause: () => request('/agent-monitor/pause', { method: 'POST' }),
-  // Agent Monitor (Dacia Creative Filter — Agent #2)
+  // Agent Monitor (Dacia Creative Filter)
   getFilterStatus: () => request('/agent-monitor/filter/status'),
   runFilterDryRun: () => request('/agent-monitor/filter/run', { method: 'POST' }),
   runFilterLive: () => request('/agent-monitor/filter/run-live', { method: 'POST' }),

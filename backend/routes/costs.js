@@ -189,7 +189,7 @@ router.post('/costs/sync', async (req, res) => {
 });
 
 /**
- * GET /costs/agents — Agent-grouped cost breakdown (Director, Filter, Fixer, Pipeline, Other)
+ * GET /costs/agents — Agent-grouped cost breakdown (Director, Filter, Pipeline, Legacy, Other)
  */
 router.get('/costs/agents', async (req, res) => {
   try {

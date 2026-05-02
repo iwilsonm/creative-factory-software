@@ -2372,22 +2372,6 @@ export async function updateConductorSlot(externalId, fields) {
 }
 
 // =============================================
-// Conductor Health helpers (Fixer monitoring)
-// =============================================
-
-export async function getConductorHealth(limit = 50) {
-  return await cachedQuery('conductor', api.conductor.getHealth, { limit });
-}
-
-export async function getConductorHealthByAgent(agent, limit = 20) {
-  return await cachedQuery('conductor', api.conductor.getHealthByAgent, { agent, limit });
-}
-
-export async function createConductorHealth(fields) {
-  await mutationWithRetry(api.conductor.createHealth, fields);
-}
-
-// =============================================
 // Conductor Playbooks helpers (per-angle learning)
 // =============================================
 
@@ -2401,23 +2385,6 @@ export async function getConductorPlaybook(projectId, angleName) {
 
 export async function upsertConductorPlaybook(fields) {
   await mutationWithRetry(api.conductor.upsertPlaybook, fields);
-  invalidateQueryCache('conductor');
-}
-
-// =============================================
-// Fixer Playbook helpers (Fixer learning memory)
-// =============================================
-
-export async function getFixerPlaybooks() {
-  return await cachedQuery('conductor', api.conductor.getFixerPlaybooks, {});
-}
-
-export async function getFixerPlaybook(issueCategory) {
-  return await cachedQuery('conductor', api.conductor.getFixerPlaybook, { issueCategory });
-}
-
-export async function upsertFixerPlaybook(fields) {
-  await mutationWithRetry(api.conductor.upsertFixerPlaybook, fields);
   invalidateQueryCache('conductor');
 }
 

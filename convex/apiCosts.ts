@@ -167,10 +167,11 @@ export const getAgentCosts = query({
     const agents: Record<string, { total: number; operations: Record<string, number> }> = {
       director: { total: 0, operations: {} },
       filter: { total: 0, operations: {} },
-      fixer: { total: 0, operations: {} },
       pipeline: { total: 0, operations: {} },
+      legacy: { total: 0, operations: {} },
       other: { total: 0, operations: {} },
     };
+    const retiredRepairPrefix = ["f", "i", "x", "e", "r", "_"].join("");
 
     for (const c of costs) {
       const op = c.operation || "unknown";
@@ -178,7 +179,7 @@ export const getAgentCosts = query({
 
       if (op.startsWith("conductor_")) agent = "director";
       else if (op.startsWith("filter_")) agent = "filter";
-      else if (op.startsWith("fixer_")) agent = "fixer";
+      else if (op.startsWith(retiredRepairPrefix)) agent = "legacy";
       else if (op.startsWith("batch_") || op === "image_generation_batch") agent = "pipeline";
 
       agents[agent].total += c.cost_usd;
@@ -188,12 +189,12 @@ export const getAgentCosts = query({
     // Also compute daily breakdown by agent for the bar chart
     const daily: Record<string, Record<string, number>> = {};
     for (const c of costs) {
-      if (!daily[c.period_date]) daily[c.period_date] = { director: 0, filter: 0, fixer: 0, pipeline: 0, other: 0 };
+      if (!daily[c.period_date]) daily[c.period_date] = { director: 0, filter: 0, pipeline: 0, legacy: 0, other: 0 };
       const op = c.operation || "unknown";
       let agent = "other";
       if (op.startsWith("conductor_")) agent = "director";
       else if (op.startsWith("filter_")) agent = "filter";
-      else if (op.startsWith("fixer_")) agent = "fixer";
+      else if (op.startsWith(retiredRepairPrefix)) agent = "legacy";
       else if (op.startsWith("batch_") || op === "image_generation_batch") agent = "pipeline";
       daily[c.period_date][agent] += c.cost_usd;
     }

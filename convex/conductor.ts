@@ -646,49 +646,6 @@ export const updateSlot = mutation({
 });
 
 // =============================================
-// conductor_health — Fixer monitoring
-// =============================================
-
-export const getHealth = query({
-  args: { limit: v.optional(v.number()) },
-  handler: async (ctx, args) => {
-    const records = await ctx.db
-      .query("conductor_health")
-      .order("desc")
-      .collect();
-    return records.slice(0, args.limit ?? 50);
-  },
-});
-
-export const getHealthByAgent = query({
-  args: { agent: v.string(), limit: v.optional(v.number()) },
-  handler: async (ctx, args) => {
-    const records = await ctx.db
-      .query("conductor_health")
-      .withIndex("by_agent", (q) => q.eq("agent", args.agent))
-      .order("desc")
-      .collect();
-    return records.slice(0, args.limit ?? 20);
-  },
-});
-
-export const createHealth = mutation({
-  args: {
-    externalId: v.string(),
-    agent: v.string(),
-    check_at: v.number(),
-    status: v.string(),
-    details: v.optional(v.string()),
-    action_taken: v.optional(v.string()),
-    batches_stuck: v.optional(v.number()),
-    batches_recovered: v.optional(v.number()),
-  },
-  handler: async (ctx, args) => {
-    await ctx.db.insert("conductor_health", args);
-  },
-});
-
-// =============================================
 // conductor_playbooks — per-angle learning memory
 // =============================================
 
@@ -747,59 +704,6 @@ export const upsertPlaybook = mutation({
         ...args,
         last_updated: now,
         created_at: now,
-      });
-    }
-  },
-});
-
-// =============================================
-// fixer_playbook — Fixer learning memory
-// =============================================
-
-export const getFixerPlaybooks = query({
-  args: {},
-  handler: async (ctx) => {
-    return await ctx.db.query("fixer_playbook").collect();
-  },
-});
-
-export const getFixerPlaybook = query({
-  args: { issueCategory: v.string() },
-  handler: async (ctx, args) => {
-    return await ctx.db
-      .query("fixer_playbook")
-      .withIndex("by_category", (q) => q.eq("issue_category", args.issueCategory))
-      .first();
-  },
-});
-
-export const upsertFixerPlaybook = mutation({
-  args: {
-    issue_category: v.string(),
-    occurrences: v.number(),
-    last_occurred: v.number(),
-    root_causes: v.optional(v.string()),
-    resolution_steps: v.optional(v.string()),
-    prevention_hints: v.optional(v.string()),
-    avg_resolution_ms: v.optional(v.number()),
-    auto_resolved: v.number(),
-    escalated: v.number(),
-  },
-  handler: async (ctx, args) => {
-    const existing = await ctx.db
-      .query("fixer_playbook")
-      .withIndex("by_category", (q) => q.eq("issue_category", args.issue_category))
-      .first();
-
-    if (existing) {
-      await ctx.db.patch(existing._id, {
-        ...args,
-        last_updated: Date.now(),
-      });
-    } else {
-      await ctx.db.insert("fixer_playbook", {
-        ...args,
-        last_updated: Date.now(),
       });
     }
   },
