@@ -539,7 +539,7 @@ export async function markStaleAdsAsFailed(projectId, opts = {}) {
     const ts = new Date(ad.created_at).getTime();
     if (!Number.isFinite(ts) || ts > cutoff) continue;
     try {
-      await convexClient.mutation(api.adCreatives.update, {
+      await mutationWithRetry(api.adCreatives.update, {
         externalId: ad.externalId,
         status: 'failed',
       });
@@ -547,6 +547,9 @@ export async function markStaleAdsAsFailed(projectId, opts = {}) {
     } catch (err) {
       console.warn(`[markStaleAdsAsFailed] failed to update ad ${ad.externalId}: ${err.message}`);
     }
+  }
+  if (repaired > 0) {
+    invalidateQueryCache('ad_creatives');
   }
   return { repaired };
 }

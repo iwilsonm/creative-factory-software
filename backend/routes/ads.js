@@ -36,6 +36,19 @@ function attachAdMedia(projectId, ad) {
   };
 }
 
+async function repairStaleAdsForProject(projectId) {
+  try {
+    const result = await markStaleAdsAsFailed(projectId, { olderThanMinutes: STUCK_ADS_THRESHOLD_MIN });
+    if (result?.repaired > 0) {
+      console.info(`[ads-cleanup] repaired ${result.repaired} stale generating ads in project ${projectId}`);
+    }
+    return result;
+  } catch (err) {
+    console.warn(`[ads-cleanup] failed for project ${projectId}:`, err.message);
+    return { repaired: 0, error: err.message };
+  }
+}
+
 // Generate an ad creative (SSE stream)
 router.post('/:projectId/generate-ad', async (req, res) => {
   const project = await getProject(req.params.projectId);
@@ -346,16 +359,7 @@ router.get('/:projectId/ads', async (req, res) => {
   const project = await getProject(req.params.projectId);
   if (!project) return res.status(404).json({ error: 'Project not found' });
 
-  // Fire-and-forget cleanup: mark any ads stuck in generating_* > threshold as failed.
-  // Idempotent (status precondition); errors logged not thrown.
-  markStaleAdsAsFailed(req.params.projectId, { olderThanMinutes: STUCK_ADS_THRESHOLD_MIN })
-    .then((result) => {
-      if (result?.repaired > 0) {
-        console.info(`[ads-cleanup] repaired ${result.repaired} stale generating ads in project ${req.params.projectId}`);
-      }
-    })
-    .catch((err) => console.warn(`[ads-cleanup] failed for project ${req.params.projectId}:`, err.message));
-
+  await repairStaleAdsForProject(req.params.projectId);
   const ads = await getAdsByProject(req.params.projectId);
   const withUrls = ads.map(ad => attachAdMedia(req.params.projectId, ad));
   res.json({ ads: withUrls, total: withUrls.length });
@@ -378,6 +382,7 @@ router.post('/:projectId/ads/cleanup-stuck', async (req, res) => {
 // Get in-progress ads for queue restoration
 router.get('/:projectId/ads/in-progress', async (req, res) => {
   try {
+    await repairStaleAdsForProject(req.params.projectId);
     const ads = await getInProgressAdsByProject(req.params.projectId);
     res.json({ ads });
   } catch (err) {
