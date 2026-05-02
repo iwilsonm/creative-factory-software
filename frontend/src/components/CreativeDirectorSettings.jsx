@@ -22,6 +22,10 @@ export default function CreativeDirectorSettings({ project, onSaved }) {
   const [stagingFlag, setStagingFlag] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
+  // Phase 4 — sub-angle derivation + health-biased Director
+  const [healthBias, setHealthBias] = useState(false);
+  const [derivationEnabled, setDerivationEnabled] = useState(true);
+  const [derivationMode, setDerivationMode] = useState('auto');
 
   useEffect(() => {
     if (!project) return;
@@ -33,7 +37,7 @@ export default function CreativeDirectorSettings({ project, onSaved }) {
     setError('');
   }, [project]);
 
-  // Load campaigns for the default-campaign picker + feature flag from settings
+  // Load campaigns for the default-campaign picker + feature flag from settings + Phase 4 conductor_config
   useEffect(() => {
     if (!project?.id) return;
     (async () => {
@@ -47,6 +51,15 @@ export default function CreativeDirectorSettings({ project, onSaved }) {
         const flagVal = settings?.[flagKey];
         setStagingFlag(flagVal === 'true' || flagVal === true);
       } catch { setStagingFlag(false); }
+      // Phase 4 — load conductor_config Phase 4 fields
+      try {
+        const cfg = await api.getConductorConfig?.(project.id);
+        if (cfg) {
+          setHealthBias(cfg.health_bias === true);
+          setDerivationEnabled(cfg.sub_angle_derivation_enabled !== false);
+          setDerivationMode(cfg.sub_angle_derivation_mode || 'auto');
+        }
+      } catch { /* OK if endpoint not present */ }
     })();
   }, [project?.id]);
 
@@ -87,6 +100,14 @@ export default function CreativeDirectorSettings({ project, onSaved }) {
       // Save feature flag (global settings)
       const flagKey = `enable_phase1_staging:${project.id}`;
       await api.updateSettings({ [flagKey]: stagingFlag ? 'true' : 'false' });
+      // Phase 4 — save conductor_config Phase 4 fields (best-effort if endpoint exists)
+      try {
+        await api.updateConductorConfig?.(project.id, {
+          health_bias: healthBias,
+          sub_angle_derivation_enabled: derivationEnabled,
+          sub_angle_derivation_mode: derivationMode,
+        });
+      } catch { /* OK */ }
       toast.success('Creative Director settings saved');
       onSaved?.();
     } catch (err) {
@@ -170,6 +191,53 @@ export default function CreativeDirectorSettings({ project, onSaved }) {
             <div className="text-xs text-textmid">When on, the new Staging tab shows pre-grouped ad sets ready for review. When off, the legacy Ad Pipeline / flex-ad workflow is used.</div>
           </div>
         </label>
+      </div>
+
+      {/* Phase 4 — Director behavior */}
+      <div className="border-t border-cream pt-4 space-y-3">
+        <h3 className="text-[13px] font-semibold text-textdark">Director behavior (Phase 4)</h3>
+
+        <label className="flex items-start gap-3 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={healthBias}
+            onChange={(e) => setHealthBias(e.target.checked)}
+            className="w-5 h-5 mt-0.5"
+          />
+          <div>
+            <div className="text-[13px] font-semibold text-textdark">Health-bias angle selection</div>
+            <div className="text-[11px] text-textmid">When on, angles with higher real-world pass rates are selected more often. New sub-angles get a 14-day exploration boost so they get tested before random rotation buries them. Off by default until validated.</div>
+          </div>
+        </label>
+
+        <label className="flex items-start gap-3 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={derivationEnabled}
+            onChange={(e) => setDerivationEnabled(e.target.checked)}
+            className="w-5 h-5 mt-0.5"
+          />
+          <div>
+            <div className="text-[13px] font-semibold text-textdark">Auto-derive sub-angles from winners</div>
+            <div className="text-[11px] text-textmid">When an angle accumulates 3+ passing observations (depth-doubled per generation), Claude proposes 1-3 sub-angle variations preserving brand identity. Auto-tagged via Phase 5.</div>
+          </div>
+        </label>
+
+        {derivationEnabled && (
+          <div className="ml-8">
+            <div className="text-[11px] font-medium text-textmid mb-1">Derivation mode</div>
+            <div className="space-y-1">
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input type="radio" checked={derivationMode === 'auto'} onChange={() => setDerivationMode('auto')} />
+                <span className="text-[12px] text-textdark">Auto — sub-angles activate immediately</span>
+              </label>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <input type="radio" checked={derivationMode === 'review'} onChange={() => setDerivationMode('review')} />
+                <span className="text-[12px] text-textdark">Review — sub-angles wait in pending_review until you approve</span>
+              </label>
+            </div>
+          </div>
+        )}
       </div>
 
       {error && <div className="text-sm text-red-600">{error}</div>}

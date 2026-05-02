@@ -408,6 +408,20 @@ export default defineSchema({
     run_schedule_hour: v.optional(v.number()),   // Hour in ICT (0-23) for custom schedule, default 0
     last_planning_run: v.optional(v.number()),   // timestamp
     last_verify_run: v.optional(v.number()),     // timestamp
+    // Phase 4 — sub-angle derivation + health-biased selection
+    health_bias: v.optional(v.boolean()),                            // default FALSE in v1
+    sub_angle_derivation_enabled: v.optional(v.boolean()),           // default TRUE
+    sub_angle_derivation_mode: v.optional(v.string()),               // 'auto' | 'review'
+    sub_angle_derivation_threshold: v.optional(v.number()),          // default 3 (depth-doubled)
+    sub_angle_derivation_min_unique_days: v.optional(v.number()),    // default 1
+    sub_angle_derivation_max_per_run: v.optional(v.number()),        // default 3
+    sub_angle_derivation_cooldown_days: v.optional(v.number()),      // default 7
+    sub_angle_max_depth: v.optional(v.number()),                     // default 3
+    sub_angle_exploration_boost_days: v.optional(v.number()),        // default 14
+    sub_angle_lineage_cap_share: v.optional(v.number()),             // default 0.6
+    sub_angle_min_active_for_health_bias: v.optional(v.number()),    // default 3
+    sub_angle_min_active_for_lineage_cap: v.optional(v.number()),    // default 5
+    sub_angle_per_project_daily_cost_cap_usd: v.optional(v.number()),  // default 0.45
     created_at: v.number(),
     updated_at: v.number(),
   })
@@ -441,12 +455,28 @@ export default defineSchema({
     times_used: v.number(),
     last_used_at: v.optional(v.number()),
     performance_note: v.optional(v.string()),
+    // Phase 4 — sub-angle derivation + health-biased Director selection
+    parent_angle_id: v.optional(v.string()),                // → conductor_angles.externalId
+    derived_at: v.optional(v.number()),                     // ms — for linear-decaying exploration boost
+    derivation_source_result_ids: v.optional(v.string()),   // JSON array of observation_result IDs that triggered derivation
+    derivation_reasoning: v.optional(v.string()),           // LLM's free-text justification
+    last_derived_at: v.optional(v.number()),                // ms — cooldown throttle on parents
+    derivation_in_progress: v.optional(v.boolean()),        // race lock during derivation
+    derivation_attempt_failed_at: v.optional(v.number()),   // 6h backoff after failure
+    // Cached observation stats (populated by stats phase)
+    since_last_derived_pass_count: v.optional(v.number()),
+    since_last_derived_fail_count: v.optional(v.number()),
+    lifetime_pass_count: v.optional(v.number()),
+    lifetime_fail_count: v.optional(v.number()),
+    lifetime_pass_rate: v.optional(v.number()),
+    observation_stats_updated_at: v.optional(v.number()),
     created_at: v.number(),
     updated_at: v.number(),
   })
     .index("by_externalId", ["externalId"])
     .index("by_project", ["project_id"])
-    .index("by_project_and_status", ["project_id", "status"]),
+    .index("by_project_and_status", ["project_id", "status"])
+    .index("by_parent", ["parent_angle_id"]),
 
   conductor_runs: defineTable({
     externalId: v.string(),

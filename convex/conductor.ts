@@ -32,6 +32,20 @@ export const upsertConfig = mutation({
     run_schedule_hour: v.optional(v.number()),
     last_planning_run: v.optional(v.number()),
     last_verify_run: v.optional(v.number()),
+    // Phase 4 — sub-angle derivation + health-biased selection
+    health_bias: v.optional(v.boolean()),
+    sub_angle_derivation_enabled: v.optional(v.boolean()),
+    sub_angle_derivation_mode: v.optional(v.string()),
+    sub_angle_derivation_threshold: v.optional(v.number()),
+    sub_angle_derivation_min_unique_days: v.optional(v.number()),
+    sub_angle_derivation_max_per_run: v.optional(v.number()),
+    sub_angle_derivation_cooldown_days: v.optional(v.number()),
+    sub_angle_max_depth: v.optional(v.number()),
+    sub_angle_exploration_boost_days: v.optional(v.number()),
+    sub_angle_lineage_cap_share: v.optional(v.number()),
+    sub_angle_min_active_for_health_bias: v.optional(v.number()),
+    sub_angle_min_active_for_lineage_cap: v.optional(v.number()),
+    sub_angle_per_project_daily_cost_cap_usd: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     const existing = await ctx.db
@@ -136,6 +150,11 @@ export const createAngle = mutation({
     tone: v.optional(v.string()),
     avoid_list: v.optional(v.string()),
     is_system_default: v.optional(v.boolean()),
+    // Phase 4 — sub-angle derivation fields on creation
+    parent_angle_id: v.optional(v.string()),
+    derived_at: v.optional(v.number()),
+    derivation_source_result_ids: v.optional(v.string()),
+    derivation_reasoning: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const now = Date.now();
@@ -175,6 +194,20 @@ export const updateAngle = mutation({
     times_used: v.optional(v.number()),
     last_used_at: v.optional(v.number()),
     performance_note: v.optional(v.string()),
+    // Phase 4 — sub-angle derivation
+    parent_angle_id: v.optional(v.string()),
+    derived_at: v.optional(v.number()),
+    derivation_source_result_ids: v.optional(v.string()),
+    derivation_reasoning: v.optional(v.string()),
+    last_derived_at: v.optional(v.number()),
+    derivation_in_progress: v.optional(v.boolean()),
+    derivation_attempt_failed_at: v.optional(v.number()),
+    since_last_derived_pass_count: v.optional(v.number()),
+    since_last_derived_fail_count: v.optional(v.number()),
+    lifetime_pass_count: v.optional(v.number()),
+    lifetime_fail_count: v.optional(v.number()),
+    lifetime_pass_rate: v.optional(v.number()),
+    observation_stats_updated_at: v.optional(v.number()),
   },
   handler: async (ctx, args) => {
     const angle = await ctx.db
@@ -255,6 +288,186 @@ export const getArchivedAngles = query({
         q.eq("project_id", args.projectId).eq("status", "archived")
       )
       .collect();
+  },
+});
+
+// ─────────────────────────────────────────────────────────
+// Phase 4 — Sub-angle derivation queries + helpers
+// ─────────────────────────────────────────────────────────
+
+export const getPendingReviewAngles = query({
+  args: { projectId: v.string() },
+  handler: async (ctx, args) => {
+    return await ctx.db
+      .query("conductor_angles")
+      .withIndex("by_project_and_status", (q) =>
+        q.eq("project_id", args.projectId).eq("status", "pending_review")
+      )
+      .collect();
+  },
+});
+
+export const getSubAnglesByParent = query({
+  args: { parent_angle_id: v.string() },
+  handler: async (ctx, args) => {
+    return await ctx.db
+      .query("conductor_angles")
+      .withIndex("by_parent", (q) => q.eq("parent_angle_id", args.parent_angle_id))
+      .collect();
+  },
+});
+
+// Returns recently derived angles (children with derived_at >= since_ms),
+// scoped to one project.
+export const getRecentlyDerived = query({
+  args: { projectId: v.string(), since_ms: v.number() },
+  handler: async (ctx, args) => {
+    const all = await ctx.db
+      .query("conductor_angles")
+      .withIndex("by_project", (q) => q.eq("project_id", args.projectId))
+      .collect();
+    return all
+      .filter((a) => a.derived_at && a.derived_at >= args.since_ms)
+      .sort((a, b) => (b.derived_at || 0) - (a.derived_at || 0));
+  },
+});
+
+// Returns the full lineage rooted at the given angle (depth-first, transitive).
+export const getLineage = query({
+  args: { angle_external_id: v.string() },
+  handler: async (ctx, args) => {
+    const root = await ctx.db
+      .query("conductor_angles")
+      .withIndex("by_externalId", (q) => q.eq("externalId", args.angle_external_id))
+      .first();
+    if (!root) return [];
+    const out = [root];
+    const queue = [root.externalId];
+    while (queue.length > 0) {
+      const id = queue.shift();
+      const children = await ctx.db
+        .query("conductor_angles")
+        .withIndex("by_parent", (q) => q.eq("parent_angle_id", id))
+        .collect();
+      for (const c of children) {
+        out.push(c);
+        queue.push(c.externalId);
+      }
+    }
+    return out;
+  },
+});
+
+// Atomic race lock for derivation. Acquires (returns true) only if not already
+// locked. Idempotent release. Cron AND manual-derive both go through this.
+export const setDerivationLock = mutation({
+  args: { externalId: v.string(), in_progress: v.boolean() },
+  handler: async (ctx, args) => {
+    const angle = await ctx.db
+      .query("conductor_angles")
+      .withIndex("by_externalId", (q) => q.eq("externalId", args.externalId))
+      .first();
+    if (!angle) throw new Error("Angle not found");
+    // Acquire — fail if already in progress
+    if (args.in_progress && angle.derivation_in_progress) {
+      return { acquired: false };
+    }
+    await ctx.db.patch(angle._id, {
+      derivation_in_progress: args.in_progress,
+      updated_at: Date.now(),
+    });
+    return { acquired: true };
+  },
+});
+
+// Bulk-update observation stats for many angles at once. Cron stats phase.
+export const bulkUpdateAngleStats = mutation({
+  args: {
+    updates: v.array(v.object({
+      externalId: v.string(),
+      since_last_derived_pass_count: v.number(),
+      since_last_derived_fail_count: v.number(),
+      lifetime_pass_count: v.number(),
+      lifetime_fail_count: v.number(),
+      lifetime_pass_rate: v.number(),
+    })),
+  },
+  handler: async (ctx, args) => {
+    const now = Date.now();
+    for (const u of args.updates) {
+      const angle = await ctx.db
+        .query("conductor_angles")
+        .withIndex("by_externalId", (q) => q.eq("externalId", u.externalId))
+        .first();
+      if (!angle) continue;
+      await ctx.db.patch(angle._id, {
+        since_last_derived_pass_count: u.since_last_derived_pass_count,
+        since_last_derived_fail_count: u.since_last_derived_fail_count,
+        lifetime_pass_count: u.lifetime_pass_count,
+        lifetime_fail_count: u.lifetime_fail_count,
+        lifetime_pass_rate: u.lifetime_pass_rate,
+        observation_stats_updated_at: now,
+        updated_at: now,
+      });
+    }
+    return { updated: args.updates.length };
+  },
+});
+
+// Approve a pending_review sub-angle. Restarts the exploration boost clock so
+// the freshly-approved angle gets the full 14-day window.
+export const approveSubAngle = mutation({
+  args: { externalId: v.string() },
+  handler: async (ctx, args) => {
+    const angle = await ctx.db
+      .query("conductor_angles")
+      .withIndex("by_externalId", (q) => q.eq("externalId", args.externalId))
+      .first();
+    if (!angle) throw new Error("Angle not found");
+    await ctx.db.patch(angle._id, {
+      status: "active",
+      derived_at: Date.now(),
+      updated_at: Date.now(),
+    });
+  },
+});
+
+export const rejectSubAngle = mutation({
+  args: { externalId: v.string() },
+  handler: async (ctx, args) => {
+    const angle = await ctx.db
+      .query("conductor_angles")
+      .withIndex("by_externalId", (q) => q.eq("externalId", args.externalId))
+      .first();
+    if (!angle) return;
+    // Hard-delete rejected pending-review angles — no point keeping them
+    await ctx.db.delete(angle._id);
+  },
+});
+
+// Admin-only bulk delete: remove this angle and ALL transitive descendants.
+// observation_results pointing at deleted angle stay (audit history).
+export const deleteAngleAndDescendants = mutation({
+  args: { externalId: v.string() },
+  handler: async (ctx, args) => {
+    const queue = [args.externalId];
+    let removed = 0;
+    while (queue.length > 0) {
+      const id = queue.shift();
+      const angle = await ctx.db
+        .query("conductor_angles")
+        .withIndex("by_externalId", (q) => q.eq("externalId", id))
+        .first();
+      if (!angle) continue;
+      const children = await ctx.db
+        .query("conductor_angles")
+        .withIndex("by_parent", (q) => q.eq("parent_angle_id", id))
+        .collect();
+      for (const c of children) queue.push(c.externalId);
+      await ctx.db.delete(angle._id);
+      removed += 1;
+    }
+    return { removed };
   },
 });
 

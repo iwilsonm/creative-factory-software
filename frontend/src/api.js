@@ -646,4 +646,24 @@ export const api = {
   runObservationCron: (dryRun = false) =>
     request(`/admin/observation/cron-run${dryRun ? '?dry_run=1' : ''}`, { method: 'POST' }),
   getLastObservationCron: () => request('/admin/observation/last-cron'),
+
+  // ────────────────────────────────────────────────
+  // Phase 4 — Sub-angle derivation + lineage
+  // ────────────────────────────────────────────────
+  deriveSubAnglesNow: (projectId, angleId) =>
+    request(`/projects/${projectId}/angles/${angleId}/derive-now`, { method: 'POST' }),
+  getSubAngles: (projectId, angleId) =>
+    request(`/projects/${projectId}/angles/${angleId}/sub-angles`),
+  getLineage: (projectId, angleId) =>
+    request(`/projects/${projectId}/angles/${angleId}/lineage`),
+  deleteAngleLineage: (projectId, angleId) =>
+    request(`/projects/${projectId}/angles/${angleId}/lineage`, { method: 'DELETE' }),
+  getRecentlyDerived: (projectId, days = 7) =>
+    request(`/projects/${projectId}/angles/recently-derived?days=${days}`),
+  getPendingReviewAngles: (projectId) =>
+    request(`/projects/${projectId}/angles/pending-review`),
+  approveSubAngle: (projectId, angleId) =>
+    request(`/projects/${projectId}/angles/${angleId}/approve`, { method: 'POST' }),
+  rejectSubAngle: (projectId, angleId) =>
+    request(`/projects/${projectId}/angles/${angleId}/reject`, { method: 'POST' }),
 };

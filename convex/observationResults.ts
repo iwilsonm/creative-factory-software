@@ -15,6 +15,26 @@ export const getByProject = query({
   },
 });
 
+// Phase 4 — single-query grouped-by-angle stats. Returns ALL results for
+// a project in one call; the caller groups in memory. Avoids the N+1
+// pattern of querying getByAngle per angle.
+export const getAllByProjectGroupedByAngle = query({
+  args: { projectId: v.string() },
+  handler: async (ctx, args) => {
+    const all = await ctx.db
+      .query("observation_results")
+      .withIndex("by_project_and_created", (q) => q.eq("project_id", args.projectId))
+      .collect();
+    // Manual override precedence: latest row per ad_set_id wins.
+    const latestByAdSet = new Map();
+    for (const r of all) {
+      const existing = latestByAdSet.get(r.ad_set_id);
+      if (!existing || r.created_at > existing.created_at) latestByAdSet.set(r.ad_set_id, r);
+    }
+    return [...latestByAdSet.values()];
+  },
+});
+
 // All results for a single ad set (most-recent first). UI shows the latest;
 // overrides are visible via the replaces_external_id chain.
 export const getByAdSet = query({

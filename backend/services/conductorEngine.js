@@ -658,12 +658,11 @@ async function selectAngles(projectId, config, count, excludedAngleNames = []) {
   const rotation = config.angle_rotation || 'round_robin';
 
   if (mode === 'manual' || mode === 'mixed') {
-    return distributeAngles(anglesToUse, count, rotation);
+    return distributeAngles(anglesToUse, count, rotation, config);
   }
 
   // Auto mode — for now, use existing angles with round robin
-  // (angle auto-generation will be handled by conductorAngles.js in Phase 4)
-  return distributeAngles(anglesToUse, count, rotation);
+  return distributeAngles(anglesToUse, count, rotation, config);
 }
 
 // Priority weights for angle selection — higher = more likely to be selected
@@ -673,19 +672,72 @@ function getPriorityWeight(angle) {
   return PRIORITY_WEIGHTS[angle.priority] || PRIORITY_WEIGHTS.medium;
 }
 
+// Phase 4 — Compute Phase 4 health bias multiplier and exploration boost.
+// Returns the overall multiplier on top of the existing usage/priority weighting.
+// Defaults are conservative: if health_bias is off (v1 default), returns 1 + 0.
+function getHealthMultiplier(angle, config, allActiveAngleCount) {
+  const minActive = config.sub_angle_min_active_for_health_bias ?? 3;
+  if (!config.health_bias || allActiveAngleCount < minActive) return 1;
+  const passRate = angle.lifetime_pass_rate || 0;
+  return 1 + passRate;
+}
+
+function getExplorationBoost(angle, config) {
+  if (!angle.derived_at) return 0;
+  const boostDays = config.sub_angle_exploration_boost_days ?? 14;
+  const ageDays = (Date.now() - angle.derived_at) / (24 * 60 * 60 * 1000);
+  return Math.max(0, 1 - (ageDays / boostDays));
+}
+
+// Phase 4 — Lineage cap. If any single root-lineage's combined weight share
+// exceeds `cap_share` AND the active pool is large enough, dampen the lineage
+// by 0.5×. Lineage = root angle + all transitive descendants via parent_angle_id.
+function applyLineageCap(angles, weights, config) {
+  const minActive = config.sub_angle_min_active_for_lineage_cap ?? 5;
+  if (angles.length < minActive) return weights;
+  const capShare = config.sub_angle_lineage_cap_share ?? 0.6;
+
+  // Build root lookup: each angle → its root ancestor
+  const idToAngle = new Map(angles.map((a) => [a.externalId, a]));
+  function findRoot(angle, depth = 0) {
+    if (depth > 10) return angle;
+    if (!angle.parent_angle_id) return angle;
+    const parent = idToAngle.get(angle.parent_angle_id);
+    if (!parent) return angle;
+    return findRoot(parent, depth + 1);
+  }
+
+  const totalWeight = weights.reduce((s, w) => s + w, 0);
+  if (totalWeight <= 0) return weights;
+
+  const rootShare = new Map();
+  for (let i = 0; i < angles.length; i++) {
+    const root = findRoot(angles[i]);
+    rootShare.set(root.externalId, (rootShare.get(root.externalId) || 0) + weights[i]);
+  }
+
+  return weights.map((w, i) => {
+    const root = findRoot(angles[i]);
+    const share = (rootShare.get(root.externalId) || 0) / totalWeight;
+    return share > capShare ? w * 0.5 : w;
+  });
+}
+
 /**
  * Distribute angles across batches using the specified rotation strategy.
  * Priority-aware: angles with higher priority get selected more often.
  */
-function distributeAngles(angles, count, rotation) {
+function distributeAngles(angles, count, rotation, config = {}) {
   if (angles.length === 0) return [];
 
   switch (rotation) {
     case 'weighted': {
-      // Favor less-recently-used angles, weighted by priority
+      // Phase 4: priority + recency, then health-bias multiplier,
+      // exploration boost, and lineage cap. Round-robin emit.
       const sorted = [...angles].sort((a, b) => {
-        const priorityDiff = getPriorityWeight(b) - getPriorityWeight(a);
-        if (priorityDiff !== 0) return priorityDiff;
+        const aWeight = getPriorityWeight(a) * getHealthMultiplier(a, config, angles.length) + getExplorationBoost(a, config);
+        const bWeight = getPriorityWeight(b) * getHealthMultiplier(b, config, angles.length) + getExplorationBoost(b, config);
+        if (aWeight !== bWeight) return bWeight - aWeight;
         return (a.last_used_at || 0) - (b.last_used_at || 0);
       });
       const result = [];
@@ -698,11 +750,13 @@ function distributeAngles(angles, count, rotation) {
     case 'random': {
       const result = [];
       for (let i = 0; i < count; i++) {
-        // Weighted random: usage-based weight × priority multiplier
-        const weights = angles.map(a => {
+        // Weighted random: usage × priority × health × + exploration boost
+        let weights = angles.map(a => {
           const usageWeight = 1 / (1 + (a.times_used || 0));
-          return usageWeight * getPriorityWeight(a);
+          const base = usageWeight * getPriorityWeight(a) * getHealthMultiplier(a, config, angles.length);
+          return base + getExplorationBoost(a, config);
         });
+        weights = applyLineageCap(angles, weights, config);
         const totalWeight = weights.reduce((s, w) => s + w, 0);
         let r = Math.random() * totalWeight;
         let selected = angles[0];

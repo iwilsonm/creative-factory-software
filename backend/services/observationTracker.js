@@ -28,6 +28,7 @@ import { refreshLongLivedToken, isTokenInvalidError } from './metaApi.js';
 import { ensureAccountCurrency } from './observationCurrency.js';
 import { scoreObservation } from './benchmarkScorer.js';
 import { evaluateAngleHealth } from './angleArchiver.js';
+import { computeAngleStatsForProject, deriveSubAnglesForProject } from './subAngleDeriver.js';
 
 const GRAPH_BASE = 'https://graph.facebook.com/v25.0';
 const PER_PROJECT_BUDGET_MS = 20_000;
@@ -450,7 +451,28 @@ export async function runObservationSweep(projectId, opts = {}) {
     const refreshed = await getProjectRawForMeta(projectId); // re-fetch in case token was refreshed
     const currency = await ensureAccountCurrency(refreshed);
     const result = await phaseSnapshotAndEvaluate(refreshed, benchmark, currency, log, { dryRun });
-    return { ...result, durationMs: Date.now() - startedAt, currency };
+
+    // Phase 4 — stats + derivation phases
+    let stats_updated = 0;
+    let derived_count = 0;
+    if (!dryRun) {
+      try {
+        const statsResult = await computeAngleStatsForProject(projectId);
+        stats_updated = statsResult.angles_updated;
+        log('stats', `updated ${stats_updated} angles`);
+      } catch (err) {
+        log('stats', `failed: ${err.message}`);
+      }
+      try {
+        const deriveResult = await deriveSubAnglesForProject(projectId);
+        derived_count = deriveResult.derived_count || 0;
+        log('derive', `derived=${derived_count} skipped=${(deriveResult.skipped || []).length} errors=${(deriveResult.errors || []).length}`);
+      } catch (err) {
+        log('derive', `failed: ${err.message}`);
+      }
+    }
+
+    return { ...result, stats_updated, derived_count, durationMs: Date.now() - startedAt, currency };
   } catch (err) {
     log('error', err.message);
     return { error: err.message, durationMs: Date.now() - startedAt };

@@ -32,6 +32,11 @@ function safeParseJSON(value, fallback = null) {
   }
 }
 
+function isMissingLPAgentError(err) {
+  const message = err?.message || '';
+  return /landingPages|lpAgentConfig|Could not find public function|Cannot read properties of undefined/.test(message);
+}
+
 function resetPipelineStatusCache() {
   pipelineStatusCache = {
     value: null,
@@ -179,6 +184,20 @@ router.put('/config/:projectId', async (req, res) => {
       'angle_rotation', 'explore_ratio', 'run_schedule', 'run_schedule_days', 'run_schedule_hour', 'posting_days',
       'score_threshold', 'auto_learn',
       'headline_style', 'primary_text_style', 'default_campaign_id',
+      // Phase 4 — sub-angle derivation + health-biased Director
+      'health_bias',
+      'sub_angle_derivation_enabled',
+      'sub_angle_derivation_mode',
+      'sub_angle_derivation_threshold',
+      'sub_angle_derivation_min_unique_days',
+      'sub_angle_derivation_max_per_run',
+      'sub_angle_derivation_cooldown_days',
+      'sub_angle_max_depth',
+      'sub_angle_exploration_boost_days',
+      'sub_angle_lineage_cap_share',
+      'sub_angle_min_active_for_health_bias',
+      'sub_angle_min_active_for_lineage_cap',
+      'sub_angle_per_project_daily_cost_cap_usd',
     ];
     const fields = {};
     for (const key of allowedConfigFields) {
@@ -337,7 +356,14 @@ router.get('/run-batch-lp/:projectId/:batchId', async (req, res) => {
       return res.status(404).json({ error: 'Batch not found' });
     }
 
-    const landingPages = await getLandingPagesByBatchJob(batchId);
+    let landingPages = [];
+    let lpUnavailableReason = null;
+    try {
+      landingPages = await getLandingPagesByBatchJob(batchId);
+    } catch (err) {
+      if (!isMissingLPAgentError(err)) throw err;
+      lpUnavailableReason = 'LP Agent modules are not installed in this build.';
+    }
     const mappedPages = landingPages.map((page) => {
       const qaReport = safeParseJSON(page.qa_report, {});
       const smokeReport = safeParseJSON(page.smoke_test_report, {});
@@ -431,6 +457,8 @@ router.get('/run-batch-lp/:projectId/:batchId', async (req, res) => {
       },
       summary,
       landingPages: mappedPages,
+      lpUnavailable: !!lpUnavailableReason,
+      lpUnavailableReason,
     });
   } catch (err) {
     console.error('[Conductor] Get run batch LP details error:', err.message);

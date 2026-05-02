@@ -21,6 +21,10 @@ import {
   runAllProjectsObservation,
   DEFAULTS,
 } from '../services/observationTracker.js';
+import {
+  deriveSubAnglesForProject,
+  computeAngleStatsForProject,
+} from '../services/subAngleDeriver.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -369,6 +373,107 @@ router.post('/:projectId/angles/:angleId/unarchive', requireRole('admin', 'manag
   try {
     await convexClient.mutation(api.conductor.unarchiveAngle, { externalId: req.params.angleId });
     res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ────────────────────────────────────────────────
+// Phase 4 — Sub-angles + lineage + manual derive trigger
+// ────────────────────────────────────────────────
+
+router.post('/:projectId/angles/:angleId/derive-now', requireRole('admin', 'manager'), async (req, res) => {
+  try {
+    const result = await deriveSubAnglesForProject(req.params.projectId, {
+      parentAngleId: req.params.angleId,
+      force: true,
+    });
+    res.json({ success: true, result });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/:projectId/angles/:angleId/sub-angles', requireRole('admin', 'manager'), async (req, res) => {
+  try {
+    const children = await convexClient.query(api.conductor.getSubAnglesByParent, {
+      parent_angle_id: req.params.angleId,
+    });
+    res.json({ sub_angles: children || [] });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/:projectId/angles/:angleId/lineage', requireRole('admin', 'manager'), async (req, res) => {
+  try {
+    const lineage = await convexClient.query(api.conductor.getLineage, {
+      angle_external_id: req.params.angleId,
+    });
+    res.json({ lineage: lineage || [] });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.delete('/:projectId/angles/:angleId/lineage', requireRole('admin'), async (req, res) => {
+  try {
+    const result = await convexClient.mutation(api.conductor.deleteAngleAndDescendants, {
+      externalId: req.params.angleId,
+    });
+    res.json({ success: true, removed: result.removed });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/:projectId/angles/recently-derived', requireRole('admin', 'manager'), async (req, res) => {
+  try {
+    const sinceMs = Date.now() - parseInt(req.query.days || '7', 10) * 86400000;
+    const derived = await convexClient.query(api.conductor.getRecentlyDerived, {
+      projectId: req.params.projectId,
+      since_ms: sinceMs,
+    });
+    res.json({ derived: derived || [] });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/:projectId/angles/pending-review', requireRole('admin', 'manager'), async (req, res) => {
+  try {
+    const pending = await convexClient.query(api.conductor.getPendingReviewAngles, {
+      projectId: req.params.projectId,
+    });
+    res.json({ angles: pending || [] });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/:projectId/angles/:angleId/approve', requireRole('admin', 'manager'), async (req, res) => {
+  try {
+    await convexClient.mutation(api.conductor.approveSubAngle, { externalId: req.params.angleId });
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/:projectId/angles/:angleId/reject', requireRole('admin', 'manager'), async (req, res) => {
+  try {
+    await convexClient.mutation(api.conductor.rejectSubAngle, { externalId: req.params.angleId });
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// Admin — recompute angle stats out-of-band (useful for testing).
+router.post('/admin/projects/:projectId/recompute-angle-stats', requireRole('admin'), async (req, res) => {
+  try {
+    const result = await computeAngleStatsForProject(req.params.projectId);
+    res.json({ success: true, ...result });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
