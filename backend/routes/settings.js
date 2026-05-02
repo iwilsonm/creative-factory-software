@@ -10,6 +10,26 @@ router.use(requireAuth, requireRole('admin'));
 // Sensitive keys that should be masked when returning
 const SENSITIVE_KEYS = ['auth_password_hash', 'session_secret'];
 const API_KEY_KEYS = ['openai_api_key', 'openai_admin_key', 'gemini_api_key', 'anthropic_api_key', 'cloudflare_api_token'];
+const ALLOWED_SETTING_KEYS = [
+  'openai_api_key',
+  'openai_admin_key',
+  'gemini_api_key',
+  'anthropic_api_key',
+  'default_drive_folder_id',
+  'gemini_rate_1k',
+  'gemini_rate_2k',
+  'gemini_rate_4k',
+  'openai_image_rate_per_image',
+  'cloudflare_account_id',
+  'cloudflare_api_token',
+  'cloudflare_pages_projects',
+  'pinned_project_ids',  // JSON array of project externalIds (global pinning)
+];
+
+function isAllowedSettingKey(key) {
+  if (ALLOWED_SETTING_KEYS.includes(key)) return true;
+  return /^enable_phase1_staging:[A-Za-z0-9_-]+$/.test(key);
+}
 
 // Get all settings (mask sensitive values)
 router.get('/', async (req, res) => {
@@ -30,29 +50,15 @@ router.get('/', async (req, res) => {
 
 // Update settings
 router.put('/', async (req, res) => {
-  const allowed = [
-    'openai_api_key',
-    'openai_admin_key',
-    'gemini_api_key',
-    'anthropic_api_key',
-    'default_drive_folder_id',
-    'gemini_rate_1k',
-    'gemini_rate_2k',
-    'gemini_rate_4k',
-    'openai_image_rate_per_image',
-    'cloudflare_account_id',
-    'cloudflare_api_token',
-    'cloudflare_pages_projects',
-    'pinned_project_ids',  // JSON array of project externalIds (global pinning)
-  ];
-
-  for (const key of allowed) {
-    if (req.body[key] !== undefined) {
-      await setSetting(key, req.body[key]);
+  const saved = [];
+  for (const [key, value] of Object.entries(req.body || {})) {
+    if (value !== undefined && isAllowedSettingKey(key)) {
+      await setSetting(key, value);
+      saved.push(key);
     }
   }
 
-  res.json({ success: true });
+  res.json({ success: true, saved });
 });
 
 // Test OpenAI connection

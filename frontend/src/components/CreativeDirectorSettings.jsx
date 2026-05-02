@@ -108,8 +108,11 @@ export default function CreativeDirectorSettings({ project, onSaved }) {
           sub_angle_derivation_mode: derivationMode,
         });
       } catch { /* OK */ }
-      toast.success('Creative Director settings saved');
-      onSaved?.();
+      toast.success(stagingFlag
+        ? 'Creative Director settings saved — Staging tab enabled'
+        : 'Creative Director settings saved — Staging tab disabled'
+      );
+      onSaved?.({ stagingEnabled: stagingFlag });
     } catch (err) {
       setError(err?.message || 'Save failed');
     } finally {

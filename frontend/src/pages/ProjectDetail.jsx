@@ -224,6 +224,17 @@ export default function ProjectDetail() {
     }
   };
 
+  const handleCreativeDirectorSaved = async ({ stagingEnabled } = {}) => {
+    if (typeof stagingEnabled === 'boolean') {
+      setStagingFlagEnabled(stagingEnabled);
+      if (!stagingEnabled && tab === 'staging') {
+        setTab('overview');
+        setSettingsSubTab('creative_director');
+      }
+    }
+    await loadProject();
+  };
+
   const handleDelete = async () => {
     setDeletingProject(true);
     try {
@@ -593,7 +604,7 @@ export default function ProjectDetail() {
           )}
           {settingsSubTab === 'creative_director' && (
             <ErrorBoundary level="tab" key="creative_director">
-              <CreativeDirectorSettings project={project} onSaved={loadProject} />
+              <CreativeDirectorSettings project={project} onSaved={handleCreativeDirectorSaved} />
             </ErrorBoundary>
           )}
           {settingsSubTab === 'meta' && (
