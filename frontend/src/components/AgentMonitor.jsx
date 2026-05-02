@@ -1638,7 +1638,7 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
 
   const handleSaveAdsPerAdSet = useCallback((rawValue) => {
     const parsed = parseInt(rawValue, 10);
-    const nextValue = Number.isFinite(parsed) ? Math.max(1, Math.min(parsed, 20)) : 3;
+    const nextValue = Number.isFinite(parsed) ? Math.max(1, Math.min(parsed, 20)) : 5;
     setAdsPerAdSetDraft(nextValue);
     handleSaveConfig({ ads_per_batch: nextValue });
 
@@ -1829,9 +1829,10 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
         const generated = event.total_ads_generated || event.ads_scored || '?';
         const passed = event.ads_passed ?? '?';
         const readyCount = event.ready_to_post_count ?? 0;
+        const requiredPasses = event.required_passes || 10;
         const msg = event.flex_ads_created > 0
-          ? `Reached ${passed}/10 after ${roundsUsed} round${roundsUsed !== 1 ? 's' : ''} (${generated} generated). ${readyCount} Ready to Post ads created.`
-          : `Complete — ${passed}/10 passed after ${generated} generated.`;
+          ? `Reached ${passed}/${requiredPasses} after ${roundsUsed} round${roundsUsed !== 1 ? 's' : ''} (${generated} generated). ${readyCount} Ready to Post ads created.`
+          : `Complete — ${passed}/${requiredPasses} passed after ${generated} generated.`;
         updateQueueItem(runId, { status: 'complete', progress: 100, phase: msg, result: event, serverRunId: event.runId || null });
         finishRun(runId, false);
       } else if (event.type === 'background') {
@@ -2235,7 +2236,7 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
   const adsPerAdSetValue = adsPerAdSetDraft ?? (
     embedded && externalProject?.ads_per_ad_set != null
       ? externalProject.ads_per_ad_set
-      : config?.ads_per_batch
+      : config?.ads_per_batch ?? 5
   );
 
   if (projectLoading) return <div className="text-[11px] text-textlight py-4">{embedded ? 'Loading Director...' : 'Loading projects...'}</div>;
@@ -2845,7 +2846,7 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
                   type="number"
                   min="1"
                   max="20"
-                  value={adsPerAdSetValue ?? 3}
+                  value={adsPerAdSetValue ?? 5}
                   onChange={e => handleSaveAdsPerAdSet(e.target.value)}
                   className="input-apple w-full text-[12px]"
                 />

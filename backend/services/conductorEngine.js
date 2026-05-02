@@ -1287,7 +1287,7 @@ function buildTestRunSummary({
     return `Angle "${angleName}" reached ${TEST_RUN_REQUIRED_PASSES}/${TEST_RUN_REQUIRED_PASSES} passed ads after ${roundsUsed} round${roundsUsed !== 1 ? 's' : ''} (${totalAdsGenerated} generated). ${readyToPostCount} Ready to Post ads created.`;
   }
   if (terminalStatus === TEST_RUN_ROUND_CAP_TERMINAL_STATUS || terminalStatus === 'failed_under_threshold_after_54') {
-    return `Angle "${angleName}" reached ${totalAdsPassed}/${TEST_RUN_REQUIRED_PASSES} passed ads after ${roundsUsed} round${roundsUsed !== 1 ? 's' : ''} (${totalAdsGenerated} generated). Round cap reached with no Ready to Post flex ad.`;
+    return `Angle "${angleName}" reached ${totalAdsPassed}/${TEST_RUN_REQUIRED_PASSES} passed ads after ${roundsUsed} round${roundsUsed !== 1 ? 's' : ''} (${totalAdsGenerated} generated). Round cap reached with no Ready to Post ad set.`;
   }
   if (terminalStatus === 'cancelled') {
     return `Angle "${angleName}" was cancelled after ${roundsUsed} round${roundsUsed !== 1 ? 's' : ''} (${totalAdsGenerated} generated, ${totalAdsPassed}/${TEST_RUN_REQUIRED_PASSES} passed so far).`;
@@ -2282,7 +2282,7 @@ async function continueBackgroundTestRun(run) {
         let failureReason = 'Unknown error during Creative Filter';
         let terminalStatus = 'deploy_failed';
         if (finalizeResult.grouping_failed) {
-          failureReason = `${totalAdsPassed} approved ads were available, but grouping could not create a flex ad.`;
+          failureReason = `${totalAdsPassed} approved ads were available, but grouping could not create an ad set.`;
           terminalStatus = 'grouping_failed';
         } else if (finalizeResult.deploy_error) {
           failureReason = `Reached ${totalAdsPassed}/${TEST_RUN_REQUIRED_PASSES} passed ads, but deployment failed: ${finalizeResult.deploy_error}`;
@@ -2335,7 +2335,7 @@ async function continueBackgroundTestRun(run) {
     }
 
     if (roundNumber >= TEST_RUN_MAX_ROUNDS) {
-      const failureReason = `Reached ${totalAdsPassed}/${TEST_RUN_REQUIRED_PASSES} passed ads after ${totalAdsGenerated} generated across ${TEST_RUN_MAX_ROUNDS} rounds. Round cap reached with no Ready to Post flex ad.`;
+      const failureReason = `Reached ${totalAdsPassed}/${TEST_RUN_REQUIRED_PASSES} passed ads after ${totalAdsGenerated} generated across ${TEST_RUN_MAX_ROUNDS} rounds. Round cap reached with no Ready to Post ad set.`;
       await updateConductorRun(runId, {
         status: 'failed',
         terminal_status: TEST_RUN_ROUND_CAP_TERMINAL_STATUS,
@@ -2908,7 +2908,7 @@ export async function runFullTestPipeline(projectId, sendEvent, { angleOverride 
           let failureReason = 'Unknown error during Creative Filter';
           let terminalStatus = 'deploy_failed';
           if (finalizeResult.grouping_failed) {
-            failureReason = `${totalAdsPassed} approved ads were available, but grouping could not create a flex ad.`;
+            failureReason = `${totalAdsPassed} approved ads were available, but grouping could not create an ad set.`;
             terminalStatus = 'grouping_failed';
           } else if (finalizeResult.deploy_error) {
             failureReason = `Reached ${totalAdsPassed}/${TEST_RUN_REQUIRED_PASSES} passed ads, but deployment failed: ${finalizeResult.deploy_error}`;
@@ -3030,7 +3030,7 @@ export async function runFullTestPipeline(projectId, sendEvent, { angleOverride 
       activeRoundState = null;
     }
 
-    const failureReason = `Reached ${totalAdsPassed}/${TEST_RUN_REQUIRED_PASSES} passed ads after ${totalAdsGenerated} generated across ${TEST_RUN_MAX_ROUNDS} rounds. Round cap reached with no Ready to Post flex ad.`;
+    const failureReason = `Reached ${totalAdsPassed}/${TEST_RUN_REQUIRED_PASSES} passed ads after ${totalAdsGenerated} generated across ${TEST_RUN_MAX_ROUNDS} rounds. Round cap reached with no Ready to Post ad set.`;
     console.warn(`[Director] Test run ${runId.slice(0, 8)} failed at hard cap: ${totalAdsPassed}/${TEST_RUN_REQUIRED_PASSES} passed after ${totalAdsGenerated} generated`);
 
     await updateConductorRun(runId, {

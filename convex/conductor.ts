@@ -66,7 +66,7 @@ export const upsertConfig = mutation({
         project_id: args.project_id,
         enabled: args.enabled ?? false,
         daily_flex_target: args.daily_flex_target ?? 5,
-        ads_per_batch: args.ads_per_batch ?? 18,
+        ads_per_batch: args.ads_per_batch ?? 5,
         angle_mode: args.angle_mode ?? "manual",
         explore_ratio: args.explore_ratio ?? 0.2,
         angle_rotation: args.angle_rotation ?? "round_robin",

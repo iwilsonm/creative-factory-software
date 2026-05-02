@@ -193,10 +193,10 @@ Return ONLY a JSON object, no other text:
  *
  * @param {string} projectId
  * @param {string} angleName
- * @param {number} defaultSize — from conductor_config.ads_per_batch
+ * @param {number} defaultSize — from project.ads_per_ad_set or conductor_config.ads_per_batch
  * @returns {number} adjusted batch size
  */
-export async function getAdaptiveBatchSize(projectId, angleName, defaultSize = 18) {
+export async function getAdaptiveBatchSize(projectId, angleName, defaultSize = 5) {
   if (!angleName) return defaultSize;
 
   const playbook = await getConductorPlaybook(projectId, angleName);

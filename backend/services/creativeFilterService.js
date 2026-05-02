@@ -30,7 +30,7 @@ const DIRECTOR_SCORE_WEIGHTS = {
   visual_integrity_score: 0.35,
   visual_contract_match: 0.25,
 };
-const IMAGES_PER_FLEX = 10;
+const IMAGES_PER_FLEX = 5;
 const HEADLINES_TARGET = 5;
 const HEADLINE_POOL_TARGET = 7;
 const PRIMARY_TEXTS_TARGET = 5;
@@ -393,26 +393,26 @@ export async function groupAds(scoredAds, projectName, flexAdCount = 1) {
     strengths: score.strengths,
   }));
 
-  const prompt = `You are a media buyer assembling flex ads (multi-image ad groups) for Meta advertising.
+  const prompt = `You are a media buyer assembling ad sets for Meta advertising.
 
 You have a set of scored ad creatives that all passed quality filtering. You need to:
 
 1. GROUP them by angle/theme into distinct clusters
 2. SELECT the ${flexAdCount} strongest clusters (most coherent angle + highest avg scores)
-3. PICK the best ${IMAGES_PER_FLEX} ads from each cluster (these will be the images)
+3. PICK the best ${IMAGES_PER_FLEX} ads from each cluster
 4. SELECT 3-5 HEADLINES for each cluster (Meta will test combinations)
 5. SELECT 3-5 PRIMARY TEXTS for each cluster (Meta will test combinations)
 
 BRAND: ${projectName}
 
-=== FLEX AD STRUCTURE ===
+=== AD SET STRUCTURE ===
 
-Each flex ad contains:
-- 10 images
+Each ad set contains:
+- ${IMAGES_PER_FLEX} image ads
 - 3-5 headlines (Meta rotates and tests which performs best)
 - 3-5 primary texts (Meta rotates and tests which performs best)
 
-Target 5 of each, but minimum 3 are required. If you cannot find at least 3 quality headlines or 3 quality primary texts for a cluster, DO NOT create that flex ad — skip it.
+Target 5 of each, but minimum 3 are required. If you cannot find at least 3 quality headlines or 3 quality primary texts for a cluster, DO NOT create that ad set — skip it.
 
 === CRITICAL COPY QUALITY RULES ===
 
@@ -426,7 +426,7 @@ EVERY headline and primary text you select MUST meet ALL of these. Do not includ
 
 4. THEMATIC ALIGNMENT: Every headline and every primary text must fit the cluster's angle. They do not all need to come from the same ad, but they must all speak to the same core theme/pain point/desire.
 
-5. BROAD ENOUGH FOR ALL IMAGES: Each headline and primary text needs to make sense with any of the 10 images in the group. Avoid copy that references something too specific to one image.
+5. BROAD ENOUGH FOR ALL IMAGES: Each headline and primary text needs to make sense with any image in the group. Avoid copy that references something too specific to one image.
 
 6. VARIETY: The 3-5 headlines should take different approaches to the same angle (different hooks, different framings). Same for primary texts. Do not pick 5 headlines that say basically the same thing.
 
@@ -434,10 +434,10 @@ SCORED ADS (all passing):
 ${JSON.stringify(adsPayload, null, 2)}
 
 RULES:
-- Each flex ad must have exactly ${IMAGES_PER_FLEX} images
-- Each flex ad gets 3-5 headlines AND 3-5 primary texts (target 5, minimum 3)
+- Each ad set must have exactly ${IMAGES_PER_FLEX} image ads
+- Each ad set gets 3-5 headlines AND 3-5 primary texts (target 5, minimum 3)
 - If a cluster cannot produce at least 3 quality headlines AND 3 quality primary texts, skip it and try the next best cluster
-- The ${flexAdCount} flex ads should target DIFFERENT angles for audience variety
+- The ${flexAdCount} ad sets should target DIFFERENT angles for audience variety
 - Prefer ads with higher overall_score within each cluster
 - If two ads in the same cluster are nearly identical, prefer the one with higher copy_strength
 - Do not include any copy from compliance-flagged ads
@@ -447,7 +447,7 @@ Respond ONLY with this exact JSON format:
   "flex_ads": [
     {
       "flex_ad_number": 1,
-      "angle_theme": "descriptive label for this flex ad's angle",
+      "angle_theme": "descriptive label for this ad set's angle",
       "headlines": [
         {
           "text": "headline text",
@@ -898,14 +898,14 @@ export async function finalizePassingAds({ passingAds, projectId, batchId, posti
   const project = await getProject(projectId);
   if (!project) throw new Error('Project not found');
 
-  emit({ type: 'progress', step: 'filter_grouping', message: `Grouping ${passingAds.length} passing ads into a flex ad...` });
+  emit({ type: 'progress', step: 'filter_grouping', message: `Grouping ${passingAds.length} passing ads into an ad set...` });
 
   const groupResult = await groupAds(passingAds, project.name, 1);
   const flexAds = groupResult.flex_ads || [];
 
   if (flexAds.length === 0) {
-    console.warn(`[FilterService] Grouping returned 0 flex ads despite ${passingAds.length} passing ads`);
-    emit({ type: 'progress', step: 'filter_complete', message: 'Grouping could not create a flex ad. Check copy quality.' });
+    console.warn(`[FilterService] Grouping returned 0 ad sets despite ${passingAds.length} passing ads`);
+    emit({ type: 'progress', step: 'filter_complete', message: 'Grouping could not create an ad set. Check copy quality.' });
     return {
       ad_sets_created: 0,
       ad_set_id: null,
@@ -926,7 +926,7 @@ export async function finalizePassingAds({ passingAds, projectId, batchId, posti
 
   const generatedCopy = await generateFilterCopy(projectId, flexAdDef.angle_theme, adCreativesForCopy);
 
-  emit({ type: 'progress', step: 'filter_deploying', message: 'Creating flex ad and deploying to Ready to Post...' });
+  emit({ type: 'progress', step: 'filter_deploying', message: 'Creating ad set and deploying to Ready to Post...' });
 
   try {
     const deployResult = await deployFlexAd(
@@ -942,7 +942,7 @@ export async function finalizePassingAds({ passingAds, projectId, batchId, posti
     emit({
       type: 'progress',
       step: 'filter_complete',
-      message: `Flex ad deployed: ${passingAds.length} approved ads available, ${deployResult.deploymentCount} images → Ready to Post`,
+      message: `Ad set deployed: ${passingAds.length} approved ads available, ${deployResult.deploymentCount} ads -> Ready to Post`,
     });
 
     return {
@@ -980,7 +980,7 @@ export async function runInlineFilter(batchId, projectId, onProgress) {
   const emit = (event) => { if (onProgress) try { onProgress(event); } catch {} };
   const scoreResult = await scoreBatchForInlineFilter(batchId, projectId, emit);
   if (scoreResult.ads_passed < IMAGES_PER_FLEX) {
-    const msg = `Only ${scoreResult.ads_passed} of ${scoreResult.ads_scored} ads passed scoring (need ${IMAGES_PER_FLEX}). No flex ad created.`;
+    const msg = `Only ${scoreResult.ads_passed} of ${scoreResult.ads_scored} ads passed scoring (need ${IMAGES_PER_FLEX}). No ad set created.`;
     console.warn(`[FilterService] ${msg}`);
     emit({ type: 'progress', step: 'filter_complete', message: msg });
     return {

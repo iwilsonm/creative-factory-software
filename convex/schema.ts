@@ -38,7 +38,7 @@ export default defineSchema({
     adset_default_template: v.optional(v.string()),       // JSON: { targeting, budget_type, budget_amount_cents, schedule, optimization_goal, billing_event }
     filter_quality_threshold: v.optional(v.number()),     // 0-1, Filter agent pass threshold; default 0.6
     ad_sets_per_cycle: v.optional(v.number()),            // Director: how many ad sets to generate per cycle; default 5
-    ads_per_ad_set: v.optional(v.number()),               // Director: ads per ad set; default 3, hard cap 20
+    ads_per_ad_set: v.optional(v.number()),               // Director: ads per ad set; default 5, hard cap 20
     // Phase 2A — Meta integration (per-project OAuth + ad account binding)
     meta_access_token: v.optional(v.string()),            // long-lived (60-day) FB Marketing API token; powers both direct API + MCP paths
     meta_token_expires_at: v.optional(v.number()),        // unix ms; refresh trigger
@@ -416,7 +416,7 @@ export default defineSchema({
     project_id: v.string(),              // → projects.externalId
     enabled: v.boolean(),
     daily_flex_target: v.number(),       // flex ads per day (1-20, default 5)
-    ads_per_batch: v.number(),           // raw ads per batch (default 18)
+    ads_per_batch: v.number(),           // ads per ad set fallback (default 5)
     angle_mode: v.string(),             // "manual" | "auto" | "mixed"
     explore_ratio: v.number(),           // for mixed mode, % testing new angles (0.0-1.0)
     angle_rotation: v.string(),         // "round_robin" | "weighted" | "random"

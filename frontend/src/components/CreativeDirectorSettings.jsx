@@ -119,12 +119,12 @@ export default function CreativeDirectorSettings({ project, onSaved, embedded = 
               className="input-apple w-full"
             />
           </Field>
-          <Field label="Ads per ad set" hint="1-20. Meta recommends 3-5 for delivery.">
+          <Field label="Ads per ad set" hint="1-20. Default is 5.">
             <input
               type="number" min="1" max="20"
               value={adsPerAdSet}
               onChange={(e) => setAdsPerAdSet(e.target.value)}
-              placeholder="default 3"
+              placeholder="default 5"
               className="input-apple w-full"
             />
           </Field>
