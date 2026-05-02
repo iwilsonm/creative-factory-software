@@ -9,6 +9,52 @@ const CTA_OPTIONS = [
   'LISTEN_NOW', 'APPLY_NOW', 'GET_OFFER', 'NO_BUTTON',
 ];
 
+// Phase 6.20b — Drop the api.js flex_ad adapter from this view. Compose the
+// flex-shape inline from native ad_sets + deployments, route writes natively
+// via api.updateAdSetUnified + api.updateDeployment + api.ungroupAdSet +
+// api.createAdSetFromAds. Internal data shape preserved so the render layer
+// is unchanged.
+function composeFlexFromAdSet(adSet, deployments) {
+  const children = (deployments || []).filter(d => d.local_adset_id === adSet.externalId);
+  const sample = children[0] || {};
+  return {
+    id: adSet.externalId,
+    externalId: adSet.externalId,
+    project_id: adSet.project_id,
+    ad_set_id: adSet.externalId,
+    name: adSet.name || '',
+    child_deployment_ids: JSON.stringify(children.map(d => d.externalId)),
+    primary_texts: sample.primary_texts || '[]',
+    headlines: sample.ad_headlines || '[]',
+    destination_url: sample.destination_url || '',
+    display_link: sample.display_link || '',
+    cta_button: sample.cta_button || '',
+    facebook_page: sample.facebook_page || '',
+    planned_date: sample.planned_date || '',
+    posted_by: sample.posted_by || '',
+    duplicate_adset_name: sample.duplicate_adset_name || '',
+    notes: sample.notes || '',
+    angle_id: adSet.angle_id || null,
+    lifecycle_status: adSet.lifecycle_status || '',
+    created_at: adSet.created_at || '',
+    updated_at: adSet.updated_at || '',
+  };
+}
+
+// Phase 6.20b — split a save payload between ad_set-level fields (name) and
+// per-deployment fields (everything else).
+const AD_SET_SCALAR_FIELDS = new Set(['name']);
+function splitAdSetWriteFields(fields) {
+  const adSetFields = {};
+  const depFields = {};
+  for (const [k, v] of Object.entries(fields || {})) {
+    if (k.startsWith('_')) continue;
+    if (AD_SET_SCALAR_FIELDS.has(k)) adSetFields[k] = v;
+    else depFields[k] = v;
+  }
+  return { adSetFields, depFields };
+}
+
 /**
  * CampaignsView — Flat staging area for planning ad deployments.
  *
@@ -126,10 +172,13 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
             ad_headlines: JSON.stringify(sidebarForm.ad_headlines),
           });
         } else {
-          await api.updateFlexAd(sidebarData.flexAd.id, {
+          // Phase 6.20b — fan autosave out to every child deployment of the
+          // ad_set (was a no-op via legacy adapter for headlines/primary_texts).
+          const children = sidebarData.deps || [];
+          await Promise.all(children.map(d => api.updateDeployment(d.id, {
             primary_texts: JSON.stringify(sidebarForm.primary_texts),
-            headlines: JSON.stringify(sidebarForm.ad_headlines),
-          });
+            ad_headlines: JSON.stringify(sidebarForm.ad_headlines),
+          })));
         }
       } catch { /* Silent — don't interrupt user with errors */ }
     }, 10000);
@@ -191,13 +240,16 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
   const loadCampaignData = async (silent = false) => {
     if (!silent) setLoading(true);
     try {
-      const [campData, flexData] = await Promise.all([
+      // Phase 6.20b — native ad_set fetch (lifecycle='draft') + inline compose
+      // of flex-shape from current deployments prop. No api.js adapter call.
+      const [campData, draftAdSets] = await Promise.all([
         api.getCampaigns(projectId),
-        api.getFlexAds(projectId),
+        api.getAdSets(projectId, ['draft']),
       ]);
+      const safeDraft = Array.isArray(draftAdSets) ? draftAdSets : (draftAdSets?.adSets ?? []);
       setCampaigns(campData.campaigns || []);
       setAdSets(campData.adSets || []);
-      setFlexAds(flexData.flexAds || []);
+      setFlexAds(safeDraft.map(s => composeFlexFromAdSet(s, deployments)));
     } catch { /* ignore */ }
     if (!silent) setLoading(false);
   };
@@ -427,15 +479,13 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
     // All deployment IDs to unassign: standalone + flex children
     const allDepIds = [...new Set([...standaloneDepIds, ...flexChildDepIds])];
 
-    // Snapshot for undo
+    // Snapshot for undo. Phase 6.20b — server-side restore of an ungrouped
+    // ad_set has no native equivalent (Phase 6.30 will redesign the undo
+    // contract). The local snapshot restoration in handleUndo() still gives
+    // momentary visual undo until the next refresh, matching prior behavior.
     snapshotForUndo(`move ${allDepIds.length}`, async () => {
-      // Re-assign deps back to staging
       if (allDepIds.length > 0) {
         await api.assignToAdSet(allDepIds, 'planned', '');
-      }
-      // Restore flex ads
-      for (const fSnap of flexSnapshots) {
-        await api.restoreFlexAd(fSnap.id);
       }
       await loadCampaignData(true);
     });
@@ -454,7 +504,9 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
     addToast(`Moved ${allDepIds.length} ad${allDepIds.length !== 1 ? 's' : ''} to queue`, 'success');
 
     try {
-      await Promise.all(flexAdIds.map(id => api.deleteFlexAd(id)));
+      // Phase 6.20b — native ungroup detaches deployments + deletes the
+      // ad_set wrapper server-side.
+      await Promise.all(flexAdIds.map(id => api.ungroupAdSet(projectId, id)));
       if (allDepIds.length > 0) {
         await api.unassignFromAdSet(allDepIds);
       }
@@ -540,23 +592,21 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
 
     const name = `Flexible Ad (${allDepIds.length} images)`;
 
-    // Snapshot for undo — capture state of dissolved flex ads for restoration
+    // Snapshot for undo — captures local state for visual restore. Phase 6.20b
+    // server-side: ungroup the new ad_set if found; dissolved ad_sets cannot
+    // be natively restored (Phase 6.30 will redesign the undo contract).
     const dissolvedFlexSnapshots = selectedFlexIds.map(id => flexAds.find(f => f.id === id)).filter(Boolean);
     snapshotForUndo('combine', async () => {
-      // The new flex ad will have been created by now — we need to find it and delete it
-      // Refresh to find the real flex ad that was created
-      const freshData = await api.getFlexAds(projectId);
-      const newFlex = (freshData.flexAds || []).find(f => {
-        try {
-          const cIds = JSON.parse(f.child_deployment_ids || '[]');
-          return allDepIds.every(id => cIds.includes(id)) && cIds.length === allDepIds.length;
-        } catch { return false; }
+      // Find the newly-created ad_set and ungroup it. Native fetch.
+      const freshAdSets = await api.getAdSets(projectId, ['draft']);
+      const safeFresh = Array.isArray(freshAdSets) ? freshAdSets : (freshAdSets?.adSets ?? []);
+      const newAdSet = safeFresh.find(s => {
+        const childExtIds = (deployments || [])
+          .filter(d => d.local_adset_id === s.externalId)
+          .map(d => d.externalId);
+        return allDepIds.every(id => childExtIds.includes(id)) && childExtIds.length === allDepIds.length;
       });
-      if (newFlex) await api.deleteFlexAd(newFlex.id);
-      // Restore dissolved flex ads
-      for (const fSnap of dissolvedFlexSnapshots) {
-        await api.restoreFlexAd(fSnap.id);
-      }
+      if (newAdSet) await api.ungroupAdSet(projectId, newAdSet.externalId);
       await loadCampaignData(true);
     });
 
@@ -574,11 +624,13 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
     addToast('Flexible ad created', 'success');
 
     try {
-      // Delete old flex ads first (dissolve them)
+      // Phase 6.20b — native ungroup of dissolved ad_sets, native createAdSet
+      // for the new combined wrapper. The backend createAdSetFromAds returns
+      // { adSetId } and reassigns the deployments to it server-side.
       if (selectedFlexIds.length > 0) {
-        await Promise.all(selectedFlexIds.map(id => api.deleteFlexAd(id)));
+        await Promise.all(selectedFlexIds.map(id => api.ungroupAdSet(projectId, id)));
       }
-      await api.createFlexAd(projectId, '', name, allDepIds);
+      await api.createAdSetFromAds(projectId, { name, deployment_ids: allDepIds });
       // Refresh to get real server IDs (replaces temp)
       await Promise.all([loadCampaignData(true), loadDeployments()]);
       // Queue auto-generation of primary texts + headlines for the new flex ad
@@ -604,9 +656,10 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
         const dep = deployments.find(d => d.id === id);
         return dep && dep.flex_ad_id === flexAdId;
       });
-      // Snapshot for undo
+      // Snapshot for undo. Phase 6.20b — server-side restore of an ungrouped
+      // ad_set has no native equivalent; the local snapshot still gives
+      // momentary visual undo.
       snapshotForUndo('ungroup', async () => {
-        await api.restoreFlexAd(flexAdId);
         await loadCampaignData(true);
       });
       // Optimistic: remove flex ad, clear flex_ad_id on owned children (children stay in staging)
@@ -618,7 +671,8 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
       }
       addToast('Flexible ad ungrouped', 'success');
       try {
-        await api.deleteFlexAd(flexAdId);
+        // Phase 6.20b — native ungroup detaches deployments + deletes ad_set
+        await api.ungroupAdSet(projectId, flexAdId);
         await loadCampaignData(true);
       } catch {
         addToast('Failed to ungroup flexible ad', 'error');
@@ -630,9 +684,9 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
         const dep = deployments.find(d => d.id === id);
         return dep && dep.flex_ad_id === flexAdId;
       });
-      // Snapshot for undo
+      // Snapshot for undo. Phase 6.20b — server-side ad_set restore is not
+      // natively supported; local snapshot still gives momentary visual undo.
       snapshotForUndo('unplan', async () => {
-        await api.restoreFlexAd(flexAdId);
         if (ownedChildIds.length > 0) {
           await api.assignToAdSet(ownedChildIds, 'planned', '');
         }
@@ -647,7 +701,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
       }
       addToast(`Moved ${ownedChildIds.length} ad${ownedChildIds.length !== 1 ? 's' : ''} to queue`, 'success');
       try {
-        await api.deleteFlexAd(flexAdId);
+        await api.ungroupAdSet(projectId, flexAdId);
         if (ownedChildIds.length > 0) {
           await api.unassignFromAdSet(ownedChildIds);
         }
@@ -662,9 +716,9 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
         const dep = deployments.find(d => d.id === id);
         return dep && dep.flex_ad_id === flexAdId;
       });
-      // Snapshot for undo
+      // Snapshot for undo. Phase 6.20b — server-side ad_set restore is not
+      // natively supported; deployments can still be restored individually.
       snapshotForUndo('remove', async () => {
-        await api.restoreFlexAd(flexAdId);
         await Promise.all(ownedChildIds.map(id => api.restoreDeployment(id)));
         await loadCampaignData(true);
       });
@@ -675,7 +729,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
       }
       addToast(`Removed ${ownedChildIds.length} ad${ownedChildIds.length !== 1 ? 's' : ''} from planner`, 'success');
       try {
-        await api.deleteFlexAd(flexAdId);
+        await api.ungroupAdSet(projectId, flexAdId);
         await Promise.all(ownedChildIds.map(id => api.deleteDeployment(id)));
         await loadCampaignData(true);
       } catch {
@@ -941,11 +995,13 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
           });
         }
       } else {
-        // Flex ad — save first URL to existing flex ad
-        await api.updateFlexAd(sidebarData.flexAd.id, {
-          name: sidebarForm.ad_name,
+        // Phase 6.20b — Flex ad save split between ad_set fields and per-deployment
+        // fields. The legacy adapter quietly dropped most of these on the floor.
+        const childDeps = sidebarData.deps || [];
+        const adSetId = sidebarData.flexAd.id;
+        const depPayload = {
           primary_texts: JSON.stringify(sidebarForm.primary_texts),
-          headlines: JSON.stringify(sidebarForm.ad_headlines),
+          ad_headlines: JSON.stringify(sidebarForm.ad_headlines),
           destination_url: primaryUrl,
           display_link: sidebarForm.display_link || '',
           cta_button: sidebarForm.cta_button,
@@ -953,10 +1009,14 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
           planned_date: sidebarForm.planned_date || null,
           duplicate_adset_name: sidebarForm.duplicate_adset_name || '',
           notes: sidebarForm.notes || '',
-        });
+        };
+        await Promise.all([
+          api.updateAdSetUnified(projectId, adSetId, { name: sidebarForm.ad_name }),
+          ...childDeps.map(d => api.updateDeployment(d.id, depPayload)),
+        ]);
 
-        // For each extra URL: duplicate all child deployments, then create a new flex ad
-        const childDeps = sidebarData.deps || [];
+        // For each extra URL: duplicate all child deployments, then group them
+        // into a new ad_set (native createAdSetFromAds — drops the adapter).
         for (const url of extraUrls) {
           const newChildIds = [];
           for (const child of childDeps) {
@@ -970,15 +1030,14 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
             });
             if (result?.id) newChildIds.push(result.id);
           }
-          // Create a new flex ad grouping the duplicated deployments
           if (newChildIds.length > 0) {
             const flexAd = sidebarData.flexAd;
-            await api.createFlexAd(
-              flexAd.project_id,
-              flexAd.ad_set_id || '',
-              (sidebarForm.ad_name || flexAd.name || 'Flex Ad') + ` (${url.replace(/^https?:\/\//, '').slice(0, 30)})`,
-              newChildIds,
-            );
+            const dupName = (sidebarForm.ad_name || flexAd.name || 'Ad Set') +
+              ` (${url.replace(/^https?:\/\//, '').slice(0, 30)})`;
+            await api.createAdSetFromAds(flexAd.project_id, {
+              name: dupName,
+              deployment_ids: newChildIds,
+            });
           }
         }
       }
@@ -1026,11 +1085,16 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
             if (sidebarDataCopy.type === 'single') {
               await api.assignToAdSet([sidebarDataCopy.deployment.id], resolvedCampaignId, targetAdSet.id);
             } else {
+              // Phase 6.20b — In unified model the flex (= ad_set) IS the
+              // wrapper, so re-parenting is just moving children to the
+              // target ad_set. The legacy `updateFlexAd({ ad_set_id })` was
+              // a vestigial pointer update that no longer applies. The empty
+              // original ad_set wrapper is filtered out at composeFlex time
+              // on the next refresh (no children → not rendered).
               const childIds = sidebarDataCopy.deps.map(d => d.id);
               if (childIds.length > 0) {
                 await api.assignToAdSet(childIds, resolvedCampaignId, targetAdSet.id);
               }
-              await api.updateFlexAd(sidebarDataCopy.flexAd.id, { ad_set_id: targetAdSet.id });
             }
           }
         } catch { /* campaign assignment failed silently — user can retry */ }
@@ -1071,12 +1135,10 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
     }
     const allDepIds = [...new Set([...depIds, ...flexChildDepIds])];
 
-    // Snapshot for undo
+    // Snapshot for undo. Phase 6.20b — server-side ad_set restore is not
+    // natively supported; deployments are still individually restorable.
     snapshotForUndo(`delete ${allDepIds.length}`, async () => {
-      await Promise.all([
-        ...flexAdIds.map(id => api.restoreFlexAd(id)),
-        ...allDepIds.map(id => api.restoreDeployment(id)),
-      ]);
+      await Promise.all(allDepIds.map(id => api.restoreDeployment(id)));
       await loadCampaignData(true);
     });
 
@@ -1098,9 +1160,9 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
 
     const totalRemoved = allDepIds.length;
     try {
-      // Delete flex ads and deployments in parallel
+      // Phase 6.20b — native ungroup for ad_sets, native delete for deployments
       await Promise.all([
-        ...flexAdIds.map(id => api.deleteFlexAd(id)),
+        ...flexAdIds.map(id => api.ungroupAdSet(projectId, id)),
         ...allDepIds.map(id => api.deleteDeployment(id)),
       ]);
       addToast(`${totalRemoved} removed from tracker`, 'success');
