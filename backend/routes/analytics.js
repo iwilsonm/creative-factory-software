@@ -252,6 +252,167 @@ router.delete('/:projectId/tags/assignments', requireRole('admin', 'manager'), a
   }
 });
 
+router.post('/:projectId/tags/assignments/bulk', requireRole('admin', 'manager'), async (req, res) => {
+  try {
+    const {
+      tag_id,
+      entity_type,
+      entity_ids,
+      entity_id_kind = 'meta',
+    } = req.body || {};
+    const ids = Array.isArray(entity_ids) ? [...new Set(entity_ids.map(String).filter(Boolean))] : [];
+    if (!tag_id || !entity_type || ids.length === 0) {
+      return res.status(400).json({ error: 'tag_id + entity_type + entity_ids required' });
+    }
+
+    for (const entity_id of ids) {
+      await convexClient.mutation(api.tagAssignments.create, {
+        externalId: uuidv4(),
+        project_id: req.params.projectId,
+        tag_id,
+        entity_type,
+        entity_id,
+        entity_id_kind,
+      });
+    }
+    res.json({ success: true, count: ids.length });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.delete('/:projectId/tags/assignments/bulk', requireRole('admin', 'manager'), async (req, res) => {
+  try {
+    const { tag_id, entity_type, entity_ids } = req.body || {};
+    const ids = Array.isArray(entity_ids) ? [...new Set(entity_ids.map(String).filter(Boolean))] : [];
+    if (!tag_id || !entity_type || ids.length === 0) {
+      return res.status(400).json({ error: 'tag_id + entity_type + entity_ids required' });
+    }
+
+    for (const entity_id of ids) {
+      await convexClient.mutation(api.tagAssignments.removeByEntityAndTag, {
+        tag_id,
+        entity_id,
+        entity_type,
+      });
+    }
+    res.json({ success: true, count: ids.length });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+// ────────────────────────────────────────────────
+// Entity notes
+// ────────────────────────────────────────────────
+
+function formatNoteEntry(note) {
+  const stamp = new Date().toISOString().replace('T', ' ').slice(0, 16);
+  return `[${stamp}] ${String(note || '').trim()}`;
+}
+
+async function syncDeploymentNote(entityId, note) {
+  const deployment = await convexClient.query(api.ad_deployments.getByExternalId, { externalId: entityId });
+  if (!deployment) return;
+  await convexClient.mutation(api.ad_deployments.update, {
+    externalId: entityId,
+    fields: { notes: note },
+  });
+}
+
+async function appendDeploymentNote(entityId, entry) {
+  const deployment = await convexClient.query(api.ad_deployments.getByExternalId, { externalId: entityId });
+  if (!deployment) return;
+  const next = deployment.notes?.trim() ? `${deployment.notes.trim()}\n\n${entry}` : entry;
+  await convexClient.mutation(api.ad_deployments.update, {
+    externalId: entityId,
+    fields: { notes: next },
+  });
+}
+
+router.get('/:projectId/entity-notes', requireRole('admin', 'manager'), async (req, res) => {
+  try {
+    const entity_type = req.query.entity_type;
+    if (!entity_type) return res.status(400).json({ error: 'entity_type required' });
+    const notes = await convexClient.query(api.entityNotes.getByProjectAndEntityType, {
+      projectId: req.params.projectId,
+      entity_type,
+    });
+    res.json({ notes: notes || [] });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.patch('/:projectId/entity-notes', requireRole('admin', 'manager'), async (req, res) => {
+  try {
+    const {
+      entity_type,
+      entity_id,
+      entity_id_kind = 'meta',
+      note = '',
+    } = req.body || {};
+    if (!entity_type || !entity_id) {
+      return res.status(400).json({ error: 'entity_type + entity_id required' });
+    }
+
+    const externalId = await convexClient.mutation(api.entityNotes.upsert, {
+      externalId: uuidv4(),
+      project_id: req.params.projectId,
+      entity_type,
+      entity_id: String(entity_id),
+      entity_id_kind,
+      note: String(note || ''),
+      updated_by: req.session?.userId ? String(req.session.userId) : undefined,
+    });
+
+    if (entity_type === 'ad' && entity_id_kind === 'cf') {
+      await syncDeploymentNote(String(entity_id), String(note || ''));
+    }
+
+    res.json({ success: true, externalId });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/:projectId/entity-notes/bulk', requireRole('admin', 'manager'), async (req, res) => {
+  try {
+    const {
+      entity_type,
+      entity_ids,
+      entity_id_kind = 'meta',
+      note,
+    } = req.body || {};
+    const ids = Array.isArray(entity_ids) ? [...new Set(entity_ids.map(String).filter(Boolean))] : [];
+    if (!entity_type || ids.length === 0 || !String(note || '').trim()) {
+      return res.status(400).json({ error: 'entity_type + entity_ids + note required' });
+    }
+
+    const entry = formatNoteEntry(note);
+    const externalIds = ids.map(() => uuidv4());
+    const result = await convexClient.mutation(api.entityNotes.appendMany, {
+      externalIds,
+      project_id: req.params.projectId,
+      entity_type,
+      entity_ids: ids,
+      entity_id_kind,
+      entry,
+      updated_by: req.session?.userId ? String(req.session.userId) : undefined,
+    });
+
+    if (entity_type === 'ad' && entity_id_kind === 'cf') {
+      for (const entityId of ids) {
+        await appendDeploymentNote(entityId, entry);
+      }
+    }
+
+    res.json({ success: true, count: ids.length, changed: result?.changed || [] });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 // ────────────────────────────────────────────────
 // Saved views
 // ────────────────────────────────────────────────

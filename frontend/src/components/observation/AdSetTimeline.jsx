@@ -65,12 +65,12 @@ export default function AdSetTimeline({ projectId, adSetId, open, onClose, onCha
   };
 
   return (
-    <div className="fixed inset-0 z-40 flex justify-end bg-black/40" onClick={onClose}>
+    <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 p-3 sm:p-6" onClick={onClose}>
       <div
-        className="bg-white w-[520px] max-w-[92vw] h-full overflow-y-auto shadow-card"
+        className="bg-white w-full max-w-6xl h-[92vh] sm:h-[85vh] rounded-xl shadow-card overflow-hidden flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="sticky top-0 bg-white border-b border-gray-100 px-5 py-3 flex items-center justify-between">
+        <div className="bg-white border-b border-gray-100 px-5 py-3 flex items-center justify-between flex-shrink-0">
           <div className="min-w-0 flex-1">
             <h3 className="text-[14px] font-semibold text-textdark truncate">
               {adSet?.name || 'Loading…'}
@@ -90,10 +90,18 @@ export default function AdSetTimeline({ projectId, adSetId, open, onClose, onCha
         {loading && <div className="p-5 text-[12px] text-textlight">Loading…</div>}
 
         {!loading && data && (
-          <div className="p-5 space-y-5">
-            <BenchmarkSummary adSet={adSet} result={result} benchmark={benchmark} currency={currency} />
-            <Sparkline snapshots={snapshots} currency={currency} />
-            <Snapshots snapshots={snapshots} currency={currency} />
+          <div className="p-5 space-y-5 overflow-y-auto">
+            <div className="grid grid-cols-1 xl:grid-cols-[1.2fr_0.8fr] gap-5">
+              <div className="space-y-5">
+                <BenchmarkSummary adSet={adSet} result={result} benchmark={benchmark} currency={currency} />
+                <Sparkline snapshots={snapshots} currency={currency} />
+                <Snapshots snapshots={snapshots} currency={currency} />
+              </div>
+              <div className="space-y-5">
+                <AdSetSummary adSet={adSet} />
+                <ChildrenSection children={adSet?.children || []} />
+              </div>
+            </div>
 
             <div className="border-t border-gray-100 pt-4 space-y-2">
               <h4 className="text-[12px] font-semibold text-textdark">Actions</h4>
@@ -173,6 +181,59 @@ export default function AdSetTimeline({ projectId, adSetId, open, onClose, onCha
           </div>
         )}
       </div>
+    </div>
+  );
+}
+
+function AdSetSummary({ adSet }) {
+  if (!adSet) return null;
+  return (
+    <div className="card p-4 bg-gray-50/40">
+      <div className="text-[11px] font-semibold text-textmid uppercase tracking-wider mb-2">Summary</div>
+      <div className="space-y-2 text-[12px]">
+        <SummaryRow label="Campaign" value={adSet.campaign_name} />
+        <SummaryRow label="Angle" value={adSet.angle_name} />
+        <SummaryRow label="Lifecycle" value={adSet.lifecycle_status} />
+        <SummaryRow label="Posted" value={adSet.posted_at ? adSet.posted_at.slice(0, 10) : ''} />
+        <SummaryRow label="Ads" value={String(adSet.child_count ?? adSet.children?.length ?? 0)} />
+      </div>
+    </div>
+  );
+}
+
+function SummaryRow({ label, value }) {
+  return (
+    <div className="grid grid-cols-[90px_1fr] gap-3">
+      <span className="text-textlight">{label}</span>
+      <span className="text-textdark break-words">{value || '—'}</span>
+    </div>
+  );
+}
+
+function ChildrenSection({ children }) {
+  return (
+    <div className="card p-4 bg-gray-50/40">
+      <div className="text-[11px] font-semibold text-textmid uppercase tracking-wider mb-2">Ads</div>
+      {children.length === 0 ? (
+        <div className="text-[11px] text-textlight">No child ads are attached to this ad set.</div>
+      ) : (
+        <div className="space-y-2 max-h-[360px] overflow-y-auto pr-1">
+          {children.map((child) => (
+            <div key={child.externalId} className="flex gap-3 p-2 rounded-lg bg-white border border-gray-100">
+              {child.thumbnail_url ? (
+                <img src={child.thumbnail_url} alt="" className="w-14 h-14 rounded-lg object-cover bg-gray-100 flex-shrink-0" loading="lazy" />
+              ) : (
+                <div className="w-14 h-14 rounded-lg bg-gray-100 flex items-center justify-center text-textlight flex-shrink-0">—</div>
+              )}
+              <div className="min-w-0 flex-1 text-[11px]">
+                <div className="font-medium text-textdark truncate">{child.name || child.headline || 'Untitled ad'}</div>
+                <div className="text-textlight truncate">{child.angle_name || child.status || ''}</div>
+                <div className="text-textmid mt-1 max-h-9 overflow-hidden">{child.body_copy || child.headline || 'No copy'}</div>
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }

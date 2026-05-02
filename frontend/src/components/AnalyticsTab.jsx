@@ -30,23 +30,24 @@ const DATE_PRESETS = [
   { id: 'custom', label: 'Custom' },
 ];
 
-const ROW_CAP = 1000;
-const NUMBER_FMT = new Intl.NumberFormat('en-US');
-const DOLLAR_FMT = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' });
-const PERCENT_FMT = new Intl.NumberFormat('en-US', { style: 'percent', minimumFractionDigits: 2, maximumFractionDigits: 2 });
+export const ROW_CAP = 1000;
+export const NUMBER_FMT = new Intl.NumberFormat('en-US');
+export const DOLLAR_FMT = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' });
+export const PERCENT_FMT = new Intl.NumberFormat('en-US', { style: 'percent', minimumFractionDigits: 2, maximumFractionDigits: 2 });
 
-const DEFAULT_COLUMNS_BY_LEVEL = {
-  campaigns: ['name', 'status', 'objective', 'impressions', 'clicks', 'spend', 'ctr', 'cpm', 'cpc', 'roas', 'tags'],
-  adsets: ['name', 'campaign_name', 'status', 'optimization_goal', 'impressions', 'clicks', 'spend', 'ctr', 'cpm', 'cpc', 'roas', 'tags'],
-  ads: ['name', 'thumbnail_url', 'adset_name', 'campaign_name', 'status', 'impressions', 'clicks', 'spend', 'ctr', 'cpc', 'roas', 'tags'],
+export const DEFAULT_COLUMNS_BY_LEVEL = {
+  campaigns: ['name', 'status', 'objective', 'impressions', 'clicks', 'spend', 'ctr', 'cpm', 'cpc', 'roas', 'tags', 'notes'],
+  adsets: ['name', 'campaign_name', 'status', 'optimization_goal', 'impressions', 'clicks', 'spend', 'ctr', 'cpm', 'cpc', 'roas', 'tags', 'notes'],
+  ads: ['name', 'thumbnail_url', 'adset_name', 'campaign_name', 'status', 'impressions', 'clicks', 'spend', 'ctr', 'cpc', 'roas', 'tags', 'notes'],
+  observation: ['name', 'angle_name', 'status', 'spend', 'roas', 'days_observed', 'tags', 'notes', 'posted_at'],
 };
 
-function numberValue(value) {
+export function numberValue(value) {
   const n = Number(value || 0);
   return Number.isFinite(n) ? n : 0;
 }
 
-function firstRoasValue(row, field = 'purchase_roas') {
+export function firstRoasValue(row, field = 'purchase_roas') {
   const arr = row[field];
   if (!Array.isArray(arr) || arr.length === 0) return 0;
   const purchase = arr.find((r) => r?.action_type === 'purchase') || arr[0];
@@ -58,7 +59,7 @@ function moneyMinor(value) {
   return n > 0 ? DOLLAR_FMT.format(n / 100) : '—';
 }
 
-function isoDate(value) {
+export function isoDate(value) {
   if (!value) return '—';
   return String(value).slice(0, 10);
 }
@@ -71,13 +72,15 @@ function actionSummary(rows) {
     .join(', ');
 }
 
-const LEVEL_ALL = ['campaigns', 'adsets', 'ads'];
-const LEVEL_ADSET_AD = ['adsets', 'ads'];
+const LEVEL_ALL = ['campaigns', 'adsets', 'ads', 'observation'];
+const LEVEL_ADSET_AD = ['adsets', 'ads', 'observation'];
 
-const COLUMN_DEFS = {
+export const COLUMN_DEFS = {
   name: { label: 'Name', type: 'string', levels: LEVEL_ALL, width: 'min-w-[240px]', accessor: (r) => r.name || '' },
   id: { label: 'Meta ID', type: 'string', levels: LEVEL_ALL, width: 'w-40', accessor: (r) => r.id || '' },
   status: { label: 'Status', type: 'string', levels: LEVEL_ALL, width: 'w-28', accessor: (r) => r.effective_status || r.status || '' },
+  angle_name: { label: 'Angle', type: 'string', levels: LEVEL_ADSET_AD, width: 'min-w-[180px]', accessor: (r) => r.angle_name || '' },
+  notes: { label: 'Notes', type: 'string', levels: LEVEL_ALL, width: 'min-w-[220px]', accessor: (r) => r.note_text || r.note || '' },
   effective_status: { label: 'Effective Status', type: 'string', levels: LEVEL_ALL, width: 'w-36', accessor: (r) => r.effective_status || '' },
   configured_status: { label: 'Configured Status', type: 'string', levels: LEVEL_ALL, width: 'w-36', accessor: (r) => r.status || '' },
   campaign_id: { label: 'Campaign ID', type: 'string', levels: LEVEL_ADSET_AD, width: 'w-40', accessor: (r) => r.campaign_id || '' },
@@ -102,6 +105,9 @@ const COLUMN_DEFS = {
   end_time: { label: 'End', type: 'date', levels: ['adsets'], width: 'w-28', accessor: (r) => r.end_time || '', format: isoDate },
   created_time: { label: 'Created', type: 'date', levels: LEVEL_ALL, width: 'w-28', accessor: (r) => r.created_time || '', format: isoDate },
   updated_time: { label: 'Updated', type: 'date', levels: LEVEL_ALL, width: 'w-28', accessor: (r) => r.updated_time || '', format: isoDate },
+  posted_at: { label: 'Posted', type: 'date', levels: ['observation'], width: 'w-28', accessor: (r) => r.posted_at || '', format: isoDate },
+  days_observed: { label: 'Days Observed', type: 'number', levels: ['observation'], width: 'w-28', accessor: (r) => numberValue(r.days_observed), format: NUMBER_FMT.format, align: 'right' },
+  child_count: { label: 'Ads', type: 'number', levels: ['observation'], width: 'w-20', accessor: (r) => numberValue(r.child_count), format: NUMBER_FMT.format, align: 'right' },
 
   creative_id: { label: 'Creative ID', type: 'string', levels: ['ads'], width: 'w-40', accessor: (r) => r.creative_id || r.creative?.id || '' },
   creative_name: { label: 'Creative Name', type: 'string', levels: ['ads'], width: 'min-w-[180px]', accessor: (r) => r.creative_name || r.creative?.name || '' },
@@ -203,7 +209,7 @@ function columnAvailable(field, level) {
   return !!def && (!def.levels || def.levels.includes(level));
 }
 
-function filterableColumns(level) {
+export function filterableColumns(level) {
   return [
     ...Object.entries(COLUMN_DEFS)
       .filter(([, def]) => !def.levels || def.levels.includes(level))
@@ -216,7 +222,7 @@ function emptyScope() {
   return { campaignId: null, campaignName: null, adsetId: null, adsetName: null };
 }
 
-function newFilter(level) {
+export function newFilter(level) {
   const field = level === 'ads' ? 'adset_name' : level === 'adsets' ? 'campaign_name' : 'name';
   return { id: `${Date.now()}-${Math.random().toString(36).slice(2)}`, field, op: 'contains', value: '', valueTo: '' };
 }
@@ -236,7 +242,7 @@ function isBlank(value) {
   return value == null || value === '' || (Array.isArray(value) && value.length === 0);
 }
 
-function matchesFilter(row, filter, tagsByEntity) {
+export function matchesFilter(row, filter, tagsByEntity) {
   if (!filter?.field) return true;
   if (filter.field === 'tags') {
     const ids = tagsByEntity.get(row.id) || [];
@@ -292,6 +298,7 @@ export default function AnalyticsTab({ projectId }) {
 
   const [tags, setTags] = useState([]);
   const [assignments, setAssignments] = useState([]);
+  const [notes, setNotes] = useState([]);
   const [views, setViews] = useState([]);
   const [activeViewId, setActiveViewId] = useState(null);
 
@@ -301,6 +308,8 @@ export default function AnalyticsTab({ projectId }) {
   const [showColumnPicker, setShowColumnPicker] = useState(false);
 
   const [tagPickerForRow, setTagPickerForRow] = useState(null);
+  const [selectedIds, setSelectedIds] = useState([]);
+  const [bulkTagId, setBulkTagId] = useState('');
   const [showManageTags, setShowManageTags] = useState(false);
   const [showSaveView, setShowSaveView] = useState(false);
   const requestSeqRef = useRef(0);
@@ -381,6 +390,13 @@ export default function AnalyticsTab({ projectId }) {
     } catch { /* ignore */ }
   }, [projectId, entityType]);
 
+  const loadNotes = useCallback(async () => {
+    try {
+      const { notes: list } = await api.getEntityNotes(projectId, entityType);
+      setNotes(list || []);
+    } catch { /* ignore */ }
+  }, [projectId, entityType]);
+
   const loadViews = useCallback(async () => {
     try {
       const { views: list } = await api.getSavedViews(projectId);
@@ -391,6 +407,11 @@ export default function AnalyticsTab({ projectId }) {
   useEffect(() => { loadData({ clearRows: true }); }, [loadData]);
   useEffect(() => { loadTags(); loadViews(); }, [loadTags, loadViews]);
   useEffect(() => { loadAssignments(); }, [loadAssignments]);
+  useEffect(() => { loadNotes(); }, [loadNotes]);
+  useEffect(() => {
+    setSelectedIds([]);
+    setBulkTagId('');
+  }, [queryKey, entityType, filters]);
 
   useEffect(() => {
     setColumns((prev) => {
@@ -410,8 +431,23 @@ export default function AnalyticsTab({ projectId }) {
     return map;
   }, [assignments]);
 
+  const notesByEntity = useMemo(() => {
+    const map = new Map();
+    for (const note of notes) {
+      map.set(String(note.entity_id), note);
+    }
+    return map;
+  }, [notes]);
+
+  const rowsWithNotes = useMemo(() => (
+    rows.map((row) => {
+      const note = notesByEntity.get(String(row.id));
+      return { ...row, note_text: note?.note || '' };
+    })
+  ), [rows, notesByEntity]);
+
   const filteredSortedRows = useMemo(() => {
-    let out = rows;
+    let out = rowsWithNotes;
     if (filters.length > 0) {
       out = out.filter((row) => filters.every((filter) => matchesFilter(row, filter, tagsByEntity)));
     }
@@ -426,10 +462,13 @@ export default function AnalyticsTab({ projectId }) {
       });
     }
     return out;
-  }, [rows, filters, sort, tagsByEntity]);
+  }, [rowsWithNotes, filters, sort, tagsByEntity]);
 
   const cappedRows = filteredSortedRows.slice(0, ROW_CAP);
   const hitCap = filteredSortedRows.length > ROW_CAP;
+  const visibleIds = useMemo(() => cappedRows.map((row) => String(row.id)), [cappedRows]);
+  const visibleSelectedIds = selectedIds.filter((id) => visibleIds.includes(id));
+  const allVisibleSelected = visibleIds.length > 0 && visibleSelectedIds.length === visibleIds.length;
 
   const toggleSort = (field) => {
     setSort((prev) => prev.field === field
@@ -492,6 +531,59 @@ export default function AnalyticsTab({ projectId }) {
         entity_id_kind: 'meta',
       });
       await loadAssignments();
+    } catch (err) { toast.error(err.message); }
+  };
+
+  const handleUpdateNote = async (row, note) => {
+    try {
+      await api.updateEntityNote(projectId, {
+        entity_type: entityType,
+        entity_id: String(row.id),
+        entity_id_kind: 'meta',
+        note,
+      });
+      await loadNotes();
+    } catch (err) { toast.error(err.message); }
+  };
+
+  const handleBulkApplyTag = async () => {
+    if (!bulkTagId || selectedIds.length === 0) return;
+    try {
+      await api.applyTagsBulk(projectId, {
+        tag_id: bulkTagId,
+        entity_type: entityType,
+        entity_ids: selectedIds,
+        entity_id_kind: 'meta',
+      });
+      await loadAssignments();
+      toast.success(`Tagged ${selectedIds.length} ${entityType.replace('_', ' ')}${selectedIds.length === 1 ? '' : 's'}`);
+    } catch (err) { toast.error(err.message); }
+  };
+
+  const handleBulkRemoveTag = async () => {
+    if (!bulkTagId || selectedIds.length === 0) return;
+    try {
+      await api.removeTagAssignmentsBulk(projectId, {
+        tag_id: bulkTagId,
+        entity_type: entityType,
+        entity_ids: selectedIds,
+      });
+      await loadAssignments();
+      toast.success(`Removed tag from ${selectedIds.length} row${selectedIds.length === 1 ? '' : 's'}`);
+    } catch (err) { toast.error(err.message); }
+  };
+
+  const handleBulkAppendNote = async (note) => {
+    if (!String(note || '').trim() || selectedIds.length === 0) return;
+    try {
+      await api.appendEntityNotesBulk(projectId, {
+        entity_type: entityType,
+        entity_ids: selectedIds,
+        entity_id_kind: 'meta',
+        note,
+      });
+      await loadNotes();
+      toast.success(`Appended note to ${selectedIds.length} row${selectedIds.length === 1 ? '' : 's'}`);
     } catch (err) { toast.error(err.message); }
   };
 
@@ -562,6 +654,22 @@ export default function AnalyticsTab({ projectId }) {
   const clearScope = () => {
     setScope(emptyScope());
     setLevel('campaigns');
+  };
+
+  const toggleRowSelection = (id) => {
+    const key = String(id);
+    setSelectedIds((prev) => prev.includes(key)
+      ? prev.filter((item) => item !== key)
+      : [...prev, key]);
+  };
+
+  const toggleSelectAllVisible = () => {
+    setSelectedIds((prev) => {
+      if (allVisibleSelected) {
+        return prev.filter((id) => !visibleIds.includes(id));
+      }
+      return [...new Set([...prev, ...visibleIds])];
+    });
   };
 
   return (
@@ -705,6 +813,15 @@ export default function AnalyticsTab({ projectId }) {
           <table className="w-full text-[12px]">
             <thead className="bg-gray-50/60 border-b border-gray-100">
               <tr>
+                <th className="px-3 py-2 w-10">
+                  <input
+                    type="checkbox"
+                    checked={allVisibleSelected}
+                    onChange={toggleSelectAllVisible}
+                    className="rounded border-navy/30 text-navy focus:ring-navy/20"
+                    aria-label="Select all visible rows"
+                  />
+                </th>
                 {columns.map((col) => {
                   if (col === 'tags') {
                     return <th key={col} className="px-3 py-2 text-left font-medium text-textmid w-48">Tags</th>;
@@ -729,15 +846,26 @@ export default function AnalyticsTab({ projectId }) {
             </thead>
             <tbody>
               {loading && rows.length === 0 && (
-                <tr><td colSpan={columns.length} className="px-3 py-12 text-center text-textlight">Loading...</td></tr>
+                <tr><td colSpan={columns.length + 1} className="px-3 py-12 text-center text-textlight">Loading...</td></tr>
               )}
               {!loading && cappedRows.length === 0 && (
-                <tr><td colSpan={columns.length} className="px-3 py-12 text-center text-textlight">No rows match.</td></tr>
+                <tr><td colSpan={columns.length + 1} className="px-3 py-12 text-center text-textlight">No rows match.</td></tr>
               )}
               {cappedRows.map((row) => {
                 const appliedIds = tagsByEntity.get(row.id) || [];
+                const selected = selectedIds.includes(String(row.id));
                 return (
-                  <tr key={row.id} className="border-b border-gray-50 hover:bg-gray-50/50">
+                  <tr key={row.id} className={`border-b border-gray-50 hover:bg-gray-50/50 ${selected ? 'bg-gold/5' : ''}`}>
+                    <td className="px-3 py-2">
+                      <input
+                        type="checkbox"
+                        checked={selected}
+                        onChange={() => toggleRowSelection(row.id)}
+                        onClick={(e) => e.stopPropagation()}
+                        className="rounded border-navy/30 text-navy focus:ring-navy/20"
+                        aria-label={`Select ${row.name || row.id}`}
+                      />
+                    </td>
                     {columns.map((col) => {
                       if (col === 'tags') {
                         return (
@@ -752,6 +880,13 @@ export default function AnalyticsTab({ projectId }) {
                               isOpen={tagPickerForRow === row.id}
                               setOpen={(open) => setTagPickerForRow(open ? row.id : null)}
                             />
+                          </td>
+                        );
+                      }
+                      if (col === 'notes') {
+                        return (
+                          <td key={col} className="px-3 py-2">
+                            <NotesCell note={row.note_text || ''} onSave={(note) => handleUpdateNote(row, note)} />
                           </td>
                         );
                       }
@@ -799,6 +934,17 @@ export default function AnalyticsTab({ projectId }) {
         </div>
       </div>
 
+      <BulkActionBar
+        selectedCount={selectedIds.length}
+        tags={tags}
+        selectedTagId={bulkTagId}
+        onTagChange={setBulkTagId}
+        onApplyTag={handleBulkApplyTag}
+        onRemoveTag={handleBulkRemoveTag}
+        onAppendNote={handleBulkAppendNote}
+        onClear={() => setSelectedIds([])}
+      />
+
       <TagManageDialog
         open={showManageTags}
         tags={tags}
@@ -817,7 +963,7 @@ export default function AnalyticsTab({ projectId }) {
   );
 }
 
-function ColumnPicker({ columns, availableColumns, onChange, onReset, onClose }) {
+export function ColumnPicker({ columns, availableColumns, onChange, onReset, onClose }) {
   const [query, setQuery] = useState('');
   const filtered = availableColumns.filter((col) => col.label.toLowerCase().includes(query.toLowerCase()) || col.id.toLowerCase().includes(query.toLowerCase()));
   return (
@@ -856,7 +1002,7 @@ function ColumnPicker({ columns, availableColumns, onChange, onReset, onClose })
   );
 }
 
-function FilterRow({ filter, level, tags, onChange, onRemove }) {
+export function FilterRow({ filter, level, tags, onChange, onRemove }) {
   const fields = filterableColumns(level);
   const selected = fields.find((f) => f.id === filter.field) || fields[0];
   const type = selected?.type || 'string';
@@ -920,7 +1066,7 @@ function FilterRow({ filter, level, tags, onChange, onRemove }) {
   );
 }
 
-function RowTagCell({ row, allTags, appliedIds, onApply, onRemove, onCreate, isOpen, setOpen }) {
+export function RowTagCell({ row, allTags, appliedIds, onApply, onRemove, onCreate, isOpen, setOpen }) {
   const anchorRef = useRef(null);
   const applied = (allTags || []).filter((t) => appliedIds.includes(t.externalId));
 
@@ -966,6 +1112,102 @@ function RowTagCell({ row, allTags, appliedIds, onApply, onRemove, onCreate, isO
           />
         )}
       </div>
+    </div>
+  );
+}
+
+export function NotesCell({ note, onSave }) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(note || '');
+
+  useEffect(() => {
+    if (!editing) setDraft(note || '');
+  }, [note, editing]);
+
+  if (editing) {
+    return (
+      <div className="space-y-1 min-w-[220px]">
+        <textarea
+          autoFocus
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+          rows={3}
+          className="w-full text-[12px] px-2 py-1.5 border border-gray-200 rounded-lg focus:outline-none focus:border-navy resize-y"
+          placeholder="Add a note..."
+        />
+        <div className="flex items-center gap-2">
+          <button
+            onClick={async () => { await onSave(draft); setEditing(false); }}
+            className="btn-primary text-[10px] px-2 py-1"
+          >
+            Save
+          </button>
+          <button
+            onClick={() => { setDraft(note || ''); setEditing(false); }}
+            className="text-[10px] text-textlight hover:text-textdark"
+          >
+            Cancel
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <button
+      onClick={() => setEditing(true)}
+      className="text-left text-[12px] text-textmid hover:text-textdark max-w-[260px]"
+      title={note || 'Add note'}
+    >
+      {note ? (
+        <span className="block max-h-10 overflow-hidden whitespace-pre-wrap">{note}</span>
+      ) : (
+        <span className="text-textlight">+ Note</span>
+      )}
+    </button>
+  );
+}
+
+export function BulkActionBar({
+  selectedCount,
+  tags,
+  selectedTagId,
+  onTagChange,
+  onApplyTag,
+  onRemoveTag,
+  onAppendNote,
+  onClear,
+}) {
+  if (selectedCount <= 0) return null;
+  return (
+    <div className="fixed left-1/2 bottom-4 z-50 w-[min(760px,calc(100vw-24px))] -translate-x-1/2 rounded-xl border border-gray-200 bg-white shadow-card px-3 py-2 flex flex-wrap items-center gap-2">
+      <span className="text-[12px] font-medium text-textdark mr-1">{selectedCount} selected</span>
+      <select
+        value={selectedTagId}
+        onChange={(e) => onTagChange(e.target.value)}
+        className="text-[12px] px-2 py-1.5 border border-gray-200 rounded-lg bg-white focus:outline-none focus:border-navy min-w-[160px]"
+      >
+        <option value="">Choose tag...</option>
+        {(tags || []).map((tag) => <option key={tag.externalId} value={tag.externalId}>{tag.name}</option>)}
+      </select>
+      <button disabled={!selectedTagId} onClick={onApplyTag} className="btn-secondary text-[11px] px-3 py-1.5 disabled:opacity-50">
+        Apply tag
+      </button>
+      <button disabled={!selectedTagId} onClick={onRemoveTag} className="btn-secondary text-[11px] px-3 py-1.5 disabled:opacity-50">
+        Remove tag
+      </button>
+      <button
+        onClick={() => {
+          const note = prompt('Append note to selected rows');
+          if (note !== null) onAppendNote(note);
+        }}
+        className="btn-secondary text-[11px] px-3 py-1.5"
+      >
+        Append note
+      </button>
+      <button onClick={onClear} className="text-[11px] text-textlight hover:text-textdark ml-auto px-2">
+        Clear
+      </button>
     </div>
   );
 }

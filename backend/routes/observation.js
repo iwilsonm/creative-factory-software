@@ -9,6 +9,7 @@ import {
   getProject,
   convexClient,
   api,
+  getAdSummariesByExternalIds,
   setSetting,
   getSetting,
   getAllSettings,
@@ -33,6 +34,126 @@ router.use(requireAuth);
 adminRouter.use(requireAuth);
 const DEMO_OBSERVATION_NAME = '[Demo] Observation Test Ad Set';
 const DEMO_CAMPAIGN_NAME = '[Demo] Observation Campaign';
+
+function latestByAdSet(results) {
+  const map = new Map();
+  for (const result of results || []) {
+    const existing = map.get(result.ad_set_id);
+    if (!existing || (result.created_at || '') > (existing.created_at || '')) {
+      map.set(result.ad_set_id, result);
+    }
+  }
+  return map;
+}
+
+function metricFromLatest(adSet, latest) {
+  const source = latest || {};
+  return {
+    spend: Number(source.spend || 0),
+    impressions: Number(source.impressions || 0),
+    reach: Number(source.reach || 0),
+    clicks: Number(source.clicks || 0),
+    ctr: Number(source.ctr || 0),
+    cpm: Number(source.cpm || 0),
+    cpc: Number(source.cpc || 0),
+    roas: source.roas ?? null,
+    cpa: source.cpa ?? null,
+    conversions: source.conversions ?? null,
+    purchase_count: source.conversions ?? null,
+    cost_per_purchase: source.cpa ?? null,
+    account_currency: source.account_currency || adSet.account_currency || 'USD',
+  };
+}
+
+async function buildObservationContext(projectId) {
+  const [campaigns, angles, deployments, results] = await Promise.all([
+    convexClient.query(api.campaigns.getByProject, { projectId }),
+    convexClient.query(api.conductor.getAngles, { projectId }),
+    convexClient.query(api.ad_deployments.getByProject, { projectId }),
+    convexClient.query(api.observationResults.getByProject, { projectId }),
+  ]);
+  const adIds = [...new Set((deployments || []).map((d) => d.ad_id).filter(Boolean))];
+  const adSummaries = await getAdSummariesByExternalIds(adIds);
+  const campaignById = new Map((campaigns || []).map((c) => [c.externalId, c]));
+  const angleById = new Map((angles || []).map((a) => [a.externalId, a]));
+  const adById = new Map((adSummaries || []).map((a) => [a.id, a]));
+  const deploymentsByAdSet = new Map();
+
+  for (const deployment of deployments || []) {
+    if (!deployment.local_adset_id) continue;
+    const list = deploymentsByAdSet.get(deployment.local_adset_id) || [];
+    list.push(deployment);
+    deploymentsByAdSet.set(deployment.local_adset_id, list);
+  }
+
+  return {
+    campaignById,
+    angleById,
+    adById,
+    deploymentsByAdSet,
+    latestResultsByAdSet: latestByAdSet(results),
+  };
+}
+
+function childRowsForAdSet(projectId, adSet, context) {
+  const campaign = context.campaignById.get(adSet.campaign_id);
+  const angle = adSet.angle_id ? context.angleById.get(adSet.angle_id) : null;
+  return (context.deploymentsByAdSet.get(adSet.externalId) || []).map((deployment) => {
+    const creative = context.adById.get(deployment.ad_id) || {};
+    const angleName = creative.angle_name || creative.angle || angle?.name || '';
+    const imageUrl = creative.hasImage && deployment.ad_id
+      ? `/api/deployments/ad-image/${projectId}/${deployment.ad_id}`
+      : null;
+    return {
+      id: deployment.externalId,
+      externalId: deployment.externalId,
+      entity_type: 'ad',
+      entity_id_kind: 'cf',
+      name: deployment.ad_name || creative.headline || deployment.externalId,
+      ad_id: deployment.ad_id,
+      adset_id: adSet.externalId,
+      adset_name: adSet.name,
+      campaign_id: adSet.campaign_id,
+      campaign_name: campaign?.name || deployment.campaign_name || '',
+      angle_name: angleName,
+      status: deployment.status || '',
+      headline: creative.headline || '',
+      body_copy: creative.body_copy || '',
+      destination_url: deployment.destination_url || deployment.landing_page_url || '',
+      cta_button: deployment.cta_button || '',
+      notes: deployment.notes || '',
+      thumbnail_url: imageUrl,
+      image_url: imageUrl,
+      created_at: deployment.created_at || '',
+      posted_at: deployment.posted_date || adSet.posted_at || '',
+    };
+  });
+}
+
+function enrichObservationAdSet(projectId, adSet, context, benchmark) {
+  const latest = context.latestResultsByAdSet.get(adSet.externalId) || null;
+  const campaign = context.campaignById.get(adSet.campaign_id);
+  const angle = adSet.angle_id ? context.angleById.get(adSet.angle_id) : null;
+  const days = effectiveDaysObserved(adSet);
+  const window = effectiveWindow(adSet, benchmark);
+  const children = childRowsForAdSet(projectId, adSet, context);
+  return {
+    ...adSet,
+    id: adSet.externalId,
+    entity_type: 'ad_set',
+    entity_id_kind: 'cf',
+    campaign_name: campaign?.name || '',
+    campaign_id: adSet.campaign_id || '',
+    angle_name: angle?.name || '',
+    days_observed: days,
+    window_total: window,
+    child_count: children.length,
+    children,
+    is_paused: !!adSet.observation_paused_at,
+    latest_result: latest,
+    ...metricFromLatest(adSet, latest),
+  };
+}
 
 // ────────────────────────────────────────────────
 // Config
@@ -208,22 +329,13 @@ router.get('/:projectId/observation/ad-sets', requireRole('admin', 'manager'), a
   try {
     const all = await convexClient.query(api.adSets.getByProject, { projectId: req.params.projectId });
     const filtered = (all || []).filter((a) => TERMINAL.has(a.lifecycle_status));
-
-    // Attach the latest result row for each
-    const enriched = await Promise.all(filtered.map(async (adSet) => {
-      const results = await convexClient.query(api.observationResults.getByAdSet, { ad_set_id: adSet.externalId });
-      const latest = (results || [])[0]; // already sorted DESC
-      const days = effectiveDaysObserved(adSet);
-      const benchmark = await resolveProjectBenchmark(req.params.projectId);
-      const window = effectiveWindow(adSet, benchmark);
-      return {
-        ...adSet,
-        days_observed: days,
-        window_total: window,
-        is_paused: !!adSet.observation_paused_at,
-        latest_result: latest || null,
-      };
-    }));
+    const [benchmark, context] = await Promise.all([
+      resolveProjectBenchmark(req.params.projectId),
+      buildObservationContext(req.params.projectId),
+    ]);
+    const enriched = filtered.map((adSet) =>
+      enrichObservationAdSet(req.params.projectId, adSet, context, benchmark)
+    );
     res.json({ ad_sets: enriched });
   } catch (err) {
     res.status(500).json({ error: err.message });
@@ -351,19 +463,15 @@ router.get('/:projectId/observation/ad-sets/:adSetId', requireRole('admin', 'man
   try {
     const adSet = await convexClient.query(api.adSets.getByExternalId, { externalId: req.params.adSetId });
     if (!adSet) return res.status(404).json({ error: 'Ad set not found' });
-    const snapshots = await convexClient.query(api.observationSnapshots.getByAdSet, { ad_set_id: req.params.adSetId });
-    const results = await convexClient.query(api.observationResults.getByAdSet, { ad_set_id: req.params.adSetId });
-    const benchmark = await resolveProjectBenchmark(req.params.projectId);
-    const days = effectiveDaysObserved(adSet);
-    const window = effectiveWindow(adSet, benchmark);
+    const [snapshots, results, benchmark, context] = await Promise.all([
+      convexClient.query(api.observationSnapshots.getByAdSet, { ad_set_id: req.params.adSetId }),
+      convexClient.query(api.observationResults.getByAdSet, { ad_set_id: req.params.adSetId }),
+      resolveProjectBenchmark(req.params.projectId),
+      buildObservationContext(req.params.projectId),
+    ]);
 
     res.json({
-      ad_set: {
-        ...adSet,
-        days_observed: days,
-        window_total: window,
-        is_paused: !!adSet.observation_paused_at,
-      },
+      ad_set: enrichObservationAdSet(req.params.projectId, adSet, context, benchmark),
       snapshots: (snapshots || []).sort((a, b) => a.day_index - b.day_index),
       results: results || [],
       benchmark,

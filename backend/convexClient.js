@@ -506,6 +506,7 @@ export async function getAdSummariesByExternalIds(externalIds) {
     id: a.externalId,
     project_id: a.project_id,
     angle: a.angle || null,
+    angle_name: a.angle_name || null,
     headline: a.headline || null,
     body_copy: a.body_copy || null,
     tags: a.tags || [],

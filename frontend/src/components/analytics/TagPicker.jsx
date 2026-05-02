@@ -1,14 +1,15 @@
 import { useState, useRef, useEffect } from 'react';
 
 export const TAG_COLORS = [
-  { name: 'gold',         hex: '#C4975A' },
-  { name: 'teal',         hex: '#2A9D8F' },
-  { name: 'navy',         hex: '#0B1D3A' },
-  { name: 'red',          hex: '#C5535A' },
-  { name: 'purple',       hex: '#7C6DCD' },
-  { name: 'cyan',         hex: '#5EB6C7' },
-  { name: 'gray',         hex: '#8A96A8' },
-  { name: 'olive',        hex: '#7C8B5A' },
+  { name: 'gray',   hex: '#787774' },
+  { name: 'brown',  hex: '#9F6B53' },
+  { name: 'orange', hex: '#D9730D' },
+  { name: 'yellow', hex: '#CB912F' },
+  { name: 'green',  hex: '#448361' },
+  { name: 'blue',   hex: '#337EA9' },
+  { name: 'purple', hex: '#9065B0' },
+  { name: 'pink',   hex: '#C14C8A' },
+  { name: 'red',    hex: '#D44C47' },
 ];
 
 export default function TagPicker({ allTags, appliedTagIds, onApply, onRemove, onCreate, anchorRef, onClose }) {

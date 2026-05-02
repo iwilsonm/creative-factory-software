@@ -652,6 +652,25 @@ export default defineSchema({
     .index("by_entity", ["entity_id", "entity_type"])
     .index("by_project_and_entity", ["project_id", "entity_type"]),
 
+  // Project-scoped plain-text notes for Meta-side analytics entities and
+  // Creative Factory local entities. Notes are intentionally independent from
+  // tag assignments so they can be edited/bulk-appended without touching tags.
+  entity_notes: defineTable({
+    externalId: v.string(),
+    project_id: v.string(),
+    entity_type: v.string(),             // "ad" | "ad_set" | "campaign"
+    entity_id: v.string(),
+    entity_id_kind: v.string(),          // "meta" | "cf"
+    note: v.string(),
+    updated_by: v.optional(v.string()),
+    created_at: v.string(),
+    updated_at: v.string(),
+  })
+    .index("by_externalId", ["externalId"])
+    .index("by_project", ["project_id"])
+    .index("by_project_and_entity", ["project_id", "entity_type"])
+    .index("by_entity", ["entity_id", "entity_type"]),
+
   // Notion-style saved views. Each view captures the active level + date range
   // + filters + sort + columns at save time. Scope is "private" (visible only
   // to the owner) or "project" (visible to all teammates on the project).

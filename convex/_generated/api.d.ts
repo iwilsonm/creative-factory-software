@@ -18,6 +18,7 @@ import type * as campaigns from "../campaigns.js";
 import type * as conductor from "../conductor.js";
 import type * as correction_history from "../correction_history.js";
 import type * as dashboard_todos from "../dashboard_todos.js";
+import type * as entityNotes from "../entityNotes.js";
 import type * as fileStorage from "../fileStorage.js";
 import type * as flexAds from "../flexAds.js";
 import type * as foundationalDocs from "../foundationalDocs.js";
@@ -53,6 +54,7 @@ declare const fullApi: ApiFromModules<{
   conductor: typeof conductor;
   correction_history: typeof correction_history;
   dashboard_todos: typeof dashboard_todos;
+  entityNotes: typeof entityNotes;
   fileStorage: typeof fileStorage;
   flexAds: typeof flexAds;
   foundationalDocs: typeof foundationalDocs;

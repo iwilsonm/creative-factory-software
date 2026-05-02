@@ -756,6 +756,30 @@ export const api = {
       method: 'DELETE',
       body: JSON.stringify({ tag_id, entity_id, entity_type }),
     }),
+  applyTagsBulk: (projectId, { tag_id, entity_type, entity_ids, entity_id_kind = 'meta' }) =>
+    request(`/projects/${projectId}/tags/assignments/bulk`, {
+      method: 'POST',
+      body: JSON.stringify({ tag_id, entity_type, entity_ids, entity_id_kind }),
+    }),
+  removeTagAssignmentsBulk: (projectId, { tag_id, entity_type, entity_ids }) =>
+    request(`/projects/${projectId}/tags/assignments/bulk`, {
+      method: 'DELETE',
+      body: JSON.stringify({ tag_id, entity_type, entity_ids }),
+    }),
+
+  // Entity notes
+  getEntityNotes: (projectId, entityType) =>
+    request(`/projects/${projectId}/entity-notes?entity_type=${encodeURIComponent(entityType)}`),
+  updateEntityNote: (projectId, { entity_type, entity_id, entity_id_kind = 'meta', note }) =>
+    request(`/projects/${projectId}/entity-notes`, {
+      method: 'PATCH',
+      body: JSON.stringify({ entity_type, entity_id, entity_id_kind, note }),
+    }),
+  appendEntityNotesBulk: (projectId, { entity_type, entity_ids, entity_id_kind = 'meta', note }) =>
+    request(`/projects/${projectId}/entity-notes/bulk`, {
+      method: 'POST',
+      body: JSON.stringify({ entity_type, entity_ids, entity_id_kind, note }),
+    }),
 
   // Saved views
   getSavedViews: (projectId) => request(`/projects/${projectId}/analytics/views`),
