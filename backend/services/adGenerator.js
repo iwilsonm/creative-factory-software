@@ -24,6 +24,15 @@ function imageModelLabel(imageModel) {
   if (imageModel === 'gpt-image-2') return 'GPT Image 2';
   return 'Nano Banana Pro';
 }
+
+function isOpenAIImageModel(imageModel) {
+  return OPENAI_IMAGE_MODELS.has(imageModel);
+}
+
+function makeRenderReference(base64, mimeType, role) {
+  if (!base64 || !mimeType) return null;
+  return { base64, mimeType, role };
+}
 import { withHeavyLLMLimit } from './rateLimiter.js';
 import {
   getProject, getLatestDoc, uploadBuffer, downloadToBuffer,
@@ -247,10 +256,7 @@ ${beliefsContent}`;
  * Per the SOP, the core instruction is exactly "make a prompt for an image like this".
  * Angle, aspect ratio, product image, headline, and body copy are appended as additional direction.
  *
- * Pass `imageModel` when known so we can add model-specific constraints. Currently:
- * - `gpt-image-2` + productImage routes to dall-e-2 (1000-byte UTF-8 prompt cap) →
- *   we tell GPT-5.2 to produce a compact prompt up front instead of letting the
- *   tail-truncation in openai.js#generateImage chop the head off later.
+ * Pass `imageModel` when known for future model-specific prompt routing.
  */
 export function buildImageRequestText(angle, aspectRatio, hasProductImage = false, headline = null, bodyCopy = null, angleBrief = null, imageModel = null) {
   let text = 'make a prompt for an image like this';
@@ -279,15 +285,6 @@ export function buildImageRequestText(angle, aspectRatio, hasProductImage = fals
   }
   if (aspectRatio && aspectRatio !== '1:1') {
     extras.push(`Use ${aspectRatio} aspect ratio instead of 1:1`);
-  }
-
-  // dall-e-2 routing: OpenAI's edit endpoint is hardcoded to dall-e-2 with a
-  // 1000-byte UTF-8 prompt limit. Tell GPT-5.2 to produce a compact prompt
-  // up front rather than its usual 2000-3000 byte output — keeps the prompt
-  // cohesive instead of getting head-truncated later in openai.js. Targets
-  // 900 bytes for safety margin against multi-byte chars and minor overshoot.
-  if (hasProductImage && imageModel === 'gpt-image-2') {
-    extras.push("LENGTH LIMIT: this prompt will be sent to OpenAI's dall-e-2 model which has a strict 1000-byte UTF-8 limit. Keep your prompt under 900 bytes (roughly 800 ASCII characters, fewer if you use em-dashes/smart-quotes/accented characters). Be concise and visual. Prioritize: scene direction, product reference, headline, body copy, angle. Drop or shorten: verbose brand background, avatar psychographics, foundational-doc context. Output the prompt as a single tight paragraph");
   }
 
   if (extras.length > 0) {
@@ -508,6 +505,7 @@ export async function generateAd(projectId, options = {}) {
 
     // GPT-5.2 Messages 1-2: Rate-limited to prevent TPM overload
     const hasProductImage = !!(productImageBase64 && productImageMimeType);
+    let renderReferenceImages = [];
 
     let imagePrompt = await withHeavyLLMLimit(async () => {
       // Message 1: Creative director prompt + foundational docs
@@ -532,6 +530,11 @@ export async function generateAd(projectId, options = {}) {
       ];
 
       const inspirationBase64 = readImageBase64(inspiration);
+      renderReferenceImages = [
+        makeRenderReference(inspirationBase64, inspiration.mimeType, 'layout'),
+        hasProductImage ? makeRenderReference(productImageBase64, productImageMimeType, 'product') : null,
+      ].filter(Boolean);
+
       let prompt;
       if (hasProductImage) {
         prompt = await chatWithImages(
@@ -596,7 +599,10 @@ export async function generateAd(projectId, options = {}) {
       : null;
     const ad = await generateAndSaveImage({
       adId, projectId, project, imagePrompt, aspectRatio, angle,
-      productImage, imageModel, emit
+      productImage, imageModel, renderReferenceImages,
+      expectedHeadline: headline || null,
+      expectedBodyCopy: bodyCopy || null,
+      emit
     });
 
     return ad;
@@ -616,16 +622,83 @@ export async function generateAd(projectId, options = {}) {
  * Shared helper: Gemini image generation → upload to Convex storage → upload to Drive → finalize record.
  * Used by both generateAd() (full pipeline) and regenerateImageOnly() (prompt-only).
  */
-async function generateAndSaveImage({ adId, projectId, project, imagePrompt, aspectRatio, angle, productImage, imageModel, emit, modeLabel = 'Mode1' }) {
+async function assessGPTImageRender({ imageBuffer, mimeType, imagePrompt, expectedHeadline, expectedBodyCopy, projectId }) {
+  try {
+    const expectedText = [
+      expectedHeadline ? `Required headline: ${expectedHeadline}` : null,
+      expectedBodyCopy ? `Required body copy: ${expectedBodyCopy}` : null,
+    ].filter(Boolean).join('\n') || 'No exact required text was provided.';
+
+    const result = await chatWithImage(
+      [],
+      `Review this generated paid social ad image. Be conservative: fail only if it is obviously not an ad.
+
+Return ONLY JSON with these fields:
+{
+  "is_product_only": boolean,
+  "has_visible_ad_layout": boolean,
+  "headline_visible": boolean,
+  "reason": "short explanation"
+}
+
+Failing examples: a standalone product photo, product cutout, or image with no visible ad layout/text. Minor text misspellings or imperfect typography should still pass.
+
+Image prompt:
+${imagePrompt}
+
+${expectedText}`,
+      imageBuffer.toString('base64'),
+      mimeType || 'image/png',
+      BATCH_VISION_MODEL,
+      { response_format: { type: 'json_object' }, operation: 'ad_image_qa', projectId }
+    );
+
+    const parsed = repairJSON(result);
+    const reason = parsed.reason || 'Generated image failed ad-layout QA.';
+    if (parsed.is_product_only === true) {
+      return { passed: false, reason: `Generated image appears to be product-only: ${reason}` };
+    }
+    if (parsed.has_visible_ad_layout === false) {
+      return { passed: false, reason: `Generated image does not appear to contain a visible ad layout: ${reason}` };
+    }
+    if (expectedHeadline && parsed.headline_visible === false) {
+      return { passed: false, reason: `Generated image appears to ignore the required headline: ${reason}` };
+    }
+    return { passed: true };
+  } catch (err) {
+    console.warn('[AdGenerator] GPT Image QA failed; allowing image to complete:', err.message);
+    return { passed: true, warning: err.message };
+  }
+}
+
+async function generateAndSaveImage({ adId, projectId, project, imagePrompt, aspectRatio, angle, productImage, imageModel, renderReferenceImages = [], expectedHeadline = null, expectedBodyCopy = null, emit, modeLabel = 'Mode1' }) {
   const modelLabel = imageModelLabel(imageModel);
   const imageGen = resolveImageProvider(imageModel);
-  emit({ type: 'status', status: 'generating_image', message: productImage
+  const isOpenAIImage = isOpenAIImageModel(imageModel);
+  const providerProductImage = isOpenAIImage ? null : productImage;
+  emit({ type: 'status', status: 'generating_image', message: (productImage || renderReferenceImages.length > 0)
     ? `Generating image with ${modelLabel} (with product reference)...`
     : `Generating image with ${modelLabel}...`, progress: 70 });
 
-  const { imageBuffer, mimeType: imgMime } = await imageGen(imagePrompt, aspectRatio, productImage, {
+  const { imageBuffer, mimeType: imgMime } = await imageGen(imagePrompt, aspectRatio, providerProductImage, {
     projectId, operation: 'ad_image_generation', imageModel, imageSize: '2K',
+    referenceImages: isOpenAIImage ? renderReferenceImages : undefined,
   });
+
+  if (isOpenAIImage) {
+    emit({ type: 'status', status: 'generating_image', message: 'Reviewing generated ad...', progress: 88 });
+    const qa = await assessGPTImageRender({
+      imageBuffer,
+      mimeType: imgMime,
+      imagePrompt,
+      expectedHeadline,
+      expectedBodyCopy,
+      projectId,
+    });
+    if (!qa.passed) {
+      throw new Error(qa.reason);
+    }
+  }
 
   emit({ type: 'status', status: 'generating_image', message: 'Uploading image...', progress: 90 });
 
@@ -735,6 +808,7 @@ export async function generateAdMode2(projectId, options = {}) {
 
     // GPT-5.2 Messages 1-2: Rate-limited to prevent TPM overload
     const hasProductImage = !!(productImageBase64 && productImageMimeType);
+    let renderReferenceImages = [];
 
     let imagePrompt = await withHeavyLLMLimit(async () => {
       // Message 1: Creative director prompt + foundational docs
@@ -759,6 +833,11 @@ export async function generateAdMode2(projectId, options = {}) {
       ];
 
       const templateBase64 = readImageBase64(template);
+      renderReferenceImages = [
+        makeRenderReference(templateBase64, template.mimeType, 'layout'),
+        hasProductImage ? makeRenderReference(productImageBase64, productImageMimeType, 'product') : null,
+      ].filter(Boolean);
+
       let prompt;
       if (hasProductImage) {
         prompt = await chatWithImages(
@@ -823,7 +902,10 @@ export async function generateAdMode2(projectId, options = {}) {
       : null;
     const ad = await generateAndSaveImage({
       adId, projectId, project, imagePrompt, aspectRatio, angle,
-      productImage, imageModel, emit, modeLabel: 'Mode2'
+      productImage, imageModel, renderReferenceImages,
+      expectedHeadline: headline || null,
+      expectedBodyCopy: bodyCopy || null,
+      emit, modeLabel: 'Mode2'
     });
 
     return ad;
@@ -2012,6 +2094,8 @@ export async function regenerateImageOnly(projectId, options = {}) {
     parentAdId,
     productImageBase64,
     productImageMimeType,
+    referenceImageBase64,
+    referenceImageMimeType,
     angle,
     angleName,
     headline,
@@ -2096,11 +2180,19 @@ export async function regenerateImageOnly(projectId, options = {}) {
     const productImage = hasProductImage
       ? { base64: productImageBase64, mimeType: productImageMimeType }
       : null;
+    const hasReferenceImage = !!(referenceImageBase64 && referenceImageMimeType);
+    const renderReferenceImages = [
+      hasReferenceImage ? makeRenderReference(referenceImageBase64, referenceImageMimeType, 'layout') : null,
+      hasProductImage ? makeRenderReference(productImageBase64, productImageMimeType, 'product') : null,
+    ].filter(Boolean);
 
     const ad = await generateAndSaveImage({
       adId, projectId, project,
       imagePrompt: finalPrompt,
-      aspectRatio, angle, productImage, imageModel, emit,
+      aspectRatio, angle, productImage, imageModel, renderReferenceImages,
+      expectedHeadline: headline || null,
+      expectedBodyCopy: bodyCopy || null,
+      emit,
       modeLabel: 'Regen'
     });
 

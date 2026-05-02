@@ -962,14 +962,19 @@ export default function AdStudio({ projectId, project }) {
 
       if (!(await attachProductImage(options))) return;
 
-      // If no product image attached but there's an edit reference image, use it as the product image for Gemini
-      if (!options.product_image && editReferenceFile) {
+      // Send prompt-edit references separately for OpenAI; Gemini keeps the legacy
+      // single-reference behavior by using the edit reference as the image input.
+      if (editReferenceFile) {
         const sourceRef = editReferenceFile;
         try {
           const { base64, mime, file: resized } = await resizeAndBase64(sourceRef);
           if (sourceRef === editReferenceFile) {
-            options.product_image = base64;
-            options.product_image_mime = mime;
+            options.reference_image = base64;
+            options.reference_image_mime = mime;
+            if (!options.product_image && imageModel !== 'gpt-image-2') {
+              options.product_image = base64;
+              options.product_image_mime = mime;
+            }
             resizedFiles.push(resized);
           }
         } catch { /* non-fatal — proceed without the reference image */ }
@@ -2256,7 +2261,7 @@ export default function AdStudio({ projectId, project }) {
                 <p className="text-[10px] text-textlight mt-1">
                   {imageModel === 'nano-banana-pro' && 'High-fidelity Gemini image generation.'}
                   {imageModel === 'nano-banana-2' && 'Faster Gemini generation with improved text rendering, up to 4K (current default).'}
-                  {imageModel === 'gpt-image-2' && "OpenAI's newest image model — strong text rendering and reference-image support. Requires OpenAI Tier 1+."}
+                  {imageModel === 'gpt-image-2' && "OpenAI image generation with layout + product references. Requires GPT Image access."}
                 </p>
               </div>
 

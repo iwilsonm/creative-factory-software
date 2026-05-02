@@ -138,7 +138,7 @@ router.post('/:projectId/regenerate-image', async (req, res) => {
   const project = await getProject(req.params.projectId);
   if (!project) return res.status(404).json({ error: 'Project not found' });
 
-  let { image_prompt, aspect_ratio, parent_ad_id, product_image, product_image_mime, angle, headline, body_copy, skip_product_image, image_model, save_as_project_default } = req.body;
+  let { image_prompt, aspect_ratio, parent_ad_id, product_image, product_image_mime, reference_image, reference_image_mime, angle, headline, body_copy, skip_product_image, image_model, save_as_project_default } = req.body;
 
   // Same save-as-project-default flow as in the generate-ad route.
   if (save_as_project_default && product_image && product_image_mime && !project.product_image_storageId) {
@@ -186,6 +186,8 @@ router.post('/:projectId/regenerate-image', async (req, res) => {
       parentAdId: parent_ad_id || undefined,
       productImageBase64: product_image || undefined,
       productImageMimeType: product_image_mime || undefined,
+      referenceImageBase64: reference_image || undefined,
+      referenceImageMimeType: reference_image_mime || undefined,
       angle: angle || undefined,
       headline: headline || undefined,
       bodyCopy: body_copy || undefined,

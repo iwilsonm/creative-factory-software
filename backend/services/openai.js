@@ -1,6 +1,5 @@
 import OpenAI from 'openai';
 import { toFile } from 'openai/uploads';
-import sharp from 'sharp';
 import { getSetting } from '../convexClient.js';
 import { withRetry } from './retry.js';
 import { logOpenAICost, logOpenAIImageCost } from './costTracker.js';
@@ -294,7 +293,7 @@ export async function deepResearch(prompt, options = {}) {
  */
 export async function chatWithImage(messages, text, base64Image, mimeType, model = 'gpt-4.1', options = {}) {
   const openai = await getClient();
-  const { operation, projectId } = options;
+  const { operation, projectId, ...apiOptions } = options;
   const newMessage = {
     role: 'user',
     content: [
@@ -304,7 +303,7 @@ export async function chatWithImage(messages, text, base64Image, mimeType, model
   };
 
   const response = await withRetry(
-    () => openai.chat.completions.create({ model, messages: [...messages, newMessage] }),
+    () => openai.chat.completions.create({ model, messages: [...messages, newMessage], ...apiOptions }),
     { label: '[OpenAI chatWithImage]' }
   );
   logCostFromResponse(response, model, { operation, projectId });
@@ -317,7 +316,7 @@ export async function chatWithImage(messages, text, base64Image, mimeType, model
  */
 export async function chatWithImages(messages, text, images, model = 'gpt-4.1', options = {}) {
   const openai = await getClient();
-  const { operation, projectId } = options;
+  const { operation, projectId, ...apiOptions } = options;
   const content = [
     { type: 'text', text }
   ];
@@ -332,7 +331,7 @@ export async function chatWithImages(messages, text, images, model = 'gpt-4.1', 
   const newMessage = { role: 'user', content };
 
   const response = await withRetry(
-    () => openai.chat.completions.create({ model, messages: [...messages, newMessage] }),
+    () => openai.chat.completions.create({ model, messages: [...messages, newMessage], ...apiOptions }),
     { label: '[OpenAI chatWithImages]' }
   );
   logCostFromResponse(response, model, { operation, projectId });
@@ -343,21 +342,76 @@ export async function chatWithImages(messages, text, images, model = 'gpt-4.1', 
 // Image generation — OpenAI gpt-image-2 family
 // =============================================
 
-// gpt-image-2 supports "flexible image sizes" per docs but specific allowed strings
-// aren't enumerated publicly. These map to values that gpt-image-1 accepted — if
-// gpt-image-2 rejects any, the API error surfaces in the caller's toast verbatim.
 const ASPECT_TO_SIZE = {
   '1:1': '1024x1024',
-  '4:5': '1024x1280',
+  '4:5': '1024x1536',
   '9:16': '1024x1536',
   '16:9': '1536x1024',
 };
 const SIZE_FALLBACK = '1024x1024';
-// Use the alias `gpt-image-2`, NOT a dated snapshot. OpenAI's /v1/images/edits
-// endpoint rejects dated snapshots with "Value must be 'dall-e-2'" — only the
-// alias resolves correctly across both edit + generate paths. Aliases also
-// auto-track the latest production version, which is desirable for ad creative.
 const DEFAULT_IMAGE_MODEL = 'gpt-image-2';
+
+export function getOpenAIImageSize(aspectRatio = '1:1') {
+  return ASPECT_TO_SIZE[aspectRatio] || SIZE_FALLBACK;
+}
+
+function mimeToExtension(mimeType = 'image/png') {
+  if (mimeType.includes('jpeg') || mimeType.includes('jpg')) return 'jpg';
+  if (mimeType.includes('webp')) return 'webp';
+  return 'png';
+}
+
+function normalizeReferenceImages(referenceImages = [], fallbackImage = null) {
+  const refs = Array.isArray(referenceImages) ? referenceImages.filter(Boolean) : [];
+  const usableRefs = refs
+    .filter(ref => ref.base64 && ref.mimeType)
+    .map((ref, index) => ({
+      base64: ref.base64,
+      mimeType: ref.mimeType,
+      role: ref.role || (index === 0 ? 'layout' : 'reference'),
+    }));
+
+  if (usableRefs.length === 0 && fallbackImage?.base64 && fallbackImage?.mimeType) {
+    usableRefs.push({
+      base64: fallbackImage.base64,
+      mimeType: fallbackImage.mimeType,
+      role: fallbackImage.role || 'product',
+    });
+  }
+
+  return usableRefs.slice(0, 16);
+}
+
+async function referenceToFile(ref, index) {
+  const mimeType = ref.mimeType || 'image/png';
+  const ext = mimeToExtension(mimeType);
+  const buffer = Buffer.from(ref.base64, 'base64');
+  return toFile(buffer, `reference-${index + 1}.${ext}`, { type: mimeType });
+}
+
+export function buildGPTImageRenderPrompt(prompt, referenceImages = []) {
+  const refs = Array.isArray(referenceImages) ? referenceImages : [];
+  if (refs.length === 0) return prompt;
+
+  const hasLayoutRef = refs.some(ref => ref.role === 'layout' || ref.role === 'style' || ref.role === 'template');
+  const hasProductRef = refs.some(ref => ref.role === 'product');
+  const referenceDirection = hasLayoutRef
+    ? 'Use the first reference image for layout, composition, typography style, and visual hierarchy.'
+    : 'Use the reference image(s) for visual context while creating a complete ad layout.';
+  const productDirection = hasProductRef
+    ? 'Use product reference images only for product appearance and placement.'
+    : '';
+
+  return [
+    'Create a complete paid social ad, not a product-only render.',
+    referenceDirection,
+    productDirection,
+    'Include the requested headline, body copy, review text, badges, and other visible ad elements when provided.',
+    'Do not return a standalone product cutout or product photo.',
+    '',
+    prompt,
+  ].filter(Boolean).join('\n');
+}
 
 /**
  * Generate an ad image via OpenAI's Images API.
@@ -367,11 +421,12 @@ const DEFAULT_IMAGE_MODEL = 'gpt-image-2';
  *
  * @param {string} prompt - Image generation prompt
  * @param {string} [aspectRatio='1:1'] - '1:1' | '4:5' | '9:16' | '16:9'
- * @param {Buffer|null} [productImage=null] - Optional product reference image
+ * @param {object|null} [productImage=null] - Backward-compatible single product reference image
  * @param {object} [options]
  * @param {string|null} [options.projectId]
  * @param {string} [options.operation='ad_image_generation']
  * @param {string} [options.imageModel] - Defaults to gpt-image-2 (alias)
+ * @param {Array<{base64:string,mimeType:string,role?:string}>} [options.referenceImages]
  * @returns {Promise<{ imageBuffer: Buffer, mimeType: string, textResponse: string }>}
  */
 export async function generateImage(prompt, aspectRatio = '1:1', productImage = null, options = {}) {
@@ -379,68 +434,35 @@ export async function generateImage(prompt, aspectRatio = '1:1', productImage = 
     projectId = null,
     operation = 'ad_image_generation',
     imageModel = DEFAULT_IMAGE_MODEL,
+    referenceImages = [],
   } = options;
 
   const openai = await getClient();
-  const size = ASPECT_TO_SIZE[aspectRatio] || SIZE_FALLBACK;
+  const size = getOpenAIImageSize(aspectRatio);
+  const normalizedReferences = normalizeReferenceImages(referenceImages, productImage);
+  const renderPrompt = buildGPTImageRenderPrompt(prompt, normalizedReferences);
 
   const response = await withRetry(
     async () => {
-      if (productImage) {
-        // OpenAI's /v1/images/edits is hardcoded to `dall-e-2` (May 2026) —
-        // it rejects gpt-image-2, gpt-image-1.5, gpt-image-1, etc. with
-        // "Value must be 'dall-e-2'." Until OpenAI updates the edit endpoint,
-        // we use dall-e-2 here. For higher quality with a product reference,
-        // users should pick Gemini (Nano Banana Pro / Nano Banana 2).
-        // When OpenAI ships gpt-image-2 edit support, swap `dall-e-2` back to
-        // `imageModel` (one-line change).
-        //
-        // dall-e-2 has a 1000-BYTE prompt limit (UTF-8). The PRIMARY fix is
-        // upstream: adGenerator.js#buildImageRequestText injects a "LENGTH
-        // LIMIT: under 900 bytes" instruction into Message 2 when the image
-        // path is gpt-image-2 + productImage, so GPT-5.2 produces a compact
-        // purpose-built prompt rather than its usual 2000-3000 byte output.
-        // This block is the SAFETY NET for the rare case where GPT-5.2
-        // overshoots the upstream constraint — it head-truncates to keep the
-        // visual-direction tail (headline/body copy, aspect ratio, style cues)
-        // and drops the brand/avatar opening (carried by the reference image
-        // anyway).
-        //
-        // We measure by UTF-8 byte length (Buffer.byteLength), not JS .length
-        // (which counts UTF-16 code units). Latin-1 chars (é, smart quotes,
-        // em-dashes), special punctuation, and emojis are 2-4 bytes in UTF-8
-        // but 1-2 code units in JS — a "1000-char" prompt by JS count can be
-        // 1017+ bytes when sent to OpenAI, blowing the limit.
-        const DALLE_2_PROMPT_MAX_BYTES = 1000;
-        let dallePrompt = prompt;
-        if (Buffer.byteLength(dallePrompt, 'utf8') > DALLE_2_PROMPT_MAX_BYTES) {
-          // Estimate: drop enough leading chars that even all-ASCII would fit.
-          const startEstimate = Math.max(0, dallePrompt.length - DALLE_2_PROMPT_MAX_BYTES);
-          dallePrompt = dallePrompt.slice(startEstimate);
-          // Refine: trim more from the front if multi-byte chars push us over.
-          while (Buffer.byteLength(dallePrompt, 'utf8') > DALLE_2_PROMPT_MAX_BYTES) {
-            dallePrompt = dallePrompt.slice(1);
-          }
-        }
-
-        const inputBuffer = Buffer.from(productImage.base64, 'base64');
-        const pngBuffer = await sharp(inputBuffer).png().toBuffer();
-        const file = await toFile(pngBuffer, 'reference.png', { type: 'image/png' });
+      if (normalizedReferences.length > 0) {
+        const files = await Promise.all(normalizedReferences.map(referenceToFile));
         return openai.images.edit({
-          model: 'dall-e-2',
-          image: file,
-          prompt: dallePrompt,
+          model: imageModel,
+          image: files,
+          prompt: renderPrompt,
           size,
           n: 1,
-          response_format: 'b64_json',
+          output_format: 'png',
+          quality: 'auto',
         });
       }
       return openai.images.generate({
         model: imageModel,
-        prompt,
+        prompt: renderPrompt,
         size,
         n: 1,
-        response_format: 'b64_json',
+        output_format: 'png',
+        quality: 'auto',
       });
     },
     {
@@ -466,4 +488,3 @@ export async function generateImage(prompt, aspectRatio = '1:1', productImage = 
 
   return { imageBuffer, mimeType: 'image/png', textResponse: '' };
 }
-

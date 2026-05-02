@@ -7,7 +7,9 @@ vi.mock('../convexClient.js', () => ({
   uploadBuffer: vi.fn(),
   downloadToBuffer: vi.fn(),
   getInspirationImages: vi.fn(),
+  getAllInspirationImages: vi.fn(),
   getInspirationImageUrl: vi.fn(),
+  getTemplateImagesByProject: vi.fn(),
   getAdImageUrl: vi.fn(),
   getSetting: vi.fn(),
   convexClient: { query: vi.fn(), mutation: vi.fn() },
@@ -18,6 +20,7 @@ vi.mock('../services/openai.js', () => ({
   chat: vi.fn(),
   chatWithImage: vi.fn(),
   chatWithImages: vi.fn(),
+  generateImage: vi.fn(),
 }));
 
 vi.mock('../services/anthropic.js', () => ({
@@ -35,6 +38,7 @@ vi.mock('../services/costTracker.js', () => ({
 
 vi.mock('../services/rateLimiter.js', () => ({
   withGptRateLimit: vi.fn((fn) => fn()),
+  withHeavyLLMLimit: vi.fn((fn) => fn()),
   AsyncSemaphore: vi.fn(),
 }));
 
