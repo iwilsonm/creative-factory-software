@@ -221,7 +221,7 @@ router.get('/filter/status', async (req, res) => {
       stats.scored = (stripped.match(/Scoring \d+ ads/gi) || []).length;
       stats.passed = (stripped.match(/PASS/gi) || []).length;
       stats.failed = (stripped.match(/FAIL/gi) || []).length;
-      stats.flexAds = (stripped.match(/Deployed (?:flex ad|ad set)/gi) || []).length;
+      stats.flexAds = (stripped.match(/Deployed flex ad/gi) || []).length;
 
       // Parse last 30 lines for activity feed
       const lines = logContent.split('\n').filter(l => l.trim());
@@ -324,7 +324,7 @@ router.post('/filter/pause', async (req, res) => {
 // =============================================
 
 // GET /api/agent-monitor/filter/volumes
-// Returns all projects with their daily ad set cap and today's count.
+// Returns all projects with their daily flex ad cap and today's count
 router.get('/filter/volumes', async (req, res) => {
   try {
     const projects = await getAllProjects();
@@ -333,11 +333,12 @@ router.get('/filter/volumes', async (req, res) => {
     const volumes = await Promise.all(projects.map(async (p) => {
       let todayCount = 0;
       try {
-        const adSets = await convexClient.query(api.adSets.getByProject, { projectId: p.id });
-        todayCount = (adSets || []).filter(adSet =>
-          adSet.created_at && adSet.created_at.startsWith(today)
+        const flexAds = await convexClient.query(api.flexAds.getByProject, { projectId: p.id });
+        todayCount = (flexAds || []).filter(fa =>
+          fa.created_at && fa.created_at.startsWith(today) &&
+          fa.name && fa.name.startsWith('Filter')
         ).length;
-      } catch { /* no ad sets table or query error */ }
+      } catch { /* no flex ads table or query error */ }
 
       return {
         id: p.id,
@@ -357,7 +358,7 @@ router.get('/filter/volumes', async (req, res) => {
 });
 
 // PUT /api/agent-monitor/filter/volumes/:projectId
-// Update a project's daily ad set cap. Uses the legacy field name until schema migration.
+// Update a project's daily flex ad cap
 router.put('/filter/volumes/:projectId', async (req, res) => {
   try {
     const { scout_daily_flex_ads } = req.body;

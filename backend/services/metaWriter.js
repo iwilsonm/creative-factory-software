@@ -9,6 +9,7 @@
 import {
   getProjectRawForMeta,
   getAdSet,
+  getAdSetsByProject,
   updateProject,
   updateAdSet,
   getSetting,
@@ -60,45 +61,6 @@ function buildAdSetSpec(adSet, project) {
   };
 }
 
-function firstJsonLine(value) {
-  if (!value) return '';
-  try {
-    const parsed = typeof value === 'string' ? JSON.parse(value) : value;
-    if (Array.isArray(parsed)) return parsed.find(Boolean) || '';
-  } catch {
-    // Fall through to plain text handling.
-  }
-  return String(value || '').split('\n').map(v => v.trim()).find(Boolean) || '';
-}
-
-function normalizePostableAd(ad, deployment = null) {
-  const id = ad?.externalId || ad?.id;
-  return {
-    ...ad,
-    id,
-    headline: firstJsonLine(deployment?.ad_headlines) || deployment?.ad_name || ad?.headline || '',
-    body_copy: firstJsonLine(deployment?.primary_texts) || ad?.body_copy || '',
-    destination_url: deployment?.destination_url || deployment?.landing_page_url || ad?.destination_url || '',
-    cta_button: deployment?.cta_button || ad?.cta_button || 'LEARN_MORE',
-  };
-}
-
-async function getPostableAdsForAdSet(adSetId, projectId) {
-  const deployments = await convexClient.query(api.ad_deployments.getByProject, { projectId });
-  const childDeployments = (deployments || []).filter(d => d.local_adset_id === adSetId);
-
-  if (childDeployments.length > 0) {
-    const ads = await Promise.all(childDeployments.map(async (dep) => {
-      const ad = await convexClient.query(api.adCreatives.getByExternalId, { externalId: dep.ad_id });
-      return ad ? normalizePostableAd(ad, dep) : null;
-    }));
-    return ads.filter(Boolean);
-  }
-
-  const legacyAds = await convexClient.query(api.adCreatives.getByAdSet, { adSetId });
-  return (legacyAds || []).map(ad => normalizePostableAd(ad));
-}
-
 /**
  * Post a single staged ad set + its member ads to Meta.
  *
@@ -140,8 +102,8 @@ export async function postAdSetToMeta(adSetId, projectId) {
     const e = new Error('Ad set does not belong to this project'); e.code = 'WRONG_PROJECT'; throw e;
   }
 
-  const ads = (await getPostableAdsForAdSet(adSetId, projectId))
-    .filter((a) => a.status === 'staging' || a.status === 'completed');
+  const adsByAdSet = await convexClient.query(api.adCreatives.getByAdSet, { adSetId });
+  const ads = (adsByAdSet || []).filter((a) => a.status === 'staging' || a.status === 'completed');
   if (ads.length === 0) {
     const e = new Error('Ad set has no eligible ads to post'); e.code = 'NO_ADS'; throw e;
   }
@@ -174,12 +136,12 @@ export async function postAdSetToMeta(adSetId, projectId) {
   const adsWithHashes = [];
   for (const ad of ads) {
     let imageHash = ad.meta_image_hash || null;
-      if (!imageHash) {
-        if (!ad.storageId) {
-          // Skip ads that don't have an image — log + skip rather than fail the whole post
-          console.warn(`[metaWriter] Skipping ad ${(ad.id || '').slice(0, 8)}: no storageId`);
-          continue;
-        }
+    if (!imageHash) {
+      if (!ad.storageId) {
+        // Skip ads that don't have an image — log + skip rather than fail the whole post
+        console.warn(`[metaWriter] Skipping ad ${ad.id.slice(0, 8)}: no storageId`);
+        continue;
+      }
       try {
         const buffer = await downloadToBuffer(ad.storageId);
         const { hash } = await uploadImage(token, accountId, buffer, `${ad.id}.png`);
@@ -235,7 +197,7 @@ export async function postAdSetToMeta(adSetId, projectId) {
       body_copy: ad.body_copy || '',
       image_hash: imageHash,
       link: ad.destination_url || defaultLink,
-      cta_button: ad.cta_button || 'LEARN_MORE',
+      cta_button: 'LEARN_MORE',
       status: 'PAUSED',
     }));
 
@@ -279,7 +241,7 @@ export async function postAdSetToMeta(adSetId, projectId) {
             description: '',
             link: ad.destination_url || defaultLink,
             image_hash: imageHash,
-            call_to_action_type: ad.cta_button || 'LEARN_MORE',
+            call_to_action_type: 'LEARN_MORE',
           });
           const adRes = await createAd(token, accountId, {
             name: ad.headline ? `[CF] ${ad.headline.slice(0, 50)}` : `[CF] ${ad.id.slice(0, 8)}`,

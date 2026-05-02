@@ -98,7 +98,7 @@ export default function CreativeFilterSettings({ projectId, project, onSave }) {
         </div>
       </div>
       <p className="text-[12px] text-textmid mb-4">
-        Recursive Agent #2 — scores batch ads with Claude, groups winners into ad sets, and deploys them to Ready to Post.
+        Recursive Agent #2 — scores batch ads with Claude, groups winners into flex ads, deploys to Ready to Post.
       </p>
 
       <div className="space-y-4">

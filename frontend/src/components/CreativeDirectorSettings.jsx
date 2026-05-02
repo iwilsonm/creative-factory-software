@@ -2,13 +2,15 @@ import { useState, useEffect } from 'react';
 import { api } from '../api';
 import { useToast } from './Toast';
 
-// Per-project Creative Director settings.
+// Phase 1 — per-project Creative Director / Staging Page settings.
 // Fields:
 //   - ad_sets_per_cycle: integer, Director cycle config (legacy fallback: config.ads_per_batch)
 //   - ads_per_ad_set: integer (1-20 hard cap), Director cycle config
 //   - filter_quality_threshold: 0-1, Filter agent pass threshold
 //   - default_campaign_id: campaigns.externalId, default Meta campaign for new ad sets
 //   - adset_default_template: JSON, Meta defaults applied to every new ad set
+// Plus the per-project feature flag toggle (enable_phase1_staging:<projectId>)
+// stored in the global settings table.
 export default function CreativeDirectorSettings({ project, onSaved }) {
   const toast = useToast();
   const [adSetsPerCycle, setAdSetsPerCycle] = useState('');
@@ -17,6 +19,7 @@ export default function CreativeDirectorSettings({ project, onSaved }) {
   const [defaultCampaignId, setDefaultCampaignId] = useState('');
   const [adsetTemplate, setAdsetTemplate] = useState('');
   const [campaigns, setCampaigns] = useState([]);
+  const [stagingFlag, setStagingFlag] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
   // Phase 4 — sub-angle derivation + health-biased Director
@@ -34,7 +37,7 @@ export default function CreativeDirectorSettings({ project, onSaved }) {
     setError('');
   }, [project]);
 
-  // Load campaigns for the default-campaign picker + Phase 4 conductor_config
+  // Load campaigns for the default-campaign picker + feature flag from settings + Phase 4 conductor_config
   useEffect(() => {
     if (!project?.id) return;
     (async () => {
@@ -42,6 +45,13 @@ export default function CreativeDirectorSettings({ project, onSaved }) {
         const list = await api.getCampaigns?.(project.id);
         setCampaigns(Array.isArray(list?.campaigns) ? list.campaigns : Array.isArray(list) ? list : []);
       } catch { setCampaigns([]); }
+      try {
+        const settings = await api.getSettings();
+        const flagKey = `enable_phase1_staging:${project.id}`;
+        const flagVal = settings?.[flagKey];
+        setStagingFlag(flagVal === 'true' || flagVal === true);
+      } catch { setStagingFlag(false); }
+      // Phase 4 — load conductor_config Phase 4 fields
       try {
         const cfg = await api.getConductorConfig?.(project.id);
         if (cfg) {
@@ -87,6 +97,9 @@ export default function CreativeDirectorSettings({ project, onSaved }) {
       if (Object.keys(fields).length > 0) {
         await api.updateProject(project.id, fields);
       }
+      // Save feature flag (global settings)
+      const flagKey = `enable_phase1_staging:${project.id}`;
+      await api.updateSettings({ [flagKey]: stagingFlag ? 'true' : 'false' });
       // Phase 4 — save conductor_config Phase 4 fields (best-effort if endpoint exists)
       try {
         await api.updateConductorConfig?.(project.id, {
@@ -95,8 +108,11 @@ export default function CreativeDirectorSettings({ project, onSaved }) {
           sub_angle_derivation_mode: derivationMode,
         });
       } catch { /* OK */ }
-      toast.success('Creative Director settings saved');
-      onSaved?.();
+      toast.success(stagingFlag
+        ? 'Creative Director settings saved — Staging tab enabled'
+        : 'Creative Director settings saved — Staging tab disabled'
+      );
+      onSaved?.({ stagingEnabled: stagingFlag });
     } catch (err) {
       setError(err?.message || 'Save failed');
     } finally {
@@ -107,8 +123,8 @@ export default function CreativeDirectorSettings({ project, onSaved }) {
   return (
     <div className="card p-6 space-y-5">
       <div>
-        <h2 className="text-[15px] font-semibold text-textdark tracking-tight">Creative Director cycle</h2>
-        <p className="text-xs text-textmid mt-1">Per-project config for Director generation. Approved ad groups now flow into the main Ad Pipeline.</p>
+        <h2 className="text-[15px] font-semibold text-textdark tracking-tight">Creative Director — Staging cycle</h2>
+        <p className="text-xs text-textmid mt-1">Per-project config for the Director's generation cycle and the Staging Page. Phase 1 — schema and routes are live; the Staging tab itself is gated by the feature flag below.</p>
       </div>
 
       <div className="grid grid-cols-2 gap-4">
@@ -132,7 +148,7 @@ export default function CreativeDirectorSettings({ project, onSaved }) {
         </Field>
       </div>
 
-      <Field label="Filter quality threshold (0–1)" hint="Ads scoring below this are held for review instead of entering the main pipeline. Default 0.6.">
+      <Field label="Filter quality threshold (0–1)" hint="Ads scoring below this go to the Rejected tab. Default 0.6.">
         <input
           type="number" step="0.01" min="0" max="1"
           value={filterThreshold}
@@ -142,7 +158,7 @@ export default function CreativeDirectorSettings({ project, onSaved }) {
         />
       </Field>
 
-      <Field label="Default Meta campaign" hint="Every new ad set inherits this campaign unless overridden in the Ad Pipeline.">
+      <Field label="Default Meta campaign" hint="Every new ad set inherits this campaign unless overridden on the Staging Page.">
         <select
           value={defaultCampaignId}
           onChange={(e) => setDefaultCampaignId(e.target.value)}
@@ -164,6 +180,21 @@ export default function CreativeDirectorSettings({ project, onSaved }) {
           className="input-apple w-full font-mono text-xs"
         />
       </Field>
+
+      <div className="border-t border-cream pt-4">
+        <label className="flex items-center gap-3 cursor-pointer">
+          <input
+            type="checkbox"
+            checked={stagingFlag}
+            onChange={(e) => setStagingFlag(e.target.checked)}
+            className="w-5 h-5"
+          />
+          <div>
+            <div className="text-sm font-semibold text-textdark">Enable Staging tab for this project</div>
+            <div className="text-xs text-textmid">When on, the new Staging tab shows pre-grouped ad sets ready for review. When off, the legacy Ad Pipeline / flex-ad workflow is used.</div>
+          </div>
+        </label>
+      </div>
 
       {/* Phase 4 — Director behavior */}
       <div className="border-t border-cream pt-4 space-y-3">

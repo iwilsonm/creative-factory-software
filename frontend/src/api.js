@@ -177,18 +177,6 @@ function invalidateCache(...paths) {
   for (const p of paths) _requestCache.delete(p);
 }
 
-function invalidateCacheWhere(predicate) {
-  for (const key of _requestCache.keys()) {
-    if (predicate(key)) _requestCache.delete(key);
-  }
-}
-
-function invalidateDeploymentCache(projectId) {
-  invalidateCache('/deployments');
-  if (projectId) invalidateCache(`/deployments?projectId=${projectId}`);
-  invalidateCacheWhere(key => key.startsWith('/deployments?projectId='));
-}
-
 // Exported for use by components after SSE completions (e.g., doc generation)
 export function invalidateProjectCache(projectId) {
   invalidateCache('/projects', `/projects/${projectId}`, `/projects/${projectId}/stats`);
@@ -449,8 +437,24 @@ export const api = {
     request(`/meta/pages?projectId=${projectId}`).then(d => d?.pages ?? []),
   selectMetaPage: (projectId, payload) =>
     request('/meta/select-page', { method: 'POST', body: JSON.stringify({ projectId, ...payload }) }),
-  postAdSetToMeta: (adSetId) =>
-    request(`/deployments/adsets/${adSetId}/post-to-meta`, { method: 'POST' }),
+  postAdSetToMeta: (projectId, adSetId) =>
+    request(`/projects/${projectId}/staging/adsets/${adSetId}/post-to-meta`, { method: 'POST' }),
+
+  // Phase 1 — Staging Page
+  getStagingPending: (projectId) =>
+    request(`/projects/${projectId}/staging/pending`).then(data => data?.groups ?? []),
+  getStagingRejected: (projectId) =>
+    request(`/projects/${projectId}/staging/rejected`).then(data => data?.ads ?? []),
+  getStagingPromoted: (projectId) =>
+    request(`/projects/${projectId}/staging/promoted`).then(data => data?.adSets ?? []),
+  updateAdSetMetaSettings: (projectId, adSetId, fields) =>
+    request(`/projects/${projectId}/staging/adsets/${adSetId}/meta-settings`, { method: 'PUT', body: JSON.stringify(fields) }),
+  promoteAdSet: (projectId, adSetId) =>
+    request(`/projects/${projectId}/staging/adsets/${adSetId}/promote`, { method: 'POST' }),
+  regroupAds: (projectId, adIds, targetAdSetId) =>
+    request(`/projects/${projectId}/staging/regroup`, { method: 'POST', body: JSON.stringify({ adIds, targetAdSetId }) }),
+  createEmptyAdSet: (projectId, body) =>
+    request(`/projects/${projectId}/staging/adsets/new`, { method: 'POST', body: JSON.stringify(body) }),
   forcePromoteAd: (projectId, adId) =>
     request(`/projects/${projectId}/ads/${adId}/force-promote`, { method: 'POST' }),
 
@@ -480,15 +484,16 @@ export const api = {
     const projectId = hasProjectId ? projectIdOrAdIds : null;
     const adIds = hasProjectId ? maybeAdIds : projectIdOrAdIds;
     return request('/deployments', { method: 'POST', body: JSON.stringify({ adIds }) }).then(r => {
-      invalidateDeploymentCache(projectId);
+      invalidateCache('/deployments');
+      if (projectId) invalidateCache(`/deployments?projectId=${projectId}`);
       return r;
     });
   },
-  updateDeployment: (id, fields) => request(`/deployments/${id}`, { method: 'PUT', body: JSON.stringify(fields) }).then(r => { invalidateDeploymentCache(); return r; }),
-  updateDeploymentStatus: (id, status) => request(`/deployments/${id}/status`, { method: 'PUT', body: JSON.stringify({ status }) }).then(r => { invalidateDeploymentCache(); return r; }),
-  updateDeploymentPostedBy: (id, posted_by) => request(`/deployments/${id}/posted-by`, { method: 'PUT', body: JSON.stringify({ posted_by }) }).then(r => { invalidateDeploymentCache(); return r; }),
-  deleteDeployment: (id) => request(`/deployments/${id}`, { method: 'DELETE' }).then(r => { invalidateDeploymentCache(); return r; }),
-  restoreDeployment: (id) => request(`/deployments/${id}/restore`, { method: 'POST' }).then(r => { invalidateDeploymentCache(); return r; }),
+  updateDeployment: (id, fields) => request(`/deployments/${id}`, { method: 'PUT', body: JSON.stringify(fields) }),
+  updateDeploymentStatus: (id, status) => request(`/deployments/${id}/status`, { method: 'PUT', body: JSON.stringify({ status }) }),
+  updateDeploymentPostedBy: (id, posted_by) => request(`/deployments/${id}/posted-by`, { method: 'PUT', body: JSON.stringify({ posted_by }) }),
+  deleteDeployment: (id) => request(`/deployments/${id}`, { method: 'DELETE' }),
+  restoreDeployment: (id) => request(`/deployments/${id}/restore`, { method: 'POST' }),
   getDeletedDeployments: (projectId) => request(`/deployments/deleted${projectId ? `?projectId=${projectId}` : ''}`),
   renameAllDeployments: () => request('/deployments/rename-all', { method: 'POST' }),
   backfillHeadlines: () => request('/deployments/backfill-headlines', { method: 'POST' }),
@@ -507,16 +512,27 @@ export const api = {
   createAdSet: (campaignId, name, projectId) => request(`/deployments/campaigns/${campaignId}/adsets`, { method: 'POST', body: JSON.stringify({ name, projectId }) }),
   updateAdSet: (id, fields) => request(`/deployments/adsets/${id}`, { method: 'PUT', body: JSON.stringify(fields) }),
   deleteAdSet: (id) => request(`/deployments/adsets/${id}`, { method: 'DELETE' }),
-  createAdSetFromDeployments: (projectId, body) =>
-    request('/deployments/adsets/from-deployments', { method: 'POST', body: JSON.stringify({ projectId, ...body }) }).then(r => { invalidateDeploymentCache(projectId); return r; }),
-  updateAdSetDeploymentStatus: (adSetId, status) =>
-    request(`/deployments/adsets/${adSetId}/status`, { method: 'PUT', body: JSON.stringify({ status }) }).then(r => { invalidateDeploymentCache(); return r; }),
-  moveToUnplanned: (deploymentIds) => request('/deployments/move-to-unplanned', { method: 'POST', body: JSON.stringify({ deploymentIds }) }).then(r => { invalidateDeploymentCache(); return r; }),
-  assignToAdSet: (deploymentIds, campaignId, adsetId) => request('/deployments/assign-to-adset', { method: 'POST', body: JSON.stringify({ deploymentIds, campaignId, adsetId }) }).then(r => { invalidateDeploymentCache(); return r; }),
-  unassignFromAdSet: (deploymentIds) => request('/deployments/unassign', { method: 'POST', body: JSON.stringify({ deploymentIds }) }).then(r => { invalidateDeploymentCache(); return r; }),
+  moveToUnplanned: (deploymentIds) => request('/deployments/move-to-unplanned', { method: 'POST', body: JSON.stringify({ deploymentIds }) }),
+  assignToAdSet: (deploymentIds, campaignId, adsetId) => request('/deployments/assign-to-adset', { method: 'POST', body: JSON.stringify({ deploymentIds, campaignId, adsetId }) }),
+  unassignFromAdSet: (deploymentIds) => request('/deployments/unassign', { method: 'POST', body: JSON.stringify({ deploymentIds }) }),
 
   // Duplicate
   duplicateDeployment: (id, overrides) => request(`/deployments/${id}/duplicate`, { method: 'POST', body: JSON.stringify({ overrides }) }),
+
+  // Flex Ads
+  getFlexAds: (projectId) =>
+    request(`/deployments/flex-ads?projectId=${projectId}`).then(data => normalizeArrayResponse(data, 'flexAds', 'api.getFlexAds.flexAds')),
+  getFlexAdCount: (projectId, angleName) => request(`/deployments/flex-ads/count?projectId=${projectId}${angleName ? `&angleName=${encodeURIComponent(angleName)}` : ''}`),
+  createFlexAd: (projectId, adSetId, name, deploymentIds) =>
+    request('/deployments/flex-ads', { method: 'POST', body: JSON.stringify({ projectId, adSetId, name, deploymentIds }) }),
+  updateFlexAd: (id, fields) =>
+    request(`/deployments/flex-ads/${id}`, { method: 'PUT', body: JSON.stringify(fields) }),
+  updateFlexAdPostedBy: (id, posted_by) =>
+    request(`/deployments/flex-ads/${id}/posted-by`, { method: 'PUT', body: JSON.stringify({ posted_by }) }),
+  deleteFlexAd: (id) =>
+    request(`/deployments/flex-ads/${id}`, { method: 'DELETE' }),
+  restoreFlexAd: (id) =>
+    request(`/deployments/flex-ads/${id}/restore`, { method: 'POST' }),
 
   // Primary Text & Headline Generation (sidebar)
   generatePrimaryText: (deploymentId, flexAdId, direction, messages) =>

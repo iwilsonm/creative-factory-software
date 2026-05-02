@@ -3,9 +3,9 @@ import JSZip from 'jszip';
 import { api } from '../api';
 import { useToast } from '../components/Toast';
 import { useAsyncData } from '../hooks/useAsyncData';
-import CampaignsView from '../components/AdSetPlannerView';
-import ReadyToPostView from '../components/AdSetReadyToPostView';
-import PostedView from '../components/AdSetPostedView';
+import CampaignsView from '../components/CampaignsView';
+import ReadyToPostView from '../components/ReadyToPostView';
+import PostedView from '../components/PostedView';
 
 const STATUS_ORDER = ['selected', 'ready_to_post', 'posted'];
 const STATUS_META = {
@@ -46,11 +46,11 @@ export default function AdTracker({ projectId, userRole, searchParams, setSearch
       }, { replace: true });
     }
   }, [setSearchParams]);
-  // Deep-link to a specific ad set from Agent Monitor run history
-  const highlightedAdSetId = searchParams?.get('adSetId') || searchParams?.get('flexAdId');
+  // Deep-link to a specific flex ad from Agent Monitor run history
+  const flexAdId = searchParams?.get('flexAdId');
   useEffect(() => {
-    if (highlightedAdSetId) setActiveView('ready_to_post');
-  }, [highlightedAdSetId]);
+    if (flexAdId) setActiveView('ready_to_post');
+  }, [flexAdId]);
 
   const [statusFilter, setStatusFilter] = useState('posted');
   const [selectedIds, setSelectedIds] = useState(new Set());
@@ -123,8 +123,8 @@ export default function AdTracker({ projectId, userRole, searchParams, setSearch
 
 
   // ─── Filtering & Sorting ──────────────────────────────────────────────────
-  // Planner count = queued or planned deployments that have not moved forward yet.
-  const campaignsDeps = deployments.filter(d => d.status !== 'ready_to_post' && d.status !== 'posted');
+  // Campaigns = any deployment with local_campaign_id set
+  const campaignsDeps = deployments.filter(d => !!d.local_campaign_id);
 
   const filtered = statusFilter === 'all'
     ? deployments
@@ -141,16 +141,16 @@ export default function AdTracker({ projectId, userRole, searchParams, setSearch
     statusCounts[d.status] = (statusCounts[d.status] || 0) + 1;
   }
 
-  // Smart count for ready_to_post: grouped ad-set children count as one card.
+  // Smart count for ready_to_post: flex children count as 1 ad (the flex parent), not N
   const readyToPostCardCount = (() => {
     const readyDeps = deployments.filter(d => d.status === 'ready_to_post');
-    const adSetIds = new Set();
+    const flexIds = new Set();
     let standalone = 0;
     for (const d of readyDeps) {
-      if (d.local_adset_id) adSetIds.add(d.local_adset_id);
+      if (d.flex_ad_id) flexIds.add(d.flex_ad_id);
       else standalone++;
     }
-    return standalone + adSetIds.size;
+    return standalone + flexIds.size;
   })();
 
   // ─── Actions ──────────────────────────────────────────────────────────────
@@ -676,12 +676,11 @@ export default function AdTracker({ projectId, userRole, searchParams, setSearch
           loadDeployments={loadDeployments}
           onSwitchToPlanner={() => { setActiveView('campaigns'); setSelectedIds(new Set()); }}
           isPoster={isPoster}
-          highlightAdSetId={highlightedAdSetId}
+          highlightFlexAdId={flexAdId}
           onHighlightDone={() => {
             if (setSearchParams) {
               setSearchParams(prev => {
                 const next = new URLSearchParams(prev);
-                next.delete('adSetId');
                 next.delete('flexAdId');
                 return next;
               }, { replace: true });
@@ -690,7 +689,7 @@ export default function AdTracker({ projectId, userRole, searchParams, setSearch
         />
       )}
 
-      {/* ═══════════ Posted View ═══════════ */}
+      {/* ═══════════ Posted View (flex-aware cards) ═══════════ */}
       {activeView === 'status' && statusFilter === 'posted' && !(loading && deployments.length === 0) && (
         <PostedView
           projectId={projectId}
