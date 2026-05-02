@@ -22,9 +22,11 @@ export default async (req, res) => {
       const system = await getSystemCapabilities();
       checks.capabilities = system?.capabilities || {};
       checks.adSetAtomicCombine = checks.capabilities.adSetAtomicCombine === true ? 'ok' : 'missing';
+      checks.batchCronWorker = checks.capabilities.batchCronWorker === true ? 'ok' : 'missing';
     } catch (err) {
       checks.capabilities = {};
       checks.adSetAtomicCombine = 'error';
+      checks.batchCronWorker = 'error';
       checks.capability_error = err?.message || 'Capability check failed';
     }
   } catch (err) {
@@ -32,10 +34,11 @@ export default async (req, res) => {
     checks.convexHost = 'unavailable';
     checks.capabilities = {};
     checks.adSetAtomicCombine = 'error';
+    checks.batchCronWorker = 'error';
     checks.health_error = err?.message || 'Health check failed';
   }
 
-  const status = checks.convex === 'ok' && checks.adSetAtomicCombine === 'ok' ? 'ok' : 'degraded';
+  const status = checks.convex === 'ok' && checks.adSetAtomicCombine === 'ok' && checks.batchCronWorker === 'ok' ? 'ok' : 'degraded';
   res.status(200).json({
     ok: status === 'ok',
     status,

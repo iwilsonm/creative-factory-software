@@ -28,12 +28,13 @@ function LPBadge({ label, status, url }) {
 }
 
 export default function BatchRow({ batch, onRunNow, onCancel, onDelete, onEdit, onPause, onResume }) {
-  const isActive = ['generating_prompts', 'submitting', 'processing'].includes(batch.status);
+  const isQueued = batch.status === 'queued';
+  const isActive = ['generating_prompts', 'submitting', 'processing', 'saving_results'].includes(batch.status);
   const canRun = ['pending', 'completed', 'failed'].includes(batch.status);
-  const canCancel = isActive;
+  const canCancel = isQueued || isActive;
   const isPaused = !batch.scheduled && !!batch.schedule_cron;
   const canPause = !!batch.scheduled && !!batch.schedule_cron;
-  const canEdit = !isActive || !!batch.scheduled;
+  const canEdit = (!isQueued && !isActive) || !!batch.scheduled;
 
   const [editing, setEditing] = useState(false);
   const [editSize, setEditSize] = useState(batch.batch_size);
@@ -111,6 +112,7 @@ export default function BatchRow({ batch, onRunNow, onCancel, onDelete, onEdit, 
   const getOverallProgress = () => {
     if (batch.status === 'completed') return { pct: 100, msg: 'Complete' };
     if (batch.status === 'failed') return { pct: 0, msg: batch.error_message || 'Failed' };
+    if (batch.status === 'queued') return { pct: 2, msg: 'Queued for batch worker...' };
     if (batch.status === 'generating_prompts' && pipelineState) {
       // Stages 0-3 map to 5-75%
       const stagePcts = { 0: 5, 1: 20, 2: 40, 3: 65 };
@@ -129,6 +131,7 @@ export default function BatchRow({ batch, onRunNow, onCancel, onDelete, onEdit, 
       const pct = progressTotal > 0 ? 85 + Math.round((progressDone / progressTotal) * 13) : 85;
       return { pct, msg: `${progressDone}/${progressTotal} images generated` };
     }
+    if (batch.status === 'saving_results') return { pct: 98, msg: 'Saving generated ads...' };
     return { pct: 2, msg: 'Pending...' };
   };
 
@@ -139,6 +142,10 @@ export default function BatchRow({ batch, onRunNow, onCancel, onDelete, onEdit, 
         <div className="flex-shrink-0">
           {isActive ? (
             <div className="w-5 h-5 rounded-full border-2 border-navy/20 border-t-navy animate-spin" />
+          ) : isQueued ? (
+            <div className="w-5 h-5 rounded-full bg-black/5 flex items-center justify-center">
+              <div className="w-2 h-2 rounded-full bg-textmid" />
+            </div>
           ) : batch.status === 'completed' ? (
             <div className="w-5 h-5 rounded-full bg-teal/10 flex items-center justify-center">
               <svg className="w-3 h-3 text-teal" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -435,8 +442,8 @@ export default function BatchRow({ batch, onRunNow, onCancel, onDelete, onEdit, 
         </div>
       )}
 
-      {/* Progress bar for active batches */}
-      {isActive && (() => {
+      {/* Progress bar for queued/active batches */}
+      {(isQueued || isActive) && (() => {
         const { pct, msg } = getOverallProgress();
         return (
           <div className="px-3 pb-3">

@@ -18,6 +18,9 @@ export const create = mutation({
     scheduled: v.optional(v.boolean()),
     schedule_cron: v.optional(v.string()),
     filter_assigned: v.optional(v.boolean()),
+    status: v.optional(v.string()),
+    queued_at: v.optional(v.string()),
+    last_heartbeat_at: v.optional(v.string()),
     // Dacia Creative Director fields
     posting_day: v.optional(v.string()),
     conductor_run_id: v.optional(v.string()),
@@ -28,9 +31,11 @@ export const create = mutation({
   },
   handler: async (ctx, args) => {
     const now = new Date().toISOString();
+    const status = args.status || "pending";
     await ctx.db.insert("batch_jobs", {
       ...args,
-      status: "pending",
+      status,
+      queued_at: args.queued_at || (status === "queued" ? now : undefined),
       completed_count: 0,
       failed_count: 0,
       run_count: 0,
@@ -64,13 +69,24 @@ export const getByProject = query({
 export const getActive = query({
   args: {},
   handler: async (ctx) => {
-    // Use by_status index — 3 small indexed queries instead of one full table scan
-    const [a, b, c] = await Promise.all([
+    // Use by_status index — small indexed queries instead of one full table scan.
+    const [a, b, c, d] = await Promise.all([
       ctx.db.query("batch_jobs").withIndex("by_status", (q) => q.eq("status", "generating_prompts")).collect(),
       ctx.db.query("batch_jobs").withIndex("by_status", (q) => q.eq("status", "submitting")).collect(),
       ctx.db.query("batch_jobs").withIndex("by_status", (q) => q.eq("status", "processing")).collect(),
+      ctx.db.query("batch_jobs").withIndex("by_status", (q) => q.eq("status", "saving_results")).collect(),
     ]);
-    return [...a, ...b, ...c];
+    return [...a, ...b, ...c, ...d];
+  },
+});
+
+export const getQueued = query({
+  args: {},
+  handler: async (ctx) => {
+    return await ctx.db
+      .query("batch_jobs")
+      .withIndex("by_status", (q) => q.eq("status", "queued"))
+      .collect();
   },
 });
 
@@ -117,7 +133,12 @@ export const update = mutation({
     scheduled: v.optional(v.boolean()),
     schedule_cron: v.optional(v.string()),
     retry_count: v.optional(v.number()),
+    queued_at: v.optional(v.string()),
+    last_heartbeat_at: v.optional(v.string()),
     stale_detected_at: v.optional(v.nullable(v.string())),
+    worker_lease_owner: v.optional(v.nullable(v.string())),
+    worker_lease_expires_at: v.optional(v.nullable(v.string())),
+    last_scheduled_run_key: v.optional(v.string()),
     batch_stats: v.optional(v.nullable(v.string())),
     angle: v.optional(v.string()),
     angles: v.optional(v.string()),
@@ -167,6 +188,107 @@ export const update = mutation({
   },
 });
 
+export const claimWork = mutation({
+  args: {
+    externalId: v.string(),
+    owner: v.string(),
+    lease_expires_at: v.string(),
+    now: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const batch = await ctx.db
+      .query("batch_jobs")
+      .withIndex("by_externalId", (q) => q.eq("externalId", args.externalId))
+      .first();
+    if (!batch) return { claimed: false, reason: "not_found" };
+
+    const leaseOwner = batch.worker_lease_owner || null;
+    const leaseExpiresAt = batch.worker_lease_expires_at || null;
+    if (leaseOwner && leaseOwner !== args.owner && leaseExpiresAt && leaseExpiresAt > args.now) {
+      return { claimed: false, reason: "leased" };
+    }
+
+    const patch = {
+      worker_lease_owner: args.owner,
+      worker_lease_expires_at: args.lease_expires_at,
+    };
+    await ctx.db.patch(batch._id, patch);
+    return { claimed: true, batch: { ...batch, ...patch } };
+  },
+});
+
+export const releaseWork = mutation({
+  args: {
+    externalId: v.string(),
+    owner: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const batch = await ctx.db
+      .query("batch_jobs")
+      .withIndex("by_externalId", (q) => q.eq("externalId", args.externalId))
+      .first();
+    if (!batch) return { released: false, reason: "not_found" };
+    if (batch.worker_lease_owner && batch.worker_lease_owner !== args.owner) {
+      return { released: false, reason: "owner_mismatch" };
+    }
+    await ctx.db.patch(batch._id, {
+      worker_lease_owner: null,
+      worker_lease_expires_at: null,
+    });
+    return { released: true };
+  },
+});
+
+export const heartbeat = mutation({
+  args: {
+    externalId: v.string(),
+    now: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const batch = await ctx.db
+      .query("batch_jobs")
+      .withIndex("by_externalId", (q) => q.eq("externalId", args.externalId))
+      .first();
+    if (!batch) throw new Error("Batch job not found");
+    await ctx.db.patch(batch._id, { last_heartbeat_at: args.now });
+  },
+});
+
+export const queueScheduledRun = mutation({
+  args: {
+    externalId: v.string(),
+    run_key: v.string(),
+    now: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const batch = await ctx.db
+      .query("batch_jobs")
+      .withIndex("by_externalId", (q) => q.eq("externalId", args.externalId))
+      .first();
+    if (!batch) return { queued: false, reason: "not_found" };
+    if (batch.last_scheduled_run_key === args.run_key) {
+      return { queued: false, reason: "already_queued" };
+    }
+    if (["queued", "generating_prompts", "submitting", "processing", "saving_results"].includes(batch.status || "pending")) {
+      return { queued: false, reason: "already_active" };
+    }
+
+    await ctx.db.patch(batch._id, {
+      status: "queued",
+      error_message: null,
+      gemini_batch_job: null,
+      gpt_prompts: null,
+      batch_stats: null,
+      queued_at: args.now,
+      last_heartbeat_at: args.now,
+      last_scheduled_run_key: args.run_key,
+      worker_lease_owner: null,
+      worker_lease_expires_at: null,
+    });
+    return { queued: true };
+  },
+});
+
 export const claimResultsProcessing = mutation({
   args: { externalId: v.string() },
   handler: async (ctx, args) => {
@@ -200,7 +322,10 @@ export const claimResultsProcessing = mutation({
       };
     }
 
-    await ctx.db.patch(batch._id, { status: "saving_results" });
+    await ctx.db.patch(batch._id, {
+      status: "saving_results",
+      last_heartbeat_at: new Date().toISOString(),
+    });
     return {
       claimed: true,
       status: "saving_results",

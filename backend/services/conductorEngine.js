@@ -197,7 +197,7 @@ export async function runDirectorForProject(projectId, runType = 'manual') {
 
         const refreshedBatchIds = getSlotBatchIds(workingSlot);
         const latestKnownBatch = refreshedBatchIds.length > 0 ? batchesById.get(refreshedBatchIds[refreshedBatchIds.length - 1]) : null;
-        const hasActiveBatch = latestKnownBatch && ['pending', 'generating_prompts', 'submitting', 'processing'].includes(latestKnownBatch.status);
+        const hasActiveBatch = latestKnownBatch && ['queued', 'pending', 'generating_prompts', 'submitting', 'processing', 'saving_results'].includes(latestKnownBatch.status);
 
         if (workingSlot.status !== 'reserved' || hasActiveBatch || workingSlot.produced_flex_ad_id) {
           slotResults.push(buildPostingDaySlotResult(workingSlot));
@@ -430,7 +430,7 @@ async function calculateDeficit(projectId, postingDay, target) {
   // Count batches still in progress for this posting day
   const inProgress = batches.filter(b =>
     b.posting_day === postingDay &&
-    ['pending', 'generating_prompts', 'submitting', 'processing'].includes(b.status)
+    ['queued', 'pending', 'generating_prompts', 'submitting', 'processing', 'saving_results'].includes(b.status)
   ).length;
 
   const deficit = Math.max(0, target - produced - inProgress);
@@ -497,7 +497,7 @@ function reconcileSchedulerSlot(slot, latestBatch) {
     };
   }
 
-  if (['pending', 'generating_prompts', 'submitting', 'processing'].includes(latestBatch.status)) {
+  if (['queued', 'pending', 'generating_prompts', 'submitting', 'processing', 'saving_results'].includes(latestBatch.status)) {
     return {
       status: 'in_progress',
       diagnostics_summary: diagnosticsSummary,
@@ -2153,7 +2153,7 @@ async function continueBackgroundTestRun(run) {
     return true;
   }
 
-  if (['pending', 'generating_prompts', 'submitting', 'processing'].includes(batch.status)) {
+  if (['queued', 'pending', 'generating_prompts', 'submitting', 'processing', 'saving_results'].includes(batch.status)) {
     const roundNumber = batchInfo.round || (roundDetails.length + 1);
     const terminalStatus = batch.gemini_batch_job ? 'waiting_on_gemini' : 'building_round';
     const phaseMessage = batch.gemini_batch_job

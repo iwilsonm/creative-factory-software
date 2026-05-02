@@ -669,7 +669,7 @@ export async function getProjectStats(projectId) {
 // Batch job helpers
 // =============================================
 
-export async function createBatchJob({ id, project_id, generation_mode, batch_size, angle, angles, aspect_ratio, template_image_id, template_image_ids, inspiration_image_id, inspiration_image_ids, product_image_storageId, scheduled, schedule_cron, filter_assigned, posting_day, conductor_run_id, angle_name, angle_prompt, angle_brief }) {
+export async function createBatchJob({ id, project_id, generation_mode, batch_size, angle, angles, aspect_ratio, template_image_id, template_image_ids, inspiration_image_id, inspiration_image_ids, product_image_storageId, scheduled, schedule_cron, filter_assigned, status, queued_at, last_heartbeat_at, posting_day, conductor_run_id, angle_name, angle_prompt, angle_brief }) {
   await mutationWithRetry(api.batchJobs.create, {
     externalId: id,
     project_id,
@@ -686,6 +686,9 @@ export async function createBatchJob({ id, project_id, generation_mode, batch_si
     scheduled: !!scheduled,
     schedule_cron: schedule_cron || undefined,
     filter_assigned: filter_assigned ? true : undefined,
+    status: status || undefined,
+    queued_at: queued_at || undefined,
+    last_heartbeat_at: last_heartbeat_at || undefined,
     posting_day: posting_day || undefined,
     conductor_run_id: conductor_run_id || undefined,
     angle_name: angle_name || undefined,
@@ -706,12 +709,17 @@ export async function getBatchesByProject(projectId) {
 }
 
 export async function getActiveBatchJobs() {
-  const batches = await cachedQuery('batch_jobs', api.batchJobs.getActive, {});
+  const batches = await queryWithRetry(api.batchJobs.getActive, {});
+  return batches.map(convexBatchToRow);
+}
+
+export async function getQueuedBatchJobs() {
+  const batches = await queryWithRetry(api.batchJobs.getQueued, {});
   return batches.map(convexBatchToRow);
 }
 
 export async function getScheduledBatchJobs() {
-  const batches = await cachedQuery('batch_jobs', api.batchJobs.getScheduled, {});
+  const batches = await queryWithRetry(api.batchJobs.getScheduled, {});
   return batches.map(convexBatchToRow);
 }
 
@@ -724,7 +732,7 @@ export async function getCompletedDirectorBatchStats(sinceDate) {
 }
 
 export async function updateBatchJob(id, fields) {
-  const allowed = ['status', 'gemini_batch_job', 'gpt_prompts', 'error_message', 'started_at', 'completed_at', 'completed_count', 'failed_count', 'run_count', 'scheduled', 'schedule_cron', 'retry_count', 'stale_detected_at', 'batch_stats', 'pipeline_state', 'angle', 'angles', 'batch_size', 'aspect_ratio', 'used_template_ids', 'filter_assigned', 'filter_processed', 'filter_processed_at', 'posting_day', 'conductor_run_id', 'angle_name', 'angle_prompt', 'angle_brief', 'flex_ad_id', 'lp_primary_id', 'lp_primary_url', 'lp_primary_status', 'lp_primary_error', 'lp_primary_retry_count', 'lp_secondary_id', 'lp_secondary_url', 'lp_secondary_status', 'lp_secondary_error', 'lp_secondary_retry_count', 'lp_narrative_frames', 'gauntlet_lp_urls'];
+  const allowed = ['status', 'gemini_batch_job', 'gpt_prompts', 'error_message', 'started_at', 'completed_at', 'completed_count', 'failed_count', 'run_count', 'scheduled', 'schedule_cron', 'retry_count', 'queued_at', 'last_heartbeat_at', 'stale_detected_at', 'worker_lease_owner', 'worker_lease_expires_at', 'last_scheduled_run_key', 'batch_stats', 'pipeline_state', 'angle', 'angles', 'batch_size', 'aspect_ratio', 'used_template_ids', 'filter_assigned', 'filter_processed', 'filter_processed_at', 'posting_day', 'conductor_run_id', 'angle_name', 'angle_prompt', 'angle_brief', 'flex_ad_id', 'lp_primary_id', 'lp_primary_url', 'lp_primary_status', 'lp_primary_error', 'lp_primary_retry_count', 'lp_secondary_id', 'lp_secondary_url', 'lp_secondary_status', 'lp_secondary_error', 'lp_secondary_retry_count', 'lp_narrative_frames', 'gauntlet_lp_urls'];
   const updates = { externalId: id };
   for (const key of allowed) {
     if (fields[key] !== undefined) {
@@ -737,6 +745,43 @@ export async function updateBatchJob(id, fields) {
   }
   await mutationWithRetry(api.batchJobs.update, updates);
   invalidateQueryCache('batch_jobs');
+}
+
+export async function claimBatchWork(id, owner, leaseMs = 4 * 60 * 1000) {
+  const now = new Date();
+  const result = await mutationWithRetry(api.batchJobs.claimWork, {
+    externalId: id,
+    owner,
+    now: now.toISOString(),
+    lease_expires_at: new Date(now.getTime() + leaseMs).toISOString(),
+  });
+  invalidateQueryCache('batch_jobs');
+  if (result?.batch) result.batch = convexBatchToRow(result.batch);
+  return result || { claimed: false, reason: 'unknown' };
+}
+
+export async function releaseBatchWork(id, owner) {
+  const result = await mutationWithRetry(api.batchJobs.releaseWork, { externalId: id, owner });
+  invalidateQueryCache('batch_jobs');
+  return result || { released: false, reason: 'unknown' };
+}
+
+export async function heartbeatBatchJob(id) {
+  await mutationWithRetry(api.batchJobs.heartbeat, {
+    externalId: id,
+    now: new Date().toISOString(),
+  });
+  invalidateQueryCache('batch_jobs');
+}
+
+export async function queueScheduledBatchRun(id, runKey) {
+  const result = await mutationWithRetry(api.batchJobs.queueScheduledRun, {
+    externalId: id,
+    run_key: runKey,
+    now: new Date().toISOString(),
+  });
+  invalidateQueryCache('batch_jobs');
+  return result || { queued: false, reason: 'unknown' };
 }
 
 export async function claimBatchResultsProcessing(id) {
@@ -773,7 +818,12 @@ function convexBatchToRow(b) {
     failed_count: b.failed_count || 0,
     run_count: b.run_count || 0,
     retry_count: b.retry_count || 0,
+    queued_at: b.queued_at || null,
+    last_heartbeat_at: b.last_heartbeat_at || null,
     stale_detected_at: b.stale_detected_at || null,
+    worker_lease_owner: b.worker_lease_owner || null,
+    worker_lease_expires_at: b.worker_lease_expires_at || null,
+    last_scheduled_run_key: b.last_scheduled_run_key || null,
     used_template_ids: b.used_template_ids || null,
     batch_stats: b.batch_stats || null,
     pipeline_state: b.pipeline_state || null,

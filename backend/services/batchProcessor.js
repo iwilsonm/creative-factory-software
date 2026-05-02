@@ -1,4 +1,4 @@
-import { v4 as uuidv4 } from 'uuid';
+import { v5 as uuidv5 } from 'uuid';
 import { getClient, generateImage } from './gemini.js';
 import {
   extractBrief,
@@ -34,6 +34,14 @@ import { chatWithImage } from './openai.js';
 
 // Batch OCR model — simple text extraction from a generated image. Cheap and vision-capable.
 const BATCH_OCR_MODEL = 'gpt-4.1-mini';
+const BATCH_AD_UUID_NAMESPACE = '9e1c2c75-4b71-4e95-88c7-7605e54a3c03';
+
+async function updateBatchHeartbeat(batchId, fields = {}) {
+  return updateBatchJob(batchId, {
+    ...fields,
+    last_heartbeat_at: new Date().toISOString(),
+  });
+}
 
 /**
  * Phase 1 — Staging Page. Get-or-create the ad_set this batch's ads belong to.
@@ -184,7 +192,7 @@ export async function runBatch(batchId, onProgress, options = {}) {
       }
     }
     try {
-      await updateBatchJob(batchId, { status: 'failed', error_message: 'Cancelled by user' });
+      await updateBatchHeartbeat(batchId, { status: 'failed', error_message: 'Cancelled by user' });
     } catch {}
     throw new Error('Cancelled by user');
   };
@@ -192,14 +200,14 @@ export async function runBatch(batchId, onProgress, options = {}) {
   await throwIfCancelled();
   const batch = await getBatchJob(batchId);
   if (!batch) throw new Error('Batch job not found');
-  if (!['pending'].includes(batch.status)) {
+  if (!['pending', 'queued'].includes(batch.status)) {
     throw new Error(`Batch is already ${batch.status}`);
   }
 
   await throwIfCancelled();
   const project = await getProject(batch.project_id);
   if (!project) {
-    await updateBatchJob(batchId, { status: 'failed', error_message: 'Project not found.' });
+    await updateBatchHeartbeat(batchId, { status: 'failed', error_message: 'Project not found.' });
     throw new Error('Project not found');
   }
 
@@ -207,7 +215,7 @@ export async function runBatch(batchId, onProgress, options = {}) {
   const openaiKey = await getSetting('openai_api_key');
   if (!openaiKey || !openaiKey.trim()) {
     const msg = '[Stage 1] OpenAI API key not configured. Set it in Settings → API Keys.';
-    await updateBatchJob(batchId, { status: 'failed', error_message: msg });
+    await updateBatchHeartbeat(batchId, { status: 'failed', error_message: msg });
     throw new Error(msg);
   }
   console.info(`[BatchProcessor] Pre-flight: OpenAI API key present (length=${openaiKey.length})`);
@@ -224,21 +232,21 @@ export async function runBatch(batchId, onProgress, options = {}) {
   const docCount = Object.values(docs).filter(d => d && d.content).length;
   if (docCount === 0) {
     const msg = '[Stage 1] Project has no foundational docs. Generate at least one (avatar / offer_brief / research / necessary_beliefs) in the Foundational Docs tab first.';
-    await updateBatchJob(batchId, { status: 'failed', error_message: msg });
+    await updateBatchHeartbeat(batchId, { status: 'failed', error_message: msg });
     throw new Error(msg);
   }
 
   try {
     await throwIfCancelled();
     // Phase 1: Generate GPT prompts
-    await updateBatchJob(batchId, { status: 'generating_prompts', started_at: new Date().toISOString() });
+    await updateBatchHeartbeat(batchId, { status: 'generating_prompts', started_at: new Date().toISOString() });
     emit({ type: 'status', status: 'generating_prompts', message: `Generating ${batch.batch_size} prompts via GPT-5.2...` });
 
     const prompts = await generateBatchPrompts(batch, project, docs, onProgress, { throwIfCancelled });
 
     await throwIfCancelled();
     // Store prompts with headline/body in DB (exclude base64 image data to keep DB size reasonable)
-    await updateBatchJob(batchId, {
+    await updateBatchHeartbeat(batchId, {
       gpt_prompts: JSON.stringify(prompts.map(serializePromptForStorage)),
       status: 'submitting'
     });
@@ -265,7 +273,7 @@ export async function runBatch(batchId, onProgress, options = {}) {
     submittedGeminiBatchName = geminiBatchName;
 
     await throwIfCancelled();
-    await updateBatchJob(batchId, {
+    await updateBatchHeartbeat(batchId, {
       gemini_batch_job: geminiBatchName,
       status: 'processing'
     });
@@ -289,7 +297,7 @@ export async function runBatch(batchId, onProgress, options = {}) {
     // Mark batch as failed — retry the status update in case Convex is also having issues
     for (let attempt = 0; attempt < 3; attempt++) {
       try {
-        await updateBatchJob(batchId, {
+        await updateBatchHeartbeat(batchId, {
           status: 'failed',
           error_message: errorMsg.slice(0, 500),
           pipeline_state: JSON.stringify(diagnostic),
@@ -335,13 +343,13 @@ async function generateBatchPrompts(batch, project, docs, onProgress, options = 
   // STAGE 0: Brief Extraction (1 API call)
   // ========================================
   emit({ type: 'prompt_progress', current: 0, total: batch.batch_size, message: 'Step 1 of 5: Extracting angle-specific brief...' });
-  await updateBatchJob(batchId, {
+  await updateBatchHeartbeat(batchId, {
     pipeline_state: JSON.stringify({ stage: 0, stage_label: 'Step 1 of 5: Extracting brief...' })
   });
 
   const briefPacket = await extractBrief(project, docs, angle, angleBrief);
 
-  await updateBatchJob(batchId, {
+  await updateBatchHeartbeat(batchId, {
     pipeline_state: JSON.stringify({ stage: 0, stage_label: 'Step 1 of 5: Brief extracted', brief_length: briefPacket.length })
   });
 
@@ -366,7 +374,7 @@ async function generateBatchPrompts(batch, project, docs, onProgress, options = 
   // ========================================
   const headlineCount = Math.ceil(Math.max(batch.batch_size + 10, batch.batch_size * 1.2));
   emit({ type: 'prompt_progress', current: 0, total: batch.batch_size, message: `Step 2 of 5: Generating ${headlineCount} headlines...` });
-  await updateBatchJob(batchId, {
+  await updateBatchHeartbeat(batchId, {
     pipeline_state: JSON.stringify({ stage: 1, stage_label: `Step 2 of 5: Generating headlines...` })
   });
 
@@ -463,7 +471,7 @@ async function generateBatchPrompts(batch, project, docs, onProgress, options = 
   console.log(
     `[BatchProcessor] Stage 1 complete: ${initialCandidates.length + regenCandidateCount} generated, ${sceneAlignmentRejections} scene rejects, ${duplicateRejections} intra-batch rejects, ${historyRejections} historical rejects, ${finalHeadlines.length} selected`
   );
-  await updateBatchJob(batchId, {
+  await updateBatchHeartbeat(batchId, {
     pipeline_state: JSON.stringify({
       stage: 1,
       stage_label: `Step 2 of 5: ${finalHeadlines.length} diverse headlines selected`,
@@ -478,7 +486,7 @@ async function generateBatchPrompts(batch, project, docs, onProgress, options = 
   // ========================================
   const totalBodyBatches = Math.ceil(finalHeadlines.length / 5);
   emit({ type: 'prompt_progress', current: 0, total: batch.batch_size, message: `Step 3 of 5: Writing body copy (${totalBodyBatches} batches of 5)...` });
-  await updateBatchJob(batchId, {
+  await updateBatchHeartbeat(batchId, {
     pipeline_state: JSON.stringify({
       stage: 2,
       stage_label: `Step 3 of 5: Writing body copy...`,
@@ -489,7 +497,7 @@ async function generateBatchPrompts(batch, project, docs, onProgress, options = 
   const bodyCopies = await generateBodyCopies(project, briefPacket, finalHeadlines, angleBrief);
 
   console.log(`[BatchProcessor] Stage 2 complete: ${bodyCopies.length} body copies for ${finalHeadlines.length} headlines`);
-  await updateBatchJob(batchId, {
+  await updateBatchHeartbeat(batchId, {
     pipeline_state: JSON.stringify({
       stage: 2,
       stage_label: `Step 3 of 5: ${bodyCopies.length} body copies generated`,
@@ -507,7 +515,7 @@ async function generateBatchPrompts(batch, project, docs, onProgress, options = 
   // STAGE 3: Image Prompt Generation (1 per ad)
   // ========================================
   emit({ type: 'prompt_progress', current: 0, total: bodyCopies.length, message: `Step 4 of 5: Creating image prompts (0/${bodyCopies.length})...` });
-  await updateBatchJob(batchId, {
+  await updateBatchHeartbeat(batchId, {
     pipeline_state: JSON.stringify({
       stage: 3,
       stage_label: `Step 4 of 5: Creating image prompts (0/${bodyCopies.length})...`,
@@ -558,7 +566,7 @@ async function generateBatchPrompts(batch, project, docs, onProgress, options = 
       message: `Step 4 of 5: Creating image prompts ${chunkStart + 1}-${chunkEnd} of ${bodyCopies.length}...`
     });
 
-    await updateBatchJob(batchId, {
+    await updateBatchHeartbeat(batchId, {
       pipeline_state: JSON.stringify({
         stage: 3,
         stage_label: `Step 4 of 5: Image prompts (${chunkEnd}/${bodyCopies.length})...`,
@@ -697,7 +705,7 @@ async function generateBatchPrompts(batch, project, docs, onProgress, options = 
   // Update used_template_ids on the batch record for cross-run tracking
   if (newlyUsedTemplateIds.length > 0) {
     const updatedUsed = [...usedTemplateIds, ...newlyUsedTemplateIds];
-    await updateBatchJob(batchId, { used_template_ids: JSON.stringify(updatedUsed) });
+    await updateBatchHeartbeat(batchId, { used_template_ids: JSON.stringify(updatedUsed) });
     console.log(`[BatchProcessor] Tracked ${newlyUsedTemplateIds.length} new template IDs (${updatedUsed.length} total used)`);
   }
 
@@ -710,7 +718,7 @@ async function generateBatchPrompts(batch, project, docs, onProgress, options = 
   console.log(`[BatchProcessor] Pipeline complete: ${validPrompts.length}/${bodyCopies.length} prompts generated successfully.`);
 
   // Clear pipeline_state now that all stages are done
-  await updateBatchJob(batchId, {
+  await updateBatchHeartbeat(batchId, {
     pipeline_state: JSON.stringify({
       stage: 'complete',
       prompts_generated: validPrompts.length,
@@ -811,6 +819,12 @@ export async function pollBatchJob(batchId) {
     if (['generating_prompts', 'submitting'].includes(batch.status)) {
       return 'processing';
     }
+    if (batch.status === 'processing') {
+      await updateBatchHeartbeat(batchId, {
+        status: 'failed',
+        error_message: 'Batch entered image-processing state without a Gemini batch job. It is safe to retry.',
+      });
+    }
     return 'failed';
   }
 
@@ -826,13 +840,13 @@ export async function pollBatchJob(batchId) {
       await processBatchResults(batchId, job);
       return 'completed';
     } else if (job.state === 'JOB_STATE_FAILED' || job.state === 'JOB_STATE_EXPIRED') {
-      await updateBatchJob(batchId, {
+      await updateBatchHeartbeat(batchId, {
         status: 'failed',
         error_message: `Gemini batch job ${job.state.replace('JOB_STATE_', '').toLowerCase()}`
       });
       return 'failed';
     } else if (job.state === 'JOB_STATE_CANCELLED') {
-      await updateBatchJob(batchId, {
+      await updateBatchHeartbeat(batchId, {
         status: 'failed',
         error_message: 'Gemini batch job was cancelled'
       });
@@ -849,8 +863,10 @@ export async function pollBatchJob(batchId) {
         failedCount: job.batchStats.failedCount || 0,
         totalCount: job.batchStats.totalCount || 0
       };
-      await updateBatchJob(batchId, { batch_stats: JSON.stringify(stats) });
+      await updateBatchHeartbeat(batchId, { batch_stats: JSON.stringify(stats) });
       console.log(`[BatchProcessor] Batch ${batchId.slice(0, 8)}: ${stats.successfulCount} done, ${stats.processingCount} processing`);
+    } else {
+      await updateBatchHeartbeat(batchId);
     }
     return 'processing';
 
@@ -978,8 +994,14 @@ async function processBatchResults(batchId, job) {
         }
       }
 
-      // Create ad_creative record
-      const adId = uuidv4();
+      // Create ad_creative record. The deterministic ID makes result-saving
+      // retries safe if a serverless invocation times out after partial writes.
+      const adId = uuidv5(`batch-result:${batchId}:${i}`, BATCH_AD_UUID_NAMESPACE);
+      const existingAd = await convexClient.query(api.adCreatives.getByExternalId, { externalId: adId }).catch(() => null);
+      if (existingAd) {
+        savedCount++;
+        continue;
+      }
       await convexClient.mutation(api.adCreatives.create, {
         externalId: adId,
         project_id: batch.project_id,
@@ -1042,6 +1064,9 @@ async function processBatchResults(batchId, job) {
       }
 
       savedCount++;
+      if (savedCount % 3 === 0) {
+        await updateBatchHeartbeat(batchId);
+      }
 
       // Log Gemini cost with batch discount (fire-and-forget)
       try { await logGeminiCost(batch.project_id, 1, '2K', true); } catch {}
@@ -1061,7 +1086,7 @@ async function processBatchResults(batchId, job) {
   }
 
   // Accumulate counts across runs (don't overwrite previous runs' totals)
-  await updateBatchJob(batchId, {
+  await updateBatchHeartbeat(batchId, {
     status: 'completed',
     completed_at: new Date().toISOString(),
     completed_count: (batch.completed_count || 0) + savedCount,

@@ -14,6 +14,7 @@ const mockUploadBuffer = vi.fn();
 const mockDownloadToBuffer = vi.fn();
 const mockCreateAdCreative = vi.fn();
 const mockGetActiveBatchJobs = vi.fn();
+const mockGetQueuedBatchJobs = vi.fn();
 const mockGetScheduledBatchJobs = vi.fn();
 const mockGetBatchesByProject = vi.fn();
 const mockCreateBatchJob = vi.fn();
@@ -22,6 +23,8 @@ const mockClaimBatchResultsProcessing = vi.fn();
 const mockGetRecentHeadlineHistoryByAngle = vi.fn();
 const mockRecordHeadlineHistory = vi.fn();
 const mockGetSetting = vi.fn();
+const mockConvexQuery = vi.fn();
+const mockConvexMutation = vi.fn();
 
 vi.mock('../convexClient.js', () => ({
   getProject: (...args) => mockGetProject(...args),
@@ -32,6 +35,7 @@ vi.mock('../convexClient.js', () => ({
   downloadToBuffer: (...args) => mockDownloadToBuffer(...args),
   createAdCreative: (...args) => mockCreateAdCreative(...args),
   getActiveBatchJobs: (...args) => mockGetActiveBatchJobs(...args),
+  getQueuedBatchJobs: (...args) => mockGetQueuedBatchJobs(...args),
   getScheduledBatchJobs: (...args) => mockGetScheduledBatchJobs(...args),
   getBatchesByProject: (...args) => mockGetBatchesByProject(...args),
   createBatchJob: (...args) => mockCreateBatchJob(...args),
@@ -39,12 +43,21 @@ vi.mock('../convexClient.js', () => ({
   claimBatchResultsProcessing: (...args) => mockClaimBatchResultsProcessing(...args),
   getRecentHeadlineHistoryByAngle: (...args) => mockGetRecentHeadlineHistoryByAngle(...args),
   recordHeadlineHistory: (...args) => mockRecordHeadlineHistory(...args),
+  getAdSet: vi.fn().mockResolvedValue(null),
+  createAdSet: vi.fn().mockResolvedValue(),
+  ensureDefaultCampaign: vi.fn().mockResolvedValue('campaign-001'),
+  findConductorAngleByName: vi.fn().mockResolvedValue(null),
+  parseAdSetDefaults: vi.fn().mockReturnValue({}),
   getInspirationImages: vi.fn().mockResolvedValue([]),
   getInspirationImageUrl: vi.fn(),
   getAdImageUrl: vi.fn(),
   getSetting: (...args) => mockGetSetting(...args),
-  convexClient: { query: vi.fn(), mutation: vi.fn() },
-  api: { batchJobs: {} },
+  claimBatchWork: vi.fn(),
+  releaseBatchWork: vi.fn(),
+  heartbeatBatchJob: vi.fn(),
+  queueScheduledBatchRun: vi.fn(),
+  convexClient: { query: (...args) => mockConvexQuery(...args), mutation: (...args) => mockConvexMutation(...args) },
+  api: { batchJobs: {}, adCreatives: {} },
   queryWithRetry: vi.fn(),
   mutationWithRetry: vi.fn(),
 }));
@@ -111,6 +124,7 @@ vi.mock('../services/anthropic.js', () => ({
 // Mock uuid
 vi.mock('uuid', () => ({
   v4: vi.fn(() => 'test-uuid-1234'),
+  v5: vi.fn((name) => `test-${name.replace(/[^a-z0-9]/gi, '-')}`),
 }));
 
 // Mock sharp
@@ -196,6 +210,8 @@ describe('batch pipeline', () => {
     mockRecordHeadlineHistory.mockResolvedValue();
     mockIsSceneLockedAngle.mockReturnValue(false);
     mockGetSetting.mockResolvedValue('test-openai-key');
+    mockConvexQuery.mockResolvedValue(null);
+    mockConvexMutation.mockResolvedValue();
   });
 
   // ── Status Flow ──────────────────────────────────────────
@@ -216,7 +232,7 @@ describe('batch pipeline', () => {
     });
 
     it('failed is a valid terminal status from any active state', () => {
-      const activeStates = ['generating_prompts', 'submitting', 'processing'];
+      const activeStates = ['queued', 'generating_prompts', 'submitting', 'processing', 'saving_results'];
       activeStates.forEach(state => {
         const batch = makeBatchJob({ status: state });
         // Should be able to transition to failed
@@ -355,6 +371,51 @@ describe('batch pipeline', () => {
         ([, fields]) => fields?.status === 'saving_results'
       );
       expect(savingCalls).toHaveLength(0);
+    });
+
+    it('skips existing deterministic ads when result saving is retried', async () => {
+      mockGetBatchJob.mockResolvedValue(
+        makeBatchJob({
+          status: 'processing',
+          gemini_batch_job: 'batches/test-job',
+          gpt_prompts: JSON.stringify([{ prompt: 'make ad', headline: 'Headline', body_copy: 'Body' }]),
+        })
+      );
+      mockGetProject.mockResolvedValue(makeProject());
+      mockGetClient.mockResolvedValue({
+        batches: {
+          get: vi.fn().mockResolvedValue({
+            state: 'JOB_STATE_SUCCEEDED',
+            dest: {
+              inlinedResponses: [{
+                response: {
+                  candidates: [{
+                    content: {
+                      parts: [{
+                        inlineData: {
+                          data: Buffer.from('image').toString('base64'),
+                          mimeType: 'image/png',
+                        },
+                      }],
+                    },
+                  }],
+                },
+              }],
+            },
+          }),
+        },
+      });
+      mockConvexQuery.mockResolvedValue({ externalId: 'existing-ad' });
+
+      const { pollBatchJob } = await import('../services/batchProcessor.js');
+      const result = await pollBatchJob('batch-001');
+
+      expect(result).toBe('completed');
+      expect(mockConvexMutation).not.toHaveBeenCalled();
+      expect(mockUpdateBatchJob).toHaveBeenCalledWith('batch-001', expect.objectContaining({
+        status: 'completed',
+        completed_count: 1,
+      }));
     });
   });
 
@@ -627,13 +688,13 @@ describe('batch pipeline', () => {
   // ── Polling Behavior ─────────────────────────────────────
 
   describe('polling behavior', () => {
-    it('scheduler polls every 5 minutes (300 seconds)', () => {
-      const CHECK_INTERVAL = 300;
-      expect(CHECK_INTERVAL).toBe(300);
+    it('scheduler polls every minute', () => {
+      const CHECK_INTERVAL = 60;
+      expect(CHECK_INTERVAL).toBe(60);
     });
 
     it('getActiveBatchJobs returns batches in processing states', () => {
-      const processingStates = ['generating_prompts', 'submitting', 'processing'];
+      const processingStates = ['generating_prompts', 'submitting', 'processing', 'saving_results'];
       processingStates.forEach(state => {
         const batch = makeBatchJob({ status: state });
         expect(processingStates).toContain(batch.status);
@@ -642,7 +703,7 @@ describe('batch pipeline', () => {
 
     it('completed and failed batches are not returned by getActive', () => {
       const inactiveStates = ['pending', 'completed', 'failed'];
-      const activeStates = ['generating_prompts', 'submitting', 'processing'];
+      const activeStates = ['queued', 'generating_prompts', 'submitting', 'processing', 'saving_results'];
       inactiveStates.forEach(state => {
         expect(activeStates).not.toContain(state);
       });

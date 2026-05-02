@@ -5,13 +5,11 @@ import {
   getProject, createBatchJob, getBatchJob, getBatchesByProject,
   updateBatchJob, deleteBatchJob, uploadBuffer
 } from '../convexClient.js';
-import { runBatch } from '../services/batchProcessor.js';
 import { copyStorageBlob } from '../utils/adImages.js';
 
-// Scheduler stubs: scheduler.js was removed. Scheduled-batch cron registration
-// is deferred to a future Convex crons migration. Batches can still be created
-// with scheduled=true; they just won't fire automatically until that migration.
-const registerCronJob = () => console.warn('[batches] Cron registration skipped — Convex cron migration pending');
+// Durable batch execution is handled by the cron-backed scheduler. These hooks
+// are retained for route compatibility; the scheduler reads Convex directly.
+const registerCronJob = () => {};
 const unregisterCronJob = () => {};
 const loadScheduledBatches = () => [];
 
@@ -76,6 +74,8 @@ router.post('/:projectId/batches', async (req, res) => {
   }
 
   try {
+    const shouldQueueNow = run_immediately && !scheduled;
+    const now = new Date().toISOString();
     await createBatchJob({
       id,
       project_id: req.params.projectId,
@@ -90,21 +90,16 @@ router.post('/:projectId/batches', async (req, res) => {
       product_image_storageId: productImageStorageId,
       scheduled: !!scheduled,
       schedule_cron: schedule_cron || null,
-      filter_assigned: !!filter_assigned
+      filter_assigned: !!filter_assigned,
+      status: shouldQueueNow ? 'queued' : 'pending',
+      queued_at: shouldQueueNow ? now : undefined,
+      last_heartbeat_at: shouldQueueNow ? now : undefined,
     });
 
     // If scheduled, register the cron job
     if (scheduled && schedule_cron) {
       const batch = await getBatchJob(id);
       registerCronJob(batch);
-    }
-
-    // If run immediately (and not just scheduled for later)
-    if (run_immediately && !scheduled) {
-      // Run in background — don't await
-      runBatch(id).catch(err => {
-        console.error(`[Batches API] Background batch ${id.slice(0, 8)} failed:`, err.message);
-      });
     }
 
     const batch = await getBatchJob(id);
@@ -202,15 +197,19 @@ router.post('/:projectId/batches/:batchId/run', async (req, res) => {
     return res.status(400).json({ error: `Cannot run batch in "${batch.status}" state. Wait for current run to finish.` });
   }
 
-  // Reset status
-  await updateBatchJob(req.params.batchId, { status: 'pending', error_message: null });
-
-  // Run in background
-  runBatch(req.params.batchId).catch(err => {
-    console.error(`[Batches API] Manual run ${req.params.batchId.slice(0, 8)} failed:`, err.message);
+  const now = new Date().toISOString();
+  await updateBatchJob(req.params.batchId, {
+    status: 'queued',
+    error_message: null,
+    gemini_batch_job: null,
+    gpt_prompts: null,
+    batch_stats: null,
+    queued_at: now,
+    last_heartbeat_at: now,
+    stale_detected_at: null,
   });
 
-  res.json({ success: true, message: 'Batch job started.', batch: await getBatchJob(req.params.batchId) });
+  res.json({ success: true, message: 'Batch job queued.', batch: await getBatchJob(req.params.batchId) });
 });
 
 /**
@@ -222,7 +221,7 @@ router.post('/:projectId/batches/:batchId/cancel', async (req, res) => {
     return res.status(404).json({ error: 'Batch job not found' });
   }
 
-  if (!['generating_prompts', 'submitting', 'processing'].includes(batch.status)) {
+  if (!['queued', 'generating_prompts', 'submitting', 'processing'].includes(batch.status)) {
     return res.status(400).json({ error: `Cannot cancel batch in "${batch.status}" state.` });
   }
 
@@ -256,17 +255,20 @@ router.post('/retry/:batchId', async (req, res) => {
       return res.status(400).json({ error: `Cannot retry batch in "${batch.status}" state.` });
     }
 
+    const now = new Date().toISOString();
     await updateBatchJob(req.params.batchId, {
-      status: 'pending',
+      status: 'queued',
       error_message: null,
+      gemini_batch_job: null,
+      gpt_prompts: null,
+      batch_stats: null,
+      queued_at: now,
+      last_heartbeat_at: now,
+      stale_detected_at: null,
       retry_count: 0,
     });
 
-    runBatch(req.params.batchId).catch(err => {
-      console.error(`[Batches API] Background retry failed for ${req.params.batchId}:`, err.message);
-    });
-
-    res.json({ success: true, message: 'Batch retry started.', batch: await getBatchJob(req.params.batchId) });
+    res.json({ success: true, message: 'Batch retry queued.', batch: await getBatchJob(req.params.batchId) });
   } catch (err) {
     console.error('[Batches API] Retry error:', err);
     res.status(500).json({ error: err.message });

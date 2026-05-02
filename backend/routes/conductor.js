@@ -79,7 +79,7 @@ async function computePipelineStatus() {
 
     const activeBatchesByDay = {};
     for (const batch of batches) {
-      if (batch.posting_day && ['pending', 'generating_prompts', 'submitting', 'processing'].includes(batch.status)) {
+      if (batch.posting_day && ['queued', 'pending', 'generating_prompts', 'submitting', 'processing', 'saving_results'].includes(batch.status)) {
         activeBatchesByDay[batch.posting_day] = (activeBatchesByDay[batch.posting_day] || 0) + 1;
       }
     }

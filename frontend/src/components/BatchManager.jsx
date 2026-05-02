@@ -77,7 +77,7 @@ export default function BatchManager({ projectId, project, onBatchComplete }) {
   }, [expanded, projectId]);
 
   // Poll for batches — 10s when any batch is active, 30s otherwise
-  const hasActiveBatches = batches.some(b => ['generating_prompts', 'submitting', 'processing'].includes(b.status));
+  const hasActiveBatches = batches.some(b => ['queued', 'generating_prompts', 'submitting', 'processing', 'saving_results'].includes(b.status));
   usePolling(() => loadBatches(true), hasActiveBatches ? 10000 : 30000, expanded);
 
   // Load templates when "Pick Template" is selected
@@ -492,7 +492,7 @@ export default function BatchManager({ projectId, project, onBatchComplete }) {
   };
 
   const activeBatches = batches.filter(b =>
-    ['generating_prompts', 'submitting', 'processing', 'pending'].includes(b.status)
+    ['queued', 'generating_prompts', 'submitting', 'processing', 'saving_results', 'pending'].includes(b.status)
     || !!b.schedule_cron  // Include all scheduled/paused batches in active section
   );
   const awaitingFilterBatches = batches.filter(b =>
@@ -1241,4 +1241,3 @@ export default function BatchManager({ projectId, project, onBatchComplete }) {
     </div>
   );
 }
-

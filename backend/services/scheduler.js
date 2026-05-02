@@ -1,8 +1,20 @@
-import { getActiveBatchJobs, getScheduledBatchJobs, updateBatchJob } from '../convexClient.js';
+import {
+  claimBatchWork,
+  getActiveBatchJobs,
+  getQueuedBatchJobs,
+  getScheduledBatchJobs,
+  queueScheduledBatchRun,
+  releaseBatchWork,
+  updateBatchJob,
+} from '../convexClient.js';
 import { pollBatchJob, runBatch } from './batchProcessor.js';
 
 const POLL_INTERVAL_MS = 60 * 1000;
-const ACTIVE_STATUSES = new Set(['generating_prompts', 'submitting', 'processing', 'saving_results']);
+const LEASE_MS = 4 * 60 * 1000;
+const PRE_GEMINI_STALE_MS = 15 * 60 * 1000;
+const SAVING_RESULTS_STALE_MS = 10 * 60 * 1000;
+const MAX_BATCH_RUNS_PER_TICK = 1;
+const ACTIVE_STATUSES = new Set(['queued', 'generating_prompts', 'submitting', 'processing', 'saving_results']);
 
 let intervalHandle = null;
 let tickInProgress = false;
@@ -21,6 +33,8 @@ const state = {
   activePolls: 0,
   activeRuns: 0,
   scheduledCount: 0,
+  queuedCount: 0,
+  lastCronResult: null,
 };
 
 function localMinuteKey(date = new Date()) {
@@ -93,24 +107,33 @@ export function cronMatchesDate(cronExpression, date = new Date()) {
   return minuteOk && hourOk && monthOk && dayOk;
 }
 
-function runBatchInBackground(batchId, source) {
-  if (runningBatchIds.has(batchId)) return false;
-  runningBatchIds.add(batchId);
-  state.activeRuns = runningBatchIds.size;
-
-  runBatch(batchId)
-    .catch((err) => {
-      console.error(`[Scheduler] ${source} batch ${batchId.slice(0, 8)} failed:`, err.message);
-    })
-    .finally(() => {
-      runningBatchIds.delete(batchId);
-      state.activeRuns = runningBatchIds.size;
-    });
-
-  return true;
+function isStale(batch, staleMs, now = Date.now()) {
+  const heartbeat = batch.last_heartbeat_at || batch.started_at || batch.queued_at || batch.created_at;
+  if (!heartbeat) return true;
+  const ts = Date.parse(heartbeat);
+  return !Number.isFinite(ts) || now - ts > staleMs;
 }
 
-async function pollActiveBatches() {
+async function runClaimedBatch(batchId, source, owner) {
+  if (runningBatchIds.has(batchId)) return { started: false, reason: 'already_running' };
+  runningBatchIds.add(batchId);
+  state.activeRuns = runningBatchIds.size;
+  try {
+    await runBatch(batchId);
+    return { started: true };
+  } catch (err) {
+    console.error(`[Scheduler] ${source} batch ${batchId.slice(0, 8)} failed:`, err.message);
+    return { started: true, error: err.message };
+  } finally {
+    runningBatchIds.delete(batchId);
+    state.activeRuns = runningBatchIds.size;
+    await releaseBatchWork(batchId, owner).catch((err) => {
+      console.warn(`[Scheduler] Could not release run lease for ${batchId.slice(0, 8)}: ${err.message}`);
+    });
+  }
+}
+
+async function pollActiveBatches(owner) {
   const activeBatches = await getActiveBatchJobs();
   state.lastPollAt = new Date().toISOString();
 
@@ -118,21 +141,63 @@ async function pollActiveBatches() {
   for (const batch of activeBatches) {
     if (!batch?.id || pollingBatchIds.has(batch.id)) continue;
 
+    const claim = await claimBatchWork(batch.id, owner, LEASE_MS).catch((err) => {
+      console.warn(`[Scheduler] Could not claim batch ${batch.id.slice(0, 8)} for polling: ${err.message}`);
+      return { claimed: false, reason: 'claim_error' };
+    });
+    if (!claim.claimed) continue;
+
     pollingBatchIds.add(batch.id);
     state.activePolls = pollingBatchIds.size;
     polls.push(
-      pollBatchJob(batch.id)
+      handleClaimedActiveBatch(claim.batch || batch, owner)
         .catch((err) => {
           console.error(`[Scheduler] Poll failed for batch ${batch.id.slice(0, 8)}:`, err.message);
         })
         .finally(() => {
           pollingBatchIds.delete(batch.id);
           state.activePolls = pollingBatchIds.size;
+          return releaseBatchWork(batch.id, owner).catch((err) => {
+            console.warn(`[Scheduler] Could not release poll lease for ${batch.id.slice(0, 8)}: ${err.message}`);
+          });
         })
     );
   }
 
   await Promise.allSettled(polls);
+}
+
+async function handleClaimedActiveBatch(batch, owner) {
+  const now = Date.now();
+  if (['generating_prompts', 'submitting'].includes(batch.status) && !batch.gemini_batch_job) {
+    if (isStale(batch, PRE_GEMINI_STALE_MS, now)) {
+      const detectedAt = new Date().toISOString();
+      await updateBatchJob(batch.id, {
+        status: 'failed',
+        error_message: 'Batch stalled before Gemini submission. No image job was created, so it is safe to retry.',
+        stale_detected_at: detectedAt,
+        last_heartbeat_at: detectedAt,
+        pipeline_state: JSON.stringify({
+          stage: 'stale_pre_gemini',
+          failed_at: detectedAt,
+          previous_status: batch.status,
+          last_heartbeat_at: batch.last_heartbeat_at || null,
+        }),
+      });
+      return 'failed';
+    }
+    return 'processing';
+  }
+
+  if (batch.status === 'saving_results') {
+    if (!isStale(batch, SAVING_RESULTS_STALE_MS, now)) return 'processing';
+    await updateBatchJob(batch.id, {
+      status: 'processing',
+      last_heartbeat_at: new Date().toISOString(),
+    });
+  }
+
+  return await pollBatchJob(batch.id);
 }
 
 async function runDueScheduledBatches(now = new Date()) {
@@ -148,18 +213,15 @@ async function runDueScheduledBatches(now = new Date()) {
 
     const runKey = `${batch.id}:${minuteKey}`;
     if (scheduledMinuteRuns.has(runKey)) continue;
-    scheduledMinuteRuns.add(runKey);
 
-    await updateBatchJob(batch.id, {
-      status: 'pending',
-      error_message: null,
-      gemini_batch_job: null,
-      gpt_prompts: null,
-      batch_stats: null,
+    const queued = await queueScheduledBatchRun(batch.id, runKey).catch((err) => {
+      console.error(`[Scheduler] Could not queue scheduled batch ${batch.id.slice(0, 8)}:`, err.message);
+      return { queued: false, reason: 'queue_error' };
     });
-
-    console.log(`[Scheduler] Starting scheduled batch ${batch.id.slice(0, 8)} (${batch.schedule_cron})`);
-    runBatchInBackground(batch.id, 'scheduled');
+    if (queued.queued) {
+      scheduledMinuteRuns.add(runKey);
+      console.log(`[Scheduler] Queued scheduled batch ${batch.id.slice(0, 8)} (${batch.schedule_cron})`);
+    }
   }
 
   if (scheduledMinuteRuns.size > 2000) {
@@ -170,21 +232,55 @@ async function runDueScheduledBatches(now = new Date()) {
   }
 }
 
-async function schedulerTick() {
+async function runQueuedBatches(owner) {
+  const queuedBatches = await getQueuedBatchJobs();
+  state.queuedCount = queuedBatches.length;
+  let started = 0;
+  let failed = 0;
+
+  for (const batch of queuedBatches) {
+    if (started >= MAX_BATCH_RUNS_PER_TICK) break;
+    if (!batch?.id || runningBatchIds.has(batch.id)) continue;
+
+    const claim = await claimBatchWork(batch.id, owner, LEASE_MS).catch((err) => {
+      console.warn(`[Scheduler] Could not claim queued batch ${batch.id.slice(0, 8)}: ${err.message}`);
+      return { claimed: false, reason: 'claim_error' };
+    });
+    if (!claim.claimed) continue;
+
+    console.log(`[Scheduler] Starting queued batch ${batch.id.slice(0, 8)}`);
+    const result = await runClaimedBatch(batch.id, 'queued', owner);
+    if (result.started) started += 1;
+    if (result.error) failed += 1;
+  }
+
+  return { queued: queuedBatches.length, started, failed };
+}
+
+async function schedulerTick(options = {}) {
   if (tickInProgress) return;
   tickInProgress = true;
+  const owner = options.owner || `${options.source || 'scheduler'}:${Date.now()}:${Math.random().toString(16).slice(2)}`;
 
   try {
-    await pollActiveBatches();
+    await pollActiveBatches(owner);
     await runDueScheduledBatches();
+    const queueResult = await runQueuedBatches(owner);
     state.lastTickAt = new Date().toISOString();
     state.lastError = null;
+    state.lastCronResult = queueResult;
+    return { success: true, scheduler: getSchedulerStatus(), queue: queueResult };
   } catch (err) {
     state.lastError = err.message;
     console.error('[Scheduler] Tick failed:', err.message);
+    return { success: false, error: err.message, scheduler: getSchedulerStatus() };
   } finally {
     tickInProgress = false;
   }
+}
+
+export async function runSchedulerOnce(options = {}) {
+  return await schedulerTick(options);
 }
 
 export function initializeScheduler() {

@@ -8,6 +8,7 @@
 import { Router } from 'express';
 import crypto from 'crypto';
 import { runAllProjectsObservation } from '../services/observationTracker.js';
+import { runSchedulerOnce } from '../services/scheduler.js';
 import { getSetting } from '../convexClient.js';
 
 const router = Router();
@@ -23,10 +24,11 @@ function timingSafeEqual(a, b) {
 }
 
 async function requireCronSecret(req, res, next) {
-  // Vercel env var is named "Chron" in this deployment (Marco's naming choice).
-  const secret = process.env.Chron;
+  // Prefer Vercel's standard CRON_SECRET, but retain the legacy "Chron" name
+  // used in this deployment's older cron code.
+  const secret = process.env.CRON_SECRET || process.env.Chron;
   if (!secret) {
-    console.error('[cron] env var "Chron" not configured — rejecting request');
+    console.error('[cron] CRON_SECRET/Chron env var not configured — rejecting request');
     return res.status(500).json({ error: 'Cron not configured on this deployment.' });
   }
   const authHeader = req.headers.authorization || '';
@@ -56,5 +58,18 @@ router.post('/observation', requireCronSecret, async (req, res) => {
     res.status(500).json({ error: err.message });
   }
 });
+
+async function runBatchCron(req, res) {
+  try {
+    const result = await runSchedulerOnce({ source: 'vercel-cron' });
+    res.json({ success: result?.success !== false, result });
+  } catch (err) {
+    console.error('[cron batches] failed:', err);
+    res.status(500).json({ error: err.message });
+  }
+}
+
+router.get('/batches', requireCronSecret, runBatchCron);
+router.post('/batches', requireCronSecret, runBatchCron);
 
 export default router;

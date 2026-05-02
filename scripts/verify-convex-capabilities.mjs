@@ -29,6 +29,10 @@ try {
     console.error("Convex capability check failed: adSetAtomicCombine is not true.");
     process.exit(1);
   }
+  if (capabilities.batchCronWorker !== true) {
+    console.error("Convex capability check failed: batchCronWorker is not true.");
+    process.exit(1);
+  }
   console.log(JSON.stringify({
     ok: true,
     convexHost: host,

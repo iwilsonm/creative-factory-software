@@ -218,9 +218,11 @@ try {
       const system = await getSystemCapabilities();
       checks.capabilities = system?.capabilities || {};
       checks.adSetAtomicCombine = checks.capabilities.adSetAtomicCombine === true ? 'ok' : 'missing';
+      checks.batchCronWorker = checks.capabilities.batchCronWorker === true ? 'ok' : 'missing';
     } catch (e) {
       checks.capabilities = {};
       checks.adSetAtomicCombine = 'error';
+      checks.batchCronWorker = 'error';
       checks.capability_error = e?.message || 'Capability check failed';
     }
 
@@ -255,7 +257,7 @@ try {
       checks.nginx = parseInt(count) > 0 ? 'ok' : 'down';
     } catch { checks.nginx = 'unknown'; }
 
-    const overall = checks.convex === 'ok' && checks.adSetAtomicCombine === 'ok' ? 'ok' : 'degraded';
+    const overall = checks.convex === 'ok' && checks.adSetAtomicCombine === 'ok' && checks.batchCronWorker === 'ok' ? 'ok' : 'degraded';
     res.json({ status: overall, timestamp: new Date().toISOString(), checks });
   });
 
