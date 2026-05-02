@@ -4,6 +4,8 @@ import { api } from '../api';
 import PipelineProgress from './PipelineProgress';
 import { useToast } from './Toast';
 import { ensureArray } from '../utils/collections';
+import CreativeDirectorSettings from './CreativeDirectorSettings';
+import CreativeFilterSettings from './CreativeFilterSettings';
 
 const LEVEL_CONFIG = {
   OK:        { color: 'text-teal',       icon: '\u2713', bg: 'bg-teal/10' },
@@ -1048,23 +1050,26 @@ function buildServerQueueItem(active, existing = null) {
 
 const VALID_AGENT_TABS = ['director', 'filter'];
 
-export default function AgentMonitor() {
+export default function AgentMonitor({ projectId: externalProjectId, project: externalProject, onProjectRefresh }) {
   const [searchParams, setSearchParams] = useSearchParams();
   const [filterData, setFilterData] = useState(null);
   const [pipelineStatus, setPipelineStatus] = useState(null);
-  // Persist active tab in URL search params so it survives page refresh
-  const tabFromUrl = searchParams.get('tab');
+  const embedded = !!externalProjectId;
+  // Standalone mode persists the active agent tab in the URL. Embedded mode
+  // stays local so it cannot overwrite ProjectDetail's top-level ?tab value.
+  const tabFromUrl = embedded ? null : searchParams.get('tab');
   const [activeTab, setActiveTabState] = useState(
     tabFromUrl && VALID_AGENT_TABS.includes(tabFromUrl) ? tabFromUrl : 'director'
   );
   const setActiveTab = useCallback((newTab) => {
     setActiveTabState(newTab);
+    if (embedded) return;
     setSearchParams(prev => {
       const next = new URLSearchParams(prev);
       next.set('tab', newTab);
       return next;
     }, { replace: true });
-  }, [setSearchParams]);
+  }, [embedded, setSearchParams]);
   const [statusLoading, setStatusLoading] = useState(true);
   const [error, setError] = useState(false);
 
@@ -1136,6 +1141,7 @@ export default function AgentMonitor() {
   return (
     <div className="fade-in space-y-4">
       {/* Dashboard header */}
+      {!embedded && (
       <div className="card p-5">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-3">
@@ -1177,9 +1183,10 @@ export default function AgentMonitor() {
           </div>
         )}
       </div>
+      )}
 
       {/* Agent Tabs */}
-      <div className="card p-5">
+      <div className={embedded ? '' : 'card p-5'}>
         <div className="segmented-control mb-4">
           {tabs.map(tab => (
             <button
@@ -1192,8 +1199,23 @@ export default function AgentMonitor() {
           ))}
         </div>
 
-        {activeTab === 'director' && <DirectorTab onRefresh={loadStatus} />}
-        {activeTab === 'filter' && filterData && <FilterPanel data={filterData} onRefresh={loadStatus} />}
+        {activeTab === 'director' && (
+          <DirectorTab
+            onRefresh={loadStatus}
+            externalProjectId={externalProjectId}
+            externalProject={externalProject}
+            onProjectRefresh={onProjectRefresh}
+          />
+        )}
+        {activeTab === 'filter' && filterData && (
+          <FilterPanel
+            data={filterData}
+            onRefresh={loadStatus}
+            externalProjectId={externalProjectId}
+            externalProject={externalProject}
+            onProjectRefresh={onProjectRefresh}
+          />
+        )}
       </div>
     </div>
   );
@@ -1288,8 +1310,9 @@ function PipelineOverview({ data, filterData }) {
 // =============================================
 // Creative Director Tab
 // =============================================
-function DirectorTab({ onRefresh }) {
+function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectRefresh }) {
   const toast = useToast();
+  const embedded = !!externalProjectId;
   const [projects, setProjects] = useState([]);
   const [selectedProject, setSelectedProject] = useState('');
   const [config, setConfig] = useState(null);
@@ -1299,7 +1322,7 @@ function DirectorTab({ onRefresh }) {
   const [playbooks, setPlaybooks] = useState([]);
   const [subTab, setSubTab] = useState('history');
   const [archivedOpen, setArchivedOpen] = useState(false);
-  const [projectLoading, setProjectLoading] = useState(true);
+  const [projectLoading, setProjectLoading] = useState(!externalProjectId);
   const [baseLoading, setBaseLoading] = useState(false);
   const [anglesLoading, setAnglesLoading] = useState(false);
   const [angleOptionsLoading, setAngleOptionsLoading] = useState(false);
@@ -1322,19 +1345,12 @@ function DirectorTab({ onRefresh }) {
   // Angle selection for test runs
   const [selectedAngleId, setSelectedAngleId] = useState('');
 
-  // Test run queue — persisted to localStorage so it survives refresh/navigation
-  const QUEUE_KEY = 'dacia_testRunQueue';
+  // Test run queue — persisted per project so restored runs cannot bleed across projects.
+  const queueStorageKey = selectedProject ? `dacia_testRunQueue:${selectedProject}` : 'dacia_testRunQueue';
   const [testRunQueue, setTestRunQueue] = useState(() => {
-    try {
-      const saved = localStorage.getItem(QUEUE_KEY);
-      if (!saved) return [];
-      const parsed = ensureArray(JSON.parse(saved), 'AgentMonitor.director.savedRunQueue');
-      // Clear stale items older than 2 hours
-      const cutoff = Date.now() - 2 * 60 * 60 * 1000;
-      return parsed
-        .filter(r => r.startTime ? r.startTime > cutoff : true);
-    } catch { return []; }
+    return [];
   });
+  const [queueLoadedFor, setQueueLoadedFor] = useState('');
   const safeTestRunQueue = ensureArray(testRunQueue, 'AgentMonitor.director.testRunQueue');
   const activeRun = safeTestRunQueue.find(r => r.status === 'running');
   const queuedCount = safeTestRunQueue.filter(r => r.status === 'queued').length;
@@ -1348,10 +1364,32 @@ function DirectorTab({ onRefresh }) {
   const sseActiveRef = useRef(false); // tracks if we have a live SSE connection for the active run
   const abortRef = useRef(null); // stores the SSE abort function for active run cancellation
 
+  useEffect(() => {
+    if (!selectedProject) return;
+    setQueueLoadedFor('');
+    try {
+      const saved = localStorage.getItem(`dacia_testRunQueue:${selectedProject}`);
+      if (!saved) {
+        setTestRunQueue([]);
+        setQueueLoadedFor(selectedProject);
+        return;
+      }
+      const parsed = ensureArray(JSON.parse(saved), 'AgentMonitor.director.savedRunQueue');
+      const cutoff = Date.now() - 2 * 60 * 60 * 1000;
+      setTestRunQueue(parsed.filter(r => r.startTime ? r.startTime > cutoff : true));
+      setQueueLoadedFor(selectedProject);
+    } catch {
+      setTestRunQueue([]);
+      setQueueLoadedFor(selectedProject);
+    }
+  }, [selectedProject]);
+
   // Sync queue to localStorage on every change
   useEffect(() => {
-    localStorage.setItem(QUEUE_KEY, JSON.stringify(safeTestRunQueue));
-  }, [safeTestRunQueue]);
+    if (!selectedProject) return;
+    if (queueLoadedFor !== selectedProject) return;
+    localStorage.setItem(queueStorageKey, JSON.stringify(safeTestRunQueue));
+  }, [queueLoadedFor, queueStorageKey, safeTestRunQueue, selectedProject]);
 
   // Auto-clear finished results after 5 minutes
   useEffect(() => {
@@ -1385,12 +1423,27 @@ function DirectorTab({ onRefresh }) {
   }, [selectedProject]);
 
   useEffect(() => {
+    if (!externalProjectId) return;
+    setProjectLoading(false);
+    setProjects(externalProject ? [{
+      id: externalProjectId,
+      displayName: externalProject.brand_name || externalProject.name,
+      ...externalProject,
+    }] : []);
+    setSelectedProject(externalProjectId);
+  }, [externalProjectId, externalProject]);
+
+  useEffect(() => {
     setLpDetailsByBatchId({});
     setLpDetailsLoadingByBatchId({});
   }, [selectedProject]);
 
   // Load projects list
   useEffect(() => {
+    if (externalProjectId) {
+      setProjectLoading(false);
+      return undefined;
+    }
     let cancelled = false;
     (async () => {
       try {
@@ -1409,7 +1462,7 @@ function DirectorTab({ onRefresh }) {
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [externalProjectId]);
 
   // Load project-specific data when selection changes
   useEffect(() => {
@@ -1629,7 +1682,7 @@ function DirectorTab({ onRefresh }) {
         setRuns(ensureArray(runRes?.runs, 'AgentMonitor.director.runs'));
         setRunsLoadedFor(selectedProject);
       } catch {}
-      if (!isError) onRefresh();
+      if (!isError) onRefresh?.();
     }, isError ? 3000 : 2000);
   }, [selectedProject, onRefresh]);
 
@@ -1697,6 +1750,7 @@ function DirectorTab({ onRefresh }) {
 
   // Queue processor — starts next queued run via SSE when no active run
   useEffect(() => {
+    if (!selectedProject || queueLoadedFor !== selectedProject) return;
     const running = testRunQueue.find(r => r.status === 'running');
     const nextQueued = testRunQueue.find(r => r.status === 'queued');
 
@@ -1798,13 +1852,14 @@ function DirectorTab({ onRefresh }) {
         updateQueueItem(runId, { sseConnected: false });
       }
     });
-  }, [testRunQueue, selectedProject, updateQueueItem, finishRun, toast]);
+  }, [queueLoadedFor, testRunQueue, selectedProject, updateQueueItem, finishRun, toast]);
 
   // Polling reconnect / hydration — keeps the server-backed progress bar alive after refresh
   useEffect(() => {
     const running = testRunQueue.find(r => r.status === 'running');
     if (sseActiveRef.current) return;
     if (!selectedProject) return;
+    if (queueLoadedFor !== selectedProject) return;
 
     const poll = async () => {
       try {
@@ -1871,7 +1926,7 @@ function DirectorTab({ onRefresh }) {
     poll();
     const interval = setInterval(poll, 3000);
     return () => clearInterval(interval);
-  }, [activeRun?.id, selectedProject, updateQueueItem, finishRun]);
+  }, [activeRun?.id, queueLoadedFor, selectedProject, testRunQueue, updateQueueItem, finishRun]);
 
   const handleAddAngle = async () => {
     if (!newAngle.name) return;
@@ -2160,9 +2215,9 @@ function DirectorTab({ onRefresh }) {
   const safePlaybooks = ensureArray(playbooks, 'AgentMonitor.director.playbooksState');
   const safeCampaigns = ensureArray(campaigns, 'AgentMonitor.director.campaignsState');
 
-  if (projectLoading) return <div className="text-[11px] text-textlight py-4">Loading projects...</div>;
-  if (safeProjects.length === 0) return <div className="text-[11px] text-textlight py-4">No projects found.</div>;
-  if (!selectedProject) return <div className="text-[11px] text-textlight py-4">Select a project to load Director settings.</div>;
+  if (projectLoading) return <div className="text-[11px] text-textlight py-4">{embedded ? 'Loading Director...' : 'Loading projects...'}</div>;
+  if (!embedded && safeProjects.length === 0) return <div className="text-[11px] text-textlight py-4">No projects found.</div>;
+  if (!selectedProject) return <div className="text-[11px] text-textlight py-4">{embedded ? 'Loading Director...' : 'Select a project to load Director settings.'}</div>;
 
   const subTabs = [
     { id: 'history', label: 'Run History' },
@@ -2188,15 +2243,17 @@ function DirectorTab({ onRefresh }) {
     <div>
       {/* Project selector + controls */}
       <div className="flex items-center gap-3 mb-4">
-        <select
-          value={selectedProject}
-          onChange={e => setSelectedProject(e.target.value)}
-          className="text-[12px] text-textdark bg-offwhite border border-black/10 rounded-lg px-3 py-1.5 cursor-pointer"
-        >
-          {safeProjects.map(p => (
-            <option key={p.id} value={p.id}>{p.displayName || p.brand_name || p.name}</option>
-          ))}
-        </select>
+        {!embedded && (
+          <select
+            value={selectedProject}
+            onChange={e => setSelectedProject(e.target.value)}
+            className="text-[12px] text-textdark bg-offwhite border border-black/10 rounded-lg px-3 py-1.5 cursor-pointer"
+          >
+            {safeProjects.map(p => (
+              <option key={p.id} value={p.id}>{p.displayName || p.brand_name || p.name}</option>
+            ))}
+          </select>
+        )}
 
         <label className={`flex items-center gap-2 text-[11px] ${baseLoading ? 'text-textlight cursor-not-allowed' : 'text-textmid cursor-pointer'}`}>
           <div
@@ -2737,7 +2794,7 @@ function DirectorTab({ onRefresh }) {
 
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="text-[11px] text-textmid font-medium block mb-1">Daily Flex Ad Target</label>
+              <label className="text-[11px] text-textmid font-medium block mb-1">Daily Ad Set Target</label>
               <input
                 type="number"
                 min="0"
@@ -2850,10 +2907,20 @@ function DirectorTab({ onRefresh }) {
             ) : (
               <p className="text-[11px] text-textlight">No campaigns found — create one in the project's Creative Filter settings or Ad Pipeline tab first.</p>
             )}
-            <p className="text-[9px] text-textlight mt-0.5">Flex ads from the Director pipeline will auto-deploy to this campaign</p>
+            <p className="text-[9px] text-textlight mt-0.5">Ad sets from the Director pipeline will auto-deploy to this campaign</p>
           </div>
 
           {saving && <p className="text-[10px] text-textlight">Saving...</p>}
+          {embedded && externalProject && (
+            <div className="border-t border-black/5 pt-4 mt-4">
+              <h3 className="text-[13px] font-semibold text-textdark mb-3">Deployment Settings</h3>
+              <CreativeDirectorSettings
+                project={externalProject}
+                onSaved={onProjectRefresh || (() => {})}
+                embedded
+              />
+            </div>
+          )}
         </div>
       )}
 
@@ -3299,7 +3366,8 @@ function AgentPanel({ children, icon, name, subtitle, status, paused, onTogglePa
 // =============================================
 // Creative Filter Panel
 // =============================================
-function FilterPanel({ data, onRefresh }) {
+function FilterPanel({ data, onRefresh, externalProjectId, externalProject, onProjectRefresh }) {
+  const embedded = !!externalProjectId;
   const [expanded, setExpanded] = useState(false);
   const [runningAction, setRunningAction] = useState(null);
   const [togglingPause, setTogglingPause] = useState(false);
@@ -3360,6 +3428,10 @@ function FilterPanel({ data, onRefresh }) {
     ? (data.budget.spent_cents / data.budget.daily_budget_cents) * 100
     : 0;
   const budgetBarColor = budgetPct < 50 ? 'bg-teal' : budgetPct < 80 ? 'bg-gold' : 'bg-red-400';
+  const allVolumes = ensureArray(volumes, 'AgentMonitor.filter.volumesState').filter(p => p.scout_enabled !== false);
+  const visibleVolumes = embedded
+    ? allVolumes.filter(p => p.id === externalProjectId)
+    : allVolumes;
 
   return (
     <AgentPanel
@@ -3375,6 +3447,14 @@ function FilterPanel({ data, onRefresh }) {
         </svg>
       }
     >
+      {embedded && (
+        <div className="rounded-xl bg-navy/5 border border-navy/10 p-3 mb-3">
+          <p className="text-[11px] font-medium text-navy mb-0.5">System-level status</p>
+          <p className="text-[10px] text-textmid">
+            These controls operate the live Creative Filter service. The volume and configuration below apply to this project.
+          </p>
+        </div>
+      )}
       <BudgetBar spent={data.budget.spent_cents} total={data.budget.daily_budget_cents} pct={budgetPct} barColor={budgetBarColor} />
 
       <div className="grid grid-cols-5 gap-2 mb-3">
@@ -3382,7 +3462,7 @@ function FilterPanel({ data, onRefresh }) {
         <StatCell value={data.stats.scored} label="Scored" color="text-textdark" />
         <StatCell value={data.stats.passed} label="Passed" color="text-teal" />
         <StatCell value={data.stats.failed} label="Failed" color={data.stats.failed > 0 ? 'text-red-400' : 'text-textdark'} />
-        <StatCell value={data.stats.flexAds} label="Flex Ads" color="text-navy-light" />
+        <StatCell value={data.stats.flexAds} label="Ad Sets" color="text-navy-light" />
       </div>
 
       <p className="text-[10px] text-textmid mb-2.5">
@@ -3413,22 +3493,22 @@ function FilterPanel({ data, onRefresh }) {
 
       {/* Per-Brand Daily Volume Controls */}
       <div className="border-t border-black/5 pt-2.5 mb-2.5">
-        <p className="text-[11px] font-medium text-textmid mb-1.5">Daily Flex Ad Volume</p>
+        <p className="text-[11px] font-medium text-textmid mb-1.5">{embedded ? 'This Project Ad Set Volume' : 'Daily Ad Set Volume'}</p>
         <p className="text-[9px] text-textlight mb-2">
-          Flex ads created per day per brand. Each flex ad = 10 images.
+          Ad sets created per day per brand. Each ad set contains the selected winning images.
         </p>
         {loadingVolumes ? (
           <div className="text-[10px] text-textlight py-2">Loading projects...</div>
-        ) : ensureArray(volumes, 'AgentMonitor.filter.volumesState').length > 0 ? (
+        ) : visibleVolumes.length > 0 ? (
           <div className="space-y-1">
-            {ensureArray(volumes, 'AgentMonitor.filter.volumesState').filter(p => p.scout_enabled !== false).map(project => (
+            {visibleVolumes.map(project => (
               <div key={project.id} className="flex items-center justify-between gap-2 py-1.5 px-2.5 rounded-lg bg-white/60">
                 <div className="flex-1 min-w-0">
                   <p className="text-[11px] font-medium text-textdark truncate">
                     {project.brand_name || project.name}
                   </p>
                   <p className="text-[9px] text-textlight">
-                    Today: {project.today_flex_ads}/{project.scout_daily_flex_ads} flex ads ({project.today_flex_ads * 10}/{project.scout_daily_flex_ads * 10} images)
+                    Today: {project.today_flex_ads}/{project.scout_daily_flex_ads} ad sets
                   </p>
                 </div>
                 <select
@@ -3450,6 +3530,18 @@ function FilterPanel({ data, onRefresh }) {
       </div>
 
       <ActivityLog activity={data.activity} expanded={expanded} onToggle={() => setExpanded(!expanded)} />
+
+      {embedded && externalProject && (
+        <div className="border-t border-black/5 pt-3 mt-3">
+          <h3 className="text-[13px] font-semibold text-textdark mb-3">Filter Configuration</h3>
+          <CreativeFilterSettings
+            projectId={externalProjectId}
+            project={externalProject}
+            onSave={onProjectRefresh || (() => {})}
+            embedded
+          />
+        </div>
+      )}
     </AgentPanel>
   );
 }

@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback } from 'react';
 import { api } from '../api';
 import { useToast } from './Toast';
 
-export default function CreativeFilterSettings({ projectId, project, onSave }) {
+export default function CreativeFilterSettings({ projectId, project, onSave, embedded = false }) {
   const toast = useToast();
   const [campaigns, setCampaigns] = useState([]);
   const [form, setForm] = useState({
@@ -78,7 +78,7 @@ export default function CreativeFilterSettings({ projectId, project, onSave }) {
   };
 
   return (
-    <div className="card p-6">
+    <div className={embedded ? '' : 'card p-6'}>
       <div className="flex items-center justify-between mb-1">
         <div className="flex items-center gap-2">
           <div className="w-6 h-6 rounded-lg bg-navy/10 flex items-center justify-center">

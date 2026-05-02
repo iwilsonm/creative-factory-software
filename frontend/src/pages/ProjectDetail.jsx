@@ -14,10 +14,7 @@ const FoundationalDocs = lazy(() => import('../components/FoundationalDocs'));
 const TemplateImages = lazy(() => import('../components/TemplateImages'));
 const AdStudio = lazy(() => import('../components/AdStudio'));
 const AdTracker = lazy(() => import('./AdTracker'));
-const CreativeFilterSettings = lazy(() => import('../components/CreativeFilterSettings'));
-// Phase 6 — Staging tab removed; ad-set lifecycle is now unified into the
-// Ad Pipeline tab (Planner / Ready to Post / Posted). StagingPage.jsx is deleted.
-const CreativeDirectorSettings = lazy(() => import('../components/CreativeDirectorSettings'));
+const AgentMonitor = lazy(() => import('../components/AgentMonitor'));
 // Phase 2A — Meta integration sub-tab in Project Settings
 const MetaConnectPanel = lazy(() => import('../components/MetaConnectPanel'));
 // Phase 5 — Notion-style Analytics tab
@@ -32,6 +29,11 @@ const STATUS_CONFIG = {
   generating_docs: { label: 'Generating', bg: 'bg-navy/10', text: 'text-navy' },
   docs_ready: { label: 'Ready', bg: 'bg-teal/10', text: 'text-teal' },
   active: { label: 'Active', bg: 'bg-teal/15', text: 'text-teal' }
+};
+
+const LEGACY_SETTINGS_SUBTABS = {
+  filter: 'automation',
+  creative_director: 'automation',
 };
 
 export default function ProjectDetail() {
@@ -77,11 +79,22 @@ export default function ProjectDetail() {
   const [productImageUploading, setProductImageUploading] = useState(false);
   const [productImageDeleting, setProductImageDeleting] = useState(false);
   // settingsSubTab persists in URL `?subtab=` so refresh holds position.
-  const validSubTabs = ['general', 'docs', 'filter', 'creative_director', 'meta', 'observation', 'templates'];
+  const validSubTabs = ['general', 'docs', 'automation', 'meta', 'observation', 'templates'];
   const subTabFromUrl = searchParams.get('subtab');
+  const normalizedSubTabFromUrl = LEGACY_SETTINGS_SUBTABS[subTabFromUrl] || subTabFromUrl;
   const [settingsSubTab, setSettingsSubTabState] = useState(
-    subTabFromUrl && validSubTabs.includes(subTabFromUrl) ? subTabFromUrl : 'general'
+    normalizedSubTabFromUrl && validSubTabs.includes(normalizedSubTabFromUrl) ? normalizedSubTabFromUrl : 'general'
   );
+  useEffect(() => {
+    const mapped = LEGACY_SETTINGS_SUBTABS[subTabFromUrl];
+    if (!mapped) return;
+    setSettingsSubTabState(mapped);
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev);
+      next.set('subtab', mapped);
+      return next;
+    }, { replace: true });
+  }, [subTabFromUrl, setSearchParams]);
   const setSettingsSubTab = useCallback((newSubTab) => {
     setSettingsSubTabState(newSubTab);
     setSearchParams(prev => {
@@ -233,12 +246,6 @@ export default function ProjectDetail() {
     } finally {
       setSaving(false);
     }
-  };
-
-  // Phase 6 — staging-flag handling removed. CreativeDirectorSettings no longer
-  // exposes a staging toggle (the unified pipeline replaces it).
-  const handleCreativeDirectorSaved = async () => {
-    await loadProject();
   };
 
   const handleDelete = async () => {
@@ -397,8 +404,7 @@ export default function ProjectDetail() {
             {[
               { id: 'general', label: 'General' },
               { id: 'docs', label: 'Foundational Docs' },
-              { id: 'filter', label: 'Creative Filter' },
-              { id: 'creative_director', label: 'Creative Director' },
+              { id: 'automation', label: 'Ad Automation' },
               { id: 'meta', label: 'Meta' },
               { id: 'observation', label: 'Observation' },
               { id: 'templates', label: 'Template Library' },
@@ -608,12 +614,9 @@ export default function ProjectDetail() {
               <FoundationalDocs projectId={id} projectStatus={project.status} />
             </ErrorBoundary>
           )}
-          {settingsSubTab === 'filter' && (
-            <CreativeFilterSettings projectId={id} project={project} onSave={loadProject} />
-          )}
-          {settingsSubTab === 'creative_director' && (
-            <ErrorBoundary level="tab" key="creative_director">
-              <CreativeDirectorSettings project={project} onSaved={handleCreativeDirectorSaved} />
+          {settingsSubTab === 'automation' && (
+            <ErrorBoundary level="tab" key="automation">
+              <AgentMonitor projectId={id} project={project} onProjectRefresh={loadProject} />
             </ErrorBoundary>
           )}
           {settingsSubTab === 'meta' && (

@@ -8,7 +8,7 @@ import { useToast } from './Toast';
 //   - ads_per_ad_set: integer (1-20 hard cap), Director cycle config
 //   - default_campaign_id: campaigns.externalId, default Meta campaign for new ad sets
 //   - adset_default_template: JSON, Meta defaults applied to every new ad set
-export default function CreativeDirectorSettings({ project, onSaved }) {
+export default function CreativeDirectorSettings({ project, onSaved, embedded = false }) {
   const toast = useToast();
   const [adSetsPerCycle, setAdSetsPerCycle] = useState('');
   const [adsPerAdSet, setAdsPerAdSet] = useState('');
@@ -97,7 +97,7 @@ export default function CreativeDirectorSettings({ project, onSaved }) {
   };
 
   return (
-    <div className="card p-6 space-y-5">
+    <div className={embedded ? 'space-y-5' : 'card p-6 space-y-5'}>
       <div>
         <h2 className="text-[15px] font-semibold text-textdark tracking-tight">Creative Director — Staging cycle</h2>
         <p className="text-xs text-textmid mt-1">Per-project config for the Director's generation cycle.</p>
@@ -124,7 +124,7 @@ export default function CreativeDirectorSettings({ project, onSaved }) {
         </Field>
       </div>
 
-      <Field label="Default Meta campaign" hint="Every new ad set inherits this campaign unless overridden on the Staging Page.">
+      <Field label="Default Meta campaign" hint="Every new ad set inherits this campaign unless overridden in Ad Automation or the Ad Pipeline.">
         <select
           value={defaultCampaignId}
           onChange={(e) => setDefaultCampaignId(e.target.value)}
