@@ -3,6 +3,7 @@
 // All require auth + admin/manager unless otherwise noted.
 
 import { Router } from 'express';
+import { randomUUID } from 'crypto';
 import { requireAuth, requireRole } from '../auth.js';
 import {
   getProject,
@@ -28,6 +29,8 @@ import {
 
 const router = Router();
 router.use(requireAuth);
+const DEMO_OBSERVATION_NAME = '[Demo] Observation Test Ad Set';
+const DEMO_CAMPAIGN_NAME = '[Demo] Observation Campaign';
 
 // ────────────────────────────────────────────────
 // Config
@@ -220,6 +223,123 @@ router.get('/:projectId/observation/ad-sets', requireRole('admin', 'manager'), a
       };
     }));
     res.json({ ad_sets: enriched });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.post('/:projectId/observation/demo-ad-set', requireRole('admin', 'manager'), async (req, res) => {
+  try {
+    const project = await getProject(req.params.projectId);
+    if (!project) return res.status(404).json({ error: 'Project not found' });
+
+    const now = new Date();
+    const nowIso = now.toISOString();
+    const postedAt = new Date(now.getTime() - 3 * 86400000).toISOString();
+    const accountCurrency = project.meta_account_currency || 'USD';
+
+    const adSets = await convexClient.query(api.adSets.getByProject, { projectId: req.params.projectId });
+    let demo = (adSets || []).find((a) => a.is_demo && a.name === DEMO_OBSERVATION_NAME);
+    const campaignId = await convexClient.mutation(api.campaigns.upsertByProjectAndName, {
+      project_id: req.params.projectId,
+      name: DEMO_CAMPAIGN_NAME,
+    });
+
+    if (!demo) {
+      const externalId = randomUUID();
+      await convexClient.mutation(api.adSets.create, {
+        externalId,
+        campaign_id: campaignId,
+        project_id: req.params.projectId,
+        name: DEMO_OBSERVATION_NAME,
+        sort_order: (adSets || []).length,
+        lifecycle_status: 'observing',
+        posted_at: postedAt,
+        meta_adset_id: `demo_${externalId}`,
+        meta_campaign_id: 'demo_campaign',
+        meta_post_path: 'demo',
+        is_demo: true,
+        created_at: nowIso,
+        updated_at: nowIso,
+      });
+      demo = await convexClient.query(api.adSets.getByExternalId, { externalId });
+    } else {
+      await convexClient.mutation(api.adSets.update, {
+        externalId: demo.externalId,
+        fields: {
+          campaign_id: demo.campaign_id || campaignId,
+          lifecycle_status: 'observing',
+          posted_at: demo.posted_at || postedAt,
+          meta_adset_id: demo.meta_adset_id || `demo_${demo.externalId}`,
+          meta_campaign_id: demo.meta_campaign_id || 'demo_campaign',
+          meta_post_path: 'demo',
+          is_demo: true,
+        },
+      });
+      demo = await convexClient.query(api.adSets.getByExternalId, { externalId: demo.externalId });
+    }
+
+    const daily = [
+      { day: 1, spend: 24.5, impressions: 3200, clicks: 58, roas: 1.15, conversions: 2 },
+      { day: 2, spend: 31.25, impressions: 4100, clicks: 86, roas: 1.84, conversions: 4 },
+      { day: 3, spend: 29.8, impressions: 3900, clicks: 79, roas: 2.12, conversions: 5 },
+    ];
+    for (const row of daily) {
+      const ctr = row.impressions > 0 ? (row.clicks / row.impressions) * 100 : 0;
+      await convexClient.mutation(api.observationSnapshots.upsertByAdSetAndDay, {
+        externalId: `demo-snapshot:${demo.externalId}:${row.day}`,
+        project_id: req.params.projectId,
+        ad_set_id: demo.externalId,
+        meta_adset_id: demo.meta_adset_id || `demo_${demo.externalId}`,
+        day_index: row.day,
+        snapshot_at: new Date(now.getTime() - (3 - row.day) * 86400000).toISOString(),
+        spend: row.spend,
+        impressions: row.impressions,
+        clicks: row.clicks,
+        ctr,
+        cpm: row.impressions > 0 ? (row.spend / row.impressions) * 1000 : 0,
+        cpc: row.clicks > 0 ? row.spend / row.clicks : 0,
+        roas: row.roas,
+        cpa: row.conversions > 0 ? row.spend / row.conversions : undefined,
+        conversions: row.conversions,
+        raw_insights: JSON.stringify({ demo: true, source: 'observation-demo-seed' }),
+        account_currency: accountCurrency,
+      });
+    }
+
+    const benchmark = await resolveProjectBenchmark(req.params.projectId);
+    const versionRaw = await getSetting(`phase3_benchmark_version:${req.params.projectId}`);
+    const version = versionRaw ? parseInt(versionRaw, 10) : 1;
+    const totals = daily.reduce((acc, row) => ({
+      spend: acc.spend + row.spend,
+      impressions: acc.impressions + row.impressions,
+      clicks: acc.clicks + row.clicks,
+      conversions: acc.conversions + row.conversions,
+    }), { spend: 0, impressions: 0, clicks: 0, conversions: 0 });
+    await convexClient.mutation(api.observationResults.create, {
+      externalId: `demo-result:${demo.externalId}`,
+      project_id: req.params.projectId,
+      ad_set_id: demo.externalId,
+      posted_at: demo.posted_at || postedAt,
+      observed_through: nowIso,
+      days_observed: 3,
+      verdict: 'insufficient_data',
+      fail_reason_code: 'demo',
+      spend: totals.spend,
+      impressions: totals.impressions,
+      clicks: totals.clicks,
+      ctr: totals.impressions > 0 ? (totals.clicks / totals.impressions) * 100 : 0,
+      roas: 1.74,
+      cpa: totals.conversions > 0 ? totals.spend / totals.conversions : undefined,
+      conversions: totals.conversions,
+      benchmark_used: JSON.stringify({ ...benchmark, demo: true }),
+      benchmark_version: version,
+      reason: 'Demo-only observation data. This ad set is not connected to Meta.',
+      evaluated_by: `user_${req.session?.userId || 'demo'}`,
+      account_currency: accountCurrency,
+    });
+
+    res.json({ success: true, ad_set_id: demo.externalId });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }

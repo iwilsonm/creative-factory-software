@@ -25,10 +25,26 @@ router.use(requireAuth);
 // ────────────────────────────────────────────────
 
 async function readDateOpts(req) {
+  const datePreset = req.query.datePreset || 'last_7d';
+  const dateFrom = req.query.dateFrom || null;
+  const dateTo = req.query.dateTo || null;
+  if (dateFrom || dateTo) {
+    const validDate = /^\d{4}-\d{2}-\d{2}$/;
+    if (!validDate.test(dateFrom || '') || !validDate.test(dateTo || '')) {
+      const err = new Error('Custom date range requires dateFrom and dateTo as YYYY-MM-DD.');
+      err.status = 400;
+      throw err;
+    }
+    if (dateFrom > dateTo) {
+      const err = new Error('Custom date range start must be before or equal to end.');
+      err.status = 400;
+      throw err;
+    }
+  }
   return {
-    datePreset: req.query.datePreset || 'last_7d',
-    dateFrom: req.query.dateFrom || null,
-    dateTo: req.query.dateTo || null,
+    datePreset,
+    dateFrom,
+    dateTo,
     campaignId: req.query.campaignId || null,
     adsetId: req.query.adsetId || null,
   };
@@ -89,6 +105,7 @@ router.get('/:projectId/analytics/campaigns', requireRole('admin', 'manager'), a
     res.json({ campaigns: enriched });
   } catch (err) {
     if (isTokenInvalidError(err)) return res.status(401).json({ error: 'Meta token expired. Reconnect.', code: 'TOKEN_EXPIRED' });
+    if (err.status === 400) return res.status(400).json({ error: err.message });
     res.status(500).json({ error: err.message });
   }
 });
@@ -105,6 +122,7 @@ router.get('/:projectId/analytics/adsets', requireRole('admin', 'manager'), asyn
     res.json({ adsets: enriched });
   } catch (err) {
     if (isTokenInvalidError(err)) return res.status(401).json({ error: 'Meta token expired. Reconnect.', code: 'TOKEN_EXPIRED' });
+    if (err.status === 400) return res.status(400).json({ error: err.message });
     res.status(500).json({ error: err.message });
   }
 });
@@ -121,6 +139,7 @@ router.get('/:projectId/analytics/ads', requireRole('admin', 'manager'), async (
     res.json({ ads: enriched });
   } catch (err) {
     if (isTokenInvalidError(err)) return res.status(401).json({ error: 'Meta token expired. Reconnect.', code: 'TOKEN_EXPIRED' });
+    if (err.status === 400) return res.status(400).json({ error: err.message });
     res.status(500).json({ error: err.message });
   }
 });

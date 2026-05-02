@@ -74,6 +74,11 @@ export default function AdSetTimeline({ projectId, adSetId, open, onClose, onCha
           <div className="min-w-0 flex-1">
             <h3 className="text-[14px] font-semibold text-textdark truncate">
               {adSet?.name || 'Loading…'}
+              {adSet?.is_demo && (
+                <span className="ml-2 inline-flex px-1.5 py-0.5 rounded bg-gray-100 text-[9px] font-medium text-textmid align-middle">
+                  Demo
+                </span>
+              )}
             </h3>
             {result && (
               <p className="text-[11px] text-textlight truncate">{result.reason}</p>

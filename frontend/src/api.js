@@ -783,6 +783,8 @@ export const api = {
 
   getObservationAdSets: (projectId) =>
     request(`/projects/${projectId}/observation/ad-sets`),
+  createObservationDemoAdSet: (projectId) =>
+    request(`/projects/${projectId}/observation/demo-ad-set`, { method: 'POST' }),
   getObservationAdSet: (projectId, adSetId) =>
     request(`/projects/${projectId}/observation/ad-sets/${adSetId}`),
   refreshObservationSnapshot: (projectId, adSetId) =>

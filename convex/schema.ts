@@ -280,6 +280,7 @@ export default defineSchema({
     observation_paused_at: v.optional(v.string()),     // ISO timestamp when paused; null when running
     observation_paused_total_ms: v.optional(v.number()), // cumulative paused milliseconds
     extension_days: v.optional(v.number()),             // user-extended days beyond default window
+    is_demo: v.optional(v.boolean()),                   // local-only demo row; skipped by Meta observation automation
     created_at: v.string(),
     updated_at: v.string(),
   })

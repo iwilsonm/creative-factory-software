@@ -56,6 +56,17 @@ function splitAdSetWriteFields(fields) {
   return { adSetFields, depFields };
 }
 
+function parseTextList(value) {
+  if (Array.isArray(value)) return value.filter(Boolean);
+  if (value == null || value === '' || value === 'null') return [];
+  try {
+    const parsed = typeof value === 'string' ? JSON.parse(value) : value;
+    return Array.isArray(parsed) ? parsed.filter(Boolean) : [];
+  } catch {
+    return [];
+  }
+}
+
 /**
  * ReadyToPostView — Employee-facing view for posting ads to Meta Ads Manager.
  *
@@ -241,9 +252,7 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
     } catch { return null; }
   };
 
-  const parseCount = (jsonStr) => {
-    try { return JSON.parse(jsonStr).filter(Boolean).length; } catch { return 0; }
-  };
+  const parseCount = (jsonStr) => parseTextList(jsonStr).length;
 
   // ── Notes ──────────────────────────────────────────────────────────────
 
@@ -480,8 +489,8 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
           cta_button: data.cta_button || '',
           facebook_page: data.facebook_page || '',
           duplicate_adset_name: data.duplicate_adset_name || '',
-          primary_texts: (() => { try { return JSON.parse(data.primary_texts || '[]').filter(Boolean); } catch { return []; } })(),
-          headlines: (() => { try { return JSON.parse(data.headlines || '[]').filter(Boolean); } catch { return []; } })(),
+          primary_texts: parseTextList(data.primary_texts),
+          headlines: parseTextList(data.headlines),
         }
       : {
           ad_name: data.ad_name || data.ad?.headline || '',
@@ -493,8 +502,8 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
           cta_button: data.cta_button || '',
           facebook_page: data.facebook_page || '',
           duplicate_adset_name: data.duplicate_adset_name || '',
-          primary_texts: (() => { try { return JSON.parse(data.primary_texts || '[]').filter(Boolean); } catch { return []; } })(),
-          ad_headlines: (() => { try { return JSON.parse(data.ad_headlines || '[]').filter(Boolean); } catch { return []; } })(),
+          primary_texts: parseTextList(data.primary_texts),
+          ad_headlines: parseTextList(data.ad_headlines),
         };
     setEditFields(fields);
     setEditingCard(cardKey);
@@ -520,11 +529,11 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
 
       // Serialize arrays back to JSON strings
       if (isFlex) {
-        payload.primary_texts = JSON.stringify(payload.primary_texts.filter(Boolean));
-        payload.headlines = JSON.stringify(payload.headlines.filter(Boolean));
+        payload.primary_texts = JSON.stringify(parseTextList(payload.primary_texts));
+        payload.headlines = JSON.stringify(parseTextList(payload.headlines));
       } else {
-        payload.primary_texts = JSON.stringify(payload.primary_texts.filter(Boolean));
-        payload.ad_headlines = JSON.stringify(payload.ad_headlines.filter(Boolean));
+        payload.primary_texts = JSON.stringify(parseTextList(payload.primary_texts));
+        payload.ad_headlines = JSON.stringify(parseTextList(payload.ad_headlines));
       }
 
       // Resolve ad set: find or create by name under the selected campaign
@@ -748,9 +757,7 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
 
   // Render numbered text items with copy-tracking strikethrough
   const renderNumberedTexts = (jsonStr, sectionLabel, helper, cardKey, sectionId) => {
-    let items = [];
-    try { items = JSON.parse(jsonStr); } catch { return null; }
-    items = items.filter(Boolean);
+    const items = parseTextList(jsonStr);
     if (items.length === 0) return null;
     const allText = items.join('\n\n');
     const allCopied = items.every((_, i) => copiedItems.has(`${cardKey}-${sectionId}-${i}`));

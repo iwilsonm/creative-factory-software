@@ -233,6 +233,10 @@ async function phaseSnapshotAndEvaluate(project, benchmark, currency, log, opts 
       log('snapshot', `budget exceeded; deferring ${adSets.length - processed} ad sets to next tick`);
       break;
     }
+    if (adSet.is_demo) {
+      log('snapshot', `ad_set=${adSet.externalId.slice(0, 8)} demo; skipping Meta snapshot`);
+      continue;
+    }
     if (!adSet.meta_adset_id || !adSet.posted_at) continue;
 
     // Skip if currently paused — counter is frozen

@@ -13,6 +13,7 @@ export default function ObservationTab({ projectId }) {
   const [adSets, setAdSets] = useState([]);
   const [archived, setArchived] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [creatingDemo, setCreatingDemo] = useState(false);
   const [activeAdSetId, setActiveAdSetId] = useState(null);
   const [filter, setFilter] = useState('all');
 
@@ -33,6 +34,20 @@ export default function ObservationTab({ projectId }) {
   }, [projectId]);
 
   useEffect(() => { load(); }, [load]);
+
+  const createDemo = async () => {
+    setCreatingDemo(true);
+    try {
+      const res = await api.createObservationDemoAdSet(projectId);
+      toast.success('Demo observation ad set added');
+      await load();
+      if (res?.ad_set_id) setActiveAdSetId(res.ad_set_id);
+    } catch (err) {
+      toast.error(err.message);
+    } finally {
+      setCreatingDemo(false);
+    }
+  };
 
   const filtered = adSets.filter((a) => {
     if (filter === 'all') return true;
@@ -71,6 +86,9 @@ export default function ObservationTab({ projectId }) {
         <button onClick={load} disabled={loading} className="btn-secondary text-[12px] px-3 py-1.5">
           {loading ? 'Loading…' : 'Refresh'}
         </button>
+        <button onClick={createDemo} disabled={creatingDemo} className="btn-secondary text-[12px] px-3 py-1.5">
+          {creatingDemo ? 'Adding…' : 'Add demo ad set'}
+        </button>
       </div>
 
       <div className="card overflow-hidden">
@@ -87,7 +105,16 @@ export default function ObservationTab({ projectId }) {
             </thead>
             <tbody>
               {!loading && filtered.length === 0 && (
-                <tr><td colSpan={5} className="px-3 py-12 text-center text-textlight">No ad sets in this view.</td></tr>
+                <tr>
+                  <td colSpan={5} className="px-3 py-12 text-center text-textlight">
+                    <div className="space-y-3">
+                      <div>No ad sets in this view.</div>
+                      <button onClick={createDemo} disabled={creatingDemo} className="btn-secondary text-[12px] px-3 py-1.5">
+                        {creatingDemo ? 'Adding…' : 'Add demo ad set'}
+                      </button>
+                    </div>
+                  </td>
+                </tr>
               )}
               {filtered.map((a) => {
                 const ccy = a.account_currency || 'USD';
@@ -96,7 +123,14 @@ export default function ObservationTab({ projectId }) {
                 const roas = result?.roas;
                 return (
                   <tr key={a.externalId} onClick={() => setActiveAdSetId(a.externalId)} className="border-b border-gray-50 hover:bg-gray-50/50 cursor-pointer">
-                    <td className="px-3 py-2 text-textdark truncate max-w-[260px]">{a.name}</td>
+                    <td className="px-3 py-2 text-textdark truncate max-w-[260px]">
+                      <span>{a.name}</span>
+                      {a.is_demo && (
+                        <span className="ml-2 inline-flex px-1.5 py-0.5 rounded bg-gray-100 text-[9px] font-medium text-textmid align-middle">
+                          Demo
+                        </span>
+                      )}
+                    </td>
                     <td className="px-3 py-2"><ObservationPill adSet={a} /></td>
                     <td className="px-3 py-2 text-right tabular-nums">
                       {ccy === 'USD' ? `$${spend.toFixed(2)}` : `${Math.round(spend).toLocaleString()} ${ccy}`}
