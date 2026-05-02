@@ -23,9 +23,10 @@ function timingSafeEqual(a, b) {
 }
 
 async function requireCronSecret(req, res, next) {
-  const secret = process.env.CRON_SECRET;
+  // Vercel env var is named "Cron" in this deployment (Marco's naming choice).
+  const secret = process.env.Cron;
   if (!secret) {
-    console.error('[cron] CRON_SECRET not configured — rejecting request');
+    console.error('[cron] env var "Cron" not configured — rejecting request');
     return res.status(500).json({ error: 'Cron not configured on this deployment.' });
   }
   const authHeader = req.headers.authorization || '';
