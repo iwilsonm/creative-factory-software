@@ -427,9 +427,10 @@ export default function Settings() {
     try {
       let result;
       if (service === 'openai') result = await api.testOpenAI();
+      else if (service === 'openai_image') result = await api.testOpenAIImage('gpt-image-2');
       else if (service === 'gemini') result = await api.testGemini();
       else if (service === 'anthropic') result = await api.testAnthropic();
-      setTestResults(prev => ({ ...prev, [service]: result.message || 'Connected!' }));
+      setTestResults(prev => ({ ...prev, [service]: result.message || (result.success === false ? 'Check failed' : 'Connected!') }));
     } catch (err) {
       setTestResults(prev => ({ ...prev, [service]: `Failed: ${err.message}` }));
     }
@@ -538,12 +539,12 @@ export default function Settings() {
                 OpenAI API Key
                 <KeyStatusPill set={!!settings.openai_api_key} />
               </label>
-              <div className="flex gap-2">
+              <div className="flex flex-wrap gap-2">
                 <input
                   type="password"
                   value={form.openai_api_key}
                   onChange={e => setForm(p => ({ ...p, openai_api_key: e.target.value }))}
-                  className="input-apple flex-1"
+                  className="input-apple flex-1 min-w-[220px]"
                   placeholder={settings.openai_api_key || 'Enter OpenAI API key'}
                 />
                 <button
@@ -558,8 +559,22 @@ export default function Settings() {
                   )}
                   Test
                 </button>
+                <button
+                  onClick={() => testConnection('openai_image')}
+                  disabled={testResults.openai_image === 'testing...'}
+                  className="btn-secondary text-[13px] whitespace-nowrap inline-flex items-center gap-1.5"
+                  title="Runs a billable low-quality GPT Image 2 access check."
+                >
+                  {testResults.openai_image === 'testing...' && (
+                    <svg className="w-3.5 h-3.5 animate-spin" viewBox="0 0 24 24" fill="none">
+                      <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" strokeDasharray="31.4 31.4" strokeLinecap="round" />
+                    </svg>
+                  )}
+                  Test GPT Image 2
+                </button>
               </div>
               {testResults.openai && <p className="text-[12px] text-textlight mt-1">{testResults.openai}</p>}
+              {testResults.openai_image && <p className="text-[12px] text-textlight mt-1">{testResults.openai_image}</p>}
             </div>
 
             <div>
@@ -733,7 +748,7 @@ export default function Settings() {
           <div className="mt-5 pt-5 border-t border-black/5">
             <label className="block text-[12px] font-medium text-textmid mb-1.5 flex items-center gap-1">
               OpenAI Image ($/image)
-              <InfoTooltip text="Per-image cost used when Ad Studio generates with GPT Image 2. Adjust when OpenAI publishes real pricing. Defaults to $0.04." position="right" />
+              <InfoTooltip text="Manual estimate used for GPT Image 2 cost logging. Actual OpenAI image cost varies by quality, size, and reference-image input tokens. Defaults to $0.04." position="right" />
             </label>
             <input
               value={form.openai_image_rate_per_image}

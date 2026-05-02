@@ -3,6 +3,7 @@ import { toFile } from 'openai/uploads';
 import { getSetting } from '../convexClient.js';
 import { withRetry } from './retry.js';
 import { logOpenAICost, logOpenAIImageCost } from './costTracker.js';
+import { toOpenAIImageRuntimeError } from './openaiImageAccess.js';
 
 let client = null;
 let lastApiKey = null;
@@ -442,42 +443,47 @@ export async function generateImage(prompt, aspectRatio = '1:1', productImage = 
   const normalizedReferences = normalizeReferenceImages(referenceImages, productImage);
   const renderPrompt = buildGPTImageRenderPrompt(prompt, normalizedReferences);
 
-  const response = await withRetry(
-    async () => {
-      if (normalizedReferences.length > 0) {
-        const files = await Promise.all(normalizedReferences.map(referenceToFile));
-        return openai.images.edit({
+  let response;
+  try {
+    response = await withRetry(
+      async () => {
+        if (normalizedReferences.length > 0) {
+          const files = await Promise.all(normalizedReferences.map(referenceToFile));
+          return openai.images.edit({
+            model: imageModel,
+            image: files,
+            prompt: renderPrompt,
+            size,
+            n: 1,
+            output_format: 'png',
+            quality: 'auto',
+          });
+        }
+        return openai.images.generate({
           model: imageModel,
-          image: files,
           prompt: renderPrompt,
           size,
           n: 1,
           output_format: 'png',
           quality: 'auto',
         });
-      }
-      return openai.images.generate({
-        model: imageModel,
-        prompt: renderPrompt,
-        size,
-        n: 1,
-        output_format: 'png',
-        quality: 'auto',
-      });
-    },
-    {
-      maxRetries: 2,
-      label: '[OpenAI generateImage]',
-      shouldRetry: (err) => {
-        // Don't retry fatal states — model-not-found, auth, tier gate.
-        const status = err?.status || err?.response?.status;
-        if (status === 400 || status === 401 || status === 403 || status === 404) return false;
-        const msg = String(err?.message || '').toLowerCase();
-        if (msg.includes('model') && (msg.includes('not found') || msg.includes('does not exist'))) return false;
-        return true;
       },
-    }
-  );
+      {
+        maxRetries: 2,
+        label: '[OpenAI generateImage]',
+        shouldRetry: (err) => {
+          // Don't retry fatal states — model-not-found, auth, tier gate.
+          const status = err?.status || err?.response?.status;
+          if (status === 400 || status === 401 || status === 403 || status === 404) return false;
+          const msg = String(err?.message || '').toLowerCase();
+          if (msg.includes('model') && (msg.includes('not found') || msg.includes('does not exist'))) return false;
+          return true;
+        },
+      }
+    );
+  } catch (err) {
+    throw toOpenAIImageRuntimeError(err, imageModel);
+  }
 
   const b64 = response?.data?.[0]?.b64_json;
   if (!b64) throw new Error('OpenAI image generation returned no image data');

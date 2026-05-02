@@ -2333,7 +2333,7 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
                 <p className="text-[10px] text-textlight mt-1">
                   {imageModel === 'nano-banana-pro' && 'High-fidelity Gemini image generation.'}
                   {imageModel === 'nano-banana-2' && 'Faster Gemini generation with improved text rendering, up to 4K (current default).'}
-                  {imageModel === 'gpt-image-2' && "OpenAI image generation with layout + product references. Requires GPT Image access."}
+                  {imageModel === 'gpt-image-2' && 'OpenAI image generation with layout + product references. Verify access in Settings with Test GPT Image 2; the check is user-triggered because it is billable.'}
                 </p>
               </div>
 

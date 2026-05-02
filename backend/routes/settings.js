@@ -3,6 +3,7 @@ import { requireAuth, requireRole } from '../auth.js';
 import { getSetting, setSetting, getAllSettings, getDashboardTodos, replaceDashboardTodos } from '../convexClient.js';
 import { getDriveClient } from './drive.js';
 import { refreshGeminiRates } from '../services/costTracker.js';
+import { DEFAULT_OPENAI_IMAGE_MODEL, testOpenAIImageAccess } from '../services/openaiImageAccess.js';
 
 const router = Router();
 router.use(requireAuth, requireRole('admin'));
@@ -77,6 +78,17 @@ router.post('/test-openai', async (req, res) => {
   } catch (err) {
     res.status(500).json({ error: `Connection failed: ${err.message}` });
   }
+});
+
+// Test real GPT Image model access. This is intentionally separate from the
+// generic /models check because org verification and image-model availability
+// can fail even when a normal OpenAI key check succeeds.
+router.post('/test-openai-image', async (req, res) => {
+  const requestedModel = typeof req.body?.model === 'string' ? req.body.model.trim() : '';
+  const model = requestedModel || DEFAULT_OPENAI_IMAGE_MODEL;
+  const apiKey = await getSetting('openai_api_key');
+  const result = await testOpenAIImageAccess({ apiKey, model });
+  res.json(result);
 });
 
 // Phase 2 (PEF item G) — verify a specific OpenAI chat model is callable

@@ -387,6 +387,11 @@ export const api = {
   getSettings: () => request('/settings'),
   updateSettings: (data) => request('/settings', { method: 'PUT', body: JSON.stringify(data) }),
   testOpenAI: () => request('/settings/test-openai', { method: 'POST' }),
+  testOpenAIImage: (model = 'gpt-image-2') =>
+    request('/settings/test-openai-image', {
+      method: 'POST',
+      body: JSON.stringify({ model }),
+    }),
   testGemini: () => request('/settings/test-gemini', { method: 'POST' }),
   // Phase 2 (PEF item G) — verify a specific OpenAI chat model is available.
   testOpenAIModel: (model) =>
