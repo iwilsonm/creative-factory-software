@@ -297,10 +297,17 @@ async function phaseSnapshotAndEvaluate(project, benchmark, currency, log, opts 
 
     processed += 1;
 
-    // Terminal evaluation if window complete
-    if (days >= windowEffective && insights.lifetime) {
+    // Terminal evaluation if window complete. If Meta returned no lifetime
+    // insights row (paused campaign with zero spend → empty data array), we
+    // still evaluate using a synthetic zero-spend row so the scorer can
+    // return "starved" instead of leaving the ad set in limbo.
+    if (days >= windowEffective) {
+      const lifetimeForScoring = insights.lifetime || {
+        spend: '0', impressions: '0', clicks: '0', ctr: '0', cpm: '0', cpc: '0',
+        actions: [], cost_per_action_type: [], purchase_roas: [],
+      };
       const score = scoreObservation({
-        insights: insights.lifetime,
+        insights: lifetimeForScoring,
         benchmark,
         daysObserved: days,
         accountCurrency: currency,
