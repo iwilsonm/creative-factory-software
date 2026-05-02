@@ -1263,8 +1263,8 @@ function PipelineOverview({ data, fixerData, filterData }) {
         <div key={day.date} className="mb-3 last:mb-0">
           <p className="text-[10px] text-textlight font-medium uppercase tracking-wider mb-1.5">{day.label}</p>
           {projects.map(project => {
-            const produced = project.flex_by_day?.[day.date] || 0;
-            const target = project.daily_flex_target ?? 5;
+            const produced = project.ad_sets_by_day?.[day.date] ?? project.flex_by_day?.[day.date] ?? 0;
+            const target = project.daily_ad_set_target ?? project.daily_flex_target ?? 5;
             const activeBatches = project.active_batches_by_day?.[day.date] || 0;
             const pct = Math.min((produced / target) * 100, 100);
             const isMet = produced >= target;
@@ -1773,7 +1773,8 @@ function DirectorTab({ onRefresh }) {
         const generated = event.total_ads_generated || event.ads_scored || '?';
         const passed = event.ads_passed ?? '?';
         const readyCount = event.ready_to_post_count ?? 0;
-        const msg = event.flex_ads_created > 0
+        const adSetsCreated = event.ad_sets_created ?? event.flex_ads_created ?? 0;
+        const msg = adSetsCreated > 0
           ? `Reached ${passed}/10 after ${roundsUsed} round${roundsUsed !== 1 ? 's' : ''} (${generated} generated). ${readyCount} Ready to Post ads created.`
           : `Complete — ${passed}/10 passed after ${generated} generated.`;
         updateQueueItem(runId, { status: 'complete', progress: 100, phase: msg, result: event, serverRunId: event.runId || null });
@@ -2358,10 +2359,10 @@ function DirectorTab({ onRefresh }) {
                   {run.status === 'complete' ? 'Test Run Complete' : 'Test Run Failed'}
                 </p>
                 <p className="text-textmid mt-0.5">{run.phase}</p>
-                {run.result?.flex_ads_created > 0 && (
+                {(run.result?.ad_sets_created ?? run.result?.flex_ads_created ?? 0) > 0 && (
                   <button
-                    onClick={() => navigate(run.result?.flex_ad_id
-                      ? `/projects/${selectedProject}?tab=tracker&view=ready_to_post&flexAdId=${run.result.flex_ad_id}`
+                    onClick={() => navigate((run.result?.ad_set_id || run.result?.flex_ad_id)
+                      ? `/projects/${selectedProject}?tab=tracker&view=ready_to_post&adSetId=${run.result.ad_set_id || run.result.flex_ad_id}`
                       : '/ads?tab=ready')}
                     className="text-[10px] text-gold hover:text-gold-light font-medium mt-1 inline-flex items-center gap-1"
                   >
@@ -2753,7 +2754,7 @@ function DirectorTab({ onRefresh }) {
 
           <div className="grid grid-cols-2 gap-4">
             <div>
-              <label className="text-[11px] text-textmid font-medium block mb-1">Daily Flex Ad Target</label>
+              <label className="text-[11px] text-textmid font-medium block mb-1">Daily Ad Set Target</label>
               <input
                 type="number"
                 min="0"
@@ -2866,7 +2867,7 @@ function DirectorTab({ onRefresh }) {
             ) : (
               <p className="text-[11px] text-textlight">No campaigns found — create one in the project's Creative Filter settings or Ad Pipeline tab first.</p>
             )}
-            <p className="text-[9px] text-textlight mt-0.5">Flex ads from the Director pipeline will auto-deploy to this campaign</p>
+            <p className="text-[9px] text-textlight mt-0.5">Ad sets from the Director pipeline will auto-deploy to this campaign</p>
           </div>
 
           {saving && <p className="text-[10px] text-textlight">Saving...</p>}
@@ -2978,7 +2979,7 @@ function DirectorTab({ onRefresh }) {
                       <div className="flex items-center gap-2">
                         {flexAdId && (
                           <button
-                            onClick={() => navigate(`/projects/${selectedProject}?tab=tracker&view=ready_to_post&flexAdId=${flexAdId}`)}
+	                            onClick={() => navigate(`/projects/${selectedProject}?tab=tracker&view=ready_to_post&adSetId=${flexAdId}`)}
                             className="text-[10px] text-gold hover:text-gold-light font-medium"
                           >
                             View in Ready to Post {'\u2192'}
@@ -3523,7 +3524,7 @@ function FilterPanel({ data, onRefresh }) {
   return (
     <AgentPanel
       name="Dacia Creative Filter"
-      subtitle="Runs every 30 min — scores batch ads, groups winners into flex ads, deploys to Ready to Post"
+      subtitle="Runs every 30 min — scores batch ads, groups winners into ad sets, deploys to Ready to Post"
       status={data.status}
       paused={data.paused}
       onTogglePause={handleTogglePause}
@@ -3541,7 +3542,7 @@ function FilterPanel({ data, onRefresh }) {
         <StatCell value={data.stats.scored} label="Scored" color="text-textdark" />
         <StatCell value={data.stats.passed} label="Passed" color="text-teal" />
         <StatCell value={data.stats.failed} label="Failed" color={data.stats.failed > 0 ? 'text-red-400' : 'text-textdark'} />
-        <StatCell value={data.stats.flexAds} label="Flex Ads" color="text-navy-light" />
+        <StatCell value={data.stats.flexAds} label="Ad Sets" color="text-navy-light" />
       </div>
 
       <p className="text-[10px] text-textmid mb-2.5">
@@ -3572,9 +3573,9 @@ function FilterPanel({ data, onRefresh }) {
 
       {/* Per-Brand Daily Volume Controls */}
       <div className="border-t border-black/5 pt-2.5 mb-2.5">
-        <p className="text-[11px] font-medium text-textmid mb-1.5">Daily Flex Ad Volume</p>
+        <p className="text-[11px] font-medium text-textmid mb-1.5">Daily Ad Set Volume</p>
         <p className="text-[9px] text-textlight mb-2">
-          Flex ads created per day per brand. Each flex ad = 10 images.
+          Ad sets created per day per brand. Each ad set = 10 images.
         </p>
         {loadingVolumes ? (
           <div className="text-[10px] text-textlight py-2">Loading projects...</div>
@@ -3587,7 +3588,7 @@ function FilterPanel({ data, onRefresh }) {
                     {project.brand_name || project.name}
                   </p>
                   <p className="text-[9px] text-textlight">
-                    Today: {project.today_flex_ads}/{project.scout_daily_flex_ads} flex ads ({project.today_flex_ads * 10}/{project.scout_daily_flex_ads * 10} images)
+                    Today: {project.today_flex_ads}/{project.scout_daily_flex_ads} ad sets ({project.today_flex_ads * 10}/{project.scout_daily_flex_ads * 10} images)
                   </p>
                 </div>
                 <select

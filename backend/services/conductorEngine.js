@@ -4,7 +4,7 @@
  * Runs at 7 AM, 7 PM, and 1 AM ICT. Each run:
  * 1. Iterates enabled projects
  * 2. Determines active posting days (production windows)
- * 3. Calculates flex ad deficit per posting day
+ * 3. Calculates ad set deficit per posting day
  * 4. Creates batches with angle prompts to fill the deficit
  * 5. Logs the run to conductor_runs
  */
@@ -18,7 +18,7 @@ import {
   getConductorSlotsByPostingDay, createConductorSlot, updateConductorSlot,
   createBatchJob, getBatchJob, updateBatchJob,
   getAdsByBatchId, getAd,
-  getFlexAdsByProject, getBatchesByProject,
+  getAdSetsByProject, getBatchesByProject,
   getProject, getAllConductorConfigs, convexClient, api,
 } from '../convexClient.js';
 import { getAdaptiveBatchSize } from './conductorLearning.js';
@@ -325,11 +325,10 @@ export async function runDirectorForProject(projectId, runType = 'manual') {
         console.log(`[Director] Starting batch ${b.batch_id.slice(0, 8)} (${allBatchesCreated.indexOf(b) + 1}/${allBatchesCreated.length})...`);
         await runBatch(b.batch_id);
         // Phase K: LP generation is no longer fired here. The Creative Filter
-        // triggers it after assembling a Ready-to-Post flex ad — see
-        // /api/projects/:projectId/lp-agent/trigger-from-flex-ad. This lets
-        // the LP's angle be derived from the winning flex-ad images instead
-        // of from the Director's library angle, and prevents LP generation
-        // from starting before the ads exist.
+        // triggers it after assembling a Ready-to-Post ad set. This lets the
+        // LP's angle be derived from the winning images instead of from the
+        // Director's library angle, and prevents LP generation from starting
+        // before the ads exist.
       } catch (err) {
         console.error(`[Director] Batch ${b.batch_id.slice(0, 8)} failed:`, err.message);
       }
@@ -408,15 +407,16 @@ export function getActivePostingDays(now) {
 }
 
 /**
- * Calculate the flex ad deficit for a specific posting day.
+ * Calculate the ad set deficit for a specific posting day.
  * deficit = target - produced - in_progress_batches
  */
 async function calculateDeficit(projectId, postingDay, target) {
-  const flexAds = await getFlexAdsByProject(projectId);
+  const adSets = await getAdSetsByProject(projectId);
   const batches = await getBatchesByProject(projectId);
 
-  // Count flex ads tagged for this posting day
-  const produced = flexAds.filter(fa => fa.posting_day === postingDay).length;
+  // Count ad sets produced for this posting day. New ad sets do not carry the
+  // old posting_day field, so fall back to the creation date.
+  const produced = adSets.filter(adSet => String(adSet.created_at || '').slice(0, 10) === postingDay).length;
 
   // Count batches still in progress for this posting day
   const inProgress = batches.filter(b =>
@@ -462,8 +462,8 @@ function getBatchFailureReason(batch) {
   if (batch.error_message) return batch.error_message;
   const diagnostics = getBatchDiagnosticsSummary(batch);
   if ((diagnostics?.usable_prompt_count || 0) === 0) return 'no_usable_prompts_after_stage1';
-  if (batch.status === 'completed' && batch.filter_processed && !batch.flex_ad_id) return 'completed_without_flex_ad';
-  if (batch.status === 'completed') return 'completed_without_flex_ad';
+  if (batch.status === 'completed' && batch.filter_processed && !batch.flex_ad_id) return 'completed_without_ad_set';
+  if (batch.status === 'completed') return 'completed_without_ad_set';
   if (batch.status === 'failed') return 'batch_failed';
   return '';
 }
@@ -1278,7 +1278,7 @@ function buildTestRunSummary({
     return `Angle "${angleName}" reached ${TEST_RUN_REQUIRED_PASSES}/${TEST_RUN_REQUIRED_PASSES} passed ads after ${roundsUsed} round${roundsUsed !== 1 ? 's' : ''} (${totalAdsGenerated} generated). ${readyToPostCount} Ready to Post ads created.`;
   }
   if (terminalStatus === TEST_RUN_ROUND_CAP_TERMINAL_STATUS || terminalStatus === 'failed_under_threshold_after_54') {
-    return `Angle "${angleName}" reached ${totalAdsPassed}/${TEST_RUN_REQUIRED_PASSES} passed ads after ${roundsUsed} round${roundsUsed !== 1 ? 's' : ''} (${totalAdsGenerated} generated). Round cap reached with no Ready to Post flex ad.`;
+    return `Angle "${angleName}" reached ${totalAdsPassed}/${TEST_RUN_REQUIRED_PASSES} passed ads after ${roundsUsed} round${roundsUsed !== 1 ? 's' : ''} (${totalAdsGenerated} generated). Round cap reached with no Ready to Post ad set.`;
   }
   if (terminalStatus === 'cancelled') {
     return `Angle "${angleName}" was cancelled after ${roundsUsed} round${roundsUsed !== 1 ? 's' : ''} (${totalAdsGenerated} generated, ${totalAdsPassed}/${TEST_RUN_REQUIRED_PASSES} passed so far).`;
@@ -1858,22 +1858,22 @@ async function attemptRoundRepairs({
   return { repairedPassingAds, repairedScoredAds, repairSummary, repairAttempts };
 }
 
-async function linkFlexAdToBatches(batchInfos, flexAdId, ...batchIds) {
-  if (!flexAdId) return batchInfos;
+async function linkAdSetToBatches(batchInfos, adSetId, ...batchIds) {
+  if (!adSetId) return batchInfos;
   const uniqueBatchIds = [...new Set(batchIds.filter(Boolean))];
   if (uniqueBatchIds.length === 0) return batchInfos;
 
   await Promise.all(uniqueBatchIds.map(async (batchId) => {
     try {
-      await updateBatchJob(batchId, { flex_ad_id: flexAdId });
+      await updateBatchJob(batchId, { flex_ad_id: adSetId });
     } catch (err) {
-      console.warn(`[Director] Failed to link flex ad ${flexAdId.slice(0, 8)} to batch ${batchId.slice(0, 8)}:`, err.message);
+      console.warn(`[Director] Failed to link ad set ${adSetId.slice(0, 8)} to batch ${batchId.slice(0, 8)}:`, err.message);
     }
   }));
 
   return batchInfos.map((info) => (
     uniqueBatchIds.includes(info.batch_id)
-      ? { ...info, flex_ad_id: flexAdId }
+      ? { ...info, flex_ad_id: adSetId, ad_set_id: adSetId }
       : info
   ));
 }
@@ -1928,7 +1928,7 @@ async function finalizeSuccessfulTestRun({
   triggerLabel = 'test run',
 }) {
   const readyToPostCount = finalizeResult.ready_to_post_count || 0;
-  const flexAdId = finalizeResult.flex_ad_id || null;
+  const adSetId = finalizeResult.ad_set_id || finalizeResult.flex_ad_id || null;
   const bestRound = [...roundDetails].sort((a, b) => b.ads_passed - a.ads_passed)[0];
   const completedBatchIds = roundDetails.map((detail) => detail.batch_id).filter(Boolean);
 
@@ -1941,9 +1941,9 @@ async function finalizeSuccessfulTestRun({
   batchInfos.splice(
     0,
     batchInfos.length,
-    ...(await linkFlexAdToBatches(
+    ...(await linkAdSetToBatches(
       batchInfos,
-      flexAdId,
+      adSetId,
       currentBatchId,
       bestRound?.batch_id,
     ))
@@ -1963,7 +1963,7 @@ async function finalizeSuccessfulTestRun({
     total_ads_scored: totalAdsScored,
     total_ads_passed: totalAdsPassed,
     ready_to_post_count: readyToPostCount,
-    flex_ad_id: flexAdId || undefined,
+    flex_ad_id: adSetId || undefined,
     duration_ms: durationMs,
     decisions: buildTestRunSummary({
       angleName,
@@ -1977,7 +1977,8 @@ async function finalizeSuccessfulTestRun({
 
   return {
     readyToPostCount,
-    flexAdId,
+    flexAdId: adSetId,
+    adSetId,
     bestRound,
   };
 }
@@ -2187,7 +2188,7 @@ async function continueBackgroundTestRun(run) {
   }
 
   // Claim this run before the long scoring operation so the next scheduler
-  // poll (every 5 min) won't pick it up again and create duplicate flex ads.
+  // poll (every 5 min) won't pick it up again and create duplicate ad sets.
   await updateConductorRun(runId, { status: 'scoring' });
 
   let backgroundErrorStage = 'post_score_round_processing';
@@ -2269,11 +2270,12 @@ async function continueBackgroundTestRun(run) {
         angleName,
       });
 
-      if (finalizeResult.flex_ads_created === 0) {
+      const adSetsCreated = finalizeResult.ad_sets_created ?? finalizeResult.flex_ads_created ?? 0;
+      if (adSetsCreated === 0) {
         let failureReason = 'Unknown error during Creative Filter';
         let terminalStatus = 'deploy_failed';
         if (finalizeResult.grouping_failed) {
-          failureReason = `${totalAdsPassed} approved ads were available, but grouping could not create a flex ad.`;
+          failureReason = `${totalAdsPassed} approved ads were available, but grouping could not create an ad set.`;
           terminalStatus = 'grouping_failed';
         } else if (finalizeResult.deploy_error) {
           failureReason = `Reached ${totalAdsPassed}/${TEST_RUN_REQUIRED_PASSES} passed ads, but deployment failed: ${finalizeResult.deploy_error}`;
@@ -2326,7 +2328,7 @@ async function continueBackgroundTestRun(run) {
     }
 
     if (roundNumber >= TEST_RUN_MAX_ROUNDS) {
-      const failureReason = `Reached ${totalAdsPassed}/${TEST_RUN_REQUIRED_PASSES} passed ads after ${totalAdsGenerated} generated across ${TEST_RUN_MAX_ROUNDS} rounds. Round cap reached with no Ready to Post flex ad.`;
+      const failureReason = `Reached ${totalAdsPassed}/${TEST_RUN_REQUIRED_PASSES} passed ads after ${totalAdsGenerated} generated across ${TEST_RUN_MAX_ROUNDS} rounds. Round cap reached with no Ready to Post ad set.`;
       await updateConductorRun(runId, {
         status: 'failed',
         terminal_status: TEST_RUN_ROUND_CAP_TERMINAL_STATUS,
@@ -2895,11 +2897,12 @@ export async function runFullTestPipeline(projectId, sendEvent, { angleOverride 
           onProgress: (event) => emit(withTestProgress(TEST_RUN_MAX_ROUNDS, event)),
         });
 
-        if (finalizeResult.flex_ads_created === 0) {
+        const adSetsCreated = finalizeResult.ad_sets_created ?? finalizeResult.flex_ads_created ?? 0;
+        if (adSetsCreated === 0) {
           let failureReason = 'Unknown error during Creative Filter';
           let terminalStatus = 'deploy_failed';
           if (finalizeResult.grouping_failed) {
-            failureReason = `${totalAdsPassed} approved ads were available, but grouping could not create a flex ad.`;
+            failureReason = `${totalAdsPassed} approved ads were available, but grouping could not create an ad set.`;
             terminalStatus = 'grouping_failed';
           } else if (finalizeResult.deploy_error) {
             failureReason = `Reached ${totalAdsPassed}/${TEST_RUN_REQUIRED_PASSES} passed ads, but deployment failed: ${finalizeResult.deploy_error}`;
@@ -2967,12 +2970,16 @@ export async function runFullTestPipeline(projectId, sendEvent, { angleOverride 
           triggerLabel: 'test run',
         });
 
-        console.log(`[Director] Test run ${runId.slice(0, 8)} succeeded after ${roundDetails.length} round(s): ${totalAdsPassed} passed, flex ${successResult.flexAdId || 'none'}`);
+        console.log(`[Director] Test run ${runId.slice(0, 8)} succeeded after ${roundDetails.length} round(s): ${totalAdsPassed} passed, ad set ${successResult.adSetId || 'none'}`);
 
         runProgress.status = 'complete';
         runProgress.progress = 100;
         runProgress.phase = 'Complete';
-        runProgress.result = { flex_ad_id: successResult.flexAdId, ready_to_post_count: successResult.readyToPostCount };
+        runProgress.result = {
+          ad_set_id: successResult.adSetId,
+          flex_ad_id: successResult.flexAdId,
+          ready_to_post_count: successResult.readyToPostCount,
+        };
         setTimeout(() => activeTestRuns.delete(trackingId), 60000);
 
         return {
@@ -2983,6 +2990,8 @@ export async function runFullTestPipeline(projectId, sendEvent, { angleOverride 
           ads_scored: totalAdsScored,
           ads_passed: totalAdsPassed,
           ready_to_post_count: successResult.readyToPostCount,
+          ad_sets_created: finalizeResult.ad_sets_created ?? finalizeResult.flex_ads_created,
+          ad_set_id: successResult.adSetId,
           flex_ads_created: finalizeResult.flex_ads_created,
           flex_ad_id: successResult.flexAdId,
           terminal_status: 'deployed',
@@ -3021,7 +3030,7 @@ export async function runFullTestPipeline(projectId, sendEvent, { angleOverride 
       activeRoundState = null;
     }
 
-    const failureReason = `Reached ${totalAdsPassed}/${TEST_RUN_REQUIRED_PASSES} passed ads after ${totalAdsGenerated} generated across ${TEST_RUN_MAX_ROUNDS} rounds. Round cap reached with no Ready to Post flex ad.`;
+    const failureReason = `Reached ${totalAdsPassed}/${TEST_RUN_REQUIRED_PASSES} passed ads after ${totalAdsGenerated} generated across ${TEST_RUN_MAX_ROUNDS} rounds. Round cap reached with no Ready to Post ad set.`;
     console.warn(`[Director] Test run ${runId.slice(0, 8)} failed at hard cap: ${totalAdsPassed}/${TEST_RUN_REQUIRED_PASSES} passed after ${totalAdsGenerated} generated`);
 
     await updateConductorRun(runId, {

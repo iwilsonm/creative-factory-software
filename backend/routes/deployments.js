@@ -26,7 +26,6 @@ import {
   getFlexAdsByProject,
   getFlexAd,
   getAdSet,
-  createFlexAd,
   updateFlexAd,
   deleteFlexAd,
   restoreDeployment,
@@ -37,6 +36,7 @@ import {
   api,
 } from '../convexClient.js';
 import { chat as claudeChat } from '../services/anthropic.js';
+import { postAdSetToMeta } from '../services/metaWriter.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -515,10 +515,78 @@ router.post('/deployments/campaigns/:campaignId/adsets', requireRole('admin', 'm
     if (!name || !projectId) return res.status(400).json({ error: 'name and projectId required' });
     const existing = await getAdSetsByCampaign(campaignId);
     const id = crypto.randomUUID();
-    await createAdSet({ id, campaign_id: campaignId, project_id: projectId, name, sort_order: existing.length });
+    await createAdSet({ id, campaign_id: campaignId, project_id: projectId, name, sort_order: existing.length, lifecycle_status: 'planned' });
     res.json({ success: true, id });
   } catch (err) {
     console.error('Failed to create ad set:', err);
+    res.status(500).json({ error: 'Failed to create ad set' });
+  }
+});
+
+/**
+ * POST /deployments/adsets/from-deployments — Create/find an ad set and assign deployments
+ * Body: { projectId, deploymentIds: string[], campaignId?, newCampaignName?, adSetName }
+ */
+router.post('/deployments/adsets/from-deployments', requireRole('admin', 'manager'), async (req, res) => {
+  try {
+    const { projectId, deploymentIds, campaignId, newCampaignName, adSetName } = req.body || {};
+    if (!projectId || !Array.isArray(deploymentIds) || deploymentIds.length === 0) {
+      return res.status(400).json({ error: 'projectId and deploymentIds are required' });
+    }
+    const cleanAdSetName = String(adSetName || '').trim();
+    if (!cleanAdSetName) {
+      return res.status(400).json({ error: 'adSetName is required' });
+    }
+
+    let resolvedCampaignId = campaignId && campaignId !== '__new__' ? String(campaignId) : '';
+    const campaigns = await getCampaignsByProject(projectId);
+    if (!resolvedCampaignId) {
+      const cleanCampaignName = String(newCampaignName || '').trim() || 'Manual Campaign';
+      const existingCampaign = campaigns.find(c => c.name.toLowerCase() === cleanCampaignName.toLowerCase());
+      if (existingCampaign) {
+        resolvedCampaignId = existingCampaign.id;
+      } else {
+        resolvedCampaignId = crypto.randomUUID();
+        await createCampaign({
+          id: resolvedCampaignId,
+          project_id: projectId,
+          name: cleanCampaignName,
+          sort_order: campaigns.length,
+        });
+      }
+    }
+
+    const existingAdSets = await getAdSetsByCampaign(resolvedCampaignId);
+    const existingAdSet = existingAdSets.find(a => a.name.toLowerCase() === cleanAdSetName.toLowerCase());
+    let resolvedAdSetId = existingAdSet?.id || '';
+    if (!resolvedAdSetId) {
+      resolvedAdSetId = crypto.randomUUID();
+      await createAdSet({
+        id: resolvedAdSetId,
+        campaign_id: resolvedCampaignId,
+        project_id: projectId,
+        name: cleanAdSetName,
+        sort_order: existingAdSets.length,
+        lifecycle_status: 'planned',
+      });
+    }
+
+    for (const deploymentId of [...new Set(deploymentIds)]) {
+      await updateDeployment(deploymentId, {
+        local_campaign_id: resolvedCampaignId,
+        local_adset_id: resolvedAdSetId,
+        flex_ad_id: '',
+      });
+    }
+
+    res.json({
+      success: true,
+      campaignId: resolvedCampaignId,
+      adSetId: resolvedAdSetId,
+      assigned: [...new Set(deploymentIds)].length,
+    });
+  } catch (err) {
+    console.error('Failed to create ad set from deployments:', err);
     res.status(500).json({ error: 'Failed to create ad set' });
   }
 });
@@ -529,7 +597,12 @@ router.post('/deployments/campaigns/:campaignId/adsets', requireRole('admin', 'm
 router.put('/deployments/adsets/:id', requireRole('admin', 'manager'), async (req, res) => {
   try {
     const { id } = req.params;
-    const allowed = ['name', 'sort_order', 'campaign_id'];
+    const allowed = [
+      'name', 'sort_order', 'campaign_id', 'lifecycle_status',
+      'meta_targeting', 'meta_budget_type', 'meta_budget_amount_cents',
+      'meta_schedule', 'meta_optimization_goal', 'meta_billing_event',
+      'posted_at', 'meta_adset_id', 'meta_campaign_id', 'meta_post_error', 'meta_post_path',
+    ];
     const fields = {};
     for (const key of allowed) {
       if (req.body[key] !== undefined) fields[key] = req.body[key];
@@ -540,6 +613,81 @@ router.put('/deployments/adsets/:id', requireRole('admin', 'manager'), async (re
   } catch (err) {
     console.error('Failed to update ad set:', err);
     res.status(500).json({ error: 'Failed to update ad set' });
+  }
+});
+
+/**
+ * PUT /deployments/adsets/:id/status — Move all child deployments in an ad set
+ * Body: { status: selected|ready_to_post|posted|analyzing }
+ */
+router.put('/deployments/adsets/:id/status', requireRole('admin', 'manager', 'poster'), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const { status } = req.body || {};
+    const validStatuses = ['selected', 'ready_to_post', 'posted', 'analyzing'];
+    if (!validStatuses.includes(status)) {
+      return res.status(400).json({ error: `Invalid status. Must be one of: ${validStatuses.join(', ')}` });
+    }
+
+    const adSet = await getAdSet(id);
+    if (!adSet) return res.status(404).json({ error: 'Ad set not found' });
+    const campaign = adSet.campaign_id
+      ? (await getCampaignsByProject(adSet.project_id)).find(c => c.id === adSet.campaign_id)
+      : null;
+    const allDeps = await getDeploymentsByProject(adSet.project_id);
+    const childDeps = allDeps.filter(d => d.local_adset_id === id);
+    const lifecycleByStatus = {
+      selected: 'planned',
+      ready_to_post: 'promoted',
+      posted: 'observing',
+      analyzing: 'observing',
+    };
+    const adSetFields = {
+      lifecycle_status: lifecycleByStatus[status],
+    };
+    if (status === 'posted' && !adSet.posted_at) {
+      adSetFields.posted_at = new Date().toISOString();
+    }
+    await updateAdSet(id, adSetFields);
+
+    for (const dep of childDeps) {
+      const fields = {};
+      if (status === 'posted') {
+        fields.campaign_name = campaign?.name || dep.campaign_name || '';
+        fields.ad_set_name = adSet.name || dep.ad_set_name || '';
+        if (dep.destination_url) fields.landing_page_url = dep.destination_url;
+      }
+      if (Object.keys(fields).length > 0) {
+        await updateDeployment(dep.externalId, fields);
+      }
+      await updateDeploymentStatus(dep.externalId, status);
+    }
+
+    res.json({ success: true, count: childDeps.length });
+  } catch (err) {
+    console.error('Failed to update ad set deployment statuses:', err);
+    res.status(500).json({ error: 'Failed to update ad set status' });
+  }
+});
+
+/**
+ * POST /deployments/adsets/:id/post-to-meta — Post a ready ad set to Meta.
+ */
+router.post('/deployments/adsets/:id/post-to-meta', requireRole('admin', 'manager'), async (req, res) => {
+  try {
+    const { id } = req.params;
+    const adSet = await getAdSet(id);
+    if (!adSet) return res.status(404).json({ error: 'Ad set not found' });
+
+    const result = await postAdSetToMeta(id, adSet.project_id);
+    res.json({ success: true, ...result });
+  } catch (err) {
+    const status = err.code === 'TOKEN_EXPIRED' ? 401
+      : err.code === 'NO_PAGE' || err.code === 'NO_ACCOUNT' || err.code === 'NOT_CONNECTED' || err.code === 'NO_ADS' || err.code === 'IMAGE_UPLOAD_FAILED' ? 400
+      : err.code === 'WRONG_PROJECT' ? 403
+      : err.code === 'MCP_NOT_AUTHORIZED' ? 403
+      : 500;
+    res.status(status).json({ error: err.message, code: err.code || null });
   }
 });
 
@@ -599,7 +747,7 @@ router.post('/deployments/assign-to-adset', requireRole('admin', 'manager'), asy
     }
     // Use allSettled to avoid partial failure causing total rollback
     const results = await Promise.allSettled(deploymentIds.map(id =>
-      updateDeployment(id, { local_campaign_id: campaignId, local_adset_id: adsetId })
+      updateDeployment(id, { local_campaign_id: campaignId, local_adset_id: adsetId, flex_ad_id: '' })
     ));
     const failed = results.filter(r => r.status === 'rejected');
     if (failed.length > 0) {
@@ -608,7 +756,7 @@ router.post('/deployments/assign-to-adset', requireRole('admin', 'manager'), asy
       for (const [i, result] of results.entries()) {
         if (result.status === 'rejected') {
           try {
-            await updateDeployment(deploymentIds[i], { local_campaign_id: campaignId, local_adset_id: adsetId });
+            await updateDeployment(deploymentIds[i], { local_campaign_id: campaignId, local_adset_id: adsetId, flex_ad_id: '' });
           } catch (retryErr) {
             console.error(`Retry failed for ${deploymentIds[i]}:`, retryErr);
           }
@@ -715,7 +863,7 @@ router.get('/deployments/flex-ads', async (req, res) => {
 });
 
 /**
- * POST /deployments/flex-ads — Create flex ad
+ * POST /deployments/flex-ads — Compatibility wrapper: assign deployments to an ad set
  * Body: { projectId, adSetId, name, deploymentIds: string[] }
  */
 router.post('/deployments/flex-ads', requireRole('admin', 'manager'), async (req, res) => {
@@ -725,23 +873,57 @@ router.post('/deployments/flex-ads', requireRole('admin', 'manager'), async (req
       return res.status(400).json({ error: 'projectId and deploymentIds required' });
     }
     if (deploymentIds.length > 10) {
-      return res.status(400).json({ error: 'Maximum 10 ads per Flex ad' });
+      return res.status(400).json({ error: 'Maximum 10 ads per ad set' });
     }
 
-    const id = crypto.randomUUID();
-    const flexName = name || `Flex — Manual — ${crypto.randomUUID().slice(0,6).toUpperCase()}`;
+    let resolvedAdSetId = adSetId || '';
+    let resolvedCampaignId = '';
 
-    await createFlexAd({ id, project_id: projectId, ad_set_id: adSetId, name: flexName, child_deployment_ids: deploymentIds });
+    if (resolvedAdSetId) {
+      const adSet = await getAdSet(resolvedAdSetId);
+      if (!adSet) return res.status(404).json({ error: 'Ad set not found' });
+      resolvedCampaignId = adSet.campaign_id;
+    } else {
+      const campaigns = await getCampaignsByProject(projectId);
+      const campaignName = 'Manual Campaign';
+      let campaign = campaigns.find(c => c.name === campaignName);
+      if (!campaign) {
+        const campaignId = crypto.randomUUID();
+        await createCampaign({ id: campaignId, project_id: projectId, name: campaignName, sort_order: campaigns.length });
+        campaign = { id: campaignId, name: campaignName };
+      }
+      resolvedCampaignId = campaign.id;
 
-    // Update each child deployment with flex_ad_id
+      const existingAdSets = await getAdSetsByCampaign(resolvedCampaignId);
+      const adSetName = name || `Manual Ad Set ${crypto.randomUUID().slice(0, 6).toUpperCase()}`;
+      const existingAdSet = existingAdSets.find(a => a.name.toLowerCase() === adSetName.toLowerCase());
+      if (existingAdSet) {
+        resolvedAdSetId = existingAdSet.id;
+      } else {
+        resolvedAdSetId = crypto.randomUUID();
+        await createAdSet({
+          id: resolvedAdSetId,
+          campaign_id: resolvedCampaignId,
+          project_id: projectId,
+          name: adSetName,
+          sort_order: existingAdSets.length,
+          lifecycle_status: 'planned',
+        });
+      }
+    }
+
     await Promise.all(deploymentIds.map(depId =>
-      updateDeployment(depId, { flex_ad_id: id })
+      updateDeployment(depId, {
+        local_campaign_id: resolvedCampaignId,
+        local_adset_id: resolvedAdSetId,
+        flex_ad_id: '',
+      })
     ));
 
-    res.json({ success: true, id });
+    res.json({ success: true, id: resolvedAdSetId, adSetId: resolvedAdSetId });
   } catch (err) {
-    console.error('Failed to create flex ad:', err);
-    res.status(500).json({ error: 'Failed to create flex ad' });
+    console.error('Failed to assign ad set:', err);
+    res.status(500).json({ error: 'Failed to assign ad set' });
   }
 });
 
@@ -822,7 +1004,7 @@ router.post('/deployments/adsets', requireRole('admin', 'manager'), async (req, 
     }
     const existing = await getAdSetsByCampaign(campaign_id);
     const id = crypto.randomUUID();
-    await createAdSet({ id, campaign_id, project_id, name, sort_order: existing.length });
+    await createAdSet({ id, campaign_id, project_id, name, sort_order: existing.length, lifecycle_status: 'planned' });
     res.json({ success: true, id, externalId: id });
   } catch (err) {
     console.error('Failed to create ad set (filter):', err);
@@ -831,9 +1013,9 @@ router.post('/deployments/adsets', requireRole('admin', 'manager'), async (req, 
 });
 
 /**
- * POST /deployments/flex — Create flex ad with deployments (convenience for Dacia Creative Filter)
+ * POST /deployments/flex — Compatibility wrapper: create ad-set deployments for Dacia Creative Filter
  * Body: { ad_set_id, name, headlines: [], primary_texts: [], cta, display_link, facebook_page, ad_ids: [], project_id, status }
- * Creates: flex ad + individual deployments for each ad_id, all linked to the flex ad
+ * Creates: individual deployments for each ad_id, all linked to the ad set
  * Status "ready" maps to "ready_to_post" in the deployment system
  */
 router.post('/deployments/flex', requireRole('admin', 'manager'), async (req, res) => {
@@ -851,10 +1033,14 @@ router.post('/deployments/flex', requireRole('admin', 'manager'), async (req, re
       if (adSet?.campaign_id) campaignId = adSet.campaign_id;
     } catch {}
 
-    // Deduplicate ad_ids to prevent the same image appearing twice in a flex ad
+    if (name) {
+      await updateAdSet(ad_set_id, { name });
+    }
+
+    // Deduplicate ad_ids to prevent the same image appearing twice in an ad set
     const uniqueAdIds = [...new Set(ad_ids)];
     if (uniqueAdIds.length < ad_ids.length) {
-      console.log(`[Deployments] Flex ad dedup: removed ${ad_ids.length - uniqueAdIds.length} duplicate ad_ids`);
+      console.log(`[Deployments] Ad set dedup: removed ${ad_ids.length - uniqueAdIds.length} duplicate ad_ids`);
     }
 
     // Create individual deployments for each ad
@@ -901,58 +1087,32 @@ router.post('/deployments/flex', requireRole('admin', 'manager'), async (req, re
       deploymentIds.push(depId);
     }
 
-    // Create the flex ad grouping them
-    const flexId = crypto.randomUUID();
-    await createFlexAd({
-      id: flexId,
-      project_id,
-      ad_set_id,
-      name: name || `Flex — ${angle_name || 'Unassigned'} — ${crypto.randomUUID().slice(0,6).toUpperCase()}`,
-      child_deployment_ids: deploymentIds,
-      primary_texts: primary_texts || [],
-      headlines: headlines || [],
-      destination_url: destination_url || '',
-      display_link: display_link || '',
-      cta_button: cta || '',
-      facebook_page: facebook_page || '',
-      duplicate_adset_name: duplicate_adset_name || '',
-      posting_day: posting_day || '',
-      angle_name: angle_name || '',
-      lp_primary_url: lp_primary_url || '',
-      lp_secondary_url: lp_secondary_url || '',
-      gauntlet_lp_urls: gauntlet_lp_urls || '',
-    });
-
-    // Link each deployment to the flex ad
-    for (const depId of deploymentIds) {
-      await updateDeployment(depId, { flex_ad_id: flexId });
-    }
-
-    res.json({ success: true, flexAdId: flexId, deploymentIds });
+    res.json({ success: true, flexAdId: ad_set_id, adSetId: ad_set_id, deploymentIds });
   } catch (err) {
-    console.error('Failed to create flex ad (filter):', err);
-    res.status(500).json({ error: 'Failed to create flex ad' });
+    console.error('Failed to create ad set deployments (filter):', err);
+    res.status(500).json({ error: 'Failed to create ad set deployments' });
   }
 });
 
 /**
- * GET /deployments/flex-ads/count — Count non-deleted flex ads by project and optional angle
+ * GET /deployments/flex-ads/count — Compatibility wrapper: count ad sets by project and optional angle
  * Query: projectId, angleName (optional)
- * Used by the Creative Filter to compute incrementing flex ad numbers per angle
+ * Used by older Creative Filter scripts to compute incrementing ad set numbers per angle
  */
 router.get('/deployments/flex-ads/count', requireAuth, async (req, res) => {
   try {
     const { projectId, angleName } = req.query;
     if (!projectId) return res.status(400).json({ error: 'projectId required' });
 
-    const flexAds = await getFlexAdsByProject(projectId);
+    const adSets = await getAdSetsByProject(projectId);
     if (angleName) {
-      const filtered = flexAds.filter(f => f.angle_name === angleName);
+      const angle = String(angleName).toLowerCase();
+      const filtered = adSets.filter(a => String(a.name || '').toLowerCase().includes(angle));
       return res.json({ count: filtered.length });
     }
-    res.json({ count: flexAds.length });
+    res.json({ count: adSets.length });
   } catch (err) {
-    console.error('Failed to count flex ads:', err);
+    console.error('Failed to count ad sets:', err);
     res.status(500).json({ error: err.message });
   }
 });

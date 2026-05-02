@@ -15,8 +15,6 @@ const TemplateImages = lazy(() => import('../components/TemplateImages'));
 const AdStudio = lazy(() => import('../components/AdStudio'));
 const AdTracker = lazy(() => import('./AdTracker'));
 const CreativeFilterSettings = lazy(() => import('../components/CreativeFilterSettings'));
-// Phase 1 — Staging Page (gated by per-project feature flag)
-const StagingPage = lazy(() => import('../components/StagingPage'));
 const CreativeDirectorSettings = lazy(() => import('../components/CreativeDirectorSettings'));
 // Phase 2A — Meta integration sub-tab in Project Settings
 const MetaConnectPanel = lazy(() => import('../components/MetaConnectPanel'));
@@ -45,13 +43,9 @@ export default function ProjectDetail() {
   const [saving, setSaving] = useState(false);
   const [deletingProject, setDeletingProject] = useState(false);
   const [availableDocTypes, setAvailableDocTypes] = useState(new Set());
-  // Phase 1 — Staging Page feature flag (per-project, stored in settings table).
-  // When enabled, the Staging tab is shown alongside the existing tabs.
-  const [stagingFlagEnabled, setStagingFlagEnabled] = useState(false);
-  const [conductorAngles, setConductorAngles] = useState([]);
 
   // Persist active tab in URL search params so it survives page refresh
-  const validTabs = ['ads', 'tracker', 'overview', 'docs', 'templates', 'staging', 'analytics', 'observation'];
+  const validTabs = ['ads', 'tracker', 'overview', 'docs', 'templates', 'analytics', 'observation'];
   const defaultTab = user?.role === 'poster' ? 'tracker' : 'ads';
   const tabFromUrl = searchParams.get('tab');
   const [tab, setTabState] = useState(
@@ -145,24 +139,6 @@ export default function ProjectDetail() {
     }
   }, [tab, id]);
 
-  // Phase 1 — Read the per-project staging feature flag (stored in settings table)
-  // and load active conductor angles for the regroup dropdown. Both are cheap.
-  useEffect(() => {
-    if (!id) return;
-    (async () => {
-      try {
-        const settings = await api.getSettings();
-        const flagKey = `enable_phase1_staging:${id}`;
-        const flagVal = settings?.[flagKey];
-        setStagingFlagEnabled(flagVal === 'true' || flagVal === true);
-      } catch { setStagingFlagEnabled(false); }
-      try {
-        const angles = await api.getConductorAngles(id);
-        setConductorAngles(Array.isArray(angles) ? angles : []);
-      } catch { setConductorAngles([]); }
-    })();
-  }, [id]);
-
   const loadProjectCosts = async () => {
     setCostsLoading(true);
     try {
@@ -224,14 +200,7 @@ export default function ProjectDetail() {
     }
   };
 
-  const handleCreativeDirectorSaved = async ({ stagingEnabled } = {}) => {
-    if (typeof stagingEnabled === 'boolean') {
-      setStagingFlagEnabled(stagingEnabled);
-      if (!stagingEnabled && tab === 'staging') {
-        setTab('overview');
-        setSettingsSubTab('creative_director');
-      }
-    }
+  const handleCreativeDirectorSaved = async () => {
     await loadProject();
   };
 
@@ -293,8 +262,6 @@ export default function ProjectDetail() {
 
   const allTabs = [
     { id: 'ads', label: 'Ad Studio', tooltip: 'Generate individual ads or run batch generation.' },
-    // Phase 1 — Staging tab is gated by the per-project feature flag
-    ...(stagingFlagEnabled ? [{ id: 'staging', label: 'Staging', tooltip: 'Review pre-grouped ad sets, regroup if needed, and promote to Ready-to-Post.' }] : []),
     { id: 'tracker', label: 'Ad Pipeline', tooltip: 'Plan, organize, and deploy ads to campaigns and ad sets.' },
     { id: 'analytics', label: 'Analytics', tooltip: 'Notion-style table of campaigns / ad sets / ads from Meta with tagging and saved views.' },
     { id: 'observation', label: 'Observation', tooltip: 'Track posted ad sets through the 12-day observation window. Verdicts feed angle archive.' },
@@ -632,11 +599,6 @@ export default function ProjectDetail() {
         {tab === 'tracker' && (
           <ErrorBoundary level="tab" key="tracker">
             <AdTracker projectId={id} userRole={user?.role} searchParams={searchParams} setSearchParams={setSearchParams} />
-          </ErrorBoundary>
-        )}
-        {tab === 'staging' && stagingFlagEnabled && (
-          <ErrorBoundary level="tab" key="staging">
-            <StagingPage projectId={id} project={project} conductorAngles={conductorAngles} />
           </ErrorBoundary>
         )}
         {tab === 'analytics' && (

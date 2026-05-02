@@ -11,8 +11,8 @@ import sharp from 'sharp';
 import {
   getProject, getLatestDoc, getBatchJob, updateBatchJob,
   getAdsByBatchId, getAd, downloadToBuffer,
-  createAdSet, createFlexAd, createDeploymentDuplicate, updateDeployment,
-  getFlexAdsByProject, getConductorConfig, getActiveConductorAngles,
+  createAdSet, createDeploymentDuplicate, updateDeployment,
+  getAdSetsByProject, getConductorConfig, getActiveConductorAngles,
   // Phase 1 — Staging Page lifecycle
   setFilterVerdict,
 } from '../convexClient.js';
@@ -29,7 +29,7 @@ const DIRECTOR_SCORE_WEIGHTS = {
   visual_integrity_score: 0.35,
   visual_contract_match: 0.25,
 };
-const IMAGES_PER_FLEX = 10;
+const IMAGES_PER_AD_SET = 10;
 const HEADLINES_TARGET = 5;
 const HEADLINE_POOL_TARGET = 7;
 const PRIMARY_TEXTS_TARGET = 5;
@@ -365,18 +365,18 @@ Return ONLY valid JSON in this exact shape:
   return normalizeDirectorScore(parsed, scoringContract, { hasImage });
 }
 
-// ── Group passing ads into flex ads ────────────────────────────────────────
+// ── Group passing ads into ad sets ─────────────────────────────────────────
 
 /**
- * Group scored ads into flex ad clusters.
+ * Group scored ads into ad set clusters.
  * Port of dacia-creative-filter/agents/group.sh
  *
  * @param {Array} scoredAds - Array of { ad, score } objects (passing only)
  * @param {string} projectName - Brand name
- * @param {number} [flexAdCount=1] - Number of flex ads to create
- * @returns {object} { flex_ads: [...], rejected_from_grouping, skipped_clusters }
+ * @param {number} [adSetCount=1] - Number of ad sets to create
+ * @returns {object} { ad_sets: [...], rejected_from_grouping, skipped_clusters }
  */
-export async function groupAds(scoredAds, projectName, flexAdCount = 1) {
+export async function groupAds(scoredAds, projectName, adSetCount = 1) {
   // Build scored ads payload for Claude
   const adsPayload = scoredAds.map(({ ad, score }) => ({
     ad_id: ad.id,
@@ -392,26 +392,26 @@ export async function groupAds(scoredAds, projectName, flexAdCount = 1) {
     strengths: score.strengths,
   }));
 
-  const prompt = `You are a media buyer assembling flex ads (multi-image ad groups) for Meta advertising.
+  const prompt = `You are a media buyer assembling ad sets (multi-image creative groups) for Meta advertising.
 
 You have a set of scored ad creatives that all passed quality filtering. You need to:
 
 1. GROUP them by angle/theme into distinct clusters
-2. SELECT the ${flexAdCount} strongest clusters (most coherent angle + highest avg scores)
-3. PICK the best ${IMAGES_PER_FLEX} ads from each cluster (these will be the images)
+2. SELECT the ${adSetCount} strongest clusters (most coherent angle + highest avg scores)
+3. PICK the best ${IMAGES_PER_AD_SET} ads from each cluster (these will be the images)
 4. SELECT 3-5 HEADLINES for each cluster (Meta will test combinations)
 5. SELECT 3-5 PRIMARY TEXTS for each cluster (Meta will test combinations)
 
 BRAND: ${projectName}
 
-=== FLEX AD STRUCTURE ===
+=== AD SET STRUCTURE ===
 
-Each flex ad contains:
+Each ad set contains:
 - 10 images
 - 3-5 headlines (Meta rotates and tests which performs best)
 - 3-5 primary texts (Meta rotates and tests which performs best)
 
-Target 5 of each, but minimum 3 are required. If you cannot find at least 3 quality headlines or 3 quality primary texts for a cluster, DO NOT create that flex ad — skip it.
+Target 5 of each, but minimum 3 are required. If you cannot find at least 3 quality headlines or 3 quality primary texts for a cluster, DO NOT create that ad set — skip it.
 
 === CRITICAL COPY QUALITY RULES ===
 
@@ -433,20 +433,20 @@ SCORED ADS (all passing):
 ${JSON.stringify(adsPayload, null, 2)}
 
 RULES:
-- Each flex ad must have exactly ${IMAGES_PER_FLEX} images
-- Each flex ad gets 3-5 headlines AND 3-5 primary texts (target 5, minimum 3)
+- Each ad set must have exactly ${IMAGES_PER_AD_SET} images
+- Each ad set gets 3-5 headlines AND 3-5 primary texts (target 5, minimum 3)
 - If a cluster cannot produce at least 3 quality headlines AND 3 quality primary texts, skip it and try the next best cluster
-- The ${flexAdCount} flex ads should target DIFFERENT angles for audience variety
+- The ${adSetCount} ad sets should target DIFFERENT angles for audience variety
 - Prefer ads with higher overall_score within each cluster
 - If two ads in the same cluster are nearly identical, prefer the one with higher copy_strength
 - Do not include any copy from compliance-flagged ads
 
 Respond ONLY with this exact JSON format:
 {
-  "flex_ads": [
+  "ad_sets": [
     {
-      "flex_ad_number": 1,
-      "angle_theme": "descriptive label for this flex ad's angle",
+      "ad_set_number": 1,
+      "angle_theme": "descriptive label for this ad set's angle",
       "headlines": [
         {
           "text": "headline text",
@@ -482,21 +482,24 @@ Respond ONLY with this exact JSON format:
   );
 
   const parsed = extractJSON(responseText);
-  if (!parsed || !parsed.flex_ads) {
+  if (!parsed || (!parsed.ad_sets && !parsed.flex_ads)) {
     console.warn('[FilterService] Failed to parse grouping result');
-    return { flex_ads: [], error: 'parse_failed' };
+    return { ad_sets: [], error: 'parse_failed' };
+  }
+  if (!parsed.ad_sets && parsed.flex_ads) {
+    parsed.ad_sets = parsed.flex_ads;
   }
   return parsed;
 }
 
-// ── Generate fresh copy for flex ads ───────────────────────────────────────
+// ── Generate fresh copy for ad sets ────────────────────────────────────────
 
 /**
- * Generate fresh headlines + primary texts for a flex ad.
+ * Generate fresh headlines + primary texts for an ad set.
  * Same logic as POST /deployments/filter/generate-copy (deployments.js:1329-1494)
  *
  * @param {string} projectId
- * @param {string} angleTheme - Angle description for the flex ad
+ * @param {string} angleTheme - Angle description for the ad set
  * @param {Array} adCreatives - Ad creative context for the copy prompt
  * @returns {{ primary_texts: string[], headlines: string[] }}
  */
@@ -650,25 +653,25 @@ ALWAYS return ONLY a JSON object: { "headlines": ["h1", "h2", "..."] }`;
   return { primary_texts: primaryTexts, headlines: dedupedHeadlines.length > 0 ? dedupedHeadlines : headlines.slice(0, HEADLINES_TARGET) };
 }
 
-// ── Deploy flex ad to Ready to Post ────────────────────────────────────────
+// ── Deploy ad set to Ready to Post ─────────────────────────────────────────
 
 /**
- * Create ad set + flex ad + deployments, deploying to Ready to Post.
+ * Create ad set + deployments, deploying to Ready to Post.
  *
- * @param {object} flexAdDef - Flex ad definition from groupAds()
+ * @param {object} adSetDef - Ad set definition from groupAds()
  * @param {string} projectId
  * @param {object} projectConfig - Project row with scout_* fields
  * @param {string} batchId
  * @param {string} postingDay
  * @param {string} angleName
  * @param {{ primary_texts: string[], headlines: string[] }} generatedCopy - Fresh copy from generateFilterCopy
- * @returns {{ flexAdId: string, deploymentCount: number }}
+ * @returns {{ adSetId: string, flexAdId: string, deploymentCount: number }}
  */
-export async function deployFlexAd(flexAdDef, projectId, projectConfig, batchId, postingDay, angleName, generatedCopy) {
+export async function deployAdSet(adSetDef, projectId, projectConfig, batchId, postingDay, angleName, generatedCopy) {
   const campaignId = projectConfig.scout_default_campaign;
   if (!campaignId) throw new Error('No default campaign set for project (scout_default_campaign)');
 
-  const effectiveAngle = angleName || flexAdDef.angle_theme || 'Unassigned';
+  const effectiveAngle = angleName || adSetDef.angle_theme || 'Unassigned';
   const cta = projectConfig.scout_cta || '';
   const displayLink = projectConfig.scout_display_link || '';
   const facebookPage = projectConfig.scout_facebook_page || '';
@@ -697,22 +700,20 @@ export async function deployFlexAd(flexAdDef, projectId, projectConfig, batchId,
     }
   } catch (e) { /* fall through to defaults */ }
 
-  // Get flex ad number for this angle
-  const existingFlexAds = await getFlexAdsByProject(projectId);
-  const matchingCount = existingFlexAds.filter(f => f.angle_name === effectiveAngle).length;
-  const flexNum = matchingCount + 1;
+  const existingAdSets = await getAdSetsByProject(projectId);
+  const matchingCount = existingAdSets.filter(a => (a.name || '').startsWith(`${effectiveAngle} - Ad Set #`) || (a.name || '').startsWith(`${effectiveAngle} — Ad Set #`)).length;
+  const adSetNum = matchingCount + 1;
 
-  const adSetName = `${effectiveAngle} — Flex #${flexNum}`;
-  const flexAdName = `Flex — ${effectiveAngle} #${flexNum} (${flexAdDef.image_ad_ids.length} images)`;
+  const adSetName = `${effectiveAngle} - Ad Set #${adSetNum}`;
 
   // Use generated copy, falling back to grouped copy
   const headlines = generatedCopy.headlines.length >= HEADLINES_MIN
     ? generatedCopy.headlines.slice(0, HEADLINES_TARGET)
-    : flexAdDef.headlines.map(h => h.text).slice(0, HEADLINES_TARGET);
+    : adSetDef.headlines.map(h => h.text).slice(0, HEADLINES_TARGET);
 
   const primaryTexts = generatedCopy.primary_texts.length >= PRIMARY_TEXTS_MIN
     ? generatedCopy.primary_texts.slice(0, PRIMARY_TEXTS_TARGET)
-    : flexAdDef.primary_texts.map(pt => pt.text).slice(0, PRIMARY_TEXTS_TARGET);
+    : adSetDef.primary_texts.map(pt => pt.text).slice(0, PRIMARY_TEXTS_TARGET);
 
   // Create ad set
   const adSetId = crypto.randomUUID();
@@ -722,6 +723,7 @@ export async function deployFlexAd(flexAdDef, projectId, projectConfig, batchId,
     project_id: projectId,
     name: adSetName,
     sort_order: 0,
+    lifecycle_status: 'promoted',
   });
 
   // Create individual deployments for each ad
@@ -729,7 +731,7 @@ export async function deployFlexAd(flexAdDef, projectId, projectConfig, batchId,
   const ptJson = JSON.stringify(primaryTexts);
   const hlJson = JSON.stringify(headlines);
 
-  for (const adId of flexAdDef.image_ad_ids) {
+  for (const adId of adSetDef.image_ad_ids) {
     const depId = crypto.randomUUID();
     let ad;
     try { ad = await getAd(adId); } catch {}
@@ -766,34 +768,12 @@ export async function deployFlexAd(flexAdDef, projectId, projectConfig, batchId,
     deploymentIds.push(depId);
   }
 
-  // Create flex ad
-  const flexId = crypto.randomUUID();
-  await createFlexAd({
-    id: flexId,
-    project_id: projectId,
-    ad_set_id: adSetId,
-    name: flexAdName,
-    child_deployment_ids: deploymentIds,
-    primary_texts: primaryTexts,
-    headlines,
-    destination_url: destinationUrl,
-    display_link: displayLink,
-    cta_button: cta,
-    facebook_page: facebookPage,
-    duplicate_adset_name: duplicateAdsetName,
-    posting_day: postingDay || '',
-    angle_name: effectiveAngle,
-    gauntlet_lp_urls: resolvedUrls.length > 1 ? JSON.stringify(resolvedUrls) : undefined,
-  });
-
-  // Link each deployment to the flex ad
-  for (const depId of deploymentIds) {
-    await updateDeployment(depId, { flex_ad_id: flexId });
-  }
-
-  console.log(`[FilterService] Deployed: ${flexAdName} → Ready to Post (${headlines.length} headlines × ${primaryTexts.length} texts × ${deploymentIds.length} images)`);
-  return { flexAdId: flexId, deploymentCount: deploymentIds.length };
+  console.log(`[FilterService] Deployed ad set: ${adSetName} -> Ready to Post (${headlines.length} headlines x ${primaryTexts.length} texts x ${deploymentIds.length} images)`);
+  return { adSetId, flexAdId: adSetId, deploymentCount: deploymentIds.length };
 }
+
+// Compatibility alias for callers that still import the old function name.
+export const deployFlexAd = deployAdSet;
 
 async function markBatchFilterProcessed(batchId) {
   await updateBatchJob(batchId, {
@@ -899,10 +879,12 @@ export async function scoreBatchForInlineFilter(batchId, projectId, onProgress, 
 export async function finalizePassingAds({ passingAds, projectId, batchId, postingDay = 'test', angleName = '', onProgress }) {
   const emit = (event) => { if (onProgress) try { onProgress(event); } catch {} };
 
-  if (passingAds.length < IMAGES_PER_FLEX) {
+  if (passingAds.length < IMAGES_PER_AD_SET) {
     return {
       flex_ads_created: 0,
       flex_ad_id: null,
+      ad_sets_created: 0,
+      ad_set_id: null,
       ready_to_post_count: 0,
       not_enough_passed: true,
     };
@@ -911,37 +893,39 @@ export async function finalizePassingAds({ passingAds, projectId, batchId, posti
   const project = await getProject(projectId);
   if (!project) throw new Error('Project not found');
 
-  emit({ type: 'progress', step: 'filter_grouping', message: `Grouping ${passingAds.length} passing ads into a flex ad...` });
+  emit({ type: 'progress', step: 'filter_grouping', message: `Grouping ${passingAds.length} passing ads into an ad set...` });
 
   const groupResult = await groupAds(passingAds, project.name, 1);
-  const flexAds = groupResult.flex_ads || [];
+  const adSets = groupResult.ad_sets || groupResult.flex_ads || [];
 
-  if (flexAds.length === 0) {
-    console.warn(`[FilterService] Grouping returned 0 flex ads despite ${passingAds.length} passing ads`);
-    emit({ type: 'progress', step: 'filter_complete', message: 'Grouping could not create a flex ad. Check copy quality.' });
+  if (adSets.length === 0) {
+    console.warn(`[FilterService] Grouping returned 0 ad sets despite ${passingAds.length} passing ads`);
+    emit({ type: 'progress', step: 'filter_complete', message: 'Grouping could not create an ad set. Check copy quality.' });
     return {
       flex_ads_created: 0,
       flex_ad_id: null,
+      ad_sets_created: 0,
+      ad_set_id: null,
       ready_to_post_count: 0,
       grouping_failed: true,
     };
   }
 
-  const flexAdDef = flexAds[0];
-  emit({ type: 'progress', step: 'filter_copy_gen', message: `Generating copy for "${flexAdDef.angle_theme}"...` });
+  const adSetDef = adSets[0];
+  emit({ type: 'progress', step: 'filter_copy_gen', message: `Generating copy for "${adSetDef.angle_theme}"...` });
 
-  const adCreativesForCopy = flexAdDef.image_ad_ids.slice(0, 5).map(adId => {
+  const adCreativesForCopy = adSetDef.image_ad_ids.slice(0, 5).map(adId => {
     const found = passingAds.find(sa => sa.ad.id === adId);
     return found ? found.ad : { headline: '', body_copy: '', angle: '' };
   });
 
-  const generatedCopy = await generateFilterCopy(projectId, flexAdDef.angle_theme, adCreativesForCopy);
+  const generatedCopy = await generateFilterCopy(projectId, adSetDef.angle_theme, adCreativesForCopy);
 
-  emit({ type: 'progress', step: 'filter_deploying', message: 'Creating flex ad and deploying to Ready to Post...' });
+  emit({ type: 'progress', step: 'filter_deploying', message: 'Creating ad set and deploying to Ready to Post...' });
 
   try {
-    const deployResult = await deployFlexAd(
-      flexAdDef,
+    const deployResult = await deployAdSet(
+      adSetDef,
       projectId,
       project,
       batchId,
@@ -953,20 +937,24 @@ export async function finalizePassingAds({ passingAds, projectId, batchId, posti
     emit({
       type: 'progress',
       step: 'filter_complete',
-      message: `Flex ad deployed: ${passingAds.length} approved ads available, ${deployResult.deploymentCount} images → Ready to Post`,
+      message: `Ad set deployed: ${passingAds.length} approved ads available, ${deployResult.deploymentCount} images -> Ready to Post`,
     });
 
     return {
       flex_ads_created: 1,
       flex_ad_id: deployResult.flexAdId,
+      ad_sets_created: 1,
+      ad_set_id: deployResult.adSetId,
       ready_to_post_count: deployResult.deploymentCount,
-      selected_ad_ids: flexAdDef.image_ad_ids.slice(),
+      selected_ad_ids: adSetDef.image_ad_ids.slice(),
     };
   } catch (err) {
     console.error(`[FilterService] Deployment failed: ${err.message}`);
     return {
       flex_ads_created: 0,
       flex_ad_id: null,
+      ad_sets_created: 0,
+      ad_set_id: null,
       ready_to_post_count: 0,
       deploy_error: err.message,
     };
@@ -981,13 +969,13 @@ export async function finalizePassingAds({ passingAds, projectId, batchId, posti
  * @param {string} batchId
  * @param {string} projectId
  * @param {(event: object) => void} onProgress
- * @returns {{ ads_scored: number, ads_passed: number, flex_ads_created: number, flex_ad_id: string|null }}
+ * @returns {{ ads_scored: number, ads_passed: number, ad_sets_created: number, ad_set_id: string|null }}
  */
 export async function runInlineFilter(batchId, projectId, onProgress) {
   const emit = (event) => { if (onProgress) try { onProgress(event); } catch {} };
   const scoreResult = await scoreBatchForInlineFilter(batchId, projectId, emit);
-  if (scoreResult.ads_passed < IMAGES_PER_FLEX) {
-    const msg = `Only ${scoreResult.ads_passed} of ${scoreResult.ads_scored} ads passed scoring (need ${IMAGES_PER_FLEX}). No flex ad created.`;
+  if (scoreResult.ads_passed < IMAGES_PER_AD_SET) {
+    const msg = `Only ${scoreResult.ads_passed} of ${scoreResult.ads_scored} ads passed scoring (need ${IMAGES_PER_AD_SET}). No ad set created.`;
     console.warn(`[FilterService] ${msg}`);
     emit({ type: 'progress', step: 'filter_complete', message: msg });
     return {
@@ -995,6 +983,8 @@ export async function runInlineFilter(batchId, projectId, onProgress) {
       ads_passed: scoreResult.ads_passed,
       flex_ads_created: 0,
       flex_ad_id: null,
+      ad_sets_created: 0,
+      ad_set_id: null,
       ready_to_post_count: 0,
       not_enough_passed: true,
     };

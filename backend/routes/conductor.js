@@ -8,7 +8,7 @@ import {
   getConductorPlaybooks, getConductorPlaybook,
   getFixerPlaybooks, upsertFixerPlaybook,
   getConductorSlots,
-  getFlexAdsByProject, getBatchesByProject,
+  getAdSetsByProject, getBatchesByProject,
   getProjectOptions,
   getBatchJob, getLandingPagesByBatchJob,
 } from '../convexClient.js';
@@ -56,16 +56,17 @@ async function computePipelineStatus() {
     const project = projectMap.get(config.project_id);
     if (!project) return null;
 
-    const [flexAds, batches, slots] = await Promise.all([
-      getFlexAdsByProject(config.project_id),
+    const [adSets, batches, slots] = await Promise.all([
+      getAdSetsByProject(config.project_id),
       getBatchesByProject(config.project_id),
       getConductorSlots(config.project_id),
     ]);
 
-    const flexByDay = {};
-    for (const fa of flexAds) {
-      if (fa.posting_day) {
-        flexByDay[fa.posting_day] = (flexByDay[fa.posting_day] || 0) + 1;
+    const adSetsByDay = {};
+    for (const adSet of adSets) {
+      const day = adSet.created_at ? String(adSet.created_at).slice(0, 10) : '';
+      if (day) {
+        adSetsByDay[day] = (adSetsByDay[day] || 0) + 1;
       }
     }
 
@@ -102,7 +103,9 @@ async function computePipelineStatus() {
       project_name: project.name,
       brand_name: project.brand_name,
       daily_flex_target: config.daily_flex_target,
-      flex_by_day: flexByDay,
+      flex_by_day: adSetsByDay,
+      daily_ad_set_target: config.daily_flex_target,
+      ad_sets_by_day: adSetsByDay,
       active_batches_by_day: activeBatchesByDay,
       slots_by_day: slotsByDay,
     };
