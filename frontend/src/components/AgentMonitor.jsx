@@ -2841,7 +2841,7 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
                 />
               </div>
               <div>
-                <FieldLabel tooltip="How many ad variations to generate inside each ad set. These ads share the same angle, but use different templates or creative executions.">Ads Per Ad Set</FieldLabel>
+                <FieldLabel tooltip="This is the target number of approved ads for each ad set. If some generated ads fail QA, the Director keeps the approved ads and runs top-up batches until it reaches this target or hits the retry limit.">Ads Per Ad Set</FieldLabel>
                 <input
                   type="number"
                   min="1"
@@ -2850,7 +2850,7 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
                   onChange={e => handleSaveAdsPerAdSet(e.target.value)}
                   className="input-apple w-full text-[12px]"
                 />
-                <p className="text-[9px] text-textlight mt-0.5">Number of ad variations generated for each angle-based ad set.</p>
+                <p className="text-[9px] text-textlight mt-0.5">Target approved ads, not just generated ads. One ad set targets one angle; top-up batches fill in any QA misses.</p>
               </div>
             </div>
 

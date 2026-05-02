@@ -55,6 +55,12 @@ function normalizeBooleanFlag(value) {
   return null;
 }
 
+function normalizeAdSetImageTarget(value) {
+  const numeric = Number(value);
+  if (!Number.isFinite(numeric) || numeric <= 0) return IMAGES_PER_FLEX;
+  return Math.max(1, Math.min(20, Math.floor(numeric)));
+}
+
 function buildHardRequirementValue(value, { required = true } = {}) {
   const normalized = normalizeBooleanFlag(value);
   if (normalized === null) return required ? false : null;
@@ -377,7 +383,8 @@ Return ONLY valid JSON in this exact shape:
  * @param {number} [flexAdCount=1] - Number of flex ads to create
  * @returns {object} { flex_ads: [...], rejected_from_grouping, skipped_clusters }
  */
-export async function groupAds(scoredAds, projectName, flexAdCount = 1) {
+export async function groupAds(scoredAds, projectName, flexAdCount = 1, imageTarget = IMAGES_PER_FLEX) {
+  const targetImages = normalizeAdSetImageTarget(imageTarget);
   // Build scored ads payload for Claude
   const adsPayload = scoredAds.map(({ ad, score }) => ({
     ad_id: ad.id,
@@ -399,7 +406,7 @@ You have a set of scored ad creatives that all passed quality filtering. You nee
 
 1. GROUP them by angle/theme into distinct clusters
 2. SELECT the ${flexAdCount} strongest clusters (most coherent angle + highest avg scores)
-3. PICK the best ${IMAGES_PER_FLEX} ads from each cluster
+3. PICK the best ${targetImages} ads from each cluster
 4. SELECT 3-5 HEADLINES for each cluster (Meta will test combinations)
 5. SELECT 3-5 PRIMARY TEXTS for each cluster (Meta will test combinations)
 
@@ -408,7 +415,7 @@ BRAND: ${projectName}
 === AD SET STRUCTURE ===
 
 Each ad set contains:
-- ${IMAGES_PER_FLEX} image ads
+- ${targetImages} image ads
 - 3-5 headlines (Meta rotates and tests which performs best)
 - 3-5 primary texts (Meta rotates and tests which performs best)
 
@@ -434,7 +441,7 @@ SCORED ADS (all passing):
 ${JSON.stringify(adsPayload, null, 2)}
 
 RULES:
-- Each ad set must have exactly ${IMAGES_PER_FLEX} image ads
+- Each ad set must have exactly ${targetImages} image ads
 - Each ad set gets 3-5 headlines AND 3-5 primary texts (target 5, minimum 3)
 - If a cluster cannot produce at least 3 quality headlines AND 3 quality primary texts, skip it and try the next best cluster
 - The ${flexAdCount} ad sets should target DIFFERENT angles for audience variety
@@ -467,7 +474,7 @@ Respond ONLY with this exact JSON format:
       "headline_count": <3-5>,
       "primary_text_count": <3-5>,
       "meets_minimum": true,
-      "image_ad_ids": ["ad_id_1", "ad_id_2", "... 10 total"],
+      "image_ad_ids": ["ad_id_1", "ad_id_2", "... ${targetImages} total"],
       "avg_score": <average overall_score of selected ads>,
       "reasoning": "1 sentence on why this grouping works"
     }
@@ -881,10 +888,11 @@ export async function scoreBatchForInlineFilter(batchId, projectId, onProgress, 
   };
 }
 
-export async function finalizePassingAds({ passingAds, projectId, batchId, postingDay = 'test', angleName = '', onProgress }) {
+export async function finalizePassingAds({ passingAds, projectId, batchId, postingDay = 'test', angleName = '', onProgress, targetCount = IMAGES_PER_FLEX }) {
   const emit = (event) => { if (onProgress) try { onProgress(event); } catch {} };
+  const imageTarget = normalizeAdSetImageTarget(targetCount);
 
-  if (passingAds.length < IMAGES_PER_FLEX) {
+  if (passingAds.length < imageTarget) {
     return {
       ad_sets_created: 0,
       ad_set_id: null,
@@ -900,7 +908,7 @@ export async function finalizePassingAds({ passingAds, projectId, batchId, posti
 
   emit({ type: 'progress', step: 'filter_grouping', message: `Grouping ${passingAds.length} passing ads into an ad set...` });
 
-  const groupResult = await groupAds(passingAds, project.name, 1);
+  const groupResult = await groupAds(passingAds, project.name, 1, imageTarget);
   const flexAds = groupResult.flex_ads || [];
 
   if (flexAds.length === 0) {
@@ -916,10 +924,25 @@ export async function finalizePassingAds({ passingAds, projectId, batchId, posti
     };
   }
 
-  const flexAdDef = flexAds[0];
+  const flexAdDef = {
+    ...flexAds[0],
+    image_ad_ids: [...new Set(Array.isArray(flexAds[0].image_ad_ids) ? flexAds[0].image_ad_ids : [])].slice(0, imageTarget),
+  };
+  if (flexAdDef.image_ad_ids.length < imageTarget) {
+    console.warn(`[FilterService] Grouping returned ${flexAdDef.image_ad_ids.length}/${imageTarget} image ads`);
+    emit({ type: 'progress', step: 'filter_complete', message: `Grouping could not find ${imageTarget} approved image ads for the ad set.` });
+    return {
+      ad_sets_created: 0,
+      ad_set_id: null,
+      flex_ads_created: 0,
+      flex_ad_id: null,
+      ready_to_post_count: 0,
+      grouping_failed: true,
+    };
+  }
   emit({ type: 'progress', step: 'filter_copy_gen', message: `Generating copy for "${flexAdDef.angle_theme}"...` });
 
-  const adCreativesForCopy = flexAdDef.image_ad_ids.slice(0, 5).map(adId => {
+  const adCreativesForCopy = flexAdDef.image_ad_ids.slice(0, Math.min(imageTarget, 5)).map(adId => {
     const found = passingAds.find(sa => sa.ad.id === adId);
     return found ? found.ad : { headline: '', body_copy: '', angle: '' };
   });

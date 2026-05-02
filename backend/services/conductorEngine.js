@@ -21,7 +21,6 @@ import {
   getAdSetsByProject, getBatchesByProject,
   getProject, getAllConductorConfigs, convexClient, api,
 } from '../convexClient.js';
-import { getAdaptiveBatchSize } from './conductorLearning.js';
 import { runBatch, pollBatchJob } from './batchProcessor.js';
 import { buildStructuredAnglePrompt, hasStructuredBrief, buildAngleBriefJSON } from '../utils/angleParser.js';
 import {
@@ -179,9 +178,38 @@ export async function runDirectorForProject(projectId, runType = 'manual') {
 
       for (const slot of slots) {
         let workingSlot = slot;
+        const directorAdSetTarget = getDirectorAdSetTarget(project, config);
         const slotBatchIds = getSlotBatchIds(slot);
-        const latestBatch = slotBatchIds.length > 0 ? batchesById.get(slotBatchIds[slotBatchIds.length - 1]) : null;
-        const reconciled = reconcileSchedulerSlot(slot, latestBatch);
+        let latestBatch = slotBatchIds.length > 0 ? batchesById.get(slotBatchIds[slotBatchIds.length - 1]) : null;
+        let slotQaProgress = await processCompletedSlotQa({
+          slot,
+          batchesById,
+          projectId,
+          targetCount: directorAdSetTarget,
+        });
+
+        const finalizeResult = await finalizeSlotIfReady({
+          slot,
+          batchesById,
+          projectId,
+          targetCount: directorAdSetTarget,
+          progress: slotQaProgress,
+        });
+        if (finalizeResult.finalized) {
+          const producedSlot = { ...slot, ...finalizeResult.slotUpdates };
+          await updateConductorSlot(slot.id, finalizeResult.slotUpdates);
+          slotResults.push(buildPostingDaySlotResult(producedSlot));
+          continue;
+        }
+        if (finalizeResult.finalizeFailed && finalizeResult.slotUpdates) {
+          await updateConductorSlot(slot.id, finalizeResult.slotUpdates);
+          workingSlot = { ...slot, ...finalizeResult.slotUpdates };
+          slotResults.push(buildPostingDaySlotResult(workingSlot));
+          continue;
+        }
+
+        latestBatch = slotBatchIds.length > 0 ? batchesById.get(slotBatchIds[slotBatchIds.length - 1]) : null;
+        const reconciled = reconcileSchedulerSlot(slot, latestBatch, slotQaProgress, directorAdSetTarget);
 
         if (hasSlotChanges(slot, reconciled)) {
           await updateConductorSlot(slot.id, reconciled);
@@ -196,8 +224,16 @@ export async function runDirectorForProject(projectId, runType = 'manual') {
         }
 
         const refreshedBatchIds = getSlotBatchIds(workingSlot);
+        if (workingSlot.id !== slot.id) {
+          slotQaProgress = await processCompletedSlotQa({
+            slot: workingSlot,
+            batchesById,
+            projectId,
+            targetCount: directorAdSetTarget,
+          });
+        }
         const latestKnownBatch = refreshedBatchIds.length > 0 ? batchesById.get(refreshedBatchIds[refreshedBatchIds.length - 1]) : null;
-        const hasActiveBatch = latestKnownBatch && ['queued', 'pending', 'generating_prompts', 'submitting', 'processing', 'saving_results'].includes(latestKnownBatch.status);
+        const hasActiveBatch = latestKnownBatch && ACTIVE_BATCH_STATUSES.has(latestKnownBatch.status);
 
         if (workingSlot.status !== 'reserved' || hasActiveBatch || workingSlot.produced_flex_ad_id) {
           slotResults.push(buildPostingDaySlotResult(workingSlot));
@@ -210,16 +246,10 @@ export async function runDirectorForProject(projectId, runType = 'manual') {
         };
         const batchId = uuidv4();
 
-        // Adaptive batch size: smaller for emergency runs, learns from pass rates.
-        // Phase 1 — Creative Director cycle config: project.ads_per_ad_set (when set)
-        // takes precedence over the legacy config.ads_per_batch. Hard cap 20 per
-        // Phase 1 plan (Marco's spec; Meta recommends 3-5 for delivery efficiency
-        // but no longer enforces a hard limit).
-        const directorCycleSize = typeof project.ads_per_ad_set === 'number' && project.ads_per_ad_set > 0
-          ? Math.min(project.ads_per_ad_set, 20)
-          : config.ads_per_batch;
-        const baseBatchSize = runType === 'emergency' ? 12 : directorCycleSize;
-        const batchSize = await getAdaptiveBatchSize(projectId, angleInfo.name, baseBatchSize);
+        const approvedSoFar = slotQaProgress?.passedCount || 0;
+        const batchSize = approvedSoFar > 0
+          ? getDirectorTopUpBatchSize(directorAdSetTarget, approvedSoFar)
+          : getInitialDirectorBatchSize(runType, directorAdSetTarget);
 
         // Build the angle prompt — use structured fields if available, else legacy description
         let anglePrompt;
@@ -438,9 +468,151 @@ async function calculateDeficit(projectId, postingDay, target) {
 }
 
 const MAX_ATTEMPTS_PER_ANGLE_SLOT = 2;
+const DIRECTOR_AD_SET_HARD_CAP = 20;
+const DIRECTOR_TOP_UP_BUFFER = 2;
+const ACTIVE_BATCH_STATUSES = new Set(['queued', 'pending', 'generating_prompts', 'submitting', 'processing', 'saving_results']);
+
+export function getDirectorAdSetTarget(project = {}, config = {}) {
+  const projectValue = Number(project?.ads_per_ad_set);
+  const configValue = Number(config?.ads_per_batch);
+  const raw = Number.isFinite(projectValue) && projectValue > 0 ? projectValue : configValue;
+  if (!Number.isFinite(raw) || raw <= 0) return 5;
+  return Math.max(1, Math.min(DIRECTOR_AD_SET_HARD_CAP, Math.floor(raw)));
+}
+
+export function getDirectorTopUpBatchSize(targetCount, passedCount, buffer = DIRECTOR_TOP_UP_BUFFER) {
+  const target = getDirectorAdSetTarget({ ads_per_ad_set: targetCount }, {});
+  const passed = Math.max(0, Math.floor(Number(passedCount) || 0));
+  const missing = Math.max(0, target - passed);
+  if (missing === 0) return 0;
+  return Math.min(target, missing + Math.max(0, Math.floor(Number(buffer) || 0)));
+}
+
+function getInitialDirectorBatchSize(runType, targetCount) {
+  const target = getDirectorAdSetTarget({ ads_per_ad_set: targetCount }, {});
+  if (runType === 'emergency') return Math.min(DIRECTOR_AD_SET_HARD_CAP, Math.max(target, 12));
+  return target;
+}
 
 function getSlotBatchIds(slot) {
   return parseJSON(slot?.batch_ids, []);
+}
+
+function slotBatchRecords(slot, batchesById) {
+  return getSlotBatchIds(slot)
+    .map(batchId => batchesById.get(batchId))
+    .filter(Boolean);
+}
+
+function buildPassedAdScore(ad) {
+  const normalized = Number(ad?.filter_score);
+  const overall = Number.isFinite(normalized) ? Math.max(0, Math.min(10, normalized * 10)) : 8;
+  return {
+    ad_id: ad.id,
+    overall_score: overall,
+    copy_strength: overall,
+    compliance: overall,
+    effectiveness: overall,
+    image_quality: overall,
+    pass: true,
+  };
+}
+
+async function collectPassedAdsForSlot(slot, projectId) {
+  const seen = new Set();
+  const passingAds = [];
+  for (const batchId of getSlotBatchIds(slot)) {
+    const ads = await getAdsByBatchId(batchId);
+    for (const ad of ads) {
+      if (!ad?.id || seen.has(ad.id)) continue;
+      if (ad.project_id !== projectId) continue;
+      if (ad.filter_verdict !== 'passed') continue;
+      seen.add(ad.id);
+      passingAds.push({ ad, score: buildPassedAdScore(ad) });
+    }
+  }
+  return passingAds;
+}
+
+async function processCompletedSlotQa({ slot, batchesById, projectId }) {
+  const { scoreBatchForInlineFilter } = await import('./creativeFilterService.js');
+  const records = slotBatchRecords(slot, batchesById);
+  for (const batch of records) {
+    if (
+      batch.status === 'completed' &&
+      batch.filter_assigned &&
+      !batch.filter_processed &&
+      !batch.flex_ad_id
+    ) {
+      await scoreBatchForInlineFilter(batch.id, projectId, null);
+      batchesById.set(batch.id, {
+        ...batch,
+        filter_processed: true,
+        filter_processed_at: new Date().toISOString(),
+      });
+    }
+  }
+
+  const passingAds = await collectPassedAdsForSlot(slot, projectId);
+  return {
+    batchIds: getSlotBatchIds(slot),
+    passingAds,
+    passedCount: passingAds.length,
+  };
+}
+
+async function finalizeSlotIfReady({ slot, batchesById, projectId, targetCount, progress }) {
+  if (slot.produced_flex_ad_id) return { finalized: false };
+  if (!progress || progress.passedCount < targetCount) return { finalized: false };
+
+  const { finalizePassingAds } = await import('./creativeFilterService.js');
+  const latestBatchId = progress.batchIds[progress.batchIds.length - 1] || null;
+  const finalizeResult = await finalizePassingAds({
+    passingAds: progress.passingAds,
+    projectId,
+    batchId: latestBatchId,
+    postingDay: slot.posting_day,
+    angleName: slot.angle_name,
+    targetCount,
+  });
+
+  const flexAdId = finalizeResult.flex_ad_id || finalizeResult.ad_set_id || null;
+  if (!flexAdId) {
+    const reason = finalizeResult.grouping_failed
+      ? `qa_target_met_but_grouping_failed_${progress.passedCount}_of_${targetCount}`
+      : finalizeResult.deploy_error
+        ? `qa_target_met_but_deploy_failed: ${finalizeResult.deploy_error}`
+        : `qa_target_met_but_finalize_failed_${progress.passedCount}_of_${targetCount}`;
+    return {
+      finalized: false,
+      finalizeFailed: true,
+      slotUpdates: {
+        status: (slot.attempt_count || 0) >= MAX_ATTEMPTS_PER_ANGLE_SLOT ? 'failed' : 'reserved',
+        failure_reason: reason,
+      },
+    };
+  }
+
+  await linkFlexAdToBatches([], flexAdId, ...progress.batchIds);
+  for (const batchId of progress.batchIds) {
+    const existing = batchesById.get(batchId);
+    if (existing) batchesById.set(batchId, { ...existing, flex_ad_id: flexAdId });
+  }
+
+  return {
+    finalized: true,
+    slotUpdates: {
+      status: 'produced',
+      produced_flex_ad_id: flexAdId,
+      failure_reason: '',
+      diagnostics_summary: stringifyJSON({
+        approved_ads: progress.passedCount,
+        target_ads: targetCount,
+        batch_ids: progress.batchIds,
+        ready_to_post_count: finalizeResult.ready_to_post_count || 0,
+      }, '{}'),
+    },
+  };
 }
 
 function getBatchDiagnosticsSummary(batch) {
@@ -466,8 +638,11 @@ function getBatchDiagnosticsSummary(batch) {
   };
 }
 
-function getBatchFailureReason(batch) {
+function getBatchFailureReason(batch, slotProgress = null, targetCount = null) {
   if (!batch || batch.flex_ad_id) return '';
+  if (slotProgress && targetCount && slotProgress.passedCount < targetCount) {
+    return `qa_target_not_met_${slotProgress.passedCount}_of_${targetCount}`;
+  }
   if (batch.error_message) return batch.error_message;
   const diagnostics = getBatchDiagnosticsSummary(batch);
   if ((diagnostics?.usable_prompt_count || 0) === 0) return 'no_usable_prompts_after_stage1';
@@ -477,7 +652,7 @@ function getBatchFailureReason(batch) {
   return '';
 }
 
-function reconcileSchedulerSlot(slot, latestBatch) {
+function reconcileSchedulerSlot(slot, latestBatch, slotProgress = null, targetCount = null) {
   if (!latestBatch) {
     return {
       status: slot.status,
@@ -497,7 +672,7 @@ function reconcileSchedulerSlot(slot, latestBatch) {
     };
   }
 
-  if (['queued', 'pending', 'generating_prompts', 'submitting', 'processing', 'saving_results'].includes(latestBatch.status)) {
+  if (ACTIVE_BATCH_STATUSES.has(latestBatch.status)) {
     return {
       status: 'in_progress',
       diagnostics_summary: diagnosticsSummary,
@@ -507,7 +682,7 @@ function reconcileSchedulerSlot(slot, latestBatch) {
   return {
     status: (slot.attempt_count || 0) >= MAX_ATTEMPTS_PER_ANGLE_SLOT ? 'failed' : 'reserved',
     produced_flex_ad_id: '',
-    failure_reason: getBatchFailureReason(latestBatch),
+    failure_reason: getBatchFailureReason(latestBatch, slotProgress, targetCount),
     diagnostics_summary: diagnosticsSummary,
   };
 }

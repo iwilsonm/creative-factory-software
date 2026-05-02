@@ -446,3 +446,23 @@ describe('conductorEngine test-run pipeline', () => {
     expect(completedCall).toBeTruthy();
   });
 });
+
+describe('conductorEngine Director ad-set top-up helpers', () => {
+  it('uses project ads_per_ad_set as the approved-ad target before legacy config fallback', async () => {
+    const { getDirectorAdSetTarget } = await importConductorEngine();
+
+    expect(getDirectorAdSetTarget({ ads_per_ad_set: 5 }, { ads_per_batch: 12 })).toBe(5);
+    expect(getDirectorAdSetTarget({}, { ads_per_batch: 7 })).toBe(7);
+    expect(getDirectorAdSetTarget({}, {})).toBe(5);
+    expect(getDirectorAdSetTarget({ ads_per_ad_set: 99 }, { ads_per_batch: 7 })).toBe(20);
+  });
+
+  it('sizes top-up batches as missing approved ads plus a small buffer capped by target', async () => {
+    const { getDirectorTopUpBatchSize } = await importConductorEngine();
+
+    expect(getDirectorTopUpBatchSize(5, 3)).toBe(4);
+    expect(getDirectorTopUpBatchSize(5, 4)).toBe(3);
+    expect(getDirectorTopUpBatchSize(5, 0)).toBe(5);
+    expect(getDirectorTopUpBatchSize(5, 5)).toBe(0);
+  });
+});
