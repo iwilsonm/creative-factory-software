@@ -6,14 +6,12 @@ import { useToast } from './Toast';
 // Fields:
 //   - ad_sets_per_cycle: integer, Director cycle config (legacy fallback: config.ads_per_batch)
 //   - ads_per_ad_set: integer (1-20 hard cap), Director cycle config
-//   - filter_quality_threshold: 0-1, Filter agent pass threshold
 //   - default_campaign_id: campaigns.externalId, default Meta campaign for new ad sets
 //   - adset_default_template: JSON, Meta defaults applied to every new ad set
 export default function CreativeDirectorSettings({ project, onSaved }) {
   const toast = useToast();
   const [adSetsPerCycle, setAdSetsPerCycle] = useState('');
   const [adsPerAdSet, setAdsPerAdSet] = useState('');
-  const [filterThreshold, setFilterThreshold] = useState('');
   const [defaultCampaignId, setDefaultCampaignId] = useState('');
   const [adsetTemplate, setAdsetTemplate] = useState('');
   const [campaigns, setCampaigns] = useState([]);
@@ -28,7 +26,6 @@ export default function CreativeDirectorSettings({ project, onSaved }) {
     if (!project) return;
     setAdSetsPerCycle(project.ad_sets_per_cycle != null ? String(project.ad_sets_per_cycle) : '');
     setAdsPerAdSet(project.ads_per_ad_set != null ? String(project.ads_per_ad_set) : '');
-    setFilterThreshold(project.filter_quality_threshold != null ? String(project.filter_quality_threshold) : '');
     setDefaultCampaignId(project.default_campaign_id || '');
     setAdsetTemplate(project.adset_default_template || '');
     setError('');
@@ -67,11 +64,6 @@ export default function CreativeDirectorSettings({ project, onSaved }) {
       setError('Ad sets per cycle must be a positive integer');
       return;
     }
-    const fqt = filterThreshold ? Number(filterThreshold) : null;
-    if (fqt != null && (Number.isNaN(fqt) || fqt < 0 || fqt > 1)) {
-      setError('Filter quality threshold must be between 0 and 1');
-      return;
-    }
     if (adsetTemplate && adsetTemplate.trim()) {
       try { JSON.parse(adsetTemplate); }
       catch (e) { setError(`Ad-set template JSON invalid: ${e.message}`); return; }
@@ -82,7 +74,6 @@ export default function CreativeDirectorSettings({ project, onSaved }) {
       const fields = {};
       if (asc != null) fields.ad_sets_per_cycle = asc;
       if (aps != null) fields.ads_per_ad_set = aps;
-      if (fqt != null) fields.filter_quality_threshold = fqt;
       if (defaultCampaignId) fields.default_campaign_id = defaultCampaignId;
       if (adsetTemplate?.trim()) fields.adset_default_template = adsetTemplate.trim();
       if (Object.keys(fields).length > 0) {
@@ -132,16 +123,6 @@ export default function CreativeDirectorSettings({ project, onSaved }) {
           />
         </Field>
       </div>
-
-      <Field label="Filter quality threshold (0–1)" hint="Ads scoring below this go to the Rejected tab. Default 0.6.">
-        <input
-          type="number" step="0.01" min="0" max="1"
-          value={filterThreshold}
-          onChange={(e) => setFilterThreshold(e.target.value)}
-          placeholder="default 0.6"
-          className="input-apple w-full"
-        />
-      </Field>
 
       <Field label="Default Meta campaign" hint="Every new ad set inherits this campaign unless overridden on the Staging Page.">
         <select

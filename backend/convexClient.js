@@ -208,10 +208,14 @@ export async function getAllProjectsWithStats() {
   return await getProjectSummaries();
 }
 
+// Phase 6.26 — `filter_quality_threshold` and `scout_score_threshold` removed
+// from the whitelist. Both UI surfaces are gone and no runtime consumer reads
+// them; the Filter service uses internal constants in creativeFilterService.js.
+// Do not re-add without a real consumer.
 export async function updateProject(id, fields) {
-  const allowed = ['name', 'brand_name', 'niche', 'product_description', 'drive_folder_id', 'inspiration_folder_id', 'prompt_guidelines', 'status', 'scout_enabled', 'scout_default_campaign', 'scout_cta', 'scout_display_link', 'scout_facebook_page', 'scout_score_threshold', 'scout_daily_flex_ads', 'scout_destination_url', 'scout_destination_urls', 'scout_duplicate_adset_name',
+  const allowed = ['name', 'brand_name', 'niche', 'product_description', 'drive_folder_id', 'inspiration_folder_id', 'prompt_guidelines', 'status', 'scout_enabled', 'scout_default_campaign', 'scout_cta', 'scout_display_link', 'scout_facebook_page', 'scout_daily_flex_ads', 'scout_destination_url', 'scout_destination_urls', 'scout_duplicate_adset_name',
     // Phase 1 — Staging Page + Director cycle config
-    'default_campaign_id', 'adset_default_template', 'filter_quality_threshold', 'ad_sets_per_cycle', 'ads_per_ad_set',
+    'default_campaign_id', 'adset_default_template', 'ad_sets_per_cycle', 'ads_per_ad_set',
     // Phase 2A — Meta integration
     'meta_access_token', 'meta_token_expires_at', 'meta_user_id', 'meta_user_name', 'meta_account_id', 'meta_account_name', 'meta_business_id', 'meta_integration_path', 'meta_connected_at',
     // Phase 2B
@@ -251,7 +255,7 @@ function convexProjectToRow(p) {
   // rejects null but accepts '' as a valid string. Carve-outs:
   //   - product_image_storageId: Convex storage ID; frontend null-checks for image rendering
   //   - scout_destination_urls: JSON-array-as-string per Critical Invariant #2; '' would break JSON.parse
-  //   - scout_enabled / scout_score_threshold / scout_daily_flex_ads: nullable boolean/number
+  //   - scout_enabled / scout_daily_flex_ads: nullable boolean/number
   return {
     id: p.externalId,
     name: p.name,
@@ -269,7 +273,6 @@ function convexProjectToRow(p) {
     scout_cta: p.scout_cta || '',
     scout_display_link: p.scout_display_link || '',
     scout_facebook_page: p.scout_facebook_page || '',
-    scout_score_threshold: p.scout_score_threshold ?? null,
     scout_daily_flex_ads: p.scout_daily_flex_ads ?? null,
     scout_destination_url: p.scout_destination_url || '',
     scout_destination_urls: p.scout_destination_urls || null,
@@ -281,7 +284,6 @@ function convexProjectToRow(p) {
     // Phase 1 — Staging Page + Director cycle config
     default_campaign_id: p.default_campaign_id || '',
     adset_default_template: p.adset_default_template || null,  // JSON-as-string; null when unset
-    filter_quality_threshold: p.filter_quality_threshold ?? null,
     ad_sets_per_cycle: p.ad_sets_per_cycle ?? null,
     ads_per_ad_set: p.ads_per_ad_set ?? null,
     // Phase 2A — Meta integration. Token NEVER returned to frontend; only the fact-of-connection.

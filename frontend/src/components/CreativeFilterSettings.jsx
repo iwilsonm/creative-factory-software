@@ -11,7 +11,6 @@ export default function CreativeFilterSettings({ projectId, project, onSave }) {
     scout_cta: '',
     scout_display_link: '',
     scout_facebook_page: '',
-    scout_score_threshold: '',
     scout_destination_urls: [],
     scout_duplicate_adset_name: '',
   });
@@ -40,7 +39,6 @@ export default function CreativeFilterSettings({ projectId, project, onSave }) {
       scout_cta: project.scout_cta || '',
       scout_display_link: project.scout_display_link || '',
       scout_facebook_page: project.scout_facebook_page || '',
-      scout_score_threshold: project.scout_score_threshold != null ? String(project.scout_score_threshold) : '',
       scout_destination_urls: (() => {
         if (project.scout_destination_urls) {
           try { return JSON.parse(project.scout_destination_urls); } catch {}
@@ -65,7 +63,6 @@ export default function CreativeFilterSettings({ projectId, project, onSave }) {
         scout_cta: form.scout_cta || undefined,
         scout_display_link: form.scout_display_link || undefined,
         scout_facebook_page: form.scout_facebook_page || undefined,
-        scout_score_threshold: form.scout_score_threshold ? Number(form.scout_score_threshold) : undefined,
         scout_destination_urls: form.scout_destination_urls.length > 0 ? JSON.stringify(form.scout_destination_urls) : undefined,
         scout_destination_url: form.scout_destination_urls[0] || undefined,
         scout_duplicate_adset_name: form.scout_duplicate_adset_name || undefined,
@@ -98,7 +95,7 @@ export default function CreativeFilterSettings({ projectId, project, onSave }) {
         </div>
       </div>
       <p className="text-[12px] text-textmid mb-4">
-        Recursive Agent #2 — scores batch ads with Claude, groups winners into flex ads, deploys to Ready to Post.
+        Recursive Agent #2 — scores batch ads with Claude, groups winners into ad sets, deploys to Ready to Post.
       </p>
 
       <div className="space-y-4">
@@ -225,33 +222,15 @@ export default function CreativeFilterSettings({ projectId, project, onSave }) {
           </div>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          {/* Facebook Page */}
-          <div>
-            <label className="block text-[12px] font-medium text-textmid mb-1">Facebook Page ID</label>
-            <input
-              value={form.scout_facebook_page}
-              onChange={e => setForm(p => ({ ...p, scout_facebook_page: e.target.value }))}
-              className="input-apple text-[13px]"
-              placeholder="Facebook Page ID"
-            />
-          </div>
-
-          {/* Score Threshold */}
-          <div>
-            <label className="block text-[12px] font-medium text-textmid mb-1">Score Threshold (optional)</label>
-            <input
-              type="number"
-              min="1"
-              max="10"
-              step="1"
-              value={form.scout_score_threshold}
-              onChange={e => setForm(p => ({ ...p, scout_score_threshold: e.target.value }))}
-              className="input-apple text-[13px]"
-              placeholder="Default: 7"
-            />
-            <p className="text-[10px] text-textlight mt-1">Ads scoring below this (1-10) are rejected. Default is 7.</p>
-          </div>
+        {/* Facebook Page */}
+        <div>
+          <label className="block text-[12px] font-medium text-textmid mb-1">Facebook Page ID</label>
+          <input
+            value={form.scout_facebook_page}
+            onChange={e => setForm(p => ({ ...p, scout_facebook_page: e.target.value }))}
+            className="input-apple text-[13px]"
+            placeholder="Facebook Page ID"
+          />
         </div>
 
         {/* Default Destination URLs */}

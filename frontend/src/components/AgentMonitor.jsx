@@ -3523,7 +3523,7 @@ function FilterPanel({ data, onRefresh }) {
   return (
     <AgentPanel
       name="Dacia Creative Filter"
-      subtitle="Runs every 30 min — scores batch ads, groups winners into flex ads, deploys to Ready to Post"
+      subtitle="Runs every 30 min — scores batch ads, groups winners into ad sets, deploys to Ready to Post"
       status={data.status}
       paused={data.paused}
       onTogglePause={handleTogglePause}

@@ -191,7 +191,6 @@ Technical context document for strategic review. Written from codebase inspectio
 |-------|--------|-----------|-------------------|
 | `conductor_config.daily_flex_target` | Per-project config (default 5) | Director deficit calculation | Controls volume, not quality |
 | `conductor_config.ads_per_batch` | Per-project config (default 18) | Batch size | Controls volume, not quality |
-| `scout_score_threshold` | Per-project (default 7) | Filter pass/fail threshold | High — directly controls quality floor |
 | `scout_daily_flex_ads` | Per-project (default 2) | Max flex ads per day from Filter | Controls volume |
 
 ### Randomness / Seed Logic
