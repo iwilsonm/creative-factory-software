@@ -1,18 +1,24 @@
 import { useState, useEffect } from 'react';
 import { api } from '../api';
-// Phase 6.10 — surface Phase 3 observation state on each posted card.
+// Phase 3 / 6.10 — surface observation state on each posted card.
 import ObservationPill from './observation/ObservationPill';
 import AdSetTimeline from './observation/AdSetTimeline';
 
 /**
- * PostedView — Shows posted ads grouped by flex ad, mirroring the Ready to Post card layout.
+ * PostedView — Phase 6.20b native rendering. Iterates ad_sets directly
+ * (no flex_ad adapter shape). Member deployments resolved via
+ * `deployments.filter(d => d.local_adset_id === adSet.externalId)`.
+ *
+ * Lifecycle filter: shows ad_sets in observing / passed / failed /
+ * failed_external / insufficient_data. Standalone posted deployments
+ * (no parent ad_set) still render as single-ad cards for back-compat.
  *
  * Props: projectId, deployments, setDeployments, addToast, loadDeployments, isPoster
  */
 export default function PostedView({ projectId, deployments, setDeployments, addToast, loadDeployments, isPoster }) {
   const [campaigns, setCampaigns] = useState([]);
-  const [adSets, setAdSets] = useState([]);
-  const [flexAds, setFlexAds] = useState([]);
+  const [adSets, setAdSets] = useState([]);             // Local CF ad_sets (campaign metadata)
+  const [postedAdSets, setPostedAdSets] = useState([]); // Phase 6.20b — native ad_sets in posted/observed/terminal lifecycle
   const [loading, setLoading] = useState(true);
   const [sendingBackIds, setSendingBackIds] = useState(new Set());
   const [expandedCards, setExpandedCards] = useState(new Set());
@@ -33,16 +39,19 @@ export default function PostedView({ projectId, deployments, setDeployments, add
   const loadData = async () => {
     setLoading(true);
     try {
-      const [campData, flexData, obsData] = await Promise.all([
+      const [campData, postedSets, obsData] = await Promise.all([
         api.getCampaigns(projectId),
-        api.getFlexAds(projectId),
-        // Phase 6.10 — batched enrichment for ObservationPill across all observed ad_sets.
-        // Returns ad_sets with days_observed, is_paused, latest_result, window_total fields.
+        // Phase 6.20b — native ad_sets directly. Lifecycle filter limits to
+        // states a "posted" view should display.
+        api.getAdSets(projectId, ['observing', 'passed', 'failed', 'failed_external', 'insufficient_data']),
+        // Phase 6.10 — batched enrichment for ObservationPill (days_observed,
+        // is_paused, latest_result, window_total). Returns ad_sets with
+        // computed observation metadata.
         api.getObservationAdSets(projectId).then((r) => r?.ad_sets || []).catch(() => []),
       ]);
       setCampaigns(campData.campaigns || []);
       setAdSets(campData.adSets || []);
-      setFlexAds(flexData.flexAds || []);
+      setPostedAdSets(Array.isArray(postedSets) ? postedSets : []);
       setObservationAdSets(obsData);
     } catch (err) {
       console.error('PostedView loadData error:', err);
@@ -65,25 +74,32 @@ export default function PostedView({ projectId, deployments, setDeployments, add
     return { campaignName: campaign?.name || null, adSetName: adSet?.name || null };
   };
 
-  const resolveFlexLocation = (flexAd) => {
-    // Check if child deps have carried-over names
-    const childDeps = getFlexChildDeps(flexAd);
-    if (childDeps.length > 0 && (childDeps[0].campaign_name || childDeps[0].ad_set_name)) {
-      return { campaignName: childDeps[0].campaign_name || null, adSetName: childDeps[0].ad_set_name || null };
+  // Phase 6.20b — native ad_set version of resolveFlexLocation. Looks up
+  // the campaign for an ad_set via campaign_id; falls back to child deployments'
+  // carried-over names for ad_sets whose campaign relationship was inherited
+  // before Phase 6.
+  const resolveAdSetLocation = (adSet) => {
+    const children = getAdSetChildDeps(adSet);
+    if (children.length > 0 && (children[0].campaign_name || children[0].ad_set_name)) {
+      return {
+        campaignName: children[0].campaign_name || null,
+        adSetName: children[0].ad_set_name || adSet.name || null,
+      };
     }
-    const adSet = adSets.find(a => a.id === flexAd.ad_set_id);
-    if (!adSet) return { campaignName: null, adSetName: null };
-    const campaign = campaigns.find(c => adSets.filter(a => a.campaign_id === c.id).some(a => a.id === flexAd.ad_set_id));
-    return { campaignName: campaign?.name || null, adSetName: adSet?.name || null };
+    const campaign = campaigns.find(c => c.id === adSet.campaign_id);
+    return {
+      campaignName: campaign?.name || null,
+      adSetName: adSet.name || null,
+    };
   };
 
-  const getFlexChildDeps = (flexAd) => {
-    let childIds = [];
-    try { childIds = flexAd.child_deployment_ids ? JSON.parse(flexAd.child_deployment_ids) : []; } catch { /* ignore */ }
-    return postedDeps.filter(d => childIds.includes(d.id));
+  // Phase 6.20b — native: filter posted deployments by local_adset_id match
+  // (no JSON.parse of flex.child_deployment_ids).
+  const getAdSetChildDeps = (adSet) => {
+    return postedDeps.filter(d => d.local_adset_id === adSet.externalId);
   };
 
-  const flexHasPostedChildren = (flexAd) => getFlexChildDeps(flexAd).length > 0;
+  const adSetHasPostedChildren = (adSet) => getAdSetChildDeps(adSet).length > 0;
 
   const formatDate = (dateStr) => {
     if (!dateStr) return null;
@@ -106,21 +122,28 @@ export default function PostedView({ projectId, deployments, setDeployments, add
     setSendingBackIds(prev => { const next = new Set(prev); next.delete(depId); return next; });
   };
 
-  const handleSendBackFlex = async (flexAd) => {
-    const flexId = `flex-${flexAd.id}`;
-    setSendingBackIds(prev => new Set(prev).add(flexId));
+  // Phase 6.20b — native send-back. Updates ad_set lifecycle to 'ready' AND
+  // updates member deployments to 'ready_to_post' for legacy field parity.
+  const handleSendBackAdSet = async (adSet) => {
+    const sendId = `adset-${adSet.externalId}`;
+    setSendingBackIds(prev => new Set(prev).add(sendId));
     try {
-      const childDeps = getFlexChildDeps(flexAd);
-      await Promise.all(childDeps.map(d => api.updateDeploymentStatus(d.id, 'ready_to_post')));
-      let childIds = [];
-      try { childIds = flexAd.child_deployment_ids ? JSON.parse(flexAd.child_deployment_ids) : []; } catch { /* ignore */ }
+      const childDeps = getAdSetChildDeps(adSet);
+      // Note: only allow demote from 'observing' or 'posted' (not terminal verdicts)
+      // — UI button is hidden on terminal verdicts via lifecycle check.
+      await Promise.all([
+        api.updateAdSetUnified(projectId, adSet.externalId, { lifecycle_status: 'ready' }).catch(() => {}),
+        ...childDeps.map(d => api.updateDeploymentStatus(d.id, 'ready_to_post')),
+      ]);
       setDeployments(prev => prev.map(d => {
-        if (childIds.includes(d.id)) return { ...d, status: 'ready_to_post' };
+        if (childDeps.some(cd => cd.id === d.id)) return { ...d, status: 'ready_to_post' };
         return d;
       }));
       addToast(`${childDeps.length} ads sent back to Ready to Post`, 'success');
+      // Refresh enriched data so observation pill updates
+      loadData();
     } catch { addToast('Failed to send back', 'error'); }
-    setSendingBackIds(prev => { const next = new Set(prev); next.delete(flexId); return next; });
+    setSendingBackIds(prev => { const next = new Set(prev); next.delete(sendId); return next; });
   };
 
   // ── Card Renderers ──────────────────────────────────────────────────────
@@ -226,36 +249,42 @@ export default function PostedView({ projectId, deployments, setDeployments, add
     );
   };
 
-  const renderFlexCard = (flexAd) => {
-    const childDeps = getFlexChildDeps(flexAd);
+  // Phase 6.20b — native ad_set card renderer. Reads adSet.externalId,
+  // adSet.name, adSet.lifecycle_status; member deployments via filter.
+  const renderAdSetCard = (adSet) => {
+    const childDeps = getAdSetChildDeps(adSet);
     if (childDeps.length === 0) return null;
 
-    const postedDate = formatDate(childDeps[0]?.posted_date || flexAd.planned_date);
-    const flexId = `flex-${flexAd.id}`;
-    const isSendingBack = sendingBackIds.has(flexId);
-    const { campaignName, adSetName } = resolveFlexLocation(flexAd);
+    const sample = childDeps[0] || {};
+    const postedDate = formatDate(sample.posted_date || adSet.posted_at);
+    const sendId = `adset-${adSet.externalId}`;
+    const isSendingBack = sendingBackIds.has(sendId);
+    const { campaignName, adSetName } = resolveAdSetLocation(adSet);
     const depsWithImages = childDeps.filter(d => d.imageUrl);
-    const isExpanded = expandedCards.has(flexId);
+    const isExpanded = expandedCards.has(sendId);
+    // Demote allowed only from 'observing' (not terminal verdicts). UI hides
+    // the send-back button on terminal verdicts.
+    const canDemote = adSet.lifecycle_status === 'observing' || adSet.lifecycle_status === 'posted';
 
     return (
-      <div key={flexAd.id} className="border border-black/[0.08] rounded-2xl bg-white shadow-sm overflow-hidden">
+      <div key={adSet.externalId} className="border border-black/[0.08] rounded-2xl bg-white shadow-sm overflow-hidden">
         <div className="px-5 py-4 space-y-2.5">
-          {/* Ad Name + thumbnails */}
+          {/* Ad Set Name + thumbnails */}
           <div className="flex items-start justify-between gap-3">
             <div className="flex-1 min-w-0">
               <div className="text-[13px] leading-tight mb-1">
-                <span className="font-bold text-textdark">{flexAd.name || 'Flex Ad'}</span>
+                <span className="font-bold text-textdark">{adSet.name || 'Ad Set'}</span>
               </div>
               <div className="flex items-center gap-2 flex-wrap">
                 {/* Phase 6.10 — observation state pill (Day N/12, Passed, Failed, etc.).
                     Click opens AdSetTimeline drawer with full observation history. */}
                 {(() => {
-                  const enriched = observationAdSets.find((s) => s.externalId === flexAd.id);
+                  const enriched = observationAdSets.find((s) => s.externalId === adSet.externalId);
                   if (enriched) {
                     return (
                       <ObservationPill
                         adSet={enriched}
-                        onClick={() => setActiveAdSetId(flexAd.id)}
+                        onClick={() => setActiveAdSetId(adSet.externalId)}
                       />
                     );
                   }
@@ -264,14 +293,10 @@ export default function PostedView({ projectId, deployments, setDeployments, add
                   );
                 })()}
                 <span className="inline-block px-2 py-0.5 rounded bg-navy/10 text-navy text-[9px] font-bold uppercase tracking-wider">{depsWithImages.length} ads</span>
-                {/* Manual / Meta provenance chip — derives from meta_adset_id presence on the enriched ad_set */}
-                {(() => {
-                  const enriched = observationAdSets.find((s) => s.externalId === flexAd.id);
-                  if (!enriched) return null;
-                  return enriched.meta_adset_id
-                    ? <span className="inline-block px-2 py-0.5 rounded bg-gold/10 text-gold text-[9px] font-bold uppercase tracking-wider">Meta</span>
-                    : <span className="inline-block px-2 py-0.5 rounded bg-gray-100 text-textmid text-[9px] font-bold uppercase tracking-wider">Manual</span>;
-                })()}
+                {/* Manual / Meta provenance chip — derives from meta_adset_id presence on the native ad_set */}
+                {adSet.meta_adset_id
+                  ? <span className="inline-block px-2 py-0.5 rounded bg-gold/10 text-gold text-[9px] font-bold uppercase tracking-wider">Meta</span>
+                  : <span className="inline-block px-2 py-0.5 rounded bg-gray-100 text-textmid text-[9px] font-bold uppercase tracking-wider">Manual</span>}
                 {postedDate && (
                   <span className="text-[10px] text-textmid">{postedDate}</span>
                 )}
@@ -309,13 +334,13 @@ export default function PostedView({ projectId, deployments, setDeployments, add
           )}
 
           {/* Posted by */}
-          {(flexAd.posted_by || childDeps[0]?.posted_by) && (
-            <div className="text-[11px] text-textmid">Posted by: <span className="font-medium text-textdark">{flexAd.posted_by || childDeps[0]?.posted_by}</span></div>
+          {sample.posted_by && (
+            <div className="text-[11px] text-textmid">Posted by: <span className="font-medium text-textdark">{sample.posted_by}</span></div>
           )}
 
           {/* Expand toggle */}
           <button
-            onClick={() => toggleCardExpanded(flexId)}
+            onClick={() => toggleCardExpanded(sendId)}
             className="flex items-center justify-center w-full gap-1 text-[12px] font-medium text-navy hover:text-navy/80 bg-navy/5 hover:bg-navy/10 py-1.5 rounded-md cursor-pointer transition-all mt-2"
           >
             <svg className={`w-3.5 h-3.5 transition-transform ${isExpanded ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -346,19 +371,21 @@ export default function PostedView({ projectId, deployments, setDeployments, add
               </div>
             )}
 
-            {/* Metadata */}
+            {/* Metadata — Phase 6.20b: read from sample (first deployment).
+                Behavior preserved from the adapter era; copy lives on
+                deployments in unified model. */}
             <div className="text-[12px] space-y-2">
-              {flexAd.destination_url && (
-                <div><span className="text-textmid">URL:</span> <a href={flexAd.destination_url} target="_blank" rel="noopener noreferrer" className="text-gold hover:underline break-all">{flexAd.destination_url}</a></div>
+              {sample.destination_url && (
+                <div><span className="text-textmid">URL:</span> <a href={sample.destination_url} target="_blank" rel="noopener noreferrer" className="text-gold hover:underline break-all">{sample.destination_url}</a></div>
               )}
-              {flexAd.display_link && (
-                <div><span className="text-textmid">Display Link:</span> <span className="text-textdark">{flexAd.display_link}</span></div>
+              {sample.display_link && (
+                <div><span className="text-textmid">Display Link:</span> <span className="text-textdark">{sample.display_link}</span></div>
               )}
-              {flexAd.cta_button && (
-                <div><span className="text-textmid">CTA:</span> <span className="font-medium text-teal">{flexAd.cta_button.replace(/_/g, ' ')}</span></div>
+              {sample.cta_button && (
+                <div><span className="text-textmid">CTA:</span> <span className="font-medium text-teal">{sample.cta_button.replace(/_/g, ' ')}</span></div>
               )}
-              {flexAd.facebook_page && (
-                <div><span className="text-textmid">Facebook Page:</span> <span className="font-medium text-textdark">{flexAd.facebook_page}</span></div>
+              {sample.facebook_page && (
+                <div><span className="text-textmid">Facebook Page:</span> <span className="font-medium text-textdark">{sample.facebook_page}</span></div>
               )}
             </div>
           </div>
@@ -366,14 +393,18 @@ export default function PostedView({ projectId, deployments, setDeployments, add
 
         {/* Actions */}
         <div className="px-5 py-2.5 border-t border-black/[0.06] bg-offwhite/50 flex items-center justify-end">
-          <button onClick={() => handleSendBackFlex(flexAd)} disabled={isSendingBack}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium text-gold border border-gold/30 hover:bg-gold/10 transition-colors disabled:opacity-50"
-          >
-            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
-            </svg>
-            {isSendingBack ? 'Sending...' : `← Ready to Post (${childDeps.length} ads)`}
-          </button>
+          {canDemote ? (
+            <button onClick={() => handleSendBackAdSet(adSet)} disabled={isSendingBack}
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium text-gold border border-gold/30 hover:bg-gold/10 transition-colors disabled:opacity-50"
+            >
+              <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
+              </svg>
+              {isSendingBack ? 'Sending...' : `← Ready to Post (${childDeps.length} ads)`}
+            </button>
+          ) : (
+            <span className="text-[10px] text-textlight italic">Terminal verdict — cannot demote.</span>
+          )}
         </div>
       </div>
     );
@@ -381,22 +412,31 @@ export default function PostedView({ projectId, deployments, setDeployments, add
 
   // ── Build card list ──────────────────────────────────────────────────────
 
+  // Phase 6.20b — native list builder. Iterates ad_sets directly; orphaned
+  // posted deployments (no parent ad_set in our list) render as single cards
+  // for back-compat with deployments that pre-date the unified pipeline.
   const buildCardList = () => {
     const cards = [];
-    const flexChildIds = new Set();
-    flexAds.forEach(fa => {
-      try { (fa.child_deployment_ids ? JSON.parse(fa.child_deployment_ids) : []).forEach(id => flexChildIds.add(id)); } catch { /* ignore */ }
+    const adSetMemberDepIds = new Set();
+    postedAdSets.forEach((adSet) => {
+      const children = getAdSetChildDeps(adSet);
+      children.forEach((d) => adSetMemberDepIds.add(d.id));
     });
-    // Standalone posted deps (not part of any flex ad)
+    // Standalone posted deps (not part of any ad_set in our filter)
     postedDeps.forEach(dep => {
-      if (flexChildIds.has(dep.id)) return;
+      if (adSetMemberDepIds.has(dep.id)) return;
       cards.push({ type: 'single', dep, postedDate: dep.posted_date || '', key: dep.id });
     });
-    // Flex ads with posted children
-    flexAds.forEach(fa => {
-      if (!flexHasPostedChildren(fa)) return;
-      const childDeps = getFlexChildDeps(fa);
-      cards.push({ type: 'flex', flexAd: fa, postedDate: childDeps[0]?.posted_date || fa.planned_date || '', key: `flex-${fa.id}` });
+    // Ad sets with at least one posted child deployment
+    postedAdSets.forEach(adSet => {
+      if (!adSetHasPostedChildren(adSet)) return;
+      const childDeps = getAdSetChildDeps(adSet);
+      cards.push({
+        type: 'adset',
+        adSet,
+        postedDate: childDeps[0]?.posted_date || adSet.posted_at || '',
+        key: `adset-${adSet.externalId}`,
+      });
     });
     // Sort: most recently posted first
     cards.sort((a, b) => {
@@ -440,7 +480,7 @@ export default function PostedView({ projectId, deployments, setDeployments, add
 
       {/* Cards */}
       <div className="space-y-4">
-        {cardList.map(card => card.type === 'single' ? renderAdCard(card.dep) : renderFlexCard(card.flexAd))}
+        {cardList.map(card => card.type === 'single' ? renderAdCard(card.dep) : renderAdSetCard(card.adSet))}
       </div>
 
       {/* Phase 6.10 — AdSetTimeline drawer for clicked ObservationPill.
