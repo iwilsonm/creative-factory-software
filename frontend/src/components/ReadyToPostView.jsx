@@ -7,6 +7,55 @@ import BulkEditPanel from './BulkEditPanel';
 // Phase 6.20a — backdate picker on manual Mark as Posted
 import MarkPostedModal from './MarkPostedModal';
 
+// Phase 6.20b — Drop the api.js flex_ad adapter from this view. Compose the
+// flex-shape inline from native ad_sets + deployments, route writes natively
+// via api.updateAdSetUnified + api.updateDeployment + api.ungroupAdSet. The
+// internal data shape is preserved so the render layer below is unchanged.
+function composeFlexFromAdSet(adSet, deployments) {
+  const children = (deployments || []).filter(d => d.local_adset_id === adSet.externalId);
+  const sample = children[0] || {};
+  return {
+    id: adSet.externalId,
+    externalId: adSet.externalId,
+    project_id: adSet.project_id,
+    ad_set_id: adSet.externalId,
+    name: adSet.name || '',
+    child_deployment_ids: JSON.stringify(children.map(d => d.externalId)),
+    primary_texts: sample.primary_texts || '[]',
+    headlines: sample.ad_headlines || '[]',
+    destination_url: sample.destination_url || '',
+    display_link: sample.display_link || '',
+    cta_button: sample.cta_button || '',
+    facebook_page: sample.facebook_page || '',
+    planned_date: sample.planned_date || '',
+    posted_by: sample.posted_by || '',
+    duplicate_adset_name: sample.duplicate_adset_name || '',
+    notes: sample.notes || '',
+    angle_id: adSet.angle_id || null,
+    lifecycle_status: adSet.lifecycle_status || '',
+    lp_primary_url: '',
+    lp_secondary_url: '',
+    gauntlet_lp_urls: '',
+    destination_urls_used: '',
+    created_at: adSet.created_at || '',
+    updated_at: adSet.updated_at || '',
+  };
+}
+
+// Phase 6.20b — split a save payload between ad_set-level fields (name) and
+// per-deployment fields (everything else). Returns { adSetFields, depFields }.
+const AD_SET_SCALAR_FIELDS = new Set(['name']);
+function splitAdSetWriteFields(fields) {
+  const adSetFields = {};
+  const depFields = {};
+  for (const [k, v] of Object.entries(fields || {})) {
+    if (k.startsWith('_')) continue;
+    if (AD_SET_SCALAR_FIELDS.has(k)) adSetFields[k] = v;
+    else depFields[k] = v;
+  }
+  return { adSetFields, depFields };
+}
+
 /**
  * ReadyToPostView — Employee-facing view for posting ads to Meta Ads Manager.
  *
@@ -121,13 +170,17 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
     setLoading(true);
     setLoadError(null);
     try {
-      const [campData, flexData] = await Promise.all([
+      // Phase 6.20b — native ad_set fetch (lifecycle='ready') + inline compose
+      // of flex-shape from current deployments prop. No api.js adapter call.
+      const [campData, readyAdSets] = await Promise.all([
         api.getCampaigns(projectId),
-        api.getFlexAds(projectId),
+        api.getAdSets(projectId, ['ready']),
       ]);
+      const safeReady = Array.isArray(readyAdSets) ? readyAdSets : (readyAdSets?.adSets ?? []);
       setCampaigns(ensureArray(campData?.campaigns, 'ReadyToPostView.campaigns'));
       setAdSets(ensureArray(campData?.adSets, 'ReadyToPostView.adSets'));
-      setFlexAds(ensureArray(flexData?.flexAds, 'ReadyToPostView.flexAds'));
+      const composed = safeReady.map(s => composeFlexFromAdSet(s, deployments));
+      setFlexAds(composed);
     } catch (err) {
       console.error('ReadyToPostView loadData error:', err);
       setLoadError('Failed to load campaign data. Please refresh the page.');
@@ -202,12 +255,20 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
   const saveNotes = async (id, isFlexCard = false) => {
     setSavingNotes(true);
     try {
+      const trimmed = notesValue.trim() || '';
       if (isFlexCard) {
-        await api.updateFlexAd(id, { notes: notesValue.trim() || '' });
-        setFlexAds(prev => ensureArray(prev, 'ReadyToPostView.flexAdsState').map(f => f.id === id ? { ...f, notes: notesValue.trim() || '' } : f));
+        // Phase 6.20b — flex card notes are stored on each child deployment.
+        // Write to all children so any future re-derivation picks it up.
+        const flexAd = safeFlexAds.find(f => f.id === id);
+        const children = flexAd ? getFlexChildDeps(flexAd) : [];
+        await Promise.all(children.map(d => api.updateDeployment(d.id, { notes: trimmed })));
+        setDeployments(prev => ensureArray(prev, 'ReadyToPostView.deploymentsState').map(d =>
+          children.some(c => c.id === d.id) ? { ...d, notes: trimmed } : d
+        ));
+        setFlexAds(prev => ensureArray(prev, 'ReadyToPostView.flexAdsState').map(f => f.id === id ? { ...f, notes: trimmed } : f));
       } else {
-        await api.updateDeployment(id, { notes: notesValue.trim() || '' });
-        setDeployments(prev => ensureArray(prev, 'ReadyToPostView.deploymentsState').map(d => d.id === id ? { ...d, notes: notesValue.trim() || '' } : d));
+        await api.updateDeployment(id, { notes: trimmed });
+        setDeployments(prev => ensureArray(prev, 'ReadyToPostView.deploymentsState').map(d => d.id === id ? { ...d, notes: trimmed } : d));
       }
       addToast('Notes saved', 'success');
     } catch {
@@ -341,11 +402,13 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
   const handleDeleteFlexAd = async (flexAdId) => {
     setDeleteFlexConfirm(null);
     setFlexAds(prev => prev.filter(f => f.id !== flexAdId));
-    addToast('Flex ad removed', 'success');
+    addToast('Ad set removed', 'success');
     try {
-      await api.deleteFlexAd(flexAdId);
+      // Phase 6.20b — native ungroup. Detaches deployments back to selected
+      // and deletes the ad_set wrapper. Backend cascade handled server-side.
+      await api.ungroupAdSet(projectId, flexAdId);
     } catch {
-      addToast('Failed to delete flex ad', 'error');
+      addToast('Failed to delete ad set', 'error');
       loadDeployments();
     }
   };
@@ -368,7 +431,16 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
   const handlePostedByChange = async (depId, value, isFlex = false) => {
     try {
       if (isFlex) {
-        await api.updateFlexAdPostedBy(depId, value || '');
+        // Phase 6.20b — fan out posted_by to every child deployment of the
+        // ad_set. The flex-shape "posted_by" displayed in the card is sampled
+        // from children[0]; writing to all children keeps the field
+        // consistent if a child is reordered later.
+        const flexAd = safeFlexAds.find(f => f.id === depId);
+        const children = flexAd ? getFlexChildDeps(flexAd) : [];
+        await Promise.all(children.map(d => api.updateDeploymentPostedBy(d.id, value || '')));
+        setDeployments(prev => ensureArray(prev, 'ReadyToPostView.deploymentsState').map(d =>
+          children.some(c => c.id === d.id) ? { ...d, posted_by: value } : d
+        ));
         setFlexAds(prev => ensureArray(prev, 'ReadyToPostView.flexAdsState').map(f => f.id === depId ? { ...f, posted_by: value } : f));
       } else {
         await api.updateDeploymentPostedBy(depId, value || '');
@@ -488,8 +560,42 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
       }
 
       if (isFlex) {
-        await api.updateFlexAd(id, payload);
+        // Phase 6.20b — split the payload between ad_set fields (name +
+        // ad_set_id reassignment via legacy `ad_set_id` key) and per-deployment
+        // fields (destination_url, display_link, cta_button, facebook_page,
+        // duplicate_adset_name, primary_texts, headlines→ad_headlines, etc).
+        // The sidebar already handled ad_set_id reassignment above (creating /
+        // moving the ad_set as needed), so what remains here is the field-set.
+        const flexAd = safeFlexAds.find(f => f.id === id);
+        const children = flexAd ? getFlexChildDeps(flexAd) : [];
+        const { adSetFields, depFields } = splitAdSetWriteFields(payload);
+        // Map flex-shape `headlines` → deployment field `ad_headlines`
+        if (depFields.headlines !== undefined) {
+          depFields.ad_headlines = depFields.headlines;
+          delete depFields.headlines;
+        }
+        // ad_set_id is the wrapper itself in unified model; not a settable
+        // field on the ad_set update route. Drop it from the payload —
+        // re-parenting was already done above by createAdSet/updateAdSet.
+        delete adSetFields.ad_set_id;
+        delete depFields.ad_set_id;
+        const writes = [];
+        if (Object.keys(adSetFields).length > 0) {
+          writes.push(api.updateAdSetUnified(projectId, id, adSetFields));
+        }
+        if (Object.keys(depFields).length > 0 && children.length > 0) {
+          writes.push(...children.map(d => api.updateDeployment(d.id, depFields)));
+        }
+        await Promise.all(writes);
+        // Optimistic local updates: sync the in-memory flex-shape and
+        // deployment objects so the next render shows the new values without
+        // a roundtrip.
         setFlexAds(prev => ensureArray(prev, 'ReadyToPostView.flexAdsState').map(f => f.id === id ? { ...f, ...payload } : f));
+        if (Object.keys(depFields).length > 0) {
+          setDeployments(prev => ensureArray(prev, 'ReadyToPostView.deploymentsState').map(d =>
+            children.some(c => c.id === d.id) ? { ...d, ...depFields } : d
+          ));
+        }
       } else {
         await api.updateDeployment(id, payload);
         setDeployments(prev => ensureArray(prev, 'ReadyToPostView.deploymentsState').map(d => d.id === id ? { ...d, ...payload } : d));
@@ -1456,8 +1562,16 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
                   value={flexAd.planned_date ? flexAd.planned_date.split('T')[0] : ''}
                   onChange={async (e) => {
                     const value = e.target.value || null;
+                    // Phase 6.20b — planned_date lives on each deployment.
+                    // Fan out the write to every child of this ad_set.
                     setFlexAds(prev => prev.map(f => f.id === flexAd.id ? { ...f, planned_date: value } : f));
-                    try { await api.updateFlexAd(flexAd.id, { planned_date: value }); }
+                    setDeployments(prev => ensureArray(prev, 'ReadyToPostView.deploymentsState').map(d =>
+                      d.local_adset_id === flexAd.id ? { ...d, planned_date: value } : d
+                    ));
+                    try {
+                      const children = getFlexChildDeps(flexAd);
+                      await Promise.all(children.map(d => api.updateDeployment(d.id, { planned_date: value })));
+                    }
                     catch { addToast('Failed to save start date', 'error'); }
                   }}
                   className="input-apple text-[11px] py-1 px-2 w-[140px]"
@@ -1466,7 +1580,13 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
                   <button
                     onClick={async () => {
                       setFlexAds(prev => prev.map(f => f.id === flexAd.id ? { ...f, planned_date: null } : f));
-                      try { await api.updateFlexAd(flexAd.id, { planned_date: null }); }
+                      setDeployments(prev => ensureArray(prev, 'ReadyToPostView.deploymentsState').map(d =>
+                        d.local_adset_id === flexAd.id ? { ...d, planned_date: null } : d
+                      ));
+                      try {
+                        const children = getFlexChildDeps(flexAd);
+                        await Promise.all(children.map(d => api.updateDeployment(d.id, { planned_date: null })));
+                      }
                       catch { addToast('Failed to clear start date', 'error'); }
                     }}
                     className="text-textlight hover:text-red-400 transition-colors p-0.5"
@@ -1646,13 +1766,12 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
                   ? 'Copy URL to use as the ad destination.'
                   : 'Post BOTH LP and PDP as separate ads in the same ad set. Meta auto-optimizes.';
 
-              const handleMarkUsed = async (index) => {
-                if (!usedIndices.includes(index)) {
-                  try {
-                    const updated = [...usedIndices, index];
-                    await api.updateFlexAd(flexAd.id, { destination_urls_used: JSON.stringify(updated) });
-                  } catch {}
-                }
+              const handleMarkUsed = async (_index) => {
+                // Phase 6.20b — `destination_urls_used` was a legacy LP-feature
+                // tracking field. The composed flex-shape always returns ''
+                // for it (LP feature was removed in Phase 6), so no persisted
+                // state exists. Local copy-track UI still highlights via
+                // copiedItems; no backend write is needed.
               };
 
               return <WebsiteUrlSection urls={allUrls} cardKey={flexId} usedIndices={usedIndices} onMarkUsed={handleMarkUsed} instructionText={instructionText} />;
@@ -2038,7 +2157,8 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
             for (const [cardKey, cardType] of selectedCards) {
               if (cardType === 'flex') {
                 const flexId = cardKey.replace('flex-', '');
-                deletes.push(api.deleteFlexAd(flexId));
+                // Phase 6.20b — native ungroup instead of legacy adapter delete
+                deletes.push(api.ungroupAdSet(projectId, flexId));
               } else {
                 deletes.push(api.deleteDeployment(cardKey));
               }
