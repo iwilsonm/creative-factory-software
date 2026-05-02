@@ -25,6 +25,7 @@ const AnalyticsTab = lazy(() => import('../components/AnalyticsTab'));
 // Phase 3 — Observation tab + settings
 const ObservationTab = lazy(() => import('../components/ObservationTab'));
 const ObservationSettings = lazy(() => import('../components/ObservationSettings'));
+const RecentAgentActivity = lazy(() => import('../components/RecentAgentActivity'));
 
 const STATUS_CONFIG = {
   setup: { label: 'Setup', bg: 'bg-gold/10', text: 'text-gold' },
@@ -595,6 +596,9 @@ export default function ProjectDetail() {
             <CostSummaryCards costs={projectCosts} loading={costsLoading} />
           </div>
 
+          <ErrorBoundary level="tab" key="recent_agent_activity">
+            <RecentAgentActivity projectId={id} />
+          </ErrorBoundary>
 
           </>
           )}
