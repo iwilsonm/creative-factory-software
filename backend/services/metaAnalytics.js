@@ -86,7 +86,7 @@ const INSIGHTS_FIELDS = [
  * Fetch insights for all entities at a level in one batch call.
  * Returns a Map keyed by the relevant ID field.
  */
-async function fetchInsightsByLevel(token, accountId, level, dateParams) {
+async function fetchInsightsByLevel(token, accountId, level, dateParams, scope = {}) {
   // level: "campaign" | "adset" | "ad"
   const idField = level + '_id'; // campaign_id, adset_id, ad_id
   const params = {
@@ -94,7 +94,19 @@ async function fetchInsightsByLevel(token, accountId, level, dateParams) {
     fields: `${idField},${INSIGHTS_FIELDS}`,
     ...dateParams,
   };
-  const rows = await graphGetAll(token, `/${accountId}/insights`, params);
+  const filters = [];
+  if (scope.campaignId) filters.push({ field: 'campaign.id', operator: 'IN', value: [scope.campaignId] });
+  if (scope.adsetId) filters.push({ field: 'adset.id', operator: 'IN', value: [scope.adsetId] });
+  if (filters.length > 0) params.filtering = JSON.stringify(filters);
+  let rows;
+  try {
+    rows = await graphGetAll(token, `/${accountId}/insights`, params);
+  } catch (err) {
+    if (!params.filtering) throw err;
+    console.warn('[metaAnalytics] scoped insights filtering failed; falling back to account insights:', err.message);
+    const { filtering, ...fallbackParams } = params;
+    rows = await graphGetAll(token, `/${accountId}/insights`, fallbackParams);
+  }
   const byId = new Map();
   for (const row of rows) {
     const id = row[idField];
@@ -195,7 +207,7 @@ export async function getAdSetsWithInsights(token, accountId, opts = {}) {
     graphGetAll(token, path, {
       fields: 'id,name,campaign_id,status,effective_status,daily_budget,lifetime_budget,budget_remaining,bid_strategy,bid_amount,billing_event,optimization_goal,start_time,end_time,created_time,updated_time',
     }),
-    fetchInsightsByLevel(token, accountId, 'adset', dateParams),
+    fetchInsightsByLevel(token, accountId, 'adset', dateParams, { campaignId: opts.campaignId }),
     graphGetAll(token, `/${accountId}/campaigns`, {
       fields: 'id,name,objective,status,effective_status,buying_type',
     }),
@@ -219,7 +231,7 @@ export async function getAdsWithInsights(token, accountId, opts = {}) {
     graphGetAll(token, path, {
       fields: 'id,name,adset_id,campaign_id,status,effective_status,creative{id,name,thumbnail_url,object_story_spec},created_time,updated_time',
     }),
-    fetchInsightsByLevel(token, accountId, 'ad', dateParams),
+    fetchInsightsByLevel(token, accountId, 'ad', dateParams, { adsetId: opts.adsetId }),
     graphGetAll(token, `/${accountId}/adsets`, {
       fields: 'id,name,campaign_id,status,effective_status,optimization_goal,billing_event,bid_strategy',
     }),

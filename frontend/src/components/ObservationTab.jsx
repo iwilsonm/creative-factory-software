@@ -13,7 +13,6 @@ export default function ObservationTab({ projectId }) {
   const [adSets, setAdSets] = useState([]);
   const [archived, setArchived] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [creatingDemo, setCreatingDemo] = useState(false);
   const [activeAdSetId, setActiveAdSetId] = useState(null);
   const [filter, setFilter] = useState('all');
 
@@ -34,20 +33,6 @@ export default function ObservationTab({ projectId }) {
   }, [projectId]);
 
   useEffect(() => { load(); }, [load]);
-
-  const createDemo = async () => {
-    setCreatingDemo(true);
-    try {
-      const res = await api.createObservationDemoAdSet(projectId);
-      toast.success('Demo observation ad set added');
-      await load();
-      if (res?.ad_set_id) setActiveAdSetId(res.ad_set_id);
-    } catch (err) {
-      toast.error(err.message);
-    } finally {
-      setCreatingDemo(false);
-    }
-  };
 
   const filtered = adSets.filter((a) => {
     if (filter === 'all') return true;
@@ -86,9 +71,6 @@ export default function ObservationTab({ projectId }) {
         <button onClick={load} disabled={loading} className="btn-secondary text-[12px] px-3 py-1.5">
           {loading ? 'Loading…' : 'Refresh'}
         </button>
-        <button onClick={createDemo} disabled={creatingDemo} className="btn-secondary text-[12px] px-3 py-1.5">
-          {creatingDemo ? 'Adding…' : 'Add demo ad set'}
-        </button>
       </div>
 
       <div className="card overflow-hidden">
@@ -105,16 +87,7 @@ export default function ObservationTab({ projectId }) {
             </thead>
             <tbody>
               {!loading && filtered.length === 0 && (
-                <tr>
-                  <td colSpan={5} className="px-3 py-12 text-center text-textlight">
-                    <div className="space-y-3">
-                      <div>No ad sets in this view.</div>
-                      <button onClick={createDemo} disabled={creatingDemo} className="btn-secondary text-[12px] px-3 py-1.5">
-                        {creatingDemo ? 'Adding…' : 'Add demo ad set'}
-                      </button>
-                    </div>
-                  </td>
-                </tr>
+                <tr><td colSpan={5} className="px-3 py-12 text-center text-textlight">No ad sets in this view.</td></tr>
               )}
               {filtered.map((a) => {
                 const ccy = a.account_currency || 'USD';

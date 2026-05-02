@@ -303,25 +303,43 @@ export default function AnalyticsTab({ projectId }) {
   const [tagPickerForRow, setTagPickerForRow] = useState(null);
   const [showManageTags, setShowManageTags] = useState(false);
   const [showSaveView, setShowSaveView] = useState(false);
+  const requestSeqRef = useRef(0);
 
   const entityType = useMemo(() => LEVELS.find((l) => l.id === level)?.entity, [level]);
   const availableColumns = useMemo(() => filterableColumns(level), [level]);
+  const queryKey = useMemo(() => JSON.stringify({
+    projectId,
+    level,
+    datePreset,
+    dateFrom: customRange.from || '',
+    dateTo: customRange.to || '',
+    campaignId: scope.campaignId || '',
+    adsetId: scope.adsetId || '',
+  }), [projectId, level, datePreset, customRange.from, customRange.to, scope.campaignId, scope.adsetId]);
 
-  const loadData = useCallback(async () => {
+  const loadData = useCallback(async ({ clearRows = false } = {}) => {
+    const requestSeq = requestSeqRef.current + 1;
+    requestSeqRef.current = requestSeq;
+    const isCurrentRequest = () => requestSeqRef.current === requestSeq;
     setLoading(true);
     setError(null);
     setTokenExpired(false);
+    if (clearRows) setRows([]);
     try {
       const opts = {};
       if (datePreset === 'custom') {
         if (!customRange.from || !customRange.to) {
-          setRows([]);
-          setError('Choose a start and end date for the custom range.');
+          if (isCurrentRequest()) {
+            setRows([]);
+            setError('Choose a start and end date for the custom range.');
+          }
           return;
         }
         if (customRange.from > customRange.to) {
-          setRows([]);
-          setError('Custom range start must be before or equal to the end date.');
+          if (isCurrentRequest()) {
+            setRows([]);
+            setError('Custom range start must be before or equal to the end date.');
+          }
           return;
         }
         opts.dateFrom = customRange.from;
@@ -336,16 +354,18 @@ export default function AnalyticsTab({ projectId }) {
       if (level === 'campaigns') payload = await api.getAnalyticsCampaigns(projectId, opts);
       else if (level === 'adsets') payload = await api.getAnalyticsAdSets(projectId, opts);
       else payload = await api.getAnalyticsAds(projectId, opts);
+      if (!isCurrentRequest()) return;
       setRows(payload.campaigns || payload.adsets || payload.ads || []);
     } catch (err) {
+      if (!isCurrentRequest()) return;
       if (/token/i.test(err.message) && /expired|reconnect/i.test(err.message)) {
         setTokenExpired(true);
       }
       setError(err.message);
     } finally {
-      setLoading(false);
+      if (isCurrentRequest()) setLoading(false);
     }
-  }, [projectId, level, datePreset, customRange.from, customRange.to, scope.campaignId, scope.adsetId]);
+  }, [projectId, level, datePreset, customRange.from, customRange.to, scope.campaignId, scope.adsetId, queryKey]);
 
   const loadTags = useCallback(async () => {
     try {
@@ -368,7 +388,7 @@ export default function AnalyticsTab({ projectId }) {
     } catch { /* ignore */ }
   }, [projectId]);
 
-  useEffect(() => { loadData(); }, [loadData]);
+  useEffect(() => { loadData({ clearRows: true }); }, [loadData]);
   useEffect(() => { loadTags(); loadViews(); }, [loadTags, loadViews]);
   useEffect(() => { loadAssignments(); }, [loadAssignments]);
 
