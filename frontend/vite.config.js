@@ -1,8 +1,14 @@
 import { defineConfig } from 'vite';
 import react from '@vitejs/plugin-react';
 
-export default defineConfig(({ command }) => ({
-  base: command === 'build' ? '/admin/' : '/',
+const normalizeBase = (basePath = '/') => {
+  const trimmed = basePath.trim();
+  if (!trimmed || trimmed === '/') return '/';
+  return `/${trimmed.replace(/^\/+|\/+$/g, '')}/`;
+};
+
+export default defineConfig(() => ({
+  base: normalizeBase(process.env.VITE_APP_BASE),
   plugins: [react()],
   server: {
     port: 5173,

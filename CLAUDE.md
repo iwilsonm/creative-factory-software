@@ -86,7 +86,7 @@ All API keys and config are stored in the Convex `settings` table (not .env):
 | `gemini_rate_*` | Gemini pricing rates (auto-refreshed daily) |
 | `headline_ref_1`, `headline_ref_2`, `headline_ref_3` | Reference copywriting docs for headlines |
 
-Vercel env vars (set via Vercel project settings, not `.env`): `CONVEX_URL=https://elated-mastiff-709.convex.cloud`. Most secrets live in the Convex `settings` table (auto-loaded at runtime).
+Vercel env vars (set via Vercel project settings, not `.env`): `CONVEX_URL=https://elated-mastiff-709.convex.cloud`. Most secrets live in the Convex `settings` table (auto-loaded at runtime). Do not set `VITE_APP_BASE` on Vercel; the app is hosted at `/`. Set `VITE_APP_BASE=/admin/` only for the legacy VPS/Nginx admin deployment.
 
 On disk (gitignored): `config/service-account.json` (Google Drive service account; deployed via Vercel build).
 
