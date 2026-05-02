@@ -23,10 +23,10 @@ function timingSafeEqual(a, b) {
 }
 
 async function requireCronSecret(req, res, next) {
-  // Vercel env var is named "Cron" in this deployment (Marco's naming choice).
-  const secret = process.env.Cron;
+  // Vercel env var is named "Chron" in this deployment (Marco's naming choice).
+  const secret = process.env.Chron;
   if (!secret) {
-    console.error('[cron] env var "Cron" not configured — rejecting request');
+    console.error('[cron] env var "Chron" not configured — rejecting request');
     return res.status(500).json({ error: 'Cron not configured on this deployment.' });
   }
   const authHeader = req.headers.authorization || '';
@@ -36,21 +36,6 @@ async function requireCronSecret(req, res, next) {
   }
   next();
 }
-
-// TEMPORARY DEBUG ENDPOINT — remove after diagnosing CRON_SECRET propagation.
-// Returns env var KEY NAMES only (no values) so we can confirm what reaches
-// the function. Filtered to ones we actually care about (don't dump 200 keys).
-router.get('/debug-env-keys', (req, res) => {
-  const all = Object.keys(process.env).sort();
-  const candidates = all.filter((k) =>
-    /cron/i.test(k) || /secret/i.test(k) || k.startsWith('VERCEL') || k.startsWith('NODE')
-  );
-  res.json({
-    total_env_vars: all.length,
-    candidates_matching_cron_or_secret_or_vercel_or_node: candidates,
-    first_50_keys_alpha: all.slice(0, 50),
-  });
-});
 
 router.post('/observation', requireCronSecret, async (req, res) => {
   try {
