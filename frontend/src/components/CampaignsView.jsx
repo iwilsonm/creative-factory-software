@@ -1463,7 +1463,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
         <div className="fixed inset-0 bg-black/20 z-40" onClick={closeSidebar} />
 
         {/* Panel */}
-        <div className="fixed right-0 top-0 h-full w-[420px] bg-white shadow-xl z-50 overflow-y-auto overscroll-contain animate-slide-in-right scrollbar-thin">
+        <div className="fixed right-0 top-0 h-[100dvh] w-full sm:w-[min(92vw,960px)] bg-white shadow-xl z-50 flex flex-col overflow-hidden overscroll-contain animate-slide-in-right">
           {/* Header */}
           <div className="sticky top-0 bg-white border-b border-gray-100 px-5 py-4 flex items-center justify-between z-10">
             <div className="flex items-center gap-2">
@@ -1479,12 +1479,12 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
             </button>
           </div>
 
-          <div className="p-5 space-y-5">
+          <div className="flex-1 overflow-y-auto p-5 pb-4 flex flex-col gap-4 scrollbar-thin">
             {/* Image section */}
             {isFlex ? (
               <div className="space-y-2">
                 <label className="text-[10px] font-medium text-textlight uppercase tracking-wider">
-                  {childDeps.length} Ad{childDeps.length !== 1 ? 's' : ''} in Flex
+                  {childDeps.length} Ad{childDeps.length !== 1 ? 's' : ''} in Ad Set
                 </label>
                 {childDeps.map(d => {
                   const adName = d.ad?.headline || d.ad?.angle || d.ad_name || `Ad ${(d.id || '').slice(0, 6)}`;
@@ -1518,7 +1518,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
                       </button>
                       {isExpanded && d.imageUrl && (
                         <div className="px-2.5 pb-2.5">
-                          <img src={d.imageUrl} alt="" className="w-full rounded-lg bg-gray-100" />
+                          <img src={d.imageUrl} alt="" className="w-full max-h-72 object-contain rounded-lg bg-gray-100" />
                           {d.ad?.angle && (
                             <div className="mt-2">
                               <span className="text-[9px] font-medium text-textlight uppercase tracking-wider">Angle</span>
@@ -1539,7 +1539,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
               </div>
             ) : (
               dep?.imageUrl && (
-                <img src={dep.imageUrl} alt="" className="w-full rounded-xl bg-gray-100" />
+                <img src={dep.imageUrl} alt="" className="w-full max-h-[42vh] object-contain rounded-xl bg-gray-100" />
               )
             )}
 
@@ -1580,7 +1580,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
             )}
 
             {/* ─── Primary Text (collapsible) ─── */}
-            <div className="rounded-xl border border-gray-200 overflow-hidden">
+            <div className="order-[20] rounded-xl border border-gray-200 overflow-hidden">
               <div
                 onClick={() => setPrimaryTextOpen(!primaryTextOpen)}
                 className="w-full flex items-center justify-between px-4 py-3 bg-offwhite hover:bg-gray-100 transition-colors cursor-pointer select-none"
@@ -1738,7 +1738,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
             </div>
 
             {/* ─── Headlines (collapsible) ─── */}
-            <div className="rounded-xl border border-gray-200 overflow-hidden">
+            <div className="order-[21] rounded-xl border border-gray-200 overflow-hidden">
               <div
                 onClick={() => setHeadlinesOpen(!headlinesOpen)}
                 className="w-full flex items-center justify-between px-4 py-3 bg-offwhite hover:bg-gray-100 transition-colors cursor-pointer select-none"
@@ -1894,7 +1894,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
             </div>
 
             {/* ─── Website URL ─── */}
-            <div>
+            <div className="order-[5]">
               <label className="text-[11px] font-semibold text-textdark uppercase tracking-wider">
                 Website URL{sidebarForm.destination_urls.length > 1 ? 's' : ''}
               </label>
@@ -1949,7 +1949,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
             </div>
 
             {/* ─── Display Link ─── */}
-            <div>
+            <div className="order-[6]">
               <label className="flex items-center gap-2 cursor-pointer select-none">
                 <input
                   type="checkbox"
@@ -1971,7 +1971,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
             </div>
 
             {/* ─── Call to Action ─── */}
-            <div>
+            <div className="order-[7]">
               <label className="text-[11px] font-semibold text-textdark uppercase tracking-wider">Call to Action</label>
               <select
                 value={sidebarForm.cta_button}
@@ -1985,7 +1985,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
             </div>
 
             {/* ─── Facebook Page ─── */}
-            <div>
+            <div className="order-[8]">
               <label className="text-[11px] font-semibold text-textdark uppercase tracking-wider">Facebook Page</label>
               <input
                 type="text"
@@ -1998,7 +1998,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
             </div>
 
             {/* ─── Start Date ─── */}
-            <div>
+            <div className="order-[9]">
               <label className="text-[11px] font-semibold text-textdark uppercase tracking-wider">Start Date</label>
               <select
                 value={sidebarForm.planned_date ? 'scheduled' : 'immediately'}
@@ -2030,7 +2030,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
             </div>
 
             {/* ─── Notes ─── */}
-            <div className="border-t border-gray-100 pt-4 mt-4">
+            <div className="order-[30] border-t border-gray-100 pt-4 mt-2">
               <label className="text-[11px] text-textmid font-medium block mb-1">Notes <span className="text-textlight">(optional)</span></label>
               <textarea
                 value={sidebarForm.notes}
@@ -2042,7 +2042,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
             </div>
 
             {/* ─── Campaign & Placement ─── */}
-            <div className="border-t border-gray-100 pt-4 mt-4">
+            <div className="order-[10] border-t border-gray-100 pt-4 mt-2">
               <h4 className="text-[11px] font-bold text-textmid uppercase tracking-wider mb-3">Campaign & Placement</h4>
 
               {/* Campaign dropdown */}
@@ -2096,20 +2096,9 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
               </p>
             </div>
 
-            {/* ─── Save ─── */}
-            <div className="pt-3 pb-6">
-              <button
-                onClick={() => handleSaveSidebar({ closeAfter: true })}
-                disabled={sidebarSaving}
-                className="btn-primary w-full text-[12px] py-2.5 disabled:opacity-50"
-              >
-                {sidebarSaving ? 'Saving...' : 'Save & Close'}
-              </button>
-            </div>
-
             {/* ─── Duplicate Confirmation Dialog (multi-URL) ─── */}
             {duplicateConfirm && (
-              <div className="mt-4 p-4 rounded-xl border-2 border-gold/30 bg-gold/5 space-y-3 fade-in">
+              <div className="order-[40] mt-2 p-4 rounded-xl border-2 border-gold/30 bg-gold/5 space-y-3 fade-in">
                 <div className="flex items-start gap-2.5">
                   <div className="w-8 h-8 rounded-lg bg-gold/10 flex items-center justify-center flex-shrink-0">
                     <svg className="w-4 h-4 text-gold" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -2153,6 +2142,22 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
                 </div>
               </div>
             )}
+          </div>
+          <div className="border-t border-gray-100 bg-white px-5 py-3 flex items-center justify-end gap-2">
+            <button
+              onClick={closeSidebar}
+              disabled={sidebarSaving}
+              className="btn-secondary text-[12px] px-4 py-2 disabled:opacity-50"
+            >
+              Close
+            </button>
+            <button
+              onClick={() => handleSaveSidebar({ closeAfter: true })}
+              disabled={sidebarSaving}
+              className="btn-primary text-[12px] px-5 py-2 disabled:opacity-50"
+            >
+              {sidebarSaving ? 'Saving...' : 'Save & Close'}
+            </button>
           </div>
         </div>
       </>

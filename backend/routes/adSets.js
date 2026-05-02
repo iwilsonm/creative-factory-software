@@ -24,6 +24,7 @@ import {
   getAdSetsByProject,
   promoteAdSet,
   regroupAds,
+  createAdSet,
   createEmptyAdSet,
   forcePromoteAd,
   updateAdSet,
@@ -36,6 +37,11 @@ import {
   updateDeployment,
 } from '../convexClient.js';
 import { postAdSetToMeta } from '../services/metaWriter.js';
+import {
+  buildManualAdSetCreateInput,
+  rollbackManualAdSetCombine,
+  snapshotDeploymentAssignments,
+} from '../services/adSetPlanner.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -105,30 +111,39 @@ router.post('/:projectId/ad-sets', requireRole('admin', 'manager'), async (req, 
       resolvedCampaignId = await ensureDefaultCampaign(project);
     }
 
+    const projectDeployments = await getDeploymentsByProject(req.params.projectId);
+    const { missingIds, snapshots } = snapshotDeploymentAssignments(deployment_ids, projectDeployments);
+    if (missingIds.length > 0) {
+      return res.status(400).json({ error: `Unknown deployment_ids: ${missingIds.join(', ')}` });
+    }
+
     const defaults = parseAdSetDefaults(project);
     const adSetId = uuidv4();
-    await createEmptyAdSet({
-      id: adSetId,
-      project_id: req.params.projectId,
-      campaign_id: resolvedCampaignId,
-      angle_id: angle_id || undefined,
+    await createAdSet(buildManualAdSetCreateInput({
+      adSetId,
+      projectId: req.params.projectId,
+      campaignId: resolvedCampaignId,
+      angleId: angle_id,
       name,
-      sort_order: 0,
-      meta_targeting: defaults.meta_targeting,
-      meta_budget_type: defaults.meta_budget_type,
-      meta_budget_amount_cents: defaults.meta_budget_amount_cents,
-      meta_schedule: defaults.meta_schedule,
-      meta_optimization_goal: defaults.meta_optimization_goal,
-      meta_billing_event: defaults.meta_billing_event,
-    });
-
-    // Phase 6 — new ad_sets created via the manual Combine flow start in 'draft' (Planner).
-    // (createEmptyAdSet's default is the legacy 'staging'; bring forward to draft.)
-    await updateAdSet(adSetId, { lifecycle_status: 'draft' });
+      defaults,
+    }));
 
     // Attach the deployments via local_adset_id (replaces flex_ad_id).
-    for (const depId of deployment_ids) {
-      await updateDeployment(depId, { local_adset_id: adSetId, local_campaign_id: resolvedCampaignId });
+    const updatedDeploymentIds = [];
+    try {
+      for (const depId of deployment_ids) {
+        await updateDeployment(depId, { local_adset_id: adSetId, local_campaign_id: resolvedCampaignId });
+        updatedDeploymentIds.push(depId);
+      }
+    } catch (err) {
+      await rollbackManualAdSetCombine({
+        adSetId,
+        updatedDeploymentIds,
+        snapshots,
+        updateDeployment,
+        deleteAdSet,
+      });
+      throw err;
     }
 
     res.json({ success: true, adSetId, campaign_id: resolvedCampaignId });

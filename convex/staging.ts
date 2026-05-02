@@ -67,13 +67,14 @@ export const promote = mutation({
 });
 
 // Create an empty ad set on the Staging Page (for regroup-into-new flows).
-// Inherits campaign + Meta settings from project defaults; angle is required.
+// Inherits campaign + Meta settings from project defaults. Legacy API routes
+// still require angle_id where Director/staging semantics need it.
 export const createEmptyAdSet = mutation({
   args: {
     externalId: v.string(),
     project_id: v.string(),
     campaign_id: v.string(),
-    angle_id: v.string(),
+    angle_id: v.optional(v.string()),
     name: v.string(),
     sort_order: v.number(),
     // Meta defaults pulled from project at call site; passed through
@@ -90,7 +91,7 @@ export const createEmptyAdSet = mutation({
       externalId: args.externalId,
       project_id: args.project_id,
       campaign_id: args.campaign_id,
-      angle_id: args.angle_id,
+      ...(args.angle_id ? { angle_id: args.angle_id } : {}),
       name: args.name,
       sort_order: args.sort_order,
       lifecycle_status: "staging",
