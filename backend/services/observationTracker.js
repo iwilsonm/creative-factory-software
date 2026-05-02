@@ -463,23 +463,13 @@ export async function runObservationSweep(projectId, opts = {}) {
       } catch (err) {
         log('stats', `failed: ${err.message}`);
       }
-      let deriveDebug = null;
       try {
         const deriveResult = await deriveSubAnglesForProject(projectId);
         derived_count = deriveResult.derived_count || 0;
-        deriveDebug = {
-          derived_count,
-          skipped: deriveResult.skipped || [],
-          errors: deriveResult.errors || [],
-          parents_processed: deriveResult.parents_processed || [],
-          top_level_skip_reason: deriveResult.skipped === undefined ? deriveResult.reason : undefined,
-        };
         log('derive', `derived=${derived_count} skipped=${(deriveResult.skipped || []).length} errors=${(deriveResult.errors || []).length}`);
       } catch (err) {
         log('derive', `failed: ${err.message}`);
-        deriveDebug = { error: err.message };
       }
-      result.deriveDebug = deriveDebug;
     }
 
     return { ...result, stats_updated, derived_count, durationMs: Date.now() - startedAt, currency };
