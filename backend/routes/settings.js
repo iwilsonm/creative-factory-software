@@ -27,9 +27,11 @@ const ALLOWED_SETTING_KEYS = [
   'pinned_project_ids',  // JSON array of project externalIds (global pinning)
 ];
 
+// Phase 6.25 — removed `enable_phase1_staging:<projectId>` regex branch.
+// The Staging tab and its toggle are gone (Phase 6 unified the pipeline).
+// Do not re-add without a real consumer.
 function isAllowedSettingKey(key) {
-  if (ALLOWED_SETTING_KEYS.includes(key)) return true;
-  return /^enable_phase1_staging:[A-Za-z0-9_-]+$/.test(key);
+  return ALLOWED_SETTING_KEYS.includes(key);
 }
 
 // Get all settings (mask sensitive values)
