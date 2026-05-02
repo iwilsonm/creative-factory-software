@@ -295,23 +295,22 @@ try {
   // Routes — projects (all roles can list/view projects for navigation)
   // Phase 6 — adSetRoutes mounted here (was: lpAgentRoutes + stagingRoutes deleted).
   app.use('/api/projects', adSetRoutes);
-  // Phase 6 — flat ad-set routes (project-agnostic by-id) for legacy
-  // api.updateFlexAd/api.deleteFlexAd which had no projectId param.
-  app.use('/api', adSetsFlatRouter);
   app.use('/api/projects', projectRoutes);
   // Phase 2A — Meta integration routes. MUST be mounted before deploymentRoutes
-  // (which has `router.use(requireAuth)` and is mounted at /api). Without this
+  // and any other broad `/api` router with `router.use(requireAuth)`. Without this
   // ordering, the OAuth callback at /api/meta/oauth/callback can never run
   // because Facebook's redirect arrives without a session cookie (sameSite=strict
-  // blocks the session cookie on top-level cross-site navigation), and
-  // deploymentRoutes' router-wide requireAuth would reject before metaRoutes
-  // is reached. Other Meta routes still enforce auth via per-route middleware.
+  // blocks the session cookie on top-level cross-site navigation).
   app.use('/api/meta', metaRoutes);
-  // Phase 3 — Vercel Cron entrypoint. MUST be mounted before deploymentRoutes
-  // (which has router-wide requireAuth) for the same reason /api/meta is —
+  // Phase 3 — Vercel Cron entrypoint. MUST be mounted before broad authenticated
+  // /api routers for the same reason /api/meta is —
   // Vercel Cron requests arrive with no session cookie, just an
   // Authorization: Bearer header; routes/cron.js validates that internally.
   app.use('/api/cron', cronRoutes);
+  // Phase 6 — flat ad-set routes (project-agnostic by-id) for legacy
+  // api.updateFlexAd/api.deleteFlexAd which had no projectId param.
+  // Keep this after public/signed routes because it has router-wide requireAuth.
+  app.use('/api', adSetsFlatRouter);
   // Routes — deployments (poster has limited access — controlled per-route inside)
   // IMPORTANT: Must be mounted BEFORE broad /api routes with requireRole('admin', 'manager')
   // because Express runs middleware in order and those broad /api mounts would block poster users
