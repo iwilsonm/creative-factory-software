@@ -68,6 +68,7 @@ describe('OpenAI image access check', () => {
     expect(result.success).toBe(false);
     expect(result.status).toBe('unauthorized');
     expect(result.message).toContain('stored key');
+    expect(result.message).toContain('https://help.openai.com/en/articles/10910291-api-organization-verification');
   });
 
   it('maps organization verification failures clearly', () => {
@@ -79,6 +80,7 @@ describe('OpenAI image access check', () => {
     expect(result.status).toBe('org_not_verified');
     expect(result.code).toBe('organization_not_verified');
     expect(result.message).toContain('Organization Verification');
+    expect(result.message).toContain('https://platform.openai.com/settings/organization/general');
   });
 
   it('maps unavailable image models clearly', () => {

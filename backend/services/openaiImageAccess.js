@@ -1,6 +1,8 @@
 import OpenAI from 'openai';
 
 export const DEFAULT_OPENAI_IMAGE_MODEL = 'gpt-image-2';
+export const OPENAI_ORG_VERIFICATION_URL = 'https://help.openai.com/en/articles/10910291-api-organization-verification';
+export const OPENAI_ORG_SETTINGS_URL = 'https://platform.openai.com/settings/organization/general';
 
 function getOpenAIStatus(err) {
   return err?.status || err?.statusCode || err?.response?.status || null;
@@ -50,7 +52,7 @@ export function classifyOpenAIImageAccessError(err, model = DEFAULT_OPENAI_IMAGE
       model,
       status: 'unauthorized',
       code: code || 'unauthorized',
-      message: 'OpenAI API key was rejected. Check that the stored key is correct and belongs to the verified organization.',
+      message: `OpenAI API key was rejected. Ask the API key owner to confirm the stored key is correct and belongs to the verified organization. Verification guide: ${OPENAI_ORG_VERIFICATION_URL}`,
     };
   }
 
@@ -65,7 +67,7 @@ export function classifyOpenAIImageAccessError(err, model = DEFAULT_OPENAI_IMAGE
       model,
       status: 'org_not_verified',
       code: code || 'organization_not_verified',
-      message: 'GPT Image 2 still requires API Organization Verification for this key or organization. Confirm the stored key belongs to the verified OpenAI organization.',
+      message: `GPT Image 2 still requires API Organization Verification for this key or organization. Ask the API key owner to complete verification here: ${OPENAI_ORG_SETTINGS_URL}. OpenAI guide: ${OPENAI_ORG_VERIFICATION_URL}`,
     };
   }
 
@@ -84,7 +86,7 @@ export function classifyOpenAIImageAccessError(err, model = DEFAULT_OPENAI_IMAGE
       model,
       status: 'model_unavailable',
       code: code || 'model_not_available',
-      message: `${model} is not available to this OpenAI API key or project yet.`,
+      message: `${model} is not available to this OpenAI API key or project yet. Ask the API key owner to check model access and organization verification: ${OPENAI_ORG_SETTINGS_URL}`,
     };
   }
 
@@ -94,7 +96,7 @@ export function classifyOpenAIImageAccessError(err, model = DEFAULT_OPENAI_IMAGE
       model,
       status: 'access_denied',
       code: code || 'access_denied',
-      message: `OpenAI denied access to ${model}. Confirm the API key belongs to the verified organization and project.`,
+      message: `OpenAI denied access to ${model}. Ask the API key owner to confirm the key belongs to the verified organization and project: ${OPENAI_ORG_SETTINGS_URL}`,
     };
   }
 
