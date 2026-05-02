@@ -1,5 +1,8 @@
 import { useState, useEffect } from 'react';
 import { api } from '../api';
+// Phase 6.10 — surface Phase 3 observation state on each posted card.
+import ObservationPill from './observation/ObservationPill';
+import AdSetTimeline from './observation/AdSetTimeline';
 
 /**
  * PostedView — Shows posted ads grouped by flex ad, mirroring the Ready to Post card layout.
@@ -13,6 +16,9 @@ export default function PostedView({ projectId, deployments, setDeployments, add
   const [loading, setLoading] = useState(true);
   const [sendingBackIds, setSendingBackIds] = useState(new Set());
   const [expandedCards, setExpandedCards] = useState(new Set());
+  // Phase 6.10 — Phase 3 observation enrichment + AdSetTimeline drawer
+  const [observationAdSets, setObservationAdSets] = useState([]);
+  const [activeAdSetId, setActiveAdSetId] = useState(null);
 
   const toggleCardExpanded = (key) => {
     setExpandedCards(prev => {
@@ -27,13 +33,17 @@ export default function PostedView({ projectId, deployments, setDeployments, add
   const loadData = async () => {
     setLoading(true);
     try {
-      const [campData, flexData] = await Promise.all([
+      const [campData, flexData, obsData] = await Promise.all([
         api.getCampaigns(projectId),
         api.getFlexAds(projectId),
+        // Phase 6.10 — batched enrichment for ObservationPill across all observed ad_sets.
+        // Returns ad_sets with days_observed, is_paused, latest_result, window_total fields.
+        api.getObservationAdSets(projectId).then((r) => r?.ad_sets || []).catch(() => []),
       ]);
       setCampaigns(campData.campaigns || []);
       setAdSets(campData.adSets || []);
       setFlexAds(flexData.flexAds || []);
+      setObservationAdSets(obsData);
     } catch (err) {
       console.error('PostedView loadData error:', err);
     }
@@ -237,8 +247,31 @@ export default function PostedView({ projectId, deployments, setDeployments, add
                 <span className="font-bold text-textdark">{flexAd.name || 'Flex Ad'}</span>
               </div>
               <div className="flex items-center gap-2 flex-wrap">
-                <span className="inline-block px-2 py-0.5 rounded bg-teal/10 text-teal text-[9px] font-bold uppercase tracking-wider">Posted</span>
-                <span className="inline-block px-2 py-0.5 rounded bg-navy/10 text-navy text-[9px] font-bold uppercase tracking-wider">Flexible · {depsWithImages.length} images</span>
+                {/* Phase 6.10 — observation state pill (Day N/12, Passed, Failed, etc.).
+                    Click opens AdSetTimeline drawer with full observation history. */}
+                {(() => {
+                  const enriched = observationAdSets.find((s) => s.externalId === flexAd.id);
+                  if (enriched) {
+                    return (
+                      <ObservationPill
+                        adSet={enriched}
+                        onClick={() => setActiveAdSetId(flexAd.id)}
+                      />
+                    );
+                  }
+                  return (
+                    <span className="inline-block px-2 py-0.5 rounded bg-teal/10 text-teal text-[9px] font-bold uppercase tracking-wider">Posted</span>
+                  );
+                })()}
+                <span className="inline-block px-2 py-0.5 rounded bg-navy/10 text-navy text-[9px] font-bold uppercase tracking-wider">{depsWithImages.length} ads</span>
+                {/* Manual / Meta provenance chip — derives from meta_adset_id presence on the enriched ad_set */}
+                {(() => {
+                  const enriched = observationAdSets.find((s) => s.externalId === flexAd.id);
+                  if (!enriched) return null;
+                  return enriched.meta_adset_id
+                    ? <span className="inline-block px-2 py-0.5 rounded bg-gold/10 text-gold text-[9px] font-bold uppercase tracking-wider">Meta</span>
+                    : <span className="inline-block px-2 py-0.5 rounded bg-gray-100 text-textmid text-[9px] font-bold uppercase tracking-wider">Manual</span>;
+                })()}
                 {postedDate && (
                   <span className="text-[10px] text-textmid">{postedDate}</span>
                 )}
@@ -409,6 +442,16 @@ export default function PostedView({ projectId, deployments, setDeployments, add
       <div className="space-y-4">
         {cardList.map(card => card.type === 'single' ? renderAdCard(card.dep) : renderFlexCard(card.flexAd))}
       </div>
+
+      {/* Phase 6.10 — AdSetTimeline drawer for clicked ObservationPill.
+          Opens with full observation history (snapshots + result + benchmark). */}
+      <AdSetTimeline
+        projectId={projectId}
+        adSetId={activeAdSetId}
+        open={!!activeAdSetId}
+        onClose={() => setActiveAdSetId(null)}
+        onChanged={loadData}
+      />
     </div>
   );
 }

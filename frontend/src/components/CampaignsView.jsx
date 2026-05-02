@@ -1,5 +1,7 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { api } from '../api';
+// Phase 6.10 — Combine into Ad Set modal (replaces the legacy auto-name "Flexible Ad" combine flow)
+import CombineIntoAdSetModal from './CombineIntoAdSetModal';
 
 const CTA_OPTIONS = [
   'SHOP_NOW', 'LEARN_MORE', 'SIGN_UP', 'BOOK_NOW', 'CONTACT_US',
@@ -46,6 +48,9 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
   // Flex ad action confirmation: { id: flexAdId, action: 'ungroup'|'unplan'|'remove' } or null
   const [flexActionConfirm, setFlexActionConfirm] = useState(null);
   const [combiningFlex, setCombiningFlex] = useState(false);
+  // Phase 6.10 — Combine into Ad Set modal state
+  const [combineModalOpen, setCombineModalOpen] = useState(false);
+  const [combineModalDeploymentIds, setCombineModalDeploymentIds] = useState([]);
 
   // Image preview lightbox (for flex ad thumbnails)
   const [previewImage, setPreviewImage] = useState(null);
@@ -2258,14 +2263,36 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
               <span className="text-navy font-medium">{selectedInStaging.size} selected</span>
               {selectedInStaging.size >= 2 && (
                 <button
-                  onClick={handleCombineIntoFlex}
+                  onClick={() => {
+                    // Phase 6.10 — open Combine into Ad Set modal instead of
+                    // the legacy auto-name "Flexible Ad" combine. Resolves
+                    // selected items to deployment IDs (handling both standalone
+                    // deployments AND already-grouped flex/ad-set children).
+                    const selected = [...selectedInStaging];
+                    const standaloneDepIds = selected.filter((id) => deployments.some((d) => d.id === id));
+                    const selectedFlexIds = selected.filter((id) => flexAds.some((f) => f.id === id));
+                    const resolvedChildIds = [];
+                    for (const fid of selectedFlexIds) {
+                      const flex = flexAds.find((f) => f.id === fid);
+                      if (flex) {
+                        try { resolvedChildIds.push(...JSON.parse(flex.child_deployment_ids || '[]')); } catch { /* ignore */ }
+                      }
+                    }
+                    const allDepIds = [...new Set([...standaloneDepIds, ...resolvedChildIds])];
+                    if (allDepIds.length < 1) {
+                      addToast('No deployments selected', 'info');
+                      return;
+                    }
+                    setCombineModalDeploymentIds(allDepIds);
+                    setCombineModalOpen(true);
+                  }}
                   disabled={combiningFlex}
                   className="px-2 py-1 rounded-lg bg-navy text-white hover:bg-navy-light transition-colors inline-flex items-center gap-1 disabled:opacity-50"
                 >
                   <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2z" />
                   </svg>
-                  {combiningFlex ? 'Creating...' : 'Flex'}
+                  Combine into Ad Set
                 </button>
               )}
               <button
@@ -2387,6 +2414,27 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
           </div>
         </>
       )}
+
+      {/* Phase 6.10 — Combine into Ad Set modal */}
+      <CombineIntoAdSetModal
+        open={combineModalOpen}
+        projectId={projectId}
+        deploymentIds={combineModalDeploymentIds}
+        campaigns={campaigns}
+        defaultCampaignId={null}
+        existingAdSetNames={new Set((flexAds || []).map((f) => f.name))}
+        onClose={() => {
+          setCombineModalOpen(false);
+          setCombineModalDeploymentIds([]);
+        }}
+        onSuccess={async () => {
+          setCombineModalOpen(false);
+          setCombineModalDeploymentIds([]);
+          setSelectedInStaging(new Set());
+          addToast('Ad set created', 'success');
+          await Promise.all([loadCampaignData(true), loadDeployments()]);
+        }}
+      />
     </div>
   );
 }

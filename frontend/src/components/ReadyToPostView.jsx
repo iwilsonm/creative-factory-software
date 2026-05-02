@@ -271,18 +271,28 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
     setConfirmPosted(null);
     window.scrollTo({ top: 0, behavior: 'smooth' });
 
-    // API calls in background — all in parallel
+    // API calls in background — all in parallel.
+    // Phase 6.10 — also flip the parent ad_set lifecycle to 'observing' so
+    // Phase 3 cron picks it up. flexAd.id IS the ad_set externalId via the
+    // adapter. posted_at is set to NOW; for backdating, use the dedicated
+    // manual-mark modal (added separately).
     try {
       const carryOverFields = {};
       if (campaignName) carryOverFields.campaign_name = campaignName;
       if (adSetName) carryOverFields.ad_set_name = adSetName;
       if (flexAd.destination_url) carryOverFields.landing_page_url = flexAd.destination_url;
-      await Promise.all(childDeps.map(d =>
-        Promise.all([
-          Object.keys(carryOverFields).length > 0 ? api.updateDeployment(d.id, carryOverFields) : Promise.resolve(),
-          api.updateDeploymentStatus(d.id, 'posted'),
-        ])
-      ));
+      await Promise.all([
+        ...childDeps.map(d =>
+          Promise.all([
+            Object.keys(carryOverFields).length > 0 ? api.updateDeployment(d.id, carryOverFields) : Promise.resolve(),
+            api.updateDeploymentStatus(d.id, 'posted'),
+          ])
+        ),
+        api.updateAdSetUnified(projectId, flexAd.id, {
+          lifecycle_status: 'observing',
+          posted_at: new Date().toISOString(),
+        }).catch(() => { /* best-effort lifecycle sync; deployments status remains source of truth for this view */ }),
+      ]);
     } catch {
       addToast('Failed to save posted status — refreshing...', 'error');
       loadDeployments();
