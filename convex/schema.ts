@@ -200,19 +200,20 @@ export default defineSchema({
     angle_name: v.optional(v.string()),            // Which angle this batch targets
     angle_prompt: v.optional(v.string()),          // Full angle prompt injected into generation
     angle_brief: v.optional(v.string()),           // JSON: structured angle brief for downstream use
-    flex_ad_id: v.optional(v.string()),            // → flex_ads.externalId linked to this batch's winning output
+    flex_ad_id: v.optional(v.string()),            // DEPRECATED — Phase 6 — drop in 6.1 (LP feature removed)
     // LP auto-generation tracking
-    lp_primary_id: v.optional(v.string()),           // → landing_pages.externalId
-    lp_primary_url: v.optional(v.string()),          // Published URL
-    lp_primary_status: v.optional(v.string()),       // generating | published | live | failed
+    // DEPRECATED — Phase 6 — drop in 6.1 (LP feature removed from Creative Factory)
+    lp_primary_id: v.optional(v.string()),
+    lp_primary_url: v.optional(v.string()),
+    lp_primary_status: v.optional(v.string()),
     lp_primary_error: v.optional(v.string()),
     lp_primary_retry_count: v.optional(v.float64()),
-    lp_secondary_id: v.optional(v.string()),         // → landing_pages.externalId
+    lp_secondary_id: v.optional(v.string()),
     lp_secondary_url: v.optional(v.string()),
     lp_secondary_status: v.optional(v.string()),
     lp_secondary_error: v.optional(v.string()),
     lp_secondary_retry_count: v.optional(v.float64()),
-    lp_narrative_frames: v.optional(v.string()),     // JSON array of narrative frame IDs
+    lp_narrative_frames: v.optional(v.string()),
     gauntlet_lp_urls: v.optional(v.string()),        // JSON: [{ frame, frameName, url, score }]
     created_at: v.string(),
     started_at: v.optional(v.string()),
@@ -288,6 +289,9 @@ export default defineSchema({
     .index("by_project_and_lifecycle", ["project_id", "lifecycle_status"])
     .index("by_angle", ["angle_id"]),
 
+  // DEPRECATED — Phase 6 — drop in 6.1. Meta retired flex ads.
+  // Replaced by ad_sets as the parent container for ad_deployments.
+  // Schema preserved for backwards-compat reads only; no new writes.
   flex_ads: defineTable({
     externalId: v.string(),
     project_id: v.string(),                     // → projects.externalId
@@ -329,13 +333,13 @@ export default defineSchema({
     campaign_name: v.optional(v.string()),
     ad_set_name: v.optional(v.string()),
     ad_name: v.optional(v.string()),
-    landing_page_url: v.optional(v.string()),
+    landing_page_url: v.optional(v.string()),    // DEPRECATED — Phase 6 — drop in 6.1 (LP feature removed from CF)
     notes: v.optional(v.string()),
     planned_date: v.optional(v.string()),
     posted_date: v.optional(v.string()),
     local_campaign_id: v.optional(v.string()),  // → campaigns.externalId or "unplanned"
     local_adset_id: v.optional(v.string()),     // → ad_sets.externalId
-    flex_ad_id: v.optional(v.string()),          // → flex_ads.externalId
+    flex_ad_id: v.optional(v.string()),          // DEPRECATED — Phase 6 — drop in 6.1 (replaced by local_adset_id)
     primary_texts: v.optional(v.string()),       // JSON array of primary text strings
     ad_headlines: v.optional(v.string()),         // JSON array of headline strings
     destination_url: v.optional(v.string()),      // Meta destination URL
@@ -344,6 +348,8 @@ export default defineSchema({
     facebook_page: v.optional(v.string()),        // Facebook Page name to post from
     posted_by: v.optional(v.string()),            // Who will post this ad (e.g. "Corinne", "Liz")
     duplicate_adset_name: v.optional(v.string()), // Name for the duplicated ad set in Ads Manager
+    // Phase 6 — soft-lock TTL during Combine modal to prevent concurrent delete
+    lock_expires_at: v.optional(v.number()),     // ms timestamp; lock auto-expires
     created_at: v.string(),
     deleted_at: v.optional(v.string()),           // ISO timestamp for soft delete
   })
@@ -351,6 +357,14 @@ export default defineSchema({
     .index("by_ad_id", ["ad_id"])
     .index("by_status", ["status"])
     .index("by_project", ["project_id"]),
+
+  // Phase 6 — Director run lock. Prevents concurrent Director runs (cron + manual)
+  // for the same project. One row per project; auto-expires via expires_at.
+  director_locks: defineTable({
+    project_id: v.string(),
+    acquired_at: v.number(),
+    expires_at: v.number(),
+  }).index("by_project", ["project_id"]),
 
   inspiration_images: defineTable({
     project_id: v.string(),

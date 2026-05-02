@@ -519,20 +519,43 @@ export const api = {
   // Duplicate
   duplicateDeployment: (id, overrides) => request(`/deployments/${id}/duplicate`, { method: 'POST', body: JSON.stringify({ overrides }) }),
 
-  // Flex Ads
-  getFlexAds: (projectId) =>
-    request(`/deployments/flex-ads?projectId=${projectId}`).then(data => normalizeArrayResponse(data, 'flexAds', 'api.getFlexAds.flexAds')),
-  getFlexAdCount: (projectId, angleName) => request(`/deployments/flex-ads/count?projectId=${projectId}${angleName ? `&angleName=${encodeURIComponent(angleName)}` : ''}`),
-  createFlexAd: (projectId, adSetId, name, deploymentIds) =>
-    request('/deployments/flex-ads', { method: 'POST', body: JSON.stringify({ projectId, adSetId, name, deploymentIds }) }),
-  updateFlexAd: (id, fields) =>
-    request(`/deployments/flex-ads/${id}`, { method: 'PUT', body: JSON.stringify(fields) }),
-  updateFlexAdPostedBy: (id, posted_by) =>
-    request(`/deployments/flex-ads/${id}/posted-by`, { method: 'PUT', body: JSON.stringify({ posted_by }) }),
-  deleteFlexAd: (id) =>
-    request(`/deployments/flex-ads/${id}`, { method: 'DELETE' }),
-  restoreFlexAd: (id) =>
-    request(`/deployments/flex-ads/${id}/restore`, { method: 'POST' }),
+  // Phase 6 — Flex Ads removed. Methods kept as no-op shims so the legacy UI
+  // (CampaignsView/ReadyToPostView/PostedView) doesn't crash; full refactor is
+  // Phase 6.05 (replaces them with the unified Combine into Ad Set modal).
+  getFlexAds: (_projectId) => Promise.resolve({ flexAds: [] }),
+  getFlexAdCount: (_projectId, _angleName) => Promise.resolve({ count: 0 }),
+  createFlexAd: (_projectId, _adSetId, _name, _deploymentIds) =>
+    Promise.reject(new Error('Phase 6 — Flex Ads removed. Use Combine into Ad Set (coming in next UI release).')),
+  updateFlexAd: (_id, _fields) =>
+    Promise.reject(new Error('Phase 6 — Flex Ads removed.')),
+  updateFlexAdPostedBy: (deploymentId, posted_by) =>
+    request(`/deployments/${deploymentId}/posted-by`, { method: 'PUT', body: JSON.stringify({ posted_by }) }),
+  deleteFlexAd: (_id) => Promise.resolve({ success: true }),
+  restoreFlexAd: (_id) => Promise.resolve({ success: true }),
+
+  // Phase 6 — Unified Ad Set CRUD. Replaces flex_ad creation in the Planner,
+  // staging promotion, and the unified pipeline view.
+  getAdSets: (projectId, lifecycles = null) => {
+    const lc = Array.isArray(lifecycles) && lifecycles.length > 0
+      ? `?lifecycle=${encodeURIComponent(lifecycles.join(','))}` : '';
+    return request(`/projects/${projectId}/ad-sets${lc}`).then(d => d?.adSets ?? []);
+  },
+  createAdSetFromAds: (projectId, { name, campaign_id, deployment_ids, create_new_campaign, angle_id }) =>
+    request(`/projects/${projectId}/ad-sets`, {
+      method: 'POST',
+      body: JSON.stringify({ name, campaign_id, deployment_ids, create_new_campaign, angle_id }),
+    }),
+  updateAdSetUnified: (projectId, adSetId, fields) =>
+    request(`/projects/${projectId}/ad-sets/${adSetId}`, { method: 'PUT', body: JSON.stringify(fields) }),
+  moveAdSetToReady: (projectId, adSetId) =>
+    request(`/projects/${projectId}/ad-sets/${adSetId}/move-to-ready`, { method: 'POST' }),
+  ungroupAdSet: (projectId, adSetId) =>
+    request(`/projects/${projectId}/ad-sets/${adSetId}/ungroup`, { method: 'POST' }),
+  lockDeployments: (projectId, deployment_ids, ttlMs) =>
+    request(`/projects/${projectId}/lock-deployments`, {
+      method: 'POST',
+      body: JSON.stringify({ deployment_ids, ttlMs }),
+    }),
 
   // Primary Text & Headline Generation (sidebar)
   generatePrimaryText: (deploymentId, flexAdId, direction, messages) =>

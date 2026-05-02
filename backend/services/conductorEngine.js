@@ -18,7 +18,7 @@ import {
   getConductorSlotsByPostingDay, createConductorSlot, updateConductorSlot,
   createBatchJob, getBatchJob, updateBatchJob,
   getAdsByBatchId, getAd,
-  getFlexAdsByProject, getBatchesByProject,
+  getAdSetsByProject, getBatchesByProject,
   getProject, getAllConductorConfigs, convexClient, api,
 } from '../convexClient.js';
 import { getAdaptiveBatchSize } from './conductorLearning.js';
@@ -412,11 +412,20 @@ export function getActivePostingDays(now) {
  * deficit = target - produced - in_progress_batches
  */
 async function calculateDeficit(projectId, postingDay, target) {
-  const flexAds = await getFlexAdsByProject(projectId);
+  // Phase 6 — count ad_sets in non-terminal lifecycles instead of flex_ads.
+  // Each batch produces ONE ad_set in 'ready' lifecycle (was: one flex_ad).
+  // We approximate posting_day matching by checking ad_sets whose batch was
+  // tagged for this posting day.
+  const adSets = await getAdSetsByProject(projectId);
   const batches = await getBatchesByProject(projectId);
 
-  // Count flex ads tagged for this posting day
-  const produced = flexAds.filter(fa => fa.posting_day === postingDay).length;
+  // Count ad_sets that match this posting_day. Director-created ad_sets carry
+  // posting_day in their parent batch (linked via batch_jobs.flex_ad_id which
+  // we now repurpose to store ad_set_id during the Phase 6 transition).
+  const batchesForDay = new Set(
+    batches.filter((b) => b.posting_day === postingDay).map((b) => b.flex_ad_id).filter(Boolean)
+  );
+  const produced = adSets.filter((s) => batchesForDay.has(s.externalId)).length;
 
   // Count batches still in progress for this posting day
   const inProgress = batches.filter(b =>

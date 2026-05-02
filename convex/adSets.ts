@@ -108,6 +108,21 @@ export const getByProjectAndLifecycle = query({
   },
 });
 
+// Phase 6 — single-query, multi-lifecycle. Returns ad_sets in any of the given
+// lifecycle values. Used by the unified Ad Pipeline UI (Planner/Ready/Posted)
+// to render all three tabs from one query.
+export const getByProjectAndLifecycles = query({
+  args: { projectId: v.string(), lifecycles: v.array(v.string()) },
+  handler: async (ctx, args) => {
+    const all = await ctx.db
+      .query("ad_sets")
+      .withIndex("by_project", (q) => q.eq("project_id", args.projectId))
+      .collect();
+    const set = new Set(args.lifecycles);
+    return all.filter((a) => set.has(a.lifecycle_status || ""));
+  },
+});
+
 export const getByAngle = query({
   args: { angle_id: v.string() },
   handler: async (ctx, args) => {

@@ -8,9 +8,9 @@ import {
   getConductorPlaybooks, getConductorPlaybook,
   getFixerPlaybooks, upsertFixerPlaybook,
   getConductorSlots,
-  getFlexAdsByProject, getBatchesByProject,
+  getAdSetsByProject, getBatchesByProject,
   getProjectOptions,
-  getBatchJob, getLandingPagesByBatchJob,
+  getBatchJob,
 } from '../convexClient.js';
 import { buildDescriptionFromBrief, parseBriefFromDescription } from '../utils/angleParser.js';
 import { streamService } from '../utils/sseHelper.js';
@@ -56,16 +56,24 @@ async function computePipelineStatus() {
     const project = projectMap.get(config.project_id);
     if (!project) return null;
 
-    const [flexAds, batches, slots] = await Promise.all([
-      getFlexAdsByProject(config.project_id),
+    // Phase 6 — count ad_sets-by-day instead of flex_ads-by-day. Ad sets
+    // produced by Director land in 'ready' lifecycle; we approximate
+    // posting_day matching via the parent batch's posting_day (linked via
+    // batch_jobs.flex_ad_id which now stores the ad_set_id).
+    const [adSets, batches, slots] = await Promise.all([
+      getAdSetsByProject(config.project_id),
       getBatchesByProject(config.project_id),
       getConductorSlots(config.project_id),
     ]);
 
     const flexByDay = {};
-    for (const fa of flexAds) {
-      if (fa.posting_day) {
-        flexByDay[fa.posting_day] = (flexByDay[fa.posting_day] || 0) + 1;
+    const adSetsByDay = {};
+    for (const batch of batches) {
+      if (!batch.posting_day || !batch.flex_ad_id) continue;
+      const matched = adSets.find((s) => s.externalId === batch.flex_ad_id);
+      if (matched) {
+        adSetsByDay[batch.posting_day] = (adSetsByDay[batch.posting_day] || 0) + 1;
+        flexByDay[batch.posting_day] = (flexByDay[batch.posting_day] || 0) + 1; // legacy alias
       }
     }
 
@@ -101,8 +109,10 @@ async function computePipelineStatus() {
       project_id: config.project_id,
       project_name: project.name,
       brand_name: project.brand_name,
-      daily_flex_target: config.daily_flex_target,
+      daily_flex_target: config.daily_flex_target, // legacy field; equals daily ad-set target
+      daily_ad_set_target: config.daily_flex_target,
       flex_by_day: flexByDay,
+      ad_sets_by_day: adSetsByDay,
       active_batches_by_day: activeBatchesByDay,
       slots_by_day: slotsByDay,
     };
@@ -356,14 +366,11 @@ router.get('/run-batch-lp/:projectId/:batchId', async (req, res) => {
       return res.status(404).json({ error: 'Batch not found' });
     }
 
-    let landingPages = [];
-    let lpUnavailableReason = null;
-    try {
-      landingPages = await getLandingPagesByBatchJob(batchId);
-    } catch (err) {
-      if (!isMissingLPAgentError(err)) throw err;
-      lpUnavailableReason = 'LP Agent modules are not installed in this build.';
-    }
+    // Phase 6 — LP Agent removed from Creative Factory entirely.
+    // landing_pages table no longer used; this endpoint returns empty pages
+    // and a static unavailable reason for any frontend that still queries it.
+    const landingPages = [];
+    const lpUnavailableReason = 'LP Agent removed from Creative Factory in Phase 6.';
     const mappedPages = landingPages.map((page) => {
       const qaReport = safeParseJSON(page.qa_report, {});
       const smokeReport = safeParseJSON(page.smoke_test_report, {});

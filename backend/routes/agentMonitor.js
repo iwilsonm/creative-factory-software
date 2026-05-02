@@ -331,22 +331,25 @@ router.get('/filter/volumes', async (req, res) => {
     const today = getToday();
 
     const volumes = await Promise.all(projects.map(async (p) => {
+      // Phase 6 — count today's Director-produced ad_sets instead of flex_ads.
       let todayCount = 0;
       try {
-        const flexAds = await convexClient.query(api.flexAds.getByProject, { projectId: p.id });
-        todayCount = (flexAds || []).filter(fa =>
-          fa.created_at && fa.created_at.startsWith(today) &&
-          fa.name && fa.name.startsWith('Filter')
+        const adSets = await convexClient.query(api.adSets.getByProject, { projectId: p.id });
+        todayCount = (adSets || []).filter(s =>
+          s.created_at && s.created_at.startsWith(today) &&
+          s.name && /^Director — /.test(s.name)
         ).length;
-      } catch { /* no flex ads table or query error */ }
+      } catch { /* no ad sets or query error */ }
 
       return {
         id: p.id,
         name: p.name,
         brand_name: p.brand_name,
         scout_enabled: p.scout_enabled,
-        scout_daily_flex_ads: p.scout_daily_flex_ads ?? 2,
-        today_flex_ads: todayCount,
+        scout_daily_flex_ads: p.scout_daily_flex_ads ?? 2,  // legacy field name; equals daily_ad_set cap
+        scout_daily_ad_sets: p.scout_daily_flex_ads ?? 2,
+        today_flex_ads: todayCount,                          // legacy alias
+        today_ad_sets: todayCount,
       };
     }));
 

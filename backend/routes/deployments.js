@@ -318,17 +318,16 @@ router.put('/deployments/:id/posted-by', async (req, res) => {
 });
 
 /**
- * PUT /deployments/flex-ads/:id/posted-by — Set who posted this flex ad (poster-accessible)
+ * Phase 6 — DEPRECATED. Flex ads are gone. posted_by is now a per-deployment
+ * field (already on ad_deployments). This endpoint returns 410 Gone with a
+ * pointer to the new pattern. Frontend migrated to PUT /deployments/:id with
+ * { posted_by } in the body.
  */
 router.put('/deployments/flex-ads/:id/posted-by', async (req, res) => {
-  try {
-    const { posted_by } = req.body;
-    await updateFlexAd(req.params.id, { posted_by: posted_by || '' });
-    res.json({ success: true });
-  } catch (err) {
-    console.error('Failed to update posted_by:', err);
-    res.status(500).json({ error: 'Failed to update posted_by' });
-  }
+  res.status(410).json({
+    error: 'Flex ads removed in Phase 6. Set posted_by on the deployment directly via PUT /deployments/:id.',
+    code: 'FLEX_ADS_GONE',
+  });
 });
 
 /**
@@ -700,110 +699,21 @@ router.post('/deployments/:id/duplicate', requireRole('admin', 'manager'), async
 // =============================================
 
 /**
- * GET /deployments/flex-ads?projectId=xxx — List flex ads
+ * Phase 6 — Flex ads removed (Meta retired the concept). All endpoints
+ * return 410 Gone. Frontend uses POST /api/projects/:projectId/ad-sets
+ * (in routes/adSets.js) to group deployments into ad_sets instead.
  */
-router.get('/deployments/flex-ads', async (req, res) => {
-  try {
-    const { projectId } = req.query;
-    if (!projectId) return res.status(400).json({ error: 'projectId required' });
-    const flexAds = await getFlexAdsByProject(projectId);
-    res.json({ flexAds });
-  } catch (err) {
-    console.error('Failed to list flex ads:', err);
-    res.status(500).json({ error: 'Failed to list flex ads' });
-  }
-});
-
-/**
- * POST /deployments/flex-ads — Create flex ad
- * Body: { projectId, adSetId, name, deploymentIds: string[] }
- */
-router.post('/deployments/flex-ads', requireRole('admin', 'manager'), async (req, res) => {
-  try {
-    const { projectId, adSetId, name, deploymentIds } = req.body;
-    if (!projectId || !deploymentIds?.length) {
-      return res.status(400).json({ error: 'projectId and deploymentIds required' });
-    }
-    if (deploymentIds.length > 10) {
-      return res.status(400).json({ error: 'Maximum 10 ads per Flex ad' });
-    }
-
-    const id = crypto.randomUUID();
-    const flexName = name || `Flex — Manual — ${crypto.randomUUID().slice(0,6).toUpperCase()}`;
-
-    await createFlexAd({ id, project_id: projectId, ad_set_id: adSetId, name: flexName, child_deployment_ids: deploymentIds });
-
-    // Update each child deployment with flex_ad_id
-    await Promise.all(deploymentIds.map(depId =>
-      updateDeployment(depId, { flex_ad_id: id })
-    ));
-
-    res.json({ success: true, id });
-  } catch (err) {
-    console.error('Failed to create flex ad:', err);
-    res.status(500).json({ error: 'Failed to create flex ad' });
-  }
-});
-
-/**
- * PUT /deployments/flex-ads/:id — Update flex ad fields
- */
-router.put('/deployments/flex-ads/:id', requireRole('admin', 'manager'), async (req, res) => {
-  try {
-    const { id } = req.params;
-    const allowed = ['name', 'child_deployment_ids', 'primary_texts', 'headlines', 'destination_url', 'display_link', 'cta_button', 'facebook_page', 'planned_date', 'posted_by', 'ad_set_id', 'duplicate_adset_name', 'notes', 'posting_day', 'angle_name', 'destination_urls_used', 'gauntlet_lp_urls'];
-    const fields = {};
-    for (const key of allowed) {
-      if (req.body[key] !== undefined) {
-        // Convex v.optional(v.string()) doesn't accept null — coerce to empty string
-        fields[key] = req.body[key] === null ? '' : req.body[key];
-      }
-    }
-    if (Object.keys(fields).length === 0) return res.status(400).json({ error: 'No valid fields' });
-    await updateFlexAd(id, fields);
-    res.json({ success: true });
-  } catch (err) {
-    console.error('Failed to update flex ad:', err.message || err);
-    console.error('Failed to update flex ad — full body was:', JSON.stringify(req.body));
-    res.status(500).json({ error: 'Failed to update flex ad' });
-  }
-});
-
-/**
- * DELETE /deployments/flex-ads/:id — Delete flex ad (clears flex_ad_id from children)
- */
-router.delete('/deployments/flex-ads/:id', requireRole('admin', 'manager'), async (req, res) => {
-  try {
-    const { id } = req.params;
-    const flexAd = await getFlexAd(id);
-    if (!flexAd) return res.status(404).json({ error: 'Flex ad not found' });
-
-    // Clear flex_ad_id from all child deployments
-    const childIds = JSON.parse(flexAd.child_deployment_ids || '[]');
-    await Promise.all(childIds.map(depId =>
-      updateDeployment(depId, { flex_ad_id: '' })
-    ));
-
-    await deleteFlexAd(id);
-    res.json({ success: true });
-  } catch (err) {
-    console.error('Failed to delete flex ad:', err);
-    res.status(500).json({ error: 'Failed to delete flex ad' });
-  }
-});
-
-/**
- * POST /deployments/flex-ads/:id/restore — Restore a soft-deleted flex ad
- */
-router.post('/deployments/flex-ads/:id/restore', requireRole('admin', 'manager'), async (req, res) => {
-  try {
-    await restoreFlexAd(req.params.id);
-    res.json({ success: true });
-  } catch (err) {
-    console.error('Failed to restore flex ad:', err);
-    res.status(500).json({ error: 'Failed to restore flex ad' });
-  }
-});
+const flexAdsGoneHandler = (req, res) => {
+  res.status(410).json({
+    error: 'Flex ads removed in Phase 6 (Meta retired flex ads). Use the unified ad-set CRUD at POST /api/projects/:projectId/ad-sets instead.',
+    code: 'FLEX_ADS_GONE',
+  });
+};
+router.get('/deployments/flex-ads', flexAdsGoneHandler);
+router.post('/deployments/flex-ads', requireRole('admin', 'manager'), flexAdsGoneHandler);
+router.put('/deployments/flex-ads/:id', requireRole('admin', 'manager'), flexAdsGoneHandler);
+router.delete('/deployments/flex-ads/:id', requireRole('admin', 'manager'), flexAdsGoneHandler);
+router.post('/deployments/flex-ads/:id/restore', requireRole('admin', 'manager'), flexAdsGoneHandler);
 
 // =============================================
 // Dacia Creative Filter convenience endpoints
@@ -831,130 +741,21 @@ router.post('/deployments/adsets', requireRole('admin', 'manager'), async (req, 
 });
 
 /**
- * POST /deployments/flex — Create flex ad with deployments (convenience for Dacia Creative Filter)
- * Body: { ad_set_id, name, headlines: [], primary_texts: [], cta, display_link, facebook_page, ad_ids: [], project_id, status }
- * Creates: flex ad + individual deployments for each ad_id, all linked to the flex ad
- * Status "ready" maps to "ready_to_post" in the deployment system
+ * Phase 6 — DEPRECATED. /deployments/flex (the Filter shell-script convenience
+ * endpoint) is gone. The new Filter (creativeFilterService.js) writes ad_sets
+ * directly via the conductor pipeline. Returning 410 Gone for any external
+ * caller still hitting this path.
  */
-router.post('/deployments/flex', requireRole('admin', 'manager'), async (req, res) => {
-  try {
-    const { ad_set_id, name, headlines, primary_texts, cta, display_link, facebook_page, ad_ids, project_id, status, posting_day, angle_name, destination_url, duplicate_adset_name, lp_primary_url, lp_secondary_url, gauntlet_lp_urls } = req.body;
-
-    if (!ad_set_id || !project_id || !ad_ids?.length) {
-      return res.status(400).json({ error: 'ad_set_id, project_id, and ad_ids required' });
-    }
-
-    // Look up the ad set to get its parent campaign
-    let campaignId = 'unplanned';
-    try {
-      const adSet = await getAdSet(ad_set_id);
-      if (adSet?.campaign_id) campaignId = adSet.campaign_id;
-    } catch {}
-
-    // Deduplicate ad_ids to prevent the same image appearing twice in a flex ad
-    const uniqueAdIds = [...new Set(ad_ids)];
-    if (uniqueAdIds.length < ad_ids.length) {
-      console.log(`[Deployments] Flex ad dedup: removed ${ad_ids.length - uniqueAdIds.length} duplicate ad_ids`);
-    }
-
-    // Create individual deployments for each ad
-    const deploymentIds = [];
-    const depStatus = status === 'ready' ? 'ready_to_post' : (status || 'selected');
-    const ptJson = JSON.stringify(primary_texts || []);
-    const hlJson = JSON.stringify(headlines || []);
-
-    for (const adId of uniqueAdIds) {
-      const depId = crypto.randomUUID();
-      let ad;
-      try { ad = await getAd(adId); } catch {}
-
-      const shortCode = adId.slice(0, 4).toUpperCase();
-      const adName = ad?.headline
-        ? `${ad.headline} — ${shortCode}`
-        : ad?.angle
-          ? `${ad.angle} — ${shortCode}`
-          : `Ad ${shortCode}`;
-
-      await createDeploymentDuplicate({
-        id: depId,
-        ad_id: adId,
-        project_id,
-        status: depStatus,
-        ad_name: adName,
-        local_campaign_id: campaignId,
-        local_adset_id: ad_set_id,
-        primary_texts: ptJson,
-        ad_headlines: hlJson,
-        destination_url: destination_url || '',
-        cta_button: cta || '',
-      });
-
-      // Set display_link, facebook_page, duplicate_adset_name via update
-      const extraFields = {};
-      if (display_link) extraFields.display_link = display_link;
-      if (facebook_page) extraFields.facebook_page = facebook_page;
-      if (duplicate_adset_name) extraFields.duplicate_adset_name = duplicate_adset_name;
-      if (Object.keys(extraFields).length > 0) {
-        await updateDeployment(depId, extraFields);
-      }
-
-      deploymentIds.push(depId);
-    }
-
-    // Create the flex ad grouping them
-    const flexId = crypto.randomUUID();
-    await createFlexAd({
-      id: flexId,
-      project_id,
-      ad_set_id,
-      name: name || `Flex — ${angle_name || 'Unassigned'} — ${crypto.randomUUID().slice(0,6).toUpperCase()}`,
-      child_deployment_ids: deploymentIds,
-      primary_texts: primary_texts || [],
-      headlines: headlines || [],
-      destination_url: destination_url || '',
-      display_link: display_link || '',
-      cta_button: cta || '',
-      facebook_page: facebook_page || '',
-      duplicate_adset_name: duplicate_adset_name || '',
-      posting_day: posting_day || '',
-      angle_name: angle_name || '',
-      lp_primary_url: lp_primary_url || '',
-      lp_secondary_url: lp_secondary_url || '',
-      gauntlet_lp_urls: gauntlet_lp_urls || '',
-    });
-
-    // Link each deployment to the flex ad
-    for (const depId of deploymentIds) {
-      await updateDeployment(depId, { flex_ad_id: flexId });
-    }
-
-    res.json({ success: true, flexAdId: flexId, deploymentIds });
-  } catch (err) {
-    console.error('Failed to create flex ad (filter):', err);
-    res.status(500).json({ error: 'Failed to create flex ad' });
-  }
-});
+router.post('/deployments/flex', requireRole('admin', 'manager'), flexAdsGoneHandler);
 
 /**
- * GET /deployments/flex-ads/count — Count non-deleted flex ads by project and optional angle
- * Query: projectId, angleName (optional)
- * Used by the Creative Filter to compute incrementing flex ad numbers per angle
+ * Phase 6 — DEPRECATED. Flex ad count endpoint. Returns 0 always (no flex ads
+ * exist post-Phase 6). External callers should migrate to ad_set count.
  */
 router.get('/deployments/flex-ads/count', requireAuth, async (req, res) => {
-  try {
-    const { projectId, angleName } = req.query;
-    if (!projectId) return res.status(400).json({ error: 'projectId required' });
-
-    const flexAds = await getFlexAdsByProject(projectId);
-    if (angleName) {
-      const filtered = flexAds.filter(f => f.angle_name === angleName);
-      return res.json({ count: filtered.length });
-    }
-    res.json({ count: flexAds.length });
-  } catch (err) {
-    console.error('Failed to count flex ads:', err);
-    res.status(500).json({ error: err.message });
-  }
+  // Always 0 post-Phase 6. Maintained as 200/0 (not 410) so legacy poller
+  // scripts that compute "next flex ad number" don't crash; they'll just see 0.
+  res.json({ count: 0 });
 });
 
 /**

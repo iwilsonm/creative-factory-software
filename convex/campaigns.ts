@@ -35,6 +35,34 @@ export const create = mutation({
   },
 });
 
+// Phase 6 — find-or-create a campaign by (project_id, name). Used by Director's
+// auto-campaign path to prevent duplicate "[Auto] X" campaigns across runs.
+export const upsertByProjectAndName = mutation({
+  args: {
+    project_id: v.string(),
+    name: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const all = await ctx.db
+      .query("campaigns")
+      .withIndex("by_project", (q) => q.eq("project_id", args.project_id))
+      .collect();
+    const match = all.find((c) => c.name === args.name);
+    if (match) return match.externalId;
+    const externalId = crypto.randomUUID();
+    const now = new Date().toISOString();
+    await ctx.db.insert("campaigns", {
+      externalId,
+      project_id: args.project_id,
+      name: args.name,
+      sort_order: all.length,
+      created_at: now,
+      updated_at: now,
+    });
+    return externalId;
+  },
+});
+
 export const update = mutation({
   args: {
     externalId: v.string(),
@@ -65,11 +93,25 @@ export const remove = mutation({
       .first();
     if (!doc) throw new Error("Campaign not found");
 
-    // Cascade: delete child ad sets and soft-delete their child flex ads
+    // Phase 6 — block deletion if any non-terminal child ad sets exist.
+    // Non-terminal: 'draft' (Planner), 'ready' (Ready to Post), 'observing'
+    // (Phase 3 active observation), and legacy 'staging'/'promoted' for
+    // pre-migration safety.
     const adSets = await ctx.db
       .query("ad_sets")
       .withIndex("by_campaign", (q) => q.eq("campaign_id", args.externalId))
       .collect();
+    const NON_TERMINAL = new Set(["draft", "ready", "observing", "staging", "promoted"]);
+    const blockers = adSets.filter((a) => NON_TERMINAL.has(a.lifecycle_status || ""));
+    if (blockers.length > 0) {
+      throw new Error(
+        `Cannot delete campaign "${doc.name}" — has ${blockers.length} active ad set(s). ` +
+        `Move or archive them first.`
+      );
+    }
+
+    // Cascade: delete terminal-state ad sets (passed/failed/etc.) and soft-delete
+    // their child flex_ads (legacy — Phase 6.1 will drop the table).
     for (const adSet of adSets) {
       const flexAds = await ctx.db
         .query("flex_ads")
