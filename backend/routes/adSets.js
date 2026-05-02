@@ -24,7 +24,7 @@ import {
   getAdSetsByProject,
   promoteAdSet,
   regroupAds,
-  createAdSet,
+  createAdSetFromDeployments,
   createEmptyAdSet,
   forcePromoteAd,
   updateAdSet,
@@ -39,12 +39,19 @@ import {
 import { postAdSetToMeta } from '../services/metaWriter.js';
 import {
   buildManualAdSetCreateInput,
-  rollbackManualAdSetCombine,
-  snapshotDeploymentAssignments,
 } from '../services/adSetPlanner.js';
 
 const router = Router();
 router.use(requireAuth);
+
+function getManualCombineErrorResponse(err) {
+  const raw = err?.message || 'Failed to create ad set';
+  const invalidMatch = raw.match(/INVALID_DEPLOYMENTS:\s*([\s\S]+)/);
+  if (invalidMatch) {
+    return { status: 400, message: `Invalid deployment_ids: ${invalidMatch[1].trim()}` };
+  }
+  return { status: 500, message: raw };
+}
 
 // Every Phase 6 endpoint emits this header so the frontend can detect
 // stale-bundle scenarios after a deploy and prompt a refresh.
@@ -111,44 +118,24 @@ router.post('/:projectId/ad-sets', requireRole('admin', 'manager'), async (req, 
       resolvedCampaignId = await ensureDefaultCampaign(project);
     }
 
-    const projectDeployments = await getDeploymentsByProject(req.params.projectId);
-    const { missingIds, snapshots } = snapshotDeploymentAssignments(deployment_ids, projectDeployments);
-    if (missingIds.length > 0) {
-      return res.status(400).json({ error: `Unknown deployment_ids: ${missingIds.join(', ')}` });
-    }
-
     const defaults = parseAdSetDefaults(project);
     const adSetId = uuidv4();
-    await createAdSet(buildManualAdSetCreateInput({
-      adSetId,
-      projectId: req.params.projectId,
-      campaignId: resolvedCampaignId,
-      angleId: angle_id,
-      name,
-      defaults,
-    }));
-
-    // Attach the deployments via local_adset_id (replaces flex_ad_id).
-    const updatedDeploymentIds = [];
-    try {
-      for (const depId of deployment_ids) {
-        await updateDeployment(depId, { local_adset_id: adSetId, local_campaign_id: resolvedCampaignId });
-        updatedDeploymentIds.push(depId);
-      }
-    } catch (err) {
-      await rollbackManualAdSetCombine({
+    await createAdSetFromDeployments({
+      ...buildManualAdSetCreateInput({
         adSetId,
-        updatedDeploymentIds,
-        snapshots,
-        updateDeployment,
-        deleteAdSet,
-      });
-      throw err;
-    }
+        projectId: req.params.projectId,
+        campaignId: resolvedCampaignId,
+        angleId: angle_id,
+        name,
+        defaults,
+      }),
+      deployment_ids,
+    });
 
     res.json({ success: true, adSetId, campaign_id: resolvedCampaignId });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    const { status, message } = getManualCombineErrorResponse(err);
+    res.status(status).json({ error: message });
   }
 });
 

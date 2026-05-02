@@ -55,6 +55,84 @@ export const create = mutation({
   },
 });
 
+export const createFromDeployments = mutation({
+  args: {
+    externalId: v.string(),
+    campaign_id: v.string(),
+    project_id: v.string(),
+    name: v.string(),
+    sort_order: v.number(),
+    deployment_ids: v.array(v.string()),
+    // Phase 6 — manual planner grouping. Optional fields must be omitted by
+    // callers when unset; Convex optional validators do not accept null.
+    angle_id: v.optional(v.string()),
+    lifecycle_status: v.optional(v.string()),
+    meta_targeting: v.optional(v.string()),
+    meta_budget_type: v.optional(v.string()),
+    meta_budget_amount_cents: v.optional(v.number()),
+    meta_schedule: v.optional(v.string()),
+    meta_optimization_goal: v.optional(v.string()),
+    meta_billing_event: v.optional(v.string()),
+    created_at: v.string(),
+    updated_at: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const deploymentIds = [...new Set(args.deployment_ids.map((id) => id.trim()).filter(Boolean))];
+    if (deploymentIds.length === 0) {
+      throw new Error("INVALID_DEPLOYMENTS: deployment_ids must be a non-empty array");
+    }
+
+    const existingAdSet = await ctx.db
+      .query("ad_sets")
+      .withIndex("by_externalId", (q) => q.eq("externalId", args.externalId))
+      .first();
+    if (existingAdSet) {
+      throw new Error(`INVALID_DEPLOYMENTS: ad set ${args.externalId} already exists`);
+    }
+
+    const deployments = [];
+    const missing = [];
+    const deleted = [];
+    const wrongProject = [];
+
+    for (const deploymentId of deploymentIds) {
+      const deployment = await ctx.db
+        .query("ad_deployments")
+        .withIndex("by_externalId", (q) => q.eq("externalId", deploymentId))
+        .first();
+      if (!deployment) {
+        missing.push(deploymentId);
+      } else if (deployment.deleted_at) {
+        deleted.push(deploymentId);
+      } else if (deployment.project_id !== args.project_id) {
+        wrongProject.push(deploymentId);
+      } else {
+        deployments.push(deployment);
+      }
+    }
+
+    const problems = [];
+    if (missing.length) problems.push(`unknown: ${missing.join(", ")}`);
+    if (deleted.length) problems.push(`deleted: ${deleted.join(", ")}`);
+    if (wrongProject.length) problems.push(`wrong project: ${wrongProject.join(", ")}`);
+    if (problems.length) {
+      throw new Error(`INVALID_DEPLOYMENTS: ${problems.join("; ")}`);
+    }
+
+    const { deployment_ids, ...adSetFields } = args;
+    await ctx.db.insert("ad_sets", adSetFields);
+
+    for (const deployment of deployments) {
+      await ctx.db.patch(deployment._id, {
+        local_adset_id: args.externalId,
+        local_campaign_id: args.campaign_id,
+      });
+    }
+
+    return args.externalId;
+  },
+});
+
 export const update = mutation({
   args: {
     externalId: v.string(),

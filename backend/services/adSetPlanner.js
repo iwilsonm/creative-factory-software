@@ -2,6 +2,12 @@ export function normalizeOptionalString(value) {
   return typeof value === 'string' && value.trim() ? value.trim() : undefined;
 }
 
+export function compactConvexWrite(value) {
+  return Object.fromEntries(
+    Object.entries(value || {}).filter(([, fieldValue]) => fieldValue !== null && fieldValue !== undefined)
+  );
+}
+
 export function getDeploymentExternalId(deployment) {
   return deployment?.externalId || deployment?.id || null;
 }
@@ -14,7 +20,7 @@ export function buildManualAdSetCreateInput({
   angleId,
   defaults = {},
 }) {
-  return {
+  return compactConvexWrite({
     id: adSetId,
     project_id: projectId,
     campaign_id: campaignId,
@@ -28,7 +34,7 @@ export function buildManualAdSetCreateInput({
     meta_schedule: defaults.meta_schedule,
     meta_optimization_goal: defaults.meta_optimization_goal,
     meta_billing_event: defaults.meta_billing_event,
-  };
+  });
 }
 
 export function snapshotDeploymentAssignments(deploymentIds, projectDeployments) {

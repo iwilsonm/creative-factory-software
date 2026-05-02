@@ -1,6 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 import {
   buildManualAdSetCreateInput,
+  compactConvexWrite,
   rollbackManualAdSetCombine,
   snapshotDeploymentAssignments,
 } from '../services/adSetPlanner.js';
@@ -12,7 +13,14 @@ describe('manual ad set planning helpers', () => {
       projectId: 'project-1',
       campaignId: 'campaign-1',
       name: 'Manual Test',
-      defaults: { meta_budget_type: 'daily', meta_budget_amount_cents: 5000 },
+      defaults: {
+        meta_targeting: null,
+        meta_budget_type: null,
+        meta_budget_amount_cents: null,
+        meta_schedule: null,
+        meta_optimization_goal: null,
+        meta_billing_event: null,
+      },
     });
 
     expect(payload).toMatchObject({
@@ -22,10 +30,14 @@ describe('manual ad set planning helpers', () => {
       name: 'Manual Test',
       sort_order: 0,
       lifecycle_status: 'draft',
-      meta_budget_type: 'daily',
-      meta_budget_amount_cents: 5000,
     });
     expect(payload.angle_id).toBeUndefined();
+    expect(payload.meta_targeting).toBeUndefined();
+    expect(payload.meta_budget_type).toBeUndefined();
+    expect(payload.meta_budget_amount_cents).toBeUndefined();
+    expect(payload.meta_schedule).toBeUndefined();
+    expect(payload.meta_optimization_goal).toBeUndefined();
+    expect(payload.meta_billing_event).toBeUndefined();
   });
 
   it('preserves an explicit angle_id when one is provided', () => {
@@ -38,6 +50,40 @@ describe('manual ad set planning helpers', () => {
     });
 
     expect(payload.angle_id).toBe('angle-1');
+  });
+
+  it('preserves valid Meta defaults while removing only nullish values', () => {
+    const payload = buildManualAdSetCreateInput({
+      adSetId: 'adset-1',
+      projectId: 'project-1',
+      campaignId: 'campaign-1',
+      name: 'Manual Test',
+      defaults: {
+        meta_budget_type: 'daily',
+        meta_budget_amount_cents: 5000,
+        meta_billing_event: 'IMPRESSIONS',
+        meta_optimization_goal: undefined,
+      },
+    });
+
+    expect(payload.meta_budget_type).toBe('daily');
+    expect(payload.meta_budget_amount_cents).toBe(5000);
+    expect(payload.meta_billing_event).toBe('IMPRESSIONS');
+    expect(payload.meta_optimization_goal).toBeUndefined();
+  });
+
+  it('compacts Convex write payloads without dropping falsey valid values', () => {
+    expect(compactConvexWrite({
+      empty: '',
+      zero: 0,
+      falseValue: false,
+      nullValue: null,
+      undefinedValue: undefined,
+    })).toEqual({
+      empty: '',
+      zero: 0,
+      falseValue: false,
+    });
   });
 
   it('snapshots original deployment assignments and reports unknown ids', () => {

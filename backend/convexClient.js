@@ -14,6 +14,7 @@ import fetch from 'node-fetch';
 import { v4 as uuidv4 } from 'uuid';
 import { withRetry } from './services/retry.js';
 import { ensureArray } from './utils/collections.js';
+import { compactConvexWrite } from './services/adSetPlanner.js';
 
 // Read Convex URL from environment
 const CONVEX_URL = process.env.CONVEX_URL;
@@ -30,6 +31,11 @@ const client = new ConvexHttpClient(CONVEX_URL);
 // ECONNRESET, and other network errors.
 function convexShouldRetry(err) {
   const msg = err.message || '';
+  // Convex wraps validation/business errors in "Server Error" text. Retrying
+  // those only makes user-facing failures feel slow without changing outcome.
+  if (/ArgumentValidationError|Value does not match validator|Object is missing the required field|INVALID_DEPLOYMENTS|does not belong to this project|already exists/i.test(msg)) {
+    return false;
+  }
   // Convex "Server Error" — can be transient platform issues (502/503 from Cloudflare)
   if (/Server Error/i.test(msg)) return true;
   // Network / connection errors
@@ -1187,7 +1193,7 @@ export async function getAdSetsByProjectAndLifecycle(projectId, lifecycleStatus)
 
 export async function createAdSet({ id, campaign_id, project_id, name, sort_order, angle_id, lifecycle_status, meta_targeting, meta_budget_type, meta_budget_amount_cents, meta_schedule, meta_optimization_goal, meta_billing_event }) {
   const now = new Date().toISOString();
-  const result = await mutationWithRetry(api.adSets.create, {
+  const result = await mutationWithRetry(api.adSets.create, compactConvexWrite({
     externalId: id,
     campaign_id,
     project_id,
@@ -1204,15 +1210,40 @@ export async function createAdSet({ id, campaign_id, project_id, name, sort_orde
     meta_billing_event,
     created_at: now,
     updated_at: now,
-  });
+  }));
   invalidateQueryCache('ad_sets');
+  return result;
+}
+
+export async function createAdSetFromDeployments({ id, campaign_id, project_id, name, sort_order, angle_id, lifecycle_status, deployment_ids, meta_targeting, meta_budget_type, meta_budget_amount_cents, meta_schedule, meta_optimization_goal, meta_billing_event }) {
+  const now = new Date().toISOString();
+  const result = await mutationWithRetry(api.adSets.createFromDeployments, compactConvexWrite({
+    externalId: id,
+    campaign_id,
+    project_id,
+    name,
+    sort_order: sort_order || 0,
+    deployment_ids,
+    angle_id,
+    lifecycle_status,
+    meta_targeting,
+    meta_budget_type,
+    meta_budget_amount_cents,
+    meta_schedule,
+    meta_optimization_goal,
+    meta_billing_event,
+    created_at: now,
+    updated_at: now,
+  }));
+  invalidateQueryCache('ad_sets');
+  invalidateQueryCache('ad_deployments');
   return result;
 }
 
 export async function updateAdSet(id, fields) {
   // Whitelist enforcement is handled inside convex/adSets.ts:update via v.object().
   // Caller passes fields supported by that whitelist.
-  const result = await mutationWithRetry(api.adSets.update, { externalId: id, fields });
+  const result = await mutationWithRetry(api.adSets.update, { externalId: id, fields: compactConvexWrite(fields) });
   invalidateQueryCache('ad_sets');
   return result;
 }
@@ -1267,7 +1298,7 @@ export async function regroupAds(adIds, targetAdSetId) {
 }
 
 export async function createEmptyAdSet({ id, project_id, campaign_id, angle_id, name, sort_order, meta_targeting, meta_budget_type, meta_budget_amount_cents, meta_schedule, meta_optimization_goal, meta_billing_event }) {
-  const result = await mutationWithRetry(api.staging.createEmptyAdSet, {
+  const result = await mutationWithRetry(api.staging.createEmptyAdSet, compactConvexWrite({
     externalId: id,
     project_id,
     campaign_id,
@@ -1280,7 +1311,7 @@ export async function createEmptyAdSet({ id, project_id, campaign_id, angle_id, 
     meta_schedule,
     meta_optimization_goal,
     meta_billing_event,
-  });
+  }));
   invalidateQueryCache('ad_sets');
   return result;
 }
