@@ -7,7 +7,13 @@ import path from 'path';
 import { fileURLToPath } from 'url';
 import crypto from 'crypto';
 
-import { getSetting, setSetting, backfillProjectStats } from './convexClient.js';
+import {
+  getSetting,
+  setSetting,
+  backfillProjectStats,
+  getSystemCapabilities,
+  getConvexHost,
+} from './convexClient.js';
 import ConvexSessionStore from './ConvexSessionStore.js';
 import { requireAuth, requireRole, migrateToMultiUser } from './auth.js';
 import authRoutes from './routes/auth.js';
@@ -196,6 +202,7 @@ try {
   // Health check — no auth required (used by Dacia Fixer health probes)
   app.get('/api/health', async (req, res) => {
     const checks = {};
+    checks.convexHost = getConvexHost();
 
     // Convex connectivity — try a lightweight query
     try {
@@ -203,6 +210,18 @@ try {
       checks.convex = 'ok';
     } catch (e) {
       checks.convex = 'error';
+    }
+
+    // Deployment capability guard. This catches Vercel/Convex target drift
+    // before customer flows call functions that are missing in that deployment.
+    try {
+      const system = await getSystemCapabilities();
+      checks.capabilities = system?.capabilities || {};
+      checks.adSetAtomicCombine = checks.capabilities.adSetAtomicCombine === true ? 'ok' : 'missing';
+    } catch (e) {
+      checks.capabilities = {};
+      checks.adSetAtomicCombine = 'error';
+      checks.capability_error = e?.message || 'Capability check failed';
     }
 
     // Rate limiter
@@ -236,7 +255,7 @@ try {
       checks.nginx = parseInt(count) > 0 ? 'ok' : 'down';
     } catch { checks.nginx = 'unknown'; }
 
-    const overall = checks.convex === 'ok' ? 'ok' : 'degraded';
+    const overall = checks.convex === 'ok' && checks.adSetAtomicCombine === 'ok' ? 'ok' : 'degraded';
     res.json({ status: overall, timestamp: new Date().toISOString(), checks });
   });
 

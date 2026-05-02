@@ -2,6 +2,9 @@
   "name": "creative-factory-software",
   "private": true,
   "type": "module",
+  "scripts": {
+    "verify:convex": "node scripts/verify-convex-capabilities.mjs"
+  },
   "dependencies": {
     "convex": "^1.18.0"
   },

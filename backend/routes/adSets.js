@@ -30,28 +30,23 @@ import {
   updateAdSet,
   deleteAdSet,
   ensureDefaultCampaign,
+  getCampaignsByProject,
   parseAdSetDefaults,
   convexClient,
   api,
   getDeploymentsByProject,
   updateDeployment,
+  getConvexHost,
 } from '../convexClient.js';
 import { postAdSetToMeta } from '../services/metaWriter.js';
 import {
   buildManualAdSetCreateInput,
+  getManualCombineErrorResponse,
+  normalizeDeploymentIds,
 } from '../services/adSetPlanner.js';
 
 const router = Router();
 router.use(requireAuth);
-
-function getManualCombineErrorResponse(err) {
-  const raw = err?.message || 'Failed to create ad set';
-  const invalidMatch = raw.match(/INVALID_DEPLOYMENTS:\s*([\s\S]+)/);
-  if (invalidMatch) {
-    return { status: 400, message: `Invalid deployment_ids: ${invalidMatch[1].trim()}` };
-  }
-  return { status: 500, message: raw };
-}
 
 // Every Phase 6 endpoint emits this header so the frontend can detect
 // stale-bundle scenarios after a deploy and prompt a refresh.
@@ -105,13 +100,31 @@ router.post('/:projectId/ad-sets', requireRole('admin', 'manager'), async (req, 
     if (!Array.isArray(deployment_ids) || deployment_ids.length === 0) {
       return res.status(400).json({ error: 'deployment_ids must be a non-empty array' });
     }
+    const normalizedDeploymentIds = normalizeDeploymentIds(deployment_ids);
+    if (normalizedDeploymentIds.error) {
+      return res.status(400).json({ error: normalizedDeploymentIds.error });
+    }
+    deployment_ids = normalizedDeploymentIds.ids;
 
     // Resolve campaign: explicit id, or upsert "create new", or project default.
-    let resolvedCampaignId = campaign_id;
+    let resolvedCampaignId = typeof campaign_id === 'string' ? campaign_id.trim() : campaign_id;
+    if (resolvedCampaignId) {
+      const projectCampaigns = await getCampaignsByProject(req.params.projectId);
+      if (!projectCampaigns.some((campaign) => campaign.id === resolvedCampaignId)) {
+        return res.status(400).json({ error: 'Campaign not found or does not belong to this project' });
+      }
+    }
     if (!resolvedCampaignId && create_new_campaign && typeof create_new_campaign === 'string') {
+      const campaignName = create_new_campaign.trim();
+      if (!campaignName) {
+        return res.status(400).json({ error: 'create_new_campaign must not be empty' });
+      }
+      if (campaignName.length > 80) {
+        return res.status(400).json({ error: 'create_new_campaign must be 80 chars or fewer' });
+      }
       resolvedCampaignId = await convexClient.mutation(api.campaigns.upsertByProjectAndName, {
         project_id: req.params.projectId,
-        name: create_new_campaign.trim(),
+        name: campaignName,
       });
     }
     if (!resolvedCampaignId) {
@@ -134,7 +147,7 @@ router.post('/:projectId/ad-sets', requireRole('admin', 'manager'), async (req, 
 
     res.json({ success: true, adSetId, campaign_id: resolvedCampaignId });
   } catch (err) {
-    const { status, message } = getManualCombineErrorResponse(err);
+    const { status, message } = getManualCombineErrorResponse(err, { convexHost: getConvexHost() });
     res.status(status).json({ error: message });
   }
 });

@@ -30,6 +30,7 @@ import type * as projects from "../projects.js";
 import type * as sessions from "../sessions.js";
 import type * as settings from "../settings.js";
 import type * as staging from "../staging.js";
+import type * as system from "../system.js";
 import type * as tagAssignments from "../tagAssignments.js";
 import type * as tags from "../tags.js";
 import type * as templateImages from "../templateImages.js";
@@ -64,6 +65,7 @@ declare const fullApi: ApiFromModules<{
   sessions: typeof sessions;
   settings: typeof settings;
   staging: typeof staging;
+  system: typeof system;
   tagAssignments: typeof tagAssignments;
   tags: typeof tags;
   templateImages: typeof templateImages;

@@ -2,6 +2,9 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   buildManualAdSetCreateInput,
   compactConvexWrite,
+  getManualCombineErrorResponse,
+  isMissingAtomicAdSetFunctionError,
+  normalizeDeploymentIds,
   rollbackManualAdSetCombine,
   snapshotDeploymentAssignments,
 } from '../services/adSetPlanner.js';
@@ -83,6 +86,37 @@ describe('manual ad set planning helpers', () => {
       empty: '',
       zero: 0,
       falseValue: false,
+    });
+  });
+
+  it('normalizes deployment ids and rejects duplicates before calling Convex', () => {
+    expect(normalizeDeploymentIds([' dep-1 ', 'dep-2'])).toEqual({
+      ids: ['dep-1', 'dep-2'],
+      error: null,
+    });
+
+    expect(normalizeDeploymentIds(['dep-1', ' dep-1 ']).error)
+      .toContain('duplicate ids: dep-1');
+    expect(normalizeDeploymentIds(['dep-1', '']).error)
+      .toContain('invalid values at index 1');
+    expect(normalizeDeploymentIds([]).error)
+      .toBe('deployment_ids must be a non-empty array');
+  });
+
+  it('maps missing Convex atomic combine functions to an operator action', () => {
+    const err = new Error("[Request ID: abc] Server Error Could not find public function for 'adSets:createFromDeployments'. Did you forget to run `npx convex dev`?");
+
+    expect(isMissingAtomicAdSetFunctionError(err)).toBe(true);
+    expect(getManualCombineErrorResponse(err, { convexHost: 'elated-mastiff-709.convex.cloud' })).toEqual({
+      status: 503,
+      message: 'Ad set creation is temporarily unavailable because the configured Convex deployment (elated-mastiff-709.convex.cloud) is missing the atomic ad-set combine function. Please deploy Convex functions to the same deployment this site is using, then try again.',
+    });
+  });
+
+  it('maps invalid deployment validation errors to clear 400 responses', () => {
+    expect(getManualCombineErrorResponse(new Error('INVALID_DEPLOYMENTS: unknown: dep-1'))).toEqual({
+      status: 400,
+      message: 'Invalid deployment_ids: unknown: dep-1',
     });
   });
 

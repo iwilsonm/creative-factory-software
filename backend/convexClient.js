@@ -24,6 +24,14 @@ if (!CONVEX_URL) {
 
 const client = new ConvexHttpClient(CONVEX_URL);
 
+export function getConvexHost() {
+  try {
+    return new URL(CONVEX_URL).hostname;
+  } catch {
+    return 'invalid-convex-url';
+  }
+}
+
 // Custom retry predicate for Convex calls.
 // Convex errors are plain Error objects with no status/code properties, so the
 // default retry predicate (which checks status codes) would never retry them.
@@ -33,7 +41,7 @@ function convexShouldRetry(err) {
   const msg = err.message || '';
   // Convex wraps validation/business errors in "Server Error" text. Retrying
   // those only makes user-facing failures feel slow without changing outcome.
-  if (/ArgumentValidationError|Value does not match validator|Object is missing the required field|INVALID_DEPLOYMENTS|does not belong to this project|already exists/i.test(msg)) {
+  if (/ArgumentValidationError|Value does not match validator|Object is missing the required field|INVALID_DEPLOYMENTS|does not belong to this project|already exists|Could not find public function|Did you forget to run `npx convex dev`/i.test(msg)) {
     return false;
   }
   // Convex "Server Error" — can be transient platform issues (502/503 from Cloudflare)
@@ -130,6 +138,10 @@ export async function setSetting(key, value) {
 
 export async function getAllSettings() {
   return await queryWithRetry(api.settings.getAll, {});
+}
+
+export async function getSystemCapabilities() {
+  return await queryWithRetry(api.system.getCapabilities, {});
 }
 
 // =============================================

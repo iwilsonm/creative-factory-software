@@ -8,6 +8,64 @@ export function compactConvexWrite(value) {
   );
 }
 
+export function normalizeDeploymentIds(deploymentIds) {
+  if (!Array.isArray(deploymentIds) || deploymentIds.length === 0) {
+    return { ids: [], error: 'deployment_ids must be a non-empty array' };
+  }
+
+  const ids = [];
+  const seen = new Set();
+  const duplicates = new Set();
+  const invalidIndexes = [];
+
+  deploymentIds.forEach((value, index) => {
+    if (typeof value !== 'string' || !value.trim()) {
+      invalidIndexes.push(index);
+      return;
+    }
+    const id = value.trim();
+    if (seen.has(id)) duplicates.add(id);
+    seen.add(id);
+    ids.push(id);
+  });
+
+  if (invalidIndexes.length) {
+    return { ids: [], error: `deployment_ids contains invalid values at index ${invalidIndexes.join(', ')}` };
+  }
+  if (duplicates.size) {
+    return { ids: [], error: `deployment_ids contains duplicate ids: ${[...duplicates].join(', ')}` };
+  }
+
+  return { ids, error: null };
+}
+
+export function isMissingAtomicAdSetFunctionError(err) {
+  const raw = typeof err === 'string' ? err : (err?.message || '');
+  return /Could not find public function.*adSets:createFromDeployments|adSets:createFromDeployments.*Could not find public function|Did you forget to run `npx convex dev`/i.test(raw);
+}
+
+export function getManualCombineErrorResponse(err, { convexHost } = {}) {
+  const raw = err?.message || 'Failed to create ad set';
+  if (isMissingAtomicAdSetFunctionError(raw)) {
+    const target = convexHost ? ` (${convexHost})` : '';
+    return {
+      status: 503,
+      message: `Ad set creation is temporarily unavailable because the configured Convex deployment${target} is missing the atomic ad-set combine function. Please deploy Convex functions to the same deployment this site is using, then try again.`,
+    };
+  }
+
+  const invalidMatch = raw.match(/INVALID_DEPLOYMENTS:\s*([\s\S]+)/);
+  if (invalidMatch) {
+    return { status: 400, message: `Invalid deployment_ids: ${invalidMatch[1].trim()}` };
+  }
+
+  if (/Campaign not found|does not belong to this project/i.test(raw)) {
+    return { status: 400, message: raw };
+  }
+
+  return { status: 500, message: raw };
+}
+
 export function getDeploymentExternalId(deployment) {
   return deployment?.externalId || deployment?.id || null;
 }

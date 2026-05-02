@@ -27,6 +27,7 @@ export default function CombineIntoAdSetModal({
   const [saving, setSaving] = useState(false);
   const [lockError, setLockError] = useState(null);
   const lockTimerRef = useRef(null);
+  const savingRef = useRef(false);
 
   // Reset state on open + acquire soft-lock
   useEffect(() => {
@@ -76,7 +77,8 @@ export default function CombineIntoAdSetModal({
   const canSave = nameValid && campaignValid && deploymentIds.length > 0 && !lockError && !saving;
 
   const handleSave = async () => {
-    if (!canSave) return;
+    if (!canSave || savingRef.current) return;
+    savingRef.current = true;
     setSaving(true);
     try {
       const body = {
@@ -94,6 +96,7 @@ export default function CombineIntoAdSetModal({
     } catch (err) {
       setLockError(err.message || 'Failed to create ad set');
     } finally {
+      savingRef.current = false;
       setSaving(false);
     }
   };

@@ -254,6 +254,20 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
     if (!silent) setLoading(false);
   };
 
+  const refreshPlannerData = useCallback(async () => {
+    const [deploymentData, campData, draftAdSets] = await Promise.all([
+      api.getProjectDeployments(projectId),
+      api.getCampaigns(projectId),
+      api.getAdSets(projectId, ['draft']),
+    ]);
+    const nextDeployments = deploymentData?.deployments || [];
+    const safeDraft = Array.isArray(draftAdSets) ? draftAdSets : (draftAdSets?.adSets ?? []);
+    setDeployments(nextDeployments);
+    setCampaigns(campData.campaigns || []);
+    setAdSets(campData.adSets || []);
+    setFlexAds(safeDraft.map(s => composeFlexFromAdSet(s, nextDeployments)));
+  }, [projectId, setDeployments]);
+
   // ─── Undo helpers ────────────────────────────────────────────────────────
   const snapshotForUndo = useCallback((label, serverUndoFn) => {
     setUndoState({
@@ -2499,7 +2513,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
           setCombineModalDeploymentIds([]);
           setSelectedInStaging(new Set());
           addToast('Ad set created', 'success');
-          await Promise.all([loadCampaignData(true), loadDeployments()]);
+          await refreshPlannerData();
         }}
       />
     </div>

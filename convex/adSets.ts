@@ -77,9 +77,29 @@ export const createFromDeployments = mutation({
     updated_at: v.string(),
   },
   handler: async (ctx, args) => {
-    const deploymentIds = [...new Set(args.deployment_ids.map((id) => id.trim()).filter(Boolean))];
+    const deploymentIds: string[] = [];
+    const seen = new Set<string>();
+    const duplicates = new Set<string>();
+    const invalidIndexes: number[] = [];
+    for (let i = 0; i < args.deployment_ids.length; i++) {
+      const raw = args.deployment_ids[i];
+      const id = typeof raw === "string" ? raw.trim() : "";
+      if (!id) {
+        invalidIndexes.push(i);
+        continue;
+      }
+      if (seen.has(id)) duplicates.add(id);
+      seen.add(id);
+      deploymentIds.push(id);
+    }
     if (deploymentIds.length === 0) {
       throw new Error("INVALID_DEPLOYMENTS: deployment_ids must be a non-empty array");
+    }
+    if (invalidIndexes.length) {
+      throw new Error(`INVALID_DEPLOYMENTS: invalid values at index ${invalidIndexes.join(", ")}`);
+    }
+    if (duplicates.size) {
+      throw new Error(`INVALID_DEPLOYMENTS: duplicate ids: ${[...duplicates].join(", ")}`);
     }
 
     const existingAdSet = await ctx.db
