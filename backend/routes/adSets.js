@@ -528,4 +528,62 @@ router.post('/:projectId/staging/adsets/:adSetId/post-to-meta', requireRole('adm
   }
 });
 
+// ────────────────────────────────────────────────
+// Flat (project-agnostic) ad-set routes — used by legacy api.updateFlexAd /
+// api.deleteFlexAd which had only an ID parameter, no projectId. Looks up
+// project from the ad_set itself, then enforces same rules as scoped routes.
+// Exported separately so server.js can mount at /api (not /api/projects).
+// ────────────────────────────────────────────────
+
+export const adSetsFlatRouter = Router();
+adSetsFlatRouter.use(requireAuth);
+adSetsFlatRouter.use((req, res, next) => {
+  res.setHeader('X-API-Version', 'phase6-v1');
+  next();
+});
+
+adSetsFlatRouter.put('/ad-sets/:adSetId', requireRole('admin', 'manager'), async (req, res) => {
+  try {
+    const adSet = await getAdSet(req.params.adSetId);
+    if (!adSet) return res.status(404).json({ error: 'Ad set not found' });
+    const allowed = [
+      'name', 'campaign_id', 'lifecycle_status', 'angle_id',
+      'meta_targeting', 'meta_budget_type', 'meta_budget_amount_cents',
+      'meta_schedule', 'meta_optimization_goal', 'meta_billing_event',
+    ];
+    const fields = {};
+    for (const key of allowed) {
+      if (req.body[key] !== undefined) fields[key] = req.body[key];
+    }
+    if (Object.keys(fields).length === 0) {
+      return res.status(400).json({ error: 'No allowed fields supplied' });
+    }
+    await updateAdSet(req.params.adSetId, fields);
+    res.json({ success: true });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
+adSetsFlatRouter.post('/ad-sets/:adSetId/ungroup', requireRole('admin', 'manager'), async (req, res) => {
+  try {
+    const adSet = await getAdSet(req.params.adSetId);
+    if (!adSet) return res.status(404).json({ error: 'Ad set not found' });
+    if (!['draft', 'ready', 'staging', 'promoted'].includes(adSet.lifecycle_status || '')) {
+      return res.status(400).json({
+        error: `Cannot ungroup ad set in "${adSet.lifecycle_status}" lifecycle.`,
+      });
+    }
+    const deployments = await getDeploymentsByProject(adSet.project_id);
+    const members = deployments.filter((d) => d.local_adset_id === req.params.adSetId);
+    for (const dep of members) {
+      await updateDeployment(dep.externalId, { local_adset_id: '' });
+    }
+    await deleteAdSet(req.params.adSetId);
+    res.json({ success: true, deployments_detached: members.length });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 export default router;

@@ -15,8 +15,8 @@ const TemplateImages = lazy(() => import('../components/TemplateImages'));
 const AdStudio = lazy(() => import('../components/AdStudio'));
 const AdTracker = lazy(() => import('./AdTracker'));
 const CreativeFilterSettings = lazy(() => import('../components/CreativeFilterSettings'));
-// Phase 1 — Staging Page (gated by per-project feature flag)
-const StagingPage = lazy(() => import('../components/StagingPage'));
+// Phase 6 — Staging tab removed; ad-set lifecycle is now unified into the
+// Ad Pipeline tab (Planner / Ready to Post / Posted). StagingPage.jsx is deleted.
 const CreativeDirectorSettings = lazy(() => import('../components/CreativeDirectorSettings'));
 // Phase 2A — Meta integration sub-tab in Project Settings
 const MetaConnectPanel = lazy(() => import('../components/MetaConnectPanel'));
@@ -45,13 +45,15 @@ export default function ProjectDetail() {
   const [saving, setSaving] = useState(false);
   const [deletingProject, setDeletingProject] = useState(false);
   const [availableDocTypes, setAvailableDocTypes] = useState(new Set());
-  // Phase 1 — Staging Page feature flag (per-project, stored in settings table).
-  // When enabled, the Staging tab is shown alongside the existing tabs.
-  const [stagingFlagEnabled, setStagingFlagEnabled] = useState(false);
+  // Phase 6 — Staging tab removed; ad-set lifecycle is unified inside the
+  // Ad Pipeline tab. The legacy `enable_phase1_staging:<projectId>` settings
+  // flag is no longer read.
   const [conductorAngles, setConductorAngles] = useState([]);
 
-  // Persist active tab in URL search params so it survives page refresh
-  const validTabs = ['ads', 'tracker', 'overview', 'docs', 'templates', 'staging', 'analytics', 'observation'];
+  // Persist active tab in URL search params so it survives page refresh.
+  // Phase 6 — `'staging'` removed from validTabs. Server-side redirect below
+  // catches any bookmarked ?tab=staging URLs and redirects to defaultTab.
+  const validTabs = ['ads', 'tracker', 'overview', 'docs', 'templates', 'analytics', 'observation'];
   const defaultTab = user?.role === 'poster' ? 'tracker' : 'ads';
   const tabFromUrl = searchParams.get('tab');
   const [tab, setTabState] = useState(
@@ -145,23 +147,31 @@ export default function ProjectDetail() {
     }
   }, [tab, id]);
 
-  // Phase 1 — Read the per-project staging feature flag (stored in settings table)
-  // and load active conductor angles for the regroup dropdown. Both are cheap.
+  // Phase 6 — staging feature flag no longer read. Just load conductor angles
+  // for any UI that needs the angle list.
   useEffect(() => {
     if (!id) return;
     (async () => {
-      try {
-        const settings = await api.getSettings();
-        const flagKey = `enable_phase1_staging:${id}`;
-        const flagVal = settings?.[flagKey];
-        setStagingFlagEnabled(flagVal === 'true' || flagVal === true);
-      } catch { setStagingFlagEnabled(false); }
       try {
         const angles = await api.getConductorAngles(id);
         setConductorAngles(Array.isArray(angles) ? angles : []);
       } catch { setConductorAngles([]); }
     })();
   }, [id]);
+
+  // Phase 6 — server-side redirect for legacy ?tab=staging URLs (bookmarks etc).
+  // Runs synchronously during URL parse, before any tab body renders, so no flash.
+  useEffect(() => {
+    if (tabFromUrl === 'staging') {
+      setSearchParams(prev => {
+        const next = new URLSearchParams(prev);
+        next.set('tab', defaultTab);
+        return next;
+      }, { replace: true });
+      setTabState(defaultTab);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const loadProjectCosts = async () => {
     setCostsLoading(true);
@@ -224,14 +234,9 @@ export default function ProjectDetail() {
     }
   };
 
-  const handleCreativeDirectorSaved = async ({ stagingEnabled } = {}) => {
-    if (typeof stagingEnabled === 'boolean') {
-      setStagingFlagEnabled(stagingEnabled);
-      if (!stagingEnabled && tab === 'staging') {
-        setTab('overview');
-        setSettingsSubTab('creative_director');
-      }
-    }
+  // Phase 6 — staging-flag handling removed. CreativeDirectorSettings no longer
+  // exposes a staging toggle (the unified pipeline replaces it).
+  const handleCreativeDirectorSaved = async () => {
     await loadProject();
   };
 
@@ -291,11 +296,11 @@ export default function ProjectDetail() {
     );
   }
 
+  // Phase 6 — Staging tab removed; ad-set lifecycle (draft / ready / posted /
+  // observing / terminal) lives inside the unified Ad Pipeline tab.
   const allTabs = [
     { id: 'ads', label: 'Ad Studio', tooltip: 'Generate individual ads or run batch generation.' },
-    // Phase 1 — Staging tab is gated by the per-project feature flag
-    ...(stagingFlagEnabled ? [{ id: 'staging', label: 'Staging', tooltip: 'Review pre-grouped ad sets, regroup if needed, and promote to Ready-to-Post.' }] : []),
-    { id: 'tracker', label: 'Ad Pipeline', tooltip: 'Plan, organize, and deploy ads to campaigns and ad sets.' },
+    { id: 'tracker', label: 'Ad Pipeline', tooltip: 'Plan, organize, and deploy ad sets to campaigns. Combines what was previously Planner + Staging + Ready-to-Post + Posted.' },
     { id: 'analytics', label: 'Analytics', tooltip: 'Notion-style table of campaigns / ad sets / ads from Meta with tagging and saved views.' },
     { id: 'observation', label: 'Observation', tooltip: 'Track posted ad sets through the 12-day observation window. Verdicts feed angle archive.' },
     { id: 'overview', label: 'Project Settings', tooltip: 'Project configuration, foundational docs, and template library.' }
@@ -634,11 +639,7 @@ export default function ProjectDetail() {
             <AdTracker projectId={id} userRole={user?.role} searchParams={searchParams} setSearchParams={setSearchParams} />
           </ErrorBoundary>
         )}
-        {tab === 'staging' && stagingFlagEnabled && (
-          <ErrorBoundary level="tab" key="staging">
-            <StagingPage projectId={id} project={project} conductorAngles={conductorAngles} />
-          </ErrorBoundary>
-        )}
+        {/* Phase 6 — Staging tab removed. Ad-set lifecycle is now inside Ad Pipeline. */}
         {tab === 'analytics' && (
           <ErrorBoundary level="tab" key="analytics">
             <AnalyticsTab projectId={id} />

@@ -25,7 +25,7 @@ import deploymentRoutes from './routes/deployments.js';
 import agentMonitorRoutes, { agentCostRouter } from './routes/agentMonitor.js';
 import conductorRoutes from './routes/conductor.js';
 // Phase 6 — lpAgent.js + staging.js removed; adSets.js consolidates both.
-import adSetRoutes from './routes/adSets.js';
+import adSetRoutes, { adSetsFlatRouter } from './routes/adSets.js';
 import metaRoutes from './routes/meta.js';
 import analyticsRoutes from './routes/analytics.js';
 import observationRoutes from './routes/observation.js';
@@ -274,6 +274,9 @@ try {
   // Routes — projects (all roles can list/view projects for navigation)
   // Phase 6 — adSetRoutes mounted here (was: lpAgentRoutes + stagingRoutes deleted).
   app.use('/api/projects', adSetRoutes);
+  // Phase 6 — flat ad-set routes (project-agnostic by-id) for legacy
+  // api.updateFlexAd/api.deleteFlexAd which had no projectId param.
+  app.use('/api', adSetsFlatRouter);
   app.use('/api/projects', projectRoutes);
   // Phase 2A — Meta integration routes. MUST be mounted before deploymentRoutes
   // (which has `router.use(requireAuth)` and is mounted at /api). Without this

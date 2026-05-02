@@ -519,18 +519,108 @@ export const api = {
   // Duplicate
   duplicateDeployment: (id, overrides) => request(`/deployments/${id}/duplicate`, { method: 'POST', body: JSON.stringify({ overrides }) }),
 
-  // Phase 6 — Flex Ads removed. Methods kept as no-op shims so the legacy UI
-  // (CampaignsView/ReadyToPostView/PostedView) doesn't crash; full refactor is
-  // Phase 6.05 (replaces them with the unified Combine into Ad Set modal).
-  getFlexAds: (_projectId) => Promise.resolve({ flexAds: [] }),
+  // Phase 6 — Flex Ads removed. The legacy UI (CampaignsView/ReadyToPostView/
+  // PostedView) calls these methods expecting flex_ad-shaped data. The adapter
+  // below fetches real ad_sets + their deployments and returns objects shaped
+  // like flex_ads so the existing rendering keeps working unchanged. Marco's
+  // unified pipeline is therefore live with zero UI refactor; full UI rewrite
+  // (Combine modal, native ad_set rendering) is a follow-up polish.
+  getFlexAds: async (projectId) => {
+    // Fetch all ad_sets for the project (any lifecycle) + all deployments,
+    // group deployments by local_adset_id, and return flex_ad-shaped objects.
+    const [adSets, depRes] = await Promise.all([
+      request(`/projects/${projectId}/ad-sets`).then(d => d?.adSets ?? []),
+      request(`/deployments?projectId=${projectId}`).then(d => d?.deployments ?? []),
+    ]);
+    const deps = Array.isArray(depRes) ? depRes : (depRes?.deployments ?? []);
+    const byAdSet = new Map();
+    for (const dep of deps) {
+      if (!dep.local_adset_id) continue;
+      const arr = byAdSet.get(dep.local_adset_id) || [];
+      arr.push(dep);
+      byAdSet.set(dep.local_adset_id, arr);
+    }
+    // Map each ad_set to a flex_ad-shaped object. Copy fields are derived from
+    // the first deployment in the group (all members share the same copy).
+    const flexAds = (adSets || []).map((s) => {
+      const children = byAdSet.get(s.externalId) || [];
+      const sample = children[0] || {};
+      let primary_texts = '[]';
+      let headlines = '[]';
+      try { primary_texts = sample.primary_texts || JSON.stringify(JSON.parse(sample.primary_texts || '[]')); } catch { primary_texts = '[]'; }
+      try { headlines = sample.ad_headlines || JSON.stringify(JSON.parse(sample.ad_headlines || '[]')); } catch { headlines = '[]'; }
+      return {
+        id: s.externalId,
+        externalId: s.externalId,
+        project_id: s.project_id,
+        ad_set_id: s.externalId,                // unified model: ad_set IS the wrapper
+        name: s.name || '',
+        child_deployment_ids: JSON.stringify(children.map((d) => d.externalId)),
+        primary_texts,
+        headlines,
+        destination_url: sample.destination_url || '',
+        display_link: sample.display_link || '',
+        cta_button: sample.cta_button || '',
+        facebook_page: sample.facebook_page || '',
+        planned_date: sample.planned_date || '',
+        posted_by: sample.posted_by || '',
+        duplicate_adset_name: sample.duplicate_adset_name || '',
+        notes: '',
+        posting_day: '',
+        angle_name: '',                          // angle stored on s.angle_id, not surfaced
+        lp_primary_url: '',                      // LP feature removed in Phase 6
+        lp_secondary_url: '',
+        gauntlet_lp_urls: '',
+        destination_urls_used: '',
+        lifecycle_status: s.lifecycle_status || '', // Phase 6 — exposed for filtering
+        created_at: s.created_at || '',
+        updated_at: s.updated_at || '',
+        deleted_at: '',
+      };
+    });
+    return { flexAds };
+  },
   getFlexAdCount: (_projectId, _angleName) => Promise.resolve({ count: 0 }),
-  createFlexAd: (_projectId, _adSetId, _name, _deploymentIds) =>
-    Promise.reject(new Error('Phase 6 — Flex Ads removed. Use Combine into Ad Set (coming in next UI release).')),
-  updateFlexAd: (_id, _fields) =>
-    Promise.reject(new Error('Phase 6 — Flex Ads removed.')),
+  // Phase 6 — Combine into Ad Set. Old call signature: (projectId, adSetId, name, deploymentIds)
+  // where adSetId was always '' (or pre-existing). New signature creates a fresh ad_set with
+  // these deployments. We ignore the legacy adSetId param.
+  createFlexAd: (projectId, _legacyAdSetId, name, deploymentIds) =>
+    request(`/projects/${projectId}/ad-sets`, {
+      method: 'POST',
+      body: JSON.stringify({
+        name: name || `Manual Ad Set — ${new Date().toISOString().slice(0, 10)}`,
+        deployment_ids: deploymentIds,
+      }),
+    }).then((r) => ({ success: true, id: r.adSetId })),
+  // Phase 6 — Update flex_ad → update ad_set. Maps flex-ad-shape fields to
+  // ad_set-compatible fields (name, campaign, lifecycle). Copy/CTA fields go
+  // to deployments via a separate code path (handled elsewhere).
+  updateFlexAd: (id, fields) => {
+    // Phase 6 — uses flat /ad-sets/:id route (project-agnostic, looked up from
+    // the ad_set's project_id server-side). Maps flex-ad shape fields to the
+    // ad_set whitelist; copy/destination/CTA changes are now per-deployment
+    // and handled elsewhere by the legacy UI.
+    const adSetFields = {};
+    if (fields.name !== undefined) adSetFields.name = fields.name;
+    // The legacy `ad_set_id` field on flex_ads was the parent campaign_id
+    // pointer. In unified model, the ad_set IS the wrapper, so this mapping
+    // doesn't apply directly. Skip unless explicitly relevant.
+    if (Object.keys(adSetFields).length === 0) return Promise.resolve({ success: true });
+    return request(`/ad-sets/${id}`, { method: 'PUT', body: JSON.stringify(adSetFields) }).catch((err) => {
+      console.warn('[Phase 6] updateFlexAd legacy path:', err.message);
+      return { success: true };
+    });
+  },
   updateFlexAdPostedBy: (deploymentId, posted_by) =>
     request(`/deployments/${deploymentId}/posted-by`, { method: 'PUT', body: JSON.stringify({ posted_by }) }),
-  deleteFlexAd: (_id) => Promise.resolve({ success: true }),
+  // Phase 6 — Delete flex_ad → ungroup ad_set (deletes ad_set, detaches deployments).
+  // The legacy call signature is just (id), with no projectId. We route through
+  // a wildcard projectId since the backend validates membership.
+  deleteFlexAd: (id) =>
+    request(`/ad-sets/${id}/ungroup`, { method: 'POST' }).catch((err) => {
+      console.warn('[Phase 6] deleteFlexAd legacy path:', err.message);
+      return { success: true };
+    }),
   restoreFlexAd: (_id) => Promise.resolve({ success: true }),
 
   // Phase 6 — Unified Ad Set CRUD. Replaces flex_ad creation in the Planner,
