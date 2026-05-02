@@ -1,22 +1,38 @@
 // Phase 3 — Drawer showing snapshots, sparkline, manual actions for one ad set.
+// Phase 6.20a — extended with SubAnglesSection (Phase 4) when ad_set has
+// passed verdict + an angle_id. Surfaces sub-angles derived from this ad_set's
+// parent angle so Marco can see Phase 4 sub-angle derivation in context.
 
 import { useState, useEffect } from 'react';
 import { api } from '../../api';
 import { useToast } from '../Toast';
+import SubAnglesSection from '../conductor/SubAnglesSection';
 
 export default function AdSetTimeline({ projectId, adSetId, open, onClose, onChanged }) {
   const toast = useToast();
   const [data, setData] = useState(null);
   const [loading, setLoading] = useState(false);
   const [busy, setBusy] = useState(false);
+  // Phase 6.20a — parent angle resolution for SubAnglesSection
+  const [parentAngle, setParentAngle] = useState(null);
 
   useEffect(() => {
     if (!open || !adSetId) return;
     (async () => {
       setLoading(true);
+      setParentAngle(null);
       try {
         const payload = await api.getObservationAdSet(projectId, adSetId);
         setData(payload);
+        // If passed + has angle_id, resolve the parent angle for SubAnglesSection
+        const adSet = payload?.ad_set;
+        if (adSet?.lifecycle_status === 'passed' && adSet.angle_id) {
+          try {
+            const angles = await api.getConductorAngles(projectId);
+            const parent = (angles || []).find((a) => a.externalId === adSet.angle_id);
+            if (parent) setParentAngle(parent);
+          } catch { /* SubAnglesSection just won't render */ }
+        }
       } catch (err) {
         toast.error(err.message);
       } finally {
@@ -133,6 +149,22 @@ export default function AdSetTimeline({ projectId, adSetId, open, onClose, onCha
                 </p>
               )}
             </div>
+
+            {/* Phase 6.20a — SubAnglesSection (Phase 4). Only renders for
+                passed verdicts with a parent angle resolved. Shows derived
+                sub-angles from this ad set's parent angle. */}
+            {parentAngle && adSet.lifecycle_status === 'passed' && (
+              <div className="border-t border-gold/30 pt-4 overflow-y-auto max-h-96">
+                <h4 className="text-[12px] font-semibold text-textdark mb-2">
+                  Sub-angles derived from this ad set's angle
+                </h4>
+                <SubAnglesSection
+                  projectId={projectId}
+                  parentAngle={parentAngle}
+                  onChanged={onChanged}
+                />
+              </div>
+            )}
           </div>
         )}
       </div>

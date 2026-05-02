@@ -1,5 +1,7 @@
 import { useState, useMemo } from 'react';
 import { api } from '../api';
+// Phase 6.20a — render lifecycle pill on terminal/observing states (Phase 3)
+import ObservationPill from './observation/ObservationPill';
 
 // Phase 1 — Staging Page: a single ad-set card.
 // Shows the angle name, ad-set name, member ads (3-up thumbnail grid),
@@ -49,7 +51,15 @@ export default function AdSetCard({
             {adSet.angle_id ? 'Angle' : 'Untitled angle'}
           </div>
           <div className="text-sm font-semibold text-textdark truncate">{adSet.name || `Ad set ${adSet.id.slice(0, 8)}`}</div>
-          <div className="text-xs text-textmid mt-0.5">{adCount} ad{adCount === 1 ? '' : 's'}</div>
+          <div className="text-xs text-textmid mt-0.5 flex items-center gap-2">
+            <span>{adCount} ad{adCount === 1 ? '' : 's'}</span>
+            {/* Phase 6.20a — lifecycle pill (Phase 3 component). Renders for
+                observing/terminal lifecycles. Draft/ready get nothing here
+                (status implied by which view contains the card). */}
+            {['observing', 'passed', 'failed', 'failed_external', 'insufficient_data'].includes(adSet.lifecycle_status) && (
+              <ObservationPill adSet={adSet} />
+            )}
+          </div>
         </div>
         {!readOnly && !regroupMode && variant === 'pending' && (
           <div className="flex items-center gap-2">

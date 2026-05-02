@@ -182,6 +182,17 @@ export function invalidateProjectCache(projectId) {
   invalidateCache('/projects', `/projects/${projectId}`, `/projects/${projectId}/stats`);
 }
 
+// Phase 6.20 — DEPRECATED-warn tracking for the legacy flex_ad adapter.
+// Each adapter method warns once per session at first call. Phase 6.30
+// removes the adapter entirely.
+const _adapterWarned = {
+  getFlexAds: false,
+  createFlexAd: false,
+  updateFlexAd: false,
+  deleteFlexAd: false,
+  restoreFlexAd: false,
+};
+
 export const api = {
   // Auth
   getSession: () => cachedRequest('/auth/session'),
@@ -522,10 +533,18 @@ export const api = {
   // Phase 6 — Flex Ads removed. The legacy UI (CampaignsView/ReadyToPostView/
   // PostedView) calls these methods expecting flex_ad-shaped data. The adapter
   // below fetches real ad_sets + their deployments and returns objects shaped
-  // like flex_ads so the existing rendering keeps working unchanged. Marco's
-  // unified pipeline is therefore live with zero UI refactor; full UI rewrite
-  // (Combine modal, native ad_set rendering) is a follow-up polish.
+  // like flex_ads so the existing rendering keeps working unchanged.
+  //
+  // Phase 6.20 — adapter is DEPRECATED. Each method emits one console.warn
+  // per session at first call, with the immediate caller frame extracted from
+  // the stack. Phase 6.30 (future) deletes the adapter entirely after
+  // BulkEditPanel/AdTracker/AgentMonitor migrate to native ad_set methods.
   getFlexAds: async (projectId) => {
+    if (!_adapterWarned.getFlexAds) {
+      _adapterWarned.getFlexAds = true;
+      const caller = (new Error().stack || '').split('\n')[2]?.trim() || '?';
+      console.warn(`[DEPRECATED] api.getFlexAds — use api.getAdSets in new code. Called from: ${caller}`);
+    }
     // Fetch all ad_sets for the project (any lifecycle) + all deployments,
     // group deployments by local_adset_id, and return flex_ad-shaped objects.
     const [adSets, depRes] = await Promise.all([
@@ -584,18 +603,29 @@ export const api = {
   // Phase 6 — Combine into Ad Set. Old call signature: (projectId, adSetId, name, deploymentIds)
   // where adSetId was always '' (or pre-existing). New signature creates a fresh ad_set with
   // these deployments. We ignore the legacy adSetId param.
-  createFlexAd: (projectId, _legacyAdSetId, name, deploymentIds) =>
-    request(`/projects/${projectId}/ad-sets`, {
+  createFlexAd: (projectId, _legacyAdSetId, name, deploymentIds) => {
+    if (!_adapterWarned.createFlexAd) {
+      _adapterWarned.createFlexAd = true;
+      const caller = (new Error().stack || '').split('\n')[2]?.trim() || '?';
+      console.warn(`[DEPRECATED] api.createFlexAd — use api.createAdSetFromAds in new code. Called from: ${caller}`);
+    }
+    return request(`/projects/${projectId}/ad-sets`, {
       method: 'POST',
       body: JSON.stringify({
         name: name || `Manual Ad Set — ${new Date().toISOString().slice(0, 10)}`,
         deployment_ids: deploymentIds,
       }),
-    }).then((r) => ({ success: true, id: r.adSetId })),
+    }).then((r) => ({ success: true, id: r.adSetId }));
+  },
   // Phase 6 — Update flex_ad → update ad_set. Maps flex-ad-shape fields to
   // ad_set-compatible fields (name, campaign, lifecycle). Copy/CTA fields go
   // to deployments via a separate code path (handled elsewhere).
   updateFlexAd: (id, fields) => {
+    if (!_adapterWarned.updateFlexAd) {
+      _adapterWarned.updateFlexAd = true;
+      const caller = (new Error().stack || '').split('\n')[2]?.trim() || '?';
+      console.warn(`[DEPRECATED] api.updateFlexAd — use api.updateAdSetUnified for ad_set fields, or api.updateDeployment for per-deployment fields. Called from: ${caller}`);
+    }
     // Phase 6 — uses flat /ad-sets/:id route (project-agnostic, looked up from
     // the ad_set's project_id server-side). Maps flex-ad shape fields to the
     // ad_set whitelist; copy/destination/CTA changes are now per-deployment
@@ -616,12 +646,25 @@ export const api = {
   // Phase 6 — Delete flex_ad → ungroup ad_set (deletes ad_set, detaches deployments).
   // The legacy call signature is just (id), with no projectId. We route through
   // a wildcard projectId since the backend validates membership.
-  deleteFlexAd: (id) =>
-    request(`/ad-sets/${id}/ungroup`, { method: 'POST' }).catch((err) => {
+  deleteFlexAd: (id) => {
+    if (!_adapterWarned.deleteFlexAd) {
+      _adapterWarned.deleteFlexAd = true;
+      const caller = (new Error().stack || '').split('\n')[2]?.trim() || '?';
+      console.warn(`[DEPRECATED] api.deleteFlexAd — use api.ungroupAdSet in new code. Called from: ${caller}`);
+    }
+    return request(`/ad-sets/${id}/ungroup`, { method: 'POST' }).catch((err) => {
       console.warn('[Phase 6] deleteFlexAd legacy path:', err.message);
       return { success: true };
-    }),
-  restoreFlexAd: (_id) => Promise.resolve({ success: true }),
+    });
+  },
+  restoreFlexAd: (_id) => {
+    if (!_adapterWarned.restoreFlexAd) {
+      _adapterWarned.restoreFlexAd = true;
+      const caller = (new Error().stack || '').split('\n')[2]?.trim() || '?';
+      console.warn(`[DEPRECATED] api.restoreFlexAd — no native equivalent. Phase 6.30 removes. Called from: ${caller}`);
+    }
+    return Promise.resolve({ success: true });
+  },
 
   // Phase 6 — Unified Ad Set CRUD. Replaces flex_ad creation in the Planner,
   // staging promotion, and the unified pipeline view.

@@ -4,6 +4,8 @@ import { api } from '../api';
 import { ensureArray } from '../utils/collections';
 import ConfirmDialog from './ConfirmDialog';
 import BulkEditPanel from './BulkEditPanel';
+// Phase 6.20a — backdate picker on manual Mark as Posted
+import MarkPostedModal from './MarkPostedModal';
 
 /**
  * ReadyToPostView — Employee-facing view for posting ads to Meta Ads Manager.
@@ -20,6 +22,9 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
   const [flexAds, setFlexAds] = useState([]);
   const [loading, setLoading] = useState(true);
   const [confirmPosted, setConfirmPosted] = useState(null);
+  // Phase 6.20a — backdate picker on manual Mark as Posted. Modal opens
+  // when user confirms; on save passes a chosen posted_at to the handler.
+  const [markPostedModal, setMarkPostedModal] = useState(null); // { flexAd, deploymentId } | null
   const [deleteFlexConfirm, setDeleteFlexConfirm] = useState(null);
   const [markingPostedIds, setMarkingPostedIds] = useState(new Set());
   const [sendingBackIds, setSendingBackIds] = useState(new Set());
@@ -250,7 +255,11 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
     }
   };
 
-  const handleMarkFlexPosted = async (flexAd) => {
+  const handleMarkFlexPosted = async (flexAd, postedAtIso = null) => {
+    // Phase 6.20a — postedAtIso optional. When provided (from MarkPostedModal),
+    // sets ad_set.posted_at to that ISO timestamp so Phase 3 cron observation
+    // ticks from the chosen date. Default = now (today).
+    const effectivePostedAt = postedAtIso || new Date().toISOString();
     // Optimistic UI update — immediate feedback
     const childDeps = getFlexChildDeps(flexAd);
     const { campaignName, adSetName } = resolveFlexLocation(flexAd);
@@ -290,7 +299,7 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
         ),
         api.updateAdSetUnified(projectId, flexAd.id, {
           lifecycle_status: 'observing',
-          posted_at: new Date().toISOString(),
+          posted_at: effectivePostedAt,
         }).catch(() => { /* best-effort lifecycle sync; deployments status remains source of truth for this view */ }),
       ]);
     } catch {
@@ -1694,9 +1703,9 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
               <div className="flex items-center gap-2">
                 <span className="text-[11px] text-textmid">{childDeps.length} ad{childDeps.length !== 1 ? 's' : ''}</span>
                 <button onClick={() => setConfirmPosted(null)} className="px-2.5 py-1.5 rounded-lg text-[11px] text-textmid hover:bg-white transition-colors">Cancel</button>
-                <button onClick={() => handleMarkFlexPosted(flexAd)} disabled={isMarking}
+                <button onClick={() => { setConfirmPosted(null); setMarkPostedModal({ flexAd, count: childDeps.length }); }} disabled={isMarking}
                   className="px-4 py-2 rounded-lg text-[12px] font-bold bg-teal text-white hover:bg-teal/90 transition-colors disabled:opacity-50"
-                >{isMarking ? 'Updating...' : 'Confirm Posted'}</button>
+                >{isMarking ? 'Updating...' : 'Pick date…'}</button>
               </div>
             ) : (
               <button onClick={() => setConfirmPosted(flexId)}
@@ -2055,6 +2064,20 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
         }}
         onCancel={() => setBulkDeleteConfirm(false)}
       />
+
+      {/* Phase 6.20a — Mark as Posted backdate modal. Opens when user clicks
+          "Pick date…" on a flex/ad_set; on save, calls handleMarkFlexPosted
+          with the chosen ISO timestamp (or now if Today). */}
+      {markPostedModal && (
+        <MarkPostedModal
+          open={true}
+          count={markPostedModal.count}
+          onClose={() => setMarkPostedModal(null)}
+          onConfirm={async (postedAtIso) => {
+            await handleMarkFlexPosted(markPostedModal.flexAd, postedAtIso);
+          }}
+        />
+      )}
     </div>
   );
 }
