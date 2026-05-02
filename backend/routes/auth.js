@@ -17,13 +17,28 @@ const loginLimiter = rateLimit({
 router.get('/session', async (req, res) => {
   const setupDone = await isSetupComplete();
   if (req.session && req.session.userId) {
+    const user = await getUserByExternalId(req.session.userId);
+    if (!user || !user.is_active) {
+      req.session.destroy(() => {});
+      res.clearCookie('connect.sid');
+      return res.json({
+        authenticated: false,
+        username: null,
+        user: null,
+        setupComplete: setupDone
+      });
+    }
+
+    req.session.username = user.username;
+    req.session.role = user.role;
+    req.session.displayName = user.display_name;
     res.json({
       authenticated: true,
-      username: req.session.username || null,
+      username: user.username,
       user: {
-        username: req.session.username,
-        role: req.session.role,
-        displayName: req.session.displayName,
+        username: user.username,
+        role: user.role,
+        displayName: user.display_name,
       },
       setupComplete: setupDone
     });

@@ -99,6 +99,14 @@ function hasAdDetail(ad) {
   return !!ad && (Object.prototype.hasOwnProperty.call(ad, 'imageUrl') || Object.prototype.hasOwnProperty.call(ad, 'headline'));
 }
 
+function isActionableImageAd(ad) {
+  return !!ad && ad.status === 'completed' && !!ad.imageUrl;
+}
+
+function isSelectableAd(ad) {
+  return isActionableImageAd(ad) || ad?.status === 'failed';
+}
+
 export default function AdStudio({ projectId, project }) {
   const toast = useToast();
 
@@ -212,9 +220,11 @@ export default function AdStudio({ projectId, project }) {
   const [bulkTagOpen, setBulkTagOpen] = useState(false);
   const [bulkTagInput, setBulkTagInput] = useState('');
 
-  // Multi-select for bulk download
+  // Multi-select for bulk actions
   const [selectedAdIds, setSelectedAdIds] = useState(new Set());
   const [isBulkDownloading, setIsBulkDownloading] = useState(false);
+  const galleryRef = useRef(null);
+  const [bulkBarInGalleryRange, setBulkBarInGalleryRange] = useState(false);
 
   useEffect(() => {
     // Reset form state when project changes
@@ -1093,21 +1103,48 @@ export default function AdStudio({ projectId, project }) {
   };
 
   const selectAllFiltered = () => {
-    const completedIds = filteredAds
-      .filter(ad => ad.status === 'completed' && ad.imageUrl)
+    const selectableIds = filteredAds
+      .filter(isSelectableAd)
       .map(ad => ad.id);
-    setSelectedAdIds(new Set(completedIds));
+    setSelectedAdIds(new Set(selectableIds));
   };
 
   const clearSelection = () => { setSelectedAdIds(new Set()); setBulkTagOpen(false); setBulkTagInput(''); };
 
   const selectedCount = selectedAdIds.size;
+  const actionableSelectedCount = ads.filter(ad => selectedAdIds.has(ad.id) && isActionableImageAd(ad)).length;
+
+  useEffect(() => {
+    setSelectedAdIds(prev => {
+      if (prev.size === 0) return prev;
+      const selectableIds = new Set(ads.filter(isSelectableAd).map(ad => ad.id));
+      let changed = false;
+      const next = new Set();
+      for (const id of prev) {
+        if (selectableIds.has(id)) next.add(id);
+        else changed = true;
+      }
+      return changed ? next : prev;
+    });
+  }, [ads]);
+
+  useEffect(() => {
+    if (selectedCount === 0 && bulkTagOpen) {
+      setBulkTagOpen(false);
+      setBulkTagInput('');
+    }
+  }, [selectedCount, bulkTagOpen]);
 
   // --- Deploy to Ad Tracker ---
   const handleDeploy = async () => {
     if (selectedAdIds.size === 0) return;
+    const deployableAds = ads.filter(ad => selectedAdIds.has(ad.id) && isActionableImageAd(ad));
+    if (deployableAds.length === 0) {
+      toast.addToast('Only completed ads with images can be sent to Ad Pipeline.', 'info');
+      return;
+    }
     setIsDeploying(true);
-    const adIds = [...selectedAdIds];
+    const adIds = deployableAds.map(ad => ad.id);
     // Optimistic: immediately mark as deployed so badges appear
     setDeployedAdIds(prev => {
       const next = new Set(prev);
@@ -1145,7 +1182,12 @@ export default function AdStudio({ projectId, project }) {
     setIsBulkDownloading(true);
     try {
       const zip = new JSZip();
-      const selectedAds = ads.filter(ad => selectedAdIds.has(ad.id) && ad.imageUrl);
+      const selectedAds = ads.filter(ad => selectedAdIds.has(ad.id) && isActionableImageAd(ad));
+
+      if (selectedAds.length === 0) {
+        toast.error('No selected completed ads have images to download.');
+        return;
+      }
 
       const results = await Promise.allSettled(
         selectedAds.map(async (ad) => {
@@ -1581,8 +1623,51 @@ export default function AdStudio({ projectId, project }) {
   const individualCount = ads.filter(a => !a.auto_generated && !a.batch_job_id).length;
   const batchCount = ads.filter(a => !!a.auto_generated || !!a.batch_job_id).length;
   const favoritesCount = ads.filter(a => !!a.is_favorite).length;
-  const completedFilteredAds = filteredAds.filter(ad => ad.status === 'completed' && ad.imageUrl);
-  const allFilteredSelected = completedFilteredAds.length > 0 && completedFilteredAds.every(ad => selectedAdIds.has(ad.id));
+  const selectableFilteredAds = filteredAds.filter(isSelectableAd);
+  const allFilteredSelected = selectableFilteredAds.length > 0 && selectableFilteredAds.every(ad => selectedAdIds.has(ad.id));
+  const deployButtonTitle = actionableSelectedCount === 0
+    ? 'Only completed ads with images can be sent to Ad Pipeline.'
+    : actionableSelectedCount < selectedCount
+      ? `Send ${actionableSelectedCount} completed ad${actionableSelectedCount !== 1 ? 's' : ''} to Ad Pipeline. Failed ads will be skipped.`
+      : 'Send selected ads to Ad Pipeline';
+  const downloadButtonTitle = actionableSelectedCount === 0
+    ? 'Only completed ads with images can be downloaded.'
+    : actionableSelectedCount < selectedCount
+      ? `Download ${actionableSelectedCount} completed ad${actionableSelectedCount !== 1 ? 's' : ''}. Failed ads will be skipped.`
+      : 'Download selected ads';
+
+  useEffect(() => {
+    if (selectedCount === 0) {
+      setBulkBarInGalleryRange(false);
+      return undefined;
+    }
+
+    const updateBulkBarRange = () => {
+      const gallery = galleryRef.current;
+      if (!gallery) {
+        setBulkBarInGalleryRange(false);
+        return;
+      }
+      const rect = gallery.getBoundingClientRect();
+      const viewportHeight = window.innerHeight || document.documentElement.clientHeight;
+      setBulkBarInGalleryRange(rect.bottom > 0 && rect.top < viewportHeight);
+    };
+
+    updateBulkBarRange();
+    window.addEventListener('scroll', updateBulkBarRange, { passive: true });
+    window.addEventListener('resize', updateBulkBarRange);
+    return () => {
+      window.removeEventListener('scroll', updateBulkBarRange);
+      window.removeEventListener('resize', updateBulkBarRange);
+    };
+  }, [selectedCount, galleryView, displayCount, filteredAds.length]);
+
+  useEffect(() => {
+    if (!bulkBarInGalleryRange && bulkTagOpen) {
+      setBulkTagOpen(false);
+      setBulkTagInput('');
+    }
+  }, [bulkBarInGalleryRange, bulkTagOpen]);
 
   // Find template name for modal display
   const getTemplateName = (templateId) => {
@@ -2671,7 +2756,7 @@ export default function AdStudio({ projectId, project }) {
       />
 
       {/* Ad Gallery */}
-      <div>
+      <div ref={galleryRef}>
         <div className="flex items-center justify-between mb-4">
           <div>
             <h3 className="text-[15px] font-semibold text-textdark tracking-tight flex items-center gap-1">Ad Gallery <InfoTooltip text="All generated ad creatives for this project. Click an ad to view details, download, or edit the prompt." position="right" /></h3>
@@ -2776,7 +2861,7 @@ export default function AdStudio({ projectId, project }) {
         </div>
 
         {/* Selection controls */}
-        {completedFilteredAds.length > 0 && !loadingAds && (
+        {selectableFilteredAds.length > 0 && !loadingAds && (
           <div className="flex items-center gap-3 mb-3">
             <button
               onClick={allFilteredSelected ? clearSelection : selectAllFiltered}
@@ -2840,9 +2925,9 @@ export default function AdStudio({ projectId, project }) {
                 <div
                   className="aspect-square bg-offwhite cursor-pointer relative overflow-hidden"
                   onClick={() => {
-                    if (ad.status !== 'completed') return;
+                    if (!isSelectableAd(ad)) return;
                     if (selectedCount > 0) toggleAdSelection(ad.id);
-                    else void openAdDetails(ad);
+                    else if (ad.status === 'completed') void openAdDetails(ad);
                   }}
                 >
                   {ad.imageUrl && ad.status === 'completed' ? (
@@ -2864,7 +2949,7 @@ export default function AdStudio({ projectId, project }) {
                   )}
 
                   {/* Selection checkbox — visible on hover or when selected */}
-                  {ad.status === 'completed' && (
+                  {isSelectableAd(ad) && (
                     <button
                       onClick={(e) => toggleAdSelection(ad.id, e)}
                       className={`absolute top-2 left-2 z-10 w-6 h-6 rounded-lg flex items-center justify-center transition-all duration-200 ${
@@ -2872,7 +2957,7 @@ export default function AdStudio({ projectId, project }) {
                           ? 'bg-navy text-white shadow-sm'
                           : 'bg-black/40 backdrop-blur-sm text-white/90 opacity-100 md:opacity-0 md:group-hover:opacity-100 hover:bg-black/50'
                       }`}
-                      title={selectedAdIds.has(ad.id) ? 'Deselect' : 'Select for bulk download'}
+                      title={selectedAdIds.has(ad.id) ? 'Deselect' : ad.status === 'failed' ? 'Select failed ad' : 'Select for bulk actions'}
                     >
                       {selectedAdIds.has(ad.id) ? (
                         <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -2887,7 +2972,7 @@ export default function AdStudio({ projectId, project }) {
                   )}
 
                   {/* Mode badge */}
-                  <div className={`absolute top-2 ${ad.status === 'completed' ? 'left-10' : 'left-2'} badge ${
+                  <div className={`absolute top-2 ${isSelectableAd(ad) ? 'left-10' : 'left-2'} badge ${
                     ad.status === 'completed' ? 'bg-white/80 backdrop-blur-sm text-textmid' :
                     ad.status === 'failed' ? 'bg-red-100/80 text-red-600' :
                     'bg-navy/10 text-navy'
@@ -3032,13 +3117,13 @@ export default function AdStudio({ projectId, project }) {
                   selectedAdIds.has(ad.id) ? 'bg-navy/5 ring-1 ring-navy/20' : ''
                 }`}
                 onClick={() => {
-                  if (ad.status !== 'completed') return;
+                  if (!isSelectableAd(ad)) return;
                   if (selectedAdIds.size > 0) toggleAdSelection(ad.id);
-                  else void openAdDetails(ad);
+                  else if (ad.status === 'completed') void openAdDetails(ad);
                 }}
               >
                 {/* Selection checkbox */}
-                {ad.status === 'completed' && (
+                {isSelectableAd(ad) && (
                   <button
                     onClick={(e) => toggleAdSelection(ad.id, e)}
                     className={`w-5 h-5 rounded-md flex items-center justify-center flex-shrink-0 transition-colors ${
@@ -3458,7 +3543,7 @@ export default function AdStudio({ projectId, project }) {
       )}
       {/* (Queue is now inline above the Ad Gallery) */}
       {/* Floating bulk action bar */}
-      {selectedCount > 0 && (
+      {selectedCount > 0 && bulkBarInGalleryRange && (
         // Centering: use `inset-x-0 mx-auto w-fit` (margin-based) instead of
         // `left-1/2 -translate-x-1/2`. The `fade-in` keyframe ends on
         // `transform: none` (forwards fill), which would override translateX(-50%)
@@ -3550,14 +3635,20 @@ export default function AdStudio({ projectId, project }) {
               <span className="text-[12px] text-white/90 font-medium">
                 selected
               </span>
+              {actionableSelectedCount < selectedCount && (
+                <span className="hidden sm:inline text-[10px] text-white/55">
+                  {actionableSelectedCount} image-ready
+                </span>
+              )}
             </div>
 
             <div className="w-px h-5 bg-white/15" />
 
             <button
               onClick={handleDeploy}
-              disabled={isDeploying}
-              className="flex items-center gap-1.5 px-3.5 py-1.5 bg-teal hover:bg-teal/90 disabled:bg-teal/60 text-white text-[12px] font-medium rounded-full transition-colors"
+              disabled={isDeploying || actionableSelectedCount === 0}
+              title={deployButtonTitle}
+              className="flex items-center gap-1.5 px-3.5 py-1.5 bg-teal hover:bg-teal/90 disabled:bg-teal/60 disabled:opacity-60 disabled:cursor-not-allowed text-white text-[12px] font-medium rounded-full transition-colors"
             >
               {isDeploying ? (
                 <>
@@ -3586,8 +3677,9 @@ export default function AdStudio({ projectId, project }) {
 
             <button
               onClick={handleBulkDownload}
-              disabled={isBulkDownloading}
-              className="flex items-center gap-1.5 px-3.5 py-1.5 bg-navy-light hover:bg-navy-mid disabled:bg-navy-light/60 text-white text-[12px] font-medium rounded-full transition-colors"
+              disabled={isBulkDownloading || actionableSelectedCount === 0}
+              title={downloadButtonTitle}
+              className="flex items-center gap-1.5 px-3.5 py-1.5 bg-navy-light hover:bg-navy-mid disabled:bg-navy-light/60 disabled:opacity-60 disabled:cursor-not-allowed text-white text-[12px] font-medium rounded-full transition-colors"
             >
               {isBulkDownloading ? (
                 <>

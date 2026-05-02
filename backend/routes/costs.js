@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { requireAuth } from '../auth.js';
 import { getProject, getProjectStats, getSetting, getAgentCosts } from '../convexClient.js';
-import { getCostSummary, getCostHistoryData, syncOpenAICosts, getRecurringBatchCostEstimate } from '../services/costTracker.js';
+import { getCostSummary, getCostHistoryData, getCostHistoryRangeData, syncOpenAICosts, getRecurringBatchCostEstimate } from '../services/costTracker.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -81,8 +81,22 @@ router.get('/costs', async (req, res) => {
  */
 router.get('/costs/history', async (req, res) => {
   try {
-    const days = parseInt(req.query.days) || 30;
     const projectId = req.query.project_id || null;
+    const startDate = typeof req.query.start === 'string' ? req.query.start : null;
+    const endDate = typeof req.query.end === 'string' ? req.query.end : null;
+
+    if (startDate || endDate) {
+      const datePattern = /^\d{4}-\d{2}-\d{2}$/;
+      if (!datePattern.test(startDate || '') || !datePattern.test(endDate || '') || endDate < startDate) {
+        return res.status(400).json({ error: 'Valid start and end dates are required (YYYY-MM-DD), with end on or after start.' });
+      }
+
+      const historyKey = `history:${projectId || 'all'}:${startDate}:${endDate}`;
+      const history = await getCachedCostPayload(historyKey, COST_CACHE_TTLS.history, () => getCostHistoryRangeData(startDate, endDate, projectId));
+      return res.json({ history, start: startDate, end: endDate });
+    }
+
+    const days = parseInt(req.query.days) || 30;
     const historyKey = `history:${projectId || 'all'}:${days}`;
     const history = await getCachedCostPayload(historyKey, COST_CACHE_TTLS.history, () => getCostHistoryData(days, projectId));
     res.json({ history, days });

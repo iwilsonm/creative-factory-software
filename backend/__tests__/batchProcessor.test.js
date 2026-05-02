@@ -21,6 +21,7 @@ const mockDeleteBatchJob = vi.fn();
 const mockClaimBatchResultsProcessing = vi.fn();
 const mockGetRecentHeadlineHistoryByAngle = vi.fn();
 const mockRecordHeadlineHistory = vi.fn();
+const mockGetSetting = vi.fn();
 
 vi.mock('../convexClient.js', () => ({
   getProject: (...args) => mockGetProject(...args),
@@ -41,7 +42,7 @@ vi.mock('../convexClient.js', () => ({
   getInspirationImages: vi.fn().mockResolvedValue([]),
   getInspirationImageUrl: vi.fn(),
   getAdImageUrl: vi.fn(),
-  getSetting: vi.fn().mockResolvedValue(null),
+  getSetting: (...args) => mockGetSetting(...args),
   convexClient: { query: vi.fn(), mutation: vi.fn() },
   api: { batchJobs: {} },
   queryWithRetry: vi.fn(),
@@ -194,6 +195,7 @@ describe('batch pipeline', () => {
     mockGetRecentHeadlineHistoryByAngle.mockResolvedValue([]);
     mockRecordHeadlineHistory.mockResolvedValue();
     mockIsSceneLockedAngle.mockReturnValue(false);
+    mockGetSetting.mockResolvedValue('test-openai-key');
   });
 
   // ── Status Flow ──────────────────────────────────────────

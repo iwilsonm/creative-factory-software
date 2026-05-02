@@ -203,11 +203,9 @@ export default function Dashboard() {
     const start = new Date(customStart);
     const end = new Date(customEnd);
     if (isNaN(start) || isNaN(end) || end < start) return;
-    const days = Math.ceil((end - start) / 86400000) + 1;
-    if (days < 1) return;
     let cancelled = false;
     setCostHistoryLoading(true);
-    api.getCostHistory(days).then(data => {
+    api.getCostHistoryRange(customStart, customEnd).then(data => {
       if (!cancelled) { setCostHistory(data?.history || []); setCostHistoryLoaded(true); }
     }).catch(() => {
       if (!cancelled) setCostHistory([]);

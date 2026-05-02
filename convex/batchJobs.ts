@@ -252,6 +252,7 @@ export const updateStatus = mutation({
     status: v.string(),
     error_message: v.optional(v.nullable(v.string())),
     retry_count: v.optional(v.number()),
+    stale_detected_at: v.optional(v.nullable(v.string())),
   },
   handler: async (ctx, args) => {
     const batch = await ctx.db

@@ -199,10 +199,11 @@ export const getDeleted = query({
   args: { projectId: v.optional(v.string()) },
   handler: async (ctx, args) => {
     let results;
-    if (args.projectId) {
+    const projectId = args.projectId;
+    if (projectId) {
       results = await ctx.db
         .query("ad_deployments")
-        .withIndex("by_project", (q) => q.eq("project_id", args.projectId))
+        .withIndex("by_project", (q) => q.eq("project_id", projectId))
         .collect();
     } else {
       results = await ctx.db.query("ad_deployments").collect();

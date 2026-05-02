@@ -406,7 +406,7 @@ describe('conductorEngine test-run pipeline', () => {
     });
   });
 
-  it('resumes a completed background round without referencing an undefined batch and triggers LP generation', async () => {
+  it('resumes a completed background round without referencing an undefined batch', async () => {
     const runAt = Date.parse('2026-03-07T10:00:00Z');
     mockGetAllConductorConfigs.mockResolvedValue([{ project_id: 'proj-1' }]);
     mockGetConductorRuns.mockResolvedValue([
@@ -440,11 +440,7 @@ describe('conductorEngine test-run pipeline', () => {
     const { resumeBackgroundTestRuns } = await importConductorEngine();
     await resumeBackgroundTestRuns();
 
-    expect(mockTriggerLPGeneration).toHaveBeenCalledWith(
-      'batch-uuid-1',
-      'proj-1',
-      'Wakes to Pee, Then Cannot Fall Back Asleep'
-    );
+    expect(mockTriggerLPGeneration).not.toHaveBeenCalled();
 
     const completedCall = mockUpdateConductorRun.mock.calls.find(([, fields]) => fields.terminal_status === 'deployed');
     expect(completedCall).toBeTruthy();

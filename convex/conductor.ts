@@ -454,6 +454,7 @@ export const deleteAngleAndDescendants = mutation({
     let removed = 0;
     while (queue.length > 0) {
       const id = queue.shift();
+      if (!id) continue;
       const angle = await ctx.db
         .query("conductor_angles")
         .withIndex("by_externalId", (q) => q.eq("externalId", id))

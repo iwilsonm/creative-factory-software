@@ -71,21 +71,25 @@ export const getAggregates = query({
 });
 
 export const getDailyHistory = query({
-  args: { startDate: v.string(), projectId: v.optional(v.string()) },
+  args: { startDate: v.string(), endDate: v.optional(v.string()), projectId: v.optional(v.string()) },
   handler: async (ctx, args) => {
     let costs;
     if (args.projectId) {
       costs = await ctx.db
         .query("api_costs")
         .withIndex("by_project_and_period", (q) =>
-          q.eq("project_id", args.projectId).gte("period_date", args.startDate)
+          args.endDate
+            ? q.eq("project_id", args.projectId).gte("period_date", args.startDate).lte("period_date", args.endDate)
+            : q.eq("project_id", args.projectId).gte("period_date", args.startDate)
         )
         .collect();
     } else {
       costs = await ctx.db
         .query("api_costs")
         .withIndex("by_period", (q) =>
-          q.gte("period_date", args.startDate)
+          args.endDate
+            ? q.gte("period_date", args.startDate).lte("period_date", args.endDate)
+            : q.gte("period_date", args.startDate)
         )
         .collect();
     }

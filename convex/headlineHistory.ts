@@ -36,8 +36,9 @@ export const getRecentByAngle = query({
       .order("desc")
       .take(Math.min(args.limit ?? 200, 500));
 
-    if (!args.since) return rows;
-    return rows.filter((row) => row.created_at >= args.since);
+    const since = args.since;
+    if (!since) return rows;
+    return rows.filter((row) => row.created_at >= since);
   },
 });
 

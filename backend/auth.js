@@ -1,17 +1,28 @@
 import { v4 as uuidv4 } from 'uuid';
-import { getSetting, getUserByUsername, getUserCount, createUser } from './convexClient.js';
+import { getSetting, getUserByExternalId, getUserCount, createUser } from './convexClient.js';
 
-export function requireAuth(req, res, next) {
-  if (req.session && req.session.userId) {
-    req.user = {
-      id: req.session.userId,
-      username: req.session.username,
-      role: req.session.role,
-      displayName: req.session.displayName,
-    };
-    return next();
+export async function requireAuth(req, res, next) {
+  if (!req.session?.userId) {
+    return res.status(401).json({ error: 'Not authenticated' });
   }
-  res.status(401).json({ error: 'Not authenticated' });
+
+  const user = await getUserByExternalId(req.session.userId);
+  if (!user || !user.is_active) {
+    req.session.destroy(() => {});
+    res.clearCookie('connect.sid');
+    return res.status(401).json({ error: 'Not authenticated' });
+  }
+
+  req.session.username = user.username;
+  req.session.role = user.role;
+  req.session.displayName = user.display_name;
+  req.user = {
+    id: user.externalId,
+    username: user.username,
+    role: user.role,
+    displayName: user.display_name,
+  };
+  return next();
 }
 
 /**
