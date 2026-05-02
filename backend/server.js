@@ -314,8 +314,9 @@ try {
   app.use('/api/conductor', requireAuth, requireRole('admin', 'manager'), conductorRoutes);
 
   // Catch-all error handler
-  app.use((err, req, res, _next) => {
+  app.use((err, req, res, next) => {
     console.error(`[ERROR] ${req.method} ${req.path}:`, err.message);
+    if (res.headersSent) return next(err);
     res.status(err.status || 500).json({
       error: err.message || 'Internal server error',
     });

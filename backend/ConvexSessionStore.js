@@ -13,6 +13,7 @@ import { getSession, setSession, destroySession, cleanupExpiredSessions } from '
 
 const ONE_DAY_MS = 86400000;
 const SESSION_CACHE_TTL = 30 * 60 * 1000; // 30 minutes
+const SESSION_TOUCH_THROTTLE_MS = 5 * 60 * 1000; // Avoid Convex write storms from parallel image requests.
 const sessionCache = new Map();
 
 // Evict stale cache entries every 10 minutes
@@ -79,6 +80,13 @@ export default class ConvexSessionStore extends session.Store {
   }
 
   async touch(sid, sessionData, callback) {
+    const cached = sessionCache.get(sid);
+    if (cached && Date.now() - cached.time < SESSION_TOUCH_THROTTLE_MS) {
+      sessionCache.set(sid, { data: sessionData, time: cached.time });
+      if (callback) callback(null);
+      return;
+    }
+
     try {
       const ttl = sessionData.cookie && sessionData.cookie.maxAge
         ? sessionData.cookie.maxAge
@@ -89,6 +97,11 @@ export default class ConvexSessionStore extends session.Store {
       sessionCache.set(sid, { data: sessionData, time: Date.now() });
       if (callback) callback(null);
     } catch (err) {
+      if (/OptimisticConcurrencyControlFailure/i.test(err.message || '')) {
+        sessionCache.set(sid, { data: sessionData, time: Date.now() });
+        if (callback) callback(null);
+        return;
+      }
       console.error('[ConvexSessionStore] touch error:', err.message);
       if (callback) callback(err);
     }

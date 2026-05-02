@@ -38,6 +38,7 @@ const STATUS_STEPS = [
 const TEMPLATE_RANDOM = 'random';      // Random from Drive folder
 const TEMPLATE_UPLOAD = 'upload';      // Upload one-off image
 const TEMPLATE_SELECT = 'select';      // Pick from uploaded templates
+const TEMPLATE_PICKER_BATCH_SIZE = 24;
 
 // Normalize date strings — handles ISO with/without Z, Convex _creationTime numbers, etc.
 function parseDate(dateStr) {
@@ -108,7 +109,7 @@ function isSelectableAd(ad) {
   return isActionableImageAd(ad) || ad?.status === 'failed';
 }
 
-export default function AdStudio({ projectId, project }) {
+export default function AdStudio({ projectId, project, onOpenPipeline }) {
   const toast = useToast();
 
   // Prompt guidelines (editable on Ad Studio, synced to project)
@@ -167,6 +168,8 @@ export default function AdStudio({ projectId, project }) {
   const [loadingTemplates, setLoadingTemplates] = useState(false);
   // Selection stores both the id and the source ('drive' or 'uploaded')
   const [selectedTemplate, setSelectedTemplate] = useState(null); // { id, source }
+  const [visibleTemplateCount, setVisibleTemplateCount] = useState(TEMPLATE_PICKER_BATCH_SIZE);
+  const templatesPrefetchedRef = useRef('');
   // Auto-collapse the Pick Template grid once a template is selected, so the
   // user doesn't have to scroll past hundreds of pixels of thumbnails to reach
   // the rest of the form. A "Change" button on the compact pill re-expands.
@@ -416,6 +419,21 @@ export default function AdStudio({ projectId, project }) {
     }
   }, [templateSource]);
 
+  useEffect(() => {
+    if (templateSource === TEMPLATE_SELECT) {
+      setVisibleTemplateCount(TEMPLATE_PICKER_BATCH_SIZE);
+    }
+  }, [templateSource, projectId]);
+
+  useEffect(() => {
+    if (!projectId || templatesPrefetchedRef.current === projectId) return undefined;
+    templatesPrefetchedRef.current = projectId;
+    const timer = setTimeout(() => {
+      loadTemplates({ showSpinner: false });
+    }, 700);
+    return () => clearTimeout(timer);
+  }, [projectId]);
+
   // Clear selectedTemplate when leaving the Pick Template tab. Otherwise a
   // previously-selected template lingers and its async analysis can flip
   // skipProductImage AFTER the user has moved to a different mode.
@@ -630,8 +648,8 @@ export default function AdStudio({ projectId, project }) {
     }
   };
 
-  const loadTemplates = async () => {
-    setLoadingTemplates(true);
+  const loadTemplates = async ({ showSpinner = true } = {}) => {
+    if (showSpinner) setLoadingTemplates(true);
     try {
       const [driveData, uploadedData] = await Promise.all([
         api.getInspirationImages(projectId).catch(() => ({ images: [] })),
@@ -642,7 +660,7 @@ export default function AdStudio({ projectId, project }) {
     } catch (err) {
       console.error('Failed to load templates:', err);
     } finally {
-      setLoadingTemplates(false);
+      if (showSpinner) setLoadingTemplates(false);
     }
   };
 
@@ -868,7 +886,7 @@ export default function AdStudio({ projectId, project }) {
     }
 
     // Add this generation to active list
-    const newGen = { id: genId, label: genLabel, status: null, message: 'Preparing...', error: '', warning: '', progress: 0, startTime: Date.now() };
+    const newGen = { id: genId, label: genLabel, status: 'preparing', message: 'Preparing...', error: '', warning: '', progress: 1, startTime: Date.now() };
     setActiveGens(prev => [...prev, newGen]);
 
     // Notify with toast + scroll link
@@ -1159,16 +1177,21 @@ export default function AdStudio({ projectId, project }) {
     });
     clearSelection();
     try {
-      const result = await api.createDeployments(adIds);
-      const msg = result.created > 0
-        ? `${result.created} ad${result.created !== 1 ? 's' : ''} sent to Ad Pipeline`
-        : 'All selected ads are already in Ad Pipeline';
-      toast.addToast(msg, result.created > 0 ? 'success' : 'info');
-      // Background re-fetch for consistency with server state
-      api.getProjectDeployments(projectId).then(data => {
-        const ids = new Set(ensureArray(data?.deployments, 'AdStudio.deployments').map(d => d.ad_id));
-        setDeployedAdIds(ids);
-      }).catch(() => {});
+      const result = await api.createDeployments(projectId, adIds);
+      const created = Number(result.created) || 0;
+      const skipped = Number(result.skipped) || 0;
+      const msg = created > 0
+        ? `${created} ad${created !== 1 ? 's' : ''} sent to Ad Pipeline -> Queue${skipped > 0 ? ` (${skipped} already there)` : ''}`
+        : 'All selected image-ready ads are already in Ad Pipeline -> Queue';
+      toast.addToast(
+        msg,
+        created > 0 ? 'success' : 'info',
+        8000,
+        onOpenPipeline ? { label: 'Open Pipeline', onClick: onOpenPipeline } : null
+      );
+      const data = await api.getProjectDeployments(projectId, { force: true });
+      const ids = new Set(ensureArray(data?.deployments, 'AdStudio.deployments').map(d => d.ad_id));
+      setDeployedAdIds(ids);
     } catch (err) {
       // Revert optimistic update on failure
       setDeployedAdIds(prev => {
@@ -1316,7 +1339,7 @@ export default function AdStudio({ projectId, project }) {
     const genId = ++genIdCounter.current;
     const genLabel = sourceAd.angle || sourceAd.aspect_ratio || 'Regeneration';
 
-    const newGen = { id: genId, label: genLabel, status: null, message: 'Preparing regeneration...', error: '', warning: '', progress: 0, startTime: Date.now() };
+    const newGen = { id: genId, label: genLabel, status: 'preparing', message: 'Preparing regeneration...', error: '', warning: '', progress: 1, startTime: Date.now() };
     setActiveGens(prev => [...prev, newGen]);
 
     toast.info(
@@ -1709,6 +1732,41 @@ export default function AdStudio({ projectId, project }) {
     return [...uploadedTemplates].sort((a, b) => (templateUsageCounts[b.id] || 0) - (templateUsageCounts[a.id] || 0));
   }, [uploadedTemplates, templateUsageCounts]);
 
+  const totalTemplateCount = sortedDriveImages.length + sortedUploadedTemplates.length;
+  const visibleDriveImages = sortedDriveImages.slice(0, visibleTemplateCount);
+  const visibleUploadedTemplates = sortedUploadedTemplates.slice(
+    0,
+    Math.max(0, visibleTemplateCount - sortedDriveImages.length)
+  );
+  const renderedTemplateCount = visibleDriveImages.length + visibleUploadedTemplates.length;
+  const hasMorePickerTemplates = renderedTemplateCount < totalTemplateCount;
+  const handleTemplatePickerScroll = (e) => {
+    if (!hasMorePickerTemplates) return;
+    const el = e.currentTarget;
+    if (el.scrollTop + el.clientHeight >= el.scrollHeight - 96) {
+      setVisibleTemplateCount(prev => Math.min(prev + TEMPLATE_PICKER_BATCH_SIZE, totalTemplateCount));
+    }
+  };
+  const expandTemplatePicker = () => {
+    if (selectedTemplate) {
+      const driveIndex = selectedTemplate.source === 'drive'
+        ? sortedDriveImages.findIndex(img => img.id === selectedTemplate.id)
+        : -1;
+      const uploadedIndex = selectedTemplate.source === 'uploaded'
+        ? sortedUploadedTemplates.findIndex(t => t.id === selectedTemplate.id)
+        : -1;
+      const selectedIndex = driveIndex >= 0
+        ? driveIndex
+        : uploadedIndex >= 0
+          ? sortedDriveImages.length + uploadedIndex
+          : -1;
+      if (selectedIndex >= 0) {
+        setVisibleTemplateCount(prev => Math.max(prev, Math.ceil((selectedIndex + 1) / TEMPLATE_PICKER_BATCH_SIZE) * TEMPLATE_PICKER_BATCH_SIZE));
+      }
+    }
+    setPickerCollapsed(false);
+  };
+
   return (
     <div className="space-y-6">
       {/* Generation Controls */}
@@ -1856,15 +1914,18 @@ export default function AdStudio({ projectId, project }) {
                     </p>
                   </div>
                 ) : (
-                  <div className="space-y-4">
+                  <div
+                    className="max-h-[360px] overflow-y-auto rounded-xl pr-1 scrollbar-thin space-y-4"
+                    onScroll={handleTemplatePickerScroll}
+                  >
                     {/* Drive templates — sorted by popularity (last 30 days) */}
-                    {driveImages.length > 0 && (
+                    {visibleDriveImages.length > 0 && (
                       <div>
                         <p className="text-[11px] text-textlight font-medium mb-2">
                           Drive Templates <span className="text-textlight/60">({driveImages.length})</span>
                         </p>
-                        <div className="grid grid-cols-4 sm:grid-cols-5 md:grid-cols-6 gap-2 max-h-[320px] overflow-y-auto rounded-xl pr-1 scrollbar-thin">
-                          {sortedDriveImages.map(img => {
+                        <div className="grid grid-cols-4 sm:grid-cols-5 md:grid-cols-6 gap-2">
+                          {visibleDriveImages.map(img => {
                             const isSelected = selectedTemplate?.id === img.id && selectedTemplate?.source === 'drive';
                             const useCount = templateUsageCounts[img.id] || 0;
                             return (
@@ -1906,13 +1967,13 @@ export default function AdStudio({ projectId, project }) {
                     )}
 
                     {/* Uploaded templates — sorted by popularity (last 30 days) */}
-                    {uploadedTemplates.length > 0 && (
+                    {visibleUploadedTemplates.length > 0 && (
                       <div>
                         <p className="text-[11px] text-textlight font-medium mb-2">
                           Uploaded Templates <span className="text-textlight/60">({uploadedTemplates.length})</span>
                         </p>
                         <div className="grid grid-cols-4 sm:grid-cols-5 md:grid-cols-6 gap-2">
-                          {sortedUploadedTemplates.map(t => {
+                          {visibleUploadedTemplates.map(t => {
                             const isSelected = selectedTemplate?.id === t.id && selectedTemplate?.source === 'uploaded';
                             const useCount = templateUsageCounts[t.id] || 0;
                             return (
@@ -1959,6 +2020,17 @@ export default function AdStudio({ projectId, project }) {
                         </div>
                       </div>
                     )}
+                    {hasMorePickerTemplates && (
+                      <div className="py-2 text-center">
+                        <button
+                          type="button"
+                          onClick={() => setVisibleTemplateCount(prev => Math.min(prev + TEMPLATE_PICKER_BATCH_SIZE, totalTemplateCount))}
+                          className="text-[11px] font-medium text-navy hover:text-navy/80 bg-navy/5 hover:bg-navy/10 px-3 py-1.5 rounded-md transition-colors"
+                        >
+                          Load more templates ({totalTemplateCount - renderedTemplateCount} remaining)
+                        </button>
+                      </div>
+                    )}
                   </div>
                 ))}
 
@@ -2000,7 +2072,7 @@ export default function AdStudio({ projectId, project }) {
                         </p>
                       </div>
                       <button
-                        onClick={() => setPickerCollapsed(false)}
+                        onClick={expandTemplatePicker}
                         className="text-[11px] font-semibold text-navy hover:text-navy/80 px-2.5 py-1.5 rounded-md bg-white/50 hover:bg-white border border-navy/15 transition-colors flex-shrink-0"
                       >
                         Change
@@ -2738,11 +2810,11 @@ export default function AdStudio({ projectId, project }) {
             ? 'Generate Image'
             : 'Generate Ad'}
         </button>
-        {activeGenCount > 0 && (
-          <p className="text-[11px] text-textlight mt-1.5">
+        <div className="min-h-[22px] mt-1.5 flex items-start">
+          <p className={`text-[11px] text-textlight transition-opacity ${activeGenCount > 0 ? 'opacity-100' : 'opacity-0'}`} aria-hidden={activeGenCount === 0}>
             {activeGenCount} generation{activeGenCount !== 1 ? 's' : ''} in progress — you can generate more while waiting
           </p>
-        )}
+        </div>
 
       </div>
 

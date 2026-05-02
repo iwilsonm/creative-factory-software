@@ -87,6 +87,15 @@ export default function ProjectDetail() {
       return next;
     }, { replace: true });
   }, [setSearchParams]);
+  const openPipelineQueue = useCallback(() => {
+    setTabState('tracker');
+    setSearchParams(prev => {
+      const next = new URLSearchParams(prev);
+      next.set('tab', 'tracker');
+      next.set('view', 'campaigns');
+      return next;
+    }, { replace: true });
+  }, [setSearchParams]);
   const [productDragOver, setProductDragOver] = useState(false);
   const productFileInputRef = useRef(null);
 
@@ -606,7 +615,7 @@ export default function ProjectDetail() {
         )}
         {tab === 'ads' && (
           <ErrorBoundary level="tab" key="ads">
-            <AdStudio projectId={id} project={project} />
+            <AdStudio projectId={id} project={project} onOpenPipeline={openPipelineQueue} />
           </ErrorBoundary>
         )}
         {tab === 'tracker' && (

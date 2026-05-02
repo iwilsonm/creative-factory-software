@@ -1007,6 +1007,10 @@ export async function getAllTemplateImages() {
   return results.flat();
 }
 
+export async function getAllTemplateImagesWithUrls() {
+  return await queryWithRetry(api.templateImages.getAllWithUrls, {});
+}
+
 // =============================================
 // Ad Deployment helpers (Ad Tracker feature)
 // =============================================

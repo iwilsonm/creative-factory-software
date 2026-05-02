@@ -475,8 +475,20 @@ export const api = {
   // Performance Tracker / Deployments
   getDeployments: () =>
     cachedRequest('/deployments').then(data => normalizeArrayResponse(data, 'deployments', 'api.getDeployments.deployments')),
-  getProjectDeployments: (projectId) => cachedRequest(`/deployments?projectId=${projectId}`),
-  createDeployments: (adIds) => request('/deployments', { method: 'POST', body: JSON.stringify({ adIds }) }),
+  getProjectDeployments: (projectId, options = {}) => {
+    const path = `/deployments?projectId=${projectId}`;
+    return options.force ? request(path) : cachedRequest(path);
+  },
+  createDeployments: (projectIdOrAdIds, maybeAdIds) => {
+    const hasProjectId = !Array.isArray(projectIdOrAdIds);
+    const projectId = hasProjectId ? projectIdOrAdIds : null;
+    const adIds = hasProjectId ? maybeAdIds : projectIdOrAdIds;
+    return request('/deployments', { method: 'POST', body: JSON.stringify({ adIds }) }).then(r => {
+      invalidateCache('/deployments');
+      if (projectId) invalidateCache(`/deployments?projectId=${projectId}`);
+      return r;
+    });
+  },
   updateDeployment: (id, fields) => request(`/deployments/${id}`, { method: 'PUT', body: JSON.stringify(fields) }),
   updateDeploymentStatus: (id, status) => request(`/deployments/${id}/status`, { method: 'PUT', body: JSON.stringify({ status }) }),
   updateDeploymentPostedBy: (id, posted_by) => request(`/deployments/${id}/posted-by`, { method: 'PUT', body: JSON.stringify({ posted_by }) }),

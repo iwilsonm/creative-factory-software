@@ -6,7 +6,7 @@ import fs from 'fs';
 import os from 'os';
 import { fileURLToPath } from 'url';
 import { requireAuth } from '../auth.js';
-import { getProject, uploadBuffer, downloadToBuffer, getTemplateImageUrl, getAllTemplateImages, convexClient, api } from '../convexClient.js';
+import { getProject, uploadBuffer, downloadToBuffer, getTemplateImageUrl, getAllTemplateImagesWithUrls, convexClient, api } from '../convexClient.js';
 import { chatWithImage } from '../services/openai.js';
 
 const router = Router();
@@ -42,7 +42,7 @@ router.get('/:projectId/templates', async (req, res) => {
     const project = await getProject(req.params.projectId);
     if (!project) return res.status(404).json({ error: 'Project not found' });
 
-    const templates = await getAllTemplateImages();
+    const templates = await getAllTemplateImagesWithUrls();
 
     // Add thumbnail URLs + analysis cache
     const withUrls = templates.map(t => ({
@@ -52,7 +52,8 @@ router.get('/:projectId/templates', async (req, res) => {
       description: t.description || '',
       analysis: t.analysis || null,
       created_at: t.created_at,
-      thumbnailUrl: `/api/projects/${req.params.projectId}/templates/${t.externalId}/file`
+      imageUrl: t.imageUrl || null,
+      thumbnailUrl: t.imageUrl || `/api/projects/${req.params.projectId}/templates/${t.externalId}/file`
     }));
 
     res.json({ templates: withUrls, total: withUrls.length });

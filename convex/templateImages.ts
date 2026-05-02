@@ -22,6 +22,23 @@ export const getAll = query({
   },
 });
 
+export const getAllWithUrls = query({
+  args: {},
+  handler: async (ctx) => {
+    const templates = await ctx.db
+      .query("template_images")
+      .order("desc")
+      .take(500);
+
+    return await Promise.all(
+      templates.map(async (template) => ({
+        ...template,
+        imageUrl: template.storageId ? await ctx.storage.getUrl(template.storageId) : null,
+      }))
+    );
+  },
+});
+
 export const getByExternalId = query({
   args: { externalId: v.string() },
   handler: async (ctx, args) => {
