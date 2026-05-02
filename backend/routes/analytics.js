@@ -189,10 +189,14 @@ router.put('/:projectId/tags/:tagId', requireRole('admin', 'manager'), async (re
 
 router.delete('/:projectId/tags/:tagId', requireRole('admin', 'manager'), async (req, res) => {
   try {
-    await convexClient.mutation(api.tags.remove, { externalId: req.params.tagId });
-    res.json({ success: true });
+    const result = await convexClient.mutation(api.tags.remove, {
+      externalId: req.params.tagId,
+      projectId: req.params.projectId,
+    });
+    res.json({ success: true, deleted: result?.deleted !== false });
   } catch (err) {
-    res.status(500).json({ error: err.message });
+    const status = /does not belong/i.test(err.message || '') ? 404 : 500;
+    res.status(status).json({ error: err.message });
   }
 });
 

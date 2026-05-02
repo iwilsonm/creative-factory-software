@@ -6,6 +6,7 @@ export default function TagManageDialog({ open, tags, onClose, onCreate, onUpdat
   const [draftName, setDraftName] = useState('');
   const [draftColor, setDraftColor] = useState(TAG_COLORS[0].hex);
   const [creating, setCreating] = useState(false);
+  const [deletingId, setDeletingId] = useState(null);
 
   if (!open) return null;
 
@@ -32,6 +33,17 @@ export default function TagManageDialog({ open, tags, onClose, onCreate, onUpdat
     }
     setEditingId(null);
     setCreating(false);
+  };
+
+  const deleteTag = async (tag) => {
+    if (!confirm(`Delete tag "${tag.name}"? It will be removed from all rows it's applied to.`)) return;
+    setDeletingId(tag.externalId);
+    try {
+      await onDelete(tag.externalId);
+      if (editingId === tag.externalId) setEditingId(null);
+    } finally {
+      setDeletingId(null);
+    }
   };
 
   return (
@@ -75,14 +87,11 @@ export default function TagManageDialog({ open, tags, onClose, onCreate, onUpdat
                   <span className="flex-1 text-[12px] text-textdark">{tag.name}</span>
                   <button onClick={() => startEdit(tag)} className="text-[11px] text-gold hover:text-gold-light">Edit</button>
                   <button
-                    onClick={() => {
-                      if (confirm(`Delete tag "${tag.name}"? It will be removed from all rows it's applied to.`)) {
-                        onDelete(tag.externalId);
-                      }
-                    }}
-                    className="text-[11px] text-red-400 hover:text-red-500"
+                    onClick={() => deleteTag(tag)}
+                    disabled={deletingId === tag.externalId}
+                    className="text-[11px] text-red-400 hover:text-red-500 disabled:opacity-50"
                   >
-                    Delete
+                    {deletingId === tag.externalId ? 'Deleting...' : 'Delete'}
                   </button>
                 </>
               )}

@@ -598,9 +598,15 @@ export default function AnalyticsTab({ projectId }) {
   };
 
   const handleDeleteTag = async (tagId) => {
-    await api.deleteTag(projectId, tagId);
-    await loadTags();
-    await loadAssignments();
+    try {
+      await api.deleteTag(projectId, tagId);
+      await loadTags();
+      await loadAssignments();
+      toast.success('Tag deleted');
+    } catch (err) {
+      toast.error(err.message || 'Failed to delete tag');
+      throw err;
+    }
   };
 
   const handleSaveView = async ({ name, scope: viewScope }) => {

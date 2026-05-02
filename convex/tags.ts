@@ -47,13 +47,19 @@ export const update = mutation({
 
 // Removing a tag cascades — also delete every tag_assignment that references it.
 export const remove = mutation({
-  args: { externalId: v.string() },
+  args: {
+    externalId: v.string(),
+    projectId: v.optional(v.string()),
+  },
   handler: async (ctx, args) => {
     const tag = await ctx.db
       .query("tags")
       .withIndex("by_externalId", (q) => q.eq("externalId", args.externalId))
       .first();
-    if (!tag) throw new Error("Tag not found");
+    if (!tag) return { deleted: false };
+    if (args.projectId !== undefined && tag.project_id !== args.projectId) {
+      throw new Error("Tag does not belong to this project");
+    }
     const assignments = await ctx.db
       .query("tag_assignments")
       .withIndex("by_tag", (q) => q.eq("tag_id", args.externalId))
@@ -62,5 +68,6 @@ export const remove = mutation({
       await ctx.db.delete(a._id);
     }
     await ctx.db.delete(tag._id);
+    return { deleted: true, assignmentsDeleted: assignments.length };
   },
 });

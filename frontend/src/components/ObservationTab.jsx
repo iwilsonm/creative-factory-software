@@ -586,7 +586,16 @@ export default function ObservationTab({ projectId }) {
         onClose={() => setShowManageTags(false)}
         onCreate={async ({ name, color }) => { await api.createTag(projectId, { name, color }); await loadTagsAndNotes(); }}
         onUpdate={async (tagId, data) => { await api.updateTag(projectId, tagId, data); await loadTagsAndNotes(); }}
-        onDelete={async (tagId) => { await api.deleteTag(projectId, tagId); await loadTagsAndNotes(); }}
+        onDelete={async (tagId) => {
+          try {
+            await api.deleteTag(projectId, tagId);
+            await loadTagsAndNotes();
+            toast.success('Tag deleted');
+          } catch (err) {
+            toast.error(err.message || 'Failed to delete tag');
+            throw err;
+          }
+        }}
       />
 
       <AdSetTimeline
