@@ -1518,7 +1518,9 @@ export async function generateBodyCopies(project, briefPacket, headlines, angleB
       return `${idx + 1}. "${headlineObj.headline}"${metadata ? `\n   ${metadata}` : ''}`;
     }).join('\n');
 
-    const prompt = `You are a direct response copywriter writing Facebook ad primary text for a health/wellness brand. You write for women 55-75 dealing with chronic pain, broken sleep, and morning stiffness. Your copy is warm, specific, honest, and sounds like a real person — not a brand.
+    const prompt = `You are a direct response creative strategist writing compact creative context for image generation. This is NOT final Facebook primary text and should NOT be rendered verbatim inside the image. Final Meta primary texts are written later after images pass QA.
+
+Write for women 55-75 dealing with chronic pain, broken sleep, and morning stiffness. Your context is warm, specific, honest, and sounds like a real person — not a brand.
 
 BRAND: ${project.brand_name || project.name}
 PRODUCT: ${project.product_description || ''}
@@ -1539,30 +1541,30 @@ ${beliefs || '(Not available)'}
 
 ---
 
-For each headline below, write Facebook ad primary text (the body copy that appears below the headline in the ad).
+For each headline below, write one compact creative context block that explains the buyer moment, emotional pivot, and product bridge the image prompt should understand.
 
-RULES FOR EVERY BODY COPY:
+RULES FOR EVERY CREATIVE CONTEXT:
 
 1. ANCHOR TO THE HEADLINE. Your first sentence must continue the emotional thread the headline started. Do not restart. Do not introduce a new idea. Do not repeat the headline. If the headline opens a loop, partially close it — enough to satisfy, not enough to remove the need to click.
-1a. THE FIRST SENTENCE MUST BE A SCROLL-STOPPING HOOK ON ITS OWN. Maximum 12 words. It must make immediate sense without the headline. Do NOT start with weak continuations like "Because", "So", "And", "Honestly", a character name, or generic exposition.
+1a. THE FIRST SENTENCE MUST MAKE IMMEDIATE SENSE. Maximum 12 words. Do NOT start with weak continuations like "Because", "So", "And", "Honestly", a character name, or generic exposition.
 
-2. MAXIMUM 90 WORDS. Every word earns its place.
+2. MAXIMUM 45 WORDS. This is image-generation context, not Meta primary text.
 
 3. INCLUDE ONE SPECIFIC, CONCRETE DETAIL: a time of night (2-4am), a body part (hips, knees, shoulders), a failed solution (melatonin, expensive mattress), or a life moment (playing with grandkids, dreading bedtime). "Better sleep" or "less pain" do NOT count as specific.
 
-4. DO NOT REPEAT THE HEADLINE TEXT in the body copy.
+4. DO NOT REPEAT THE HEADLINE TEXT in the context.
 
-5. THE FINAL SENTENCE MUST BE AN EXPLICIT CTA. It must tell the reader what to do next using an action verb such as "See", "Read", "Tap", "Click", "Learn", "Find out", or "Watch". If the headline was about feeling cheated, the CTA should promise what they will discover. If the headline was about stiffness, the CTA should point to what changed.
+5. DO NOT FORCE A CTA. Include a product bridge only if it helps the visual concept. The template text contract will decide how much copy appears on the image.
 
 6. NONE of these phrases: "game-changer", "revolutionize", "transform your life", "the ultimate solution", "miracle", "breakthrough discovery", "you won't believe what happened next"
 
 ---
 
-HEADLINES TO WRITE BODY COPY FOR:
+HEADLINES TO WRITE CREATIVE CONTEXT FOR:
 
 ${headlineList}
 
-For each headline, write ONE body copy. Vary the structural approach across the five:
+For each headline, write ONE creative context block. Vary the structural approach across the five:
 - At least 1 should use STORY CONTINUATION (extend the narrative voice of the headline)
 - At least 1 should use PROBLEM-AGITATE (hit the pain with specific detail, then pivot to product)
 - At least 1 should use SOCIAL PROOF (open with what another woman experienced — a name, an age, a specific result)
@@ -1574,11 +1576,11 @@ OUTPUT FORMAT — respond as JSON only:
   "body_copies": [
     {
       "headline": "...",
-      "body_copy": "...",
+      "body_copy": "compact creative context for image generation, not final Meta primary text",
       "structure": "story_continuation | problem_agitate | social_proof",
-      "word_count": 78,
+      "word_count": 42,
       "specific_detail_used": "2-4am wakeups",
-      "closing_cta": "the last sentence / CTA text"
+      "closing_cta": null
     }
   ]
 }`;
@@ -1616,7 +1618,6 @@ OUTPUT FORMAT — respond as JSON only:
         });
 
         const weakLeadInRe = /^(because|so|and|honestly|same|most|she\b|he\b|they\b|the\s+(routine|room|dog|light|water|problem)|it's not\b|carol\b|linda\b)/i;
-        const ctaActionRe = /\b(read|see|tap|click|learn|find out|watch|discover|open|shop)\b/i;
         const splitSentences = (text) => String(text || '')
           .split(/(?<=[.!?])\s+/)
           .map((part) => part.trim())
@@ -1624,13 +1625,12 @@ OUTPUT FORMAT — respond as JSON only:
         const detectRepairReasons = (copy) => {
           const sentences = splitSentences(copy.body_copy);
           const firstSentence = sentences[0] || '';
-          const lastSentence = sentences.at(-1) || copy.closing_cta || '';
           const reasons = [];
           if (!firstSentence || weakLeadInRe.test(firstSentence) || firstSentence.split(/\s+/).filter(Boolean).length > 14) {
             reasons.push('first_line_hook');
           }
-          if (!ctaActionRe.test(lastSentence)) {
-            reasons.push('cta_at_end');
+          if (sentences.join(' ').split(/\s+/).filter(Boolean).length > 55) {
+            reasons.push('too_long_for_image_context');
           }
           return reasons;
         };
@@ -1645,16 +1645,16 @@ OUTPUT FORMAT — respond as JSON only:
             return `${idx + 1}. HEADLINE: "${entry.copy.headline}"\nCURRENT BODY COPY: "${entry.copy.body_copy}"\nFAILED REQUIREMENTS: ${reasons}`;
           }).join('\n\n');
 
-          const repairPrompt = `You are repairing Facebook ad primary text so it passes a strict creative filter.
+          const repairPrompt = `You are repairing compact creative context for image generation. This is NOT final Facebook primary text and should NOT be rendered verbatim inside the image.
 
 REPAIR RULES:
 - Keep the same headline, same overall angle, and same emotional promise.
-- Rewrite ONLY the body copy.
-- The first sentence must be a clear standalone hook. No weak lead-ins like "Because", "So", "Honestly", names, or generic exposition.
-- The final sentence must be an explicit CTA with an action verb like See, Read, Tap, Click, Learn, Find out, Watch, or Discover.
-- Maximum 90 words.
+- Rewrite ONLY the creative context in body_copy.
+- The first sentence must be clear and standalone. No weak lead-ins like "Because", "So", "Honestly", names, or generic exposition.
+- Maximum 45 words.
 - Keep one concrete detail.
 - Do not repeat the headline verbatim.
+- Do not force a CTA.
 
 HEADLINES TO REPAIR:
 
@@ -1665,11 +1665,11 @@ Return JSON only:
   "body_copies": [
     {
       "headline": "...",
-      "body_copy": "...",
+      "body_copy": "compact creative context for image generation",
       "structure": "story_continuation | problem_agitate | social_proof",
-      "word_count": 78,
+      "word_count": 42,
       "specific_detail_used": "2-4am wakeups",
-      "closing_cta": "the final CTA sentence"
+      "closing_cta": null
     }
   ]
 }`;
