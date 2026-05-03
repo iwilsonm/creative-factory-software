@@ -57,11 +57,33 @@ describe('batch scheduler', () => {
     mockResumeBackgroundTestRuns.mockResolvedValue({ checked: 0, resumed: 0, errors: 0 });
   });
 
-  it('marks stale pre-Gemini batches failed instead of leaving them running forever', async () => {
+  it('requeues stale pre-Gemini batches before failing them', async () => {
     const stale = batch({
       status: 'generating_prompts',
       gemini_batch_job: null,
       last_heartbeat_at: '2000-01-01T00:00:00.000Z',
+      retry_count: 0,
+    });
+    mockGetActiveBatchJobs.mockResolvedValue([stale]);
+    mockClaimBatchWork.mockResolvedValue({ claimed: true, batch: stale });
+
+    const { runSchedulerOnce } = await import('../services/scheduler.js');
+    await runSchedulerOnce({ source: 'test', owner: 'test-owner' });
+
+    expect(mockUpdateBatchJob).toHaveBeenCalledWith('batch-001', expect.objectContaining({
+      status: 'queued',
+      retry_count: 1,
+      stale_detected_at: expect.any(String),
+    }));
+    expect(mockPollBatchJob).not.toHaveBeenCalled();
+  });
+
+  it('marks stale pre-Gemini batches failed after retry limit', async () => {
+    const stale = batch({
+      status: 'generating_prompts',
+      gemini_batch_job: null,
+      last_heartbeat_at: '2000-01-01T00:00:00.000Z',
+      retry_count: 2,
     });
     mockGetActiveBatchJobs.mockResolvedValue([stale]);
     mockClaimBatchWork.mockResolvedValue({ claimed: true, batch: stale });

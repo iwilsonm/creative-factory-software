@@ -11,9 +11,10 @@ import { pollBatchJob, runBatch } from './batchProcessor.js';
 
 const POLL_INTERVAL_MS = 60 * 1000;
 const LEASE_MS = 4 * 60 * 1000;
-const PRE_GEMINI_STALE_MS = 15 * 60 * 1000;
+const PRE_GEMINI_STALE_MS = 6 * 60 * 1000;
 const SAVING_RESULTS_STALE_MS = 10 * 60 * 1000;
 const MAX_BATCH_RUNS_PER_TICK = 1;
+const PRE_GEMINI_RETRY_LIMIT = 2;
 const ACTIVE_STATUSES = new Set(['queued', 'generating_prompts', 'submitting', 'processing', 'saving_results']);
 
 let intervalHandle = null;
@@ -174,6 +175,26 @@ async function handleClaimedActiveBatch(batch, owner) {
   if (['generating_prompts', 'submitting'].includes(batch.status) && !batch.gemini_batch_job) {
     if (isStale(batch, PRE_GEMINI_STALE_MS, now)) {
       const detectedAt = new Date().toISOString();
+      const retryCount = batch.retry_count || 0;
+      if (retryCount < PRE_GEMINI_RETRY_LIMIT) {
+        await updateBatchJob(batch.id, {
+          status: 'queued',
+          error_message: null,
+          retry_count: retryCount + 1,
+          queued_at: detectedAt,
+          stale_detected_at: detectedAt,
+          last_heartbeat_at: detectedAt,
+          pipeline_state: JSON.stringify({
+            stage: 'stale_pre_gemini_retry',
+            retried_at: detectedAt,
+            retry_count: retryCount + 1,
+            previous_status: batch.status,
+            last_heartbeat_at: batch.last_heartbeat_at || null,
+          }),
+        });
+        return 'queued';
+      }
+
       await updateBatchJob(batch.id, {
         status: 'failed',
         error_message: 'Batch stalled before Gemini submission. No image job was created, so it is safe to retry.',
