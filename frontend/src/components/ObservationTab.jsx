@@ -11,6 +11,7 @@ import VerdictDistributionChart from './observation/VerdictDistributionChart';
 import PassRateChart from './observation/PassRateChart';
 import TagManageDialog from './analytics/TagManageDialog';
 import InfoTooltip from './InfoTooltip';
+import EditorialPageHeader from './editorial/EditorialPageHeader';
 import {
   BulkActionBar,
   COLUMN_DEFS,
@@ -53,7 +54,7 @@ function formatCell(col, row) {
   return value || '—';
 }
 
-export default function ObservationTab({ projectId }) {
+export default function ObservationTab({ projectId, project }) {
   const toast = useToast();
   const [adSets, setAdSets] = useState([]);
   const [archived, setArchived] = useState([]);
@@ -381,8 +382,22 @@ export default function ObservationTab({ projectId }) {
     />
   );
 
+  const observationMeta = [
+    project?.brand,
+    adSets?.length > 0 && `${adSets.length} ad set${adSets.length === 1 ? '' : 's'}`,
+  ].filter(Boolean).join(' · ');
+
   return (
     <div className="space-y-5">
+      {/* Editorial page header */}
+      <div className="-mx-4 sm:-mx-6 lg:-mx-8 -mt-8 mb-1">
+        <EditorialPageHeader
+          eyebrow={`${(project?.brand || project?.name || 'PROJECT').toUpperCase()} · OBSERVATION`}
+          title="Observation"
+          meta={observationMeta}
+        />
+      </div>
+
       <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)] gap-3.5">
         <VerdictCockpit counts={counts} total={counts.all} passRate={passRate} />
         <PassRateChart data={passRateData} />

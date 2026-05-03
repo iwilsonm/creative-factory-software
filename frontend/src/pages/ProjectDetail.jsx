@@ -676,18 +676,18 @@ export default function ProjectDetail() {
         )}
         {tab === 'tracker' && (
           <ErrorBoundary level="tab" key="tracker">
-            <AdTracker projectId={id} userRole={user?.role} searchParams={searchParams} setSearchParams={setSearchParams} />
+            <AdTracker projectId={id} project={project} userRole={user?.role} searchParams={searchParams} setSearchParams={setSearchParams} />
           </ErrorBoundary>
         )}
         {/* Phase 6 — Staging tab removed. Ad-set lifecycle is now inside Ad Pipeline. */}
         {tab === 'analytics' && (
           <ErrorBoundary level="tab" key="analytics">
-            <AnalyticsTab projectId={id} />
+            <AnalyticsTab projectId={id} project={project} />
           </ErrorBoundary>
         )}
         {tab === 'observation' && (
           <ErrorBoundary level="tab" key="observation">
-            <ObservationTab projectId={id} />
+            <ObservationTab projectId={id} project={project} />
           </ErrorBoundary>
         )}
       </div>

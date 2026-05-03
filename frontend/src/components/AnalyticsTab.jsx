@@ -10,6 +10,7 @@ import TagManageDialog from './analytics/TagManageDialog';
 import SavedViewPicker from './analytics/SavedViewPicker';
 import SaveViewDialog from './analytics/SaveViewDialog';
 import StatusPill from './editorial/StatusPill';
+import EditorialPageHeader from './editorial/EditorialPageHeader';
 import SparklineArea from './analytics/charts/SparklineArea';
 import AnalyticsChartsPanel from './analytics/AnalyticsChartsPanel';
 import { useAnalyticsCharts } from './analytics/useAnalyticsCharts';
@@ -289,7 +290,7 @@ export function matchesFilter(row, filter, tagsByEntity) {
   return actual.includes(target);
 }
 
-export default function AnalyticsTab({ projectId }) {
+export default function AnalyticsTab({ projectId, project }) {
   const toast = useToast();
   const [level, setLevel] = useState('campaigns');
   const [datePreset, setDatePreset] = useState('last_7d');
@@ -719,8 +720,21 @@ export default function AnalyticsTab({ projectId }) {
     });
   };
 
+  const analyticsMeta = [
+    project?.brand,
+    filteredSortedRows?.length > 0 && `${filteredSortedRows.length} ${level === 'ads' ? 'ad' : level === 'adsets' ? 'ad set' : 'campaign'}${filteredSortedRows.length === 1 ? '' : 's'}`,
+  ].filter(Boolean).join(' · ');
+
   return (
-    <div className="px-[36px] py-[28px] max-w-[1400px]">
+    <div className="max-w-[1400px]">
+      <div className="-mx-4 sm:-mx-6 lg:-mx-8 -mt-8">
+        <EditorialPageHeader
+          eyebrow={`${(project?.brand || project?.name || 'PROJECT').toUpperCase()} · ANALYTICS`}
+          title="Analytics"
+          meta={analyticsMeta}
+        />
+      </div>
+      <div className="px-[36px] py-[28px]">
       {/* ─── KPI Cards ─── */}
       {!loading && filteredSortedRows.length > 0 && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
@@ -1052,6 +1066,7 @@ export default function AnalyticsTab({ projectId }) {
         onClose={() => setShowSaveView(false)}
         onSave={handleSaveView}
       />
+      </div>
     </div>
   );
 }

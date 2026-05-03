@@ -7,6 +7,7 @@ import CampaignsView from '../components/CampaignsView';
 import ReadyToPostView from '../components/ReadyToPostView';
 import PostedView from '../components/PostedView';
 import PipelineSubNav from '../components/pipeline/PipelineSubNav';
+import EditorialPageHeader from '../components/editorial/EditorialPageHeader';
 
 const STATUS_ORDER = ['selected', 'ready_to_post', 'posted'];
 const STATUS_META = {
@@ -25,7 +26,7 @@ function displayName(dep) {
 
 const VALID_VIEWS = ['campaigns', 'status', 'ready_to_post'];
 
-export default function AdTracker({ projectId, userRole, searchParams, setSearchParams }) {
+export default function AdTracker({ projectId, project, userRole, searchParams, setSearchParams }) {
   const isPoster = userRole === 'poster';
   const { data: deployments, setData: setDeployments, loading, error: deploymentsError, refetch: loadDeployments } = useAsyncData(
     () => api.getProjectDeployments(projectId).then(d => d.deployments || []),
@@ -568,6 +569,15 @@ export default function AdTracker({ projectId, userRole, searchParams, setSearch
   // ─── Render ───────────────────────────────────────────────────────────────
   return (
     <div>
+      {/* Editorial page header */}
+      <div className="-mx-4 sm:-mx-6 lg:-mx-8 -mt-8 mb-2">
+        <EditorialPageHeader
+          eyebrow={`${(project?.brand || project?.name || 'PROJECT').toUpperCase()} · AD PIPELINE`}
+          title="Pipeline"
+          meta="Ads flow through three stages — Queue, Planner, and posted to Meta."
+        />
+      </div>
+
       {/* Pipeline sub-nav */}
       <PipelineSubNav
         activeView={activeView}

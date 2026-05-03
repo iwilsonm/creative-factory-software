@@ -5,6 +5,7 @@ import { api } from '../api';
 import BatchManager from './BatchManager';
 import GenerationQueue from './GenerationQueue';
 import InfoTooltip from './InfoTooltip';
+import EditorialPageHeader from './editorial/EditorialPageHeader';
 import { useToast } from './Toast';
 import { useAsyncData } from '../hooks/useAsyncData';
 import { usePolling } from '../hooks/usePolling';
@@ -1859,13 +1860,32 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
     setPickerCollapsed(false);
   };
 
+  const lastGeneratedAd = ads.find(a => a?.created_at);
+  const adStudioMeta = [
+    project?.brand,
+    ads.length > 0 && `${ads.length} ad${ads.length === 1 ? '' : 's'}`,
+    lastGeneratedAd?.created_at && `last generated ${formatDate(lastGeneratedAd.created_at)}`,
+  ].filter(Boolean).join(' · ');
+
   return (
     <div className="space-y-6">
+      {/* Editorial page header */}
+      <div className="-mx-4 sm:-mx-6 lg:-mx-8 -mt-8 mb-2">
+        <EditorialPageHeader
+          eyebrow={`${(project?.brand || project?.name || 'AD STUDIO').toUpperCase()} · AD STUDIO`}
+          title="Ad Studio"
+          meta={adStudioMeta}
+        />
+      </div>
+
       {/* Generation Controls */}
-      <div className="ed-card p-6">
-        <div className="mb-4">
-          <h3 className="text-[15px] font-semibold text-ed-ink tracking-tight mb-0.5 flex items-center gap-1">Generate Ad <InfoTooltip text="Create one ad creative at a time. Pick a template reference, decide whether to include the product image, then choose the image generator." position="right" /></h3>
-          <p className="text-[12px] text-ed-ink3">
+      <div className="ed-card p-6 md:p-8">
+        <div className="mb-5">
+          <h3 className="font-serif text-[20px] tracking-[-0.01em] text-ed-ink mb-1 flex items-center gap-1.5">
+            Generate ad
+            <InfoTooltip text="Create one ad creative at a time. Pick a template reference, decide whether to include the product image, then choose the image generator." position="right" />
+          </h3>
+          <p className="text-[12.5px] text-ed-ink3 leading-[1.5]">
             Select a template image source, configure options, and generate a new ad creative.
           </p>
         </div>
@@ -1874,25 +1894,32 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
 
         {/* Aspect Ratio */}
         <div className="mb-5">
-          <label className="text-[13px] font-medium text-ed-ink2 mb-1.5 flex items-center gap-1">
+          <label className="text-[11px] uppercase tracking-[0.14em] text-ed-ink3 mb-2 flex items-center gap-1 font-geist">
             Aspect Ratio
             <InfoTooltip text="The image shape for the final ad. Choose the ratio that matches the placement you plan to use in Meta." position="right" />
           </label>
-          <select
-            value={aspectRatio}
-            onChange={e => setAspectRatio(e.target.value)}
-            className="input-apple !border-ed-line focus:!ring-ed-accent/20 focus:!border-ed-accent max-w-xs"
-          >
-            {ASPECT_RATIOS.map(ar => (
-              <option key={ar.value} value={ar.value}>{ar.label}</option>
-            ))}
-          </select>
+          <div className="segmented-control max-w-md">
+            {ASPECT_RATIOS.map(ar => {
+              const subLabel = ar.label.match(/\(([^)]+)\)/)?.[1] || '';
+              return (
+                <button
+                  key={ar.value}
+                  type="button"
+                  onClick={() => setAspectRatio(ar.value)}
+                  className={aspectRatio === ar.value ? 'active' : ''}
+                >
+                  <span className="font-mono-ed text-[12.5px]">{ar.value}</span>
+                  {subLabel && <span className="ml-1.5 text-[11px] opacity-70">{subLabel}</span>}
+                </button>
+              );
+            })}
+          </div>
         </div>
 
         {/* Template Image Source — hidden when using a custom prompt */}
         {!isCustomPromptMode && (
           <div className="mb-5">
-            <label className="text-[13px] font-medium text-ed-ink2 mb-1.5 flex items-center gap-1">
+            <label className="text-[11px] uppercase tracking-[0.14em] text-ed-ink3 mb-2 flex items-center gap-1 font-geist">
               Template Image
               <InfoTooltip text="The layout/style reference for the new ad. The model should follow the structure while replacing content with this project's product and copy." position="right" />
             </label>
@@ -2257,7 +2284,7 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
 
         {/* Product Image (project-level + optional per-ad override) */}
         <div className="mb-5">
-          <label className="text-[11px] font-medium text-ed-ink2 mb-1.5 flex items-center gap-1">
+          <label className="text-[11px] uppercase tracking-[0.14em] text-ed-ink3 mb-2 flex items-center gap-1 font-geist">
             Product Image
             <InfoTooltip text="The product reference used for this ad. Keep it on when the product must appear; turn it off only for templates that intentionally do not show the product." position="right" />
           </label>
@@ -2393,17 +2420,17 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
         </div>
 
         {/* ── OPTIONAL FIELDS (collapsible) ── */}
-        <div className="my-6 -mx-6">
+        <div className="my-6">
           <button
             onClick={() => setOptionalOpen(prev => !prev)}
-            className="w-full py-3 px-4 bg-ed-bg border-y border-ed-line flex items-center justify-between hover:bg-ed-bg transition-colors"
+            className="w-full flex items-center justify-between px-4 py-3 bg-ed-bg border border-ed-line rounded-xl hover:border-ed-ink3 transition-colors text-left"
           >
-            <div className="text-left">
-              <p className="text-[12px] font-semibold text-ed-ink2 uppercase tracking-wider">Optional Fields</p>
-              <p className="text-[11px] text-ed-ink3 mt-0.5">Topic, headline, body copy, image generator, and prompt guidelines.</p>
+            <div>
+              <span className="font-serif text-[14.5px] text-ed-ink">Optional · Topic, Headline, Body</span>
+              <p className="text-[11.5px] text-ed-ink3 mt-0.5 font-geist">Topic, headline, body copy, image generator, and prompt guidelines.</p>
             </div>
-            <span className="inline-flex items-center gap-1 text-[12px] font-medium text-ed-accent hover:text-ed-accent/80 bg-ed-accent/5 hover:bg-ed-accent/10 px-2 py-1 rounded-md cursor-pointer transition-all">
-              Details
+            <span className="inline-flex items-center gap-1.5 text-[11.5px] text-ed-ink3 font-geist whitespace-nowrap ml-3">
+              {optionalOpen ? 'Hide' : 'Edit'}
               <svg
                 className={`w-3.5 h-3.5 transition-transform duration-200 ${optionalOpen ? 'rotate-180' : ''}`}
                 fill="none" stroke="currentColor" viewBox="0 0 24 24"
@@ -2414,10 +2441,10 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
           </button>
 
           {optionalOpen && (
-            <div className="px-6 pt-4 pb-1 fade-in">
+            <div className="pt-5 pb-1 fade-in">
               {/* Image model selector */}
               <div className="mb-5">
-                <label className="text-[13px] font-medium text-ed-ink2 mb-1.5 flex items-center gap-1">
+                <label className="text-[11px] uppercase tracking-[0.14em] text-ed-ink3 mb-2 flex items-center gap-1 font-geist">
                   Image Generator
                   <InfoTooltip text="Choose which image model renders the final ad. Gemini is the default path; GPT Image 2 requires verified OpenAI image-model access." position="right" />
                 </label>
@@ -2902,14 +2929,22 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
         )}
 
         {/* Generate Button — always enabled for parallel generation */}
-        <button
-          onClick={handleGenerate}
-          className="px-5 py-2.5 rounded-[7px] text-[13px] font-medium bg-ed-accent text-[#fbfaf6] hover:bg-ed-accent/90 transition-colors disabled:opacity-50"
-        >
-          {isCustomPromptMode
-            ? 'Generate Image'
-            : 'Generate Ad'}
-        </button>
+        <div className="flex items-center gap-4 mt-6 pt-5 border-t border-ed-line">
+          <button
+            onClick={handleGenerate}
+            className="flex-1 sm:flex-initial sm:min-w-[220px] py-3 px-6 rounded-[10px] text-[14px] font-medium bg-ed-accent text-[#fbfaf6] hover:bg-[#923f29] transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+          >
+            <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 16 16">
+              <path d="M8 0l1.5 5.5L15 7l-5.5 1.5L8 14l-1.5-5.5L1 7l5.5-1.5L8 0z" />
+            </svg>
+            {isCustomPromptMode
+              ? 'Generate Image'
+              : 'Generate ad'}
+          </button>
+          <span className="font-mono-ed text-[11.5px] text-ed-ink3">
+            {imageModel === 'gpt-image-1' ? '~$0.19 · ~45s' : '~$0.04 · ~18s'}
+          </span>
+        </div>
 
       </div>
 
@@ -2931,10 +2966,10 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
       />
 
       {/* Ad Gallery */}
-      <div ref={galleryRef}>
+      <div ref={galleryRef} className="pt-4 border-t border-ed-line">
         <div className="flex items-center justify-between mb-4">
           <div>
-            <h3 className="text-[15px] font-semibold text-ed-ink tracking-tight flex items-center gap-1">Ad Gallery <InfoTooltip text="All generated ads for this project. QA Passed ads were approved by the Creative Filter and may already be in Ready to Post. QA Rejected ads have images but failed QA, so you can review, tag, download, or delete them." position="right" /></h3>
+            <h3 className="font-serif text-[22px] tracking-[-0.01em] text-ed-ink flex items-center gap-1.5">Ad Gallery <InfoTooltip text="All generated ads for this project. QA Passed ads were approved by the Creative Filter and may already be in Ready to Post. QA Rejected ads have images but failed QA, so you can review, tag, download, or delete them." position="right" /></h3>
             {ads.length > 0 && (
               <p className="text-[12px] text-ed-ink3">
                 {filteredAds.length} ad{filteredAds.length !== 1 ? 's' : ''}
