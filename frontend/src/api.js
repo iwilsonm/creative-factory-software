@@ -709,7 +709,10 @@ export const api = {
     }),
 
   // Settings — API-key connectivity tests
-  testAnthropic: () => request('/settings/test-anthropic', { method: 'POST' }),
+  testAnthropic: (apiKey = '') => request('/settings/test-anthropic', {
+    method: 'POST',
+    body: JSON.stringify(apiKey ? { api_key: apiKey } : {}),
+  }),
 
   // ────────────────────────────────────────────────
   // Phase 5 — Analytics tab

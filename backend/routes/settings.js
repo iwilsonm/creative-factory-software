@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import Anthropic from '@anthropic-ai/sdk';
 import { requireAuth, requireRole } from '../auth.js';
 import { getSetting, setSetting, getAllSettings, getDashboardTodos, replaceDashboardTodos } from '../convexClient.js';
 import { getDriveClient } from './drive.js';
@@ -41,6 +42,34 @@ function normalizeSettingValue(key, value) {
     return value.trim();
   }
   return value;
+}
+
+function isAnthropicModelNotFound(err) {
+  const status = err?.status || err?.statusCode;
+  const type = err?.error?.type || err?.type;
+  return (status === 404 || type === 'not_found_error') && /model/i.test(err?.message || '');
+}
+
+async function testAnthropicKey(apiKey) {
+  const client = new Anthropic({ apiKey });
+  const models = ['claude-sonnet-4-6', 'claude-sonnet-4-5'];
+  let lastErr = null;
+
+  for (const model of models) {
+    try {
+      await client.messages.create({
+        model,
+        max_tokens: 8,
+        messages: [{ role: 'user', content: 'Reply with exactly: ok' }],
+      });
+      return model;
+    } catch (err) {
+      lastErr = err;
+      if (!isAnthropicModelNotFound(err)) throw err;
+    }
+  }
+
+  throw lastErr || new Error('Anthropic test failed');
 }
 
 // Get all settings (mask sensitive values)
@@ -190,22 +219,13 @@ router.post('/test-drive', async (req, res) => {
 
 // Test Anthropic connection
 router.post('/test-anthropic', async (req, res) => {
-  const apiKey = await getSetting('anthropic_api_key');
+  const candidateKey = typeof req.body?.api_key === 'string' ? req.body.api_key.trim() : '';
+  const apiKey = candidateKey || await getSetting('anthropic_api_key');
   if (!apiKey) return res.status(400).json({ error: 'Anthropic API key not configured' });
 
   try {
-    const { chat } = await import('../services/anthropic.js');
-    await chat(
-      [{ role: 'user', content: 'Reply with exactly: ok' }],
-      'claude-sonnet-4-6',
-      {
-        max_tokens: 8,
-        timeout: 30000,
-        maxRetries: 0,
-        operation: 'settings_anthropic_test',
-      }
-    );
-    res.json({ success: true, message: 'Anthropic API key is valid for Creative Filter QA.' });
+    const model = await testAnthropicKey(apiKey);
+    res.json({ success: true, model, message: 'Anthropic API key is valid for Creative Filter QA.' });
   } catch (err) {
     res.status(400).json({ error: `Anthropic test failed: ${err.message}` });
   }

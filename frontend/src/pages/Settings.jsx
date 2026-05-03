@@ -431,7 +431,17 @@ export default function Settings() {
       if (service === 'openai') result = await api.testOpenAI();
       else if (service === 'openai_image') result = await api.testOpenAIImage('gpt-image-2');
       else if (service === 'gemini') result = await api.testGemini();
-      else if (service === 'anthropic') result = await api.testAnthropic();
+      else if (service === 'anthropic') {
+        const candidateKey = form.anthropic_api_key.trim();
+        result = await api.testAnthropic(candidateKey);
+        if (candidateKey) {
+          await api.updateSettings({ anthropic_api_key: candidateKey });
+          setForm(prev => ({ ...prev, anthropic_api_key: '' }));
+          await loadSettings();
+          result = { ...result, message: 'Anthropic API key is valid and saved for Creative Filter QA.' };
+          toast.success('Anthropic key tested and saved');
+        }
+      }
       setTestResults(prev => ({ ...prev, [service]: result.message || (result.success === false ? 'Check failed' : 'Connected!') }));
     } catch (err) {
       setTestResults(prev => ({ ...prev, [service]: `Failed: ${err.message}` }));
