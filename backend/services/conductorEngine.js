@@ -1008,7 +1008,14 @@ function getTestPostingDays(angleName) {
 }
 
 function getGeminiTimeoutMessage(roundNumber) {
-  return `Round ${roundNumber} Gemini batch timed out after 30 minutes`;
+  return `Round ${roundNumber}: Gemini is still generating images after 30 minutes. Continuing in background.`;
+}
+
+function isGeminiBackgroundWaitFailure(run) {
+  const failure = run?.failure_reason || run?.error || '';
+  return run?.status === 'failed'
+    && (failure.includes('Gemini batch timed out after 30 minutes')
+      || failure.includes('Gemini is still generating images after 30 minutes'));
 }
 
 export function normalizeTestRunAdTarget(value, fallback = TEST_RUN_DEFAULT_TARGET) {
@@ -1133,6 +1140,44 @@ function getBatchPhaseState(batch) {
   return { pipelineState, batchStats };
 }
 
+function formatElapsed(seconds) {
+  const elapsed = Math.max(0, Number(seconds) || 0);
+  const mins = Math.floor(elapsed / 60);
+  const secs = elapsed % 60;
+  return mins > 0 ? `${mins}m ${secs}s` : `${secs}s`;
+}
+
+function getFriendlyPromptStageMessage(roundNumber, step, { current = 0, total = 0 } = {}) {
+  if (step === 'batch_brief') {
+    return `Round ${roundNumber}: preparing the selected angle for image generation...`;
+  }
+  if (step === 'batch_headlines') {
+    return `Round ${roundNumber}: planning template-matched ad text...`;
+  }
+  if (step === 'batch_body_copy') {
+    return `Round ${roundNumber}: shaping the creative directions for each ad...`;
+  }
+  if (step === 'batch_image_prompts') {
+    const count = total > 0 ? ` (${Math.min(current, total)}/${total})` : '';
+    return `Round ${roundNumber}: building image instructions${count}...`;
+  }
+  return `Round ${roundNumber}: preparing image generation...`;
+}
+
+function getDurablePromptStageMessage(roundNumber, pipelineState) {
+  const stage = Number(pipelineState?.stage);
+  if (stage === 0) return getFriendlyPromptStageMessage(roundNumber, 'batch_brief');
+  if (stage === 1) return getFriendlyPromptStageMessage(roundNumber, 'batch_headlines');
+  if (stage === 2) return getFriendlyPromptStageMessage(roundNumber, 'batch_body_copy');
+  if (stage === 3) {
+    return getFriendlyPromptStageMessage(roundNumber, 'batch_image_prompts', {
+      current: Number(pipelineState?.current) || 0,
+      total: Number(pipelineState?.total) || 0,
+    });
+  }
+  return `Round ${roundNumber}: preparing image generation...`;
+}
+
 function getBatchPromptProgress(roundNumber, pipelineState) {
   const stage = Number(pipelineState?.stage);
   if (stage === 0) {
@@ -1213,32 +1258,30 @@ function getDurableRunPhaseMessage(run, batchInfo, batch, pipelineState, batchSt
   }
 
   if (batch.status === 'pending') {
-    return run?.decisions || `Round ${roundNumber}: queued to start...`;
+    return run?.decisions || `Round ${roundNumber}: queued to start image generation...`;
   }
 
   if (batch.status === 'generating_prompts') {
-    return pipelineState?.stage_label
-      ? `Round ${roundNumber}: ${pipelineState.stage_label}`
-      : `Round ${roundNumber}: building prompts...`;
+    return getDurablePromptStageMessage(roundNumber, pipelineState);
   }
 
   if (batch.status === 'submitting') {
-    return `Round ${roundNumber}: submitting prompts to Gemini...`;
+    return `Round ${roundNumber}: sending image instructions to Gemini...`;
   }
 
   if (batch.status === 'processing') {
     if (total > 0) {
-      return `Round ${roundNumber}: Gemini is processing images (${finished}/${total} complete)...`;
+      return `Round ${roundNumber}: Gemini is generating images (${finished}/${total} complete)...`;
     }
-    return run?.decisions || `Round ${roundNumber}: Gemini is still processing images...`;
+    return run?.decisions || `Round ${roundNumber}: Gemini is generating images...`;
   }
 
   if (batch.status === 'saving_results') {
-    return `Round ${roundNumber}: saving generated ads...`;
+    return `Round ${roundNumber}: saving generated images...`;
   }
 
   if (batch.status === 'completed' && run?.status === 'running') {
-    return `Round ${roundNumber}: Gemini finished. Scoring ads...`;
+    return `Round ${roundNumber}: images are ready. Creative Filter QA is starting...`;
   }
 
   if (batch.status === 'failed') {
@@ -1285,10 +1328,7 @@ async function buildDurableActiveTestRun(projectId) {
   const runs = await getConductorRuns(projectId, 10);
   const testRuns = runs.filter((run) => run.run_type === 'test');
   const candidate = testRuns.find((run) => run.status === 'running')
-    || testRuns.find((run) => {
-      const failure = run.failure_reason || run.error || '';
-      return run.status === 'failed' && failure.includes(getGeminiTimeoutMessage(1).replace('Round 1 ', ''));
-    });
+    || testRuns.find(isGeminiBackgroundWaitFailure);
 
   if (!candidate) return null;
 
@@ -1380,7 +1420,9 @@ async function createTestBatchRound({
   emit(withTestProgress(roundNumber, {
     type: 'progress',
     step: 'creating_batch',
-    message: `Round ${roundNumber}: creating batch (${batchSize} ads)...`,
+    message: `Round ${roundNumber}: preparing ${batchSize} ads for the selected angle...`,
+    roundNumber,
+    generatedTarget: batchSize,
   }));
 
   await createBatchJob({
@@ -1418,7 +1460,7 @@ async function createTestBatchRound({
   };
 }
 
-async function executeTestBatchRound(batchId, roundNumber, emit, shouldCancel = null) {
+async function executeTestBatchRound(batchId, roundNumber, emit, shouldCancel = null, progressContext = {}) {
   const roundEmit = (event) => emit(withTestProgress(roundNumber, event));
   const throwIfCancelled = async () => {
     if (!shouldCancel || !shouldCancel()) return;
@@ -1446,19 +1488,30 @@ async function executeTestBatchRound(batchId, roundNumber, emit, shouldCancel = 
       else if (msg.includes('Step 2')) step = 'batch_headlines';
       else if (msg.includes('Step 3')) step = 'batch_body_copy';
       else if (msg.includes('Step 4')) step = 'batch_image_prompts';
+      const current = Number(event.current) || 0;
+      const total = Number(event.total) || 0;
       roundEmit({
         type: 'progress',
         step,
-        message: `Round ${roundNumber}: ${msg}`,
-        imageProgress: (event.current && event.total) ? { current: event.current, total: event.total } : undefined,
+        message: getFriendlyPromptStageMessage(roundNumber, step, { current, total }),
+        imageProgress: (current && total) ? { current, total } : undefined,
+        roundNumber,
+        approvedCount: progressContext.approvedSoFar || 0,
+        targetCount: progressContext.requiredPasses,
       });
     } else if (event.type === 'status') {
       const map = { submitting: 'batch_submitting', processing: 'batch_submitted' };
       if (map[event.status]) {
+        const message = event.status === 'submitting'
+          ? `Round ${roundNumber}: sending image instructions to Gemini...`
+          : `Round ${roundNumber}: Gemini accepted the image job.`;
         roundEmit({
           type: 'progress',
           step: map[event.status],
-          message: `Round ${roundNumber}: ${event.message}`,
+          message,
+          roundNumber,
+          approvedCount: progressContext.approvedSoFar || 0,
+          targetCount: progressContext.requiredPasses,
         });
       }
     } else if (event.type === 'error') {
@@ -1473,7 +1526,10 @@ async function executeTestBatchRound(batchId, roundNumber, emit, shouldCancel = 
   roundEmit({
     type: 'progress',
     step: 'gemini_waiting',
-    message: `Round ${roundNumber}: waiting for Gemini to generate images...`,
+    message: `Round ${roundNumber}: Gemini is generating images...`,
+    roundNumber,
+    approvedCount: progressContext.approvedSoFar || 0,
+    targetCount: progressContext.requiredPasses,
   });
 
   const pollStart = Date.now();
@@ -1499,7 +1555,10 @@ async function executeTestBatchRound(batchId, roundNumber, emit, shouldCancel = 
       roundEmit({
         type: 'progress',
         step: 'gemini_complete',
-        message: `Round ${roundNumber}: images generated (${timeStr})`,
+        message: `Round ${roundNumber}: images are ready after ${timeStr}. Starting Creative Filter QA...`,
+        roundNumber,
+        approvedCount: progressContext.approvedSoFar || 0,
+        targetCount: progressContext.requiredPasses,
       });
       break;
     }
@@ -1507,11 +1566,22 @@ async function executeTestBatchRound(batchId, roundNumber, emit, shouldCancel = 
       throw new Error(`Round ${roundNumber} Gemini batch processing failed`);
     }
 
+    const latestBatch = await getBatchJob(batchId).catch(() => null);
+    const { batchStats } = getBatchPhaseState(latestBatch);
+    const total = Number(batchStats?.totalCount) || 0;
+    const successful = Number(batchStats?.successfulCount) || 0;
+    const failed = Number(batchStats?.failedCount) || 0;
+    const finished = total > 0 ? Math.min(successful + failed, total) : 0;
+    const countText = total > 0 ? ` (${finished}/${total} complete)` : '';
     roundEmit({
       type: 'progress',
       step: 'gemini_polling',
-      message: `Round ${roundNumber}: generating images via Gemini... (${timeStr})`,
+      message: `Round ${roundNumber}: Gemini is generating images${countText}... elapsed ${timeStr}`,
       elapsed,
+      roundNumber,
+      approvedCount: progressContext.approvedSoFar || 0,
+      targetCount: progressContext.requiredPasses,
+      imageProgress: total > 0 ? { current: finished, total } : undefined,
     });
   }
 
@@ -2281,7 +2351,7 @@ async function finalizeSuccessfulTestRun({
 }
 
 function getBackgroundWaitingMessage(roundNumber) {
-  return `Round ${roundNumber} is still processing in Gemini. Continuing in background.`;
+  return `Round ${roundNumber}: Gemini is still generating images. Continuing in background.`;
 }
 
 async function hydratePassingAdsForRounds(roundDetails, projectId, requiredPasses = TEST_RUN_DEFAULT_TARGET) {
@@ -2856,8 +2926,7 @@ async function continueBackgroundTestRun(run) {
     });
 
     batchInfos.push(nextBatchInfo);
-    const roundPassDisplay = roundScoreResult.ads_passed + (repairResult.repairSummary?.passed || 0);
-    const nextRoundMessage = `Round ${roundNumber} complete: ${roundPassDisplay}/${roundScoreResult.ads_scored} passed, ${totalAdsPassed}/${requiredPasses} total. Starting round ${roundNumber + 1} with ${nextBatchSize} ads in background...`;
+    const nextRoundMessage = `Round ${roundNumber} complete: ${totalAdsPassed}/${requiredPasses} approved. Starting top-up round ${roundNumber + 1} with ${nextBatchSize} more ads in background.`;
 
     await updateConductorRun(runId, {
       status: 'running',
@@ -2967,10 +3036,7 @@ export async function resumeBackgroundTestRuns() {
     const runs = await getConductorRuns(projectId, 10);
     const testRuns = runs.filter((run) => run.run_type === 'test');
     const candidate = testRuns.find((run) => run.status === 'running')
-      || testRuns.find((run) => {
-        const failure = run.failure_reason || run.error || '';
-        return run.status === 'failed' && failure.includes(getGeminiTimeoutMessage(1).replace('Round 1 ', ''));
-      });
+      || testRuns.find(isGeminiBackgroundWaitFailure);
 
     if (!candidate) continue;
 
@@ -3121,7 +3187,7 @@ export async function cancelTestRun(projectId) {
   if (tracked) {
     const [, run] = tracked;
     run.cancelRequested = true;
-    run.phase = 'Cancelling...';
+    run.phase = 'Cancel requested. Stopping active generation work...';
     if (run.currentBatchId) {
       await markTestBatchCancelled(run.currentBatchId);
     }
@@ -3225,16 +3291,13 @@ export async function runFullTestPipeline(projectId, sendEvent, { angleOverride 
         runProgress.phase = event.message || runProgress.phase;
         if (typeof event.progressValue === 'number') {
           runProgress.progress = Math.max(runProgress.progress, event.progressValue);
-        }
-        if (event.step && PIPELINE_STEP_PROGRESS[event.step] !== undefined) {
+        } else if (event.step && PIPELINE_STEP_PROGRESS[event.step] !== undefined) {
           runProgress.progress = Math.max(runProgress.progress, PIPELINE_STEP_PROGRESS[event.step]);
-        }
-        if (event.step === 'gemini_polling' && event.elapsed) {
+        } else if (event.step === 'gemini_polling' && event.elapsed) {
           const ratio = Math.min(event.elapsed / 600, 0.95);
           const pct = 15 + Math.round(ratio * 43);
           runProgress.progress = Math.max(runProgress.progress, pct);
-        }
-        if (event.step === 'filter_scoring' && event.scoringProgress) {
+        } else if (event.step === 'filter_scoring' && event.scoringProgress) {
           const { current, total } = event.scoringProgress;
           const pct = 62 + Math.round((current / total) * 18);
           runProgress.progress = Math.max(runProgress.progress, pct);
@@ -3265,7 +3328,12 @@ export async function runFullTestPipeline(projectId, sendEvent, { angleOverride 
   let activeRoundState = null;
 
   try {
-    emit({ type: 'progress', step: 'initializing', message: 'Loading project config...' });
+    emit({
+      type: 'progress',
+      step: 'initializing',
+      message: `Checking project settings. Target: ${requiredPasses} approved ads.`,
+      targetCount: requiredPasses,
+    });
     await assertTestRunProviderPreflight(projectId);
     runId = uuidv4();
     runProgress.runId = runId;
@@ -3283,11 +3351,21 @@ export async function runFullTestPipeline(projectId, sendEvent, { angleOverride 
 
     await throwIfRunCancelled();
     errorStage = 'selecting_angle';
-    emit({ type: 'progress', step: 'selecting_angle', message: 'Selecting angle...' });
+    emit({
+      type: 'progress',
+      step: 'selecting_angle',
+      message: 'Preparing selected angle...',
+      targetCount: requiredPasses,
+    });
     const { project, angleInfo, anglePrompt, angleBriefJSON } = await loadTestRunContext(projectId, angleOverride);
     angleName = angleInfo.name;
     errorStage = 'building_prompt';
-    emit({ type: 'progress', step: 'building_prompt', message: `Building prompt for "${angleName}"...` });
+    emit({
+      type: 'progress',
+      step: 'building_prompt',
+      message: `Preparing "${angleName}" for image generation. Target: ${requiredPasses} approved ads.`,
+      targetCount: requiredPasses,
+    });
 
     const { scoreBatchForInlineFilter, finalizePassingAds } = await import('./creativeFilterService.js');
     const cumulativePassingAds = [];
@@ -3326,7 +3404,13 @@ export async function runFullTestPipeline(projectId, sendEvent, { angleOverride 
         decisions: `Testing "${angleName}" — round ${roundNumber} of ${TEST_RUN_MAX_ROUNDS} started.`,
       });
 
-      const roundExecution = await executeTestBatchRound(batchInfo.batch_id, roundNumber, emit, () => runProgress.cancelRequested);
+      const roundExecution = await executeTestBatchRound(
+        batchInfo.batch_id,
+        roundNumber,
+        emit,
+        () => runProgress.cancelRequested,
+        { approvedSoFar: totalAdsPassed, requiredPasses }
+      );
       if (roundExecution?.deferred) {
         const backgroundMessage = getBackgroundWaitingMessage(roundNumber);
         await markTestRunWaitingOnGemini({
@@ -3365,6 +3449,8 @@ export async function runFullTestPipeline(projectId, sendEvent, { angleOverride 
         {
           roundNumber,
           totalRounds: TEST_RUN_MAX_ROUNDS,
+          requiredPasses,
+          priorPassed: totalAdsPassed,
           shouldCancel: () => throwIfRunCancelled().then(() => false).catch((err) => {
             if (err.message === 'Cancelled by user') return true;
             throw err;
@@ -3540,18 +3626,19 @@ export async function runFullTestPipeline(projectId, sendEvent, { angleOverride 
 
       if (roundNumber < TEST_RUN_MAX_ROUNDS) {
         const nextBatchSize = getTestRoundBatchSize(roundNumber + 1, totalAdsPassed, requiredPasses);
-        const roundPassDisplay = roundScoreResult.ads_passed + (repairResult.repairSummary?.passed || 0);
         emit(withTestProgress(roundNumber, {
           type: 'progress',
           step: 'round_complete',
-          message: `Round ${roundNumber} complete: ${roundPassDisplay}/${roundScoreResult.ads_scored} passed, ${totalAdsPassed}/${requiredPasses} total. Starting round ${roundNumber + 1} with ${nextBatchSize} ads...`,
+          message: `${totalAdsPassed}/${requiredPasses} approved. Starting top-up round ${roundNumber + 1} with ${nextBatchSize} more ads...`,
+          approvedCount: totalAdsPassed,
+          targetCount: requiredPasses,
+          nextBatchSize,
         }));
       }
 
-      const roundPassDisplay = roundScoreResult.ads_passed + (repairResult.repairSummary?.passed || 0);
       const nextDecisionMessage = roundNumber < TEST_RUN_MAX_ROUNDS
-        ? `Round ${roundNumber} complete: ${roundPassDisplay}/${roundScoreResult.ads_scored} passed, ${totalAdsPassed}/${requiredPasses} total. Starting round ${roundNumber + 1} with ${getTestRoundBatchSize(roundNumber + 1, totalAdsPassed, requiredPasses)} ads...`
-        : `Round ${roundNumber} complete: ${roundPassDisplay}/${roundScoreResult.ads_scored} passed, ${totalAdsPassed}/${requiredPasses} total.`;
+        ? `Round ${roundNumber} complete: ${totalAdsPassed}/${requiredPasses} approved. Starting top-up round ${roundNumber + 1} with ${getTestRoundBatchSize(roundNumber + 1, totalAdsPassed, requiredPasses)} more ads.`
+        : `Round ${roundNumber} complete: ${totalAdsPassed}/${requiredPasses} approved.`;
 
       errorStage = 'persist_round_progress';
       await updateConductorRun(runId, {

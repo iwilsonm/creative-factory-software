@@ -1338,6 +1338,7 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
   const [playbooksLoadedFor, setPlaybooksLoadedFor] = useState('');
   const [campaignsLoadedFor, setCampaignsLoadedFor] = useState('');
   const [runningAction, setRunningAction] = useState(null);
+  const [cancelingRunId, setCancelingRunId] = useState(null);
   const [saving, setSaving] = useState(false);
   const [expandedRuns, setExpandedRuns] = useState({});
   const [lpDetailsByBatchId, setLpDetailsByBatchId] = useState({});
@@ -1365,6 +1366,7 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
   const activeRunRequiredPasses = activeRunRecord?.required_passes || activeRun?.adsPerAdSetTarget || 5;
   const activeRunPassed = activeRunRecord?.total_ads_passed ?? activeRunRounds[activeRunRounds.length - 1]?.cumulative_passed ?? null;
   const showActiveRunBreakdown = activeRun && (activeRunRounds.length > 0 || activeRunBatches.length > 0);
+  const activeRunCanceling = !!activeRun && cancelingRunId === activeRun.id;
   const sseActiveRef = useRef(false); // tracks if we have a live SSE connection for the active run
   const abortRef = useRef(null); // stores the SSE abort function for active run cancellation
 
@@ -1669,7 +1671,7 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
   }, [embedded, handleSaveConfig, onProjectRefresh, selectedProject, toast]);
 
   const STEP_PROGRESS = {
-    // Director phase (~5s) — 0-2%
+    // Compatibility fallback only. Backend progressValue is the source of truth.
     'initializing': 1,
     'selecting_angle': 1,
     'building_prompt': 1,
@@ -1739,23 +1741,37 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
 
   // Cancel the active running test run
   const handleCancelRun = useCallback(async () => {
-    if (!activeRun) return;
+    if (!activeRun || cancelingRunId === activeRun.id) return;
+    setCancelingRunId(activeRun.id);
     // Abort SSE connection
     abortRef.current?.();
     abortRef.current = null;
     sseActiveRef.current = false;
-    updateQueueItem(activeRun.id, { sseConnected: false, phase: 'Cancelling...' });
+    updateQueueItem(activeRun.id, {
+      sseConnected: false,
+      phase: 'Cancel requested. Asking Gemini/background processing to stop...',
+    });
     try {
       const res = await api.cancelTestRun(selectedProject);
       if (!res?.cancelled) {
         updateQueueItem(activeRun.id, { status: 'error', progress: 0, phase: 'No active run found to cancel.' });
         setRunningAction(null);
+      } else {
+        updateQueueItem(activeRun.id, {
+          status: 'error',
+          progress: 0,
+          phase: 'Cancelled by user',
+          result: { terminal_status: 'cancelled', failure_reason: 'Cancelled by user' },
+        });
+        setRunningAction(null);
       }
     } catch (err) {
       updateQueueItem(activeRun.id, { status: 'error', progress: 0, phase: err.message || 'Cancel failed' });
       setRunningAction(null);
+    } finally {
+      setCancelingRunId(null);
     }
-  }, [activeRun, selectedProject, updateQueueItem]);
+  }, [activeRun, cancelingRunId, selectedProject, updateQueueItem]);
 
   // Remove a queued (not yet running) test run
   const handleRemoveQueued = useCallback((runId) => {
@@ -1859,7 +1875,8 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
         const passed = event.ads_passed ?? '?';
         const readyCount = event.ready_to_post_count ?? 0;
         const requiredPasses = event.required_passes || nextQueued.adsPerAdSetTarget || 5;
-        const msg = event.flex_ads_created > 0
+        const adSetsCreated = event.ad_sets_created ?? event.flex_ads_created ?? 0;
+        const msg = adSetsCreated > 0
           ? `Reached ${passed}/${requiredPasses} after ${roundsUsed} round${roundsUsed !== 1 ? 's' : ''} (${generated} generated). ${readyCount} Ready to Post ads created.`
           : `Complete — ${passed}/${requiredPasses} passed after ${generated} generated.`;
         updateQueueItem(runId, { status: 'complete', progress: 100, phase: msg, result: event, serverRunId: event.runId || null });
@@ -2397,10 +2414,11 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
             </div>
             <button
               onClick={handleCancelRun}
-              className="text-[10px] text-red-500 hover:text-red-700 font-medium px-2 py-0.5 rounded hover:bg-red-50 transition-colors shrink-0"
-              title="Cancel running test"
+              disabled={activeRunCanceling}
+              className="text-[10px] text-red-500 hover:text-red-700 font-medium px-2 py-0.5 rounded hover:bg-red-50 transition-colors shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
+              title={activeRunCanceling ? 'Cancel request sent' : 'Cancel running test'}
             >
-              Cancel
+              {activeRunCanceling ? 'Cancelling...' : 'Cancel'}
             </button>
           </div>
           {showActiveRunBreakdown && (

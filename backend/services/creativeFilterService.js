@@ -846,7 +846,7 @@ async function markBatchFilterProcessed(batchId) {
 
 // ── Inline filter helpers ──────────────────────────────────────────────────
 
-export async function scoreBatchForInlineFilter(batchId, projectId, onProgress, { roundNumber = 1, totalRounds = 1, shouldCancel = null } = {}) {
+export async function scoreBatchForInlineFilter(batchId, projectId, onProgress, { roundNumber = 1, totalRounds = 1, shouldCancel = null, requiredPasses = null, priorPassed = 0 } = {}) {
   const emit = (event) => { if (onProgress) try { onProgress(event); } catch {} };
   const throwIfCancelled = async () => {
     if (!shouldCancel) return;
@@ -871,13 +871,16 @@ export async function scoreBatchForInlineFilter(batchId, projectId, onProgress, 
   }
 
   const roundLabel = totalRounds > 1 ? `Round ${roundNumber}/${totalRounds}` : 'Batch';
+  const targetText = requiredPasses ? ` Target: ${requiredPasses} approved ads.` : '';
   const topPerformers = 'No previous top performers available.';
 
   emit({
     type: 'progress',
     step: 'filter_scoring',
-    message: `${roundLabel}: scoring ${ads.length} ads...`,
+    message: `${roundLabel}: Creative Filter QA is checking ${ads.length} ads.${targetText}`,
     scoringProgress: { current: 0, total: ads.length },
+    approvedCount: priorPassed,
+    targetCount: requiredPasses || undefined,
   });
 
   const scoredAds = [];
@@ -889,8 +892,10 @@ export async function scoreBatchForInlineFilter(batchId, projectId, onProgress, 
     emit({
       type: 'progress',
       step: 'filter_scoring',
-      message: `${roundLabel}: scoring ad ${i + 1} of ${ads.length}...`,
+      message: `${roundLabel}: Creative Filter QA is checking ad ${i + 1} of ${ads.length}...`,
       scoringProgress: { current: i + 1, total: ads.length },
+      approvedCount: priorPassed + passCount,
+      targetCount: requiredPasses || undefined,
     });
 
     try {
@@ -968,14 +973,20 @@ export async function finalizePassingAds({ passingAds, projectId, batchId, posti
   const project = await getProject(projectId);
   if (!project) throw new Error('Project not found');
 
-  emit({ type: 'progress', step: 'filter_grouping', message: `Grouping ${passingAds.length} passing ads into an ad set...` });
+  emit({
+    type: 'progress',
+    step: 'filter_grouping',
+    message: `Building Ready-to-Post ad set from ${imageTarget} approved ads...`,
+    approvedCount: Math.min(passingAds.length, imageTarget),
+    targetCount: imageTarget,
+  });
 
   const groupResult = await groupAds(passingAds, project.name, 1, imageTarget);
   const flexAds = groupResult.flex_ads || [];
 
   if (flexAds.length === 0) {
     console.warn(`[FilterService] Grouping returned 0 ad sets despite ${passingAds.length} passing ads`);
-    emit({ type: 'progress', step: 'filter_complete', message: 'Grouping could not create an ad set. Check copy quality.' });
+    emit({ type: 'progress', step: 'filter_complete', message: 'The approved ads could not be grouped into a Ready-to-Post ad set. Check copy quality.' });
     return {
       ad_sets_created: 0,
       ad_set_id: null,
@@ -992,7 +1003,7 @@ export async function finalizePassingAds({ passingAds, projectId, batchId, posti
   };
   if (flexAdDef.image_ad_ids.length < imageTarget) {
     console.warn(`[FilterService] Grouping returned ${flexAdDef.image_ad_ids.length}/${imageTarget} image ads`);
-    emit({ type: 'progress', step: 'filter_complete', message: `Grouping could not find ${imageTarget} approved image ads for the ad set.` });
+    emit({ type: 'progress', step: 'filter_complete', message: `Could not find ${imageTarget} approved image ads for the Ready-to-Post ad set.` });
     return {
       ad_sets_created: 0,
       ad_set_id: null,
@@ -1002,7 +1013,13 @@ export async function finalizePassingAds({ passingAds, projectId, batchId, posti
       grouping_failed: true,
     };
   }
-  emit({ type: 'progress', step: 'filter_copy_gen', message: `Generating copy for "${flexAdDef.angle_theme}"...` });
+  emit({
+    type: 'progress',
+    step: 'filter_copy_gen',
+    message: `Writing primary texts and headlines for "${flexAdDef.angle_theme}"...`,
+    approvedCount: imageTarget,
+    targetCount: imageTarget,
+  });
 
   const adCreativesForCopy = flexAdDef.image_ad_ids.slice(0, Math.min(imageTarget, 5)).map(adId => {
     const found = passingAds.find(sa => sa.ad.id === adId);
@@ -1011,7 +1028,13 @@ export async function finalizePassingAds({ passingAds, projectId, batchId, posti
 
   const generatedCopy = await generateFilterCopy(projectId, flexAdDef.angle_theme, adCreativesForCopy);
 
-  emit({ type: 'progress', step: 'filter_deploying', message: 'Creating ad set and deploying to Ready to Post...' });
+  emit({
+    type: 'progress',
+    step: 'filter_deploying',
+    message: 'Moving the ad set to Ready to Post...',
+    approvedCount: imageTarget,
+    targetCount: imageTarget,
+  });
 
   try {
     const deployResult = await deployFlexAd(
@@ -1027,7 +1050,9 @@ export async function finalizePassingAds({ passingAds, projectId, batchId, posti
     emit({
       type: 'progress',
       step: 'filter_complete',
-      message: `Ad set deployed: ${passingAds.length} approved ads available, ${deployResult.deploymentCount} ads -> Ready to Post`,
+      message: `Ready-to-Post ad set created with ${deployResult.deploymentCount} approved ads.`,
+      approvedCount: imageTarget,
+      targetCount: imageTarget,
     });
 
     return {
