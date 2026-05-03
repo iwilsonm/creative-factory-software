@@ -150,6 +150,11 @@ function serializePromptForStorage(prompt) {
     scoring_mode: prompt.scoring_mode || null,
     copy_render_expectation: prompt.copy_render_expectation || null,
     product_expectation: prompt.product_expectation || null,
+    template_text_contract: prompt.template_text_contract || null,
+    visual_copy_plan: prompt.visual_copy_plan || null,
+    rendered_text_expectation: prompt.rendered_text_expectation || null,
+    visual_text_density: prompt.visual_text_density || null,
+    primary_text_context: prompt.primary_text_context || null,
   };
 }
 
@@ -162,8 +167,68 @@ function buildDirectorScoringContract(batch, documentaryVisuals) {
   return {
     scoring_mode: 'template_copy_on_creative',
     copy_render_expectation: 'rendered',
-    product_expectation: 'required',
+    product_expectation: 'diagnostic',
   };
+}
+
+function normalizeImagePromptPackage(value, fallback = {}) {
+  if (typeof value === 'string') {
+    return {
+      prompt: value,
+      visual_copy_plan: null,
+      template_text_contract: null,
+      rendered_text_expectation: fallback.copy_render_expectation || null,
+      visual_text_density: null,
+    };
+  }
+  if (!value || typeof value !== 'object') {
+    return {
+      prompt: '',
+      visual_copy_plan: null,
+      template_text_contract: null,
+      rendered_text_expectation: fallback.copy_render_expectation || null,
+      visual_text_density: null,
+    };
+  }
+  return {
+    prompt: value.prompt || value.image_prompt || '',
+    visual_copy_plan: value.visual_copy_plan || null,
+    template_text_contract: value.template_text_contract || null,
+    rendered_text_expectation: value.rendered_text_expectation || fallback.copy_render_expectation || null,
+    visual_text_density: value.visual_text_density || null,
+  };
+}
+
+function textFromVisualCopyPlan(plan) {
+  if (!plan || typeof plan !== 'object') return null;
+  const directFields = [
+    plan.headline,
+    plan.subhead,
+    plan.supporting_text,
+    plan.body,
+    plan.body_text,
+    plan.badge,
+    plan.cta,
+  ].filter((value) => typeof value === 'string' && value.trim());
+  if (directFields.length > 0) return directFields.join('\n');
+  if (Array.isArray(plan.zones)) {
+    const zoneText = plan.zones
+      .map((zone) => zone?.text || zone?.copy)
+      .filter((value) => typeof value === 'string' && value.trim());
+    if (zoneText.length > 0) return zoneText.join('\n');
+  }
+  return null;
+}
+
+function shouldOcrRenderedCopy(expectation) {
+  return ['rendered', 'template_matched'].includes(String(expectation || '').toLowerCase());
+}
+
+function toStoredCopyExpectation(expectation, fallback) {
+  const normalized = String(expectation || '').toLowerCase();
+  if (['none', 'not_required'].includes(normalized)) return 'not_required';
+  if (['rendered', 'template_matched'].includes(normalized)) return 'rendered';
+  return fallback || null;
 }
 
 /**
@@ -648,16 +713,22 @@ async function generateBatchPrompts(batch, project, docs, onProgress, options = 
 
         // Apply prompt guidelines to each prompt individually
         for (let j = 0; j < chunk.length; j++) {
-          let imagePrompt = imagePrompts[j];
+          const promptPackage = normalizeImagePromptPackage(imagePrompts[j], scoringContract);
+          let imagePrompt = promptPackage.prompt;
           if (project.prompt_guidelines) {
             imagePrompt = await reviewPromptWithGuidelines(imagePrompt, project.prompt_guidelines);
           }
 
           const copy = chunk[j];
+          const storedCopyExpectation = toStoredCopyExpectation(
+            promptPackage.rendered_text_expectation,
+            scoringContract.copy_render_expectation || null
+          );
+          const visualCopyText = textFromVisualCopyPlan(promptPackage.visual_copy_plan);
           prompts.push({
             prompt: imagePrompt,
             headline: copy.headline,
-            body_copy: copy.body_copy,
+            body_copy: visualCopyText,
             angle_name: batch.angle_name || null,
             hook_lane: copy.hook_lane || null,
             sub_angle: copy.sub_angle || null,
@@ -673,8 +744,13 @@ async function generateBatchPrompts(batch, project, docs, onProgress, options = 
             visual_reference_type: visualReferenceType,
             visual_reference_id: visualReferenceId,
             scoring_mode: scoringContract.scoring_mode || null,
-            copy_render_expectation: scoringContract.copy_render_expectation || null,
+            copy_render_expectation: storedCopyExpectation,
             product_expectation: scoringContract.product_expectation || null,
+            template_text_contract: promptPackage.template_text_contract || null,
+            visual_copy_plan: promptPackage.visual_copy_plan || null,
+            rendered_text_expectation: promptPackage.rendered_text_expectation || null,
+            visual_text_density: promptPackage.visual_text_density || null,
+            primary_text_context: copy.body_copy || null,
             inspirationTmpPath: imageData.tmpPath,
             inspirationMimeType: imageData.mimeType,
             templateFileId: imageData.fileId || null,
@@ -983,7 +1059,9 @@ async function processBatchResults(batchId, job) {
       // Extract actual rendered text from image (Gemini often renders different copy than requested)
       let renderedHeadline = (typeof promptObj === 'object' ? promptObj?.headline : null) || undefined;
       let renderedBodyCopy = (typeof promptObj === 'object' ? promptObj?.body_copy : null) || undefined;
-      const isRenderedCopy = typeof promptObj === 'object' && promptObj?.copy_render_expectation === 'rendered';
+      const isRenderedCopy = typeof promptObj === 'object' && shouldOcrRenderedCopy(
+        promptObj?.rendered_text_expectation || promptObj?.copy_render_expectation
+      );
       if (isRenderedCopy) {
         try {
           const extracted = await extractRenderedCopy(imageBuffer, mimeType, batch.project_id);

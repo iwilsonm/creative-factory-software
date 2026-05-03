@@ -75,7 +75,7 @@ export function buildAdScoringContract(ad = {}) {
   const copyRenderExpectation = ad?.copy_render_expectation
     || (scoringMode === 'template_copy_on_creative' ? 'rendered' : 'not_required');
   const productExpectation = ad?.product_expectation
-    || (scoringMode === 'template_copy_on_creative' ? 'required' : 'not_required');
+    || (scoringMode === 'template_copy_on_creative' ? 'diagnostic' : 'not_required');
   return {
     scoring_mode: scoringMode,
     copy_render_expectation: copyRenderExpectation,
@@ -120,7 +120,15 @@ export function normalizeDirectorScore(rawScore, contract = {}, { hasImage = tru
     ),
   };
 
-  const allRequiredPassed = Object.values(normalizedHardRequirements)
+  const requiredHardRequirementValues = [
+    normalizedHardRequirements.spelling_grammar,
+    productRequired ? normalizedHardRequirements.product_present : null,
+    productRequired ? normalizedHardRequirements.correct_product : null,
+    normalizedHardRequirements.visual_integrity,
+    copyRendered ? normalizedHardRequirements.rendered_text_integrity : null,
+  ];
+
+  const allRequiredPassed = requiredHardRequirementValues
     .filter((value) => value !== null)
     .every((value) => value === true);
 
@@ -268,12 +276,13 @@ SCORING CONTRACT:
 
 CONTRACT INTERPRETATION:
 - In template_copy_on_creative mode, visible rendered copy on the ad is expected and valid.
-- In template_copy_on_creative mode, prominent product visibility is expected and valid.
+- In template_copy_on_creative mode, product visibility is useful feedback, but not an automatic fail unless product_expectation is "required".
 - In template_copy_on_creative mode, template layout, text hierarchy, badges, and structured ad composition are valid if they are clean and intentional.
 - Do NOT fail an ad just because it is not documentary-style.
 - Do NOT fail an ad just because the product is visible.
 - Do NOT fail an ad just because text is rendered on the creative.
-- Only fail for real defects: wrong/missing product, broken render, irrational/unrealistic image, unreadable rendered text, or genuine spelling/grammar errors.
+- Only hard-fail for real defects: broken spelling/grammar, broken render, irrational/unrealistic/uncanny image, unreadable rendered text when text is expected, or the wrong product only when product_expectation is "required".
+- Missing, ambiguous, or not-prominent-enough product should be recorded in weaknesses/image_issues and reflected in the soft scores, but it should NOT set all_passed false unless product_expectation is "required".
 - Upstream generation has already filtered headline/body quality. This scoring pass is NOT a script-faithfulness review.
 - Do NOT materially downscore a valid ad just because you would prefer a more literal match to the angle brief, a different opening line, or a stricter copy sequence.
 - If the copy is coherent, grammatical, product-relevant, and not contradictory, score it as at least mid-level competent even if it is not the exact phrasing you would have chosen.
@@ -291,11 +300,12 @@ These are non-negotiable. Evaluate them objectively:
 
 2. PRODUCT PRESENT
 - If product_expectation is "required", the intended product must be clearly present on the creative.
-- If the product is clearly missing, fail this requirement.
+- If product_expectation is not "required", score this as diagnostic feedback only. Missing or subtle product should not auto-fail the ad.
 
 3. CORRECT PRODUCT
 - If the product is shown, it must be the correct product for this brand/ad.
-- Fail for the wrong product, ambiguous product, or clearly unrelated product imagery.
+- If product_expectation is "required", fail for the wrong product or clearly unrelated product imagery.
+- If product_expectation is not "required", record ambiguity or low prominence as feedback, but do not auto-fail unless the image is incoherent or misleading.
 
 4. VISUAL INTEGRITY
 - Fail for broken render, blank placeholder, missing visual element, irrational/unrealistic anatomy or objects, impossible perspective, obvious AI artifacting, or clearly broken composition.
@@ -325,7 +335,7 @@ These are non-negotiable. Evaluate them objectively:
 
 5. VISUAL CONTRACT MATCH (25%)
 - Does the ad successfully execute the intended format?
-- In template_copy_on_creative mode, reward clean template hierarchy, readable rendered copy, and correct product usage.
+- In template_copy_on_creative mode, reward clean template hierarchy and readable rendered copy. Product clarity can improve this score, but product absence alone is not a hard fail unless product_expectation is "required".
 
 Return ONLY valid JSON in this exact shape:
 {

@@ -37,7 +37,7 @@ describe('creativeFilterService scoring normalization', () => {
     expect(contract).toEqual({
       scoring_mode: 'template_copy_on_creative',
       copy_render_expectation: 'rendered',
-      product_expectation: 'required',
+      product_expectation: 'diagnostic',
     });
   });
 
@@ -72,11 +72,43 @@ describe('creativeFilterService scoring normalization', () => {
     expect(normalized.overall_score).toBeGreaterThanOrEqual(7);
   });
 
-  it('hard-fails when the required product is missing', async () => {
+  it('does not hard-fail when product visibility is only diagnostic', async () => {
     const { normalizeDirectorScore } = await import('../services/creativeFilterService.js');
     const normalized = normalizeDirectorScore(
       {
         ad_id: 'ad-2',
+        hard_requirements: {
+          spelling_grammar: true,
+          product_present: false,
+          correct_product: true,
+          visual_integrity: true,
+          rendered_text_integrity: true,
+        },
+        copy_polish: 9,
+        meta_compliance: 9,
+        effectiveness: 9,
+        visual_integrity_score: 9,
+        visual_contract_match: 9,
+      },
+      {
+        scoring_mode: 'template_copy_on_creative',
+        copy_render_expectation: 'rendered',
+        product_expectation: 'diagnostic',
+      },
+      { hasImage: true }
+    );
+
+    expect(normalized.hard_requirements.product_present).toBe(false);
+    expect(normalized.hard_requirements.all_passed).toBe(true);
+    expect(normalized.pass).toBe(true);
+    expect(normalized.overall_score).toBeGreaterThanOrEqual(7);
+  });
+
+  it('still hard-fails when product is explicitly required and missing', async () => {
+    const { normalizeDirectorScore } = await import('../services/creativeFilterService.js');
+    const normalized = normalizeDirectorScore(
+      {
+        ad_id: 'ad-2b',
         hard_requirements: {
           spelling_grammar: true,
           product_present: false,
@@ -98,7 +130,37 @@ describe('creativeFilterService scoring normalization', () => {
       { hasImage: true }
     );
 
-    expect(normalized.hard_requirements.product_present).toBe(false);
+    expect(normalized.hard_requirements.all_passed).toBe(false);
+    expect(normalized.pass).toBe(false);
+    expect(normalized.overall_score).toBe(0);
+  });
+
+  it('hard-fails broken spelling or grammar even when product is diagnostic', async () => {
+    const { normalizeDirectorScore } = await import('../services/creativeFilterService.js');
+    const normalized = normalizeDirectorScore(
+      {
+        ad_id: 'ad-2c',
+        hard_requirements: {
+          spelling_grammar: false,
+          product_present: true,
+          correct_product: true,
+          visual_integrity: true,
+          rendered_text_integrity: true,
+        },
+        copy_polish: 9,
+        meta_compliance: 9,
+        effectiveness: 9,
+        visual_integrity_score: 9,
+        visual_contract_match: 9,
+      },
+      {
+        scoring_mode: 'template_copy_on_creative',
+        copy_render_expectation: 'rendered',
+        product_expectation: 'diagnostic',
+      },
+      { hasImage: true }
+    );
+
     expect(normalized.hard_requirements.all_passed).toBe(false);
     expect(normalized.pass).toBe(false);
     expect(normalized.overall_score).toBe(0);

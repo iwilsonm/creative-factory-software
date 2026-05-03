@@ -50,7 +50,13 @@ vi.mock('sharp', () => ({
   })),
 }));
 
-import { repairJSON, buildCreativeDirectorPrompt, buildImageRequestText } from '../services/adGenerator.js';
+import { chatWithImage } from '../services/openai.js';
+import {
+  repairJSON,
+  buildCreativeDirectorPrompt,
+  buildImageRequestText,
+  generateImagePromptsBatch,
+} from '../services/adGenerator.js';
 
 // ── repairJSON ──────────────────────────────────────────────────────────────
 
@@ -204,5 +210,61 @@ describe('buildImageRequestText', () => {
     expect(result).toContain('Body text');
     expect(result).toContain('sleep angle');
     expect(result).toContain('4:5');
+  });
+});
+
+// ── generateImagePromptsBatch ───────────────────────────────────────────────
+
+describe('generateImagePromptsBatch', () => {
+  it('uses a template text contract and does not force full primary text rendering', async () => {
+    chatWithImage
+      .mockResolvedValueOnce(JSON.stringify({
+        text_density: 'short',
+        rendered_text_expectation: 'template_matched',
+        template_summary: 'Sparse template with one headline and a small badge.',
+        copy_guidance: 'Keep on-image text sparse.',
+        zones: [
+          { role: 'headline', required: true, approx_words: 6, density: 'short', hierarchy: 'primary' },
+          { role: 'badge', required: false, approx_words: 3, density: 'short', hierarchy: 'small' },
+        ],
+      }))
+      .mockResolvedValueOnce(JSON.stringify({
+        prompts: [
+          {
+            prompt: 'Create a sparse ad with one bold headline and a small badge.',
+            visual_copy_plan: {
+              headline: 'Sleep Deeper Tonight',
+              badge: 'No More 3AM',
+              supporting_text: null,
+              cta: null,
+              notes: 'Matches the sparse template.',
+            },
+            rendered_text_expectation: 'template_matched',
+            visual_text_density: 'short',
+          },
+        ],
+      }));
+
+    const result = await generateImagePromptsBatch(
+      { id: 'project-1', name: 'Brand', brand_name: 'Brand', product_description: 'Grounding sheet' },
+      [{
+        headline: 'Sleep Deeper Tonight',
+        body_copy: 'This is a long Facebook primary text paragraph that should guide the idea but should not be rendered verbatim inside the image.',
+        primary_emotion: 'relief',
+      }],
+      { base64: 'ZmFrZQ==', mimeType: 'image/png' },
+      '1:1',
+      null
+    );
+
+    expect(result).toHaveLength(1);
+    expect(result[0].prompt).toContain('sparse ad');
+    expect(result[0].visual_copy_plan.headline).toBe('Sleep Deeper Tonight');
+    expect(result[0].template_text_contract.text_density).toBe('short');
+
+    const imagePromptRequest = chatWithImage.mock.calls[1][1];
+    expect(imagePromptRequest).toContain('TEMPLATE TEXT CONTRACT');
+    expect(imagePromptRequest).toContain('META PRIMARY TEXT CONTEXT (do not render verbatim');
+    expect(imagePromptRequest).not.toContain('Each prompt should render the EXACT headline and body copy text');
   });
 });

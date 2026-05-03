@@ -67,6 +67,7 @@ const mockExtractBrief = vi.fn();
 const mockGenerateHeadlines = vi.fn();
 const mockGenerateBodyCopies = vi.fn();
 const mockGenerateImagePrompt = vi.fn();
+const mockGenerateImagePromptsBatch = vi.fn();
 const mockSelectInspirationImage = vi.fn();
 const mockSelectTemplateImage = vi.fn();
 const mockReviewPromptWithGuidelines = vi.fn();
@@ -77,6 +78,7 @@ vi.mock('../services/adGenerator.js', () => ({
   generateHeadlines: (...args) => mockGenerateHeadlines(...args),
   generateBodyCopies: (...args) => mockGenerateBodyCopies(...args),
   generateImagePrompt: (...args) => mockGenerateImagePrompt(...args),
+  generateImagePromptsBatch: (...args) => mockGenerateImagePromptsBatch(...args),
   isSceneLockedAngle: (...args) => mockIsSceneLockedAngle(...args),
   selectInspirationImage: (...args) => mockSelectInspirationImage(...args),
   selectTemplateImage: (...args) => mockSelectTemplateImage(...args),
@@ -209,6 +211,15 @@ describe('batch pipeline', () => {
     mockGetRecentHeadlineHistoryByAngle.mockResolvedValue([]);
     mockRecordHeadlineHistory.mockResolvedValue();
     mockIsSceneLockedAngle.mockReturnValue(false);
+    mockGenerateImagePromptsBatch.mockResolvedValue([
+      {
+        prompt: 'make ad',
+        visual_copy_plan: { headline: 'Headline', supporting_text: 'Body' },
+        rendered_text_expectation: 'template_matched',
+        visual_text_density: 'short',
+        template_text_contract: { text_density: 'short', rendered_text_expectation: 'template_matched', zones: [] },
+      },
+    ]);
     mockGetSetting.mockResolvedValue('test-openai-key');
     mockConvexQuery.mockResolvedValue(null);
     mockConvexMutation.mockResolvedValue();

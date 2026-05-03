@@ -1880,6 +1880,125 @@ Output the image generation prompt as a single text block ready to paste into th
   return imagePrompt;
 }
 
+function normalizeTemplateTextZone(zone, index) {
+  if (!zone || typeof zone !== 'object') return null;
+  const role = String(zone.role || zone.type || `zone_${index + 1}`).trim().toLowerCase();
+  const density = String(zone.density || zone.copy_length || '').trim().toLowerCase();
+  const maxWords = Number(zone.max_words ?? zone.approx_words ?? zone.words);
+  return {
+    role: role || `zone_${index + 1}`,
+    required: zone.required !== false,
+    approximate_words: Number.isFinite(maxWords) && maxWords > 0 ? Math.min(350, Math.round(maxWords)) : null,
+    density: density || null,
+    visual_role: zone.visual_role || zone.hierarchy || null,
+    notes: zone.notes || zone.description || null,
+  };
+}
+
+function normalizeTemplateTextContract(raw = {}, { documentaryMode = false } = {}) {
+  if (documentaryMode) {
+    return {
+      text_density: 'none',
+      rendered_text_expectation: 'none',
+      zones: [],
+      template_summary: 'Documentary/lifestyle creative with no rendered copy.',
+      copy_guidance: 'Do not render words on the image.',
+    };
+  }
+
+  const density = String(raw.text_density || raw.visual_text_density || raw.density || 'medium').trim().toLowerCase();
+  const expectation = String(raw.rendered_text_expectation || raw.copy_expectation || 'template_matched').trim().toLowerCase();
+  const zones = Array.isArray(raw.zones)
+    ? raw.zones.map(normalizeTemplateTextZone).filter(Boolean).slice(0, 8)
+    : [];
+
+  return {
+    text_density: ['none', 'minimal', 'short', 'medium', 'long', 'heavy'].includes(density) ? density : 'medium',
+    rendered_text_expectation: ['none', 'not_required', 'template_matched', 'rendered'].includes(expectation)
+      ? expectation
+      : 'template_matched',
+    zones: zones.length > 0 ? zones : [
+      { role: 'headline', required: true, approximate_words: 8, density: 'short', visual_role: 'primary', notes: 'Main visible hook.' },
+      { role: 'supporting_text', required: false, approximate_words: 18, density: 'medium', visual_role: 'secondary', notes: 'Only if the template has secondary text space.' },
+    ],
+    template_summary: raw.template_summary || raw.summary || 'Template-style ad with visible copy areas.',
+    copy_guidance: raw.copy_guidance || raw.guidance || 'Match the template text density and hierarchy. Do not force a full primary-text paragraph.',
+  };
+}
+
+export async function analyzeTemplateTextContract(project, imageData, aspectRatio, options = {}) {
+  const documentaryMode = !!options.documentaryMode;
+  if (documentaryMode || !imageData) {
+    return normalizeTemplateTextContract({}, { documentaryMode });
+  }
+
+  const prompt = `Analyze this ad template/reference image only for how much visible text it expects.
+
+Return ONLY valid JSON with this shape:
+{
+  "text_density": "none|minimal|short|medium|long|heavy",
+  "rendered_text_expectation": "none|template_matched|rendered",
+  "template_summary": "one sentence about the layout and text hierarchy",
+  "copy_guidance": "how future generated ads should match this template's text density",
+  "zones": [
+    {
+      "role": "headline|subhead|body|badge|cta|testimonial|caption|other",
+      "required": true,
+      "approx_words": 8,
+      "density": "short|medium|long",
+      "hierarchy": "primary|secondary|small",
+      "notes": "where it appears / how it behaves"
+    }
+  ]
+}
+
+Rules:
+- Do not judge whether the text in this template is good copy.
+- Estimate text zones from the image layout. If the template has no visible ad text, return text_density "none" and zones [].
+- If it has a long paragraph/testimonial block, mark that zone as long/heavy. Long copy is allowed only when the template visibly supports it.
+- Aspect ratio for the generated ad: ${aspectRatio || '1:1'}.
+- Brand/product context: ${project?.brand_name || project?.name || 'Unknown brand'} / ${project?.product_description || 'unknown product'}.`;
+
+  try {
+    const imageBase64 = readImageBase64(imageData);
+    const result = await chatWithImage(
+      [],
+      prompt,
+      imageBase64,
+      imageData.mimeType,
+      BATCH_VISION_MODEL,
+      { operation: 'template_text_contract', projectId: project?.id || null }
+    );
+    return normalizeTemplateTextContract(repairJSON(result), { documentaryMode });
+  } catch (err) {
+    console.warn('[AdGenerator] Template text contract analysis failed, using fallback:', err.message);
+    return normalizeTemplateTextContract({}, { documentaryMode });
+  }
+}
+
+function normalizePromptPackage(item, index, templateTextContract) {
+  if (typeof item === 'string') {
+    return {
+      prompt: item,
+      visual_copy_plan: null,
+      rendered_text_expectation: templateTextContract.rendered_text_expectation,
+      visual_text_density: templateTextContract.text_density,
+      template_text_contract: templateTextContract,
+    };
+  }
+  if (!item || typeof item !== 'object') return null;
+  const prompt = item.prompt || item.image_prompt || item.generation_prompt;
+  if (!prompt || typeof prompt !== 'string') return null;
+  return {
+    prompt,
+    visual_copy_plan: item.visual_copy_plan || item.visualCopyPlan || null,
+    rendered_text_expectation: item.rendered_text_expectation || templateTextContract.rendered_text_expectation,
+    visual_text_density: item.visual_text_density || templateTextContract.text_density,
+    template_text_contract: item.template_text_contract || templateTextContract,
+    index,
+  };
+}
+
 /**
  * Stage 3 (batched): Generate image prompts for multiple ads in a single LLM call.
  * Groups 2-3 ads per call to reduce API costs (~45% fewer calls).
@@ -1890,10 +2009,13 @@ Output the image generation prompt as a single text block ready to paste into th
  * @param {string} aspectRatio - Aspect ratio
  * @param {object|null} angleBrief - Angle brief for visual direction
  * @param {object} options - { documentaryMode }
- * @returns {string[]} Array of image prompts (one per ad)
+ * @returns {Array<{prompt: string, visual_copy_plan?: object, template_text_contract?: object}>} Prompt packages
  */
 export async function generateImagePromptsBatch(project, ads, imageData, aspectRatio, angleBrief = null, options = {}) {
   const documentaryMode = !!options.documentaryMode;
+  const templateTextContract = options.templateTextContract
+    ? normalizeTemplateTextContract(options.templateTextContract, { documentaryMode })
+    : await analyzeTemplateTextContract(project, imageData, aspectRatio, { documentaryMode });
 
   // Build shared visual direction block
   let visualDirectionBlock = '';
@@ -1925,7 +2047,7 @@ export async function generateImagePromptsBatch(project, ads, imageData, aspectR
     }
     return `--- AD ${i + 1} ---
 HEADLINE: "${ad.headline}"
-BODY COPY: "${ad.body_copy}"
+META PRIMARY TEXT CONTEXT (do not render verbatim unless the template contract has a long body/testimonial zone): "${ad.body_copy}"
 PRIMARY EMOTION: ${ad.primary_emotion || 'curiosity'}${strategyBlock}`;
   }).join('\n\n');
 
@@ -1935,7 +2057,7 @@ Generate pure documentary/lifestyle scenes that visually express each ad's copy 
 CRITICAL NEGATIVES: NO text overlays, NO logos, NO product unless the angle brief demands it, NO ad-template framing.`
     : `You are a creative director generating prompts for text-to-image AI software. You create Facebook ad visuals for DTC health/wellness brands targeting women 55-75.
 ${imageData ? 'Analyze the attached template image for layout, color palette, typography, and composition. Each prompt should recreate this style.' : ''}
-Each prompt should render the EXACT headline and body copy text. Do not rewrite them.`;
+Each prompt must follow the TEMPLATE TEXT CONTRACT below. Generate the on-image copy needed for the template's visible text zones. Do not render the full Meta primary-text paragraph inside the image unless the template contract explicitly contains a long body/testimonial zone.`;
 
   const promptText = `${modeInstruction}
 
@@ -1944,14 +2066,32 @@ PRODUCT: ${project.product_description || ''}
 ASPECT RATIO: ${aspectRatio || '1:1'}
 ${visualDirectionBlock}
 
+TEMPLATE TEXT CONTRACT:
+${JSON.stringify(templateTextContract, null, 2)}
+
 I need you to generate ${ads.length} SEPARATE image prompts — one for each ad below. Each prompt must be tailored to its specific headline, body copy, and emotion.
 
 ${adSpecs}
 
-Return a JSON object with a "prompts" array containing exactly ${ads.length} prompt strings, one per ad in order:
-{"prompts": ["prompt for ad 1", "prompt for ad 2"${ads.length > 2 ? ', "prompt for ad 3"' : ''}]}
+Return a JSON object with a "prompts" array containing exactly ${ads.length} objects, one per ad in order:
+{
+  "prompts": [
+    {
+      "prompt": "complete standalone image generation prompt for ad 1",
+      "visual_copy_plan": {
+        "headline": "exact on-image headline if the template has a headline zone, otherwise null",
+        "supporting_text": "on-image supporting text if the template has that zone, otherwise null",
+        "badge": "badge/label text if applicable, otherwise null",
+        "cta": "CTA text if the template has a CTA zone, otherwise null",
+        "notes": "one sentence explaining how text density matches the template"
+      },
+      "rendered_text_expectation": "${templateTextContract.rendered_text_expectation}",
+      "visual_text_density": "${templateTextContract.text_density}"
+    }
+  ]
+}
 
-Each prompt should be a complete, standalone image generation prompt.`;
+Each prompt should be complete and standalone. The visual copy should be modeled after the attached template: if the template is text-heavy, text-heavy is okay; if it is sparse, keep it sparse; if it has no visible copy, do not force rendered words.`;
 
   const result = await withHeavyLLMLimit(async () => {
     if (imageData) {
@@ -1976,7 +2116,9 @@ Each prompt should be a complete, standalone image generation prompt.`;
   try {
     const parsed = JSON.parse(result);
     if (parsed.prompts && Array.isArray(parsed.prompts) && parsed.prompts.length === ads.length) {
-      return parsed.prompts;
+      return parsed.prompts
+        .map((item, index) => normalizePromptPackage(item, index, templateTextContract))
+        .filter(Boolean);
     }
   } catch {}
 
@@ -1986,7 +2128,9 @@ Each prompt should be a complete, standalone image generation prompt.`;
     if (match) {
       const parsed = JSON.parse(match[0]);
       if (parsed.prompts && Array.isArray(parsed.prompts) && parsed.prompts.length === ads.length) {
-        return parsed.prompts;
+        return parsed.prompts
+          .map((item, index) => normalizePromptPackage(item, index, templateTextContract))
+          .filter(Boolean);
       }
     }
   } catch {}
@@ -1999,7 +2143,7 @@ Each prompt should be a complete, standalone image generation prompt.`;
       project, ad.headline, ad.body_copy, ad.primary_emotion,
       imageData, aspectRatio, angleBrief, ad.headlineMeta, options
     );
-    fallbackPrompts.push(prompt);
+    fallbackPrompts.push(normalizePromptPackage(prompt, fallbackPrompts.length, templateTextContract));
   }
   return fallbackPrompts;
 }
