@@ -2932,7 +2932,7 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
         <div className="flex items-center gap-4 mt-6 pt-5 border-t border-ed-line">
           <button
             onClick={handleGenerate}
-            className="flex-1 sm:flex-initial sm:min-w-[220px] py-3 px-6 rounded-[10px] text-[14px] font-medium bg-ed-accent text-[#fbfaf6] hover:bg-[#923f29] transition-colors disabled:opacity-50 flex items-center justify-center gap-2"
+            className="ed-cta flex-1 sm:flex-initial sm:min-w-[220px] !py-3 !px-6 !rounded-[10px] !text-[14px]"
           >
             <svg className="w-3.5 h-3.5" fill="currentColor" viewBox="0 0 16 16">
               <path d="M8 0l1.5 5.5L15 7l-5.5 1.5L8 14l-1.5-5.5L1 7l5.5-1.5L8 0z" />
