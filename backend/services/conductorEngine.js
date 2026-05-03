@@ -977,6 +977,7 @@ const TEST_RUN_ORCHESTRATION_FAILURE_STATUS = 'orchestration_failed';
 const TEST_RUN_GEMINI_WAIT_MS = 30 * 60 * 1000;
 const TEST_RUN_ROUND_CAP_TERMINAL_STATUS = 'failed_under_threshold_after_round_cap';
 const DIRECTOR_SCORE_THRESHOLD = 7;
+const TEST_RUN_CANCELLED_STATUS = 'cancelled';
 
 function stringifyJSON(value, fallback = '[]') {
   try {
@@ -993,6 +994,13 @@ function parseJSON(value, fallback = []) {
   } catch {
     return fallback;
   }
+}
+
+function isTestRunCancelled(run) {
+  return !!run && (
+    run.terminal_status === TEST_RUN_CANCELLED_STATUS
+    || ((run.failure_reason || run.error || '') === 'Cancelled by user')
+  );
 }
 
 function getTestPostingDays(angleName) {
@@ -2128,6 +2136,42 @@ async function getLatestTestRunState(projectId, runId) {
   return runs.find((candidate) => candidate.externalId === runId) || null;
 }
 
+async function throwIfDurableTestRunCancelled(projectId, runId) {
+  if (!runId) return;
+  const latest = await getLatestTestRunState(projectId, runId);
+  if (isTestRunCancelled(latest)) {
+    throw new Error('Cancelled by user');
+  }
+}
+
+async function cancelGeminiBatchIfActive(batch) {
+  if (!batch?.gemini_batch_job) return false;
+  try {
+    const { getClient } = await import('./gemini.js');
+    const ai = await getClient();
+    await ai.batches.cancel({ name: batch.gemini_batch_job });
+    return true;
+  } catch (err) {
+    console.warn(`[Director] Could not cancel Gemini batch ${batch.id || batch.externalId || ''}:`, err.message);
+    return false;
+  }
+}
+
+async function markTestBatchCancelled(batchId) {
+  if (!batchId) return { found: false, geminiCancelled: false };
+  const batch = await getBatchJob(batchId).catch(() => null);
+  if (!batch) return { found: false, geminiCancelled: false };
+  const geminiCancelled = await cancelGeminiBatchIfActive(batch);
+  if (!['completed', 'failed', 'superseded'].includes(batch.status)) {
+    await updateBatchJob(batchId, {
+      status: 'failed',
+      error_message: 'Cancelled by user',
+      last_heartbeat_at: new Date().toISOString(),
+    }).catch(() => {});
+  }
+  return { found: true, geminiCancelled };
+}
+
 async function supersedePendingTestRunBatches(batchInfos, completedBatchIds = [], reason = 'Superseded after test run already deployed.') {
   const completed = new Set(completedBatchIds.filter(Boolean));
   for (const info of Array.isArray(batchInfos) ? batchInfos : []) {
@@ -2359,10 +2403,12 @@ async function markTestRunBackgroundFailure({
 async function continueBackgroundTestRun(run) {
   const runId = run.externalId;
   const projectId = run.project_id;
+  if (isTestRunCancelled(run)) return true;
   const requiredPasses = getTestRunTargetFromRun(run);
   const batchInfos = parseJSON(run.batches_created, []);
   let roundDetails = parseJSON(run.rounds_json, []);
   const latestRun = await getLatestTestRunState(projectId, runId);
+  if (isTestRunCancelled(latestRun)) return true;
   if (isRunTerminallyDeployed(latestRun)) {
     await supersedePendingTestRunBatches(
       batchInfos,
@@ -2460,7 +2506,9 @@ async function continueBackgroundTestRun(run) {
 
   try {
     const { scoreBatchForInlineFilter, finalizePassingAds } = await import('./creativeFilterService.js');
+    await throwIfDurableTestRunCancelled(projectId, runId);
     const hydrated = await hydratePassingAdsForRounds(roundDetails, projectId, requiredPasses);
+    await throwIfDurableTestRunCancelled(projectId, runId);
     roundDetails = hydrated.roundDetails;
     const cumulativePassingAds = [...hydrated.cumulativePassingAds];
 
@@ -2469,7 +2517,12 @@ async function continueBackgroundTestRun(run) {
     const roundScoreResult = await scoreBatchForInlineFilter(batchInfo.batch_id, projectId, null, {
       roundNumber,
       totalRounds: TEST_RUN_MAX_ROUNDS,
+      shouldCancel: () => throwIfDurableTestRunCancelled(projectId, runId).then(() => false).catch((err) => {
+        if (err.message === 'Cancelled by user') return true;
+        throw err;
+      }),
     });
+    await throwIfDurableTestRunCancelled(projectId, runId);
     backgroundErrorStage = 'post_score_round_processing';
     activeRoundState = {
       batchInfo,
@@ -2491,6 +2544,7 @@ async function continueBackgroundTestRun(run) {
       requiredPasses,
       priorPassed: cumulativePassingAds.length,
     });
+    await throwIfDurableTestRunCancelled(projectId, runId);
     activeRoundState.repairSummary = repairResult.repairSummary;
     activeRoundState.mergedRoundScoreResult = {
       ...roundScoreResult,
@@ -2529,6 +2583,7 @@ async function continueBackgroundTestRun(run) {
 
     if (totalAdsPassed >= requiredPasses) {
       backgroundErrorStage = 'filter_finalization';
+      await throwIfDurableTestRunCancelled(projectId, runId);
       const finalizeResult = await finalizePassingAds({
         passingAds: cumulativePassingAds,
         projectId,
@@ -2628,6 +2683,7 @@ async function continueBackgroundTestRun(run) {
 
     backgroundErrorStage = 'building_next_round';
     const latestBeforeNextRound = await getLatestTestRunState(projectId, runId);
+    if (isTestRunCancelled(latestBeforeNextRound)) return true;
     if (isRunTerminallyDeployed(latestBeforeNextRound)) {
       await supersedePendingTestRunBatches(
         batchInfos,
@@ -2693,6 +2749,33 @@ async function continueBackgroundTestRun(run) {
     console.log(`[Director] Resumed test run ${runId.slice(0, 8)} queued round ${roundNumber + 1} for scheduler`);
     return true;
   } catch (err) {
+    if (err.message === 'Cancelled by user') {
+      await updateConductorRun(runId, {
+        status: 'failed',
+        terminal_status: TEST_RUN_CANCELLED_STATUS,
+        error: 'Cancelled by user',
+        failure_reason: 'Cancelled by user',
+        error_stage: '',
+        batches_created: stringifyJSON(batchInfos),
+        rounds_json: stringifyJSON(roundDetails),
+        total_rounds: Math.max(roundDetails.length, batchInfos.length, 1),
+        total_ads_generated: run.total_ads_generated || batchInfos.reduce((sum, info) => sum + (info.ad_count || 0), 0),
+        total_ads_scored: run.total_ads_scored || roundDetails.reduce((sum, detail) => sum + (detail.ads_scored || 0), 0),
+        total_ads_passed: run.total_ads_passed || roundDetails.at(-1)?.cumulative_passed || 0,
+        ready_to_post_count: 0,
+        duration_ms: Date.now() - run.run_at,
+        decisions: buildTestRunSummary({
+          angleName: batchInfo.angle_name || batch.angle_name || 'Unknown angle',
+          roundsUsed: Math.max(roundDetails.length, batchInfos.length, 1),
+          totalAdsGenerated: run.total_ads_generated || batchInfos.reduce((sum, info) => sum + (info.ad_count || 0), 0),
+          totalAdsPassed: run.total_ads_passed || roundDetails.at(-1)?.cumulative_passed || 0,
+          requiredPasses,
+          terminalStatus: TEST_RUN_CANCELLED_STATUS,
+          failureReason: 'Cancelled by user',
+        }),
+      });
+      return true;
+    }
     if (activeRoundState?.rawScoreResult) {
       const priorScored = run.total_ads_scored || roundDetails.reduce((sum, detail) => sum + (detail.ads_scored || 0), 0);
       const priorPassed = run.total_ads_passed || roundDetails.at(-1)?.cumulative_passed || 0;
@@ -2900,14 +2983,66 @@ export function getActiveTestRun(projectId) {
 
 /**
  * Cancel the active test run for a project.
- * Marks the in-memory tracking entry so the pipeline cooperatively stops.
+ * Marks both in-memory tracking and the durable run record so Vercel
+ * serverless/background resumes cannot continue after a different request cancels.
  */
-export function cancelTestRun(projectId) {
+export async function cancelTestRun(projectId) {
   const tracked = findTrackedTestRun(projectId);
-  if (!tracked) return false;
-  const [, run] = tracked;
-  run.cancelRequested = true;
-  run.phase = 'Cancelling...';
+  let cancelled = false;
+  if (tracked) {
+    const [, run] = tracked;
+    run.cancelRequested = true;
+    run.phase = 'Cancelling...';
+    if (run.currentBatchId) {
+      await markTestBatchCancelled(run.currentBatchId);
+    }
+    cancelled = true;
+  }
+
+  const runs = await getConductorRuns(projectId, 10);
+  const candidate = runs
+    .filter((run) => run.run_type === 'test')
+    .find((run) => ['running', 'scoring'].includes(run.status) && !isTestRunCancelled(run));
+
+  if (!candidate) return cancelled;
+
+  const batchInfos = parseJSON(candidate.batches_created, []);
+  const roundDetails = parseJSON(candidate.rounds_json, []);
+  const pending = findPendingBatchInfo(batchInfos, roundDetails);
+  const activeBatchInfo = pending?.batchInfo || batchInfos[batchInfos.length - 1] || null;
+  if (activeBatchInfo?.batch_id) {
+    await markTestBatchCancelled(activeBatchInfo.batch_id);
+  }
+
+  const angleName = activeBatchInfo?.angle_name || '';
+  const totalAdsGenerated = candidate.total_ads_generated || batchInfos.reduce((sum, info) => sum + (info.ad_count || 0), 0);
+  await updateConductorRun(candidate.externalId, {
+    status: 'failed',
+    terminal_status: TEST_RUN_CANCELLED_STATUS,
+    error: 'Cancelled by user',
+    failure_reason: 'Cancelled by user',
+    error_stage: '',
+    posting_days: angleName
+      ? getTestPostingDays(angleName)
+      : stringifyJSON([{ date: 'test', action: 'Test run cancelled' }]),
+    batches_created: stringifyJSON(batchInfos),
+    rounds_json: stringifyJSON(roundDetails),
+    total_rounds: Math.max(roundDetails.length, batchInfos.length, 1),
+    total_ads_generated: totalAdsGenerated,
+    total_ads_scored: candidate.total_ads_scored || 0,
+    total_ads_passed: candidate.total_ads_passed || 0,
+    ready_to_post_count: 0,
+    decisions: buildTestRunSummary({
+      angleName: angleName || 'Unknown angle',
+      roundsUsed: Math.max(roundDetails.length, batchInfos.length, 1),
+      totalAdsGenerated,
+      totalAdsPassed: candidate.total_ads_passed || 0,
+      requiredPasses: getTestRunTargetFromRun(candidate),
+      terminalStatus: TEST_RUN_CANCELLED_STATUS,
+      failureReason: 'Cancelled by user',
+    }),
+  });
+
   return true;
 }
 
@@ -2945,9 +3080,12 @@ export async function runFullTestPipeline(projectId, sendEvent, { angleOverride 
   const trackingId = `pending-${Date.now()}`;
   activeTestRuns.set(trackingId, runProgress);
 
-  const throwIfRunCancelled = () => {
+  const throwIfRunCancelled = async () => {
     if (runProgress.cancelRequested) {
       throw new Error('Cancelled by user');
+    }
+    if (runId) {
+      await throwIfDurableTestRunCancelled(projectId, runId);
     }
   };
 
@@ -3014,7 +3152,7 @@ export async function runFullTestPipeline(projectId, sendEvent, { angleOverride 
       max_rounds: TEST_RUN_MAX_ROUNDS,
     });
 
-    throwIfRunCancelled();
+    await throwIfRunCancelled();
     errorStage = 'selecting_angle';
     emit({ type: 'progress', step: 'selecting_angle', message: 'Selecting angle...' });
     const { project, angleInfo, anglePrompt, angleBriefJSON } = await loadTestRunContext(projectId, angleOverride);
@@ -3026,7 +3164,7 @@ export async function runFullTestPipeline(projectId, sendEvent, { angleOverride 
     const cumulativePassingAds = [];
 
     for (let roundNumber = 1; roundNumber <= TEST_RUN_MAX_ROUNDS; roundNumber++) {
-      throwIfRunCancelled();
+      await throwIfRunCancelled();
       errorStage = 'creating_batch';
       const batchSize = getTestRoundBatchSize(roundNumber, totalAdsPassed, requiredPasses);
       console.log(`[Director] Test run ${runId.slice(0, 8)} round ${roundNumber}/${TEST_RUN_MAX_ROUNDS}: creating ${batchSize} ads for "${angleName}"`);
@@ -3088,16 +3226,23 @@ export async function runFullTestPipeline(projectId, sendEvent, { angleOverride 
           phase: backgroundMessage,
         };
       }
-      throwIfRunCancelled();
+      await throwIfRunCancelled();
 
       errorStage = 'filter_scoring';
       const roundScoreResult = await scoreBatchForInlineFilter(
         batchInfo.batch_id,
         projectId,
         (event) => emit(withTestProgress(roundNumber, event)),
-        { roundNumber, totalRounds: TEST_RUN_MAX_ROUNDS }
+        {
+          roundNumber,
+          totalRounds: TEST_RUN_MAX_ROUNDS,
+          shouldCancel: () => throwIfRunCancelled().then(() => false).catch((err) => {
+            if (err.message === 'Cancelled by user') return true;
+            throw err;
+          }),
+        }
       );
-      throwIfRunCancelled();
+      await throwIfRunCancelled();
       errorStage = 'post_score_round_processing';
       activeRoundState = {
         batchInfo,

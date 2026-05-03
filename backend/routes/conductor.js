@@ -520,7 +520,7 @@ router.post('/test-run/:projectId', async (req, res) => {
 router.post('/test-run/cancel/:projectId', async (req, res) => {
   try {
     const { cancelTestRun } = await import('../services/conductorEngine.js');
-    const cancelled = cancelTestRun(req.params.projectId);
+    const cancelled = await cancelTestRun(req.params.projectId);
     res.json({ success: true, cancelled });
   } catch (err) {
     res.status(500).json({ error: err.message });

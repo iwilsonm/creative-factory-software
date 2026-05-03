@@ -548,6 +548,51 @@ describe('conductorEngine test-run pipeline', () => {
     }));
     expect(mockScoreBatchForInlineFilter).not.toHaveBeenCalled();
   });
+
+  it('cancels durable background test runs instead of only in-memory runs', async () => {
+    mockGetConductorRuns.mockResolvedValue([
+      {
+        externalId: 'run-uuid-1',
+        project_id: 'proj-1',
+        run_type: 'test',
+        run_at: Date.parse('2026-03-07T10:00:00Z'),
+        status: 'scoring',
+        batches_created: JSON.stringify([
+          { batch_id: 'batch-uuid-1', angle_name: 'Wakes to Pee, Then Cannot Fall Back Asleep', ad_count: 5, round: 1, ads_scored: 5, ads_passed: 2 },
+          { batch_id: 'batch-uuid-2', angle_name: 'Wakes to Pee, Then Cannot Fall Back Asleep', ad_count: 4, round: 2 },
+        ]),
+        rounds_json: JSON.stringify([
+          { round: 1, batch_id: 'batch-uuid-1', ads_generated: 5, ads_scored: 5, ads_passed: 2, cumulative_passed: 2 },
+        ]),
+        total_ads_generated: 9,
+        total_ads_scored: 5,
+        total_ads_passed: 2,
+        required_passes: 5,
+      },
+    ]);
+    mockGetBatchJob.mockResolvedValue({
+      id: 'batch-uuid-2',
+      externalId: 'batch-uuid-2',
+      status: 'processing',
+      gemini_batch_job: null,
+    });
+
+    const { cancelTestRun } = await importConductorEngine();
+    const cancelled = await cancelTestRun('proj-1');
+
+    expect(cancelled).toBe(true);
+    expect(mockUpdateBatchJob).toHaveBeenCalledWith('batch-uuid-2', expect.objectContaining({
+      status: 'failed',
+      error_message: 'Cancelled by user',
+    }));
+    expect(mockUpdateConductorRun).toHaveBeenCalledWith('run-uuid-1', expect.objectContaining({
+      status: 'failed',
+      terminal_status: 'cancelled',
+      error: 'Cancelled by user',
+      failure_reason: 'Cancelled by user',
+      ready_to_post_count: 0,
+    }));
+  });
 });
 
 describe('conductorEngine Director ad-set top-up helpers', () => {

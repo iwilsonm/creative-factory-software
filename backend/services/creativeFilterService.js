@@ -838,8 +838,15 @@ async function markBatchFilterProcessed(batchId) {
 
 // ── Inline filter helpers ──────────────────────────────────────────────────
 
-export async function scoreBatchForInlineFilter(batchId, projectId, onProgress, { roundNumber = 1, totalRounds = 1 } = {}) {
+export async function scoreBatchForInlineFilter(batchId, projectId, onProgress, { roundNumber = 1, totalRounds = 1, shouldCancel = null } = {}) {
   const emit = (event) => { if (onProgress) try { onProgress(event); } catch {} };
+  const throwIfCancelled = async () => {
+    if (!shouldCancel) return;
+    const cancelled = await shouldCancel();
+    if (cancelled) {
+      throw new Error('Cancelled by user');
+    }
+  };
 
   const batch = await getBatchJob(batchId);
   if (!batch) throw new Error('Batch not found for filtering');
@@ -869,6 +876,7 @@ export async function scoreBatchForInlineFilter(batchId, projectId, onProgress, 
   let passCount = 0;
 
   for (let i = 0; i < ads.length; i++) {
+    await throwIfCancelled();
     const ad = ads[i];
     emit({
       type: 'progress',
@@ -882,6 +890,7 @@ export async function scoreBatchForInlineFilter(batchId, projectId, onProgress, 
       scoredAds.push({ ad, score });
       if (score.pass) passCount++;
       console.log(`[FilterService] Round ${roundNumber} ad ${ad.id.slice(0, 8)}: score=${score.overall_score}, pass=${score.pass}`);
+      await throwIfCancelled();
       // Phase 1 — Staging Page lifecycle: write the verdict to the ad_creative.
       // Flips status to "staging" (passed) or "quality_rejected" (rejected),
       // making the ad eligible for the Staging Page Pending or Rejected views.
@@ -901,6 +910,9 @@ export async function scoreBatchForInlineFilter(batchId, projectId, onProgress, 
         console.warn(`[FilterService] setFilterVerdict failed for ad ${ad.id.slice(0, 8)}: ${verdictErr.message}`);
       }
     } catch (err) {
+      if (err.message === 'Cancelled by user') {
+        throw err;
+      }
       console.error(`[FilterService] Failed to score ad ${ad.id.slice(0, 8)}: ${err.message}`);
       scoredAds.push({ ad, score: { ad_id: ad.id, overall_score: 0, pass: false, error: err.message } });
       // Score failed entirely → mark as rejected with the error as the reason
