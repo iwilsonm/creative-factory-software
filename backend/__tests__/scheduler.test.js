@@ -9,6 +9,7 @@ const mockUpdateBatchJob = vi.fn();
 const mockQueueScheduledBatchRun = vi.fn();
 const mockPollBatchJob = vi.fn();
 const mockRunBatch = vi.fn();
+const mockResumeBackgroundTestRuns = vi.fn();
 
 vi.mock('../convexClient.js', () => ({
   getActiveBatchJobs: (...args) => mockGetActiveBatchJobs(...args),
@@ -23,6 +24,10 @@ vi.mock('../convexClient.js', () => ({
 vi.mock('../services/batchProcessor.js', () => ({
   pollBatchJob: (...args) => mockPollBatchJob(...args),
   runBatch: (...args) => mockRunBatch(...args),
+}));
+
+vi.mock('../services/conductorEngine.js', () => ({
+  resumeBackgroundTestRuns: (...args) => mockResumeBackgroundTestRuns(...args),
 }));
 
 const batch = (overrides = {}) => ({
@@ -49,6 +54,7 @@ describe('batch scheduler', () => {
     mockQueueScheduledBatchRun.mockResolvedValue({ queued: true });
     mockPollBatchJob.mockResolvedValue('processing');
     mockRunBatch.mockResolvedValue();
+    mockResumeBackgroundTestRuns.mockResolvedValue({ checked: 0, resumed: 0, errors: 0 });
   });
 
   it('marks stale pre-Gemini batches failed instead of leaving them running forever', async () => {
@@ -80,6 +86,21 @@ describe('batch scheduler', () => {
 
     expect(mockPollBatchJob).toHaveBeenCalledWith('batch-001');
     expect(mockReleaseBatchWork).toHaveBeenCalledWith('batch-001', 'test-owner');
+  });
+
+  it('resumes background Director test runs after polling completed Gemini batches', async () => {
+    const active = batch({ status: 'processing', gemini_batch_job: 'batches/test' });
+    mockGetActiveBatchJobs.mockResolvedValue([active]);
+    mockClaimBatchWork.mockResolvedValue({ claimed: true, batch: active });
+    mockPollBatchJob.mockResolvedValue('completed');
+    mockResumeBackgroundTestRuns.mockResolvedValue({ checked: 1, resumed: 1, errors: 0 });
+
+    const { runSchedulerOnce } = await import('../services/scheduler.js');
+    const result = await runSchedulerOnce({ source: 'test', owner: 'test-owner' });
+
+    expect(mockPollBatchJob).toHaveBeenCalledWith('batch-001');
+    expect(mockResumeBackgroundTestRuns).toHaveBeenCalledTimes(1);
+    expect(result.conductor).toEqual({ checked: 1, resumed: 1, errors: 0 });
   });
 
   it('runs only one queued batch per tick and releases its lease', async () => {

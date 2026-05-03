@@ -35,6 +35,8 @@ const state = {
   scheduledCount: 0,
   queuedCount: 0,
   lastCronResult: null,
+  lastConductorResumeAt: null,
+  lastConductorResumeResult: null,
 };
 
 function localMinuteKey(date = new Date()) {
@@ -257,6 +259,14 @@ async function runQueuedBatches(owner) {
   return { queued: queuedBatches.length, started, failed };
 }
 
+async function resumeBackgroundDirectorTests() {
+  const { resumeBackgroundTestRuns } = await import('./conductorEngine.js');
+  const result = await resumeBackgroundTestRuns();
+  state.lastConductorResumeAt = new Date().toISOString();
+  state.lastConductorResumeResult = result || { success: true };
+  return state.lastConductorResumeResult;
+}
+
 async function schedulerTick(options = {}) {
   if (tickInProgress) return;
   tickInProgress = true;
@@ -264,12 +274,13 @@ async function schedulerTick(options = {}) {
 
   try {
     await pollActiveBatches(owner);
+    const conductorResumeResult = await resumeBackgroundDirectorTests();
     await runDueScheduledBatches();
     const queueResult = await runQueuedBatches(owner);
     state.lastTickAt = new Date().toISOString();
     state.lastError = null;
     state.lastCronResult = queueResult;
-    return { success: true, scheduler: getSchedulerStatus(), queue: queueResult };
+    return { success: true, scheduler: getSchedulerStatus(), queue: queueResult, conductor: conductorResumeResult };
   } catch (err) {
     state.lastError = err.message;
     console.error('[Scheduler] Tick failed:', err.message);

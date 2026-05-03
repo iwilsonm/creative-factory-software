@@ -2746,6 +2746,7 @@ async function continueBackgroundTestRun(run) {
 export async function resumeBackgroundTestRuns() {
   const configs = await getAllConductorConfigs();
   const projectIds = [...new Set(configs.map(config => config.project_id))];
+  const summary = { checked: projectIds.length, resumed: 0, errors: 0 };
 
   for (const projectId of projectIds) {
     if (findTrackedTestRun(projectId)) continue;
@@ -2761,11 +2762,15 @@ export async function resumeBackgroundTestRuns() {
     if (!candidate) continue;
 
     try {
-      await continueBackgroundTestRun(candidate);
+      const handled = await continueBackgroundTestRun(candidate);
+      if (handled) summary.resumed += 1;
     } catch (err) {
+      summary.errors += 1;
       console.error(`[Director] Background resume error for test run ${candidate.externalId.slice(0, 8)}:`, err.message);
     }
   }
+
+  return summary;
 }
 
 /**
