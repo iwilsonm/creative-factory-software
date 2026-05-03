@@ -2514,6 +2514,7 @@ async function continueBackgroundTestRun(run) {
         batchId: batchInfo.batch_id,
         postingDay: 'test',
         angleName,
+        targetCount: requiredPasses,
       });
 
       if (finalizeResult.flex_ads_created === 0) {
@@ -3154,6 +3155,7 @@ export async function runFullTestPipeline(projectId, sendEvent, { angleOverride 
           batchId: batchInfo.batch_id,
           postingDay: 'test',
           angleName,
+          targetCount: requiredPasses,
           onProgress: (event) => emit(withTestProgress(TEST_RUN_MAX_ROUNDS, event)),
         });
 

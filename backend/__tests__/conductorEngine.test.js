@@ -294,6 +294,21 @@ describe('conductorEngine test-run pipeline', () => {
     }));
   });
 
+  it('passes the selected approved-ad target into Ready-to-Post finalization', async () => {
+    mockScoreBatchForInlineFilter.mockResolvedValueOnce(makeScoreResult(1, 3, 3));
+
+    const { runFullTestPipeline } = await importConductorEngine();
+    const result = await runFullTestPipeline('proj-1', () => {}, { angleOverride: 'angle-1', adsPerAdSetTarget: 3 });
+
+    expect(result.terminal_status).toBe('deployed');
+    expect(result.required_passes).toBe(3);
+    expect(mockCreateBatchJob).toHaveBeenCalledTimes(1);
+    expect(mockCreateBatchJob.mock.calls[0][0].batch_size).toBe(3);
+    expect(mockFinalizePassingAds).toHaveBeenCalledWith(expect.objectContaining({
+      targetCount: 3,
+    }));
+  });
+
   it('caps top-up rounds at the selected target', async () => {
     mockScoreBatchForInlineFilter
       .mockResolvedValueOnce(makeScoreResult(1, 5, 0))
@@ -479,6 +494,9 @@ describe('conductorEngine test-run pipeline', () => {
 
     const completedCall = mockUpdateConductorRun.mock.calls.find(([, fields]) => fields.terminal_status === 'deployed');
     expect(completedCall).toBeTruthy();
+    expect(mockFinalizePassingAds).toHaveBeenCalledWith(expect.objectContaining({
+      targetCount: 5,
+    }));
   });
 });
 
