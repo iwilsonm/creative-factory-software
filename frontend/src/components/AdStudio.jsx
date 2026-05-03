@@ -101,12 +101,81 @@ function hasAdDetail(ad) {
   return !!ad && (Object.prototype.hasOwnProperty.call(ad, 'imageUrl') || Object.prototype.hasOwnProperty.call(ad, 'headline'));
 }
 
-function isActionableImageAd(ad) {
-  return !!ad && ad.status === 'completed' && !!ad.imageUrl;
+const DISPLAYABLE_IMAGE_STATUSES = new Set(['completed', 'staging', 'quality_rejected']);
+const ACTIVE_GENERATION_STATUSES = new Set(['generating_copy', 'generating_image']);
+const FAILED_LIKE_STATUSES = new Set(['failed', 'quality_rejected']);
+
+function hasAdImage(ad) {
+  return !!ad && !!(ad.imageUrl || ad.thumbnailUrl || ad.storageId);
+}
+
+function isDisplayableImageAd(ad) {
+  return !!ad && DISPLAYABLE_IMAGE_STATUSES.has(ad.status) && hasAdImage(ad);
+}
+
+function isDownloadableImageAd(ad) {
+  return isDisplayableImageAd(ad) && !!ad.imageUrl;
+}
+
+function isPipelineSendableAd(ad, deployedAdIds = new Set()) {
+  return isDisplayableImageAd(ad)
+    && ad.status !== 'quality_rejected'
+    && !deployedAdIds.has(ad.id);
+}
+
+function isFailedLikeAd(ad) {
+  return !!ad && FAILED_LIKE_STATUSES.has(ad.status);
+}
+
+function isActiveGeneratingAd(ad) {
+  return !!ad && ACTIVE_GENERATION_STATUSES.has(ad.status);
 }
 
 function isSelectableAd(ad) {
-  return isActionableImageAd(ad) || ad?.status === 'failed';
+  return isDisplayableImageAd(ad) || isFailedLikeAd(ad);
+}
+
+function getGalleryStatusMeta(ad) {
+  if (ad?.status === 'staging') {
+    return {
+      label: 'QA Passed',
+      className: 'bg-teal/10 text-teal',
+      title: 'Creative Filter approved this ad. It may already be part of a Ready-to-Post ad set.',
+    };
+  }
+  if (ad?.status === 'quality_rejected') {
+    return {
+      label: 'QA Rejected',
+      className: 'bg-red-100/80 text-red-600',
+      title: 'Creative Filter rejected this ad. The image is saved and can be reviewed or deleted.',
+    };
+  }
+  if (ad?.status === 'failed') {
+    return {
+      label: 'Failed',
+      className: 'bg-red-100/80 text-red-600',
+      title: 'Generation failed.',
+    };
+  }
+  if (isActiveGeneratingAd(ad)) {
+    return {
+      label: 'Generating',
+      className: 'bg-navy/10 text-navy',
+      title: 'This ad is still generating.',
+    };
+  }
+  if (ad?.status === 'completed') {
+    return {
+      label: 'Completed',
+      className: 'bg-white/80 backdrop-blur-sm text-textmid',
+      title: 'Generated image is complete.',
+    };
+  }
+  return {
+    label: 'Ad',
+    className: 'bg-navy/10 text-navy',
+    title: ad?.status ? `Status: ${ad.status}` : 'Ad',
+  };
 }
 
 export default function AdStudio({ projectId, project, onOpenPipeline }) {
@@ -1135,8 +1204,19 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
 
   const clearSelection = () => { setSelectedAdIds(new Set()); setBulkTagOpen(false); setBulkTagInput(''); };
 
+  // --- Deployed ad tracking ---
+  const [deployedAdIds, setDeployedAdIds] = useState(new Set());
+  useEffect(() => {
+    api.getProjectDeployments(projectId).then(data => {
+      const ids = new Set(ensureArray(data?.deployments, 'AdStudio.deployments').map(d => d.ad_id));
+      setDeployedAdIds(ids);
+    }).catch(() => {});
+  }, [projectId]);
+
   const selectedCount = selectedAdIds.size;
-  const actionableSelectedCount = ads.filter(ad => selectedAdIds.has(ad.id) && isActionableImageAd(ad)).length;
+  const selectedAdsForBulk = ads.filter(ad => selectedAdIds.has(ad.id));
+  const pipelineSendableSelectedCount = selectedAdsForBulk.filter(ad => isPipelineSendableAd(ad, deployedAdIds)).length;
+  const downloadableSelectedCount = selectedAdsForBulk.filter(isDownloadableImageAd).length;
 
   useEffect(() => {
     setSelectedAdIds(prev => {
@@ -1162,9 +1242,9 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
   // --- Deploy to Ad Tracker ---
   const handleDeploy = async () => {
     if (selectedAdIds.size === 0) return;
-    const deployableAds = ads.filter(ad => selectedAdIds.has(ad.id) && isActionableImageAd(ad));
+    const deployableAds = ads.filter(ad => selectedAdIds.has(ad.id) && isPipelineSendableAd(ad, deployedAdIds));
     if (deployableAds.length === 0) {
-      toast.addToast('Only completed ads with images can be sent to Ad Pipeline.', 'info');
+      toast.addToast('No selected ads are eligible to send. QA rejected, failed, and already-deployed ads are skipped.', 'info');
       return;
     }
     setIsDeploying(true);
@@ -1182,7 +1262,7 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
       const skipped = Number(result.skipped) || 0;
       const msg = created > 0
         ? `${created} ad${created !== 1 ? 's' : ''} sent to Ad Pipeline -> Queue${skipped > 0 ? ` (${skipped} already there)` : ''}`
-        : 'All selected image-ready ads are already in Ad Pipeline -> Queue';
+        : 'All eligible selected ads are already in Ad Pipeline -> Queue';
       toast.addToast(
         msg,
         created > 0 ? 'success' : 'info',
@@ -1211,10 +1291,10 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
     setIsBulkDownloading(true);
     try {
       const zip = new JSZip();
-      const selectedAds = ads.filter(ad => selectedAdIds.has(ad.id) && isActionableImageAd(ad));
+      const selectedAds = ads.filter(ad => selectedAdIds.has(ad.id) && isDownloadableImageAd(ad));
 
       if (selectedAds.length === 0) {
-        toast.error('No selected completed ads have images to download.');
+        toast.error('No selected ads have downloadable images.');
         return;
       }
 
@@ -1275,15 +1355,6 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
       setIsBulkDownloading(false);
     }
   };
-
-  // --- Deployed ad tracking ---
-  const [deployedAdIds, setDeployedAdIds] = useState(new Set());
-  useEffect(() => {
-    api.getProjectDeployments(projectId).then(data => {
-      const ids = new Set(ensureArray(data?.deployments, 'AdStudio.deployments').map(d => d.ad_id));
-      setDeployedAdIds(ids);
-    }).catch(() => {});
-  }, [projectId]);
 
   // --- Bulk delete ---
   const [isBulkDeleting, setIsBulkDeleting] = useState(false);
@@ -1583,7 +1654,7 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
     // Hide in-progress ads from gallery (they show in the queue instead) — but only if FRESH.
     // Ads stuck in generating_* > 5 min are zombies (Vercel function timeout, crash, etc.).
     // Surface them so Marco can see and dismiss them. Backend cleanup will flip status to 'failed' on next gallery load.
-    if (ad.status === 'generating_copy' || ad.status === 'generating_image') {
+    if (isActiveGeneratingAd(ad)) {
       const ts = new Date(ad.created_at).getTime();
       const isStale = Number.isFinite(ts) && (Date.now() - ts > STUCK_THRESHOLD_MS);
       if (!isStale) return false;
@@ -1654,15 +1725,15 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
   const favoritesCount = ads.filter(a => !!a.is_favorite).length;
   const selectableFilteredAds = filteredAds.filter(isSelectableAd);
   const allFilteredSelected = selectableFilteredAds.length > 0 && selectableFilteredAds.every(ad => selectedAdIds.has(ad.id));
-  const deployButtonTitle = actionableSelectedCount === 0
-    ? 'Only completed ads with images can be sent to Ad Pipeline.'
-    : actionableSelectedCount < selectedCount
-      ? `Send ${actionableSelectedCount} completed ad${actionableSelectedCount !== 1 ? 's' : ''} to Ad Pipeline. Failed ads will be skipped.`
+  const deployButtonTitle = pipelineSendableSelectedCount === 0
+    ? 'No selected ads are eligible to send. QA rejected, failed, and already-deployed ads are skipped.'
+    : pipelineSendableSelectedCount < selectedCount
+      ? `Send ${pipelineSendableSelectedCount} eligible ad${pipelineSendableSelectedCount !== 1 ? 's' : ''} to Ad Pipeline. QA rejected, failed, and already-deployed ads will be skipped.`
       : 'Send selected ads to Ad Pipeline';
-  const downloadButtonTitle = actionableSelectedCount === 0
-    ? 'Only completed ads with images can be downloaded.'
-    : actionableSelectedCount < selectedCount
-      ? `Download ${actionableSelectedCount} completed ad${actionableSelectedCount !== 1 ? 's' : ''}. Failed ads will be skipped.`
+  const downloadButtonTitle = downloadableSelectedCount === 0
+    ? 'No selected ads have downloadable images.'
+    : downloadableSelectedCount < selectedCount
+      ? `Download ${downloadableSelectedCount} image ad${downloadableSelectedCount !== 1 ? 's' : ''}. Failed ads without images will be skipped.`
       : 'Download selected ads';
 
   useEffect(() => {
@@ -2842,7 +2913,7 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
       <div ref={galleryRef}>
         <div className="flex items-center justify-between mb-4">
           <div>
-            <h3 className="text-[15px] font-semibold text-textdark tracking-tight flex items-center gap-1">Ad Gallery <InfoTooltip text="All generated ads for this project. Completed and failed ads can be selected for bulk actions; failed ads can be cleaned up with Delete." position="right" /></h3>
+            <h3 className="text-[15px] font-semibold text-textdark tracking-tight flex items-center gap-1">Ad Gallery <InfoTooltip text="All generated ads for this project. QA Passed ads were approved by the Creative Filter and may already be in Ready to Post. QA Rejected ads have images but failed QA, so you can review, tag, download, or delete them." position="right" /></h3>
             {ads.length > 0 && (
               <p className="text-[12px] text-textlight">
                 {filteredAds.length} ad{filteredAds.length !== 1 ? 's' : ''}
@@ -2998,7 +3069,11 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
           </div>
         ) : galleryView === 'grid' ? (
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-4">
-            {visibleAds.map(ad => (
+            {visibleAds.map(ad => {
+              const statusMeta = getGalleryStatusMeta(ad);
+              const displayableImage = isDisplayableImageAd(ad);
+              const failedLike = isFailedLikeAd(ad);
+              return (
               <div
                 key={ad.id}
                 className={`group card overflow-hidden transition-all duration-300 ${
@@ -3010,10 +3085,10 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
                   onClick={() => {
                     if (!isSelectableAd(ad)) return;
                     if (selectedCount > 0) toggleAdSelection(ad.id);
-                    else if (ad.status === 'completed') void openAdDetails(ad);
+                    else if (displayableImage) void openAdDetails(ad);
                   }}
                 >
-                  {ad.imageUrl && ad.status === 'completed' ? (
+                  {displayableImage ? (
                     <img
                       src={ad.thumbnailUrl || ad.imageUrl}
                       alt={`Ad - ${ad.angle || 'No angle'}`}
@@ -3023,7 +3098,7 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
                     />
                   ) : (
                     <div className="w-full h-full flex items-center justify-center">
-                      {ad.status === 'failed' ? (
+                      {failedLike ? (
                         <svg className="w-6 h-6 text-red-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" /></svg>
                       ) : (
                         <div className="w-6 h-6 rounded-full border-2 border-black/5 border-t-navy/60 animate-spin" />
@@ -3040,7 +3115,7 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
                           ? 'bg-navy text-white shadow-sm'
                           : 'bg-black/40 backdrop-blur-sm text-white/90 opacity-100 md:opacity-0 md:group-hover:opacity-100 hover:bg-black/50'
                       }`}
-                      title={selectedAdIds.has(ad.id) ? 'Deselect' : ad.status === 'failed' ? 'Select failed ad' : 'Select for bulk actions'}
+                      title={selectedAdIds.has(ad.id) ? 'Deselect' : ad.status === 'quality_rejected' ? 'Select QA rejected ad' : ad.status === 'failed' ? 'Select failed ad' : 'Select for bulk actions'}
                     >
                       {selectedAdIds.has(ad.id) ? (
                         <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -3054,17 +3129,13 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
                     </button>
                   )}
 
-                  {/* Mode badge */}
-                  <div className={`absolute top-2 ${isSelectableAd(ad) ? 'left-10' : 'left-2'} badge ${
-                    ad.status === 'completed' ? 'bg-white/80 backdrop-blur-sm text-textmid' :
-                    ad.status === 'failed' ? 'bg-red-100/80 text-red-600' :
-                    'bg-navy/10 text-navy'
-                  }`}>
-                    {ad.generation_mode === 'image_only' ? 'RE' : ad.generation_mode === 'mode2' ? 'T' : 'Ad'}
+                  {/* Status badge */}
+                  <div className={`absolute top-2 ${isSelectableAd(ad) ? 'left-10' : 'left-2'} badge ${statusMeta.className}`} title={statusMeta.title}>
+                    {statusMeta.label}
                   </div>
 
                   {/* Action icons — visible on hover */}
-                  {ad.status === 'completed' && (
+                  {displayableImage && (
                     <div className="absolute bottom-2 right-2 flex gap-1.5 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity duration-200">
                       {/* Download */}
                       <button
@@ -3188,12 +3259,17 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
                   </div>
                 </div>
               </div>
-            ))}
+              );
+            })}
           </div>
         ) : galleryView === 'list' ? (
           /* ---- LIST VIEW ---- */
           <div className="space-y-1">
-            {visibleAds.map(ad => (
+            {visibleAds.map(ad => {
+              const statusMeta = getGalleryStatusMeta(ad);
+              const displayableImage = isDisplayableImageAd(ad);
+              const failedLike = isFailedLikeAd(ad);
+              return (
               <div
                 key={ad.id}
                 className={`flex items-center gap-3 p-2.5 rounded-xl hover:bg-black/[0.02] cursor-pointer transition-colors ${
@@ -3202,7 +3278,7 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
                 onClick={() => {
                   if (!isSelectableAd(ad)) return;
                   if (selectedAdIds.size > 0) toggleAdSelection(ad.id);
-                  else if (ad.status === 'completed') void openAdDetails(ad);
+                  else if (displayableImage) void openAdDetails(ad);
                 }}
               >
                 {/* Selection checkbox */}
@@ -3223,9 +3299,9 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
 
                 {/* Thumbnail */}
                 <div className="w-12 h-12 rounded-lg overflow-hidden bg-black/5 flex-shrink-0">
-                  {(ad.thumbnailUrl || ad.imageUrl) && ad.status === 'completed' ? (
+                  {displayableImage ? (
                     <img src={ad.thumbnailUrl || ad.imageUrl} alt="" className="w-full h-full object-cover" loading="lazy" decoding="async" />
-                  ) : ad.status === 'failed' ? (
+                  ) : failedLike ? (
                     <div className="w-full h-full flex items-center justify-center">
                       <svg className="w-4 h-4 text-red-300" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 9v3.75m9-.75a9 9 0 11-18 0 9 9 0 0118 0zm-9 3.75h.008v.008H12v-.008z" /></svg>
                     </div>
@@ -3262,6 +3338,9 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
                 <span className="text-[10px] px-2 py-0.5 bg-black/5 text-textmid rounded-full flex-shrink-0 hidden sm:inline">
                   {(ad.auto_generated || ad.batch_job_id) ? 'Batch' : ad.generation_mode === 'image_only' ? 'Edit' : ad.generation_mode === 'mode2' ? 'Template' : 'Individual'}
                 </span>
+                <span className={`text-[10px] px-2 py-0.5 rounded-full flex-shrink-0 font-medium hidden sm:inline ${statusMeta.className}`} title={statusMeta.title}>
+                  {statusMeta.label}
+                </span>
                 {deployedAdIds.has(ad.id) && (
                   <span className="text-[10px] px-2 py-0.5 bg-teal/10 text-teal rounded-full flex-shrink-0 font-medium hidden sm:inline">
                     Ad Pipeline
@@ -3269,7 +3348,7 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
                 )}
 
                 {/* Actions */}
-                {ad.status === 'completed' && (
+                {displayableImage && (
                   <>
                     <button
                       onClick={(e) => handleToggleFavorite(ad, e)}
@@ -3302,7 +3381,8 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M14.74 9l-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 01-2.244 2.077H8.084a2.25 2.25 0 01-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 00-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 013.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 00-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 00-7.5 0" /></svg>
                 </button>
               </div>
-            ))}
+              );
+            })}
           </div>
         ) : null}
 
@@ -3715,9 +3795,9 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
               <span className="text-[12px] text-white/90 font-medium">
                 selected
               </span>
-              {actionableSelectedCount < selectedCount && (
+              {(downloadableSelectedCount < selectedCount || pipelineSendableSelectedCount < selectedCount) && (
                 <span className="hidden sm:inline text-[10px] text-white/55">
-                  {actionableSelectedCount} image-ready
+                  {downloadableSelectedCount} downloadable · {pipelineSendableSelectedCount} sendable
                 </span>
               )}
             </div>
@@ -3726,7 +3806,7 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
 
             <button
               onClick={handleDeploy}
-              disabled={isDeploying || actionableSelectedCount === 0}
+              disabled={isDeploying || pipelineSendableSelectedCount === 0}
               title={deployButtonTitle}
               className="flex items-center gap-1.5 px-3.5 py-1.5 bg-teal hover:bg-teal/90 disabled:bg-teal/60 disabled:opacity-60 disabled:cursor-not-allowed text-white text-[12px] font-medium rounded-full transition-colors"
             >
@@ -3757,7 +3837,7 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
 
             <button
               onClick={handleBulkDownload}
-              disabled={isBulkDownloading || actionableSelectedCount === 0}
+              disabled={isBulkDownloading || downloadableSelectedCount === 0}
               title={downloadButtonTitle}
               className="flex items-center gap-1.5 px-3.5 py-1.5 bg-navy-light hover:bg-navy-mid disabled:bg-navy-light/60 disabled:opacity-60 disabled:cursor-not-allowed text-white text-[12px] font-medium rounded-full transition-colors"
             >
