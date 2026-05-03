@@ -20,7 +20,7 @@ import {
 import { filterHeadlineCandidatePool, selectDiverseHeadlines } from './headlineDiversity.js';
 
 // Models — match filter.conf
-const SCORE_MODEL = 'claude-sonnet-4-5-20250929';
+const SCORE_MODEL = 'claude-sonnet-4-6';
 const GROUP_MODEL = 'claude-sonnet-4-6';
 const SCORE_THRESHOLD = 7;
 const DIRECTOR_SCORE_WEIGHTS = {
