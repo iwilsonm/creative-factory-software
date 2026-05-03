@@ -1,5 +1,7 @@
 import { describe, expect, it, vi } from 'vitest';
 
+const mockEnsureDefaultCampaign = vi.fn();
+
 vi.mock('../convexClient.js', () => ({
   getProject: vi.fn(),
   getLatestDoc: vi.fn(),
@@ -14,6 +16,7 @@ vi.mock('../convexClient.js', () => ({
   updateDeployment: vi.fn(),
   getFlexAdsByProject: vi.fn(),
   getConductorConfig: vi.fn(),
+  ensureDefaultCampaign: (...args) => mockEnsureDefaultCampaign(...args),
 }));
 
 vi.mock('../services/anthropic.js', () => ({
@@ -28,6 +31,29 @@ vi.mock('../services/headlineDiversity.js', () => ({
 }));
 
 describe('creativeFilterService scoring normalization', () => {
+  it('resolves automation campaigns from legacy, modern, or default campaign fallback', async () => {
+    const { resolveAutomationCampaign } = await import('../services/creativeFilterService.js');
+
+    await expect(resolveAutomationCampaign({
+      scout_default_campaign: 'legacy-campaign',
+      default_campaign_id: 'modern-campaign',
+    })).resolves.toBe('legacy-campaign');
+
+    await expect(resolveAutomationCampaign({
+      default_campaign_id: 'modern-campaign',
+    })).resolves.toBe('modern-campaign');
+
+    mockEnsureDefaultCampaign.mockResolvedValueOnce('created-default-campaign');
+    await expect(resolveAutomationCampaign({
+      id: 'project-1',
+      name: 'Project One',
+    })).resolves.toBe('created-default-campaign');
+
+    expect(mockEnsureDefaultCampaign).toHaveBeenCalledWith(expect.objectContaining({
+      id: 'project-1',
+    }));
+  });
+
   it('defaults Director template ads to the template copy-on-creative contract', async () => {
     const { buildAdScoringContract } = await import('../services/creativeFilterService.js');
     const contract = buildAdScoringContract({

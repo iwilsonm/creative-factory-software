@@ -20,6 +20,7 @@ const mockGetBatchesByProject = vi.fn();
 const mockGetProject = vi.fn();
 const mockGetAllConductorConfigs = vi.fn();
 const mockGetSetting = vi.fn();
+const mockEnsureDefaultCampaign = vi.fn();
 const mockConvexMutation = vi.fn();
 
 const mockGetAdaptiveBatchSize = vi.fn();
@@ -60,6 +61,7 @@ vi.mock('../convexClient.js', () => ({
   getProject: (...args) => mockGetProject(...args),
   getAllConductorConfigs: (...args) => mockGetAllConductorConfigs(...args),
   getSetting: (...args) => mockGetSetting(...args),
+  ensureDefaultCampaign: (...args) => mockEnsureDefaultCampaign(...args),
   convexClient: {
     mutation: (...args) => mockConvexMutation(...args),
   },
@@ -238,6 +240,7 @@ describe('conductorEngine test-run pipeline', () => {
       gemini_api_key: 'gemini-key',
       anthropic_api_key: 'sk-anthropic',
     }[key] || null));
+    mockEnsureDefaultCampaign.mockResolvedValue('campaign-001');
     mockAnthropicChat.mockResolvedValue('ok');
     mockGetBatchJob.mockResolvedValue(null);
     mockUpdateBatchJob.mockResolvedValue();
@@ -307,6 +310,19 @@ describe('conductorEngine test-run pipeline', () => {
     expect(mockFinalizePassingAds).toHaveBeenCalledWith(expect.objectContaining({
       targetCount: 3,
     }));
+  });
+
+  it('resolves an automation campaign before paid test-run generation starts', async () => {
+    mockScoreBatchForInlineFilter.mockResolvedValueOnce(makeScoreResult(1, 5, 5));
+
+    const { runFullTestPipeline } = await importConductorEngine();
+    const result = await runFullTestPipeline('proj-1', () => {}, { angleOverride: 'angle-1', adsPerAdSetTarget: 5 });
+
+    expect(result.terminal_status).toBe('deployed');
+    expect(mockEnsureDefaultCampaign).toHaveBeenCalledWith(expect.objectContaining({
+      id: 'proj-1',
+    }));
+    expect(mockCreateBatchJob).toHaveBeenCalled();
   });
 
   it('caps top-up rounds at the selected target', async () => {
@@ -454,6 +470,18 @@ describe('conductorEngine test-run pipeline', () => {
     expect(mockCreateBatchJob).not.toHaveBeenCalled();
   });
 
+  it('blocks before generation when no automation campaign can be resolved', async () => {
+    mockEnsureDefaultCampaign.mockRejectedValueOnce(new Error('campaign create failed'));
+
+    const { runFullTestPipeline } = await importConductorEngine();
+    const result = await runFullTestPipeline('proj-1', () => {}, { angleOverride: 'angle-1', adsPerAdSetTarget: 5 });
+
+    expect(result.pipeline_failed).toBe(true);
+    expect(result.failure_reason).toContain('could not resolve an automation campaign');
+    expect(mockCreateConductorRun).not.toHaveBeenCalled();
+    expect(mockCreateBatchJob).not.toHaveBeenCalled();
+  });
+
   it('resumes a completed background round without referencing an undefined batch', async () => {
     const runAt = Date.parse('2026-03-07T10:00:00Z');
     mockGetAllConductorConfigs.mockResolvedValue([{ project_id: 'proj-1' }]);
@@ -591,6 +619,64 @@ describe('conductorEngine test-run pipeline', () => {
       error: 'Cancelled by user',
       failure_reason: 'Cancelled by user',
       ready_to_post_count: 0,
+    }));
+  });
+
+  it('repairs deploy-failed test runs without creating new image batches', async () => {
+    const roundsJson = JSON.stringify([
+      {
+        round: 1,
+        batch_id: 'batch-uuid-1',
+        angle_name: 'Wakes to Pee, Then Cannot Fall Back Asleep',
+        ads_generated: 5,
+        ads_scored: 5,
+        ads_passed: 5,
+        cumulative_passed: 5,
+        passing_ads: makePassingAds(1, 5).map(({ ad, score }) => ({
+          ad_id: ad.id,
+          headline: ad.headline,
+          overall_score: score.overall_score,
+        })),
+      },
+    ]);
+    mockGetConductorRuns.mockResolvedValue([
+      {
+        externalId: 'run-uuid-1',
+        project_id: 'proj-1',
+        run_type: 'test',
+        run_at: Date.parse('2026-03-07T10:00:00Z'),
+        status: 'failed',
+        terminal_status: 'deploy_failed',
+        batches_created: JSON.stringify([
+          { batch_id: 'batch-uuid-1', angle_name: 'Wakes to Pee, Then Cannot Fall Back Asleep', ad_count: 5, round: 1 },
+        ]),
+        rounds_json: roundsJson,
+        total_ads_generated: 5,
+        total_ads_scored: 5,
+        total_ads_passed: 5,
+        required_passes: 5,
+        ads_per_round: 5,
+      },
+    ]);
+    mockGetAdsByBatchId.mockResolvedValue(makePassingAds(1, 5).map(({ ad }) => ad));
+
+    const { repairDeployFailedTestRun } = await importConductorEngine();
+    const result = await repairDeployFailedTestRun('proj-1', 'run-uuid-1');
+
+    expect(result).toMatchObject({
+      repaired: true,
+      status: 'deployed',
+      runId: 'run-uuid-1',
+    });
+    expect(mockCreateBatchJob).not.toHaveBeenCalled();
+    expect(mockFinalizePassingAds).toHaveBeenCalledWith(expect.objectContaining({
+      projectId: 'proj-1',
+      batchId: 'batch-uuid-1',
+      targetCount: 5,
+    }));
+    expect(mockUpdateConductorRun).toHaveBeenCalledWith('run-uuid-1', expect.objectContaining({
+      terminal_status: 'deployed',
+      ready_to_post_count: 10,
     }));
   });
 });

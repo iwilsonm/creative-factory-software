@@ -45,7 +45,7 @@ export default function CreativeFilterSettings({ projectId, project, onSave, emb
     if (!project) return;
     setForm({
       scout_enabled: project.scout_enabled !== false, // default true
-      scout_default_campaign: project.scout_default_campaign || '',
+      scout_default_campaign: project.scout_default_campaign || project.default_campaign_id || '',
       scout_cta: project.scout_cta || '',
       scout_display_link: project.scout_display_link || '',
       scout_facebook_page: project.scout_facebook_page || '',
@@ -67,9 +67,11 @@ export default function CreativeFilterSettings({ projectId, project, onSave, emb
   const handleSave = async () => {
     setSaving(true);
     try {
+      const automationCampaignId = form.scout_default_campaign || '';
       const updates = {
         ...(!embedded ? { scout_enabled: form.scout_enabled } : {}),
-        scout_default_campaign: form.scout_default_campaign || '',
+        scout_default_campaign: automationCampaignId,
+        default_campaign_id: automationCampaignId,
         scout_cta: form.scout_cta || '',
         scout_display_link: form.scout_display_link || '',
         scout_facebook_page: form.scout_facebook_page || '',
@@ -138,9 +140,9 @@ export default function CreativeFilterSettings({ projectId, project, onSave, emb
           </p>
         </div>
 
-        {/* Default Campaign */}
+        {/* Automation Campaign */}
         <div>
-          <FieldLabel tooltip="The campaign where approved ad sets are placed when the Filter creates Ready-to-Post deployments. You can still change campaign placement later in the Ad Pipeline.">Default Campaign</FieldLabel>
+          <FieldLabel tooltip="The campaign used when the Director and Filter create Ready-to-Post ad sets. If this is left blank, automation will create or reuse a [Default] project campaign before generation starts.">Automation Campaign</FieldLabel>
           {campaigns.length > 0 ? (
             <div className="flex items-center gap-2">
               <select

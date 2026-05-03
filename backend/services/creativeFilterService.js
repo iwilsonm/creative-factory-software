@@ -15,6 +15,7 @@ import {
   createAdSet, createDeploymentDuplicate, updateDeployment,
   convexClient, api,
   updateAdSet, getAdSetsByProject, getConductorConfig, getActiveConductorAngles,
+  ensureDefaultCampaign,
   // Phase 1 — Staging Page lifecycle
   setFilterVerdict,
 } from '../convexClient.js';
@@ -700,6 +701,16 @@ ALWAYS return ONLY a JSON object: { "headlines": ["h1", "h2", "..."] }`;
 
 // ── Deploy flex ad to Ready to Post ────────────────────────────────────────
 
+export async function resolveAutomationCampaign(projectConfig) {
+  const configuredCampaignId = projectConfig?.scout_default_campaign || projectConfig?.default_campaign_id;
+  if (configuredCampaignId) return configuredCampaignId;
+
+  const campaignId = await ensureDefaultCampaign(projectConfig);
+  if (campaignId) return campaignId;
+
+  throw new Error('Could not resolve an automation campaign for this project. Choose or create a campaign in Ad Automation settings.');
+}
+
 /**
  * Create ad set + flex ad + deployments, deploying to Ready to Post.
  *
@@ -713,10 +724,7 @@ ALWAYS return ONLY a JSON object: { "headlines": ["h1", "h2", "..."] }`;
  * @returns {{ flexAdId: string, deploymentCount: number }}
  */
 export async function deployFlexAd(flexAdDef, projectId, projectConfig, batchId, postingDay, angleName, generatedCopy) {
-  const campaignId = projectConfig.scout_default_campaign;
-  if (!campaignId) {
-    throw new Error('Choose a default campaign in Creative Filter settings before running automation.');
-  }
+  const campaignId = await resolveAutomationCampaign(projectConfig);
 
   const effectiveAngle = angleName || flexAdDef.angle_theme || 'Unassigned';
   const cta = projectConfig.scout_cta || '';

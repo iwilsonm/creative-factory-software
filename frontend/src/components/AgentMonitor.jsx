@@ -1639,6 +1639,20 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
     debounceRef.current = setTimeout(flushPendingConfig, 500);
   }, [flushPendingConfig]);
 
+  const handleSaveAutomationCampaign = useCallback((campaignId) => {
+    const nextCampaignId = campaignId || '';
+    handleSaveConfig({ default_campaign_id: nextCampaignId });
+    if (!selectedProject) return;
+    api.updateProject(selectedProject, {
+      default_campaign_id: nextCampaignId,
+      scout_default_campaign: nextCampaignId,
+    })
+      .then(() => onProjectRefresh?.())
+      .catch((err) => {
+        toast.error(err?.message || 'Could not save automation campaign');
+      });
+  }, [handleSaveConfig, onProjectRefresh, selectedProject, toast]);
+
   const handleSaveAdsPerAdSet = useCallback((rawValue) => {
     const parsed = parseInt(rawValue, 10);
     const nextValue = Number.isFinite(parsed) ? Math.max(1, Math.min(parsed, 20)) : 5;
@@ -2253,6 +2267,10 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
       ? externalProject.ads_per_ad_set
       : config?.ads_per_batch ?? 5
   );
+  const automationCampaignValue = config?.default_campaign_id
+    || externalProject?.scout_default_campaign
+    || externalProject?.default_campaign_id
+    || '';
   const defaultTestAdSetTarget = Math.max(1, Math.min(20, Number(adsPerAdSetValue) || 5));
   const parsedTestAdSetTarget = Number.parseInt(testAdSetTargetDraft, 10);
   const testAdSetTargetValue = Number.isFinite(parsedTestAdSetTarget)
@@ -2900,13 +2918,13 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
             </div>
 
             <div>
-              <FieldLabel tooltip="The Meta campaign that automated ad sets will be assigned to unless changed later in the Ad Pipeline.">Default Campaign</FieldLabel>
+              <FieldLabel tooltip="The campaign used when the Director and Filter create Ready-to-Post ad sets. If this is left blank, automation will create or reuse a [Default] project campaign before generation starts.">Automation Campaign</FieldLabel>
               {campaignsLoading && campaignsLoadedFor !== selectedProject ? (
                 <p className="text-[11px] text-textlight">Loading campaigns...</p>
               ) : safeCampaigns.length > 0 ? (
                 <select
-                  value={config.default_campaign_id || ''}
-                  onChange={e => handleSaveConfig({ default_campaign_id: e.target.value })}
+                  value={automationCampaignValue}
+                  onChange={e => handleSaveAutomationCampaign(e.target.value)}
                   className="text-[12px] text-textdark bg-offwhite border border-black/10 rounded-lg px-3 py-1.5 cursor-pointer w-full"
                 >
                   <option value="">Select a campaign...</option>

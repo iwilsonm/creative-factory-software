@@ -19,7 +19,7 @@ import {
   createBatchJob, getBatchJob, updateBatchJob,
   getAdsByBatchId, getAd,
   getAdSetsByProject, getBatchesByProject,
-  getProject, getAllConductorConfigs, getSetting, convexClient, api,
+  getProject, getAllConductorConfigs, getSetting, ensureDefaultCampaign, convexClient, api,
 } from '../convexClient.js';
 import { runBatch, pollBatchJob } from './batchProcessor.js';
 import { buildStructuredAnglePrompt, hasStructuredBrief, buildAngleBriefJSON } from '../utils/angleParser.js';
@@ -1031,10 +1031,11 @@ function getTestRoundBatchSize(roundNumber, totalAdsPassed, requiredPasses = TES
 }
 
 async function assertTestRunProviderPreflight(projectId) {
-  const [openAIKey, geminiKey, anthropicKey] = await Promise.all([
+  const [openAIKey, geminiKey, anthropicKey, project] = await Promise.all([
     getSetting('openai_api_key'),
     getSetting('gemini_api_key'),
     getSetting('anthropic_api_key'),
+    getProject(projectId),
   ]);
 
   const missing = [];
@@ -1043,6 +1044,16 @@ async function assertTestRunProviderPreflight(projectId) {
   if (!anthropicKey) missing.push('Anthropic');
   if (missing.length > 0) {
     throw new Error(`Creative Director test run is blocked before generation: ${missing.join(', ')} API key${missing.length === 1 ? ' is' : 's are'} missing in Settings.`);
+  }
+
+  if (!project) {
+    throw new Error('Creative Director test run is blocked before generation: project not found.');
+  }
+
+  try {
+    await ensureDefaultCampaign(project);
+  } catch (err) {
+    throw new Error(`Creative Director test run is blocked before generation: could not resolve an automation campaign. ${err.message || 'Choose or create a campaign in Ad Automation settings.'}`);
   }
 
   try {
@@ -2325,6 +2336,124 @@ async function hydratePassingAdsForRounds(roundDetails, projectId, requiredPasse
   }
 
   return { roundDetails: hydrated, cumulativePassingAds, recoveredAny };
+}
+
+export async function repairDeployFailedTestRun(projectId, runId) {
+  if (!projectId || !runId) {
+    throw new Error('Project ID and run ID are required.');
+  }
+
+  const runs = await getConductorRuns(projectId, 50);
+  const run = runs.find((candidate) => candidate.externalId === runId || candidate.id === runId);
+  if (!run) {
+    throw new Error(`Test run ${runId} was not found for this project.`);
+  }
+
+  if (isRunTerminallyDeployed(run)) {
+    return {
+      repaired: false,
+      status: 'already_deployed',
+      runId,
+      flexAdId: run.flex_ad_id || null,
+      readyToPostCount: run.ready_to_post_count || 0,
+    };
+  }
+
+  if (run.run_type && run.run_type !== 'test') {
+    throw new Error(`Run ${runId} is not a Creative Director test run.`);
+  }
+
+  if (run.terminal_status !== 'deploy_failed') {
+    throw new Error(`Run ${runId} is not in deploy_failed status.`);
+  }
+
+  const requiredPasses = getTestRunTargetFromRun(run);
+  const batchInfos = parseJSON(run.batches_created, []);
+  const originalRoundDetails = parseJSON(run.rounds_json, []);
+  const hydrated = await hydratePassingAdsForRounds(originalRoundDetails, projectId, requiredPasses);
+  const cumulativePassingAds = hydrated.cumulativePassingAds.slice(0, requiredPasses);
+
+  if (cumulativePassingAds.length < requiredPasses) {
+    throw new Error(`Run ${runId} only has ${cumulativePassingAds.length}/${requiredPasses} recoverable approved ads.`);
+  }
+
+  const lastRound = [...hydrated.roundDetails].reverse().find((detail) => detail.batch_id);
+  const angleName = lastRound?.angle_name
+    || batchInfos.find((info) => info?.angle_name)?.angle_name
+    || 'Unknown angle';
+
+  const { finalizePassingAds } = await import('./creativeFilterService.js');
+  const finalizeResult = await finalizePassingAds({
+    passingAds: cumulativePassingAds,
+    projectId,
+    batchId: lastRound?.batch_id || batchInfos.find((info) => info?.batch_id)?.batch_id || '',
+    postingDay: 'test',
+    angleName,
+    targetCount: requiredPasses,
+  });
+
+  if (finalizeResult.flex_ads_created === 0) {
+    const failureReason = finalizeResult.grouping_failed
+      ? `${cumulativePassingAds.length} approved ads were available, but grouping could not create an ad set.`
+      : `Reached ${cumulativePassingAds.length}/${requiredPasses} passed ads, but deployment failed: ${finalizeResult.deploy_error || 'Unknown deployment error'}`;
+
+    await updateConductorRun(runId, {
+      status: 'failed',
+      terminal_status: finalizeResult.grouping_failed ? 'grouping_failed' : 'deploy_failed',
+      error: failureReason,
+      failure_reason: failureReason,
+      error_stage: 'deploy_repair',
+      posting_days: getTestPostingDays(angleName),
+      batches_created: stringifyJSON(batchInfos),
+      rounds_json: stringifyJSON(hydrated.roundDetails),
+      total_rounds: hydrated.roundDetails.length,
+      total_ads_generated: run.total_ads_generated || batchInfos.reduce((sum, info) => sum + (info.ad_count || 0), 0),
+      total_ads_scored: run.total_ads_scored || hydrated.roundDetails.reduce((sum, detail) => sum + (detail.ads_scored || 0), 0),
+      total_ads_passed: cumulativePassingAds.length,
+      ready_to_post_count: 0,
+      duration_ms: Number(run.duration_ms) || undefined,
+      decisions: buildTestRunSummary({
+        angleName,
+        roundsUsed: hydrated.roundDetails.length,
+        totalAdsGenerated: run.total_ads_generated || batchInfos.reduce((sum, info) => sum + (info.ad_count || 0), 0),
+        totalAdsPassed: cumulativePassingAds.length,
+        requiredPasses,
+        terminalStatus: finalizeResult.grouping_failed ? 'grouping_failed' : 'deploy_failed',
+        failureReason,
+      }),
+    });
+
+    return {
+      repaired: false,
+      status: finalizeResult.grouping_failed ? 'grouping_failed' : 'deploy_failed',
+      runId,
+      failureReason,
+    };
+  }
+
+  const successResult = await finalizeSuccessfulTestRun({
+    runId,
+    projectId,
+    angleName,
+    batchInfos,
+    roundDetails: hydrated.roundDetails,
+    currentBatchId: lastRound?.batch_id || null,
+    totalAdsGenerated: run.total_ads_generated || batchInfos.reduce((sum, info) => sum + (info.ad_count || 0), 0),
+    totalAdsScored: run.total_ads_scored || hydrated.roundDetails.reduce((sum, detail) => sum + (detail.ads_scored || 0), 0),
+    totalAdsPassed: cumulativePassingAds.length,
+    requiredPasses,
+    finalizeResult,
+    durationMs: Number(run.duration_ms) || (Date.now() - (Number(run.run_at) || Date.now())),
+    triggerLabel: 'deploy repair',
+  });
+
+  return {
+    repaired: true,
+    status: 'deployed',
+    runId,
+    flexAdId: successResult.flexAdId,
+    readyToPostCount: successResult.readyToPostCount,
+  };
 }
 
 function findPendingBatchInfo(batchInfos, roundDetails) {
