@@ -77,7 +77,7 @@ function parseTextList(value) {
  *
  * Props: projectId, deployments, setDeployments, addToast, loadDeployments, onSwitchToPlanner
  */
-export default function ReadyToPostView({ projectId, deployments, setDeployments, addToast, loadDeployments, onSwitchToPlanner, isPoster, highlightFlexAdId, onHighlightDone }) {
+export default function ReadyToPostView({ projectId, deployments, setDeployments, addToast, loadDeployments, onSwitchToPlanner, isPoster, highlightAdSetId, highlightFlexAdId, onHighlightDone }) {
   const [campaigns, setCampaigns] = useState([]);
   const [adSets, setAdSets] = useState([]);
   const [flexAds, setFlexAds] = useState([]);
@@ -153,8 +153,18 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
   };
 
   // Highlight + scroll to flex ad from deep link
-  const [highlightedId, setHighlightedId] = useState(highlightFlexAdId || null);
+  const requestedHighlightId = highlightAdSetId || highlightFlexAdId || null;
+  const [highlightedId, setHighlightedId] = useState(requestedHighlightId);
   const highlightRef = useRef(null);
+  const missingHighlightReportedRef = useRef(null);
+
+  useEffect(() => {
+    setHighlightedId(requestedHighlightId);
+    if (requestedHighlightId) {
+      setExpandedCards(prev => new Set(prev).add(`flex-${requestedHighlightId}`));
+      missingHighlightReportedRef.current = null;
+    }
+  }, [requestedHighlightId]);
 
   useEffect(() => {
     if (highlightedId && highlightRef.current && !loading) {
@@ -165,6 +175,17 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
         onHighlightDone?.();
       }, 2500);
       return () => clearTimeout(timer);
+    }
+    if (
+      highlightedId &&
+      !loading &&
+      (safeFlexAds.length === 0 || !safeFlexAds.some(f => f.id === highlightedId)) &&
+      missingHighlightReportedRef.current !== highlightedId
+    ) {
+      missingHighlightReportedRef.current = highlightedId;
+      addToast('Could not find that Ready-to-Post ad set. It may have been moved, deleted, or not created.', 'error');
+      setHighlightedId(null);
+      onHighlightDone?.();
     }
   }, [highlightedId, loading, flexAds]);
 
@@ -205,6 +226,19 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
   const safeAdSets = ensureArray(adSets, 'ReadyToPostView.adSetsState');
   const safeFlexAds = ensureArray(flexAds, 'ReadyToPostView.flexAdsState');
   const readyDeps = safeDeployments.filter(d => d.status === 'ready_to_post');
+
+  useEffect(() => {
+    if (!highlightedId || safeFlexAds.length === 0) return;
+    const target = safeFlexAds.find(f => f.id === highlightedId);
+    if (!target) return;
+    const dateKey = target.planned_date ? target.planned_date.split('T')[0] : '__none__';
+    setExpandedGroups(prev => {
+      const next = new Set(prev);
+      if (dateKey === '__none__') next.add(dateKey);
+      else next.delete(dateKey);
+      return next;
+    });
+  }, [highlightedId, flexAds]);
 
   // ── Helpers ──────────────────────────────────────────────────────────────
 

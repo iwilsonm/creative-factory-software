@@ -298,7 +298,7 @@ export default function ProjectSetup() {
           {/* Product Description */}
           <div>
             <div className="flex items-center justify-between mb-1.5">
-              <label className="block text-[13px] font-medium text-ed-ink2">Product Description</label>
+              <label className="block text-[13px] font-medium text-ed-ink2">Product Context</label>
               {describing && (
                 <span className="text-[12px] text-ed-accent animate-pulse">Generating from sales page...</span>
               )}
@@ -321,6 +321,9 @@ export default function ProjectSetup() {
                 ? 'Will be auto-generated from your sales page content...'
                 : 'Add sales page content first, or type a description manually'}
             />
+            <p className="text-[11px] text-ed-ink3 mt-1.5">
+              This helps ad generation, Creative Director angles, QA, and research docs understand what you sell.
+            </p>
             {!form.product_description && form.sales_page_content && !describing && (
               <button
                 type="button"

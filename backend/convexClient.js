@@ -136,6 +136,11 @@ export async function setSetting(key, value) {
   await mutationWithRetry(api.settings.set, { key, value });
 }
 
+export async function deleteSetting(key) {
+  settingsCache.delete(key);
+  await mutationWithRetry(api.settings.remove, { key });
+}
+
 export async function getAllSettings() {
   return await queryWithRetry(api.settings.getAll, {});
 }

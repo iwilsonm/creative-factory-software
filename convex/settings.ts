@@ -27,6 +27,19 @@ export const set = mutation({
   },
 });
 
+export const remove = mutation({
+  args: { key: v.string() },
+  handler: async (ctx, args) => {
+    const existing = await ctx.db
+      .query("settings")
+      .withIndex("by_key", (q) => q.eq("key", args.key))
+      .first();
+    if (existing) {
+      await ctx.db.delete(existing._id);
+    }
+  },
+});
+
 export const getAll = query({
   args: {},
   handler: async (ctx) => {

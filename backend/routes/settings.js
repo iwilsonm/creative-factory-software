@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import Anthropic from '@anthropic-ai/sdk';
 import { requireAuth, requireRole } from '../auth.js';
-import { getSetting, setSetting, getAllSettings, getDashboardTodos, replaceDashboardTodos } from '../convexClient.js';
+import { getSetting, setSetting, deleteSetting, getAllSettings, getDashboardTodos, replaceDashboardTodos } from '../convexClient.js';
 import { getDriveClient } from './drive.js';
 import { refreshGeminiRates } from '../services/costTracker.js';
 import { DEFAULT_OPENAI_IMAGE_MODEL, testOpenAIImageAccess } from '../services/openaiImageAccess.js';
@@ -11,12 +11,14 @@ router.use(requireAuth, requireRole('admin'));
 
 // Sensitive keys that should be masked when returning
 const SENSITIVE_KEYS = ['auth_password_hash', 'session_secret'];
-const API_KEY_KEYS = ['openai_api_key', 'openai_admin_key', 'gemini_api_key', 'anthropic_api_key', 'cloudflare_api_token'];
+const API_KEY_KEYS = ['openai_api_key', 'openai_admin_key', 'gemini_api_key', 'anthropic_api_key', 'cloudflare_api_token', 'meta_app_secret'];
 const ALLOWED_SETTING_KEYS = [
   'openai_api_key',
   'openai_admin_key',
   'gemini_api_key',
   'anthropic_api_key',
+  'meta_app_id',
+  'meta_app_secret',
   'default_drive_folder_id',
   'gemini_rate_1k',
   'gemini_rate_2k',
@@ -107,6 +109,22 @@ router.put('/', async (req, res) => {
     res.status(500).json({
       error: 'Settings could not be saved. Check that your session is still active and try again. If this keeps happening, the settings database write failed.',
     });
+  }
+});
+
+// Remove a saved credential/setting. Used for API keys and Meta app credentials
+// so admins can intentionally disable integrations without writing blank strings.
+router.delete('/:key', async (req, res) => {
+  try {
+    const { key } = req.params;
+    if (!isAllowedSettingKey(key)) {
+      return res.status(400).json({ error: 'This setting cannot be removed from the app.' });
+    }
+    await deleteSetting(key);
+    res.json({ success: true, removed: key });
+  } catch (err) {
+    console.error('[Settings] Delete failed:', err.message);
+    res.status(500).json({ error: 'Setting could not be removed. Please try again.' });
   }
 });
 

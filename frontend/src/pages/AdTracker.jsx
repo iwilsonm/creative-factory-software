@@ -47,11 +47,12 @@ export default function AdTracker({ projectId, userRole, searchParams, setSearch
       }, { replace: true });
     }
   }, [setSearchParams]);
-  // Deep-link to a specific flex ad from Agent Monitor run history
-  const flexAdId = searchParams?.get('flexAdId');
+  // Deep-link to a specific Ready-to-Post ad set from Agent Monitor run history.
+  // `flexAdId` is kept for old links; unified ad sets use `adSetId`.
+  const readyAdSetId = searchParams?.get('adSetId') || searchParams?.get('flexAdId');
   useEffect(() => {
-    if (flexAdId) setActiveView('ready_to_post');
-  }, [flexAdId]);
+    if (readyAdSetId) setActiveView('ready_to_post');
+  }, [readyAdSetId]);
 
   const [statusFilter, setStatusFilter] = useState('posted');
   const [selectedIds, setSelectedIds] = useState(new Set());
@@ -628,11 +629,12 @@ export default function AdTracker({ projectId, userRole, searchParams, setSearch
           loadDeployments={loadDeployments}
           onSwitchToPlanner={() => { setActiveView('campaigns'); setSelectedIds(new Set()); }}
           isPoster={isPoster}
-          highlightFlexAdId={flexAdId}
+          highlightAdSetId={readyAdSetId}
           onHighlightDone={() => {
             if (setSearchParams) {
               setSearchParams(prev => {
                 const next = new URLSearchParams(prev);
+                next.delete('adSetId');
                 next.delete('flexAdId');
                 return next;
               }, { replace: true });

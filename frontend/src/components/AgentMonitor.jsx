@@ -2507,8 +2507,8 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
                 {run.result?.flex_ads_created > 0 && (
                   <button
                     onClick={() => navigate(run.result?.flex_ad_id
-                      ? `/projects/${selectedProject}?tab=tracker&view=ready_to_post&flexAdId=${run.result.flex_ad_id}`
-                      : '/ads?tab=ready')}
+                      ? `/projects/${selectedProject}?tab=tracker&view=ready_to_post&adSetId=${run.result.flex_ad_id}`
+                      : `/projects/${selectedProject}?tab=tracker&view=ready_to_post`)}
                     className="text-[10px] text-ed-accent hover:text-ed-accent font-medium mt-1 inline-flex items-center gap-1"
                   >
                     View in Ready to Post {'\u2192'}
@@ -3154,7 +3154,7 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
                       <div className="flex items-center gap-2">
                         {flexAdId && (
                           <button
-                            onClick={() => navigate(`/projects/${selectedProject}?tab=tracker&view=ready_to_post&flexAdId=${flexAdId}`)}
+                            onClick={() => navigate(`/projects/${selectedProject}?tab=tracker&view=ready_to_post&adSetId=${flexAdId}`)}
                             className="text-[10px] text-ed-accent hover:text-ed-accent font-medium"
                           >
                             View in Ready to Post {'\u2192'}

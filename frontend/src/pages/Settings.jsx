@@ -28,6 +28,46 @@ function KeyStatusPill({ set }) {
   );
 }
 
+const CREDENTIAL_DELETE_COPY = {
+  openai_api_key: {
+    label: 'OpenAI API Key',
+    message: 'Remove the OpenAI API key? Copywriting, Creative Director reasoning, GPT Image 2, and OpenAI checks will stop until a new key is saved.',
+  },
+  openai_admin_key: {
+    label: 'OpenAI Billing Sync Admin Key',
+    message: 'Remove the OpenAI Billing Sync Admin Key? Generation will still work, but exact OpenAI org-level billing sync will stop.',
+  },
+  gemini_api_key: {
+    label: 'Gemini API Key',
+    message: 'Remove the Gemini API key? Gemini image generation and batch image generation will stop until a new key is saved.',
+  },
+  anthropic_api_key: {
+    label: 'Anthropic API Key',
+    message: 'Remove the Anthropic API key? Creative Filter QA and Ready-to-Post copy generation will stop until a new key is saved.',
+  },
+  meta_app_id: {
+    label: 'Meta App ID',
+    message: 'Remove the Meta App ID? New Meta account connections will not start until the App ID and App Secret are saved again.',
+  },
+  meta_app_secret: {
+    label: 'Meta App Secret',
+    message: 'Remove the Meta App Secret? New Meta account connections will not complete until the App ID and App Secret are saved again.',
+  },
+};
+
+function CredentialRemoveButton({ settingKey, settings, onRemove }) {
+  if (!settings?.[settingKey]) return null;
+  return (
+    <button
+      type="button"
+      onClick={() => onRemove(settingKey)}
+      className="ed-ghost text-[13px] whitespace-nowrap text-ed-rust hover:text-ed-rust"
+    >
+      Remove
+    </button>
+  );
+}
+
 // ─── User Management Card ─────────────────────────────────────────────
 const ROLE_OPTIONS = [
   { value: 'admin', label: 'Admin', description: 'Full access to everything' },
@@ -362,6 +402,8 @@ export default function Settings() {
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
   const [testResults, setTestResults] = useState({});
+  const [pendingCredentialDelete, setPendingCredentialDelete] = useState(null);
+  const [deletingCredential, setDeletingCredential] = useState(false);
 
   // Gemini rate refresh
   const [refreshingRates, setRefreshingRates] = useState(false);
@@ -410,7 +452,13 @@ export default function Settings() {
       // Phase 2A — Meta integration
       if (form.meta_app_id.trim()) payload.meta_app_id = form.meta_app_id.trim();
       if (form.meta_app_secret.trim()) payload.meta_app_secret = form.meta_app_secret.trim();
-      await api.updateSettings(payload);
+      const result = await api.updateSettings(payload);
+      const requestedKeys = Object.keys(payload);
+      const savedKeys = Array.isArray(result?.saved) ? result.saved : requestedKeys;
+      const skipped = requestedKeys.filter(key => !savedKeys.includes(key));
+      if (skipped.length > 0) {
+        throw new Error(`Some settings were not saved: ${skipped.join(', ')}`);
+      }
       toast.success('Settings saved');
       setMessage('');
       setForm(prev => ({ ...prev, openai_api_key: '', openai_admin_key: '', gemini_api_key: '', anthropic_api_key: '', meta_app_id: '', meta_app_secret: '' }));
@@ -489,6 +537,24 @@ export default function Settings() {
       }
     } catch (err) {
       setRateRefreshMsg(`Error: ${err.message}`);
+    }
+  };
+
+  const handleRemoveCredential = async () => {
+    if (!pendingCredentialDelete) return;
+    setDeletingCredential(true);
+    try {
+      await api.deleteSetting(pendingCredentialDelete);
+      const label = CREDENTIAL_DELETE_COPY[pendingCredentialDelete]?.label || 'Credential';
+      setForm(prev => ({ ...prev, [pendingCredentialDelete]: '' }));
+      setTestResults(prev => ({ ...prev, [pendingCredentialDelete]: '' }));
+      toast.success(`${label} removed`);
+      await loadSettings();
+      setPendingCredentialDelete(null);
+    } catch (err) {
+      toast.error(err.message || 'Could not remove credential');
+    } finally {
+      setDeletingCredential(false);
     }
   };
 
@@ -585,24 +651,10 @@ export default function Settings() {
                   )}
                   Test GPT Image 2
                 </button>
+                <CredentialRemoveButton settingKey="openai_api_key" settings={settings} onRemove={setPendingCredentialDelete} />
               </div>
               {testResults.openai && <p className="text-[12px] text-ed-ink3 mt-1">{testResults.openai}</p>}
               {testResults.openai_image && <p className="text-[12px] text-ed-ink3 mt-1">{testResults.openai_image}</p>}
-            </div>
-
-            <div>
-              <label className="text-[13px] font-medium text-ed-ink2 mb-1.5 flex items-center gap-2">
-                OpenAI Admin Key (for billing)
-                <KeyStatusPill set={!!settings.openai_admin_key} />
-                <InfoTooltip text="Used only for OpenAI billing/cost sync. This is different from the normal OpenAI API key." position="right" />
-              </label>
-              <input
-                type="password"
-                value={form.openai_admin_key}
-                onChange={e => setForm(p => ({ ...p, openai_admin_key: e.target.value }))}
-                className="input-apple !border-ed-line focus:!ring-ed-accent/20 focus:!border-ed-accent"
-                placeholder={settings.openai_admin_key || 'Enter OpenAI Admin key'}
-              />
             </div>
 
             <div>
@@ -631,6 +683,7 @@ export default function Settings() {
                   )}
                   Test
                 </button>
+                <CredentialRemoveButton settingKey="gemini_api_key" settings={settings} onRemove={setPendingCredentialDelete} />
               </div>
               {testResults.gemini && <p className="text-[12px] text-ed-ink3 mt-1">{testResults.gemini}</p>}
             </div>
@@ -655,9 +708,25 @@ export default function Settings() {
                 >
                   Test
                 </button>
+                <CredentialRemoveButton settingKey="anthropic_api_key" settings={settings} onRemove={setPendingCredentialDelete} />
               </div>
               {testResults.anthropic && <p className="text-[12px] text-ed-ink3 mt-1">{testResults.anthropic}</p>}
             </div>
+
+            <details className="rounded-xl border border-ed-line bg-ed-bg/60 px-4 py-3">
+              <summary className="cursor-pointer text-[13px] font-medium text-ed-ink">How to set up Meta API access</summary>
+              <div className="mt-3 space-y-2 text-[12px] leading-relaxed text-ed-ink2">
+                <p>Create one Meta developer app for Creative Factory, then reuse it for every project connection.</p>
+                <ol className="list-decimal pl-4 space-y-1">
+                  <li>Create or open a Meta app at <a className="underline" href="https://developers.facebook.com/apps/" target="_blank" rel="noopener noreferrer">developers.facebook.com/apps</a>.</li>
+                  <li>Add Facebook Login for Business and the Marketing API product if Meta prompts for products.</li>
+                  <li>In the app's OAuth settings, add this exact redirect URI: <code className="bg-cream px-1 rounded">https://creative-factory-software.vercel.app/api/meta/oauth/callback</code>.</li>
+                  <li>Save the app's App ID and App Secret below.</li>
+                  <li>Inside each project, open Project Settings &rarr; Meta, connect your Meta account, then choose the ad account and Facebook Page.</li>
+                </ol>
+                <p>The app requests Meta permissions for ads management, ads read access, and business management so it can read analytics, prepare posts, and support Direct API posting when you choose that path.</p>
+              </div>
+            </details>
 
             {/* Phase 2A — Meta App credentials. Used for the Facebook OAuth flow when projects connect their ad accounts. */}
             <div>
@@ -666,13 +735,16 @@ export default function Settings() {
                 <KeyStatusPill set={!!settings.meta_app_id} />
                 <InfoTooltip text="The Facebook App identifier used when projects connect their Meta ad account." position="right" />
               </label>
-              <input
-                type="text"
-                value={form.meta_app_id}
-                onChange={e => setForm(p => ({ ...p, meta_app_id: e.target.value }))}
-                className="input-apple !border-ed-line focus:!ring-ed-accent/20 focus:!border-ed-accent w-full"
-                placeholder={settings.meta_app_id || 'e.g. 1234567890123456'}
-              />
+              <div className="flex gap-2">
+                <input
+                  type="text"
+                  value={form.meta_app_id}
+                  onChange={e => setForm(p => ({ ...p, meta_app_id: e.target.value }))}
+                  className="input-apple !border-ed-line focus:!ring-ed-accent/20 focus:!border-ed-accent flex-1"
+                  placeholder={settings.meta_app_id || 'e.g. 1234567890123456'}
+                />
+                <CredentialRemoveButton settingKey="meta_app_id" settings={settings} onRemove={setPendingCredentialDelete} />
+              </div>
               <p className="text-[11px] text-ed-ink3 mt-1">
                 Create a Facebook App at <a className="underline" href="https://developers.facebook.com" target="_blank" rel="noopener noreferrer">developers.facebook.com</a>.
                 Set redirect URI to <code className="bg-cream px-1 rounded">https://creative-factory-software.vercel.app/api/meta/oauth/callback</code>.
@@ -686,13 +758,16 @@ export default function Settings() {
                 <KeyStatusPill set={!!settings.meta_app_secret} />
                 <InfoTooltip text="The private secret for the Facebook App. Required for Meta OAuth and kept hidden after saving." position="right" />
               </label>
-              <input
-                type="password"
-                value={form.meta_app_secret}
-                onChange={e => setForm(p => ({ ...p, meta_app_secret: e.target.value }))}
-                className="input-apple !border-ed-line focus:!ring-ed-accent/20 focus:!border-ed-accent w-full"
-                placeholder={settings.meta_app_secret ? '••••••••' : 'Enter Meta App Secret'}
-              />
+              <div className="flex gap-2">
+                <input
+                  type="password"
+                  value={form.meta_app_secret}
+                  onChange={e => setForm(p => ({ ...p, meta_app_secret: e.target.value }))}
+                  className="input-apple !border-ed-line focus:!ring-ed-accent/20 focus:!border-ed-accent flex-1"
+                  placeholder={settings.meta_app_secret ? '••••••••' : 'Enter Meta App Secret'}
+                />
+                <CredentialRemoveButton settingKey="meta_app_secret" settings={settings} onRemove={setPendingCredentialDelete} />
+              </div>
             </div>
           </div>
         </div>
@@ -781,8 +856,25 @@ export default function Settings() {
         <div className="ed-card p-6">
           <h2 className="text-[15px] font-serif font-[420] text-ed-ink tracking-tight mb-1 flex items-center gap-1">Cost Sync <InfoTooltip text="Manually refresh OpenAI cost data when the dashboard looks stale. Gemini image costs are logged by the app when generation runs." position="right" /></h2>
           <p className="text-[12px] text-ed-ink3 mb-4">
-            OpenAI costs sync hourly from the Billing API. Requires an Admin API key above.
+            OpenAI generation works with the normal OpenAI API key. Exact org-level OpenAI billing sync is optional and requires a separate Admin key.
           </p>
+          <div className="mb-4">
+            <label className="text-[13px] font-medium text-ed-ink2 mb-1.5 flex items-center gap-2">
+              OpenAI Billing Sync Admin Key
+              <KeyStatusPill set={!!settings.openai_admin_key} />
+              <InfoTooltip text="Optional. Used only to import exact OpenAI organization billing into cost history. Removing it does not affect ad generation, GPT Image 2, or Creative Director runs." position="right" />
+            </label>
+            <div className="flex gap-2">
+              <input
+                type="password"
+                value={form.openai_admin_key}
+                onChange={e => setForm(p => ({ ...p, openai_admin_key: e.target.value }))}
+                className="input-apple !border-ed-line focus:!ring-ed-accent/20 focus:!border-ed-accent flex-1"
+                placeholder={settings.openai_admin_key || 'Enter OpenAI Admin key'}
+              />
+              <CredentialRemoveButton settingKey="openai_admin_key" settings={settings} onRemove={setPendingCredentialDelete} />
+            </div>
+          </div>
           <button
             onClick={handleSyncOpenAI}
             className="ed-ghost text-[13px]"
@@ -843,6 +935,17 @@ export default function Settings() {
 
       {/* Roadmap */}
       <TodoWidget />
+      <ConfirmDialog
+        open={!!pendingCredentialDelete}
+        title={`Remove ${CREDENTIAL_DELETE_COPY[pendingCredentialDelete]?.label || 'credential'}?`}
+        message={CREDENTIAL_DELETE_COPY[pendingCredentialDelete]?.message || 'Remove this saved setting?'}
+        confirmLabel="Remove"
+        cancelLabel="Keep"
+        tone="danger"
+        busy={deletingCredential}
+        onConfirm={handleRemoveCredential}
+        onCancel={() => !deletingCredential && setPendingCredentialDelete(null)}
+      />
     </div>
   );
 }

@@ -386,6 +386,7 @@ export const api = {
   // Settings
   getSettings: () => request('/settings'),
   updateSettings: (data) => request('/settings', { method: 'PUT', body: JSON.stringify(data) }),
+  deleteSetting: (key) => request(`/settings/${encodeURIComponent(key)}`, { method: 'DELETE' }),
   testOpenAI: () => request('/settings/test-openai', { method: 'POST' }),
   testOpenAIImage: (model = 'gpt-image-2') =>
     request('/settings/test-openai-image', {

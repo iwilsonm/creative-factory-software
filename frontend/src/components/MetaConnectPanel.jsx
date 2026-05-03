@@ -221,6 +221,18 @@ export default function MetaConnectPanel({ projectId }) {
 
       {!status?.connected && (
         <div>
+          <div className="rounded-xl border border-ed-line bg-ed-bg/60 p-4 mb-4">
+            <h3 className="text-[13px] font-semibold text-ed-ink mb-2">Meta setup checklist</h3>
+            <ol className="list-decimal pl-4 space-y-1.5 text-[12px] text-ed-ink2 leading-relaxed">
+              <li>In global Settings, save the Meta App ID and App Secret from the Meta developer app.</li>
+              <li>In Meta's OAuth settings, add this exact redirect URI: <code className="bg-cream px-1 rounded">https://creative-factory-software.vercel.app/api/meta/oauth/callback</code>.</li>
+              <li>Make sure the Meta user connecting here has access to the ad account and at least one Facebook Page.</li>
+              <li>Click Connect, approve the requested ads permissions, then select this project's ad account and Page.</li>
+            </ol>
+            <p className="text-[11px] text-ed-ink3 mt-3 leading-relaxed">
+              Common setup errors usually mean the App ID/Secret are missing, the redirect URI does not match exactly, the Meta user cannot access an ad account/Page, or the token expired and needs reconnecting.
+            </p>
+          </div>
           <button
             type="button"
             onClick={handleConnect}

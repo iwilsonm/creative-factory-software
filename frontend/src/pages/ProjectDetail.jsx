@@ -470,11 +470,11 @@ export default function ProjectDetail() {
             </div>
           </div>
 
-          {/* Product Description */}
+          {/* Product Context */}
           <div className="grid py-[18px] border-b border-ed-line" style={{ gridTemplateColumns: '200px minmax(0,1fr)', columnGap: 32 }}>
             <div className="pt-[10px]">
-              <div className="font-serif text-[15px] tracking-[-0.005em] text-ed-ink">Product description</div>
-              <div className="text-[11.5px] text-ed-ink3 mt-1 leading-[1.5]">Brief description of what you're selling.</div>
+              <div className="font-serif text-[15px] tracking-[-0.005em] text-ed-ink">Product context</div>
+              <div className="text-[11.5px] text-ed-ink3 mt-1 leading-[1.5]">Used by ad generation, Creative Director angles, QA, and research docs to understand what you sell.</div>
             </div>
             <div className="pt-[10px] max-w-[540px]">
               <textarea
