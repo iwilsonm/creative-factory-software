@@ -7,6 +7,7 @@
 
 import crypto from 'crypto';
 import { chat, chatWithImage, extractJSON } from './anthropic.js';
+import { chat as openAIChat } from './openai.js';
 import sharp from 'sharp';
 import {
   getProject, getLatestDoc, getBatchJob, updateBatchJob,
@@ -21,7 +22,8 @@ import { filterHeadlineCandidatePool, selectDiverseHeadlines } from './headlineD
 
 // Models — match filter.conf
 const SCORE_MODEL = 'claude-sonnet-4-6';
-const GROUP_MODEL = 'claude-sonnet-4-6';
+const GROUP_MODEL = 'gpt-4.1-mini';
+const GROUP_FALLBACK_MODEL = 'claude-sonnet-4-6';
 const SCORE_THRESHOLD = 7;
 const DIRECTOR_SCORE_WEIGHTS = {
   copy_polish: 0.10,
@@ -385,7 +387,8 @@ Return ONLY valid JSON in this exact shape:
  */
 export async function groupAds(scoredAds, projectName, flexAdCount = 1, imageTarget = IMAGES_PER_FLEX) {
   const targetImages = normalizeAdSetImageTarget(imageTarget);
-  // Build scored ads payload for Claude
+  const projectId = scoredAds[0]?.ad?.project_id;
+  // Build scored ads payload for the grouping model.
   const adsPayload = scoredAds.map(({ ad, score }) => ({
     ad_id: ad.id,
     headline: ad.headline,
@@ -483,14 +486,41 @@ Respond ONLY with this exact JSON format:
   "skipped_clusters": ["any angle clusters that were skipped because they couldn't meet the minimum 3 headlines + 3 primary texts requirement"]
 }`;
 
+  const parseGrouping = (responseText, model) => {
+    const parsed = extractJSON(responseText);
+    if (!parsed || !Array.isArray(parsed.flex_ads)) {
+      return null;
+    }
+    return { ...parsed, grouping_model: model };
+  };
+
+  try {
+    const responseText = await openAIChat(
+      [{ role: 'user', content: prompt }],
+      GROUP_MODEL,
+      {
+        max_tokens: 8192,
+        temperature: 0,
+        response_format: { type: 'json_object' },
+        operation: 'filter_group_ads',
+        projectId,
+      }
+    );
+    const parsed = parseGrouping(responseText, GROUP_MODEL);
+    if (parsed) return parsed;
+    console.warn(`[FilterService] ${GROUP_MODEL} returned invalid grouping JSON; falling back to ${GROUP_FALLBACK_MODEL}`);
+  } catch (err) {
+    console.warn(`[FilterService] ${GROUP_MODEL} grouping failed; falling back to ${GROUP_FALLBACK_MODEL}: ${err.message}`);
+  }
+
   const responseText = await chat(
     [{ role: 'user', content: prompt }],
-    GROUP_MODEL,
-    { max_tokens: 8192, temperature: 0, operation: 'filter_group_ads', projectId: scoredAds[0]?.ad?.project_id }
+    GROUP_FALLBACK_MODEL,
+    { max_tokens: 8192, temperature: 0, operation: 'filter_group_ads_fallback', projectId }
   );
 
-  const parsed = extractJSON(responseText);
-  if (!parsed || !parsed.flex_ads) {
+  const parsed = parseGrouping(responseText, GROUP_FALLBACK_MODEL);
+  if (!parsed) {
     console.warn('[FilterService] Failed to parse grouping result');
     return { flex_ads: [], error: 'parse_failed' };
   }
