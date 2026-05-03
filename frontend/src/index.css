@@ -12,6 +12,22 @@
   --z-nav: 50;
   --z-modal: 60;
   --z-sheet: 70;
+
+  /* ─── Editorial V1 Tokens ─── */
+  --ed-bg: #f6f3ec;
+  --ed-surface: #fbfaf6;
+  --ed-ink: #1d1c19;
+  --ed-ink2: #5a574f;
+  --ed-ink3: #8a8678;
+  --ed-line: #e6e1d4;
+  --ed-accent: #a8543b;
+  --ed-accent-soft: #e8d6c8;
+  --ed-green: #3a8c5e;
+  --ed-gold: #c08a3e;
+  --ed-rust: #b25340;
+  --ed-gray: #9a9a8e;
+  --ed-sidebar: 240px;
+  --ed-sidebar-collapsed: 60px;
 }
 
 @layer base {
@@ -406,5 +422,126 @@
   .info-tooltip-right.info-tooltip-open .info-tooltip-text {
     transition-delay: 0ms;
     transform: translateY(-50%) translateX(0);
+  }
+
+  /* ═══════════════════════════════════════════════════════════════════════
+     EDITORIAL V1 — New design system classes. Legacy classes above are
+     still used by Settings, ProjectSetup, Login, and internal tab
+     components (AnalyticsTab, ObservationTab). Do not modify legacy.
+     ═══════════════════════════════════════════════════════════════════════ */
+
+  /* ─── Typography ─── */
+  .ed-serif {
+    font-family: 'Source Serif 4', Georgia, serif;
+  }
+  .ed-mono {
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+  }
+
+  .ed-h1 {
+    font-family: 'Source Serif 4', Georgia, serif;
+    font-size: 34px;
+    font-weight: 420;
+    letter-spacing: -0.02em;
+    line-height: 1.15;
+    color: var(--ed-ink);
+  }
+  .ed-h2 {
+    font-family: 'Source Serif 4', Georgia, serif;
+    font-size: 22px;
+    font-weight: 420;
+    letter-spacing: -0.01em;
+    line-height: 1.25;
+    color: var(--ed-ink);
+  }
+  .ed-eyebrow {
+    font-family: 'Geist', 'Inter', system-ui, sans-serif;
+    font-size: 11.5px;
+    font-weight: 500;
+    text-transform: uppercase;
+    letter-spacing: 0.12em;
+    color: var(--ed-ink3);
+  }
+  .ed-stat-num {
+    font-family: 'JetBrains Mono', ui-monospace, monospace;
+    font-size: 28px;
+    font-weight: 500;
+    letter-spacing: -0.02em;
+    color: var(--ed-ink);
+  }
+
+  /* ─── Surfaces ─── */
+  .ed-card {
+    background: var(--ed-surface);
+    border: 1px solid var(--ed-line);
+    border-radius: 12px;
+  }
+
+  /* ─── Buttons ─── */
+  .ed-cta {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 10px 22px;
+    background: var(--ed-accent);
+    color: #fff;
+    font-family: 'Geist', 'Inter', system-ui, sans-serif;
+    font-size: 13.5px;
+    font-weight: 500;
+    border-radius: 8px;
+    border: none;
+    cursor: pointer;
+    transition: background-color 0.15s ease, transform 0.1s ease;
+  }
+  .ed-cta:hover {
+    background: #934a34;
+  }
+  .ed-cta:active {
+    transform: scale(0.97);
+  }
+  .ed-cta:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    transform: none;
+  }
+
+  .ed-ghost {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 8px 16px;
+    background: transparent;
+    color: var(--ed-ink2);
+    font-family: 'Geist', 'Inter', system-ui, sans-serif;
+    font-size: 13px;
+    font-weight: 500;
+    border: 1px solid var(--ed-line);
+    border-radius: 8px;
+    cursor: pointer;
+    transition: background-color 0.15s ease, border-color 0.15s ease;
+  }
+  .ed-ghost:hover {
+    background: rgba(168, 84, 59, 0.04);
+    border-color: var(--ed-accent-soft);
+  }
+
+  /* ─── Editorial scrollbar ─── */
+  .ed-scrollbar {
+    scrollbar-width: thin;
+    scrollbar-color: var(--ed-line) transparent;
+  }
+  .ed-scrollbar::-webkit-scrollbar {
+    width: 5px;
+    height: 5px;
+  }
+  .ed-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  .ed-scrollbar::-webkit-scrollbar-thumb {
+    background: var(--ed-line);
+    border-radius: 10px;
+  }
+  .ed-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: var(--ed-ink3);
   }
 }

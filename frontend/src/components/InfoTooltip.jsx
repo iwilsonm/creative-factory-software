@@ -37,7 +37,7 @@ export default function InfoTooltip({ text, position = 'top' }) {
         aria-label="More info"
       >
         <svg
-          className="w-3.5 h-3.5 text-textlight hover:text-textmid transition-colors cursor-help"
+          className="w-3.5 h-3.5 text-ed-ink3 hover:text-ed-ink2 transition-colors cursor-help"
           fill="none"
           stroke="currentColor"
           viewBox="0 0 24 24"

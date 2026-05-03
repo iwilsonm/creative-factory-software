@@ -156,7 +156,7 @@ export default function TemplateImages({ projectId }) {
   };
 
   if (loadingTemplates) {
-    return <div className="text-textlight text-center py-8 animate-pulse text-sm">Loading templates...</div>;
+    return <div className="text-ed-ink3 text-center py-8 animate-pulse text-sm">Loading templates...</div>;
   }
 
   const progressPct = batch && batch.total > 0 ? Math.round((batch.completed / batch.total) * 100) : 0;
@@ -166,19 +166,19 @@ export default function TemplateImages({ projectId }) {
     <div className="space-y-6">
       {/* Error */}
       {error && (
-        <div className="p-3 bg-red-50/80 border border-red-200/60 text-red-600 text-[13px] rounded-xl">
+        <div className="p-3 bg-ed-rust/10 border border-ed-rust/20 text-ed-rust text-[13px] rounded-xl">
           {error}
         </div>
       )}
 
       {/* ===== Templates ===== */}
-      <div className="card p-6">
+      <div className="ed-card p-6">
         <div className="mb-4">
-          <h3 className="text-[15px] font-semibold text-textdark tracking-tight mb-0.5 flex items-center gap-1">
+          <h3 className="text-[15px] font-serif font-[420] text-ed-ink tracking-tight mb-0.5 flex items-center gap-1">
             Templates
             <InfoTooltip text="Reference ad images used as style guides for AI ad generation. Upload up to 500 at a time." position="right" />
           </h3>
-          <p className="text-[12px] text-textlight">
+          <p className="text-[12px] text-ed-ink3">
             {templates.length} template{templates.length !== 1 ? 's' : ''} uploaded
           </p>
         </div>
@@ -191,65 +191,65 @@ export default function TemplateImages({ projectId }) {
           onDragLeave={handleDragLeave}
           onDrop={handleDrop}
           className={`border-2 border-dashed rounded-xl p-5 text-center transition-all mb-4 ${
-            uploading ? 'border-black/10 bg-offwhite cursor-default' :
-            dragOver ? 'border-gold bg-gold/5 cursor-pointer' :
-            'border-black/10 hover:border-gold hover:bg-offwhite cursor-pointer'
+            uploading ? 'border-black/10 bg-ed-bg cursor-default' :
+            dragOver ? 'border-ed-accent bg-ed-accent/5 cursor-pointer' :
+            'border-black/10 hover:border-ed-accent hover:bg-ed-bg cursor-pointer'
           }`}
         >
           {batch ? (
             <div className="space-y-3" onClick={(e) => e.stopPropagation()}>
               <div className="flex items-center justify-between text-[12px]">
-                <span className="text-textmid font-medium">
+                <span className="text-ed-ink2 font-medium">
                   {uploading ? 'Uploading…' : 'Upload complete'}
                 </span>
-                <span className="text-textlight">
+                <span className="text-ed-ink3">
                   {batch.completed} of {batch.total}
-                  {batch.failed.length > 0 && <> · <span className="text-red-600">{batch.failed.length} failed</span></>}
+                  {batch.failed.length > 0 && <> · <span className="text-ed-rust">{batch.failed.length} failed</span></>}
                 </span>
               </div>
               <div className="h-1.5 w-full bg-black/5 rounded-full overflow-hidden">
                 <div
-                  className="h-full bg-gold transition-all duration-300"
+                  className="h-full bg-ed-accent transition-all duration-300"
                   style={{ width: `${progressPct}%` }}
                 />
               </div>
               <div className="flex items-center justify-end gap-2">
                 {uploading ? (
-                  <button onClick={handleCancelUpload} className="btn-secondary text-[12px]">Cancel</button>
+                  <button onClick={handleCancelUpload} className="ed-ghost text-[12px]">Cancel</button>
                 ) : (
-                  <button onClick={handleDismissBatchSummary} className="btn-secondary text-[12px]">Dismiss</button>
+                  <button onClick={handleDismissBatchSummary} className="ed-ghost text-[12px]">Dismiss</button>
                 )}
               </div>
             </div>
           ) : (
             <div>
-              <div className="w-8 h-8 mx-auto mb-2 rounded-lg bg-gray-100 flex items-center justify-center">
-                <svg className="w-4 h-4 text-textlight" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <div className="w-8 h-8 mx-auto mb-2 rounded-lg bg-ed-bg flex items-center justify-center">
+                <svg className="w-4 h-4 text-ed-ink3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 16.5v2.25A2.25 2.25 0 005.25 21h13.5A2.25 2.25 0 0021 18.75V16.5m-13.5-9L12 3m0 0l4.5 4.5M12 3v13.5" />
                 </svg>
               </div>
-              <p className={`text-[13px] font-medium ${dragOver ? 'text-gold' : 'text-textmid'}`}>
+              <p className={`text-[13px] font-medium ${dragOver ? 'text-ed-accent' : 'text-ed-ink2'}`}>
                 {dragOver ? 'Drop images here' : 'Drop up to 500 template images here, or click to browse'}
               </p>
-              <p className="text-[10px] text-textlight mt-0.5">JPG, PNG, WebP, or GIF — up to 20 MB each</p>
+              <p className="text-[10px] text-ed-ink3 mt-0.5">JPG, PNG, WebP, or GIF — up to 20 MB each</p>
             </div>
           )}
         </div>
 
         {/* Failure summary (only when batch is done AND there are failures) */}
         {batch && batchDone && batch.failed.length > 0 && (
-          <div className="mb-4 p-3 bg-red-50/80 border border-red-200/60 rounded-xl">
-            <p className="text-[12px] font-medium text-red-700 mb-1.5">
+          <div className="mb-4 p-3 bg-ed-rust/10 border border-ed-rust/20 rounded-xl">
+            <p className="text-[12px] font-medium text-ed-rust mb-1.5">
               {batch.failed.length} file{batch.failed.length !== 1 ? 's' : ''} failed
             </p>
-            <ul className="text-[11px] text-red-600 space-y-0.5 max-h-40 overflow-y-auto">
+            <ul className="text-[11px] text-ed-rust space-y-0.5 max-h-40 overflow-y-auto">
               {batch.failed.map((f, i) => (
                 <li key={i} className="truncate" title={`${f.name} — ${f.reason}`}>
                   <span className="font-medium">{f.name}</span> — {f.reason}
                 </li>
               ))}
             </ul>
-            <p className="text-[10px] text-red-500 mt-1.5">To retry, re-select these files and upload again.</p>
+            <p className="text-[10px] text-ed-rust mt-1.5">To retry, re-select these files and upload again.</p>
           </div>
         )}
 
@@ -265,7 +265,7 @@ export default function TemplateImages({ projectId }) {
         {/* Templates grid */}
         {templates.length === 0 ? (
           <div className="text-center py-2">
-            <p className="text-[11px] text-textlight">
+            <p className="text-[11px] text-ed-ink3">
               Upload reference ads you want the AI to use as style guides.
             </p>
           </div>
@@ -274,10 +274,10 @@ export default function TemplateImages({ projectId }) {
             {templates.map(tmpl => (
               <div
                 key={tmpl.id}
-                className="group card overflow-hidden transition-all duration-300"
+                className="group ed-card overflow-hidden transition-all duration-300"
               >
                 <div
-                  className="aspect-square bg-gray-50 cursor-pointer"
+                  className="aspect-square bg-ed-bg cursor-pointer"
                   onClick={() => setViewImage(tmpl)}
                 >
                   <img
@@ -288,7 +288,7 @@ export default function TemplateImages({ projectId }) {
                   />
                 </div>
                 <div className="p-2.5">
-                  <p className="text-[11px] text-textdark font-medium truncate" title={tmpl.filename}>
+                  <p className="text-[11px] text-ed-ink font-medium truncate" title={tmpl.filename}>
                     {tmpl.filename}
                   </p>
                   {editingDesc === tmpl.id ? (
@@ -296,7 +296,7 @@ export default function TemplateImages({ projectId }) {
                       <input
                         value={descValue}
                         onChange={e => setDescValue(e.target.value)}
-                        className="flex-1 text-[11px] input-apple py-1 px-2"
+                        className="flex-1 text-[11px] w-full text-[13.5px] text-ed-ink px-3 py-[9px] border border-ed-line rounded-[7px] bg-ed-surface outline-none focus:border-ed-accent focus:ring-[3px] focus:ring-ed-accent/[0.08] py-1 px-2"
                         placeholder="Add description..."
                         autoFocus
                         onKeyDown={e => {
@@ -308,14 +308,14 @@ export default function TemplateImages({ projectId }) {
                         <button
                           onClick={() => handleSaveDesc(tmpl.id)}
                           disabled={savingDescId === tmpl.id}
-                          className="btn-primary text-[11px] px-3 py-1 disabled:opacity-50"
+                          className="px-4 py-2 rounded-[7px] text-[13px] bg-ed-accent text-[#fbfaf6] hover:bg-ed-accent/90 transition-colors text-[11px] px-3 py-1 disabled:opacity-50"
                         >
                           {savingDescId === tmpl.id ? 'Saving...' : 'Save'}
                         </button>
                         <button
                           onClick={() => setEditingDesc(null)}
                           disabled={savingDescId === tmpl.id}
-                          className="btn-secondary text-[11px] px-3 py-1 disabled:opacity-50"
+                          className="ed-ghost text-[11px] px-3 py-1 disabled:opacity-50"
                         >
                           Cancel
                         </button>
@@ -323,7 +323,7 @@ export default function TemplateImages({ projectId }) {
                     </div>
                   ) : (
                     <p
-                      className="text-[11px] text-textlight mt-0.5 cursor-pointer hover:text-textmid transition-colors"
+                      className="text-[11px] text-ed-ink3 mt-0.5 cursor-pointer hover:text-ed-ink2 transition-colors"
                       onClick={(e) => {
                         e.stopPropagation();
                         setEditingDesc(tmpl.id);
@@ -365,14 +365,14 @@ export default function TemplateImages({ projectId }) {
           onClick={() => setViewImage(null)}
         >
           <div
-            className="relative max-w-4xl max-h-[90vh] bg-white rounded-2xl overflow-hidden shadow-card-hover fade-in"
+            className="relative max-w-4xl max-h-[90vh] bg-ed-surface rounded-2xl overflow-hidden shadow-card-hover fade-in"
             onClick={e => e.stopPropagation()}
           >
-            <div className="flex items-center justify-between p-4 border-b border-gray-200/60">
+            <div className="flex items-center justify-between p-4 border-b border-ed-line/60">
               <div>
-                <p className="text-[14px] font-semibold text-textdark">{viewImage.filename || viewImage.name}</p>
+                <p className="text-[14px] font-serif font-[420] text-ed-ink">{viewImage.filename || viewImage.name}</p>
                 {viewImage.description && (
-                  <p className="text-[12px] text-textmid">{viewImage.description}</p>
+                  <p className="text-[12px] text-ed-ink2">{viewImage.description}</p>
                 )}
               </div>
               <div className="flex items-center gap-3">
@@ -384,13 +384,13 @@ export default function TemplateImages({ projectId }) {
                 </button>
                 <button
                   onClick={() => setViewImage(null)}
-                  className="w-7 h-7 rounded-lg bg-black/5 flex items-center justify-center text-textlight hover:text-textmid hover:bg-black/10 transition-all"
+                  className="w-7 h-7 rounded-lg bg-black/5 flex items-center justify-center text-ed-ink3 hover:text-ed-ink2 hover:bg-black/10 transition-all"
                 >
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
                 </button>
               </div>
             </div>
-            <div className="p-2 flex items-center justify-center bg-offwhite" style={{ maxHeight: 'calc(90vh - 80px)' }}>
+            <div className="p-2 flex items-center justify-center bg-ed-bg" style={{ maxHeight: 'calc(90vh - 80px)' }}>
               <img
                 src={viewImage.thumbnailUrl}
                 alt={viewImage.name || viewImage.filename}

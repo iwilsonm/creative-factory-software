@@ -101,11 +101,11 @@ export default function CreativeDirectorSettings({ project, onSaved, embedded = 
   };
 
   return (
-    <div className={embedded ? 'space-y-5' : 'card p-6 space-y-5'}>
+    <div className={embedded ? 'space-y-5' : 'ed-card p-6 space-y-5'}>
       {!embedded && (
         <div>
-          <h2 className="text-[15px] font-semibold text-textdark tracking-tight">Creative Director Deployment Settings</h2>
-          <p className="text-xs text-textmid mt-1">Advanced defaults for automated ad sets and angle learning.</p>
+          <h2 className="text-[15px] font-serif font-[420] text-ed-ink tracking-tight">Creative Director Deployment Settings</h2>
+          <p className="text-xs text-ed-ink2 mt-1">Advanced defaults for automated ad sets and angle learning.</p>
         </div>
       )}
 
@@ -117,7 +117,7 @@ export default function CreativeDirectorSettings({ project, onSaved, embedded = 
               value={adSetsPerCycle}
               onChange={(e) => setAdSetsPerCycle(e.target.value)}
               placeholder="default 5"
-              className="input-apple w-full"
+              className="w-full text-[13.5px] text-ed-ink px-3 py-[9px] border border-ed-line rounded-[7px] bg-ed-surface outline-none focus:border-ed-accent focus:ring-[3px] focus:ring-ed-accent/[0.08]"
             />
           </Field>
           <Field label="Ads per ad set" hint="1-20. Default is 5.">
@@ -126,7 +126,7 @@ export default function CreativeDirectorSettings({ project, onSaved, embedded = 
               value={adsPerAdSet}
               onChange={(e) => setAdsPerAdSet(e.target.value)}
               placeholder="default 5"
-              className="input-apple w-full"
+              className="w-full text-[13.5px] text-ed-ink px-3 py-[9px] border border-ed-line rounded-[7px] bg-ed-surface outline-none focus:border-ed-accent focus:ring-[3px] focus:ring-ed-accent/[0.08]"
             />
           </Field>
         </div>
@@ -137,7 +137,7 @@ export default function CreativeDirectorSettings({ project, onSaved, embedded = 
           <select
             value={defaultCampaignId}
             onChange={(e) => setDefaultCampaignId(e.target.value)}
-            className="input-apple w-full"
+            className="w-full text-[13.5px] text-ed-ink px-3 py-[9px] border border-ed-line rounded-[7px] bg-ed-surface outline-none focus:border-ed-accent focus:ring-[3px] focus:ring-ed-accent/[0.08]"
           >
             <option value="">None - auto-create [Default] on first generation run</option>
             {campaigns.map((c) => (
@@ -157,12 +157,12 @@ export default function CreativeDirectorSettings({ project, onSaved, embedded = 
           value={adsetTemplate}
           onChange={(e) => setAdsetTemplate(e.target.value)}
           placeholder={`{\n  "budget_type": "daily",\n  "budget_amount_cents": 5000,\n  "targeting": { "age_min": 25, "age_max": 65, "geo_locations": { "countries": ["US"] } },\n  "optimization_goal": "CONVERSIONS",\n  "billing_event": "IMPRESSIONS"\n}`}
-          className="input-apple w-full font-mono text-xs"
+          className="w-full text-[13.5px] text-ed-ink px-3 py-[9px] border border-ed-line rounded-[7px] bg-ed-surface outline-none focus:border-ed-accent focus:ring-[3px] focus:ring-ed-accent/[0.08] font-mono text-xs"
         />
       </Field>
 
       <div className="border-t border-cream pt-4 space-y-3">
-        <h3 className="text-[13px] font-semibold text-textdark">Learning & Angle Expansion</h3>
+        <h3 className="text-[13px] font-serif font-[420] text-ed-ink">Learning & Angle Expansion</h3>
 
         <label className="flex items-start gap-3 cursor-pointer">
           <input
@@ -172,8 +172,8 @@ export default function CreativeDirectorSettings({ project, onSaved, embedded = 
             className="w-5 h-5 mt-0.5"
           />
           <div>
-            <div className="text-[13px] font-semibold text-textdark">Favor proven angles</div>
-            <div className="text-[11px] text-textmid">When on, angles with better observation results are selected more often. New angle variations still get a short exploration boost so they can be tested fairly.</div>
+            <div className="text-[13px] font-serif font-[420] text-ed-ink">Favor proven angles</div>
+            <div className="text-[11px] text-ed-ink2">When on, angles with better observation results are selected more often. New angle variations still get a short exploration boost so they can be tested fairly.</div>
           </div>
         </label>
 
@@ -185,32 +185,32 @@ export default function CreativeDirectorSettings({ project, onSaved, embedded = 
             className="w-5 h-5 mt-0.5"
           />
           <div>
-            <div className="text-[13px] font-semibold text-textdark">Create new angle variations from winners</div>
-            <div className="text-[11px] text-textmid">When an angle gets enough passing observation results, the system can propose related angle variations that preserve the same brand direction.</div>
+            <div className="text-[13px] font-serif font-[420] text-ed-ink">Create new angle variations from winners</div>
+            <div className="text-[11px] text-ed-ink2">When an angle gets enough passing observation results, the system can propose related angle variations that preserve the same brand direction.</div>
           </div>
         </label>
 
         {derivationEnabled && (
           <div className="ml-8">
-            <div className="text-[11px] font-medium text-textmid mb-1">Angle variation approval</div>
+            <div className="text-[11px] font-medium text-ed-ink2 mb-1">Angle variation approval</div>
             <div className="space-y-1">
               <label className="flex items-center gap-2 cursor-pointer">
                 <input type="radio" checked={derivationMode === 'auto'} onChange={() => setDerivationMode('auto')} />
-                <span className="text-[12px] text-textdark">Auto — new angle variations activate immediately</span>
+                <span className="text-[12px] text-ed-ink">Auto — new angle variations activate immediately</span>
               </label>
               <label className="flex items-center gap-2 cursor-pointer">
                 <input type="radio" checked={derivationMode === 'review'} onChange={() => setDerivationMode('review')} />
-                <span className="text-[12px] text-textdark">Review — new angle variations wait for approval before activation</span>
+                <span className="text-[12px] text-ed-ink">Review — new angle variations wait for approval before activation</span>
               </label>
             </div>
           </div>
         )}
       </div>
 
-      {error && <div className="text-sm text-red-600">{error}</div>}
+      {error && <div className="text-sm text-ed-rust">{error}</div>}
 
       <div className="flex justify-end">
-        <button type="button" onClick={handleSave} disabled={saving} className="btn-primary disabled:opacity-50">
+        <button type="button" onClick={handleSave} disabled={saving} className="px-4 py-2 rounded-[7px] text-[13px] bg-ed-accent text-[#fbfaf6] hover:bg-ed-accent/90 transition-colors disabled:opacity-50">
           {saving ? 'Saving…' : 'Save'}
         </button>
       </div>
@@ -221,11 +221,11 @@ export default function CreativeDirectorSettings({ project, onSaved, embedded = 
 function Field({ label, hint, tooltip, children }) {
   return (
     <label className="block">
-      <span className="text-xs font-semibold text-textmid flex items-center gap-1">
+      <span className="text-xs font-semibold text-ed-ink2 flex items-center gap-1">
         {label}
         {tooltip && <InfoTooltip text={tooltip} position="right" />}
       </span>
-      {hint && <span className="text-[11px] text-textlight block mb-1">{hint}</span>}
+      {hint && <span className="text-[11px] text-ed-ink3 block mb-1">{hint}</span>}
       {children}
     </label>
   );

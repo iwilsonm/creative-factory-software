@@ -6,6 +6,9 @@ export default {
     extend: {
       fontFamily: {
         sans: ['"Inter"', '"DM Sans"', 'system-ui', 'sans-serif'],
+        serif: ['"Source Serif 4"', 'Georgia', 'serif'],
+        geist: ['"Geist"', '"Inter"', 'system-ui', 'sans-serif'],
+        'mono-ed': ['"JetBrains Mono"', 'ui-monospace', 'monospace'],
       },
       colors: {
         navy: { DEFAULT: '#0B1D3A', light: '#132B52', mid: '#1A3A6B' },
@@ -20,7 +23,19 @@ export default {
         darkcard: '#0D0E15',
         neonpurple: '#B534FF',
         neoncian: '#00F0FF',
-        neonpink: '#FF007F'
+        neonpink: '#FF007F',
+        'ed-bg': '#f6f3ec',
+        'ed-surface': '#fbfaf6',
+        'ed-ink': '#1d1c19',
+        'ed-ink2': '#5a574f',
+        'ed-ink3': '#8a8678',
+        'ed-line': '#e6e1d4',
+        'ed-accent': '#a8543b',
+        'ed-accent-soft': '#e8d6c8',
+        'ed-green': '#3a8c5e',
+        'ed-gold': '#c08a3e',
+        'ed-rust': '#b25340',
+        'ed-gray': '#9a9a8e',
       },
       borderRadius: {
         'xl': '12px',

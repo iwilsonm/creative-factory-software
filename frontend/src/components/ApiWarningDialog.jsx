@@ -9,22 +9,22 @@ export default function ApiWarningDialog({ open, onCancel, onConfirm }) {
   if (!open) return null;
   return (
     <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" onClick={onCancel}>
-      <div className="bg-white rounded-2xl shadow-card-hover max-w-md w-full p-6" onClick={(e) => e.stopPropagation()}>
+      <div className="bg-ed-surface rounded-2xl shadow-card-hover max-w-md w-full p-6" onClick={(e) => e.stopPropagation()}>
         <div className="flex items-start gap-3">
           <div className="flex-shrink-0 w-10 h-10 rounded-full bg-orange-100 text-orange-600 flex items-center justify-center text-xl font-bold">!</div>
           <div className="flex-1">
-            <h3 className="text-lg font-semibold text-textdark mb-1">Posting via direct API</h3>
-            <p className="text-sm text-textmid">
+            <h3 className="text-lg font-semibold text-ed-ink mb-1">Posting via direct API</h3>
+            <p className="text-sm text-ed-ink2">
               Direct API posting can carry account risk. The connector path is the safer option when available.
             </p>
-            <p className="text-sm text-textmid mt-2">
+            <p className="text-sm text-ed-ink2 mt-2">
               If you understand the risk and want to continue, click <strong>Yes, post via API</strong>. Otherwise cancel and switch to the connector path in Project Settings → Meta.
             </p>
           </div>
         </div>
         <div className="mt-5 flex items-center justify-end gap-2">
-          <button type="button" onClick={onCancel} className="btn-secondary">Cancel</button>
-          <button type="button" onClick={onConfirm} className="btn-primary bg-orange-600 hover:bg-orange-700">
+          <button type="button" onClick={onCancel} className="ed-ghost">Cancel</button>
+          <button type="button" onClick={onConfirm} className="px-4 py-2 rounded-[7px] text-[13px] bg-ed-accent text-[#fbfaf6] hover:bg-ed-accent/90 transition-colors bg-orange-600 hover:bg-orange-700">
             Yes, post via API
           </button>
         </div>

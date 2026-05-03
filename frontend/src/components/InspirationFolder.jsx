@@ -48,10 +48,10 @@ export default function InspirationFolder({ projectId, inspirationFolderId }) {
   // No folder configured
   if (!inspirationFolderId) {
     return (
-      <div className="card p-8 text-center">
+      <div className="ed-card p-8 text-center">
         <div className="text-4xl mb-3">📁</div>
-        <h3 className="text-lg font-semibold text-textdark mb-2">No Inspiration Folder Configured</h3>
-        <p className="text-sm text-textmid max-w-md mx-auto">
+        <h3 className="text-lg font-semibold text-ed-ink mb-2">No Inspiration Folder Configured</h3>
+        <p className="text-sm text-ed-ink2 max-w-md mx-auto">
           Set an Inspiration Folder ID in the project's Overview tab to sync reference images from Google Drive.
           These images will be used as inspiration for ad generation.
         </p>
@@ -60,7 +60,7 @@ export default function InspirationFolder({ projectId, inspirationFolderId }) {
   }
 
   if (loading) {
-    return <div className="text-textlight text-center py-8 animate-pulse">Loading inspiration images...</div>;
+    return <div className="text-ed-ink3 text-center py-8 animate-pulse">Loading inspiration images...</div>;
   }
 
   return (
@@ -68,14 +68,14 @@ export default function InspirationFolder({ projectId, inspirationFolderId }) {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <p className="text-sm text-textmid">
+          <p className="text-sm text-ed-ink2">
             {images.length} image{images.length !== 1 ? 's' : ''} synced from Google Drive
           </p>
         </div>
         <button
           onClick={handleSync}
           disabled={syncing}
-          className="btn-primary text-sm flex items-center gap-2"
+          className="ed-cta text-sm flex items-center gap-2"
         >
           {syncing ? (
             <>
@@ -91,7 +91,7 @@ export default function InspirationFolder({ projectId, inspirationFolderId }) {
 
       {/* Sync result */}
       {syncResult && (
-        <div className="bg-teal/5 border border-teal/15 text-teal text-sm rounded-xl p-3">
+        <div className="bg-ed-green/5 border border-ed-green/15 text-ed-green text-sm rounded-xl p-3">
           Sync complete: {syncResult.total} images total
           {syncResult.synced > 0 && `, ${syncResult.synced} new`}
           {syncResult.removed > 0 && `, ${syncResult.removed} removed`}
@@ -107,10 +107,10 @@ export default function InspirationFolder({ projectId, inspirationFolderId }) {
 
       {/* Empty state */}
       {images.length === 0 && !error && (
-        <div className="card border-dashed p-8 text-center">
+        <div className="ed-card border-dashed p-8 text-center">
           <div className="text-3xl mb-3">🖼️</div>
-          <h3 className="font-medium text-textmid mb-2">No Images Found</h3>
-          <p className="text-sm text-textlight max-w-md mx-auto">
+          <h3 className="font-medium text-ed-ink2 mb-2">No Images Found</h3>
+          <p className="text-sm text-ed-ink3 max-w-md mx-auto">
             Add images to your Google Drive inspiration folder, then click "Sync Now" to pull them in.
           </p>
         </div>
@@ -125,7 +125,7 @@ export default function InspirationFolder({ projectId, inspirationFolderId }) {
               className="group relative card overflow-hidden cursor-pointer hover:shadow-card-hover transition-shadow"
               onClick={() => setViewImage(img)}
             >
-              <div className="aspect-square bg-gray-100">
+              <div className="aspect-square bg-ed-bg">
                 <img
                   src={img.thumbnailUrl}
                   alt={img.name}
@@ -134,7 +134,7 @@ export default function InspirationFolder({ projectId, inspirationFolderId }) {
                 />
               </div>
               <div className="p-2">
-                <p className="text-xs text-textmid truncate" title={img.name}>
+                <p className="text-xs text-ed-ink2 truncate" title={img.name}>
                   {img.name}
                 </p>
               </div>
@@ -153,16 +153,16 @@ export default function InspirationFolder({ projectId, inspirationFolderId }) {
             className="relative max-w-4xl max-h-[90vh] bg-white rounded-lg overflow-hidden shadow-xl"
             onClick={e => e.stopPropagation()}
           >
-            <div className="flex items-center justify-between p-3 border-b border-gray-200">
-              <p className="text-sm font-medium text-textdark truncate">{viewImage.name}</p>
+            <div className="flex items-center justify-between p-3 border-b border-ed-line">
+              <p className="text-sm font-medium text-ed-ink truncate">{viewImage.name}</p>
               <button
                 onClick={() => setViewImage(null)}
-                className="text-textlight hover:text-textmid text-lg"
+                className="text-ed-ink3 hover:text-ed-ink2 text-lg"
               >
                 &times;
               </button>
             </div>
-            <div className="p-2 flex items-center justify-center bg-offwhite" style={{ maxHeight: 'calc(90vh - 60px)' }}>
+            <div className="p-2 flex items-center justify-center bg-ed-bg" style={{ maxHeight: 'calc(90vh - 60px)' }}>
               <img
                 src={viewImage.thumbnailUrl}
                 alt={viewImage.name}

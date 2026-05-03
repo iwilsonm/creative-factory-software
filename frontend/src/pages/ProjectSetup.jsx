@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { api } from '../api';
-import Layout from '../components/Layout';
+
 import DragDropUpload from '../components/DragDropUpload';
 
 export default function ProjectSetup() {
@@ -101,59 +101,59 @@ export default function ProjectSetup() {
   };
 
   return (
-    <Layout>
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
       <div className="max-w-2xl mx-auto fade-in">
         <div className="mb-6">
-          <h1 className="text-2xl font-semibold text-textdark tracking-tight">New Project</h1>
-          <p className="text-[13px] text-textmid mt-0.5">Set up a new ad creative project</p>
+          <h1 className="text-2xl font-serif font-[420] text-ed-ink tracking-tight">New Project</h1>
+          <p className="text-[13px] text-ed-ink2 mt-0.5">Set up a new ad creative project</p>
         </div>
 
         {error && (
-          <div className="bg-red-50/80 border border-red-200/60 text-red-600 text-[13px] rounded-xl p-3 mb-4">
+          <div className="bg-ed-rust/10 border border-ed-rust/30 text-ed-rust text-[13px] rounded-xl p-3 mb-4">
             {error}
           </div>
         )}
 
-        <form onSubmit={handleSubmit} className="card p-6 space-y-5">
+        <form onSubmit={handleSubmit} className="ed-card p-6 space-y-5">
           {/* Product Name (stored as `name`) */}
           <div>
-            <label className="block text-[13px] font-medium text-textmid mb-1.5">
-              Product Name <span className="text-red-400">*</span>
+            <label className="block text-[13px] font-medium text-ed-ink2 mb-1.5">
+              Product Name <span className="text-ed-rust">*</span>
             </label>
             <input
               name="name"
               value={form.name}
               onChange={handleChange}
-              className="input-apple"
+              className="input-apple !border-ed-line focus:!ring-ed-accent/20 focus:!border-ed-accent"
               required
               placeholder="e.g., Focus Supplement X"
             />
-            <p className="text-[11px] text-textlight mt-1">What is being sold.</p>
+            <p className="text-[11px] text-ed-ink3 mt-1">What is being sold.</p>
           </div>
 
           {/* Brand Name */}
           <div>
-            <label className="block text-[13px] font-medium text-textmid mb-1.5">
-              Brand Name <span className="text-red-400">*</span>
+            <label className="block text-[13px] font-medium text-ed-ink2 mb-1.5">
+              Brand Name <span className="text-ed-rust">*</span>
             </label>
             <input
               name="brand_name"
               value={form.brand_name}
               onChange={handleChange}
-              className="input-apple"
+              className="input-apple !border-ed-line focus:!ring-ed-accent/20 focus:!border-ed-accent"
               required
               placeholder="e.g., NeuroLabs"
             />
-            <p className="text-[11px] text-textlight mt-1">Who sells it. Shown as the primary label on the project dashboard.</p>
+            <p className="text-[11px] text-ed-ink3 mt-1">Who sells it. Shown as the primary label on the project dashboard.</p>
           </div>
 
           <div>
-            <label className="block text-[13px] font-medium text-textmid mb-1.5">Niche</label>
+            <label className="block text-[13px] font-medium text-ed-ink2 mb-1.5">Niche</label>
             <input
               name="niche"
               value={form.niche}
               onChange={handleChange}
-              className="input-apple"
+              className="input-apple !border-ed-line focus:!ring-ed-accent/20 focus:!border-ed-accent"
               placeholder="e.g., Nootropics / Brain Health"
             />
           </div>
@@ -161,7 +161,7 @@ export default function ProjectSetup() {
           {/* Sales Page Content */}
           <div>
             <div className="flex items-center justify-between mb-1.5">
-              <label className="block text-[13px] font-medium text-textmid">Sales Page Content</label>
+              <label className="block text-[13px] font-medium text-ed-ink2">Sales Page Content</label>
               <div className="segmented-control">
                 <button
                   type="button"
@@ -204,16 +204,16 @@ export default function ProjectSetup() {
                 {form.sales_page_content && uploadedFile && (
                   <div className="mt-3">
                     <div className="flex items-center justify-between mb-1">
-                      <span className="text-[12px] text-textlight">Extracted content preview</span>
+                      <span className="text-[12px] text-ed-ink3">Extracted content preview</span>
                       <button
                         type="button"
                         onClick={() => setSalesInputMode('paste')}
-                        className="text-[12px] text-gold hover:text-gold-light transition-colors"
+                        className="text-[12px] text-ed-accent hover:text-ed-accent transition-colors"
                       >
                         Edit text
                       </button>
                     </div>
-                    <div className="bg-offwhite border border-black/5 rounded-xl p-3 max-h-32 overflow-y-auto text-[12px] text-textmid whitespace-pre-wrap scrollbar-thin">
+                    <div className="bg-ed-bg border border-black/5 rounded-xl p-3 max-h-32 overflow-y-auto text-[12px] text-ed-ink2 whitespace-pre-wrap scrollbar-thin">
                       {form.sales_page_content.slice(0, 1000)}
                       {form.sales_page_content.length > 1000 ? '...' : ''}
                     </div>
@@ -230,7 +230,7 @@ export default function ProjectSetup() {
                   onChange={handleChange}
                   onBlur={handleSalesContentBlur}
                   rows={8}
-                  className="input-apple resize-none"
+                  className="input-apple !border-ed-line focus:!ring-ed-accent/20 focus:!border-ed-accent resize-none"
                   placeholder="Paste the text content from your sales page here..."
                 />
               </div>
@@ -244,7 +244,7 @@ export default function ProjectSetup() {
                     value={urlInput}
                     onChange={(e) => setUrlInput(e.target.value)}
                     onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleFetchUrl(); } }}
-                    className="input-apple flex-1"
+                    className="input-apple !border-ed-line focus:!ring-ed-accent/20 focus:!border-ed-accent flex-1"
                     placeholder="https://example.com/product"
                     disabled={urlFetching}
                   />
@@ -252,40 +252,40 @@ export default function ProjectSetup() {
                     type="button"
                     onClick={handleFetchUrl}
                     disabled={urlFetching || !urlInput.trim()}
-                    className="btn-primary whitespace-nowrap"
+                    className="px-4 py-2 rounded-[7px] text-[13px] bg-ed-accent text-[#fbfaf6] hover:bg-ed-accent/90 transition-colors whitespace-nowrap"
                   >
                     {urlFetching ? 'Fetching...' : 'Fetch'}
                   </button>
                 </div>
-                <p className="text-[11px] text-textlight mt-1">
+                <p className="text-[11px] text-ed-ink3 mt-1">
                   We'll fetch the page and extract the main text. JS-rendered sales pages (SPAs) may return little content — switch to Paste if needed.
                 </p>
                 {fetchedMeta && form.sales_page_content && (
-                  <div className="mt-3 bg-offwhite border border-black/5 rounded-xl p-3">
+                  <div className="mt-3 bg-ed-bg border border-black/5 rounded-xl p-3">
                     <div className="flex items-center justify-between mb-1.5">
-                      <span className="text-[12px] text-textlight">
-                        Fetched from <span className="text-textmid">{fetchedMeta.host}</span>
+                      <span className="text-[12px] text-ed-ink3">
+                        Fetched from <span className="text-ed-ink2">{fetchedMeta.host}</span>
                         {fetchedMeta.title ? ` — "${fetchedMeta.title}"` : ''}
                       </span>
                       <button
                         type="button"
                         onClick={() => setSalesInputMode('paste')}
-                        className="text-[12px] text-gold hover:text-gold-light transition-colors"
+                        className="text-[12px] text-ed-accent hover:text-ed-accent transition-colors"
                       >
                         View / edit full content
                       </button>
                     </div>
                     {fetchedMeta.sparse && (
-                      <p className="text-[11px] text-red-500 mb-1.5">
+                      <p className="text-[11px] text-ed-rust mb-1.5">
                         Page had little readable text — likely JS-rendered. Try pasting the content manually.
                       </p>
                     )}
                     {fetchedMeta.truncated && (
-                      <p className="text-[11px] text-gold mb-1.5">
+                      <p className="text-[11px] text-ed-accent mb-1.5">
                         Extracted text was truncated to 50,000 characters for cost safety.
                       </p>
                     )}
-                    <div className="text-[12px] text-textmid whitespace-pre-wrap max-h-20 overflow-hidden">
+                    <div className="text-[12px] text-ed-ink2 whitespace-pre-wrap max-h-20 overflow-hidden">
                       {form.sales_page_content.slice(0, 200)}
                       {form.sales_page_content.length > 200 ? '…' : ''}
                     </div>
@@ -298,12 +298,12 @@ export default function ProjectSetup() {
           {/* Product Description */}
           <div>
             <div className="flex items-center justify-between mb-1.5">
-              <label className="block text-[13px] font-medium text-textmid">Product Description</label>
+              <label className="block text-[13px] font-medium text-ed-ink2">Product Description</label>
               {describing && (
-                <span className="text-[12px] text-gold animate-pulse">Generating from sales page...</span>
+                <span className="text-[12px] text-ed-accent animate-pulse">Generating from sales page...</span>
               )}
               {descAutoGenerated && !describing && (
-                <span className="text-[12px] text-teal flex items-center gap-1">
+                <span className="text-[12px] text-ed-green flex items-center gap-1">
                   <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" /></svg>
                   AI-generated
                 </span>
@@ -314,8 +314,8 @@ export default function ProjectSetup() {
               value={form.product_description}
               onChange={handleChange}
               rows={3}
-              className={`input-apple resize-none ${
-                descAutoGenerated ? 'border-teal/30 bg-teal/5' : ''
+              className={`input-apple !border-ed-line focus:!ring-ed-accent/20 focus:!border-ed-accent resize-none ${
+                descAutoGenerated ? 'border-ed-green/30 bg-ed-green/5' : ''
               }`}
               placeholder={form.sales_page_content
                 ? 'Will be auto-generated from your sales page content...'
@@ -325,7 +325,7 @@ export default function ProjectSetup() {
               <button
                 type="button"
                 onClick={() => autoDescribe(form.sales_page_content)}
-                className="text-[12px] text-gold hover:text-gold-light mt-1.5 transition-colors"
+                className="text-[12px] text-ed-accent hover:text-ed-accent mt-1.5 transition-colors"
               >
                 Generate description from sales page
               </button>
@@ -337,20 +337,20 @@ export default function ProjectSetup() {
             <button
               type="submit"
               disabled={loading}
-              className="btn-primary"
+              className="px-4 py-2 rounded-[7px] text-[13px] bg-ed-accent text-[#fbfaf6] hover:bg-ed-accent/90 transition-colors"
             >
               {loading ? 'Creating...' : 'Create Project'}
             </button>
             <button
               type="button"
               onClick={() => navigate('/')}
-              className="btn-secondary"
+              className="ed-ghost"
             >
               Cancel
             </button>
           </div>
         </form>
       </div>
-    </Layout>
+    </div>
   );
 }

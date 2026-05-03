@@ -44,14 +44,14 @@ export default function AdSetCard({
   const adCount = ads?.length ?? 0;
 
   return (
-    <div className="card p-4">
+    <div className="ed-card p-4">
       <div className="flex items-start justify-between gap-4 mb-3">
         <div className="flex-1 min-w-0">
-          <div className="text-[11px] uppercase tracking-wide text-textlight font-semibold">
+          <div className="text-[11px] uppercase tracking-wide text-ed-ink3 font-semibold">
             {adSet.angle_id ? 'Angle' : 'Untitled angle'}
           </div>
-          <div className="text-sm font-semibold text-textdark truncate">{adSet.name || `Ad set ${adSet.id.slice(0, 8)}`}</div>
-          <div className="text-xs text-textmid mt-0.5 flex items-center gap-2">
+          <div className="text-sm font-semibold text-ed-ink truncate">{adSet.name || `Ad set ${adSet.id.slice(0, 8)}`}</div>
+          <div className="text-xs text-ed-ink2 mt-0.5 flex items-center gap-2">
             <span>{adCount} ad{adCount === 1 ? '' : 's'}</span>
             {/* Phase 6.20a — lifecycle pill (Phase 3 component). Renders for
                 observing/terminal lifecycles. Draft/ready get nothing here
@@ -66,7 +66,7 @@ export default function AdSetCard({
             <button
               type="button"
               onClick={() => onEditMetaSettings?.(adSet)}
-              className="btn-secondary text-xs px-2 py-1"
+              className="ed-ghost text-xs px-2 py-1"
             >
               Edit Meta settings
             </button>
@@ -74,7 +74,7 @@ export default function AdSetCard({
               type="button"
               onClick={handlePromote}
               disabled={promoting || adCount === 0}
-              className="btn-primary text-xs px-2 py-1 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="px-4 py-2 rounded-[7px] text-[13px] bg-ed-accent text-[#fbfaf6] hover:bg-ed-accent/90 transition-colors text-xs px-2 py-1 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {promoting ? 'Promoting…' : 'Promote to Ready-to-Post'}
             </button>
@@ -87,7 +87,7 @@ export default function AdSetCard({
               type="button"
               onClick={() => onPostToMeta?.(adSet)}
               disabled={isPosting}
-              className="btn-primary text-xs px-2 py-1 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="px-4 py-2 rounded-[7px] text-[13px] bg-ed-accent text-[#fbfaf6] hover:bg-ed-accent/90 transition-colors text-xs px-2 py-1 disabled:opacity-50 disabled:cursor-not-allowed"
             >
               {isPosting ? 'Posting…' : 'Post to Meta'}
             </button>
@@ -96,13 +96,13 @@ export default function AdSetCard({
         {/* Phase 2B — Posted variant: link to Ads Manager */}
         {variant === 'posted' && (
           <div className="flex items-center gap-2">
-            <span className="text-xs text-teal font-semibold">✓ Posted</span>
+            <span className="text-xs text-ed-green font-semibold">✓ Posted</span>
             {adSet.meta_adset_id && metaAccountId && (
               <a
                 href={`https://business.facebook.com/adsmanager/manage/adsets?act=${metaAccountId.replace(/^act_/, '')}&selected_adset_ids=${adSet.meta_adset_id}`}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="btn-secondary text-xs px-2 py-1"
+                className="ed-ghost text-xs px-2 py-1"
               >
                 Open in Ads Manager →
               </a>
@@ -124,7 +124,7 @@ export default function AdSetCard({
           />
         ))}
         {ads?.length > 6 && (
-          <div className="aspect-square bg-cream rounded flex items-center justify-center text-xs text-textmid">
+          <div className="aspect-square bg-cream rounded flex items-center justify-center text-xs text-ed-ink2">
             +{ads.length - 6} more
           </div>
         )}
@@ -152,19 +152,19 @@ function AdThumbnail({ ad, selectable, selected, onToggle, onForcePromote, showR
 
   return (
     <div
-      className={`relative aspect-square rounded overflow-hidden border ${selected ? 'border-gold border-2' : 'border-transparent'} ${selectable ? 'cursor-pointer' : ''}`}
+      className={`relative aspect-square rounded overflow-hidden border ${selected ? 'border-ed-accent border-2' : 'border-transparent'} ${selectable ? 'cursor-pointer' : ''}`}
       onClick={selectable ? onToggle : undefined}
     >
       {imgUrl ? (
         <img src={imgUrl} alt={ad.headline || ad.id} className="w-full h-full object-cover" />
       ) : (
-        <div className="w-full h-full bg-cream flex items-center justify-center text-[10px] text-textlight">
+        <div className="w-full h-full bg-cream flex items-center justify-center text-[10px] text-ed-ink3">
           {ad.status || 'no image'}
         </div>
       )}
 
       {selectable && (
-        <div className={`absolute top-1 right-1 w-5 h-5 rounded-full border-2 flex items-center justify-center ${selected ? 'bg-gold border-gold text-white' : 'bg-white/80 border-white/80'}`}>
+        <div className={`absolute top-1 right-1 w-5 h-5 rounded-full border-2 flex items-center justify-center ${selected ? 'bg-ed-accent border-ed-accent text-white' : 'bg-ed-surface/80 border-white/80'}`}>
           {selected && <span className="text-xs leading-none">✓</span>}
         </div>
       )}
@@ -179,7 +179,7 @@ function AdThumbnail({ ad, selectable, selected, onToggle, onForcePromote, showR
             <button
               type="button"
               onClick={(e) => { e.stopPropagation(); onForcePromote(); }}
-              className="mt-1 px-2 py-0.5 bg-gold text-white rounded text-[10px] font-semibold"
+              className="mt-1 px-2 py-0.5 bg-ed-accent text-white rounded text-[10px] font-semibold"
             >
               Force-promote
             </button>

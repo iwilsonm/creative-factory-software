@@ -1,7 +1,7 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useContext } from 'react';
 import { api } from '../api';
-import Layout from '../components/Layout';
-import CostSummaryCards from '../components/CostSummaryCards';
+import { AuthContext } from '../App';
+
 import CostBarChart from '../components/CostBarChart';
 import InfoTooltip from '../components/InfoTooltip';
 
@@ -61,6 +61,34 @@ function getRangeLabel(range) {
   return `${days} Days of Spend History`;
 }
 
+function formatCost(value) {
+  if (value === 0 || value === undefined || value === null) return '$0.00';
+  if (value < 0.01) return `$${value.toFixed(4)}`;
+  if (value < 1) return `$${value.toFixed(3)}`;
+  return `$${value.toFixed(2)}`;
+}
+
+function getGreeting() {
+  const h = new Date().getHours();
+  if (h < 12) return 'Good morning';
+  if (h < 17) return 'Good afternoon';
+  return 'Good evening';
+}
+
+function getFormattedDate() {
+  return new Date().toLocaleDateString('en-US', {
+    weekday: 'long',
+    month: 'long',
+    day: 'numeric',
+  }).toUpperCase();
+}
+
+const SERVICE_DEFS = [
+  { key: 'openai', label: 'OpenAI', dotClass: 'bg-[#5B8DEF]' },
+  { key: 'anthropic', label: 'Anthropic', dotClass: 'bg-[#7C6DCD]' },
+  { key: 'gemini', label: 'Gemini', dotClass: 'bg-ed-green' },
+];
+
 const DASHBOARD_COST_SNAPSHOT_KEY = 'dashboard_cost_snapshot_v2';
 const EMPTY_DASHBOARD_COST_SNAPSHOT = {
   costs: null,
@@ -90,12 +118,11 @@ function readDashboardCostSnapshot() {
 function writeDashboardCostSnapshot(snapshot) {
   try {
     localStorage.setItem(DASHBOARD_COST_SNAPSHOT_KEY, JSON.stringify(snapshot));
-  } catch {
-    // Ignore storage errors; the dashboard can still hydrate from live requests.
-  }
+  } catch {}
 }
 
 export default function Dashboard() {
+  const { user } = useContext(AuthContext);
   const initialCostSnapshot = useRef(readDashboardCostSnapshot()).current;
   const [costs, setCosts] = useState(initialCostSnapshot.costs);
   const [costHistory, setCostHistory] = useState(initialCostSnapshot.costHistory);
@@ -142,7 +169,6 @@ export default function Dashboard() {
         if (!cancelled) setCostHistoryLoading(false);
       }
     };
-    // Reset range to 30d on mount (initial load always fetches 30d)
     setHistoryRange(HISTORY_RANGES[2]);
 
     const loadRecurringCosts = async () => {
@@ -181,11 +207,10 @@ export default function Dashboard() {
     };
   }, []);
 
-  // Re-fetch cost history when range changes (skip initial 30d — already loaded above)
   const rangeInitRef = useRef(true);
   useEffect(() => {
     if (rangeInitRef.current) { rangeInitRef.current = false; return; }
-    if (historyRange.key === 'custom') return; // custom waits for both dates
+    if (historyRange.key === 'custom') return;
     let cancelled = false;
     const days = getRangeDays(historyRange);
     setCostHistoryLoading(true);
@@ -197,7 +222,6 @@ export default function Dashboard() {
     return () => { cancelled = true; };
   }, [historyRange]);
 
-  // Re-fetch when custom dates change
   useEffect(() => {
     if (historyRange.key !== 'custom' || !customStart || !customEnd) return;
     const start = new Date(customStart);
@@ -224,26 +248,128 @@ export default function Dashboard() {
   }, [costHistory, costHistoryLoaded, costs, imageRates, recurringCosts]);
 
   const hasRecurringCosts = recurringCosts && (recurringCosts.estimatedDailyCost > 0 || recurringCosts.directorProjectCount > 0);
+  const displayName = user?.displayName || user?.username || 'there';
+
+  const kpiCards = [
+    {
+      label: 'Spent Today',
+      value: costsLoading ? '...' : formatCost(costs?.today?.total || 0),
+      sub: costs?.today ? `${(costs.today.imageCount || 0) + (costs.today.batchImageCount || 0)} images` : null,
+    },
+    {
+      label: 'Spent This Week',
+      value: costsLoading ? '...' : formatCost(costs?.week?.total || 0),
+      sub: costs?.week ? `${(costs.week.imageCount || 0) + (costs.week.batchImageCount || 0)} images` : null,
+    },
+    {
+      label: 'Spent This Month',
+      value: costsLoading ? '...' : formatCost(costs?.month?.total || 0),
+      sub: costs?.month ? `${(costs.month.imageCount || 0) + (costs.month.batchImageCount || 0)} images` : null,
+    },
+    {
+      label: 'Est. Daily Recurring',
+      value: recurringLoading && !recurringCosts
+        ? '...'
+        : hasRecurringCosts
+        ? `~${formatCost(recurringCosts.estimatedDailyCost || 0)}`
+        : '$0.00',
+      sub: hasRecurringCosts
+        ? `~$${((recurringCosts.estimatedDailyCost || 0) * 30).toFixed(0)}/mo`
+        : '/day',
+    },
+  ];
 
   return (
-    <Layout>
-      {/* Page Header */}
-      <div className="mb-8">
-        <h1 className="text-2xl font-semibold text-textdark tracking-tight">Dashboard</h1>
-        <p className="text-[13px] text-textmid mt-0.5">Manage your ad creative projects</p>
+    <div className="px-[36px] py-[28px] max-w-[1200px]">
+      {/* ─── Editorial Greeting ─── */}
+      <div className="mb-9">
+        <div className="ed-eyebrow mb-2.5">{getFormattedDate()}</div>
+        <h1 className="font-serif text-[38px] leading-[1.05] tracking-[-0.02em] text-ed-ink font-[420] mb-2">
+          {getGreeting()}, {displayName}.
+        </h1>
+        <p className="font-geist text-[15px] text-ed-ink2 leading-[1.5] max-w-[520px]">
+          Your API spending and automation costs at a glance.
+        </p>
       </div>
 
-      {/* 1. API Cost Summary */}
-      <div className="mb-8 fade-in">
-        <div className="flex items-center gap-2 mb-4">
-          <h2 className="text-[15px] font-semibold text-textdark tracking-tight">API Costs</h2>
-          <InfoTooltip
-            text={`Tracks your spending on OpenAI and Gemini API calls across all projects. Real-time cost tracking — today resets at midnight UTC.${imageRates && imageRates.manualRate ? ` Image rates: $${imageRates.manualRate.toFixed(4)}/image (manual) · $${imageRates.batchRate.toFixed(4)}/image (batch 50% off).${imageRates.updatedAt ? ` Updated ${new Date(imageRates.updatedAt).toLocaleDateString('en-US', { month: 'short', day: 'numeric' })}.` : ''}` : ''}`}
-            position="right"
-          />
+      {/* ─── KPI Cards ─── */}
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3.5 mb-6">
+        {kpiCards.map((card, i) => (
+          <div key={i} className="ed-card px-5 py-[18px]">
+            <div className="ed-eyebrow mb-2">{card.label}</div>
+            <div className="font-mono-ed text-[28px] tracking-[-0.02em] text-ed-ink leading-none">
+              {card.value}
+            </div>
+            {card.sub && (
+              <div className="font-mono-ed text-[11.5px] text-ed-ink3 mt-1.5">
+                {card.sub}
+              </div>
+            )}
+          </div>
+        ))}
+      </div>
+
+      {/* ─── Cost Breakdown (per-period cards with service bars) ─── */}
+      {costs && (
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3.5 mb-6">
+          {[
+            { key: 'today', label: 'Today' },
+            { key: 'week', label: 'This Week' },
+            { key: 'month', label: 'This Month' },
+          ].map(period => {
+            const data = costs[period.key];
+            if (!data) return null;
+            const total = data.total || 0;
+            const services = SERVICE_DEFS.map(s => ({
+              ...s,
+              amount: data.byService?.[s.key] || 0,
+              pct: total > 0 ? ((data.byService?.[s.key] || 0) / total) * 100 : 0,
+            })).filter(s => s.amount > 0);
+
+            return (
+              <div key={period.key} className="ed-card px-5 py-4">
+                <div className="font-geist text-[10.5px] font-medium uppercase tracking-[0.10em] text-ed-ink3 mb-2">
+                  {period.label} by service
+                </div>
+                {total > 0 ? (
+                  <>
+                    <div className="w-full h-1.5 rounded-full bg-ed-line overflow-hidden mb-2.5 flex">
+                      {services.map((s, idx) => (
+                        <div
+                          key={s.key}
+                          className={`h-full ${s.dotClass}`}
+                          style={{
+                            width: `${s.pct}%`,
+                            borderTopLeftRadius: idx === 0 ? '9999px' : 0,
+                            borderBottomLeftRadius: idx === 0 ? '9999px' : 0,
+                            borderTopRightRadius: idx === services.length - 1 ? '9999px' : 0,
+                            borderBottomRightRadius: idx === services.length - 1 ? '9999px' : 0,
+                          }}
+                        />
+                      ))}
+                    </div>
+                    <div className="flex items-center gap-3 text-[10px] text-ed-ink3 flex-wrap">
+                      {services.map(s => (
+                        <span key={s.key} className="flex items-center gap-1">
+                          <span className={`w-1.5 h-1.5 rounded-full ${s.dotClass}`} />
+                          {s.label} {formatCost(s.amount)}
+                        </span>
+                      ))}
+                    </div>
+                  </>
+                ) : (
+                  <p className="text-[11px] text-ed-ink3">No costs recorded</p>
+                )}
+              </div>
+            );
+          })}
         </div>
-        <div className="space-y-4">
-          <CostSummaryCards costs={costs} loading={costsLoading} />
+      )}
+
+      {/* ─── Two-column: Cost Chart + Recurring Costs ─── */}
+      <div className="grid grid-cols-1 lg:grid-cols-[1.5fr_1fr] gap-3.5 mb-6">
+        {/* Cost History Chart */}
+        <div className="ed-card p-0 overflow-hidden">
           <CostBarChart
             data={costHistory}
             loading={costHistoryLoading}
@@ -257,47 +383,43 @@ export default function Dashboard() {
             setCustomEnd={setCustomEnd}
           />
         </div>
-      </div>
 
-      {/* 2. Recurring Automation Costs — always visible */}
-      <div className="mb-8 fade-in">
-        <div className="card p-4">
-          <div className="flex items-center gap-3">
-            <div className="w-8 h-8 rounded-xl bg-gold/10 flex items-center justify-center flex-shrink-0">
-              <svg className="w-4 h-4 text-gold" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        {/* Recurring Costs */}
+        <div className="ed-card px-5 py-5">
+          <h3 className="font-serif text-[18px] text-ed-ink mb-3.5">Recurring Costs</h3>
+
+          <div className="flex items-center gap-3 mb-3">
+            <div className="w-8 h-8 rounded-xl bg-ed-accent/10 flex items-center justify-center flex-shrink-0">
+              <svg className="w-4 h-4 text-ed-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M16.023 9.348h4.992v-.001M2.985 19.644v-4.992m0 0h4.992m-4.993 0l3.181 3.183a8.25 8.25 0 0013.803-3.7M4.031 9.865a8.25 8.25 0 0113.803-3.7l3.181 3.182m0-4.991v4.99" />
               </svg>
             </div>
-            <div className="flex-1">
-              <p className="text-[11px] font-medium text-textlight uppercase tracking-wider">
-                Est. Daily Recurring
-              </p>
-              <p className="text-lg font-semibold text-textdark tracking-tight">
+            <div>
+              <div className="font-mono-ed text-[22px] tracking-[-0.02em] text-ed-ink leading-none">
                 {recurringLoading && !recurringCosts
-                  ? 'Loading...'
+                  ? '...'
                   : hasRecurringCosts
                   ? `~$${(recurringCosts.estimatedDailyCost || 0).toFixed(2)}/day`
                   : '$0.00/day'}
-              </p>
+              </div>
+              <div className="font-geist text-[11px] text-ed-ink3 mt-1">
+                {hasRecurringCosts
+                  ? `~$${((recurringCosts.estimatedDailyCost || 0) * 30).toFixed(0)}/month estimated`
+                  : 'No automation costs recorded'}
+              </div>
             </div>
-            <InfoTooltip
-              text={hasRecurringCosts
-                ? `Average daily automation cost based on actual spending over the last ${recurringCosts.daysCovered || 7} days. Includes batch pipeline, Creative Filter, LP generation, and Director planning.`
-                : 'Shows average daily automation cost once you enable the Creative Director or set up scheduled batches.'}
-              position="left"
-            />
           </div>
 
           {recurringLoading && !recurringCosts ? (
-            <div className="mt-3 ml-11 animate-pulse space-y-2">
-              <div className="h-3 w-32 bg-gray-100 rounded" />
-              <div className="h-10 bg-gray-50 rounded-xl" />
+            <div className="animate-pulse space-y-2 mt-3">
+              <div className="h-3 w-32 bg-ed-line rounded" />
+              <div className="h-10 bg-ed-line/50 rounded-xl" />
             </div>
           ) : hasRecurringCosts ? (
             <>
               <button
                 onClick={() => setRecurringExpanded(prev => !prev)}
-                className="inline-flex items-center gap-1 text-[12px] font-medium text-navy hover:text-navy/80 bg-navy/5 hover:bg-navy/10 px-2 py-1 rounded-md cursor-pointer mt-2 ml-11 transition-all"
+                className="inline-flex items-center gap-1 font-geist text-[12px] font-medium text-ed-accent hover:text-ed-accent/80 cursor-pointer mt-1 transition-colors"
               >
                 <svg
                   className={`w-3.5 h-3.5 transition-transform duration-200 ${recurringExpanded ? 'rotate-180' : ''}`}
@@ -311,99 +433,38 @@ export default function Dashboard() {
               </button>
 
               {recurringExpanded && (
-                <>
-                  <p className="text-[11px] text-textlight mt-2 ml-11">
+                <div className="mt-3 pt-3 border-t border-ed-line">
+                  <p className="font-geist text-[11px] text-ed-ink3 mb-3">
                     Based on last {recurringCosts.daysCovered || 7} days ({recurringCosts.totalCompletedBatches || 0} batches, {recurringCosts.totalCompletedAds || 0} ads)
-                    {' | '}~${((recurringCosts.estimatedDailyCost || 0) * 30).toFixed(0)}/month est.
                   </p>
 
                   {recurringCosts.breakdown && recurringCosts.breakdown.length > 0 && (
-                    <div className="mt-4 ml-0 md:ml-11">
-                      {/* Desktop: table */}
-                      <table className="hidden md:table w-full text-[11px]">
-                        <thead>
-                          <tr className="border-b border-black/5">
-                            <th className="text-left font-medium text-textlight uppercase tracking-wider pb-2 pr-3">Component</th>
-                            <th className="text-right font-medium text-textlight uppercase tracking-wider pb-2 pr-3">7d Spend</th>
-                            <th className="text-right font-medium text-textlight uppercase tracking-wider pb-2 pr-3">Daily Est.</th>
-                            <th className="text-right font-medium text-textlight uppercase tracking-wider pb-2">Share</th>
-                          </tr>
-                        </thead>
-                        <tbody>
-                          {recurringCosts.breakdown.map((row, i) => (
-                            <tr key={i} className={`border-b border-gray-50 last:border-0${row.collecting ? ' opacity-50' : ''}`}>
-                              <td className="py-2 pr-3 text-textdark">
-                                {row.label}
-                                <span className="text-textlight ml-1 text-[10px]">
-                                  ({row.collecting ? 'collecting data...' : row.description})
-                                </span>
-                                {row.per_ad > 0 && (
-                                  <span className="text-textlight ml-1 text-[10px]">
-                                    — ${row.per_ad.toFixed(3)}/ad
-                                  </span>
-                                )}
-                              </td>
-                              <td className="py-2 pr-3 text-right text-textmid">${(row.period_total || 0).toFixed(2)}</td>
-                              <td className="py-2 pr-3 text-right font-medium text-textdark">
-                                {row.collecting ? '—' : `$${(row.daily_avg || 0).toFixed(2)}`}
-                              </td>
-                              <td className="py-2 text-right text-textmid">{row.collecting ? '—' : `${row.pct || 0}%`}</td>
-                            </tr>
-                          ))}
-                        </tbody>
-                        {recurringCosts.breakdown.length > 1 && (
-                          <tfoot>
-                            <tr className="border-t border-gray-200">
-                              <td className="py-2 pr-3 text-right font-medium text-textmid">Total</td>
-                              <td className="py-2 pr-3 text-right font-medium text-textmid"></td>
-                              <td className="py-2 pr-3 text-right font-semibold text-textdark">${(recurringCosts.estimatedDailyCost || 0).toFixed(2)}</td>
-                              <td className="py-2 text-right text-textmid">100%</td>
-                            </tr>
-                          </tfoot>
-                        )}
-                      </table>
-
-                      {/* Mobile: card stack */}
-                      <div className="md:hidden space-y-2">
-                        {recurringCosts.breakdown.map((row, i) => (
-                          <div key={i} className={`bg-white/40 border border-black/5 rounded-lg p-2.5 text-[12px]${row.collecting ? ' opacity-50' : ''}`}>
-                            <div className="font-medium text-textdark mb-0.5">{row.label}</div>
-                            <div className="text-[10px] text-textlight mb-1.5">
-                              {row.collecting ? 'collecting data...' : row.description}
-                              {row.per_ad > 0 && <> — ${row.per_ad.toFixed(3)}/ad</>}
-                            </div>
-                            <div className="grid grid-cols-3 gap-2 text-[11px]">
-                              <div><div className="text-textlight uppercase text-[9px] tracking-wide">7d</div><div className="text-textmid">${(row.period_total || 0).toFixed(2)}</div></div>
-                              <div><div className="text-textlight uppercase text-[9px] tracking-wide">Daily</div><div className="font-medium text-textdark">{row.collecting ? '—' : `$${(row.daily_avg || 0).toFixed(2)}`}</div></div>
-                              <div><div className="text-textlight uppercase text-[9px] tracking-wide">Share</div><div className="text-textmid">{row.collecting ? '—' : `${row.pct || 0}%`}</div></div>
-                            </div>
+                    <div className="space-y-2">
+                      {recurringCosts.breakdown.map((row, i) => (
+                        <div key={i} className={`flex items-baseline justify-between text-[12px] py-1.5 border-b border-ed-line last:border-0 ${row.collecting ? 'opacity-50' : ''}`}>
+                          <div className="font-geist text-ed-ink2">
+                            {row.label}
+                            <span className="text-ed-ink3 ml-1 text-[10px]">
+                              ({row.collecting ? 'collecting...' : row.description})
+                            </span>
                           </div>
-                        ))}
-                        {recurringCosts.breakdown.length > 1 && (
-                          <div className="pt-2 border-t border-black/10 flex justify-between text-[12px]">
-                            <span className="font-medium text-textmid">Total daily</span>
-                            <span className="font-semibold text-textdark">${(recurringCosts.estimatedDailyCost || 0).toFixed(2)}</span>
-                          </div>
-                        )}
-                      </div>
+                          <span className="font-mono-ed text-[11px] text-ed-ink tabular-nums">
+                            {row.collecting ? '—' : `$${(row.daily_avg || 0).toFixed(2)}/d`}
+                          </span>
+                        </div>
+                      ))}
                     </div>
                   )}
-                </>
+                </div>
               )}
             </>
           ) : recurringCosts ? (
-            <p className="text-[11px] text-textlight mt-2 ml-11">
-              No automation costs recorded in the last 7 days. Enable the Creative Director or set up scheduled batches to see recurring costs.
+            <p className="font-geist text-[11px] text-ed-ink3 mt-2">
+              Enable the Creative Director or set up scheduled batches to see recurring costs.
             </p>
-          ) : (
-            <p className="text-[11px] text-textlight mt-2 ml-11">
-              Recurring cost estimates are temporarily unavailable.
-            </p>
-          )}
+          ) : null}
         </div>
       </div>
-
-
-    </Layout>
+    </div>
   );
 }

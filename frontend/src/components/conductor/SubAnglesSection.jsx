@@ -89,12 +89,12 @@ export default function SubAnglesSection({ projectId, parentAngle, onChanged, is
   };
 
   return (
-    <div className="mt-3 pl-4 border-l-2 border-gold/30">
+    <div className="mt-3 pl-4 border-l-2 border-ed-accent/30">
       <div className="flex items-center gap-2 mb-2">
-        <h4 className="text-[12px] font-semibold text-textmid uppercase tracking-wider">
+        <h4 className="text-[12px] font-semibold text-ed-ink2 uppercase tracking-wider">
           Sub-angles ({children.length})
         </h4>
-        <button onClick={handleDeriveNow} disabled={busy} className="btn-secondary text-[10px] px-2 py-0.5">
+        <button onClick={handleDeriveNow} disabled={busy} className="ed-ghost text-[10px] px-2 py-0.5">
           {busy ? '…' : '+ Derive now'}
         </button>
         {isAdmin && children.length > 0 && (
@@ -108,9 +108,9 @@ export default function SubAnglesSection({ projectId, parentAngle, onChanged, is
         )}
       </div>
 
-      {loading && <div className="text-[11px] text-textlight">Loading…</div>}
+      {loading && <div className="text-[11px] text-ed-ink3">Loading…</div>}
       {!loading && children.length === 0 && (
-        <div className="text-[11px] text-textlight">No sub-angles yet. Derived automatically when this angle accumulates passing observations.</div>
+        <div className="text-[11px] text-ed-ink3">No sub-angles yet. Derived automatically when this angle accumulates passing observations.</div>
       )}
 
       <div className="space-y-2">
@@ -121,18 +121,18 @@ export default function SubAnglesSection({ projectId, parentAngle, onChanged, is
           return (
             <div
               key={c.externalId}
-              className="flex items-start gap-3 p-2.5 rounded-lg border border-gray-100 bg-gray-50/30"
+              className="flex items-start gap-3 p-2.5 rounded-lg border border-ed-line bg-ed-bg/30"
             >
               <div className="flex-1 min-w-0">
                 <div className="flex items-center gap-2">
-                  <span className="text-[12px] font-medium text-textdark truncate">{c.name}</span>
-                  {isPending && <span className="badge bg-gold/10 text-gold text-[9px]">Pending review</span>}
-                  {isArchived && <span className="badge bg-gray-100 text-textlight text-[9px]">Archived</span>}
+                  <span className="text-[12px] font-medium text-ed-ink truncate">{c.name}</span>
+                  {isPending && <span className="badge bg-ed-accent/10 text-ed-accent text-[9px]">Pending review</span>}
+                  {isArchived && <span className="badge bg-ed-bg text-ed-ink3 text-[9px]">Archived</span>}
                   {!isPending && !isArchived && (
-                    <span className="text-[9px] text-teal">Active</span>
+                    <span className="text-[9px] text-ed-green">Active</span>
                   )}
                 </div>
-                <div className="text-[10px] text-textlight">
+                <div className="text-[10px] text-ed-ink3">
                   {c.derived_at ? new Date(c.derived_at).toISOString().slice(0, 10) : ''}
                   {passRate != null && passRate > 0 && (
                     <> · {(passRate * 100).toFixed(0)}% pass rate</>
@@ -142,15 +142,15 @@ export default function SubAnglesSection({ projectId, parentAngle, onChanged, is
                   )}
                 </div>
                 {c.derivation_reasoning && (
-                  <div className="text-[10px] text-textmid mt-1 italic">"{c.derivation_reasoning}"</div>
+                  <div className="text-[10px] text-ed-ink2 mt-1 italic">"{c.derivation_reasoning}"</div>
                 )}
               </div>
               {isPending && (
                 <div className="flex gap-1 flex-shrink-0">
-                  <button onClick={() => handleApprove(c.externalId)} disabled={busy} className="btn-primary text-[10px] px-2 py-0.5">
+                  <button onClick={() => handleApprove(c.externalId)} disabled={busy} className="px-4 py-2 rounded-[7px] text-[13px] bg-ed-accent text-[#fbfaf6] hover:bg-ed-accent/90 transition-colors text-[10px] px-2 py-0.5">
                     Approve
                   </button>
-                  <button onClick={() => handleReject(c.externalId)} disabled={busy} className="text-[10px] text-textmid hover:text-red-500 px-1">
+                  <button onClick={() => handleReject(c.externalId)} disabled={busy} className="text-[10px] text-ed-ink2 hover:text-red-500 px-1">
                     Reject
                   </button>
                 </div>

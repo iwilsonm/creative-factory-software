@@ -6,6 +6,9 @@ import { api } from '../api';
 import { useToast } from './Toast';
 import ObservationPill from './observation/ObservationPill';
 import AdSetTimeline from './observation/AdSetTimeline';
+import VerdictCockpit from './observation/VerdictCockpit';
+import VerdictDistributionChart from './observation/VerdictDistributionChart';
+import PassRateChart from './observation/PassRateChart';
 import TagManageDialog from './analytics/TagManageDialog';
 import InfoTooltip from './InfoTooltip';
 import {
@@ -186,6 +189,32 @@ export default function ObservationTab({ projectId }) {
     failed: adSets.filter((a) => ['failed', 'failed_external'].includes(a.lifecycle_status)).length,
     insufficient: adSets.filter((a) => a.lifecycle_status === 'insufficient_data').length,
   };
+  const passRate = (counts.passed + counts.failed) > 0
+    ? Math.round((counts.passed / (counts.passed + counts.failed)) * 100)
+    : null;
+
+  const passRateData = useMemo(() => {
+    const completed = adSets.filter((a) =>
+      a.lifecycle_status === 'passed' || ['failed', 'failed_external'].includes(a.lifecycle_status)
+    );
+    if (completed.length < 2) return null;
+    const byWeek = new Map();
+    for (const a of completed) {
+      const date = a.posted_at || a.created_at || '';
+      if (!date) continue;
+      const d = new Date(date);
+      const weekStart = new Date(d);
+      weekStart.setDate(d.getDate() - d.getDay());
+      const key = weekStart.toISOString().slice(0, 10);
+      if (!byWeek.has(key)) byWeek.set(key, { passed: 0, total: 0 });
+      const w = byWeek.get(key);
+      w.total++;
+      if (a.lifecycle_status === 'passed') w.passed++;
+    }
+    const sorted = [...byWeek.entries()].sort((a, b) => a[0].localeCompare(b[0]));
+    if (sorted.length < 2) return null;
+    return sorted.map(([, v], i) => ({ week: `W${i + 1}`, passed: v.passed, total: v.total }));
+  }, [adSets]);
 
   const visibleKeys = filteredRows.map((row) => entityKey('ad_set', row.externalId));
   const visibleSelected = selectedKeys.filter((key) => visibleKeys.includes(key));
@@ -354,13 +383,19 @@ export default function ObservationTab({ projectId }) {
 
   return (
     <div className="space-y-5">
+      <div className="grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(0,1.3fr)] gap-3.5">
+        <VerdictCockpit counts={counts} total={counts.all} passRate={passRate} />
+        <PassRateChart data={passRateData} />
+      </div>
+      <VerdictDistributionChart adSets={adSets} />
+
       <div className="flex flex-wrap items-center gap-3">
-        <div className="page-tabs">
+        <div className="flex gap-2">
           {STATUS_FILTERS.map((filter) => (
             <button
               key={filter.id}
               onClick={() => setStatusFilter(filter.id)}
-              className={statusFilter === filter.id ? 'active' : ''}
+              className={`ed-ghost ${statusFilter === filter.id ? 'bg-ed-accent text-white' : ''}`}
             >
               {filter.label} ({counts[filter.id]})
             </button>
@@ -368,25 +403,25 @@ export default function ObservationTab({ projectId }) {
         </div>
         <div className="flex-1" />
         <span className="inline-flex items-center gap-1">
-          <button onClick={() => setShowManageTags(true)} className="btn-secondary text-[12px] px-3 py-1.5">
+          <button onClick={() => setShowManageTags(true)} className="ed-ghost text-[12px] px-3 py-1.5">
             Manage tags
           </button>
           <InfoTooltip text="Create, rename, recolor, or delete project tags. Observation uses the same tag system as Analytics." position="bottom" />
         </span>
-        <button onClick={load} disabled={loading} className="btn-secondary text-[12px] px-3 py-1.5">
+        <button onClick={load} disabled={loading} className="ed-ghost text-[12px] px-3 py-1.5">
           {loading ? 'Loading...' : 'Refresh'}
         </button>
       </div>
 
       <div className="flex flex-wrap items-start gap-2">
         <span className="inline-flex items-center gap-1">
-          <button onClick={() => setFilters((prev) => [...prev, newFilter('observation')])} className="btn-secondary text-[12px] px-3 py-1.5">
+          <button onClick={() => setFilters((prev) => [...prev, newFilter('observation')])} className="ed-ghost text-[12px] px-3 py-1.5">
             + Filter
           </button>
           <InfoTooltip text="Filter observing ad sets by status, angle, spend, tags, notes, or other visible fields." position="bottom" />
         </span>
         <div className="relative inline-flex items-center gap-1">
-          <button onClick={() => setShowColumnPicker((v) => !v)} className="btn-secondary text-[12px] px-3 py-1.5">
+          <button onClick={() => setShowColumnPicker((v) => !v)} className="ed-ghost text-[12px] px-3 py-1.5">
             Columns ({columns.length})
           </button>
           <InfoTooltip text="Add or remove columns for angle, status, spend, verdict, tags, notes, and supported Meta metrics." position="bottom" />
@@ -401,11 +436,11 @@ export default function ObservationTab({ projectId }) {
           )}
         </div>
         {filters.length > 0 && (
-          <button onClick={() => setFilters([])} className="text-[11px] text-textlight hover:text-textdark py-1.5">
+          <button onClick={() => setFilters([])} className="text-[11px] text-ed-ink3 hover:text-ed-ink py-1.5">
             Clear filters
           </button>
         )}
-        <span className="text-[11px] text-textlight ml-auto py-1.5">
+        <span className="text-[11px] text-ed-ink3 ml-auto py-1.5">
           {filteredRows.length} ad set{filteredRows.length === 1 ? '' : 's'}
         </span>
       </div>
@@ -425,23 +460,23 @@ export default function ObservationTab({ projectId }) {
         </div>
       )}
 
-      <div className="card overflow-visible">
+      <div className="ed-card overflow-visible">
         <div className="overflow-x-auto overflow-y-visible">
-          <table className="w-full text-[12px]">
-            <thead className="bg-gray-50/60 border-b border-gray-100">
+          <table className="w-full text-[13.5px] font-geist">
+            <thead className="border-b border-ed-line">
               <tr>
-                <th className="px-3 py-2 w-10">
+                <th className="px-[18px] py-[12px] w-10">
                   <input
                     type="checkbox"
                     checked={allVisibleSelected}
                     onChange={toggleSelectAllVisible}
-                    className="rounded border-navy/30 text-navy focus:ring-navy/20"
+                    className="rounded border-ed-line text-ed-accent focus:ring-ed-accent/20"
                     aria-label="Select all visible observation ad sets"
                   />
                 </th>
                 {columns.map((col) => {
-                  if (col === 'tags') return <th key={col} className="px-3 py-2 text-left font-medium text-textmid w-48">Tags</th>;
-                  if (col === 'notes') return <th key={col} className="px-3 py-2 text-left font-medium text-textmid min-w-[220px]">Notes</th>;
+                  if (col === 'tags') return <th key={col} className="px-[18px] py-[12px] text-left text-[10.5px] uppercase font-geist tracking-[0.10em] text-ed-ink3 w-48">Tags</th>;
+                  if (col === 'notes') return <th key={col} className="px-[18px] py-[12px] text-left text-[10.5px] uppercase font-geist tracking-[0.10em] text-ed-ink3 min-w-[220px]">Notes</th>;
                   const def = COLUMN_DEFS[col];
                   if (!def) return null;
                   const sorted = sort.field === col;
@@ -449,7 +484,7 @@ export default function ObservationTab({ projectId }) {
                     <th
                       key={col}
                       onClick={() => toggleSort(col)}
-                      className={`px-3 py-2 ${def.align === 'right' ? 'text-right' : 'text-left'} font-medium text-textmid cursor-pointer hover:text-textdark select-none ${def.width}`}
+                      className={`px-[18px] py-[12px] ${def.align === 'right' ? 'text-right' : 'text-left'} text-[10.5px] uppercase font-geist tracking-[0.10em] text-ed-ink3 cursor-pointer hover:text-ed-ink select-none ${def.width}`}
                     >
                       <span className="inline-flex items-center gap-1">
                         {def.label}
@@ -462,10 +497,10 @@ export default function ObservationTab({ projectId }) {
             </thead>
             <tbody>
               {loading && filteredRows.length === 0 && (
-                <tr><td colSpan={columns.length + 1} className="px-3 py-12 text-center text-textlight">Loading...</td></tr>
+                <tr><td colSpan={columns.length + 1} className="px-[18px] py-12 text-center text-ed-ink3">Loading...</td></tr>
               )}
               {!loading && filteredRows.length === 0 && (
-                <tr><td colSpan={columns.length + 1} className="px-3 py-12 text-center text-textlight">No ad sets in this view.</td></tr>
+                <tr><td colSpan={columns.length + 1} className="px-[18px] py-12 text-center text-ed-ink3">No ad sets in this view.</td></tr>
               )}
               {filteredRows.map((adSet) => {
                 const selected = selectedKeys.includes(entityKey('ad_set', adSet.externalId));
@@ -473,32 +508,32 @@ export default function ObservationTab({ projectId }) {
                 const appliedIds = tagsByAdSet.get(adSet.externalId) || [];
                 return (
                   <Fragment key={adSet.externalId}>
-                    <tr className={`border-b border-gray-50 hover:bg-gray-50/50 ${selected ? 'bg-gold/5' : ''}`}>
-                      <td className="px-3 py-2">
+                    <tr className={`border-b border-ed-line hover:bg-[rgba(168,84,59,0.025)] ${selected ? 'bg-ed-accent/5' : ''}`}>
+                      <td className="px-[18px] py-[12px]">
                         <input
                           type="checkbox"
                           checked={selected}
                           onChange={() => toggleSelection('ad_set', adSet.externalId)}
-                          className="rounded border-navy/30 text-navy focus:ring-navy/20"
+                          className="rounded border-ed-line text-ed-accent focus:ring-ed-accent/20"
                           aria-label={`Select ${adSet.name}`}
                         />
                       </td>
                       {columns.map((col) => {
-                        if (col === 'tags') return <td key={col} className="px-3 py-2">{renderRowTagCell('ad_set', adSet, appliedIds)}</td>;
+                        if (col === 'tags') return <td key={col} className="px-[18px] py-[12px]">{renderRowTagCell('ad_set', adSet, appliedIds)}</td>;
                         if (col === 'notes') {
                           return (
-                            <td key={col} className="px-3 py-2">
+                            <td key={col} className="px-[18px] py-[12px]">
                               <NotesCell note={adSet.note_text || ''} onSave={(note) => updateNote('ad_set', adSet.externalId, note)} />
                             </td>
                           );
                         }
                         if (col === 'name') {
                           return (
-                            <td key={col} className="px-3 py-2 text-textdark min-w-[260px]">
+                            <td key={col} className="px-[18px] py-[12px] text-ed-ink min-w-[260px]">
                               <div className="flex items-center gap-2 min-w-0">
                                 <button
                                   onClick={() => setExpandedIds((prev) => expanded ? prev.filter((id) => id !== adSet.externalId) : [...prev, adSet.externalId])}
-                                  className="w-6 h-6 rounded-full border border-gray-200 text-textmid hover:text-textdark hover:border-gray-300 flex items-center justify-center flex-shrink-0"
+                                  className="w-6 h-6 rounded-full border border-ed-line text-ed-ink3 hover:text-ed-ink hover:border-ed-accent/40 flex items-center justify-center flex-shrink-0"
                                   aria-expanded={expanded}
                                   title={expanded ? 'Collapse ads' : 'Expand ads'}
                                 >
@@ -506,33 +541,33 @@ export default function ObservationTab({ projectId }) {
                                 </button>
                                 <button
                                   onClick={() => setActiveAdSetId(adSet.externalId)}
-                                  className="truncate text-left text-navy hover:text-gold font-medium"
+                                  className="truncate text-left text-[15.5px] font-serif text-ed-ink hover:text-ed-accent font-medium"
                                   title={adSet.name}
                                 >
                                   {adSet.name || '—'}
                                 </button>
                                 {adSet.is_demo && (
-                                  <span className="px-1.5 py-0.5 rounded bg-gray-100 text-[9px] font-medium text-textmid flex-shrink-0">
+                                  <span className="px-1.5 py-0.5 rounded bg-ed-line/60 text-[9px] font-medium text-ed-ink3 flex-shrink-0">
                                     Demo
                                   </span>
                                 )}
-                                <span className="text-[10px] text-textlight flex-shrink-0">
+                                <span className="text-[11px] text-ed-ink3 flex-shrink-0">
                                   {numberValue(adSet.child_count)} ads
                                 </span>
                               </div>
                             </td>
                           );
                         }
-                        if (col === 'status') return <td key={col} className="px-3 py-2"><ObservationPill adSet={adSet} /></td>;
+                        if (col === 'status') return <td key={col} className="px-[18px] py-[12px]"><ObservationPill adSet={adSet} /></td>;
                         return (
-                          <td key={col} className={`px-3 py-2 ${COLUMN_DEFS[col]?.align === 'right' ? 'text-right' : 'text-left'} text-textdark tabular-nums`}>
+                          <td key={col} className={`px-[18px] py-[12px] ${COLUMN_DEFS[col]?.align === 'right' ? 'text-right font-mono-ed text-[12.5px]' : 'text-left'} text-ed-ink tabular-nums`}>
                             {formatCell(col, adSet)}
                           </td>
                         );
                       })}
                     </tr>
                     {expanded && (
-                      <tr className="bg-gray-50/40 border-b border-gray-100">
+                      <tr className="bg-ed-bg/60 border-b border-ed-line">
                         <td colSpan={columns.length + 1} className="px-6 py-3">
                           <ChildAdsTable
                             adSet={adSet}
@@ -557,8 +592,8 @@ export default function ObservationTab({ projectId }) {
       </div>
 
       {archived.length > 0 && (
-        <div className="card p-5">
-          <h3 className="text-[13px] font-semibold text-textdark mb-3">Archived angles ({archived.length})</h3>
+        <div className="ed-card p-5">
+          <h3 className="text-[18px] font-serif text-ed-ink2 mb-3">Archived angles ({archived.length})</h3>
           <div className="space-y-2">
             {archived.map((angle) => (
               <ArchivedAngleRow
@@ -637,19 +672,19 @@ function ChildAdsTable({
 }) {
   const children = adSet.children || [];
   if (children.length === 0) {
-    return <div className="text-[11px] text-textlight">No child ads are attached to this ad set.</div>;
+    return <div className="text-[11px] text-ed-ink3">No child ads are attached to this ad set.</div>;
   }
   return (
-    <div className="rounded-xl border border-gray-100 bg-white overflow-hidden">
-      <table className="w-full text-[11px]">
-        <thead className="bg-gray-50 border-b border-gray-100">
+    <div className="rounded-xl border border-ed-line bg-ed-surface overflow-hidden">
+      <table className="w-full text-[11px] font-geist">
+        <thead className="border-b border-ed-line">
           <tr>
             <th className="px-3 py-2 w-10" />
-            <th className="px-3 py-2 text-left font-medium text-textmid">Ad</th>
-            <th className="px-3 py-2 text-left font-medium text-textmid">Angle</th>
-            <th className="px-3 py-2 text-left font-medium text-textmid">URL</th>
-            <th className="px-3 py-2 text-left font-medium text-textmid w-48">Tags</th>
-            <th className="px-3 py-2 text-left font-medium text-textmid min-w-[220px]">Notes</th>
+            <th className="px-3 py-2 text-left text-[10.5px] uppercase tracking-[0.10em] text-ed-ink3">Ad</th>
+            <th className="px-3 py-2 text-left text-[10.5px] uppercase tracking-[0.10em] text-ed-ink3">Angle</th>
+            <th className="px-3 py-2 text-left text-[10.5px] uppercase tracking-[0.10em] text-ed-ink3">URL</th>
+            <th className="px-3 py-2 text-left text-[10.5px] uppercase tracking-[0.10em] text-ed-ink3 w-48">Tags</th>
+            <th className="px-3 py-2 text-left text-[10.5px] uppercase tracking-[0.10em] text-ed-ink3 min-w-[220px]">Notes</th>
           </tr>
         </thead>
         <tbody>
@@ -658,31 +693,31 @@ function ChildAdsTable({
             const note = adNotesById.get(child.externalId)?.note || child.notes || '';
             const tagIds = tagsByAd.get(child.externalId) || [];
             return (
-              <tr key={child.externalId} className={`border-b border-gray-50 hover:bg-gray-50/50 ${selected ? 'bg-gold/5' : ''}`}>
+              <tr key={child.externalId} className={`border-b border-ed-line hover:bg-[rgba(168,84,59,0.025)] ${selected ? 'bg-ed-accent/5' : ''}`}>
                 <td className="px-3 py-2">
                   <input
                     type="checkbox"
                     checked={selected}
                     onChange={() => onSelect(child)}
-                    className="rounded border-navy/30 text-navy focus:ring-navy/20"
+                    className="rounded border-ed-line text-ed-accent focus:ring-ed-accent/20"
                     aria-label={`Select ${child.name}`}
                   />
                 </td>
                 <td className="px-3 py-2">
                   <button onClick={() => onPreview(child)} className="flex items-center gap-2 text-left min-w-0">
                     {child.thumbnail_url ? (
-                      <img src={child.thumbnail_url} alt="" className="w-10 h-10 rounded-lg object-cover bg-gray-100 flex-shrink-0" loading="lazy" />
+                      <img src={child.thumbnail_url} alt="" className="w-10 h-10 rounded-lg object-cover bg-ed-bg flex-shrink-0" loading="lazy" />
                     ) : (
-                      <span className="w-10 h-10 rounded-lg bg-gray-100 flex items-center justify-center text-textlight flex-shrink-0">—</span>
+                      <span className="w-10 h-10 rounded-lg bg-ed-bg flex items-center justify-center text-ed-ink3 flex-shrink-0">—</span>
                     )}
                     <span className="min-w-0">
-                      <span className="block text-textdark font-medium truncate max-w-[220px]">{child.name || 'Untitled ad'}</span>
-                      <span className="block text-textlight truncate max-w-[260px]">{child.body_copy || child.headline || 'No copy'}</span>
+                      <span className="block text-ed-ink font-medium truncate max-w-[220px]">{child.name || 'Untitled ad'}</span>
+                      <span className="block text-ed-ink3 truncate max-w-[260px]">{child.body_copy || child.headline || 'No copy'}</span>
                     </span>
                   </button>
                 </td>
-                <td className="px-3 py-2 text-textmid">{child.angle_name || '—'}</td>
-                <td className="px-3 py-2 text-textmid truncate max-w-[220px]">{child.destination_url || '—'}</td>
+                <td className="px-3 py-2 text-ed-ink2">{child.angle_name || '—'}</td>
+                <td className="px-3 py-2 text-ed-ink2 truncate max-w-[220px]">{child.destination_url || '—'}</td>
                 <td className="px-3 py-2">{renderTagCell('ad', child, tagIds, tags)}</td>
                 <td className="px-3 py-2">
                   <NotesCell note={note} onSave={(next) => onUpdateNote('ad', child.externalId, next)} />
@@ -700,19 +735,19 @@ function AdPreviewModal({ ad, onClose }) {
   if (!ad) return null;
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4" onClick={onClose}>
-      <div className="bg-white w-full max-w-4xl max-h-[88vh] rounded-xl shadow-card overflow-hidden flex flex-col" onClick={(e) => e.stopPropagation()}>
-        <div className="px-5 py-3 border-b border-gray-100 flex items-center justify-between">
+      <div className="bg-ed-surface w-full max-w-4xl max-h-[88vh] rounded-xl shadow-xl border border-ed-line overflow-hidden flex flex-col" onClick={(e) => e.stopPropagation()}>
+        <div className="px-5 py-3 border-b border-ed-line flex items-center justify-between">
           <div className="min-w-0">
-            <h3 className="text-[14px] font-semibold text-textdark truncate">{ad.name || 'Ad'}</h3>
-            <p className="text-[11px] text-textlight truncate">{ad.angle_name || ad.ad_id || ''}</p>
+            <h3 className="text-[14px] font-serif font-medium text-ed-ink truncate">{ad.name || 'Ad'}</h3>
+            <p className="text-[11px] text-ed-ink3 truncate">{ad.angle_name || ad.ad_id || ''}</p>
           </div>
-          <button onClick={onClose} className="text-textmid hover:text-textdark text-[18px] leading-none ml-3">×</button>
+          <button onClick={onClose} className="text-ed-ink3 hover:text-ed-ink text-[18px] leading-none ml-3">×</button>
         </div>
         <div className="p-5 overflow-y-auto grid grid-cols-1 md:grid-cols-[minmax(280px,420px)_1fr] gap-5">
           {ad.image_url ? (
-            <img src={ad.image_url} alt="" className="w-full max-h-[68vh] object-contain rounded-xl bg-gray-100" />
+            <img src={ad.image_url} alt="" className="w-full max-h-[68vh] object-contain rounded-xl bg-ed-bg" />
           ) : (
-            <div className="w-full aspect-square rounded-xl bg-gray-100 flex items-center justify-center text-textlight">No image</div>
+            <div className="w-full aspect-square rounded-xl bg-ed-bg flex items-center justify-center text-ed-ink3">No image</div>
           )}
           <div className="space-y-4 text-[12px]">
             <InfoBlock label="Headline" value={ad.headline} />
@@ -731,20 +766,20 @@ function AdPreviewModal({ ad, onClose }) {
 function InfoBlock({ label, value }) {
   return (
     <div>
-      <div className="text-[10px] uppercase tracking-wide text-textlight font-semibold mb-1">{label}</div>
-      <div className="text-textdark whitespace-pre-wrap break-words">{value || '—'}</div>
+      <div className="text-[10px] uppercase tracking-[0.10em] text-ed-ink3 font-geist font-medium mb-1">{label}</div>
+      <div className="text-[13px] font-geist text-ed-ink whitespace-pre-wrap break-words">{value || '—'}</div>
     </div>
   );
 }
 
 function ArchivedAngleRow({ angle, onUnarchive }) {
   return (
-    <div className="flex items-center gap-3 p-3 border border-gray-100 rounded-xl">
+    <div className="flex items-center gap-3 p-3 border border-ed-line rounded-xl">
       <div className="flex-1 min-w-0">
-        <div className="text-[13px] font-medium text-textdark">{angle.name}</div>
-        <div className="text-[11px] text-textlight truncate">{angle.performance_note || 'Archived.'}</div>
+        <div className="text-[13px] font-medium text-ed-ink">{angle.name}</div>
+        <div className="text-[11px] text-ed-ink3 truncate">{angle.performance_note || 'Archived.'}</div>
       </div>
-      <button onClick={onUnarchive} className="btn-secondary text-[11px] px-3 py-1">
+      <button onClick={onUnarchive} className="ed-ghost text-[11px] px-3 py-1">
         Un-archive
       </button>
     </div>

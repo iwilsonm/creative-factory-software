@@ -31,10 +31,10 @@ function timeLabel(value) {
 
 function statusClass(status) {
   const s = String(status || '').toLowerCase();
-  if (['completed', 'complete', 'passed', 'ready'].includes(s)) return 'bg-teal/10 text-teal';
-  if (['failed', 'error', 'rejected'].includes(s)) return 'bg-red-50 text-red-500';
-  if (['running', 'processing', 'queued', 'generating_prompts', 'submitting', 'saving_results'].includes(s)) return 'bg-gold/10 text-gold';
-  return 'bg-gray-100 text-textmid';
+  if (['completed', 'complete', 'passed', 'ready'].includes(s)) return 'bg-ed-green/10 text-ed-green';
+  if (['failed', 'error', 'rejected'].includes(s)) return 'bg-ed-rust/10 text-ed-rust';
+  if (['running', 'processing', 'queued', 'generating_prompts', 'submitting', 'saving_results'].includes(s)) return 'bg-ed-accent/10 text-ed-accent';
+  return 'bg-ed-bg text-ed-ink2';
 }
 
 function scoreLabel(score) {
@@ -113,33 +113,33 @@ export default function RecentAgentActivity({ projectId }) {
     <div className="mt-6">
       <div className="flex items-center justify-between gap-3 mb-4">
         <div>
-          <h3 className="text-[15px] font-semibold text-textdark tracking-tight">Recent agent activity</h3>
-          <p className="text-[11px] text-textlight mt-0.5">Director runs and Filter scoring for this project only.</p>
+          <h3 className="text-[15px] font-serif font-[420] text-ed-ink tracking-tight">Recent agent activity</h3>
+          <p className="text-[11px] text-ed-ink3 mt-0.5">Director runs and Filter scoring for this project only.</p>
         </div>
-        <button onClick={load} disabled={loading} className="btn-secondary text-[11px] px-3 py-1.5">
+        <button onClick={load} disabled={loading} className="ed-ghost text-[11px] px-3 py-1.5">
           {loading ? 'Loading...' : 'Refresh'}
         </button>
       </div>
 
-      <div className="card p-5">
+      <div className="ed-card p-5">
         {loading && (
           <div className="animate-pulse space-y-3">
-            <div className="h-4 w-40 bg-gray-100 rounded" />
-            <div className="h-16 bg-gray-50 rounded-xl" />
-            <div className="h-16 bg-gray-50 rounded-xl" />
+            <div className="h-4 w-40 bg-ed-bg rounded" />
+            <div className="h-16 bg-ed-bg rounded-xl" />
+            <div className="h-16 bg-ed-bg rounded-xl" />
           </div>
         )}
 
         {!loading && error && (
-          <div className="rounded-xl border border-red-100 bg-red-50/40 p-3 text-[12px] text-red-500">
+          <div className="rounded-xl border border-ed-rust/30 bg-ed-rust/10 p-3 text-[12px] text-ed-rust">
             {error}
           </div>
         )}
 
         {!loading && !error && !hasActivity && (
           <div className="text-center py-8">
-            <p className="text-[13px] font-medium text-textdark mb-1">No agent activity for this project yet.</p>
-            <p className="text-[11px] text-textlight">Director runs and scored ads will appear here once automation has data.</p>
+            <p className="text-[13px] font-medium text-ed-ink mb-1">No agent activity for this project yet.</p>
+            <p className="text-[11px] text-ed-ink3">Director runs and scored ads will appear here once automation has data.</p>
           </div>
         )}
 
@@ -147,8 +147,8 @@ export default function RecentAgentActivity({ projectId }) {
           <div className="grid grid-cols-1 xl:grid-cols-2 gap-5">
             <section>
               <div className="flex items-center justify-between mb-2">
-                <p className="text-[12px] font-semibold text-textdark">Creative Director</p>
-                <span className="text-[10px] text-textlight">{runs.length}/5 runs</span>
+                <p className="text-[12px] font-semibold text-ed-ink">Creative Director</p>
+                <span className="text-[10px] text-ed-ink3">{runs.length}/5 runs</span>
               </div>
               <div className="space-y-2">
                 {runs.length === 0 ? (
@@ -158,17 +158,17 @@ export default function RecentAgentActivity({ projectId }) {
                   const batchIds = batchIdsForRun(run);
                   const expanded = expandedRunIds.includes(id);
                   return (
-                    <div key={id} className="rounded-xl border border-gray-100 bg-gray-50/40 p-3">
+                    <div key={id} className="rounded-xl border border-ed-line bg-ed-bg/40 p-3">
                       <div className="flex items-start gap-3">
                         <div className="flex-1 min-w-0">
                           <div className="flex items-center gap-2 mb-1">
                             <span className={`badge ${statusClass(run.status)}`}>{run.status || 'unknown'}</span>
-                            <span className="text-[10px] text-textlight">{timeLabel(run.run_at || run.created_at)}</span>
+                            <span className="text-[10px] text-ed-ink3">{timeLabel(run.run_at || run.created_at)}</span>
                           </div>
-                          <p className="text-[12px] font-medium text-textdark truncate">
+                          <p className="text-[12px] font-medium text-ed-ink truncate">
                             {run.run_type || 'Director run'}
                           </p>
-                          <p className="text-[11px] text-textmid mt-1">
+                          <p className="text-[11px] text-ed-ink2 mt-1">
                             {batchIds.length} batch{batchIds.length === 1 ? '' : 'es'}
                             {run.total_ads_generated != null && ` · ${run.total_ads_generated} generated`}
                             {run.total_ads_scored != null && ` · ${run.total_ads_scored} scored`}
@@ -178,7 +178,7 @@ export default function RecentAgentActivity({ projectId }) {
                         <button
                           onClick={() => toggleRun(id)}
                           disabled={batchIds.length === 0}
-                          className="btn-secondary text-[10px] px-2 py-1 disabled:opacity-50"
+                          className="ed-ghost text-[10px] px-2 py-1 disabled:opacity-50"
                         >
                           {expanded ? 'Hide' : 'Details'}
                         </button>
@@ -201,24 +201,24 @@ export default function RecentAgentActivity({ projectId }) {
 
             <section>
               <div className="flex items-center justify-between mb-2">
-                <p className="text-[12px] font-semibold text-textdark">Creative Filter</p>
-                <span className="text-[10px] text-textlight">{scoredAds.length}/10 scored ads</span>
+                <p className="text-[12px] font-semibold text-ed-ink">Creative Filter</p>
+                <span className="text-[10px] text-ed-ink3">{scoredAds.length}/10 scored ads</span>
               </div>
               <div className="space-y-2">
                 {scoredAds.length === 0 ? (
                   <EmptyMini text="No scored ads yet." />
                 ) : scoredAds.map((ad) => (
-                  <div key={ad.id} className="rounded-xl border border-gray-100 bg-gray-50/40 p-3">
+                  <div key={ad.id} className="rounded-xl border border-ed-line bg-ed-bg/40 p-3">
                     <div className="flex items-start gap-3">
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-2 mb-1">
                           <span className={`badge ${statusClass(ad.filter_verdict)}`}>{ad.filter_verdict || 'scored'}</span>
-                          <span className="text-[10px] text-textlight">{scoreLabel(ad.filter_score)}</span>
+                          <span className="text-[10px] text-ed-ink3">{scoreLabel(ad.filter_score)}</span>
                         </div>
-                        <p className="text-[12px] font-medium text-textdark truncate">{ad.headline || ad.angle_name || ad.id}</p>
-                        <p className="text-[11px] text-textmid mt-1 max-h-9 overflow-hidden">{firstReason(ad.filter_reasons)}</p>
+                        <p className="text-[12px] font-medium text-ed-ink truncate">{ad.headline || ad.angle_name || ad.id}</p>
+                        <p className="text-[11px] text-ed-ink2 mt-1 max-h-9 overflow-hidden">{firstReason(ad.filter_reasons)}</p>
                         {ad.batch_job_id && (
-                          <p className="text-[10px] text-textlight mt-1">Batch {String(ad.batch_job_id).slice(0, 8)}</p>
+                          <p className="text-[10px] text-ed-ink3 mt-1">Batch {String(ad.batch_job_id).slice(0, 8)}</p>
                         )}
                       </div>
                     </div>
@@ -236,21 +236,21 @@ export default function RecentAgentActivity({ projectId }) {
 function BatchDetail({ batchId, batch }) {
   if (!batch) {
     return (
-      <div className="rounded-lg bg-white border border-gray-100 px-2 py-1.5 text-[11px] text-textlight">
+      <div className="rounded-lg bg-ed-surface border border-ed-line px-2 py-1.5 text-[11px] text-ed-ink3">
         Batch {batchId.slice(0, 8)} no longer appears in this project.
       </div>
     );
   }
   return (
-    <div className="rounded-lg bg-white border border-gray-100 px-2 py-1.5 text-[11px]">
+    <div className="rounded-lg bg-ed-surface border border-ed-line px-2 py-1.5 text-[11px]">
       <div className="flex flex-wrap items-center gap-2">
-        <span className="font-medium text-textdark">{batch.angle_name || batch.angle || `Batch ${batchId.slice(0, 8)}`}</span>
+        <span className="font-medium text-ed-ink">{batch.angle_name || batch.angle || `Batch ${batchId.slice(0, 8)}`}</span>
         <span className={`badge ${statusClass(batch.status)}`}>{batch.status || 'pending'}</span>
-        <span className="text-textlight">{batch.completed_count || 0}/{batch.batch_size || 0} complete</span>
-        {batch.failed_count > 0 && <span className="text-red-500">{batch.failed_count} failed</span>}
+        <span className="text-ed-ink3">{batch.completed_count || 0}/{batch.batch_size || 0} complete</span>
+        {batch.failed_count > 0 && <span className="text-ed-rust">{batch.failed_count} failed</span>}
       </div>
       {batch.error_message && (
-        <p className="text-red-500 mt-1">{batch.error_message}</p>
+        <p className="text-ed-rust mt-1">{batch.error_message}</p>
       )}
     </div>
   );
@@ -258,7 +258,7 @@ function BatchDetail({ batchId, batch }) {
 
 function EmptyMini({ text }) {
   return (
-    <div className="rounded-xl border border-dashed border-gray-200 bg-gray-50/30 p-4 text-center text-[11px] text-textlight">
+    <div className="rounded-xl border border-dashed border-ed-line bg-ed-bg/30 p-4 text-center text-[11px] text-ed-ink3">
       {text}
     </div>
   );

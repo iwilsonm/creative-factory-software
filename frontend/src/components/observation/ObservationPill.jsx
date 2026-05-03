@@ -13,27 +13,27 @@ export default function ObservationPill({ adSet, onClick }) {
   let title = '';
 
   if (paused && status === 'observing') {
-    cls = 'bg-gray-100 text-textmid';
+    cls = 'bg-ed-gray/10 text-ed-gray';
     label = `Paused • Day ${days}/${window}`;
     title = 'Day counter is frozen until you resume.';
   } else if (status === 'observing') {
-    cls = 'bg-gold/10 text-gold';
+    cls = 'bg-ed-gold/10 text-ed-gold';
     label = `Observing • Day ${days}/${window}`;
     title = `Posted ${days} day${days === 1 ? '' : 's'} ago. Verdict on day ${window}.`;
   } else if (status === 'passed') {
-    cls = 'bg-teal/15 text-teal';
+    cls = 'bg-ed-green/10 text-ed-green';
     label = 'Passed';
     title = adSet.latest_result?.reason || 'Met benchmark.';
   } else if (status === 'failed') {
-    cls = 'bg-red-50 text-red-500 border border-red-200';
+    cls = 'bg-ed-rust/10 text-ed-rust';
     label = 'Failed';
     title = adSet.latest_result?.reason || 'Below benchmark.';
   } else if (status === 'failed_external') {
-    cls = 'bg-red-50 text-red-500 border border-red-200';
+    cls = 'bg-ed-rust/10 text-ed-rust';
     label = 'Failed (external)';
     title = 'Ad set was deleted on Meta side. Counted as failure.';
   } else if (status === 'insufficient_data') {
-    cls = 'bg-gray-100 text-textmid';
+    cls = 'bg-ed-gray/10 text-ed-gray';
     label = 'Insufficient data';
     title = adSet.latest_result?.reason || 'Spend below threshold.';
   } else {

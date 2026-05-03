@@ -33,10 +33,10 @@ export function ToastProvider({ children }) {
             className={`pointer-events-auto max-w-sm px-4 py-3 rounded-xl text-[13px] font-medium shadow-lg
               border animate-slide-up
               ${t.type === 'error'
-                ? 'bg-red-50/90 border-red-200/60 text-red-700'
+                ? 'bg-ed-rust/10 border-ed-rust/20 text-ed-rust'
                 : t.type === 'info'
-                ? 'bg-navy/5 border-navy/15 text-navy'
-                : 'bg-teal/5 border-teal/15 text-teal'}`}
+                ? 'bg-ed-accent/5 border-ed-accent/15 text-ed-accent'
+                : 'bg-ed-green/5 border-ed-green/15 text-ed-green'}`}
           >
             <div className="flex items-center gap-2">
               {t.type === 'error' ? (

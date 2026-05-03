@@ -6,6 +6,7 @@ import { useAsyncData } from '../hooks/useAsyncData';
 import CampaignsView from '../components/CampaignsView';
 import ReadyToPostView from '../components/ReadyToPostView';
 import PostedView from '../components/PostedView';
+import PipelineSubNav from '../components/pipeline/PipelineSubNav';
 
 const STATUS_ORDER = ['selected', 'ready_to_post', 'posted'];
 const STATUS_META = {
@@ -566,72 +567,23 @@ export default function AdTracker({ projectId, userRole, searchParams, setSearch
   // ─── Render ───────────────────────────────────────────────────────────────
   return (
     <div>
-      {/* Pipeline tabs */}
-      <div className="flex items-center gap-2 mb-5">
-        {/* 1. Planner — hidden for Poster role */}
-        {!isPoster && (
-          <button
-            onClick={() => { setActiveView('campaigns'); setSelectedIds(new Set()); }}
-            className={`px-3.5 py-1.5 rounded-full text-[12px] font-semibold transition-colors inline-flex items-center gap-1.5 ${
-              activeView === 'campaigns'
-                ? 'bg-navy text-white shadow-sm'
-                : 'bg-navy/10 text-navy hover:bg-navy/15'
-            }`}
-          >
-            <span className={`w-[18px] h-[18px] rounded-full text-[10px] font-bold inline-flex items-center justify-center ${
-              activeView === 'campaigns' ? 'bg-white/20 text-white' : 'bg-navy/15 text-navy'
-            }`}>1</span>
-            Planner
-            <span className={`text-[10px] font-normal ${activeView === 'campaigns' ? 'text-white/70' : 'text-navy/50'}`}>
-              {campaignsDeps.length}
-            </span>
-          </button>
-        )}
-        {/* 2. Ready to Post (numbered 1 for Poster) */}
-        <button
-          onClick={() => { setActiveView('ready_to_post'); setSelectedIds(new Set()); }}
-          className={`px-3.5 py-1.5 rounded-full text-[12px] font-semibold transition-colors inline-flex items-center gap-1.5 ${
-            activeView === 'ready_to_post'
-              ? 'bg-gold text-white shadow-sm'
-              : 'bg-gold/10 text-gold hover:bg-gold/15'
-          }`}
-        >
-          <span className={`w-[18px] h-[18px] rounded-full text-[10px] font-bold inline-flex items-center justify-center ${
-            activeView === 'ready_to_post' ? 'bg-white/20 text-white' : 'bg-gold/15 text-gold'
-          }`}>{isPoster ? 1 : 2}</span>
-          Ready to Post
-          <span className={`text-[10px] font-normal ${activeView === 'ready_to_post' ? 'text-white/70' : 'text-gold/50'}`}>
-            {readyToPostCardCount}
-          </span>
-        </button>
-        {/* 3. Posted (numbered 2 for Poster) */}
-        <button
-          onClick={() => { setActiveView('status'); setStatusFilter('posted'); setSelectedIds(new Set()); }}
-          className={`px-3.5 py-1.5 rounded-full text-[12px] font-semibold transition-colors inline-flex items-center gap-1.5 ${
-            activeView === 'status' && statusFilter === 'posted'
-              ? 'bg-teal text-white shadow-sm'
-              : 'bg-teal/10 text-teal hover:bg-teal/15'
-          }`}
-        >
-          <span className={`w-[18px] h-[18px] rounded-full text-[10px] font-bold inline-flex items-center justify-center ${
-            activeView === 'status' && statusFilter === 'posted' ? 'bg-white/20 text-white' : 'bg-teal/15 text-teal'
-          }`}>{isPoster ? 2 : 3}</span>
-          Posted
-          <span className={`text-[10px] font-normal ${activeView === 'status' && statusFilter === 'posted' ? 'text-white/70' : 'text-teal/50'}`}>
-            {statusCounts['posted'] || 0}
-          </span>
-        </button>
-      </div>
+      {/* Pipeline sub-nav */}
+      <PipelineSubNav
+        activeView={activeView}
+        onViewChange={(v) => { setActiveView(v); setSelectedIds(new Set()); if (v === 'status') setStatusFilter('posted'); }}
+        counts={{ planner: campaignsDeps.length, ready: readyToPostCardCount, posted: statusCounts['posted'] || 0 }}
+        isPoster={isPoster}
+      />
 
       {/* Loading state — only show skeleton on initial load (no cached data yet) */}
       {loading && deployments.length === 0 && !deploymentsError && (
         <div className="space-y-4">
           {[0, 1, 2].map(i => (
-            <div key={i} className="card p-6 animate-pulse">
-              <div className="h-3 w-32 bg-gray-200 rounded mb-4" />
+            <div key={i} className="ed-card p-6 animate-pulse">
+              <div className="h-3 w-32 bg-ed-line rounded mb-4" />
               <div className="flex gap-3">
                 {[0, 1, 2].map(j => (
-                  <div key={j} className="w-24 h-16 bg-gray-100 rounded-lg" />
+                  <div key={j} className="w-24 h-16 bg-ed-bg rounded-lg" />
                 ))}
               </div>
             </div>
@@ -641,15 +593,15 @@ export default function AdTracker({ projectId, userRole, searchParams, setSearch
 
       {/* Error state for deployment loading */}
       {deploymentsError && !loading && (
-        <div className="card p-8 text-center mb-4">
-          <div className="w-12 h-12 mx-auto mb-3 rounded-full bg-red-50 flex items-center justify-center">
-            <svg className="w-6 h-6 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <div className="ed-card p-8 text-center mb-4">
+          <div className="w-12 h-12 mx-auto mb-3 rounded-full bg-ed-rust/10 flex items-center justify-center">
+            <svg className="w-6 h-6 text-ed-rust" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
             </svg>
           </div>
-          <p className="text-[14px] font-medium text-textdark">Failed to load ads</p>
-          <p className="text-[12px] text-textmid mt-1">There was an error loading your ads. Please try refreshing.</p>
-          <button onClick={loadDeployments} className="mt-4 px-4 py-2 rounded-lg bg-navy text-white text-[12px] font-medium hover:bg-navy-light transition-colors">
+          <p className="text-[14px] font-medium text-ed-ink">Failed to load ads</p>
+          <p className="text-[12px] text-ed-ink2 mt-1">There was an error loading your ads. Please try refreshing.</p>
+          <button onClick={loadDeployments} className="mt-4 px-4 py-2 rounded-lg bg-ed-accent text-white text-[12px] font-medium hover:bg-ed-accent/90 transition-colors">
             Retry
           </button>
         </div>
@@ -867,14 +819,14 @@ export default function AdTracker({ projectId, userRole, searchParams, setSearch
 
       {/* Empty state */}
       {!loading && deployments.length === 0 && (
-        <div className="card p-12 text-center">
-          <div className="w-14 h-14 rounded-2xl bg-gray-100 flex items-center justify-center mx-auto mb-4">
-            <svg className="w-7 h-7 text-textlight/60" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <div className="ed-card p-12 text-center">
+          <div className="w-[54px] h-[54px] rounded-full border border-dashed border-ed-ink3 flex items-center justify-center mx-auto mb-4">
+            <svg className="w-7 h-7 text-ed-ink3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M15.59 14.37a6 6 0 01-5.84 7.38v-4.8m5.84-2.58a14.98 14.98 0 006.16-12.12A14.98 14.98 0 009.631 8.41m5.96 5.96a14.926 14.926 0 01-5.841 2.58m-.119-8.54a6 6 0 00-7.381 5.84h4.8m2.58-5.84a14.927 14.927 0 00-2.58 5.84m2.699 2.7c-.103.021-.207.041-.311.06a15.09 15.09 0 01-2.448-2.448 14.9 14.9 0 01.06-.312m-2.24 2.39a4.493 4.493 0 00-1.757 4.306 4.493 4.493 0 004.306-1.758M16.5 9a1.5 1.5 0 11-3 0 1.5 1.5 0 013 0z" />
             </svg>
           </div>
-          <h3 className="text-[15px] font-semibold text-textdark mb-1">No ads in pipeline yet</h3>
-          <p className="text-[13px] text-textlight max-w-sm mx-auto">
+          <h3 className="font-serif text-[17px] text-ed-ink2 mb-2">No ads in pipeline yet</h3>
+          <p className="text-[12.5px] text-ed-ink3 max-w-[320px] mx-auto leading-[1.55]">
             Select ads in the Ad Studio and click "Send to Ad Pipeline" to start tracking them here.
           </p>
         </div>
@@ -1279,7 +1231,7 @@ export default function AdTracker({ projectId, userRole, searchParams, setSearch
           {canGoPrev && (
             <button
               onClick={(e) => { e.stopPropagation(); goPreviewPrev(); }}
-              className="absolute left-4 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-white/90 shadow-card flex items-center justify-center text-textmid hover:text-textdark hover:bg-white transition-all z-20"
+              className="absolute left-4 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-ed-surface shadow-card flex items-center justify-center text-ed-ink3 hover:text-ed-ink hover:bg-white transition-all z-20"
             >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 19l-7-7 7-7" />
@@ -1290,7 +1242,7 @@ export default function AdTracker({ projectId, userRole, searchParams, setSearch
           {canGoNext && (
             <button
               onClick={(e) => { e.stopPropagation(); goPreviewNext(); }}
-              className="absolute right-4 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-white/90 shadow-card flex items-center justify-center text-textmid hover:text-textdark hover:bg-white transition-all z-20"
+              className="absolute right-4 top-1/2 -translate-y-1/2 w-10 h-10 rounded-full bg-ed-surface shadow-card flex items-center justify-center text-ed-ink3 hover:text-ed-ink hover:bg-white transition-all z-20"
             >
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
@@ -1302,7 +1254,7 @@ export default function AdTracker({ projectId, userRole, searchParams, setSearch
             <div className="absolute -top-3 -right-3 flex items-center gap-2 z-10">
               <button
                 onClick={() => handleDownload(previewDep)}
-                className="w-8 h-8 rounded-full bg-white shadow-card flex items-center justify-center text-textlight hover:text-navy transition-colors"
+                className="w-8 h-8 rounded-full bg-ed-surface shadow-card flex items-center justify-center text-ed-ink3 hover:text-ed-accent transition-colors"
                 title="Download image"
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1311,7 +1263,7 @@ export default function AdTracker({ projectId, userRole, searchParams, setSearch
               </button>
               <button
                 onClick={() => setPreviewDepId(null)}
-                className="w-8 h-8 rounded-full bg-white shadow-card flex items-center justify-center text-textlight hover:text-textmid transition-colors"
+                className="w-8 h-8 rounded-full bg-ed-surface shadow-card flex items-center justify-center text-ed-ink3 hover:text-ed-ink transition-colors"
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />

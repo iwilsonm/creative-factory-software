@@ -204,17 +204,17 @@ export default function MetaConnectPanel({ projectId }) {
   };
 
   if (loading) {
-    return <div className="card p-6 text-sm text-textmid">Loading Meta connection…</div>;
+    return <div className="ed-card p-6 text-sm text-ed-ink2">Loading Meta connection…</div>;
   }
 
   return (
-    <div className="card p-6 space-y-5">
+    <div className="ed-card p-6 space-y-5">
       <div>
-        <h2 className="text-[15px] font-semibold text-textdark tracking-tight flex items-center gap-1">
+        <h2 className="text-[15px] font-serif font-[420] text-ed-ink tracking-tight flex items-center gap-1">
           Meta integration
           <InfoTooltip text="Connect the Meta ad account and Facebook Page this project should use for analytics, posting, and observation." position="right" />
         </h2>
-        <p className="text-xs text-textmid mt-1">
+        <p className="text-xs text-ed-ink2 mt-1">
           Connect this project to Meta so the app can read performance data, prepare posts, and track posted ad sets through Observation.
         </p>
       </div>
@@ -225,12 +225,12 @@ export default function MetaConnectPanel({ projectId }) {
             type="button"
             onClick={handleConnect}
             disabled={busy}
-            className="btn-primary disabled:opacity-50"
+            className="px-4 py-2 rounded-[7px] text-[13px] bg-ed-accent text-[#fbfaf6] hover:bg-ed-accent/90 transition-colors disabled:opacity-50"
           >
             {busy ? 'Opening…' : 'Connect Meta Account'}
           </button>
-          {error && <div className="mt-3 text-sm text-red-600">{error}</div>}
-          <p className="mt-3 text-xs text-textlight">
+          {error && <div className="mt-3 text-sm text-ed-rust">{error}</div>}
+          <p className="mt-3 text-xs text-ed-ink3">
             Requires Meta App ID + Secret in global Settings. Create one Facebook App once at
             developers.facebook.com; Creative Factory reuses it for every project's OAuth.
           </p>
@@ -239,9 +239,9 @@ export default function MetaConnectPanel({ projectId }) {
 
       {status?.connected && (
         <>
-          <div className="bg-teal/10 border border-teal/20 rounded-lg p-3 text-sm">
-            <div className="font-semibold text-teal">✓ Connected</div>
-            <div className="text-xs text-textmid mt-1">
+          <div className="bg-ed-green/10 border border-ed-green/20 rounded-lg p-3 text-sm">
+            <div className="font-semibold text-ed-green">✓ Connected</div>
+            <div className="text-xs text-ed-ink2 mt-1">
               As <strong>{status.user_name}</strong> ({status.user_id})
               {status.token_expires_at && (
                 <span> · token refreshes daily, currently valid until {new Date(status.token_expires_at).toLocaleDateString()}</span>
@@ -251,24 +251,24 @@ export default function MetaConnectPanel({ projectId }) {
 
           {/* Ad account picker */}
           <div>
-            <div className="text-xs font-semibold text-textmid mb-1">Ad account</div>
+            <div className="text-xs font-semibold text-ed-ink2 mb-1">Ad account</div>
             {status.account_id ? (
               <div className="flex items-center justify-between gap-2 bg-cream rounded p-2 text-sm">
                 <div>
                   <div className="font-semibold">{status.account_name || status.account_id}</div>
-                  <div className="text-xs text-textlight">{status.account_id}</div>
+                  <div className="text-xs text-ed-ink3">{status.account_id}</div>
                 </div>
-                <button type="button" onClick={() => loadStatus()} className="btn-secondary text-xs">Re-pick</button>
+                <button type="button" onClick={() => loadStatus()} className="ed-ghost text-xs">Re-pick</button>
               </div>
             ) : null}
             {(!status.account_id || accountsLoading || accounts.length > 0) && (
               <div className="mt-2">
-                <div className="text-xs text-textmid mb-1">
+                <div className="text-xs text-ed-ink2 mb-1">
                   {status.account_id ? 'Switch to a different account:' : 'Select the ad account this project should use:'}
                 </div>
-                {accountsLoading && <div className="text-xs text-textlight">Loading accounts…</div>}
+                {accountsLoading && <div className="text-xs text-ed-ink3">Loading accounts…</div>}
                 {!accountsLoading && accounts.length === 0 && (
-                  <div className="text-xs text-textlight">No ad accounts available for this Meta user.</div>
+                  <div className="text-xs text-ed-ink3">No ad accounts available for this Meta user.</div>
                 )}
                 {!accountsLoading && accounts.length > 0 && (
                   <div className="space-y-1 max-h-60 overflow-y-auto">
@@ -278,10 +278,10 @@ export default function MetaConnectPanel({ projectId }) {
                         type="button"
                         onClick={() => handleSelectAccount(a)}
                         disabled={busy || a.id === status.account_id}
-                        className={`w-full text-left p-2 rounded text-sm transition ${a.id === status.account_id ? 'bg-teal/10 border border-teal/30' : 'hover:bg-cream'} disabled:cursor-not-allowed`}
+                        className={`w-full text-left p-2 rounded text-sm transition ${a.id === status.account_id ? 'bg-ed-green/10 border border-ed-green/30' : 'hover:bg-ed-bg'} disabled:cursor-not-allowed`}
                       >
                         <div className="font-semibold">{a.name}</div>
-                        <div className="text-xs text-textlight">{a.id} · {a.business?.name || 'No business'}</div>
+                        <div className="text-xs text-ed-ink3">{a.id} · {a.business?.name || 'No business'}</div>
                       </button>
                     ))}
                   </div>
@@ -292,29 +292,29 @@ export default function MetaConnectPanel({ projectId }) {
 
           {/* Facebook Page picker */}
           <div>
-            <div className="text-xs font-semibold text-textmid mb-1">Facebook Page</div>
+            <div className="text-xs font-semibold text-ed-ink2 mb-1">Facebook Page</div>
             {!status.account_id ? (
-              <div className="text-xs text-textlight">Pick an ad account first.</div>
+              <div className="text-xs text-ed-ink3">Pick an ad account first.</div>
             ) : (
               <>
                 {status.page_id && (
                   <div className="bg-cream rounded p-2 text-sm flex items-center justify-between">
                     <div>
                       <div className="font-semibold">{status.page_name || status.page_id}</div>
-                      <div className="text-xs text-textlight">{status.page_id}</div>
+                      <div className="text-xs text-ed-ink3">{status.page_id}</div>
                     </div>
-                    <span className="text-xs text-teal">✓ Page selected</span>
+                    <span className="text-xs text-ed-green">✓ Page selected</span>
                   </div>
                 )}
-                {pagesLoading && <div className="text-xs text-textlight">Loading Pages…</div>}
+                {pagesLoading && <div className="text-xs text-ed-ink3">Loading Pages…</div>}
                 {!pagesLoading && pages.length === 0 && (
-                  <div className="text-xs text-textlight bg-cream rounded p-2">
+                  <div className="text-xs text-ed-ink3 bg-cream rounded p-2">
                     No Pages available for this Meta user. Posting requires admin/editor access on at least one Facebook Page. Add yourself as an admin in Meta Business Manager and refresh.
                   </div>
                 )}
                 {!pagesLoading && pages.length > 0 && (
                   <div className="mt-2">
-                    <div className="text-xs text-textmid mb-1">
+                    <div className="text-xs text-ed-ink2 mb-1">
                       {status.page_id ? 'Switch to a different Page:' : 'Select the Page to post ads from:'}
                     </div>
                     <div className="space-y-1 max-h-40 overflow-y-auto">
@@ -324,10 +324,10 @@ export default function MetaConnectPanel({ projectId }) {
                           type="button"
                           onClick={() => handleSelectPage(p)}
                           disabled={busy || p.id === status.page_id}
-                          className={`w-full text-left p-2 rounded text-sm transition ${p.id === status.page_id ? 'bg-teal/10 border border-teal/30' : 'hover:bg-cream'} disabled:cursor-not-allowed`}
+                          className={`w-full text-left p-2 rounded text-sm transition ${p.id === status.page_id ? 'bg-ed-green/10 border border-ed-green/30' : 'hover:bg-ed-bg'} disabled:cursor-not-allowed`}
                         >
                           <div className="font-semibold">{p.name}</div>
-                          <div className="text-xs text-textlight">{p.id} · {p.category || 'Page'}</div>
+                          <div className="text-xs text-ed-ink3">{p.id} · {p.category || 'Page'}</div>
                         </button>
                       ))}
                     </div>
@@ -339,11 +339,11 @@ export default function MetaConnectPanel({ projectId }) {
 
           {/* Integration path toggle */}
           <div className="border-t border-cream pt-4">
-            <div className="text-xs font-semibold text-textmid mb-1 flex items-center gap-1">
+            <div className="text-xs font-semibold text-ed-ink2 mb-1 flex items-center gap-1">
               Integration path
               <InfoTooltip text="Choose how this app talks to Meta when posting. The recommended connector path is slower but safer; Direct API is faster but can carry more account risk." position="right" />
             </div>
-            <p className="text-[11px] text-textlight mb-2">
+            <p className="text-[11px] text-ed-ink3 mb-2">
               Connector routes Meta operations through the safer posting path. Direct API uses Meta's Marketing API directly.
             </p>
             <div className="flex gap-2">
@@ -351,7 +351,7 @@ export default function MetaConnectPanel({ projectId }) {
                 type="button"
                 onClick={() => handleTogglePath('mcp')}
                 disabled={busy || status.integration_path === 'mcp'}
-                className={`flex-1 text-sm px-3 py-2 rounded ${status.integration_path === 'mcp' ? 'bg-navy text-white' : 'bg-cream text-textdark hover:bg-cream/70'} disabled:opacity-100 disabled:cursor-default`}
+                className={`flex-1 text-sm px-3 py-2 rounded ${status.integration_path === 'mcp' ? 'bg-ed-accent text-[#fbfaf6]' : 'bg-cream text-ed-ink hover:bg-cream/70'} disabled:opacity-100 disabled:cursor-default`}
               >
                 MCP — recommended
               </button>
@@ -359,7 +359,7 @@ export default function MetaConnectPanel({ projectId }) {
                 type="button"
                 onClick={() => handleTogglePath('api')}
                 disabled={busy || status.integration_path === 'api'}
-                className={`flex-1 text-sm px-3 py-2 rounded ${status.integration_path === 'api' ? 'bg-navy text-white' : 'bg-cream text-textdark hover:bg-cream/70'} disabled:opacity-100 disabled:cursor-default`}
+                className={`flex-1 text-sm px-3 py-2 rounded ${status.integration_path === 'api' ? 'bg-ed-accent text-[#fbfaf6]' : 'bg-cream text-ed-ink hover:bg-cream/70'} disabled:opacity-100 disabled:cursor-default`}
               >
                 Direct API
               </button>
@@ -377,13 +377,13 @@ export default function MetaConnectPanel({ projectId }) {
               type="button"
               onClick={handleDisconnect}
               disabled={busy}
-              className="btn-secondary text-xs"
+              className="ed-ghost text-xs"
             >
               Disconnect Meta
             </button>
           </div>
 
-          {error && <div className="text-sm text-red-600">{error}</div>}
+          {error && <div className="text-sm text-ed-rust">{error}</div>}
         </>
       )}
     </div>

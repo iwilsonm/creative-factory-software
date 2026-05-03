@@ -24,13 +24,13 @@ export const ASPECT_RATIOS = [
 ];
 
 export const STATUS_COLORS = {
-  pending: 'bg-black/5 text-textmid',
-  queued: 'bg-black/5 text-textmid',
-  generating_prompts: 'bg-navy/10 text-navy',
-  submitting: 'bg-navy/10 text-navy',
-  processing: 'bg-gold/10 text-gold',
-  saving_results: 'bg-gold/10 text-gold',
-  completed: 'bg-teal/10 text-teal',
+  pending: 'bg-black/5 text-ed-ink2',
+  queued: 'bg-black/5 text-ed-ink2',
+  generating_prompts: 'bg-ed-accent/10 text-ed-accent',
+  submitting: 'bg-ed-accent/10 text-ed-accent',
+  processing: 'bg-ed-gold/10 text-ed-gold',
+  saving_results: 'bg-ed-gold/10 text-ed-gold',
+  completed: 'bg-ed-green/10 text-ed-green',
   failed: 'bg-red-100/80 text-red-600'
 };
 

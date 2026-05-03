@@ -50,28 +50,28 @@ export default function BulkEditPanel({ selectedCards, campaigns, onSave, onCanc
     }
   };
 
-  const inputClass = "w-full text-[12px] text-textdark bg-white border border-black/10 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-navy/20";
-  const labelClass = "text-[10px] text-textmid font-medium block mb-1";
-  const touchedBorder = (key) => touched.has(key) ? 'ring-2 ring-gold/30' : '';
+  const inputClass = "w-full text-[12px] text-ed-ink bg-ed-surface border border-black/10 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-ed-accent/20";
+  const labelClass = "text-[10px] text-ed-ink2 font-medium block mb-1";
+  const touchedBorder = (key) => touched.has(key) ? 'ring-2 ring-ed-accent/30' : '';
 
   return (
     <>
-      <div className="border-2 border-navy/30 bg-navy/5 rounded-xl p-4 space-y-3 mb-5">
+      <div className="border-2 border-ed-accent/30 bg-ed-accent/5 rounded-xl p-4 space-y-3 mb-5">
         <div className="flex items-center justify-between mb-1">
-          <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-navy/20 text-navy text-[10px] font-bold uppercase tracking-widest">
+          <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-ed-accent/20 text-ed-accent text-[10px] font-bold uppercase tracking-widest">
             Bulk Edit — {selectedCards.size} ad{selectedCards.size !== 1 ? 's' : ''}
           </span>
           <div className="flex items-center gap-2">
             <button onClick={onCancel}
-              className="px-2.5 py-1 rounded-md text-[11px] text-textmid hover:bg-black/[0.04] transition-colors">Cancel</button>
+              className="px-2.5 py-1 rounded-md text-[11px] text-ed-ink2 hover:bg-black/[0.04] transition-colors">Cancel</button>
             <button onClick={() => setConfirmOpen(true)} disabled={saving || touched.size === 0}
-              className="px-3 py-1 rounded-md text-[11px] font-semibold bg-navy text-white hover:bg-navy-light transition-colors disabled:opacity-50">
+              className="px-3 py-1 rounded-md text-[11px] font-semibold bg-ed-accent text-white hover:bg-ed-accent-light transition-colors disabled:opacity-50">
               {saving ? 'Saving...' : `Apply to ${selectedCards.size} Ad${selectedCards.size !== 1 ? 's' : ''}`}
             </button>
           </div>
         </div>
 
-        <p className="text-[10px] text-textmid">Only fields you change will be applied. Unchanged fields are left as-is on each ad.</p>
+        <p className="text-[10px] text-ed-ink2">Only fields you change will be applied. Unchanged fields are left as-is on each ad.</p>
 
         <div className="grid grid-cols-2 gap-3">
           {/* Start Date */}
@@ -147,7 +147,7 @@ export default function BulkEditPanel({ selectedCards, campaigns, onSave, onCanc
         </div>
 
         {touched.size > 0 && (
-          <p className="text-[10px] text-gold font-medium">{touched.size} field{touched.size !== 1 ? 's' : ''} will be updated</p>
+          <p className="text-[10px] text-ed-accent font-medium">{touched.size} field{touched.size !== 1 ? 's' : ''} will be updated</p>
         )}
       </div>
 

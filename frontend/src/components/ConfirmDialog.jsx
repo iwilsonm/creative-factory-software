@@ -12,8 +12,8 @@ export default function ConfirmDialog({
   if (!open) return null;
 
   const confirmClass = tone === 'danger'
-    ? 'bg-red-500 hover:bg-red-600 text-white'
-    : 'bg-navy hover:bg-navy-light text-white';
+    ? 'bg-ed-rust hover:bg-ed-rust/90 text-white'
+    : 'bg-ed-accent hover:bg-ed-accent/90 text-[#fbfaf6]';
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 fade-in">
@@ -21,15 +21,15 @@ export default function ConfirmDialog({
         className="absolute inset-0 bg-black/45 backdrop-blur-sm"
         onClick={() => !busy && onCancel?.()}
       />
-      <div className="relative card w-full max-w-md p-6">
-        <h3 className="text-[16px] font-semibold text-textdark tracking-tight">{title}</h3>
-        <p className="text-[13px] text-textmid mt-2">{message}</p>
+      <div className="relative bg-ed-surface border border-ed-line rounded-xl shadow-card w-full max-w-md p-6">
+        <h3 className="font-serif text-[16px] font-[420] text-ed-ink tracking-tight">{title}</h3>
+        <p className="text-[13px] text-ed-ink2 mt-2">{message}</p>
         <div className="flex items-center justify-end gap-2 mt-6">
           <button
             type="button"
             onClick={onCancel}
             disabled={busy}
-            className="btn-secondary text-[13px] disabled:opacity-50"
+            className="ed-ghost text-[13px] disabled:opacity-50"
           >
             {cancelLabel}
           </button>
@@ -37,7 +37,7 @@ export default function ConfirmDialog({
             type="button"
             onClick={onConfirm}
             disabled={busy}
-            className={`px-4 py-2 rounded-xl text-[13px] font-semibold transition-colors disabled:opacity-50 ${confirmClass}`}
+            className={`px-4 py-2 rounded-[7px] text-[13px] font-medium transition-colors disabled:opacity-50 ${confirmClass}`}
           >
             {busy ? 'Working...' : confirmLabel}
           </button>

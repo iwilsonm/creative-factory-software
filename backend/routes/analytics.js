@@ -14,6 +14,8 @@ import {
   getCampaignsWithInsights,
   getAdSetsWithInsights,
   getAdsWithInsights,
+  getTimeseriesInsights,
+  getHourlyInsights,
 } from '../services/metaAnalytics.js';
 import { isTokenInvalidError } from '../services/metaApi.js';
 
@@ -137,6 +139,38 @@ router.get('/:projectId/analytics/ads', requireRole('admin', 'manager'), async (
     const ads = await getAdsWithInsights(project.meta_access_token, project.meta_account_id, opts);
     const enriched = await attachCfMetadata(ads, 'ad', req.params.projectId);
     res.json({ ads: enriched });
+  } catch (err) {
+    if (isTokenInvalidError(err)) return res.status(401).json({ error: 'Meta token expired. Reconnect.', code: 'TOKEN_EXPIRED' });
+    if (err.status === 400) return res.status(400).json({ error: err.message });
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/:projectId/analytics/timeseries', requireRole('admin', 'manager'), async (req, res) => {
+  try {
+    const project = await getProjectRawForMeta(req.params.projectId);
+    if (!project?.meta_access_token || !project?.meta_account_id) {
+      return res.status(400).json({ error: 'Connect Meta + select an ad account first.' });
+    }
+    const opts = await readDateOpts(req);
+    const data = await getTimeseriesInsights(project.meta_access_token, project.meta_account_id, opts);
+    res.json(data);
+  } catch (err) {
+    if (isTokenInvalidError(err)) return res.status(401).json({ error: 'Meta token expired. Reconnect.', code: 'TOKEN_EXPIRED' });
+    if (err.status === 400) return res.status(400).json({ error: err.message });
+    res.status(500).json({ error: err.message });
+  }
+});
+
+router.get('/:projectId/analytics/hourly', requireRole('admin', 'manager'), async (req, res) => {
+  try {
+    const project = await getProjectRawForMeta(req.params.projectId);
+    if (!project?.meta_access_token || !project?.meta_account_id) {
+      return res.status(400).json({ error: 'Connect Meta + select an ad account first.' });
+    }
+    const opts = await readDateOpts(req);
+    const data = await getHourlyInsights(project.meta_access_token, project.meta_account_id, opts);
+    res.json(data);
   } catch (err) {
     if (isTokenInvalidError(err)) return res.status(401).json({ error: 'Meta token expired. Reconnect.', code: 'TOKEN_EXPIRED' });
     if (err.status === 400) return res.status(400).json({ error: err.message });

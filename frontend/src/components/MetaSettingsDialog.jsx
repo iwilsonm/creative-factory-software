@@ -71,9 +71,9 @@ export default function MetaSettingsDialog({ open, adSet, onClose, onSave }) {
 
   return (
     <div className="fixed inset-0 z-50 bg-black/40 flex items-center justify-center p-4" onClick={onClose}>
-      <div className="bg-white rounded-2xl shadow-card-hover max-w-lg w-full p-6 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
-        <h3 className="text-lg font-semibold text-textdark mb-1">Edit Meta settings</h3>
-        <p className="text-xs text-textmid mb-4">Per-ad-set Meta config. Defaults inherited from the project's Ad-Set Defaults; override here.</p>
+      <div className="bg-ed-surface rounded-2xl shadow-card-hover max-w-lg w-full p-6 max-h-[90vh] overflow-y-auto" onClick={(e) => e.stopPropagation()}>
+        <h3 className="text-lg font-semibold text-ed-ink mb-1">Edit Meta settings</h3>
+        <p className="text-xs text-ed-ink2 mb-4">Per-ad-set Meta config. Defaults inherited from the project's Ad-Set Defaults; override here.</p>
 
         <div className="space-y-3">
           <Field label="Ad set name">
@@ -81,13 +81,13 @@ export default function MetaSettingsDialog({ open, adSet, onClose, onSave }) {
               type="text"
               value={name}
               onChange={(e) => setName(e.target.value)}
-              className="input-apple w-full"
+              className="input-apple !border-ed-line focus:!ring-ed-accent/20 focus:!border-ed-accent w-full"
             />
           </Field>
 
           <div className="grid grid-cols-2 gap-3">
             <Field label="Budget type">
-              <select value={budgetType} onChange={(e) => setBudgetType(e.target.value)} className="input-apple w-full">
+              <select value={budgetType} onChange={(e) => setBudgetType(e.target.value)} className="input-apple !border-ed-line focus:!ring-ed-accent/20 focus:!border-ed-accent w-full">
                 <option value="daily">Daily</option>
                 <option value="lifetime">Lifetime</option>
               </select>
@@ -99,7 +99,7 @@ export default function MetaSettingsDialog({ open, adSet, onClose, onSave }) {
                 value={budgetCents}
                 onChange={(e) => setBudgetCents(e.target.value)}
                 placeholder="e.g. 5000 = $50.00"
-                className="input-apple w-full"
+                className="input-apple !border-ed-line focus:!ring-ed-accent/20 focus:!border-ed-accent w-full"
               />
             </Field>
           </div>
@@ -110,7 +110,7 @@ export default function MetaSettingsDialog({ open, adSet, onClose, onSave }) {
                 type="datetime-local"
                 value={scheduleStart}
                 onChange={(e) => setScheduleStart(e.target.value)}
-                className="input-apple w-full"
+                className="input-apple !border-ed-line focus:!ring-ed-accent/20 focus:!border-ed-accent w-full"
               />
             </Field>
             <Field label="Schedule end (optional)">
@@ -118,7 +118,7 @@ export default function MetaSettingsDialog({ open, adSet, onClose, onSave }) {
                 type="datetime-local"
                 value={scheduleEnd}
                 onChange={(e) => setScheduleEnd(e.target.value)}
-                className="input-apple w-full"
+                className="input-apple !border-ed-line focus:!ring-ed-accent/20 focus:!border-ed-accent w-full"
               />
             </Field>
           </div>
@@ -130,7 +130,7 @@ export default function MetaSettingsDialog({ open, adSet, onClose, onSave }) {
                 value={optimizationGoal}
                 onChange={(e) => setOptimizationGoal(e.target.value)}
                 placeholder="e.g. CONVERSIONS"
-                className="input-apple w-full"
+                className="input-apple !border-ed-line focus:!ring-ed-accent/20 focus:!border-ed-accent w-full"
               />
             </Field>
             <Field label="Billing event">
@@ -139,7 +139,7 @@ export default function MetaSettingsDialog({ open, adSet, onClose, onSave }) {
                 value={billingEvent}
                 onChange={(e) => setBillingEvent(e.target.value)}
                 placeholder="e.g. IMPRESSIONS"
-                className="input-apple w-full"
+                className="input-apple !border-ed-line focus:!ring-ed-accent/20 focus:!border-ed-accent w-full"
               />
             </Field>
           </div>
@@ -150,7 +150,7 @@ export default function MetaSettingsDialog({ open, adSet, onClose, onSave }) {
               onChange={(e) => setTargetingJson(e.target.value)}
               rows={5}
               placeholder='{"age_min":25,"age_max":65,"geo_locations":{"countries":["US"]}}'
-              className="input-apple w-full font-mono text-xs"
+              className="input-apple !border-ed-line focus:!ring-ed-accent/20 focus:!border-ed-accent w-full font-mono text-xs"
             />
           </Field>
         </div>
@@ -158,8 +158,8 @@ export default function MetaSettingsDialog({ open, adSet, onClose, onSave }) {
         {error && <div className="mt-3 text-sm text-red-600">{error}</div>}
 
         <div className="mt-5 flex items-center justify-end gap-2">
-          <button type="button" onClick={onClose} className="btn-secondary">Cancel</button>
-          <button type="button" onClick={handleSave} disabled={saving} className="btn-primary disabled:opacity-50">
+          <button type="button" onClick={onClose} className="ed-ghost">Cancel</button>
+          <button type="button" onClick={handleSave} disabled={saving} className="px-4 py-2 rounded-[7px] text-[13px] bg-ed-accent text-[#fbfaf6] hover:bg-ed-accent/90 transition-colors disabled:opacity-50">
             {saving ? 'Saving…' : 'Save'}
           </button>
         </div>
@@ -171,7 +171,7 @@ export default function MetaSettingsDialog({ open, adSet, onClose, onSave }) {
 function Field({ label, children }) {
   return (
     <label className="block">
-      <span className="text-xs font-semibold text-textmid block mb-1">{label}</span>
+      <span className="text-xs font-semibold text-ed-ink2 block mb-1">{label}</span>
       {children}
     </label>
   );
