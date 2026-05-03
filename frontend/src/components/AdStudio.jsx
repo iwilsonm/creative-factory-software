@@ -91,14 +91,23 @@ function normalizeAdRecord(ad) {
   if (!ad) return ad;
   return {
     ...ad,
-    has_edit_prompt: ad.has_edit_prompt ?? !!ad.image_prompt,
+    has_edit_prompt: ad.has_edit_prompt ?? !!getEditablePrompt(ad),
   };
+}
+
+function getEditablePrompt(ad) {
+  const candidates = [
+    ad?.image_prompt,
+    ad?.gpt_creative_output,
+  ];
+  const prompt = candidates.find(value => typeof value === 'string' && value.trim());
+  return prompt ? prompt.trim() : '';
 }
 
 function hasAdDetail(ad) {
   // Detect whether an ad has been fully hydrated (ad list endpoints return a lighter shape).
-  // Uses presence of the `imageUrl` or `headline` fields, which only the single-ad endpoint returns.
-  return !!ad && (Object.prototype.hasOwnProperty.call(ad, 'imageUrl') || Object.prototype.hasOwnProperty.call(ad, 'headline'));
+  // The gallery list includes media URLs and copy fields, but not the canonical prompt field.
+  return !!ad && Object.prototype.hasOwnProperty.call(ad, 'image_prompt');
 }
 
 const DISPLAYABLE_IMAGE_STATUSES = new Set(['completed', 'staging', 'quality_rejected']);
@@ -332,7 +341,7 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
   }, [mergeAdData, projectId]);
 
   const openAdDetails = useCallback(async (ad) => {
-    if (!ad || ad.status !== 'completed') return null;
+    if (!isDisplayableImageAd(ad)) return null;
     setViewAd(ad);
     if (hasAdDetail(ad)) return ad;
     setViewAdLoading(true);
@@ -345,6 +354,15 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
       setViewAdLoading(false);
     }
   }, [hydrateAd, toast]);
+
+  useEffect(() => {
+    if (!viewAd || typeof document === 'undefined') return undefined;
+    const previousOverflow = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = previousOverflow;
+    };
+  }, [viewAd]);
 
   // Restore in-progress ads to the queue on mount
   useEffect(() => {
@@ -1394,15 +1412,17 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
     if (viewAd) setViewAd(null);
 
     let sourceAd = ad;
+    let sourcePrompt = getEditablePrompt(sourceAd);
     if (ad.generation_mode === 'image_only') {
       try {
         sourceAd = await hydrateAd(ad);
+        sourcePrompt = getEditablePrompt(sourceAd);
       } catch (err) {
         toast.error(err.message || 'Failed to load ad details.');
         return;
       }
-      if (!sourceAd?.image_prompt) {
-        toast.error('No prompt available for this ad.');
+      if (!sourcePrompt) {
+        toast.error('This ad does not have a saved generation prompt, so image editing is unavailable.');
         return;
       }
     }
@@ -1446,11 +1466,11 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
 
     let stream;
 
-    if (sourceAd.generation_mode === 'image_only' && sourceAd.image_prompt) {
+    if (sourceAd.generation_mode === 'image_only' && sourcePrompt) {
       // Prompt-edit ads: regenerate image with the same prompt
       updateGen(genId, { status: 'generating_image', message: 'Regenerating image...', progress: 10 });
       stream = api.regenerateImage(projectId, {
-        image_prompt: sourceAd.image_prompt,
+        image_prompt: sourcePrompt,
         aspect_ratio: sourceAd.aspect_ratio || '1:1',
         parent_ad_id: sourceAd.id,
         angle: sourceAd.angle || undefined,
@@ -1507,12 +1527,13 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
       toast.error(err.message || 'Failed to load ad details.');
       return;
     }
-    if (!editableAd?.image_prompt) {
-      toast.error('No prompt available for this ad.');
+    const editablePrompt = getEditablePrompt(editableAd);
+    if (!editablePrompt) {
+      toast.error('This ad does not have a saved generation prompt, so image editing is unavailable.');
       return;
     }
-    setCustomPrompt(editableAd.image_prompt);
-    setOriginalPromptRef(editableAd.image_prompt);
+    setCustomPrompt(editablePrompt);
+    setOriginalPromptRef(editablePrompt);
     setParentAdId(editableAd.id);
     setEditingAdImage(editableAd.imageUrl || editableAd.thumbnailUrl || ad.imageUrl || ad.thumbnailUrl || null);
     setAspectRatio(editableAd.aspect_ratio || '1:1');
@@ -3466,7 +3487,8 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
       )}
 
       {/* Full-size ad view modal */}
-      {viewAd && (
+      {viewAd && createPortal(
+        (
         <div
           className="fixed inset-0 bg-ed-bg0 backdrop-blur-sm z-50 flex items-center justify-center p-4"
           onClick={() => setViewAd(null)}
@@ -3529,7 +3551,7 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
                   </svg>
                   Regenerate
                 </button>
-                {(viewAd.has_edit_prompt || viewAd.image_prompt) && (
+                {(viewAd.has_edit_prompt || getEditablePrompt(viewAd)) && (
                   <button
                     onClick={(e) => handleEditPrompt(viewAd, e)}
                     className="col-span-2 flex items-center justify-center gap-1.5 py-2 px-3 bg-ed-accent text-white rounded-xl text-[12px] font-medium hover:bg-ed-accent-light transition-colors"
@@ -3558,7 +3580,7 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
               </div>
 
               {/* Edit workflow explanation */}
-              {(viewAd.has_edit_prompt || viewAd.image_prompt) && (
+              {(viewAd.has_edit_prompt || getEditablePrompt(viewAd)) && (
                 <div className="mb-5 p-3 bg-ed-accent/5 border border-ed-accent/10 rounded-xl">
                   <p className="text-[11px] font-medium text-ed-accent mb-1">How editing works</p>
                   <p className="text-[10px] text-ed-accent/70 leading-relaxed">
@@ -3683,11 +3705,11 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
                     </button>
                   </div>
                 </div>
-                {viewAd.image_prompt && (
+                {getEditablePrompt(viewAd) && (
                   <div>
                     <p className="text-[11px] text-ed-ink3 mb-1">Image Prompt</p>
                     <p className="text-ed-ink2 text-[12px] leading-relaxed max-h-40 overflow-y-auto whitespace-pre-wrap bg-ed-bg p-3 rounded-xl scrollbar-thin font-mono">
-                      {viewAd.image_prompt}
+                      {getEditablePrompt(viewAd)}
                     </p>
                   </div>
                 )}
@@ -3703,6 +3725,8 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
             </div>
           </div>
         </div>
+        ),
+        document.body
       )}
       {/* (Queue is now inline above the Ad Gallery) */}
       {/* Floating bulk action bar */}
