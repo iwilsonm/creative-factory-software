@@ -451,6 +451,7 @@ export default function BatchRow({ batch, onRunNow, onCancel, onDelete, onEdit, 
               progress={pct}
               message={msg}
               startTime={batch.started_at ? new Date(batch.started_at).getTime() : null}
+              timeMode="elapsed"
             />
           </div>
         );

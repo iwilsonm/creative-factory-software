@@ -45,7 +45,7 @@ function composeFlexFromAdSet(adSet, deployments) {
 
 // Phase 6.20b — split a save payload between ad_set-level fields (name) and
 // per-deployment fields (everything else). Returns { adSetFields, depFields }.
-const AD_SET_SCALAR_FIELDS = new Set(['name']);
+const AD_SET_SCALAR_FIELDS = new Set(['name', 'campaign_id']);
 function splitAdSetWriteFields(fields) {
   const adSetFields = {};
   const depFields = {};
@@ -119,38 +119,8 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
     });
   };
 
-  const [groupByDate, setGroupByDate] = useState(() => {
-    try { return localStorage.getItem('rtp_group_by_date') === 'true'; } catch { return false; }
-  });
-  const [expandedGroups, setExpandedGroups] = useState(new Set());
-  const [showDefaultDialog, setShowDefaultDialog] = useState(false);
-  const [pendingGroupValue, setPendingGroupValue] = useState(null);
-
-  // Clear selection on sort/group change
-  useEffect(() => { setSelectedCards(new Map()); }, [sortBy, groupByDate]);
-
-  const handleGroupByToggle = () => {
-    const newValue = !groupByDate;
-    if (!isPoster) {
-      setPendingGroupValue(newValue);
-      setShowDefaultDialog(true);
-    } else {
-      setGroupByDate(newValue);
-      try { localStorage.setItem('rtp_group_by_date', String(newValue)); } catch {}
-    }
-  };
-
-  const confirmGroupDefault = (saveDefault) => {
-    setGroupByDate(pendingGroupValue);
-    setShowDefaultDialog(false);
-    try { localStorage.setItem('rtp_group_by_date', String(pendingGroupValue)); } catch {}
-    if (saveDefault) {
-      // Save as default for all users by updating all browsers via localStorage
-      // (In a multi-user system, this could use the settings API, but localStorage is sufficient for now)
-      addToast(pendingGroupValue ? 'Group by Start Date set as default' : 'Default view restored', 'success');
-    }
-    setPendingGroupValue(null);
-  };
+  // Clear selection on sort change.
+  useEffect(() => { setSelectedCards(new Map()); }, [sortBy]);
 
   // Highlight + scroll to flex ad from deep link
   const requestedHighlightId = highlightAdSetId || highlightFlexAdId || null;
@@ -226,19 +196,6 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
   const safeAdSets = ensureArray(adSets, 'ReadyToPostView.adSetsState');
   const safeFlexAds = ensureArray(flexAds, 'ReadyToPostView.flexAdsState');
   const readyDeps = safeDeployments.filter(d => d.status === 'ready_to_post');
-
-  useEffect(() => {
-    if (!highlightedId || safeFlexAds.length === 0) return;
-    const target = safeFlexAds.find(f => f.id === highlightedId);
-    if (!target) return;
-    const dateKey = target.planned_date ? target.planned_date.split('T')[0] : '__none__';
-    setExpandedGroups(prev => {
-      const next = new Set(prev);
-      if (dateKey === '__none__') next.add(dateKey);
-      else next.delete(dateKey);
-      return next;
-    });
-  }, [highlightedId, flexAds]);
 
   // ── Helpers ──────────────────────────────────────────────────────────────
 
@@ -562,6 +519,11 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
       delete payload._campaign_id;
       delete payload._ad_set_name;
 
+      if (isFlex) {
+        if (newCampaignId) payload.campaign_id = newCampaignId;
+        if (adSetNameTyped) payload.name = adSetNameTyped;
+      }
+
       // Serialize arrays back to JSON strings
       if (isFlex) {
         payload.primary_texts = JSON.stringify(parseTextList(payload.primary_texts));
@@ -575,7 +537,7 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
       const adSetKey = isFlex ? 'ad_set_id' : 'local_adset_id';
       const currentAdSetId = payload[adSetKey] || '';
 
-      if (newCampaignId && adSetNameTyped) {
+      if (!isFlex && newCampaignId && adSetNameTyped) {
         // Look for existing ad set by name under this campaign
         const existingAdSet = safeAdSets.find(a => a.campaign_id === newCampaignId && a.name === adSetNameTyped);
         if (existingAdSet) {
@@ -635,6 +597,11 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
         // deployment objects so the next render shows the new values without
         // a roundtrip.
         setFlexAds(prev => ensureArray(prev, 'ReadyToPostView.flexAdsState').map(f => f.id === id ? { ...f, ...payload } : f));
+        if (Object.keys(adSetFields).length > 0) {
+          setAdSets(prev => ensureArray(prev, 'ReadyToPostView.adSetsState').map(a =>
+            a.id === id ? { ...a, ...adSetFields } : a
+          ));
+        }
         if (Object.keys(depFields).length > 0) {
           setDeployments(prev => ensureArray(prev, 'ReadyToPostView.deploymentsState').map(d =>
             children.some(c => c.id === d.id) ? { ...d, ...depFields } : d
@@ -663,6 +630,21 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
       addToast('Failed to save changes', 'error');
     }
     setSavingEdit(false);
+  };
+
+  const saveChildAdName = async (dep, value) => {
+    const nextName = (value || '').trim();
+    const currentName = dep.ad_name || dep.ad?.headline || '';
+    if (nextName === currentName) return;
+    try {
+      await api.updateDeployment(dep.id, { ad_name: nextName });
+      setDeployments(prev => ensureArray(prev, 'ReadyToPostView.deploymentsState').map(d =>
+        d.id === dep.id ? { ...d, ad_name: nextName } : d
+      ));
+      addToast('Ad name saved', 'success');
+    } catch {
+      addToast('Failed to save ad name', 'error');
+    }
   };
 
   const updateEditField = (key, value) => {
@@ -695,9 +677,6 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
     </svg>
   );
-
-  // CTA options for dropdown
-  const ctaOptions = ['SHOP_NOW', 'LEARN_MORE', 'SIGN_UP', 'SUBSCRIBE', 'DOWNLOAD', 'GET_OFFER', 'ORDER_NOW', 'BUY_NOW', 'BOOK_NOW', 'CONTACT_US', 'APPLY_NOW', 'GET_QUOTE', 'WATCH_MORE', 'SEND_MESSAGE', 'NO_BUTTON'];
 
   // ── Download Helpers ──────────────────────────────────────────────────────
 
@@ -766,29 +745,6 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
   };
 
   // ── Reusable UI ──────────────────────────────────────────────────────────
-
-  const CopyBtn = ({ text, label, small }) => {
-    if (!text || text.trim() === '' || text === '[]') return null;
-    return (
-      <button onClick={(e) => { e.stopPropagation(); copyToClipboard(text, label); }}
-        className={`inline-flex items-center gap-1 rounded-md bg-ed-accent/5 text-ed-accent font-medium hover:bg-ed-accent/10 transition-colors flex-shrink-0 ${
-          small ? 'px-1.5 py-0.5 text-[9px]' : 'px-2 py-1 text-[10px]'
-        }`}>
-        <svg className={small ? 'w-2.5 h-2.5' : 'w-3 h-3'} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-        </svg>
-        {label}
-      </button>
-    );
-  };
-
-  // Section label — big, clear, consistent
-  const SectionLabel = ({ children, helper }) => (
-    <div className="mb-2">
-      <div className="text-[13px] font-bold text-ed-ink">{children}</div>
-      {helper && <p className="text-[11px] text-ed-ink2 mt-0.5 leading-relaxed">{helper}</p>}
-    </div>
-  );
 
   // Render numbered text items with copy-tracking strikethrough
   const renderNumberedTexts = (jsonStr, sectionLabel, helper, cardKey, sectionId) => {
@@ -866,30 +822,6 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
 
   // ── Card Sections ──────────────────────────────────────────────────────
 
-  // Top info bar: Ad Name, Ad Format, Start Date — color-coded labels
-  const InfoBar = ({ name, adFormat, plannedDate }) => (
-    <div className="bg-ed-accent/5 border-b border-ed-line px-5 py-4 space-y-3">
-      {/* Ad Name */}
-      <div>
-        <span className="inline-block px-2 py-0.5 rounded bg-ed-accent/10 text-ed-accent text-[10px] font-bold uppercase tracking-widest mb-1">Ad Name</span>
-        <div className="text-[17px] font-bold text-ed-ink leading-tight">{name}</div>
-      </div>
-      {/* Ad Format + Date row */}
-      <div className="flex flex-wrap items-start gap-5">
-        <div>
-          <span className="inline-block px-2 py-0.5 rounded bg-ed-accent/10 text-ed-accent text-[10px] font-bold uppercase tracking-widest mb-1">Ad Format</span>
-          <div className="text-[14px] font-bold text-ed-ink">{adFormat}</div>
-        </div>
-        {plannedDate && (
-          <div>
-            <span className="inline-block px-2 py-0.5 rounded bg-ed-green/10 text-ed-green text-[10px] font-bold uppercase tracking-widest mb-1">Start Date</span>
-            <div className="text-[14px] font-bold text-ed-ink">{plannedDate}</div>
-          </div>
-        )}
-      </div>
-    </div>
-  );
-
   // Copy button with crossout tracking — for ad set name, rename, and ad name rows
   const CopyTrackBtn = ({ itemKey, text, label }) => {
     const isCopied = copiedItems.has(itemKey);
@@ -915,7 +847,7 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
     );
   };
 
-  // "Post in" section: Campaign + Ad Set + optional Duplicate Ad Set Name + Ad Name
+  // "Post in" section: Campaign + Ad Set + Ad Name
   const PostInSection = ({ campaignName, adSetName, duplicateAdSetName, adName, cardKey }) => {
     if (!campaignName && !adSetName) {
       return (
@@ -932,10 +864,8 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
     }
 
     const adsetKey = `${cardKey}-adset`;
-    const renameKey = `${cardKey}-adset-rename`;
     const adnameKey = `${cardKey}-adname`;
     const adsetCopied = copiedItems.has(adsetKey);
-    const renameCopied = copiedItems.has(renameKey);
     const adnameCopied = copiedItems.has(adnameKey);
 
     return (
@@ -947,17 +877,10 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
             <span className="text-[15px] font-bold text-ed-ink">{campaignName}</span>
           </div>
           <div className="flex items-center gap-3">
-            <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider text-center flex-shrink-0 ${duplicateAdSetName ? 'bg-[rgba(168,84,59,0.09)] text-ed-accent' : 'bg-ed-accent/10 text-ed-accent w-20'}`} style={duplicateAdSetName ? { minWidth: '5rem' } : undefined}>{duplicateAdSetName ? 'Duplicate This Ad Set' : 'Ad Set'}</span>
-            <span className={`text-[15px] font-bold flex-1 transition-all duration-300 ${adsetCopied ? 'line-through text-ed-ink2/60 decoration-ed-green/40' : 'text-ed-ink'}`}>{duplicateAdSetName || adSetName}</span>
-            <CopyTrackBtn itemKey={adsetKey} text={duplicateAdSetName || adSetName} label="Ad Set Name" />
+            <span className="inline-block px-2 py-0.5 rounded bg-ed-accent/10 text-ed-accent text-[10px] font-bold uppercase tracking-wider w-20 text-center flex-shrink-0">Ad Set</span>
+            <span className={`text-[15px] font-bold flex-1 transition-all duration-300 ${adsetCopied ? 'line-through text-ed-ink2/60 decoration-ed-green/40' : 'text-ed-ink'}`}>{adSetName}</span>
+            <CopyTrackBtn itemKey={adsetKey} text={adSetName} label="Ad Set Name" />
           </div>
-          {duplicateAdSetName && (
-            <div className="flex items-center gap-3">
-              <span className="inline-block px-2 py-0.5 rounded bg-[rgba(168,84,59,0.09)] text-ed-accent text-[10px] font-bold uppercase tracking-wider flex-shrink-0" style={{ minWidth: '5rem', textAlign: 'center' }}>Rename the Duplicated Ad Set</span>
-              <span className={`text-[15px] font-bold flex-1 transition-all duration-300 ${renameCopied ? 'line-through text-ed-ink2/60 decoration-ed-green/40' : 'text-ed-ink'}`}>{adSetName}</span>
-              <CopyTrackBtn itemKey={renameKey} text={adSetName} label="Rename Ad Set" />
-            </div>
-          )}
           {adName && (
             <div className="flex items-center gap-3">
               <span className="inline-block px-2 py-0.5 rounded bg-ed-accent/10 text-ed-accent text-[10px] font-bold uppercase tracking-wider w-20 text-center flex-shrink-0">Ad Name</span>
@@ -1219,12 +1142,13 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
           </div>
         </div>
 
-        {/* Ad Name */}
-        <div>
-          <label className="text-[10px] text-ed-ink2 font-medium block mb-1">Ad Name</label>
-          <input type="text" value={editFields[nameKey] || ''} onChange={e => updateEditField(nameKey, e.target.value)}
-            className="w-full text-[12px] text-ed-ink bg-white border border-ed-line rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-ed-accent/20" />
-        </div>
+        {!isFlex && (
+          <div>
+            <label className="text-[10px] text-ed-ink2 font-medium block mb-1">Ad Name</label>
+            <input type="text" value={editFields[nameKey] || ''} onChange={e => updateEditField(nameKey, e.target.value)}
+              className="w-full text-[12px] text-ed-ink bg-white border border-ed-line rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-ed-accent/20" />
+          </div>
+        )}
 
         {/* Campaign */}
         <div>
@@ -1256,88 +1180,6 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
           <p className="text-[10px] text-ed-ink3 mt-0.5">Type a name. If it matches an existing ad set, it will be reused. Otherwise a new one is created.</p>
         </div>
 
-        {/* Website URL */}
-        <div>
-          <label className="text-[10px] text-ed-ink2 font-medium block mb-1">Website URL</label>
-          <input type="text" value={editFields.destination_url || ''} onChange={e => updateEditField('destination_url', e.target.value)}
-            className="w-full text-[12px] text-ed-ink bg-white border border-ed-line rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-ed-accent/20" placeholder="https://..." />
-        </div>
-
-        {/* Display Link */}
-        <div>
-          <label className="text-[10px] text-ed-ink2 font-medium block mb-1">Display Link</label>
-          <input type="text" value={editFields.display_link || ''} onChange={e => updateEditField('display_link', e.target.value)}
-            className="w-full text-[12px] text-ed-ink bg-white border border-ed-line rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-ed-accent/20" placeholder="e.g. yourbrand.com" />
-        </div>
-
-        {/* CTA */}
-        <div>
-          <label className="text-[10px] text-ed-ink2 font-medium block mb-1">Call to Action</label>
-          <select value={editFields.cta_button || ''} onChange={e => updateEditField('cta_button', e.target.value)}
-            className="w-full text-[12px] text-ed-ink bg-white border border-ed-line rounded-lg px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-ed-accent/20 cursor-pointer">
-            <option value="">None</option>
-            {ctaOptions.map(opt => <option key={opt} value={opt}>{opt.replace(/_/g, ' ')}</option>)}
-          </select>
-        </div>
-
-        {/* Facebook Page */}
-        <div>
-          <label className="text-[10px] text-ed-ink2 font-medium block mb-1">Facebook Page</label>
-          <input type="text" value={editFields.facebook_page || ''} onChange={e => updateEditField('facebook_page', e.target.value)}
-            className="w-full text-[12px] text-ed-ink bg-white border border-ed-line rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-ed-accent/20" />
-        </div>
-
-        {/* Duplicate Ad Set Name */}
-        <div>
-          <label className="text-[10px] text-ed-ink2 font-medium block mb-1">Duplicate Ad Set Name</label>
-          <input type="text" value={editFields.duplicate_adset_name || ''} onChange={e => updateEditField('duplicate_adset_name', e.target.value)}
-            className="w-full text-[12px] text-ed-ink bg-white border border-ed-line rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-ed-accent/20" />
-        </div>
-
-        {/* Primary Texts */}
-        <div>
-          <div className="flex items-center justify-between mb-1">
-            <label className="text-[10px] text-ed-ink2 font-medium">Primary Texts</label>
-            <button onClick={() => addEditArrayItem('primary_texts')}
-              className="text-[10px] text-ed-accent font-medium hover:text-ed-accent transition-colors">+ Add</button>
-          </div>
-          {(editFields.primary_texts || []).map((text, i) => (
-            <div key={i} className="flex items-start gap-2 mb-1.5">
-              <span className="text-[10px] text-ed-ink3 font-bold mt-2 w-4 text-right flex-shrink-0">{i + 1}</span>
-              <textarea value={text} onChange={e => updateEditArrayItem('primary_texts', i, e.target.value)} rows={2}
-                className="flex-1 text-[12px] text-ed-ink bg-white border border-ed-line rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-ed-accent/20 resize-y" />
-              <button onClick={() => removeEditArrayItem('primary_texts', i)}
-                className="text-ed-rust hover:text-ed-rust mt-1.5 flex-shrink-0" title="Remove">
-                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            </div>
-          ))}
-        </div>
-
-        {/* Headlines */}
-        <div>
-          <div className="flex items-center justify-between mb-1">
-            <label className="text-[10px] text-ed-ink2 font-medium">Headlines</label>
-            <button onClick={() => addEditArrayItem(headlineKey)}
-              className="text-[10px] text-ed-accent font-medium hover:text-ed-accent transition-colors">+ Add</button>
-          </div>
-          {(editFields[headlineKey] || []).map((text, i) => (
-            <div key={i} className="flex items-start gap-2 mb-1.5">
-              <span className="text-[10px] text-ed-ink3 font-bold mt-2 w-4 text-right flex-shrink-0">{i + 1}</span>
-              <input type="text" value={text} onChange={e => updateEditArrayItem(headlineKey, i, e.target.value)}
-                className="flex-1 text-[12px] text-ed-ink bg-white border border-ed-line rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-ed-accent/20" />
-              <button onClick={() => removeEditArrayItem(headlineKey, i)}
-                className="text-ed-rust hover:text-ed-rust mt-1.5 flex-shrink-0" title="Remove">
-                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                </svg>
-              </button>
-            </div>
-          ))}
-        </div>
-
         {/* Save/Cancel bottom */}
         <div className="flex items-center justify-end gap-2 pt-2 border-t border-ed-accent/20">
           <button onClick={() => { setEditingCard(null); setEditFields({}); }}
@@ -1357,7 +1199,6 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
   const renderAdCard = (dep) => {
     const name = dep.ad_name || dep.ad?.headline || dep.ad?.angle || `Ad ${(dep.id || '').slice(0, 6)}`;
     const thumbUrl = dep.imageUrl;
-    const plannedDate = formatDate(dep.planned_date);
     const isMarking = markingPostedIds.has(dep.id);
     const isSendingBack = sendingBackIds.has(dep.id);
     const { campaignName, adSetName } = resolveLocation(dep);
@@ -1386,25 +1227,12 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
               </div>
               <div className="flex items-center gap-2 flex-wrap">
                 <span className="inline-block px-2 py-0.5 rounded bg-ed-accent/10 text-ed-accent text-[9px] font-bold uppercase tracking-wider">Ad Format: Single Image</span>
-                {plannedDate && (
-                  <span className="inline-block px-2 py-0.5 rounded bg-ed-green/10 text-ed-green text-[9px] font-bold uppercase tracking-wider">Start Date: {plannedDate}</span>
-                )}
               </div>
             </div>
             {thumbUrl && (
               <img src={thumbUrl} alt="" className="w-14 h-14 object-cover rounded-xl bg-ed-bg flex-shrink-0" loading="lazy" />
             )}
           </div>
-
-          {/* Added to Ready to Post timestamp */}
-          {formatAddedDate(dep.created_at) && (
-            <div className="flex items-center gap-1.5 text-[11px] text-ed-ink2">
-              <svg className="w-3.5 h-3.5 text-ed-ink3 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-              Added to Ready to Post: {formatAddedDate(dep.created_at)}
-            </div>
-          )}
 
           {/* Campaign + Ad Set + Duplicate Ad Set — always visible */}
           <PostInSection campaignName={campaignName} adSetName={adSetName} duplicateAdSetName={dep.duplicate_adset_name} adName={name} cardKey={dep.id} />
@@ -1423,7 +1251,7 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
             {isExpanded ? 'Hide Ad Details' : 'Show Ad Details'}
             {!isExpanded && (
               <span className="text-[10px] text-ed-accent/70 font-normal">
-                ({[dep.primary_texts && parseCount(dep.primary_texts) > 0 && 'Primary Text', dep.ad_headlines && parseCount(dep.ad_headlines) > 0 && 'Headline', dep.destination_url && 'Website URL', dep.display_link && 'Display Link', dep.cta_button && 'Call to Action', dep.facebook_page && 'Facebook Page'].filter(Boolean).join(', ') || 'No details'})
+                ({[thumbUrl && 'Image', dep.primary_texts && parseCount(dep.primary_texts) > 0 && 'Primary Text', dep.ad_headlines && parseCount(dep.ad_headlines) > 0 && 'Headline', 'Notes'].filter(Boolean).join(', ')})
               </span>
             )}
           </button>
@@ -1432,8 +1260,6 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
         {/* Collapsible details */}
         {isExpanded && (
           <div className="px-5 pb-5 space-y-4 border-t border-ed-line pt-4">
-            <FacebookPageSection page={dep.facebook_page} />
-
             {/* Image */}
             {thumbUrl && (
               <div className="border border-ed-line rounded-xl p-4 bg-ed-surface">
@@ -1467,10 +1293,6 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
               'Upload ALL of these into the "Headline" field. Meta will automatically test each one and show the best performer.',
               dep.id, 'headline'
             )}
-
-            <WebsiteUrlSection url={dep.destination_url} cardKey={dep.id} />
-            <DisplayLinkSection displayLink={dep.display_link} cardKey={dep.id} />
-            <CallToActionSection cta={dep.cta_button} />
 
             {/* Notes */}
             <NotesSection notes={dep.notes} cardKey={dep.id} depId={dep.id} />
@@ -1529,7 +1351,6 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
     const childDeps = getFlexChildDeps(flexAd);
     if (childDeps.length === 0) return null;
 
-    const plannedDate = formatDate(flexAd.planned_date);
     const flexId = `flex-${flexAd.id}`;
     const isMarking = markingPostedIds.has(flexId);
     const isSendingBack = sendingBackIds.has(flexId);
@@ -1587,70 +1408,6 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
             </div>
           </div>
 
-          {/* Added to Ready to Post timestamp */}
-          {formatAddedDate(flexAd.created_at) && (
-            <div className="flex items-center gap-1.5 text-[11px] text-ed-ink2">
-              <svg className="w-3.5 h-3.5 text-ed-ink3 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
-              </svg>
-              Added to Ready to Post: {formatAddedDate(flexAd.created_at)}
-            </div>
-          )}
-
-          {/* Start Date — ad set launch date */}
-          <div className="flex items-center gap-2">
-            <span className="text-[11px] text-ed-ink2 font-medium">Start Date:</span>
-            {!isPoster ? (
-              <div className="flex items-center gap-1">
-                <input
-                  type="date"
-                  value={flexAd.planned_date ? flexAd.planned_date.split('T')[0] : ''}
-                  onChange={async (e) => {
-                    const value = e.target.value || null;
-                    // Phase 6.20b — planned_date lives on each deployment.
-                    // Fan out the write to every child of this ad_set.
-                    setFlexAds(prev => prev.map(f => f.id === flexAd.id ? { ...f, planned_date: value } : f));
-                    setDeployments(prev => ensureArray(prev, 'ReadyToPostView.deploymentsState').map(d =>
-                      d.local_adset_id === flexAd.id ? { ...d, planned_date: value } : d
-                    ));
-                    try {
-                      const children = getFlexChildDeps(flexAd);
-                      await Promise.all(children.map(d => api.updateDeployment(d.id, { planned_date: value })));
-                    }
-                    catch { addToast('Failed to save start date', 'error'); }
-                  }}
-                  className="input-apple !border-ed-line focus:!ring-ed-accent/20 focus:!border-ed-accent text-[11px] py-1 px-2 w-[140px]"
-                />
-                {flexAd.planned_date && (
-                  <button
-                    onClick={async () => {
-                      setFlexAds(prev => prev.map(f => f.id === flexAd.id ? { ...f, planned_date: null } : f));
-                      setDeployments(prev => ensureArray(prev, 'ReadyToPostView.deploymentsState').map(d =>
-                        d.local_adset_id === flexAd.id ? { ...d, planned_date: null } : d
-                      ));
-                      try {
-                        const children = getFlexChildDeps(flexAd);
-                        await Promise.all(children.map(d => api.updateDeployment(d.id, { planned_date: null })));
-                      }
-                      catch { addToast('Failed to clear start date', 'error'); }
-                    }}
-                    className="text-ed-ink3 hover:text-ed-rust transition-colors p-0.5"
-                    title="Clear date"
-                  >
-                    <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                    </svg>
-                  </button>
-                )}
-              </div>
-            ) : (
-              <span className="text-[11px] text-ed-ink">
-                {flexAd.planned_date ? new Date(flexAd.planned_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'Not set'}
-              </span>
-            )}
-            <span className="text-[9px] text-ed-ink3">Ad set launch date in Ads Manager</span>
-          </div>
-
           {/* Campaign + Ad Set + Duplicate Ad Set — always visible */}
           <PostInSection campaignName={campaignName} adSetName={adSetName} duplicateAdSetName={flexAd.duplicate_adset_name} adName={flexAd.name || 'Ad Set'} cardKey={flexId} />
 
@@ -1668,7 +1425,7 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
             {isExpanded ? 'Hide Ad Details' : 'Show Ad Details'}
             {!isExpanded && (
               <span className="text-[10px] text-ed-accent/70 font-normal">
-                ({[depsWithImages.length > 0 && `${depsWithImages.length} Ad Creatives`, flexAd.primary_texts && parseCount(flexAd.primary_texts) > 0 && 'Primary Text', flexAd.headlines && parseCount(flexAd.headlines) > 0 && 'Headline', flexAd.destination_url && 'Website URL', flexAd.display_link && 'Display Link', flexAd.cta_button && 'Call to Action', flexAd.facebook_page && 'Facebook Page'].filter(Boolean).join(', ') || 'No details'})
+                ({[depsWithImages.length > 0 && `${depsWithImages.length} Images`, flexAd.primary_texts && parseCount(flexAd.primary_texts) > 0 && 'Primary Text', flexAd.headlines && parseCount(flexAd.headlines) > 0 && 'Headline', 'Notes'].filter(Boolean).join(', ')})
               </span>
             )}
           </button>
@@ -1677,8 +1434,6 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
         {/* Collapsible details */}
         {isExpanded && (
           <div className="px-5 pb-5 space-y-4 border-t border-ed-line pt-4">
-            <FacebookPageSection page={flexAd.facebook_page} />
-
             {/* Ad Creatives with download */}
             <div className="border border-ed-line rounded-xl p-4 bg-ed-surface">
               <div className="mb-1">
@@ -1752,7 +1507,17 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
                           </svg>
                         </button>
                       )}
-                      <div className="text-[10px] text-ed-ink2 mt-1 truncate">{d.ad_name || d.ad?.headline || ''}</div>
+                      {!isPoster ? (
+                        <input
+                          type="text"
+                          defaultValue={d.ad_name || d.ad?.headline || ''}
+                          onBlur={(e) => saveChildAdName(d, e.target.value)}
+                          className="mt-1 w-full text-[10px] text-ed-ink2 bg-white border border-ed-line rounded-md px-1.5 py-1 focus:outline-none focus:ring-1 focus:ring-ed-accent/20"
+                          aria-label="Ad name"
+                        />
+                      ) : (
+                        <div className="text-[10px] text-ed-ink2 mt-1 truncate">{d.ad_name || d.ad?.headline || ''}</div>
+                      )}
                     </div>
                   );
                 })}
@@ -1774,55 +1539,6 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
               'Upload ALL of these into the "Headline" field. Meta will automatically test each one and show the best performer.',
               flexId, 'headline'
             )}
-
-            {/* Website URL — merged gauntlet/legacy/PDP into one styled section */}
-            {(() => {
-              let gauntletUrls = [];
-              try { gauntletUrls = JSON.parse(flexAd.gauntlet_lp_urls || '[]'); } catch {}
-              let usedIndices = [];
-              try { usedIndices = JSON.parse(flexAd.destination_urls_used || '[]'); } catch {}
-
-              const hasGauntlet = gauntletUrls.length > 0;
-              const hasLegacy = !hasGauntlet && (flexAd.lp_primary_url || flexAd.lp_secondary_url);
-
-              // Build unified URL list — Product Page always first
-              const allUrls = [];
-              if (flexAd.destination_url && (hasGauntlet || hasLegacy)) {
-                allUrls.push({ url: flexAd.destination_url, label: 'Product Page' });
-              }
-              if (hasGauntlet) {
-                gauntletUrls.forEach(lp => {
-                  const isObj = typeof lp === 'object' && lp !== null;
-                  allUrls.push({ url: isObj ? lp.url : lp, label: isObj ? (lp.frameName || lp.frame) : null, score: isObj ? lp.score : null });
-                });
-              }
-              if (hasLegacy) {
-                if (flexAd.lp_primary_url) allUrls.push({ url: flexAd.lp_primary_url, label: 'Landing Page 1' });
-                if (flexAd.lp_secondary_url) allUrls.push({ url: flexAd.lp_secondary_url, label: 'Landing Page 2' });
-              }
-
-              if (allUrls.length === 0) {
-                return <WebsiteUrlSection url={flexAd.destination_url} cardKey={flexId} />;
-              }
-
-              const instructionText = hasGauntlet && gauntletUrls.length > 1
-                ? 'Create this ad with URL #1, then duplicate the ad in Ads Manager for each additional URL. Keep all duplicates in the same ad set — each duplicate is identical except for the website URL.'
-                : hasGauntlet
-                  ? 'Copy URL to use as the ad destination.'
-                  : 'Post BOTH LP and PDP as separate ads in the same ad set. Meta auto-optimizes.';
-
-              const handleMarkUsed = async (_index) => {
-                // Phase 6.20b — `destination_urls_used` was a legacy LP-feature
-                // tracking field. The composed flex-shape always returns ''
-                // for it (LP feature was removed in Phase 6), so no persisted
-                // state exists. Local copy-track UI still highlights via
-                // copiedItems; no backend write is needed.
-              };
-
-              return <WebsiteUrlSection urls={allUrls} cardKey={flexId} usedIndices={usedIndices} onMarkUsed={handleMarkUsed} instructionText={instructionText} />;
-            })()}
-            <DisplayLinkSection displayLink={flexAd.display_link} cardKey={flexId} />
-            <CallToActionSection cta={flexAd.cta_button} />
 
             {/* Notes */}
             <NotesSection notes={flexAd.notes} cardKey={flexId} depId={flexAd.id} isFlexCard />
@@ -1917,13 +1633,7 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
           if (aU !== bU) return aU ? -1 : 1;
           if (a.campaignName !== b.campaignName) return a.campaignName.localeCompare(b.campaignName);
           if (a.adSetName !== b.adSetName) return a.adSetName.localeCompare(b.adSetName);
-          if (a.plannedDate && b.plannedDate) return a.plannedDate.localeCompare(b.plannedDate);
-          if (a.plannedDate) return -1; if (b.plannedDate) return 1; return 0;
-        }
-        case 'planned_date': {
-          if (a.plannedDate && b.plannedDate) return a.plannedDate.localeCompare(b.plannedDate);
-          if (a.plannedDate) return -1; if (b.plannedDate) return 1;
-          return (b.createdAt || '').localeCompare(a.createdAt || '');
+          return 0;
         }
         case 'name':
           return a.name.localeCompare(b.name);
@@ -1983,31 +1693,15 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
           <p className="text-[11px] text-ed-ink2 mt-0.5">These ads are ready to be posted in Meta Ads Manager. Expand each card to see the full details and copy the content.</p>
         </div>
         <div className="flex items-center gap-2 shrink-0">
-          <button
-            onClick={handleGroupByToggle}
-            className={`text-[11px] px-3 py-1.5 rounded-lg font-medium transition-colors ${groupByDate ? 'bg-ed-accent text-white' : 'bg-ed-bg text-ed-ink2 border border-ed-line hover:bg-ed-accent/5'}`}
-          >
-            Group by Start Date
-          </button>
           <select
             value={sortBy}
             onChange={e => setSortBy(e.target.value)}
             className="text-[12px] text-ed-ink bg-ed-bg border border-ed-line rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-ed-accent/20 cursor-pointer"
           >
-            {groupByDate ? (
-              <>
-                <option value="newest">Sort within groups: Newest</option>
-                <option value="name">Sort within groups: Name (A-Z)</option>
-              </>
-            ) : (
-              <>
-                <option value="newest">Newest First</option>
-                <option value="oldest">Oldest First</option>
-                <option value="campaign">Campaign → Ad Set</option>
-                <option value="planned_date">Planned Date</option>
-                <option value="name">Name (A-Z)</option>
-              </>
-            )}
+            <option value="newest">Newest First</option>
+            <option value="oldest">Oldest First</option>
+            <option value="campaign">Campaign → Ad Set</option>
+            <option value="name">Name (A-Z)</option>
           </select>
         </div>
       </div>
@@ -2111,62 +1805,10 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
         />
       )}
 
-      {/* Cards — grouped by date or flat list */}
-      {groupByDate ? (
-        <div className="space-y-4">
-          {(() => {
-            // Group cards by planned_date
-            const groups = new Map();
-            cardList.forEach(card => {
-              const date = card.plannedDate ? card.plannedDate.split('T')[0] : '__none__';
-              if (!groups.has(date)) groups.set(date, []);
-              groups.get(date).push(card);
-            });
-            // Sort group keys: dates ascending, "No Start Date" last
-            const sortedKeys = [...groups.keys()].sort((a, b) => {
-              if (a === '__none__') return 1;
-              if (b === '__none__') return -1;
-              return a.localeCompare(b);
-            });
-            return sortedKeys.map(dateKey => {
-              const cards = groups.get(dateKey);
-              const isExpanded = dateKey === '__none__' ? expandedGroups.has(dateKey) : !expandedGroups.has(dateKey); // dates expanded by default, "no date" collapsed
-              const label = dateKey === '__none__'
-                ? 'No Start Date'
-                : new Date(dateKey + 'T00:00:00').toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric' });
-              return (
-                <div key={dateKey}>
-                  <button
-                    onClick={() => setExpandedGroups(prev => {
-                      const next = new Set(prev);
-                      if (next.has(dateKey)) next.delete(dateKey); else next.add(dateKey);
-                      return next;
-                    })}
-                    className="w-full flex items-center justify-between px-4 py-2.5 rounded-xl bg-ed-accent/5 hover:bg-ed-accent/10 transition-colors mb-2"
-                  >
-                    <div className="flex items-center gap-2">
-                      <svg className={`w-4 h-4 text-ed-accent transition-transform ${isExpanded ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
-                      </svg>
-                      <span className="text-[13px] font-semibold text-ed-accent">{label}</span>
-                    </div>
-                    <span className="text-[11px] text-ed-ink2 font-medium">{cards.length} ad{cards.length !== 1 ? 's' : ''}</span>
-                  </button>
-                  {isExpanded && (
-                    <div className="space-y-5 ml-2">
-                      {cards.map(card => card.type === 'single' ? renderAdCard(card.dep) : renderFlexCard(card.flexAd))}
-                    </div>
-                  )}
-                </div>
-              );
-            });
-          })()}
-        </div>
-      ) : (
-        <div className="space-y-5">
-          {cardList.map(card => card.type === 'single' ? renderAdCard(card.dep) : renderFlexCard(card.flexAd))}
-        </div>
-      )}
+      {/* Cards */}
+      <div className="space-y-5">
+        {cardList.map(card => card.type === 'single' ? renderAdCard(card.dep) : renderFlexCard(card.flexAd))}
+      </div>
 
       <ConfirmDialog
         open={deleteFlexConfirm !== null}
@@ -2176,16 +1818,6 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
         tone="danger"
         onConfirm={() => handleDeleteFlexAd(deleteFlexConfirm)}
         onCancel={() => setDeleteFlexConfirm(null)}
-      />
-
-      <ConfirmDialog
-        open={showDefaultDialog}
-        title={pendingGroupValue ? 'Group by Start Date?' : 'Turn off grouping?'}
-        message="Set this as the default view for all projects?"
-        confirmLabel="Yes, set as default"
-        cancelLabel="No, just this time"
-        onConfirm={() => confirmGroupDefault(true)}
-        onCancel={() => confirmGroupDefault(false)}
       />
 
       <ConfirmDialog

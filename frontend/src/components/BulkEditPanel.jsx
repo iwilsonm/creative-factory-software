@@ -2,8 +2,6 @@ import { useState } from 'react';
 import { api } from '../api';
 import ConfirmDialog from './ConfirmDialog';
 
-const ctaOptions = ['SHOP_NOW', 'LEARN_MORE', 'SIGN_UP', 'BUY_NOW', 'GET_OFFER', 'ORDER_NOW', 'SUBSCRIBE', 'CONTACT_US', 'DOWNLOAD', 'APPLY_NOW', 'BOOK_NOW', 'GET_QUOTE'];
-
 export default function BulkEditPanel({ selectedCards, campaigns, onSave, onCancel, addToast }) {
   const [fields, setFields] = useState({});
   const [touched, setTouched] = useState(new Set());
@@ -34,10 +32,13 @@ export default function BulkEditPanel({ selectedCards, campaigns, onSave, onCanc
       const updates = [];
       for (const [cardKey, cardType] of selectedCards) {
         const id = cardType === 'flex' ? cardKey.replace('flex-', '') : cardKey;
+        const payload = cardType === 'flex'
+          ? touchedFields
+          : Object.fromEntries(Object.entries(touchedFields).map(([key, value]) => [key === 'name' ? 'ad_name' : key, value]));
         if (cardType === 'flex') {
-          updates.push(api.updateFlexAd(id, touchedFields));
+          updates.push(api.updateFlexAd(id, payload));
         } else {
-          updates.push(api.updateDeployment(id, touchedFields));
+          updates.push(api.updateDeployment(id, payload));
         }
       }
       await Promise.all(updates);
@@ -73,76 +74,12 @@ export default function BulkEditPanel({ selectedCards, campaigns, onSave, onCanc
 
         <p className="text-[10px] text-ed-ink2">Only fields you change will be applied. Unchanged fields are left as-is on each ad.</p>
 
-        <div className="grid grid-cols-2 gap-3">
-          {/* Start Date */}
-          <div>
-            <label className={labelClass}>Start Date</label>
-            <input type="date" value={fields.planned_date || ''} onChange={e => updateField('planned_date', e.target.value || null)}
-              className={`${inputClass} ${touchedBorder('planned_date')}`} />
-          </div>
-
+        <div className="grid grid-cols-1 gap-3">
           {/* Ad Name */}
           <div>
             <label className={labelClass}>Ad Name</label>
             <input type="text" value={fields.name || ''} onChange={e => updateField('name', e.target.value)}
               className={`${inputClass} ${touchedBorder('name')}`} placeholder="Leave blank to keep existing" />
-          </div>
-
-          {/* Campaign */}
-          <div>
-            <label className={labelClass}>Campaign</label>
-            <select value={fields._campaign_id || ''} onChange={e => updateField('_campaign_id', e.target.value)}
-              className={`${inputClass} cursor-pointer ${touchedBorder('_campaign_id')}`}>
-              <option value="">Keep existing</option>
-              {(campaigns || []).map(c => (
-                <option key={c.id} value={c.id}>{c.name}</option>
-              ))}
-            </select>
-          </div>
-
-          {/* Ad Set Name */}
-          <div>
-            <label className={labelClass}>Ad Set Name</label>
-            <input type="text" value={fields._ad_set_name || ''} onChange={e => updateField('_ad_set_name', e.target.value)}
-              className={`${inputClass} ${touchedBorder('_ad_set_name')}`} placeholder="Leave blank to keep existing" />
-          </div>
-
-          {/* Website URL */}
-          <div>
-            <label className={labelClass}>Website URL</label>
-            <input type="text" value={fields.destination_url || ''} onChange={e => updateField('destination_url', e.target.value)}
-              className={`${inputClass} ${touchedBorder('destination_url')}`} placeholder="https://..." />
-          </div>
-
-          {/* Display Link */}
-          <div>
-            <label className={labelClass}>Display Link</label>
-            <input type="text" value={fields.display_link || ''} onChange={e => updateField('display_link', e.target.value)}
-              className={`${inputClass} ${touchedBorder('display_link')}`} placeholder="e.g. yourbrand.com" />
-          </div>
-
-          {/* CTA */}
-          <div>
-            <label className={labelClass}>Call to Action</label>
-            <select value={fields.cta_button || ''} onChange={e => updateField('cta_button', e.target.value)}
-              className={`${inputClass} cursor-pointer ${touchedBorder('cta_button')}`}>
-              <option value="">Keep existing</option>
-              {ctaOptions.map(opt => <option key={opt} value={opt}>{opt.replace(/_/g, ' ')}</option>)}
-            </select>
-          </div>
-
-          {/* Facebook Page */}
-          <div>
-            <label className={labelClass}>Facebook Page</label>
-            <input type="text" value={fields.facebook_page || ''} onChange={e => updateField('facebook_page', e.target.value)}
-              className={`${inputClass} ${touchedBorder('facebook_page')}`} placeholder="Leave blank to keep existing" />
-          </div>
-
-          {/* Duplicate Ad Set Name */}
-          <div className="col-span-2">
-            <label className={labelClass}>Duplicate Ad Set Name</label>
-            <input type="text" value={fields.duplicate_adset_name || ''} onChange={e => updateField('duplicate_adset_name', e.target.value)}
-              className={`${inputClass} ${touchedBorder('duplicate_adset_name')}`} placeholder="Leave blank to keep existing" />
           </div>
         </div>
 

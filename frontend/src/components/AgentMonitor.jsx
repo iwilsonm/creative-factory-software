@@ -2410,6 +2410,7 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
                 progress={activeRun.progress}
                 message={activeRun.phase}
                 startTime={activeRun.startTime}
+                timeMode="elapsed"
               />
             </div>
             <button

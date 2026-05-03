@@ -1,3 +1,5 @@
+import { useEffect, useState } from 'react';
+
 /**
  * PipelineProgress — Shared progress bar for all long-running SSE pipelines.
  *
@@ -11,10 +13,32 @@
  * Props:
  *   progress  (number 0-100)  — current percentage
  *   message   (string)        — current status text
- *   startTime (number|null)   — Date.now() timestamp for ETA calculation
+ *   startTime (number|null)   — Date.now() timestamp for time display
+ *   timeMode  ('estimate'|'elapsed') — show ETA or elapsed runtime
  *   className (string)        — optional wrapper class
  */
-export default function PipelineProgress({ progress = 0, message = '', startTime = null, className = '' }) {
+export default function PipelineProgress({ progress = 0, message = '', startTime = null, timeMode = 'estimate', className = '' }) {
+  const [, setTick] = useState(0);
+
+  useEffect(() => {
+    if (!startTime || progress >= 100) return undefined;
+    const interval = setInterval(() => setTick(t => t + 1), 1000);
+    return () => clearInterval(interval);
+  }, [startTime, progress]);
+
+  const formatElapsed = () => {
+    if (!startTime) return null;
+    const elapsed = Math.max(0, Math.floor((Date.now() - startTime) / 1000));
+    if (elapsed < 5) return null;
+    const mins = Math.floor(elapsed / 60);
+    const secs = elapsed % 60;
+    if (mins < 1) return `Elapsed ${secs}s`;
+    if (mins < 60) return secs > 0 ? `Elapsed ${mins}m ${secs}s` : `Elapsed ${mins}m`;
+    const hours = Math.floor(mins / 60);
+    const remMins = mins % 60;
+    return remMins > 0 ? `Elapsed ${hours}h ${remMins}m` : `Elapsed ${hours}h`;
+  };
+
   const getTimeEstimate = () => {
     if (!startTime || progress < 3) return null;
     const elapsed = (Date.now() - startTime) / 1000;
@@ -26,6 +50,8 @@ export default function PipelineProgress({ progress = 0, message = '', startTime
     if (remaining < 60) return `~${remaining}s remaining`;
     return `~${Math.ceil(remaining / 60)}m remaining`;
   };
+
+  const timeLabel = timeMode === 'elapsed' ? formatElapsed() : getTimeEstimate();
 
   return (
     <div className={`space-y-1.5 ${className}`}>
@@ -58,8 +84,8 @@ export default function PipelineProgress({ progress = 0, message = '', startTime
         </div>
         <div className="flex items-center gap-2 flex-shrink-0 ml-2">
           <span className={`text-[10px] font-medium ${progress >= 100 ? 'text-ed-green' : 'text-ed-accent'}`}>{progress}%</span>
-          {progress < 100 && getTimeEstimate() && (
-            <span className="text-[9px] text-ed-ink3">{getTimeEstimate()}</span>
+          {progress < 100 && timeLabel && (
+            <span className="text-[9px] text-ed-ink3">{timeLabel}</span>
           )}
         </div>
       </div>

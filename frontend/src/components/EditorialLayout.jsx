@@ -13,6 +13,16 @@ const TAB_MAP = [
   { key: 'overview',    label: 'Project Settings',   icon: CogIcon },
 ];
 
+function parsePinnedIds(raw) {
+  if (!raw) return [];
+  try {
+    const parsed = typeof raw === 'string' ? JSON.parse(raw) : raw;
+    return Array.isArray(parsed) ? parsed.filter(id => typeof id === 'string') : [];
+  } catch {
+    return [];
+  }
+}
+
 export default function EditorialLayout() {
   const navigate = useNavigate();
   const location = useLocation();
@@ -24,6 +34,7 @@ export default function EditorialLayout() {
   });
   const [mobileOpen, setMobileOpen] = useState(false);
   const [projectName, setProjectName] = useState('');
+  const [pinnedProjects, setPinnedProjects] = useState([]);
 
   const projectMatch = useMatch('/projects/:id');
   const projectId = projectMatch?.params?.id;
@@ -42,6 +53,29 @@ export default function EditorialLayout() {
       .catch(() => {});
     return () => { cancelled = true; };
   }, [projectId]);
+
+  const loadPinnedProjects = useCallback(() => {
+    let cancelled = false;
+    Promise.all([api.getSettings(), api.getProjects()])
+      .then(([settings, projects]) => {
+        if (cancelled) return;
+        const pinnedIds = parsePinnedIds(settings?.pinned_project_ids);
+        const projectList = Array.isArray(projects) ? projects : [];
+        const byId = new Map(projectList.map(project => [project.id, project]));
+        setPinnedProjects(pinnedIds.map(id => byId.get(id)).filter(Boolean));
+      })
+      .catch(() => {
+        if (!cancelled) setPinnedProjects([]);
+      });
+    return () => { cancelled = true; };
+  }, []);
+
+  useEffect(() => loadPinnedProjects(), [loadPinnedProjects]);
+
+  useEffect(() => {
+    window.addEventListener('pinned-projects-updated', loadPinnedProjects);
+    return () => window.removeEventListener('pinned-projects-updated', loadPinnedProjects);
+  }, [loadPinnedProjects]);
 
   const toggleCollapse = useCallback(() => {
     setCollapsed(prev => {
@@ -103,11 +137,13 @@ export default function EditorialLayout() {
           projectName={projectName}
           activeTab={activeTab}
           visibleTabs={visibleTabs}
+          pinnedProjects={pinnedProjects}
           isActive={isActive}
           isProjectsActive={isProjectsActive}
           isPoster={isPoster}
           isAdmin={isAdmin}
           onTabClick={handleTabClick}
+          onPinnedProjectClick={() => {}}
           onLogout={handleLogout}
         />
       </aside>
@@ -140,11 +176,13 @@ export default function EditorialLayout() {
                 projectName={projectName}
                 activeTab={activeTab}
                 visibleTabs={visibleTabs}
+                pinnedProjects={pinnedProjects}
                 isActive={isActive}
                 isProjectsActive={isProjectsActive}
                 isPoster={isPoster}
                 isAdmin={isAdmin}
                 onTabClick={handleTabClick}
+                onPinnedProjectClick={() => setMobileOpen(false)}
                 onLogout={handleLogout}
               />
             </div>
@@ -162,8 +200,8 @@ export default function EditorialLayout() {
 
 function SidebarContent({
   collapsed, user, userInitial, projectId, projectName, activeTab,
-  visibleTabs, isActive, isProjectsActive, isPoster, isAdmin,
-  onTabClick, onLogout,
+  visibleTabs, pinnedProjects = [], isActive, isProjectsActive, isPoster, isAdmin,
+  onTabClick, onPinnedProjectClick, onLogout,
 }) {
   return (
     <div className="flex flex-col gap-[18px] h-full min-h-0">
@@ -203,6 +241,25 @@ function SidebarContent({
           <FolderIcon /> <NavLabel collapsed={collapsed}>Projects</NavLabel>
         </NavItem>
       </div>
+
+      {pinnedProjects.length > 0 && (
+        <div>
+          {!collapsed && <SectionLabel>Pinned Projects</SectionLabel>}
+          {pinnedProjects.map(project => (
+            <NavItem
+              key={project.id}
+              active={locationPathIsProject(projectId, project.id)}
+              collapsed={collapsed}
+              onClick={onPinnedProjectClick}
+              as={Link}
+              to={`/projects/${project.id}`}
+              title={project.brand_name || project.name}
+            >
+              <PinIcon /> <NavLabel collapsed={collapsed}>{project.brand_name || project.name}</NavLabel>
+            </NavItem>
+          ))}
+        </div>
+      )}
 
       {/* Project tabs */}
       {projectId && (
@@ -261,6 +318,10 @@ function SidebarContent({
   );
 }
 
+function locationPathIsProject(activeProjectId, projectId) {
+  return !!activeProjectId && activeProjectId === projectId;
+}
+
 function SectionLabel({ children }) {
   return <div className="px-2.5 text-[10.5px] uppercase tracking-[0.12em] text-ed-ink3 mb-1.5">{children}</div>;
 }
@@ -300,6 +361,13 @@ function FolderIcon() {
   return (
     <svg className="w-4 h-4 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
       <path d="M22 19a2 2 0 01-2 2H4a2 2 0 01-2-2V5a2 2 0 012-2h5l2 3h9a2 2 0 012 2z" />
+    </svg>
+  );
+}
+function PinIcon() {
+  return (
+    <svg className="w-4 h-4 flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round">
+      <path d="M16 12V4h1V2H7v2h1v8l-2 2v2h5.2v6h1.6v-6H18v-2l-2-2z" />
     </svg>
   );
 }

@@ -42,6 +42,7 @@ export default function Projects() {
     setPinnedIds(next);
     try {
       await api.updateSettings({ pinned_project_ids: JSON.stringify(next) });
+      window.dispatchEvent(new Event('pinned-projects-updated'));
     } catch (err) {
       setPinnedIds(pinnedIds);
       toast.error(err.message || 'Failed to update pinned projects');
