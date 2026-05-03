@@ -307,11 +307,11 @@ export default function ProjectDetail() {
   // Phase 6 — Staging tab removed; ad-set lifecycle (draft / ready / posted /
   // observing / terminal) lives inside the unified Ad Pipeline tab.
   const allTabs = [
-    { id: 'ads', label: 'Ad Studio', tooltip: 'Generate individual ads or run batch generation.' },
-    { id: 'tracker', label: 'Ad Pipeline', tooltip: 'Plan, organize, and deploy ad sets to campaigns. Combines what was previously Planner + Staging + Ready-to-Post + Posted.' },
-    { id: 'analytics', label: 'Analytics', tooltip: 'Notion-style table of campaigns / ad sets / ads from Meta with tagging and saved views.' },
-    { id: 'observation', label: 'Observation', tooltip: 'Track posted ad sets through the 12-day observation window. Verdicts feed angle archive.' },
-    { id: 'overview', label: 'Project Settings', tooltip: 'Project configuration, foundational docs, and template library.' }
+    { id: 'ads', label: 'Ad Studio', tooltip: 'Generate individual ads or run background generation batches.' },
+    { id: 'tracker', label: 'Ad Pipeline', tooltip: 'Move ads from Queue to Planner, group them into ad sets, prepare them in Ready to Post, and track Posted work.' },
+    { id: 'analytics', label: 'Analytics', tooltip: 'Meta campaign, ad set, and ad performance with custom columns, filters, tags, notes, and drilldowns.' },
+    { id: 'observation', label: 'Observation', tooltip: 'Track posted ad sets during the observation window and use verdicts to guide which angles keep running.' },
+    { id: 'overview', label: 'Project Settings', tooltip: 'Project configuration, foundational docs, automation settings, Meta setup, and template library.' }
   ];
 
   // Poster only sees Ad Pipeline tab

@@ -521,7 +521,7 @@ export default function Settings() {
 
         {/* API Keys */}
         <div className="card p-6">
-          <h2 className="text-[15px] font-semibold text-textdark tracking-tight mb-4 flex items-center gap-1">API Keys <InfoTooltip text="API keys for OpenAI (document generation, creative direction) and Gemini (image generation). Required for the platform to function." position="right" /></h2>
+          <h2 className="text-[15px] font-semibold text-textdark tracking-tight mb-4 flex items-center gap-1">API Keys <InfoTooltip text="Shared API keys used by the app for copy generation, image generation, cost tracking, Meta connection, and automation." position="right" /></h2>
 
           {message && (
             <div className={`text-[13px] rounded-xl p-3 mb-4 ${
@@ -538,6 +538,7 @@ export default function Settings() {
               <label className="text-[13px] font-medium text-textmid mb-1.5 flex items-center gap-2">
                 OpenAI API Key
                 <KeyStatusPill set={!!settings.openai_api_key} />
+                <InfoTooltip text="Used for copywriting, Creative Director reasoning, GPT Image 2 image generation, and quality checks. GPT Image 2 also requires image-model access on the key's OpenAI organization." position="right" />
               </label>
               <div className="flex flex-wrap gap-2">
                 <input
@@ -581,6 +582,7 @@ export default function Settings() {
               <label className="text-[13px] font-medium text-textmid mb-1.5 flex items-center gap-2">
                 OpenAI Admin Key (for billing)
                 <KeyStatusPill set={!!settings.openai_admin_key} />
+                <InfoTooltip text="Used only for OpenAI billing/cost sync. This is different from the normal OpenAI API key." position="right" />
               </label>
               <input
                 type="password"
@@ -595,6 +597,7 @@ export default function Settings() {
               <label className="text-[13px] font-medium text-textmid mb-1.5 flex items-center gap-2">
                 Gemini API Key
                 <KeyStatusPill set={!!settings.gemini_api_key} />
+                <InfoTooltip text="Used for Gemini image generation and batch generation. Gemini costs are tracked with the image rates below." position="right" />
               </label>
               <div className="flex gap-2">
                 <input
@@ -624,6 +627,7 @@ export default function Settings() {
               <label className="text-[13px] font-medium text-textmid mb-1.5 flex items-center gap-2">
                 Anthropic API Key
                 <KeyStatusPill set={!!settings.anthropic_api_key} />
+                <InfoTooltip text="Used for Anthropic-powered reasoning paths, including Meta connector workflows when enabled." position="right" />
               </label>
               <div className="flex gap-2">
                 <input
@@ -648,6 +652,7 @@ export default function Settings() {
               <label className="text-[13px] font-medium text-textmid mb-1.5 flex items-center gap-2">
                 Meta App ID
                 <KeyStatusPill set={!!settings.meta_app_id} />
+                <InfoTooltip text="The Facebook App identifier used when projects connect their Meta ad account." position="right" />
               </label>
               <input
                 type="text"
@@ -667,6 +672,7 @@ export default function Settings() {
               <label className="text-[13px] font-medium text-textmid mb-1.5 flex items-center gap-2">
                 Meta App Secret
                 <KeyStatusPill set={!!settings.meta_app_secret} />
+                <InfoTooltip text="The private secret for the Facebook App. Required for Meta OAuth and kept hidden after saving." position="right" />
               </label>
               <input
                 type="password"
@@ -682,7 +688,7 @@ export default function Settings() {
         {/* Gemini Rates */}
         <div className="card p-6">
           <div className="flex justify-between items-start mb-1">
-            <h2 className="text-[15px] font-semibold text-textdark tracking-tight flex items-center gap-1">Gemini Image Rates <InfoTooltip text="Per-image pricing for Gemini image generation at different resolutions. Used to calculate cost tracking. Refresh to pull latest rates from Google." position="right" /></h2>
+            <h2 className="text-[15px] font-semibold text-textdark tracking-tight flex items-center gap-1">Gemini Image Rates <InfoTooltip text="Per-image pricing used for Gemini image cost tracking. Refresh pulls the latest known pricing; you can edit manually if pricing changes before the sync catches it." position="right" /></h2>
             <button
               onClick={handleRefreshRates}
               disabled={refreshingRates}
@@ -761,7 +767,7 @@ export default function Settings() {
 
         {/* Cost Sync */}
         <div className="card p-6">
-          <h2 className="text-[15px] font-semibold text-textdark tracking-tight mb-1 flex items-center gap-1">Cost Sync <InfoTooltip text="Manually trigger an OpenAI cost sync from the Billing API to update your dashboard cost tracking." position="right" /></h2>
+          <h2 className="text-[15px] font-semibold text-textdark tracking-tight mb-1 flex items-center gap-1">Cost Sync <InfoTooltip text="Manually refresh OpenAI cost data when the dashboard looks stale. Gemini image costs are logged by the app when generation runs." position="right" /></h2>
           <p className="text-[12px] text-textlight mb-4">
             OpenAI costs sync hourly from the Billing API. Requires an Admin API key above.
           </p>

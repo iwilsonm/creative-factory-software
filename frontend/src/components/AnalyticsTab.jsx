@@ -9,6 +9,7 @@ import TagPicker from './analytics/TagPicker';
 import TagManageDialog from './analytics/TagManageDialog';
 import SavedViewPicker from './analytics/SavedViewPicker';
 import SaveViewDialog from './analytics/SaveViewDialog';
+import InfoTooltip from './InfoTooltip';
 
 const LEVELS = [
   { id: 'campaigns', label: 'Campaigns', entity: 'campaign' },
@@ -604,8 +605,14 @@ export default function AnalyticsTab({ projectId }) {
       await loadAssignments();
       toast.success('Tag deleted');
     } catch (err) {
-      toast.error(err.message || 'Failed to delete tag');
-      throw err;
+      const message = err.message || '';
+      if (/tag not found|already removed/i.test(message)) {
+        await loadTags();
+        await loadAssignments();
+        toast.success('Tag was already removed');
+        return;
+      }
+      toast.error(message || 'Failed to delete tag');
     }
   };
 
@@ -692,6 +699,7 @@ export default function AnalyticsTab({ projectId }) {
         <select
           value={datePreset}
           onChange={(e) => setDatePreset(e.target.value)}
+          title="Choose the Meta reporting window. Use Custom for an exact start and end date."
           className="text-[12px] px-2 py-1.5 border border-gray-200 rounded-lg bg-white focus:outline-none focus:border-navy"
         >
           {DATE_PRESETS.map((p) => (
@@ -726,9 +734,12 @@ export default function AnalyticsTab({ projectId }) {
           onDelete={handleDeleteView}
         />
 
-        <button onClick={() => setShowManageTags(true)} className="btn-secondary text-[12px] px-3 py-1.5">
-          Manage tags
-        </button>
+        <span className="inline-flex items-center gap-1">
+          <button onClick={() => setShowManageTags(true)} className="btn-secondary text-[12px] px-3 py-1.5">
+            Manage tags
+          </button>
+          <InfoTooltip text="Create, rename, recolor, or delete project tags. Tags are shared across Analytics and Observation." position="bottom" />
+        </span>
 
         <button onClick={loadData} disabled={loading} className="btn-secondary text-[12px] px-3 py-1.5">
           {loading ? 'Loading...' : 'Refresh'}
@@ -760,13 +771,17 @@ export default function AnalyticsTab({ projectId }) {
       )}
 
       <div className="flex flex-wrap items-start gap-2">
-        <button onClick={() => setFilters((prev) => [...prev, newFilter(level)])} className="btn-secondary text-[12px] px-3 py-1.5">
-          + Filter
-        </button>
-        <div className="relative">
+        <span className="inline-flex items-center gap-1">
+          <button onClick={() => setFilters((prev) => [...prev, newFilter(level)])} className="btn-secondary text-[12px] px-3 py-1.5">
+            + Filter
+          </button>
+          <InfoTooltip text="Filter the rows currently loaded for this level. Filters stay with your current Campaign, Ad Set, or Ads view." position="bottom" />
+        </span>
+        <div className="relative inline-flex items-center gap-1">
           <button onClick={() => setShowColumnPicker((v) => !v)} className="btn-secondary text-[12px] px-3 py-1.5">
             Columns ({columns.length})
           </button>
+          <InfoTooltip text="Choose which Meta fields and local workflow fields appear in this table. Use saved views when you want to reuse a layout." position="bottom" />
           {showColumnPicker && (
             <ColumnPicker
               columns={columns}

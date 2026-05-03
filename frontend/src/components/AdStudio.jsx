@@ -1772,7 +1772,7 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
       {/* Generation Controls */}
       <div className="card p-6">
         <div className="mb-4">
-          <h3 className="text-[15px] font-semibold text-textdark tracking-tight mb-0.5 flex items-center gap-1">Generate Ad <InfoTooltip text="Create individual ad creatives using AI. Choose a template source, set your options, and generate." position="right" /></h3>
+          <h3 className="text-[15px] font-semibold text-textdark tracking-tight mb-0.5 flex items-center gap-1">Generate Ad <InfoTooltip text="Create one ad creative at a time. Pick a template reference, decide whether to include the product image, then choose the image generator." position="right" /></h3>
           <p className="text-[12px] text-textlight">
             Select a template image source, configure options, and generate a new ad creative.
           </p>
@@ -1782,7 +1782,10 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
 
         {/* Aspect Ratio */}
         <div className="mb-5">
-          <label className="block text-[13px] font-medium text-textmid mb-1.5">Aspect Ratio</label>
+          <label className="text-[13px] font-medium text-textmid mb-1.5 flex items-center gap-1">
+            Aspect Ratio
+            <InfoTooltip text="The image shape for the final ad. Choose the ratio that matches the placement you plan to use in Meta." position="right" />
+          </label>
           <select
             value={aspectRatio}
             onChange={e => setAspectRatio(e.target.value)}
@@ -1797,7 +1800,10 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
         {/* Template Image Source — hidden when using a custom prompt */}
         {!isCustomPromptMode && (
           <div className="mb-5">
-            <label className="block text-[13px] font-medium text-textmid mb-1.5">Template Image</label>
+            <label className="text-[13px] font-medium text-textmid mb-1.5 flex items-center gap-1">
+              Template Image
+              <InfoTooltip text="The layout/style reference for the new ad. The model should follow the structure while replacing content with this project's product and copy." position="right" />
+            </label>
             <p className="text-[11px] text-textlight mb-3">
               Choose the reference ad image the AI will analyze and recreate in your brand's style.
             </p>
@@ -2159,8 +2165,9 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
 
         {/* Product Image (project-level + optional per-ad override) */}
         <div className="mb-5">
-          <label className="block text-[11px] font-medium text-textmid mb-1.5">
+          <label className="text-[11px] font-medium text-textmid mb-1.5 flex items-center gap-1">
             Product Image
+            <InfoTooltip text="The product reference used for this ad. Keep it on when the product must appear; turn it off only for templates that intentionally do not show the product." position="right" />
           </label>
 
           {/* Product image toggle + indicator — always shown when project has a product image */}
@@ -2318,8 +2325,9 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
             <div className="px-6 pt-4 pb-1 fade-in">
               {/* Image model selector */}
               <div className="mb-5">
-                <label className="block text-[13px] font-medium text-textmid mb-1.5">
+                <label className="text-[13px] font-medium text-textmid mb-1.5 flex items-center gap-1">
                   Image Generator
+                  <InfoTooltip text="Choose which image model renders the final ad. Gemini is the default path; GPT Image 2 requires verified OpenAI image-model access." position="right" />
                 </label>
                 <select
                   value={imageModel}
@@ -2834,7 +2842,7 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
       <div ref={galleryRef}>
         <div className="flex items-center justify-between mb-4">
           <div>
-            <h3 className="text-[15px] font-semibold text-textdark tracking-tight flex items-center gap-1">Ad Gallery <InfoTooltip text="All generated ad creatives for this project. Click an ad to view details, download, or edit the prompt." position="right" /></h3>
+            <h3 className="text-[15px] font-semibold text-textdark tracking-tight flex items-center gap-1">Ad Gallery <InfoTooltip text="All generated ads for this project. Completed and failed ads can be selected for bulk actions; failed ads can be cleaned up with Delete." position="right" /></h3>
             {ads.length > 0 && (
               <p className="text-[12px] text-textlight">
                 {filteredAds.length} ad{filteredAds.length !== 1 ? 's' : ''}

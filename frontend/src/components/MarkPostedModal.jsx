@@ -111,7 +111,7 @@ export default function MarkPostedModal({ open, count, onClose, onConfirm }) {
 
           {showCronHint && !overCap && (
             <div className="text-[11px] bg-gold/10 border border-gold/30 rounded-lg p-2.5 text-textdark">
-              <strong>Heads up:</strong> backdate is {daysAgo} days. Phase 3 cron will evaluate this on the next tick (1am ICT).
+              <strong>Heads up:</strong> backdate is {daysAgo} days. Observation will evaluate this on the next scheduled check (1am ICT).
               Lifecycle may flip to a terminal verdict (passed / failed / etc.) by morning. Verify your benchmark settings.
             </div>
           )}

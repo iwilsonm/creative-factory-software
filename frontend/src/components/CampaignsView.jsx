@@ -2,6 +2,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { api } from '../api';
 // Phase 6.10 — Combine into Ad Set modal (replaces the legacy auto-name "Flexible Ad" combine flow)
 import CombineIntoAdSetModal from './CombineIntoAdSetModal';
+import InfoTooltip from './InfoTooltip';
 
 const CTA_OPTIONS = [
   'SHOP_NOW', 'LEARN_MORE', 'SIGN_UP', 'BOOK_NOW', 'CONTACT_US',
@@ -675,7 +676,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
       // Queue auto-generation of primary texts + headlines for the new flex ad
       autoGenFlexRef.current = { allDepIds };
     } catch (err) {
-      addToast(err.message || 'Failed to create flexible ad', 'error');
+      addToast(err.message || 'Failed to create ad set', 'error');
       await Promise.all([loadCampaignData(true), loadDeployments()]);
     }
     setCombiningFlex(false);
@@ -714,7 +715,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
         await api.ungroupAdSet(projectId, flexAdId);
         await loadCampaignData(true);
       } catch {
-        addToast('Failed to ungroup flexible ad', 'error');
+        addToast('Failed to ungroup ad set', 'error');
         await Promise.all([loadCampaignData(true), loadDeployments()]);
       }
     } else if (action === 'unplan') {
@@ -2233,7 +2234,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
                     </p>
                     <p className="text-[11px] text-textmid mt-1">
                       {isFlex
-                        ? `This will save the current flexible ad with the first URL, then duplicate all ${sidebarData?.deps?.length || 0} child ads for each extra URL — creating ${duplicateConfirm.urls.length - 1} new flexible ad${duplicateConfirm.urls.length > 2 ? 's' : ''}:`
+                        ? `This will save the current ad set with the first URL, then duplicate all ${sidebarData?.deps?.length || 0} child ads for each extra URL — creating ${duplicateConfirm.urls.length - 1} new ad set${duplicateConfirm.urls.length > 2 ? 's' : ''}:`
                         : `This will save the current ad with the first URL, then create ${duplicateConfirm.urls.length - 1} duplicate${duplicateConfirm.urls.length > 2 ? 's' : ''} — each with a different website URL:`
                       }
                     </p>
@@ -2304,11 +2305,11 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
     );
   }
 
-  const stagingItemCount = standaloneStagingDeps.length + stagingFlexAds.length;
+  const plannerItemCount = standaloneStagingDeps.length + stagingFlexAds.length;
 
   return (
     <div>
-      {/* ═══════════ Two-Column Layout: Queue (left) | Staging (right) ═══════════ */}
+      {/* ═══════════ Two-Column Layout: Queue (left) | Planner (right) ═══════════ */}
       <div className="flex gap-5 items-start">
 
         {/* ─── Left Column: Queue ─── */}
@@ -2349,7 +2350,9 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
                 </span>
               </div>
             </div>
-            <p className="text-[10px] text-textmid mt-1 leading-relaxed">Newly deployed ads land here. Drag them to the staging area to start planning.</p>
+            <p className="text-[10px] text-textmid mt-1 leading-relaxed">
+              Newly deployed ads land here. Move them into Planner when you are ready to organize them.
+            </p>
           </div>
 
           {/* Queue selection toolbar */}
@@ -2393,7 +2396,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
           </div>
         </div>
 
-        {/* ─── Right Column: Staging Area ─── */}
+        {/* ─── Right Column: Planner ─── */}
         <div
           className={`flex-1 min-w-0 card p-4 transition-all ${
             dropTarget === 'staging' ? 'ring-2 ring-gold bg-gold/5' : ''
@@ -2406,8 +2409,11 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-2">
               <div>
-                <h3 className="text-[14px] font-semibold text-textdark">Planner</h3>
-                <p className="text-[11px] text-textmid mt-0.5">Drag ads here to start planning. Click to fill in details and assign a campaign.</p>
+                <h3 className="text-[14px] font-semibold text-textdark flex items-center gap-1">
+                  Planner
+                  <InfoTooltip text="Planner is the holding area for ads you are organizing. Select multiple ads here to create an ad set, then move the ad set to Ready to Post." position="right" />
+                </h3>
+                <p className="text-[11px] text-textmid mt-0.5">Drag ads here to plan them, assign a campaign, or combine them into an ad set.</p>
               </div>
               {undoState && (
                 <button
@@ -2423,7 +2429,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
               )}
             </div>
             <span className="text-[11px] text-textlight bg-black/5 px-2 py-0.5 rounded-full">
-              {stagingItemCount} item{stagingItemCount !== 1 ? 's' : ''}
+              {plannerItemCount} item{plannerItemCount !== 1 ? 's' : ''}
             </span>
           </div>
 
@@ -2434,7 +2440,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
               <button
                 onClick={toggleSelectAllStaging}
                 className={`w-[14px] h-[14px] rounded flex-shrink-0 flex items-center justify-center transition-colors ${
-                  selectedInStaging.size === stagingItemCount && stagingItemCount > 0
+                  selectedInStaging.size === plannerItemCount && plannerItemCount > 0
                     ? 'bg-navy'
                     : selectedInStaging.size > 0
                       ? 'bg-navy/50'
@@ -2444,7 +2450,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
                 {selectedInStaging.size > 0 && (
                   <svg className="w-2 h-2 text-white" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={3} d={
-                      selectedInStaging.size === stagingItemCount ? "M5 13l4 4L19 7" : "M5 12h14"
+                          selectedInStaging.size === plannerItemCount ? "M5 13l4 4L19 7" : "M5 12h14"
                     } />
                   </svg>
                 )}
@@ -2454,7 +2460,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
                 <button
                   onClick={() => {
                     // Phase 6.10 — open Combine into Ad Set modal instead of
-                    // the legacy auto-name "Flexible Ad" combine. Resolves
+                    // the legacy auto-name combine. Resolves
                     // selected items to deployment IDs (handling both standalone
                     // deployments AND already-grouped flex/ad-set children).
                     const selected = [...selectedInStaging];
@@ -2481,7 +2487,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
                   <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2z" />
                   </svg>
-                  Combine into Ad Set
+                  Create Ad Set
                 </button>
               )}
               <button
@@ -2514,8 +2520,8 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
             </div>
           )}
 
-          {/* Staging content */}
-          {stagingItemCount === 0 ? (
+          {/* Planner content */}
+          {plannerItemCount === 0 ? (
             <div className={`py-12 text-center rounded-xl border-2 border-dashed transition-colors ${
               dropTarget === 'staging' ? 'border-gold bg-gold/10' : 'border-gray-200'
             }`}>
@@ -2525,12 +2531,12 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
                 </svg>
               </div>
               <p className="text-[13px] text-textlight">
-                {dropTarget === 'staging' ? 'Drop ads here' : 'Drag ads from Queue to start planning'}
+                {dropTarget === 'staging' ? 'Drop ads here' : 'Move ads from Queue to start planning'}
               </p>
             </div>
           ) : (
             <div className="space-y-1.5">
-              {/* Flex ads first */}
+              {/* Ad sets first */}
               {stagingFlexAds.map(flexAd => renderFlexAdCard(flexAd))}
               {/* Standalone deployments */}
               {standaloneStagingDeps.map(dep => renderDepCard(dep, { isDraggable: true, inStaging: true }))}

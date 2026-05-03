@@ -556,7 +556,7 @@ export async function getRecurringBatchCostEstimate() {
       breakdown.push({
         category: 'project',
         label: projName,
-        description: `${flexTarget}/day × ${adsPerBatch} ads${hasLP ? ' + LP' : ''} — collecting data`,
+        description: `${flexTarget}/day × ${adsPerBatch} ads${hasLP ? ' + landing pages' : ''} — collecting data`,
         period_total: 0,
         daily_avg: 0,
         per_ad: 0,
@@ -570,7 +570,7 @@ export async function getRecurringBatchCostEstimate() {
     const perAd = costs.batch / pbd.ads;
     const dailyBatchCost = perAd * adsPerBatch * flexTarget;
 
-    // Per-batch LP cost (only if LP Agent enabled)
+    // Per-batch landing page cost, for legacy projects that still have it configured.
     let dailyLPCost = 0;
     let perBatchLP = 0;
     if (hasLP && pbd.batches > 0 && costs.lp > 0) {
@@ -584,7 +584,7 @@ export async function getRecurringBatchCostEstimate() {
     breakdown.push({
       category: 'project',
       label: projName,
-      description: `${flexTarget}/day × ${adsPerBatch} ads${hasLP ? ' + LP' : ''}`,
+      description: `${flexTarget}/day × ${adsPerBatch} ads${hasLP ? ' + landing pages' : ''}`,
       period_total: Math.round((costs.batch + costs.lp) * 100) / 100,
       daily_avg: Math.round(dailyCost * 100) / 100,
       per_ad: Math.round(perAd * 10000) / 10000,

@@ -5,6 +5,7 @@
 
 import { useState, useEffect, useRef } from 'react';
 import { api } from '../api';
+import InfoTooltip from './InfoTooltip';
 
 const NAME_PATTERN = /^[a-zA-Z0-9 _\-—.]+$/; // letters, digits, space, underscore, hyphen, em-dash, period
 const LOCK_REFRESH_MS = 30_000; // refresh soft-lock every 30s
@@ -106,17 +107,21 @@ export default function CombineIntoAdSetModal({
       <div className="absolute inset-0 bg-black/45 backdrop-blur-sm" onClick={saving ? undefined : onClose} />
       <div className="relative bg-white rounded-2xl shadow-card w-[480px] max-w-full">
         <div className="px-5 py-4 border-b border-cream">
-          <h2 className="text-[15px] font-semibold text-textdark">Combine into Ad Set</h2>
+          <h2 className="text-[15px] font-semibold text-textdark flex items-center gap-1">
+            Combine into Ad Set
+            <InfoTooltip text="An ad set groups selected ads under one campaign/ad-set name for Ready to Post and Meta posting." position="right" />
+          </h2>
           <p className="text-[11px] text-textmid mt-0.5">
-            Grouping {deploymentIds.length} ad{deploymentIds.length === 1 ? '' : 's'} into a new ad set.
+            Grouping {deploymentIds.length} ad{deploymentIds.length === 1 ? '' : 's'} into a new ad set. You can expand it later to review the ads inside.
           </p>
         </div>
 
         <div className="p-5 space-y-4">
           {/* Ad set name */}
           <div>
-            <label className="block text-[12px] font-medium text-textdark mb-1">
+            <label className="text-[12px] font-medium text-textdark mb-1 flex items-center gap-1">
               Ad set name <span className="text-red-500">*</span>
+              <InfoTooltip text="Use a clear name for the group of ads, usually based on the angle or test you are running." position="right" />
             </label>
             <input
               autoFocus
@@ -142,8 +147,9 @@ export default function CombineIntoAdSetModal({
 
           {/* Campaign picker */}
           <div>
-            <label className="block text-[12px] font-medium text-textdark mb-1">
+            <label className="text-[12px] font-medium text-textdark mb-1 flex items-center gap-1">
               Campaign <span className="text-red-500">*</span>
+              <InfoTooltip text="Choose the campaign where this ad set belongs, or create a new local campaign name now." position="right" />
             </label>
             <div className="flex items-center gap-3 mb-2">
               <label className="flex items-center gap-1.5 text-[12px] cursor-pointer">

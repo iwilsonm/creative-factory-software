@@ -155,6 +155,9 @@ router.get('/:projectId/tags', requireRole('admin', 'manager'), async (req, res)
     const tags = await convexClient.query(api.tags.getByProject, { projectId: req.params.projectId });
     res.json({ tags: tags || [] });
   } catch (err) {
+    if (/tag not found|assignment not found/i.test(err.message || '')) {
+      return res.json({ success: true, message: 'Tag was already removed from this row.' });
+    }
     res.status(500).json({ error: err.message });
   }
 });
@@ -169,6 +172,9 @@ router.post('/:projectId/tags', requireRole('admin', 'manager'), async (req, res
     });
     res.json({ success: true, externalId });
   } catch (err) {
+    if (/tag not found|assignment not found/i.test(err.message || '')) {
+      return res.json({ success: true, count: 0, message: 'Tag was already removed from these rows.' });
+    }
     res.status(500).json({ error: err.message });
   }
 });
@@ -195,6 +201,9 @@ router.delete('/:projectId/tags/:tagId', requireRole('admin', 'manager'), async 
     });
     res.json({ success: true, deleted: result?.deleted !== false });
   } catch (err) {
+    if (/tag not found/i.test(err.message || '')) {
+      return res.json({ success: true, deleted: false, message: 'Tag was already removed.' });
+    }
     const status = /does not belong/i.test(err.message || '') ? 404 : 500;
     res.status(status).json({ error: err.message });
   }
@@ -214,6 +223,9 @@ router.get('/:projectId/tags/assignments', requireRole('admin', 'manager'), asyn
     });
     res.json({ assignments: assignments || [] });
   } catch (err) {
+    if (/tag not found|assignment not found/i.test(err.message || '')) {
+      return res.json({ success: true, message: 'Tag was already removed from this row.' });
+    }
     res.status(500).json({ error: err.message });
   }
 });
@@ -235,6 +247,9 @@ router.post('/:projectId/tags/assignments', requireRole('admin', 'manager'), asy
     });
     res.json({ success: true, externalId });
   } catch (err) {
+    if (/tag not found|assignment not found/i.test(err.message || '')) {
+      return res.json({ success: true, count: 0, message: 'Tag was already removed from these rows.' });
+    }
     res.status(500).json({ error: err.message });
   }
 });

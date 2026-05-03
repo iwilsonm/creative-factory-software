@@ -6,6 +6,7 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "audit:copy": "node scripts/audit-customer-copy.js",
     "preview": "vite preview"
   },
   "dependencies": {

@@ -7,6 +7,7 @@ import { useToast } from './Toast';
 import ObservationPill from './observation/ObservationPill';
 import AdSetTimeline from './observation/AdSetTimeline';
 import TagManageDialog from './analytics/TagManageDialog';
+import InfoTooltip from './InfoTooltip';
 import {
   BulkActionBar,
   COLUMN_DEFS,
@@ -366,22 +367,29 @@ export default function ObservationTab({ projectId }) {
           ))}
         </div>
         <div className="flex-1" />
-        <button onClick={() => setShowManageTags(true)} className="btn-secondary text-[12px] px-3 py-1.5">
-          Manage tags
-        </button>
+        <span className="inline-flex items-center gap-1">
+          <button onClick={() => setShowManageTags(true)} className="btn-secondary text-[12px] px-3 py-1.5">
+            Manage tags
+          </button>
+          <InfoTooltip text="Create, rename, recolor, or delete project tags. Observation uses the same tag system as Analytics." position="bottom" />
+        </span>
         <button onClick={load} disabled={loading} className="btn-secondary text-[12px] px-3 py-1.5">
           {loading ? 'Loading...' : 'Refresh'}
         </button>
       </div>
 
       <div className="flex flex-wrap items-start gap-2">
-        <button onClick={() => setFilters((prev) => [...prev, newFilter('observation')])} className="btn-secondary text-[12px] px-3 py-1.5">
-          + Filter
-        </button>
-        <div className="relative">
+        <span className="inline-flex items-center gap-1">
+          <button onClick={() => setFilters((prev) => [...prev, newFilter('observation')])} className="btn-secondary text-[12px] px-3 py-1.5">
+            + Filter
+          </button>
+          <InfoTooltip text="Filter observing ad sets by status, angle, spend, tags, notes, or other visible fields." position="bottom" />
+        </span>
+        <div className="relative inline-flex items-center gap-1">
           <button onClick={() => setShowColumnPicker((v) => !v)} className="btn-secondary text-[12px] px-3 py-1.5">
             Columns ({columns.length})
           </button>
+          <InfoTooltip text="Add or remove columns for angle, status, spend, verdict, tags, notes, and supported Meta metrics." position="bottom" />
           {showColumnPicker && (
             <ColumnPicker
               columns={columns}
@@ -592,8 +600,13 @@ export default function ObservationTab({ projectId }) {
             await loadTagsAndNotes();
             toast.success('Tag deleted');
           } catch (err) {
-            toast.error(err.message || 'Failed to delete tag');
-            throw err;
+            const message = err.message || '';
+            if (/tag not found|already removed/i.test(message)) {
+              await loadTagsAndNotes();
+              toast.success('Tag was already removed');
+              return;
+            }
+            toast.error(message || 'Failed to delete tag');
           }
         }}
       />

@@ -368,7 +368,7 @@ router.get('/run-batch-lp/:projectId/:batchId', async (req, res) => {
     // landing_pages table no longer used; this endpoint returns empty pages
     // and a static unavailable reason for any frontend that still queries it.
     const landingPages = [];
-    const lpUnavailableReason = 'LP Agent removed from Creative Factory in Phase 6.';
+    const lpUnavailableReason = 'Landing page generation is not available in Creative Factory.';
     const mappedPages = landingPages.map((page) => {
       const qaReport = safeParseJSON(page.qa_report, {});
       const smokeReport = safeParseJSON(page.smoke_test_report, {});

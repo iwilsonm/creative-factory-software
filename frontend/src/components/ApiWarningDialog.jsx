@@ -15,10 +15,10 @@ export default function ApiWarningDialog({ open, onCancel, onConfirm }) {
           <div className="flex-1">
             <h3 className="text-lg font-semibold text-textdark mb-1">Posting via direct API</h3>
             <p className="text-sm text-textmid">
-              People have been banned by posting ads via API. The MCP path is the safer option when available.
+              Direct API posting can carry account risk. The connector path is the safer option when available.
             </p>
             <p className="text-sm text-textmid mt-2">
-              If you understand the risk and want to continue, click <strong>Yes, post via API</strong>. Otherwise cancel and switch to the MCP path in Project Settings → Meta.
+              If you understand the risk and want to continue, click <strong>Yes, post via API</strong>. Otherwise cancel and switch to the connector path in Project Settings → Meta.
             </p>
           </div>
         </div>

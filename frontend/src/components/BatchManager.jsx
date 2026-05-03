@@ -520,10 +520,10 @@ export default function BatchManager({ projectId, project, onBatchComplete }) {
           <div>
             <h3 className="text-[15px] font-semibold text-textdark tracking-tight flex items-center gap-1">
               Batch Generation
-              <InfoTooltip text="Create batches of ads using the Gemini Batch API at 50% cost savings. Batches run in the background and can be scheduled to repeat." position="right" />
+              <InfoTooltip text="Create many ads as a background job. Use this when you want volume; use Ad Studio for one-off ads and Creative Director for automated angle-based ad sets." position="right" />
             </h3>
             <p className="text-[12px] text-textlight">
-              Generate multiple ads at once via Gemini Batch API (50% cost savings)
+              Generate multiple ads in the background when you need volume.
             </p>
           </div>
         </div>
@@ -563,8 +563,9 @@ export default function BatchManager({ projectId, project, onBatchComplete }) {
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-3">
               {/* Batch size */}
               <div>
-                <label className="block text-[11px] font-medium text-textmid mb-1">
+                <label className="text-[11px] font-medium text-textmid mb-1 flex items-center gap-1">
                   Batch Size
+                  <InfoTooltip text="How many image attempts this background batch should create. This is generated volume, not the number of ads that will pass QA." position="right" />
                 </label>
                 <input
                   type="number"
@@ -580,8 +581,9 @@ export default function BatchManager({ projectId, project, onBatchComplete }) {
 
               {/* Aspect ratio */}
               <div>
-                <label className="block text-[11px] font-medium text-textmid mb-1">
+                <label className="text-[11px] font-medium text-textmid mb-1 flex items-center gap-1">
                   Aspect Ratio
+                  <InfoTooltip text="The canvas shape for every generated image in this batch." position="right" />
                 </label>
                 <select
                   value={batchAspectRatio}
@@ -597,8 +599,9 @@ export default function BatchManager({ projectId, project, onBatchComplete }) {
 
               {/* Angle */}
               <div>
-                <label className="block text-[11px] font-medium text-textmid mb-1">
+                <label className="text-[11px] font-medium text-textmid mb-1 flex items-center gap-1">
                   Ad Topic / Angle <span className="text-textlight/60">(opt.)</span>
+                  <InfoTooltip text="Optional direction for the batch. Leave blank if you want the system to use project context and template guidance only." position="right" />
                 </label>
                 <input
                   value={batchAngle}
@@ -612,8 +615,9 @@ export default function BatchManager({ projectId, project, onBatchComplete }) {
 
             {/* Template Source */}
             <div className="mb-3">
-              <label className="block text-[11px] font-medium text-textmid mb-1.5">
+              <label className="text-[11px] font-medium text-textmid mb-1.5 flex items-center gap-1">
                 Template Image
+                <InfoTooltip text="The visual reference used for layout and style. Random uses your library; Manual Upload uses one file; Pick Template lets you choose specific references." position="right" />
               </label>
               <div className="segmented-control mb-2">
                 <button
@@ -826,8 +830,9 @@ export default function BatchManager({ projectId, project, onBatchComplete }) {
 
             {/* Product Image (project-level + optional per-batch override) */}
             <div className="mb-3">
-              <label className="block text-[11px] font-medium text-textmid mb-1.5">
+              <label className="text-[11px] font-medium text-textmid mb-1.5 flex items-center gap-1">
                 Product Image
+                <InfoTooltip text="The product reference the image model should preserve. Project default is used unless you override it for this batch." position="right" />
               </label>
 
               {/* Show project-level product image indicator */}

@@ -4,6 +4,7 @@ import { api } from '../api';
 import { ensureArray } from '../utils/collections';
 import ConfirmDialog from './ConfirmDialog';
 import BulkEditPanel from './BulkEditPanel';
+import InfoTooltip from './InfoTooltip';
 // Phase 6.20a — backdate picker on manual Mark as Posted
 import MarkPostedModal from './MarkPostedModal';
 
@@ -1530,11 +1531,14 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
             )}
             <div className="flex-1 min-w-0">
               <div className="text-[14px] leading-tight mb-1.5">
-                <span className="text-textmid font-medium">Ad Name: </span>
-                <span className="font-bold text-textdark">{flexAd.name || 'Flex Ad'}</span>
+                <span className="text-textmid font-medium">Ad Set: </span>
+                <span className="font-bold text-textdark">{flexAd.name || 'Ad Set'}</span>
               </div>
               <div className="flex items-center gap-2 flex-wrap">
-                <span className="inline-block px-2 py-0.5 rounded bg-navy/10 text-navy text-[9px] font-bold uppercase tracking-wider">Ad Format: Flexible</span>
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-navy/10 text-navy text-[9px] font-bold uppercase tracking-wider">
+                  Ad Set: Multiple Ads
+                  <InfoTooltip text="This card groups several ads that will be posted under the same campaign and Meta ad set." position="right" />
+                </span>
               </div>
             </div>
             <div className="flex gap-1 flex-shrink-0">
@@ -1614,7 +1618,7 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
           </div>
 
           {/* Campaign + Ad Set + Duplicate Ad Set — always visible */}
-          <PostInSection campaignName={campaignName} adSetName={adSetName} duplicateAdSetName={flexAd.duplicate_adset_name} adName={flexAd.name || 'Flex Ad'} cardKey={flexId} />
+          <PostInSection campaignName={campaignName} adSetName={adSetName} duplicateAdSetName={flexAd.duplicate_adset_name} adName={flexAd.name || 'Ad Set'} cardKey={flexId} />
 
           {/* Admin Edit Panel — always visible when editing (not inside collapsible) */}
           <EditPanel cardKey={flexId} id={flexAd.id} isFlex />
@@ -2132,9 +2136,9 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
 
       <ConfirmDialog
         open={deleteFlexConfirm !== null}
-        title="Delete Flex Ad?"
-        message="This will permanently remove this flex ad from Ready to Post."
-        confirmLabel="Delete"
+        title="Remove Ad Set from Ready to Post?"
+        message="This removes the ad set from Ready to Post and returns its child ads to the pipeline. The original generated ads stay in Ad Studio."
+        confirmLabel="Remove"
         tone="danger"
         onConfirm={() => handleDeleteFlexAd(deleteFlexConfirm)}
         onCancel={() => setDeleteFlexConfirm(null)}

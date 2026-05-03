@@ -325,7 +325,7 @@ router.put('/deployments/:id/posted-by', async (req, res) => {
  */
 router.put('/deployments/flex-ads/:id/posted-by', async (req, res) => {
   res.status(410).json({
-    error: 'Flex ads removed in Phase 6. Set posted_by on the deployment directly via PUT /deployments/:id.',
+    error: 'This old grouping endpoint is no longer available. Update the individual ad deployment instead.',
     code: 'FLEX_ADS_GONE',
   });
 });
@@ -705,7 +705,7 @@ router.post('/deployments/:id/duplicate', requireRole('admin', 'manager'), async
  */
 const flexAdsGoneHandler = (req, res) => {
   res.status(410).json({
-    error: 'Flex ads removed in Phase 6 (Meta retired flex ads). Use the unified ad-set CRUD at POST /api/projects/:projectId/ad-sets instead.',
+    error: 'This old grouping endpoint is no longer available. Use ad sets in the Ad Pipeline instead.',
     code: 'FLEX_ADS_GONE',
   });
 };

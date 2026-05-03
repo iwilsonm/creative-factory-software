@@ -50,13 +50,18 @@ export default function TagManageDialog({ open, tags, onClose, onCreate, onUpdat
     <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40">
       <div className="bg-white rounded-2xl shadow-card w-[480px] max-w-[92vw] p-6">
         <div className="flex items-center justify-between mb-4">
-          <h3 className="text-[15px] font-semibold text-textdark">Manage Tags</h3>
+          <div>
+            <h3 className="text-[15px] font-semibold text-textdark">Manage Tags</h3>
+            <p className="text-[11px] text-textlight mt-0.5">
+              Tags are project-wide labels shared by Analytics and Observation.
+            </p>
+          </div>
           <button onClick={onClose} className="text-textmid hover:text-textdark text-[18px] leading-none">×</button>
         </div>
 
         <div className="max-h-72 overflow-y-auto border border-gray-100 rounded-xl">
           {(tags || []).length === 0 && !creating && (
-            <div className="text-[12px] text-textlight px-3 py-4 text-center">No tags yet.</div>
+            <div className="text-[12px] text-textlight px-3 py-4 text-center">No tags yet. Create one to label campaigns, ad sets, ads, or observations.</div>
           )}
           {(tags || []).map(tag => (
             <div key={tag.externalId} className="flex items-center gap-3 px-3 py-2 border-b last:border-b-0 border-gray-100">

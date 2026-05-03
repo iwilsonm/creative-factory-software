@@ -204,8 +204,8 @@ async function phaseTokenRefresh(project, log) {
     await upsertDashboardTodo({
       externalId: `phase3-token-${project.externalId}`,
       text: `Reconnect Meta for project "${project.name || project.externalId}"`,
-      notes: 'Phase 3 observation cannot run until you reconnect Meta. Go to Project Settings → Meta.',
-      author: 'Phase 3 Observation',
+      notes: 'Observation cannot run until you reconnect Meta. Go to Project Settings → Meta.',
+      author: 'Observation system',
       priority: 0,
       sort_order: Date.now(),
     }).catch(() => {});

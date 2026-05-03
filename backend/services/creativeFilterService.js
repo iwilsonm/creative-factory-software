@@ -674,7 +674,9 @@ ALWAYS return ONLY a JSON object: { "headlines": ["h1", "h2", "..."] }`;
  */
 export async function deployFlexAd(flexAdDef, projectId, projectConfig, batchId, postingDay, angleName, generatedCopy) {
   const campaignId = projectConfig.scout_default_campaign;
-  if (!campaignId) throw new Error('No default campaign set for project (scout_default_campaign)');
+  if (!campaignId) {
+    throw new Error('Choose a default campaign in Creative Filter settings before running automation.');
+  }
 
   const effectiveAngle = angleName || flexAdDef.angle_theme || 'Unassigned';
   const cta = projectConfig.scout_cta || '';

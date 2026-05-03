@@ -100,7 +100,7 @@ export default function ObservationSettings({ projectId }) {
           <div>
             <h3 className="text-[14px] font-semibold text-textdark">Observation & Benchmark</h3>
             <p className="text-[11px] text-textlight mt-0.5">
-              Posted ad sets are observed for the window below. Verdicts use the benchmark — failures contribute to angle archive.
+              Posted ad sets are watched for the window below. At the end, the benchmark decides whether the angle should keep running, needs more data, or should be archived.
             </p>
             <p className="text-[10px] text-textlight mt-1">
               Account currency: <strong>{currency}</strong> · Benchmark version: v{version}
@@ -127,7 +127,7 @@ export default function ObservationSettings({ projectId }) {
 
           <Field
             label="Observation window (days)"
-            tooltip="Days to observe before evaluating verdict. Default 12."
+            tooltip="How many days an ad set should collect Meta performance data before the system decides whether it passed or failed. Default is 12."
             type="number" min={1} max={60}
             value={form.observation_window_days}
             onChange={(v) => set('observation_window_days', parseInt(v, 10) || 12)}
@@ -135,18 +135,18 @@ export default function ObservationSettings({ projectId }) {
 
           <hr className="border-gray-100" />
 
-          <h4 className="text-[12px] font-semibold text-textmid uppercase tracking-wider">Benchmark gates</h4>
+          <h4 className="text-[12px] font-semibold text-textmid uppercase tracking-wider">Benchmark rules</h4>
 
           <Field
-            label={`Min spend (${currency}) — below this is "starved" (fail) or "insufficient data"`}
-            tooltip="Sub-$0.50: starved (Meta refused to spend). Below min_spend but ≥ $0.50: insufficient_data. ≥ min_spend: evaluate primary metric."
+            label={`Minimum spend before judging (${currency})`}
+            tooltip="The ad set must spend at least this much before the system trusts the result. Very low spend means Meta did not give it enough delivery, so the result is treated separately from a true performance failure."
             type="number" step="0.01" min={0}
             value={form.benchmark_min_spend}
             onChange={(v) => set('benchmark_min_spend', parseFloat(v) || 0)}
           />
 
           <SegmentedControl
-            label="Primary metric"
+            label="Main success metric"
             value={form.benchmark_primary_gate}
             options={[
               { id: 'roas', label: 'ROAS (return on ad spend)' },
@@ -158,6 +158,7 @@ export default function ObservationSettings({ projectId }) {
           {form.benchmark_primary_gate === 'roas' ? (
             <Field
               label="Minimum ROAS"
+              tooltip="Return on ad spend. Example: 1.5 means the ad set must return at least $1.50 for every $1.00 spent."
               type="number" step="0.1" min={0}
               value={form.benchmark_roas_min}
               onChange={(v) => set('benchmark_roas_min', parseFloat(v) || 0)}
@@ -165,6 +166,7 @@ export default function ObservationSettings({ projectId }) {
           ) : (
             <Field
               label={`Maximum CPA (${currency})`}
+              tooltip="Cost per action. The ad set passes only if the chosen action costs this amount or less."
               type="number" step="0.01" min={0}
               value={form.benchmark_cpa_max}
               onChange={(v) => set('benchmark_cpa_max', parseFloat(v) || 0)}
@@ -172,8 +174,8 @@ export default function ObservationSettings({ projectId }) {
           )}
 
           <Field
-            label="CTR floor (fraction; empty = no floor)"
-            tooltip="Optional minimum CTR. Enter 0.01 for 1%, or leave blank to skip."
+            label="Optional CTR minimum"
+            tooltip="Click-through-rate guardrail. Enter 0.01 for 1%, or leave blank if CTR should not affect the verdict."
             type="text"
             placeholder="e.g. 0.01 or leave blank"
             value={form.benchmark_ctr_min === '' || form.benchmark_ctr_min == null ? '' : String(form.benchmark_ctr_min)}
@@ -181,8 +183,8 @@ export default function ObservationSettings({ projectId }) {
           />
 
           <Field
-            label="Action type (Meta event name driving ROAS/CPA)"
-            tooltip="Most stores use 'purchase'. Lead-gen uses 'lead'. Subscription uses 'complete_registration'. Must match what's tracked in Meta Pixel."
+            label="Meta event used for ROAS or CPA"
+            tooltip="The Meta Pixel event the system should evaluate. Stores usually use purchase; lead-gen usually uses lead. It must match the event tracked in Meta."
             type="text"
             value={form.benchmark_action_type}
             onChange={(v) => set('benchmark_action_type', v)}
@@ -190,19 +192,19 @@ export default function ObservationSettings({ projectId }) {
 
           <hr className="border-gray-100" />
 
-          <h4 className="text-[12px] font-semibold text-textmid uppercase tracking-wider">Angle archive</h4>
+          <h4 className="text-[12px] font-semibold text-textmid uppercase tracking-wider">Angle archiving</h4>
 
           <Field
-            label="Min ad sets tested before archive considered"
-            tooltip="Don't archive until the angle has been tested this many times. Marco's spec: 5."
+            label="Ad sets tested before archiving can happen"
+            tooltip="The system will not archive an angle until this many ad sets have completed observation. This prevents one unlucky test from shutting down an angle."
             type="number" min={1} max={100}
             value={form.archive_min_sample}
             onChange={(v) => set('archive_min_sample', parseInt(v, 10) || 5)}
           />
 
           <Field
-            label="Min distinct posting days for archive"
-            tooltip="Failed ad sets must span at least this many distinct calendar days to count for archive. Prevents same-day cohort gaming."
+            label="Different posting days required"
+            tooltip="Failed ad sets must span at least this many different calendar days before the angle can be archived. This protects against judging everything from one bad posting day."
             type="number" min={1} max={30}
             value={form.archive_min_unique_posting_days}
             onChange={(v) => set('archive_min_unique_posting_days', parseInt(v, 10) || 1)}

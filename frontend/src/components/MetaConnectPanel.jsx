@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react';
 import { api } from '../api';
 import { useToast } from './Toast';
+import InfoTooltip from './InfoTooltip';
 
 // Phase 2A — Per-project Meta OAuth + ad-account picker + integration path toggle.
 // Lives as the "Meta" sub-tab inside Project Settings. No data is shown until the
@@ -209,10 +210,12 @@ export default function MetaConnectPanel({ projectId }) {
   return (
     <div className="card p-6 space-y-5">
       <div>
-        <h2 className="text-[15px] font-semibold text-textdark tracking-tight">Meta integration</h2>
+        <h2 className="text-[15px] font-semibold text-textdark tracking-tight flex items-center gap-1">
+          Meta integration
+          <InfoTooltip text="Connect the Meta ad account and Facebook Page this project should use for analytics, posting, and observation." position="right" />
+        </h2>
         <p className="text-xs text-textmid mt-1">
-          Connect this project to a Meta ad account. Powers ad posting (Phase 2B), performance reads,
-          and the Analytics tab. Phase 2A is foundation — read-only.
+          Connect this project to Meta so the app can read performance data, prepare posts, and track posted ad sets through Observation.
         </p>
       </div>
 
@@ -228,8 +231,8 @@ export default function MetaConnectPanel({ projectId }) {
           </button>
           {error && <div className="mt-3 text-sm text-red-600">{error}</div>}
           <p className="mt-3 text-xs text-textlight">
-            Requires Meta App ID + Secret in global Settings. Marco creates a Facebook App once at
-            developers.facebook.com; CF reuses it for every project's OAuth.
+            Requires Meta App ID + Secret in global Settings. Create one Facebook App once at
+            developers.facebook.com; Creative Factory reuses it for every project's OAuth.
           </p>
         </div>
       )}
@@ -287,7 +290,7 @@ export default function MetaConnectPanel({ projectId }) {
             )}
           </div>
 
-          {/* Phase 2B — Facebook Page picker */}
+          {/* Facebook Page picker */}
           <div>
             <div className="text-xs font-semibold text-textmid mb-1">Facebook Page</div>
             {!status.account_id ? (
@@ -336,10 +339,12 @@ export default function MetaConnectPanel({ projectId }) {
 
           {/* Integration path toggle */}
           <div className="border-t border-cream pt-4">
-            <div className="text-xs font-semibold text-textmid mb-1">Integration path</div>
+            <div className="text-xs font-semibold text-textmid mb-1 flex items-center gap-1">
+              Integration path
+              <InfoTooltip text="Choose how this app talks to Meta when posting. The recommended connector path is slower but safer; Direct API is faster but can carry more account risk." position="right" />
+            </div>
             <p className="text-[11px] text-textlight mb-2">
-              MCP routes Meta operations through Anthropic's MCP connector — safer (Marco's preferred default).
-              API hits Meta's Marketing API directly — faster and cheaper but historically associated with account bans.
+              Connector routes Meta operations through the safer posting path. Direct API uses Meta's Marketing API directly.
             </p>
             <div className="flex gap-2">
               <button
@@ -361,7 +366,7 @@ export default function MetaConnectPanel({ projectId }) {
             </div>
             {status.integration_path === 'api' && (
               <div className="mt-2 text-xs text-orange-700 bg-orange-50 border border-orange-200 p-2 rounded">
-                <strong>⚠ Warning:</strong> People have been banned by posting ads via API. Use at your own risk; Phase 2B will surface this on every Post.
+                <strong>Warning:</strong> Direct API posting can carry account risk. Use the connector path unless you intentionally want the faster direct route.
               </div>
             )}
           </div>

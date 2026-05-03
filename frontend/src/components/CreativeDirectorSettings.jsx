@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { api } from '../api';
 import { useToast } from './Toast';
+import InfoTooltip from './InfoTooltip';
 
 // Per-project Creative Director deployment settings.
 // Fields:
@@ -146,7 +147,11 @@ export default function CreativeDirectorSettings({ project, onSaved, embedded = 
         </Field>
       )}
 
-      <Field label="Advanced Meta defaults (JSON)" hint="Optional Meta-side defaults applied to every new ad set: targeting, budget, schedule, optimization_goal, billing_event.">
+      <Field
+        label="Advanced Meta defaults"
+        hint="Optional. Leave blank unless you want every automated ad set to start with the same Meta budget, targeting, schedule, or optimization settings."
+        tooltip="This expects Meta settings in JSON format. Beginners can leave it blank and set campaign/ad-set details later in the Ad Pipeline."
+      >
         <textarea
           rows={6}
           value={adsetTemplate}
@@ -168,7 +173,7 @@ export default function CreativeDirectorSettings({ project, onSaved, embedded = 
           />
           <div>
             <div className="text-[13px] font-semibold text-textdark">Favor proven angles</div>
-            <div className="text-[11px] text-textmid">When on, angles with higher real-world pass rates are selected more often. New sub-angles get a 14-day exploration boost so they get tested before random rotation buries them. Off by default until validated.</div>
+            <div className="text-[11px] text-textmid">When on, angles with better observation results are selected more often. New angle variations still get a short exploration boost so they can be tested fairly.</div>
           </div>
         </label>
 
@@ -181,7 +186,7 @@ export default function CreativeDirectorSettings({ project, onSaved, embedded = 
           />
           <div>
             <div className="text-[13px] font-semibold text-textdark">Create new angle variations from winners</div>
-            <div className="text-[11px] text-textmid">When an angle accumulates 3+ passing observations, Claude proposes 1-3 related angle variations that preserve brand identity.</div>
+            <div className="text-[11px] text-textmid">When an angle gets enough passing observation results, the system can propose related angle variations that preserve the same brand direction.</div>
           </div>
         </label>
 
@@ -191,11 +196,11 @@ export default function CreativeDirectorSettings({ project, onSaved, embedded = 
             <div className="space-y-1">
               <label className="flex items-center gap-2 cursor-pointer">
                 <input type="radio" checked={derivationMode === 'auto'} onChange={() => setDerivationMode('auto')} />
-                <span className="text-[12px] text-textdark">Auto — sub-angles activate immediately</span>
+                <span className="text-[12px] text-textdark">Auto — new angle variations activate immediately</span>
               </label>
               <label className="flex items-center gap-2 cursor-pointer">
                 <input type="radio" checked={derivationMode === 'review'} onChange={() => setDerivationMode('review')} />
-                <span className="text-[12px] text-textdark">Review — sub-angles wait for approval before activation</span>
+                <span className="text-[12px] text-textdark">Review — new angle variations wait for approval before activation</span>
               </label>
             </div>
           </div>
@@ -213,10 +218,13 @@ export default function CreativeDirectorSettings({ project, onSaved, embedded = 
   );
 }
 
-function Field({ label, hint, children }) {
+function Field({ label, hint, tooltip, children }) {
   return (
     <label className="block">
-      <span className="text-xs font-semibold text-textmid block">{label}</span>
+      <span className="text-xs font-semibold text-textmid flex items-center gap-1">
+        {label}
+        {tooltip && <InfoTooltip text={tooltip} position="right" />}
+      </span>
       {hint && <span className="text-[11px] text-textlight block mb-1">{hint}</span>}
       {children}
     </label>

@@ -95,7 +95,7 @@ export async function evaluateAngleHealth(projectId, angleId, opts = {}) {
     externalId: `phase3-archived-${angleId}`,
     text: `Angle "${target.name}" auto-archived — ${performanceNote}`,
     notes: `Project: ${projectId}. Click to un-archive in Creative Director settings.`,
-    author: 'Phase 3 Observation',
+    author: 'Observation system',
     priority: 1,
     sort_order: Date.now(),
   }).catch((err) => {

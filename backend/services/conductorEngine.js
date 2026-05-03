@@ -646,8 +646,8 @@ function getBatchFailureReason(batch, slotProgress = null, targetCount = null) {
   if (batch.error_message) return batch.error_message;
   const diagnostics = getBatchDiagnosticsSummary(batch);
   if ((diagnostics?.usable_prompt_count || 0) === 0) return 'no_usable_prompts_after_stage1';
-  if (batch.status === 'completed' && batch.filter_processed && !batch.flex_ad_id) return 'completed_without_flex_ad';
-  if (batch.status === 'completed') return 'completed_without_flex_ad';
+  if (batch.status === 'completed' && batch.filter_processed && !batch.flex_ad_id) return 'QA finished, but no Ready-to-Post ad set was created.';
+  if (batch.status === 'completed') return 'Generation finished, but no Ready-to-Post ad set was created yet.';
   if (batch.status === 'failed') return 'batch_failed';
   return '';
 }
