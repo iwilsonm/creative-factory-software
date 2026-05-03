@@ -224,6 +224,93 @@ export async function getAdSetsWithInsights(token, accountId, opts = {}) {
   });
 }
 
+function firstRoasFromRow(row) {
+  const arr = row.purchase_roas || row.website_purchase_roas || [];
+  if (!Array.isArray(arr) || arr.length === 0) return 0;
+  const n = Number(arr[0]?.value || 0);
+  return Number.isFinite(n) ? n : 0;
+}
+
+export async function getTimeseriesInsights(token, accountId, opts = {}) {
+  const dateParams = buildDateParams(opts);
+  const fields = 'campaign_id,campaign_name,impressions,clicks,spend,ctr,purchase_roas,actions,action_values';
+  const params = { level: 'campaign', fields, time_increment: 1, ...dateParams };
+  const filters = [];
+  if (opts.campaignId) filters.push({ field: 'campaign.id', operator: 'IN', value: [opts.campaignId] });
+  if (filters.length > 0) params.filtering = JSON.stringify(filters);
+
+  const rows = await graphGetAll(token, `/${accountId}/insights`, params);
+  const purchaseActionTypes = ['purchase', 'omni_purchase', 'offsite_conversion.fb_pixel_purchase', 'onsite_conversion.purchase'];
+  const campaignNames = {};
+  const dailyRows = rows.map(r => {
+    if (r.campaign_id && r.campaign_name) campaignNames[r.campaign_id] = r.campaign_name;
+    return {
+      date: r.date_start,
+      campaign_id: r.campaign_id,
+      spend: Number(r.spend || 0),
+      impressions: Number(r.impressions || 0),
+      clicks: Number(r.clicks || 0),
+      ctr: Number(r.ctr || 0),
+      roas: firstRoasFromRow(r),
+      purchase_count: actionValue(r.actions, purchaseActionTypes),
+    };
+  });
+
+  const byDate = new Map();
+  for (const r of dailyRows) {
+    const existing = byDate.get(r.date) || { date: r.date, spend: 0, impressions: 0, clicks: 0, purchase_count: 0, _roasSum: 0, _roasCount: 0 };
+    existing.spend += r.spend;
+    existing.impressions += r.impressions;
+    existing.clicks += r.clicks;
+    existing.purchase_count += r.purchase_count;
+    if (r.roas > 0) { existing._roasSum += r.roas; existing._roasCount++; }
+    byDate.set(r.date, existing);
+  }
+  const timeseries = [...byDate.values()]
+    .map(d => ({
+      date: d.date,
+      spend: d.spend,
+      impressions: d.impressions,
+      clicks: d.clicks,
+      purchase_count: d.purchase_count,
+      roas: d._roasCount > 0 ? d._roasSum / d._roasCount : 0,
+      ctr: d.impressions > 0 ? (d.clicks / d.impressions) * 100 : 0,
+    }))
+    .sort((a, b) => a.date.localeCompare(b.date));
+
+  const byCampaign = {};
+  for (const r of dailyRows) {
+    if (!byCampaign[r.campaign_id]) byCampaign[r.campaign_id] = [];
+    byCampaign[r.campaign_id].push(r);
+  }
+
+  return { timeseries, byCampaign, campaignNames };
+}
+
+export async function getHourlyInsights(token, accountId, opts = {}) {
+  const dateParams = buildDateParams(opts);
+  const params = {
+    level: 'account',
+    fields: 'spend,impressions,clicks',
+    breakdowns: 'hourly_stats_aggregated_by_advertiser_time_zone',
+    ...dateParams,
+  };
+  const filters = [];
+  if (opts.campaignId) filters.push({ field: 'campaign.id', operator: 'IN', value: [opts.campaignId] });
+  if (filters.length > 0) params.filtering = JSON.stringify(filters);
+
+  const rows = await graphGetAll(token, `/${accountId}/insights`, params);
+  const hours = Array.from({ length: 24 }, () => ({ spend: 0, impressions: 0, clicks: 0 }));
+  for (const r of rows) {
+    const match = (r.hourly_stats_aggregated_by_advertiser_time_zone || '').match(/^(\d+):/);
+    const hour = match ? parseInt(match[1]) : 0;
+    hours[hour].spend += Number(r.spend || 0);
+    hours[hour].impressions += Number(r.impressions || 0);
+    hours[hour].clicks += Number(r.clicks || 0);
+  }
+  return { hours };
+}
+
 export async function getAdsWithInsights(token, accountId, opts = {}) {
   const dateParams = buildDateParams(opts);
   const path = opts.adsetId ? `/${opts.adsetId}/ads` : `/${accountId}/ads`;

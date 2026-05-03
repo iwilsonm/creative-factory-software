@@ -729,6 +729,14 @@ export const api = {
     const qs = new URLSearchParams(Object.entries(opts).filter(([, v]) => v != null && v !== '')).toString();
     return request(`/projects/${projectId}/analytics/ads${qs ? `?${qs}` : ''}`);
   },
+  getAnalyticsTimeseries: (projectId, opts = {}) => {
+    const qs = new URLSearchParams(Object.entries(opts).filter(([, v]) => v != null && v !== '')).toString();
+    return request(`/projects/${projectId}/analytics/timeseries${qs ? `?${qs}` : ''}`);
+  },
+  getAnalyticsHourly: (projectId, opts = {}) => {
+    const qs = new URLSearchParams(Object.entries(opts).filter(([, v]) => v != null && v !== '')).toString();
+    return request(`/projects/${projectId}/analytics/hourly${qs ? `?${qs}` : ''}`);
+  },
 
   // Tags CRUD
   getTags: (projectId) => request(`/projects/${projectId}/tags`),

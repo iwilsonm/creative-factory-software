@@ -737,7 +737,7 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
     if (!text || text.trim() === '' || text === '[]') return null;
     return (
       <button onClick={(e) => { e.stopPropagation(); copyToClipboard(text, label); }}
-        className={`inline-flex items-center gap-1 rounded-md bg-navy/5 text-navy font-medium hover:bg-navy/10 transition-colors flex-shrink-0 ${
+        className={`inline-flex items-center gap-1 rounded-md bg-ed-accent/5 text-ed-accent font-medium hover:bg-ed-accent/10 transition-colors flex-shrink-0 ${
           small ? 'px-1.5 py-0.5 text-[9px]' : 'px-2 py-1 text-[10px]'
         }`}>
         <svg className={small ? 'w-2.5 h-2.5' : 'w-3 h-3'} fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -751,8 +751,8 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
   // Section label — big, clear, consistent
   const SectionLabel = ({ children, helper }) => (
     <div className="mb-2">
-      <div className="text-[13px] font-bold text-textdark">{children}</div>
-      {helper && <p className="text-[11px] text-textmid mt-0.5 leading-relaxed">{helper}</p>}
+      <div className="text-[13px] font-bold text-ed-ink">{children}</div>
+      {helper && <p className="text-[11px] text-ed-ink2 mt-0.5 leading-relaxed">{helper}</p>}
     </div>
   );
 
@@ -777,15 +777,15 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
     };
 
     return (
-      <div className="border border-black/[0.06] rounded-xl p-4 bg-white">
+      <div className="border border-ed-line rounded-xl p-4 bg-ed-surface">
         <div className="flex items-start justify-between gap-3 mb-2">
           <div>
-            <span className="inline-block px-2 py-0.5 rounded bg-navy/10 text-navy text-[10px] font-bold uppercase tracking-widest mb-1">{sectionLabel}</span>
-            {helper && <p className="text-[11px] text-textmid mt-0.5 leading-relaxed">{helper}</p>}
+            <span className="inline-block px-2 py-0.5 rounded bg-ed-accent/10 text-ed-accent text-[10px] font-bold uppercase tracking-widest mb-1">{sectionLabel}</span>
+            {helper && <p className="text-[11px] text-ed-ink2 mt-0.5 leading-relaxed">{helper}</p>}
           </div>
           <button onClick={(e) => { e.stopPropagation(); handleCopyAll(); }}
-            className={`inline-flex items-center gap-1 rounded-md font-medium hover:bg-navy/10 transition-colors flex-shrink-0 px-2 py-1 text-[10px] ${
-              allCopied ? 'bg-teal/10 text-teal' : 'bg-navy/5 text-navy'
+            className={`inline-flex items-center gap-1 rounded-md font-medium hover:bg-ed-accent/10 transition-colors flex-shrink-0 px-2 py-1 text-[10px] ${
+              allCopied ? 'bg-ed-green/10 text-ed-green' : 'bg-ed-accent/5 text-ed-accent'
             }`}>
             <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               {allCopied ? (
@@ -802,16 +802,16 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
             const itemKey = `${cardKey}-${sectionId}-${i}`;
             const isCopied = copiedItems.has(itemKey);
             return (
-              <div key={i} className={`flex items-start gap-2.5 rounded-lg p-3 transition-all duration-300 ${isCopied ? 'bg-teal/5 border border-teal/10' : 'bg-offwhite'}`}>
+              <div key={i} className={`flex items-start gap-2.5 rounded-lg p-3 transition-all duration-300 ${isCopied ? 'bg-ed-green/5 border border-ed-green/10' : 'bg-ed-bg'}`}>
                 <span className={`text-[12px] font-bold rounded-full w-6 h-6 flex items-center justify-center flex-shrink-0 mt-0.5 transition-colors duration-300 ${
-                  isCopied ? 'bg-teal text-white' : 'bg-navy text-white'
+                  isCopied ? 'bg-ed-green text-white' : 'bg-ed-accent text-white'
                 }`}>{isCopied ? '✓' : i + 1}</span>
                 <div className={`flex-1 text-[13px] whitespace-pre-wrap leading-relaxed transition-all duration-300 ${
-                  isCopied ? 'line-through text-textmid/60 decoration-teal/40' : 'text-textdark'
+                  isCopied ? 'line-through text-ed-ink2/60 decoration-ed-green/40' : 'text-ed-ink'
                 }`}>{text}</div>
                 <button onClick={(e) => { e.stopPropagation(); handleCopyItem(text, 'Copy', i); }}
                   className={`inline-flex items-center gap-1 rounded-md font-medium transition-colors flex-shrink-0 px-1.5 py-0.5 text-[9px] ${
-                    isCopied ? 'bg-teal/10 text-teal hover:bg-teal/15' : 'bg-navy/5 text-navy hover:bg-navy/10'
+                    isCopied ? 'bg-ed-green/10 text-ed-green hover:bg-ed-green/15' : 'bg-ed-accent/5 text-ed-accent hover:bg-ed-accent/10'
                   }`}>
                   <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     {isCopied ? (
@@ -834,22 +834,22 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
 
   // Top info bar: Ad Name, Ad Format, Start Date — color-coded labels
   const InfoBar = ({ name, adFormat, plannedDate }) => (
-    <div className="bg-navy/[0.04] border-b border-black/[0.08] px-5 py-4 space-y-3">
+    <div className="bg-ed-accent/5 border-b border-ed-line px-5 py-4 space-y-3">
       {/* Ad Name */}
       <div>
-        <span className="inline-block px-2 py-0.5 rounded bg-navy/10 text-navy text-[10px] font-bold uppercase tracking-widest mb-1">Ad Name</span>
-        <div className="text-[17px] font-bold text-textdark leading-tight">{name}</div>
+        <span className="inline-block px-2 py-0.5 rounded bg-ed-accent/10 text-ed-accent text-[10px] font-bold uppercase tracking-widest mb-1">Ad Name</span>
+        <div className="text-[17px] font-bold text-ed-ink leading-tight">{name}</div>
       </div>
       {/* Ad Format + Date row */}
       <div className="flex flex-wrap items-start gap-5">
         <div>
-          <span className="inline-block px-2 py-0.5 rounded bg-navy/10 text-navy text-[10px] font-bold uppercase tracking-widest mb-1">Ad Format</span>
-          <div className="text-[14px] font-bold text-textdark">{adFormat}</div>
+          <span className="inline-block px-2 py-0.5 rounded bg-ed-accent/10 text-ed-accent text-[10px] font-bold uppercase tracking-widest mb-1">Ad Format</span>
+          <div className="text-[14px] font-bold text-ed-ink">{adFormat}</div>
         </div>
         {plannedDate && (
           <div>
-            <span className="inline-block px-2 py-0.5 rounded bg-teal/10 text-teal text-[10px] font-bold uppercase tracking-widest mb-1">Start Date</span>
-            <div className="text-[14px] font-bold text-textdark">{plannedDate}</div>
+            <span className="inline-block px-2 py-0.5 rounded bg-ed-green/10 text-ed-green text-[10px] font-bold uppercase tracking-widest mb-1">Start Date</span>
+            <div className="text-[14px] font-bold text-ed-ink">{plannedDate}</div>
           </div>
         )}
       </div>
@@ -867,7 +867,7 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
     return (
       <button onClick={handleCopy}
         className={`inline-flex items-center gap-1 rounded-md font-medium transition-colors flex-shrink-0 px-1.5 py-0.5 text-[9px] ${
-          isCopied ? 'bg-teal/10 text-teal hover:bg-teal/15' : 'bg-navy/5 text-navy hover:bg-navy/10'
+          isCopied ? 'bg-ed-green/10 text-ed-green hover:bg-ed-green/15' : 'bg-ed-accent/5 text-ed-accent hover:bg-ed-accent/10'
         }`}>
         <svg className="w-2.5 h-2.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           {isCopied ? (
@@ -885,14 +885,14 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
   const PostInSection = ({ campaignName, adSetName, duplicateAdSetName, adName, cardKey }) => {
     if (!campaignName && !adSetName) {
       return (
-        <div className="bg-gold/10 border-2 border-gold/30 rounded-xl p-4">
+        <div className="bg-[rgba(168,84,59,0.06)] border-2 border-ed-accent/30 rounded-xl p-4">
           <div className="flex items-center gap-2 mb-1">
-            <svg className="w-5 h-5 text-gold" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg className="w-5 h-5 text-ed-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
             </svg>
-            <span className="text-[13px] font-bold text-gold">Not Assigned to a Campaign</span>
+            <span className="text-[13px] font-bold text-ed-accent">Not Assigned to a Campaign</span>
           </div>
-          <p className="text-[12px] text-textmid">This ad hasn't been assigned to a campaign and ad set yet. Send it back to the Planner to assign it.</p>
+          <p className="text-[12px] text-ed-ink2">This ad hasn't been assigned to a campaign and ad set yet. Send it back to the Planner to assign it.</p>
         </div>
       );
     }
@@ -905,29 +905,29 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
     const adnameCopied = copiedItems.has(adnameKey);
 
     return (
-      <div className="bg-navy/5 border-2 border-navy/15 rounded-xl p-4">
-        <span className="inline-block px-2 py-0.5 rounded bg-navy text-white text-[10px] font-bold uppercase tracking-widest mb-3">Post This Ad In</span>
+      <div className="bg-ed-accent/5 border-2 border-ed-accent/15 rounded-xl p-4">
+        <span className="inline-block px-2 py-0.5 rounded bg-ed-accent text-white text-[10px] font-bold uppercase tracking-widest mb-3">Post This Ad In</span>
         <div className="space-y-2.5">
           <div className="flex items-center gap-3">
-            <span className="inline-block px-2 py-0.5 rounded bg-navy/10 text-navy text-[10px] font-bold uppercase tracking-wider w-20 text-center flex-shrink-0">Campaign</span>
-            <span className="text-[15px] font-bold text-textdark">{campaignName}</span>
+            <span className="inline-block px-2 py-0.5 rounded bg-ed-accent/10 text-ed-accent text-[10px] font-bold uppercase tracking-wider w-20 text-center flex-shrink-0">Campaign</span>
+            <span className="text-[15px] font-bold text-ed-ink">{campaignName}</span>
           </div>
           <div className="flex items-center gap-3">
-            <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider text-center flex-shrink-0 ${duplicateAdSetName ? 'bg-gold/15 text-gold' : 'bg-navy/10 text-navy w-20'}`} style={duplicateAdSetName ? { minWidth: '5rem' } : undefined}>{duplicateAdSetName ? 'Duplicate This Ad Set' : 'Ad Set'}</span>
-            <span className={`text-[15px] font-bold flex-1 transition-all duration-300 ${adsetCopied ? 'line-through text-textmid/60 decoration-teal/40' : 'text-textdark'}`}>{duplicateAdSetName || adSetName}</span>
+            <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wider text-center flex-shrink-0 ${duplicateAdSetName ? 'bg-[rgba(168,84,59,0.09)] text-ed-accent' : 'bg-ed-accent/10 text-ed-accent w-20'}`} style={duplicateAdSetName ? { minWidth: '5rem' } : undefined}>{duplicateAdSetName ? 'Duplicate This Ad Set' : 'Ad Set'}</span>
+            <span className={`text-[15px] font-bold flex-1 transition-all duration-300 ${adsetCopied ? 'line-through text-ed-ink2/60 decoration-ed-green/40' : 'text-ed-ink'}`}>{duplicateAdSetName || adSetName}</span>
             <CopyTrackBtn itemKey={adsetKey} text={duplicateAdSetName || adSetName} label="Ad Set Name" />
           </div>
           {duplicateAdSetName && (
             <div className="flex items-center gap-3">
-              <span className="inline-block px-2 py-0.5 rounded bg-gold/15 text-gold text-[10px] font-bold uppercase tracking-wider flex-shrink-0" style={{ minWidth: '5rem', textAlign: 'center' }}>Rename the Duplicated Ad Set</span>
-              <span className={`text-[15px] font-bold flex-1 transition-all duration-300 ${renameCopied ? 'line-through text-textmid/60 decoration-teal/40' : 'text-textdark'}`}>{adSetName}</span>
+              <span className="inline-block px-2 py-0.5 rounded bg-[rgba(168,84,59,0.09)] text-ed-accent text-[10px] font-bold uppercase tracking-wider flex-shrink-0" style={{ minWidth: '5rem', textAlign: 'center' }}>Rename the Duplicated Ad Set</span>
+              <span className={`text-[15px] font-bold flex-1 transition-all duration-300 ${renameCopied ? 'line-through text-ed-ink2/60 decoration-ed-green/40' : 'text-ed-ink'}`}>{adSetName}</span>
               <CopyTrackBtn itemKey={renameKey} text={adSetName} label="Rename Ad Set" />
             </div>
           )}
           {adName && (
             <div className="flex items-center gap-3">
-              <span className="inline-block px-2 py-0.5 rounded bg-navy/10 text-navy text-[10px] font-bold uppercase tracking-wider w-20 text-center flex-shrink-0">Ad Name</span>
-              <span className={`text-[15px] font-bold flex-1 transition-all duration-300 ${adnameCopied ? 'line-through text-textmid/60 decoration-teal/40' : 'text-textdark'}`}>{adName}</span>
+              <span className="inline-block px-2 py-0.5 rounded bg-ed-accent/10 text-ed-accent text-[10px] font-bold uppercase tracking-wider w-20 text-center flex-shrink-0">Ad Name</span>
+              <span className={`text-[15px] font-bold flex-1 transition-all duration-300 ${adnameCopied ? 'line-through text-ed-ink2/60 decoration-ed-green/40' : 'text-ed-ink'}`}>{adName}</span>
               <CopyTrackBtn itemKey={adnameKey} text={adName} label="Ad Name" />
             </div>
           )}
@@ -953,19 +953,19 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
         setCopiedItems(prev => new Set(prev).add(itemKey));
       };
       return (
-        <div className={`border-2 rounded-xl p-4 transition-all duration-300 ${isCopied ? 'border-teal/25 bg-teal/5' : 'border-gold/25 bg-gold/5'}`}>
+        <div className={`border-2 rounded-xl p-4 transition-all duration-300 ${isCopied ? 'border-ed-green/25 bg-ed-green/5' : 'border-ed-accent/25 bg-[rgba(168,84,59,0.06)]'}`}>
           <div className="flex items-start justify-between gap-3">
             <div className="flex-1 min-w-0">
-              <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-widest mb-1 transition-colors duration-300 ${isCopied ? 'bg-teal/15 text-teal' : 'bg-gold/20 text-gold'}`}>Website URL</span>
-              <p className="text-[11px] text-textmid mb-2">Paste this into the <strong>"Website URL"</strong> field in Ads Manager.</p>
-              <div className={`bg-white rounded-lg px-3 py-2 border transition-all duration-300 ${isCopied ? 'border-teal/20' : 'border-gold/20'}`}>
+              <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-widest mb-1 transition-colors duration-300 ${isCopied ? 'bg-ed-green/15 text-ed-green' : 'bg-[rgba(168,84,59,0.12)] text-ed-accent'}`}>Website URL</span>
+              <p className="text-[11px] text-ed-ink2 mb-2">Paste this into the <strong>"Website URL"</strong> field in Ads Manager.</p>
+              <div className={`bg-white rounded-lg px-3 py-2 border transition-all duration-300 ${isCopied ? 'border-ed-green/20' : 'border-ed-accent/20'}`}>
                 <a href={url} target="_blank" rel="noopener noreferrer"
-                  className={`text-[13px] font-medium hover:underline break-all transition-all duration-300 ${isCopied ? 'line-through text-textmid/60 decoration-teal/40' : 'text-gold'}`}
+                  className={`text-[13px] font-medium hover:underline break-all transition-all duration-300 ${isCopied ? 'line-through text-ed-ink2/60 decoration-ed-green/40' : 'text-ed-accent'}`}
                 >{url}</a>
               </div>
             </div>
             <button onClick={handleCopy}
-              className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-white text-[11px] font-bold transition-colors flex-shrink-0 shadow-sm ${isCopied ? 'bg-teal hover:bg-teal/90' : 'bg-gold hover:bg-gold/90'}`}
+              className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-white text-[11px] font-bold transition-colors flex-shrink-0 shadow-sm ${isCopied ? 'bg-ed-green hover:bg-ed-green/90' : 'bg-ed-accent hover:bg-ed-accent/90'}`}
             >
               <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 {isCopied
@@ -983,9 +983,9 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
     // Multiple URLs mode (gauntlet + legacy + PDP)
     const anyCopied = urls.some((_, i) => copiedItems.has(`${cardKey}-url-${i}`));
     return (
-      <div className={`border-2 rounded-xl p-4 transition-all duration-300 ${anyCopied ? 'border-teal/25 bg-teal/5' : 'border-gold/25 bg-gold/5'}`}>
-        <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-widest mb-1 transition-colors duration-300 ${anyCopied ? 'bg-teal/15 text-teal' : 'bg-gold/20 text-gold'}`}>Website URL</span>
-        <p className="text-[11px] text-textmid mb-2">Paste into the <strong>"Website URL"</strong> field in Ads Manager.</p>
+      <div className={`border-2 rounded-xl p-4 transition-all duration-300 ${anyCopied ? 'border-ed-green/25 bg-ed-green/5' : 'border-ed-accent/25 bg-[rgba(168,84,59,0.06)]'}`}>
+        <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-widest mb-1 transition-colors duration-300 ${anyCopied ? 'bg-ed-green/15 text-ed-green' : 'bg-[rgba(168,84,59,0.12)] text-ed-accent'}`}>Website URL</span>
+        <p className="text-[11px] text-ed-ink2 mb-2">Paste into the <strong>"Website URL"</strong> field in Ads Manager.</p>
         <div className="space-y-1.5">
           {urls.map((entry, i) => {
             const itemKey = `${cardKey}-url-${i}`;
@@ -998,17 +998,17 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
             };
             return (
               <div key={i} className={`flex items-center gap-2 ${isUsed ? 'opacity-50' : ''}`}>
-                <span className="text-[10px] text-textmid w-6 flex-shrink-0 font-medium">{i + 1}.</span>
-                {entry.label && <span className="text-[10px] text-textmid flex-shrink-0 w-28 truncate">{entry.label}</span>}
-                {entry.score != null && <span className="text-[10px] text-teal flex-shrink-0">({entry.score}/10)</span>}
-                <div className={`flex-1 min-w-0 bg-white rounded-lg px-2.5 py-1.5 border transition-all duration-300 ${isCopied ? 'border-teal/20' : 'border-gold/20'}`}>
+                <span className="text-[10px] text-ed-ink2 w-6 flex-shrink-0 font-medium">{i + 1}.</span>
+                {entry.label && <span className="text-[10px] text-ed-ink2 flex-shrink-0 w-28 truncate">{entry.label}</span>}
+                {entry.score != null && <span className="text-[10px] text-ed-green flex-shrink-0">({entry.score}/10)</span>}
+                <div className={`flex-1 min-w-0 bg-white rounded-lg px-2.5 py-1.5 border transition-all duration-300 ${isCopied ? 'border-ed-green/20' : 'border-ed-accent/20'}`}>
                   <a href={entry.url} target="_blank" rel="noopener noreferrer"
-                    className={`text-[12px] font-medium hover:underline break-all transition-all duration-300 ${isCopied || isUsed ? 'line-through text-textmid/60' : 'text-gold'}`}>
+                    className={`text-[12px] font-medium hover:underline break-all transition-all duration-300 ${isCopied || isUsed ? 'line-through text-ed-ink2/60' : 'text-ed-accent'}`}>
                     {entry.url}
                   </a>
                 </div>
                 <button onClick={handleCopy}
-                  className={`inline-flex items-center gap-1 px-2 py-1.5 rounded-lg text-white text-[10px] font-bold transition-colors flex-shrink-0 shadow-sm ${isCopied ? 'bg-teal hover:bg-teal/90' : 'bg-gold hover:bg-gold/90'}`}>
+                  className={`inline-flex items-center gap-1 px-2 py-1.5 rounded-lg text-white text-[10px] font-bold transition-colors flex-shrink-0 shadow-sm ${isCopied ? 'bg-ed-green hover:bg-ed-green/90' : 'bg-ed-accent hover:bg-ed-accent/90'}`}>
                   {isCopied ? 'Copied' : 'Copy'}
                 </button>
               </div>
@@ -1016,7 +1016,7 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
           })}
         </div>
         {instructionText && (
-          <p className="text-[10px] text-textmid italic pt-2">{instructionText}</p>
+          <p className="text-[10px] text-ed-ink2 italic pt-2">{instructionText}</p>
         )}
       </div>
     );
@@ -1026,10 +1026,10 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
   const CallToActionSection = ({ cta }) => {
     if (!cta) return null;
     return (
-      <div className="border border-black/[0.06] rounded-xl p-4 bg-white">
-        <span className="inline-block px-2 py-0.5 rounded bg-teal/10 text-teal text-[10px] font-bold uppercase tracking-widest mb-1">Call to Action</span>
-        <p className="text-[11px] text-textmid mb-2">Select <strong>"{cta.replace(/_/g, ' ')}"</strong> from the "Call to Action" dropdown in Ads Manager.</p>
-        <span className="inline-block px-4 py-1.5 rounded-full bg-teal/10 text-teal text-[14px] font-bold border border-teal/20">
+      <div className="border border-ed-line rounded-xl p-4 bg-ed-surface">
+        <span className="inline-block px-2 py-0.5 rounded bg-ed-green/10 text-ed-green text-[10px] font-bold uppercase tracking-widest mb-1">Call to Action</span>
+        <p className="text-[11px] text-ed-ink2 mb-2">Select <strong>"{cta.replace(/_/g, ' ')}"</strong> from the "Call to Action" dropdown in Ads Manager.</p>
+        <span className="inline-block px-4 py-1.5 rounded-full bg-ed-green/10 text-ed-green text-[14px] font-bold border border-ed-green/20">
           {cta.replace(/_/g, ' ')}
         </span>
       </div>
@@ -1046,17 +1046,17 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
       setCopiedItems(prev => new Set(prev).add(itemKey));
     };
     return (
-      <div className={`border-2 rounded-xl p-4 transition-all duration-300 ${isCopied ? 'border-teal/15 bg-teal/5' : 'border-navy/15 bg-navy/5'}`}>
+      <div className={`border-2 rounded-xl p-4 transition-all duration-300 ${isCopied ? 'border-ed-green/15 bg-ed-green/5' : 'border-ed-accent/15 bg-ed-accent/5'}`}>
         <div className="flex items-start justify-between gap-3">
           <div className="flex-1 min-w-0">
-            <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-widest mb-1 transition-colors duration-300 ${isCopied ? 'bg-teal/15 text-teal' : 'bg-navy/10 text-navy'}`}>Display Link</span>
-            <p className="text-[11px] text-textmid mb-2">Enter this into the <strong>"Display Link"</strong> field in Ads Manager (under the Website URL).</p>
-            <div className={`bg-white rounded-lg px-3 py-2 border transition-all duration-300 ${isCopied ? 'border-teal/15' : 'border-navy/15'}`}>
-              <span className={`text-[13px] font-medium break-all transition-all duration-300 ${isCopied ? 'line-through text-textmid/60 decoration-teal/40' : 'text-navy'}`}>{displayLink}</span>
+            <span className={`inline-block px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-widest mb-1 transition-colors duration-300 ${isCopied ? 'bg-ed-green/15 text-ed-green' : 'bg-ed-accent/10 text-ed-accent'}`}>Display Link</span>
+            <p className="text-[11px] text-ed-ink2 mb-2">Enter this into the <strong>"Display Link"</strong> field in Ads Manager (under the Website URL).</p>
+            <div className={`bg-white rounded-lg px-3 py-2 border transition-all duration-300 ${isCopied ? 'border-ed-green/15' : 'border-ed-accent/15'}`}>
+              <span className={`text-[13px] font-medium break-all transition-all duration-300 ${isCopied ? 'line-through text-ed-ink2/60 decoration-ed-green/40' : 'text-ed-accent'}`}>{displayLink}</span>
             </div>
           </div>
           <button onClick={handleCopy}
-            className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-white text-[11px] font-bold transition-colors flex-shrink-0 shadow-sm ${isCopied ? 'bg-teal hover:bg-teal/90' : 'bg-navy hover:bg-navy-light'}`}
+            className={`inline-flex items-center gap-1.5 px-3 py-2 rounded-lg text-white text-[11px] font-bold transition-colors flex-shrink-0 shadow-sm ${isCopied ? 'bg-ed-green hover:bg-ed-green/90' : 'bg-ed-accent hover:bg-ed-accent/90'}`}
           >
             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               {isCopied
@@ -1075,13 +1075,13 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
   const FacebookPageSection = ({ page }) => {
     if (!page) return null;
     return (
-      <div className="border-2 border-navy/15 bg-navy/5 rounded-xl p-4">
+      <div className="border-2 border-ed-accent/15 bg-ed-accent/5 rounded-xl p-4">
         <div className="flex items-start justify-between gap-3">
           <div className="flex-1 min-w-0">
-            <span className="inline-block px-2 py-0.5 rounded bg-navy/10 text-navy text-[10px] font-bold uppercase tracking-widest mb-1">Facebook Page</span>
-            <p className="text-[11px] text-textmid mb-2">Make sure you are posting from the correct Facebook Page. Select <strong>"{page}"</strong> as your Page identity in Ads Manager.</p>
-            <div className="bg-white rounded-lg px-3 py-2 border border-navy/15">
-              <span className="text-[14px] font-bold text-textdark">{page}</span>
+            <span className="inline-block px-2 py-0.5 rounded bg-ed-accent/10 text-ed-accent text-[10px] font-bold uppercase tracking-widest mb-1">Facebook Page</span>
+            <p className="text-[11px] text-ed-ink2 mb-2">Make sure you are posting from the correct Facebook Page. Select <strong>"{page}"</strong> as your Page identity in Ads Manager.</p>
+            <div className="bg-white rounded-lg px-3 py-2 border border-ed-accent/15">
+              <span className="text-[14px] font-bold text-ed-ink">{page}</span>
             </div>
           </div>
         </div>
@@ -1093,13 +1093,13 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
   const NotesSection = ({ notes, cardKey, depId, isFlexCard = false }) => {
     const isEditing = editingNotes === cardKey;
     return (
-      <div className="border border-black/[0.06] rounded-xl p-4 bg-white">
+      <div className="border border-ed-line rounded-xl p-4 bg-ed-surface">
         <div className="flex items-center justify-between mb-2">
-          <span className="inline-block px-2 py-0.5 rounded bg-black/[0.04] text-textmid text-[10px] font-bold uppercase tracking-widest">Notes</span>
+          <span className="inline-block px-2 py-0.5 rounded bg-ed-bg text-ed-ink2 text-[10px] font-bold uppercase tracking-widest">Notes</span>
           {!isEditing && (
             <button
               onClick={() => startEditingNotes(cardKey, notes)}
-              className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-medium text-textmid hover:text-textdark hover:bg-black/[0.04] transition-colors"
+              className="inline-flex items-center gap-1 px-2 py-1 rounded-md text-[10px] font-medium text-ed-ink2 hover:text-ed-ink hover:bg-ed-bg transition-colors"
             >
               <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
@@ -1115,30 +1115,30 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
               onChange={e => setNotesValue(e.target.value)}
               placeholder="Add notes..."
               rows={3}
-              className="w-full text-[13px] text-textdark bg-offwhite border border-black/10 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-navy/20 resize-y"
+              className="w-full text-[13px] text-ed-ink bg-ed-bg border border-ed-line rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-ed-accent/20 resize-y"
               autoFocus
             />
             <div className="flex items-center justify-end gap-2 mt-2">
               <button
                 onClick={() => setEditingNotes(null)}
-                className="px-2.5 py-1 rounded-md text-[11px] text-textmid hover:bg-black/[0.04] transition-colors"
+                className="px-2.5 py-1 rounded-md text-[11px] text-ed-ink2 hover:bg-ed-bg transition-colors"
               >Cancel</button>
               <button
                 onClick={() => saveNotes(depId, isFlexCard)}
                 disabled={savingNotes}
-                className="px-3 py-1 rounded-md text-[11px] font-semibold bg-navy text-white hover:bg-navy-light transition-colors disabled:opacity-50"
+                className="px-3 py-1 rounded-md text-[11px] font-semibold bg-ed-accent text-white hover:bg-ed-accent/90 transition-colors disabled:opacity-50"
               >{savingNotes ? 'Saving...' : 'Save'}</button>
             </div>
           </div>
         ) : (
           <div
             onClick={() => startEditingNotes(cardKey, notes)}
-            className="cursor-pointer rounded-lg px-3 py-2 bg-offwhite min-h-[2.5rem] hover:bg-navy/5 transition-colors"
+            className="cursor-pointer rounded-lg px-3 py-2 bg-ed-bg min-h-[2.5rem] hover:bg-ed-accent/5 transition-colors"
           >
             {notes ? (
-              <p className="text-[13px] text-textdark whitespace-pre-wrap">{notes}</p>
+              <p className="text-[13px] text-ed-ink whitespace-pre-wrap">{notes}</p>
             ) : (
-              <p className="text-[12px] text-textlight italic">Click to add notes...</p>
+              <p className="text-[12px] text-ed-ink3 italic">Click to add notes...</p>
             )}
           </div>
         )}
@@ -1148,11 +1148,11 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
 
   const PostedByDropdown = ({ value, onChange }) => (
     <div className="flex items-center gap-2">
-      <span className="text-[11px] font-medium text-textmid">Posted by:</span>
+      <span className="text-[11px] font-medium text-ed-ink2">Posted by:</span>
       <select
         value={value || ''}
         onChange={(e) => onChange(e.target.value)}
-        className="text-[12px] font-semibold text-textdark bg-offwhite border border-black/10 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-navy/20 cursor-pointer"
+        className="text-[12px] font-semibold text-ed-ink bg-ed-bg border border-ed-line rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-ed-accent/20 cursor-pointer"
       >
         <option value="">Select...</option>
         <option value="Corinne">Corinne</option>
@@ -1170,16 +1170,16 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
     const headlineKey = isFlex ? 'headlines' : 'ad_headlines';
 
     return (
-      <div className="border-2 border-gold/30 bg-gold/5 rounded-xl p-4 space-y-3">
+      <div className="border-2 border-ed-accent/30 bg-[rgba(168,84,59,0.06)] rounded-xl p-4 space-y-3">
         <div className="flex items-center justify-between mb-1">
-          <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-gold/20 text-gold text-[10px] font-bold uppercase tracking-widest">
+          <span className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded bg-[rgba(168,84,59,0.12)] text-ed-accent text-[10px] font-bold uppercase tracking-widest">
             <EditPencilIcon /> Edit Ad Details
           </span>
           <div className="flex items-center gap-2">
             <button onClick={() => { setEditingCard(null); setEditFields({}); }}
-              className="px-2.5 py-1 rounded-md text-[11px] text-textmid hover:bg-black/[0.04] transition-colors">Cancel</button>
+              className="px-2.5 py-1 rounded-md text-[11px] text-ed-ink2 hover:bg-ed-bg transition-colors">Cancel</button>
             <button onClick={() => saveEditing(id, isFlex)} disabled={savingEdit}
-              className="px-3 py-1 rounded-md text-[11px] font-semibold bg-navy text-white hover:bg-navy-light transition-colors disabled:opacity-50">
+              className="px-3 py-1 rounded-md text-[11px] font-semibold bg-ed-accent text-white hover:bg-ed-accent/90 transition-colors disabled:opacity-50">
               {savingEdit ? 'Saving...' : 'Save Changes'}
             </button>
           </div>
@@ -1187,14 +1187,14 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
 
         {/* Ad Name */}
         <div>
-          <label className="text-[10px] text-textmid font-medium block mb-1">Ad Name</label>
+          <label className="text-[10px] text-ed-ink2 font-medium block mb-1">Ad Name</label>
           <input type="text" value={editFields[nameKey] || ''} onChange={e => updateEditField(nameKey, e.target.value)}
-            className="w-full text-[12px] text-textdark bg-white border border-black/10 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-navy/20" />
+            className="w-full text-[12px] text-ed-ink bg-white border border-ed-line rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-ed-accent/20" />
         </div>
 
         {/* Campaign */}
         <div>
-          <label className="text-[10px] text-textmid font-medium block mb-1">Campaign</label>
+          <label className="text-[10px] text-ed-ink2 font-medium block mb-1">Campaign</label>
           <select
             value={isFlex ? (editFields._campaign_id || '') : (editFields.local_campaign_id || '')}
             onChange={e => {
@@ -1205,7 +1205,7 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
                 updateEditField('local_campaign_id', campId);
               }
             }}
-            className="w-full text-[12px] text-textdark bg-white border border-black/10 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-navy/20 cursor-pointer"
+            className="w-full text-[12px] text-ed-ink bg-white border border-ed-line rounded-lg px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-ed-accent/20 cursor-pointer"
           >
             <option value="">Select a campaign...</option>
             {safeCampaigns.map(c => (
@@ -1216,31 +1216,31 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
 
         {/* Ad Set Name */}
         <div>
-          <label className="text-[10px] text-textmid font-medium block mb-1">Ad Set Name</label>
+          <label className="text-[10px] text-ed-ink2 font-medium block mb-1">Ad Set Name</label>
           <input type="text" value={editFields._ad_set_name || ''} onChange={e => updateEditField('_ad_set_name', e.target.value)}
-            className="w-full text-[12px] text-textdark bg-white border border-black/10 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-navy/20" placeholder="Type ad set name..." />
-          <p className="text-[10px] text-textlight mt-0.5">Type a name. If it matches an existing ad set, it will be reused. Otherwise a new one is created.</p>
+            className="w-full text-[12px] text-ed-ink bg-white border border-ed-line rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-ed-accent/20" placeholder="Type ad set name..." />
+          <p className="text-[10px] text-ed-ink3 mt-0.5">Type a name. If it matches an existing ad set, it will be reused. Otherwise a new one is created.</p>
         </div>
 
         {/* Website URL */}
         <div>
-          <label className="text-[10px] text-textmid font-medium block mb-1">Website URL</label>
+          <label className="text-[10px] text-ed-ink2 font-medium block mb-1">Website URL</label>
           <input type="text" value={editFields.destination_url || ''} onChange={e => updateEditField('destination_url', e.target.value)}
-            className="w-full text-[12px] text-textdark bg-white border border-black/10 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-navy/20" placeholder="https://..." />
+            className="w-full text-[12px] text-ed-ink bg-white border border-ed-line rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-ed-accent/20" placeholder="https://..." />
         </div>
 
         {/* Display Link */}
         <div>
-          <label className="text-[10px] text-textmid font-medium block mb-1">Display Link</label>
+          <label className="text-[10px] text-ed-ink2 font-medium block mb-1">Display Link</label>
           <input type="text" value={editFields.display_link || ''} onChange={e => updateEditField('display_link', e.target.value)}
-            className="w-full text-[12px] text-textdark bg-white border border-black/10 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-navy/20" placeholder="e.g. yourbrand.com" />
+            className="w-full text-[12px] text-ed-ink bg-white border border-ed-line rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-ed-accent/20" placeholder="e.g. yourbrand.com" />
         </div>
 
         {/* CTA */}
         <div>
-          <label className="text-[10px] text-textmid font-medium block mb-1">Call to Action</label>
+          <label className="text-[10px] text-ed-ink2 font-medium block mb-1">Call to Action</label>
           <select value={editFields.cta_button || ''} onChange={e => updateEditField('cta_button', e.target.value)}
-            className="w-full text-[12px] text-textdark bg-white border border-black/10 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-navy/20 cursor-pointer">
+            className="w-full text-[12px] text-ed-ink bg-white border border-ed-line rounded-lg px-3 py-1.5 focus:outline-none focus:ring-1 focus:ring-ed-accent/20 cursor-pointer">
             <option value="">None</option>
             {ctaOptions.map(opt => <option key={opt} value={opt}>{opt.replace(/_/g, ' ')}</option>)}
           </select>
@@ -1248,32 +1248,32 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
 
         {/* Facebook Page */}
         <div>
-          <label className="text-[10px] text-textmid font-medium block mb-1">Facebook Page</label>
+          <label className="text-[10px] text-ed-ink2 font-medium block mb-1">Facebook Page</label>
           <input type="text" value={editFields.facebook_page || ''} onChange={e => updateEditField('facebook_page', e.target.value)}
-            className="w-full text-[12px] text-textdark bg-white border border-black/10 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-navy/20" />
+            className="w-full text-[12px] text-ed-ink bg-white border border-ed-line rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-ed-accent/20" />
         </div>
 
         {/* Duplicate Ad Set Name */}
         <div>
-          <label className="text-[10px] text-textmid font-medium block mb-1">Duplicate Ad Set Name</label>
+          <label className="text-[10px] text-ed-ink2 font-medium block mb-1">Duplicate Ad Set Name</label>
           <input type="text" value={editFields.duplicate_adset_name || ''} onChange={e => updateEditField('duplicate_adset_name', e.target.value)}
-            className="w-full text-[12px] text-textdark bg-white border border-black/10 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-navy/20" />
+            className="w-full text-[12px] text-ed-ink bg-white border border-ed-line rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-ed-accent/20" />
         </div>
 
         {/* Primary Texts */}
         <div>
           <div className="flex items-center justify-between mb-1">
-            <label className="text-[10px] text-textmid font-medium">Primary Texts</label>
+            <label className="text-[10px] text-ed-ink2 font-medium">Primary Texts</label>
             <button onClick={() => addEditArrayItem('primary_texts')}
-              className="text-[10px] text-navy font-medium hover:text-gold transition-colors">+ Add</button>
+              className="text-[10px] text-ed-accent font-medium hover:text-ed-accent transition-colors">+ Add</button>
           </div>
           {(editFields.primary_texts || []).map((text, i) => (
             <div key={i} className="flex items-start gap-2 mb-1.5">
-              <span className="text-[10px] text-textlight font-bold mt-2 w-4 text-right flex-shrink-0">{i + 1}</span>
+              <span className="text-[10px] text-ed-ink3 font-bold mt-2 w-4 text-right flex-shrink-0">{i + 1}</span>
               <textarea value={text} onChange={e => updateEditArrayItem('primary_texts', i, e.target.value)} rows={2}
-                className="flex-1 text-[12px] text-textdark bg-white border border-black/10 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-navy/20 resize-y" />
+                className="flex-1 text-[12px] text-ed-ink bg-white border border-ed-line rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-ed-accent/20 resize-y" />
               <button onClick={() => removeEditArrayItem('primary_texts', i)}
-                className="text-red-400 hover:text-red-600 mt-1.5 flex-shrink-0" title="Remove">
+                className="text-ed-rust hover:text-ed-rust mt-1.5 flex-shrink-0" title="Remove">
                 <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                 </svg>
@@ -1285,17 +1285,17 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
         {/* Headlines */}
         <div>
           <div className="flex items-center justify-between mb-1">
-            <label className="text-[10px] text-textmid font-medium">Headlines</label>
+            <label className="text-[10px] text-ed-ink2 font-medium">Headlines</label>
             <button onClick={() => addEditArrayItem(headlineKey)}
-              className="text-[10px] text-navy font-medium hover:text-gold transition-colors">+ Add</button>
+              className="text-[10px] text-ed-accent font-medium hover:text-ed-accent transition-colors">+ Add</button>
           </div>
           {(editFields[headlineKey] || []).map((text, i) => (
             <div key={i} className="flex items-start gap-2 mb-1.5">
-              <span className="text-[10px] text-textlight font-bold mt-2 w-4 text-right flex-shrink-0">{i + 1}</span>
+              <span className="text-[10px] text-ed-ink3 font-bold mt-2 w-4 text-right flex-shrink-0">{i + 1}</span>
               <input type="text" value={text} onChange={e => updateEditArrayItem(headlineKey, i, e.target.value)}
-                className="flex-1 text-[12px] text-textdark bg-white border border-black/10 rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-navy/20" />
+                className="flex-1 text-[12px] text-ed-ink bg-white border border-ed-line rounded-lg px-3 py-1.5 focus:outline-none focus:ring-2 focus:ring-ed-accent/20" />
               <button onClick={() => removeEditArrayItem(headlineKey, i)}
-                className="text-red-400 hover:text-red-600 mt-1.5 flex-shrink-0" title="Remove">
+                className="text-ed-rust hover:text-ed-rust mt-1.5 flex-shrink-0" title="Remove">
                 <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
                 </svg>
@@ -1305,11 +1305,11 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
         </div>
 
         {/* Save/Cancel bottom */}
-        <div className="flex items-center justify-end gap-2 pt-2 border-t border-gold/20">
+        <div className="flex items-center justify-end gap-2 pt-2 border-t border-ed-accent/20">
           <button onClick={() => { setEditingCard(null); setEditFields({}); }}
-            className="px-3 py-1.5 rounded-md text-[11px] text-textmid hover:bg-black/[0.04] transition-colors">Cancel</button>
+            className="px-3 py-1.5 rounded-md text-[11px] text-ed-ink2 hover:bg-ed-bg transition-colors">Cancel</button>
           <button onClick={() => saveEditing(id, isFlex)} disabled={savingEdit}
-            className="px-4 py-1.5 rounded-md text-[11px] font-semibold bg-navy text-white hover:bg-navy-light transition-colors disabled:opacity-50">
+            className="px-4 py-1.5 rounded-md text-[11px] font-semibold bg-ed-accent text-white hover:bg-ed-accent/90 transition-colors disabled:opacity-50">
             {savingEdit ? 'Saving...' : 'Save Changes'}
           </button>
         </div>
@@ -1330,7 +1330,7 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
     const isExpanded = expandedCards.has(dep.id);
 
     return (
-      <div key={dep.id} className="border border-black/[0.1] rounded-2xl bg-white shadow-sm overflow-hidden">
+      <div key={dep.id} className="border border-ed-line rounded-xl bg-white overflow-hidden">
         {/* Always-visible header: Ad Name, Campaign, Ad Set */}
         <div className="px-5 py-4 space-y-3">
           {/* Ad Name + Format badge */}
@@ -1341,31 +1341,31 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
                   type="checkbox"
                   checked={selectedCards.has(dep.id)}
                   onChange={() => toggleCardSelection(dep.id, 'single')}
-                  className="rounded border-navy/30 text-navy focus:ring-navy/20 w-4 h-4"
+                  className="rounded border-ed-accent/30 text-ed-accent focus:ring-ed-accent/20 w-4 h-4"
                 />
               </label>
             )}
             <div className="flex-1 min-w-0">
               <div className="text-[14px] leading-tight mb-1.5">
-                <span className="text-textmid font-medium">Ad Name: </span>
-                <span className="font-bold text-textdark">{name}</span>
+                <span className="text-ed-ink2 font-medium">Ad Name: </span>
+                <span className="font-bold text-ed-ink">{name}</span>
               </div>
               <div className="flex items-center gap-2 flex-wrap">
-                <span className="inline-block px-2 py-0.5 rounded bg-navy/10 text-navy text-[9px] font-bold uppercase tracking-wider">Ad Format: Single Image</span>
+                <span className="inline-block px-2 py-0.5 rounded bg-ed-accent/10 text-ed-accent text-[9px] font-bold uppercase tracking-wider">Ad Format: Single Image</span>
                 {plannedDate && (
-                  <span className="inline-block px-2 py-0.5 rounded bg-teal/10 text-teal text-[9px] font-bold uppercase tracking-wider">Start Date: {plannedDate}</span>
+                  <span className="inline-block px-2 py-0.5 rounded bg-ed-green/10 text-ed-green text-[9px] font-bold uppercase tracking-wider">Start Date: {plannedDate}</span>
                 )}
               </div>
             </div>
             {thumbUrl && (
-              <img src={thumbUrl} alt="" className="w-14 h-14 object-cover rounded-xl bg-gray-100 flex-shrink-0" loading="lazy" />
+              <img src={thumbUrl} alt="" className="w-14 h-14 object-cover rounded-xl bg-ed-bg flex-shrink-0" loading="lazy" />
             )}
           </div>
 
           {/* Added to Ready to Post timestamp */}
           {formatAddedDate(dep.created_at) && (
-            <div className="flex items-center gap-1.5 text-[11px] text-textmid">
-              <svg className="w-3.5 h-3.5 text-textlight flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <div className="flex items-center gap-1.5 text-[11px] text-ed-ink2">
+              <svg className="w-3.5 h-3.5 text-ed-ink3 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
               Added to Ready to Post: {formatAddedDate(dep.created_at)}
@@ -1381,14 +1381,14 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
           {/* Expand/Collapse toggle */}
           <button
             onClick={() => toggleCardExpanded(dep.id)}
-            className="flex items-center justify-center w-full gap-1 text-[12px] font-medium text-navy hover:text-navy/80 bg-navy/5 hover:bg-navy/10 py-1.5 rounded-md cursor-pointer transition-all mt-2"
+            className="flex items-center justify-center w-full gap-1 text-[12px] font-medium text-ed-accent hover:text-ed-accent/80 bg-ed-accent/5 hover:bg-ed-accent/10 py-1.5 rounded-md cursor-pointer transition-all mt-2"
           >
             <svg className={`w-3.5 h-3.5 transition-transform ${isExpanded ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
             </svg>
             {isExpanded ? 'Hide Ad Details' : 'Show Ad Details'}
             {!isExpanded && (
-              <span className="text-[10px] text-navy/70 font-normal">
+              <span className="text-[10px] text-ed-accent/70 font-normal">
                 ({[dep.primary_texts && parseCount(dep.primary_texts) > 0 && 'Primary Text', dep.ad_headlines && parseCount(dep.ad_headlines) > 0 && 'Headline', dep.destination_url && 'Website URL', dep.display_link && 'Display Link', dep.cta_button && 'Call to Action', dep.facebook_page && 'Facebook Page'].filter(Boolean).join(', ') || 'No details'})
               </span>
             )}
@@ -1397,16 +1397,16 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
 
         {/* Collapsible details */}
         {isExpanded && (
-          <div className="px-5 pb-5 space-y-4 border-t border-black/[0.06] pt-4">
+          <div className="px-5 pb-5 space-y-4 border-t border-ed-line pt-4">
             <FacebookPageSection page={dep.facebook_page} />
 
             {/* Image */}
             {thumbUrl && (
-              <div className="border border-black/[0.06] rounded-xl p-4 bg-white">
+              <div className="border border-ed-line rounded-xl p-4 bg-ed-surface">
                 <div className="flex items-center justify-between mb-3">
-                  <span className="inline-block px-2 py-0.5 rounded bg-navy/10 text-navy text-[10px] font-bold uppercase tracking-widest">Ad Creative</span>
+                  <span className="inline-block px-2 py-0.5 rounded bg-ed-accent/10 text-ed-accent text-[10px] font-bold uppercase tracking-widest">Ad Creative</span>
                   <button onClick={() => downloadSingleImage(dep)} disabled={downloadingSingle.has(dep.id)}
-                    className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-navy text-white text-[12px] font-bold hover:bg-navy-light transition-colors disabled:opacity-50 shadow-sm"
+                    className="inline-flex items-center gap-2 px-4 py-2 rounded-lg bg-ed-accent text-white text-[12px] font-bold hover:bg-ed-accent/90 transition-colors disabled:opacity-50 shadow-sm"
                   >
                     <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
@@ -1414,7 +1414,7 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
                     {downloadingSingle.has(dep.id) ? 'Downloading...' : 'Download Image'}
                   </button>
                 </div>
-                <img src={thumbUrl} alt="" className="w-full max-w-[150px] rounded-xl bg-offwhite" loading="lazy" />
+                <img src={thumbUrl} alt="" className="w-full max-w-[150px] rounded-xl bg-ed-bg" loading="lazy" />
               </div>
             )}
 
@@ -1444,11 +1444,11 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
         )}
 
         {/* Actions — always visible */}
-        <div className="px-5 py-3.5 border-t border-black/[0.08] bg-offwhite/50 flex items-center justify-between">
+        <div className="px-5 py-3.5 border-t border-ed-line bg-ed-bg/50 flex items-center justify-between">
           <div className="flex items-center gap-2">
             {!isPoster && (
               <button onClick={() => handleSendBack(dep.id)} disabled={isSendingBack}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium text-textmid hover:text-textdark hover:bg-black/[0.04] transition-colors disabled:opacity-50"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium text-ed-ink2 hover:text-ed-ink hover:bg-ed-bg transition-colors disabled:opacity-50"
               >
                 <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
@@ -1458,7 +1458,7 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
             )}
             {!isPoster && editingCard !== dep.id && (
               <button onClick={() => startEditing(dep.id, dep, false)}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium text-gold hover:text-gold/80 hover:bg-gold/[0.06] transition-colors"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium text-ed-accent hover:text-ed-accent/80 hover:bg-[rgba(168,84,59,0.06)] transition-colors"
               >
                 <EditPencilIcon />
                 Edit
@@ -1469,14 +1469,14 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
             <PostedByDropdown value={dep.posted_by} onChange={(val) => handlePostedByChange(dep.id, val)} />
             {confirmPosted === dep.id ? (
               <div className="flex items-center gap-2">
-                <button onClick={() => setConfirmPosted(null)} className="px-2.5 py-1.5 rounded-lg text-[11px] text-textmid hover:bg-white transition-colors">Cancel</button>
+                <button onClick={() => setConfirmPosted(null)} className="px-2.5 py-1.5 rounded-lg text-[11px] text-ed-ink2 hover:bg-white transition-colors">Cancel</button>
                 <button onClick={() => handleMarkPosted(dep.id)} disabled={isMarking}
-                  className="px-4 py-2 rounded-lg text-[12px] font-bold bg-teal text-white hover:bg-teal/90 transition-colors disabled:opacity-50"
+                  className="px-4 py-2 rounded-lg text-[12px] font-bold bg-ed-green text-white hover:bg-ed-green/90 transition-colors disabled:opacity-50"
                 >{isMarking ? 'Updating...' : 'Confirm Posted'}</button>
               </div>
             ) : (
               <button onClick={() => setConfirmPosted(dep.id)}
-                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-[12px] font-bold text-white bg-teal hover:bg-teal/90 transition-colors shadow-sm"
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-[12px] font-bold text-white bg-ed-green hover:bg-ed-green/90 transition-colors shadow-sm"
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
@@ -1513,7 +1513,7 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
       <div
         key={flexAd.id}
         ref={flexAd.id === highlightedId ? highlightRef : undefined}
-        className={`border rounded-2xl bg-white shadow-sm overflow-hidden transition-all duration-700 ${flexAd.id === highlightedId ? 'border-gold ring-2 ring-gold/30' : 'border-black/[0.1]'}`}
+        className={`border rounded-xl bg-white overflow-hidden transition-all duration-700 ${flexAd.id === highlightedId ? 'border-ed-accent ring-2 ring-ed-accent/30' : 'border-ed-line'}`}
       >
         {/* Always-visible header: Ad Name, Campaign, Ad Set */}
         <div className="px-5 py-4 space-y-3">
@@ -1525,17 +1525,17 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
                   type="checkbox"
                   checked={selectedCards.has(flexId)}
                   onChange={() => toggleCardSelection(flexId, 'flex')}
-                  className="rounded border-navy/30 text-navy focus:ring-navy/20 w-4 h-4"
+                  className="rounded border-ed-accent/30 text-ed-accent focus:ring-ed-accent/20 w-4 h-4"
                 />
               </label>
             )}
             <div className="flex-1 min-w-0">
               <div className="text-[14px] leading-tight mb-1.5">
-                <span className="text-textmid font-medium">Ad Set: </span>
-                <span className="font-bold text-textdark">{flexAd.name || 'Ad Set'}</span>
+                <span className="text-ed-ink2 font-medium">Ad Set: </span>
+                <span className="font-bold text-ed-ink">{flexAd.name || 'Ad Set'}</span>
               </div>
               <div className="flex items-center gap-2 flex-wrap">
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-navy/10 text-navy text-[9px] font-bold uppercase tracking-wider">
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-ed-accent/10 text-ed-accent text-[9px] font-bold uppercase tracking-wider">
                   Ad Set: Multiple Ads
                   <InfoTooltip text="This card groups several ads that will be posted under the same campaign and Meta ad set." position="right" />
                 </span>
@@ -1543,20 +1543,20 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
             </div>
             <div className="flex gap-1 flex-shrink-0">
               {childDeps.slice(0, 3).map(d => d.imageUrl ? (
-                <img key={d.id} src={d.imageUrl} alt="" className="w-10 h-10 object-cover rounded-lg bg-gray-100" loading="lazy" />
+                <img key={d.id} src={d.imageUrl} alt="" className="w-10 h-10 object-cover rounded-lg bg-ed-bg" loading="lazy" />
               ) : (
-                <div key={d.id} className="w-10 h-10 rounded-lg bg-gray-200" />
+                <div key={d.id} className="w-10 h-10 rounded-lg bg-ed-line" />
               ))}
               {childDeps.length > 3 && (
-                <div className="w-10 h-10 rounded-lg bg-gray-100 flex items-center justify-center text-[10px] text-textlight font-medium">+{childDeps.length - 3}</div>
+                <div className="w-10 h-10 rounded-lg bg-ed-bg flex items-center justify-center text-[10px] text-ed-ink3 font-medium">+{childDeps.length - 3}</div>
               )}
             </div>
           </div>
 
           {/* Added to Ready to Post timestamp */}
           {formatAddedDate(flexAd.created_at) && (
-            <div className="flex items-center gap-1.5 text-[11px] text-textmid">
-              <svg className="w-3.5 h-3.5 text-textlight flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <div className="flex items-center gap-1.5 text-[11px] text-ed-ink2">
+              <svg className="w-3.5 h-3.5 text-ed-ink3 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" />
               </svg>
               Added to Ready to Post: {formatAddedDate(flexAd.created_at)}
@@ -1565,7 +1565,7 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
 
           {/* Start Date — ad set launch date */}
           <div className="flex items-center gap-2">
-            <span className="text-[11px] text-textmid font-medium">Start Date:</span>
+            <span className="text-[11px] text-ed-ink2 font-medium">Start Date:</span>
             {!isPoster ? (
               <div className="flex items-center gap-1">
                 <input
@@ -1585,7 +1585,7 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
                     }
                     catch { addToast('Failed to save start date', 'error'); }
                   }}
-                  className="input-apple text-[11px] py-1 px-2 w-[140px]"
+                  className="input-apple !border-ed-line focus:!ring-ed-accent/20 focus:!border-ed-accent text-[11px] py-1 px-2 w-[140px]"
                 />
                 {flexAd.planned_date && (
                   <button
@@ -1600,7 +1600,7 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
                       }
                       catch { addToast('Failed to clear start date', 'error'); }
                     }}
-                    className="text-textlight hover:text-red-400 transition-colors p-0.5"
+                    className="text-ed-ink3 hover:text-ed-rust transition-colors p-0.5"
                     title="Clear date"
                   >
                     <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1610,11 +1610,11 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
                 )}
               </div>
             ) : (
-              <span className="text-[11px] text-textdark">
+              <span className="text-[11px] text-ed-ink">
                 {flexAd.planned_date ? new Date(flexAd.planned_date).toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' }) : 'Not set'}
               </span>
             )}
-            <span className="text-[9px] text-textlight">Ad set launch date in Ads Manager</span>
+            <span className="text-[9px] text-ed-ink3">Ad set launch date in Ads Manager</span>
           </div>
 
           {/* Campaign + Ad Set + Duplicate Ad Set — always visible */}
@@ -1626,14 +1626,14 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
           {/* Expand/Collapse toggle */}
           <button
             onClick={() => toggleCardExpanded(flexId)}
-            className="flex items-center justify-center w-full gap-1 text-[12px] font-medium text-navy hover:text-navy/80 bg-navy/5 hover:bg-navy/10 py-1.5 rounded-md cursor-pointer transition-all mt-2"
+            className="flex items-center justify-center w-full gap-1 text-[12px] font-medium text-ed-accent hover:text-ed-accent/80 bg-ed-accent/5 hover:bg-ed-accent/10 py-1.5 rounded-md cursor-pointer transition-all mt-2"
           >
             <svg className={`w-3.5 h-3.5 transition-transform ${isExpanded ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
             </svg>
             {isExpanded ? 'Hide Ad Details' : 'Show Ad Details'}
             {!isExpanded && (
-              <span className="text-[10px] text-navy/70 font-normal">
+              <span className="text-[10px] text-ed-accent/70 font-normal">
                 ({[depsWithImages.length > 0 && `${depsWithImages.length} Ad Creatives`, flexAd.primary_texts && parseCount(flexAd.primary_texts) > 0 && 'Primary Text', flexAd.headlines && parseCount(flexAd.headlines) > 0 && 'Headline', flexAd.destination_url && 'Website URL', flexAd.display_link && 'Display Link', flexAd.cta_button && 'Call to Action', flexAd.facebook_page && 'Facebook Page'].filter(Boolean).join(', ') || 'No details'})
               </span>
             )}
@@ -1642,23 +1642,23 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
 
         {/* Collapsible details */}
         {isExpanded && (
-          <div className="px-5 pb-5 space-y-4 border-t border-black/[0.06] pt-4">
+          <div className="px-5 pb-5 space-y-4 border-t border-ed-line pt-4">
             <FacebookPageSection page={flexAd.facebook_page} />
 
             {/* Ad Creatives with download */}
-            <div className="border border-black/[0.06] rounded-xl p-4 bg-white">
+            <div className="border border-ed-line rounded-xl p-4 bg-ed-surface">
               <div className="mb-1">
-                <span className="inline-block px-2 py-0.5 rounded bg-navy/10 text-navy text-[10px] font-bold uppercase tracking-widest mb-1">
+                <span className="inline-block px-2 py-0.5 rounded bg-ed-accent/10 text-ed-accent text-[10px] font-bold uppercase tracking-widest mb-1">
                   Ad Creatives — {depsWithImages.length} Image{depsWithImages.length !== 1 ? 's' : ''}
                 </span>
-                <p className="text-[11px] text-textmid mt-0.5 leading-relaxed">Upload ALL of these images. Meta will automatically rotate them and show the best-performing image to each person.</p>
+                <p className="text-[11px] text-ed-ink2 mt-0.5 leading-relaxed">Upload ALL of these images. Meta will automatically rotate them and show the best-performing image to each person.</p>
               </div>
 
               {/* Download bar */}
               <div className="flex items-center gap-2 mt-3 mb-3">
                 <button onClick={() => downloadMultipleImages(depsWithImages, cardKey)}
                   disabled={isDownloadingAll || depsWithImages.length === 0}
-                  className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-navy text-white text-[13px] font-bold hover:bg-navy-light transition-colors disabled:opacity-50 shadow-sm"
+                  className="inline-flex items-center gap-2 px-5 py-2.5 rounded-lg bg-ed-accent text-white text-[13px] font-bold hover:bg-ed-accent/90 transition-colors disabled:opacity-50 shadow-sm"
                 >
                   <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
@@ -1668,7 +1668,7 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
                 {someSelected && (
                   <button onClick={() => { const selectedDeps = childDeps.filter(d => selected.has(d.id)); downloadMultipleImages(selectedDeps, `selected-${cardKey}`); }}
                     disabled={isDownloadingSelected}
-                    className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-gold/10 text-gold text-[11px] font-bold hover:bg-gold/20 transition-colors disabled:opacity-50"
+                    className="inline-flex items-center gap-1.5 px-3 py-2 rounded-lg bg-[rgba(168,84,59,0.06)] text-ed-accent text-[11px] font-bold hover:bg-[rgba(168,84,59,0.12)] transition-colors disabled:opacity-50"
                   >
                     <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
@@ -1683,8 +1683,8 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
                 <label className="flex items-center gap-2 mb-2.5 cursor-pointer select-none">
                   <input type="checkbox" checked={allSelected}
                     onChange={() => toggleSelectAll(cardKey, depsWithImages.map(d => d.id))}
-                    className="rounded border-navy/30 text-navy focus:ring-navy/20 w-4 h-4" />
-                  <span className="text-[12px] text-textmid font-medium">Select All</span>
+                    className="rounded border-ed-accent/30 text-ed-accent focus:ring-ed-accent/20 w-4 h-4" />
+                  <span className="text-[12px] text-ed-ink2 font-medium">Select All</span>
                 </label>
               )}
 
@@ -1699,26 +1699,26 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
                         <label className="absolute top-2 left-2 z-10 cursor-pointer">
                           <input type="checkbox" checked={isSelected}
                             onChange={() => toggleImageSelection(cardKey, d.id)}
-                            className="rounded border-white/80 text-navy focus:ring-navy/20 w-4 h-4 shadow-sm" />
+                            className="rounded border-white/80 text-ed-accent focus:ring-ed-accent/20 w-4 h-4 shadow-sm" />
                         </label>
                       )}
                       {d.imageUrl ? (
                         <img src={d.imageUrl} alt=""
-                          className={`w-full aspect-square object-cover rounded-xl bg-offwhite transition-all ${isSelected ? 'ring-2 ring-navy ring-offset-2' : ''}`}
+                          className={`w-full aspect-square object-cover rounded-xl bg-ed-bg transition-all ${isSelected ? 'ring-2 ring-ed-accent ring-offset-2' : ''}`}
                           loading="lazy" />
                       ) : (
-                        <div className="w-full aspect-square rounded-xl bg-offwhite" />
+                        <div className="w-full aspect-square rounded-xl bg-ed-bg" />
                       )}
                       {d.imageUrl && (
                         <button onClick={() => downloadSingleImage(d)} disabled={isSingleDl}
-                          className="absolute bottom-2 right-2 p-1.5 rounded-lg bg-white/90 text-navy hover:bg-white shadow-sm opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity disabled:opacity-50"
+                          className="absolute bottom-2 right-2 p-1.5 rounded-lg bg-white/90 text-ed-accent hover:bg-white shadow-sm opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity disabled:opacity-50"
                           title="Download this image">
                           <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                           </svg>
                         </button>
                       )}
-                      <div className="text-[10px] text-textmid mt-1 truncate">{d.ad_name || d.ad?.headline || ''}</div>
+                      <div className="text-[10px] text-ed-ink2 mt-1 truncate">{d.ad_name || d.ad?.headline || ''}</div>
                     </div>
                   );
                 })}
@@ -1796,11 +1796,11 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
         )}
 
         {/* Actions — always visible */}
-        <div className="px-5 py-3.5 border-t border-black/[0.08] bg-offwhite/50 flex items-center justify-between">
+        <div className="px-5 py-3.5 border-t border-ed-line bg-ed-bg/50 flex items-center justify-between">
           <div className="flex items-center gap-2">
             {!isPoster && (
               <button onClick={() => handleSendBackFlex(flexAd)} disabled={isSendingBack}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium text-textmid hover:text-textdark hover:bg-black/[0.04] transition-colors disabled:opacity-50"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium text-ed-ink2 hover:text-ed-ink hover:bg-ed-bg transition-colors disabled:opacity-50"
               >
                 <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
@@ -1810,7 +1810,7 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
             )}
             {!isPoster && editingCard !== flexId && (
               <button onClick={() => startEditing(flexId, flexAd, true)}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium text-gold hover:text-gold/80 hover:bg-gold/[0.06] transition-colors"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium text-ed-accent hover:text-ed-accent/80 hover:bg-[rgba(168,84,59,0.06)] transition-colors"
               >
                 <EditPencilIcon />
                 Edit
@@ -1818,7 +1818,7 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
             )}
             {!isPoster && (
               <button onClick={() => setDeleteFlexConfirm(flexAd.id)}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium text-red-500 hover:text-red-600 hover:bg-red-50 transition-colors"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium text-ed-rust hover:text-ed-rust hover:bg-ed-rust/10 transition-colors"
               >
                 <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
@@ -1831,15 +1831,15 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
             <PostedByDropdown value={flexAd.posted_by} onChange={(val) => handlePostedByChange(flexAd.id, val, true)} />
             {confirmPosted === flexId ? (
               <div className="flex items-center gap-2">
-                <span className="text-[11px] text-textmid">{childDeps.length} ad{childDeps.length !== 1 ? 's' : ''}</span>
-                <button onClick={() => setConfirmPosted(null)} className="px-2.5 py-1.5 rounded-lg text-[11px] text-textmid hover:bg-white transition-colors">Cancel</button>
+                <span className="text-[11px] text-ed-ink2">{childDeps.length} ad{childDeps.length !== 1 ? 's' : ''}</span>
+                <button onClick={() => setConfirmPosted(null)} className="px-2.5 py-1.5 rounded-lg text-[11px] text-ed-ink2 hover:bg-white transition-colors">Cancel</button>
                 <button onClick={() => { setConfirmPosted(null); setMarkPostedModal({ flexAd, count: childDeps.length }); }} disabled={isMarking}
-                  className="px-4 py-2 rounded-lg text-[12px] font-bold bg-teal text-white hover:bg-teal/90 transition-colors disabled:opacity-50"
+                  className="px-4 py-2 rounded-lg text-[12px] font-bold bg-ed-green text-white hover:bg-ed-green/90 transition-colors disabled:opacity-50"
                 >{isMarking ? 'Updating...' : 'Pick date…'}</button>
               </div>
             ) : (
               <button onClick={() => setConfirmPosted(flexId)}
-                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-[12px] font-bold text-white bg-teal hover:bg-teal/90 transition-colors shadow-sm"
+                className="inline-flex items-center gap-1.5 px-4 py-2 rounded-lg text-[12px] font-bold text-white bg-ed-green hover:bg-ed-green/90 transition-colors shadow-sm"
               >
                 <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
@@ -1902,19 +1902,19 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
 
   // ── Render ──────────────────────────────────────────────────────────────
 
-  if (loading) return <div className="text-center py-12 text-textmid text-[13px]">Loading...</div>;
+  if (loading) return <div className="text-center py-12 text-ed-ink2 text-[13px]">Loading...</div>;
 
   if (loadError) {
     return (
       <div className="text-center py-16">
-        <div className="w-12 h-12 mx-auto mb-3 rounded-full bg-red-50 flex items-center justify-center">
-          <svg className="w-6 h-6 text-red-400" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <div className="w-12 h-12 mx-auto mb-3 rounded-full bg-ed-rust/10 flex items-center justify-center">
+          <svg className="w-6 h-6 text-ed-rust" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
           </svg>
         </div>
-        <p className="text-[14px] font-medium text-textdark">Something went wrong</p>
-        <p className="text-[12px] text-textmid mt-1">{loadError}</p>
-        <button onClick={loadData} className="mt-4 px-4 py-2 rounded-lg bg-navy text-white text-[12px] font-medium hover:bg-navy-light transition-colors">
+        <p className="text-[14px] font-medium text-ed-ink">Something went wrong</p>
+        <p className="text-[12px] text-ed-ink2 mt-1">{loadError}</p>
+        <button onClick={loadData} className="mt-4 px-4 py-2 rounded-lg bg-ed-accent text-white text-[12px] font-medium hover:bg-ed-accent/90 transition-colors">
           Try Again
         </button>
       </div>
@@ -1924,13 +1924,13 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
   if (readyDeps.length === 0) {
     return (
       <div className="text-center py-16">
-        <div className="w-12 h-12 mx-auto mb-3 rounded-full bg-navy/5 flex items-center justify-center">
-          <svg className="w-6 h-6 text-textlight" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <div className="w-12 h-12 mx-auto mb-3 rounded-full bg-ed-accent/5 flex items-center justify-center">
+          <svg className="w-6 h-6 text-ed-ink3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2m-6 9l2 2 4-4" />
           </svg>
         </div>
-        <p className="text-[14px] font-medium text-textdark">No ads ready to post</p>
-        <p className="text-[12px] text-textmid mt-1">When ads are marked "Ready to Post" in the Planner, they'll appear here.</p>
+        <p className="text-[14px] font-medium text-ed-ink">No ads ready to post</p>
+        <p className="text-[12px] text-ed-ink2 mt-1">When ads are marked "Ready to Post" in the Planner, they'll appear here.</p>
       </div>
     );
   }
@@ -1943,22 +1943,22 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
       <div className="flex items-start justify-between gap-4">
         <div>
           <div className="text-[14px]">
-            <span className="font-bold text-textdark">{cardList.length}</span>
-            <span className="text-textmid ml-1.5">ad{cardList.length !== 1 ? 's' : ''} ready to post</span>
+            <span className="font-bold text-ed-ink">{cardList.length}</span>
+            <span className="text-ed-ink2 ml-1.5">ad{cardList.length !== 1 ? 's' : ''} ready to post</span>
           </div>
-          <p className="text-[11px] text-textmid mt-0.5">These ads are ready to be posted in Meta Ads Manager. Expand each card to see the full details and copy the content.</p>
+          <p className="text-[11px] text-ed-ink2 mt-0.5">These ads are ready to be posted in Meta Ads Manager. Expand each card to see the full details and copy the content.</p>
         </div>
         <div className="flex items-center gap-2 shrink-0">
           <button
             onClick={handleGroupByToggle}
-            className={`text-[11px] px-3 py-1.5 rounded-lg font-medium transition-colors ${groupByDate ? 'bg-navy text-white' : 'bg-offwhite text-textmid border border-black/10 hover:bg-navy/5'}`}
+            className={`text-[11px] px-3 py-1.5 rounded-lg font-medium transition-colors ${groupByDate ? 'bg-ed-accent text-white' : 'bg-ed-bg text-ed-ink2 border border-ed-line hover:bg-ed-accent/5'}`}
           >
             Group by Start Date
           </button>
           <select
             value={sortBy}
             onChange={e => setSortBy(e.target.value)}
-            className="text-[12px] text-textdark bg-offwhite border border-black/10 rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-navy/20 cursor-pointer"
+            className="text-[12px] text-ed-ink bg-ed-bg border border-ed-line rounded-lg px-2.5 py-1.5 focus:outline-none focus:ring-1 focus:ring-ed-accent/20 cursor-pointer"
           >
             {groupByDate ? (
               <>
@@ -1980,7 +1980,7 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
 
       {/* Bulk actions toolbar — visible when cards are selected or for select all */}
       {!isPoster && cardList.length > 0 && (
-        <div className="flex items-center justify-between px-3 py-2 bg-offwhite rounded-xl">
+        <div className="flex items-center justify-between px-3 py-2 bg-ed-bg rounded-xl">
           <div className="flex items-center gap-3">
             <label className="flex items-center gap-2 cursor-pointer select-none">
               <input
@@ -1995,14 +1995,14 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
                     setSelectedCards(all);
                   }
                 }}
-                className="rounded border-navy/30 text-navy focus:ring-navy/20 w-4 h-4"
+                className="rounded border-ed-accent/30 text-ed-accent focus:ring-ed-accent/20 w-4 h-4"
               />
-              <span className="text-[11px] text-textmid font-medium">
+              <span className="text-[11px] text-ed-ink2 font-medium">
                 {selectedCards.size === cardList.length ? 'Deselect All' : 'Select All'}
               </span>
             </label>
             {selectedCards.size > 0 && (
-              <span className="text-[11px] text-navy font-semibold">{selectedCards.size} selected</span>
+              <span className="text-[11px] text-ed-accent font-semibold">{selectedCards.size} selected</span>
             )}
           </div>
           {selectedCards.size > 0 && (
@@ -2037,20 +2037,20 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
                   }
                 }}
                 disabled={bulkMarking}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium bg-teal text-white hover:bg-teal/90 transition-colors disabled:opacity-50"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium bg-ed-green text-white hover:bg-ed-green/90 transition-colors disabled:opacity-50"
               >
                 {bulkMarking ? 'Marking...' : `Mark as Posted (${selectedCards.size})`}
               </button>
               <button
                 onClick={() => setBulkEditing(true)}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium bg-gold text-white hover:bg-gold/90 transition-colors"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium bg-ed-accent text-white hover:bg-ed-accent/90 transition-colors"
               >
                 Edit Selected ({selectedCards.size})
               </button>
               <button
                 onClick={() => setBulkDeleteConfirm(true)}
                 disabled={bulkDeleting}
-                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium text-red-500 border border-red-300 hover:bg-red-50 transition-colors disabled:opacity-50"
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium text-ed-rust border border-ed-rust/30 hover:bg-ed-rust/10 transition-colors disabled:opacity-50"
               >
                 <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
@@ -2108,15 +2108,15 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
                       if (next.has(dateKey)) next.delete(dateKey); else next.add(dateKey);
                       return next;
                     })}
-                    className="w-full flex items-center justify-between px-4 py-2.5 rounded-xl bg-navy/5 hover:bg-navy/10 transition-colors mb-2"
+                    className="w-full flex items-center justify-between px-4 py-2.5 rounded-xl bg-ed-accent/5 hover:bg-ed-accent/10 transition-colors mb-2"
                   >
                     <div className="flex items-center gap-2">
-                      <svg className={`w-4 h-4 text-navy transition-transform ${isExpanded ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <svg className={`w-4 h-4 text-ed-accent transition-transform ${isExpanded ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                       </svg>
-                      <span className="text-[13px] font-semibold text-navy">{label}</span>
+                      <span className="text-[13px] font-semibold text-ed-accent">{label}</span>
                     </div>
-                    <span className="text-[11px] text-textmid font-medium">{cards.length} ad{cards.length !== 1 ? 's' : ''}</span>
+                    <span className="text-[11px] text-ed-ink2 font-medium">{cards.length} ad{cards.length !== 1 ? 's' : ''}</span>
                   </button>
                   {isExpanded && (
                     <div className="space-y-5 ml-2">

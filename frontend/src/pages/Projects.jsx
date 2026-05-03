@@ -2,14 +2,12 @@ import { useContext, useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { api } from '../api';
 import { AuthContext } from '../App';
-import Layout from '../components/Layout';
-import InfoTooltip from '../components/InfoTooltip';
+
+import StatusPill from '../components/editorial/StatusPill';
 import { useToast } from '../components/Toast';
 import { useAsyncData } from '../hooks/useAsyncData';
 import { ensureArray } from '../utils/collections';
 
-// Parse the pinned_project_ids setting (JSON string array). Falls back to []
-// on parse failure so a malformed setting doesn't break the Projects page.
 function parsePinnedIds(raw) {
   if (!raw) return [];
   try {
@@ -19,20 +17,6 @@ function parsePinnedIds(raw) {
     return [];
   }
 }
-
-const STATUS_CONFIG = {
-  setup: { label: 'Setup', bg: 'bg-gold/10', text: 'text-gold' },
-  generating_docs: { label: 'Generating', bg: 'bg-navy/10', text: 'text-navy' },
-  docs_ready: { label: 'Ready', bg: 'bg-teal/10', text: 'text-teal' },
-  active: { label: 'Active', bg: 'bg-teal/15', text: 'text-teal' }
-};
-
-const STATUS_COLORS = {
-  setup: '#C4975A',
-  generating_docs: '#0B1D3A',
-  docs_ready: '#2A9D8F',
-  active: '#2A9D8F'
-};
 
 export default function Projects() {
   const toast = useToast();
@@ -44,28 +28,26 @@ export default function Projects() {
   );
   const baseProjects = ensureArray(projects, 'Projects.page.projects');
 
-  // Pinning — read pinned_project_ids from settings on mount.
   const [pinnedIds, setPinnedIds] = useState([]);
   useEffect(() => {
     api.getSettings()
       .then(s => setPinnedIds(parsePinnedIds(s?.pinned_project_ids)))
-      .catch(() => { /* non-fatal — projects render without pin state */ });
+      .catch(() => {});
   }, []);
 
   const togglePin = async (projectId) => {
     const next = pinnedIds.includes(projectId)
       ? pinnedIds.filter(id => id !== projectId)
       : [...pinnedIds, projectId];
-    setPinnedIds(next);  // optimistic
+    setPinnedIds(next);
     try {
       await api.updateSettings({ pinned_project_ids: JSON.stringify(next) });
     } catch (err) {
-      setPinnedIds(pinnedIds);  // revert
+      setPinnedIds(pinnedIds);
       toast.error(err.message || 'Failed to update pinned projects');
     }
   };
 
-  // Sort: pinned projects first (in pin order), then unpinned (server-default order).
   const safeProjects = [...baseProjects].sort((a, b) => {
     const aIdx = pinnedIds.indexOf(a.id);
     const bIdx = pinnedIds.indexOf(b.id);
@@ -78,134 +60,131 @@ export default function Projects() {
   });
 
   return (
-    <Layout>
-      {/* Page Header */}
-      <div className="mb-8">
-        <div className="flex items-center justify-between">
-          <div>
-            <div className="flex items-center gap-2">
-              <h1 className="text-2xl font-semibold text-textdark tracking-tight">Projects</h1>
-              {!loading && safeProjects.length > 0 && (
-                <span className="badge bg-black/5 text-textlight">
-                  {safeProjects.length}
-                </span>
-              )}
-              <InfoTooltip
-                text="Each project contains foundational docs, templates, and generated ad creatives for one brand or product."
-                position="right"
-              />
+    <div className="px-[36px] py-[28px] max-w-[1200px]">
+      {/* ─── Header ─── */}
+      <div className="flex items-end justify-between mb-8">
+        <div>
+          {!loading && (
+            <div className="ed-eyebrow mb-2">
+              {safeProjects.length} project{safeProjects.length !== 1 ? 's' : ''}
             </div>
-            <p className="text-[13px] text-textmid mt-0.5">Manage your ad creative projects</p>
-          </div>
+          )}
+          <h1 className="font-serif text-[38px] leading-[1.05] tracking-[-0.02em] text-ed-ink font-[420]">
+            Projects
+          </h1>
+        </div>
+        {canCreate && (
+          <Link to="/projects/new" className="ed-cta flex items-center gap-1.5 text-[13px]">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+              <path d="M12 5v14M5 12h14" />
+            </svg>
+            New project
+          </Link>
+        )}
+      </div>
+
+      {/* ─── Projects Grid ─── */}
+      {loading ? (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+          {[0, 1, 2, 3].map(i => (
+            <div key={i} className="ed-card px-[22px] py-5 animate-pulse">
+              <div className="h-5 w-36 bg-ed-line rounded mb-2" />
+              <div className="h-3 w-24 bg-ed-line/60 rounded mb-5" />
+              <div className="flex gap-6">
+                <div className="h-4 w-14 bg-ed-line/40 rounded" />
+                <div className="h-4 w-14 bg-ed-line/40 rounded" />
+              </div>
+            </div>
+          ))}
+        </div>
+      ) : safeProjects.length === 0 ? (
+        <div className="py-16 text-center border-2 border-dashed border-ed-line rounded-xl">
+          <p className="font-geist text-[14px] text-ed-ink2 mb-4">
+            {canCreate ? 'No projects yet. Create your first project to get started.' : 'No projects available.'}
+          </p>
           {canCreate && (
-            <Link to="/projects/new" className="btn-primary text-[13px]">
-              New Project
+            <Link to="/projects/new" className="ed-cta inline-flex items-center gap-1.5 text-[13px]">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8">
+                <path d="M12 5v14M5 12h14" />
+              </svg>
+              Create Project
             </Link>
           )}
         </div>
-      </div>
-
-      {/* Projects Grid */}
-      <div className="fade-in">
-        {loading ? (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5">
-            {[0, 1, 2].map(i => (
-              <div key={i} className="card p-5 animate-pulse">
-                <div className="flex items-start justify-between mb-3">
-                  <div className="h-4 w-32 bg-gray-200 rounded" />
-                  <div className="h-5 w-14 bg-gray-200 rounded-full" />
-                </div>
-                <div className="h-3 w-24 bg-gray-100 rounded mb-1" />
-                <div className="h-3 w-16 bg-gray-100 rounded mb-4" />
-                <div className="border-t border-black/5 pt-3 flex gap-4">
-                  <div className="h-3 w-14 bg-gray-100 rounded" />
-                  <div className="h-3 w-14 bg-gray-100 rounded" />
-                </div>
-              </div>
-            ))}
-          </div>
-        ) : safeProjects.length === 0 ? (
-          <div className="card p-16 text-center fade-in border-2 border-dashed border-navy/20">
-            <div className="w-16 h-16 mx-auto mb-4 rounded-2xl bg-navy/5 flex items-center justify-center">
-              <svg className="w-8 h-8 text-navy" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 4.5v15m7.5-7.5h-15" />
-              </svg>
-            </div>
-            <p className="text-textmid text-sm mb-4">{canCreate ? 'No projects yet. Create your first project to get started.' : 'No projects available.'}</p>
-            {canCreate && (
-              <Link to="/projects/new" className="btn-primary inline-block">
-                Create Project
-              </Link>
-            )}
-          </div>
-        ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 fade-in">
-            {safeProjects.map(project => {
-              const status = STATUS_CONFIG[project.status] || { label: project.status, bg: 'bg-black/5', text: 'text-textmid' };
-              const borderColor = STATUS_COLORS[project.status] || '#D1D5DB';
-              const isPinned = pinnedIds.includes(project.id);
-              return (
-                <Link
-                  key={project.id}
-                  to={`/projects/${project.id}`}
-                  className="card p-5 transition-all duration-300 group border-l-2"
-                  style={{ borderLeftColor: borderColor }}
-                >
-                  <div className="flex items-start justify-between mb-3 gap-2">
-                    <h3 className="font-semibold text-[15px] text-textdark tracking-tight group-hover:text-gold transition-colors flex-1 min-w-0 truncate">{project.brand_name || project.name}</h3>
-                    <div className="flex items-center gap-1.5 flex-shrink-0">
-                      <button
-                        onClick={(e) => { e.preventDefault(); e.stopPropagation(); togglePin(project.id); }}
-                        className={`w-6 h-6 rounded-md flex items-center justify-center transition-all ${
-                          isPinned
-                            ? 'text-gold bg-gold/10 hover:bg-gold/15'
-                            : 'text-textlight/40 opacity-0 group-hover:opacity-100 hover:text-textlight hover:bg-black/5'
-                        }`}
-                        title={isPinned ? 'Unpin project' : 'Pin to top'}
+      ) : (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-3.5">
+          {safeProjects.map(project => {
+            const isPinned = pinnedIds.includes(project.id);
+            return (
+              <Link
+                key={project.id}
+                to={`/projects/${project.id}`}
+                className="ed-card px-[22px] py-5 no-underline group transition-colors duration-150 hover:border-ed-accent/30"
+              >
+                <div className="flex items-start justify-between gap-3 mb-1">
+                  <h3 className="font-serif text-[20px] tracking-[-0.01em] text-ed-ink leading-tight truncate">
+                    {project.brand_name || project.name}
+                  </h3>
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    <button
+                      onClick={(e) => { e.preventDefault(); e.stopPropagation(); togglePin(project.id); }}
+                      className={`w-6 h-6 rounded-md flex items-center justify-center transition-all ${
+                        isPinned
+                          ? 'text-ed-accent'
+                          : 'text-ed-ink3/30 opacity-0 group-hover:opacity-100 hover:text-ed-ink3'
+                      }`}
+                      title={isPinned ? 'Unpin project' : 'Pin to top'}
+                    >
+                      <svg
+                        className="w-3.5 h-3.5"
+                        fill={isPinned ? 'currentColor' : 'none'}
+                        stroke="currentColor"
+                        viewBox="0 0 24 24"
+                        strokeWidth={isPinned ? 1 : 1.75}
                       >
-                        <svg
-                          className="w-3.5 h-3.5"
-                          fill={isPinned ? 'currentColor' : 'none'}
-                          stroke="currentColor"
-                          viewBox="0 0 24 24"
-                          strokeWidth={isPinned ? 1 : 1.75}
-                        >
-                          <path strokeLinecap="round" strokeLinejoin="round" d="M16 12V4h1V2H7v2h1v8l-2 2v2h5.2v6h1.6v-6H18v-2l-2-2z" />
-                        </svg>
-                      </button>
-                      <span className={`badge ${status.bg} ${status.text}`}>
-                        {status.label}
-                      </span>
-                    </div>
+                        <path strokeLinecap="round" strokeLinejoin="round" d="M16 12V4h1V2H7v2h1v8l-2 2v2h5.2v6h1.6v-6H18v-2l-2-2z" />
+                      </svg>
+                    </button>
                   </div>
-                  {project.brand_name && (
-                    <p className="text-[13px] text-textmid mb-0.5">{project.name}</p>
-                  )}
-                  {project.niche && (
-                    <p className="text-[12px] text-textlight mb-4">{project.niche}</p>
-                  )}
-                  <div className="flex items-center gap-4 text-[12px] text-textlight border-t border-black/5 pt-3">
-                    <span className="flex items-center gap-1">
-                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M19.5 14.25v-2.625a3.375 3.375 0 00-3.375-3.375h-1.5A1.125 1.125 0 0113.5 7.125v-1.5a3.375 3.375 0 00-3.375-3.375H8.25m2.25 0H5.625c-.621 0-1.125.504-1.125 1.125v17.25c0 .621.504 1.125 1.125 1.125h12.75c.621 0 1.125-.504 1.125-1.125V11.25a9 9 0 00-9-9z" /></svg>
-                      {project.status === 'setup' ? `${project.docCount || 0}/4 docs` : `${project.docCount || 0} docs`}
-                    </span>
-                    <span className="flex items-center gap-1">
-                      <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M2.25 15.75l5.159-5.159a2.25 2.25 0 013.182 0l5.159 5.159m-1.5-1.5l1.409-1.409a2.25 2.25 0 013.182 0l2.909 2.909M3.75 21h16.5a2.25 2.25 0 002.25-2.25V6.75a2.25 2.25 0 00-2.25-2.25H3.75a2.25 2.25 0 00-2.25 2.25v12a2.25 2.25 0 002.25 2.25z" /></svg>
-                      {project.adCount || 0} ads
-                    </span>
+                </div>
+
+                {project.brand_name && (
+                  <div className="font-geist text-[12.5px] text-ed-ink3 mb-0.5">{project.name}</div>
+                )}
+                {project.niche && (
+                  <div className="font-geist text-[11.5px] text-ed-ink3/70 mb-0.5">{project.niche}</div>
+                )}
+
+                <div className="flex items-end justify-between mt-4">
+                  <div className="flex gap-[18px] text-[11.5px] text-ed-ink3">
+                    <div>
+                      <div className="font-serif text-[18px] text-ed-ink leading-none mb-[3px]">
+                        {project.adCount || 0}
+                      </div>
+                      ads
+                    </div>
+                    <div>
+                      <div className="font-serif text-[18px] text-ed-ink leading-none mb-[3px]">
+                        {project.docCount || 0}
+                      </div>
+                      {project.status === 'setup' ? `/ 4 docs` : 'docs'}
+                    </div>
                     {(project.lpCount > 0) && (
-                      <span className="flex items-center gap-1">
-                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M12 7.5h1.5m-1.5 3h1.5m-7.5 3h7.5m-7.5 3h7.5m3-9h3.375c.621 0 1.125.504 1.125 1.125V18a2.25 2.25 0 01-2.25 2.25M16.5 7.5V18a2.25 2.25 0 002.25 2.25M16.5 7.5V4.875c0-.621-.504-1.125-1.125-1.125H4.125C3.504 3.75 3 4.254 3 4.875V18a2.25 2.25 0 002.25 2.25h13.5M6 7.5h3v3H6v-3z" /></svg>
-                        {project.lpCount} LPs
-                      </span>
+                      <div>
+                        <div className="font-serif text-[18px] text-ed-ink leading-none mb-[3px]">
+                          {project.lpCount}
+                        </div>
+                        LPs
+                      </div>
                     )}
                   </div>
-                </Link>
-              );
-            })}
-          </div>
-        )}
-      </div>
-    </Layout>
+                  <StatusPill status={project.status} />
+                </div>
+              </Link>
+            );
+          })}
+        </div>
+      )}
+    </div>
   );
 }

@@ -459,6 +459,116 @@ router.post('/:projectId/observation/demo-ad-set', requireRole('admin', 'manager
   }
 });
 
+router.post('/:projectId/observation/seed-demo', requireRole('admin', 'manager'), async (req, res) => {
+  try {
+    const projectId = req.params.projectId;
+    const project = await getProject(projectId);
+    if (!project) return res.status(404).json({ error: 'Project not found' });
+
+    const now = new Date();
+    const nowIso = now.toISOString();
+    const currency = project.meta_account_currency || 'USD';
+
+    const existingAdSets = await convexClient.query(api.adSets.getByProject, { projectId });
+    for (const a of (existingAdSets || []).filter((x) => x.is_demo)) {
+      await convexClient.mutation(api.adSets.remove, { externalId: a.externalId });
+    }
+
+    const campaignId = await convexClient.mutation(api.campaigns.upsertByProjectAndName, {
+      project_id: projectId,
+      name: DEMO_CAMPAIGN_NAME,
+    });
+
+    const SEED = [
+      { name: 'Grounding Bedsheet — Sleep Pain', angle: 'Sleep Pain Relief', status: 'observing', days: 4, spend: 142, roas: 1.85 },
+      { name: 'Grounding Mat — Energy Focus', angle: 'Energy & Focus', status: 'observing', days: 7, spend: 310, roas: 2.35 },
+      { name: 'Recovery Patch — Athletes', angle: 'Athletic Recovery', status: 'observing', days: 2, spend: 68, roas: 0.92 },
+      { name: 'Bedsheet — Chronic Inflammation', angle: 'Sleep Pain Relief', status: 'passed', days: 14, spend: 520, roas: 3.10 },
+      { name: 'Mat — Desk Worker Fatigue', angle: 'Energy & Focus', status: 'failed', days: 14, spend: 380, roas: 0.65 },
+      { name: 'Patch — Weekend Warrior', angle: 'Athletic Recovery', status: 'insufficient_data', days: 9, spend: 18, roas: 0 },
+      { name: 'Bedsheet — Joint Stiffness', angle: 'Sleep Pain Relief', status: 'passed', days: 21, spend: 640, roas: 2.80 },
+      { name: 'Mat — Morning Energy', angle: 'Energy & Focus', status: 'failed', days: 21, spend: 290, roas: 0.55 },
+      { name: 'Bedsheet — Deep Sleep', angle: 'Sleep Pain Relief', status: 'passed', days: 28, spend: 410, roas: 3.50 },
+      { name: 'Patch — Recovery After Run', angle: 'Athletic Recovery', status: 'failed', days: 28, spend: 350, roas: 0.42 },
+    ];
+
+    const angleIds = {};
+    for (const s of SEED) {
+      if (!angleIds[s.angle]) {
+        const existing = await convexClient.query(api.conductor.getAngles, { projectId });
+        const found = (existing || []).find((a) => a.name === s.angle && !a.archived_at);
+        if (found) {
+          angleIds[s.angle] = found.externalId;
+        } else {
+          const eid = randomUUID();
+          await convexClient.mutation(api.conductor.createAngle, {
+            externalId: eid,
+            project_id: projectId,
+            name: s.angle,
+            description: `Demo angle: ${s.angle}`,
+            source: 'demo-seed',
+            status: 'active',
+          });
+          angleIds[s.angle] = eid;
+        }
+      }
+    }
+
+    const created = [];
+    for (const s of SEED) {
+      const eid = randomUUID();
+      const postedAt = new Date(now.getTime() - s.days * 86400000).toISOString();
+      await convexClient.mutation(api.adSets.create, {
+        externalId: eid,
+        campaign_id: campaignId,
+        project_id: projectId,
+        name: s.name,
+        sort_order: created.length,
+        lifecycle_status: s.status,
+        posted_at: postedAt,
+        meta_adset_id: `demo_${eid}`,
+        meta_campaign_id: 'demo_campaign',
+        meta_post_path: 'demo',
+        is_demo: true,
+        angle_id: angleIds[s.angle],
+        created_at: nowIso,
+        updated_at: nowIso,
+      });
+
+      const resultVerdict = s.status === 'observing' ? undefined : s.status;
+      if (resultVerdict) {
+        await convexClient.mutation(api.observationResults.create, {
+          externalId: `demo-result:${eid}`,
+          project_id: projectId,
+          ad_set_id: eid,
+          posted_at: postedAt,
+          observed_through: nowIso,
+          days_observed: s.days,
+          verdict: resultVerdict,
+          fail_reason_code: 'demo',
+          spend: s.spend,
+          impressions: Math.round(s.spend * 130),
+          clicks: Math.round(s.spend * 2.3),
+          ctr: 1.77,
+          roas: s.roas,
+          conversions: Math.round(s.spend * s.roas / 35),
+          benchmark_used: JSON.stringify({ demo: true }),
+          benchmark_version: 1,
+          reason: `Demo seed: ${s.status}`,
+          evaluated_by: 'demo-seed',
+          account_currency: currency,
+        });
+      }
+
+      created.push({ id: eid, name: s.name, status: s.status, angle: s.angle });
+    }
+
+    res.json({ success: true, created });
+  } catch (err) {
+    res.status(500).json({ error: err.message });
+  }
+});
+
 router.get('/:projectId/observation/ad-sets/:adSetId', requireRole('admin', 'manager'), async (req, res) => {
   try {
     const adSet = await convexClient.query(api.adSets.getByExternalId, { externalId: req.params.adSetId });

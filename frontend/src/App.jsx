@@ -4,6 +4,7 @@ import { api } from './api';
 import { ToastProvider } from './components/Toast';
 import ErrorBoundary from './components/ErrorBoundary';
 import Login from './pages/Login';
+import EditorialLayout from './components/EditorialLayout';
 
 // ─── Lazy Import with Retry ─────────────────────────────────────────────────
 // After a deploy, old chunk hashes no longer exist on the server.
@@ -131,7 +132,7 @@ function ProtectedRoute({ children, roles }) {
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
-        <div className="text-textlight">Loading...</div>
+        <div className="text-ed-ink3">Loading...</div>
       </div>
     );
   }
@@ -151,7 +152,7 @@ function ProtectedRoute({ children, roles }) {
 function PageLoader() {
   return (
     <div className="min-h-screen flex items-center justify-center">
-      <div className="text-textlight text-sm">Loading page...</div>
+      <div className="text-ed-ink3 text-sm">Loading page...</div>
     </div>
   );
 }
@@ -164,12 +165,14 @@ export default function App() {
           <Suspense fallback={<PageLoader />}>
             <Routes>
               <Route path="/login" element={<Login />} />
-              <Route path="/" element={<ProtectedRoute roles={['admin', 'manager']}><Dashboard /></ProtectedRoute>} />
-              <Route path="/projects" element={<ProtectedRoute><Projects /></ProtectedRoute>} />
-              <Route path="/projects/new" element={<ProtectedRoute roles={['admin', 'manager']}><ProjectSetup /></ProtectedRoute>} />
-              <Route path="/projects/:id" element={<ProtectedRoute><ProjectDetail /></ProtectedRoute>} />
+              <Route element={<ProtectedRoute><EditorialLayout /></ProtectedRoute>}>
+                <Route index element={<ProtectedRoute roles={['admin', 'manager']}><Dashboard /></ProtectedRoute>} />
+                <Route path="/projects" element={<Projects />} />
+                <Route path="/projects/new" element={<ProtectedRoute roles={['admin', 'manager']}><ProjectSetup /></ProtectedRoute>} />
+                <Route path="/projects/:id" element={<ProjectDetail />} />
+                <Route path="/settings" element={<ProtectedRoute roles={['admin']}><Settings /></ProtectedRoute>} />
+              </Route>
               <Route path="/agents" element={<Navigate to="/projects" replace />} />
-              <Route path="/settings" element={<ProtectedRoute roles={['admin']}><Settings /></ProtectedRoute>} />
               <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           </Suspense>

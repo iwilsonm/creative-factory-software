@@ -90,29 +90,29 @@ export default function ObservationSettings({ projectId }) {
   };
 
   if (loading) {
-    return <div className="text-[12px] text-textlight">Loading observation settings…</div>;
+    return <div className="text-[12px] text-ed-ink3">Loading observation settings…</div>;
   }
 
   return (
     <div className="space-y-5">
-      <div className="card p-5">
+      <div className="ed-card p-5">
         <div className="flex items-start justify-between mb-4">
           <div>
-            <h3 className="text-[14px] font-semibold text-textdark">Observation & Benchmark</h3>
-            <p className="text-[11px] text-textlight mt-0.5">
+            <h3 className="text-[14px] font-serif font-[420] text-ed-ink">Observation & Benchmark</h3>
+            <p className="text-[11px] text-ed-ink3 mt-0.5">
               Posted ad sets are watched for the window below. At the end, the benchmark decides whether the angle should keep running, needs more data, or should be archived.
             </p>
-            <p className="text-[10px] text-textlight mt-1">
+            <p className="text-[10px] text-ed-ink3 mt-1">
               Account currency: <strong>{currency}</strong> · Benchmark version: v{version}
             </p>
           </div>
-          <button onClick={handleSuggest} disabled={saving} className="btn-secondary text-[11px]">
+          <button onClick={handleSuggest} disabled={saving} className="ed-ghost text-[11px]">
             Auto-suggest from 90d
           </button>
         </div>
 
         {observingCount > 0 && (
-          <div className="mb-4 p-3 rounded-lg bg-gold/5 border border-gold/30 text-[11px] text-textdark">
+          <div className="mb-4 p-3 rounded-lg bg-ed-accent/5 border border-ed-accent/30 text-[11px] text-ed-ink">
             <strong>{observingCount} ad set{observingCount === 1 ? '' : 's'} currently observing.</strong> Changes you save will apply to their next evaluation.
           </div>
         )}
@@ -133,9 +133,9 @@ export default function ObservationSettings({ projectId }) {
             onChange={(v) => set('observation_window_days', parseInt(v, 10) || 12)}
           />
 
-          <hr className="border-gray-100" />
+          <hr className="border-ed-line" />
 
-          <h4 className="text-[12px] font-semibold text-textmid uppercase tracking-wider">Benchmark rules</h4>
+          <h4 className="text-[12px] font-semibold text-ed-ink2 uppercase tracking-wider">Benchmark rules</h4>
 
           <Field
             label={`Minimum spend before judging (${currency})`}
@@ -190,9 +190,9 @@ export default function ObservationSettings({ projectId }) {
             onChange={(v) => set('benchmark_action_type', v)}
           />
 
-          <hr className="border-gray-100" />
+          <hr className="border-ed-line" />
 
-          <h4 className="text-[12px] font-semibold text-textmid uppercase tracking-wider">Angle archiving</h4>
+          <h4 className="text-[12px] font-semibold text-ed-ink2 uppercase tracking-wider">Angle archiving</h4>
 
           <Field
             label="Ad sets tested before archiving can happen"
@@ -212,7 +212,7 @@ export default function ObservationSettings({ projectId }) {
         </div>
 
         <div className="mt-5 flex justify-end gap-2">
-          <button onClick={handleSave} disabled={saving} className="btn-primary text-[12px]">
+          <button onClick={handleSave} disabled={saving} className="px-4 py-2 rounded-[7px] text-[13px] bg-ed-accent text-[#fbfaf6] hover:bg-ed-accent/90 transition-colors text-[12px]">
             {saving ? 'Saving…' : 'Save'}
           </button>
         </div>
@@ -224,7 +224,7 @@ export default function ObservationSettings({ projectId }) {
 function Field({ label, tooltip, type = 'text', value, onChange, ...rest }) {
   return (
     <div>
-      <label className="block text-[12px] font-medium text-textmid mb-1">
+      <label className="block text-[12px] font-medium text-ed-ink2 mb-1">
         {label}
         {tooltip && <InfoTooltip text={tooltip} position="right" />}
       </label>
@@ -232,7 +232,7 @@ function Field({ label, tooltip, type = 'text', value, onChange, ...rest }) {
         type={type}
         value={value ?? ''}
         onChange={(e) => onChange(e.target.value)}
-        className="input-apple text-[13px]"
+        className="w-full text-[13.5px] text-ed-ink px-3 py-[9px] border border-ed-line rounded-[7px] bg-ed-surface outline-none focus:border-ed-accent focus:ring-[3px] focus:ring-ed-accent/[0.08] text-[13px]"
         {...rest}
       />
     </div>
@@ -243,7 +243,7 @@ function Toggle({ label, tooltip, value, onChange }) {
   return (
     <label className="flex items-center gap-2 cursor-pointer">
       <input type="checkbox" checked={!!value} onChange={(e) => onChange(e.target.checked)} className="w-4 h-4" />
-      <span className="text-[12px] text-textdark">{label}</span>
+      <span className="text-[12px] text-ed-ink">{label}</span>
       {tooltip && <InfoTooltip text={tooltip} position="right" />}
     </label>
   );
@@ -252,7 +252,7 @@ function Toggle({ label, tooltip, value, onChange }) {
 function SegmentedControl({ label, value, options, onChange }) {
   return (
     <div>
-      <label className="block text-[12px] font-medium text-textmid mb-1">{label}</label>
+      <label className="block text-[12px] font-medium text-ed-ink2 mb-1">{label}</label>
       <div className="segmented-control">
         {options.map((opt) => (
           <button

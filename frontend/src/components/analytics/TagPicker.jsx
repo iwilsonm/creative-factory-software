@@ -66,7 +66,7 @@ export default function TagPicker({ allTags, appliedTagIds, onApply, onRemove, o
   return createPortal(
     <div
       ref={ref}
-      className="fixed z-50 w-64 bg-white border border-gray-200 rounded-xl shadow-card p-2"
+      className="fixed z-50 w-64 bg-ed-surface border border-ed-line rounded-xl shadow-card p-2"
       style={{ top: position.top, left: position.left }}
     >
       <input
@@ -74,12 +74,12 @@ export default function TagPicker({ allTags, appliedTagIds, onApply, onRemove, o
         value={query}
         onChange={(e) => setQuery(e.target.value)}
         placeholder="Search or create tag…"
-        className="w-full text-[12px] px-2 py-1.5 border border-gray-200 rounded-lg focus:outline-none focus:border-navy"
+        className="w-full text-[12px] px-2 py-1.5 border border-ed-line rounded-lg focus:outline-none focus:border-ed-accent"
       />
 
       <div className="max-h-44 overflow-y-auto mt-1.5">
         {filtered.length === 0 && !creating && (
-          <div className="text-[11px] text-textlight px-2 py-1.5">No tags match.</div>
+          <div className="text-[11px] text-ed-ink3 px-2 py-1.5">No tags match.</div>
         )}
         {filtered.map(tag => {
           const applied = appliedTagIds.includes(tag.externalId);
@@ -87,12 +87,12 @@ export default function TagPicker({ allTags, appliedTagIds, onApply, onRemove, o
             <button
               key={tag.externalId}
               onClick={() => applied ? onRemove(tag) : onApply(tag)}
-              className="w-full flex items-center gap-2 px-2 py-1.5 text-[12px] hover:bg-gray-50 rounded-lg"
+              className="w-full flex items-center gap-2 px-2 py-1.5 text-[12px] hover:bg-ed-bg rounded-lg"
             >
               <span className="w-3 h-3 rounded-full" style={{ background: tag.color }} />
-              <span className="flex-1 text-left text-textdark">{tag.name}</span>
+              <span className="flex-1 text-left text-ed-ink">{tag.name}</span>
               {applied && (
-                <svg className="w-3.5 h-3.5 text-teal" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <svg className="w-3.5 h-3.5 text-ed-green" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2.5} d="M5 13l4 4L19 7" />
                 </svg>
               )}
@@ -101,11 +101,11 @@ export default function TagPicker({ allTags, appliedTagIds, onApply, onRemove, o
         })}
       </div>
 
-      <div className="border-t border-gray-100 pt-2 mt-1.5">
+      <div className="border-t border-ed-line pt-2 mt-1.5">
         {!creating ? (
           <button
             onClick={() => { setCreating(true); setNewName(query); }}
-            className="w-full text-left text-[11px] text-gold hover:text-gold-light px-2 py-1"
+            className="w-full text-left text-[11px] text-ed-accent hover:text-ed-accent/80 px-2 py-1"
           >
             + Create new tag{query ? ` "${query}"` : ''}
           </button>
@@ -116,7 +116,7 @@ export default function TagPicker({ allTags, appliedTagIds, onApply, onRemove, o
               value={newName}
               onChange={(e) => setNewName(e.target.value)}
               placeholder="Tag name"
-              className="w-full text-[12px] px-2 py-1.5 border border-gray-200 rounded-lg focus:outline-none focus:border-navy"
+              className="w-full text-[12px] px-2 py-1.5 border border-ed-line rounded-lg focus:outline-none focus:border-ed-accent"
             />
             <div className="flex flex-wrap gap-1">
               {TAG_COLORS.map(c => (
@@ -136,13 +136,13 @@ export default function TagPicker({ allTags, appliedTagIds, onApply, onRemove, o
                   await onCreate({ name: newName.trim(), color: newColor });
                   setCreating(false); setNewName(''); setQuery('');
                 }}
-                className="btn-primary text-[11px] px-2 py-1"
+                className="px-3 py-1.5 rounded-[6px] text-[11px] bg-ed-accent text-[#fbfaf6] text-[11px] px-2 py-1"
               >
                 Create + apply
               </button>
               <button
                 onClick={() => setCreating(false)}
-                className="text-[11px] text-textmid hover:text-textdark"
+                className="text-[11px] text-ed-ink2 hover:text-ed-ink"
               >
                 Cancel
               </button>

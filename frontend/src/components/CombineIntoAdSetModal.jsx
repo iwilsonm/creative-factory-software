@@ -105,13 +105,13 @@ export default function CombineIntoAdSetModal({
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 fade-in">
       <div className="absolute inset-0 bg-black/45 backdrop-blur-sm" onClick={saving ? undefined : onClose} />
-      <div className="relative bg-white rounded-2xl shadow-card w-[480px] max-w-full">
+      <div className="relative bg-ed-surface rounded-2xl shadow-card w-[480px] max-w-full">
         <div className="px-5 py-4 border-b border-cream">
-          <h2 className="text-[15px] font-semibold text-textdark flex items-center gap-1">
+          <h2 className="text-[15px] font-semibold text-ed-ink flex items-center gap-1">
             Combine into Ad Set
             <InfoTooltip text="An ad set groups selected ads under one campaign/ad-set name for Ready to Post and Meta posting." position="right" />
           </h2>
-          <p className="text-[11px] text-textmid mt-0.5">
+          <p className="text-[11px] text-ed-ink2 mt-0.5">
             Grouping {deploymentIds.length} ad{deploymentIds.length === 1 ? '' : 's'} into a new ad set. You can expand it later to review the ads inside.
           </p>
         </div>
@@ -119,8 +119,8 @@ export default function CombineIntoAdSetModal({
         <div className="p-5 space-y-4">
           {/* Ad set name */}
           <div>
-            <label className="text-[12px] font-medium text-textdark mb-1 flex items-center gap-1">
-              Ad set name <span className="text-red-500">*</span>
+            <label className="text-[12px] font-medium text-ed-ink mb-1 flex items-center gap-1">
+              Ad set name <span className="text-ed-rust">*</span>
               <InfoTooltip text="Use a clear name for the group of ads, usually based on the angle or test you are running." position="right" />
             </label>
             <input
@@ -129,26 +129,26 @@ export default function CombineIntoAdSetModal({
               value={name}
               onChange={(e) => setName(e.target.value)}
               placeholder="e.g. Skeptic to Believer — Test 1"
-              className="input-apple text-[13px] w-full"
+              className="input-apple !border-ed-line focus:!ring-ed-accent/20 focus:!border-ed-accent text-[13px] w-full"
               maxLength={80}
             />
             <div className="text-[10px] mt-1 flex items-center gap-2">
-              <span className={trimmedName.length > 80 ? 'text-red-500' : 'text-textlight'}>
+              <span className={trimmedName.length > 80 ? 'text-ed-rust' : 'text-ed-ink3'}>
                 {trimmedName.length}/80
               </span>
               {trimmedName && !NAME_PATTERN.test(trimmedName) && (
-                <span className="text-red-500">Use letters, digits, spaces, hyphens, underscores only</span>
+                <span className="text-ed-rust">Use letters, digits, spaces, hyphens, underscores only</span>
               )}
               {nameCollides && (
-                <span className="text-gold">⚠ Name already exists in this project</span>
+                <span className="text-ed-accent">⚠ Name already exists in this project</span>
               )}
             </div>
           </div>
 
           {/* Campaign picker */}
           <div>
-            <label className="text-[12px] font-medium text-textdark mb-1 flex items-center gap-1">
-              Campaign <span className="text-red-500">*</span>
+            <label className="text-[12px] font-medium text-ed-ink mb-1 flex items-center gap-1">
+              Campaign <span className="text-ed-rust">*</span>
               <InfoTooltip text="Choose the campaign where this ad set belongs, or create a new local campaign name now." position="right" />
             </label>
             <div className="flex items-center gap-3 mb-2">
@@ -158,7 +158,7 @@ export default function CombineIntoAdSetModal({
                   checked={campaignMode === 'existing'}
                   onChange={() => setCampaignMode('existing')}
                 />
-                <span className="text-textdark">Existing</span>
+                <span className="text-ed-ink">Existing</span>
               </label>
               <label className="flex items-center gap-1.5 text-[12px] cursor-pointer">
                 <input
@@ -166,14 +166,14 @@ export default function CombineIntoAdSetModal({
                   checked={campaignMode === 'new'}
                   onChange={() => setCampaignMode('new')}
                 />
-                <span className="text-textdark">+ Create new</span>
+                <span className="text-ed-ink">+ Create new</span>
               </label>
             </div>
             {campaignMode === 'existing' ? (
               <select
                 value={existingCampaignId}
                 onChange={(e) => setExistingCampaignId(e.target.value)}
-                className="input-apple text-[13px] w-full"
+                className="input-apple !border-ed-line focus:!ring-ed-accent/20 focus:!border-ed-accent text-[13px] w-full"
               >
                 <option value="">— Pick a campaign —</option>
                 {(campaigns || []).map((c) => (
@@ -186,12 +186,12 @@ export default function CombineIntoAdSetModal({
                 value={newCampaignName}
                 onChange={(e) => setNewCampaignName(e.target.value)}
                 placeholder="New campaign name"
-                className="input-apple text-[13px] w-full"
+                className="input-apple !border-ed-line focus:!ring-ed-accent/20 focus:!border-ed-accent text-[13px] w-full"
                 maxLength={80}
               />
             )}
             {campaignMode === 'new' && newCampaignTrimmed && !NAME_PATTERN.test(newCampaignTrimmed) && (
-              <div className="text-[10px] text-red-500 mt-1">
+              <div className="text-[10px] text-ed-rust mt-1">
                 Use letters, digits, spaces, hyphens, underscores only
               </div>
             )}
@@ -199,7 +199,7 @@ export default function CombineIntoAdSetModal({
 
           {/* Lock error */}
           {lockError && (
-            <div className="text-[12px] text-red-500 bg-red-50 border border-red-100 rounded-lg p-2.5">
+            <div className="text-[12px] text-ed-rust bg-ed-rust/10 border border-ed-rust/30 rounded-lg p-2.5">
               {lockError}
             </div>
           )}
@@ -210,7 +210,7 @@ export default function CombineIntoAdSetModal({
             type="button"
             onClick={onClose}
             disabled={saving}
-            className="btn-secondary text-[12px] px-4 py-1.5"
+            className="ed-ghost text-[12px] px-4 py-1.5"
           >
             Cancel
           </button>
@@ -218,7 +218,7 @@ export default function CombineIntoAdSetModal({
             type="button"
             onClick={handleSave}
             disabled={!canSave}
-            className="btn-primary text-[12px] px-4 py-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="px-4 py-2 rounded-[7px] text-[13px] bg-ed-accent text-[#fbfaf6] hover:bg-ed-accent/90 transition-colors text-[12px] px-4 py-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {saving ? 'Creating…' : 'Create Ad Set'}
           </button>

@@ -68,10 +68,10 @@ export default function MarkPostedModal({ open, count, onClose, onConfirm }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 fade-in">
       <div className="absolute inset-0 bg-black/45 backdrop-blur-sm" onClick={saving ? undefined : onClose} />
-      <div className="relative bg-white rounded-2xl shadow-card w-[440px] max-w-full">
+      <div className="relative bg-ed-surface rounded-2xl shadow-card w-[440px] max-w-full">
         <div className="px-5 py-4 border-b border-cream">
-          <h2 className="text-[15px] font-semibold text-textdark">Mark as Posted</h2>
-          <p className="text-[11px] text-textmid mt-0.5">
+          <h2 className="text-[15px] font-semibold text-ed-ink">Mark as Posted</h2>
+          <p className="text-[11px] text-ed-ink2 mt-0.5">
             Marking {count} ad{count === 1 ? '' : 's'} as posted. When did you post {count === 1 ? 'this' : 'these'}?
           </p>
         </div>
@@ -89,7 +89,7 @@ export default function MarkPostedModal({ open, count, onClose, onConfirm }) {
                 checked={mode === opt.id}
                 onChange={() => setMode(opt.id)}
               />
-              <span className="text-[13px] text-textdark">{opt.label}</span>
+              <span className="text-[13px] text-ed-ink">{opt.label}</span>
             </label>
           ))}
 
@@ -101,28 +101,28 @@ export default function MarkPostedModal({ open, count, onClose, onConfirm }) {
                 min={minDateForCustom()}
                 max={todayDateOnly()}
                 onChange={(e) => setCustomDate(e.target.value)}
-                className="input-apple text-[13px] w-full"
+                className="input-apple !border-ed-line focus:!ring-ed-accent/20 focus:!border-ed-accent text-[13px] w-full"
               />
-              <div className="text-[10px] text-textlight mt-1">
+              <div className="text-[10px] text-ed-ink3 mt-1">
                 Max 30 days back. Beyond this is unsupported.
               </div>
             </div>
           )}
 
           {showCronHint && !overCap && (
-            <div className="text-[11px] bg-gold/10 border border-gold/30 rounded-lg p-2.5 text-textdark">
+            <div className="text-[11px] bg-ed-accent/10 border border-ed-accent/30 rounded-lg p-2.5 text-ed-ink">
               <strong>Heads up:</strong> backdate is {daysAgo} days. Observation will evaluate this on the next scheduled check (1am ICT).
               Lifecycle may flip to a terminal verdict (passed / failed / etc.) by morning. Verify your benchmark settings.
             </div>
           )}
           {showWarn && !overCap && (
-            <div className="text-[11px] bg-red-50 border border-red-200 rounded-lg p-2.5 text-red-700">
+            <div className="text-[11px] bg-ed-rust/10 border border-ed-rust/30 rounded-lg p-2.5 text-ed-rust">
               <strong>Note:</strong> backdating &gt;{WARN_BACKDATE_DAYS} days. Results may not reflect the original test conditions
               (creative + audience may be stale).
             </div>
           )}
           {overCap && (
-            <div className="text-[11px] bg-red-100 border border-red-300 rounded-lg p-2.5 text-red-800">
+            <div className="text-[11px] bg-ed-rust/10 border border-ed-rust/30 rounded-lg p-2.5 text-ed-rust">
               Backdate cap is {MAX_BACKDATE_DAYS} days. Pick a more recent date.
             </div>
           )}
@@ -133,7 +133,7 @@ export default function MarkPostedModal({ open, count, onClose, onConfirm }) {
             type="button"
             onClick={onClose}
             disabled={saving}
-            className="btn-secondary text-[12px] px-4 py-1.5"
+            className="ed-ghost text-[12px] px-4 py-1.5"
           >
             Cancel
           </button>
@@ -141,7 +141,7 @@ export default function MarkPostedModal({ open, count, onClose, onConfirm }) {
             type="button"
             onClick={handleSave}
             disabled={!canSave}
-            className="btn-primary text-[12px] px-4 py-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="px-4 py-2 rounded-[7px] text-[13px] bg-ed-accent text-[#fbfaf6] hover:bg-ed-accent/90 transition-colors text-[12px] px-4 py-1.5 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             {saving ? 'Marking…' : 'Mark as Posted'}
           </button>

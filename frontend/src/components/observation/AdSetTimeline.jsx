@@ -67,27 +67,27 @@ export default function AdSetTimeline({ projectId, adSetId, open, onClose, onCha
   return (
     <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/40 p-3 sm:p-6" onClick={onClose}>
       <div
-        className="bg-white w-full max-w-6xl h-[92vh] sm:h-[85vh] rounded-xl shadow-card overflow-hidden flex flex-col"
+        className="bg-ed-surface w-full max-w-6xl h-[92vh] sm:h-[85vh] rounded-xl shadow-card overflow-hidden flex flex-col"
         onClick={(e) => e.stopPropagation()}
       >
-        <div className="bg-white border-b border-gray-100 px-5 py-3 flex items-center justify-between flex-shrink-0">
+        <div className="bg-ed-surface border-b border-ed-line px-5 py-3 flex items-center justify-between flex-shrink-0">
           <div className="min-w-0 flex-1">
-            <h3 className="text-[14px] font-semibold text-textdark truncate">
+            <h3 className="text-[14px] font-semibold text-ed-ink truncate">
               {adSet?.name || 'Loading…'}
               {adSet?.is_demo && (
-                <span className="ml-2 inline-flex px-1.5 py-0.5 rounded bg-gray-100 text-[9px] font-medium text-textmid align-middle">
+                <span className="ml-2 inline-flex px-1.5 py-0.5 rounded bg-ed-bg text-[9px] font-medium text-ed-ink2 align-middle">
                   Demo
                 </span>
               )}
             </h3>
             {result && (
-              <p className="text-[11px] text-textlight truncate">{result.reason}</p>
+              <p className="text-[11px] text-ed-ink3 truncate">{result.reason}</p>
             )}
           </div>
-          <button onClick={onClose} className="text-textmid hover:text-textdark text-[18px] leading-none ml-3">×</button>
+          <button onClick={onClose} className="text-ed-ink2 hover:text-ed-ink text-[18px] leading-none ml-3">×</button>
         </div>
 
-        {loading && <div className="p-5 text-[12px] text-textlight">Loading…</div>}
+        {loading && <div className="p-5 text-[12px] text-ed-ink3">Loading…</div>}
 
         {!loading && data && (
           <div className="p-5 space-y-5 overflow-y-auto">
@@ -103,8 +103,8 @@ export default function AdSetTimeline({ projectId, adSetId, open, onClose, onCha
               </div>
             </div>
 
-            <div className="border-t border-gray-100 pt-4 space-y-2">
-              <h4 className="text-[12px] font-semibold text-textdark">Actions</h4>
+            <div className="border-t border-ed-line pt-4 space-y-2">
+              <h4 className="text-[12px] font-semibold text-ed-ink">Actions</h4>
               {(adSet.lifecycle_status === 'observing') && (
                 <>
                   <div className="flex gap-2 flex-wrap">
@@ -112,7 +112,7 @@ export default function AdSetTimeline({ projectId, adSetId, open, onClose, onCha
                       <button
                         disabled={busy}
                         onClick={() => handleAction(() => api.resumeObservation(projectId, adSetId), 'Observation resumed')}
-                        className="btn-secondary text-[11px]"
+                        className="ed-ghost text-[11px]"
                       >
                         Resume
                       </button>
@@ -120,7 +120,7 @@ export default function AdSetTimeline({ projectId, adSetId, open, onClose, onCha
                       <button
                         disabled={busy}
                         onClick={() => handleAction(() => api.pauseObservation(projectId, adSetId), 'Observation paused')}
-                        className="btn-secondary text-[11px]"
+                        className="ed-ghost text-[11px]"
                       >
                         Pause
                       </button>
@@ -131,14 +131,14 @@ export default function AdSetTimeline({ projectId, adSetId, open, onClose, onCha
                         const n = parseInt(prompt('Extend by how many additional days?', '12'), 10);
                         if (n > 0) handleAction(() => api.extendObservation(projectId, adSetId, n), `Extended by ${n} days`);
                       }}
-                      className="btn-secondary text-[11px]"
+                      className="ed-ghost text-[11px]"
                     >
                       Extend window
                     </button>
                     <button
                       disabled={busy}
                       onClick={() => handleAction(() => api.refreshObservationSnapshot(projectId, adSetId), 'Snapshot refreshed')}
-                      className="btn-secondary text-[11px]"
+                      className="ed-ghost text-[11px]"
                     >
                       Refresh snapshot
                     </button>
@@ -157,7 +157,7 @@ export default function AdSetTimeline({ projectId, adSetId, open, onClose, onCha
                 </>
               )}
               {(adSet.lifecycle_status !== 'observing') && (
-                <p className="text-[11px] text-textlight">
+                <p className="text-[11px] text-ed-ink3">
                   This ad set has reached a terminal verdict. Re-extend to resume observation.
                 </p>
               )}
@@ -167,8 +167,8 @@ export default function AdSetTimeline({ projectId, adSetId, open, onClose, onCha
                 passed verdicts with a parent angle resolved. Shows derived
                 sub-angles from this ad set's parent angle. */}
             {parentAngle && adSet.lifecycle_status === 'passed' && (
-              <div className="border-t border-gold/30 pt-4 overflow-y-auto max-h-96">
-                <h4 className="text-[12px] font-semibold text-textdark mb-2">
+              <div className="border-t border-ed-accent/30 pt-4 overflow-y-auto max-h-96">
+                <h4 className="text-[12px] font-semibold text-ed-ink mb-2">
                   Sub-angles derived from this ad set's angle
                 </h4>
                 <SubAnglesSection
@@ -188,8 +188,8 @@ export default function AdSetTimeline({ projectId, adSetId, open, onClose, onCha
 function AdSetSummary({ adSet }) {
   if (!adSet) return null;
   return (
-    <div className="card p-4 bg-gray-50/40">
-      <div className="text-[11px] font-semibold text-textmid uppercase tracking-wider mb-2">Summary</div>
+    <div className="card p-4 bg-ed-bg/40">
+      <div className="text-[11px] font-semibold text-ed-ink2 uppercase tracking-wider mb-2">Summary</div>
       <div className="space-y-2 text-[12px]">
         <SummaryRow label="Campaign" value={adSet.campaign_name} />
         <SummaryRow label="Angle" value={adSet.angle_name} />
@@ -204,31 +204,31 @@ function AdSetSummary({ adSet }) {
 function SummaryRow({ label, value }) {
   return (
     <div className="grid grid-cols-[90px_1fr] gap-3">
-      <span className="text-textlight">{label}</span>
-      <span className="text-textdark break-words">{value || '—'}</span>
+      <span className="text-ed-ink3">{label}</span>
+      <span className="text-ed-ink break-words">{value || '—'}</span>
     </div>
   );
 }
 
 function ChildrenSection({ children }) {
   return (
-    <div className="card p-4 bg-gray-50/40">
-      <div className="text-[11px] font-semibold text-textmid uppercase tracking-wider mb-2">Ads</div>
+    <div className="card p-4 bg-ed-bg/40">
+      <div className="text-[11px] font-semibold text-ed-ink2 uppercase tracking-wider mb-2">Ads</div>
       {children.length === 0 ? (
-        <div className="text-[11px] text-textlight">No child ads are attached to this ad set.</div>
+        <div className="text-[11px] text-ed-ink3">No child ads are attached to this ad set.</div>
       ) : (
         <div className="space-y-2 max-h-[360px] overflow-y-auto pr-1">
           {children.map((child) => (
-            <div key={child.externalId} className="flex gap-3 p-2 rounded-lg bg-white border border-gray-100">
+            <div key={child.externalId} className="flex gap-3 p-2 rounded-lg bg-ed-surface border border-ed-line">
               {child.thumbnail_url ? (
-                <img src={child.thumbnail_url} alt="" className="w-14 h-14 rounded-lg object-cover bg-gray-100 flex-shrink-0" loading="lazy" />
+                <img src={child.thumbnail_url} alt="" className="w-14 h-14 rounded-lg object-cover bg-ed-bg flex-shrink-0" loading="lazy" />
               ) : (
-                <div className="w-14 h-14 rounded-lg bg-gray-100 flex items-center justify-center text-textlight flex-shrink-0">—</div>
+                <div className="w-14 h-14 rounded-lg bg-ed-bg flex items-center justify-center text-ed-ink3 flex-shrink-0">—</div>
               )}
               <div className="min-w-0 flex-1 text-[11px]">
-                <div className="font-medium text-textdark truncate">{child.name || child.headline || 'Untitled ad'}</div>
-                <div className="text-textlight truncate">{child.angle_name || child.status || ''}</div>
-                <div className="text-textmid mt-1 max-h-9 overflow-hidden">{child.body_copy || child.headline || 'No copy'}</div>
+                <div className="font-medium text-ed-ink truncate">{child.name || child.headline || 'Untitled ad'}</div>
+                <div className="text-ed-ink3 truncate">{child.angle_name || child.status || ''}</div>
+                <div className="text-ed-ink2 mt-1 max-h-9 overflow-hidden">{child.body_copy || child.headline || 'No copy'}</div>
               </div>
             </div>
           ))}
@@ -246,8 +246,8 @@ function BenchmarkSummary({ adSet, result, benchmark, currency }) {
   const m = result || adSet;
 
   return (
-    <div className="card p-4 bg-gray-50/40">
-      <div className="text-[11px] font-semibold text-textmid uppercase tracking-wider mb-2">
+    <div className="card p-4 bg-ed-bg/40">
+      <div className="text-[11px] font-semibold text-ed-ink2 uppercase tracking-wider mb-2">
         Benchmark — {benchmark.primary_gate.toUpperCase()} ≥ {benchmark.primary_gate === 'roas' ? benchmark.roas_min : fmtMoney(benchmark.cpa_max)}, min {fmtMoney(benchmark.min_spend)} spend
       </div>
       <div className="grid grid-cols-3 gap-3">
@@ -265,8 +265,8 @@ function BenchmarkSummary({ adSet, result, benchmark, currency }) {
 function Metric({ label, value }) {
   return (
     <div>
-      <div className="text-[10px] text-textlight">{label}</div>
-      <div className="text-[14px] font-semibold text-textdark tabular-nums">{value}</div>
+      <div className="text-[10px] text-ed-ink3">{label}</div>
+      <div className="text-[14px] font-semibold text-ed-ink tabular-nums">{value}</div>
     </div>
   );
 }
@@ -284,8 +284,8 @@ function Sparkline({ snapshots, currency }) {
 
   return (
     <div>
-      <div className="text-[11px] font-semibold text-textmid uppercase tracking-wider mb-1">Daily spend</div>
-      <svg viewBox={`0 0 ${w} ${h}`} className="w-full h-20 bg-white rounded border border-gray-100">
+      <div className="text-[11px] font-semibold text-ed-ink2 uppercase tracking-wider mb-1">Daily spend</div>
+      <svg viewBox={`0 0 ${w} ${h}`} className="w-full h-20 bg-ed-surface rounded border border-ed-line">
         <polyline points={points} fill="none" stroke="#C4975A" strokeWidth="1.5" />
         {data.map((v, i) => {
           const x = pad + (i / Math.max(1, data.length - 1)) * (w - pad * 2);
@@ -299,19 +299,19 @@ function Sparkline({ snapshots, currency }) {
 
 function Snapshots({ snapshots, currency }) {
   if (!snapshots || snapshots.length === 0) {
-    return <div className="text-[11px] text-textlight">No daily snapshots yet.</div>;
+    return <div className="text-[11px] text-ed-ink3">No daily snapshots yet.</div>;
   }
   const fmtMoney = (v) => currency === 'USD' ? `$${(v || 0).toFixed(2)}` : `${Math.round(v || 0).toLocaleString()} ${currency}`;
   return (
     <div>
-      <div className="text-[11px] font-semibold text-textmid uppercase tracking-wider mb-1">Day-by-day</div>
+      <div className="text-[11px] font-semibold text-ed-ink2 uppercase tracking-wider mb-1">Day-by-day</div>
       <div className="text-[11px] divide-y divide-gray-100">
         {snapshots.map((s) => (
           <div key={s.day_index} className="flex items-center gap-3 py-1">
-            <span className="text-textlight w-12">Day {s.day_index}</span>
-            <span className="text-textdark tabular-nums w-20">{fmtMoney(s.spend)}</span>
-            <span className="text-textmid tabular-nums w-16">{s.clicks || 0} clicks</span>
-            {s.roas != null && <span className="text-textmid tabular-nums">ROAS {s.roas.toFixed(2)}</span>}
+            <span className="text-ed-ink3 w-12">Day {s.day_index}</span>
+            <span className="text-ed-ink tabular-nums w-20">{fmtMoney(s.spend)}</span>
+            <span className="text-ed-ink2 tabular-nums w-16">{s.clicks || 0} clicks</span>
+            {s.roas != null && <span className="text-ed-ink2 tabular-nums">ROAS {s.roas.toFixed(2)}</span>}
           </div>
         ))}
       </div>
@@ -321,8 +321,8 @@ function Snapshots({ snapshots, currency }) {
 
 function ManualMarkButton({ kind, angleId, onMark }) {
   const cls = kind === 'passed'
-    ? 'btn-secondary text-[11px] text-teal border-teal/30 hover:border-teal'
-    : 'btn-secondary text-[11px] text-red-500 border-red-200 hover:border-red-400';
+    ? 'ed-ghost text-[11px] text-ed-green border-ed-green/30 hover:border-ed-green'
+    : 'ed-ghost text-[11px] text-red-500 border-red-200 hover:border-red-400';
   const label = kind === 'passed' ? 'Mark Passed' : 'Mark Failed';
   return (
     <button

@@ -9,19 +9,19 @@ import CreativeFilterSettings from './CreativeFilterSettings';
 import InfoTooltip from './InfoTooltip';
 
 const LEVEL_CONFIG = {
-  OK:        { color: 'text-teal',       icon: '\u2713', bg: 'bg-teal/10' },
-  INFO:      { color: 'text-textmid',    icon: '\u2022', bg: 'bg-black/5' },
-  WARN:      { color: 'text-gold',       icon: '\u26A0', bg: 'bg-gold/10' },
-  ERROR:     { color: 'text-red-400',    icon: '\u2717', bg: 'bg-red-50' },
-  RESURRECT: { color: 'text-navy-light', icon: '\u21BB', bg: 'bg-navy/10' },
+  OK:        { color: 'text-ed-green',       icon: '\u2713', bg: 'bg-ed-green/10' },
+  INFO:      { color: 'text-ed-ink2',    icon: '\u2022', bg: 'bg-black/5' },
+  WARN:      { color: 'text-ed-accent',       icon: '\u26A0', bg: 'bg-ed-accent/10' },
+  ERROR:     { color: 'text-ed-rust',    icon: '\u2717', bg: 'bg-ed-rust/10' },
+  RESURRECT: { color: 'text-ed-accent-light', icon: '\u21BB', bg: 'bg-ed-accent/10' },
   SCORE:     { color: 'text-purple-500', icon: '\u2605', bg: 'bg-purple-50' },
 };
 
 const STATUS_CONFIG = {
-  online:  { color: 'text-teal',      dot: 'bg-teal',      label: 'Online',  pulse: true },
-  warning: { color: 'text-gold',      dot: 'bg-gold',      label: 'Delayed', pulse: true },
-  offline: { color: 'text-red-400',   dot: 'bg-red-400',   label: 'Offline', pulse: false },
-  paused:  { color: 'text-textlight', dot: 'bg-textlight', label: 'Paused',  pulse: false },
+  online:  { color: 'text-ed-green',      dot: 'bg-ed-green',      label: 'Online',  pulse: true },
+  warning: { color: 'text-ed-accent',      dot: 'bg-ed-accent',      label: 'Delayed', pulse: true },
+  offline: { color: 'text-ed-rust',   dot: 'bg-ed-rust',   label: 'Offline', pulse: false },
+  paused:  { color: 'text-ed-ink3', dot: 'bg-ed-ink3', label: 'Paused',  pulse: false },
 };
 
 function timeAgo(dateStr) {
@@ -107,7 +107,7 @@ function getRunBatches(run) {
 }
 
 function getRoundStatusClasses(round) {
-  return round.status === 'threshold_reached' ? 'bg-teal/10 text-teal' : 'bg-gold/10 text-gold';
+  return round.status === 'threshold_reached' ? 'bg-ed-green/10 text-ed-green' : 'bg-ed-accent/10 text-ed-accent';
 }
 
 function getRunStatusLabel(run) {
@@ -140,18 +140,18 @@ function getRunStatusLabel(run) {
 
 function getRunStatusClasses(run) {
   if (run.status === 'completed' && run.terminal_status === 'deployed') {
-    return 'bg-teal/10 text-teal';
+    return 'bg-ed-green/10 text-ed-green';
   }
   if (run.status === 'running') {
-    return 'bg-gold/10 text-gold';
+    return 'bg-ed-accent/10 text-ed-accent';
   }
   if (run.terminal_status === 'cancelled') {
-    return 'bg-black/5 text-textmid';
+    return 'bg-black/5 text-ed-ink2';
   }
   if (run.status === 'failed') {
-    return 'bg-red-50 text-red-500';
+    return 'bg-ed-rust/10 text-ed-rust';
   }
-  return 'bg-black/5 text-textmid';
+  return 'bg-black/5 text-ed-ink2';
 }
 
 function formatLaneLabel(lane) {
@@ -186,20 +186,20 @@ function getLPStatusClasses(status) {
     case 'published':
     case 'passed':
     case 'passed_dry_run':
-      return 'bg-teal/10 text-teal';
+      return 'bg-ed-green/10 text-ed-green';
     case 'generating':
     case 'scoring':
     case 'retrying':
-      return 'bg-gold/10 text-gold';
+      return 'bg-ed-accent/10 text-ed-accent';
     case 'failed':
     case 'error':
     case 'publish_failed':
     case 'smoke_failed':
-      return 'bg-red-50 text-red-500';
+      return 'bg-ed-rust/10 text-ed-rust';
     case 'skipped':
-      return 'bg-black/5 text-textmid';
+      return 'bg-black/5 text-ed-ink2';
     default:
-      return 'bg-black/5 text-textmid';
+      return 'bg-black/5 text-ed-ink2';
   }
 }
 
@@ -243,23 +243,23 @@ function RoundHeadlineDiagnostics({ round }) {
   return (
     <div className="mt-2 rounded-lg bg-black/[0.02] border border-black/5 px-2.5 py-2">
       <div className="flex items-center justify-between gap-3">
-        <p className="text-[9px] uppercase tracking-wider text-textlight">Headline diversity</p>
+        <p className="text-[9px] uppercase tracking-wider text-ed-ink3">Headline diversity</p>
         {laneEntries.length > 0 && (
-          <span className="text-[9px] text-textmid">{laneEntries.length} lane{laneEntries.length !== 1 ? 's' : ''}</span>
+          <span className="text-[9px] text-ed-ink2">{laneEntries.length} lane{laneEntries.length !== 1 ? 's' : ''}</span>
         )}
       </div>
       {summaryBits.length > 0 && (
-        <p className="text-[10px] text-textmid mt-1 leading-relaxed">{summaryBits.join(' · ')}</p>
+        <p className="text-[10px] text-ed-ink2 mt-1 leading-relaxed">{summaryBits.join(' · ')}</p>
       )}
       {laneEntries.length > 0 && (
         <div className="flex flex-wrap gap-1.5 mt-2">
           {laneEntries.map(([lane, count]) => (
             <span
               key={lane}
-              className="inline-flex items-center gap-1 rounded-full bg-white/80 border border-black/5 px-2 py-1 text-[9px] text-textdark"
+              className="inline-flex items-center gap-1 rounded-full bg-ed-surface/80 border border-black/5 px-2 py-1 text-[9px] text-ed-ink"
             >
               <span>{formatLaneLabel(lane)}</span>
-              <span className="text-textmid">{count}</span>
+              <span className="text-ed-ink2">{count}</span>
             </span>
           ))}
         </div>
@@ -304,24 +304,24 @@ function RoundFailureSummary({ round }) {
 
   return (
     <div className="mt-2 rounded-lg bg-black/[0.02] border border-black/5 px-2.5 py-2">
-      <p className="text-[9px] uppercase tracking-wider text-textlight">Failure summary</p>
+      <p className="text-[9px] uppercase tracking-wider text-ed-ink3">Failure summary</p>
       {bucketEntries.length > 0 && (
         <div className="flex flex-wrap gap-1.5 mt-2">
           {bucketEntries.map(([bucket, count]) => (
-            <span key={bucket} className="inline-flex items-center gap-1 rounded-full bg-white/80 border border-black/5 px-2 py-1 text-[9px] text-textdark">
+            <span key={bucket} className="inline-flex items-center gap-1 rounded-full bg-ed-surface/80 border border-black/5 px-2 py-1 text-[9px] text-ed-ink">
               <span>{formatFailureBucketLabel(bucket)}</span>
-              <span className="text-textmid">{count}</span>
+              <span className="text-ed-ink2">{count}</span>
             </span>
           ))}
         </div>
       )}
       {hardEntries.length > 0 && (
-        <p className="text-[10px] text-textmid mt-2 leading-relaxed">
+        <p className="text-[10px] text-ed-ink2 mt-2 leading-relaxed">
           Hard fails: {hardEntries.map(([key, count]) => `${formatFailureLabel(key)} (${count})`).join(' · ')}
         </p>
       )}
       {imageEntries.length > 0 && (
-        <p className="text-[10px] text-textmid mt-1 leading-relaxed">
+        <p className="text-[10px] text-ed-ink2 mt-1 leading-relaxed">
           Image themes: {imageEntries.map(([key, count]) => `${formatLaneLabel(key)} (${count})`).join(' · ')}
         </p>
       )}
@@ -336,9 +336,9 @@ function RoundRepairSummary({ round }) {
   if (!summary || Number(summary.attempted) <= 0) return null;
 
   return (
-    <div className="mt-2 rounded-lg bg-teal/5 border border-teal/15 px-2.5 py-2">
-      <p className="text-[9px] uppercase tracking-wider text-textlight">Repair attempts</p>
-      <p className="text-[10px] text-textmid mt-1 leading-relaxed">
+    <div className="mt-2 rounded-lg bg-ed-green/5 border border-ed-green/15 px-2.5 py-2">
+      <p className="text-[9px] uppercase tracking-wider text-ed-ink3">Repair attempts</p>
+      <p className="text-[10px] text-ed-ink2 mt-1 leading-relaxed">
         {summary.attempted} attempted · {summary.passed || 0} passed
         {summary.image_attempted ? ` · ${summary.image_attempted} image repairs` : ''}
         {summary.copy_attempted ? ` · ${summary.copy_attempted} copy repairs` : ''}
@@ -352,12 +352,12 @@ function RoundFailedAds({ round }) {
   if (failedAds.length === 0) return null;
 
   return (
-    <details className="mt-2 rounded-lg bg-red-50/70 border border-red-100">
+    <details className="mt-2 rounded-lg bg-ed-rust/10/70 border border-ed-rust/30">
       <summary className="cursor-pointer list-none px-3 py-2 flex items-center justify-between gap-3">
-        <span className="text-[10px] font-medium text-red-600">Failed ads</span>
-        <span className="text-[10px] text-red-500">{failedAds.length} to inspect</span>
+        <span className="text-[10px] font-medium text-ed-rust">Failed ads</span>
+        <span className="text-[10px] text-ed-rust">{failedAds.length} to inspect</span>
       </summary>
-      <div className="px-3 pb-3 pt-1 border-t border-red-100 space-y-2">
+      <div className="px-3 pb-3 pt-1 border-t border-ed-rust/30 space-y-2">
         {failedAds.map((failedAd, index) => {
           const hardFailures = ensureArray(failedAd.failed_hard_requirements, `AgentMonitor.run.round.failed_ads.${index}.hardFailures`);
           const complianceFlags = ensureArray(failedAd.compliance_flags, `AgentMonitor.run.round.failed_ads.${index}.complianceFlags`);
@@ -368,54 +368,54 @@ function RoundFailedAds({ round }) {
           const fellBelowThreshold = !failedAd.error && hardFailures.length === 0;
 
           return (
-            <div key={failedAd.ad_id || `${round.batch_id || 'round'}-${index}`} className="rounded-lg bg-white/80 border border-red-100 px-3 py-2">
+            <div key={failedAd.ad_id || `${round.batch_id || 'round'}-${index}`} className="rounded-lg bg-ed-surface/80 border border-ed-rust/30 px-3 py-2">
               <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
-                  <p className="text-[10px] font-medium text-textdark">
+                  <p className="text-[10px] font-medium text-ed-ink">
                     Ad {index + 1}{failedAd.ad_id ? ` · ${failedAd.ad_id.slice(0, 8)}...` : ''}
                   </p>
                   {failedAd.headline && (
-                    <p className="text-[11px] text-textdark mt-1 leading-relaxed">{failedAd.headline}</p>
+                    <p className="text-[11px] text-ed-ink mt-1 leading-relaxed">{failedAd.headline}</p>
                   )}
                 </div>
                 <div className="shrink-0 text-right">
-                  <p className="text-[9px] uppercase tracking-wider text-textlight">Score</p>
-                  <p className="text-[12px] font-semibold text-red-500 mt-0.5">{failedAd.overall_score ?? 0}</p>
+                  <p className="text-[9px] uppercase tracking-wider text-ed-ink3">Score</p>
+                  <p className="text-[12px] font-semibold text-ed-rust mt-0.5">{failedAd.overall_score ?? 0}</p>
                 </div>
               </div>
 
               {failedAd.body_copy_preview && (
-                <p className="text-[10px] text-textmid mt-2 leading-relaxed whitespace-pre-line">{failedAd.body_copy_preview}</p>
+                <p className="text-[10px] text-ed-ink2 mt-2 leading-relaxed whitespace-pre-line">{failedAd.body_copy_preview}</p>
               )}
 
               <div className="flex flex-wrap gap-1.5 mt-2">
                 {failedAd.failure_bucket && (
-                  <span className="inline-flex items-center rounded-full bg-black/5 text-textdark px-2 py-1 text-[9px] font-medium">
+                  <span className="inline-flex items-center rounded-full bg-black/5 text-ed-ink px-2 py-1 text-[9px] font-medium">
                     {formatFailureBucketLabel(failedAd.failure_bucket)}
                   </span>
                 )}
                 {failedAd.recommended_fix && (
-                  <span className="inline-flex items-center rounded-full bg-gold/10 text-gold px-2 py-1 text-[9px] font-medium">
+                  <span className="inline-flex items-center rounded-full bg-ed-accent/10 text-ed-accent px-2 py-1 text-[9px] font-medium">
                     {formatLaneLabel(failedAd.recommended_fix)}
                   </span>
                 )}
                 {hardFailures.map((key) => (
-                  <span key={key} className="inline-flex items-center rounded-full bg-red-100 text-red-600 px-2 py-1 text-[9px] font-medium">
+                  <span key={key} className="inline-flex items-center rounded-full bg-ed-rust/10 text-ed-rust px-2 py-1 text-[9px] font-medium">
                     Failed {formatFailureLabel(key)}
                   </span>
                 ))}
                 {fellBelowThreshold && (
-                  <span className="inline-flex items-center rounded-full bg-gold/15 text-gold px-2 py-1 text-[9px] font-medium">
+                  <span className="inline-flex items-center rounded-full bg-ed-accent/15 text-ed-accent px-2 py-1 text-[9px] font-medium">
                     Below score threshold
                   </span>
                 )}
                 {failedAd.angle_category && (
-                  <span className="inline-flex items-center rounded-full bg-black/5 text-textmid px-2 py-1 text-[9px]">
+                  <span className="inline-flex items-center rounded-full bg-black/5 text-ed-ink2 px-2 py-1 text-[9px]">
                     {failedAd.angle_category}
                   </span>
                 )}
                 {failedAd.error && (
-                  <span className="inline-flex items-center rounded-full bg-red-100 text-red-600 px-2 py-1 text-[9px] font-medium">
+                  <span className="inline-flex items-center rounded-full bg-ed-rust/10 text-ed-rust px-2 py-1 text-[9px] font-medium">
                     {failedAd.error}
                   </span>
                 )}
@@ -423,20 +423,20 @@ function RoundFailedAds({ round }) {
 
               <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-2">
                 <div className="rounded-lg bg-black/[0.02] border border-black/5 px-2 py-2">
-                  <p className="text-[9px] uppercase tracking-wider text-textlight">Copy</p>
-                  <p className="text-[11px] font-medium text-textdark mt-0.5">{failedAd.copy_strength ?? '—'}</p>
+                  <p className="text-[9px] uppercase tracking-wider text-ed-ink3">Copy</p>
+                  <p className="text-[11px] font-medium text-ed-ink mt-0.5">{failedAd.copy_strength ?? '—'}</p>
                 </div>
                 <div className="rounded-lg bg-black/[0.02] border border-black/5 px-2 py-2">
-                  <p className="text-[9px] uppercase tracking-wider text-textlight">Compliance</p>
-                  <p className="text-[11px] font-medium text-textdark mt-0.5">{failedAd.compliance ?? '—'}</p>
+                  <p className="text-[9px] uppercase tracking-wider text-ed-ink3">Compliance</p>
+                  <p className="text-[11px] font-medium text-ed-ink mt-0.5">{failedAd.compliance ?? '—'}</p>
                 </div>
                 <div className="rounded-lg bg-black/[0.02] border border-black/5 px-2 py-2">
-                  <p className="text-[9px] uppercase tracking-wider text-textlight">Effectiveness</p>
-                  <p className="text-[11px] font-medium text-textdark mt-0.5">{failedAd.effectiveness ?? '—'}</p>
+                  <p className="text-[9px] uppercase tracking-wider text-ed-ink3">Effectiveness</p>
+                  <p className="text-[11px] font-medium text-ed-ink mt-0.5">{failedAd.effectiveness ?? '—'}</p>
                 </div>
                 <div className="rounded-lg bg-black/[0.02] border border-black/5 px-2 py-2">
-                  <p className="text-[9px] uppercase tracking-wider text-textlight">Image</p>
-                  <p className="text-[11px] font-medium text-textdark mt-0.5">{failedAd.image_quality ?? '—'}</p>
+                  <p className="text-[9px] uppercase tracking-wider text-ed-ink3">Image</p>
+                  <p className="text-[11px] font-medium text-ed-ink mt-0.5">{failedAd.image_quality ?? '—'}</p>
                 </div>
               </div>
 
@@ -444,10 +444,10 @@ function RoundFailedAds({ round }) {
                 <div className="mt-2 space-y-2">
                   {weaknesses.length > 0 && (
                     <div>
-                      <p className="text-[9px] uppercase tracking-wider text-textlight">Weaknesses</p>
+                      <p className="text-[9px] uppercase tracking-wider text-ed-ink3">Weaknesses</p>
                       <div className="flex flex-wrap gap-1.5 mt-1">
                         {weaknesses.map((item, itemIndex) => (
-                          <span key={`${failedAd.ad_id || index}-weakness-${itemIndex}`} className="inline-flex items-center rounded-full bg-red-50 text-red-600 border border-red-100 px-2 py-1 text-[9px]">
+                          <span key={`${failedAd.ad_id || index}-weakness-${itemIndex}`} className="inline-flex items-center rounded-full bg-ed-rust/10 text-ed-rust border border-ed-rust/30 px-2 py-1 text-[9px]">
                             {item}
                           </span>
                         ))}
@@ -456,10 +456,10 @@ function RoundFailedAds({ round }) {
                   )}
                   {complianceFlags.length > 0 && (
                     <div>
-                      <p className="text-[9px] uppercase tracking-wider text-textlight">Compliance flags</p>
+                      <p className="text-[9px] uppercase tracking-wider text-ed-ink3">Compliance flags</p>
                       <div className="flex flex-wrap gap-1.5 mt-1">
                         {complianceFlags.map((item, itemIndex) => (
-                          <span key={`${failedAd.ad_id || index}-flag-${itemIndex}`} className="inline-flex items-center rounded-full bg-gold/10 text-gold border border-gold/20 px-2 py-1 text-[9px]">
+                          <span key={`${failedAd.ad_id || index}-flag-${itemIndex}`} className="inline-flex items-center rounded-full bg-ed-accent/10 text-ed-accent border border-ed-accent/20 px-2 py-1 text-[9px]">
                             {item}
                           </span>
                         ))}
@@ -468,10 +468,10 @@ function RoundFailedAds({ round }) {
                   )}
                   {spellingErrors.length > 0 && (
                     <div>
-                      <p className="text-[9px] uppercase tracking-wider text-textlight">Spelling / grammar</p>
+                      <p className="text-[9px] uppercase tracking-wider text-ed-ink3">Spelling / grammar</p>
                       <div className="flex flex-wrap gap-1.5 mt-1">
                         {spellingErrors.map((item, itemIndex) => (
-                          <span key={`${failedAd.ad_id || index}-spelling-${itemIndex}`} className="inline-flex items-center rounded-full bg-red-50 text-red-600 border border-red-100 px-2 py-1 text-[9px]">
+                          <span key={`${failedAd.ad_id || index}-spelling-${itemIndex}`} className="inline-flex items-center rounded-full bg-ed-rust/10 text-ed-rust border border-ed-rust/30 px-2 py-1 text-[9px]">
                             {item}
                           </span>
                         ))}
@@ -480,10 +480,10 @@ function RoundFailedAds({ round }) {
                   )}
                   {imageIssues.length > 0 && (
                     <div>
-                      <p className="text-[9px] uppercase tracking-wider text-textlight">Image issues</p>
+                      <p className="text-[9px] uppercase tracking-wider text-ed-ink3">Image issues</p>
                       <div className="flex flex-wrap gap-1.5 mt-1">
                         {imageIssues.map((item, itemIndex) => (
-                          <span key={`${failedAd.ad_id || index}-image-${itemIndex}`} className="inline-flex items-center rounded-full bg-black/[0.02] text-textmid border border-black/5 px-2 py-1 text-[9px]">
+                          <span key={`${failedAd.ad_id || index}-image-${itemIndex}`} className="inline-flex items-center rounded-full bg-black/[0.02] text-ed-ink2 border border-black/5 px-2 py-1 text-[9px]">
                             {item}
                           </span>
                         ))}
@@ -492,10 +492,10 @@ function RoundFailedAds({ round }) {
                   )}
                   {strengths.length > 0 && (
                     <div>
-                      <p className="text-[9px] uppercase tracking-wider text-textlight">Strengths</p>
+                      <p className="text-[9px] uppercase tracking-wider text-ed-ink3">Strengths</p>
                       <div className="flex flex-wrap gap-1.5 mt-1">
                         {strengths.map((item, itemIndex) => (
-                          <span key={`${failedAd.ad_id || index}-strength-${itemIndex}`} className="inline-flex items-center rounded-full bg-teal/10 text-teal border border-teal/20 px-2 py-1 text-[9px]">
+                          <span key={`${failedAd.ad_id || index}-strength-${itemIndex}`} className="inline-flex items-center rounded-full bg-ed-green/10 text-ed-green border border-ed-green/20 px-2 py-1 text-[9px]">
                             {item}
                           </span>
                         ))}
@@ -517,15 +517,15 @@ function RoundLandingPageFunnel({ batchId, lpDetailState, loading }) {
   if (loading) {
     return (
       <div className="mt-2 rounded-lg bg-black/[0.02] border border-black/5 px-3 py-2">
-        <p className="text-[10px] text-textmid">Loading landing page funnel details...</p>
+        <p className="text-[10px] text-ed-ink2">Loading landing page funnel details...</p>
       </div>
     );
   }
 
   if (lpDetailState?.error) {
     return (
-      <div className="mt-2 rounded-lg bg-red-50/70 border border-red-100 px-3 py-2">
-        <p className="text-[10px] text-red-500">{lpDetailState.error}</p>
+      <div className="mt-2 rounded-lg bg-ed-rust/10/70 border border-ed-rust/30 px-3 py-2">
+        <p className="text-[10px] text-ed-rust">{lpDetailState.error}</p>
       </div>
     );
   }
@@ -545,8 +545,8 @@ function RoundLandingPageFunnel({ batchId, lpDetailState, loading }) {
   return (
     <details className="mt-2 rounded-lg bg-black/[0.02] border border-black/5">
       <summary className="cursor-pointer list-none px-3 py-2 flex items-center justify-between gap-3">
-        <span className="text-[10px] font-medium text-textdark">Landing page funnel</span>
-        <span className="text-[10px] text-textmid">
+        <span className="text-[10px] font-medium text-ed-ink">Landing page funnel</span>
+        <span className="text-[10px] text-ed-ink2">
           {landingPages.length > 0
             ? `${summary.published ?? 0}/${summary.total ?? landingPages.length} published`
             : `${batch.lp_primary_status || 'not started'}`}
@@ -554,77 +554,77 @@ function RoundLandingPageFunnel({ batchId, lpDetailState, loading }) {
       </summary>
       <div className="px-3 pb-3 pt-1 border-t border-black/5 space-y-3">
         <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-          <div className="rounded-lg bg-white/70 border border-black/5 px-2 py-2">
-            <p className="text-[9px] uppercase tracking-wider text-textlight">LPs</p>
-            <p className="text-[12px] font-semibold text-textdark mt-0.5">{summary.total ?? landingPages.length ?? '—'}</p>
+          <div className="rounded-lg bg-ed-surface/70 border border-black/5 px-2 py-2">
+            <p className="text-[9px] uppercase tracking-wider text-ed-ink3">LPs</p>
+            <p className="text-[12px] font-serif font-[420] text-ed-ink mt-0.5">{summary.total ?? landingPages.length ?? '—'}</p>
           </div>
-          <div className="rounded-lg bg-white/70 border border-black/5 px-2 py-2">
-            <p className="text-[9px] uppercase tracking-wider text-textlight">Published</p>
-            <p className="text-[12px] font-semibold text-textdark mt-0.5">{summary.published ?? '—'}</p>
+          <div className="rounded-lg bg-ed-surface/70 border border-black/5 px-2 py-2">
+            <p className="text-[9px] uppercase tracking-wider text-ed-ink3">Published</p>
+            <p className="text-[12px] font-serif font-[420] text-ed-ink mt-0.5">{summary.published ?? '—'}</p>
           </div>
-          <div className="rounded-lg bg-white/70 border border-black/5 px-2 py-2">
-            <p className="text-[9px] uppercase tracking-wider text-textlight">Headline Passed</p>
-            <p className="text-[12px] font-semibold text-textdark mt-0.5">{summary.headlinePassed ?? '—'}</p>
+          <div className="rounded-lg bg-ed-surface/70 border border-black/5 px-2 py-2">
+            <p className="text-[9px] uppercase tracking-wider text-ed-ink3">Headline Passed</p>
+            <p className="text-[12px] font-serif font-[420] text-ed-ink mt-0.5">{summary.headlinePassed ?? '—'}</p>
           </div>
-          <div className="rounded-lg bg-white/70 border border-black/5 px-2 py-2">
-            <p className="text-[9px] uppercase tracking-wider text-textlight">Avg Score</p>
-            <p className="text-[12px] font-semibold text-textdark mt-0.5">{summary.avgScore ?? '—'}</p>
+          <div className="rounded-lg bg-ed-surface/70 border border-black/5 px-2 py-2">
+            <p className="text-[9px] uppercase tracking-wider text-ed-ink3">Avg Score</p>
+            <p className="text-[12px] font-serif font-[420] text-ed-ink mt-0.5">{summary.avgScore ?? '—'}</p>
           </div>
-          <div className="rounded-lg bg-white/70 border border-black/5 px-2 py-2">
-            <p className="text-[9px] uppercase tracking-wider text-textlight">Duration</p>
-            <p className="text-[12px] font-semibold text-textdark mt-0.5">
+          <div className="rounded-lg bg-ed-surface/70 border border-black/5 px-2 py-2">
+            <p className="text-[9px] uppercase tracking-wider text-ed-ink3">Duration</p>
+            <p className="text-[12px] font-serif font-[420] text-ed-ink mt-0.5">
               {summary.totalGenerationDurationMs ? formatDuration(summary.totalGenerationDurationMs) : '—'}
             </p>
           </div>
         </div>
 
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-          <div className="rounded-lg bg-white/70 border border-black/5 px-3 py-2">
+          <div className="rounded-lg bg-ed-surface/70 border border-black/5 px-3 py-2">
             <div className="flex items-center justify-between gap-2">
-              <p className="text-[10px] font-medium text-textdark">Primary LP</p>
+              <p className="text-[10px] font-medium text-ed-ink">Primary LP</p>
               <span className={`text-[9px] font-medium px-1.5 py-0.5 rounded ${getLPStatusClasses(batch.lp_primary_status)}`}>
                 {batch.lp_primary_status || 'not started'}
               </span>
             </div>
             {batch.lp_primary_url && (
-              <a href={batch.lp_primary_url} target="_blank" rel="noreferrer" className="text-[10px] text-gold hover:text-gold-light mt-1 inline-block break-all">
+              <a href={batch.lp_primary_url} target="_blank" rel="noreferrer" className="text-[10px] text-ed-accent hover:text-ed-accent mt-1 inline-block break-all">
                 {batch.lp_primary_url}
               </a>
             )}
             {batch.lp_primary_error && (
-              <p className="text-[10px] text-red-500 mt-1 leading-relaxed">{batch.lp_primary_error}</p>
+              <p className="text-[10px] text-ed-rust mt-1 leading-relaxed">{batch.lp_primary_error}</p>
             )}
             {batch.lp_primary_retry_count ? (
-              <p className="text-[9px] text-textlight mt-1">Retries: {batch.lp_primary_retry_count}</p>
+              <p className="text-[9px] text-ed-ink3 mt-1">Retries: {batch.lp_primary_retry_count}</p>
             ) : null}
           </div>
-          <div className="rounded-lg bg-white/70 border border-black/5 px-3 py-2">
+          <div className="rounded-lg bg-ed-surface/70 border border-black/5 px-3 py-2">
             <div className="flex items-center justify-between gap-2">
-              <p className="text-[10px] font-medium text-textdark">Secondary LP</p>
+              <p className="text-[10px] font-medium text-ed-ink">Secondary LP</p>
               <span className={`text-[9px] font-medium px-1.5 py-0.5 rounded ${getLPStatusClasses(batch.lp_secondary_status)}`}>
                 {batch.lp_secondary_status || 'not started'}
               </span>
             </div>
             {batch.lp_secondary_url && (
-              <a href={batch.lp_secondary_url} target="_blank" rel="noreferrer" className="text-[10px] text-gold hover:text-gold-light mt-1 inline-block break-all">
+              <a href={batch.lp_secondary_url} target="_blank" rel="noreferrer" className="text-[10px] text-ed-accent hover:text-ed-accent mt-1 inline-block break-all">
                 {batch.lp_secondary_url}
               </a>
             )}
             {batch.lp_secondary_error && (
-              <p className="text-[10px] text-red-500 mt-1 leading-relaxed">{batch.lp_secondary_error}</p>
+              <p className="text-[10px] text-ed-rust mt-1 leading-relaxed">{batch.lp_secondary_error}</p>
             )}
             {batch.lp_secondary_retry_count ? (
-              <p className="text-[9px] text-textlight mt-1">Retries: {batch.lp_secondary_retry_count}</p>
+              <p className="text-[9px] text-ed-ink3 mt-1">Retries: {batch.lp_secondary_retry_count}</p>
             ) : null}
           </div>
         </div>
 
         {narrativeFrames.length > 0 && (
           <div>
-            <p className="text-[9px] uppercase tracking-wider text-textlight">Narrative frames</p>
+            <p className="text-[9px] uppercase tracking-wider text-ed-ink3">Narrative frames</p>
             <div className="flex flex-wrap gap-1.5 mt-1">
               {narrativeFrames.map((frame) => (
-                <span key={frame} className="inline-flex items-center rounded-full bg-white/80 border border-black/5 px-2 py-1 text-[9px] text-textdark">
+                <span key={frame} className="inline-flex items-center rounded-full bg-ed-surface/80 border border-black/5 px-2 py-1 text-[9px] text-ed-ink">
                   {formatLaneLabel(frame)}
                 </span>
               ))}
@@ -634,16 +634,16 @@ function RoundLandingPageFunnel({ batchId, lpDetailState, loading }) {
 
         {publishedUrls.length > 0 && (
           <div>
-            <p className="text-[9px] uppercase tracking-wider text-textlight">Published URLs</p>
+            <p className="text-[9px] uppercase tracking-wider text-ed-ink3">Published URLs</p>
             <div className="space-y-1 mt-1">
               {publishedUrls.map((entry, index) => (
-                <div key={`${entry.url || entry.frame || index}`} className="rounded-lg bg-white/70 border border-black/5 px-3 py-2">
+                <div key={`${entry.url || entry.frame || index}`} className="rounded-lg bg-ed-surface/70 border border-black/5 px-3 py-2">
                   <div className="flex items-center justify-between gap-3">
-                    <span className="text-[10px] text-textdark">{formatLaneLabel(entry.frameName || entry.frame || `LP ${index + 1}`)}</span>
-                    <span className="text-[9px] text-textmid">{entry.score ?? '—'}/11</span>
+                    <span className="text-[10px] text-ed-ink">{formatLaneLabel(entry.frameName || entry.frame || `LP ${index + 1}`)}</span>
+                    <span className="text-[9px] text-ed-ink2">{entry.score ?? '—'}/11</span>
                   </div>
                   {entry.url && (
-                    <a href={entry.url} target="_blank" rel="noreferrer" className="text-[10px] text-gold hover:text-gold-light mt-1 inline-block break-all">
+                    <a href={entry.url} target="_blank" rel="noreferrer" className="text-[10px] text-ed-accent hover:text-ed-accent mt-1 inline-block break-all">
                       {entry.url}
                     </a>
                   )}
@@ -656,19 +656,19 @@ function RoundLandingPageFunnel({ batchId, lpDetailState, loading }) {
         {landingPages.length > 0 && (
           <div className="space-y-2">
             {landingPages.map((page) => (
-              <details key={page.id} className="rounded-lg bg-white/70 border border-black/5">
+              <details key={page.id} className="rounded-lg bg-ed-surface/70 border border-black/5">
                 <summary className="cursor-pointer list-none px-3 py-2 flex items-center justify-between gap-3">
                   <div className="min-w-0">
-                    <p className="text-[10px] font-medium text-textdark">
+                    <p className="text-[10px] font-medium text-ed-ink">
                       {formatLaneLabel(page.narrative_frame || page.gauntlet_frame || page.name || 'Landing page')}
                     </p>
-                    <p className="text-[9px] text-textlight mt-0.5">
+                    <p className="text-[9px] text-ed-ink3 mt-0.5">
                       {page.id ? `${page.id.slice(0, 8)}...` : '—'} · attempt {page.gauntlet_attempt ?? page.generation_attempts ?? 1}
                     </p>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
                     {page.gauntlet_score != null && (
-                      <span className="text-[10px] font-medium text-textdark">{page.gauntlet_score}/11</span>
+                      <span className="text-[10px] font-medium text-ed-ink">{page.gauntlet_score}/11</span>
                     )}
                     <span className={`text-[9px] font-medium px-1.5 py-0.5 rounded ${getLPStatusClasses(page.status || page.gauntlet_status)}`}>
                       {page.status || page.gauntlet_status || 'unknown'}
@@ -678,46 +678,46 @@ function RoundLandingPageFunnel({ batchId, lpDetailState, loading }) {
                 <div className="px-3 pb-3 pt-1 border-t border-black/5 space-y-2">
                   <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                     <div className="rounded-lg bg-black/[0.02] border border-black/5 px-2 py-2">
-                      <p className="text-[9px] uppercase tracking-wider text-textlight">QA</p>
-                      <p className="text-[11px] font-medium text-textdark mt-0.5">{page.qa_score ?? '—'}</p>
+                      <p className="text-[9px] uppercase tracking-wider text-ed-ink3">QA</p>
+                      <p className="text-[11px] font-medium text-ed-ink mt-0.5">{page.qa_score ?? '—'}</p>
                     </div>
                     <div className="rounded-lg bg-black/[0.02] border border-black/5 px-2 py-2">
-                      <p className="text-[9px] uppercase tracking-wider text-textlight">Issues</p>
-                      <p className="text-[11px] font-medium text-textdark mt-0.5">{page.qa_issues_count ?? '—'}</p>
+                      <p className="text-[9px] uppercase tracking-wider text-ed-ink3">Issues</p>
+                      <p className="text-[11px] font-medium text-ed-ink mt-0.5">{page.qa_issues_count ?? '—'}</p>
                     </div>
                     <div className="rounded-lg bg-black/[0.02] border border-black/5 px-2 py-2">
-                      <p className="text-[9px] uppercase tracking-wider text-textlight">Smoke</p>
-                      <p className="text-[11px] font-medium text-textdark mt-0.5">{page.smoke_test_status || '—'}</p>
+                      <p className="text-[9px] uppercase tracking-wider text-ed-ink3">Smoke</p>
+                      <p className="text-[11px] font-medium text-ed-ink mt-0.5">{page.smoke_test_status || '—'}</p>
                     </div>
                     <div className="rounded-lg bg-black/[0.02] border border-black/5 px-2 py-2">
-                      <p className="text-[9px] uppercase tracking-wider text-textlight">Duration</p>
-                      <p className="text-[11px] font-medium text-textdark mt-0.5">{page.generation_duration_ms ? formatDuration(page.generation_duration_ms) : '—'}</p>
+                      <p className="text-[9px] uppercase tracking-wider text-ed-ink3">Duration</p>
+                      <p className="text-[11px] font-medium text-ed-ink mt-0.5">{page.generation_duration_ms ? formatDuration(page.generation_duration_ms) : '—'}</p>
                     </div>
                   </div>
 
                   <div className="flex flex-wrap gap-1.5">
                     {page.qa_status && (
-                      <span className={`inline-flex items-center rounded-full px-2 py-1 text-[9px] border ${page.qa_status === 'passed' ? 'bg-teal/10 text-teal border-teal/20' : 'bg-red-50 text-red-500 border-red-100'}`}>
+                      <span className={`inline-flex items-center rounded-full px-2 py-1 text-[9px] border ${page.qa_status === 'passed' ? 'bg-ed-green/10 text-ed-green border-ed-green/20' : 'bg-ed-rust/10 text-ed-rust border-ed-rust/30'}`}>
                         QA {page.qa_status}
                       </span>
                     )}
                     {page.smoke_test_status && (
-                      <span className={`inline-flex items-center rounded-full px-2 py-1 text-[9px] border ${page.smoke_test_status === 'passed' ? 'bg-teal/10 text-teal border-teal/20' : 'bg-red-50 text-red-500 border-red-100'}`}>
+                      <span className={`inline-flex items-center rounded-full px-2 py-1 text-[9px] border ${page.smoke_test_status === 'passed' ? 'bg-ed-green/10 text-ed-green border-ed-green/20' : 'bg-ed-rust/10 text-ed-rust border-ed-rust/30'}`}>
                         Smoke {page.smoke_test_status}
                       </span>
                     )}
                     {page.gauntlet_retry_type && (
-                      <span className="inline-flex items-center rounded-full bg-gold/10 text-gold border border-gold/20 px-2 py-1 text-[9px]">
+                      <span className="inline-flex items-center rounded-full bg-ed-accent/10 text-ed-accent border border-ed-accent/20 px-2 py-1 text-[9px]">
                         Retry {page.gauntlet_retry_type}
                       </span>
                     )}
                     {page.gauntlet_image_prescore_attempts != null && (
-                      <span className="inline-flex items-center rounded-full bg-black/[0.02] text-textmid border border-black/5 px-2 py-1 text-[9px]">
+                      <span className="inline-flex items-center rounded-full bg-black/[0.02] text-ed-ink2 border border-black/5 px-2 py-1 text-[9px]">
                         Image prescore attempts {page.gauntlet_image_prescore_attempts}
                       </span>
                     )}
                     {page.fix_attempts != null && (
-                      <span className="inline-flex items-center rounded-full bg-black/[0.02] text-textmid border border-black/5 px-2 py-1 text-[9px]">
+                      <span className="inline-flex items-center rounded-full bg-black/[0.02] text-ed-ink2 border border-black/5 px-2 py-1 text-[9px]">
                         Fixes {page.fix_attempts}
                       </span>
                     )}
@@ -727,14 +727,14 @@ function RoundLandingPageFunnel({ batchId, lpDetailState, loading }) {
                     <div className="space-y-1">
                       {page.headline_text && (
                         <div className="rounded-lg bg-black/[0.02] border border-black/5 px-2 py-2">
-                          <p className="text-[9px] uppercase tracking-wider text-textlight">Headline</p>
-                          <p className="text-[10px] text-textdark mt-1 leading-relaxed">{page.headline_text}</p>
+                          <p className="text-[9px] uppercase tracking-wider text-ed-ink3">Headline</p>
+                          <p className="text-[10px] text-ed-ink mt-1 leading-relaxed">{page.headline_text}</p>
                         </div>
                       )}
                       {page.subheadline_text && (
                         <div className="rounded-lg bg-black/[0.02] border border-black/5 px-2 py-2">
-                          <p className="text-[9px] uppercase tracking-wider text-textlight">Subheadline</p>
-                          <p className="text-[10px] text-textmid mt-1 leading-relaxed">{page.subheadline_text}</p>
+                          <p className="text-[9px] uppercase tracking-wider text-ed-ink3">Subheadline</p>
+                          <p className="text-[10px] text-ed-ink2 mt-1 leading-relaxed">{page.subheadline_text}</p>
                         </div>
                       )}
                     </div>
@@ -743,58 +743,58 @@ function RoundLandingPageFunnel({ batchId, lpDetailState, loading }) {
                   <div className="grid grid-cols-1 sm:grid-cols-3 gap-2">
                     {page.headline_frame_alignment_status && (
                       <div className="rounded-lg bg-black/[0.02] border border-black/5 px-2 py-2">
-                        <p className="text-[9px] uppercase tracking-wider text-textlight">Frame Fit</p>
-                        <p className="text-[11px] font-medium text-textdark mt-0.5">{page.headline_frame_alignment_status}</p>
+                        <p className="text-[9px] uppercase tracking-wider text-ed-ink3">Frame Fit</p>
+                        <p className="text-[11px] font-medium text-ed-ink mt-0.5">{page.headline_frame_alignment_status}</p>
                         {page.headline_frame_alignment_reason && (
-                          <p className="text-[9px] text-textmid mt-1 leading-relaxed">{page.headline_frame_alignment_reason}</p>
+                          <p className="text-[9px] text-ed-ink2 mt-1 leading-relaxed">{page.headline_frame_alignment_reason}</p>
                         )}
                       </div>
                     )}
                     {page.headline_uniqueness_status && (
                       <div className="rounded-lg bg-black/[0.02] border border-black/5 px-2 py-2">
-                        <p className="text-[9px] uppercase tracking-wider text-textlight">5-Frame Uniqueness</p>
-                        <p className="text-[11px] font-medium text-textdark mt-0.5">{page.headline_uniqueness_status}</p>
+                        <p className="text-[9px] uppercase tracking-wider text-ed-ink3">5-Frame Uniqueness</p>
+                        <p className="text-[11px] font-medium text-ed-ink mt-0.5">{page.headline_uniqueness_status}</p>
                         {page.headline_uniqueness_reason && (
-                          <p className="text-[9px] text-textmid mt-1 leading-relaxed">{page.headline_uniqueness_reason}</p>
+                          <p className="text-[9px] text-ed-ink2 mt-1 leading-relaxed">{page.headline_uniqueness_reason}</p>
                         )}
                         {page.headline_duplicate_of_lp_id && (
-                          <p className="text-[9px] text-textlight mt-1">Duplicate of {page.headline_duplicate_of_lp_id.slice(0, 8)}...</p>
+                          <p className="text-[9px] text-ed-ink3 mt-1">Duplicate of {page.headline_duplicate_of_lp_id.slice(0, 8)}...</p>
                         )}
                       </div>
                     )}
                     {page.headline_history_status && (
                       <div className="rounded-lg bg-black/[0.02] border border-black/5 px-2 py-2">
-                        <p className="text-[9px] uppercase tracking-wider text-textlight">History Check</p>
-                        <p className="text-[11px] font-medium text-textdark mt-0.5">{page.headline_history_status}</p>
+                        <p className="text-[9px] uppercase tracking-wider text-ed-ink3">History Check</p>
+                        <p className="text-[11px] font-medium text-ed-ink mt-0.5">{page.headline_history_status}</p>
                         {page.headline_history_reason && (
-                          <p className="text-[9px] text-textmid mt-1 leading-relaxed">{page.headline_history_reason}</p>
+                          <p className="text-[9px] text-ed-ink2 mt-1 leading-relaxed">{page.headline_history_reason}</p>
                         )}
                       </div>
                     )}
                   </div>
 
                   {page.published_url && (
-                    <a href={page.published_url} target="_blank" rel="noreferrer" className="text-[10px] text-gold hover:text-gold-light inline-block break-all">
+                    <a href={page.published_url} target="_blank" rel="noreferrer" className="text-[10px] text-ed-accent hover:text-ed-accent inline-block break-all">
                       {page.published_url}
                     </a>
                   )}
 
                   {page.error_message && (
-                    <p className="text-[10px] text-red-500 leading-relaxed">{page.error_message}</p>
+                    <p className="text-[10px] text-ed-rust leading-relaxed">{page.error_message}</p>
                   )}
                   {page.qa_summary && (
-                    <p className="text-[10px] text-textdark leading-relaxed">{page.qa_summary}</p>
+                    <p className="text-[10px] text-ed-ink leading-relaxed">{page.qa_summary}</p>
                   )}
                   {page.gauntlet_score_reasoning && (
-                    <p className="text-[10px] text-textmid leading-relaxed">{page.gauntlet_score_reasoning}</p>
+                    <p className="text-[10px] text-ed-ink2 leading-relaxed">{page.gauntlet_score_reasoning}</p>
                   )}
 
                   {page.qa_categories && (
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
                       {Object.entries(page.qa_categories).map(([key, value]) => (
                         <div key={key} className="rounded-lg bg-black/[0.02] border border-black/5 px-2 py-2">
-                          <p className="text-[9px] uppercase tracking-wider text-textlight">{value?.label || formatLaneLabel(key)}</p>
-                          <p className="text-[11px] font-medium text-textdark mt-0.5">
+                          <p className="text-[9px] uppercase tracking-wider text-ed-ink3">{value?.label || formatLaneLabel(key)}</p>
+                          <p className="text-[11px] font-medium text-ed-ink mt-0.5">
                             {value?.score ?? '—'}{value?.max ? `/${value.max}` : ''}
                           </p>
                         </div>
@@ -804,15 +804,15 @@ function RoundLandingPageFunnel({ batchId, lpDetailState, loading }) {
 
                   {ensureArray(page.qa_issues, `AgentMonitor.run.lpDetails.${page.id}.qaIssues`).length > 0 && (
                     <div>
-                      <p className="text-[9px] uppercase tracking-wider text-textlight">QA issues</p>
+                      <p className="text-[9px] uppercase tracking-wider text-ed-ink3">QA issues</p>
                       <div className="space-y-1 mt-1">
                         {ensureArray(page.qa_issues, `AgentMonitor.run.lpDetails.${page.id}.qaIssuesList`).map((issue, index) => (
-                          <div key={`${page.id}-issue-${index}`} className="rounded-lg bg-red-50/70 border border-red-100 px-2 py-2">
+                          <div key={`${page.id}-issue-${index}`} className="rounded-lg bg-ed-rust/10/70 border border-ed-rust/30 px-2 py-2">
                             <div className="flex items-center justify-between gap-2">
-                              <span className="text-[9px] font-medium text-red-500">{issue.severity || 'issue'}</span>
-                              {issue.location && <span className="text-[9px] text-textlight">{issue.location}</span>}
+                              <span className="text-[9px] font-medium text-ed-rust">{issue.severity || 'issue'}</span>
+                              {issue.location && <span className="text-[9px] text-ed-ink3">{issue.location}</span>}
                             </div>
-                            <p className="text-[10px] text-textdark mt-1 leading-relaxed">{issue.description || 'Issue detected'}</p>
+                            <p className="text-[10px] text-ed-ink mt-1 leading-relaxed">{issue.description || 'Issue detected'}</p>
                           </div>
                         ))}
                       </div>
@@ -821,20 +821,20 @@ function RoundLandingPageFunnel({ batchId, lpDetailState, loading }) {
 
                   {ensureArray(page.smoke_checks, `AgentMonitor.run.lpDetails.${page.id}.smokeChecks`).length > 0 && (
                     <div>
-                      <p className="text-[9px] uppercase tracking-wider text-textlight">Smoke checks</p>
+                      <p className="text-[9px] uppercase tracking-wider text-ed-ink3">Smoke checks</p>
                       <div className="space-y-1 mt-1">
                         {ensureArray(page.smoke_checks, `AgentMonitor.run.lpDetails.${page.id}.smokeChecksList`).map((check, index) => (
-                          <div key={`${page.id}-smoke-${index}`} className={`rounded-lg border px-2 py-2 ${check.passed ? 'bg-teal/5 border-teal/20' : 'bg-red-50/70 border-red-100'}`}>
+                          <div key={`${page.id}-smoke-${index}`} className={`rounded-lg border px-2 py-2 ${check.passed ? 'bg-ed-green/5 border-ed-green/20' : 'bg-ed-rust/10/70 border-ed-rust/30'}`}>
                             <div className="flex items-center justify-between gap-2">
-                              <span className={`text-[9px] font-medium ${check.passed ? 'text-teal' : 'text-red-500'}`}>
+                              <span className={`text-[9px] font-medium ${check.passed ? 'text-ed-green' : 'text-ed-rust'}`}>
                                 {check.name}
                               </span>
-                              <span className={`text-[9px] ${check.passed ? 'text-teal' : 'text-red-500'}`}>
+                              <span className={`text-[9px] ${check.passed ? 'text-ed-green' : 'text-ed-rust'}`}>
                                 {formatBooleanStatus(check.passed)}
                               </span>
                             </div>
                             {check.detail && (
-                              <p className="text-[10px] text-textdark mt-1 leading-relaxed">{check.detail}</p>
+                              <p className="text-[10px] text-ed-ink mt-1 leading-relaxed">{check.detail}</p>
                             )}
                           </div>
                         ))}
@@ -846,37 +846,37 @@ function RoundLandingPageFunnel({ batchId, lpDetailState, loading }) {
                     ensureArray(page.smoke_raw_placeholder_matches, `AgentMonitor.run.lpDetails.${page.id}.rawPlaceholders`).length > 0) && (
                     <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                       <div className="rounded-lg bg-black/[0.02] border border-black/5 px-2 py-2">
-                        <p className="text-[9px] uppercase tracking-wider text-textlight">Visible Placeholders</p>
+                        <p className="text-[9px] uppercase tracking-wider text-ed-ink3">Visible Placeholders</p>
                         {ensureArray(page.smoke_visible_placeholder_matches, `AgentMonitor.run.lpDetails.${page.id}.visiblePlaceholderList`).length > 0 ? (
                           <div className="flex flex-wrap gap-1 mt-1">
                             {ensureArray(page.smoke_visible_placeholder_matches, `AgentMonitor.run.lpDetails.${page.id}.visiblePlaceholderTags`).map((match, index) => (
-                              <span key={`${page.id}-visible-placeholder-${index}`} className="inline-flex items-center rounded-full bg-red-50 text-red-500 border border-red-100 px-2 py-1 text-[9px]">
+                              <span key={`${page.id}-visible-placeholder-${index}`} className="inline-flex items-center rounded-full bg-ed-rust/10 text-ed-rust border border-ed-rust/30 px-2 py-1 text-[9px]">
                                 {match}
                               </span>
                             ))}
                           </div>
                         ) : (
-                          <p className="text-[10px] text-textmid mt-1">None detected in rendered page text.</p>
+                          <p className="text-[10px] text-ed-ink2 mt-1">None detected in rendered page text.</p>
                         )}
                       </div>
                       <div className="rounded-lg bg-black/[0.02] border border-black/5 px-2 py-2">
-                        <p className="text-[9px] uppercase tracking-wider text-textlight">Raw HTML Placeholder Tokens</p>
+                        <p className="text-[9px] uppercase tracking-wider text-ed-ink3">Raw HTML Placeholder Tokens</p>
                         {ensureArray(page.smoke_raw_placeholder_matches, `AgentMonitor.run.lpDetails.${page.id}.rawPlaceholderList`).length > 0 ? (
                           <div className="flex flex-wrap gap-1 mt-1">
                             {ensureArray(page.smoke_raw_placeholder_matches, `AgentMonitor.run.lpDetails.${page.id}.rawPlaceholderTags`).map((match, index) => (
-                              <span key={`${page.id}-raw-placeholder-${index}`} className="inline-flex items-center rounded-full bg-black/[0.02] text-textmid border border-black/5 px-2 py-1 text-[9px]">
+                              <span key={`${page.id}-raw-placeholder-${index}`} className="inline-flex items-center rounded-full bg-black/[0.02] text-ed-ink2 border border-black/5 px-2 py-1 text-[9px]">
                                 {match}
                               </span>
                             ))}
                           </div>
                         ) : (
-                          <p className="text-[10px] text-textmid mt-1">None found in raw HTML source.</p>
+                          <p className="text-[10px] text-ed-ink2 mt-1">None found in raw HTML source.</p>
                         )}
                       </div>
                     </div>
                   )}
 
-                  <div className="flex flex-wrap gap-3 text-[9px] text-textlight">
+                  <div className="flex flex-wrap gap-3 text-[9px] text-ed-ink3">
                     {page.created_at && <span>Created {formatDateTime(page.created_at)}</span>}
                     {page.updated_at && <span>Updated {formatDateTime(page.updated_at)}</span>}
                     {page.gauntlet_batch_completed_at && <span>Completed {formatDateTime(page.gauntlet_batch_completed_at)}</span>}
@@ -1144,41 +1144,41 @@ export default function AgentMonitor({ projectId: externalProjectId, project: ex
     <div className="fade-in space-y-4">
       {/* Dashboard header */}
       {!embedded && (
-      <div className="card p-5">
+      <div className="ed-card p-5">
         <div className="flex items-center justify-between mb-4">
           <div className="flex items-center gap-3">
-            <div className="w-7 h-7 rounded-lg bg-navy/10 flex items-center justify-center flex-shrink-0">
-              <svg className="w-3.5 h-3.5 text-navy" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <div className="w-7 h-7 rounded-lg bg-ed-accent/10 flex items-center justify-center flex-shrink-0">
+              <svg className="w-3.5 h-3.5 text-ed-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M9.75 17L9 20l-1 1h8l-1-1-.75-3M3 13h18M5 17h14a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
               </svg>
             </div>
             <div>
-              <h2 className="text-[15px] font-semibold text-textdark tracking-tight">Agent Dashboard</h2>
-              <p className="text-[11px] text-textlight">Creative Director and Creative Filter keep the pipeline moving</p>
+              <h2 className="text-[15px] font-serif font-[420] text-ed-ink tracking-tight">Agent Dashboard</h2>
+              <p className="text-[11px] text-ed-ink3">Creative Director and Creative Filter keep the pipeline moving</p>
             </div>
           </div>
-          <span className="text-[11px] text-textmid font-medium">{agentsOnline}/{agentsTotal} online</span>
+          <span className="text-[11px] text-ed-ink2 font-medium">{agentsOnline}/{agentsTotal} online</span>
         </div>
 
         {statusLoading && !hasActiveTabData ? (
           <div className="animate-pulse">
-            <div className="h-3 w-28 bg-gray-200 rounded mb-3" />
-            <div className="h-20 bg-gray-50 rounded-xl" />
+            <div className="h-3 w-28 bg-ed-line rounded mb-3" />
+            <div className="h-20 bg-ed-bg rounded-xl" />
           </div>
         ) : error && !hasActiveTabData ? (
           <div className="rounded-xl bg-black/[0.02] border border-black/5 p-4">
-            <p className="text-[12px] font-medium text-textmid mb-1">Status Summary</p>
-            <p className="text-[11px] text-textlight">Agent status is temporarily unavailable. The page shell stays interactive while the status endpoints recover.</p>
+            <p className="text-[12px] font-medium text-ed-ink2 mb-1">Status Summary</p>
+            <p className="text-[11px] text-ed-ink3">Agent status is temporarily unavailable. The page shell stays interactive while the status endpoints recover.</p>
           </div>
         ) : activeTab === 'director' ? (
           <PipelineOverview data={pipelineStatus} filterData={filterData} />
         ) : (
           <div className="rounded-xl bg-black/[0.02] border border-black/5 p-4">
-            <p className="text-[12px] font-medium text-textmid mb-1">Status Summary</p>
-            <p className="text-[11px] text-textlight">
+            <p className="text-[12px] font-medium text-ed-ink2 mb-1">Status Summary</p>
+            <p className="text-[11px] text-ed-ink3">
               Director pipeline metrics load only on the Creative Director tab to keep this page lighter while you work elsewhere.
             </p>
-            <div className="flex items-center gap-4 mt-3 text-[10px] text-textmid">
+            <div className="flex items-center gap-4 mt-3 text-[10px] text-ed-ink2">
               <span>Director: open tab to load</span>
               <span>Filter: {filterData?.status === 'online' ? '\u2713' : '\u2013'}</span>
             </div>
@@ -1188,7 +1188,7 @@ export default function AgentMonitor({ projectId: externalProjectId, project: ex
       )}
 
       {/* Agent Tabs */}
-      <div className={embedded ? '' : 'card p-5'}>
+      <div className={embedded ? '' : 'ed-card p-5'}>
         <div className="segmented-control mb-4">
           {tabs.map(tab => (
             <button
@@ -1254,9 +1254,9 @@ function PipelineOverview({ data, filterData }) {
   if (projects.length === 0) {
     return (
       <div className="rounded-xl bg-black/[0.02] border border-black/5 p-4">
-        <p className="text-[12px] font-medium text-textmid mb-1">Pipeline Overview</p>
-        <p className="text-[11px] text-textlight">No projects configured for the Creative Director yet. Enable a project in the Director tab to see pipeline status.</p>
-        <div className="flex items-center gap-4 mt-3 text-[10px] text-textmid">
+        <p className="text-[12px] font-medium text-ed-ink2 mb-1">Pipeline Overview</p>
+        <p className="text-[11px] text-ed-ink3">No projects configured for the Creative Director yet. Enable a project in the Director tab to see pipeline status.</p>
+        <div className="flex items-center gap-4 mt-3 text-[10px] text-ed-ink2">
           <span>Director: {'\u2013'}</span>
           <span>Filter: {filterData?.status === 'online' ? '\u2713' : '\u2013'}</span>
         </div>
@@ -1266,11 +1266,11 @@ function PipelineOverview({ data, filterData }) {
 
   return (
     <div className="rounded-xl bg-black/[0.02] border border-black/5 p-4">
-      <p className="text-[12px] font-medium text-textmid mb-3">Pipeline Overview</p>
+      <p className="text-[12px] font-medium text-ed-ink2 mb-3">Pipeline Overview</p>
 
       {upcomingDays.slice(0, 3).map(day => (
         <div key={day.date} className="mb-3 last:mb-0">
-          <p className="text-[10px] text-textlight font-medium uppercase tracking-wider mb-1.5">{day.label}</p>
+          <p className="text-[10px] text-ed-ink3 font-medium uppercase tracking-wider mb-1.5">{day.label}</p>
           {projects.map(project => {
             const produced = project.flex_by_day?.[day.date] || 0;
             const target = project.daily_flex_target ?? 5;
@@ -1280,19 +1280,19 @@ function PipelineOverview({ data, filterData }) {
 
             return (
               <div key={project.project_id} className="flex items-center gap-3 mb-1">
-                <span className="text-[11px] text-textdark font-medium w-32 truncate">{project.brand_name || project.project_name}</span>
+                <span className="text-[11px] text-ed-ink font-medium w-32 truncate">{project.brand_name || project.project_name}</span>
                 <div className="flex-1 h-2.5 rounded-full bg-black/5 overflow-hidden">
                   <div
-                    className={`h-full rounded-full transition-all duration-500 ${isMet ? 'bg-teal' : 'bg-navy'}`}
+                    className={`h-full rounded-full transition-all duration-500 ${isMet ? 'bg-ed-green' : 'bg-ed-accent'}`}
                     style={{ width: `${pct}%` }}
                   />
                 </div>
-                <span className="text-[10px] text-textmid tabular-nums w-16 text-right">
+                <span className="text-[10px] text-ed-ink2 tabular-nums w-16 text-right">
                   {produced}/{target}
-                  {isMet && <span className="text-teal ml-1">{'\u2713'}</span>}
+                  {isMet && <span className="text-ed-green ml-1">{'\u2713'}</span>}
                 </span>
                 {activeBatches > 0 && (
-                  <span className="text-[9px] text-gold font-medium">{activeBatches} in progress</span>
+                  <span className="text-[9px] text-ed-accent font-medium">{activeBatches} in progress</span>
                 )}
               </div>
             );
@@ -1300,7 +1300,7 @@ function PipelineOverview({ data, filterData }) {
         </div>
       ))}
 
-      <div className="flex items-center gap-4 mt-3 pt-2 border-t border-black/5 text-[10px] text-textmid">
+      <div className="flex items-center gap-4 mt-3 pt-2 border-t border-black/5 text-[10px] text-ed-ink2">
         <span>Director {'\u2713'}</span>
         <span>Filter: {filterData?.status === 'online' ? '\u2713' : '\u2717'}</span>
       </div>
@@ -2294,9 +2294,9 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
     ? Math.max(1, Math.min(20, parsedTestAdSetTarget))
     : defaultTestAdSetTarget;
 
-  if (projectLoading) return <div className="text-[11px] text-textlight py-4">{embedded ? 'Loading Director...' : 'Loading projects...'}</div>;
-  if (!embedded && safeProjects.length === 0) return <div className="text-[11px] text-textlight py-4">No projects found.</div>;
-  if (!selectedProject) return <div className="text-[11px] text-textlight py-4">{embedded ? 'Loading Director...' : 'Select a project to load Director settings.'}</div>;
+  if (projectLoading) return <div className="text-[11px] text-ed-ink3 py-4">{embedded ? 'Loading Director...' : 'Loading projects...'}</div>;
+  if (!embedded && safeProjects.length === 0) return <div className="text-[11px] text-ed-ink3 py-4">No projects found.</div>;
+  if (!selectedProject) return <div className="text-[11px] text-ed-ink3 py-4">{embedded ? 'Loading Director...' : 'Select a project to load Director settings.'}</div>;
 
   const subTabs = [
     { id: 'history', label: 'Run History' },
@@ -2326,7 +2326,7 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
           <select
             value={selectedProject}
             onChange={e => setSelectedProject(e.target.value)}
-            className="text-[12px] text-textdark bg-offwhite border border-black/10 rounded-lg px-3 py-1.5 cursor-pointer"
+            className="text-[12px] text-ed-ink bg-ed-bg border border-black/10 rounded-lg px-3 py-1.5 cursor-pointer"
           >
             {safeProjects.map(p => (
               <option key={p.id} value={p.id}>{p.displayName || p.brand_name || p.name}</option>
@@ -2334,22 +2334,22 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
           </select>
         )}
 
-        <label className={`flex items-center gap-2 text-[11px] ${baseLoading ? 'text-textlight cursor-not-allowed' : 'text-textmid cursor-pointer'}`}>
+        <label className={`flex items-center gap-2 text-[11px] ${baseLoading ? 'text-ed-ink3 cursor-not-allowed' : 'text-ed-ink2 cursor-pointer'}`}>
           <div
             onClick={() => {
               if (baseLoading) return;
               handleSaveConfig({ enabled: !(config?.enabled) });
             }}
-            className={`relative w-7 h-4 rounded-full transition-colors duration-200 cursor-pointer ${config?.enabled ? 'bg-teal/30' : 'bg-black/10'}`}
+            className={`relative w-7 h-4 rounded-full transition-colors duration-200 cursor-pointer ${config?.enabled ? 'bg-ed-green/30' : 'bg-black/10'}`}
           >
-            <div className={`absolute top-0.5 w-3 h-3 rounded-full transition-all duration-200 shadow-sm ${config?.enabled ? 'left-3.5 bg-teal' : 'left-0.5 bg-textlight'}`} />
+            <div className={`absolute top-0.5 w-3 h-3 rounded-full transition-all duration-200 shadow-sm ${config?.enabled ? 'left-3.5 bg-ed-green' : 'left-0.5 bg-ed-ink3'}`} />
           </div>
           Enabled
         </label>
 
         <div className="ml-auto grid grid-cols-1 sm:grid-cols-[minmax(180px,260px)_130px_auto] items-end gap-2">
           <div>
-            <label className="block text-[10px] font-semibold uppercase tracking-[0.08em] text-textlight mb-1">Test Angle</label>
+            <label className="block text-[10px] font-semibold uppercase tracking-[0.08em] text-ed-ink3 mb-1">Test Angle</label>
             <select
               value={selectedAngleId}
               onChange={e => setSelectedAngleId(e.target.value)}
@@ -2359,7 +2359,7 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
                 }
               }}
               disabled={!canChooseAngle}
-              className="text-[11px] text-textdark bg-offwhite border border-black/10 rounded-lg px-2 py-1.5 cursor-pointer w-full"
+              className="text-[11px] text-ed-ink bg-ed-bg border border-black/10 rounded-lg px-2 py-1.5 cursor-pointer w-full"
             >
               <option value="">
                 {angleOptionsLoading ? 'Loading angles...' : 'Select an angle...'}
@@ -2370,7 +2370,7 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
             </select>
           </div>
           <div>
-            <label className="block text-[10px] font-semibold uppercase tracking-[0.08em] text-textlight mb-1">Ads in Test Ad Set</label>
+            <label className="block text-[10px] font-semibold uppercase tracking-[0.08em] text-ed-ink3 mb-1">Ads in Test Ad Set</label>
             <input
               type="number"
               min="1"
@@ -2386,14 +2386,14 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
                 if (!Number.isFinite(parsed)) return;
                 setTestAdSetTargetDraft(String(Math.max(1, Math.min(20, parsed))));
               }}
-              className="text-[11px] text-textdark bg-offwhite border border-black/10 rounded-lg px-2 py-1.5 w-full"
+              className="text-[11px] text-ed-ink bg-ed-bg border border-black/10 rounded-lg px-2 py-1.5 w-full"
               title="Target number of QA-approved ads in this test ad set."
             />
           </div>
           <button
             onClick={handleTestRun}
             disabled={!canTriggerTestRun}
-            className="btn-primary text-[11px] px-3 py-1.5 flex items-center gap-1 disabled:opacity-50"
+            className="px-3 py-1.5 rounded-[7px] text-[11px] bg-ed-accent text-[#fbfaf6] hover:bg-ed-accent/90 transition-colors flex items-center gap-1 disabled:opacity-50"
             title={!selectedAngleId ? 'Select a test angle first.' : `Create a test ad set with ${testAdSetTargetValue} approved ads.`}
           >
             {activeRun ? <><Spinner /> {queuedCount > 0 ? `Running (${queuedCount} queued)` : 'Running...'}</> : queuedCount > 0 ? `Queue Run (${queuedCount} queued)` : 'Test Run'}
@@ -2415,7 +2415,7 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
             <button
               onClick={handleCancelRun}
               disabled={activeRunCanceling}
-              className="text-[10px] text-red-500 hover:text-red-700 font-medium px-2 py-0.5 rounded hover:bg-red-50 transition-colors shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="text-[10px] text-ed-rust hover:text-ed-rust font-medium px-2 py-0.5 rounded hover:bg-ed-rust/5 transition-colors shrink-0 disabled:opacity-50 disabled:cursor-not-allowed"
               title={activeRunCanceling ? 'Cancel request sent' : 'Cancel running test'}
             >
               {activeRunCanceling ? 'Cancelling...' : 'Cancel'}
@@ -2423,8 +2423,8 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
           </div>
           {showActiveRunBreakdown && (
             <details key={activeRun.serverRunId || activeRun.id} className="mt-2 rounded-lg bg-black/[0.02] border border-black/5">
-              <summary className="flex items-center justify-between gap-3 cursor-pointer list-none px-3 py-2 text-[11px] text-textmid">
-                <span className="font-medium text-textdark">Current round details</span>
+              <summary className="flex items-center justify-between gap-3 cursor-pointer list-none px-3 py-2 text-[11px] text-ed-ink2">
+                <span className="font-medium text-ed-ink">Current round details</span>
                 <span>
                   {activeRunPassed === null || activeRunPassed === undefined
                     ? 'Show details'
@@ -2434,30 +2434,30 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
               <div className="px-3 pb-3 pt-1 border-t border-black/5 space-y-2">
                 {activeRunRounds.length > 0 ? (
                   activeRunRounds.map((round, index) => (
-                    <div key={round.batch_id || `${activeRun.id}-${index}`} className="rounded-lg bg-white/70 border border-black/5 px-3 py-2">
+                    <div key={round.batch_id || `${activeRun.id}-${index}`} className="rounded-lg bg-ed-surface/70 border border-black/5 px-3 py-2">
                       <div className="flex items-center justify-between gap-3">
-                        <p className="text-[11px] font-medium text-textdark">Round {round.round || index + 1}</p>
+                        <p className="text-[11px] font-medium text-ed-ink">Round {round.round || index + 1}</p>
                         <span className={`text-[9px] font-medium px-1.5 py-0.5 rounded ${getRoundStatusClasses(round)}`}>
                           {round.status === 'threshold_reached' ? 'threshold reached' : 'below threshold'}
                         </span>
                       </div>
-                      <p className="text-[10px] text-textmid mt-1">
+                      <p className="text-[10px] text-ed-ink2 mt-1">
                         Batch {round.batch_id ? `${round.batch_id.slice(0, 8)}...` : '\u2013'}
                       </p>
-                      <p className="text-[11px] text-textdark mt-1">
+                      <p className="text-[11px] text-ed-ink mt-1">
                         {round.ads_generated ?? round.ads_scored ?? 0} generated, {round.ads_passed ?? 0}/{round.ads_scored ?? round.ads_generated ?? 0} passed in this round, {round.cumulative_passed ?? 0}/{activeRunRequiredPasses} cumulative.
                       </p>
                       <RoundHeadlineDiagnostics round={round} />
                       {round.completed_at && (
-                        <p className="text-[9px] text-textlight mt-1">{timeAgo(round.completed_at)}</p>
+                        <p className="text-[9px] text-ed-ink3 mt-1">{timeAgo(round.completed_at)}</p>
                       )}
                     </div>
                   ))
                 ) : (
                   activeRunBatches.map((batch, index) => (
-                    <div key={batch.batch_id || `${activeRun.id}-${index}`} className="rounded-lg bg-white/70 border border-black/5 px-3 py-2">
-                      <p className="text-[11px] font-medium text-textdark">Batch {index + 1}</p>
-                      <p className="text-[10px] text-textmid mt-1">
+                    <div key={batch.batch_id || `${activeRun.id}-${index}`} className="rounded-lg bg-ed-surface/70 border border-black/5 px-3 py-2">
+                      <p className="text-[11px] font-medium text-ed-ink">Batch {index + 1}</p>
+                      <p className="text-[10px] text-ed-ink2 mt-1">
                         ID {batch.batch_id ? `${batch.batch_id.slice(0, 8)}...` : '\u2013'} · {batch.ad_count || '\u2013'} ads
                       </p>
                     </div>
@@ -2470,12 +2470,12 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
       )}
       {queuedCount > 0 && (
         <div className="flex items-center gap-2 mb-4">
-          <p className="text-[10px] text-textlight">
+          <p className="text-[10px] text-ed-ink3">
             {queuedCount} run{queuedCount !== 1 ? 's' : ''} queued{activeRun ? '' : ', waiting...'}
           </p>
           <button
             onClick={handleClearQueue}
-            className="text-[10px] text-textlight hover:text-red-500 transition-colors"
+            className="text-[10px] text-ed-ink3 hover:text-ed-rust transition-colors"
           >
             Clear queue
           </button>
@@ -2489,27 +2489,27 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
             <div
               key={run.id}
               className={`flex items-start gap-2 px-3 py-2 rounded-lg text-[11px] ${
-                run.status === 'complete' ? 'bg-teal/5 border border-teal/20' : 'bg-red-50 border border-red-200'
+                run.status === 'complete' ? 'bg-ed-green/5 border border-ed-green/20' : 'bg-ed-rust/10 border border-ed-rust/30'
               }`}
             >
               <span className="mt-0.5 shrink-0">
                 {run.status === 'complete' ? (
-                  <svg className="w-3.5 h-3.5 text-teal" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
+                  <svg className="w-3.5 h-3.5 text-ed-green" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
                 ) : (
-                  <svg className="w-3.5 h-3.5 text-red-500" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                  <svg className="w-3.5 h-3.5 text-ed-rust" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
                 )}
               </span>
               <div className="flex-1 min-w-0">
-                <p className={`font-medium ${run.status === 'complete' ? 'text-teal' : 'text-red-600'}`}>
+                <p className={`font-medium ${run.status === 'complete' ? 'text-ed-green' : 'text-ed-rust'}`}>
                   {run.status === 'complete' ? 'Test Run Complete' : 'Test Run Failed'}
                 </p>
-                <p className="text-textmid mt-0.5">{run.phase}</p>
+                <p className="text-ed-ink2 mt-0.5">{run.phase}</p>
                 {run.result?.flex_ads_created > 0 && (
                   <button
                     onClick={() => navigate(run.result?.flex_ad_id
                       ? `/projects/${selectedProject}?tab=tracker&view=ready_to_post&flexAdId=${run.result.flex_ad_id}`
                       : '/ads?tab=ready')}
-                    className="text-[10px] text-gold hover:text-gold-light font-medium mt-1 inline-flex items-center gap-1"
+                    className="text-[10px] text-ed-accent hover:text-ed-accent font-medium mt-1 inline-flex items-center gap-1"
                   >
                     View in Ready to Post {'\u2192'}
                   </button>
@@ -2517,7 +2517,7 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
               </div>
               <button
                 onClick={() => handleDismissResult(run.id)}
-                className="text-textlight hover:text-textdark transition-colors shrink-0 mt-0.5"
+                className="text-ed-ink3 hover:text-ed-ink transition-colors shrink-0 mt-0.5"
                 title="Dismiss"
               >
                 <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
@@ -2529,10 +2529,10 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
 
       {/* Quick stats */}
       <div className="grid grid-cols-4 gap-2 mb-4">
-        <StatCell value={config?.daily_flex_target ?? '—'} label="Ad Set Target" color="text-textdark" />
-        <StatCell value={adsPerAdSetValue ?? '—'} label="Ads/Ad Set" color="text-textdark" />
-        <StatCell value={anglesLoadedFor === selectedProject ? activeAngles.length : '—'} label="Angles" color="text-navy" />
-        <StatCell value={runsLoadedFor === selectedProject ? safeRuns.filter(r => r.status === 'completed').length : '—'} label="Runs" color="text-teal" />
+        <StatCell value={config?.daily_flex_target ?? '—'} label="Ad Set Target" color="text-ed-ink" />
+        <StatCell value={adsPerAdSetValue ?? '—'} label="Ads/Ad Set" color="text-ed-ink" />
+        <StatCell value={anglesLoadedFor === selectedProject ? activeAngles.length : '—'} label="Angles" color="text-ed-accent" />
+        <StatCell value={runsLoadedFor === selectedProject ? safeRuns.filter(r => r.status === 'completed').length : '—'} label="Runs" color="text-ed-green" />
       </div>
 
       {/* Sub-tabs */}
@@ -2543,8 +2543,8 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
             onClick={() => setSubTab(tab.id)}
             className={`text-[11px] font-medium py-2 px-3 border-b-2 transition-colors ${
               subTab === tab.id
-                ? 'border-navy text-navy'
-                : 'border-transparent text-textmid hover:text-textdark'
+                ? 'border-ed-accent text-ed-accent'
+                : 'border-transparent text-ed-ink2 hover:text-ed-ink'
             }`}
           >
             {tab.label}
@@ -2557,17 +2557,17 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
         <div>
           {anglesLoading && anglesLoadedFor !== selectedProject && (
             <div className="rounded-xl bg-black/[0.02] border border-black/5 px-3 py-3 mb-3">
-              <p className="text-[11px] text-textmid">Loading angles and playbook notes...</p>
+              <p className="text-[11px] text-ed-ink2">Loading angles and playbook notes...</p>
             </div>
           )}
 
           {/* Focus mode banner */}
           {activeAngles.some(a => a.focused) && (
-            <div className="mb-3 flex items-center gap-2 px-3 py-2 rounded-lg bg-gold/10 border border-gold/20">
-              <svg className="w-3.5 h-3.5 text-gold flex-shrink-0" fill="currentColor" viewBox="0 0 24 24">
+            <div className="mb-3 flex items-center gap-2 px-3 py-2 rounded-lg bg-ed-accent/10 border border-ed-accent/20">
+              <svg className="w-3.5 h-3.5 text-ed-accent flex-shrink-0" fill="currentColor" viewBox="0 0 24 24">
                 <path d="M11.049 2.927c.3-.921 1.603-.921 1.902 0l1.519 4.674a1 1 0 00.95.69h4.915c.969 0 1.371 1.24.588 1.81l-3.976 2.888a1 1 0 00-.363 1.118l1.518 4.674c.3.922-.755 1.688-1.538 1.118l-3.976-2.888a1 1 0 00-1.176 0l-3.976 2.888c-.783.57-1.838-.197-1.538-1.118l1.518-4.674a1 1 0 00-.363-1.118l-3.976-2.888c-.784-.57-.38-1.81.588-1.81h4.914a1 1 0 00.951-.69l1.519-4.674z" />
               </svg>
-              <span className="text-[11px] text-gold/90 font-medium">Focus mode — Director will only use focused angles</span>
+              <span className="text-[11px] text-ed-accent/90 font-medium">Focus mode — Director will only use focused angles</span>
             </div>
           )}
 
@@ -2576,14 +2576,14 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
             <button
               onClick={handleDownloadAngles}
               disabled={safeAngles.length === 0}
-              className="btn-secondary text-[11px] px-3 py-1.5 flex items-center gap-1.5 disabled:opacity-40"
+              className="ed-ghost text-[11px] px-3 py-1.5 flex items-center gap-1.5 disabled:opacity-40"
             >
               <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M7 10l5 5m0 0l5-5m-5 5V3" /></svg>
               Export
             </button>
             <button
               onClick={() => { setShowImport(!showImport); setImportResult(null); }}
-              className={`btn-secondary text-[11px] px-3 py-1.5 flex items-center gap-1.5 ${showImport ? 'ring-1 ring-navy/30' : ''}`}
+              className={`ed-ghost text-[11px] px-3 py-1.5 flex items-center gap-1.5 ${showImport ? 'ring-1 ring-ed-accent/30' : ''}`}
             >
               <svg className="w-3 h-3" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M4 16v2a2 2 0 002 2h12a2 2 0 002-2v-2M17 8l-5-5m0 0L7 8m5-5v12" /></svg>
               Import
@@ -2592,7 +2592,7 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
               onClick={handleCopyAnglePrompt}
               disabled={!selectedProject || copyingPrompt}
               title="Copy a ready-made prompt that you can paste into ChatGPT or Claude to generate a list of angles in the exact import format."
-              className="btn-secondary text-[11px] px-3 py-1.5 flex items-center gap-1.5 disabled:opacity-40"
+              className="ed-ghost text-[11px] px-3 py-1.5 flex items-center gap-1.5 disabled:opacity-40"
             >
               {copyingPrompt ? (
                 <svg className="w-3 h-3 animate-spin" fill="none" stroke="currentColor" strokeWidth={2} viewBox="0 0 24 24"><circle cx="12" cy="12" r="10" strokeDasharray="31.4 31.4" strokeLinecap="round" /></svg>
@@ -2604,16 +2604,16 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
           </div>
 
           {playbooksLoading && playbooksLoadedFor !== selectedProject && (
-            <p className="text-[10px] text-textlight mb-3">Loading playbook notes...</p>
+            <p className="text-[10px] text-ed-ink3 mb-3">Loading playbook notes...</p>
           )}
 
           {/* Import panel */}
           {showImport && (
-            <div className="mb-4 rounded-xl bg-offwhite border border-black/10 p-4">
+            <div className="mb-4 rounded-xl bg-ed-bg border border-black/10 p-4">
               {!importResult ? (
                 <>
-                  <p className="text-[12px] font-medium text-textdark mb-2">Import Angles from Markdown</p>
-                  <p className="text-[10px] text-textmid mb-3">Upload a .md file with angles formatted as ## sections. Existing angles (matched by name) will be skipped.</p>
+                  <p className="text-[12px] font-medium text-ed-ink mb-2">Import Angles from Markdown</p>
+                  <p className="text-[10px] text-ed-ink2 mb-3">Upload a .md file with angles formatted as ## sections. Existing angles (matched by name) will be skipped.</p>
                   <div
                     onClick={() => importFileRef.current?.click()}
                     onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); setImportDragOver(true); }}
@@ -2625,11 +2625,11 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
                       if (file) handleImportFile(file);
                     }}
                     className={`border-2 border-dashed rounded-lg p-6 text-center cursor-pointer transition-all ${
-                      importDragOver ? 'border-gold bg-gold/5' : 'border-gray-300 hover:border-gold hover:bg-offwhite'
+                      importDragOver ? 'border-ed-accent bg-ed-accent/5' : 'border-ed-line hover:border-ed-accent hover:bg-ed-bg'
                     }`}
                   >
                     <div className="text-2xl text-gray-400 mb-2">{importDragOver ? '📂' : '📄'}</div>
-                    <p className={`text-[12px] font-medium ${importDragOver ? 'text-gold' : 'text-textmid'}`}>
+                    <p className={`text-[12px] font-medium ${importDragOver ? 'text-ed-accent' : 'text-ed-ink2'}`}>
                       {importDragOver ? 'Drop file here' : 'Drop your .md file here, or click to browse'}
                     </p>
                     <p className="text-[10px] text-gray-400 mt-1">Markdown files only (.md)</p>
@@ -2644,34 +2644,34 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
                 </>
               ) : (
                 <>
-                  <p className="text-[12px] font-medium text-textdark mb-2">Import Preview</p>
+                  <p className="text-[12px] font-medium text-ed-ink mb-2">Import Preview</p>
                   {importResult.newAngles.length > 0 ? (
                     <div className="mb-3">
-                      <p className="text-[11px] text-teal font-medium mb-1.5">{importResult.newAngles.length} new angle{importResult.newAngles.length !== 1 ? 's' : ''} to import:</p>
+                      <p className="text-[11px] text-ed-green font-medium mb-1.5">{importResult.newAngles.length} new angle{importResult.newAngles.length !== 1 ? 's' : ''} to import:</p>
                       <div className="space-y-1 max-h-40 overflow-y-auto">
                         {importResult.newAngles.map((a, i) => (
-                          <div key={i} className="text-[11px] text-textdark bg-teal/5 rounded px-2.5 py-1.5 border border-teal/10">
+                          <div key={i} className="text-[11px] text-ed-ink bg-ed-green/5 rounded px-2.5 py-1.5 border border-ed-green/10">
                             <span className="font-medium">{a.name}</span>
-                            <span className="text-textmid ml-2">{a.description.slice(0, 80)}{a.description.length > 80 ? '...' : ''}</span>
+                            <span className="text-ed-ink2 ml-2">{a.description.slice(0, 80)}{a.description.length > 80 ? '...' : ''}</span>
                           </div>
                         ))}
                       </div>
                     </div>
                   ) : (
-                    <p className="text-[11px] text-textmid mb-3">No new angles found — all angles in the file already exist.</p>
+                    <p className="text-[11px] text-ed-ink2 mb-3">No new angles found — all angles in the file already exist.</p>
                   )}
                   {importResult.skipped.length > 0 && (
-                    <p className="text-[10px] text-textlight mb-3">{importResult.skipped.length} angle{importResult.skipped.length !== 1 ? 's' : ''} skipped (already exist)</p>
+                    <p className="text-[10px] text-ed-ink3 mb-3">{importResult.skipped.length} angle{importResult.skipped.length !== 1 ? 's' : ''} skipped (already exist)</p>
                   )}
                   <div className="flex gap-2">
                     {importResult.newAngles.length > 0 && (
-                      <button onClick={handleConfirmImport} disabled={importing} className="btn-primary text-[11px] px-3 py-1.5 disabled:opacity-50">
+                      <button onClick={handleConfirmImport} disabled={importing} className="px-3 py-1.5 rounded-[7px] text-[11px] bg-ed-accent text-[#fbfaf6] hover:bg-ed-accent/90 transition-colors disabled:opacity-50">
                         {importing ? 'Importing...' : `Import ${importResult.newAngles.length} Angle${importResult.newAngles.length !== 1 ? 's' : ''}`}
                       </button>
                     )}
-                    <button onClick={() => { setImportResult(null); setShowImport(false); }} className="btn-secondary text-[11px] px-3 py-1.5">Cancel</button>
+                    <button onClick={() => { setImportResult(null); setShowImport(false); }} className="ed-ghost text-[11px] px-3 py-1.5">Cancel</button>
                     {!importing && importResult.newAngles.length === 0 && (
-                      <button onClick={() => setImportResult(null)} className="btn-secondary text-[11px] px-3 py-1.5">Try Another File</button>
+                      <button onClick={() => setImportResult(null)} className="ed-ghost text-[11px] px-3 py-1.5">Try Another File</button>
                     )}
                   </div>
                 </>
@@ -2682,7 +2682,7 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
           {/* Active angles */}
           {activeAngles.length > 0 && (
             <div className="mb-4">
-              <p className="text-[10px] text-textlight font-medium uppercase tracking-wider mb-2">Active</p>
+              <p className="text-[10px] text-ed-ink3 font-medium uppercase tracking-wider mb-2">Active</p>
               <div className="space-y-2">
                 {activeAngles.map(a => (
                   <AngleCard key={a.externalId} angle={a} playbooks={playbooks} onStatusChange={handleAngleStatusChange} onUpdate={handleUpdateAngle} />
@@ -2694,7 +2694,7 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
           {/* Testing angles */}
           {testingAngles.length > 0 && (
             <div className="mb-4">
-              <p className="text-[10px] text-textlight font-medium uppercase tracking-wider mb-2">Testing (auto-generated)</p>
+              <p className="text-[10px] text-ed-ink3 font-medium uppercase tracking-wider mb-2">Testing (auto-generated)</p>
               <div className="space-y-2">
                 {testingAngles.map(a => (
                   <AngleCard key={a.externalId} angle={a} playbooks={playbooks} onStatusChange={handleAngleStatusChange} onUpdate={handleUpdateAngle} showActions />
@@ -2710,10 +2710,10 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
                 onClick={() => setArchivedOpen(v => !v)}
                 className="flex items-center gap-1.5 mb-2 group cursor-pointer"
               >
-                <svg className={`w-3 h-3 text-textlight transition-transform ${archivedOpen ? 'rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+                <svg className={`w-3 h-3 text-ed-ink3 transition-transform ${archivedOpen ? 'rotate-90' : ''}`} fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
                   <path strokeLinecap="round" strokeLinejoin="round" d="M9 5l7 7-7 7" />
                 </svg>
-                <p className="text-[10px] text-textlight font-medium uppercase tracking-wider group-hover:text-textmid transition-colors">Archived ({archivedAngles.length})</p>
+                <p className="text-[10px] text-ed-ink3 font-medium uppercase tracking-wider group-hover:text-ed-ink2 transition-colors">Archived ({archivedAngles.length})</p>
               </button>
               {archivedOpen && (
                 <div className="space-y-2">
@@ -2727,30 +2727,30 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
 
           {!baseLoading && activeAngles.length === 0 && testingAngles.length === 0 && archivedAngles.length === 0 && (
             <div className="rounded-xl bg-black/[0.02] border border-black/5 px-3 py-3 mb-4">
-              <p className="text-[11px] text-textmid mb-1.5">No angles yet.</p>
-              <p className="text-[11px] text-textlight">Add one below, or click <span className="font-medium text-textmid">Copy LLM Prompt</span> above, paste it into ChatGPT or Claude, save the reply as a <code className="bg-black/5 px-1 rounded">.md</code> file, and use <span className="font-medium text-textmid">Import</span> to bulk-load a starter set.</p>
+              <p className="text-[11px] text-ed-ink2 mb-1.5">No angles yet.</p>
+              <p className="text-[11px] text-ed-ink3">Add one below, or click <span className="font-medium text-ed-ink2">Copy LLM Prompt</span> above, paste it into ChatGPT or Claude, save the reply as a <code className="bg-black/5 px-1 rounded">.md</code> file, and use <span className="font-medium text-ed-ink2">Import</span> to bulk-load a starter set.</p>
             </div>
           )}
 
           {/* Add angle */}
           {showAddAngle ? (
-            <div className="rounded-xl bg-offwhite border border-black/10 p-4 mt-2">
-              <p className="text-[12px] font-medium text-textdark mb-3">New Angle (Creative Brief)</p>
+            <div className="rounded-xl bg-ed-bg border border-black/10 p-4 mt-2">
+              <p className="text-[12px] font-medium text-ed-ink mb-3">New Angle (Creative Brief)</p>
               <input
                 type="text"
                 placeholder="Angle name (e.g., Broken Sleep / Wake Up at 2 to 4 AM)"
                 value={newAngle.name}
                 onChange={e => setNewAngle(prev => ({ ...prev, name: e.target.value }))}
-                className="input-apple w-full mb-2 text-[12px]"
+                className="input-apple !border-ed-line focus:!ring-ed-accent/20 focus:!border-ed-accent w-full mb-2 text-[12px]"
               />
               <div className="grid grid-cols-2 gap-2 mb-2">
-                <select value={newAngle.priority} onChange={e => setNewAngle(prev => ({ ...prev, priority: e.target.value }))} className="input-apple text-[12px]">
+                <select value={newAngle.priority} onChange={e => setNewAngle(prev => ({ ...prev, priority: e.target.value }))} className="input-apple !border-ed-line focus:!ring-ed-accent/20 focus:!border-ed-accent text-[12px]">
                   <option value="highest">Priority: Highest</option>
                   <option value="high">Priority: High</option>
                   <option value="medium">Priority: Medium</option>
                   <option value="test">Priority: Test</option>
                 </select>
-                <select value={newAngle.frame} onChange={e => setNewAngle(prev => ({ ...prev, frame: e.target.value }))} className="input-apple text-[12px]">
+                <select value={newAngle.frame} onChange={e => setNewAngle(prev => ({ ...prev, frame: e.target.value }))} className="input-apple !border-ed-line focus:!ring-ed-accent/20 focus:!border-ed-accent text-[12px]">
                   <option value="symptom-first">Frame: Symptom-first</option>
                   <option value="scam">Frame: Scam</option>
                   <option value="objection-first">Frame: Objection-first</option>
@@ -2760,28 +2760,28 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
                   <option value="consequence-first">Frame: Consequence-first</option>
                 </select>
               </div>
-              <textarea placeholder="Core Buyer — who is this ad for?" value={newAngle.core_buyer} onChange={e => setNewAngle(prev => ({ ...prev, core_buyer: e.target.value }))} className="input-apple w-full mb-2 text-[12px] h-14 resize-none" />
-              <textarea placeholder="Symptom Pattern — what specific experience?" value={newAngle.symptom_pattern} onChange={e => setNewAngle(prev => ({ ...prev, symptom_pattern: e.target.value }))} className="input-apple w-full mb-2 text-[12px] h-14 resize-none" />
-              <textarea placeholder="Failed Solutions — what have they already tried?" value={newAngle.failed_solutions} onChange={e => setNewAngle(prev => ({ ...prev, failed_solutions: e.target.value }))} className="input-apple w-full mb-2 text-[12px] h-14 resize-none" />
-              <textarea placeholder="Current Belief — what do they believe now?" value={newAngle.current_belief} onChange={e => setNewAngle(prev => ({ ...prev, current_belief: e.target.value }))} className="input-apple w-full mb-2 text-[12px] h-14 resize-none" />
-              <textarea placeholder="Objection — primary resistance to the product" value={newAngle.objection} onChange={e => setNewAngle(prev => ({ ...prev, objection: e.target.value }))} className="input-apple w-full mb-2 text-[12px] h-14 resize-none" />
-              <textarea placeholder="Emotional State — how do they feel right now?" value={newAngle.emotional_state} onChange={e => setNewAngle(prev => ({ ...prev, emotional_state: e.target.value }))} className="input-apple w-full mb-2 text-[12px] h-14 resize-none" />
-              <textarea placeholder="Scene — the specific moment the ad centers on" value={newAngle.scene} onChange={e => setNewAngle(prev => ({ ...prev, scene: e.target.value }))} className="input-apple w-full mb-2 text-[12px] h-14 resize-none" />
-              <textarea placeholder="Desired Belief Shift — what should they believe after?" value={newAngle.desired_belief_shift} onChange={e => setNewAngle(prev => ({ ...prev, desired_belief_shift: e.target.value }))} className="input-apple w-full mb-2 text-[12px] h-14 resize-none" />
+              <textarea placeholder="Core Buyer — who is this ad for?" value={newAngle.core_buyer} onChange={e => setNewAngle(prev => ({ ...prev, core_buyer: e.target.value }))} className="input-apple !border-ed-line focus:!ring-ed-accent/20 focus:!border-ed-accent w-full mb-2 text-[12px] h-14 resize-none" />
+              <textarea placeholder="Symptom Pattern — what specific experience?" value={newAngle.symptom_pattern} onChange={e => setNewAngle(prev => ({ ...prev, symptom_pattern: e.target.value }))} className="input-apple !border-ed-line focus:!ring-ed-accent/20 focus:!border-ed-accent w-full mb-2 text-[12px] h-14 resize-none" />
+              <textarea placeholder="Failed Solutions — what have they already tried?" value={newAngle.failed_solutions} onChange={e => setNewAngle(prev => ({ ...prev, failed_solutions: e.target.value }))} className="input-apple !border-ed-line focus:!ring-ed-accent/20 focus:!border-ed-accent w-full mb-2 text-[12px] h-14 resize-none" />
+              <textarea placeholder="Current Belief — what do they believe now?" value={newAngle.current_belief} onChange={e => setNewAngle(prev => ({ ...prev, current_belief: e.target.value }))} className="input-apple !border-ed-line focus:!ring-ed-accent/20 focus:!border-ed-accent w-full mb-2 text-[12px] h-14 resize-none" />
+              <textarea placeholder="Objection — primary resistance to the product" value={newAngle.objection} onChange={e => setNewAngle(prev => ({ ...prev, objection: e.target.value }))} className="input-apple !border-ed-line focus:!ring-ed-accent/20 focus:!border-ed-accent w-full mb-2 text-[12px] h-14 resize-none" />
+              <textarea placeholder="Emotional State — how do they feel right now?" value={newAngle.emotional_state} onChange={e => setNewAngle(prev => ({ ...prev, emotional_state: e.target.value }))} className="input-apple !border-ed-line focus:!ring-ed-accent/20 focus:!border-ed-accent w-full mb-2 text-[12px] h-14 resize-none" />
+              <textarea placeholder="Scene — the specific moment the ad centers on" value={newAngle.scene} onChange={e => setNewAngle(prev => ({ ...prev, scene: e.target.value }))} className="input-apple !border-ed-line focus:!ring-ed-accent/20 focus:!border-ed-accent w-full mb-2 text-[12px] h-14 resize-none" />
+              <textarea placeholder="Desired Belief Shift — what should they believe after?" value={newAngle.desired_belief_shift} onChange={e => setNewAngle(prev => ({ ...prev, desired_belief_shift: e.target.value }))} className="input-apple !border-ed-line focus:!ring-ed-accent/20 focus:!border-ed-accent w-full mb-2 text-[12px] h-14 resize-none" />
               <div className="grid grid-cols-2 gap-2 mb-2">
-                <input type="text" placeholder="Tone (e.g., Calm, specific, skeptical-friendly)" value={newAngle.tone} onChange={e => setNewAngle(prev => ({ ...prev, tone: e.target.value }))} className="input-apple text-[12px]" />
-                <input type="text" placeholder="Avoid (e.g., Generic insomnia language, young models)" value={newAngle.avoid_list} onChange={e => setNewAngle(prev => ({ ...prev, avoid_list: e.target.value }))} className="input-apple text-[12px]" />
+                <input type="text" placeholder="Tone (e.g., Calm, specific, skeptical-friendly)" value={newAngle.tone} onChange={e => setNewAngle(prev => ({ ...prev, tone: e.target.value }))} className="input-apple !border-ed-line focus:!ring-ed-accent/20 focus:!border-ed-accent text-[12px]" />
+                <input type="text" placeholder="Avoid (e.g., Generic insomnia language, young models)" value={newAngle.avoid_list} onChange={e => setNewAngle(prev => ({ ...prev, avoid_list: e.target.value }))} className="input-apple !border-ed-line focus:!ring-ed-accent/20 focus:!border-ed-accent text-[12px]" />
               </div>
-              <textarea placeholder="Prompt hints — additional creative direction (optional)" value={newAngle.prompt_hints} onChange={e => setNewAngle(prev => ({ ...prev, prompt_hints: e.target.value }))} className="input-apple w-full mb-3 text-[12px] h-14 resize-none" />
+              <textarea placeholder="Prompt hints — additional creative direction (optional)" value={newAngle.prompt_hints} onChange={e => setNewAngle(prev => ({ ...prev, prompt_hints: e.target.value }))} className="input-apple !border-ed-line focus:!ring-ed-accent/20 focus:!border-ed-accent w-full mb-3 text-[12px] h-14 resize-none" />
               <div className="flex gap-2">
-                <button onClick={handleAddAngle} className="btn-primary text-[11px] px-3 py-1.5">Save Angle</button>
-                <button onClick={() => setShowAddAngle(false)} className="btn-secondary text-[11px] px-3 py-1.5">Cancel</button>
+                <button onClick={handleAddAngle} className="px-3 py-1.5 rounded-[7px] text-[11px] bg-ed-accent text-[#fbfaf6] hover:bg-ed-accent/90 transition-colors">Save Angle</button>
+                <button onClick={() => setShowAddAngle(false)} className="ed-ghost text-[11px] px-3 py-1.5">Cancel</button>
               </div>
             </div>
           ) : (
             <button
               onClick={() => setShowAddAngle(true)}
-              className="btn-secondary text-[11px] px-3 py-1.5 mt-1"
+              className="ed-ghost text-[11px] px-3 py-1.5 mt-1"
             >
               + Add Angle
             </button>
@@ -2792,43 +2792,43 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
       {subTab === 'playbooks' && (
         <div>
           {playbooksLoading && playbooksLoadedFor !== selectedProject ? (
-            <p className="text-[11px] text-textlight py-4">Loading playbooks...</p>
+            <p className="text-[11px] text-ed-ink3 py-4">Loading playbooks...</p>
           ) : safePlaybooks.length === 0 ? (
-            <p className="text-[11px] text-textlight py-4">No playbooks yet. Playbooks are created automatically after the Creative Filter scores generated ads for each angle.</p>
+            <p className="text-[11px] text-ed-ink3 py-4">No playbooks yet. Playbooks are created automatically after the Creative Filter scores generated ads for each angle.</p>
           ) : (
             <div className="space-y-3">
               {safePlaybooks.map(pb => (
                 <div key={pb.angle_name} className="rounded-xl bg-black/[0.02] border border-black/5 p-4">
                   <div className="flex items-center justify-between mb-2">
-                    <p className="text-[13px] font-medium text-textdark">{pb.angle_name}</p>
-                    <span className="text-[10px] text-textmid">v{pb.version} {'\u2022'} {Math.round((pb.pass_rate || 0) * 100)}% pass rate</span>
+                    <p className="text-[13px] font-medium text-ed-ink">{pb.angle_name}</p>
+                    <span className="text-[10px] text-ed-ink2">v{pb.version} {'\u2022'} {Math.round((pb.pass_rate || 0) * 100)}% pass rate</span>
                   </div>
                   <div className="grid grid-cols-2 gap-2 mb-2">
-                    <StatCell value={pb.total_scored || 0} label="Scored" color="text-textdark" />
-                    <StatCell value={pb.total_passed || 0} label="Passed" color="text-teal" />
+                    <StatCell value={pb.total_scored || 0} label="Scored" color="text-ed-ink" />
+                    <StatCell value={pb.total_passed || 0} label="Passed" color="text-ed-green" />
                   </div>
                   {pb.visual_patterns && (
                     <div className="mb-1.5">
-                      <p className="text-[10px] text-textmid font-medium">Visual Patterns</p>
-                      <p className="text-[11px] text-textdark leading-relaxed">{pb.visual_patterns}</p>
+                      <p className="text-[10px] text-ed-ink2 font-medium">Visual Patterns</p>
+                      <p className="text-[11px] text-ed-ink leading-relaxed">{pb.visual_patterns}</p>
                     </div>
                   )}
                   {pb.copy_patterns && (
                     <div className="mb-1.5">
-                      <p className="text-[10px] text-textmid font-medium">Copy Patterns</p>
-                      <p className="text-[11px] text-textdark leading-relaxed">{pb.copy_patterns}</p>
+                      <p className="text-[10px] text-ed-ink2 font-medium">Copy Patterns</p>
+                      <p className="text-[11px] text-ed-ink leading-relaxed">{pb.copy_patterns}</p>
                     </div>
                   )}
                   {pb.avoid_patterns && (
                     <div className="mb-1.5">
-                      <p className="text-[10px] text-gold font-medium">Avoid</p>
-                      <p className="text-[11px] text-textdark leading-relaxed">{pb.avoid_patterns}</p>
+                      <p className="text-[10px] text-ed-accent font-medium">Avoid</p>
+                      <p className="text-[11px] text-ed-ink leading-relaxed">{pb.avoid_patterns}</p>
                     </div>
                   )}
                   {pb.generation_hints && (
                     <div>
-                      <p className="text-[10px] text-teal font-medium">Generation Hints</p>
-                      <p className="text-[11px] text-textdark leading-relaxed">{pb.generation_hints}</p>
+                      <p className="text-[10px] text-ed-green font-medium">Generation Hints</p>
+                      <p className="text-[11px] text-ed-ink leading-relaxed">{pb.generation_hints}</p>
                     </div>
                   )}
                 </div>
@@ -2840,15 +2840,15 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
 
       {subTab === 'settings' && !config && (
         <div className="rounded-xl bg-black/[0.02] border border-black/5 px-3 py-3">
-          <p className="text-[11px] text-textmid">Loading Director settings...</p>
+          <p className="text-[11px] text-ed-ink2">Loading Director settings...</p>
         </div>
       )}
 
       {subTab === 'settings' && config && (
         <div className="space-y-4">
-          <div className="rounded-xl bg-navy/5 border border-navy/10 px-3 py-3">
-            <p className="text-[12px] font-medium text-textdark">How the Director builds ad sets</p>
-            <p className="text-[11px] text-textmid mt-1 leading-relaxed">
+          <div className="rounded-xl bg-ed-accent/5 border border-ed-accent/10 px-3 py-3">
+            <p className="text-[12px] font-medium text-ed-ink">How the Director builds ad sets</p>
+            <p className="text-[11px] text-ed-ink2 mt-1 leading-relaxed">
               Each ad set targets one angle. The ads inside that ad set are variations of the same angle, using different templates or creative executions.
             </p>
           </div>
@@ -2859,7 +2859,7 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
               <select
                 value={config?.run_schedule || 'weekdays'}
                 onChange={e => handleSaveConfig({ run_schedule: e.target.value })}
-                className="input-apple w-full text-[12px]"
+                className="input-apple !border-ed-line focus:!ring-ed-accent/20 focus:!border-ed-accent w-full text-[12px]"
               >
                 <option value="daily">Daily (midnight ICT)</option>
                 <option value="weekdays">Weekdays — Mon-Fri (midnight ICT)</option>
@@ -2881,7 +2881,7 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
                             const updated = isSelected ? selectedDays.filter(d => d !== i) : [...selectedDays, i];
                             handleSaveConfig({ run_schedule_days: JSON.stringify(updated.sort()) });
                           }}
-                          className={`text-[10px] px-2.5 py-1 rounded-md font-medium transition-colors ${isSelected ? 'bg-navy text-white' : 'bg-gray-100 text-textmid hover:bg-gray-200'}`}
+                          className={`text-[10px] px-2.5 py-1 rounded-md font-medium transition-colors ${isSelected ? 'bg-ed-accent text-white' : 'bg-ed-bg text-ed-ink2 hover:bg-ed-line'}`}
                         >
                           {day}
                         </button>
@@ -2889,11 +2889,11 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
                     })}
                   </div>
                   <div>
-                    <label className="text-[10px] text-textlight block mb-0.5">Run at (ICT)</label>
+                    <label className="text-[10px] text-ed-ink3 block mb-0.5">Run at (ICT)</label>
                     <select
                       value={config?.run_schedule_hour ?? 0}
                       onChange={e => handleSaveConfig({ run_schedule_hour: parseInt(e.target.value, 10) })}
-                      className="input-apple text-[11px] w-auto"
+                      className="input-apple !border-ed-line focus:!ring-ed-accent/20 focus:!border-ed-accent text-[11px] w-auto"
                     >
                       {Array.from({ length: 24 }, (_, h) => (
                         <option key={h} value={h}>{String(h).padStart(2, '0')}:00</option>
@@ -2918,7 +2918,7 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
                     const parsed = parseInt(e.target.value, 10);
                     handleSaveConfig({ daily_flex_target: Number.isFinite(parsed) ? parsed : 5 });
                   }}
-                  className="input-apple w-full text-[12px]"
+                  className="input-apple !border-ed-line focus:!ring-ed-accent/20 focus:!border-ed-accent w-full text-[12px]"
                 />
               </div>
               <div>
@@ -2929,21 +2929,21 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
                   max="20"
                   value={adsPerAdSetValue ?? 5}
                   onChange={e => handleSaveAdsPerAdSet(e.target.value)}
-                  className="input-apple w-full text-[12px]"
+                  className="input-apple !border-ed-line focus:!ring-ed-accent/20 focus:!border-ed-accent w-full text-[12px]"
                 />
-                <p className="text-[9px] text-textlight mt-0.5">Target approved ads, not just generated ads. One ad set targets one angle; top-up batches fill in any QA misses.</p>
+                <p className="text-[9px] text-ed-ink3 mt-0.5">Target approved ads, not just generated ads. One ad set targets one angle; top-up batches fill in any QA misses.</p>
               </div>
             </div>
 
             <div>
               <FieldLabel tooltip="The campaign used when the Director and Filter create Ready-to-Post ad sets. If this is left blank, automation will create or reuse a [Default] project campaign before generation starts.">Automation Campaign</FieldLabel>
               {campaignsLoading && campaignsLoadedFor !== selectedProject ? (
-                <p className="text-[11px] text-textlight">Loading campaigns...</p>
+                <p className="text-[11px] text-ed-ink3">Loading campaigns...</p>
               ) : safeCampaigns.length > 0 ? (
                 <select
                   value={automationCampaignValue}
                   onChange={e => handleSaveAutomationCampaign(e.target.value)}
-                  className="text-[12px] text-textdark bg-offwhite border border-black/10 rounded-lg px-3 py-1.5 cursor-pointer w-full"
+                  className="text-[12px] text-ed-ink bg-ed-bg border border-black/10 rounded-lg px-3 py-1.5 cursor-pointer w-full"
                 >
                   <option value="">Select a campaign...</option>
                   {safeCampaigns.map(c => (
@@ -2953,9 +2953,9 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
                   ))}
                 </select>
               ) : (
-                <p className="text-[11px] text-textlight">No campaigns found — create one in the Ad Pipeline tab first.</p>
+                <p className="text-[11px] text-ed-ink3">No campaigns found — create one in the Ad Pipeline tab first.</p>
               )}
-              <p className="text-[9px] text-textlight mt-0.5">Automated ad sets from the Director pipeline will use this campaign by default.</p>
+              <p className="text-[9px] text-ed-ink3 mt-0.5">Automated ad sets from the Director pipeline will use this campaign by default.</p>
             </div>
           </SettingsSection>
 
@@ -2964,7 +2964,7 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
               <FieldLabel tooltip="Controls where angles come from: manual angles, automatically generated angles, or a mix of both.">Angle Mode</FieldLabel>
               <div className="flex gap-3">
                 {['manual', 'auto', 'mixed'].map(mode => (
-                  <label key={mode} className="flex items-center gap-1.5 text-[11px] text-textdark cursor-pointer">
+                  <label key={mode} className="flex items-center gap-1.5 text-[11px] text-ed-ink cursor-pointer">
                     <input
                       type="radio"
                       name="angle_mode"
@@ -2991,9 +2991,9 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
                     const parsed = parseFloat(e.target.value);
                     handleSaveConfig({ explore_ratio: Number.isFinite(parsed) ? parsed : 0.2 });
                   }}
-                  className="input-apple w-24 text-[12px]"
+                  className="input-apple !border-ed-line focus:!ring-ed-accent/20 focus:!border-ed-accent w-24 text-[12px]"
                 />
-                <p className="text-[9px] text-textlight mt-0.5">Fraction of generation runs used to explore auto-generated angles.</p>
+                <p className="text-[9px] text-ed-ink3 mt-0.5">Fraction of generation runs used to explore auto-generated angles.</p>
               </div>
             )}
 
@@ -3002,7 +3002,7 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
               <select
                 value={config.angle_rotation || 'round_robin'}
                 onChange={e => handleSaveConfig({ angle_rotation: e.target.value })}
-                className="text-[12px] text-textdark bg-offwhite border border-black/10 rounded-lg px-3 py-1.5 cursor-pointer"
+                className="text-[12px] text-ed-ink bg-ed-bg border border-black/10 rounded-lg px-3 py-1.5 cursor-pointer"
               >
                 <option value="round_robin">Round Robin</option>
                 <option value="weighted">Weighted (favor least-used)</option>
@@ -3019,7 +3019,7 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
                 placeholder="e.g., Short, punchy, curiosity-driven"
                 value={config.headline_style || ''}
                 onChange={e => handleSaveConfig({ headline_style: e.target.value })}
-                className="input-apple w-full text-[12px]"
+                className="input-apple !border-ed-line focus:!ring-ed-accent/20 focus:!border-ed-accent w-full text-[12px]"
               />
             </div>
 
@@ -3030,15 +3030,15 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
                 placeholder="e.g., Story-based, emotional, 3 paragraphs"
                 value={config.primary_text_style || ''}
                 onChange={e => handleSaveConfig({ primary_text_style: e.target.value })}
-                className="input-apple w-full text-[12px]"
+                className="input-apple !border-ed-line focus:!ring-ed-accent/20 focus:!border-ed-accent w-full text-[12px]"
               />
             </div>
           </SettingsSection>
 
-          {saving && <p className="text-[10px] text-textlight">Saving...</p>}
+          {saving && <p className="text-[10px] text-ed-ink3">Saving...</p>}
           {embedded && externalProject && (
             <div className="border-t border-black/5 pt-4 mt-4">
-              <h3 className="text-[13px] font-semibold text-textdark mb-3">Advanced Meta Defaults & Learning</h3>
+              <h3 className="text-[13px] font-serif font-[420] text-ed-ink mb-3">Advanced Meta Defaults & Learning</h3>
               <CreativeDirectorSettings
                 project={externalProject}
                 onSaved={onProjectRefresh || (() => {})}
@@ -3053,13 +3053,13 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
         <div>
           {anglesLoadedFor !== selectedProject && (
             <div className="rounded-xl bg-black/[0.02] border border-black/5 px-3 py-3 mb-3">
-              <p className="text-[11px] text-textmid">Angles stay hidden until you open the Angles tab so the Director loads faster.</p>
+              <p className="text-[11px] text-ed-ink2">Angles stay hidden until you open the Angles tab so the Director loads faster.</p>
             </div>
           )}
           {runsLoading && runsLoadedFor !== selectedProject ? (
-            <p className="text-[11px] text-textlight py-4">Loading run history...</p>
+            <p className="text-[11px] text-ed-ink3 py-4">Loading run history...</p>
           ) : safeRuns.length === 0 ? (
-            <p className="text-[11px] text-textlight py-4">No runs yet. Click "Test Run" to trigger the Director, or wait for the next scheduled run.</p>
+            <p className="text-[11px] text-ed-ink3 py-4">No runs yet. Click "Test Run" to trigger the Director, or wait for the next scheduled run.</p>
           ) : (
             <div className="space-y-2">
               {safeRuns.map(run => {
@@ -3100,45 +3100,45 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
                           <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded ${getRunStatusClasses(run)}`}>
                             {getRunStatusLabel(run)}
                           </span>
-                          <span className="text-[10px] text-textlight">{run.run_type}</span>
-                          <span className="text-[10px] text-textmid truncate">{angleName}</span>
+                          <span className="text-[10px] text-ed-ink3">{run.run_type}</span>
+                          <span className="text-[10px] text-ed-ink2 truncate">{angleName}</span>
                         </div>
-                        <p className="text-[11px] text-textdark leading-relaxed mt-1">
+                        <p className="text-[11px] text-ed-ink leading-relaxed mt-1">
                           {run.decisions || `Run used ${roundsUsed} round${roundsUsed !== 1 ? 's' : ''}.`}
                         </p>
                         {!!failureText && (
-                          <p className="text-[11px] text-red-500 leading-relaxed mt-1">{failureText}</p>
+                          <p className="text-[11px] text-ed-rust leading-relaxed mt-1">{failureText}</p>
                         )}
                       </div>
                       <div className="shrink-0 text-right">
-                        <p className="text-[9px] uppercase tracking-wider text-textlight">Started</p>
-                        <p className="text-[10px] text-textmid mt-0.5 whitespace-nowrap">{startedAt}</p>
+                        <p className="text-[9px] uppercase tracking-wider text-ed-ink3">Started</p>
+                        <p className="text-[10px] text-ed-ink2 mt-0.5 whitespace-nowrap">{startedAt}</p>
                       </div>
                     </div>
 
                     <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-3">
-                      <div className="rounded-lg bg-white/70 border border-black/5 px-2 py-2">
-                        <p className="text-[9px] uppercase tracking-wider text-textlight">Rounds</p>
-                        <p className="text-[12px] font-semibold text-textdark mt-0.5">{roundsUsed}</p>
+                      <div className="rounded-lg bg-ed-surface/70 border border-black/5 px-2 py-2">
+                        <p className="text-[9px] uppercase tracking-wider text-ed-ink3">Rounds</p>
+                        <p className="text-[12px] font-serif font-[420] text-ed-ink mt-0.5">{roundsUsed}</p>
                       </div>
-                      <div className="rounded-lg bg-white/70 border border-black/5 px-2 py-2">
-                        <p className="text-[9px] uppercase tracking-wider text-textlight">Generated</p>
-                        <p className="text-[12px] font-semibold text-textdark mt-0.5">{totalGenerated || '\u2013'}</p>
+                      <div className="rounded-lg bg-ed-surface/70 border border-black/5 px-2 py-2">
+                        <p className="text-[9px] uppercase tracking-wider text-ed-ink3">Generated</p>
+                        <p className="text-[12px] font-serif font-[420] text-ed-ink mt-0.5">{totalGenerated || '\u2013'}</p>
                       </div>
-                      <div className="rounded-lg bg-white/70 border border-black/5 px-2 py-2">
-                        <p className="text-[9px] uppercase tracking-wider text-textlight">Passed</p>
-                        <p className="text-[12px] font-semibold text-textdark mt-0.5">
+                      <div className="rounded-lg bg-ed-surface/70 border border-black/5 px-2 py-2">
+                        <p className="text-[9px] uppercase tracking-wider text-ed-ink3">Passed</p>
+                        <p className="text-[12px] font-serif font-[420] text-ed-ink mt-0.5">
                           {totalPassed === null || totalPassed === undefined ? '\u2013' : `${totalPassed}/${requiredPasses}`}
                         </p>
                       </div>
-                      <div className="rounded-lg bg-white/70 border border-black/5 px-2 py-2">
-                        <p className="text-[9px] uppercase tracking-wider text-textlight">Ready</p>
-                        <p className="text-[12px] font-semibold text-textdark mt-0.5">{readyCount}</p>
+                      <div className="rounded-lg bg-ed-surface/70 border border-black/5 px-2 py-2">
+                        <p className="text-[9px] uppercase tracking-wider text-ed-ink3">Ready</p>
+                        <p className="text-[12px] font-serif font-[420] text-ed-ink mt-0.5">{readyCount}</p>
                       </div>
                     </div>
 
                     <div className="flex items-center justify-between gap-3 mt-3">
-                      <div className="flex flex-wrap items-center gap-3 text-[9px] text-textlight">
+                      <div className="flex flex-wrap items-center gap-3 text-[9px] text-ed-ink3">
                         {durationLabel ? (
                           <span>Duration {durationLabel}</span>
                         ) : (
@@ -3155,7 +3155,7 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
                         {flexAdId && (
                           <button
                             onClick={() => navigate(`/projects/${selectedProject}?tab=tracker&view=ready_to_post&flexAdId=${flexAdId}`)}
-                            className="text-[10px] text-gold hover:text-gold-light font-medium"
+                            className="text-[10px] text-ed-accent hover:text-ed-accent font-medium"
                           >
                             View in Ready to Post {'\u2192'}
                           </button>
@@ -3163,7 +3163,7 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
                         {(rounds.length > 0 || batches.length > 0) && (
                           <button
                             onClick={() => toggleRunExpanded(run.externalId, runBatchIds)}
-                            className="text-[10px] text-textmid hover:text-navy font-medium"
+                            className="text-[10px] text-ed-ink2 hover:text-ed-accent font-medium"
                           >
                             {isExpanded ? 'Hide details' : 'Show details'}
                           </button>
@@ -3176,17 +3176,17 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
                         {rounds.length > 0 ? (
                           <div className="space-y-2">
                             {rounds.map((round, index) => (
-                              <div key={round.batch_id || `${run.externalId}-${index}`} className="rounded-lg bg-white/70 border border-black/5 px-3 py-2">
+                              <div key={round.batch_id || `${run.externalId}-${index}`} className="rounded-lg bg-ed-surface/70 border border-black/5 px-3 py-2">
                                 <div className="flex items-center justify-between gap-3">
-                                  <p className="text-[11px] font-medium text-textdark">Round {round.round || index + 1}</p>
+                                  <p className="text-[11px] font-medium text-ed-ink">Round {round.round || index + 1}</p>
                                   <span className={`text-[9px] font-medium px-1.5 py-0.5 rounded ${getRoundStatusClasses(round)}`}>
                                     {round.status === 'threshold_reached' ? 'threshold reached' : 'below threshold'}
                                   </span>
                                 </div>
-                                <p className="text-[10px] text-textmid mt-1">
+                                <p className="text-[10px] text-ed-ink2 mt-1">
                                   Batch {round.batch_id ? `${round.batch_id.slice(0, 8)}...` : '\u2013'}
                                 </p>
-                                <p className="text-[11px] text-textdark mt-1">
+                                <p className="text-[11px] text-ed-ink mt-1">
                                   {round.ads_generated ?? round.ads_scored ?? 0} generated, {round.ads_passed ?? 0}/{round.ads_scored ?? round.ads_generated ?? 0} passed in this round, {round.cumulative_passed ?? 0}/{requiredPasses} cumulative.
                                 </p>
                                 <RoundHeadlineDiagnostics round={round} />
@@ -3199,7 +3199,7 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
                                   loading={!!lpDetailsLoadingByBatchId[round.batch_id]}
                                 />
                                 {round.completed_at && (
-                                  <p className="text-[9px] text-textlight mt-1">{timeAgo(round.completed_at)}</p>
+                                  <p className="text-[9px] text-ed-ink3 mt-1">{timeAgo(round.completed_at)}</p>
                                 )}
                               </div>
                             ))}
@@ -3207,9 +3207,9 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
                         ) : batches.length > 0 ? (
                           <div className="space-y-2">
                             {batches.map((batch, index) => (
-                              <div key={batch.batch_id || `${run.externalId}-${index}`} className="rounded-lg bg-white/70 border border-black/5 px-3 py-2">
-                                <p className="text-[11px] font-medium text-textdark">Batch {index + 1}</p>
-                                <p className="text-[10px] text-textmid mt-1">
+                              <div key={batch.batch_id || `${run.externalId}-${index}`} className="rounded-lg bg-ed-surface/70 border border-black/5 px-3 py-2">
+                                <p className="text-[11px] font-medium text-ed-ink">Batch {index + 1}</p>
+                                <p className="text-[10px] text-ed-ink2 mt-1">
                                   ID {batch.batch_id ? `${batch.batch_id.slice(0, 8)}...` : '\u2013'} · {batch.ad_count || '\u2013'} ads
                                 </p>
                               </div>
@@ -3243,8 +3243,8 @@ function AngleCard({ angle, playbooks, onStatusChange, onUpdate, showActions }) 
   const [urlInput, setUrlInput] = useState('');
   const destUrls = (() => { try { return angle.destination_urls ? JSON.parse(angle.destination_urls) : []; } catch { return []; } })();
 
-  const PRIORITY_COLORS = { highest: 'bg-red-100 text-red-700', high: 'bg-gold/15 text-gold', medium: 'bg-navy/10 text-navy', test: 'bg-gray-100 text-textmid' };
-  const FRAME_COLORS = { 'symptom-first': 'bg-teal/10 text-teal', 'scam': 'bg-red-50 text-red-600', 'objection-first': 'bg-amber-50 text-amber-700', 'identity-first': 'bg-purple-50 text-purple-600', 'MAHA': 'bg-blue-50 text-blue-600', 'news-first': 'bg-indigo-50 text-indigo-600', 'consequence-first': 'bg-orange-50 text-orange-600' };
+  const PRIORITY_COLORS = { highest: 'bg-ed-rust/10 text-ed-rust', high: 'bg-ed-accent/15 text-ed-accent', medium: 'bg-ed-accent/10 text-ed-accent', test: 'bg-ed-bg text-ed-ink2' };
+  const FRAME_COLORS = { 'symptom-first': 'bg-ed-green/10 text-ed-green', 'scam': 'bg-ed-rust/10 text-ed-rust', 'objection-first': 'bg-amber-50 text-amber-700', 'identity-first': 'bg-purple-50 text-purple-600', 'MAHA': 'bg-blue-50 text-blue-600', 'news-first': 'bg-indigo-50 text-indigo-600', 'consequence-first': 'bg-orange-50 text-orange-600' };
 
   const startFieldEdit = (field) => {
     setFieldValue(angle[field] || '');
@@ -3269,7 +3269,7 @@ function AngleCard({ angle, playbooks, onStatusChange, onUpdate, showActions }) 
     if (editingField === field) {
       return (
         <div>
-          <span className="font-semibold text-textdark text-[11px]">{label}</span>
+          <span className="font-serif font-[420] text-ed-ink text-[11px]">{label}</span>
           <textarea
             autoFocus
             value={fieldValue}
@@ -3277,18 +3277,18 @@ function AngleCard({ angle, playbooks, onStatusChange, onUpdate, showActions }) 
             onKeyDown={e => fieldKeyDown(e, field)}
             onBlur={() => saveField(field, fieldValue)}
             placeholder={`Add ${label.toLowerCase().replace(':', '')}...`}
-            className="input-apple w-full text-[12px] h-14 resize-none mt-0.5"
+            className="input-apple !border-ed-line focus:!ring-ed-accent/20 focus:!border-ed-accent w-full text-[12px] h-14 resize-none mt-0.5"
           />
         </div>
       );
     }
     return (
       <div className="group cursor-pointer" onClick={() => onUpdate && startFieldEdit(field)}>
-        <span className="font-semibold text-textdark text-[11px]">{label}</span>{' '}
+        <span className="font-serif font-[420] text-ed-ink text-[11px]">{label}</span>{' '}
         {val
-          ? <span className={valueClass || 'text-textmid text-[12px]'}>{val}</span>
-          : onUpdate && <span className="text-textlight text-[11px] italic">Click to add...</span>}
-        {onUpdate && val && <span className="text-textlight text-[9px] ml-1 opacity-0 group-hover:opacity-100 transition-opacity">edit</span>}
+          ? <span className={valueClass || 'text-ed-ink2 text-[12px]'}>{val}</span>
+          : onUpdate && <span className="text-ed-ink3 text-[11px] italic">Click to add...</span>}
+        {onUpdate && val && <span className="text-ed-ink3 text-[9px] ml-1 opacity-0 group-hover:opacity-100 transition-opacity">edit</span>}
       </div>
     );
   };
@@ -3301,14 +3301,14 @@ function AngleCard({ angle, playbooks, onStatusChange, onUpdate, showActions }) 
         onClick={() => setExpanded(!expanded)}
       >
         <div className="flex items-center gap-2 flex-wrap min-w-0">
-          <span className={`text-[11px] text-textlight flex-shrink-0 transition-transform ${expanded ? 'rotate-90' : ''}`}>&#9656;</span>
-          <span className="text-[13px] font-medium text-textdark">{angle.name}</span>
-          {angle.is_system_default && <span className="text-[9px] font-medium px-1.5 py-0.5 rounded bg-navy/10 text-navy">System</span>}
-          {angle.priority && <span className={`text-[9px] font-medium px-1.5 py-0.5 rounded ${PRIORITY_COLORS[angle.priority] || 'bg-gray-100 text-gray-600'}`}>{angle.priority}</span>}
-          {angle.frame && <span className={`text-[9px] font-medium px-1.5 py-0.5 rounded ${FRAME_COLORS[angle.frame] || 'bg-gray-100 text-gray-600'}`}>{angle.frame}</span>}
-          <span className="text-[10px] text-textlight">used {angle.times_used || 0}x</span>
+          <span className={`text-[11px] text-ed-ink3 flex-shrink-0 transition-transform ${expanded ? 'rotate-90' : ''}`}>&#9656;</span>
+          <span className="text-[13px] font-medium text-ed-ink">{angle.name}</span>
+          {angle.is_system_default && <span className="text-[9px] font-medium px-1.5 py-0.5 rounded bg-ed-accent/10 text-ed-accent">System</span>}
+          {angle.priority && <span className={`text-[9px] font-medium px-1.5 py-0.5 rounded ${PRIORITY_COLORS[angle.priority] || 'bg-ed-bg text-gray-600'}`}>{angle.priority}</span>}
+          {angle.frame && <span className={`text-[9px] font-medium px-1.5 py-0.5 rounded ${FRAME_COLORS[angle.frame] || 'bg-ed-bg text-gray-600'}`}>{angle.frame}</span>}
+          <span className="text-[10px] text-ed-ink3">used {angle.times_used || 0}x</span>
           {pb && (
-            <span className="text-[10px] text-textmid">
+            <span className="text-[10px] text-ed-ink2">
               pass: {Math.round((pb.pass_rate || 0) * 100)}%
               {pb.pass_rate > 0.6 ? ' \u2191' : pb.pass_rate < 0.4 ? ' \u2193' : ''}
             </span>
@@ -3317,15 +3317,15 @@ function AngleCard({ angle, playbooks, onStatusChange, onUpdate, showActions }) 
         <div className="flex items-center gap-2 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
           {showActions && (
             <div className="flex gap-1">
-              <button onClick={() => onStatusChange(angle.externalId, 'active')} className="text-[10px] text-teal hover:underline">Activate</button>
-              <button onClick={() => onStatusChange(angle.externalId, 'archived')} className="text-[10px] text-red-400 hover:underline ml-2">Archive</button>
+              <button onClick={() => onStatusChange(angle.externalId, 'active')} className="text-[10px] text-ed-green hover:underline">Activate</button>
+              <button onClick={() => onStatusChange(angle.externalId, 'archived')} className="text-[10px] text-ed-rust hover:underline ml-2">Archive</button>
             </div>
           )}
           {!showActions && angle.status === 'active' && (
-            <button onClick={() => onStatusChange(angle.externalId, 'archived')} className="text-[10px] text-textlight hover:text-red-400">Archive</button>
+            <button onClick={() => onStatusChange(angle.externalId, 'archived')} className="text-[10px] text-ed-ink3 hover:text-ed-rust">Archive</button>
           )}
           {!showActions && (angle.status === 'archived' || angle.status === 'retired') && (
-            <button onClick={() => onStatusChange(angle.externalId, 'active')} className="text-[10px] text-teal hover:underline">Unarchive</button>
+            <button onClick={() => onStatusChange(angle.externalId, 'active')} className="text-[10px] text-ed-green hover:underline">Unarchive</button>
           )}
         </div>
       </div>
@@ -3337,21 +3337,21 @@ function AngleCard({ angle, playbooks, onStatusChange, onUpdate, showActions }) 
           {onUpdate && (
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <span className="font-semibold text-textdark text-[11px]">Priority:</span>
+                <span className="font-serif font-[420] text-ed-ink text-[11px]">Priority:</span>
                 <select
                   value={angle.priority || 'medium'}
                   onChange={e => onUpdate(angle.externalId, { priority: e.target.value })}
-                  className="text-[11px] text-textdark bg-offwhite border border-black/10 rounded-lg px-2 py-1 w-full cursor-pointer mt-0.5"
+                  className="text-[11px] text-ed-ink bg-ed-bg border border-black/10 rounded-lg px-2 py-1 w-full cursor-pointer mt-0.5"
                 >
                   {PRIORITY_OPTIONS.map(p => <option key={p} value={p}>{p.charAt(0).toUpperCase() + p.slice(1)}</option>)}
                 </select>
               </div>
               <div>
-                <span className="font-semibold text-textdark text-[11px]">Frame:</span>
+                <span className="font-serif font-[420] text-ed-ink text-[11px]">Frame:</span>
                 <select
                   value={angle.frame || 'symptom-first'}
                   onChange={e => onUpdate(angle.externalId, { frame: e.target.value })}
-                  className="text-[11px] text-textdark bg-offwhite border border-black/10 rounded-lg px-2 py-1 w-full cursor-pointer mt-0.5"
+                  className="text-[11px] text-ed-ink bg-ed-bg border border-black/10 rounded-lg px-2 py-1 w-full cursor-pointer mt-0.5"
                 >
                   {FRAME_OPTIONS.map(f => <option key={f} value={f}>{f}</option>)}
                 </select>
@@ -3360,8 +3360,8 @@ function AngleCard({ angle, playbooks, onStatusChange, onUpdate, showActions }) 
           )}
           {!onUpdate && (
             <div className="flex gap-3">
-              {angle.priority && <div><span className="font-semibold text-textdark text-[11px]">Priority:</span> <span className={`text-[11px] font-medium px-1.5 py-0.5 rounded ${PRIORITY_COLORS[angle.priority] || ''}`}>{angle.priority}</span></div>}
-              {angle.frame && <div><span className="font-semibold text-textdark text-[11px]">Frame:</span> <span className={`text-[11px] font-medium px-1.5 py-0.5 rounded ${FRAME_COLORS[angle.frame] || ''}`}>{angle.frame}</span></div>}
+              {angle.priority && <div><span className="font-serif font-[420] text-ed-ink text-[11px]">Priority:</span> <span className={`text-[11px] font-medium px-1.5 py-0.5 rounded ${PRIORITY_COLORS[angle.priority] || ''}`}>{angle.priority}</span></div>}
+              {angle.frame && <div><span className="font-serif font-[420] text-ed-ink text-[11px]">Frame:</span> <span className={`text-[11px] font-medium px-1.5 py-0.5 rounded ${FRAME_COLORS[angle.frame] || ''}`}>{angle.frame}</span></div>}
             </div>
           )}
 
@@ -3374,16 +3374,16 @@ function AngleCard({ angle, playbooks, onStatusChange, onUpdate, showActions }) 
           <EditableRow field="current_belief" label="Current Belief:" />
           <EditableRow field="objection" label="Objection:" />
           <EditableRow field="emotional_state" label="Emotional State:" />
-          <EditableRow field="scene" label="Scene:" valueClass="text-textmid text-[12px] italic" />
-          <EditableRow field="desired_belief_shift" label="Belief Shift:" valueClass="text-textmid text-[12px] italic" />
+          <EditableRow field="scene" label="Scene:" valueClass="text-ed-ink2 text-[12px] italic" />
+          <EditableRow field="desired_belief_shift" label="Belief Shift:" valueClass="text-ed-ink2 text-[12px] italic" />
           <EditableRow field="tone" label="Tone:" />
-          <EditableRow field="avoid_list" label="Avoid:" valueClass="text-red-500 text-[12px]" />
+          <EditableRow field="avoid_list" label="Avoid:" valueClass="text-ed-rust text-[12px]" />
           <EditableRow field="prompt_hints" label="Prompt Hints:" />
         </div>
       )}
 
       {pb && pb.generation_hints && (
-        <p className="text-[10px] text-teal mt-1 leading-relaxed px-3">
+        <p className="text-[10px] text-ed-green mt-1 leading-relaxed px-3">
           Playbook v{pb.version}: "{pb.generation_hints.slice(0, 120)}{pb.generation_hints.length > 120 ? '...' : ''}"
         </p>
       )}
@@ -3391,21 +3391,21 @@ function AngleCard({ angle, playbooks, onStatusChange, onUpdate, showActions }) 
       {expanded && angle.status === 'active' && onUpdate && (
         <div className="px-3 pb-2 pt-1 border-t border-black/5">
           <div className="flex items-center gap-1.5 mb-1.5">
-            <svg className="w-3 h-3 text-textlight" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m9.86-2.54a4.5 4.5 0 00-1.242-7.244l4.5-4.5a4.5 4.5 0 016.364 6.364l-1.757 1.757" /></svg>
-            <span className="text-[10px] font-medium text-textdark">Destination URLs</span>
-            {destUrls.length === 0 && <span className="text-[9px] text-textlight">(uses project default)</span>}
+            <svg className="w-3 h-3 text-ed-ink3" fill="none" stroke="currentColor" strokeWidth={1.5} viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" d="M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m9.86-2.54a4.5 4.5 0 00-1.242-7.244l4.5-4.5a4.5 4.5 0 016.364 6.364l-1.757 1.757" /></svg>
+            <span className="text-[10px] font-medium text-ed-ink">Destination URLs</span>
+            {destUrls.length === 0 && <span className="text-[9px] text-ed-ink3">(uses project default)</span>}
           </div>
           {destUrls.length > 0 && (
             <div className="space-y-1 mb-1.5">
               {destUrls.map((url, i) => (
                 <div key={i} className="flex items-center gap-1.5 group">
-                  <span className="text-[10px] text-textmid truncate flex-1" title={url}>{url}</span>
+                  <span className="text-[10px] text-ed-ink2 truncate flex-1" title={url}>{url}</span>
                   <button
                     onClick={() => {
                       const updated = destUrls.filter((_, idx) => idx !== i);
                       onUpdate(angle.externalId, { destination_urls: updated.length > 0 ? JSON.stringify(updated) : '' });
                     }}
-                    className="text-[9px] text-textlight hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0"
+                    className="text-[9px] text-ed-ink3 hover:text-ed-rust opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0"
                     title="Remove URL"
                   >&times;</button>
                 </div>
@@ -3426,7 +3426,7 @@ function AngleCard({ angle, playbooks, onStatusChange, onUpdate, showActions }) 
                 }
               }}
               placeholder="Add landing page URL..."
-              className="input-apple text-[11px] flex-1 py-1"
+              className="input-apple !border-ed-line focus:!ring-ed-accent/20 focus:!border-ed-accent text-[11px] flex-1 py-1"
             />
             <button
               onClick={() => {
@@ -3437,7 +3437,7 @@ function AngleCard({ angle, playbooks, onStatusChange, onUpdate, showActions }) 
                 }
               }}
               disabled={!urlInput.trim()}
-              className="text-[10px] text-navy hover:text-gold disabled:text-textlight disabled:cursor-not-allowed px-2 py-1 flex-shrink-0"
+              className="text-[10px] text-ed-accent hover:text-ed-accent disabled:text-ed-ink3 disabled:cursor-not-allowed px-2 py-1 flex-shrink-0"
             >Add</button>
           </div>
         </div>
@@ -3458,12 +3458,12 @@ function AgentPanel({ children, icon, name, subtitle, status, paused, onTogglePa
       {/* Agent header */}
       <div className="flex items-center justify-between mb-3">
         <div className="flex items-center gap-2.5">
-          <div className="w-6 h-6 rounded-md bg-navy/10 flex items-center justify-center flex-shrink-0">
+          <div className="w-6 h-6 rounded-md bg-ed-accent/10 flex items-center justify-center flex-shrink-0">
             {icon}
           </div>
           <div>
-            <p className="text-[13px] font-semibold text-textdark tracking-tight leading-tight">{name}</p>
-            <p className="text-[10px] text-textlight">{subtitle}</p>
+            <p className="text-[13px] font-serif font-[420] text-ed-ink tracking-tight leading-tight">{name}</p>
+            <p className="text-[10px] text-ed-ink3">{subtitle}</p>
           </div>
         </div>
         <div className="flex items-center gap-3">
@@ -3473,8 +3473,8 @@ function AgentPanel({ children, icon, name, subtitle, status, paused, onTogglePa
             className="group flex items-center gap-1.5 cursor-pointer disabled:opacity-50"
             title={paused ? 'Resume agent' : 'Pause agent'}
           >
-            <div className={`relative w-7 h-4 rounded-full transition-colors duration-200 ${paused ? 'bg-black/10' : 'bg-teal/30'}`}>
-              <div className={`absolute top-0.5 w-3 h-3 rounded-full transition-all duration-200 shadow-sm ${paused ? 'left-0.5 bg-textlight' : 'left-3.5 bg-teal'}`} />
+            <div className={`relative w-7 h-4 rounded-full transition-colors duration-200 ${paused ? 'bg-black/10' : 'bg-ed-green/30'}`}>
+              <div className={`absolute top-0.5 w-3 h-3 rounded-full transition-all duration-200 shadow-sm ${paused ? 'left-0.5 bg-ed-ink3' : 'left-3.5 bg-ed-green'}`} />
             </div>
           </button>
           <div className="flex items-center gap-1.5">
@@ -3554,7 +3554,7 @@ function FilterPanel({ data, onRefresh, externalProjectId, externalProject, onPr
   const budgetPct = data.budget.daily_budget_cents > 0
     ? (data.budget.spent_cents / data.budget.daily_budget_cents) * 100
     : 0;
-  const budgetBarColor = budgetPct < 50 ? 'bg-teal' : budgetPct < 80 ? 'bg-gold' : 'bg-red-400';
+  const budgetBarColor = budgetPct < 50 ? 'bg-ed-green' : budgetPct < 80 ? 'bg-ed-accent' : 'bg-ed-rust';
   const allVolumes = ensureArray(volumes, 'AgentMonitor.filter.volumesState').filter(p => p.scout_enabled !== false);
   const visibleVolumes = allVolumes;
 
@@ -3567,15 +3567,15 @@ function FilterPanel({ data, onRefresh, externalProjectId, externalProject, onPr
       onTogglePause={handleTogglePause}
       togglingPause={togglingPause}
       icon={
-        <svg className="w-3 h-3 text-navy" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <svg className="w-3 h-3 text-ed-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24">
           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
         </svg>
       }
     >
       {embedded && (
-        <div className="rounded-xl bg-navy/5 border border-navy/10 p-3 mb-3">
-          <p className="text-[11px] font-medium text-navy mb-0.5">System-level status</p>
-          <p className="text-[10px] text-textmid">
+        <div className="rounded-xl bg-ed-accent/5 border border-ed-accent/10 p-3 mb-3">
+          <p className="text-[11px] font-medium text-ed-accent mb-0.5">System-level status</p>
+          <p className="text-[10px] text-ed-ink2">
             These controls operate the live QA service. This project's deployment defaults are below; production volume is controlled by Creative Director Ad Set Target.
           </p>
         </div>
@@ -3583,19 +3583,19 @@ function FilterPanel({ data, onRefresh, externalProjectId, externalProject, onPr
       <BudgetBar spent={data.budget.spent_cents} total={data.budget.daily_budget_cents} pct={budgetPct} barColor={budgetBarColor} />
 
       <div className="grid grid-cols-5 gap-2 mb-3">
-        <StatCell value={data.stats.batches} label="Batches" color="text-textdark" />
-        <StatCell value={data.stats.scored} label="Scored" color="text-textdark" />
-        <StatCell value={data.stats.passed} label="Passed" color="text-teal" />
-        <StatCell value={data.stats.failed} label="Failed" color={data.stats.failed > 0 ? 'text-red-400' : 'text-textdark'} />
-        <StatCell value={data.stats.flexAds} label="Ad Sets" color="text-navy-light" />
+        <StatCell value={data.stats.batches} label="Batches" color="text-ed-ink" />
+        <StatCell value={data.stats.scored} label="Scored" color="text-ed-ink" />
+        <StatCell value={data.stats.passed} label="Passed" color="text-ed-green" />
+        <StatCell value={data.stats.failed} label="Failed" color={data.stats.failed > 0 ? 'text-ed-rust' : 'text-ed-ink'} />
+        <StatCell value={data.stats.flexAds} label="Ad Sets" color="text-ed-accent-light" />
       </div>
 
-      <p className="text-[10px] text-textmid mb-2.5">
-        Last: <span className="font-medium text-textdark">{timeAgo(data.lastRun)}</span>
+      <p className="text-[10px] text-ed-ink2 mb-2.5">
+        Last: <span className="font-medium text-ed-ink">{timeAgo(data.lastRun)}</span>
         {data.paused ? (
-          <span className="text-textlight ml-1">{'\u00B7'} Paused</span>
+          <span className="text-ed-ink3 ml-1">{'\u00B7'} Paused</span>
         ) : data.nextRun ? (
-          <>{' \u00B7 '} Next: <span className="font-medium text-textdark">{timeUntil(data.nextRun)}</span></>
+          <>{' \u00B7 '} Next: <span className="font-medium text-ed-ink">{timeUntil(data.nextRun)}</span></>
         ) : null}
       </p>
 
@@ -3603,14 +3603,14 @@ function FilterPanel({ data, onRefresh, externalProjectId, externalProject, onPr
         <button
           onClick={handleRunLive}
           disabled={!!runningAction}
-          className="btn-primary text-[11px] px-2.5 py-1 flex items-center gap-1 disabled:opacity-50"
+          className="px-2.5 py-1 rounded-[7px] text-[11px] bg-ed-accent text-[#fbfaf6] hover:bg-ed-accent/90 transition-colors flex items-center gap-1 disabled:opacity-50"
         >
           {runningAction === 'live' ? <><Spinner /> Running...</> : <>{'\u25B6'} Run Now</>}
         </button>
         <button
           onClick={handleDryRun}
           disabled={!!runningAction}
-          className="btn-secondary text-[11px] px-2.5 py-1 flex items-center gap-1 disabled:opacity-50"
+          className="ed-ghost text-[11px] px-2.5 py-1 flex items-center gap-1 disabled:opacity-50"
         >
           {runningAction === 'dry' ? <><Spinner /> Running...</> : <>{'\u2699'} Dry Run</>}
         </button>
@@ -3619,21 +3619,21 @@ function FilterPanel({ data, onRefresh, externalProjectId, externalProject, onPr
       {/* Per-Brand Daily Volume Controls */}
       {!embedded && (
       <div className="border-t border-black/5 pt-2.5 mb-2.5">
-        <p className="text-[11px] font-medium text-textmid mb-1.5">{embedded ? 'This Project Ad Set Volume' : 'Daily Ad Set Volume'}</p>
-        <p className="text-[9px] text-textlight mb-2">
+        <p className="text-[11px] font-medium text-ed-ink2 mb-1.5">{embedded ? 'This Project Ad Set Volume' : 'Daily Ad Set Volume'}</p>
+        <p className="text-[9px] text-ed-ink3 mb-2">
           Ad sets created per day per brand. Each ad set contains the selected winning images.
         </p>
         {loadingVolumes ? (
-          <div className="text-[10px] text-textlight py-2">Loading projects...</div>
+          <div className="text-[10px] text-ed-ink3 py-2">Loading projects...</div>
         ) : visibleVolumes.length > 0 ? (
           <div className="space-y-1">
             {visibleVolumes.map(project => (
               <div key={project.id} className="flex items-center justify-between gap-2 py-1.5 px-2.5 rounded-lg bg-white/60">
                 <div className="flex-1 min-w-0">
-                  <p className="text-[11px] font-medium text-textdark truncate">
+                  <p className="text-[11px] font-medium text-ed-ink truncate">
                     {project.brand_name || project.name}
                   </p>
-                  <p className="text-[9px] text-textlight">
+                  <p className="text-[9px] text-ed-ink3">
                     Today: {project.today_flex_ads}/{project.scout_daily_flex_ads} ad sets
                   </p>
                 </div>
@@ -3641,7 +3641,7 @@ function FilterPanel({ data, onRefresh, externalProjectId, externalProject, onPr
                   value={project.scout_daily_flex_ads}
                   onChange={e => handleVolumeChange(project.id, parseInt(e.target.value))}
                   disabled={savingVolume === project.id}
-                  className="text-[11px] text-textdark bg-offwhite border border-black/10 rounded-lg px-2 py-1 w-14 cursor-pointer"
+                  className="text-[11px] text-ed-ink bg-ed-bg border border-black/10 rounded-lg px-2 py-1 w-14 cursor-pointer"
                 >
                   {[1, 2, 3, 4, 5, 6, 8, 10].map(n => (
                     <option key={n} value={n}>{n}</option>
@@ -3651,7 +3651,7 @@ function FilterPanel({ data, onRefresh, externalProjectId, externalProject, onPr
             ))}
           </div>
         ) : (
-          <p className="text-[10px] text-textlight py-1.5">No projects configured.</p>
+          <p className="text-[10px] text-ed-ink3 py-1.5">No projects configured.</p>
         )}
       </div>
       )}
@@ -3660,7 +3660,7 @@ function FilterPanel({ data, onRefresh, externalProjectId, externalProject, onPr
 
       {embedded && externalProject && (
         <div className="border-t border-black/5 pt-3 mt-3">
-          <h3 className="text-[13px] font-semibold text-textdark mb-3">QA & Ready-to-Post Defaults</h3>
+          <h3 className="text-[13px] font-serif font-[420] text-ed-ink mb-3">QA & Ready-to-Post Defaults</h3>
           <CreativeFilterSettings
             projectId={externalProjectId}
             project={externalProject}
@@ -3681,10 +3681,10 @@ function BudgetBar({ spent, total, pct, barColor }) {
   return (
     <div className="mb-3">
       <div className="flex items-center justify-between mb-1">
-        <span className="text-[10px] text-textmid font-medium">Budget</span>
-        <span className="text-[10px] text-textmid tabular-nums">
+        <span className="text-[10px] text-ed-ink2 font-medium">Budget</span>
+        <span className="text-[10px] text-ed-ink2 tabular-nums">
           {spent}{'\u00A2'} / {total}{'\u00A2'}
-          <span className="text-textlight ml-1">
+          <span className="text-ed-ink3 ml-1">
             (${(spent / 100).toFixed(2)} / ${(total / 100).toFixed(2)})
           </span>
         </span>
@@ -3706,8 +3706,8 @@ function ActivityLog({ activity, expanded, onToggle }) {
         onClick={onToggle}
         className="flex items-center justify-between w-full group"
       >
-        <span className="text-[11px] font-medium text-textmid">Recent Activity</span>
-        <span className="inline-flex items-center gap-1 text-[12px] font-medium text-navy hover:text-navy/80 bg-navy/5 hover:bg-navy/10 px-2 py-1 rounded-md transition-all">
+        <span className="text-[11px] font-medium text-ed-ink2">Recent Activity</span>
+        <span className="inline-flex items-center gap-1 text-[12px] font-medium text-ed-accent hover:text-ed-accent/80 bg-ed-accent/5 hover:bg-ed-accent/10 px-2 py-1 rounded-md transition-all">
           Details
           <svg
             className={`w-3.5 h-3.5 transition-transform duration-200 ${expanded ? 'rotate-180' : ''}`}
@@ -3725,7 +3725,7 @@ function ActivityLog({ activity, expanded, onToggle }) {
                 const cfg = LEVEL_CONFIG[entry.level] || LEVEL_CONFIG.INFO;
                 return (
                   <div key={i} className="flex items-start gap-1.5 py-0.5 px-1 rounded hover:bg-black/[0.02]">
-                    <span className="text-[9px] text-textlight font-mono flex-shrink-0 mt-px w-8">
+                    <span className="text-[9px] text-ed-ink3 font-mono flex-shrink-0 mt-px w-8">
                       {entry.time.slice(0, 5)}
                     </span>
                     <span className={`text-[10px] flex-shrink-0 w-3 text-center ${cfg.color}`}>
@@ -3739,7 +3739,7 @@ function ActivityLog({ activity, expanded, onToggle }) {
               })}
             </div>
           ) : (
-            <p className="text-[10px] text-textlight py-1.5">No activity recorded today.</p>
+            <p className="text-[10px] text-ed-ink3 py-1.5">No activity recorded today.</p>
           )}
         </div>
       )}
@@ -3751,7 +3751,7 @@ function StatCell({ value, label, color }) {
   return (
     <div className="text-center py-1.5 px-1 rounded-lg bg-white/60">
       <p className={`text-base font-semibold ${color} tabular-nums leading-tight`}>{value}</p>
-      <p className="text-[9px] text-textlight uppercase tracking-wider mt-0.5">{label}</p>
+      <p className="text-[9px] text-ed-ink3 uppercase tracking-wider mt-0.5">{label}</p>
     </div>
   );
 }
@@ -3760,8 +3760,8 @@ function SettingsSection({ title, description, children }) {
   return (
     <section className="rounded-xl bg-white/60 border border-black/5 p-3 space-y-3">
       <div>
-        <h3 className="text-[12px] font-semibold text-textdark">{title}</h3>
-        {description && <p className="text-[10px] text-textlight mt-0.5 leading-relaxed">{description}</p>}
+        <h3 className="text-[12px] font-serif font-[420] text-ed-ink">{title}</h3>
+        {description && <p className="text-[10px] text-ed-ink3 mt-0.5 leading-relaxed">{description}</p>}
       </div>
       <div className="space-y-3">{children}</div>
     </section>
@@ -3770,7 +3770,7 @@ function SettingsSection({ title, description, children }) {
 
 function FieldLabel({ children, tooltip }) {
   return (
-    <div className="text-[11px] text-textmid font-medium mb-1 flex items-center gap-1">
+    <div className="text-[11px] text-ed-ink2 font-medium mb-1 flex items-center gap-1">
       {children}
       {tooltip && <InfoTooltip text={tooltip} position="right" />}
     </div>

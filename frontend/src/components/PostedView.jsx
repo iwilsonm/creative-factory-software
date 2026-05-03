@@ -157,24 +157,24 @@ export default function PostedView({ projectId, deployments, setDeployments, add
     const isExpanded = expandedCards.has(dep.id);
 
     return (
-      <div key={dep.id} className="border border-black/[0.08] rounded-2xl bg-white shadow-sm overflow-hidden">
+      <div key={dep.id} className="border border-ed-line rounded-xl bg-ed-surface overflow-hidden">
         <div className="px-5 py-4 space-y-2.5">
           {/* Ad Name + thumbnail */}
           <div className="flex items-start justify-between gap-3">
             <div className="flex-1 min-w-0">
-              <div className="text-[13px] leading-tight mb-1">
-                <span className="font-bold text-textdark">{name}</span>
+              <div className="font-serif text-[18px] text-ed-ink tracking-[-0.01em] leading-tight mb-1">
+                <span>{name}</span>
               </div>
               <div className="flex items-center gap-2 flex-wrap">
-                <span className="inline-block px-2 py-0.5 rounded bg-teal/10 text-teal text-[9px] font-bold uppercase tracking-wider">Posted</span>
-                <span className="inline-block px-2 py-0.5 rounded bg-navy/10 text-navy text-[9px] font-bold uppercase tracking-wider">Single Image</span>
+                <span className="inline-block px-2 py-0.5 rounded bg-ed-green/10 text-ed-green text-[9px] font-bold uppercase tracking-wider">Posted</span>
+                <span className="inline-block px-2 py-0.5 rounded bg-ed-accent/10 text-ed-accent text-[9px] font-bold uppercase tracking-wider">Single Image</span>
                 {postedDate && (
-                  <span className="text-[10px] text-textmid">{postedDate}</span>
+                  <span className="font-mono-ed text-[10px] text-ed-ink3">{postedDate}</span>
                 )}
               </div>
             </div>
             {thumbUrl && (
-              <img src={thumbUrl} alt="" className="w-12 h-12 object-cover rounded-xl bg-gray-100 flex-shrink-0" loading="lazy" />
+              <img src={thumbUrl} alt="" className="w-12 h-12 object-cover rounded-xl bg-ed-bg flex-shrink-0" loading="lazy" />
             )}
           </div>
 
@@ -182,14 +182,14 @@ export default function PostedView({ projectId, deployments, setDeployments, add
           {(campaignName || adSetName) && (
             <div className="flex items-center gap-2 text-[11px]">
               {campaignName && (
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-navy/5 text-navy font-medium">
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-ed-accent/5 text-ed-accent font-medium">
                   {campaignName}
                 </span>
               )}
               {adSetName && (
                 <>
-                  <span className="text-textlight">›</span>
-                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-navy/5 text-navy font-medium">
+                  <span className="text-ed-ink3">›</span>
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-ed-accent/5 text-ed-accent font-medium">
                     {adSetName}
                   </span>
                 </>
@@ -199,14 +199,14 @@ export default function PostedView({ projectId, deployments, setDeployments, add
 
           {/* Posted by */}
           {dep.posted_by && (
-            <div className="text-[11px] text-textmid">Posted by: <span className="font-medium text-textdark">{dep.posted_by}</span></div>
+            <div className="text-[11px] text-ed-ink2">Posted by: <span className="font-medium text-ed-ink">{dep.posted_by}</span></div>
           )}
 
           {/* Expand toggle */}
           {(dep.destination_url || dep.display_link || dep.cta_button || dep.facebook_page) && (
             <button
               onClick={() => toggleCardExpanded(dep.id)}
-              className="flex items-center justify-center w-full gap-1 text-[12px] font-medium text-navy hover:text-navy/80 bg-navy/5 hover:bg-navy/10 py-1.5 rounded-md cursor-pointer transition-all mt-2"
+              className="flex items-center justify-center w-full gap-1 text-[12px] font-medium text-ed-accent hover:text-ed-accent/80 bg-ed-accent/5 hover:bg-ed-accent/10 py-1.5 rounded-md cursor-pointer transition-colors mt-2"
             >
               <svg className={`w-3.5 h-3.5 transition-transform ${isExpanded ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
@@ -218,26 +218,26 @@ export default function PostedView({ projectId, deployments, setDeployments, add
 
         {/* Expanded details */}
         {isExpanded && (
-          <div className="px-5 pb-4 space-y-2.5 border-t border-black/[0.04] pt-3 text-[12px]">
+          <div className="px-5 pb-4 space-y-2.5 border-t border-ed-line pt-3 text-[12px]">
             {dep.destination_url && (
-              <div><span className="text-textmid">URL:</span> <a href={dep.destination_url} target="_blank" rel="noopener noreferrer" className="text-gold hover:underline break-all">{dep.destination_url}</a></div>
+              <div><span className="text-ed-ink2">URL:</span> <a href={dep.destination_url} target="_blank" rel="noopener noreferrer" className="text-ed-accent hover:underline break-all">{dep.destination_url}</a></div>
             )}
             {dep.display_link && (
-              <div><span className="text-textmid">Display Link:</span> <span className="text-textdark">{dep.display_link}</span></div>
+              <div><span className="text-ed-ink2">Display Link:</span> <span className="text-ed-ink">{dep.display_link}</span></div>
             )}
             {dep.cta_button && (
-              <div><span className="text-textmid">CTA:</span> <span className="font-medium text-teal">{dep.cta_button.replace(/_/g, ' ')}</span></div>
+              <div><span className="text-ed-ink2">CTA:</span> <span className="font-medium text-ed-green">{dep.cta_button.replace(/_/g, ' ')}</span></div>
             )}
             {dep.facebook_page && (
-              <div><span className="text-textmid">Facebook Page:</span> <span className="font-medium text-textdark">{dep.facebook_page}</span></div>
+              <div><span className="text-ed-ink2">Facebook Page:</span> <span className="font-medium text-ed-ink">{dep.facebook_page}</span></div>
             )}
           </div>
         )}
 
         {/* Actions */}
-        <div className="px-5 py-2.5 border-t border-black/[0.06] bg-offwhite/50 flex items-center justify-end">
+        <div className="px-5 py-2.5 border-t border-ed-line bg-ed-bg flex items-center justify-end">
           <button onClick={() => handleSendBack(dep.id)} disabled={isSendingBack}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium text-gold border border-gold/30 hover:bg-gold/10 transition-colors disabled:opacity-50"
+            className="ed-ghost text-ed-gold border-ed-gold/30 hover:bg-ed-gold/10 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium transition-colors disabled:opacity-50"
           >
             <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
@@ -267,13 +267,13 @@ export default function PostedView({ projectId, deployments, setDeployments, add
     const canDemote = adSet.lifecycle_status === 'observing' || adSet.lifecycle_status === 'posted';
 
     return (
-      <div key={adSet.externalId} className="border border-black/[0.08] rounded-2xl bg-white shadow-sm overflow-hidden">
+      <div key={adSet.externalId} className="border border-ed-line rounded-xl bg-ed-surface overflow-hidden">
         <div className="px-5 py-4 space-y-2.5">
           {/* Ad Set Name + thumbnails */}
           <div className="flex items-start justify-between gap-3">
             <div className="flex-1 min-w-0">
-              <div className="text-[13px] leading-tight mb-1">
-                <span className="font-bold text-textdark">{adSet.name || 'Ad Set'}</span>
+              <div className="font-serif text-[18px] text-ed-ink tracking-[-0.01em] leading-tight mb-1">
+                <span>{adSet.name || 'Ad Set'}</span>
               </div>
               <div className="flex items-center gap-2 flex-wrap">
                 {/* Phase 6.10 — observation state pill (Day N/12, Passed, Failed, etc.).
@@ -289,27 +289,27 @@ export default function PostedView({ projectId, deployments, setDeployments, add
                     );
                   }
                   return (
-                    <span className="inline-block px-2 py-0.5 rounded bg-teal/10 text-teal text-[9px] font-bold uppercase tracking-wider">Posted</span>
+                    <span className="inline-block px-2 py-0.5 rounded bg-ed-green/10 text-ed-green text-[9px] font-bold uppercase tracking-wider">Posted</span>
                   );
                 })()}
-                <span className="inline-block px-2 py-0.5 rounded bg-navy/10 text-navy text-[9px] font-bold uppercase tracking-wider">{depsWithImages.length} ads</span>
+                <span className="inline-block px-2 py-0.5 rounded bg-ed-accent/10 text-ed-accent text-[9px] font-bold uppercase tracking-wider">{depsWithImages.length} ads</span>
                 {/* Manual / Meta provenance chip — derives from meta_adset_id presence on the native ad_set */}
                 {adSet.meta_adset_id
-                  ? <span className="inline-block px-2 py-0.5 rounded bg-gold/10 text-gold text-[9px] font-bold uppercase tracking-wider">Meta</span>
-                  : <span className="inline-block px-2 py-0.5 rounded bg-gray-100 text-textmid text-[9px] font-bold uppercase tracking-wider">Manual</span>}
+                  ? <span className="inline-block px-2 py-0.5 rounded bg-ed-accent/10 text-ed-accent text-[9px] font-bold uppercase tracking-wider">Meta</span>
+                  : <span className="inline-block px-2 py-0.5 rounded bg-ed-bg text-ed-ink2 text-[9px] font-bold uppercase tracking-wider">Manual</span>}
                 {postedDate && (
-                  <span className="text-[10px] text-textmid">{postedDate}</span>
+                  <span className="font-mono-ed text-[10px] text-ed-ink3">{postedDate}</span>
                 )}
               </div>
             </div>
             <div className="flex gap-1 flex-shrink-0">
               {childDeps.slice(0, 4).map(d => d.imageUrl ? (
-                <img key={d.id} src={d.imageUrl} alt="" className="w-10 h-10 object-cover rounded-lg bg-gray-100" loading="lazy" />
+                <img key={d.id} src={d.imageUrl} alt="" className="w-10 h-10 object-cover rounded-lg bg-ed-bg" loading="lazy" />
               ) : (
-                <div key={d.id} className="w-10 h-10 rounded-lg bg-gray-200" />
+                <div key={d.id} className="w-10 h-10 rounded-lg bg-ed-line" />
               ))}
               {childDeps.length > 4 && (
-                <div className="w-10 h-10 rounded-lg bg-gray-100 flex items-center justify-center text-[10px] text-textlight font-medium">+{childDeps.length - 4}</div>
+                <div className="w-10 h-10 rounded-lg bg-ed-bg flex items-center justify-center text-[10px] text-ed-ink3 font-medium">+{childDeps.length - 4}</div>
               )}
             </div>
           </div>
@@ -318,14 +318,14 @@ export default function PostedView({ projectId, deployments, setDeployments, add
           {(campaignName || adSetName) && (
             <div className="flex items-center gap-2 text-[11px]">
               {campaignName && (
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-navy/5 text-navy font-medium">
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-ed-accent/5 text-ed-accent font-medium">
                   {campaignName}
                 </span>
               )}
               {adSetName && (
                 <>
-                  <span className="text-textlight">›</span>
-                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-navy/5 text-navy font-medium">
+                  <span className="text-ed-ink3">›</span>
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded bg-ed-accent/5 text-ed-accent font-medium">
                     {adSetName}
                   </span>
                 </>
@@ -335,13 +335,13 @@ export default function PostedView({ projectId, deployments, setDeployments, add
 
           {/* Posted by */}
           {sample.posted_by && (
-            <div className="text-[11px] text-textmid">Posted by: <span className="font-medium text-textdark">{sample.posted_by}</span></div>
+            <div className="text-[11px] text-ed-ink2">Posted by: <span className="font-medium text-ed-ink">{sample.posted_by}</span></div>
           )}
 
           {/* Expand toggle */}
           <button
             onClick={() => toggleCardExpanded(sendId)}
-            className="flex items-center justify-center w-full gap-1 text-[12px] font-medium text-navy hover:text-navy/80 bg-navy/5 hover:bg-navy/10 py-1.5 rounded-md cursor-pointer transition-all mt-2"
+            className="flex items-center justify-center w-full gap-1 text-[12px] font-medium text-ed-accent hover:text-ed-accent/80 bg-ed-accent/5 hover:bg-ed-accent/10 py-1.5 rounded-md cursor-pointer transition-colors mt-2"
           >
             <svg className={`w-3.5 h-3.5 transition-transform ${isExpanded ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
@@ -352,18 +352,18 @@ export default function PostedView({ projectId, deployments, setDeployments, add
 
         {/* Expanded details */}
         {isExpanded && (
-          <div className="px-5 pb-4 space-y-3 border-t border-black/[0.04] pt-3">
+          <div className="px-5 pb-4 space-y-3 border-t border-ed-line pt-3">
             {/* Image grid */}
             {depsWithImages.length > 0 && (
               <div>
-                <span className="text-[10px] font-bold text-textmid uppercase tracking-wider mb-2 block">Ad Creatives</span>
-                <div className="grid grid-cols-5 gap-2">
+                <span className="text-[10px] uppercase tracking-[0.1em] text-ed-ink3 mb-2 block">Ad Creatives</span>
+                <div className="grid grid-cols-6 gap-3">
                   {childDeps.map(d => (
                     <div key={d.id}>
                       {d.imageUrl ? (
-                        <img src={d.imageUrl} alt="" className="w-full aspect-square object-cover rounded-xl bg-offwhite" loading="lazy" />
+                        <img src={d.imageUrl} alt="" className="w-full aspect-square object-cover rounded-lg bg-ed-bg" loading="lazy" />
                       ) : (
-                        <div className="w-full aspect-square rounded-xl bg-offwhite" />
+                        <div className="w-full aspect-square rounded-lg bg-ed-bg" />
                       )}
                     </div>
                   ))}
@@ -376,26 +376,26 @@ export default function PostedView({ projectId, deployments, setDeployments, add
                 deployments in unified model. */}
             <div className="text-[12px] space-y-2">
               {sample.destination_url && (
-                <div><span className="text-textmid">URL:</span> <a href={sample.destination_url} target="_blank" rel="noopener noreferrer" className="text-gold hover:underline break-all">{sample.destination_url}</a></div>
+                <div><span className="text-ed-ink2">URL:</span> <a href={sample.destination_url} target="_blank" rel="noopener noreferrer" className="text-ed-accent hover:underline break-all">{sample.destination_url}</a></div>
               )}
               {sample.display_link && (
-                <div><span className="text-textmid">Display Link:</span> <span className="text-textdark">{sample.display_link}</span></div>
+                <div><span className="text-ed-ink2">Display Link:</span> <span className="text-ed-ink">{sample.display_link}</span></div>
               )}
               {sample.cta_button && (
-                <div><span className="text-textmid">CTA:</span> <span className="font-medium text-teal">{sample.cta_button.replace(/_/g, ' ')}</span></div>
+                <div><span className="text-ed-ink2">CTA:</span> <span className="font-medium text-ed-green">{sample.cta_button.replace(/_/g, ' ')}</span></div>
               )}
               {sample.facebook_page && (
-                <div><span className="text-textmid">Facebook Page:</span> <span className="font-medium text-textdark">{sample.facebook_page}</span></div>
+                <div><span className="text-ed-ink2">Facebook Page:</span> <span className="font-medium text-ed-ink">{sample.facebook_page}</span></div>
               )}
             </div>
           </div>
         )}
 
         {/* Actions */}
-        <div className="px-5 py-2.5 border-t border-black/[0.06] bg-offwhite/50 flex items-center justify-end">
+        <div className="px-5 py-2.5 border-t border-ed-line bg-ed-bg flex items-center justify-end">
           {canDemote ? (
             <button onClick={() => handleSendBackAdSet(adSet)} disabled={isSendingBack}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium text-gold border border-gold/30 hover:bg-gold/10 transition-colors disabled:opacity-50"
+              className="ed-ghost text-ed-gold border-ed-gold/30 hover:bg-ed-gold/10 inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium transition-colors disabled:opacity-50"
             >
               <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 018 8v2M3 10l6 6m-6-6l6-6" />
@@ -403,7 +403,7 @@ export default function PostedView({ projectId, deployments, setDeployments, add
               {isSendingBack ? 'Sending...' : `← Ready to Post (${childDeps.length} ads)`}
             </button>
           ) : (
-            <span className="text-[10px] text-textlight italic">Terminal verdict — cannot demote.</span>
+            <span className="text-[10px] text-ed-ink3 italic">Terminal verdict — cannot demote.</span>
           )}
         </div>
       </div>
@@ -450,18 +450,18 @@ export default function PostedView({ projectId, deployments, setDeployments, add
 
   // ── Render ──────────────────────────────────────────────────────────────
 
-  if (loading) return <div className="text-center py-12 text-textmid text-[13px]">Loading...</div>;
+  if (loading) return <div className="text-center py-12 text-ed-ink2 text-[13px]">Loading...</div>;
 
   if (postedDeps.length === 0) {
     return (
       <div className="text-center py-16">
-        <div className="w-12 h-12 mx-auto mb-3 rounded-full bg-teal/5 flex items-center justify-center">
-          <svg className="w-6 h-6 text-textlight" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <div className="w-12 h-12 mx-auto mb-3 rounded-full bg-ed-green/5 flex items-center justify-center">
+          <svg className="w-6 h-6 text-ed-ink3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M5 13l4 4L19 7" />
           </svg>
         </div>
-        <p className="text-[14px] font-medium text-textdark">No posted ads yet</p>
-        <p className="text-[12px] text-textmid mt-1">When ads are marked as posted from the Ready to Post view, they'll appear here.</p>
+        <p className="text-[14px] font-medium text-ed-ink">No posted ads yet</p>
+        <p className="text-[12px] text-ed-ink2 mt-1">When ads are marked as posted from the Ready to Post view, they'll appear here.</p>
       </div>
     );
   }
@@ -473,8 +473,8 @@ export default function PostedView({ projectId, deployments, setDeployments, add
       {/* Summary */}
       <div>
         <div className="text-[14px]">
-          <span className="font-bold text-textdark">{cardList.length}</span>
-          <span className="text-textmid ml-1.5">posted ad{cardList.length !== 1 ? 's' : ''}</span>
+          <span className="font-bold text-ed-ink">{cardList.length}</span>
+          <span className="text-ed-ink2 ml-1.5">posted ad{cardList.length !== 1 ? 's' : ''}</span>
         </div>
       </div>
 

@@ -9,7 +9,10 @@ import TagPicker from './analytics/TagPicker';
 import TagManageDialog from './analytics/TagManageDialog';
 import SavedViewPicker from './analytics/SavedViewPicker';
 import SaveViewDialog from './analytics/SaveViewDialog';
-import InfoTooltip from './InfoTooltip';
+import StatusPill from './editorial/StatusPill';
+import SparklineArea from './analytics/charts/SparklineArea';
+import AnalyticsChartsPanel from './analytics/AnalyticsChartsPanel';
+import { useAnalyticsCharts } from './analytics/useAnalyticsCharts';
 
 const LEVELS = [
   { id: 'campaigns', label: 'Campaigns', entity: 'campaign' },
@@ -118,7 +121,7 @@ export const COLUMN_DEFS = {
     levels: ['ads'],
     width: 'w-20',
     accessor: (r) => r.thumbnail_url || r.creative?.thumbnail_url || '',
-    render: (value) => value ? <img src={value} alt="" className="w-10 h-10 rounded-lg object-cover bg-gray-100" loading="lazy" /> : '—',
+    render: (value) => value ? <img src={value} alt="" className="w-10 h-10 rounded-lg object-cover bg-ed-bg" loading="lazy" /> : '—',
   },
 
   impressions: { label: 'Impr.', type: 'number', levels: LEVEL_ALL, width: 'w-24', accessor: (r) => numberValue(r.impressions), format: NUMBER_FMT.format, align: 'right' },
@@ -160,11 +163,11 @@ export const COLUMN_DEFS = {
   video_avg_time_watched: { label: 'Avg Watch Time', type: 'number', levels: LEVEL_ALL, width: 'w-32', accessor: (r) => numberValue(r.video_avg_time_watched), format: (v) => `${Math.round(v)}s`, align: 'right' },
 };
 
-const STATUS_PILL = {
-  ACTIVE: 'bg-teal/10 text-teal',
-  PAUSED: 'bg-gold/10 text-gold',
-  DELETED: 'bg-gray-100 text-textlight',
-  ARCHIVED: 'bg-gray-100 text-textlight',
+const ED_STATUS_MAP = {
+  ACTIVE: 'active',
+  PAUSED: 'paused',
+  DELETED: 'failed',
+  ARCHIVED: 'paused',
 };
 
 const FILTER_OPERATORS = {
@@ -200,8 +203,8 @@ const FILTER_OPERATORS = {
 };
 
 function statusBadge(s) {
-  const cls = STATUS_PILL[s?.toUpperCase()] || 'bg-gray-100 text-textmid';
-  return <span className={`badge ${cls}`}>{s || '—'}</span>;
+  const mapped = ED_STATUS_MAP[s?.toUpperCase()] || s;
+  return <StatusPill status={mapped} variant="mono" />;
 }
 
 function columnAvailable(field, level) {
@@ -314,6 +317,13 @@ export default function AnalyticsTab({ projectId }) {
   const [showManageTags, setShowManageTags] = useState(false);
   const [showSaveView, setShowSaveView] = useState(false);
   const requestSeqRef = useRef(0);
+
+  const charts = useAnalyticsCharts(projectId, {
+    datePreset,
+    dateFrom: customRange.from || null,
+    dateTo: customRange.to || null,
+    campaignId: scope.campaignId || null,
+  });
 
   const entityType = useMemo(() => LEVELS.find((l) => l.id === level)?.entity, [level]);
   const availableColumns = useMemo(() => filterableColumns(level), [level]);
@@ -470,6 +480,30 @@ export default function AnalyticsTab({ projectId }) {
   const visibleIds = useMemo(() => cappedRows.map((row) => String(row.id)), [cappedRows]);
   const visibleSelectedIds = selectedIds.filter((id) => visibleIds.includes(id));
   const allVisibleSelected = visibleIds.length > 0 && visibleSelectedIds.length === visibleIds.length;
+
+  const kpis = useMemo(() => {
+    const totalSpend = filteredSortedRows.reduce((s, r) => s + numberValue(r.spend), 0);
+    const roasValues = filteredSortedRows.map(r => firstRoasValue(r)).filter(v => v > 0);
+    const avgRoas = roasValues.length > 0 ? roasValues.reduce((s, v) => s + v, 0) / roasValues.length : 0;
+    const ctrValues = filteredSortedRows.map(r => numberValue(r.ctr)).filter(v => v > 0);
+    const avgCtr = ctrValues.length > 0 ? ctrValues.reduce((s, v) => s + v, 0) / ctrValues.length : 0;
+    const totalImpressions = filteredSortedRows.reduce((s, r) => s + numberValue(r.impressions), 0);
+    const ts = charts.timeseries || [];
+    return [
+      { label: `Spend · ${datePreset.replace('_', ' ').toUpperCase()}`, value: DOLLAR_FMT.format(totalSpend), series: ts.map(d => d.spend), accent: '#a8543b' },
+      { label: 'Avg ROAS', value: avgRoas.toFixed(2), series: ts.map(d => d.roas), accent: '#3a8c5e' },
+      { label: 'Avg CTR', value: (avgCtr / 100).toFixed(2) + '%', series: ts.map(d => d.ctr), accent: '#c08a3e' },
+      { label: 'Impressions', value: NUMBER_FMT.format(totalImpressions), series: ts.map(d => d.impressions), accent: '#a8543b' },
+    ];
+  }, [filteredSortedRows, datePreset, charts.timeseries]);
+
+  const campaignNames = useMemo(() => {
+    const map = { ...(charts.apiCampaignNames || {}) };
+    for (const row of rows) {
+      if (row.id && row.name) map[String(row.id)] = row.name;
+    }
+    return map;
+  }, [rows, charts.apiCampaignNames]);
 
   const toggleSort = (field) => {
     setSort((prev) => prev.field === field
@@ -686,11 +720,51 @@ export default function AnalyticsTab({ projectId }) {
   };
 
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap items-center gap-3">
-        <div className="page-tabs">
+    <div className="px-[36px] py-[28px] max-w-[1400px]">
+      {/* ─── KPI Cards ─── */}
+      {!loading && filteredSortedRows.length > 0 && (
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+          {kpis.map((kpi, idx) => (
+            <div key={kpi.label} className="ed-card px-5 py-[18px]">
+              <div className="ed-eyebrow mb-2">{kpi.label}</div>
+              <div className="font-mono-ed text-[28px] tracking-[-0.02em] text-ed-ink leading-none">
+                {kpi.value}
+              </div>
+              {kpi.series && kpi.series.length >= 2 && (
+                <SparklineArea series={kpi.series} accent={kpi.accent} id={`kpi-${idx}`} />
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* ─── Charts ─── */}
+      {!loading && filteredSortedRows.length > 0 && (
+        <AnalyticsChartsPanel
+          timeseries={charts.timeseries}
+          byCampaign={charts.byCampaign}
+          hourly={charts.hourly}
+          loading={charts.loading}
+          error={charts.error}
+          filteredRows={filteredSortedRows}
+          campaignNames={campaignNames}
+        />
+      )}
+
+      {/* ─── Controls Row ─── */}
+      <div className="flex flex-wrap items-center gap-3 mb-4">
+        {/* Level switcher */}
+        <div className="inline-flex rounded-lg border border-ed-line overflow-hidden">
           {LEVELS.map((l) => (
-            <button key={l.id} onClick={() => handleLevelChange(l.id)} className={level === l.id ? 'active' : ''}>
+            <button
+              key={l.id}
+              onClick={() => handleLevelChange(l.id)}
+              className={`px-3.5 py-[6px] text-[12px] font-geist transition-colors ${
+                level === l.id
+                  ? 'bg-ed-accent text-white'
+                  : 'bg-ed-surface text-ed-ink2 hover:bg-ed-line/40'
+              }`}
+            >
               {l.label}
             </button>
           ))}
@@ -699,8 +773,8 @@ export default function AnalyticsTab({ projectId }) {
         <select
           value={datePreset}
           onChange={(e) => setDatePreset(e.target.value)}
-          title="Choose the Meta reporting window. Use Custom for an exact start and end date."
-          className="text-[12px] px-2 py-1.5 border border-gray-200 rounded-lg bg-white focus:outline-none focus:border-navy"
+          title="Choose the Meta reporting window"
+          className="text-[12px] px-3 py-[6px] border border-ed-line rounded-lg bg-ed-surface text-ed-ink focus:outline-none focus:border-ed-accent font-geist"
         >
           {DATE_PRESETS.map((p) => (
             <option key={p.id} value={p.id}>{p.label}</option>
@@ -712,14 +786,14 @@ export default function AnalyticsTab({ projectId }) {
               type="date"
               value={customRange.from}
               onChange={(e) => setCustomRange((prev) => ({ ...prev, from: e.target.value }))}
-              className="text-[12px] px-2 py-1.5 border border-gray-200 rounded-lg bg-white focus:outline-none focus:border-navy"
+              className="text-[12px] px-2.5 py-[6px] border border-ed-line rounded-lg bg-ed-surface text-ed-ink focus:outline-none focus:border-ed-accent font-mono-ed"
             />
-            <span className="text-[11px] text-textlight">to</span>
+            <span className="text-[11px] text-ed-ink3">to</span>
             <input
               type="date"
               value={customRange.to}
               onChange={(e) => setCustomRange((prev) => ({ ...prev, to: e.target.value }))}
-              className="text-[12px] px-2 py-1.5 border border-gray-200 rounded-lg bg-white focus:outline-none focus:border-navy"
+              className="text-[12px] px-2.5 py-[6px] border border-ed-line rounded-lg bg-ed-surface text-ed-ink focus:outline-none focus:border-ed-accent font-mono-ed"
             />
           </div>
         )}
@@ -734,27 +808,25 @@ export default function AnalyticsTab({ projectId }) {
           onDelete={handleDeleteView}
         />
 
-        <span className="inline-flex items-center gap-1">
-          <button onClick={() => setShowManageTags(true)} className="btn-secondary text-[12px] px-3 py-1.5">
-            Manage tags
-          </button>
-          <InfoTooltip text="Create, rename, recolor, or delete project tags. Tags are shared across Analytics and Observation." position="bottom" />
-        </span>
+        <button onClick={() => setShowManageTags(true)} className="ed-ghost text-[12px] px-3 py-[6px]">
+          Manage tags
+        </button>
 
-        <button onClick={loadData} disabled={loading} className="btn-secondary text-[12px] px-3 py-1.5">
+        <button onClick={loadData} disabled={loading} className="ed-ghost text-[12px] px-3 py-[6px]">
           {loading ? 'Loading...' : 'Refresh'}
         </button>
       </div>
 
+      {/* ─── Breadcrumb Scope ─── */}
       {(scope.campaignId || scope.adsetId) && (
-        <div className="flex flex-wrap items-center gap-2 text-[12px]">
-          <button onClick={clearScope} className="text-textmid hover:text-textdark">Campaigns</button>
+        <div className="flex flex-wrap items-center gap-2 text-[12px] mb-4 font-geist">
+          <button onClick={clearScope} className="text-ed-ink3 hover:text-ed-ink">Campaigns</button>
           {scope.campaignId && (
             <>
-              <span className="text-textlight">/</span>
+              <span className="text-ed-ink3/50">/</span>
               <button
                 onClick={() => { setLevel('adsets'); setScope((prev) => ({ ...prev, adsetId: null, adsetName: null })); }}
-                className="text-textmid hover:text-textdark"
+                className="text-ed-ink3 hover:text-ed-ink"
               >
                 {scope.campaignName || scope.campaignId}
               </button>
@@ -762,26 +834,23 @@ export default function AnalyticsTab({ projectId }) {
           )}
           {scope.adsetId && (
             <>
-              <span className="text-textlight">/</span>
-              <span className="font-medium text-textdark">{scope.adsetName || scope.adsetId}</span>
+              <span className="text-ed-ink3/50">/</span>
+              <span className="font-medium text-ed-ink">{scope.adsetName || scope.adsetId}</span>
             </>
           )}
-          <button onClick={clearScope} className="text-[11px] text-textlight hover:text-textdark ml-1">Clear scope</button>
+          <button onClick={clearScope} className="text-[11px] text-ed-ink3 hover:text-ed-accent ml-1">Clear</button>
         </div>
       )}
 
-      <div className="flex flex-wrap items-start gap-2">
-        <span className="inline-flex items-center gap-1">
-          <button onClick={() => setFilters((prev) => [...prev, newFilter(level)])} className="btn-secondary text-[12px] px-3 py-1.5">
-            + Filter
-          </button>
-          <InfoTooltip text="Filter the rows currently loaded for this level. Filters stay with your current Campaign, Ad Set, or Ads view." position="bottom" />
-        </span>
+      {/* ─── Filter & Column Controls ─── */}
+      <div className="flex flex-wrap items-start gap-2 mb-3">
+        <button onClick={() => setFilters((prev) => [...prev, newFilter(level)])} className="ed-ghost text-[12px] px-3 py-[6px]">
+          + Filter
+        </button>
         <div className="relative inline-flex items-center gap-1">
-          <button onClick={() => setShowColumnPicker((v) => !v)} className="btn-secondary text-[12px] px-3 py-1.5">
+          <button onClick={() => setShowColumnPicker((v) => !v)} className="ed-ghost text-[12px] px-3 py-[6px]">
             Columns ({columns.length})
           </button>
-          <InfoTooltip text="Choose which Meta fields and local workflow fields appear in this table. Use saved views when you want to reuse a layout." position="bottom" />
           {showColumnPicker && (
             <ColumnPicker
               columns={columns}
@@ -793,18 +862,19 @@ export default function AnalyticsTab({ projectId }) {
           )}
         </div>
         {filters.length > 0 && (
-          <button onClick={() => setFilters([])} className="text-[11px] text-textlight hover:text-textdark py-1.5">
+          <button onClick={() => setFilters([])} className="text-[11px] text-ed-ink3 hover:text-ed-accent py-[6px]">
             Clear filters
           </button>
         )}
-        <span className="text-[11px] text-textlight ml-auto py-1.5">
+        <span className="font-mono-ed text-[11px] text-ed-ink3 ml-auto py-[6px]">
           {filteredSortedRows.length} {entityType.replace('_', ' ')}{filteredSortedRows.length === 1 ? '' : 's'}
           {hitCap && ` (showing first ${ROW_CAP})`}
         </span>
       </div>
 
+      {/* ─── Active Filters ─── */}
       {filters.length > 0 && (
-        <div className="flex flex-col gap-2">
+        <div className="flex flex-col gap-2 mb-4">
           {filters.map((filter) => (
             <FilterRow
               key={filter.id}
@@ -818,34 +888,36 @@ export default function AnalyticsTab({ projectId }) {
         </div>
       )}
 
+      {/* ─── Alerts ─── */}
       {tokenExpired && (
-        <div className="card p-4 border border-amber-200 bg-amber-50/40 text-[12px] text-textdark">
-          Meta token expired. Reconnect from <strong>Project Settings - Meta</strong>.
+        <div className="ed-card p-4 border-ed-gold/30 bg-ed-gold/5 text-[12px] text-ed-ink mb-4">
+          Meta token expired. Reconnect from <strong>Project Settings → Meta</strong>.
         </div>
       )}
       {error && !tokenExpired && (
-        <div className="card p-4 border border-red-200 bg-red-50/40 text-[12px] text-red-600">
+        <div className="ed-card p-4 border-ed-rust/30 bg-ed-rust/5 text-[12px] text-ed-rust mb-4">
           {error}
         </div>
       )}
 
-      <div className="card overflow-hidden">
+      {/* ─── Data Table ─── */}
+      <div className="ed-card overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-[12px]">
-            <thead className="bg-gray-50/60 border-b border-gray-100">
-              <tr>
-                <th className="px-3 py-2 w-10">
+            <thead>
+              <tr className="border-b border-ed-line">
+                <th className="px-3 py-2.5 w-10">
                   <input
                     type="checkbox"
                     checked={allVisibleSelected}
                     onChange={toggleSelectAllVisible}
-                    className="rounded border-navy/30 text-navy focus:ring-navy/20"
+                    className="rounded border-ed-line text-ed-accent focus:ring-ed-accent/20"
                     aria-label="Select all visible rows"
                   />
                 </th>
                 {columns.map((col) => {
                   if (col === 'tags') {
-                    return <th key={col} className="px-3 py-2 text-left font-medium text-textmid w-48">Tags</th>;
+                    return <th key={col} className="px-3 py-2.5 text-left font-geist text-[10.5px] font-medium uppercase tracking-[0.10em] text-ed-ink3 w-48">Tags</th>;
                   }
                   const def = COLUMN_DEFS[col];
                   if (!def) return null;
@@ -854,11 +926,11 @@ export default function AnalyticsTab({ projectId }) {
                     <th
                       key={col}
                       onClick={() => toggleSort(col)}
-                      className={`px-3 py-2 ${def.align === 'right' ? 'text-right' : 'text-left'} font-medium text-textmid cursor-pointer hover:text-textdark select-none ${def.width}`}
+                      className={`px-3 py-2.5 ${def.align === 'right' ? 'text-right' : 'text-left'} font-geist text-[10.5px] font-medium uppercase tracking-[0.10em] text-ed-ink3 cursor-pointer hover:text-ed-ink select-none ${def.width}`}
                     >
                       <span className="inline-flex items-center gap-1">
                         {def.label}
-                        {isSorted && <span className="text-[8px]">{sort.dir === 'asc' ? '▲' : '▼'}</span>}
+                        {isSorted && <span className="text-[8px] text-ed-accent">{sort.dir === 'asc' ? '▲' : '▼'}</span>}
                       </span>
                     </th>
                   );
@@ -867,30 +939,30 @@ export default function AnalyticsTab({ projectId }) {
             </thead>
             <tbody>
               {loading && rows.length === 0 && (
-                <tr><td colSpan={columns.length + 1} className="px-3 py-12 text-center text-textlight">Loading...</td></tr>
+                <tr><td colSpan={columns.length + 1} className="px-3 py-12 text-center text-ed-ink3 font-geist">Loading...</td></tr>
               )}
               {!loading && cappedRows.length === 0 && (
-                <tr><td colSpan={columns.length + 1} className="px-3 py-12 text-center text-textlight">No rows match.</td></tr>
+                <tr><td colSpan={columns.length + 1} className="px-3 py-12 text-center text-ed-ink3 font-geist">No rows match.</td></tr>
               )}
               {cappedRows.map((row) => {
                 const appliedIds = tagsByEntity.get(row.id) || [];
                 const selected = selectedIds.includes(String(row.id));
                 return (
-                  <tr key={row.id} className={`border-b border-gray-50 hover:bg-gray-50/50 ${selected ? 'bg-gold/5' : ''}`}>
-                    <td className="px-3 py-2">
+                  <tr key={row.id} className={`border-b border-ed-line transition-colors duration-100 hover:bg-ed-accent/[0.025] ${selected ? 'bg-ed-accent/[0.04]' : ''}`}>
+                    <td className="px-3 py-[14px]">
                       <input
                         type="checkbox"
                         checked={selected}
                         onChange={() => toggleRowSelection(row.id)}
                         onClick={(e) => e.stopPropagation()}
-                        className="rounded border-navy/30 text-navy focus:ring-navy/20"
+                        className="rounded border-ed-line text-ed-accent focus:ring-ed-accent/20"
                         aria-label={`Select ${row.name || row.id}`}
                       />
                     </td>
                     {columns.map((col) => {
                       if (col === 'tags') {
                         return (
-                          <td key={col} className="px-3 py-2">
+                          <td key={col} className="px-3 py-[14px]">
                             <RowTagCell
                               row={row}
                               allTags={tags}
@@ -906,7 +978,7 @@ export default function AnalyticsTab({ projectId }) {
                       }
                       if (col === 'notes') {
                         return (
-                          <td key={col} className="px-3 py-2">
+                          <td key={col} className="px-3 py-[14px]">
                             <NotesCell note={row.note_text || ''} onSave={(note) => handleUpdateNote(row, note)} />
                           </td>
                         );
@@ -914,32 +986,32 @@ export default function AnalyticsTab({ projectId }) {
                       if (col === 'name') {
                         const canDrill = level === 'campaigns' || level === 'adsets';
                         return (
-                          <td key={col} className="px-3 py-2 text-textdark">
+                          <td key={col} className="px-3 py-[14px]">
                             <div className="flex items-center gap-2 min-w-0">
                               <button
                                 onClick={() => canDrill && drillIntoRow(row)}
                                 disabled={!canDrill}
-                                className={`truncate text-left ${canDrill ? 'text-navy hover:text-gold font-medium' : ''}`}
+                                className={`truncate text-left font-serif text-[14px] tracking-[-0.01em] ${canDrill ? 'text-ed-ink hover:text-ed-accent' : 'text-ed-ink'}`}
                                 title={row.name}
                               >
                                 {row.name || '—'}
                               </button>
                               {row.cf_source && (
-                                <span title="Created via Creative Factory" className="text-[9px] font-medium px-1.5 py-0.5 rounded bg-gold/10 text-gold flex-shrink-0">CF</span>
+                                <span title="Created via Creative Factory" className="text-[9px] font-medium px-1.5 py-0.5 rounded bg-ed-accent/10 text-ed-accent flex-shrink-0">CF</span>
                               )}
                             </div>
                           </td>
                         );
                       }
                       if (col === 'status') {
-                        return <td key={col} className="px-3 py-2">{statusBadge(row.effective_status || row.status)}</td>;
+                        return <td key={col} className="px-3 py-[14px]">{statusBadge(row.effective_status || row.status)}</td>;
                       }
                       const def = COLUMN_DEFS[col];
                       if (!def) return null;
                       const v = def.accessor(row);
                       const display = def.render ? def.render(v, row) : def.format ? def.format(v) : (v || '—');
                       return (
-                        <td key={col} className={`px-3 py-2 ${def.align === 'right' ? 'text-right' : 'text-left'} text-textdark tabular-nums`}>
+                        <td key={col} className={`px-3 py-[14px] ${def.align === 'right' ? 'text-right' : 'text-left'} ${def.type === 'number' ? 'font-mono-ed text-[12px]' : 'font-geist text-[12.5px]'} text-ed-ink tabular-nums`}>
                           {display}
                         </td>
                       );
@@ -950,7 +1022,7 @@ export default function AnalyticsTab({ projectId }) {
             </tbody>
           </table>
         </div>
-        <div className="px-3 py-2 border-t border-gray-100 text-[10px] text-textlight">
+        <div className="px-3 py-2 border-t border-ed-line font-mono-ed text-[10px] text-ed-ink3">
           Data may lag Meta Ads Manager by up to 24h.
         </div>
       </div>
@@ -988,36 +1060,36 @@ export function ColumnPicker({ columns, availableColumns, onChange, onReset, onC
   const [query, setQuery] = useState('');
   const filtered = availableColumns.filter((col) => col.label.toLowerCase().includes(query.toLowerCase()) || col.id.toLowerCase().includes(query.toLowerCase()));
   return (
-    <div className="absolute z-40 top-full left-0 mt-2 w-72 bg-white border border-gray-200 rounded-xl shadow-card p-3">
+    <div className="absolute z-40 top-full left-0 mt-2 w-72 bg-ed-surface border border-ed-line rounded-xl shadow-lg p-3">
       <div className="flex items-center gap-2 mb-2">
         <input
           value={query}
           onChange={(e) => setQuery(e.target.value)}
           placeholder="Search columns..."
-          className="text-[12px] px-2 py-1.5 border border-gray-200 rounded-lg flex-1 focus:outline-none focus:border-navy"
+          className="text-[12px] px-2.5 py-1.5 border border-ed-line rounded-lg flex-1 focus:outline-none focus:border-ed-accent bg-ed-bg font-geist text-ed-ink"
         />
-        <button onClick={onClose} className="text-[14px] text-textlight hover:text-textdark px-1">×</button>
+        <button onClick={onClose} className="text-[14px] text-ed-ink3 hover:text-ed-ink px-1">×</button>
       </div>
       <div className="max-h-72 overflow-auto space-y-1">
         {filtered.map((col) => {
           const checked = columns.includes(col.id);
           return (
-            <label key={col.id} className="flex items-center gap-2 text-[12px] px-2 py-1.5 rounded-lg hover:bg-gray-50 cursor-pointer">
+            <label key={col.id} className="flex items-center gap-2 text-[12px] px-2 py-1.5 rounded-lg hover:bg-ed-line/30 cursor-pointer font-geist">
               <input
                 type="checkbox"
                 checked={checked}
                 onChange={() => onChange(checked ? columns.filter((c) => c !== col.id) : [...columns, col.id])}
-                className="rounded border-navy/30 text-navy focus:ring-navy/20"
+                className="rounded border-ed-line text-ed-accent focus:ring-ed-accent/20"
               />
-              <span className="flex-1 text-textdark">{col.label}</span>
-              <span className="text-[10px] text-textlight">{col.type}</span>
+              <span className="flex-1 text-ed-ink">{col.label}</span>
+              <span className="text-[10px] text-ed-ink3 font-mono-ed">{col.type}</span>
             </label>
           );
         })}
       </div>
-      <div className="flex items-center justify-between pt-2 mt-2 border-t border-gray-100">
-        <button onClick={onReset} className="text-[11px] text-textlight hover:text-textdark">Reset defaults</button>
-        <span className="text-[10px] text-textlight">{columns.length} selected</span>
+      <div className="flex items-center justify-between pt-2 mt-2 border-t border-ed-line">
+        <button onClick={onReset} className="text-[11px] text-ed-ink3 hover:text-ed-accent font-geist">Reset defaults</button>
+        <span className="text-[10px] text-ed-ink3 font-mono-ed">{columns.length} selected</span>
       </div>
     </div>
   );
@@ -1034,8 +1106,11 @@ export function FilterRow({ filter, level, tags, onChange, onRemove }) {
     if (op !== filter.op) onChange({ ...filter, op });
   }, [filter, op, onChange]);
 
+  const selectCls = "text-[12px] px-2.5 py-1.5 border border-ed-line rounded-lg bg-ed-surface focus:outline-none focus:border-ed-accent font-geist text-ed-ink";
+  const inputCls = "text-[12px] px-2.5 py-1.5 border border-ed-line rounded-lg bg-ed-surface w-44 focus:outline-none focus:border-ed-accent font-geist text-ed-ink";
+
   return (
-    <div className="flex flex-wrap items-center gap-2 bg-white border border-gray-100 rounded-xl px-3 py-2">
+    <div className="flex flex-wrap items-center gap-2 bg-ed-surface border border-ed-line rounded-xl px-3 py-2">
       <select
         value={filter.field}
         onChange={(e) => {
@@ -1043,14 +1118,14 @@ export function FilterRow({ filter, level, tags, onChange, onRemove }) {
           const nextType = fields.find((f) => f.id === nextField)?.type || 'string';
           onChange({ ...filter, field: nextField, op: FILTER_OPERATORS[nextType][0].id, value: '', valueTo: '' });
         }}
-        className="text-[12px] px-2 py-1.5 border border-gray-200 rounded-lg bg-white focus:outline-none focus:border-navy"
+        className={selectCls}
       >
         {fields.map((field) => <option key={field.id} value={field.id}>{field.label}</option>)}
       </select>
       <select
         value={op}
         onChange={(e) => onChange({ ...filter, op: e.target.value })}
-        className="text-[12px] px-2 py-1.5 border border-gray-200 rounded-lg bg-white focus:outline-none focus:border-navy"
+        className={selectCls}
       >
         {ops.map((operator) => <option key={operator.id} value={operator.id}>{operator.label}</option>)}
       </select>
@@ -1058,7 +1133,7 @@ export function FilterRow({ filter, level, tags, onChange, onRemove }) {
         <select
           value={filter.value || ''}
           onChange={(e) => onChange({ ...filter, value: e.target.value })}
-          className="text-[12px] px-2 py-1.5 border border-gray-200 rounded-lg bg-white focus:outline-none focus:border-navy"
+          className={selectCls}
         >
           <option value="">Choose tag...</option>
           {tags.map((tag) => <option key={tag.externalId} value={tag.externalId}>{tag.name}</option>)}
@@ -1069,7 +1144,7 @@ export function FilterRow({ filter, level, tags, onChange, onRemove }) {
           type={type === 'number' ? 'number' : type === 'date' ? 'date' : 'text'}
           value={filter.value || ''}
           onChange={(e) => onChange({ ...filter, value: e.target.value })}
-          className="text-[12px] px-2 py-1.5 border border-gray-200 rounded-lg w-44 focus:outline-none focus:border-navy"
+          className={inputCls}
           placeholder="Value"
         />
       )}
@@ -1078,11 +1153,11 @@ export function FilterRow({ filter, level, tags, onChange, onRemove }) {
           type={type === 'number' ? 'number' : type === 'date' ? 'date' : 'text'}
           value={filter.valueTo || ''}
           onChange={(e) => onChange({ ...filter, valueTo: e.target.value })}
-          className="text-[12px] px-2 py-1.5 border border-gray-200 rounded-lg w-44 focus:outline-none focus:border-navy"
+          className={inputCls}
           placeholder="And"
         />
       )}
-      <button onClick={onRemove} className="text-[13px] text-textlight hover:text-red-500 px-1 ml-auto">×</button>
+      <button onClick={onRemove} className="text-[13px] text-ed-ink3 hover:text-ed-rust px-1 ml-auto">×</button>
     </div>
   );
 }
@@ -1106,7 +1181,7 @@ export function RowTagCell({ row, allTags, appliedIds, onApply, onRemove, onCrea
           {t.name}
           <button
             onClick={() => onRemove(t)}
-            className="hover:text-textdark"
+            className="hover:text-ed-ink"
             title="Remove tag"
           >
             ×
@@ -1117,7 +1192,7 @@ export function RowTagCell({ row, allTags, appliedIds, onApply, onRemove, onCrea
         <button
           ref={anchorRef}
           onClick={() => setOpen(!isOpen)}
-          className="text-[10px] text-textlight hover:text-textdark px-1.5 py-0.5 border border-dashed border-gray-300 rounded-full"
+          className="text-[10px] text-ed-ink3 hover:text-ed-ink px-1.5 py-0.5 border border-dashed border-ed-line rounded-full font-geist"
         >
           + Tag
         </button>
@@ -1153,19 +1228,19 @@ export function NotesCell({ note, onSave }) {
           value={draft}
           onChange={(e) => setDraft(e.target.value)}
           rows={3}
-          className="w-full text-[12px] px-2 py-1.5 border border-gray-200 rounded-lg focus:outline-none focus:border-navy resize-y"
+          className="w-full text-[12px] px-2.5 py-1.5 border border-ed-line rounded-lg focus:outline-none focus:border-ed-accent resize-y bg-ed-bg font-geist text-ed-ink"
           placeholder="Add a note..."
         />
         <div className="flex items-center gap-2">
           <button
             onClick={async () => { await onSave(draft); setEditing(false); }}
-            className="btn-primary text-[10px] px-2 py-1"
+            className="ed-cta text-[10px] px-2.5 py-1"
           >
             Save
           </button>
           <button
             onClick={() => { setDraft(note || ''); setEditing(false); }}
-            className="text-[10px] text-textlight hover:text-textdark"
+            className="text-[10px] text-ed-ink3 hover:text-ed-ink font-geist"
           >
             Cancel
           </button>
@@ -1177,13 +1252,13 @@ export function NotesCell({ note, onSave }) {
   return (
     <button
       onClick={() => setEditing(true)}
-      className="text-left text-[12px] text-textmid hover:text-textdark max-w-[260px]"
+      className="text-left text-[12px] text-ed-ink2 hover:text-ed-ink max-w-[260px] font-geist"
       title={note || 'Add note'}
     >
       {note ? (
         <span className="block max-h-10 overflow-hidden whitespace-pre-wrap">{note}</span>
       ) : (
-        <span className="text-textlight">+ Note</span>
+        <span className="text-ed-ink3">+ Note</span>
       )}
     </button>
   );
@@ -1201,20 +1276,20 @@ export function BulkActionBar({
 }) {
   if (selectedCount <= 0) return null;
   return (
-    <div className="fixed left-1/2 bottom-4 z-50 w-[min(760px,calc(100vw-24px))] -translate-x-1/2 rounded-xl border border-gray-200 bg-white shadow-card px-3 py-2 flex flex-wrap items-center gap-2">
-      <span className="text-[12px] font-medium text-textdark mr-1">{selectedCount} selected</span>
+    <div className="fixed left-1/2 bottom-4 z-50 w-[min(760px,calc(100vw-24px))] -translate-x-1/2 rounded-xl border border-ed-line bg-ed-surface shadow-lg px-3 py-2 flex flex-wrap items-center gap-2">
+      <span className="text-[12px] font-medium text-ed-ink mr-1 font-geist">{selectedCount} selected</span>
       <select
         value={selectedTagId}
         onChange={(e) => onTagChange(e.target.value)}
-        className="text-[12px] px-2 py-1.5 border border-gray-200 rounded-lg bg-white focus:outline-none focus:border-navy min-w-[160px]"
+        className="text-[12px] px-2.5 py-1.5 border border-ed-line rounded-lg bg-ed-bg focus:outline-none focus:border-ed-accent min-w-[160px] font-geist text-ed-ink"
       >
         <option value="">Choose tag...</option>
         {(tags || []).map((tag) => <option key={tag.externalId} value={tag.externalId}>{tag.name}</option>)}
       </select>
-      <button disabled={!selectedTagId} onClick={onApplyTag} className="btn-secondary text-[11px] px-3 py-1.5 disabled:opacity-50">
+      <button disabled={!selectedTagId} onClick={onApplyTag} className="ed-ghost text-[11px] px-3 py-1.5 disabled:opacity-50">
         Apply tag
       </button>
-      <button disabled={!selectedTagId} onClick={onRemoveTag} className="btn-secondary text-[11px] px-3 py-1.5 disabled:opacity-50">
+      <button disabled={!selectedTagId} onClick={onRemoveTag} className="ed-ghost text-[11px] px-3 py-1.5 disabled:opacity-50">
         Remove tag
       </button>
       <button
@@ -1222,11 +1297,11 @@ export function BulkActionBar({
           const note = prompt('Append note to selected rows');
           if (note !== null) onAppendNote(note);
         }}
-        className="btn-secondary text-[11px] px-3 py-1.5"
+        className="ed-ghost text-[11px] px-3 py-1.5"
       >
         Append note
       </button>
-      <button onClick={onClear} className="text-[11px] text-textlight hover:text-textdark ml-auto px-2">
+      <button onClick={onClear} className="text-[11px] text-ed-ink3 hover:text-ed-ink ml-auto px-2 font-geist">
         Clear
       </button>
     </div>

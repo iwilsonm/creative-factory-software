@@ -1262,9 +1262,9 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
         } ${
           inStaging ? 'cursor-pointer' : ''
         } ${
-          isDragging ? 'opacity-40 border-navy/30 bg-navy/5' :
-          isSelected ? 'border-navy/40 bg-navy/5' :
-          'border-gray-200 bg-white hover:border-navy/20 hover:shadow-sm'
+          isDragging ? 'opacity-40 border-ed-accent/30 bg-ed-accent/5' :
+          isSelected ? 'border-ed-accent/40 bg-[rgba(168,84,59,0.06)]' :
+          'border-ed-line bg-ed-surface hover:border-ed-accent/20'
         }`}
       >
         {/* Checkbox */}
@@ -1284,7 +1284,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
             }
           }}
           className={`w-[14px] h-[14px] rounded flex-shrink-0 flex items-center justify-center transition-colors ${
-            isSelected ? 'bg-navy' : 'border-[1.5px] border-textlight/60 hover:border-navy/40'
+            isSelected ? 'bg-ed-accent border-ed-accent' : 'border-[1.5px] border-ed-ink3/60 hover:border-ed-accent/40'
           }`}
         >
           {isSelected && (
@@ -1295,17 +1295,17 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
         </button>
 
         <div className="min-w-0 flex-1">
-          <div className="text-[12px] font-medium text-textdark truncate" title={name}>{name}</div>
+          <div className="text-[12px] font-medium text-ed-ink truncate" title={name}>{name}</div>
           {dep.ad?.body_copy && (
-            <div className="text-[10px] text-textlight truncate mt-0.5">{dep.ad.body_copy}</div>
+            <div className="text-[10px] text-ed-ink3 truncate mt-0.5">{dep.ad.body_copy}</div>
           )}
           {placement && (
-            <div className="text-[9px] text-gold truncate mt-0.5">
+            <div className="text-[9px] text-ed-accent truncate mt-0.5">
               {placement.campaignName}{placement.adSetName ? ` \u203A ${placement.adSetName}` : ''}
             </div>
           )}
           {dep.created_at && (
-            <div className="text-[9px] text-textlight mt-0.5">
+            <div className="text-[9px] text-ed-ink3 mt-0.5">
               Added {(() => {
                 try {
                   const d = new Date(dep.created_at);
@@ -1320,27 +1320,27 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
             src={thumbUrl}
             alt=""
             draggable="false"
-            className="w-10 h-10 object-cover rounded-lg bg-gray-100 flex-shrink-0 cursor-zoom-in hover:ring-2 hover:ring-navy/30 transition-all"
+            className="w-10 h-10 object-cover rounded-lg bg-ed-bg flex-shrink-0 cursor-zoom-in hover:ring-2 hover:ring-ed-accent/30 transition-all"
             loading="lazy"
             onClick={(e) => { e.stopPropagation(); setPreviewImage(thumbUrl); }}
             title="Click to preview"
           />
         ) : (
-          <div className="w-10 h-10 rounded-lg bg-gray-100 flex-shrink-0" />
+          <div className="w-10 h-10 rounded-lg bg-ed-bg flex-shrink-0" />
         )}
-        <span className="text-[8px] font-bold text-navy bg-navy/10 px-1 py-0.5 rounded tracking-wide flex-shrink-0">Single Image</span>
+        <span className="text-[8px] font-bold text-ed-accent bg-ed-accent/10 px-1 py-0.5 rounded tracking-wide flex-shrink-0">Single Image</span>
 
         {/* Action buttons on hover */}
         <div className="opacity-100 md:opacity-0 md:group-hover:opacity-100 flex items-center gap-0.5 flex-shrink-0 transition-opacity">
           {inStaging && (
-            <span className="text-[10px] text-navy font-medium mr-1">Edit</span>
+            <span className="text-[10px] text-ed-accent font-medium mr-1">Edit</span>
           )}
           {inStaging && (
             <button
               onMouseDown={(e) => e.stopPropagation()}
               onDragStart={(e) => e.preventDefault()}
               onClick={(e) => { e.stopPropagation(); handleDuplicate(dep.id); }}
-              className="p-1 rounded-lg hover:bg-navy/10 text-textlight hover:text-navy transition-colors"
+              className="p-1 rounded-lg hover:bg-ed-accent/10 text-ed-ink3 hover:text-ed-accent transition-colors"
               title="Duplicate"
             >
               <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1353,7 +1353,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
               onMouseDown={(e) => e.stopPropagation()}
               onDragStart={(e) => e.preventDefault()}
               onClick={(e) => { e.stopPropagation(); handleMoveToQueue([dep.id]); }}
-              className="p-1 rounded-lg hover:bg-red-50 text-textlight hover:text-red-500 transition-colors"
+              className="p-1 rounded-lg hover:bg-red-50 text-ed-ink3 hover:text-red-500 transition-colors"
               title="Move back to Queue"
             >
               <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1379,7 +1379,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
       <div
         key={flexAd.id}
         className={`relative group rounded-xl border transition-all overflow-hidden ${
-          isSelected ? 'border-navy/40 bg-navy/5' : 'border-gray-200 bg-white hover:border-navy/20 hover:shadow-sm'
+          isSelected ? 'border-ed-accent/40 bg-[rgba(168,84,59,0.06)]' : 'border-ed-line bg-ed-surface hover:border-ed-accent/20'
         }`}
       >
         <div className="flex items-center gap-2.5 p-2">
@@ -1388,7 +1388,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
             type="button"
             onClick={(e) => { e.stopPropagation(); toggleStagingSelect(flexAd.id); }}
             className={`w-[14px] h-[14px] rounded flex-shrink-0 flex items-center justify-center transition-colors ${
-              isSelected ? 'bg-navy' : 'border-[1.5px] border-textlight/60 hover:border-navy/40'
+              isSelected ? 'bg-ed-accent border-ed-accent' : 'border-[1.5px] border-ed-ink3/60 hover:border-ed-accent/40'
             }`}
             aria-label={`Select ad set ${flexAd.name || ''}`}
           >
@@ -1402,7 +1402,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
           <button
             type="button"
             onClick={(e) => { e.stopPropagation(); toggleAdSetExpanded(flexAd.id); }}
-            className="w-6 h-6 rounded-lg flex-shrink-0 flex items-center justify-center text-textlight hover:text-navy hover:bg-navy/5 transition-colors"
+            className="w-6 h-6 rounded-lg flex-shrink-0 flex items-center justify-center text-ed-ink3 hover:text-ed-accent hover:bg-ed-accent/5 transition-colors"
             aria-expanded={isExpanded}
             aria-label={`${isExpanded ? 'Collapse' : 'Expand'} ad set ${flexAd.name || ''}`}
             title={isExpanded ? 'Collapse ad set' : 'Expand ad set'}
@@ -1413,20 +1413,20 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
           </button>
 
           <div className="min-w-0 flex-1">
-            <div className="text-[12px] font-medium text-textdark truncate">{flexAd.name}</div>
-            <div className="text-[10px] text-textlight">{childDeps.length} ad{childDeps.length !== 1 ? 's' : ''}</div>
+            <div className="text-[12px] font-serif font-medium text-ed-ink truncate">{flexAd.name}</div>
+            <div className="text-[10px] font-mono-ed text-ed-ink3">{childDeps.length} ad{childDeps.length !== 1 ? 's' : ''}</div>
             {placement && (
-              <div className="text-[9px] text-gold truncate">
+              <div className="text-[9px] text-ed-accent truncate">
                 {placement.campaignName}{placement.adSetName ? ` \u203A ${placement.adSetName}` : ''}
               </div>
             )}
             {(flexAd.lp_primary_url || flexAd.lp_secondary_url) && (
               <div className="flex items-center gap-2 text-[9px]">
                 {flexAd.lp_primary_url && (
-                  <a href={flexAd.lp_primary_url} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className="text-teal hover:text-teal/80 underline underline-offset-2">LP1</a>
+                  <a href={flexAd.lp_primary_url} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className="text-ed-green hover:text-ed-green/80 underline underline-offset-2">LP1</a>
                 )}
                 {flexAd.lp_secondary_url && (
-                  <a href={flexAd.lp_secondary_url} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className="text-teal hover:text-teal/80 underline underline-offset-2">LP2</a>
+                  <a href={flexAd.lp_secondary_url} target="_blank" rel="noopener noreferrer" onClick={(e) => e.stopPropagation()} className="text-ed-green hover:text-ed-green/80 underline underline-offset-2">LP2</a>
                 )}
               </div>
             )}
@@ -1435,30 +1435,30 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
           <div className="hidden sm:flex items-center gap-1 flex-shrink-0">
             {childDeps.slice(0, 3).map(d => (
               d.imageUrl ? (
-                <img key={d.id} src={d.imageUrl} alt="" className="w-9 h-9 object-cover rounded-lg bg-gray-100 cursor-zoom-in hover:ring-2 hover:ring-navy/30 transition-all" loading="lazy" onClick={(e) => { e.stopPropagation(); setPreviewImage(d.imageUrl); }} title="Click to preview" />
+                <img key={d.id} src={d.imageUrl} alt="" className="w-9 h-9 object-cover rounded-lg bg-ed-bg cursor-zoom-in hover:ring-2 hover:ring-ed-accent/30 transition-all" loading="lazy" onClick={(e) => { e.stopPropagation(); setPreviewImage(d.imageUrl); }} title="Click to preview" />
               ) : (
-                <div key={d.id} className="w-9 h-9 rounded-lg bg-gray-200" />
+                <div key={d.id} className="w-9 h-9 rounded-lg bg-ed-line" />
               )
             ))}
             {childDeps.length > 3 && (
-              <div className="w-9 h-9 rounded-lg bg-gray-200 flex items-center justify-center text-[10px] text-textlight">
+              <div className="w-9 h-9 rounded-lg bg-ed-line flex items-center justify-center text-[10px] font-mono-ed text-ed-ink3">
                 +{childDeps.length - 3}
               </div>
             )}
           </div>
-          <span className="text-[9px] font-bold text-navy bg-navy/10 px-1.5 py-0.5 rounded tracking-wide flex-shrink-0">Ad Set</span>
+          <span className="text-[9px] font-bold text-ed-accent bg-ed-accent/10 px-1.5 py-0.5 rounded tracking-wide flex-shrink-0">Ad Set</span>
 
           {/* Hover actions / Confirmation */}
           {flexActionConfirm?.id === flexAd.id ? (
             <div className="flex items-center gap-1 flex-shrink-0" onClick={(e) => e.stopPropagation()}>
-              <span className="text-[10px] text-textmid">
+              <span className="text-[10px] text-ed-ink2">
                 {flexActionConfirm.action === 'ungroup' ? 'Ungroup?' : flexActionConfirm.action === 'unplan' ? 'Move to queue?' : 'Remove from planner?'}
               </span>
               <button
                 type="button"
                 onClick={() => handleFlexAction(flexAd.id, flexActionConfirm.action)}
                 className={`text-[10px] px-1.5 py-0.5 rounded text-white transition-colors ${
-                  flexActionConfirm.action === 'remove' ? 'bg-red-500 hover:bg-red-600' : 'bg-navy hover:bg-navy-light'
+                  flexActionConfirm.action === 'remove' ? 'bg-red-500 hover:bg-red-600' : 'bg-ed-accent hover:bg-ed-accent/90'
                 }`}
               >
                 Confirm
@@ -1466,7 +1466,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
               <button
                 type="button"
                 onClick={() => setFlexActionConfirm(null)}
-                className="text-[10px] px-1.5 py-0.5 rounded text-textmid hover:bg-gray-100 transition-colors"
+                className="text-[10px] px-1.5 py-0.5 rounded text-ed-ink2 hover:bg-ed-bg transition-colors"
               >
                 Cancel
               </button>
@@ -1476,7 +1476,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
               <button
                 type="button"
                 onClick={(e) => { e.stopPropagation(); openSidebar({ type: 'flex', flexAd, deps: childDeps }); }}
-                className="px-2 py-1 rounded-lg bg-navy/5 hover:bg-navy/10 text-[10px] font-medium text-navy transition-colors"
+                className="px-2 py-1 rounded-lg bg-ed-accent/5 hover:bg-ed-accent/10 text-[10px] font-medium text-ed-accent transition-colors"
                 title="Open ad set details"
               >
                 Details
@@ -1485,7 +1485,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
               <button
                 type="button"
                 onClick={(e) => { e.stopPropagation(); setFlexActionConfirm({ id: flexAd.id, action: 'ungroup' }); }}
-                className="p-1 rounded-lg hover:bg-navy/10 text-textlight hover:text-navy transition-colors"
+                className="p-1 rounded-lg hover:bg-ed-accent/10 text-ed-ink3 hover:text-ed-accent transition-colors"
                 title="Ungroup"
               >
                 <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1496,7 +1496,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
               <button
                 type="button"
                 onClick={(e) => { e.stopPropagation(); setFlexActionConfirm({ id: flexAd.id, action: 'unplan' }); }}
-                className="p-1 rounded-lg hover:bg-gold/10 text-textlight hover:text-gold transition-colors"
+                className="p-1 rounded-lg hover:bg-ed-accent/10 text-ed-ink3 hover:text-ed-accent transition-colors"
                 title="Move to queue"
               >
                 <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1507,7 +1507,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
               <button
                 type="button"
                 onClick={(e) => { e.stopPropagation(); setFlexActionConfirm({ id: flexAd.id, action: 'remove' }); }}
-                className="p-1 rounded-lg hover:bg-red-50 text-textlight hover:text-red-500 transition-colors"
+                className="p-1 rounded-lg hover:bg-red-50 text-ed-ink3 hover:text-red-500 transition-colors"
                 title="Remove from planner"
               >
                 <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1519,9 +1519,9 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
         </div>
 
         {isExpanded && (
-          <div className="border-t border-gray-100 bg-offwhite/40 px-3 py-2">
+          <div className="border-t border-ed-line bg-ed-bg/40 px-3 py-2">
             {childDeps.length === 0 ? (
-              <div className="pl-7 text-[11px] text-textlight py-2">No ads found in this ad set.</div>
+              <div className="pl-7 text-[11px] text-ed-ink3 py-2">No ads found in this ad set.</div>
             ) : (
               <div className="pl-7 space-y-1.5">
                 {childDeps.map(d => {
@@ -1537,30 +1537,30 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
                       key={d.id}
                       type="button"
                       onClick={(e) => { e.stopPropagation(); openSidebar({ type: 'single', deployment: d, ad: d.ad }); }}
-                      className="w-full flex items-center gap-2.5 p-2 rounded-lg border border-gray-100 bg-white hover:border-navy/20 hover:shadow-sm transition-all text-left"
+                      className="w-full flex items-center gap-2.5 p-2 rounded-lg border border-ed-line bg-ed-surface hover:border-ed-accent/20 transition-all text-left"
                     >
                       {d.imageUrl ? (
                         <img
                           src={d.imageUrl}
                           alt=""
-                          className="w-11 h-11 object-cover rounded-lg bg-gray-100 flex-shrink-0 cursor-zoom-in hover:ring-2 hover:ring-navy/30 transition-all"
+                          className="w-11 h-11 object-cover rounded-lg bg-ed-bg flex-shrink-0 cursor-zoom-in hover:ring-2 hover:ring-ed-accent/30 transition-all"
                           loading="lazy"
                           onClick={(e) => { e.stopPropagation(); setPreviewImage(d.imageUrl); }}
                           title="Click to preview"
                         />
                       ) : (
-                        <div className="w-11 h-11 rounded-lg bg-gray-100 flex-shrink-0" />
+                        <div className="w-11 h-11 rounded-lg bg-ed-bg flex-shrink-0" />
                       )}
                       <div className="min-w-0 flex-1">
-                        <div className="text-[12px] font-medium text-textdark truncate">{adName}</div>
+                        <div className="text-[12px] font-medium text-ed-ink truncate">{adName}</div>
                         {d.ad?.body_copy && (
-                          <div className="text-[10px] text-textlight truncate mt-0.5">{d.ad.body_copy}</div>
+                          <div className="text-[10px] text-ed-ink3 truncate mt-0.5">{d.ad.body_copy}</div>
                         )}
                         {addedAt && (
-                          <div className="text-[9px] text-textlight mt-0.5">Added {addedAt}</div>
+                          <div className="text-[9px] text-ed-ink3 mt-0.5">Added {addedAt}</div>
                         )}
                       </div>
-                      <span className="text-[10px] text-navy font-medium flex-shrink-0">Details</span>
+                      <span className="text-[10px] text-ed-accent font-medium flex-shrink-0">Details</span>
                     </button>
                   );
                 })}
@@ -1586,16 +1586,16 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
         <div className="fixed inset-0 bg-black/20 z-40" onClick={closeSidebar} />
 
         {/* Panel */}
-        <div className="fixed right-0 top-0 h-[100dvh] w-full sm:w-[min(92vw,960px)] bg-white shadow-xl z-50 flex flex-col overflow-hidden overscroll-contain animate-slide-in-right">
+        <div className="fixed right-0 top-0 h-[100dvh] w-full sm:w-[min(92vw,960px)] bg-ed-surface shadow-xl z-50 flex flex-col overflow-hidden overscroll-contain animate-slide-in-right">
           {/* Header */}
-          <div className="sticky top-0 bg-white border-b border-gray-100 px-5 py-4 flex items-center justify-between z-10">
+          <div className="sticky top-0 bg-ed-surface border-b border-ed-line px-5 py-4 flex items-center justify-between z-10">
             <div className="flex items-center gap-2">
-              {isFlex && <span className="text-[9px] font-bold text-navy bg-navy/10 px-1.5 py-0.5 rounded tracking-wide">Ad Set</span>}
-              <h3 className="text-[14px] font-semibold text-textdark">
+              {isFlex && <span className="text-[9px] font-bold text-ed-accent bg-ed-accent/10 px-1.5 py-0.5 rounded tracking-wide">Ad Set</span>}
+              <h3 className="text-[14px] font-serif text-ed-ink">
                 Ad Details
               </h3>
             </div>
-            <button onClick={closeSidebar} className="p-1.5 rounded-lg hover:bg-gray-100 text-textlight transition-colors">
+            <button onClick={closeSidebar} className="p-1.5 rounded-lg hover:bg-ed-bg text-ed-ink3 hover:text-ed-ink transition-colors">
               <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
               </svg>
@@ -1606,7 +1606,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
             {/* Image section */}
             {isFlex ? (
               <div className="space-y-2">
-                <label className="text-[10px] font-medium text-textlight uppercase tracking-wider">
+                <label className="text-[10px] uppercase tracking-[0.10em] text-ed-ink3">
                   {childDeps.length} Ad{childDeps.length !== 1 ? 's' : ''} in Ad Set
                 </label>
                 {childDeps.map(d => {
@@ -1615,24 +1615,24 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
                   return (
                     <div
                       key={d.id}
-                      className="rounded-xl border border-gray-200 overflow-hidden"
+                      className="rounded-xl border border-ed-line overflow-hidden"
                     >
                       <button
                         onClick={() => setExpandedFlexChild(isExpanded ? null : d.id)}
-                        className="w-full flex items-center gap-3 p-2.5 hover:bg-offwhite transition-colors"
+                        className="w-full flex items-center gap-3 p-2.5 hover:bg-ed-bg transition-colors"
                       >
                         {d.imageUrl ? (
-                          <img src={d.imageUrl} alt="" className="w-12 h-12 object-cover rounded-lg bg-gray-100 flex-shrink-0" />
+                          <img src={d.imageUrl} alt="" className="w-12 h-12 object-cover rounded-lg bg-ed-bg flex-shrink-0" />
                         ) : (
-                          <div className="w-12 h-12 rounded-lg bg-gray-200 flex-shrink-0" />
+                          <div className="w-12 h-12 rounded-lg bg-ed-line flex-shrink-0" />
                         )}
                         <div className="min-w-0 flex-1 text-left">
-                          <div className="text-[12px] font-medium text-textdark truncate">{adName}</div>
+                          <div className="text-[12px] font-medium text-ed-ink truncate">{adName}</div>
                           {d.ad?.body_copy && (
-                            <div className="text-[10px] text-textlight truncate mt-0.5">{d.ad.body_copy}</div>
+                            <div className="text-[10px] text-ed-ink3 truncate mt-0.5">{d.ad.body_copy}</div>
                           )}
                         </div>
-                        <span className="inline-flex items-center gap-1 text-[12px] font-medium text-navy hover:text-navy/80 bg-navy/5 hover:bg-navy/10 px-2 py-1 rounded-md transition-all whitespace-nowrap">
+                        <span className="inline-flex items-center gap-1 text-[12px] font-medium text-ed-accent hover:text-ed-accent/80 bg-ed-accent/5 hover:bg-ed-accent/10 px-2 py-1 rounded-md transition-all whitespace-nowrap">
                           Details
                           <svg className={`w-3.5 h-3.5 flex-shrink-0 transition-transform ${isExpanded ? 'rotate-180' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
@@ -1641,17 +1641,17 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
                       </button>
                       {isExpanded && d.imageUrl && (
                         <div className="px-2.5 pb-2.5">
-                          <img src={d.imageUrl} alt="" className="w-full max-h-72 object-contain rounded-lg bg-gray-100" />
+                          <img src={d.imageUrl} alt="" className="w-full max-h-72 object-contain rounded-lg bg-ed-bg" />
                           {d.ad?.angle && (
                             <div className="mt-2">
-                              <span className="text-[9px] font-medium text-textlight uppercase tracking-wider">Angle</span>
-                              <p className="text-[11px] text-textdark mt-0.5">{d.ad.angle}</p>
+                              <span className="text-[9px] uppercase tracking-[0.10em] text-ed-ink3">Angle</span>
+                              <p className="text-[11px] text-ed-ink mt-0.5">{d.ad.angle}</p>
                             </div>
                           )}
                           {d.ad?.headline && (
                             <div className="mt-1.5">
-                              <span className="text-[9px] font-medium text-textlight uppercase tracking-wider">Headline</span>
-                              <p className="text-[11px] text-textdark mt-0.5">{d.ad.headline}</p>
+                              <span className="text-[9px] uppercase tracking-[0.10em] text-ed-ink3">Headline</span>
+                              <p className="text-[11px] text-ed-ink mt-0.5">{d.ad.headline}</p>
                             </div>
                           )}
                         </div>
@@ -1662,63 +1662,63 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
               </div>
             ) : (
               dep?.imageUrl && (
-                <img src={dep.imageUrl} alt="" className="w-full max-h-[42vh] object-contain rounded-xl bg-gray-100" />
+                <img src={dep.imageUrl} alt="" className="w-full max-h-[42vh] object-contain rounded-xl bg-ed-bg" />
               )
             )}
 
             {/* ─── Ad Name ─── */}
             <div>
-              <label className="text-[11px] font-semibold text-textdark uppercase tracking-wider">Ad Name</label>
+              <label className="text-[10px] uppercase tracking-[0.10em] text-ed-ink3">Ad Name</label>
               <input
                 type="text"
                 value={sidebarForm.ad_name}
                 onChange={(e) => setSidebarForm(prev => ({ ...prev, ad_name: e.target.value }))}
-                className="input-apple text-[12px] w-full mt-1.5"
+                className="input-apple !border-ed-line focus:!ring-ed-accent/20 focus:!border-ed-accent text-[12px] w-full mt-1.5"
                 placeholder="Enter ad name..."
               />
             </div>
 
             {/* Ad info (single ad only) */}
             {!isFlex && dep?.ad && (
-              <div className="space-y-2.5 bg-offwhite rounded-xl p-4">
+              <div className="space-y-2.5 bg-ed-bg rounded-xl p-4">
                 {dep.ad.angle && (
                   <div>
-                    <label className="text-[10px] font-medium text-textlight uppercase tracking-wider">Angle</label>
-                    <p className="text-[12px] text-textdark mt-0.5">{dep.ad.angle}</p>
+                    <label className="text-[10px] uppercase tracking-[0.10em] text-ed-ink3">Angle</label>
+                    <p className="text-[12px] text-ed-ink mt-0.5">{dep.ad.angle}</p>
                   </div>
                 )}
                 {dep.ad.headline && (
                   <div>
-                    <label className="text-[10px] font-medium text-textlight uppercase tracking-wider">Headline</label>
-                    <p className="text-[12px] text-textdark mt-0.5">{dep.ad.headline}</p>
+                    <label className="text-[10px] uppercase tracking-[0.10em] text-ed-ink3">Headline</label>
+                    <p className="text-[12px] text-ed-ink mt-0.5">{dep.ad.headline}</p>
                   </div>
                 )}
                 {dep.ad.body_copy && (
                   <div>
-                    <label className="text-[10px] font-medium text-textlight uppercase tracking-wider">Body Copy</label>
-                    <p className="text-[12px] text-textdark mt-0.5 whitespace-pre-wrap">{dep.ad.body_copy}</p>
+                    <label className="text-[10px] uppercase tracking-[0.10em] text-ed-ink3">Body Copy</label>
+                    <p className="text-[12px] text-ed-ink mt-0.5 whitespace-pre-wrap">{dep.ad.body_copy}</p>
                   </div>
                 )}
               </div>
             )}
 
             {/* ─── Primary Text (collapsible) ─── */}
-            <div className="order-[20] rounded-xl border border-gray-200 overflow-hidden">
+            <div className="order-[20] rounded-xl border border-ed-line overflow-hidden">
               <div
                 onClick={() => setPrimaryTextOpen(!primaryTextOpen)}
-                className="w-full flex items-center justify-between px-4 py-3 bg-offwhite hover:bg-gray-100 transition-colors cursor-pointer select-none"
+                className="w-full flex items-center justify-between px-4 py-3 bg-ed-bg hover:bg-ed-bg/80 transition-colors cursor-pointer select-none"
               >
                 <div className="flex items-center gap-2">
-                  <svg className={`w-3.5 h-3.5 text-textmid transition-transform ${primaryTextOpen ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <svg className={`w-3.5 h-3.5 text-ed-ink2 transition-transform ${primaryTextOpen ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                   </svg>
-                  <span className="text-[11px] font-semibold text-textdark uppercase tracking-wider">Primary Text</span>
+                  <span className="text-[11px] font-serif text-ed-ink uppercase tracking-wider">Primary Text</span>
                   {primaryTextThread.length > 2 && (
-                    <span className="text-[9px] text-gold font-medium bg-gold/10 px-1.5 py-0.5 rounded-full">
+                    <span className="text-[9px] text-ed-accent font-medium bg-[rgba(168,84,59,0.06)] px-1.5 py-0.5 rounded-full">
                       Round {Math.floor(primaryTextThread.length / 2)}
                     </span>
                   )}
-                  <span className="text-[10px] text-textlight bg-black/5 px-1.5 py-0.5 rounded-full">
+                  <span className="text-[10px] font-mono-ed text-ed-ink3 bg-black/5 px-1.5 py-0.5 rounded-full">
                     {sidebarForm.primary_texts.filter(t => t.trim()).length}/5
                   </span>
                 </div>
@@ -1728,13 +1728,13 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
                   {/* Creative direction input + Generate button */}
                   <div>
                     <div className="flex items-center justify-between mb-1">
-                      <label className="text-[10px] font-medium text-textlight uppercase tracking-wider">
+                      <label className="text-[10px] uppercase tracking-[0.10em] text-ed-ink3">
                         Creative Direction <span className="normal-case font-normal">(optional)</span>
                       </label>
                       {primaryTextThread.length > 0 && !generatingPrimaryText && (
                         <button
                           onClick={() => { setPrimaryTextThread([]); setPrimaryTextDirection(''); setPrimaryTextDirectionHistory([]); }}
-                          className="text-[9px] text-textlight hover:text-navy underline transition-colors"
+                          className="text-[9px] text-ed-ink3 hover:text-ed-accent underline transition-colors"
                         >
                           Start over
                         </button>
@@ -1743,19 +1743,19 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
                     <textarea
                       value={primaryTextDirection}
                       onChange={(e) => setPrimaryTextDirection(e.target.value)}
-                      className="input-apple text-[12px] w-full"
+                      className="input-apple !border-ed-line focus:!ring-ed-accent/20 focus:!border-ed-accent text-[12px] w-full"
                       rows={2}
                       placeholder={primaryTextThread.length > 0
                         ? 'e.g. "Make them shorter and punchier" or "Focus more on the skeptic angle"'
                         : 'e.g. "Hook about how I thought grounding was a scam, then explain why it often is — click to learn why. Keep it short."'}
                     />
-                    <p className="text-[9px] text-textlight mt-1">
+                    <p className="text-[9px] text-ed-ink3 mt-1">
                       {primaryTextThread.length > 0
                         ? 'Each prompt builds on the last — tell Claude what to adjust and it\'ll refine the variations.'
                         : 'Optional — leave blank to auto-generate, or describe the tone, hook, angle, or structure you want.'}
                     </p>
                     {/https?:\/\/[^\s"'<>]+/i.test(primaryTextDirection) && (
-                      <p className="text-[9px] text-teal mt-1 flex items-center gap-1">
+                      <p className="text-[9px] text-ed-green mt-1 flex items-center gap-1">
                         <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101" />
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.172 13.828a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.102 1.101" />
@@ -1766,10 +1766,10 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
                     {/* Direction history */}
                     {primaryTextDirectionHistory.length > 0 && (
                       <div className="mt-2 space-y-1">
-                        <p className="text-[9px] text-textlight font-medium uppercase tracking-wider">Previous directions</p>
+                        <p className="text-[9px] text-ed-ink3 font-medium uppercase tracking-wider">Previous directions</p>
                         {primaryTextDirectionHistory.map((d, i) => (
-                          <div key={i} className="flex items-start gap-1.5 text-[10px] text-textmid bg-navy/5 rounded-lg px-2.5 py-1.5">
-                            <span className="text-textlight font-medium flex-shrink-0">{i + 1}.</span>
+                          <div key={i} className="flex items-start gap-1.5 text-[10px] text-ed-ink2 bg-ed-accent/5 rounded-lg px-2.5 py-1.5">
+                            <span className="text-ed-ink3 font-medium flex-shrink-0">{i + 1}.</span>
                             <span className="break-words">{d}</span>
                           </div>
                         ))}
@@ -1779,7 +1779,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
                     <button
                       onClick={handleGeneratePrimaryText}
                       disabled={generatingPrimaryText}
-                      className="mt-2 w-full py-2 rounded-lg bg-navy text-white hover:bg-navy-light transition-colors disabled:opacity-50 inline-flex items-center justify-center gap-1.5 text-[11px] font-medium"
+                      className="mt-2 w-full py-2 rounded-[7px] bg-ed-accent text-[#fbfaf6] hover:bg-ed-accent/90 transition-colors disabled:opacity-50 inline-flex items-center justify-center gap-1.5 text-[11px] font-medium"
                     >
                       {generatingPrimaryText ? (
                         <>
@@ -1802,7 +1802,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
                     {primaryTextRoundHistory.length > 0 && !generatingPrimaryText && (
                       <button
                         onClick={handleUndoPrimaryText}
-                        className="mt-1.5 w-full py-1.5 rounded-lg border border-gray-200 text-[10px] text-textmid hover:text-navy hover:border-navy/30 hover:bg-navy/5 transition-colors inline-flex items-center justify-center gap-1"
+                        className="mt-1.5 w-full py-1.5 rounded-lg border border-ed-line text-[10px] text-ed-ink2 hover:text-ed-accent hover:border-ed-accent/30 hover:bg-ed-accent/5 transition-colors inline-flex items-center justify-center gap-1"
                       >
                         <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a5 5 0 015 5v2M3 10l4-4M3 10l4 4" />
@@ -1813,18 +1813,18 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
                   </div>
 
                   {/* Divider */}
-                  {sidebarForm.primary_texts.length > 0 && <div className="border-t border-gray-100" />}
+                  {sidebarForm.primary_texts.length > 0 && <div className="border-t border-ed-line" />}
 
                   {Array.from({ length: Math.max(sidebarForm.primary_texts.length, 0) }, (_, i) => i).map(i => (
                     <div key={i}>
                       <div className="flex items-center justify-between mb-1">
-                        <span className="text-[10px] text-textlight font-medium">Variation {i + 1}</span>
+                        <span className="text-[10px] text-ed-ink3 font-medium">Variation {i + 1}</span>
                         <button
                           onClick={() => setSidebarForm(prev => ({
                             ...prev,
                             primary_texts: prev.primary_texts.filter((_, idx) => idx !== i),
                           }))}
-                          className="text-[10px] text-textlight hover:text-red-500 transition-colors"
+                          className="text-[10px] text-ed-ink3 hover:text-red-500 transition-colors"
                         >
                           Remove
                         </button>
@@ -1836,7 +1836,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
                           updated[i] = e.target.value;
                           setSidebarForm(prev => ({ ...prev, primary_texts: updated }));
                         }}
-                        className="input-apple text-[12px] w-full"
+                        className="input-apple !border-ed-line focus:!ring-ed-accent/20 focus:!border-ed-accent text-[12px] w-full"
                         rows={4}
                         placeholder={`Primary text variation ${i + 1}...`}
                       />
@@ -1845,7 +1845,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
                   {sidebarForm.primary_texts.length < 5 && (
                     <button
                       onClick={() => setSidebarForm(prev => ({ ...prev, primary_texts: [...prev.primary_texts, ''] }))}
-                      className="w-full py-2 rounded-lg border border-dashed border-gray-300 text-[11px] text-textmid hover:border-navy/30 hover:text-navy hover:bg-navy/5 transition-colors inline-flex items-center justify-center gap-1"
+                      className="w-full py-2 rounded-lg border border-dashed border-ed-line text-[11px] text-ed-ink2 hover:border-ed-accent/30 hover:text-ed-accent hover:bg-ed-accent/5 transition-colors inline-flex items-center justify-center gap-1"
                     >
                       <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
@@ -1854,29 +1854,29 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
                     </button>
                   )}
                   {sidebarForm.primary_texts.length === 0 && !generatingPrimaryText && (
-                    <p className="text-[11px] text-textlight italic text-center py-2">No primary text yet. Click Generate above or Add Variation.</p>
+                    <p className="text-[11px] text-ed-ink3 italic text-center py-2">No primary text yet. Click Generate above or Add Variation.</p>
                   )}
                 </div>
               )}
             </div>
 
             {/* ─── Headlines (collapsible) ─── */}
-            <div className="order-[21] rounded-xl border border-gray-200 overflow-hidden">
+            <div className="order-[21] rounded-xl border border-ed-line overflow-hidden">
               <div
                 onClick={() => setHeadlinesOpen(!headlinesOpen)}
-                className="w-full flex items-center justify-between px-4 py-3 bg-offwhite hover:bg-gray-100 transition-colors cursor-pointer select-none"
+                className="w-full flex items-center justify-between px-4 py-3 bg-ed-bg hover:bg-ed-bg/80 transition-colors cursor-pointer select-none"
               >
                 <div className="flex items-center gap-2">
-                  <svg className={`w-3.5 h-3.5 text-textmid transition-transform ${headlinesOpen ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <svg className={`w-3.5 h-3.5 text-ed-ink2 transition-transform ${headlinesOpen ? 'rotate-90' : ''}`} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
                   </svg>
-                  <span className="text-[11px] font-semibold text-textdark uppercase tracking-wider">Headline</span>
+                  <span className="text-[11px] font-serif text-ed-ink uppercase tracking-wider">Headline</span>
                   {headlineThread.length > 2 && (
-                    <span className="text-[9px] text-gold font-medium bg-gold/10 px-1.5 py-0.5 rounded-full">
+                    <span className="text-[9px] text-ed-accent font-medium bg-[rgba(168,84,59,0.06)] px-1.5 py-0.5 rounded-full">
                       Round {Math.floor(headlineThread.length / 2)}
                     </span>
                   )}
-                  <span className="text-[10px] text-textlight bg-black/5 px-1.5 py-0.5 rounded-full">
+                  <span className="text-[10px] font-mono-ed text-ed-ink3 bg-black/5 px-1.5 py-0.5 rounded-full">
                     {sidebarForm.ad_headlines.filter(h => h.trim()).length}/5
                   </span>
                 </div>
@@ -1886,13 +1886,13 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
                   {/* Creative direction input + Generate button */}
                   <div>
                     <div className="flex items-center justify-between mb-1">
-                      <label className="text-[10px] font-medium text-textlight uppercase tracking-wider">
+                      <label className="text-[10px] uppercase tracking-[0.10em] text-ed-ink3">
                         Creative Direction <span className="normal-case font-normal">(optional)</span>
                       </label>
                       {headlineThread.length > 0 && !generatingHeadlines && (
                         <button
                           onClick={() => { setHeadlineThread([]); setHeadlineDirection(''); setHeadlineDirectionHistory([]); }}
-                          className="text-[9px] text-textlight hover:text-navy underline transition-colors"
+                          className="text-[9px] text-ed-ink3 hover:text-ed-accent underline transition-colors"
                         >
                           Start over
                         </button>
@@ -1901,13 +1901,13 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
                     <textarea
                       value={headlineDirection}
                       onChange={(e) => setHeadlineDirection(e.target.value)}
-                      className="input-apple text-[12px] w-full"
+                      className="input-apple !border-ed-line focus:!ring-ed-accent/20 focus:!border-ed-accent text-[12px] w-full"
                       rows={2}
                       placeholder={headlineThread.length > 0
                         ? 'e.g. "Make them more urgent" or "Include a question format"'
                         : 'e.g. "Curiosity-driven, short, punchy" or "Use numbers and stats"'}
                     />
-                    <p className="text-[9px] text-textlight mt-1">
+                    <p className="text-[9px] text-ed-ink3 mt-1">
                       {headlineThread.length > 0
                         ? 'Each prompt builds on the last — tell Claude what to adjust and it\'ll refine the headlines.'
                         : sidebarForm.primary_texts.filter(t => t.trim()).length === 0
@@ -1917,10 +1917,10 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
                     {/* Direction history */}
                     {headlineDirectionHistory.length > 0 && (
                       <div className="mt-2 space-y-1">
-                        <p className="text-[9px] text-textlight font-medium uppercase tracking-wider">Previous directions</p>
+                        <p className="text-[9px] text-ed-ink3 font-medium uppercase tracking-wider">Previous directions</p>
                         {headlineDirectionHistory.map((d, i) => (
-                          <div key={i} className="flex items-start gap-1.5 text-[10px] text-textmid bg-navy/5 rounded-lg px-2.5 py-1.5">
-                            <span className="text-textlight font-medium flex-shrink-0">{i + 1}.</span>
+                          <div key={i} className="flex items-start gap-1.5 text-[10px] text-ed-ink2 bg-ed-accent/5 rounded-lg px-2.5 py-1.5">
+                            <span className="text-ed-ink3 font-medium flex-shrink-0">{i + 1}.</span>
                             <span className="break-words">{d}</span>
                           </div>
                         ))}
@@ -1930,7 +1930,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
                     <button
                       onClick={handleGenerateHeadlines}
                       disabled={generatingHeadlines || sidebarForm.primary_texts.filter(t => t.trim()).length === 0}
-                      className="mt-2 w-full py-2 rounded-lg bg-navy text-white hover:bg-navy-light transition-colors disabled:opacity-50 inline-flex items-center justify-center gap-1.5 text-[11px] font-medium"
+                      className="mt-2 w-full py-2 rounded-[7px] bg-ed-accent text-[#fbfaf6] hover:bg-ed-accent/90 transition-colors disabled:opacity-50 inline-flex items-center justify-center gap-1.5 text-[11px] font-medium"
                       title={sidebarForm.primary_texts.filter(t => t.trim()).length === 0 ? 'Generate primary text first' : ''}
                     >
                       {generatingHeadlines ? (
@@ -1954,7 +1954,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
                     {headlineRoundHistory.length > 0 && !generatingHeadlines && (
                       <button
                         onClick={handleUndoHeadlines}
-                        className="mt-1.5 w-full py-1.5 rounded-lg border border-gray-200 text-[10px] text-textmid hover:text-navy hover:border-navy/30 hover:bg-navy/5 transition-colors inline-flex items-center justify-center gap-1"
+                        className="mt-1.5 w-full py-1.5 rounded-lg border border-ed-line text-[10px] text-ed-ink2 hover:text-ed-accent hover:border-ed-accent/30 hover:bg-ed-accent/5 transition-colors inline-flex items-center justify-center gap-1"
                       >
                         <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a5 5 0 015 5v2M3 10l4-4M3 10l4 4" />
@@ -1965,11 +1965,11 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
                   </div>
 
                   {/* Divider */}
-                  {sidebarForm.ad_headlines.length > 0 && <div className="border-t border-gray-100" />}
+                  {sidebarForm.ad_headlines.length > 0 && <div className="border-t border-ed-line" />}
 
                   {sidebarForm.ad_headlines.map((h, i) => (
                     <div key={i} className="flex items-center gap-2">
-                      <span className="text-[10px] text-textlight font-medium w-4 flex-shrink-0">{i + 1}.</span>
+                      <span className="text-[10px] text-ed-ink3 font-medium w-4 flex-shrink-0">{i + 1}.</span>
                       <input
                         type="text"
                         value={h}
@@ -1978,7 +1978,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
                           updated[i] = e.target.value;
                           setSidebarForm(prev => ({ ...prev, ad_headlines: updated }));
                         }}
-                        className="input-apple text-[12px] flex-1"
+                        className="input-apple !border-ed-line focus:!ring-ed-accent/20 focus:!border-ed-accent text-[12px] flex-1"
                         placeholder={`Headline ${i + 1}...`}
                       />
                       <button
@@ -1986,7 +1986,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
                           ...prev,
                           ad_headlines: prev.ad_headlines.filter((_, idx) => idx !== i),
                         }))}
-                        className="text-textlight hover:text-red-500 transition-colors flex-shrink-0"
+                        className="text-ed-ink3 hover:text-red-500 transition-colors flex-shrink-0"
                       >
                         <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -1997,7 +1997,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
                   {sidebarForm.ad_headlines.length < 5 && (
                     <button
                       onClick={() => setSidebarForm(prev => ({ ...prev, ad_headlines: [...prev.ad_headlines, ''] }))}
-                      className="w-full py-2 rounded-lg border border-dashed border-gray-300 text-[11px] text-textmid hover:border-navy/30 hover:text-navy hover:bg-navy/5 transition-colors inline-flex items-center justify-center gap-1"
+                      className="w-full py-2 rounded-lg border border-dashed border-ed-line text-[11px] text-ed-ink2 hover:border-ed-accent/30 hover:text-ed-accent hover:bg-ed-accent/5 transition-colors inline-flex items-center justify-center gap-1"
                     >
                       <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
@@ -2006,7 +2006,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
                     </button>
                   )}
                   {sidebarForm.ad_headlines.length === 0 && !generatingHeadlines && (
-                    <p className="text-[11px] text-textlight italic text-center py-2">
+                    <p className="text-[11px] text-ed-ink3 italic text-center py-2">
                       {sidebarForm.primary_texts.filter(t => t.trim()).length === 0
                         ? 'Generate primary text first, then generate headlines.'
                         : 'No headlines yet. Click Generate above or Add Headline.'}
@@ -2018,7 +2018,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
 
             {/* ─── Website URL ─── */}
             <div className="order-[5]">
-              <label className="text-[11px] font-semibold text-textdark uppercase tracking-wider">
+              <label className="text-[10px] uppercase tracking-[0.10em] text-ed-ink3">
                 Website URL{sidebarForm.destination_urls.length > 1 ? 's' : ''}
               </label>
               <div className="space-y-2 mt-1.5">
@@ -2032,7 +2032,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
                         updated[i] = e.target.value;
                         setSidebarForm(prev => ({ ...prev, destination_urls: updated }));
                       }}
-                      className="input-apple text-[12px] flex-1"
+                      className="input-apple !border-ed-line focus:!ring-ed-accent/20 focus:!border-ed-accent text-[12px] flex-1"
                       placeholder="https://..."
                     />
                     {sidebarForm.destination_urls.length > 1 && (
@@ -2041,7 +2041,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
                           ...prev,
                           destination_urls: prev.destination_urls.filter((_, idx) => idx !== i),
                         }))}
-                        className="p-1 rounded-lg text-textlight hover:text-red-500 hover:bg-red-50 transition-colors flex-shrink-0"
+                        className="p-1 rounded-lg text-ed-ink3 hover:text-red-500 hover:bg-red-50 transition-colors flex-shrink-0"
                         title="Remove URL"
                       >
                         <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -2054,7 +2054,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
               </div>
               <button
                 onClick={() => setSidebarForm(prev => ({ ...prev, destination_urls: [...prev.destination_urls, ''] }))}
-                className="mt-2 w-full py-1.5 rounded-lg border border-dashed border-gray-300 text-[10px] text-textmid hover:border-navy/30 hover:text-navy hover:bg-navy/5 transition-colors inline-flex items-center justify-center gap-1"
+                className="mt-2 w-full py-1.5 rounded-lg border border-dashed border-ed-line text-[10px] text-ed-ink2 hover:border-ed-accent/30 hover:text-ed-accent hover:bg-ed-accent/5 transition-colors inline-flex items-center justify-center gap-1"
               >
                 <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
@@ -2062,7 +2062,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
                 Add Another URL
               </button>
               {sidebarForm.destination_urls.length > 1 && (
-                <p className="text-[9px] text-gold mt-1.5 flex items-center gap-1">
+                <p className="text-[9px] text-ed-accent mt-1.5 flex items-center gap-1">
                   <svg className="w-3 h-3 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
                   </svg>
@@ -2078,16 +2078,16 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
                   type="checkbox"
                   checked={sidebarForm.display_link !== ''}
                   onChange={(e) => setSidebarForm(prev => ({ ...prev, display_link: e.target.checked ? (prev.display_link || ' ') : '' }))}
-                  className="rounded border-navy/30 text-navy focus:ring-navy/20 w-3.5 h-3.5"
+                  className="rounded border-ed-accent/30 text-ed-accent focus:ring-ed-accent/20 w-3.5 h-3.5"
                 />
-                <span className="text-[11px] font-semibold text-textdark uppercase tracking-wider">Use a Display Link</span>
+                <span className="text-[10px] uppercase tracking-[0.10em] text-ed-ink3">Use a Display Link</span>
               </label>
               {sidebarForm.display_link !== '' && (
                 <input
                   type="text"
                   value={sidebarForm.display_link.trim()}
                   onChange={(e) => setSidebarForm(prev => ({ ...prev, display_link: e.target.value }))}
-                  className="input-apple text-[12px] w-full mt-1.5"
+                  className="input-apple !border-ed-line focus:!ring-ed-accent/20 focus:!border-ed-accent text-[12px] w-full mt-1.5"
                   placeholder="e.g. yourbrand.com/offer"
                 />
               )}
@@ -2095,11 +2095,11 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
 
             {/* ─── Call to Action ─── */}
             <div className="order-[7]">
-              <label className="text-[11px] font-semibold text-textdark uppercase tracking-wider">Call to Action</label>
+              <label className="text-[10px] uppercase tracking-[0.10em] text-ed-ink3">Call to Action</label>
               <select
                 value={sidebarForm.cta_button}
                 onChange={(e) => setSidebarForm(prev => ({ ...prev, cta_button: e.target.value }))}
-                className="input-apple text-[12px] w-full mt-1.5"
+                className="input-apple !border-ed-line focus:!ring-ed-accent/20 focus:!border-ed-accent text-[12px] w-full mt-1.5"
               >
                 {CTA_OPTIONS.map(cta => (
                   <option key={cta} value={cta}>{cta.replace(/_/g, ' ')}</option>
@@ -2109,20 +2109,20 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
 
             {/* ─── Facebook Page ─── */}
             <div className="order-[8]">
-              <label className="text-[11px] font-semibold text-textdark uppercase tracking-wider">Facebook Page</label>
+              <label className="text-[10px] uppercase tracking-[0.10em] text-ed-ink3">Facebook Page</label>
               <input
                 type="text"
                 value={sidebarForm.facebook_page}
                 onChange={(e) => setSidebarForm(prev => ({ ...prev, facebook_page: e.target.value }))}
                 placeholder="e.g. My Brand Page"
-                className="input-apple text-[12px] w-full mt-1.5"
+                className="input-apple !border-ed-line focus:!ring-ed-accent/20 focus:!border-ed-accent text-[12px] w-full mt-1.5"
               />
-              <p className="text-[10px] text-textmid mt-1">The Facebook Page this ad will be posted from.</p>
+              <p className="text-[10px] text-ed-ink2 mt-1">The Facebook Page this ad will be posted from.</p>
             </div>
 
             {/* ─── Start Date ─── */}
             <div className="order-[9]">
-              <label className="text-[11px] font-semibold text-textdark uppercase tracking-wider">Start Date</label>
+              <label className="text-[10px] uppercase tracking-[0.10em] text-ed-ink3">Start Date</label>
               <select
                 value={sidebarForm.planned_date ? 'scheduled' : 'immediately'}
                 onChange={(e) => {
@@ -2137,7 +2137,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
                     setSidebarForm(prev => ({ ...prev, planned_date: prev.planned_date || local }));
                   }
                 }}
-                className="input-apple text-[12px] w-full mt-1.5"
+                className="input-apple !border-ed-line focus:!ring-ed-accent/20 focus:!border-ed-accent text-[12px] w-full mt-1.5"
               >
                 <option value="immediately">Immediately</option>
                 <option value="scheduled">Specific Date & Time</option>
@@ -2147,33 +2147,33 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
                   type="datetime-local"
                   value={sidebarForm.planned_date}
                   onChange={(e) => setSidebarForm(prev => ({ ...prev, planned_date: e.target.value }))}
-                  className="input-apple text-[12px] w-full mt-2"
+                  className="input-apple !border-ed-line focus:!ring-ed-accent/20 focus:!border-ed-accent text-[12px] w-full mt-2"
                 />
               )}
             </div>
 
             {/* ─── Notes ─── */}
-            <div className="order-[30] border-t border-gray-100 pt-4 mt-2">
-              <label className="text-[11px] text-textmid font-medium block mb-1">Notes <span className="text-textlight">(optional)</span></label>
+            <div className="order-[30] border-t border-ed-line pt-4 mt-2">
+              <label className="text-[11px] text-ed-ink2 font-medium block mb-1">Notes <span className="text-ed-ink3">(optional)</span></label>
               <textarea
                 value={sidebarForm.notes}
                 onChange={e => setSidebarForm(f => ({ ...f, notes: e.target.value }))}
                 placeholder="Internal notes about this ad..."
-                className="input-apple text-[12px] w-full mt-1 resize-none"
+                className="input-apple !border-ed-line focus:!ring-ed-accent/20 focus:!border-ed-accent text-[12px] w-full mt-1 resize-none"
                 rows={3}
               />
             </div>
 
             {/* ─── Campaign & Placement ─── */}
-            <div className="order-[10] border-t border-gray-100 pt-4 mt-2">
-              <h4 className="text-[11px] font-bold text-textmid uppercase tracking-wider mb-3">Campaign & Placement</h4>
+            <div className="order-[10] border-t border-ed-line pt-4 mt-2">
+              <h4 className="text-[11px] font-serif text-ed-ink2 uppercase tracking-wider mb-3">Campaign & Placement</h4>
 
               {/* Campaign dropdown */}
-              <label className="text-[11px] text-textmid font-medium">Campaign</label>
+              <label className="text-[11px] text-ed-ink2 font-medium">Campaign</label>
               <select
                 value={sidebarForm.campaign_id}
                 onChange={e => setSidebarForm(f => ({ ...f, campaign_id: e.target.value, new_campaign_name: '' }))}
-                className="input-apple text-[12px] w-full mt-1"
+                className="input-apple !border-ed-line focus:!ring-ed-accent/20 focus:!border-ed-accent text-[12px] w-full mt-1"
               >
                 <option value="">— Select Campaign —</option>
                 {campaigns.map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
@@ -2187,52 +2187,52 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
                   placeholder="New campaign name..."
                   value={sidebarForm.new_campaign_name}
                   onChange={e => setSidebarForm(f => ({ ...f, new_campaign_name: e.target.value }))}
-                  className="input-apple text-[12px] w-full mt-2"
+                  className="input-apple !border-ed-line focus:!ring-ed-accent/20 focus:!border-ed-accent text-[12px] w-full mt-2"
                   autoFocus
                 />
               )}
 
               {/* Ad Set text input */}
-              <label className="text-[11px] text-textmid font-medium mt-3 block">Ad Set</label>
+              <label className="text-[11px] text-ed-ink2 font-medium mt-3 block">Ad Set</label>
               <input
                 type="text"
                 placeholder="Ad set name..."
                 value={sidebarForm.ad_set_name}
                 onChange={e => setSidebarForm(f => ({ ...f, ad_set_name: e.target.value }))}
-                className="input-apple text-[12px] w-full mt-1"
+                className="input-apple !border-ed-line focus:!ring-ed-accent/20 focus:!border-ed-accent text-[12px] w-full mt-1"
               />
-              <p className="text-[9px] text-textlight mt-1">
+              <p className="text-[9px] text-ed-ink3 mt-1">
                 If an ad set with this name already exists in the selected campaign, the ad will be added to it. Otherwise a new ad set will be created.
               </p>
 
               {/* Duplicate Ad Set Name — optional field shown to employee in Ready to Post */}
-              <label className="text-[11px] text-textmid font-medium mt-3 block">Duplicate Ad Set Called <span className="text-textlight">(optional)</span></label>
+              <label className="text-[11px] text-ed-ink2 font-medium mt-3 block">Duplicate Ad Set Called <span className="text-ed-ink3">(optional)</span></label>
               <input
                 type="text"
                 placeholder="e.g. LAL Purchasers — New Creative"
                 value={sidebarForm.duplicate_adset_name}
                 onChange={e => setSidebarForm(f => ({ ...f, duplicate_adset_name: e.target.value }))}
-                className="input-apple text-[12px] w-full mt-1"
+                className="input-apple !border-ed-line focus:!ring-ed-accent/20 focus:!border-ed-accent text-[12px] w-full mt-1"
               />
-              <p className="text-[9px] text-textlight mt-1">
+              <p className="text-[9px] text-ed-ink3 mt-1">
                 If set, the employee will be told to duplicate the ad set above and rename the copy to this name. Useful when reusing an ad set's targeting settings with a new name.
               </p>
             </div>
 
             {/* ─── Duplicate Confirmation Dialog (multi-URL) ─── */}
             {duplicateConfirm && (
-              <div className="order-[40] mt-2 p-4 rounded-xl border-2 border-gold/30 bg-gold/5 space-y-3 fade-in">
+              <div className="order-[40] mt-2 p-4 rounded-xl border-2 border-ed-accent/30 bg-[rgba(168,84,59,0.06)] space-y-3 fade-in">
                 <div className="flex items-start gap-2.5">
-                  <div className="w-8 h-8 rounded-lg bg-gold/10 flex items-center justify-center flex-shrink-0">
-                    <svg className="w-4 h-4 text-gold" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <div className="w-8 h-8 rounded-lg bg-ed-accent/10 flex items-center justify-center flex-shrink-0">
+                    <svg className="w-4 h-4 text-ed-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                       <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
                     </svg>
                   </div>
                   <div>
-                    <p className="text-[12px] font-semibold text-textdark">
+                    <p className="text-[12px] font-semibold text-ed-ink">
                       Duplicate {isFlex ? 'ad set' : 'ad'} for {duplicateConfirm.urls.length} URLs?
                     </p>
-                    <p className="text-[11px] text-textmid mt-1">
+                    <p className="text-[11px] text-ed-ink2 mt-1">
                       {isFlex
                         ? `This will save the current ad set with the first URL, then duplicate all ${sidebarData?.deps?.length || 0} child ads for each extra URL — creating ${duplicateConfirm.urls.length - 1} new ad set${duplicateConfirm.urls.length > 2 ? 's' : ''}:`
                         : `This will save the current ad with the first URL, then create ${duplicateConfirm.urls.length - 1} duplicate${duplicateConfirm.urls.length > 2 ? 's' : ''} — each with a different website URL:`
@@ -2240,8 +2240,8 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
                     </p>
                     <ul className="mt-2 space-y-1">
                       {duplicateConfirm.urls.map((url, i) => (
-                        <li key={i} className="text-[10px] text-textmid flex items-start gap-1.5">
-                          <span className="text-gold font-semibold mt-px">{i === 0 ? 'Original:' : `Copy ${i}:`}</span>
+                        <li key={i} className="text-[10px] text-ed-ink2 flex items-start gap-1.5">
+                          <span className="text-ed-accent font-semibold mt-px">{i === 0 ? 'Original:' : `Copy ${i}:`}</span>
                           <span className="truncate">{url}</span>
                         </li>
                       ))}
@@ -2252,13 +2252,13 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
                   <button
                     onClick={() => handleSaveSidebar({ closeAfter: duplicateConfirm?.closeAfter })}
                     disabled={sidebarSaving}
-                    className="flex-1 text-[11px] py-2 rounded-xl bg-navy text-white hover:bg-navy-light transition-colors disabled:opacity-50"
+                    className="flex-1 text-[11px] py-2 rounded-[7px] bg-ed-accent text-[#fbfaf6] hover:bg-ed-accent/90 transition-colors disabled:opacity-50"
                   >
                     {sidebarSaving ? 'Saving...' : `Yes, Save & Create ${duplicateConfirm.urls.length - 1} Duplicate${duplicateConfirm.urls.length > 2 ? 's' : ''}`}
                   </button>
                   <button
                     onClick={() => setDuplicateConfirm(null)}
-                    className="text-[11px] px-3 py-2 rounded-xl bg-white border border-gray-200 text-textmid hover:bg-gray-50 transition-colors"
+                    className="text-[11px] px-3 py-2 rounded-xl bg-ed-surface border border-ed-line text-ed-ink2 hover:bg-ed-bg transition-colors"
                   >
                     Cancel
                   </button>
@@ -2266,18 +2266,18 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
               </div>
             )}
           </div>
-          <div className="border-t border-gray-100 bg-white px-5 py-3 flex items-center justify-end gap-2">
+          <div className="border-t border-ed-line bg-ed-surface px-5 py-3 flex items-center justify-end gap-2">
             <button
               onClick={closeSidebar}
               disabled={sidebarSaving}
-              className="btn-secondary text-[12px] px-4 py-2 disabled:opacity-50"
+              className="ed-ghost text-[12px] px-4 py-2 disabled:opacity-50"
             >
               Close
             </button>
             <button
               onClick={() => handleSaveSidebar({ closeAfter: true })}
               disabled={sidebarSaving}
-              className="btn-primary text-[12px] px-5 py-2 disabled:opacity-50"
+              className="px-5 py-2 rounded-[7px] text-[12px] bg-ed-accent text-[#fbfaf6] hover:bg-ed-accent/90 transition-colors disabled:opacity-50"
             >
               {sidebarSaving ? 'Saving...' : 'Save & Close'}
             </button>
@@ -2292,11 +2292,11 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
     return (
       <div className="space-y-4">
         {[0, 1, 2].map(i => (
-          <div key={i} className="card p-6 animate-pulse">
-            <div className="h-3 w-32 bg-gray-200 rounded mb-4" />
+          <div key={i} className="ed-card p-6 animate-pulse">
+            <div className="h-3 w-32 bg-ed-line rounded mb-4" />
             <div className="flex gap-3">
               {[0, 1, 2].map(j => (
-                <div key={j} className="w-24 h-16 bg-gray-100 rounded-lg" />
+                <div key={j} className="w-24 h-16 bg-ed-bg rounded-lg" />
               ))}
             </div>
           </div>
@@ -2314,8 +2314,8 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
 
         {/* ─── Left Column: Queue ─── */}
         <div
-          className={`w-[300px] flex-shrink-0 sticky top-4 card p-4 transition-all max-h-[calc(100vh-120px)] flex flex-col ${
-            dropTarget === 'unplanned' ? 'ring-2 ring-gold bg-gold/5' : ''
+          className={`w-[300px] flex-shrink-0 sticky top-4 ed-card p-4 transition-all max-h-[calc(100vh-120px)] flex flex-col ${
+            dropTarget === 'unplanned' ? 'ring-2 ring-ed-accent bg-[rgba(168,84,59,0.06)]' : ''
           }`}
           onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; setDropTarget('unplanned'); }}
           onDragLeave={handleDragLeave}
@@ -2329,10 +2329,10 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
                     onClick={toggleSelectAllUnplanned}
                     className={`w-[14px] h-[14px] rounded flex-shrink-0 flex items-center justify-center transition-colors ${
                       selectedUnplanned.size === unplannedDeps.length && unplannedDeps.length > 0
-                        ? 'bg-navy'
+                        ? 'bg-ed-accent border-ed-accent'
                         : selectedUnplanned.size > 0
-                          ? 'bg-navy/50'
-                          : 'border-[1.5px] border-textlight/60 hover:border-navy/40'
+                          ? 'bg-ed-accent/50'
+                          : 'border-[1.5px] border-ed-ink3/60 hover:border-ed-accent/40'
                     }`}
                   >
                     {selectedUnplanned.size > 0 && (
@@ -2344,24 +2344,24 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
                     )}
                   </button>
                 )}
-                <h3 className="text-[13px] font-semibold text-textdark">Queue</h3>
-                <span className="text-[11px] text-textlight bg-black/5 px-2 py-0.5 rounded-full">
+                <h3 className="text-[13px] font-serif text-ed-ink">Queue</h3>
+                <span className="text-[11px] font-mono-ed text-ed-ink3 bg-black/5 px-2 py-0.5 rounded-full">
                   {unplannedDeps.length}
                 </span>
               </div>
             </div>
-            <p className="text-[10px] text-textmid mt-1 leading-relaxed">
+            <p className="text-[10px] text-ed-ink2 mt-1 leading-relaxed">
               Newly deployed ads land here. Move them into Planner when you are ready to organize them.
             </p>
           </div>
 
           {/* Queue selection toolbar */}
           {selectedUnplanned.size > 0 && (
-            <div className="flex flex-wrap items-center gap-1.5 mb-3 text-[10px] p-2.5 rounded-xl bg-navy/5 border border-navy/10">
-              <span className="text-navy font-medium">{selectedUnplanned.size} selected</span>
+            <div className="flex flex-wrap items-center gap-1.5 mb-3 text-[10px] p-2.5 rounded-xl bg-ed-accent/5 border border-ed-accent/10">
+              <span className="text-ed-accent font-medium">{selectedUnplanned.size} selected</span>
               <button
                 onClick={() => handleMoveToPlanner([...selectedUnplanned])}
-                className="px-2 py-0.5 rounded-md bg-teal/10 border border-teal/20 text-teal font-medium hover:bg-teal/20 transition-colors"
+                className="px-2 py-0.5 rounded-md bg-ed-green/10 border border-ed-green/20 text-ed-green font-medium hover:bg-ed-green/20 transition-colors"
               >
                 Move to Planner
               </button>
@@ -2373,7 +2373,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
               </button>
               <button
                 onClick={() => setSelectedUnplanned(new Set())}
-                className="text-textlight hover:text-textmid"
+                className="text-ed-ink3 hover:text-ed-ink2"
               >
                 Clear
               </button>
@@ -2384,7 +2384,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
           <div className="flex-1 overflow-y-auto scrollbar-thin -mx-1 px-1">
             {unplannedDeps.length === 0 ? (
               <div className="py-8 text-center">
-                <p className="text-[11px] text-textlight">
+                <p className="text-[11px] text-ed-ink3">
                   No ads in queue. Deploy ads from Ad Studio to get started.
                 </p>
               </div>
@@ -2398,8 +2398,8 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
 
         {/* ─── Right Column: Planner ─── */}
         <div
-          className={`flex-1 min-w-0 card p-4 transition-all ${
-            dropTarget === 'staging' ? 'ring-2 ring-gold bg-gold/5' : ''
+          className={`flex-1 min-w-0 ed-card p-4 transition-all ${
+            dropTarget === 'staging' ? 'ring-2 ring-ed-accent bg-[rgba(168,84,59,0.06)]' : ''
           }`}
           onDragOver={(e) => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; setDropTarget('staging'); }}
           onDragLeave={handleDragLeave}
@@ -2409,16 +2409,16 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
           <div className="flex items-center justify-between mb-4">
             <div className="flex items-center gap-2">
               <div>
-                <h3 className="text-[14px] font-semibold text-textdark flex items-center gap-1">
+                <h3 className="text-[14px] font-serif text-ed-ink flex items-center gap-1">
                   Planner
                   <InfoTooltip text="Planner is the holding area for ads you are organizing. Select multiple ads here to create an ad set, then move the ad set to Ready to Post." position="right" />
                 </h3>
-                <p className="text-[11px] text-textmid mt-0.5">Drag ads here to plan them, assign a campaign, or combine them into an ad set.</p>
+                <p className="text-[11px] text-ed-ink2 mt-0.5">Drag ads here to plan them, assign a campaign, or combine them into an ad set.</p>
               </div>
               {undoState && (
                 <button
                   onClick={handleUndo}
-                  className="ml-2 px-3 py-1 text-[11px] font-medium bg-navy/5 hover:bg-navy/10 text-navy rounded-full transition-colors flex items-center gap-1.5 whitespace-nowrap"
+                  className="ml-2 px-3 py-1 text-[11px] font-medium bg-ed-accent/5 hover:bg-ed-accent/10 text-ed-accent rounded-full transition-colors flex items-center gap-1.5 whitespace-nowrap"
                   title="Undo (Cmd+Z)"
                 >
                   <svg className="w-3 h-3" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
@@ -2428,23 +2428,23 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
                 </button>
               )}
             </div>
-            <span className="text-[11px] text-textlight bg-black/5 px-2 py-0.5 rounded-full">
+            <span className="text-[11px] font-mono-ed text-ed-ink3 bg-black/5 px-2 py-0.5 rounded-full">
               {plannerItemCount} item{plannerItemCount !== 1 ? 's' : ''}
             </span>
           </div>
 
           {/* Staging toolbar — when items selected */}
           {selectedInStaging.size > 0 && (
-            <div className="flex flex-wrap items-center gap-1.5 mb-3 text-[10px] p-2.5 rounded-xl bg-navy/5 border border-navy/10">
+            <div className="flex flex-wrap items-center gap-1.5 mb-3 text-[10px] p-2.5 rounded-xl bg-ed-accent/5 border border-ed-accent/10">
               {/* Select All */}
               <button
                 onClick={toggleSelectAllStaging}
                 className={`w-[14px] h-[14px] rounded flex-shrink-0 flex items-center justify-center transition-colors ${
                   selectedInStaging.size === plannerItemCount && plannerItemCount > 0
-                    ? 'bg-navy'
+                    ? 'bg-ed-accent border-ed-accent'
                     : selectedInStaging.size > 0
-                      ? 'bg-navy/50'
-                      : 'border-[1.5px] border-textlight/60 hover:border-navy/40'
+                      ? 'bg-ed-accent/50'
+                      : 'border-[1.5px] border-ed-ink3/60 hover:border-ed-accent/40'
                 }`}
               >
                 {selectedInStaging.size > 0 && (
@@ -2455,7 +2455,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
                   </svg>
                 )}
               </button>
-              <span className="text-navy font-medium">{selectedInStaging.size} selected</span>
+              <span className="text-ed-accent font-medium">{selectedInStaging.size} selected</span>
               {selectedInStaging.size >= 2 && (
                 <button
                   onClick={() => {
@@ -2482,7 +2482,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
                     setCombineModalOpen(true);
                   }}
                   disabled={combiningFlex}
-                  className="px-2 py-1 rounded-lg bg-navy text-white hover:bg-navy-light transition-colors inline-flex items-center gap-1 disabled:opacity-50"
+                  className="px-2 py-1 rounded-[7px] bg-ed-accent text-[#fbfaf6] hover:bg-ed-accent/90 transition-colors inline-flex items-center gap-1 disabled:opacity-50"
                 >
                   <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 6a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2V6zm10 0a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2h-2a2 2 0 01-2-2V6zM4 16a2 2 0 012-2h2a2 2 0 012 2v2a2 2 0 01-2 2H6a2 2 0 01-2-2v-2z" />
@@ -2492,7 +2492,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
               )}
               <button
                 onClick={() => handleMarkReadyToPost([...selectedInStaging])}
-                className="px-2 py-1 rounded-lg bg-teal/10 border border-teal/30 text-teal font-medium hover:bg-teal/20 transition-colors inline-flex items-center gap-1"
+                className="px-2 py-1 rounded-lg bg-ed-green/10 border border-ed-green/30 text-ed-green font-medium hover:bg-ed-green/20 transition-colors inline-flex items-center gap-1"
               >
                 <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
@@ -2501,7 +2501,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
               </button>
               <button
                 onClick={() => handleMoveToQueue([...selectedInStaging])}
-                className="px-2 py-1 rounded-lg bg-white border border-gray-200 text-textmid hover:bg-gray-50 transition-colors"
+                className="px-2 py-1 rounded-lg bg-ed-surface border border-ed-line text-ed-ink2 hover:bg-ed-bg transition-colors"
               >
                 Move to Queue
               </button>
@@ -2513,7 +2513,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
               </button>
               <button
                 onClick={() => setSelectedInStaging(new Set())}
-                className="text-textlight hover:text-textmid ml-1"
+                className="text-ed-ink3 hover:text-ed-ink2 ml-1"
               >
                 Clear
               </button>
@@ -2523,14 +2523,14 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
           {/* Planner content */}
           {plannerItemCount === 0 ? (
             <div className={`py-12 text-center rounded-xl border-2 border-dashed transition-colors ${
-              dropTarget === 'staging' ? 'border-gold bg-gold/10' : 'border-gray-200'
+              dropTarget === 'staging' ? 'border-ed-accent bg-ed-accent/10' : 'border-ed-line'
             }`}>
-              <div className="w-12 h-12 rounded-2xl bg-navy/5 flex items-center justify-center mx-auto mb-3">
-                <svg className="w-6 h-6 text-textlight" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <div className="w-12 h-12 rounded-2xl bg-ed-accent/5 flex items-center justify-center mx-auto mb-3">
+                <svg className="w-6 h-6 text-ed-ink3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
                 </svg>
               </div>
-              <p className="text-[13px] text-textlight">
+              <p className="text-[13px] text-ed-ink3">
                 {dropTarget === 'staging' ? 'Drop ads here' : 'Move ads from Queue to start planning'}
               </p>
             </div>
@@ -2553,30 +2553,30 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
         <>
           <div className="fixed inset-0 bg-black/30 z-50" onClick={() => setDeleteConfirm({ open: false, ids: [], source: 'unplanned' })} />
           <div className="fixed inset-0 z-50 flex items-center justify-center pointer-events-none">
-            <div className="bg-white rounded-2xl shadow-xl p-6 max-w-sm w-full mx-4 pointer-events-auto">
+            <div className="bg-ed-surface rounded-xl shadow-xl p-6 max-w-sm w-full mx-4 pointer-events-auto">
               <div className="flex items-center gap-3 mb-3">
                 <div className="w-10 h-10 rounded-xl bg-red-50 flex items-center justify-center flex-shrink-0">
                   <svg className="w-5 h-5 text-red-500" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-2.5L13.732 4c-.77-.833-1.964-.833-2.732 0L4.082 16.5c-.77.833.192 2.5 1.732 2.5z" />
                   </svg>
                 </div>
-                <h3 className="text-[15px] font-semibold text-textdark">
+                <h3 className="text-[15px] font-serif text-ed-ink">
                   Delete {deleteConfirm.ids.length} ad{deleteConfirm.ids.length !== 1 ? 's' : ''} from tracker?
                 </h3>
               </div>
-              <p className="text-[12px] text-textmid mb-5 ml-[52px]">
+              <p className="text-[12px] text-ed-ink2 mb-5 ml-[52px]">
                 This will remove the selected ads from the Ad Pipeline. The original ad creatives will remain in Ad Studio.
               </p>
               <div className="flex items-center justify-end gap-2">
                 <button
                   onClick={() => setDeleteConfirm({ open: false, ids: [], source: 'unplanned' })}
-                  className="text-[12px] px-4 py-2 rounded-xl bg-white border border-gray-200 text-textmid hover:bg-gray-50 transition-colors"
+                  className="text-[12px] px-4 py-2 rounded-xl bg-ed-surface border border-ed-line text-ed-ink2 hover:bg-ed-bg transition-colors"
                 >
                   Cancel
                 </button>
                 <button
                   onClick={handleConfirmDelete}
-                  className="text-[12px] px-4 py-2 rounded-xl bg-red-500 text-white hover:bg-red-600 transition-colors"
+                  className="text-[12px] px-4 py-2 rounded-[7px] bg-red-500 text-white hover:bg-red-600 transition-colors"
                 >
                   Delete
                 </button>

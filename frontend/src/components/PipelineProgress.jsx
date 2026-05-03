@@ -45,21 +45,21 @@ export default function PipelineProgress({ progress = 0, message = '', startTime
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-1.5 min-w-0">
           {progress < 100 && (
-            <svg className="w-3 h-3 text-navy animate-spin flex-shrink-0" viewBox="0 0 24 24" fill="none">
+            <svg className="w-3 h-3 text-ed-accent animate-spin flex-shrink-0" viewBox="0 0 24 24" fill="none">
               <circle cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="3" strokeDasharray="31.4 31.4" strokeLinecap="round" />
             </svg>
           )}
           {progress >= 100 && (
-            <svg className="w-3 h-3 text-teal flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
+            <svg className="w-3 h-3 text-ed-green flex-shrink-0" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2">
               <path strokeLinecap="round" strokeLinejoin="round" d="M4.5 12.75l6 6 9-13.5" />
             </svg>
           )}
-          <span className="text-[10px] text-textmid truncate">{message || 'Starting...'}</span>
+          <span className="text-[10px] text-ed-ink2 truncate">{message || 'Starting...'}</span>
         </div>
         <div className="flex items-center gap-2 flex-shrink-0 ml-2">
-          <span className={`text-[10px] font-medium ${progress >= 100 ? 'text-teal' : 'text-navy'}`}>{progress}%</span>
+          <span className={`text-[10px] font-medium ${progress >= 100 ? 'text-ed-green' : 'text-ed-accent'}`}>{progress}%</span>
           {progress < 100 && getTimeEstimate() && (
-            <span className="text-[9px] text-textlight">{getTimeEstimate()}</span>
+            <span className="text-[9px] text-ed-ink3">{getTimeEstimate()}</span>
           )}
         </div>
       </div>
