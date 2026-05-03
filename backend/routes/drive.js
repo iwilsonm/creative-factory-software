@@ -7,7 +7,7 @@ import { fileURLToPath } from 'url';
 import fetch from 'node-fetch';
 import { withRetry } from '../services/retry.js';
 import { requireAuth } from '../auth.js';
-import { getProject, getInspirationImages, getAllInspirationImages, getInspirationImage, getInspirationImageUrl, uploadBuffer, convexClient, api } from '../convexClient.js';
+import { getProject, getInspirationImages, getAllInspirationImages, getInspirationImage, getInspirationImageUrl, uploadBuffer, convexClient, api, getSetting, setSetting } from '../convexClient.js';
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const SERVICE_ACCOUNT_PATH = path.join(__dirname, '..', '..', 'config', 'service-account.json');
@@ -15,12 +15,17 @@ const SERVICE_ACCOUNT_PATH = path.join(__dirname, '..', '..', 'config', 'service
 const router = Router();
 router.use(requireAuth);
 
-function getDriveClient() {
-  if (!fs.existsSync(SERVICE_ACCOUNT_PATH)) {
-    throw new Error('Service account not configured. Place service-account.json in the config/ directory.');
+async function getServiceAccountKey() {
+  const stored = await getSetting('google_service_account_json');
+  if (stored) return JSON.parse(stored);
+  if (fs.existsSync(SERVICE_ACCOUNT_PATH)) {
+    return JSON.parse(fs.readFileSync(SERVICE_ACCOUNT_PATH, 'utf-8'));
   }
+  throw new Error('Service account not configured. Upload your service-account.json in Settings.');
+}
 
-  const keyFile = JSON.parse(fs.readFileSync(SERVICE_ACCOUNT_PATH, 'utf-8'));
+async function getDriveClient() {
+  const keyFile = await getServiceAccountKey();
   const auth = new google.auth.GoogleAuth({
     credentials: keyFile,
     scopes: ['https://www.googleapis.com/auth/drive']
@@ -30,26 +35,25 @@ function getDriveClient() {
 }
 
 // Check if Drive is configured
-router.get('/status', (req, res) => {
-  const exists = fs.existsSync(SERVICE_ACCOUNT_PATH);
+router.get('/status', async (req, res) => {
+  let configured = false;
   let email = null;
-  if (exists) {
-    try {
-      const keyFile = JSON.parse(fs.readFileSync(SERVICE_ACCOUNT_PATH, 'utf-8'));
-      email = keyFile.client_email || null;
-    } catch {}
-  }
+  try {
+    const keyFile = await getServiceAccountKey();
+    configured = true;
+    email = keyFile.client_email || null;
+  } catch {}
   res.json({
-    configured: exists,
+    configured,
     serviceAccountEmail: email,
-    message: exists
+    message: configured
       ? 'Service account configured'
       : 'Upload your service-account.json to enable Drive integration.'
   });
 });
 
 // Upload service account JSON
-router.post('/upload-service-account', express.json({ limit: '1mb' }), (req, res) => {
+router.post('/upload-service-account', express.json({ limit: '1mb' }), async (req, res) => {
   const { content } = req.body;
   if (!content) return res.status(400).json({ error: 'No content provided' });
 
@@ -59,10 +63,7 @@ router.post('/upload-service-account', express.json({ limit: '1mb' }), (req, res
       return res.status(400).json({ error: 'Invalid service account JSON. Must contain client_email, private_key, and type "service_account".' });
     }
 
-    const configDir = path.dirname(SERVICE_ACCOUNT_PATH);
-    if (!fs.existsSync(configDir)) fs.mkdirSync(configDir, { recursive: true });
-
-    fs.writeFileSync(SERVICE_ACCOUNT_PATH, JSON.stringify(parsed, null, 2));
+    await setSetting('google_service_account_json', JSON.stringify(parsed));
     res.json({
       success: true,
       serviceAccountEmail: parsed.client_email
@@ -75,7 +76,7 @@ router.post('/upload-service-account', express.json({ limit: '1mb' }), (req, res
 // Test Drive connection
 router.post('/test', async (req, res) => {
   try {
-    const drive = getDriveClient();
+    const drive = await getDriveClient();
     const response = await drive.about.get({ fields: 'user' });
     res.json({
       success: true,
@@ -89,7 +90,7 @@ router.post('/test', async (req, res) => {
 // List shared drives
 router.get('/shared-drives', async (req, res) => {
   try {
-    const drive = getDriveClient();
+    const drive = await getDriveClient();
     const response = await drive.drives.list({
       pageSize: 50,
       fields: 'drives(id, name)'
@@ -108,7 +109,7 @@ router.get('/shared-drives', async (req, res) => {
 // List folders
 router.get('/folders', async (req, res) => {
   try {
-    const drive = getDriveClient();
+    const drive = await getDriveClient();
     const parentId = req.query.parentId || null;
 
     const allFolders = [];
@@ -165,7 +166,7 @@ router.get('/folders', async (req, res) => {
 // Get folder info
 router.get('/folders/:folderId', async (req, res) => {
   try {
-    const drive = getDriveClient();
+    const drive = await getDriveClient();
     const file = await drive.files.get({
       fileId: req.params.folderId,
       fields: 'id, name, parents',
@@ -220,7 +221,7 @@ async function syncInspirationFolder(projectId) {
   if (!project) throw new Error('Project not found');
   if (!project.inspiration_folder_id) throw new Error('No inspiration folder configured for this project.');
 
-  const drive = getDriveClient();
+  const drive = await getDriveClient();
 
   // List all image files in the Drive folder
   const response = await drive.files.list({
@@ -367,7 +368,7 @@ inspirationRouter.get('/:projectId/inspiration/:fileId/thumbnail', async (req, r
  * @returns {{ fileId: string, webViewLink: string }}
  */
 export async function uploadBufferToDrive(buffer, fileName, folderId, mimeType = 'image/png') {
-  const drive = getDriveClient();
+  const drive = await getDriveClient();
 
   // Check if the target folder is on a Shared Drive
   let driveId = null;

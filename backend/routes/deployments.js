@@ -14,6 +14,8 @@ import {
   getAdSummariesByExternalIds,
   getProject,
   getLatestDoc,
+  getDeploymentByExternalId,
+  getCampaign,
   getCampaignsByProject,
   createCampaign,
   updateCampaign,
@@ -37,6 +39,8 @@ import {
   api,
 } from '../convexClient.js';
 import { chat as claudeChat } from '../services/anthropic.js';
+import { listSafeFieldNames } from '../security.js';
+import { fetchUrlText, safeUrlForLogs } from '../services/urlFetcher.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -55,6 +59,41 @@ function buildDeploymentImageUrl(projectId, adId, hasImage) {
   return projectId && adId && hasImage ? `/api/deployments/ad-image/${projectId}/${adId}` : null;
 }
 
+function isAdminOrManager(req) {
+  return req.user?.role === 'admin' || req.user?.role === 'manager';
+}
+
+function isPoster(req) {
+  return req.user?.role === 'poster';
+}
+
+async function getDeploymentOr404(res, id) {
+  const deployment = await getDeploymentByExternalId(id);
+  if (!deployment || deployment.deleted_at) {
+    res.status(404).json({ error: 'Deployment not found' });
+    return null;
+  }
+  return deployment;
+}
+
+async function getCampaignOr404(res, id) {
+  const campaign = await getCampaign(id);
+  if (!campaign) {
+    res.status(404).json({ error: 'Campaign not found' });
+    return null;
+  }
+  return campaign;
+}
+
+async function getAdSetOr404(res, id) {
+  const adSet = await getAdSet(id);
+  if (!adSet) {
+    res.status(404).json({ error: 'Ad set not found' });
+    return null;
+  }
+  return adSet;
+}
+
 /**
  * GET /deployments — List deployments with resolved ad + project data
  * Optional query param: ?projectId=xxx to filter by project
@@ -62,6 +101,9 @@ function buildDeploymentImageUrl(projectId, adId, hasImage) {
 router.get('/deployments', async (req, res) => {
   try {
     const { projectId } = req.query;
+    if (!projectId && !isAdminOrManager(req)) {
+      return res.status(403).json({ error: 'projectId is required for this role.' });
+    }
     const deployments = projectId
       ? await getDeploymentsByProject(projectId)
       : await getAllDeployments();
@@ -216,7 +258,7 @@ router.post('/deployments', requireRole('admin', 'manager'), async (req, res) =>
 /**
  * GET /deployments/deleted — List soft-deleted deployments (for recovery)
  */
-router.get('/deployments/deleted', async (req, res) => {
+router.get('/deployments/deleted', requireRole('admin', 'manager'), async (req, res) => {
   try {
     const { projectId } = req.query;
     const deleted = await getDeletedDeployments(projectId);
@@ -276,8 +318,17 @@ router.put('/deployments/:id', requireRole('admin', 'manager'), async (req, res)
     await updateDeployment(id, fields);
     res.json({ success: true });
   } catch (err) {
-    console.error('Failed to update deployment:', err.message || err);
-    console.error('Failed to update deployment — full body was:', JSON.stringify(req.body));
+    console.error('Failed to update deployment:', {
+      id: req.params.id,
+      fields: listSafeFieldNames(req.body, [
+        'campaign_name', 'ad_set_name', 'ad_name',
+        'landing_page_url', 'notes', 'planned_date', 'posted_date',
+        'local_campaign_id', 'local_adset_id',
+        'flex_ad_id', 'primary_texts', 'ad_headlines',
+        'destination_url', 'display_link', 'cta_button', 'facebook_page', 'posted_by', 'duplicate_adset_name',
+      ]),
+      error: err.message || String(err),
+    });
     res.status(500).json({ error: 'Failed to update deployment' });
   }
 });
@@ -295,7 +346,20 @@ router.put('/deployments/:id/status', async (req, res) => {
       return res.status(400).json({ error: `Invalid status. Must be one of: ${validStatuses.join(', ')}` });
     }
 
+    const deployment = await getDeploymentOr404(res, id);
+    if (!deployment) return;
+    if (isPoster(req)) {
+      if (deployment.status !== 'ready_to_post' || status !== 'posted') {
+        return res.status(403).json({ error: 'Posters can only mark Ready to Post items as Posted.' });
+      }
+    } else if (!isAdminOrManager(req)) {
+      return res.status(403).json({ error: 'Insufficient permissions' });
+    }
+
     await updateDeploymentStatus(id, status);
+    if (status === 'posted') {
+      await updateDeployment(id, { posted_by: req.user?.displayName || req.user?.username || '' });
+    }
     res.json({ success: true });
   } catch (err) {
     console.error('Failed to update deployment status:', err);
@@ -308,9 +372,17 @@ router.put('/deployments/:id/status', async (req, res) => {
  */
 router.put('/deployments/:id/posted-by', async (req, res) => {
   try {
-    const { posted_by } = req.body;
-    await updateDeployment(req.params.id, { posted_by: posted_by || '' });
-    res.json({ success: true });
+    const deployment = await getDeploymentOr404(res, req.params.id);
+    if (!deployment) return;
+    if (isPoster(req) && deployment.status !== 'ready_to_post' && deployment.status !== 'posted') {
+      return res.status(403).json({ error: 'Posters can only set attribution for posting workflow items.' });
+    }
+    if (!isPoster(req) && !isAdminOrManager(req)) {
+      return res.status(403).json({ error: 'Insufficient permissions' });
+    }
+    const postedBy = req.user?.displayName || req.user?.username || '';
+    await updateDeployment(req.params.id, { posted_by: postedBy });
+    res.json({ success: true, posted_by: postedBy });
   } catch (err) {
     console.error('Failed to update posted_by:', err);
     res.status(500).json({ error: 'Failed to update posted_by' });
@@ -425,6 +497,7 @@ router.get('/deployments/campaigns', async (req, res) => {
   try {
     const { projectId } = req.query;
     if (!projectId) return res.status(400).json({ error: 'projectId required' });
+    if (!isAdminOrManager(req)) return res.status(403).json({ error: 'Insufficient permissions' });
     const [campaigns, adSets] = await Promise.all([
       getCampaignsByProject(projectId),
       getAdSetsByProject(projectId),
@@ -460,6 +533,8 @@ router.post('/deployments/campaigns', requireRole('admin', 'manager'), async (re
 router.put('/deployments/campaigns/:id', requireRole('admin', 'manager'), async (req, res) => {
   try {
     const { id } = req.params;
+    const campaign = await getCampaignOr404(res, id);
+    if (!campaign) return;
     const allowed = ['name', 'sort_order'];
     const fields = {};
     for (const key of allowed) {
@@ -481,12 +556,14 @@ router.put('/deployments/campaigns/:id', requireRole('admin', 'manager'), async 
 router.delete('/deployments/campaigns/:id', requireRole('admin', 'manager'), async (req, res) => {
   try {
     const { id } = req.params;
+    const campaign = await getCampaignOr404(res, id);
+    if (!campaign) return;
     // Get all ad sets for this campaign
     const adSets = await getAdSetsByCampaign(id);
     // Get all deployments in this project and unassign those linked to this campaign
     // (We need to find deployments by checking local_campaign_id)
-    const allDeps = await getAllDeployments();
-    const linked = allDeps.filter(d => d.local_campaign_id === id || d.local_campaign_id === id);
+    const projectDeps = await getDeploymentsByProject(campaign.project_id);
+    const linked = projectDeps.filter(d => d.local_campaign_id === id);
     for (const dep of linked) {
       await updateDeployment(dep.externalId, { local_campaign_id: 'unplanned', local_adset_id: '', flex_ad_id: '' });
     }
@@ -512,6 +589,11 @@ router.post('/deployments/campaigns/:campaignId/adsets', requireRole('admin', 'm
     const { campaignId } = req.params;
     const { name, projectId } = req.body;
     if (!name || !projectId) return res.status(400).json({ error: 'name and projectId required' });
+    const campaign = await getCampaignOr404(res, campaignId);
+    if (!campaign) return;
+    if (campaign.project_id !== projectId) {
+      return res.status(400).json({ error: 'Campaign does not belong to this project.' });
+    }
     const existing = await getAdSetsByCampaign(campaignId);
     const id = crypto.randomUUID();
     await createAdSet({ id, campaign_id: campaignId, project_id: projectId, name, sort_order: existing.length });
@@ -528,10 +610,19 @@ router.post('/deployments/campaigns/:campaignId/adsets', requireRole('admin', 'm
 router.put('/deployments/adsets/:id', requireRole('admin', 'manager'), async (req, res) => {
   try {
     const { id } = req.params;
+    const adSet = await getAdSetOr404(res, id);
+    if (!adSet) return;
     const allowed = ['name', 'sort_order', 'campaign_id'];
     const fields = {};
     for (const key of allowed) {
       if (req.body[key] !== undefined) fields[key] = req.body[key];
+    }
+    if (fields.campaign_id) {
+      const campaign = await getCampaignOr404(res, fields.campaign_id);
+      if (!campaign) return;
+      if (campaign.project_id !== adSet.project_id) {
+        return res.status(400).json({ error: 'Target campaign does not belong to this project.' });
+      }
     }
     if (Object.keys(fields).length === 0) return res.status(400).json({ error: 'No valid fields' });
     await updateAdSet(id, fields);
@@ -548,9 +639,11 @@ router.put('/deployments/adsets/:id', requireRole('admin', 'manager'), async (re
 router.delete('/deployments/adsets/:id', requireRole('admin', 'manager'), async (req, res) => {
   try {
     const { id } = req.params;
+    const adSet = await getAdSetOr404(res, id);
+    if (!adSet) return;
     // Unassign all deployments in this ad set
-    const allDeps = await getAllDeployments();
-    const linked = allDeps.filter(d => d.local_adset_id === id);
+    const projectDeps = await getDeploymentsByProject(adSet.project_id);
+    const linked = projectDeps.filter(d => d.local_adset_id === id);
     for (const dep of linked) {
       await updateDeployment(dep.externalId, { local_campaign_id: 'unplanned', local_adset_id: '', flex_ad_id: '' });
     }
@@ -595,6 +688,22 @@ router.post('/deployments/assign-to-adset', requireRole('admin', 'manager'), asy
     const { deploymentIds, campaignId, adsetId } = req.body;
     if (!deploymentIds?.length || !campaignId) {
       return res.status(400).json({ error: 'deploymentIds and campaignId required' });
+    }
+    const campaign = await getCampaignOr404(res, campaignId);
+    if (!campaign) return;
+    if (adsetId) {
+      const adSet = await getAdSetOr404(res, adsetId);
+      if (!adSet) return;
+      if (adSet.project_id !== campaign.project_id || adSet.campaign_id !== campaignId) {
+        return res.status(400).json({ error: 'Ad set does not belong to the selected campaign/project.' });
+      }
+    }
+    for (const deploymentId of deploymentIds) {
+      const deployment = await getDeploymentOr404(res, deploymentId);
+      if (!deployment) return;
+      if (deployment.project_id !== campaign.project_id) {
+        return res.status(400).json({ error: 'All selected deployments must belong to the campaign project.' });
+      }
     }
     // Use allSettled to avoid partial failure causing total rollback
     const results = await Promise.allSettled(deploymentIds.map(id =>
@@ -729,6 +838,11 @@ router.post('/deployments/adsets', requireRole('admin', 'manager'), async (req, 
     const { campaign_id, name, project_id } = req.body;
     if (!campaign_id || !name || !project_id) {
       return res.status(400).json({ error: 'campaign_id, name, and project_id required' });
+    }
+    const campaign = await getCampaignOr404(res, campaign_id);
+    if (!campaign) return;
+    if (campaign.project_id !== project_id) {
+      return res.status(400).json({ error: 'Campaign does not belong to this project.' });
     }
     const existing = await getAdSetsByCampaign(campaign_id);
     const id = crypto.randomUUID();
@@ -903,47 +1017,15 @@ Remember to use \\n\\n between paragraphs within each text variation.`;
       const urlRegex = /https?:\/\/[^\s"'<>]+/gi;
       const urls = direction.match(urlRegex);
       if (urls && urls.length > 0) {
-        // Block private/internal IPs to prevent SSRF
-        const blockedPatterns = [
-          /^localhost$/i, /^127\./, /^10\./, /^172\.(1[6-9]|2\d|3[01])\./,
-          /^192\.168\./, /^169\.254\./, /^0\./, /^\[?::1\]?$/, /^\[?fe80:/i, /^\[?fc00:/i, /^\[?fd/i,
-        ];
-        const safeUrls = urls.filter(u => {
-          try { return !blockedPatterns.some(p => p.test(new URL(u).hostname)); } catch { return false; }
-        });
-        for (const url of safeUrls.slice(0, 2)) { // Limit to 2 URLs max
+        for (const url of urls.slice(0, 2)) { // Limit to 2 URLs max
           try {
-            const fetchModule = await import('node-fetch');
-            const fetchFn = fetchModule.default;
-            const response = await fetchFn(url, {
-              headers: { 'User-Agent': 'Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36' },
-              timeout: 15000,
-              redirect: 'follow',
-            });
-            if (response.ok) {
-              const html = await response.text();
-              // Extract text: strip script/style/tags, collapse whitespace
-              const text = html
-                .replace(/<script[\s\S]*?<\/script>/gi, '')
-                .replace(/<style[\s\S]*?<\/style>/gi, '')
-                .replace(/<nav[\s\S]*?<\/nav>/gi, '')
-                .replace(/<footer[\s\S]*?<\/footer>/gi, '')
-                .replace(/<header[\s\S]*?<\/header>/gi, '')
-                .replace(/<[^>]+>/g, ' ')
-                .replace(/&nbsp;/g, ' ')
-                .replace(/&amp;/g, '&')
-                .replace(/&lt;/g, '<')
-                .replace(/&gt;/g, '>')
-                .replace(/&#?\w+;/g, ' ')
-                .replace(/\s+/g, ' ')
-                .trim()
-                .slice(0, 4000); // Cap at 4000 chars
-              if (text.length > 100) {
-                fetchedPageContent += `\n\n--- REFERENCED PAGE: ${url} ---\n${text}\n--- END PAGE ---`;
-              }
+            const result = await fetchUrlText(url, { maxBytes: 2_000_000, timeoutMs: 15_000 });
+            const clipped = String(result.text || '').trim().slice(0, 4000);
+            if (clipped.length > 100) {
+              fetchedPageContent += `\n\n--- REFERENCED PAGE: ${safeUrlForLogs(url)} ---\n${clipped}\n--- END PAGE ---`;
             }
           } catch (e) {
-            console.log(`[PrimaryText] Failed to fetch URL ${url}: ${e.message}`);
+            console.log(`[PrimaryText] Failed to fetch URL ${safeUrlForLogs(url)}: ${e.message}`);
           }
         }
       }

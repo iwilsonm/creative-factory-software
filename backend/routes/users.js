@@ -11,11 +11,27 @@ import {
   updateUserPassword,
   deleteUser,
 } from '../convexClient.js';
+import { validateStrongPassword } from '../security.js';
 
 const router = Router();
 
 // All user management routes require admin
 router.use(requireAuth, requireRole('admin'));
+
+function activeAdmins(users) {
+  return users.filter((user) => user.role === 'admin' && user.is_active !== false);
+}
+
+async function wouldRemoveLastActiveAdmin(targetId, updates = {}) {
+  const users = await getAllUsers();
+  const target = users.find((user) => user.externalId === targetId);
+  if (!target || target.role !== 'admin' || target.is_active === false) return false;
+  const nextRole = updates.role ?? target.role;
+  const nextActive = updates.is_active ?? target.is_active;
+  const removingAdminPower = nextRole !== 'admin' || nextActive === false || updates.delete === true;
+  if (!removingAdminPower) return false;
+  return activeAdmins(users).length <= 1;
+}
 
 // List all users (excludes password_hash)
 router.get('/', async (req, res) => {
@@ -45,8 +61,9 @@ router.post('/', async (req, res) => {
     if (!username || !password || !role) {
       return res.status(400).json({ error: 'Username, password, and role are required' });
     }
-    if (password.length < 6) {
-      return res.status(400).json({ error: 'Password must be at least 6 characters' });
+    const passwordError = validateStrongPassword(password);
+    if (passwordError) {
+      return res.status(400).json({ error: passwordError });
     }
     const validRoles = ['admin', 'manager', 'poster'];
     if (!validRoles.includes(role)) {
@@ -102,6 +119,9 @@ router.put('/:id', async (req, res) => {
     if (id === req.user.id && role !== undefined && role !== user.role) {
       return res.status(400).json({ error: 'Cannot change your own role' });
     }
+    if (id === req.user.id && is_active === false) {
+      return res.status(400).json({ error: 'Cannot deactivate your own account' });
+    }
 
     if (role) {
       const validRoles = ['admin', 'manager', 'poster'];
@@ -114,6 +134,10 @@ router.put('/:id', async (req, res) => {
     if (display_name !== undefined) updates.display_name = display_name;
     if (role !== undefined) updates.role = role;
     if (is_active !== undefined) updates.is_active = is_active;
+
+    if (await wouldRemoveLastActiveAdmin(id, updates)) {
+      return res.status(400).json({ error: 'Cannot remove the last active admin account' });
+    }
 
     await updateUser(id, updates);
 
@@ -129,13 +153,20 @@ router.put('/:id/reset-password', async (req, res) => {
   try {
     const { id } = req.params;
     const { newPassword } = req.body;
-    if (!newPassword || newPassword.length < 6) {
-      return res.status(400).json({ error: 'New password must be at least 6 characters' });
+    const passwordError = validateStrongPassword(newPassword, 'New password');
+    if (passwordError) {
+      return res.status(400).json({ error: passwordError });
     }
 
     const user = await getUserByExternalId(id);
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
+    }
+    if (id === req.user.id) {
+      const { currentPassword } = req.body;
+      if (!currentPassword || !(await bcrypt.compare(currentPassword, user.password_hash))) {
+        return res.status(400).json({ error: 'Current password is required to reset your own password' });
+      }
     }
 
     const hash = await bcrypt.hash(newPassword, 12);
@@ -161,6 +192,9 @@ router.delete('/:id', async (req, res) => {
     const user = await getUserByExternalId(id);
     if (!user) {
       return res.status(404).json({ error: 'User not found' });
+    }
+    if (await wouldRemoveLastActiveAdmin(id, { delete: true })) {
+      return res.status(400).json({ error: 'Cannot delete the last active admin account' });
     }
 
     await deleteUser(id);

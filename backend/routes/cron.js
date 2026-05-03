@@ -6,34 +6,24 @@
 // replay storms even with valid secrets.
 
 import { Router } from 'express';
-import crypto from 'crypto';
 import { runAllProjectsObservation } from '../services/observationTracker.js';
 import { runSchedulerOnce } from '../services/scheduler.js';
 import { getSetting } from '../convexClient.js';
+import { getCronSecret, isValidCronBearer } from '../security.js';
 
 const router = Router();
 
 const LAST_RUN_GUARD_MS = 30 * 60 * 1000; // 30 minutes
 
-function timingSafeEqual(a, b) {
-  if (typeof a !== 'string' || typeof b !== 'string') return false;
-  const ab = Buffer.from(a, 'utf8');
-  const bb = Buffer.from(b, 'utf8');
-  if (ab.length !== bb.length) return false;
-  return crypto.timingSafeEqual(ab, bb);
-}
-
 async function requireCronSecret(req, res, next) {
   // Prefer Vercel's standard CRON_SECRET, but retain the legacy "Chron" name
   // used in this deployment's older cron code.
-  const secret = process.env.CRON_SECRET || process.env.Chron;
+  const secret = getCronSecret();
   if (!secret) {
     console.error('[cron] CRON_SECRET/Chron env var not configured — rejecting request');
     return res.status(500).json({ error: 'Cron not configured on this deployment.' });
   }
-  const authHeader = req.headers.authorization || '';
-  const provided = authHeader.startsWith('Bearer ') ? authHeader.slice(7) : '';
-  if (!timingSafeEqual(provided, secret)) {
+  if (!isValidCronBearer(req)) {
     return res.status(401).json({ error: 'Unauthorized' });
   }
   next();

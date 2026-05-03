@@ -4,11 +4,9 @@
 // We fetch the page, strip HTML, and return the extracted text. Returned
 // text flows into the existing auto-describe pipeline.
 //
-// SSRF protection is hostname-based (not DNS-based). DNS rebinding is an
-// accepted residual risk — the endpoint is auth-gated, read-only, and only
-// returns the extracted text so there's no upstream secret to leak.
-
 import * as cheerio from 'cheerio';
+import dns from 'dns/promises';
+import net from 'net';
 
 const BLOCKED_HOSTNAME_PATTERNS = [
   /^localhost$/i, /^127\./, /^10\./,
@@ -18,13 +16,44 @@ const BLOCKED_HOSTNAME_PATTERNS = [
 
 const MAX_EXTRACTED_CHARS = 50_000;
 
-function assertSafeUrl(urlString) {
+function isPrivateIp(address) {
+  const ipVersion = net.isIP(address);
+  if (ipVersion === 4) {
+    const parts = address.split('.').map((part) => Number(part));
+    const [a, b] = parts;
+    return (
+      a === 10 ||
+      a === 127 ||
+      a === 0 ||
+      (a === 172 && b >= 16 && b <= 31) ||
+      (a === 192 && b === 168) ||
+      (a === 169 && b === 254)
+    );
+  }
+  if (ipVersion === 6) {
+    const lower = address.toLowerCase();
+    if (lower.startsWith('::ffff:')) {
+      return isPrivateIp(lower.replace('::ffff:', ''));
+    }
+    return lower === '::1' || lower.startsWith('fe80:') || lower.startsWith('fc') || lower.startsWith('fd');
+  }
+  return false;
+}
+
+async function assertSafeUrl(urlString) {
   const url = new URL(urlString);
   if (!['http:', 'https:'].includes(url.protocol)) {
     throw new Error('Only http/https URLs are allowed');
   }
   if (BLOCKED_HOSTNAME_PATTERNS.some((p) => p.test(url.hostname))) {
     throw new Error('URL blocked (private / local)');
+  }
+  const directIp = net.isIP(url.hostname) ? url.hostname : null;
+  const addresses = directIp
+    ? [{ address: directIp }]
+    : await dns.lookup(url.hostname, { all: true, verbatim: false });
+  if (!addresses.length || addresses.some((entry) => isPrivateIp(entry.address))) {
+    throw new Error('URL blocked (private / local DNS target)');
   }
   return url;
 }
@@ -40,7 +69,7 @@ export function safeUrlForLogs(urlString) {
 }
 
 export async function fetchUrlText(urlString, { maxBytes = 2_000_000, timeoutMs = 15_000 } = {}) {
-  assertSafeUrl(urlString);
+  await assertSafeUrl(urlString);
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeoutMs);
@@ -58,7 +87,7 @@ export async function fetchUrlText(urlString, { maxBytes = 2_000_000, timeoutMs 
     if (!res.ok) throw new Error(`Upstream returned HTTP ${res.status}`);
 
     // Post-redirect SSRF guard — re-validate the final URL after 3xx follows.
-    assertSafeUrl(res.url);
+    await assertSafeUrl(res.url);
 
     // Content-length preflight (reject before reading body).
     const declared = Number(res.headers.get('content-length') || 0);

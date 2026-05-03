@@ -3,7 +3,8 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "verify:convex": "node scripts/verify-convex-capabilities.mjs"
+    "verify:convex": "node scripts/verify-convex-capabilities.mjs",
+    "audit:secrets": "node scripts/check-tracked-secrets.mjs"
   },
   "dependencies": {
     "convex": "^1.18.0"

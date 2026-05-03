@@ -8,6 +8,9 @@
  * and add `await` to every call site.
  */
 
+import fs from 'fs';
+import path from 'path';
+import { fileURLToPath } from 'url';
 import { ConvexHttpClient } from 'convex/browser';
 import { api } from '../convex/_generated/api.js';
 import fetch from 'node-fetch';
@@ -15,6 +18,31 @@ import { v4 as uuidv4 } from 'uuid';
 import { withRetry } from './services/retry.js';
 import { ensureArray } from './utils/collections.js';
 import { compactConvexWrite } from './services/adSetPlanner.js';
+
+const __dirname = path.dirname(fileURLToPath(import.meta.url));
+
+function loadLocalEnvFile(filePath) {
+  if (!filePath || !fs.existsSync(filePath)) return;
+  const raw = fs.readFileSync(filePath, 'utf8');
+  for (const line of raw.split(/\r?\n/)) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith('#')) continue;
+    const match = trimmed.match(/^([A-Za-z_][A-Za-z0-9_]*)=(.*)$/);
+    if (!match) continue;
+    const [, key, rawValue] = match;
+    if (process.env[key] !== undefined) continue;
+    let value = rawValue.trim();
+    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+      value = value.slice(1, -1);
+    }
+    process.env[key] = value;
+  }
+}
+
+// Local dev convenience. Vercel/production env vars win because existing
+// process.env values are never overwritten.
+loadLocalEnvFile(path.join(__dirname, '.env.local'));
+loadLocalEnvFile(path.join(__dirname, '..', '.env.local'));
 
 // Read Convex URL from environment
 const CONVEX_URL = process.env.CONVEX_URL;
@@ -1175,6 +1203,19 @@ export async function getCampaignsByProject(projectId) {
     created_at: c.created_at,
     updated_at: c.updated_at,
   }));
+}
+
+export async function getCampaign(id) {
+  const campaign = await cachedQuery('campaigns', api.campaigns.getByExternalId, { externalId: id });
+  if (!campaign) return null;
+  return {
+    id: campaign.externalId,
+    project_id: campaign.project_id,
+    name: campaign.name,
+    sort_order: campaign.sort_order,
+    created_at: campaign.created_at,
+    updated_at: campaign.updated_at,
+  };
 }
 
 export async function createCampaign({ id, project_id, name, sort_order }) {

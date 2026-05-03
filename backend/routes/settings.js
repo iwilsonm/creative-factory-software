@@ -11,7 +11,8 @@ router.use(requireAuth, requireRole('admin'));
 
 // Sensitive keys that should be masked when returning
 const SENSITIVE_KEYS = ['auth_password_hash', 'session_secret'];
-const API_KEY_KEYS = ['openai_api_key', 'openai_admin_key', 'gemini_api_key', 'anthropic_api_key', 'cloudflare_api_token', 'meta_app_secret'];
+const CONFIGURED_SECRET_PLACEHOLDER = 'Configured';
+const API_KEY_KEYS = ['openai_api_key', 'openai_admin_key', 'gemini_api_key', 'anthropic_api_key', 'cloudflare_api_token', 'meta_app_secret', 'google_service_account_json'];
 const ALLOWED_SETTING_KEYS = [
   'openai_api_key',
   'openai_admin_key',
@@ -19,6 +20,7 @@ const ALLOWED_SETTING_KEYS = [
   'anthropic_api_key',
   'meta_app_id',
   'meta_app_secret',
+  'google_service_account_json',
   'default_drive_folder_id',
   'gemini_rate_1k',
   'gemini_rate_2k',
@@ -84,7 +86,7 @@ router.get('/', async (req, res) => {
   }
   for (const key of API_KEY_KEYS) {
     if (masked[key]) {
-      masked[key] = masked[key].slice(0, 8) + '...' + masked[key].slice(-4);
+      masked[key] = CONFIGURED_SECRET_PLACEHOLDER;
     }
   }
 
@@ -224,7 +226,7 @@ router.post('/test-gemini', async (req, res) => {
 // Test Google Drive connection
 router.post('/test-drive', async (req, res) => {
   try {
-    const drive = getDriveClient();
+    const drive = await getDriveClient();
     const response = await drive.about.get({ fields: 'user' });
     res.json({
       success: true,

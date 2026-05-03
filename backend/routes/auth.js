@@ -4,6 +4,7 @@ import { v4 as uuidv4 } from 'uuid';
 import rateLimit from 'express-rate-limit';
 import { getUserByUsername, getUserByExternalId, createUser, updateUser, updateUserPassword, getUserCount } from '../convexClient.js';
 import { requireAuth, isSetupComplete } from '../auth.js';
+import { validateStrongPassword } from '../security.js';
 
 const router = Router();
 
@@ -61,8 +62,9 @@ router.post('/setup', async (req, res) => {
   if (!username || !password) {
     return res.status(400).json({ error: 'Username and password required' });
   }
-  if (password.length < 6) {
-    return res.status(400).json({ error: 'Password must be at least 6 characters' });
+  const passwordError = validateStrongPassword(password);
+  if (passwordError) {
+    return res.status(400).json({ error: passwordError });
   }
 
   const hash = await bcrypt.hash(password, 12);
@@ -142,8 +144,9 @@ router.put('/password', requireAuth, async (req, res) => {
   if (!currentPassword || !newPassword) {
     return res.status(400).json({ error: 'Current and new password required' });
   }
-  if (newPassword.length < 6) {
-    return res.status(400).json({ error: 'New password must be at least 6 characters' });
+  const passwordError = validateStrongPassword(newPassword, 'New password');
+  if (passwordError) {
+    return res.status(400).json({ error: passwordError });
   }
 
   const user = await getUserByExternalId(req.user.id);

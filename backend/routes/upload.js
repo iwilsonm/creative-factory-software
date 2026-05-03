@@ -15,17 +15,24 @@ import { chat as openaiChat } from '../services/openai.js';
 import { fetchUrlText, safeUrlForLogs } from '../services/urlFetcher.js';
 
 const uploadDir = os.tmpdir();
+const SAFE_DOCUMENT_EXTENSIONS = ['.pdf', '.txt', '.html', '.htm', '.docx', '.epub', '.mobi', '.md', '.csv', '.json', '.xml', '.rtf', '.xls', '.xlsx'];
+
+function redactPotentialSecrets(text = '') {
+  return String(text)
+    .replace(/\b(sk-[A-Za-z0-9_-]{16,}|sk-ant-[A-Za-z0-9_-]{16,}|AIza[0-9A-Za-z_-]{20,})\b/g, '[REDACTED_API_KEY]')
+    .replace(/\b([A-Za-z_][A-Za-z0-9_]*_(?:KEY|TOKEN|SECRET|PASSWORD))\s*=\s*["']?[^"'\s]+/gi, '$1=[REDACTED]')
+    .replace(/-----BEGIN [A-Z ]*PRIVATE KEY-----[\s\S]*?-----END [A-Z ]*PRIVATE KEY-----/g, '[REDACTED_PRIVATE_KEY]');
+}
 
 const upload = multer({
   dest: uploadDir,
   limits: { fileSize: 20 * 1024 * 1024 }, // 20MB
   fileFilter: (req, file, cb) => {
-    const allowed = ['.pdf', '.txt', '.html', '.htm', '.docx', '.epub', '.mobi', '.md', '.csv', '.json', '.xml', '.rtf', '.log', '.yaml', '.yml', '.toml', '.ini', '.cfg', '.conf', '.properties', '.tsx', '.ts', '.js', '.jsx', '.py', '.java', '.rb', '.go', '.rs', '.c', '.cpp', '.h', '.css', '.scss', '.less', '.sql', '.sh', '.bat', '.ps1', '.r', '.swift', '.kt', '.xls', '.xlsx'];
     const ext = path.extname(file.originalname).toLowerCase();
-    if (allowed.includes(ext)) {
+    if (SAFE_DOCUMENT_EXTENSIONS.includes(ext)) {
       cb(null, true);
     } else {
-      cb(new Error(`File type ${ext} not supported.`));
+      cb(new Error(`File type ${ext} is not supported for project documents.`));
     }
   }
 });
@@ -108,10 +115,11 @@ router.post('/extract-text', upload.single('file'), async (req, res) => {
     // Clean up uploaded file
     fs.unlinkSync(req.file.path);
 
+    const redactedText = redactPotentialSecrets(text.trim());
     res.json({
-      text: text.trim(),
+      text: redactedText,
       filename: req.file.originalname,
-      charCount: text.trim().length
+      charCount: redactedText.length
     });
   } catch (err) {
     // Clean up on error
@@ -128,6 +136,7 @@ router.post('/auto-describe', async (req, res) => {
   if (!sales_page_content) return res.status(400).json({ error: 'Sales page content is required' });
 
   try {
+    const safeContent = redactPotentialSecrets(sales_page_content);
     const description = await openaiChat(
       [
         {
@@ -136,7 +145,7 @@ router.post('/auto-describe', async (req, res) => {
         },
         {
           role: 'user',
-          content: `Based on this sales page content, write a concise product description:\n\n${sales_page_content.slice(0, 8000)}`
+          content: `Based on this sales page content, write a concise product description:\n\n${safeContent.slice(0, 8000)}`
         }
       ],
       'gpt-4.1-mini',
@@ -157,8 +166,9 @@ router.post('/fetch-url', async (req, res) => {
   if (!url || typeof url !== 'string') return res.status(400).json({ error: 'url required' });
   try {
     const result = await fetchUrlText(url);
+    const redacted = redactPotentialSecrets(result.text);
     res.json({
-      sales_page_content: result.text,
+      sales_page_content: redacted,
       title: result.title,
       truncated: result.truncated,
       sparse: result.sparse,

@@ -7,12 +7,14 @@
 import { Router } from 'express';
 import crypto from 'crypto';
 import { requireAuth, requireRole } from '../auth.js';
+import { isValidCronBearer } from '../security.js';
 import {
   getProject,
   getProjectRawForMeta,
   getProjectsWithExpiringMetaTokens,
   updateProject,
   getSetting,
+  getUserByExternalId,
   convexClient,
   api,
 } from '../convexClient.js';
@@ -418,19 +420,21 @@ router.get('/insights', requireAuth, requireRole('admin', 'manager'), async (req
 // Vercel Cron — daily token refresh
 // ────────────────────────────────────────────────
 //
-// Vercel's cron jobs hit this endpoint with a `x-vercel-cron-signature` header.
-// We accept either that header OR (for local manual testing) a shared secret
-// from Convex settings (filter_shared_secret reused for simplicity since it's
-// already part of the auth surface).
+// Vercel's cron jobs hit this endpoint with Authorization: Bearer ${CRON_SECRET}.
+// We also accept an authenticated admin session for manual testing.
 
 router.post('/oauth/refresh', async (req, res) => {
-  // Validate request originates from Vercel Cron (or an authenticated admin for testing)
-  const cronSig = req.get('x-vercel-cron-signature');
-  const isVercelCron = !!cronSig; // Vercel sets this on every cron invocation
-  if (!isVercelCron) {
-    // Fall back to admin auth path
+  const cronAuthorized = isValidCronBearer(req);
+  if (!cronAuthorized) {
     if (!req.session?.userId) {
-      return res.status(401).json({ error: 'Unauthorized — cron header or admin session required' });
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+    const user = await getUserByExternalId(req.session.userId);
+    if (!user || !user.is_active) {
+      return res.status(401).json({ error: 'Unauthorized' });
+    }
+    if (user.role !== 'admin') {
+      return res.status(403).json({ error: 'Admin permissions required' });
     }
   }
 
