@@ -2,7 +2,7 @@ import { Router } from 'express';
 import bcrypt from 'bcrypt';
 import { v4 as uuidv4 } from 'uuid';
 import rateLimit from 'express-rate-limit';
-import { getUserByUsername, getUserByExternalId, createUser, updateUserPassword, getUserCount } from '../convexClient.js';
+import { getUserByUsername, getUserByExternalId, createUser, updateUser, updateUserPassword, getUserCount } from '../convexClient.js';
 import { requireAuth, isSetupComplete } from '../auth.js';
 
 const router = Router();
@@ -160,6 +160,34 @@ router.put('/password', requireAuth, async (req, res) => {
   await updateUserPassword(user.externalId, hash);
 
   res.json({ success: true });
+});
+
+// Update own profile fields used by the UI greeting/nav.
+router.put('/profile', requireAuth, async (req, res) => {
+  const displayName = String(req.body?.displayName || '').trim();
+  if (!displayName) {
+    return res.status(400).json({ error: 'Display name is required' });
+  }
+  if (displayName.length > 80) {
+    return res.status(400).json({ error: 'Display name must be 80 characters or fewer' });
+  }
+
+  const user = await getUserByExternalId(req.user.id);
+  if (!user || !user.is_active) {
+    return res.status(404).json({ error: 'User not found' });
+  }
+
+  await updateUser(user.externalId, { display_name: displayName });
+  req.session.displayName = displayName;
+
+  res.json({
+    success: true,
+    user: {
+      username: user.username,
+      role: user.role,
+      displayName,
+    },
+  });
 });
 
 export default router;

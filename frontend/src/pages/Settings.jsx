@@ -1,5 +1,6 @@
-import { useState, useEffect } from 'react';
+import { useContext, useEffect, useState } from 'react';
 import { api } from '../api';
+import { AuthContext } from '../App';
 
 import InfoTooltip from '../components/InfoTooltip';
 import TodoWidget from '../components/TodoWidget';
@@ -384,6 +385,7 @@ function UserManagementCard() {
 
 export default function Settings() {
   const toast = useToast();
+  const { user, setUser } = useContext(AuthContext);
   const [settings, setSettings] = useState({});
   const [form, setForm] = useState({
     openai_api_key: '',
@@ -412,10 +414,17 @@ export default function Settings() {
   // Password change
   const [passwordForm, setPasswordForm] = useState({ currentPassword: '', newPassword: '' });
   const [passwordMsg, setPasswordMsg] = useState('');
+  const [profileForm, setProfileForm] = useState({ displayName: user?.displayName || user?.username || '' });
+  const [profileMsg, setProfileMsg] = useState('');
+  const [savingProfile, setSavingProfile] = useState(false);
 
   useEffect(() => {
     loadSettings();
   }, []);
+
+  useEffect(() => {
+    setProfileForm({ displayName: user?.displayName || user?.username || '' });
+  }, [user?.displayName, user?.username]);
 
   const loadSettings = async () => {
     try {
@@ -508,6 +517,29 @@ export default function Settings() {
     }
   };
 
+  const handleProfileSave = async (e) => {
+    e.preventDefault();
+    setProfileMsg('');
+    const displayName = profileForm.displayName.trim();
+    if (!displayName) {
+      setProfileMsg('Error: Display name is required');
+      return;
+    }
+    setSavingProfile(true);
+    try {
+      const result = await api.updateProfile(displayName);
+      if (result?.user) setUser(result.user);
+      setProfileMsg('Greeting name updated');
+      toast.success('Greeting name updated');
+    } catch (err) {
+      const message = err.message || 'Failed to update greeting name';
+      setProfileMsg(`Error: ${message}`);
+      toast.error(message);
+    } finally {
+      setSavingProfile(false);
+    }
+  };
+
   const handleRefreshRates = async () => {
     setRefreshingRates(true);
     setRateRefreshMsg('');
@@ -596,6 +628,42 @@ export default function Settings() {
       <div className="space-y-5 max-w-2xl fade-in">
         {/* User Management */}
         <UserManagementCard />
+
+        {/* My Profile */}
+        <div className="ed-card p-6">
+          <h2 className="text-[15px] font-serif font-[420] text-ed-ink tracking-tight mb-1 flex items-center gap-1">
+            My Profile
+            <InfoTooltip text="This name is used for the dashboard greeting and the account label in the navigation." position="right" />
+          </h2>
+          <p className="text-[12px] text-ed-ink3 mb-4">
+            Choose the name Creative Factory should use when it greets you.
+          </p>
+          {profileMsg && (
+            <div className={`text-[13px] rounded-xl p-3 mb-4 ${
+              profileMsg.startsWith('Error')
+                ? 'bg-ed-rust/10 border border-ed-rust/30 text-ed-rust'
+                : 'bg-ed-green/5 border border-ed-green/15 text-ed-green'
+            }`}>
+              {profileMsg}
+            </div>
+          )}
+          <form onSubmit={handleProfileSave} className="flex flex-col sm:flex-row gap-2">
+            <input
+              value={profileForm.displayName}
+              onChange={e => setProfileForm({ displayName: e.target.value })}
+              className="input-apple !border-ed-line focus:!ring-ed-accent/20 focus:!border-ed-accent flex-1"
+              placeholder="Your greeting name"
+              maxLength={80}
+            />
+            <button
+              type="submit"
+              disabled={savingProfile}
+              className="px-4 py-2 rounded-[7px] text-[13px] bg-ed-accent text-[#fbfaf6] hover:bg-ed-accent/90 transition-colors disabled:opacity-50"
+            >
+              {savingProfile ? 'Saving...' : 'Save Name'}
+            </button>
+          </form>
+        </div>
 
         {/* API Keys */}
         <div className="ed-card p-6">

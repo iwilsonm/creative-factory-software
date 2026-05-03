@@ -200,6 +200,7 @@ export const api = {
   login: (username, password) => request('/auth/login', { method: 'POST', body: JSON.stringify({ username, password }) }).then(r => { invalidateCache('/auth/session'); return r; }),
   logout: () => request('/auth/logout', { method: 'POST' }).then(r => { _requestCache.clear(); localStorage.removeItem('auth_state'); return r; }),
   changePassword: (currentPassword, newPassword) => request('/auth/password', { method: 'PUT', body: JSON.stringify({ currentPassword, newPassword }) }),
+  updateProfile: (displayName) => request('/auth/profile', { method: 'PUT', body: JSON.stringify({ displayName }) }).then(r => { invalidateCache('/auth/session'); return r; }),
 
   // User Management (admin only)
   getUsers: () => request('/users'),
