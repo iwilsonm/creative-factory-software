@@ -399,24 +399,26 @@ export default function Settings() {
     setMessage('');
     try {
       const payload = {};
-      if (form.openai_api_key) payload.openai_api_key = form.openai_api_key;
-      if (form.openai_admin_key) payload.openai_admin_key = form.openai_admin_key;
-      if (form.gemini_api_key) payload.gemini_api_key = form.gemini_api_key;
-      if (form.anthropic_api_key) payload.anthropic_api_key = form.anthropic_api_key;
+      if (form.openai_api_key.trim()) payload.openai_api_key = form.openai_api_key.trim();
+      if (form.openai_admin_key.trim()) payload.openai_admin_key = form.openai_admin_key.trim();
+      if (form.gemini_api_key.trim()) payload.gemini_api_key = form.gemini_api_key.trim();
+      if (form.anthropic_api_key.trim()) payload.anthropic_api_key = form.anthropic_api_key.trim();
       if (form.gemini_rate_1k) payload.gemini_rate_1k = form.gemini_rate_1k;
       if (form.gemini_rate_2k) payload.gemini_rate_2k = form.gemini_rate_2k;
       if (form.gemini_rate_4k) payload.gemini_rate_4k = form.gemini_rate_4k;
       if (form.openai_image_rate_per_image) payload.openai_image_rate_per_image = form.openai_image_rate_per_image;
       // Phase 2A — Meta integration
-      if (form.meta_app_id) payload.meta_app_id = form.meta_app_id;
-      if (form.meta_app_secret) payload.meta_app_secret = form.meta_app_secret;
+      if (form.meta_app_id.trim()) payload.meta_app_id = form.meta_app_id.trim();
+      if (form.meta_app_secret.trim()) payload.meta_app_secret = form.meta_app_secret.trim();
       await api.updateSettings(payload);
       toast.success('Settings saved');
       setMessage('');
       setForm(prev => ({ ...prev, openai_api_key: '', openai_admin_key: '', gemini_api_key: '', anthropic_api_key: '', meta_app_id: '', meta_app_secret: '' }));
       await loadSettings();
     } catch (err) {
-      toast.error(err.message);
+      const message = err.message || 'Failed to save settings';
+      setMessage(`Error: ${message}`);
+      toast.error(message);
     } finally {
       setSaving(false);
     }
@@ -627,7 +629,7 @@ export default function Settings() {
               <label className="text-[13px] font-medium text-textmid mb-1.5 flex items-center gap-2">
                 Anthropic API Key
                 <KeyStatusPill set={!!settings.anthropic_api_key} />
-                <InfoTooltip text="Used for Anthropic-powered reasoning paths, including Meta connector workflows when enabled." position="right" />
+                <InfoTooltip text="Required for Creative Filter QA and Ready-to-Post copy generation. Test runs will stop before image generation if Anthropic is missing or invalid." position="right" />
               </label>
               <div className="flex gap-2">
                 <input

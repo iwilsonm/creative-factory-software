@@ -1044,6 +1044,7 @@ function buildServerQueueItem(active, existing = null) {
     startTime: existing?.startTime || active?.startTime || Date.now(),
     result: active?.result || existing?.result || null,
     angleId: existing?.angleId || null,
+    adsPerAdSetTarget: existing?.adsPerAdSetTarget || active?.requiredPasses || active?.result?.required_passes || 5,
     sseConnected: false,
     serverRunId: active?.runId || active?.id || existing?.serverRunId || null,
   };
@@ -1346,6 +1347,7 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
 
   // Angle selection for test runs
   const [selectedAngleId, setSelectedAngleId] = useState('');
+  const [testAdSetTargetDraft, setTestAdSetTargetDraft] = useState('');
 
   // Test run queue — persisted per project so restored runs cannot bleed across projects.
   const queueStorageKey = selectedProject ? `dacia_testRunQueue:${selectedProject}` : 'dacia_testRunQueue';
@@ -1360,7 +1362,7 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
   const activeRunRecord = activeRun?.result || null;
   const activeRunRounds = getRunRounds(activeRunRecord);
   const activeRunBatches = getRunBatches(activeRunRecord);
-  const activeRunRequiredPasses = activeRunRecord?.required_passes || 10;
+  const activeRunRequiredPasses = activeRunRecord?.required_passes || activeRun?.adsPerAdSetTarget || 5;
   const activeRunPassed = activeRunRecord?.total_ads_passed ?? activeRunRounds[activeRunRounds.length - 1]?.cumulative_passed ?? null;
   const showActiveRunBreakdown = activeRun && (activeRunRounds.length > 0 || activeRunBatches.length > 0);
   const sseActiveRef = useRef(false); // tracks if we have a live SSE connection for the active run
@@ -1472,6 +1474,7 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
     pendingConfigRef.current = {};
     if (debounceRef.current) clearTimeout(debounceRef.current);
     setSelectedAngleId('');
+    setTestAdSetTargetDraft('');
     let cancelled = false;
     setBaseLoading(true);
     setAnglesLoading(false);
@@ -1678,7 +1681,18 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
   };
 
   const handleTestRun = () => {
-    const queueItem = { id: crypto.randomUUID(), status: 'queued', progress: 0, phase: '', startTime: null, result: null, angleId: selectedAngleId || null, sseConnected: false, serverRunId: null };
+    const queueItem = {
+      id: crypto.randomUUID(),
+      status: 'queued',
+      progress: 0,
+      phase: '',
+      startTime: null,
+      result: null,
+      angleId: selectedAngleId || null,
+      adsPerAdSetTarget: testAdSetTargetValue,
+      sseConnected: false,
+      serverRunId: null,
+    };
     setTestRunQueue(prev => [...prev, queueItem]);
     setSubTab('history');
   };
@@ -1785,6 +1799,7 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
 
     const body = {
       ...(nextQueued.angleId ? { angle_id: nextQueued.angleId } : {}),
+      ads_per_ad_set: nextQueued.adsPerAdSetTarget || 5,
     };
 
     let sawEvent = false;
@@ -1829,7 +1844,7 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
         const generated = event.total_ads_generated || event.ads_scored || '?';
         const passed = event.ads_passed ?? '?';
         const readyCount = event.ready_to_post_count ?? 0;
-        const requiredPasses = event.required_passes || 10;
+        const requiredPasses = event.required_passes || nextQueued.adsPerAdSetTarget || 5;
         const msg = event.flex_ads_created > 0
           ? `Reached ${passed}/${requiredPasses} after ${roundsUsed} round${roundsUsed !== 1 ? 's' : ''} (${generated} generated). ${readyCount} Ready to Post ads created.`
           : `Complete — ${passed}/${requiredPasses} passed after ${generated} generated.`;
@@ -2238,6 +2253,11 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
       ? externalProject.ads_per_ad_set
       : config?.ads_per_batch ?? 5
   );
+  const defaultTestAdSetTarget = Math.max(1, Math.min(20, Number(adsPerAdSetValue) || 5));
+  const parsedTestAdSetTarget = Number.parseInt(testAdSetTargetDraft, 10);
+  const testAdSetTargetValue = Number.isFinite(parsedTestAdSetTarget)
+    ? Math.max(1, Math.min(20, parsedTestAdSetTarget))
+    : defaultTestAdSetTarget;
 
   if (projectLoading) return <div className="text-[11px] text-textlight py-4">{embedded ? 'Loading Director...' : 'Loading projects...'}</div>;
   if (!embedded && safeProjects.length === 0) return <div className="text-[11px] text-textlight py-4">No projects found.</div>;
@@ -2261,7 +2281,7 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
     ? pinSystemFirst(safeAngles.filter(a => a.status === 'archived' || a.status === 'retired'))
     : [];
   const canChooseAngle = !angleOptionsLoading;
-  const canTriggerTestRun = !baseLoading && !!config && (anglesLoadedFor !== selectedProject || activeAngles.length > 0);
+  const canTriggerTestRun = !baseLoading && !!config && !!selectedAngleId && testAdSetTargetValue >= 1 && testAdSetTargetValue <= 20;
 
   return (
     <div>
@@ -2292,29 +2312,54 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
           Enabled
         </label>
 
-        <div className="flex items-center gap-2 ml-auto">
-          <select
-            value={selectedAngleId}
-            onChange={e => setSelectedAngleId(e.target.value)}
-            onFocus={() => {
-              if (angleOptionsLoadedFor !== selectedProject) {
-                loadAngleOptions(selectedProject);
-              }
-            }}
-            disabled={!canChooseAngle}
-            className="text-[11px] text-textdark bg-offwhite border border-black/10 rounded-lg px-2 py-1.5 cursor-pointer max-w-[140px]"
-          >
-            <option value="">
-              {angleOptionsLoading ? 'Loading angles...' : angleOptionsLoadedFor === selectedProject ? 'Auto-select angle' : 'Loading angle options...'}
-            </option>
-            {[...safeAngleOptions].sort((a, b) => (b.is_system_default ? 1 : 0) - (a.is_system_default ? 1 : 0)).map(a => (
-              <option key={a.externalId} value={a.externalId}>{a.name}</option>
-            ))}
-          </select>
+        <div className="ml-auto grid grid-cols-1 sm:grid-cols-[minmax(180px,260px)_130px_auto] items-end gap-2">
+          <div>
+            <label className="block text-[10px] font-semibold uppercase tracking-[0.08em] text-textlight mb-1">Test Angle</label>
+            <select
+              value={selectedAngleId}
+              onChange={e => setSelectedAngleId(e.target.value)}
+              onFocus={() => {
+                if (angleOptionsLoadedFor !== selectedProject) {
+                  loadAngleOptions(selectedProject);
+                }
+              }}
+              disabled={!canChooseAngle}
+              className="text-[11px] text-textdark bg-offwhite border border-black/10 rounded-lg px-2 py-1.5 cursor-pointer w-full"
+            >
+              <option value="">
+                {angleOptionsLoading ? 'Loading angles...' : 'Select an angle...'}
+              </option>
+              {[...safeAngleOptions].sort((a, b) => (b.is_system_default ? 1 : 0) - (a.is_system_default ? 1 : 0)).map(a => (
+                <option key={a.externalId} value={a.externalId}>{a.name}</option>
+              ))}
+            </select>
+          </div>
+          <div>
+            <label className="block text-[10px] font-semibold uppercase tracking-[0.08em] text-textlight mb-1">Ads in Test Ad Set</label>
+            <input
+              type="number"
+              min="1"
+              max="20"
+              value={testAdSetTargetDraft === '' ? defaultTestAdSetTarget : testAdSetTargetDraft}
+              onChange={(e) => {
+                const value = e.target.value;
+                if (value === '') {
+                  setTestAdSetTargetDraft('');
+                  return;
+                }
+                const parsed = Number.parseInt(value, 10);
+                if (!Number.isFinite(parsed)) return;
+                setTestAdSetTargetDraft(String(Math.max(1, Math.min(20, parsed))));
+              }}
+              className="text-[11px] text-textdark bg-offwhite border border-black/10 rounded-lg px-2 py-1.5 w-full"
+              title="Target number of QA-approved ads in this test ad set."
+            />
+          </div>
           <button
             onClick={handleTestRun}
             disabled={!canTriggerTestRun}
             className="btn-primary text-[11px] px-3 py-1.5 flex items-center gap-1 disabled:opacity-50"
+            title={!selectedAngleId ? 'Select a test angle first.' : `Create a test ad set with ${testAdSetTargetValue} approved ads.`}
           >
             {activeRun ? <><Spinner /> {queuedCount > 0 ? `Running (${queuedCount} queued)` : 'Running...'}</> : queuedCount > 0 ? `Queue Run (${queuedCount} queued)` : 'Test Run'}
           </button>
@@ -2989,7 +3034,7 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
                 const roundsUsed = run.total_rounds || rounds.length || batches.length || 1;
                 const totalGenerated = run.total_ads_generated || batches.reduce((sum, batch) => sum + (Number(batch.ad_count) || 0), 0);
                 const totalPassed = run.total_ads_passed ?? rounds[rounds.length - 1]?.cumulative_passed ?? null;
-                const requiredPasses = run.required_passes || 10;
+                const requiredPasses = run.required_passes || 5;
                 const readyCount = run.ready_to_post_count ?? (flexAdId ? 10 : 0);
                 const failureText = run.failure_reason || run.error || '';
                 const isExpanded = !!expandedRuns[run.externalId];

@@ -19,6 +19,7 @@ const mockGetFlexAdsByProject = vi.fn();
 const mockGetBatchesByProject = vi.fn();
 const mockGetProject = vi.fn();
 const mockGetAllConductorConfigs = vi.fn();
+const mockGetSetting = vi.fn();
 const mockConvexMutation = vi.fn();
 
 const mockGetAdaptiveBatchSize = vi.fn();
@@ -34,6 +35,7 @@ const mockBuildAngleBriefJSON = vi.fn();
 const mockGenerateImagePrompt = vi.fn();
 const mockRegenerateImageOnly = vi.fn();
 const mockRepairBodyCopy = vi.fn();
+const mockAnthropicChat = vi.fn();
 
 vi.mock('uuid', () => ({
   v4: () => mockUuid(),
@@ -57,6 +59,7 @@ vi.mock('../convexClient.js', () => ({
   getBatchesByProject: (...args) => mockGetBatchesByProject(...args),
   getProject: (...args) => mockGetProject(...args),
   getAllConductorConfigs: (...args) => mockGetAllConductorConfigs(...args),
+  getSetting: (...args) => mockGetSetting(...args),
   convexClient: {
     mutation: (...args) => mockConvexMutation(...args),
   },
@@ -96,6 +99,10 @@ vi.mock('../services/adGenerator.js', () => ({
   generateImagePrompt: (...args) => mockGenerateImagePrompt(...args),
   regenerateImageOnly: (...args) => mockRegenerateImageOnly(...args),
   repairBodyCopy: (...args) => mockRepairBodyCopy(...args),
+}));
+
+vi.mock('../services/anthropic.js', () => ({
+  chat: (...args) => mockAnthropicChat(...args),
 }));
 
 function makeAngle(overrides = {}) {
@@ -226,6 +233,12 @@ describe('conductorEngine test-run pipeline', () => {
     mockGetFlexAdsByProject.mockResolvedValue([]);
     mockGetBatchesByProject.mockResolvedValue([]);
     mockGetAllConductorConfigs.mockResolvedValue([]);
+    mockGetSetting.mockImplementation(async (key) => ({
+      openai_api_key: 'sk-openai',
+      gemini_api_key: 'gemini-key',
+      anthropic_api_key: 'sk-anthropic',
+    }[key] || null));
+    mockAnthropicChat.mockResolvedValue('ok');
     mockGetBatchJob.mockResolvedValue(null);
     mockUpdateBatchJob.mockResolvedValue();
     mockGetAdsByBatchId.mockResolvedValue([]);
@@ -262,32 +275,37 @@ describe('conductorEngine test-run pipeline', () => {
     vi.restoreAllMocks();
   });
 
-  it('starts round 2 with 2 ads after a 9/18 first round', async () => {
+  it('uses the selected target for the first round and tops up with a buffer', async () => {
     mockScoreBatchForInlineFilter
-      .mockResolvedValueOnce(makeScoreResult(1, 18, 9))
-      .mockResolvedValueOnce(makeScoreResult(2, 2, 1));
+      .mockResolvedValueOnce(makeScoreResult(1, 5, 3))
+      .mockResolvedValueOnce(makeScoreResult(2, 4, 2));
 
     const { runFullTestPipeline } = await importConductorEngine();
-    const result = await runFullTestPipeline('proj-1', () => {}, { angleOverride: 'angle-1' });
+    const result = await runFullTestPipeline('proj-1', () => {}, { angleOverride: 'angle-1', adsPerAdSetTarget: 5 });
 
     expect(result.terminal_status).toBe('deployed');
+    expect(result.required_passes).toBe(5);
     expect(mockCreateBatchJob).toHaveBeenCalledTimes(2);
-    expect(mockCreateBatchJob.mock.calls[0][0].batch_size).toBe(18);
-    expect(mockCreateBatchJob.mock.calls[1][0].batch_size).toBe(2);
+    expect(mockCreateBatchJob.mock.calls[0][0].batch_size).toBe(5);
+    expect(mockCreateBatchJob.mock.calls[1][0].batch_size).toBe(4);
+    expect(mockCreateConductorRun).toHaveBeenCalledWith(expect.objectContaining({
+      required_passes: 5,
+      ads_per_round: 5,
+    }));
   });
 
-  it('starts round 2 with 12 ads after a 4/18 first round', async () => {
+  it('caps top-up rounds at the selected target', async () => {
     mockScoreBatchForInlineFilter
-      .mockResolvedValueOnce(makeScoreResult(1, 18, 4))
-      .mockResolvedValueOnce(makeScoreResult(2, 12, 6));
+      .mockResolvedValueOnce(makeScoreResult(1, 5, 0))
+      .mockResolvedValueOnce(makeScoreResult(2, 5, 5));
 
     const { runFullTestPipeline } = await importConductorEngine();
-    const result = await runFullTestPipeline('proj-1', () => {}, { angleOverride: 'angle-1' });
+    const result = await runFullTestPipeline('proj-1', () => {}, { angleOverride: 'angle-1', adsPerAdSetTarget: 5 });
 
     expect(result.terminal_status).toBe('deployed');
     expect(mockCreateBatchJob).toHaveBeenCalledTimes(2);
-    expect(mockCreateBatchJob.mock.calls[0][0].batch_size).toBe(18);
-    expect(mockCreateBatchJob.mock.calls[1][0].batch_size).toBe(12);
+    expect(mockCreateBatchJob.mock.calls[0][0].batch_size).toBe(5);
+    expect(mockCreateBatchJob.mock.calls[1][0].batch_size).toBe(5);
   });
 
   it('does not fail the run when headline diagnostics extraction throws', async () => {
@@ -297,10 +315,10 @@ describe('conductorEngine test-run pipeline', () => {
         throw new Error('diagnostics blew up');
       },
     });
-    mockScoreBatchForInlineFilter.mockResolvedValueOnce(makeScoreResult(1, 18, 10, explodingBatch));
+    mockScoreBatchForInlineFilter.mockResolvedValueOnce(makeScoreResult(1, 5, 5, explodingBatch));
 
     const { runFullTestPipeline } = await importConductorEngine();
-    const result = await runFullTestPipeline('proj-1', () => {}, { angleOverride: 'angle-1' });
+    const result = await runFullTestPipeline('proj-1', () => {}, { angleOverride: 'angle-1', adsPerAdSetTarget: 5 });
 
     expect(result.terminal_status).toBe('deployed');
     expect(warnSpy).toHaveBeenCalledWith(
@@ -310,8 +328,8 @@ describe('conductorEngine test-run pipeline', () => {
     warnSpy.mockRestore();
   });
 
-  it('does not start another round when repairs push the run to 10 passed ads', async () => {
-    const repairableFailures = Array.from({ length: 9 }, (_, index) => ({
+  it('does not start another round when repairs push the run to the selected target', async () => {
+    const repairableFailures = Array.from({ length: 1 }, (_, index) => ({
       ad: {
         id: `round-1-fail-${index}`,
         headline: `Repairable headline ${index}`,
@@ -344,10 +362,10 @@ describe('conductorEngine test-run pipeline', () => {
         pipeline_state: JSON.stringify({}),
         gpt_prompts: '[]',
       },
-      passingAds: makePassingAds(1, 9),
-      scoredAds: [...makeScoredAds(1, 9, 9), ...repairableFailures],
-      ads_scored: 18,
-      ads_passed: 9,
+      passingAds: makePassingAds(1, 4),
+      scoredAds: [...makeScoredAds(1, 4, 4), ...repairableFailures],
+      ads_scored: 5,
+      ads_passed: 4,
     });
     mockScoreAd
       .mockResolvedValueOnce({
@@ -374,15 +392,15 @@ describe('conductorEngine test-run pipeline', () => {
       });
 
     const { runFullTestPipeline } = await importConductorEngine();
-    const result = await runFullTestPipeline('proj-1', () => {}, { angleOverride: 'angle-1' });
+    const result = await runFullTestPipeline('proj-1', () => {}, { angleOverride: 'angle-1', adsPerAdSetTarget: 5 });
 
     expect(result.terminal_status).toBe('deployed');
-    expect(result.ads_passed).toBe(10);
+    expect(result.ads_passed).toBe(5);
     expect(mockCreateBatchJob).toHaveBeenCalledTimes(1);
   });
 
   it('records post-score failures as orchestration_failed with saved progress', async () => {
-    mockScoreBatchForInlineFilter.mockResolvedValueOnce(makeScoreResult(1, 18, 4));
+    mockScoreBatchForInlineFilter.mockResolvedValueOnce(makeScoreResult(1, 5, 2));
     mockUpdateConductorRun.mockImplementation(async (_id, fields) => {
       if (fields.status === 'running' && fields.decisions?.startsWith('Round 1 complete:')) {
         throw new Error('round progress write failed');
@@ -390,7 +408,7 @@ describe('conductorEngine test-run pipeline', () => {
     });
 
     const { runFullTestPipeline } = await importConductorEngine();
-    const result = await runFullTestPipeline('proj-1', () => {}, { angleOverride: 'angle-1' });
+    const result = await runFullTestPipeline('proj-1', () => {}, { angleOverride: 'angle-1', adsPerAdSetTarget: 5 });
 
     expect(result.pipeline_failed).toBe(true);
     expect(result.terminal_status).toBe('orchestration_failed');
@@ -399,11 +417,26 @@ describe('conductorEngine test-run pipeline', () => {
     const failureCall = mockUpdateConductorRun.mock.calls.find(([, fields]) => fields.terminal_status === 'orchestration_failed');
     expect(failureCall?.[1]).toMatchObject({
       error_stage: 'persist_round_progress',
-      total_ads_generated: 18,
-      total_ads_scored: 18,
-      total_ads_passed: 4,
+      total_ads_generated: 5,
+      total_ads_scored: 5,
+      total_ads_passed: 2,
       total_rounds: 1,
     });
+  });
+
+  it('blocks before generation when Anthropic is missing', async () => {
+    mockGetSetting.mockImplementation(async (key) => ({
+      openai_api_key: 'sk-openai',
+      gemini_api_key: 'gemini-key',
+    }[key] || null));
+
+    const { runFullTestPipeline } = await importConductorEngine();
+    const result = await runFullTestPipeline('proj-1', () => {}, { angleOverride: 'angle-1', adsPerAdSetTarget: 5 });
+
+    expect(result.pipeline_failed).toBe(true);
+    expect(result.failure_reason).toContain('Anthropic API key');
+    expect(mockCreateConductorRun).not.toHaveBeenCalled();
+    expect(mockCreateBatchJob).not.toHaveBeenCalled();
   });
 
   it('resumes a completed background round without referencing an undefined batch', async () => {
@@ -417,12 +450,14 @@ describe('conductorEngine test-run pipeline', () => {
         run_at: runAt,
         status: 'running',
         batches_created: JSON.stringify([
-          { batch_id: 'batch-uuid-1', angle_name: 'Wakes to Pee, Then Cannot Fall Back Asleep', ad_count: 18, round: 1 },
+          { batch_id: 'batch-uuid-1', angle_name: 'Wakes to Pee, Then Cannot Fall Back Asleep', ad_count: 5, round: 1 },
         ]),
         rounds_json: '[]',
-        total_ads_generated: 18,
+        total_ads_generated: 5,
         total_ads_scored: 0,
         total_ads_passed: 0,
+        required_passes: 5,
+        ads_per_round: 5,
         skip_lp_gen: false,
       },
     ]);
@@ -433,9 +468,9 @@ describe('conductorEngine test-run pipeline', () => {
       angle_name: 'Wakes to Pee, Then Cannot Fall Back Asleep',
       angle_prompt: 'Sleep angle',
       angle_brief: null,
-      batch_size: 18,
+      batch_size: 5,
     });
-    mockScoreBatchForInlineFilter.mockResolvedValueOnce(makeScoreResult(1, 18, 10));
+    mockScoreBatchForInlineFilter.mockResolvedValueOnce(makeScoreResult(1, 5, 5));
 
     const { resumeBackgroundTestRuns } = await importConductorEngine();
     await resumeBackgroundTestRuns();

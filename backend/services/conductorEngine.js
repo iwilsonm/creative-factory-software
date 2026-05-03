@@ -19,7 +19,7 @@ import {
   createBatchJob, getBatchJob, updateBatchJob,
   getAdsByBatchId, getAd,
   getAdSetsByProject, getBatchesByProject,
-  getProject, getAllConductorConfigs, convexClient, api,
+  getProject, getAllConductorConfigs, getSetting, convexClient, api,
 } from '../convexClient.js';
 import { runBatch, pollBatchJob } from './batchProcessor.js';
 import { buildStructuredAnglePrompt, hasStructuredBrief, buildAngleBriefJSON } from '../utils/angleParser.js';
@@ -970,9 +970,8 @@ function distributeAngles(angles, count, rotation, config = {}) {
   }
 }
 
-const TEST_RUN_INITIAL_ADS_PER_ROUND = 18;
+const TEST_RUN_DEFAULT_TARGET = 5;
 const TEST_RUN_MAX_ROUNDS = 5;
-const TEST_RUN_REQUIRED_PASSES = 10;
 const TEST_RUN_REFILL_MULTIPLIER = 2;
 const TEST_RUN_ORCHESTRATION_FAILURE_STATUS = 'orchestration_failed';
 const TEST_RUN_GEMINI_WAIT_MS = 30 * 60 * 1000;
@@ -1004,10 +1003,56 @@ function getGeminiTimeoutMessage(roundNumber) {
   return `Round ${roundNumber} Gemini batch timed out after 30 minutes`;
 }
 
-function getTestRoundBatchSize(roundNumber, totalAdsPassed) {
-  if (roundNumber <= 1) return TEST_RUN_INITIAL_ADS_PER_ROUND;
-  const remaining = Math.max(TEST_RUN_REQUIRED_PASSES - totalAdsPassed, 1);
-  return Math.max(2, remaining * TEST_RUN_REFILL_MULTIPLIER);
+export function normalizeTestRunAdTarget(value, fallback = TEST_RUN_DEFAULT_TARGET) {
+  const parsed = Number(value);
+  const fallbackParsed = Number(fallback);
+  const raw = Number.isFinite(parsed) && parsed > 0 ? parsed : fallbackParsed;
+  const safe = Number.isFinite(raw) && raw > 0 ? raw : TEST_RUN_DEFAULT_TARGET;
+  return Math.max(1, Math.min(DIRECTOR_AD_SET_HARD_CAP, Math.floor(safe)));
+}
+
+function getTestRunTargetFromRun(run) {
+  return normalizeTestRunAdTarget(run?.required_passes || run?.ads_per_round || TEST_RUN_DEFAULT_TARGET);
+}
+
+function getTestRoundBatchSize(roundNumber, totalAdsPassed, requiredPasses = TEST_RUN_DEFAULT_TARGET) {
+  const target = normalizeTestRunAdTarget(requiredPasses);
+  if (roundNumber <= 1) return getDirectorTopUpBatchSize(target, 0);
+  const remaining = Math.max(target - totalAdsPassed, 1);
+  return Math.max(2, Math.min(target, remaining * TEST_RUN_REFILL_MULTIPLIER));
+}
+
+async function assertTestRunProviderPreflight(projectId) {
+  const [openAIKey, geminiKey, anthropicKey] = await Promise.all([
+    getSetting('openai_api_key'),
+    getSetting('gemini_api_key'),
+    getSetting('anthropic_api_key'),
+  ]);
+
+  const missing = [];
+  if (!openAIKey) missing.push('OpenAI');
+  if (!geminiKey) missing.push('Gemini');
+  if (!anthropicKey) missing.push('Anthropic');
+  if (missing.length > 0) {
+    throw new Error(`Creative Director test run is blocked before generation: ${missing.join(', ')} API key${missing.length === 1 ? ' is' : 's are'} missing in Settings.`);
+  }
+
+  try {
+    const { chat } = await import('./anthropic.js');
+    await chat(
+      [{ role: 'user', content: 'Reply with exactly: ok' }],
+      'claude-sonnet-4-6',
+      {
+        max_tokens: 8,
+        timeout: 30000,
+        maxRetries: 0,
+        operation: 'conductor_test_preflight',
+        projectId,
+      }
+    );
+  } catch (err) {
+    throw new Error(`Creative Director test run is blocked before generation: Anthropic preflight failed. ${err.message || 'Check the Anthropic API key in Settings.'}`);
+  }
 }
 
 function buildTestProgressValue(roundNumber, step, meta = {}) {
@@ -1454,20 +1499,22 @@ function buildTestRunSummary({
   roundsUsed,
   totalAdsGenerated,
   totalAdsPassed,
+  requiredPasses = TEST_RUN_DEFAULT_TARGET,
   readyToPostCount = 0,
   terminalStatus,
   failureReason = '',
 }) {
+  const target = normalizeTestRunAdTarget(requiredPasses);
   if (terminalStatus === 'deployed') {
-    return `Angle "${angleName}" reached ${TEST_RUN_REQUIRED_PASSES}/${TEST_RUN_REQUIRED_PASSES} passed ads after ${roundsUsed} round${roundsUsed !== 1 ? 's' : ''} (${totalAdsGenerated} generated). ${readyToPostCount} Ready to Post ads created.`;
+    return `Angle "${angleName}" reached ${target}/${target} passed ads after ${roundsUsed} round${roundsUsed !== 1 ? 's' : ''} (${totalAdsGenerated} generated). ${readyToPostCount} Ready to Post ads created.`;
   }
   if (terminalStatus === TEST_RUN_ROUND_CAP_TERMINAL_STATUS || terminalStatus === 'failed_under_threshold_after_54') {
-    return `Angle "${angleName}" reached ${totalAdsPassed}/${TEST_RUN_REQUIRED_PASSES} passed ads after ${roundsUsed} round${roundsUsed !== 1 ? 's' : ''} (${totalAdsGenerated} generated). Round cap reached with no Ready to Post ad set.`;
+    return `Angle "${angleName}" reached ${totalAdsPassed}/${target} passed ads after ${roundsUsed} round${roundsUsed !== 1 ? 's' : ''} (${totalAdsGenerated} generated). Round cap reached with no Ready to Post ad set.`;
   }
   if (terminalStatus === 'cancelled') {
-    return `Angle "${angleName}" was cancelled after ${roundsUsed} round${roundsUsed !== 1 ? 's' : ''} (${totalAdsGenerated} generated, ${totalAdsPassed}/${TEST_RUN_REQUIRED_PASSES} passed so far).`;
+    return `Angle "${angleName}" was cancelled after ${roundsUsed} round${roundsUsed !== 1 ? 's' : ''} (${totalAdsGenerated} generated, ${totalAdsPassed}/${target} passed so far).`;
   }
-  return failureReason || `Angle "${angleName}" failed before reaching ${TEST_RUN_REQUIRED_PASSES} passed ads.`;
+  return failureReason || `Angle "${angleName}" failed before reaching ${target} passed ads.`;
 }
 
 function buildPassingAdsMeta(passingAds) {
@@ -1699,8 +1746,10 @@ function buildCompletedRoundDetail({
   roundNumber,
   roundScoreResult,
   totalAdsPassed,
+  requiredPasses = TEST_RUN_DEFAULT_TARGET,
   repairSummary = null,
 }) {
+  const target = normalizeTestRunAdTarget(requiredPasses);
   const failedAds = buildFailedAdsMeta(roundScoreResult.scoredAds);
   const roundDetail = {
     round: roundNumber,
@@ -1710,7 +1759,7 @@ function buildCompletedRoundDetail({
     ads_scored: roundScoreResult.ads_scored,
     ads_passed: roundScoreResult.ads_passed,
     cumulative_passed: totalAdsPassed,
-    status: totalAdsPassed >= TEST_RUN_REQUIRED_PASSES ? 'threshold_reached' : 'below_threshold',
+    status: totalAdsPassed >= target ? 'threshold_reached' : 'below_threshold',
     completed_at: new Date().toISOString(),
     passing_ads: buildPassingAdsMeta(roundScoreResult.passingAds),
     failed_ads: failedAds,
@@ -1825,6 +1874,8 @@ async function attemptRoundRepairs({
   batch,
   roundNumber,
   emit,
+  requiredPasses = TEST_RUN_DEFAULT_TARGET,
+  priorPassed = 0,
 }) {
   const failedEntries = (roundScoreResult.scoredAds || [])
     .filter(({ score }) => !score?.pass)
@@ -1834,7 +1885,8 @@ async function attemptRoundRepairs({
       ...classifyScoreFailure(score),
     }));
 
-  const remainingNeeded = Math.max(TEST_RUN_REQUIRED_PASSES - roundScoreResult.passingAds.length, 0);
+  const target = normalizeTestRunAdTarget(requiredPasses);
+  const remainingNeeded = Math.max(target - Math.max(0, Math.floor(Number(priorPassed) || 0)) - roundScoreResult.passingAds.length, 0);
   if (failedEntries.length === 0 || remainingNeeded <= 0) {
     return {
       repairedPassingAds: [],
@@ -2107,6 +2159,7 @@ async function finalizeSuccessfulTestRun({
   totalAdsGenerated,
   totalAdsScored,
   totalAdsPassed,
+  requiredPasses = TEST_RUN_DEFAULT_TARGET,
   finalizeResult,
   durationMs,
   triggerLabel = 'test run',
@@ -2154,6 +2207,7 @@ async function finalizeSuccessfulTestRun({
       roundsUsed: roundDetails.length,
       totalAdsGenerated,
       totalAdsPassed,
+      requiredPasses,
       readyToPostCount,
       terminalStatus: 'deployed',
     }),
@@ -2170,7 +2224,8 @@ function getBackgroundWaitingMessage(roundNumber) {
   return `Round ${roundNumber} is still processing in Gemini. Continuing in background.`;
 }
 
-async function hydratePassingAdsForRounds(roundDetails, projectId) {
+async function hydratePassingAdsForRounds(roundDetails, projectId, requiredPasses = TEST_RUN_DEFAULT_TARGET) {
+  const target = normalizeTestRunAdTarget(requiredPasses);
   const hydrated = [];
   const cumulativePassingAds = [];
   let recoveredAny = false;
@@ -2216,7 +2271,7 @@ async function hydratePassingAdsForRounds(roundDetails, projectId) {
 
     cumulativePassingAds.push(...passingAds);
     round.cumulative_passed = cumulativePassingAds.length;
-    round.status = cumulativePassingAds.length >= TEST_RUN_REQUIRED_PASSES ? 'threshold_reached' : 'below_threshold';
+    round.status = cumulativePassingAds.length >= target ? 'threshold_reached' : 'below_threshold';
     hydrated.push(round);
   }
 
@@ -2263,6 +2318,7 @@ async function markTestRunBackgroundFailure({
   totalAdsGenerated,
   totalAdsScored,
   totalAdsPassed,
+  requiredPasses = TEST_RUN_DEFAULT_TARGET,
   failureReason,
   terminalStatus = 'generation_failed',
   errorStage = undefined,
@@ -2288,6 +2344,7 @@ async function markTestRunBackgroundFailure({
       roundsUsed: Math.max(roundDetails.length, batchInfos.length, 1),
       totalAdsGenerated,
       totalAdsPassed,
+      requiredPasses,
       terminalStatus,
       failureReason,
     }),
@@ -2297,6 +2354,7 @@ async function markTestRunBackgroundFailure({
 async function continueBackgroundTestRun(run) {
   const runId = run.externalId;
   const projectId = run.project_id;
+  const requiredPasses = getTestRunTargetFromRun(run);
   const batchInfos = parseJSON(run.batches_created, []);
   let roundDetails = parseJSON(run.rounds_json, []);
   const latestRun = await getLatestTestRunState(projectId, runId);
@@ -2323,6 +2381,7 @@ async function continueBackgroundTestRun(run) {
       totalAdsGenerated: run.total_ads_generated || batchInfos.reduce((sum, info) => sum + (info.ad_count || 0), 0),
       totalAdsScored: run.total_ads_scored || 0,
       totalAdsPassed: run.total_ads_passed || 0,
+      requiredPasses,
       failureReason: `Round ${batchInfo.round || (roundDetails.length + 1)} batch record could not be found.`,
     });
     return true;
@@ -2360,6 +2419,7 @@ async function continueBackgroundTestRun(run) {
       totalAdsGenerated: run.total_ads_generated || batchInfos.reduce((sum, info) => sum + (info.ad_count || 0), 0),
       totalAdsScored: run.total_ads_scored || 0,
       totalAdsPassed: run.total_ads_passed || 0,
+      requiredPasses,
       failureReason: batch.error_message || `Round ${batchInfo.round || (roundDetails.length + 1)} batch failed.`,
       terminalStatus: 'provider_failed',
     });
@@ -2379,7 +2439,7 @@ async function continueBackgroundTestRun(run) {
 
   try {
     const { scoreBatchForInlineFilter, finalizePassingAds } = await import('./creativeFilterService.js');
-    const hydrated = await hydratePassingAdsForRounds(roundDetails, projectId);
+    const hydrated = await hydratePassingAdsForRounds(roundDetails, projectId, requiredPasses);
     roundDetails = hydrated.roundDetails;
     const cumulativePassingAds = [...hydrated.cumulativePassingAds];
 
@@ -2407,6 +2467,8 @@ async function continueBackgroundTestRun(run) {
       batch: roundScoreResult.batch || batch,
       roundNumber,
       emit: null,
+      requiredPasses,
+      priorPassed: cumulativePassingAds.length,
     });
     activeRoundState.repairSummary = repairResult.repairSummary;
     activeRoundState.mergedRoundScoreResult = {
@@ -2433,6 +2495,7 @@ async function continueBackgroundTestRun(run) {
       roundNumber,
       roundScoreResult: activeRoundState.mergedRoundScoreResult,
       totalAdsPassed,
+      requiredPasses,
       repairSummary: repairResult.repairSummary,
     });
     roundDetails.push(roundDetail);
@@ -2443,7 +2506,7 @@ async function continueBackgroundTestRun(run) {
       repair_passes: repairResult.repairSummary?.passed || 0,
     });
 
-    if (totalAdsPassed >= TEST_RUN_REQUIRED_PASSES) {
+    if (totalAdsPassed >= requiredPasses) {
       backgroundErrorStage = 'filter_finalization';
       const finalizeResult = await finalizePassingAds({
         passingAds: cumulativePassingAds,
@@ -2460,7 +2523,7 @@ async function continueBackgroundTestRun(run) {
           failureReason = `${totalAdsPassed} approved ads were available, but grouping could not create an ad set.`;
           terminalStatus = 'grouping_failed';
         } else if (finalizeResult.deploy_error) {
-          failureReason = `Reached ${totalAdsPassed}/${TEST_RUN_REQUIRED_PASSES} passed ads, but deployment failed: ${finalizeResult.deploy_error}`;
+          failureReason = `Reached ${totalAdsPassed}/${requiredPasses} passed ads, but deployment failed: ${finalizeResult.deploy_error}`;
         }
 
         await updateConductorRun(runId, {
@@ -2483,6 +2546,7 @@ async function continueBackgroundTestRun(run) {
             roundsUsed: roundDetails.length,
             totalAdsGenerated,
             totalAdsPassed,
+            requiredPasses,
             terminalStatus,
             failureReason,
           }),
@@ -2500,17 +2564,18 @@ async function continueBackgroundTestRun(run) {
         totalAdsGenerated,
         totalAdsScored,
         totalAdsPassed,
+        requiredPasses,
         finalizeResult,
         durationMs: Date.now() - run.run_at,
         triggerLabel: 'background test run',
       });
 
-      console.log(`[Director] Resumed test run ${runId.slice(0, 8)} completed in background: ${totalAdsPassed}/${TEST_RUN_REQUIRED_PASSES} passed`);
+      console.log(`[Director] Resumed test run ${runId.slice(0, 8)} completed in background: ${totalAdsPassed}/${requiredPasses} passed`);
       return true;
     }
 
     if (roundNumber >= TEST_RUN_MAX_ROUNDS) {
-      const failureReason = `Reached ${totalAdsPassed}/${TEST_RUN_REQUIRED_PASSES} passed ads after ${totalAdsGenerated} generated across ${TEST_RUN_MAX_ROUNDS} rounds. Round cap reached with no Ready to Post ad set.`;
+      const failureReason = `Reached ${totalAdsPassed}/${requiredPasses} passed ads after ${totalAdsGenerated} generated across ${TEST_RUN_MAX_ROUNDS} rounds. Round cap reached with no Ready to Post ad set.`;
       await updateConductorRun(runId, {
         status: 'failed',
         terminal_status: TEST_RUN_ROUND_CAP_TERMINAL_STATUS,
@@ -2531,6 +2596,7 @@ async function continueBackgroundTestRun(run) {
           roundsUsed: roundDetails.length,
           totalAdsGenerated,
           totalAdsPassed,
+          requiredPasses,
           terminalStatus: TEST_RUN_ROUND_CAP_TERMINAL_STATUS,
         }),
       });
@@ -2558,6 +2624,7 @@ async function continueBackgroundTestRun(run) {
         totalAdsGenerated,
         totalAdsScored,
         totalAdsPassed,
+        requiredPasses,
         failureReason: 'Project not found while preparing the next round.',
         terminalStatus: TEST_RUN_ORCHESTRATION_FAILURE_STATUS,
         errorStage: backgroundErrorStage,
@@ -2566,7 +2633,7 @@ async function continueBackgroundTestRun(run) {
       return true;
     }
 
-    const nextBatchSize = getTestRoundBatchSize(roundNumber + 1, totalAdsPassed);
+    const nextBatchSize = getTestRoundBatchSize(roundNumber + 1, totalAdsPassed, requiredPasses);
     const nextBatchInfo = await createTestBatchRound({
       projectId,
       project,
@@ -2582,7 +2649,7 @@ async function continueBackgroundTestRun(run) {
 
     batchInfos.push(nextBatchInfo);
     const roundPassDisplay = roundScoreResult.ads_passed + (repairResult.repairSummary?.passed || 0);
-    const nextRoundMessage = `Round ${roundNumber} complete: ${roundPassDisplay}/${roundScoreResult.ads_scored} passed, ${totalAdsPassed}/${TEST_RUN_REQUIRED_PASSES} total. Starting round ${roundNumber + 1} with ${nextBatchSize} ads in background...`;
+    const nextRoundMessage = `Round ${roundNumber} complete: ${roundPassDisplay}/${roundScoreResult.ads_scored} passed, ${totalAdsPassed}/${requiredPasses} total. Starting round ${roundNumber + 1} with ${nextBatchSize} ads in background...`;
 
     await updateConductorRun(runId, {
       status: 'running',
@@ -2611,6 +2678,7 @@ async function continueBackgroundTestRun(run) {
           totalAdsGenerated: totalAdsGenerated + nextBatchInfo.ad_count,
           totalAdsScored,
           totalAdsPassed,
+          requiredPasses,
           failureReason: err.message,
           errorStage: 'building_next_round',
           durationMs: Date.now() - run.run_at,
@@ -2645,6 +2713,7 @@ async function continueBackgroundTestRun(run) {
           roundNumber: activeRoundState.roundNumber,
           roundScoreResult: activeRoundState.mergedRoundScoreResult || activeRoundState.rawScoreResult,
           totalAdsPassed: recoveredTotalAdsPassed,
+          requiredPasses,
           repairSummary: activeRoundState.repairSummary,
         }));
         activeRoundState.detailPersisted = true;
@@ -2662,6 +2731,7 @@ async function continueBackgroundTestRun(run) {
       totalAdsGenerated: run.total_ads_generated || batchInfos.reduce((sum, info) => sum + (info.ad_count || 0), 0),
       totalAdsScored: run.total_ads_scored || roundDetails.reduce((sum, detail) => sum + (detail.ads_scored || 0), 0),
       totalAdsPassed: run.total_ads_passed || roundDetails.at(-1)?.cumulative_passed || 0,
+      requiredPasses,
       failureReason: err.message || 'Background test run failed during post-score processing.',
       terminalStatus: TEST_RUN_ORCHESTRATION_FAILURE_STATUS,
       errorStage: backgroundErrorStage,
@@ -2706,6 +2776,7 @@ export async function runTestBatch(projectId, sendEvent, { skipBatchLaunch = fal
   const emit = sendEvent || (() => {});
   const startMs = Date.now();
   const runId = uuidv4();
+  const requiredPasses = normalizeTestRunAdTarget(batchSizeOverride || TEST_RUN_DEFAULT_TARGET);
 
   emit({ type: 'progress', step: 'initializing', message: 'Loading project config...' });
 
@@ -2715,8 +2786,8 @@ export async function runTestBatch(projectId, sendEvent, { skipBatchLaunch = fal
     run_type: 'test',
     run_at: startMs,
     status: 'running',
-    required_passes: TEST_RUN_REQUIRED_PASSES,
-    ads_per_round: batchSizeOverride || TEST_RUN_INITIAL_ADS_PER_ROUND,
+    required_passes: requiredPasses,
+    ads_per_round: requiredPasses,
     max_rounds: 1,
   });
 
@@ -2725,7 +2796,7 @@ export async function runTestBatch(projectId, sendEvent, { skipBatchLaunch = fal
     const { project, angleInfo, anglePrompt, angleBriefJSON } = await loadTestRunContext(projectId, angleOverride);
 
     emit({ type: 'progress', step: 'building_prompt', message: `Building prompt for "${angleInfo.name}"...` });
-    const batchSize = batchSizeOverride || TEST_RUN_INITIAL_ADS_PER_ROUND;
+    const batchSize = requiredPasses;
     const batchInfo = await createTestBatchRound({
       projectId,
       project,
@@ -2840,11 +2911,12 @@ export function cancelTestRun(projectId) {
  *
  * @param {string} projectId
  * @param {(event: object) => void} sendEvent - SSE event emitter
- * @param {{ angleOverride?: string }} options
+ * @param {{ angleOverride?: string, adsPerAdSetTarget?: number }} options
  * @returns {object} Combined result from Director + Filter phases
  */
-export async function runFullTestPipeline(projectId, sendEvent, { angleOverride = null } = {}) {
+export async function runFullTestPipeline(projectId, sendEvent, { angleOverride = null, adsPerAdSetTarget = TEST_RUN_DEFAULT_TARGET } = {}) {
   const rawEmit = sendEvent || (() => {});
+  const requiredPasses = normalizeTestRunAdTarget(adsPerAdSetTarget);
 
   if (findTrackedTestRun(projectId) || await hasDurableActiveTestRun(projectId)) {
     throw new Error('A test run is already in progress for this project. Cancel it or wait for it to finish before starting another.');
@@ -2861,6 +2933,7 @@ export async function runFullTestPipeline(projectId, sendEvent, { angleOverride 
     cancelRequested: false,
     currentBatchId: null,
     runId: null,
+    requiredPasses,
   };
   const trackingId = `pending-${Date.now()}`;
   activeTestRuns.set(trackingId, runProgress);
@@ -2919,6 +2992,7 @@ export async function runFullTestPipeline(projectId, sendEvent, { angleOverride 
 
   try {
     emit({ type: 'progress', step: 'initializing', message: 'Loading project config...' });
+    await assertTestRunProviderPreflight(projectId);
     runId = uuidv4();
     runProgress.runId = runId;
 
@@ -2928,8 +3002,8 @@ export async function runFullTestPipeline(projectId, sendEvent, { angleOverride 
       run_type: 'test',
       run_at: runProgress.startTime,
       status: 'running',
-      required_passes: TEST_RUN_REQUIRED_PASSES,
-      ads_per_round: TEST_RUN_INITIAL_ADS_PER_ROUND,
+      required_passes: requiredPasses,
+      ads_per_round: getTestRoundBatchSize(1, 0, requiredPasses),
       max_rounds: TEST_RUN_MAX_ROUNDS,
     });
 
@@ -2947,7 +3021,7 @@ export async function runFullTestPipeline(projectId, sendEvent, { angleOverride 
     for (let roundNumber = 1; roundNumber <= TEST_RUN_MAX_ROUNDS; roundNumber++) {
       throwIfRunCancelled();
       errorStage = 'creating_batch';
-      const batchSize = getTestRoundBatchSize(roundNumber, totalAdsPassed);
+      const batchSize = getTestRoundBatchSize(roundNumber, totalAdsPassed, requiredPasses);
       console.log(`[Director] Test run ${runId.slice(0, 8)} round ${roundNumber}/${TEST_RUN_MAX_ROUNDS}: creating ${batchSize} ads for "${angleName}"`);
       const batchInfo = await createTestBatchRound({
         projectId,
@@ -2999,6 +3073,7 @@ export async function runFullTestPipeline(projectId, sendEvent, { angleOverride 
           total_ads_generated: totalAdsGenerated,
           ads_scored: totalAdsScored,
           ads_passed: totalAdsPassed,
+          required_passes: requiredPasses,
           ready_to_post_count: 0,
           terminal_status: 'waiting_on_gemini',
           run_in_background: true,
@@ -3034,6 +3109,8 @@ export async function runFullTestPipeline(projectId, sendEvent, { angleOverride 
         batch: roundScoreResult.batch,
         roundNumber,
         emit: (event) => emit(withTestProgress(roundNumber, event)),
+        requiredPasses,
+        priorPassed: totalAdsPassed,
       });
       activeRoundState.repairSummary = repairResult.repairSummary;
       activeRoundState.mergedRoundScoreResult = {
@@ -3050,7 +3127,7 @@ export async function runFullTestPipeline(projectId, sendEvent, { angleOverride 
       totalAdsScored += roundScoreResult.ads_scored + (repairResult.repairSummary?.attempted || 0);
       totalAdsPassed = cumulativePassingAds.length;
       activeRoundState.countsApplied = true;
-      console.log(`[Director] Test run ${runId.slice(0, 8)} round ${roundNumber}/${TEST_RUN_MAX_ROUNDS}: ${roundScoreResult.ads_passed}+${repairResult.repairSummary?.passed || 0}/${roundScoreResult.ads_scored} passed, ${totalAdsPassed}/${TEST_RUN_REQUIRED_PASSES} cumulative`);
+      console.log(`[Director] Test run ${runId.slice(0, 8)} round ${roundNumber}/${TEST_RUN_MAX_ROUNDS}: ${roundScoreResult.ads_passed}+${repairResult.repairSummary?.passed || 0}/${roundScoreResult.ads_scored} passed, ${totalAdsPassed}/${requiredPasses} cumulative`);
       const roundDetail = buildCompletedRoundDetail({
         batch: roundScoreResult.batch,
         batchInfo,
@@ -3058,6 +3135,7 @@ export async function runFullTestPipeline(projectId, sendEvent, { angleOverride 
         roundNumber,
         roundScoreResult: activeRoundState.mergedRoundScoreResult,
         totalAdsPassed,
+        requiredPasses,
         repairSummary: repairResult.repairSummary,
       });
       roundDetails.push(roundDetail);
@@ -3068,7 +3146,7 @@ export async function runFullTestPipeline(projectId, sendEvent, { angleOverride 
         repair_passes: repairResult.repairSummary?.passed || 0,
       });
 
-      if (totalAdsPassed >= TEST_RUN_REQUIRED_PASSES) {
+      if (totalAdsPassed >= requiredPasses) {
         errorStage = 'filter_finalization';
         const finalizeResult = await finalizePassingAds({
           passingAds: cumulativePassingAds,
@@ -3086,7 +3164,7 @@ export async function runFullTestPipeline(projectId, sendEvent, { angleOverride 
             failureReason = `${totalAdsPassed} approved ads were available, but grouping could not create an ad set.`;
             terminalStatus = 'grouping_failed';
           } else if (finalizeResult.deploy_error) {
-            failureReason = `Reached ${totalAdsPassed}/${TEST_RUN_REQUIRED_PASSES} passed ads, but deployment failed: ${finalizeResult.deploy_error}`;
+            failureReason = `Reached ${totalAdsPassed}/${requiredPasses} passed ads, but deployment failed: ${finalizeResult.deploy_error}`;
           }
 
           await updateConductorRun(runId, {
@@ -3109,6 +3187,7 @@ export async function runFullTestPipeline(projectId, sendEvent, { angleOverride 
               roundsUsed: roundDetails.length,
               totalAdsGenerated,
               totalAdsPassed,
+              requiredPasses,
               terminalStatus,
               failureReason,
             }),
@@ -3117,7 +3196,7 @@ export async function runFullTestPipeline(projectId, sendEvent, { angleOverride 
           runProgress.status = 'error';
           runProgress.progress = 0;
           runProgress.phase = failureReason;
-          runProgress.result = { failure_reason: failureReason };
+          runProgress.result = { failure_reason: failureReason, required_passes: requiredPasses };
           setTimeout(() => activeTestRuns.delete(trackingId), 60000);
 
           return {
@@ -3127,6 +3206,7 @@ export async function runFullTestPipeline(projectId, sendEvent, { angleOverride 
             total_ads_generated: totalAdsGenerated,
             ads_scored: totalAdsScored,
             ads_passed: totalAdsPassed,
+            required_passes: requiredPasses,
             ready_to_post_count: 0,
             terminal_status: terminalStatus,
             failure_reason: failureReason,
@@ -3146,6 +3226,7 @@ export async function runFullTestPipeline(projectId, sendEvent, { angleOverride 
           totalAdsGenerated,
           totalAdsScored,
           totalAdsPassed,
+          requiredPasses,
           finalizeResult,
           durationMs: Date.now() - runProgress.startTime,
           triggerLabel: 'test run',
@@ -3156,7 +3237,7 @@ export async function runFullTestPipeline(projectId, sendEvent, { angleOverride 
         runProgress.status = 'complete';
         runProgress.progress = 100;
         runProgress.phase = 'Complete';
-        runProgress.result = { flex_ad_id: successResult.flexAdId, ready_to_post_count: successResult.readyToPostCount };
+        runProgress.result = { flex_ad_id: successResult.flexAdId, ready_to_post_count: successResult.readyToPostCount, required_passes: requiredPasses };
         setTimeout(() => activeTestRuns.delete(trackingId), 60000);
 
         return {
@@ -3166,6 +3247,7 @@ export async function runFullTestPipeline(projectId, sendEvent, { angleOverride 
           total_ads_generated: totalAdsGenerated,
           ads_scored: totalAdsScored,
           ads_passed: totalAdsPassed,
+          required_passes: requiredPasses,
           ready_to_post_count: successResult.readyToPostCount,
           flex_ads_created: finalizeResult.flex_ads_created,
           flex_ad_id: successResult.flexAdId,
@@ -3175,19 +3257,19 @@ export async function runFullTestPipeline(projectId, sendEvent, { angleOverride 
       }
 
       if (roundNumber < TEST_RUN_MAX_ROUNDS) {
-        const nextBatchSize = getTestRoundBatchSize(roundNumber + 1, totalAdsPassed);
+        const nextBatchSize = getTestRoundBatchSize(roundNumber + 1, totalAdsPassed, requiredPasses);
         const roundPassDisplay = roundScoreResult.ads_passed + (repairResult.repairSummary?.passed || 0);
         emit(withTestProgress(roundNumber, {
           type: 'progress',
           step: 'round_complete',
-          message: `Round ${roundNumber} complete: ${roundPassDisplay}/${roundScoreResult.ads_scored} passed, ${totalAdsPassed}/${TEST_RUN_REQUIRED_PASSES} total. Starting round ${roundNumber + 1} with ${nextBatchSize} ads...`,
+          message: `Round ${roundNumber} complete: ${roundPassDisplay}/${roundScoreResult.ads_scored} passed, ${totalAdsPassed}/${requiredPasses} total. Starting round ${roundNumber + 1} with ${nextBatchSize} ads...`,
         }));
       }
 
       const roundPassDisplay = roundScoreResult.ads_passed + (repairResult.repairSummary?.passed || 0);
       const nextDecisionMessage = roundNumber < TEST_RUN_MAX_ROUNDS
-        ? `Round ${roundNumber} complete: ${roundPassDisplay}/${roundScoreResult.ads_scored} passed, ${totalAdsPassed}/${TEST_RUN_REQUIRED_PASSES} total. Starting round ${roundNumber + 1} with ${getTestRoundBatchSize(roundNumber + 1, totalAdsPassed)} ads...`
-        : `Round ${roundNumber} complete: ${roundPassDisplay}/${roundScoreResult.ads_scored} passed, ${totalAdsPassed}/${TEST_RUN_REQUIRED_PASSES} total.`;
+        ? `Round ${roundNumber} complete: ${roundPassDisplay}/${roundScoreResult.ads_scored} passed, ${totalAdsPassed}/${requiredPasses} total. Starting round ${roundNumber + 1} with ${getTestRoundBatchSize(roundNumber + 1, totalAdsPassed, requiredPasses)} ads...`
+        : `Round ${roundNumber} complete: ${roundPassDisplay}/${roundScoreResult.ads_scored} passed, ${totalAdsPassed}/${requiredPasses} total.`;
 
       errorStage = 'persist_round_progress';
       await updateConductorRun(runId, {
@@ -3205,8 +3287,8 @@ export async function runFullTestPipeline(projectId, sendEvent, { angleOverride 
       activeRoundState = null;
     }
 
-    const failureReason = `Reached ${totalAdsPassed}/${TEST_RUN_REQUIRED_PASSES} passed ads after ${totalAdsGenerated} generated across ${TEST_RUN_MAX_ROUNDS} rounds. Round cap reached with no Ready to Post ad set.`;
-    console.warn(`[Director] Test run ${runId.slice(0, 8)} failed at hard cap: ${totalAdsPassed}/${TEST_RUN_REQUIRED_PASSES} passed after ${totalAdsGenerated} generated`);
+    const failureReason = `Reached ${totalAdsPassed}/${requiredPasses} passed ads after ${totalAdsGenerated} generated across ${TEST_RUN_MAX_ROUNDS} rounds. Round cap reached with no Ready to Post ad set.`;
+    console.warn(`[Director] Test run ${runId.slice(0, 8)} failed at hard cap: ${totalAdsPassed}/${requiredPasses} passed after ${totalAdsGenerated} generated`);
 
     await updateConductorRun(runId, {
       status: 'failed',
@@ -3228,6 +3310,7 @@ export async function runFullTestPipeline(projectId, sendEvent, { angleOverride 
         roundsUsed: roundDetails.length,
         totalAdsGenerated,
         totalAdsPassed,
+        requiredPasses,
         terminalStatus: TEST_RUN_ROUND_CAP_TERMINAL_STATUS,
       }),
     });
@@ -3273,6 +3356,7 @@ export async function runFullTestPipeline(projectId, sendEvent, { angleOverride 
           roundNumber: activeRoundState.roundNumber,
           roundScoreResult: activeRoundState.mergedRoundScoreResult || activeRoundState.rawScoreResult,
           totalAdsPassed,
+          requiredPasses,
           repairSummary: activeRoundState.repairSummary,
         }));
         activeRoundState.detailPersisted = true;
@@ -3307,6 +3391,7 @@ export async function runFullTestPipeline(projectId, sendEvent, { angleOverride 
             roundsUsed: Math.max(roundDetails.length, batchInfos.length, 1),
             totalAdsGenerated,
             totalAdsPassed,
+            requiredPasses,
             terminalStatus,
             failureReason,
           }),
@@ -3319,7 +3404,7 @@ export async function runFullTestPipeline(projectId, sendEvent, { angleOverride 
     runProgress.status = 'error';
     runProgress.progress = 0;
     runProgress.phase = failureReason;
-    runProgress.result = { failure_reason: failureReason, terminal_status: terminalStatus };
+    runProgress.result = { failure_reason: failureReason, terminal_status: terminalStatus, required_passes: requiredPasses };
     setTimeout(() => activeTestRuns.delete(trackingId), 60000);
 
     return {
@@ -3329,6 +3414,7 @@ export async function runFullTestPipeline(projectId, sendEvent, { angleOverride 
       total_ads_generated: totalAdsGenerated,
       ads_scored: totalAdsScored,
       ads_passed: totalAdsPassed,
+      required_passes: requiredPasses,
       ready_to_post_count: 0,
       terminal_status: terminalStatus,
       failure_reason: failureReason,

@@ -34,6 +34,15 @@ function isAllowedSettingKey(key) {
   return ALLOWED_SETTING_KEYS.includes(key);
 }
 
+function normalizeSettingValue(key, value) {
+  if (value === undefined || value === null) return value;
+  if (typeof value !== 'string') return value;
+  if (API_KEY_KEYS.includes(key) || key.startsWith('meta_')) {
+    return value.trim();
+  }
+  return value;
+}
+
 // Get all settings (mask sensitive values)
 router.get('/', async (req, res) => {
   const settings = await getAllSettings();
@@ -53,15 +62,23 @@ router.get('/', async (req, res) => {
 
 // Update settings
 router.put('/', async (req, res) => {
-  const saved = [];
-  for (const [key, value] of Object.entries(req.body || {})) {
-    if (value !== undefined && isAllowedSettingKey(key)) {
-      await setSetting(key, value);
-      saved.push(key);
+  try {
+    const saved = [];
+    for (const [key, value] of Object.entries(req.body || {})) {
+      if (value !== undefined && isAllowedSettingKey(key)) {
+        const normalized = normalizeSettingValue(key, value);
+        await setSetting(key, normalized);
+        saved.push(key);
+      }
     }
-  }
 
-  res.json({ success: true, saved });
+    res.json({ success: true, saved });
+  } catch (err) {
+    console.error('[Settings] Save failed:', err.message);
+    res.status(500).json({
+      error: 'Settings could not be saved. Check that your session is still active and try again. If this keeps happening, the settings database write failed.',
+    });
+  }
 });
 
 // Test OpenAI connection
@@ -177,26 +194,20 @@ router.post('/test-anthropic', async (req, res) => {
   if (!apiKey) return res.status(400).json({ error: 'Anthropic API key not configured' });
 
   try {
-    const response = await fetch('https://api.anthropic.com/v1/messages', {
-      method: 'POST',
-      headers: {
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-        'content-type': 'application/json'
-      },
-      body: JSON.stringify({
-        model: 'claude-haiku-4-5-20251001',
-        max_tokens: 5,
-        messages: [{ role: 'user', content: 'Hello' }]
-      })
-    });
-    if (!response.ok) {
-      const body = await response.text();
-      return res.status(400).json({ error: `Anthropic API returned ${response.status}: ${body.slice(0, 200)}` });
-    }
-    res.json({ success: true, message: 'Anthropic API key is valid' });
+    const { chat } = await import('../services/anthropic.js');
+    await chat(
+      [{ role: 'user', content: 'Reply with exactly: ok' }],
+      'claude-sonnet-4-6',
+      {
+        max_tokens: 8,
+        timeout: 30000,
+        maxRetries: 0,
+        operation: 'settings_anthropic_test',
+      }
+    );
+    res.json({ success: true, message: 'Anthropic API key is valid for Creative Filter QA.' });
   } catch (err) {
-    res.status(500).json({ error: `Connection failed: ${err.message}` });
+    res.status(400).json({ error: `Anthropic test failed: ${err.message}` });
   }
 });
 

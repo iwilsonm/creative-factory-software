@@ -486,10 +486,26 @@ router.post('/run/:projectId', async (req, res) => {
 
 // POST /api/conductor/test-run/:projectId — full pipeline: Director → batch → Gemini → Filter → Ready to Post
 router.post('/test-run/:projectId', async (req, res) => {
+  const { angle_id, ads_per_ad_set } = req.body || {};
+  const selectedAngleId = typeof angle_id === 'string' ? angle_id.trim() : '';
+  if (!selectedAngleId) {
+    return res.status(400).json({ error: 'Choose a test angle before starting a Creative Director test run.' });
+  }
+
+  const selectedTarget = ads_per_ad_set === undefined || ads_per_ad_set === null || ads_per_ad_set === ''
+    ? 5
+    : Number(ads_per_ad_set);
+
+  if (!Number.isInteger(selectedTarget) || selectedTarget < 1 || selectedTarget > 20) {
+    return res.status(400).json({ error: 'Ads in test ad set must be a whole number from 1 to 20.' });
+  }
+
   streamService(req, res, async (sendEvent) => {
-    const { angle_id } = req.body || {};
     const { runFullTestPipeline } = await import('../services/conductorEngine.js');
-    const result = await runFullTestPipeline(req.params.projectId, sendEvent, { angleOverride: angle_id || null });
+    const result = await runFullTestPipeline(req.params.projectId, sendEvent, {
+      angleOverride: selectedAngleId,
+      adsPerAdSetTarget: selectedTarget,
+    });
     if (result.pipeline_failed) {
       sendEvent({ type: 'error', message: result.failure_reason, ...result });
     } else if (result.run_in_background) {
