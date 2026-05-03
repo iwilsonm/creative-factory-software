@@ -22,14 +22,14 @@ export default defineSchema({
     lpCount: v.optional(v.float64()),
     lpPublishedCount: v.optional(v.float64()),
     status: v.optional(v.string()),
-    // Dacia Creative Filter (Recursive Agent #2) — per-project config
+    // Creative Filter QA + Ready-to-Post defaults — per-project config
     scout_enabled: v.optional(v.boolean()),
     scout_default_campaign: v.optional(v.string()),
     scout_cta: v.optional(v.string()),
     scout_display_link: v.optional(v.string()),
     scout_facebook_page: v.optional(v.string()),
     scout_score_threshold: v.optional(v.number()),
-    scout_daily_flex_ads: v.optional(v.number()),  // Max flex ads/day from Creative Filter (default 2)
+    scout_daily_flex_ads: v.optional(v.number()),  // Legacy manual filter cap; Director Ad Set Target is the primary volume control
     scout_destination_url: v.optional(v.string()),        // Default website/landing page URL (legacy single)
     scout_destination_urls: v.optional(v.string()),       // JSON array of default LP URLs (overrides single)
     scout_duplicate_adset_name: v.optional(v.string()),   // Default "duplicate this ad set" name for Meta
@@ -197,7 +197,7 @@ export default defineSchema({
     batch_stats: v.optional(v.nullable(v.string())),
     pipeline_state: v.optional(v.string()),  // JSON: { stage, brief_packet, headlines, body_copies }
     filter_assigned: v.optional(v.boolean()),      // Opt-in: batch assigned to Creative Filter
-    filter_processed: v.optional(v.boolean()),    // Dacia Creative Filter has evaluated this batch
+    filter_processed: v.optional(v.boolean()),    // Creative Filter has evaluated this batch
     filter_processed_at: v.optional(v.string()),  // When filter processed it
     // Dacia Creative Director fields
     posting_day: v.optional(v.string()),           // YYYY-MM-DD posting day this batch produces ads for
@@ -415,14 +415,14 @@ export default defineSchema({
   conductor_config: defineTable({
     project_id: v.string(),              // → projects.externalId
     enabled: v.boolean(),
-    daily_flex_target: v.number(),       // flex ads per day (1-20, default 5)
+    daily_flex_target: v.number(),       // ad sets per day (1-20, default 5)
     ads_per_batch: v.number(),           // ads per ad set fallback (default 5)
     angle_mode: v.string(),             // "manual" | "auto" | "mixed"
     explore_ratio: v.number(),           // for mixed mode, % testing new angles (0.0-1.0)
     angle_rotation: v.string(),         // "round_robin" | "weighted" | "random"
     headline_style: v.optional(v.string()),      // freeform prompt guidance
     primary_text_style: v.optional(v.string()),  // freeform prompt guidance
-    default_campaign_id: v.optional(v.string()),  // → campaigns.externalId for auto-deployed flex ads
+    default_campaign_id: v.optional(v.string()),  // → campaigns.externalId for auto-deployed ad sets
     run_schedule: v.string(),           // "daily" | "weekdays" | "weekly_monday" | "custom" | "manual_only"
     run_schedule_days: v.optional(v.string()),   // JSON array of day numbers (0=Sun...6=Sat) for custom schedule
     run_schedule_hour: v.optional(v.number()),   // Hour in ICT (0-23) for custom schedule, default 0

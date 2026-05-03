@@ -90,6 +90,65 @@ export const getAllConfigs = query({
   },
 });
 
+export const repairLegacyAdsPerBatchDefaults = mutation({
+  args: {
+    dryRun: v.optional(v.boolean()),
+  },
+  handler: async (ctx, args) => {
+    const dryRun = args.dryRun !== false;
+    const now = Date.now();
+    const configs = await ctx.db.query("conductor_config").collect();
+    const results: Array<{
+      project_id: string;
+      old_ads_per_batch: number;
+      new_ads_per_batch: number;
+      project_ads_per_ad_set: number | null;
+      project_updated: boolean;
+    }> = [];
+
+    for (const config of configs) {
+      if (config.ads_per_batch !== 18) continue;
+
+      let project = await ctx.db
+        .query("projects")
+        .withIndex("by_externalId", (q) => q.eq("externalId", config.project_id))
+        .first();
+
+      const projectAdsPerAdSet =
+        typeof project?.ads_per_ad_set === "number" ? project.ads_per_ad_set : null;
+      const shouldPatchProject = !!project && (projectAdsPerAdSet === null || projectAdsPerAdSet === 18);
+
+      results.push({
+        project_id: config.project_id,
+        old_ads_per_batch: 18,
+        new_ads_per_batch: 5,
+        project_ads_per_ad_set: projectAdsPerAdSet,
+        project_updated: shouldPatchProject,
+      });
+
+      if (!dryRun) {
+        await ctx.db.patch(config._id, {
+          ads_per_batch: 5,
+          updated_at: now,
+        });
+        if (shouldPatchProject && project) {
+          await ctx.db.patch(project._id, {
+            ads_per_ad_set: 5,
+            updated_at: new Date().toISOString(),
+          });
+        }
+      }
+    }
+
+    return {
+      dryRun,
+      matched: results.length,
+      updated: dryRun ? 0 : results.length,
+      results,
+    };
+  },
+});
+
 // =============================================
 // conductor_angles — angle library per project
 // =============================================

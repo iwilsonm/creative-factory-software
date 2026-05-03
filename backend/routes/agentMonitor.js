@@ -12,7 +12,7 @@ const __dirname = path.dirname(__filename);
 
 const router = Router();
 
-// --- Dacia Creative Filter ---
+// --- Creative Filter ---
 const FILTER_DIR = path.join(__dirname, '..', '..', 'dacia-creative-filter');
 const FILTER_LOGS_DIR = path.join(FILTER_DIR, 'logs');
 const FILTER_SCRIPT = path.join(FILTER_DIR, 'filter.sh');
@@ -45,7 +45,7 @@ function parseLogLine(line, agentTag = 'FILTER') {
 }
 
 // =============================================
-// Dacia Creative Filter endpoints
+// Creative Filter endpoints
 // =============================================
 
 // GET /api/agent-monitor/filter/status
@@ -136,7 +136,7 @@ router.post('/filter/run', async (req, res) => {
       if (error) console.error('[AgentMonitor] Filter run error:', error.message);
       if (stdout) console.log('[AgentMonitor] Filter run output:', stdout.slice(0, 500));
     });
-    res.json({ success: true, message: 'Dacia Creative Filter run triggered (dry-run)' });
+    res.json({ success: true, message: 'Creative Filter run triggered (dry-run)' });
   } catch (err) {
     console.error('[AgentMonitor] Filter run trigger error:', err.message);
     res.status(500).json({ error: err.message });
@@ -155,7 +155,7 @@ router.post('/filter/run-live', async (req, res) => {
       if (error) console.error('[AgentMonitor] Filter live run error:', error.message);
       if (stdout) console.log('[AgentMonitor] Filter live run output:', stdout.slice(0, 500));
     });
-    res.json({ success: true, message: 'Dacia Creative Filter run triggered' });
+    res.json({ success: true, message: 'Creative Filter run triggered' });
   } catch (err) {
     console.error('[AgentMonitor] Filter live trigger error:', err.message);
     res.status(500).json({ error: err.message });
@@ -168,10 +168,10 @@ router.post('/filter/pause', async (req, res) => {
     const paused = await isAgentPaused(FILTER_PAUSE_FILE);
     if (paused) {
       await fs.unlink(FILTER_PAUSE_FILE);
-      res.json({ success: true, paused: false, message: 'Dacia Creative Filter resumed' });
+      res.json({ success: true, paused: false, message: 'Creative Filter resumed' });
     } else {
       await fs.writeFile(FILTER_PAUSE_FILE, new Date().toISOString(), 'utf-8');
-      res.json({ success: true, paused: true, message: 'Dacia Creative Filter paused' });
+      res.json({ success: true, paused: true, message: 'Creative Filter paused' });
     }
   } catch (err) {
     console.error('[AgentMonitor] Filter pause toggle error:', err.message);
@@ -184,7 +184,7 @@ router.post('/filter/pause', async (req, res) => {
 // =============================================
 
 // GET /api/agent-monitor/filter/volumes
-// Returns all projects with their daily flex ad cap and today's count
+// Returns all projects with their legacy manual filter cap and today's ad-set count
 router.get('/filter/volumes', async (req, res) => {
   try {
     const projects = await getAllProjects();
@@ -206,7 +206,7 @@ router.get('/filter/volumes', async (req, res) => {
         name: p.name,
         brand_name: p.brand_name,
         scout_enabled: p.scout_enabled,
-        scout_daily_flex_ads: p.scout_daily_flex_ads ?? 2,  // legacy field name; equals daily_ad_set cap
+        scout_daily_flex_ads: p.scout_daily_flex_ads ?? 2,  // legacy field name; manual filter cap
         scout_daily_ad_sets: p.scout_daily_flex_ads ?? 2,
         today_flex_ads: todayCount,                          // legacy alias
         today_ad_sets: todayCount,
@@ -221,7 +221,7 @@ router.get('/filter/volumes', async (req, res) => {
 });
 
 // PUT /api/agent-monitor/filter/volumes/:projectId
-// Update a project's daily flex ad cap
+// Update a project's legacy manual filter cap
 router.put('/filter/volumes/:projectId', async (req, res) => {
   try {
     const { scout_daily_flex_ads } = req.body;

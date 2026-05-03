@@ -153,7 +153,7 @@ export const update = mutation({
     inspiration_folder_id: v.optional(v.string()),
     prompt_guidelines: v.optional(v.string()),
     status: v.optional(v.string()),
-    // Dacia Creative Filter (Recursive Agent #2)
+    // Creative Filter QA + Ready-to-Post defaults
     scout_enabled: v.optional(v.boolean()),
     scout_default_campaign: v.optional(v.string()),
     scout_cta: v.optional(v.string()),

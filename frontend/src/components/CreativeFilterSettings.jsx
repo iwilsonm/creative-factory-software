@@ -1,6 +1,16 @@
 import { useState, useEffect, useCallback } from 'react';
 import { api } from '../api';
 import { useToast } from './Toast';
+import InfoTooltip from './InfoTooltip';
+
+function FieldLabel({ children, tooltip }) {
+  return (
+    <label className="text-[12px] font-medium text-textmid mb-1 flex items-center gap-1">
+      {children}
+      {tooltip && <InfoTooltip text={tooltip} position="right" />}
+    </label>
+  );
+}
 
 export default function CreativeFilterSettings({ projectId, project, onSave, embedded = false }) {
   const toast = useToast();
@@ -58,18 +68,18 @@ export default function CreativeFilterSettings({ projectId, project, onSave, emb
     setSaving(true);
     try {
       const updates = {
-        scout_enabled: form.scout_enabled,
-        scout_default_campaign: form.scout_default_campaign || undefined,
-        scout_cta: form.scout_cta || undefined,
-        scout_display_link: form.scout_display_link || undefined,
-        scout_facebook_page: form.scout_facebook_page || undefined,
-        scout_destination_urls: form.scout_destination_urls.length > 0 ? JSON.stringify(form.scout_destination_urls) : undefined,
-        scout_destination_url: form.scout_destination_urls[0] || undefined,
-        scout_duplicate_adset_name: form.scout_duplicate_adset_name || undefined,
+        ...(!embedded ? { scout_enabled: form.scout_enabled } : {}),
+        scout_default_campaign: form.scout_default_campaign || '',
+        scout_cta: form.scout_cta || '',
+        scout_display_link: form.scout_display_link || '',
+        scout_facebook_page: form.scout_facebook_page || '',
+        scout_destination_urls: form.scout_destination_urls.length > 0 ? JSON.stringify(form.scout_destination_urls) : '',
+        scout_destination_url: form.scout_destination_urls[0] || '',
+        scout_duplicate_adset_name: form.scout_duplicate_adset_name || '',
       };
       await api.updateProject(projectId, updates);
       if (onSave) await onSave();
-      toast.success('Dacia Creative Filter settings saved');
+      toast.success('Creative Filter settings saved');
     } catch (err) {
       toast.error(err.message || 'Failed to save');
     } finally {
@@ -86,24 +96,27 @@ export default function CreativeFilterSettings({ projectId, project, onSave, emb
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
             </svg>
           </div>
-          <h2 className="text-[15px] font-semibold text-textdark tracking-tight">Dacia Creative Filter</h2>
-          <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${
-            project?.scout_enabled !== false ? 'bg-teal/10 text-teal' : 'bg-gray-100 text-textmid'
-          }`}>
-            {project?.scout_enabled !== false ? 'Enabled' : 'Disabled'}
-          </span>
+          <h2 className="text-[15px] font-semibold text-textdark tracking-tight">Creative Filter QA & Ready-to-Post Defaults</h2>
+          {!embedded && (
+            <span className={`text-[10px] font-medium px-2 py-0.5 rounded-full ${
+              project?.scout_enabled !== false ? 'bg-teal/10 text-teal' : 'bg-gray-100 text-textmid'
+            }`}>
+              {project?.scout_enabled !== false ? 'Enabled' : 'Disabled'}
+            </span>
+          )}
         </div>
       </div>
       <p className="text-[12px] text-textmid mb-4">
-        Recursive Agent #2 — scores batch ads with Claude, groups winners into ad sets, deploys to Ready to Post.
+        The Creative Director generates ad variations for an angle. The Creative Filter QA-scores them, keeps approved ads, rejects failed ads, and builds Ready-to-Post ad sets once the approved-ad target is reached.
       </p>
 
       <div className="space-y-4">
         {/* Enable/Disable toggle */}
+        {!embedded && (
         <div className="flex items-center justify-between">
           <div>
-            <p className="text-[13px] font-medium text-textdark">Enable Dacia Creative Filter</p>
-            <p className="text-[11px] text-textlight">Automatically score and deploy completed batches</p>
+            <p className="text-[13px] font-medium text-textdark">Enable Creative Filter</p>
+            <p className="text-[11px] text-textlight">Score completed generation batches and build Ready-to-Post ad sets.</p>
           </div>
           <button
             onClick={() => setForm(p => ({ ...p, scout_enabled: !p.scout_enabled }))}
@@ -116,10 +129,18 @@ export default function CreativeFilterSettings({ projectId, project, onSave, emb
             }`} />
           </button>
         </div>
+        )}
+
+        <div className="rounded-xl bg-teal/5 border border-teal/15 p-3">
+          <p className="text-[11px] font-semibold text-textdark mb-1">How QA completion works</p>
+          <p className="text-[10px] leading-relaxed text-textmid">
+            Ads Per Ad Set is the approved-ad target. If some generated ads fail QA, approved ads stay attached to the same ad-set slot and the Director runs top-up batches until the target is reached or the retry limit is hit.
+          </p>
+        </div>
 
         {/* Default Campaign */}
         <div>
-          <label className="block text-[12px] font-medium text-textmid mb-1">Default Campaign</label>
+          <FieldLabel tooltip="The campaign where approved ad sets are placed when the Filter creates Ready-to-Post deployments. You can still change campaign placement later in the Ad Pipeline.">Default Campaign</FieldLabel>
           {campaigns.length > 0 ? (
             <div className="flex items-center gap-2">
               <select
@@ -201,7 +222,7 @@ export default function CreativeFilterSettings({ projectId, project, onSave, emb
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           {/* CTA */}
           <div>
-            <label className="block text-[12px] font-medium text-textmid mb-1">CTA Button Text</label>
+            <FieldLabel tooltip="The default Meta call-to-action used on deployments created from approved ads.">CTA Button Text</FieldLabel>
             <input
               value={form.scout_cta}
               onChange={e => setForm(p => ({ ...p, scout_cta: e.target.value }))}
@@ -212,7 +233,7 @@ export default function CreativeFilterSettings({ projectId, project, onSave, emb
 
           {/* Display Link */}
           <div>
-            <label className="block text-[12px] font-medium text-textmid mb-1">Display Link</label>
+            <FieldLabel tooltip="The display domain text Meta can show on ads. This is visual label text, not the destination URL.">Display Link</FieldLabel>
             <input
               value={form.scout_display_link}
               onChange={e => setForm(p => ({ ...p, scout_display_link: e.target.value }))}
@@ -224,7 +245,7 @@ export default function CreativeFilterSettings({ projectId, project, onSave, emb
 
         {/* Facebook Page */}
         <div>
-          <label className="block text-[12px] font-medium text-textmid mb-1">Facebook Page ID</label>
+          <FieldLabel tooltip="The Facebook Page identity used when these Ready-to-Post ads are eventually posted to Meta.">Facebook Page ID</FieldLabel>
           <input
             value={form.scout_facebook_page}
             onChange={e => setForm(p => ({ ...p, scout_facebook_page: e.target.value }))}
@@ -235,7 +256,7 @@ export default function CreativeFilterSettings({ projectId, project, onSave, emb
 
         {/* Default Destination URLs */}
         <div>
-          <label className="block text-[12px] font-medium text-textmid mb-1">Default Destination URLs</label>
+          <FieldLabel tooltip="Fallback landing page URLs for approved ads. Angle-specific URLs override these defaults when an angle has its own destination URLs.">Default Destination URLs</FieldLabel>
           {form.scout_destination_urls.length > 0 && (
             <div className="space-y-1.5 mb-2">
               {form.scout_destination_urls.map((url, i) => (
@@ -275,19 +296,19 @@ export default function CreativeFilterSettings({ projectId, project, onSave, emb
               className="text-[11px] font-medium text-navy hover:text-gold disabled:text-textlight disabled:cursor-not-allowed px-3 py-1.5 flex-shrink-0"
             >Add</button>
           </div>
-          <p className="text-[10px] text-textlight mt-1">Landing page URLs auto-filled on deployed ads. Multiple URLs enable gauntlet rotation. Angle-specific URLs override these defaults.</p>
+          <p className="text-[10px] text-textlight mt-1">Used as the fallback landing page for Ready-to-Post deployments. Add multiple URLs only when you want rotation; angle-specific URLs win.</p>
         </div>
 
         {/* Duplicate Ad Set Name */}
         <div>
-          <label className="block text-[12px] font-medium text-textmid mb-1">Duplicate Ad Set Name</label>
+          <FieldLabel tooltip="Optional reference name for teams that duplicate an existing Meta ad set as their posting template. Leave blank if your workflow does not use a source ad set.">Duplicate Source Ad Set Name</FieldLabel>
           <input
             value={form.scout_duplicate_adset_name}
             onChange={e => setForm(p => ({ ...p, scout_duplicate_adset_name: e.target.value }))}
             className="input-apple text-[13px]"
             placeholder='e.g., "Broad - LP - Scam 002"'
           />
-          <p className="text-[10px] text-textlight mt-1">Default "duplicate this ad set" name for Meta Ads Manager.</p>
+          <p className="text-[10px] text-textlight mt-1">Optional Meta Ads Manager source/template name for duplication workflows.</p>
         </div>
 
         {/* Save button */}

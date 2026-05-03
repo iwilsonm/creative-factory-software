@@ -3428,7 +3428,9 @@ function FilterPanel({ data, onRefresh, externalProjectId, externalProject, onPr
     finally { setLoadingVolumes(false); }
   }, []);
 
-  useEffect(() => { loadVolumes(); }, [loadVolumes]);
+  useEffect(() => {
+    if (!embedded) loadVolumes();
+  }, [embedded, loadVolumes]);
 
   const handleVolumeChange = async (projectId, newValue) => {
     setSavingVolume(projectId);
@@ -3473,14 +3475,12 @@ function FilterPanel({ data, onRefresh, externalProjectId, externalProject, onPr
     : 0;
   const budgetBarColor = budgetPct < 50 ? 'bg-teal' : budgetPct < 80 ? 'bg-gold' : 'bg-red-400';
   const allVolumes = ensureArray(volumes, 'AgentMonitor.filter.volumesState').filter(p => p.scout_enabled !== false);
-  const visibleVolumes = embedded
-    ? allVolumes.filter(p => p.id === externalProjectId)
-    : allVolumes;
+  const visibleVolumes = allVolumes;
 
   return (
     <AgentPanel
-      name="Dacia Creative Filter"
-      subtitle="Runs every 30 min — scores batch ads, groups winners into ad sets, deploys to Ready to Post"
+      name="Creative Filter"
+      subtitle="Scores generated ads, keeps approved ads, and builds Ready-to-Post ad sets"
       status={data.status}
       paused={data.paused}
       onTogglePause={handleTogglePause}
@@ -3495,7 +3495,7 @@ function FilterPanel({ data, onRefresh, externalProjectId, externalProject, onPr
         <div className="rounded-xl bg-navy/5 border border-navy/10 p-3 mb-3">
           <p className="text-[11px] font-medium text-navy mb-0.5">System-level status</p>
           <p className="text-[10px] text-textmid">
-            These controls operate the live Creative Filter service. The volume and configuration below apply to this project.
+            These controls operate the live QA service. This project's deployment defaults are below; production volume is controlled by Creative Director Ad Set Target.
           </p>
         </div>
       )}
@@ -3536,6 +3536,7 @@ function FilterPanel({ data, onRefresh, externalProjectId, externalProject, onPr
       </div>
 
       {/* Per-Brand Daily Volume Controls */}
+      {!embedded && (
       <div className="border-t border-black/5 pt-2.5 mb-2.5">
         <p className="text-[11px] font-medium text-textmid mb-1.5">{embedded ? 'This Project Ad Set Volume' : 'Daily Ad Set Volume'}</p>
         <p className="text-[9px] text-textlight mb-2">
@@ -3572,12 +3573,13 @@ function FilterPanel({ data, onRefresh, externalProjectId, externalProject, onPr
           <p className="text-[10px] text-textlight py-1.5">No projects configured.</p>
         )}
       </div>
+      )}
 
       <ActivityLog activity={data.activity} expanded={expanded} onToggle={() => setExpanded(!expanded)} />
 
       {embedded && externalProject && (
         <div className="border-t border-black/5 pt-3 mt-3">
-          <h3 className="text-[13px] font-semibold text-textdark mb-3">Filter Configuration</h3>
+          <h3 className="text-[13px] font-semibold text-textdark mb-3">QA & Ready-to-Post Defaults</h3>
           <CreativeFilterSettings
             projectId={externalProjectId}
             project={externalProject}

@@ -501,7 +501,7 @@ export async function getRecurringBatchCostEstimate() {
   const projectBatchData = {};
   for (const b of batchStats) {
     if (!projectBatchData[b.project_id]) projectBatchData[b.project_id] = { ads: 0, batches: 0 };
-    projectBatchData[b.project_id].ads += b.batch_size || 18;
+    projectBatchData[b.project_id].ads += b.batch_size || 5;
     projectBatchData[b.project_id].batches += 1;
   }
 
@@ -544,8 +544,8 @@ export async function getRecurringBatchCostEstimate() {
     const dc = enabledDirectorProjects[i];
     const proj = projectMap[dc.project_id];
     const projName = proj?.brand_name || proj?.name || 'Unknown';
-    const flexTarget = dc.daily_flex_target || 4;
-    const adsPerBatch = dc.ads_per_batch || 18;
+    const flexTarget = dc.daily_flex_target || 5;
+    const adsPerBatch = dc.ads_per_batch || 5;
     const hasLP = !!lpConfigMap[dc.project_id];
 
     const costs = classifyCosts(projectCosts[i].byOperation);
@@ -602,7 +602,7 @@ export async function getRecurringBatchCostEstimate() {
     breakdown.push({
       category: 'filter',
       label: 'Creative Filter',
-      description: 'Ad scoring + flex ad grouping',
+      description: 'Ad scoring + ad-set grouping',
       period_total: Math.round(filterTotal * 100) / 100,
       daily_avg: Math.round(filterDaily * 100) / 100,
       collecting: false
@@ -634,7 +634,7 @@ export async function getRecurringBatchCostEstimate() {
     directorProjectCount: enabledDirectorProjects.length,
     lpProjectCount: Object.keys(lpConfigMap).length,
     totalCompletedBatches: batchStats.length,
-    totalCompletedAds: batchStats.reduce((sum, b) => sum + (b.batch_size || 18), 0),
+    totalCompletedAds: batchStats.reduce((sum, b) => sum + (b.batch_size || 5), 0),
     breakdown
   };
 }
