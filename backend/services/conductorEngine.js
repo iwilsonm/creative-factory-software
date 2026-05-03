@@ -1354,8 +1354,10 @@ async function createTestBatchRound({
   roundNumber,
   emit,
   updateAngleUsage = false,
+  queueForScheduler = false,
 }) {
   const batchId = uuidv4();
+  const queuedAt = queueForScheduler ? new Date().toISOString() : undefined;
   emit(withTestProgress(roundNumber, {
     type: 'progress',
     step: 'creating_batch',
@@ -1376,6 +1378,9 @@ async function createTestBatchRound({
     angle_name: angleInfo.name,
     angle_prompt: anglePrompt,
     angle_brief: angleBriefJSON,
+    status: queueForScheduler ? 'queued' : undefined,
+    queued_at: queuedAt,
+    last_heartbeat_at: queuedAt,
   });
 
   if (updateAngleUsage && angleInfo.externalId !== 'fallback') {
@@ -2387,7 +2392,23 @@ async function continueBackgroundTestRun(run) {
     return true;
   }
 
-  if (['queued', 'pending', 'generating_prompts', 'submitting', 'processing', 'saving_results'].includes(batch.status)) {
+  if (batch.status === 'pending') {
+    const queuedAt = new Date().toISOString();
+    await updateBatchJob(batchInfo.batch_id, {
+      status: 'queued',
+      queued_at: queuedAt,
+      last_heartbeat_at: queuedAt,
+    });
+    await updateConductorRun(runId, {
+      status: 'running',
+      terminal_status: 'queued_round',
+      decisions: `Round ${batchInfo.round || (roundDetails.length + 1)} is queued for generation.`,
+    });
+    console.log(`[Director] Queued pending background batch ${batchInfo.batch_id.slice(0, 8)} for test run ${runId.slice(0, 8)}`);
+    return true;
+  }
+
+  if (['queued', 'generating_prompts', 'submitting', 'processing', 'saving_results'].includes(batch.status)) {
     const roundNumber = batchInfo.round || (roundDetails.length + 1);
     const terminalStatus = batch.gemini_batch_job ? 'waiting_on_gemini' : 'building_round';
     const phaseMessage = batch.gemini_batch_job
@@ -2646,6 +2667,7 @@ async function continueBackgroundTestRun(run) {
       roundNumber: roundNumber + 1,
       emit: () => {},
       updateAngleUsage: false,
+      queueForScheduler: true,
     });
 
     batchInfos.push(nextBatchInfo);
@@ -2668,28 +2690,7 @@ async function continueBackgroundTestRun(run) {
       decisions: nextRoundMessage,
     });
 
-    runBatch(nextBatchInfo.batch_id).catch(async (err) => {
-      console.error(`[Director] Background batch ${nextBatchInfo.batch_id.slice(0, 8)} failed for test run ${runId.slice(0, 8)}:`, err.message);
-      try {
-        await markTestRunBackgroundFailure({
-          runId,
-          angleName,
-          batchInfos,
-          roundDetails,
-          totalAdsGenerated: totalAdsGenerated + nextBatchInfo.ad_count,
-          totalAdsScored,
-          totalAdsPassed,
-          requiredPasses,
-          failureReason: err.message,
-          errorStage: 'building_next_round',
-          durationMs: Date.now() - run.run_at,
-        });
-      } catch (updateErr) {
-        console.error(`[Director] Failed to mark background test run ${runId.slice(0, 8)} as failed:`, updateErr.message);
-      }
-    });
-
-    console.log(`[Director] Resumed test run ${runId.slice(0, 8)} started round ${roundNumber + 1} in background`);
+    console.log(`[Director] Resumed test run ${runId.slice(0, 8)} queued round ${roundNumber + 1} for scheduler`);
     return true;
   } catch (err) {
     if (activeRoundState?.rawScoreResult) {

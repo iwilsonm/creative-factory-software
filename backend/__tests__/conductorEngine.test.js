@@ -498,6 +498,56 @@ describe('conductorEngine test-run pipeline', () => {
       targetCount: 5,
     }));
   });
+
+  it('queues pending background test rounds for the scheduler instead of leaving them stranded', async () => {
+    const runAt = Date.parse('2026-03-07T10:00:00Z');
+    mockGetAllConductorConfigs.mockResolvedValue([{ project_id: 'proj-1' }]);
+    mockGetConductorRuns.mockResolvedValue([
+      {
+        externalId: 'run-uuid-1',
+        project_id: 'proj-1',
+        run_type: 'test',
+        run_at: runAt,
+        status: 'running',
+        batches_created: JSON.stringify([
+          { batch_id: 'batch-uuid-1', angle_name: 'Wakes to Pee, Then Cannot Fall Back Asleep', ad_count: 5, round: 1, ads_scored: 5, ads_passed: 0 },
+          { batch_id: 'batch-uuid-2', angle_name: 'Wakes to Pee, Then Cannot Fall Back Asleep', ad_count: 5, round: 2 },
+        ]),
+        rounds_json: JSON.stringify([
+          { round: 1, batch_id: 'batch-uuid-1', ads_generated: 5, ads_scored: 5, ads_passed: 0, cumulative_passed: 0 },
+        ]),
+        total_ads_generated: 10,
+        total_ads_scored: 5,
+        total_ads_passed: 0,
+        required_passes: 5,
+        ads_per_round: 5,
+      },
+    ]);
+    mockGetBatchJob.mockResolvedValue({
+      id: 'batch-uuid-2',
+      externalId: 'batch-uuid-2',
+      status: 'pending',
+      angle_name: 'Wakes to Pee, Then Cannot Fall Back Asleep',
+      angle_prompt: 'Sleep angle',
+      angle_brief: null,
+      batch_size: 5,
+    });
+
+    const { resumeBackgroundTestRuns } = await importConductorEngine();
+    const result = await resumeBackgroundTestRuns();
+
+    expect(result).toEqual({ checked: 1, resumed: 1, errors: 0 });
+    expect(mockUpdateBatchJob).toHaveBeenCalledWith('batch-uuid-2', expect.objectContaining({
+      status: 'queued',
+      queued_at: expect.any(String),
+      last_heartbeat_at: expect.any(String),
+    }));
+    expect(mockUpdateConductorRun).toHaveBeenCalledWith('run-uuid-1', expect.objectContaining({
+      status: 'running',
+      terminal_status: 'queued_round',
+    }));
+    expect(mockScoreBatchForInlineFilter).not.toHaveBeenCalled();
+  });
 });
 
 describe('conductorEngine Director ad-set top-up helpers', () => {
