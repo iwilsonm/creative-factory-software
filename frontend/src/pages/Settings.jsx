@@ -52,6 +52,31 @@ const CREDENTIAL_DELETE_COPY = {
   },
 };
 
+const COMMON_PASSWORDS = new Set([
+  '123456',
+  '123456789',
+  'password',
+  'password1',
+  'qwerty',
+  'letmein',
+  'admin123',
+  'creativefactory',
+]);
+
+function getPasswordGuidance(password, label = 'Password') {
+  if (typeof password !== 'string' || password.length < 12) {
+    return `${label} must be at least 12 characters.`;
+  }
+  const normalized = password.trim().toLowerCase();
+  if (COMMON_PASSWORDS.has(normalized)) {
+    return `${label} is too common. Choose a stronger password.`;
+  }
+  if (!/[A-Za-z]/.test(password) || !/[0-9\W_]/.test(password)) {
+    return `${label} must include letters and at least one number or symbol.`;
+  }
+  return '';
+}
+
 function CredentialRemoveButton({ settingKey, settings, onRemove }) {
   if (!settings?.[settingKey]) return null;
   return (
@@ -78,7 +103,7 @@ const ROLE_COLORS = {
   poster: 'bg-ed-green/10 text-ed-green',
 };
 
-function UserManagementCard() {
+function UserManagementCard({ currentUserId, currentUsername }) {
   const toast = useToast();
   const [users, setUsers] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -109,6 +134,11 @@ function UserManagementCard() {
     e.preventDefault();
     if (!createForm.username || !createForm.password || !createForm.role) {
       toast.error('All fields are required');
+      return;
+    }
+    const passwordIssue = getPasswordGuidance(createForm.password);
+    if (passwordIssue) {
+      toast.error(passwordIssue);
       return;
     }
     setCreating(true);
@@ -147,8 +177,9 @@ function UserManagementCard() {
   };
 
   const handleResetPassword = async (userId) => {
-    if (!newPassword || newPassword.length < 12) {
-      toast.error('Password must be at least 12 characters');
+    const passwordIssue = getPasswordGuidance(newPassword, 'New password');
+    if (passwordIssue) {
+      toast.error(passwordIssue);
       return;
     }
     setResettingPassword(true);
@@ -192,6 +223,9 @@ function UserManagementCard() {
           {showCreate ? 'Cancel' : '+ New User'}
         </button>
       </div>
+      <p className="text-[12px] text-ed-ink3 -mt-2 mb-4">
+        Use Reset Password for other users. To change your own password, use Your Password above.
+      </p>
 
       {/* Create user form */}
       {showCreate && (
@@ -227,8 +261,11 @@ function UserManagementCard() {
                 onChange={e => setCreateForm(prev => ({ ...prev, password: e.target.value }))}
                 className="input-apple !border-ed-line focus:!ring-ed-accent/20 focus:!border-ed-accent text-[12px]"
                 required
-                minLength={6}
+                minLength={12}
               />
+              <p className="text-[10px] text-ed-ink3 mt-1">
+                Minimum 12 characters with letters and at least one number or symbol.
+              </p>
             </div>
             <div>
               <label className="block text-[11px] font-medium text-ed-ink2 mb-1">Role</label>
@@ -256,9 +293,11 @@ function UserManagementCard() {
         <div className="text-[12px] text-ed-ink3 py-4 text-center">No users found</div>
       ) : (
         <div className="space-y-2">
-          {users.map(user => (
-            <div key={user.id} className={`rounded-xl border p-3 transition-colors ${user.is_active ? 'border-ed-line bg-ed-surface' : 'border-ed-rust/30 bg-ed-rust/10'}`}>
-              {editingId === user.id ? (
+          {users.map(rowUser => {
+            const isCurrentUser = rowUser.id === currentUserId || rowUser.username === currentUsername;
+            return (
+            <div key={rowUser.id} className={`rounded-xl border p-3 transition-colors ${rowUser.is_active ? 'border-ed-line bg-ed-surface' : 'border-ed-rust/30 bg-ed-rust/10'}`}>
+              {editingId === rowUser.id ? (
                 /* Edit mode */
                 <div className="space-y-2">
                   <div className="grid grid-cols-2 gap-2">
@@ -285,15 +324,15 @@ function UserManagementCard() {
                     </div>
                   </div>
                   <div className="flex items-center gap-2">
-                    <button onClick={() => handleUpdate(user.id)} className="px-4 py-2 rounded-[7px] text-[13px] bg-ed-accent text-[#fbfaf6] hover:bg-ed-accent/90 transition-colors text-[10px] px-3 py-1">Save</button>
+                    <button onClick={() => handleUpdate(rowUser.id)} className="px-4 py-2 rounded-[7px] text-[13px] bg-ed-accent text-[#fbfaf6] hover:bg-ed-accent/90 transition-colors text-[10px] px-3 py-1">Save</button>
                     <button onClick={() => setEditingId(null)} className="ed-ghost text-[10px] px-3 py-1">Cancel</button>
                   </div>
                 </div>
-              ) : resetPasswordId === user.id ? (
+              ) : resetPasswordId === rowUser.id ? (
                 /* Reset password mode */
                 <div className="space-y-2">
                   <div className="flex items-center gap-2">
-                    <span className="text-[12px] font-medium text-ed-ink">Reset password for {user.username}</span>
+                    <span className="text-[12px] font-medium text-ed-ink">Reset password for {rowUser.username}</span>
                   </div>
                   <div className="flex items-center gap-2">
                     <input
@@ -304,8 +343,8 @@ function UserManagementCard() {
                       className="input-apple !border-ed-line focus:!ring-ed-accent/20 focus:!border-ed-accent text-[12px] flex-1"
                       minLength={12}
                     />
-                    <button onClick={() => handleResetPassword(user.id)} disabled={resettingPassword} className="px-4 py-2 rounded-[7px] text-[13px] bg-ed-accent text-[#fbfaf6] hover:bg-ed-accent/90 transition-colors text-[10px] px-3 py-1 disabled:opacity-50">
-                      {resettingPassword ? '...' : 'Reset'}
+                    <button onClick={() => handleResetPassword(rowUser.id)} disabled={resettingPassword} className="px-4 py-2 rounded-[7px] text-[13px] bg-ed-accent text-[#fbfaf6] hover:bg-ed-accent/90 transition-colors text-[10px] px-3 py-1 disabled:opacity-50">
+                      {resettingPassword ? 'Resetting...' : 'Reset Password'}
                     </button>
                     <button onClick={() => { setResetPasswordId(null); setNewPassword(''); }} className="ed-ghost text-[10px] px-3 py-1">Cancel</button>
                   </div>
@@ -316,14 +355,19 @@ function UserManagementCard() {
                   <div className="flex items-center gap-3">
                     <div>
                       <div className="flex items-center gap-2">
-                        <span className="text-[13px] font-medium text-ed-ink">{user.display_name || user.username}</span>
-                        {user.display_name && user.display_name !== user.username && (
-                          <span className="text-[10px] text-ed-ink3">@{user.username}</span>
+                        <span className="text-[13px] font-medium text-ed-ink">{rowUser.display_name || rowUser.username}</span>
+                        {rowUser.display_name && rowUser.display_name !== rowUser.username && (
+                          <span className="text-[10px] text-ed-ink3">@{rowUser.username}</span>
                         )}
-                        <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${ROLE_COLORS[user.role] || 'bg-ed-accent/10 text-ed-accent'}`}>
-                          {user.role}
+                        {isCurrentUser && (
+                          <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-ed-gold/10 text-ed-ink2">
+                            You
+                          </span>
+                        )}
+                        <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-medium ${ROLE_COLORS[rowUser.role] || 'bg-ed-accent/10 text-ed-accent'}`}>
+                          {rowUser.role}
                         </span>
-                        {!user.is_active && (
+                        {!rowUser.is_active && (
                           <span className="text-[10px] px-1.5 py-0.5 rounded-full font-medium bg-red-100 text-red-600">
                             Inactive
                           </span>
@@ -333,29 +377,33 @@ function UserManagementCard() {
                   </div>
                   <div className="flex items-center gap-1">
                     <button
-                      onClick={() => { setEditingId(user.id); setEditForm({ display_name: user.display_name, role: user.role }); }}
+                      onClick={() => { setEditingId(rowUser.id); setEditForm({ display_name: rowUser.display_name, role: rowUser.role }); }}
                       className="action-link"
                     >
                       Edit
                     </button>
+                    {!isCurrentUser ? (
+                      <button
+                        onClick={() => { setResetPasswordId(rowUser.id); setNewPassword(''); }}
+                        className="action-link"
+                      >
+                        Reset Password
+                      </button>
+                    ) : (
+                      <span className="text-[10px] text-ed-ink3 px-2">Use Your Password above</span>
+                    )}
                     <button
-                      onClick={() => { setResetPasswordId(user.id); setNewPassword(''); }}
-                      className="action-link"
-                    >
-                      Reset Pwd
-                    </button>
-                    <button
-                      onClick={() => handleToggleActive(user)}
+                      onClick={() => handleToggleActive(rowUser)}
                       className={`text-[10px] px-2 py-1 rounded-lg transition-colors ${
-                        user.is_active
+                        rowUser.is_active
                           ? 'text-ed-rust hover:bg-ed-bg'
                           : 'text-ed-green hover:bg-ed-green/10'
                       }`}
                     >
-                      {user.is_active ? 'Deactivate' : 'Activate'}
+                      {rowUser.is_active ? 'Deactivate' : 'Activate'}
                     </button>
                     <button
-                      onClick={() => setPendingDeleteUser(user)}
+                      onClick={() => setPendingDeleteUser(rowUser)}
                       className="action-link-danger"
                     >
                       Delete
@@ -364,7 +412,8 @@ function UserManagementCard() {
                 </div>
               )}
             </div>
-          ))}
+          );
+          })}
         </div>
       )}
       <ConfirmDialog
@@ -408,7 +457,7 @@ export default function Settings() {
   const [rateRefreshKind, setRateRefreshKind] = useState('info');
 
   // Password change
-  const [passwordForm, setPasswordForm] = useState({ currentPassword: '', newPassword: '' });
+  const [passwordForm, setPasswordForm] = useState({ currentPassword: '', newPassword: '', confirmPassword: '' });
   const [passwordMsg, setPasswordMsg] = useState('');
   const [profileForm, setProfileForm] = useState({ displayName: user?.displayName || user?.username || '' });
   const [profileMsg, setProfileMsg] = useState('');
@@ -503,10 +552,19 @@ export default function Settings() {
   const handlePasswordChange = async (e) => {
     e.preventDefault();
     setPasswordMsg('');
+    if (passwordForm.newPassword !== passwordForm.confirmPassword) {
+      setPasswordMsg('Error: New password and confirmation do not match');
+      return;
+    }
+    const passwordIssue = getPasswordGuidance(passwordForm.newPassword, 'New password');
+    if (passwordIssue) {
+      setPasswordMsg(`Error: ${passwordIssue}`);
+      return;
+    }
     try {
       await api.changePassword(passwordForm.currentPassword, passwordForm.newPassword);
       setPasswordMsg('Password updated successfully');
-      setPasswordForm({ currentPassword: '', newPassword: '' });
+      setPasswordForm({ currentPassword: '', newPassword: '', confirmPassword: '' });
     } catch (err) {
       setPasswordMsg(`Error: ${err.message}`);
     }
@@ -611,9 +669,6 @@ export default function Settings() {
       </div>
 
       <div className="space-y-5 max-w-2xl fade-in">
-        {/* User Management */}
-        <UserManagementCard />
-
         {/* My Profile */}
         <div className="ed-card p-6">
           <h2 className="text-[15px] font-serif font-[420] text-ed-ink tracking-tight mb-1 flex items-center gap-1">
@@ -649,6 +704,72 @@ export default function Settings() {
             </button>
           </form>
         </div>
+
+        {/* Your Password */}
+        <div className="ed-card p-6">
+          <h2 className="text-[15px] font-serif font-[420] text-ed-ink tracking-tight mb-1 flex items-center gap-1">
+            Your Password
+            <InfoTooltip text="Use this form to change the password for the account you are currently signed into. Admin reset controls are only for other users." position="right" />
+          </h2>
+          <p className="text-[12px] text-ed-ink3 mb-4">
+            Change your own password here. You will need your current password.
+          </p>
+          {passwordMsg && (
+            <div className={`text-[13px] rounded-xl p-3 mb-4 ${
+              passwordMsg.startsWith('Error')
+                ? 'bg-ed-rust/10 border border-ed-rust/30 text-ed-rust'
+                : 'bg-ed-green/5 border border-ed-green/15 text-ed-green'
+            }`}>
+              {passwordMsg}
+            </div>
+          )}
+          <form onSubmit={handlePasswordChange} className="space-y-4">
+            <div>
+              <label className="block text-[13px] font-medium text-ed-ink2 mb-1.5">Current Password</label>
+              <input
+                type="password"
+                value={passwordForm.currentPassword}
+                onChange={e => setPasswordForm(p => ({ ...p, currentPassword: e.target.value }))}
+                className="input-apple !border-ed-line focus:!ring-ed-accent/20 focus:!border-ed-accent"
+                autoComplete="current-password"
+                required
+              />
+            </div>
+            <div>
+              <label className="block text-[13px] font-medium text-ed-ink2 mb-1.5">New Password</label>
+              <input
+                type="password"
+                value={passwordForm.newPassword}
+                onChange={e => setPasswordForm(p => ({ ...p, newPassword: e.target.value }))}
+                className="input-apple !border-ed-line focus:!ring-ed-accent/20 focus:!border-ed-accent"
+                autoComplete="new-password"
+                required
+                minLength={12}
+              />
+              <p className="text-[11px] text-ed-ink3 mt-1">
+                Minimum 12 characters with letters and at least one number or symbol.
+              </p>
+            </div>
+            <div>
+              <label className="block text-[13px] font-medium text-ed-ink2 mb-1.5">Confirm New Password</label>
+              <input
+                type="password"
+                value={passwordForm.confirmPassword}
+                onChange={e => setPasswordForm(p => ({ ...p, confirmPassword: e.target.value }))}
+                className="input-apple !border-ed-line focus:!ring-ed-accent/20 focus:!border-ed-accent"
+                autoComplete="new-password"
+                required
+                minLength={12}
+              />
+            </div>
+            <button type="submit" className="px-4 py-2 rounded-[7px] text-[13px] bg-ed-accent text-[#fbfaf6] hover:bg-ed-accent/90 transition-colors">
+              Update Your Password
+            </button>
+          </form>
+        </div>
+
+        {/* User Management */}
+        <UserManagementCard currentUserId={user?.id} currentUsername={user?.username} />
 
         {/* API Keys */}
         <div className="ed-card p-6">
@@ -916,45 +1037,6 @@ export default function Settings() {
           {saving ? 'Saving...' : 'Save Settings'}
         </button>
 
-        {/* Change Password */}
-        <div className="ed-card p-6">
-          <h2 className="text-[15px] font-serif font-[420] text-ed-ink tracking-tight mb-4">Change Password</h2>
-          {passwordMsg && (
-            <div className={`text-[13px] rounded-xl p-3 mb-4 ${
-              passwordMsg.startsWith('Error')
-                ? 'bg-ed-rust/10 border border-ed-rust/30 text-ed-rust'
-                : 'bg-ed-green/5 border border-ed-green/15 text-ed-green'
-            }`}>
-              {passwordMsg}
-            </div>
-          )}
-          <form onSubmit={handlePasswordChange} className="space-y-4">
-            <div>
-              <label className="block text-[13px] font-medium text-ed-ink2 mb-1.5">Current Password</label>
-              <input
-                type="password"
-                value={passwordForm.currentPassword}
-                onChange={e => setPasswordForm(p => ({ ...p, currentPassword: e.target.value }))}
-                className="input-apple !border-ed-line focus:!ring-ed-accent/20 focus:!border-ed-accent"
-                required
-              />
-            </div>
-            <div>
-              <label className="block text-[13px] font-medium text-ed-ink2 mb-1.5">New Password</label>
-              <input
-                type="password"
-                value={passwordForm.newPassword}
-                onChange={e => setPasswordForm(p => ({ ...p, newPassword: e.target.value }))}
-                className="input-apple !border-ed-line focus:!ring-ed-accent/20 focus:!border-ed-accent"
-                required
-                minLength={6}
-              />
-            </div>
-            <button type="submit" className="ed-ghost text-[13px]">
-              Update Password
-            </button>
-          </form>
-        </div>
       </div>
 
       {/* Roadmap */}
