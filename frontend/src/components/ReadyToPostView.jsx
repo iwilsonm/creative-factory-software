@@ -2214,11 +2214,7 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
 
       {/* Bulk actions toolbar — visible when cards are selected or for select all */}
       {!isPoster && cardList.length > 0 && (
-        <div className={`sticky top-4 z-30 flex flex-col sm:flex-row sm:items-center sm:justify-between gap-2 px-3 py-2 rounded-xl border transition-shadow ${
-          selectedCards.size > 0
-            ? 'bg-ed-surface/95 border-ed-accent/20 shadow-lg shadow-ed-ink/10 backdrop-blur'
-            : 'bg-ed-bg border-transparent'
-        }`}>
+        <div className="flex items-center justify-between px-3 py-2 bg-ed-bg rounded-xl">
           <div className="flex items-center gap-3">
             <label className="flex items-center gap-2 cursor-pointer select-none">
               <input
@@ -2244,7 +2240,8 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
             )}
           </div>
           {selectedCards.size > 0 && (
-            <div className="flex flex-wrap items-center gap-2">
+            <div className="fixed left-3 right-3 sm:left-1/2 sm:right-auto sm:w-fit sm:max-w-[calc(100vw-2rem)] sm:-translate-x-1/2 bottom-4 z-[70] flex flex-wrap items-center justify-center gap-2 rounded-xl border border-ed-accent/20 bg-ed-surface/95 px-3 py-2 shadow-lg shadow-ed-ink/10 backdrop-blur pb-[calc(0.5rem+env(safe-area-inset-bottom))]">
+              <span className="text-[11px] text-ed-accent font-semibold mr-1">{selectedCards.size} selected</span>
               <button
                 onClick={async () => {
                   setBulkMarking(true);
