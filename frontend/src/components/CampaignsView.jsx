@@ -4,12 +4,6 @@ import { api } from '../api';
 import CombineIntoAdSetModal from './CombineIntoAdSetModal';
 import InfoTooltip from './InfoTooltip';
 
-const CTA_OPTIONS = [
-  'SHOP_NOW', 'LEARN_MORE', 'SIGN_UP', 'BOOK_NOW', 'CONTACT_US',
-  'DOWNLOAD', 'GET_QUOTE', 'SUBSCRIBE', 'ORDER_NOW', 'WATCH_MORE',
-  'LISTEN_NOW', 'APPLY_NOW', 'GET_OFFER', 'NO_BUTTON',
-];
-
 // Phase 6.20b — Drop the api.js flex_ad adapter from this view. Compose the
 // flex-shape inline from native ad_sets + deployments, route writes natively
 // via api.updateAdSetUnified + api.updateDeployment + api.ungroupAdSet +
@@ -27,13 +21,7 @@ function composeFlexFromAdSet(adSet, deployments) {
     child_deployment_ids: JSON.stringify(children.map(d => d.externalId)),
     primary_texts: sample.primary_texts || '[]',
     headlines: sample.ad_headlines || '[]',
-    destination_url: sample.destination_url || '',
-    display_link: sample.display_link || '',
-    cta_button: sample.cta_button || '',
-    facebook_page: sample.facebook_page || '',
-    planned_date: sample.planned_date || '',
     posted_by: sample.posted_by || '',
-    duplicate_adset_name: sample.duplicate_adset_name || '',
     notes: sample.notes || '',
     angle_id: adSet.angle_id || null,
     lifecycle_status: adSet.lifecycle_status || '',
@@ -66,7 +54,7 @@ function splitAdSetWriteFields(fields) {
  * Features:
  *   - Drag & drop from Queue → Staging area
  *   - Combine multiple ads into Flex ads
- *   - Detail sidebar with campaign/ad set assignment, AI-generated primary text + headlines, destination URL, CTA
+ *   - Detail sidebar with campaign/ad set assignment, AI-generated primary text + headlines, and notes
  *   - Campaign assignment via dropdown (select existing or create new) + ad set name text input
  *
  * Props:
@@ -105,10 +93,9 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
   // Detail sidebar
   const [sidebarData, setSidebarData] = useState(null);
   const [sidebarForm, setSidebarForm] = useState({
-    ad_name: '', destination_urls: [''], display_link: '', cta_button: 'LEARN_MORE', primary_texts: [], ad_headlines: [], planned_date: '', facebook_page: '',
-    campaign_id: '', new_campaign_name: '', ad_set_name: '', duplicate_adset_name: '', notes: '',
+    ad_name: '', primary_texts: [], ad_headlines: [],
+    campaign_id: '', new_campaign_name: '', ad_set_name: '', notes: '',
   });
-  const [duplicateConfirm, setDuplicateConfirm] = useState(null); // { urls: string[] } when pending
   const [generatingPrimaryText, setGeneratingPrimaryText] = useState(false);
   const [generatingHeadlines, setGeneratingHeadlines] = useState(false);
   const [primaryTextDirection, setPrimaryTextDirection] = useState('');
@@ -131,12 +118,8 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
 
   // ─── Sticky field defaults — persist across sidebar opens ──────────────
   const stickyFieldsRef = useRef({
-    destination_url: '',
-    display_link: '',
-    facebook_page: '',
     campaign_id: '',
     ad_set_name: '',
-    duplicate_adset_name: '',
   });
 
   // Queue for auto-generating copy after flex ad creation
@@ -472,10 +455,10 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
     setDragVisual(null);
 
     try {
-      await api.assignToAdSet(ids, 'planned', '');
+      await api.moveToPlanner(ids);
     } catch {
-      addToast('Failed to move ads — retrying...', 'error');
-      try { await api.assignToAdSet(ids, 'planned', ''); } catch { loadDeployments(); }
+      addToast('Failed to move ads to Planner', 'error');
+      refreshPlannerData().catch(() => loadDeployments());
     }
   };
 
@@ -493,10 +476,10 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
     setSelectedUnplanned(new Set());
 
     try {
-      await api.assignToAdSet(ids, 'planned', '');
+      await api.moveToPlanner(ids);
     } catch {
-      addToast('Failed to move ads — retrying...', 'error');
-      try { await api.assignToAdSet(ids, 'planned', ''); } catch { loadDeployments(); }
+      addToast('Failed to move ads to Planner', 'error');
+      refreshPlannerData().catch(() => loadDeployments());
     }
   };
 
@@ -525,7 +508,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
     // momentary visual undo until the next refresh, matching prior behavior.
     snapshotForUndo(`move ${allDepIds.length}`, async () => {
       if (allDepIds.length > 0) {
-        await api.assignToAdSet(allDepIds, 'planned', '');
+        await api.moveToPlanner(allDepIds);
       }
       await loadCampaignData(true);
     });
@@ -569,7 +552,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
 
     // Snapshot for undo
     snapshotForUndo(`move ${ids.length}`, async () => {
-      await api.assignToAdSet(ids, 'planned', '');
+      await api.moveToPlanner(ids);
     });
 
     setDeployments(prev => prev.map(d =>
@@ -728,7 +711,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
       // natively supported; local snapshot still gives momentary visual undo.
       snapshotForUndo('unplan', async () => {
         if (ownedChildIds.length > 0) {
-          await api.assignToAdSet(ownedChildIds, 'planned', '');
+          await api.moveToPlanner(ownedChildIds);
         }
         await loadCampaignData(true);
       });
@@ -797,18 +780,12 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
     let form;
     if (data.type === 'single') {
       const dep = data.deployment;
-      const url = dep.destination_url || dep.landing_page_url || '';
       const depCampaignId = dep.local_campaign_id && dep.local_campaign_id !== 'planned' && dep.local_campaign_id !== 'unplanned'
         ? dep.local_campaign_id : '';
       form = {
         ad_name: dep.ad_name || dep.ad?.headline || dep.ad?.angle || '',
-        destination_urls: url ? [url] : (sticky.destination_url ? [sticky.destination_url] : ['']),
-        display_link: dep.display_link || sticky.display_link || '',
-        cta_button: dep.cta_button || 'LEARN_MORE',
         primary_texts: (() => { try { return dep.primary_texts ? JSON.parse(dep.primary_texts) : []; } catch { return []; } })(),
         ad_headlines: (() => { try { return dep.ad_headlines ? JSON.parse(dep.ad_headlines) : []; } catch { return []; } })(),
-        planned_date: dep.planned_date || '',
-        facebook_page: dep.facebook_page || sticky.facebook_page || '',
         notes: dep.notes || '',
         // Campaign/ad set assignment — use sticky defaults when not already set
         campaign_id: depCampaignId || sticky.campaign_id || '',
@@ -817,11 +794,9 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
           const adSet = adSets.find(a => a.id === dep.local_adset_id);
           return adSet?.name || sticky.ad_set_name || '';
         })(),
-        duplicate_adset_name: dep.duplicate_adset_name || sticky.duplicate_adset_name || '',
       };
     } else {
       const flex = data.flexAd;
-      const url = flex.destination_url || '';
       const flexCampaignId = (() => {
         const adSet = adSets.find(a => a.id === flex.ad_set_id);
         if (!adSet) return '';
@@ -829,13 +804,8 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
       })();
       form = {
         ad_name: flex.name || '',
-        destination_urls: url ? [url] : (sticky.destination_url ? [sticky.destination_url] : ['']),
-        display_link: flex.display_link || sticky.display_link || '',
-        cta_button: flex.cta_button || 'LEARN_MORE',
         primary_texts: (() => { try { return flex.primary_texts ? JSON.parse(flex.primary_texts) : []; } catch { return []; } })(),
         ad_headlines: (() => { try { return flex.headlines ? JSON.parse(flex.headlines) : []; } catch { return []; } })(),
-        planned_date: flex.planned_date || '',
-        facebook_page: flex.facebook_page || sticky.facebook_page || '',
         notes: flex.notes || '',
         // Campaign/ad set assignment for flex — use sticky defaults when not already set
         campaign_id: flexCampaignId || sticky.campaign_id || '',
@@ -844,7 +814,6 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
           const adSet = adSets.find(a => a.id === flex.ad_set_id);
           return adSet?.name || sticky.ad_set_name || '';
         })(),
-        duplicate_adset_name: flex.duplicate_adset_name || sticky.duplicate_adset_name || '',
       };
     }
     setSidebarForm(form);
@@ -862,7 +831,6 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
       if (!window.confirm('You have unsaved changes. Discard them?')) return;
     }
     setSidebarData(null);
-    setDuplicateConfirm(null);
     sidebarInitialFormRef.current = null;
   };
 
@@ -984,117 +952,44 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
   };
 
   const handleSaveSidebar = async ({ closeAfter = false } = {}) => {
-    // Check for multiple URLs — show confirmation dialog
-    const urls = sidebarForm.destination_urls.filter(u => u.trim());
-    if (urls.length > 1 && !duplicateConfirm) {
-      setDuplicateConfirm({ urls, closeAfter });
-      return;
-    }
-    setDuplicateConfirm(null);
     setSidebarSaving(true);
 
     // Persist sticky field defaults for future sidebar opens
-    const primaryUrlForSticky = urls[0] || '';
-    if (primaryUrlForSticky) stickyFieldsRef.current.destination_url = primaryUrlForSticky;
-    if (sidebarForm.display_link) stickyFieldsRef.current.display_link = sidebarForm.display_link;
-    if (sidebarForm.facebook_page) stickyFieldsRef.current.facebook_page = sidebarForm.facebook_page;
-    if (sidebarForm.duplicate_adset_name) stickyFieldsRef.current.duplicate_adset_name = sidebarForm.duplicate_adset_name;
     // Campaign/ad set — only persist real campaign IDs (not '__new__')
     const saveCampaignId = sidebarForm.campaign_id && sidebarForm.campaign_id !== '__new__' ? sidebarForm.campaign_id : '';
     if (saveCampaignId) stickyFieldsRef.current.campaign_id = saveCampaignId;
     if (sidebarForm.ad_set_name) stickyFieldsRef.current.ad_set_name = sidebarForm.ad_set_name;
 
     try {
-      const primaryUrl = urls[0] || '';
-      const extraUrls = urls.slice(1);
-
       if (sidebarData.type === 'single') {
-        // Save the first URL to the existing deployment
         await api.updateDeployment(sidebarData.deployment.id, {
           ad_name: sidebarForm.ad_name,
           primary_texts: JSON.stringify(sidebarForm.primary_texts),
           ad_headlines: JSON.stringify(sidebarForm.ad_headlines),
-          destination_url: primaryUrl,
-          display_link: sidebarForm.display_link || '',
-          cta_button: sidebarForm.cta_button,
-          facebook_page: sidebarForm.facebook_page || null,
-          planned_date: sidebarForm.planned_date || null,
-          duplicate_adset_name: sidebarForm.duplicate_adset_name || '',
           notes: sidebarForm.notes || '',
         });
-
-        // Duplicate for each additional URL
-        for (const url of extraUrls) {
-          await api.duplicateDeployment(sidebarData.deployment.id, {
-            ad_name: sidebarForm.ad_name,
-            destination_url: url,
-            cta_button: sidebarForm.cta_button,
-            primary_texts: JSON.stringify(sidebarForm.primary_texts),
-            ad_headlines: JSON.stringify(sidebarForm.ad_headlines),
-            planned_date: sidebarForm.planned_date || null,
-          });
-        }
       } else {
         // Phase 6.20b — Flex ad save split between ad_set fields and per-deployment
-        // fields. The legacy adapter quietly dropped most of these on the floor.
+        // fields. Planner details now save only copy, notes, and native placement data.
         const childDeps = sidebarData.deps || [];
         const adSetId = sidebarData.flexAd.id;
         const depPayload = {
           primary_texts: JSON.stringify(sidebarForm.primary_texts),
           ad_headlines: JSON.stringify(sidebarForm.ad_headlines),
-          destination_url: primaryUrl,
-          display_link: sidebarForm.display_link || '',
-          cta_button: sidebarForm.cta_button,
-          facebook_page: sidebarForm.facebook_page || null,
-          planned_date: sidebarForm.planned_date || null,
-          duplicate_adset_name: sidebarForm.duplicate_adset_name || '',
           notes: sidebarForm.notes || '',
         };
         await Promise.all([
           api.updateAdSetUnified(projectId, adSetId, { name: sidebarForm.ad_name }),
           ...childDeps.map(d => api.updateDeployment(d.id, depPayload)),
         ]);
-
-        // For each extra URL: duplicate all child deployments, then group them
-        // into a new ad_set (native createAdSetFromAds — drops the adapter).
-        for (const url of extraUrls) {
-          const newChildIds = [];
-          for (const child of childDeps) {
-            const result = await api.duplicateDeployment(child.id, {
-              ad_name: child.ad_name || sidebarForm.ad_name,
-              destination_url: url,
-              cta_button: sidebarForm.cta_button,
-              primary_texts: JSON.stringify(sidebarForm.primary_texts),
-              ad_headlines: JSON.stringify(sidebarForm.ad_headlines),
-              planned_date: sidebarForm.planned_date || null,
-            });
-            if (result?.id) newChildIds.push(result.id);
-          }
-          if (newChildIds.length > 0) {
-            const flexAd = sidebarData.flexAd;
-            const dupName = (sidebarForm.ad_name || flexAd.name || 'Ad Set') +
-              ` (${url.replace(/^https?:\/\//, '').slice(0, 30)})`;
-            await api.createAdSetFromAds(flexAd.project_id, {
-              name: dupName,
-              deployment_ids: newChildIds,
-            });
-          }
-        }
       }
 
       // Show toast and close immediately — campaign assignment runs in background
-      if (extraUrls.length > 0) {
-        addToast(`Saved + created ${extraUrls.length} duplicate${extraUrls.length > 1 ? 's' : ''} with different URL${extraUrls.length > 1 ? 's' : ''}`, 'success');
-      } else {
-        addToast('Saved', 'success');
-      }
-
-      // Reset URLs back to just the primary after save
-      setSidebarForm(prev => ({ ...prev, destination_urls: [primaryUrl || ''] }));
-      sidebarInitialFormRef.current = JSON.stringify({ ...sidebarForm, destination_urls: [primaryUrl || ''] });
+      addToast('Saved', 'success');
+      sidebarInitialFormRef.current = JSON.stringify(sidebarForm);
 
       // Close sidebar if Save & Close was used
-      if (closeAfter || duplicateConfirm?.closeAfter) {
+      if (closeAfter) {
         setSidebarData(null);
         sidebarInitialFormRef.current = null;
       }
@@ -2016,142 +1911,6 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
               )}
             </div>
 
-            {/* ─── Website URL ─── */}
-            <div className="order-[5]">
-              <label className="text-[10px] uppercase tracking-[0.10em] text-ed-ink3">
-                Website URL{sidebarForm.destination_urls.length > 1 ? 's' : ''}
-              </label>
-              <div className="space-y-2 mt-1.5">
-                {sidebarForm.destination_urls.map((url, i) => (
-                  <div key={i} className="flex items-center gap-1.5">
-                    <input
-                      type="url"
-                      value={url}
-                      onChange={(e) => {
-                        const updated = [...sidebarForm.destination_urls];
-                        updated[i] = e.target.value;
-                        setSidebarForm(prev => ({ ...prev, destination_urls: updated }));
-                      }}
-                      className="input-apple !border-ed-line focus:!ring-ed-accent/20 focus:!border-ed-accent text-[12px] flex-1"
-                      placeholder="https://..."
-                    />
-                    {sidebarForm.destination_urls.length > 1 && (
-                      <button
-                        onClick={() => setSidebarForm(prev => ({
-                          ...prev,
-                          destination_urls: prev.destination_urls.filter((_, idx) => idx !== i),
-                        }))}
-                        className="p-1 rounded-lg text-ed-ink3 hover:text-red-500 hover:bg-red-50 transition-colors flex-shrink-0"
-                        title="Remove URL"
-                      >
-                        <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                        </svg>
-                      </button>
-                    )}
-                  </div>
-                ))}
-              </div>
-              <button
-                onClick={() => setSidebarForm(prev => ({ ...prev, destination_urls: [...prev.destination_urls, ''] }))}
-                className="mt-2 w-full py-1.5 rounded-lg border border-dashed border-ed-line text-[10px] text-ed-ink2 hover:border-ed-accent/30 hover:text-ed-accent hover:bg-ed-accent/5 transition-colors inline-flex items-center justify-center gap-1"
-              >
-                <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                </svg>
-                Add Another URL
-              </button>
-              {sidebarForm.destination_urls.length > 1 && (
-                <p className="text-[9px] text-ed-accent mt-1.5 flex items-center gap-1">
-                  <svg className="w-3 h-3 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                  </svg>
-                  Saving will duplicate this {isFlex ? 'ad set' : 'ad'} for each extra URL ({sidebarForm.destination_urls.length - 1} duplicate{sidebarForm.destination_urls.length > 2 ? 's' : ''}).
-                </p>
-              )}
-            </div>
-
-            {/* ─── Display Link ─── */}
-            <div className="order-[6]">
-              <label className="flex items-center gap-2 cursor-pointer select-none">
-                <input
-                  type="checkbox"
-                  checked={sidebarForm.display_link !== ''}
-                  onChange={(e) => setSidebarForm(prev => ({ ...prev, display_link: e.target.checked ? (prev.display_link || ' ') : '' }))}
-                  className="rounded border-ed-accent/30 text-ed-accent focus:ring-ed-accent/20 w-3.5 h-3.5"
-                />
-                <span className="text-[10px] uppercase tracking-[0.10em] text-ed-ink3">Use a Display Link</span>
-              </label>
-              {sidebarForm.display_link !== '' && (
-                <input
-                  type="text"
-                  value={sidebarForm.display_link.trim()}
-                  onChange={(e) => setSidebarForm(prev => ({ ...prev, display_link: e.target.value }))}
-                  className="input-apple !border-ed-line focus:!ring-ed-accent/20 focus:!border-ed-accent text-[12px] w-full mt-1.5"
-                  placeholder="e.g. yourbrand.com/offer"
-                />
-              )}
-            </div>
-
-            {/* ─── Call to Action ─── */}
-            <div className="order-[7]">
-              <label className="text-[10px] uppercase tracking-[0.10em] text-ed-ink3">Call to Action</label>
-              <select
-                value={sidebarForm.cta_button}
-                onChange={(e) => setSidebarForm(prev => ({ ...prev, cta_button: e.target.value }))}
-                className="input-apple !border-ed-line focus:!ring-ed-accent/20 focus:!border-ed-accent text-[12px] w-full mt-1.5"
-              >
-                {CTA_OPTIONS.map(cta => (
-                  <option key={cta} value={cta}>{cta.replace(/_/g, ' ')}</option>
-                ))}
-              </select>
-            </div>
-
-            {/* ─── Facebook Page ─── */}
-            <div className="order-[8]">
-              <label className="text-[10px] uppercase tracking-[0.10em] text-ed-ink3">Facebook Page</label>
-              <input
-                type="text"
-                value={sidebarForm.facebook_page}
-                onChange={(e) => setSidebarForm(prev => ({ ...prev, facebook_page: e.target.value }))}
-                placeholder="e.g. My Brand Page"
-                className="input-apple !border-ed-line focus:!ring-ed-accent/20 focus:!border-ed-accent text-[12px] w-full mt-1.5"
-              />
-              <p className="text-[10px] text-ed-ink2 mt-1">The Facebook Page this ad will be posted from.</p>
-            </div>
-
-            {/* ─── Start Date ─── */}
-            <div className="order-[9]">
-              <label className="text-[10px] uppercase tracking-[0.10em] text-ed-ink3">Start Date</label>
-              <select
-                value={sidebarForm.planned_date ? 'scheduled' : 'immediately'}
-                onChange={(e) => {
-                  if (e.target.value === 'immediately') {
-                    setSidebarForm(prev => ({ ...prev, planned_date: '' }));
-                  } else {
-                    // Default to tomorrow at 9:00 AM local time
-                    const tomorrow = new Date();
-                    tomorrow.setDate(tomorrow.getDate() + 1);
-                    tomorrow.setHours(9, 0, 0, 0);
-                    const local = new Date(tomorrow.getTime() - tomorrow.getTimezoneOffset() * 60000).toISOString().slice(0, 16);
-                    setSidebarForm(prev => ({ ...prev, planned_date: prev.planned_date || local }));
-                  }
-                }}
-                className="input-apple !border-ed-line focus:!ring-ed-accent/20 focus:!border-ed-accent text-[12px] w-full mt-1.5"
-              >
-                <option value="immediately">Immediately</option>
-                <option value="scheduled">Specific Date & Time</option>
-              </select>
-              {sidebarForm.planned_date && (
-                <input
-                  type="datetime-local"
-                  value={sidebarForm.planned_date}
-                  onChange={(e) => setSidebarForm(prev => ({ ...prev, planned_date: e.target.value }))}
-                  className="input-apple !border-ed-line focus:!ring-ed-accent/20 focus:!border-ed-accent text-[12px] w-full mt-2"
-                />
-              )}
-            </div>
-
             {/* ─── Notes ─── */}
             <div className="order-[30] border-t border-ed-line pt-4 mt-2">
               <label className="text-[11px] text-ed-ink2 font-medium block mb-1">Notes <span className="text-ed-ink3">(optional)</span></label>
@@ -2205,66 +1964,7 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
                 If an ad set with this name already exists in the selected campaign, the ad will be added to it. Otherwise a new ad set will be created.
               </p>
 
-              {/* Duplicate Ad Set Name — optional field shown to employee in Ready to Post */}
-              <label className="text-[11px] text-ed-ink2 font-medium mt-3 block">Duplicate Ad Set Called <span className="text-ed-ink3">(optional)</span></label>
-              <input
-                type="text"
-                placeholder="e.g. LAL Purchasers — New Creative"
-                value={sidebarForm.duplicate_adset_name}
-                onChange={e => setSidebarForm(f => ({ ...f, duplicate_adset_name: e.target.value }))}
-                className="input-apple !border-ed-line focus:!ring-ed-accent/20 focus:!border-ed-accent text-[12px] w-full mt-1"
-              />
-              <p className="text-[9px] text-ed-ink3 mt-1">
-                If set, the employee will be told to duplicate the ad set above and rename the copy to this name. Useful when reusing an ad set's targeting settings with a new name.
-              </p>
             </div>
-
-            {/* ─── Duplicate Confirmation Dialog (multi-URL) ─── */}
-            {duplicateConfirm && (
-              <div className="order-[40] mt-2 p-4 rounded-xl border-2 border-ed-accent/30 bg-[rgba(168,84,59,0.06)] space-y-3 fade-in">
-                <div className="flex items-start gap-2.5">
-                  <div className="w-8 h-8 rounded-lg bg-ed-accent/10 flex items-center justify-center flex-shrink-0">
-                    <svg className="w-4 h-4 text-ed-accent" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 16H6a2 2 0 01-2-2V6a2 2 0 012-2h8a2 2 0 012 2v2m-6 12h8a2 2 0 002-2v-8a2 2 0 00-2-2h-8a2 2 0 00-2 2v8a2 2 0 002 2z" />
-                    </svg>
-                  </div>
-                  <div>
-                    <p className="text-[12px] font-semibold text-ed-ink">
-                      Duplicate {isFlex ? 'ad set' : 'ad'} for {duplicateConfirm.urls.length} URLs?
-                    </p>
-                    <p className="text-[11px] text-ed-ink2 mt-1">
-                      {isFlex
-                        ? `This will save the current ad set with the first URL, then duplicate all ${sidebarData?.deps?.length || 0} child ads for each extra URL — creating ${duplicateConfirm.urls.length - 1} new ad set${duplicateConfirm.urls.length > 2 ? 's' : ''}:`
-                        : `This will save the current ad with the first URL, then create ${duplicateConfirm.urls.length - 1} duplicate${duplicateConfirm.urls.length > 2 ? 's' : ''} — each with a different website URL:`
-                      }
-                    </p>
-                    <ul className="mt-2 space-y-1">
-                      {duplicateConfirm.urls.map((url, i) => (
-                        <li key={i} className="text-[10px] text-ed-ink2 flex items-start gap-1.5">
-                          <span className="text-ed-accent font-semibold mt-px">{i === 0 ? 'Original:' : `Copy ${i}:`}</span>
-                          <span className="truncate">{url}</span>
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <button
-                    onClick={() => handleSaveSidebar({ closeAfter: duplicateConfirm?.closeAfter })}
-                    disabled={sidebarSaving}
-                    className="flex-1 text-[11px] py-2 rounded-[7px] bg-ed-accent text-[#fbfaf6] hover:bg-ed-accent/90 transition-colors disabled:opacity-50"
-                  >
-                    {sidebarSaving ? 'Saving...' : `Yes, Save & Create ${duplicateConfirm.urls.length - 1} Duplicate${duplicateConfirm.urls.length > 2 ? 's' : ''}`}
-                  </button>
-                  <button
-                    onClick={() => setDuplicateConfirm(null)}
-                    className="text-[11px] px-3 py-2 rounded-xl bg-ed-surface border border-ed-line text-ed-ink2 hover:bg-ed-bg transition-colors"
-                  >
-                    Cancel
-                  </button>
-                </div>
-              </div>
-            )}
           </div>
           <div className="border-t border-ed-line bg-ed-surface px-5 py-3 flex items-center justify-end gap-2">
             <button

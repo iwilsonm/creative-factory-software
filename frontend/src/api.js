@@ -523,6 +523,7 @@ export const api = {
   updateAdSet: (id, fields) => request(`/deployments/adsets/${id}`, { method: 'PUT', body: JSON.stringify(fields) }),
   deleteAdSet: (id) => request(`/deployments/adsets/${id}`, { method: 'DELETE' }),
   moveToUnplanned: (deploymentIds) => request('/deployments/move-to-unplanned', { method: 'POST', body: JSON.stringify({ deploymentIds }) }),
+  moveToPlanner: (deploymentIds) => request('/deployments/move-to-planner', { method: 'POST', body: JSON.stringify({ deploymentIds }) }),
   assignToAdSet: (deploymentIds, campaignId, adsetId) => request('/deployments/assign-to-adset', { method: 'POST', body: JSON.stringify({ deploymentIds, campaignId, adsetId }) }),
   unassignFromAdSet: (deploymentIds) => request('/deployments/unassign', { method: 'POST', body: JSON.stringify({ deploymentIds }) }),
 

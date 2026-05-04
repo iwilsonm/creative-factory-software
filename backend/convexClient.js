@@ -729,6 +729,7 @@ export async function createBatchJob({ id, project_id, generation_mode, batch_si
     angle_prompt: angle_prompt || undefined,
     angle_brief: angle_brief || undefined,
   });
+  invalidateQueryCache('batch_jobs');
 }
 
 export async function getBatchJob(id) {

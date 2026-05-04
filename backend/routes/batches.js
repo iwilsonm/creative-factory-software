@@ -37,8 +37,7 @@ router.post('/:projectId/batches', async (req, res) => {
     skip_product_image,
     scheduled = false,
     schedule_cron,
-    run_immediately = true,
-    filter_assigned = false
+    run_immediately = true
   } = req.body;
 
   // Validate
@@ -90,7 +89,6 @@ router.post('/:projectId/batches', async (req, res) => {
       product_image_storageId: productImageStorageId,
       scheduled: !!scheduled,
       schedule_cron: schedule_cron || null,
-      filter_assigned: !!filter_assigned,
       status: shouldQueueNow ? 'queued' : 'pending',
       queued_at: shouldQueueNow ? now : undefined,
       last_heartbeat_at: shouldQueueNow ? now : undefined,
@@ -143,7 +141,7 @@ router.put('/:projectId/batches/:batchId', async (req, res) => {
     return res.status(404).json({ error: 'Batch job not found' });
   }
 
-  const { scheduled, schedule_cron, angle, batch_size, aspect_ratio, filter_assigned } = req.body;
+  const { scheduled, schedule_cron, angle, batch_size, aspect_ratio } = req.body;
   const updates = {};
 
   if (scheduled !== undefined) updates.scheduled = scheduled ? 1 : 0;
@@ -151,7 +149,6 @@ router.put('/:projectId/batches/:batchId', async (req, res) => {
   if (angle !== undefined) updates.angle = angle;
   if (batch_size !== undefined) updates.batch_size = batch_size;
   if (aspect_ratio !== undefined) updates.aspect_ratio = aspect_ratio;
-  if (filter_assigned !== undefined) updates.filter_assigned = !!filter_assigned;
 
   if (Object.keys(updates).length > 0) {
     await updateBatchJob(req.params.batchId, updates);

@@ -119,6 +119,95 @@ export function snapshotDeploymentAssignments(deploymentIds, projectDeployments)
   return { missingIds, snapshots };
 }
 
+export async function moveDeploymentsToPlanner({
+  deploymentIds,
+  getDeploymentByExternalId,
+  updateDeployment,
+  logger = console,
+}) {
+  if (!Array.isArray(deploymentIds) || deploymentIds.length === 0) {
+    return { success: false, status: 400, error: 'deploymentIds required' };
+  }
+
+  const normalized = normalizeDeploymentIds(deploymentIds);
+  if (normalized.error) {
+    return {
+      success: false,
+      status: 400,
+      error: normalized.error.replaceAll('deployment_ids', 'deploymentIds'),
+    };
+  }
+
+  const deployments = [];
+  const missingIds = [];
+  const deletedIds = [];
+
+  for (const deploymentId of normalized.ids) {
+    const deployment = await getDeploymentByExternalId(deploymentId);
+    if (!deployment) {
+      missingIds.push(deploymentId);
+    } else if (deployment.deleted_at) {
+      deletedIds.push(deploymentId);
+    } else {
+      deployments.push(deployment);
+    }
+  }
+
+  if (missingIds.length || deletedIds.length) {
+    return {
+      success: false,
+      status: 400,
+      error: 'Some selected ads are no longer available.',
+      missingIds,
+      deletedIds,
+    };
+  }
+
+  const projectIds = [...new Set(deployments.map((deployment) => deployment.project_id).filter(Boolean))];
+  if (projectIds.length !== 1) {
+    return {
+      success: false,
+      status: 400,
+      error: 'All selected ads must belong to the same project.',
+      projectIds,
+    };
+  }
+
+  const plannerFields = { local_campaign_id: 'planned', local_adset_id: '', flex_ad_id: '' };
+  const initialResults = await Promise.allSettled(normalized.ids.map((id) => updateDeployment(id, plannerFields)));
+  const failedIndexes = initialResults
+    .map((result, index) => result.status === 'rejected' ? index : -1)
+    .filter((index) => index >= 0);
+
+  const failedIds = [];
+  for (const index of failedIndexes) {
+    const id = normalized.ids[index];
+    try {
+      await updateDeployment(id, plannerFields);
+    } catch (err) {
+      logger.error?.(`Move to Planner retry failed for ${id}:`, err);
+      failedIds.push(id);
+    }
+  }
+
+  if (failedIds.length) {
+    return {
+      success: false,
+      status: 500,
+      error: 'Failed to move some ads to Planner.',
+      failedIds,
+      count: normalized.ids.length - failedIds.length,
+    };
+  }
+
+  return {
+    success: true,
+    status: 200,
+    count: normalized.ids.length,
+    projectId: projectIds[0],
+  };
+}
+
 export async function rollbackManualAdSetCombine({
   adSetId,
   updatedDeploymentIds,

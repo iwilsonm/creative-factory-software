@@ -16,7 +16,44 @@ const TEMPLATE_RANDOM = 'random';
 const TEMPLATE_UPLOAD = 'upload';
 const TEMPLATE_SELECT = 'select';
 
+const ACTIVE_BATCH_STATUSES = new Set(['queued', 'generating_prompts', 'submitting', 'processing', 'saving_results']);
+const LOCAL_BATCH_PROTECT_MS = 2 * 60 * 1000;
 
+function batchTimestamp(batch) {
+  const candidates = [
+    batch?.completed_at,
+    batch?.last_heartbeat_at,
+    batch?.started_at,
+    batch?.queued_at,
+    batch?.created_at,
+  ];
+  for (const value of candidates) {
+    const time = value ? new Date(value).getTime() : 0;
+    if (Number.isFinite(time) && time > 0) return time;
+  }
+  return 0;
+}
+
+function sortBatches(list) {
+  return [...list].sort((a, b) => batchTimestamp(b) - batchTimestamp(a));
+}
+
+function chooseFresherBatch(existing, incoming) {
+  if (!existing) return incoming;
+  if (!incoming) return existing;
+  return batchTimestamp(incoming) >= batchTimestamp(existing) ? incoming : existing;
+}
+
+function isProtectedActiveBatch(batch) {
+  return batch?.id && ACTIVE_BATCH_STATUSES.has(batch.status);
+}
+
+function upsertBatchIntoList(list, batch) {
+  if (!batch?.id) return list;
+  const map = new Map((list || []).map(item => [item.id, item]));
+  map.set(batch.id, chooseFresherBatch(map.get(batch.id), batch));
+  return sortBatches(Array.from(map.values()));
+}
 
 
 export default function BatchManager({ projectId, project, onBatchComplete }) {
@@ -24,6 +61,8 @@ export default function BatchManager({ projectId, project, onBatchComplete }) {
   const [expanded, setExpanded] = useState(false);
   const [batches, setBatches] = useState([]);
   const [loading, setLoading] = useState(false);
+  const locallyActiveBatchIdsRef = useRef(new Map());
+  const previousBatchesRef = useRef([]);
 
   // Create form
   const [batchSize, setBatchSize] = useState(5);
@@ -56,9 +95,6 @@ export default function BatchManager({ projectId, project, onBatchComplete }) {
   const [skipProductImage, setSkipProductImage] = useState(false);
   const batchProductInputRef = useRef(null);
 
-  // Creative Filter assignment
-  const [filterAssigned, setFilterAssigned] = useState(false);
-
   // Derive effective cron expression from preset or custom interval
   const getEffectiveCron = () => {
     if (cronPreset === 'custom') return intervalToCron(intervalAmount, intervalUnit);
@@ -79,6 +115,17 @@ export default function BatchManager({ projectId, project, onBatchComplete }) {
   // Poll for batches — 10s when any batch is active, 30s otherwise
   const hasActiveBatches = batches.some(b => ['queued', 'generating_prompts', 'submitting', 'processing', 'saving_results'].includes(b.status));
   usePolling(() => loadBatches(true), hasActiveBatches ? 10000 : 30000, expanded);
+
+  useEffect(() => {
+    const prev = previousBatchesRef.current;
+    if (onBatchComplete && prev.length > 0) {
+      const newlyCompleted = batches.some(batch =>
+        batch.status === 'completed' && prev.find(previous => previous.id === batch.id && previous.status !== 'completed')
+      );
+      if (newlyCompleted) onBatchComplete();
+    }
+    previousBatchesRef.current = batches;
+  }, [batches, onBatchComplete]);
 
   // Load templates when "Pick Template" is selected
   useEffect(() => {
@@ -189,8 +236,7 @@ export default function BatchManager({ projectId, project, onBatchComplete }) {
       aspect_ratio: batchAspectRatio,
       scheduled: isScheduled,
       schedule_cron: isScheduled ? getEffectiveCron() : undefined,
-      run_immediately: !isScheduled,
-      filter_assigned: filterAssigned
+      run_immediately: !isScheduled
     };
 
     if (templateSource === TEMPLATE_SELECT && selectedTemplates.length > 0) {
@@ -240,20 +286,57 @@ export default function BatchManager({ projectId, project, onBatchComplete }) {
     });
   };
 
+  const rememberLocalActiveBatch = useCallback((batch) => {
+    if (!isProtectedActiveBatch(batch)) return;
+    locallyActiveBatchIdsRef.current.set(batch.id, Date.now());
+  }, []);
+
+  const forgetExpiredLocalActiveBatches = useCallback(() => {
+    const now = Date.now();
+    for (const [id, rememberedAt] of locallyActiveBatchIdsRef.current.entries()) {
+      if (now - rememberedAt > LOCAL_BATCH_PROTECT_MS) {
+        locallyActiveBatchIdsRef.current.delete(id);
+      }
+    }
+  }, []);
+
+  const upsertBatch = useCallback((batch) => {
+    if (!batch?.id) return;
+    rememberLocalActiveBatch(batch);
+    setBatches(prev => upsertBatchIntoList(prev, batch));
+  }, [rememberLocalActiveBatch]);
+
   const loadBatches = async (silent = false) => {
     if (!silent) setLoading(true);
     try {
       const data = await api.getBatches(projectId);
-      const prev = batches;
-      setBatches(data.batches || []);
+      const fetched = data.batches || [];
+      forgetExpiredLocalActiveBatches();
 
-      // Check if any batch just completed
-      if (onBatchComplete && prev.length > 0) {
-        const newlyCompleted = (data.batches || []).some(b =>
-          b.status === 'completed' && prev.find(p => p.id === b.id && p.status !== 'completed')
-        );
-        if (newlyCompleted) onBatchComplete();
-      }
+      setBatches(prev => {
+        const fetchedById = new Map(fetched.map(batch => [batch.id, batch]));
+        const prevById = new Map(prev.map(batch => [batch.id, batch]));
+        const mergedById = new Map();
+
+        for (const batch of fetched) {
+          const previous = prevById.get(batch.id);
+          const isLocallyProtected = locallyActiveBatchIdsRef.current.has(batch.id);
+          const nextBatch = isLocallyProtected ? chooseFresherBatch(previous, batch) : batch;
+          mergedById.set(batch.id, nextBatch);
+          if (!isLocallyProtected || nextBatch === batch) {
+            locallyActiveBatchIdsRef.current.delete(batch.id);
+          }
+        }
+
+        for (const previous of prev) {
+          const rememberedAt = locallyActiveBatchIdsRef.current.get(previous.id);
+          if (!fetchedById.has(previous.id) && rememberedAt && isProtectedActiveBatch(previous)) {
+            mergedById.set(previous.id, previous);
+          }
+        }
+
+        return sortBatches(Array.from(mergedById.values()));
+      });
     } catch (err) {
       console.error('Failed to load batches:', err);
     } finally {
@@ -297,13 +380,13 @@ export default function BatchManager({ projectId, project, onBatchComplete }) {
         config.skip_product_image = true;
       }
 
-      await api.createBatch(projectId, config);
+      const createdBatch = await api.createBatch(projectId, config);
+      upsertBatch(createdBatch);
 
       // Reset form
       setBatchAngle('');
       setIsScheduled(false);
-      setFilterAssigned(false);
-      await loadBatches();
+      await loadBatches(true);
     } catch (err) {
       setCreateError(err.message);
     } finally {
@@ -313,9 +396,10 @@ export default function BatchManager({ projectId, project, onBatchComplete }) {
 
   const handleRunNow = async (batchId) => {
     try {
-      await api.runBatch(projectId, batchId);
+      const result = await api.runBatch(projectId, batchId);
+      if (result?.batch) upsertBatch(result.batch);
       toast.success('Batch started');
-      await loadBatches();
+      await loadBatches(true);
     } catch (err) {
       toast.error(err.message);
     }
@@ -396,13 +480,11 @@ export default function BatchManager({ projectId, project, onBatchComplete }) {
       templateSource,
       templateLabel: getTemplateLabel(),
       selectedTemplates: selectedTemplates.length > 0 ? [...selectedTemplates] : [],
-      uploadedFile: templateSource === TEMPLATE_UPLOAD ? uploadedFile : null,
-      filter_assigned: filterAssigned
+      uploadedFile: templateSource === TEMPLATE_UPLOAD ? uploadedFile : null
     };
     setQueue(prev => [...prev, config]);
     setBatchAngle('');
     setIsScheduled(false);
-    setFilterAssigned(false);
   };
 
   const handleRemoveFromQueue = (tempId) => {
@@ -439,7 +521,6 @@ export default function BatchManager({ projectId, project, onBatchComplete }) {
 
     if (item.templateSource) setTemplateSource(item.templateSource);
     if (item.selectedTemplate) setSelectedTemplates(Array.isArray(item.selectedTemplate) ? item.selectedTemplate : [item.selectedTemplate]);
-    setFilterAssigned(!!item.filter_assigned);
 
     // Remove from queue
     setQueue(prev => prev.filter(q => q.id !== tempId));
@@ -449,6 +530,8 @@ export default function BatchManager({ projectId, project, onBatchComplete }) {
     if (queue.length === 0) return;
     setSubmittingQueue(true);
     setCreateError('');
+    let createdCount = 0;
+    const submittedIds = new Set();
 
     try {
       for (const config of queue) {
@@ -478,14 +561,21 @@ export default function BatchManager({ projectId, project, onBatchComplete }) {
           batchConfig.generation_mode = 'mode1';
         }
 
-        await api.createBatch(projectId, batchConfig);
+        const createdBatch = await api.createBatch(projectId, batchConfig);
+        createdCount += 1;
+        submittedIds.add(config.id);
+        upsertBatch(createdBatch);
       }
 
       toast.success(`${queue.length} batch${queue.length !== 1 ? 'es' : ''} created`);
       setQueue([]);
-      await loadBatches();
+      await loadBatches(true);
     } catch (err) {
-      setCreateError(`Queue submission error: ${err.message}`);
+      setQueue(prev => prev.filter(item => !submittedIds.has(item.id)));
+      const prefix = createdCount > 0
+        ? `${createdCount} of ${queue.length} batch${queue.length !== 1 ? 'es' : ''} created. `
+        : '';
+      setCreateError(`${prefix}Queue submission error: ${err.message}`);
     } finally {
       setSubmittingQueue(false);
     }
@@ -495,13 +585,8 @@ export default function BatchManager({ projectId, project, onBatchComplete }) {
     ['queued', 'generating_prompts', 'submitting', 'processing', 'saving_results', 'pending'].includes(b.status)
     || !!b.schedule_cron  // Include all scheduled/paused batches in active section
   );
-  const awaitingFilterBatches = batches.filter(b =>
-    b.status === 'completed' && b.filter_assigned && !b.filter_processed && !b.schedule_cron
-  );
-  const awaitingFilterAdCount = awaitingFilterBatches.reduce((sum, b) => sum + (b.completed_count || 0), 0);
   const completedBatches = batches.filter(b =>
     ['completed', 'failed'].includes(b.status) && !b.schedule_cron
-    && !(b.status === 'completed' && b.filter_assigned && !b.filter_processed)
   );
 
   return (
@@ -533,11 +618,6 @@ export default function BatchManager({ projectId, project, onBatchComplete }) {
             {activeBatches.length > 0 && (
               <span className="badge bg-ed-accent/10 text-ed-accent">
                 {activeBatches.length} active
-              </span>
-            )}
-            {awaitingFilterBatches.length > 0 && (
-              <span className="badge bg-ed-accent/10 text-ed-accent">
-                {awaitingFilterBatches.length} awaiting filter
               </span>
             )}
           </div>
@@ -1018,21 +1098,6 @@ export default function BatchManager({ projectId, project, onBatchComplete }) {
               </div>
             )}
 
-            {/* Creative Filter assignment toggle */}
-            <div className="flex items-center gap-3 mb-3">
-              <label className="flex items-center gap-2 cursor-pointer">
-                <input
-                  type="checkbox"
-                  checked={filterAssigned}
-                  onChange={e => setFilterAssigned(e.target.checked)}
-                  disabled={creating}
-                  className="w-4 h-4 rounded border-black/10 text-ed-green focus:ring-teal/20"
-                />
-                <span className="text-[12px] text-ed-ink2 font-medium">Assign to Creative Filter</span>
-              </label>
-              <span className="text-[10px] text-ed-ink3">Scores ads and deploys winners to Ready to Post</span>
-            </div>
-
             {/* Error */}
             {createError && (
               <div className="mb-3 p-2.5 bg-ed-rust/10 border border-ed-rust/30 text-ed-rust text-[12px] rounded-xl">
@@ -1164,31 +1229,6 @@ export default function BatchManager({ projectId, project, onBatchComplete }) {
                   </h4>
                   <div className="space-y-2">
                     {activeBatches.map(batch => (
-                      <BatchRow
-                        key={batch.id}
-                        batch={batch}
-                        onRunNow={handleRunNow}
-                        onCancel={handleCancel}
-                        onDelete={handleDelete}
-                        onEdit={handleEditBatch}
-                        onPause={handlePause}
-                        onResume={handleResume}
-                      />
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {awaitingFilterBatches.length > 0 && (
-                <div className="p-5">
-                  <h4 className="text-[12px] font-semibold text-ed-ink2 uppercase tracking-wider mb-1">
-                    Awaiting Filter
-                  </h4>
-                  <p className="text-[11px] text-ed-ink3 mb-3">
-                    {awaitingFilterBatches.length} batch{awaitingFilterBatches.length !== 1 ? 'es' : ''} · {awaitingFilterAdCount} ad{awaitingFilterAdCount !== 1 ? 's' : ''} awaiting scoring
-                  </p>
-                  <div className="space-y-2">
-                    {awaitingFilterBatches.map(batch => (
                       <BatchRow
                         key={batch.id}
                         batch={batch}

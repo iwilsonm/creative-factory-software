@@ -41,6 +41,7 @@ import {
 import { chat as claudeChat } from '../services/anthropic.js';
 import { listSafeFieldNames } from '../security.js';
 import { fetchUrlText, safeUrlForLogs } from '../services/urlFetcher.js';
+import { moveDeploymentsToPlanner } from '../services/adSetPlanner.js';
 
 const router = Router();
 router.use(requireAuth);
@@ -93,6 +94,23 @@ async function getAdSetOr404(res, id) {
     return null;
   }
   return adSet;
+}
+
+function sendPlannerMoveResult(res, result) {
+  if (result.success) {
+    return res.json({ success: true, count: result.count, projectId: result.projectId });
+  }
+  const { status = 500, success: _success, ...body } = result;
+  return res.status(status).json(body);
+}
+
+function moveDeploymentsToPlannerResult(deploymentIds) {
+  return moveDeploymentsToPlanner({
+    deploymentIds,
+    getDeploymentByExternalId,
+    updateDeployment,
+    logger: console,
+  });
 }
 
 /**
@@ -682,6 +700,20 @@ router.post('/deployments/move-to-unplanned', requireRole('admin', 'manager'), a
 });
 
 /**
+ * POST /deployments/move-to-planner — Move deployments into Planner
+ * Body: { deploymentIds: string[] }
+ */
+router.post('/deployments/move-to-planner', requireRole('admin', 'manager'), async (req, res) => {
+  try {
+    const result = await moveDeploymentsToPlannerResult(req.body?.deploymentIds);
+    return sendPlannerMoveResult(res, result);
+  } catch (err) {
+    console.error('Failed to move to Planner:', err);
+    res.status(500).json({ error: 'Failed to move ads to Planner' });
+  }
+});
+
+/**
  * POST /deployments/assign-to-adset — Assign deployments to a campaign + ad set
  * Body: { deploymentIds: string[], campaignId: string, adsetId: string }
  */
@@ -690,6 +722,10 @@ router.post('/deployments/assign-to-adset', requireRole('admin', 'manager'), asy
     const { deploymentIds, campaignId, adsetId } = req.body;
     if (!deploymentIds?.length || !campaignId) {
       return res.status(400).json({ error: 'deploymentIds and campaignId required' });
+    }
+    if (campaignId === 'planned') {
+      const result = await moveDeploymentsToPlannerResult(deploymentIds);
+      return sendPlannerMoveResult(res, result);
     }
     const campaign = await getCampaignOr404(res, campaignId);
     if (!campaign) return;

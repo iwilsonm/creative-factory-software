@@ -4,6 +4,7 @@ import {
   compactConvexWrite,
   getManualCombineErrorResponse,
   isMissingAtomicAdSetFunctionError,
+  moveDeploymentsToPlanner,
   normalizeDeploymentIds,
   rollbackManualAdSetCombine,
   snapshotDeploymentAssignments,
@@ -160,5 +161,109 @@ describe('manual ad set planning helpers', () => {
     });
     expect(deleteAdSet).toHaveBeenCalledWith('new-adset');
     expect(logger.warn).not.toHaveBeenCalled();
+  });
+
+  it('moves deployments into Planner with the planned sentinel fields', async () => {
+    const deployments = new Map([
+      ['dep-1', { externalId: 'dep-1', project_id: 'project-1' }],
+      ['dep-2', { externalId: 'dep-2', project_id: 'project-1' }],
+    ]);
+    const getDeploymentByExternalId = vi.fn(async (id) => deployments.get(id) || null);
+    const updateDeployment = vi.fn().mockResolvedValue(null);
+
+    const result = await moveDeploymentsToPlanner({
+      deploymentIds: ['dep-1', 'dep-2'],
+      getDeploymentByExternalId,
+      updateDeployment,
+    });
+
+    expect(result).toMatchObject({ success: true, count: 2, projectId: 'project-1' });
+    expect(updateDeployment).toHaveBeenCalledWith('dep-1', {
+      local_campaign_id: 'planned',
+      local_adset_id: '',
+      flex_ad_id: '',
+    });
+    expect(updateDeployment).toHaveBeenCalledWith('dep-2', {
+      local_campaign_id: 'planned',
+      local_adset_id: '',
+      flex_ad_id: '',
+    });
+  });
+
+  it('rejects unknown, deleted, duplicate, and mixed-project Planner moves', async () => {
+    expect((await moveDeploymentsToPlanner({
+      deploymentIds: [],
+      getDeploymentByExternalId: vi.fn(),
+      updateDeployment: vi.fn(),
+    })).error).toBe('deploymentIds required');
+
+    expect((await moveDeploymentsToPlanner({
+      deploymentIds: ['dep-1', 'dep-1'],
+      getDeploymentByExternalId: vi.fn(),
+      updateDeployment: vi.fn(),
+    })).error).toContain('duplicate ids: dep-1');
+
+    const validationDeps = new Map([
+      ['deleted', { externalId: 'deleted', project_id: 'project-1', deleted_at: '2026-01-01T00:00:00Z' }],
+      ['project-a', { externalId: 'project-a', project_id: 'project-a' }],
+      ['project-b', { externalId: 'project-b', project_id: 'project-b' }],
+    ]);
+    const getDeploymentByExternalId = vi.fn(async (id) => validationDeps.get(id) || null);
+
+    const missingDeleted = await moveDeploymentsToPlanner({
+      deploymentIds: ['missing', 'deleted'],
+      getDeploymentByExternalId,
+      updateDeployment: vi.fn(),
+    });
+    expect(missingDeleted).toMatchObject({
+      success: false,
+      status: 400,
+      missingIds: ['missing'],
+      deletedIds: ['deleted'],
+    });
+
+    const mixedProject = await moveDeploymentsToPlanner({
+      deploymentIds: ['project-a', 'project-b'],
+      getDeploymentByExternalId,
+      updateDeployment: vi.fn(),
+    });
+    expect(mixedProject).toMatchObject({
+      success: false,
+      status: 400,
+      error: 'All selected ads must belong to the same project.',
+    });
+  });
+
+  it('retries failed Planner move writes once and reports remaining failures', async () => {
+    const deployments = new Map([
+      ['dep-1', { externalId: 'dep-1', project_id: 'project-1' }],
+      ['dep-2', { externalId: 'dep-2', project_id: 'project-1' }],
+    ]);
+    const getDeploymentByExternalId = vi.fn(async (id) => deployments.get(id) || null);
+    const updateDeployment = vi.fn(async (id) => {
+      if (id === 'dep-1' && updateDeployment.mock.calls.filter(([calledId]) => calledId === id).length === 1) {
+        throw new Error('transient');
+      }
+      if (id === 'dep-2') throw new Error('persistent');
+      return null;
+    });
+    const logger = { error: vi.fn() };
+
+    const result = await moveDeploymentsToPlanner({
+      deploymentIds: ['dep-1', 'dep-2'],
+      getDeploymentByExternalId,
+      updateDeployment,
+      logger,
+    });
+
+    expect(result).toMatchObject({
+      success: false,
+      status: 500,
+      failedIds: ['dep-2'],
+      count: 1,
+    });
+    expect(updateDeployment.mock.calls.filter(([id]) => id === 'dep-1')).toHaveLength(2);
+    expect(updateDeployment.mock.calls.filter(([id]) => id === 'dep-2')).toHaveLength(2);
+    expect(logger.error).toHaveBeenCalledOnce();
   });
 });
