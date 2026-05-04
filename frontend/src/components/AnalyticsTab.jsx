@@ -722,12 +722,14 @@ export default function AnalyticsTab({ projectId, project }) {
 
   return (
     <div>
-      <div className="-mx-4 sm:-mx-6 lg:-mx-8 -mt-8 mb-2">
-        <EditorialPageHeader
-          eyebrow={`${(project?.brand || project?.name || 'PROJECT').toUpperCase()} · ANALYTICS`}
-          title="Analytics"
-          meta="Track Meta campaign, ad set, and ad performance with filters, tags, and notes."
-        />
+      <div className="max-w-7xl mx-auto">
+        <div className="-mx-4 sm:-mx-6 lg:-mx-8 -mt-8 mb-2">
+          <EditorialPageHeader
+            eyebrow={`${(project?.brand || project?.name || 'PROJECT').toUpperCase()} · ANALYTICS`}
+            title="Analytics"
+            meta="Track Meta campaign, ad set, and ad performance with filters, tags, and notes."
+          />
+        </div>
       </div>
 
       <div className="px-[36px] py-[28px]">
