@@ -1311,9 +1311,30 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
         <span className="text-[8px] font-bold text-ed-accent bg-ed-accent/10 px-1 py-0.5 rounded tracking-wide flex-shrink-0">Single Image</span>
 
         {/* Action buttons on hover */}
-        <div className="opacity-100 md:opacity-0 md:group-hover:opacity-100 flex items-center gap-0.5 flex-shrink-0 transition-opacity">
+        <div className="flex items-center gap-1 flex-shrink-0">
           {inStaging && (
-            <span className="text-[10px] text-ed-accent font-medium mr-1">Edit</span>
+            <button
+              type="button"
+              onMouseDown={(e) => e.stopPropagation()}
+              onDragStart={(e) => e.preventDefault()}
+              onClick={(e) => { e.stopPropagation(); handleMarkReadyToPost([dep.id]); }}
+              className="px-2 py-1 rounded-lg bg-ed-green text-white hover:bg-ed-green/90 text-[10px] font-semibold transition-colors whitespace-nowrap"
+              title="Move this ad to Ready to Post"
+            >
+              Ready to Post
+            </button>
+          )}
+          {inStaging && (
+            <button
+              type="button"
+              onMouseDown={(e) => e.stopPropagation()}
+              onDragStart={(e) => e.preventDefault()}
+              onClick={(e) => { e.stopPropagation(); openSidebar({ type: 'single', deployment: dep, ad: dep.ad }); }}
+              className="px-2 py-1 rounded-lg bg-ed-accent/5 hover:bg-ed-accent/10 text-[10px] font-medium text-ed-accent transition-colors"
+              title="Open ad details"
+            >
+              Details
+            </button>
           )}
           {inStaging && (
             <button
@@ -1462,7 +1483,15 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
               </button>
             </div>
           ) : (
-            <div className="opacity-100 md:opacity-0 md:group-hover:opacity-100 flex items-center gap-1 flex-shrink-0 transition-opacity">
+            <div className="flex items-center gap-1 flex-shrink-0">
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); handleMarkReadyToPost([flexAd.id]); }}
+                className="px-2 py-1 rounded-lg bg-ed-green text-white hover:bg-ed-green/90 text-[10px] font-semibold transition-colors whitespace-nowrap"
+                title="Move this ad set to Ready to Post"
+              >
+                Ready to Post
+              </button>
               <button
                 type="button"
                 onClick={(e) => { e.stopPropagation(); openSidebar({ type: 'flex', flexAd, deps: childDeps }); }}
