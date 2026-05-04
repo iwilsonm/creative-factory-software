@@ -4,7 +4,6 @@ import JSZip from 'jszip';
 import { api } from '../api';
 import { ensureArray } from '../utils/collections';
 import ConfirmDialog from './ConfirmDialog';
-import BulkEditPanel from './BulkEditPanel';
 import InfoTooltip from './InfoTooltip';
 // Phase 6.20a — backdate picker on manual Mark as Posted
 import MarkPostedModal from './MarkPostedModal';
@@ -113,7 +112,6 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
   const [sortBy, setSortBy] = useState('newest');
   const [selectedCards, setSelectedCards] = useState(new Map()); // Map<cardKey, 'flex'|'single'>
   const [bulkMarking, setBulkMarking] = useState(false);
-  const [bulkEditing, setBulkEditing] = useState(false);
   const [bulkDeleteConfirm, setBulkDeleteConfirm] = useState(false);
   const [bulkDeleting, setBulkDeleting] = useState(false);
 
@@ -227,6 +225,31 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
   };
 
   const flexHasReadyChildren = (flexAd) => getFlexChildDeps(flexAd).length > 0;
+
+  const resolveSelectedReadyCards = () => {
+    const singleIds = new Set();
+    const flexIds = new Set();
+    const flexChildIds = new Set();
+    const deploymentIds = new Set();
+    for (const [cardKey, cardType] of selectedCards) {
+      if (cardType === 'flex') {
+        const flexId = cardKey.replace(/^flex-/, '');
+        const flexAd = safeFlexAds.find(f => f.id === flexId);
+        if (!flexAd) continue;
+        flexIds.add(flexAd.id);
+        getFlexChildDeps(flexAd).forEach(d => {
+          flexChildIds.add(d.id);
+          deploymentIds.add(d.id);
+        });
+      } else {
+        const dep = readyDeps.find(d => d.id === cardKey);
+        if (!dep) continue;
+        singleIds.add(dep.id);
+        deploymentIds.add(dep.id);
+      }
+    }
+    return { singleIds, flexIds, flexChildIds, deploymentIds };
+  };
 
   const copyToClipboard = async (text, label) => {
     try { await navigator.clipboard.writeText(text); addToast(`${label} copied`, 'success'); }
@@ -2243,7 +2266,7 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
         </div>
       )}
 
-      {!isPoster && selectedCards.size > 0 && !bulkEditing && !bulkDeleteConfirm && typeof document !== 'undefined' && createPortal(
+      {!isPoster && selectedCards.size > 0 && !bulkDeleteConfirm && typeof document !== 'undefined' && createPortal(
         <div className="fixed left-3 right-3 sm:left-1/2 sm:right-auto sm:w-fit sm:max-w-[calc(100vw-2rem)] sm:-translate-x-1/2 bottom-4 z-[70] flex flex-wrap items-center justify-center gap-2 rounded-xl border border-ed-accent/20 bg-ed-surface/95 px-3 py-2 shadow-lg shadow-ed-ink/10 backdrop-blur pb-[calc(0.5rem+env(safe-area-inset-bottom))]">
           <span className="text-[11px] text-ed-accent font-semibold mr-1">{selectedCards.size} selected</span>
           <button
@@ -2253,28 +2276,22 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
               e.stopPropagation();
               setBulkMarking(true);
               try {
-                const updates = [];
-                for (const [cardKey, cardType] of selectedCards) {
-                  if (cardType === 'flex') {
-                    const fa = flexAds.find(f => `flex-${f.id}` === cardKey);
-                    if (fa) {
-                      const children = getFlexChildDeps(fa);
-                      children.forEach(d => updates.push(api.updateDeploymentStatus(d.id, 'posted')));
-                    }
-                  } else {
-                    updates.push(api.updateDeploymentStatus(cardKey, 'posted'));
-                  }
-                }
-                if (updates.length === 0) {
+                const { deploymentIds, flexIds } = resolveSelectedReadyCards();
+                if (deploymentIds.size === 0) {
                   addToast('Selected ads are no longer available. Refreshing...', 'error');
                   await loadDeployments();
                   return;
                 }
-                await Promise.all(updates);
-                setDeployments(prev => prev.map(d => selectedCards.has(d.id) || [...selectedCards.keys()].some(k => {
-                  const fa = flexAds.find(f => `flex-${f.id}` === k);
-                  return fa && getFlexChildDeps(fa).some(cd => cd.id === d.id);
-                }) ? { ...d, status: 'posted', posted_date: new Date().toISOString() } : d));
+                const postedAt = new Date().toISOString();
+                await Promise.all([
+                  ...[...deploymentIds].map(id => api.updateDeploymentStatus(id, 'posted')),
+                  ...[...flexIds].map(id => api.updateAdSetUnified(projectId, id, {
+                    lifecycle_status: 'observing',
+                    posted_at: postedAt,
+                  }).catch(() => {})),
+                ]);
+                setDeployments(prev => prev.map(d => deploymentIds.has(d.id) ? { ...d, status: 'posted', posted_date: postedAt } : d));
+                setFlexAds(prev => prev.filter(f => !flexIds.has(f.id)));
                 addToast(`Marked ${selectedCards.size} ad${selectedCards.size !== 1 ? 's' : ''} as posted`, 'success');
                 setSelectedCards(new Map());
                 await loadDeployments();
@@ -2292,14 +2309,6 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
           <button
             type="button"
             onMouseDown={(e) => e.stopPropagation()}
-            onClick={(e) => { e.stopPropagation(); setBulkEditing(true); }}
-            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium bg-ed-accent text-white hover:bg-ed-accent/90 transition-colors"
-          >
-            Edit Selected ({selectedCards.size})
-          </button>
-          <button
-            type="button"
-            onMouseDown={(e) => e.stopPropagation()}
             onClick={(e) => { e.stopPropagation(); setBulkDeleteConfirm(true); }}
             disabled={bulkDeleting}
             className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium text-ed-rust border border-ed-rust/30 hover:bg-ed-rust/10 transition-colors disabled:opacity-50"
@@ -2311,21 +2320,6 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
           </button>
         </div>,
         document.body
-      )}
-
-      {/* Bulk Edit Panel */}
-      {bulkEditing && selectedCards.size > 0 && (
-        <BulkEditPanel
-          selectedCards={selectedCards}
-          campaigns={campaigns}
-          addToast={addToast}
-          onSave={() => {
-            setBulkEditing(false);
-            setSelectedCards(new Map());
-            loadDeployments();
-          }}
-          onCancel={() => setBulkEditing(false)}
-        />
       )}
 
       {/* Cards */}
@@ -2353,16 +2347,12 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
         onConfirm={async () => {
           setBulkDeleting(true);
           try {
+            const { singleIds, flexIds, flexChildIds } = resolveSelectedReadyCards();
             const deletes = [];
-            for (const [cardKey, cardType] of selectedCards) {
-              if (cardType === 'flex') {
-                const flexId = cardKey.replace('flex-', '');
-                // Phase 6.20b — native ungroup instead of legacy adapter delete
-                deletes.push(api.ungroupAdSet(projectId, flexId));
-              } else {
-                deletes.push(api.deleteDeployment(cardKey));
-              }
-            }
+            // Phase 6.20b — native ungroup instead of legacy adapter delete.
+            flexIds.forEach(id => deletes.push(api.ungroupAdSet(projectId, id)));
+            flexChildIds.forEach(id => deletes.push(api.updateDeploymentStatus(id, 'selected')));
+            singleIds.forEach(id => deletes.push(api.deleteDeployment(id)));
             if (deletes.length === 0) {
               addToast('Selected ads are no longer available. Refreshing...', 'error');
               await loadDeployments();
@@ -2370,14 +2360,11 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
             }
             await Promise.all(deletes);
             // Optimistic UI removal
-            const flexIdsToRemove = new Set();
-            const depIdsToRemove = new Set();
-            for (const [cardKey, cardType] of selectedCards) {
-              if (cardType === 'flex') flexIdsToRemove.add(cardKey.replace('flex-', ''));
-              else depIdsToRemove.add(cardKey);
-            }
-            setFlexAds(prev => prev.filter(f => !flexIdsToRemove.has(f.id)));
-            setDeployments(prev => prev.filter(d => !depIdsToRemove.has(d.id)));
+            setFlexAds(prev => prev.filter(f => !flexIds.has(f.id)));
+            setDeployments(prev => prev
+              .filter(d => !singleIds.has(d.id))
+              .map(d => flexChildIds.has(d.id) ? { ...d, status: 'selected', local_adset_id: '' } : d)
+            );
             addToast(`Deleted ${selectedCards.size} ad${selectedCards.size !== 1 ? 's' : ''}`, 'success');
             setSelectedCards(new Map());
             await loadDeployments();

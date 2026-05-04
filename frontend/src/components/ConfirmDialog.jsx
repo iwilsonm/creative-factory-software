@@ -1,3 +1,5 @@
+import { createPortal } from 'react-dom';
+
 export default function ConfirmDialog({
   open,
   title,
@@ -15,7 +17,7 @@ export default function ConfirmDialog({
     ? 'bg-ed-rust hover:bg-ed-rust/90 text-white'
     : 'bg-ed-accent hover:bg-ed-accent/90 text-[#fbfaf6]';
 
-  return (
+  const dialog = (
     <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 fade-in">
       <div
         className="absolute inset-0 bg-black/45 backdrop-blur-sm"
@@ -45,4 +47,7 @@ export default function ConfirmDialog({
       </div>
     </div>
   );
+
+  if (typeof document === 'undefined') return null;
+  return createPortal(dialog, document.body);
 }
