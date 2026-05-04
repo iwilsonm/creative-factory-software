@@ -2410,6 +2410,28 @@ async function hydratePassingAdsForRounds(roundDetails, projectId, requiredPasse
   return { roundDetails: hydrated, cumulativePassingAds, recoveredAny };
 }
 
+function isLegacyAutoPostLogImportFailure(run) {
+  const combinedMessage = `${run?.failure_reason || ''} ${run?.error || ''}`;
+  return run?.terminal_status === TEST_RUN_ORCHESTRATION_FAILURE_STATUS
+    && run?.error_stage === 'post_score_round_processing'
+    && combinedMessage.includes("does not provide an export named 'createAutoPostLog'");
+}
+
+function buildRepairRoundDetailsFromBatchInfos(batchInfos) {
+  return (Array.isArray(batchInfos) ? batchInfos : [])
+    .filter((info) => info?.batch_id)
+    .map((info, index) => ({
+      round: Number(info.round) || index + 1,
+      batch_id: info.batch_id,
+      angle_name: info.angle_name || '',
+      ads_generated: Number(info.ad_count) || 0,
+      ads_scored: 0,
+      ads_passed: 0,
+      cumulative_passed: 0,
+      status: 'repair_scoring',
+    }));
+}
+
 export async function repairDeployFailedTestRun(projectId, runId) {
   if (!projectId || !runId) {
     throw new Error('Project ID and run ID are required.');
@@ -2436,18 +2458,63 @@ export async function repairDeployFailedTestRun(projectId, runId) {
   }
 
   const repairableStatuses = new Set(['deploy_failed', 'grouping_failed', 'copy_failed']);
-  if (!repairableStatuses.has(run.terminal_status)) {
+  const isLegacyImportRepair = isLegacyAutoPostLogImportFailure(run);
+  if (!repairableStatuses.has(run.terminal_status) && !isLegacyImportRepair) {
     throw new Error(`Run ${runId} is not in a repairable finalization status.`);
   }
 
   const requiredPasses = getTestRunTargetFromRun(run);
   const batchInfos = parseJSON(run.batches_created, []);
   const originalRoundDetails = parseJSON(run.rounds_json, []);
-  const hydrated = await hydratePassingAdsForRounds(originalRoundDetails, projectId, requiredPasses);
+  const repairRoundDetails = originalRoundDetails.length > 0
+    ? originalRoundDetails
+    : (isLegacyImportRepair ? buildRepairRoundDetailsFromBatchInfos(batchInfos) : []);
+  const hydrated = await hydratePassingAdsForRounds(repairRoundDetails, projectId, requiredPasses);
   const cumulativePassingAds = hydrated.cumulativePassingAds.slice(0, requiredPasses);
 
   if (cumulativePassingAds.length < requiredPasses) {
-    throw new Error(`Run ${runId} only has ${cumulativePassingAds.length}/${requiredPasses} recoverable approved ads.`);
+    const angleName = hydrated.roundDetails.find((detail) => detail.angle_name)?.angle_name
+      || batchInfos.find((info) => info?.angle_name)?.angle_name
+      || 'Unknown angle';
+    const totalAdsGenerated = run.total_ads_generated || batchInfos.reduce((sum, info) => sum + (info.ad_count || 0), 0);
+    const totalAdsScored = hydrated.roundDetails.reduce((sum, detail) => sum + (detail.ads_scored || 0), 0);
+    const terminalStatus = 'repair_under_target';
+    const failureReason = `Recovered and scored existing ads, but only ${cumulativePassingAds.length}/${requiredPasses} passed. Start a new test run to generate the remaining approved ads.`;
+
+    await updateConductorRun(runId, {
+      status: 'failed',
+      terminal_status: terminalStatus,
+      error: failureReason,
+      failure_reason: failureReason,
+      error_stage: 'repair_scoring',
+      posting_days: getTestPostingDays(angleName),
+      batches_created: stringifyJSON(batchInfos),
+      rounds_json: stringifyJSON(hydrated.roundDetails),
+      total_rounds: hydrated.roundDetails.length,
+      total_ads_generated: totalAdsGenerated,
+      total_ads_scored: totalAdsScored,
+      total_ads_passed: cumulativePassingAds.length,
+      ready_to_post_count: 0,
+      duration_ms: Number(run.duration_ms) || undefined,
+      decisions: buildTestRunSummary({
+        angleName,
+        roundsUsed: hydrated.roundDetails.length,
+        totalAdsGenerated,
+        totalAdsPassed: cumulativePassingAds.length,
+        requiredPasses,
+        terminalStatus,
+        failureReason,
+      }),
+    });
+
+    return {
+      repaired: false,
+      status: terminalStatus,
+      runId,
+      passed: cumulativePassingAds.length,
+      requiredPasses,
+      failureReason,
+    };
   }
 
   const lastRound = [...hydrated.roundDetails].reverse().find((detail) => detail.batch_id);

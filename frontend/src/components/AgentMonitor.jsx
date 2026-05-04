@@ -1050,6 +1050,61 @@ function buildServerQueueItem(active, existing = null) {
   };
 }
 
+const FINISHED_TEST_RUN_TTL_MS = 5 * 60 * 1000;
+const ACTIVE_TEST_RUN_TTL_MS = 2 * 60 * 60 * 1000;
+const LEGACY_AUTO_POST_LOG_IMPORT_TEXT = "does not provide an export named 'createAutoPostLog'";
+
+function getQueueRunId(item) {
+  return item?.serverRunId || item?.result?.runId || item?.result?.externalId || item?.result?.id || null;
+}
+
+function getQueueErrorText(item) {
+  return [
+    item?.phase,
+    item?.result?.failure_reason,
+    item?.result?.error,
+    item?.result?.message,
+  ].filter(Boolean).join(' ');
+}
+
+function isTerminalQueueItem(item) {
+  return item?.status === 'complete' || item?.status === 'error';
+}
+
+function isLegacyAutoPostLogQueueItem(item) {
+  return item?.status === 'error' && getQueueErrorText(item).includes(LEGACY_AUTO_POST_LOG_IMPORT_TEXT);
+}
+
+function cleanupSavedTestRunQueue(queue, now = Date.now()) {
+  const safeQueue = ensureArray(queue, 'AgentMonitor.director.cleanupSavedTestRunQueue');
+  const finishedCutoff = now - FINISHED_TEST_RUN_TTL_MS;
+  const activeCutoff = now - ACTIVE_TEST_RUN_TTL_MS;
+
+  return safeQueue.filter((item) => {
+    if (isLegacyAutoPostLogQueueItem(item)) return false;
+
+    if (isTerminalQueueItem(item)) {
+      const finishedAt = Number(item.finishedAt || item.completedAt || item.endTime || item.startTime || 0);
+      return finishedAt > 0 && finishedAt >= finishedCutoff;
+    }
+
+    if (item?.status === 'running' || item?.status === 'queued') {
+      const startedAt = Number(item.startTime || item.createdAt || 0);
+      return startedAt === 0 || startedAt >= activeCutoff;
+    }
+
+    return true;
+  });
+}
+
+function getDurableRunId(run) {
+  return run?.externalId || run?.id || run?.runId || null;
+}
+
+function isDurableRunActive(run) {
+  return run?.status === 'running' || run?.terminal_status === 'waiting_on_gemini';
+}
+
 const VALID_AGENT_TABS = ['director', 'filter'];
 
 export default function AgentMonitor({ projectId: externalProjectId, project: externalProject, onProjectRefresh }) {
@@ -1381,8 +1436,7 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
         return;
       }
       const parsed = ensureArray(JSON.parse(saved), 'AgentMonitor.director.savedRunQueue');
-      const cutoff = Date.now() - 2 * 60 * 60 * 1000;
-      setTestRunQueue(parsed.filter(r => r.startTime ? r.startTime > cutoff : true));
+      setTestRunQueue(cleanupSavedTestRunQueue(parsed));
       setQueueLoadedFor(selectedProject);
     } catch {
       setTestRunQueue([]);
@@ -1401,8 +1455,7 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
   useEffect(() => {
     if (finishedRuns.length === 0) return;
     const timer = setInterval(() => {
-      const cutoff = Date.now() - 5 * 60 * 1000;
-      setTestRunQueue(prev => prev.filter(r => !(r.finishedAt && r.finishedAt < cutoff)));
+      setTestRunQueue(prev => cleanupSavedTestRunQueue(prev));
     }, 30000);
     return () => clearInterval(timer);
   }, [finishedRuns.length]);
@@ -1962,25 +2015,42 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
         const safeRuns = ensureArray(runRes?.runs, 'AgentMonitor.director.runs');
         setRuns(safeRuns);
         setRunsLoadedFor(selectedProject);
-        const latest = safeRuns[0];
-        if (latest?.status === 'running') {
+        const runningServerRunId = running.serverRunId || null;
+        const matchedRun = runningServerRunId
+          ? safeRuns.find(run => getDurableRunId(run) === runningServerRunId)
+          : null;
+        const activeDurableRun = safeRuns.find(run => isDurableRunActive(run));
+        const durableRun = matchedRun || activeDurableRun || null;
+
+        if (durableRun && isDurableRunActive(durableRun)) {
           updateQueueItem(running.id, {
             status: 'running',
-            progress: Math.max(running.progress || 0, latest?.terminal_status === 'waiting_on_gemini' ? 22 : running.progress || 0),
-            phase: latest?.decisions || 'Still processing in background...',
-            result: latest || null,
-            serverRunId: latest?.externalId || running.serverRunId || null,
+            progress: Math.max(running.progress || 0, durableRun?.terminal_status === 'waiting_on_gemini' ? 22 : running.progress || 0),
+            phase: durableRun?.decisions || 'Still processing in background...',
+            result: durableRun || null,
+            serverRunId: getDurableRunId(durableRun) || running.serverRunId || null,
           });
           return;
         }
 
-        const succeeded = latest?.status === 'completed';
+        if (!durableRun) {
+          updateQueueItem(running.id, {
+            status: 'error',
+            progress: 0,
+            phase: 'No active test run was found for this progress item. Refreshing run history...',
+            serverRunId: running.serverRunId || null,
+          });
+          finishRun(running.id, true);
+          return;
+        }
+
+        const succeeded = durableRun?.status === 'completed';
         updateQueueItem(running.id, {
           status: succeeded ? 'complete' : 'error',
           progress: succeeded ? 100 : 0,
-          phase: succeeded ? (latest?.decisions || 'Complete') : (latest?.failure_reason || latest?.error || 'Failed'),
-          result: latest || null,
-          serverRunId: latest?.externalId || running.serverRunId || null,
+          phase: succeeded ? (durableRun?.decisions || 'Complete') : (durableRun?.failure_reason || durableRun?.error || 'Failed'),
+          result: durableRun || null,
+          serverRunId: getDurableRunId(durableRun) || running.serverRunId || null,
         });
         finishRun(running.id, !succeeded);
         return; // Stop polling
@@ -2486,45 +2556,51 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
       {/* Recent test run results */}
       {finishedRuns.length > 0 && (
         <div className="mb-4 space-y-2">
-          {finishedRuns.map(run => (
-            <div
-              key={run.id}
-              className={`flex items-start gap-2 px-3 py-2 rounded-lg text-[11px] ${
-                run.status === 'complete' ? 'bg-ed-green/5 border border-ed-green/20' : 'bg-ed-rust/10 border border-ed-rust/30'
-              }`}
-            >
-              <span className="mt-0.5 shrink-0">
-                {run.status === 'complete' ? (
-                  <svg className="w-3.5 h-3.5 text-ed-green" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
-                ) : (
-                  <svg className="w-3.5 h-3.5 text-ed-rust" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                )}
-              </span>
-              <div className="flex-1 min-w-0">
-                <p className={`font-medium ${run.status === 'complete' ? 'text-ed-green' : 'text-ed-rust'}`}>
-                  {run.status === 'complete' ? 'Test Run Complete' : 'Test Run Failed'}
-                </p>
-                <p className="text-ed-ink2 mt-0.5">{run.phase}</p>
-                {run.result?.flex_ads_created > 0 && (
-                  <button
-                    onClick={() => navigate(run.result?.flex_ad_id
-                      ? `/projects/${selectedProject}?tab=tracker&view=ready_to_post&adSetId=${run.result.flex_ad_id}`
-                      : `/projects/${selectedProject}?tab=tracker&view=ready_to_post`)}
-                    className="text-[10px] text-ed-accent hover:text-ed-accent font-medium mt-1 inline-flex items-center gap-1"
-                  >
-                    View in Ready to Post {'\u2192'}
-                  </button>
-                )}
-              </div>
-              <button
-                onClick={() => handleDismissResult(run.id)}
-                className="text-ed-ink3 hover:text-ed-ink transition-colors shrink-0 mt-0.5"
-                title="Dismiss"
+          {finishedRuns.map(run => {
+            const queueRunId = getQueueRunId(run);
+            return (
+              <div
+                key={run.id}
+                className={`flex items-start gap-2 px-3 py-2 rounded-lg text-[11px] ${
+                  run.status === 'complete' ? 'bg-ed-green/5 border border-ed-green/20' : 'bg-ed-rust/10 border border-ed-rust/30'
+                }`}
               >
-                <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
-              </button>
-            </div>
-          ))}
+                <span className="mt-0.5 shrink-0">
+                  {run.status === 'complete' ? (
+                    <svg className="w-3.5 h-3.5 text-ed-green" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M5 13l4 4L19 7" /></svg>
+                  ) : (
+                    <svg className="w-3.5 h-3.5 text-ed-rust" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}><path strokeLinecap="round" strokeLinejoin="round" d="M12 9v2m0 4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                  )}
+                </span>
+                <div className="flex-1 min-w-0">
+                  <p className={`font-medium ${run.status === 'complete' ? 'text-ed-green' : 'text-ed-rust'}`}>
+                    {run.status === 'complete' ? 'Test Run Complete' : 'Test Run Failed'}
+                  </p>
+                  {queueRunId && (
+                    <p className="text-[10px] text-ed-ink3 mt-0.5">Run {queueRunId.slice(0, 8)}</p>
+                  )}
+                  <p className="text-ed-ink2 mt-0.5">{run.phase}</p>
+                  {run.result?.flex_ads_created > 0 && (
+                    <button
+                      onClick={() => navigate(run.result?.flex_ad_id
+                        ? `/projects/${selectedProject}?tab=tracker&view=ready_to_post&adSetId=${run.result.flex_ad_id}`
+                        : `/projects/${selectedProject}?tab=tracker&view=ready_to_post`)}
+                      className="text-[10px] text-ed-accent hover:text-ed-accent font-medium mt-1 inline-flex items-center gap-1"
+                    >
+                      View in Ready to Post {'\u2192'}
+                    </button>
+                  )}
+                </div>
+                <button
+                  onClick={() => handleDismissResult(run.id)}
+                  className="text-ed-ink3 hover:text-ed-ink transition-colors shrink-0 mt-0.5"
+                  title="Dismiss"
+                >
+                  <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}><path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" /></svg>
+                </button>
+              </div>
+            );
+          })}
         </div>
       )}
 
@@ -3102,6 +3178,9 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
                             {getRunStatusLabel(run)}
                           </span>
                           <span className="text-[10px] text-ed-ink3">{run.run_type}</span>
+                          {run.externalId && (
+                            <span className="text-[10px] text-ed-ink3">Run {run.externalId.slice(0, 8)}</span>
+                          )}
                           <span className="text-[10px] text-ed-ink2 truncate">{angleName}</span>
                         </div>
                         <p className="text-[11px] text-ed-ink leading-relaxed mt-1">

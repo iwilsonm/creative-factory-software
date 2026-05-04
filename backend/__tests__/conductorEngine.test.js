@@ -731,6 +731,95 @@ describe('conductorEngine test-run pipeline', () => {
       targetCount: 1,
     }));
   });
+
+  it('repairs legacy auto-post-log import failures by scoring existing completed batches', async () => {
+    mockGetConductorRuns.mockResolvedValue([
+      {
+        externalId: 'run-uuid-1',
+        project_id: 'proj-1',
+        run_type: 'test',
+        run_at: Date.parse('2026-05-04T10:00:00Z'),
+        status: 'failed',
+        terminal_status: 'orchestration_failed',
+        error_stage: 'post_score_round_processing',
+        failure_reason: "The requested module '../convexClient.js' does not provide an export named 'createAutoPostLog'",
+        batches_created: JSON.stringify([
+          { batch_id: 'batch-uuid-1', angle_name: 'The Sleep Hacks Are Exhausting', ad_count: 2, round: 1 },
+        ]),
+        rounds_json: '[]',
+        total_ads_generated: 2,
+        total_ads_scored: 0,
+        total_ads_passed: 0,
+        required_passes: 2,
+        ads_per_round: 2,
+      },
+    ]);
+    mockScoreBatchForInlineFilter.mockResolvedValue(makeScoreResult(1, 2, 2));
+
+    const { repairDeployFailedTestRun } = await importConductorEngine();
+    const result = await repairDeployFailedTestRun('proj-1', 'run-uuid-1');
+
+    expect(result).toMatchObject({
+      repaired: true,
+      status: 'deployed',
+      runId: 'run-uuid-1',
+    });
+    expect(mockCreateBatchJob).not.toHaveBeenCalled();
+    expect(mockScoreBatchForInlineFilter).toHaveBeenCalledWith('batch-uuid-1', 'proj-1', null, expect.objectContaining({
+      roundNumber: 1,
+    }));
+    expect(mockFinalizePassingAds).toHaveBeenCalledWith(expect.objectContaining({
+      projectId: 'proj-1',
+      batchId: 'batch-uuid-1',
+      targetCount: 2,
+    }));
+  });
+
+  it('records a clear under-target state when legacy repair scoring does not reach the target', async () => {
+    mockGetConductorRuns.mockResolvedValue([
+      {
+        externalId: 'run-uuid-1',
+        project_id: 'proj-1',
+        run_type: 'test',
+        run_at: Date.parse('2026-05-04T10:00:00Z'),
+        status: 'failed',
+        terminal_status: 'orchestration_failed',
+        error_stage: 'post_score_round_processing',
+        error: "The requested module '../convexClient.js' does not provide an export named 'createAutoPostLog'",
+        batches_created: JSON.stringify([
+          { batch_id: 'batch-uuid-1', angle_name: 'The Sleep Hacks Are Exhausting', ad_count: 2, round: 1 },
+        ]),
+        rounds_json: '[]',
+        total_ads_generated: 2,
+        total_ads_scored: 0,
+        total_ads_passed: 0,
+        required_passes: 2,
+        ads_per_round: 2,
+      },
+    ]);
+    mockScoreBatchForInlineFilter.mockResolvedValue(makeScoreResult(1, 2, 1));
+
+    const { repairDeployFailedTestRun } = await importConductorEngine();
+    const result = await repairDeployFailedTestRun('proj-1', 'run-uuid-1');
+
+    expect(result).toMatchObject({
+      repaired: false,
+      status: 'repair_under_target',
+      runId: 'run-uuid-1',
+      passed: 1,
+      requiredPasses: 2,
+    });
+    expect(mockCreateBatchJob).not.toHaveBeenCalled();
+    expect(mockFinalizePassingAds).not.toHaveBeenCalled();
+    expect(mockUpdateConductorRun).toHaveBeenCalledWith('run-uuid-1', expect.objectContaining({
+      status: 'failed',
+      terminal_status: 'repair_under_target',
+      error_stage: 'repair_scoring',
+      total_ads_scored: 2,
+      total_ads_passed: 1,
+      failure_reason: expect.stringContaining('only 1/2 passed'),
+    }));
+  });
 });
 
 describe('conductorEngine Director ad-set top-up helpers', () => {
