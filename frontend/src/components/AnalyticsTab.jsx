@@ -727,43 +727,45 @@ export default function AnalyticsTab({ projectId, project }) {
 
   return (
     <div>
-      <div className="-mx-4 sm:-mx-6 lg:-mx-8 -mt-8">
-        <EditorialPageHeader
-          eyebrow={`${(project?.brand || project?.name || 'PROJECT').toUpperCase()} · ANALYTICS`}
-          title="Analytics"
-          meta={analyticsMeta}
-        />
-      </div>
-      <div className="max-w-7xl px-[36px] py-[28px]">
-      {/* ─── KPI Cards ─── */}
-      {!loading && filteredSortedRows.length > 0 && (
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
-          {kpis.map((kpi, idx) => (
-            <div key={kpi.label} className="ed-card px-5 py-[18px]">
-              <div className="ed-eyebrow mb-2">{kpi.label}</div>
-              <div className="font-mono-ed text-[28px] tracking-[-0.02em] text-ed-ink leading-none">
-                {kpi.value}
-              </div>
-              {kpi.series && kpi.series.length >= 2 && (
-                <SparklineArea series={kpi.series} accent={kpi.accent} id={`kpi-${idx}`} />
-              )}
-            </div>
-          ))}
+      <div className="max-w-7xl">
+        <div className="-mx-4 sm:-mx-6 lg:-mx-8 -mt-8">
+          <EditorialPageHeader
+            eyebrow={`${(project?.brand || project?.name || 'PROJECT').toUpperCase()} · ANALYTICS`}
+            title="Analytics"
+            meta={analyticsMeta}
+          />
         </div>
-      )}
+        <div className="px-[36px] py-[28px]">
+        {/* ─── KPI Cards ─── */}
+        {!loading && filteredSortedRows.length > 0 && (
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
+            {kpis.map((kpi, idx) => (
+              <div key={kpi.label} className="ed-card px-5 py-[18px]">
+                <div className="ed-eyebrow mb-2">{kpi.label}</div>
+                <div className="font-mono-ed text-[28px] tracking-[-0.02em] text-ed-ink leading-none">
+                  {kpi.value}
+                </div>
+                {kpi.series && kpi.series.length >= 2 && (
+                  <SparklineArea series={kpi.series} accent={kpi.accent} id={`kpi-${idx}`} />
+                )}
+              </div>
+            ))}
+          </div>
+        )}
 
-      {/* ─── Charts ─── */}
-      {!loading && filteredSortedRows.length > 0 && (
-        <AnalyticsChartsPanel
-          timeseries={charts.timeseries}
-          byCampaign={charts.byCampaign}
-          hourly={charts.hourly}
-          loading={charts.loading}
-          error={charts.error}
-          filteredRows={filteredSortedRows}
-          campaignNames={campaignNames}
-        />
-      )}
+        {/* ─── Charts ─── */}
+        {!loading && filteredSortedRows.length > 0 && (
+          <AnalyticsChartsPanel
+            timeseries={charts.timeseries}
+            byCampaign={charts.byCampaign}
+            hourly={charts.hourly}
+            loading={charts.loading}
+            error={charts.error}
+            filteredRows={filteredSortedRows}
+            campaignNames={campaignNames}
+          />
+        )}
+        </div>
       </div>
 
       <div className="px-[36px] pb-[28px]">
