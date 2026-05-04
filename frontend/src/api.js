@@ -810,6 +810,11 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ entity_type, entity_ids, entity_id_kind, note }),
     }),
+  updateEntityNotesBulk: (projectId, { entity_type, entity_ids, entity_id_kind = 'meta', note = '', mode = 'append' }) =>
+    request(`/projects/${projectId}/entity-notes/bulk`, {
+      method: 'POST',
+      body: JSON.stringify({ entity_type, entity_ids, entity_id_kind, note, mode }),
+    }),
 
   // Saved views
   getSavedViews: (projectId) => request(`/projects/${projectId}/analytics/views`),

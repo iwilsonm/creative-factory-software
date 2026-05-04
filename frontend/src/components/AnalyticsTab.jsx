@@ -3,6 +3,7 @@
 // configurable columns, reusable filters, tagging, and saved views.
 
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
+import { createPortal } from 'react-dom';
 import { api } from '../api';
 import { useToast } from './Toast';
 import TagPicker from './analytics/TagPicker';
@@ -609,18 +610,24 @@ export default function AnalyticsTab({ projectId, project }) {
     } catch (err) { toast.error(err.message); }
   };
 
-  const handleBulkAppendNote = async (note) => {
-    if (!String(note || '').trim() || selectedIds.length === 0) return;
+  const handleBulkUpdateNote = async ({ mode, note }) => {
+    if (selectedIds.length === 0) return;
+    if (mode !== 'clear' && !String(note || '').trim()) return;
     try {
-      await api.appendEntityNotesBulk(projectId, {
+      await api.updateEntityNotesBulk(projectId, {
         entity_type: entityType,
         entity_ids: selectedIds,
         entity_id_kind: 'meta',
+        mode,
         note,
       });
       await loadNotes();
-      toast.success(`Appended note to ${selectedIds.length} row${selectedIds.length === 1 ? '' : 's'}`);
-    } catch (err) { toast.error(err.message); }
+      const verb = mode === 'append' ? 'Appended note to' : mode === 'replace' ? 'Updated notes for' : 'Removed notes from';
+      toast.success(`${verb} ${selectedIds.length} row${selectedIds.length === 1 ? '' : 's'}`);
+    } catch (err) {
+      toast.error(err.message);
+      throw err;
+    }
   };
 
   const handleCreateTagOnly = async ({ name, color }) => {
@@ -1048,7 +1055,7 @@ export default function AnalyticsTab({ projectId, project }) {
         onTagChange={setBulkTagId}
         onApplyTag={handleBulkApplyTag}
         onRemoveTag={handleBulkRemoveTag}
-        onAppendNote={handleBulkAppendNote}
+        onUpdateNote={handleBulkUpdateNote}
         onClear={() => setSelectedIds([])}
       />
 
@@ -1286,39 +1293,158 @@ export function BulkActionBar({
   onTagChange,
   onApplyTag,
   onRemoveTag,
+  onUpdateNote,
   onAppendNote,
   onClear,
 }) {
+  const [noteOpen, setNoteOpen] = useState(false);
   if (selectedCount <= 0) return null;
   return (
-    <div className="fixed left-1/2 bottom-4 z-50 w-[min(760px,calc(100vw-24px))] -translate-x-1/2 rounded-xl border border-ed-line bg-ed-surface shadow-lg px-3 py-2 flex flex-wrap items-center gap-2">
-      <span className="text-[12px] font-medium text-ed-ink mr-1 font-geist">{selectedCount} selected</span>
-      <select
-        value={selectedTagId}
-        onChange={(e) => onTagChange(e.target.value)}
-        className="text-[12px] px-2.5 py-1.5 border border-ed-line rounded-lg bg-ed-bg focus:outline-none focus:border-ed-accent min-w-[160px] font-geist text-ed-ink"
-      >
-        <option value="">Choose tag...</option>
-        {(tags || []).map((tag) => <option key={tag.externalId} value={tag.externalId}>{tag.name}</option>)}
-      </select>
-      <button disabled={!selectedTagId} onClick={onApplyTag} className="ed-ghost text-[11px] px-3 py-1.5 disabled:opacity-50">
-        Apply tag
-      </button>
-      <button disabled={!selectedTagId} onClick={onRemoveTag} className="ed-ghost text-[11px] px-3 py-1.5 disabled:opacity-50">
-        Remove tag
-      </button>
-      <button
-        onClick={() => {
-          const note = prompt('Append note to selected rows');
-          if (note !== null) onAppendNote(note);
-        }}
-        className="ed-ghost text-[11px] px-3 py-1.5"
-      >
-        Append note
-      </button>
-      <button onClick={onClear} className="text-[11px] text-ed-ink3 hover:text-ed-ink ml-auto px-2 font-geist">
-        Clear
-      </button>
-    </div>
+    <>
+      <div className="fixed left-1/2 bottom-4 z-50 w-[min(760px,calc(100vw-24px))] -translate-x-1/2 rounded-xl border border-ed-line bg-ed-surface shadow-lg px-3 py-2 flex flex-wrap items-center gap-2">
+        <span className="text-[12px] font-medium text-ed-ink mr-1 font-geist">{selectedCount} selected</span>
+        <select
+          value={selectedTagId}
+          onChange={(e) => onTagChange(e.target.value)}
+          className="text-[12px] px-2.5 py-1.5 border border-ed-line rounded-lg bg-ed-bg focus:outline-none focus:border-ed-accent min-w-[160px] font-geist text-ed-ink"
+        >
+          <option value="">Choose tag...</option>
+          {(tags || []).map((tag) => <option key={tag.externalId} value={tag.externalId}>{tag.name}</option>)}
+        </select>
+        <button disabled={!selectedTagId} onClick={onApplyTag} className="ed-ghost text-[11px] px-3 py-1.5 disabled:opacity-50">
+          Apply tag
+        </button>
+        <button disabled={!selectedTagId} onClick={onRemoveTag} className="ed-ghost text-[11px] px-3 py-1.5 disabled:opacity-50">
+          Remove tag
+        </button>
+        <button
+          type="button"
+          onClick={() => setNoteOpen(true)}
+          className="ed-ghost text-[11px] px-3 py-1.5"
+        >
+          Notes
+        </button>
+        <button onClick={onClear} className="text-[11px] text-ed-ink3 hover:text-ed-ink ml-auto px-2 font-geist">
+          Clear
+        </button>
+      </div>
+      <BulkNoteModal
+        open={noteOpen}
+        selectedCount={selectedCount}
+        onClose={() => setNoteOpen(false)}
+        onSubmit={onUpdateNote || (async ({ note }) => onAppendNote?.(note))}
+      />
+    </>
+  );
+}
+
+function BulkNoteModal({ open, selectedCount, onClose, onSubmit }) {
+  const [mode, setMode] = useState('append');
+  const [note, setNote] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (open) {
+      setMode('append');
+      setNote('');
+      setError('');
+      setBusy(false);
+    }
+  }, [open]);
+
+  if (!open || typeof document === 'undefined') return null;
+
+  const needsText = mode !== 'clear';
+  const canSubmit = !busy && (!needsText || String(note || '').trim());
+  const title = mode === 'append' ? 'Append note' : mode === 'replace' ? 'Replace note' : 'Remove all notes';
+  const helper = mode === 'append'
+    ? 'Adds this note after any existing notes.'
+    : mode === 'replace'
+      ? 'Replaces existing notes on every selected row.'
+      : 'Clears notes from every selected row.';
+
+  const submit = async () => {
+    if (!canSubmit) return;
+    setBusy(true);
+    setError('');
+    try {
+      await onSubmit({ mode, note });
+      onClose();
+    } catch (err) {
+      setError(err.message || 'Could not update notes.');
+      setBusy(false);
+    }
+  };
+
+  return createPortal(
+    <div className="fixed inset-0 z-[100] flex items-center justify-center p-4 fade-in">
+      <div className="absolute inset-0 bg-black/45 backdrop-blur-sm" onClick={() => !busy && onClose()} />
+      <div className="relative w-full max-w-lg rounded-xl border border-ed-line bg-ed-surface shadow-card">
+        <div className="px-5 py-4 border-b border-ed-line">
+          <h3 className="font-serif text-[16px] font-[420] text-ed-ink tracking-tight">Bulk notes</h3>
+          <p className="text-[12px] text-ed-ink3 mt-1">{selectedCount} selected row{selectedCount === 1 ? '' : 's'}</p>
+        </div>
+        <div className="px-5 py-4 space-y-4">
+          <div className="grid grid-cols-3 gap-2">
+            {[
+              ['append', 'Append'],
+              ['replace', 'Replace'],
+              ['clear', 'Remove all'],
+            ].map(([value, label]) => (
+              <button
+                key={value}
+                type="button"
+                onClick={() => setMode(value)}
+                className={`rounded-lg border px-3 py-2 text-[12px] font-medium transition-colors ${
+                  mode === value
+                    ? 'border-ed-accent bg-ed-accent/10 text-ed-accent'
+                    : 'border-ed-line bg-ed-bg text-ed-ink2 hover:border-ed-accent/40'
+                }`}
+              >
+                {label}
+              </button>
+            ))}
+          </div>
+          <div>
+            <label className="block text-[12px] font-medium text-ed-ink mb-1">{title}</label>
+            <p className="text-[11px] text-ed-ink3 mb-2">{helper}</p>
+            {needsText ? (
+              <textarea
+                value={note}
+                onChange={(e) => setNote(e.target.value)}
+                rows={5}
+                autoFocus
+                className="w-full text-[13px] px-3 py-2 border border-ed-line rounded-lg focus:outline-none focus:border-ed-accent resize-y bg-ed-bg font-geist text-ed-ink"
+                placeholder="Write the note..."
+              />
+            ) : (
+              <div className="rounded-lg border border-ed-rust/20 bg-ed-rust/10 px-3 py-2 text-[12px] text-ed-rust">
+                This will remove notes from all selected rows.
+              </div>
+            )}
+          </div>
+          {error && <p className="text-[12px] text-ed-rust">{error}</p>}
+        </div>
+        <div className="px-5 py-3 border-t border-ed-line flex justify-end gap-2">
+          <button type="button" onClick={onClose} disabled={busy} className="ed-ghost text-[12px] px-3 py-1.5 disabled:opacity-50">
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={submit}
+            disabled={!canSubmit}
+            className={`px-4 py-2 rounded-[7px] text-[12px] font-medium transition-colors disabled:opacity-50 ${
+              mode === 'clear'
+                ? 'bg-ed-rust hover:bg-ed-rust/90 text-white'
+                : 'bg-ed-accent hover:bg-ed-accent/90 text-[#fbfaf6]'
+            }`}
+          >
+            {busy ? 'Saving...' : title}
+          </button>
+        </div>
+      </div>
+    </div>,
+    document.body
   );
 }

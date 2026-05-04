@@ -12,6 +12,7 @@ import PassRateChart from './observation/PassRateChart';
 import TagManageDialog from './analytics/TagManageDialog';
 import InfoTooltip from './InfoTooltip';
 import EditorialPageHeader from './editorial/EditorialPageHeader';
+import ConfirmDialog from './ConfirmDialog';
 import {
   BulkActionBar,
   COLUMN_DEFS,
@@ -499,19 +500,25 @@ export default function ObservationTab({ projectId, project }) {
     } catch (err) { toast.error(err.message); }
   };
 
-  const handleBulkAppendNote = async (note) => {
-    if (!String(note || '').trim() || selectedKeys.length === 0) return;
+  const handleBulkUpdateNote = async ({ mode, note }) => {
+    if (selectedKeys.length === 0) return;
+    if (mode !== 'clear' && !String(note || '').trim()) return;
     try {
-      await runBulkByType((type, ids) => api.appendEntityNotesBulk(projectId, {
+      await runBulkByType((type, ids) => api.updateEntityNotesBulk(projectId, {
         entity_type: type,
         entity_ids: ids,
         entity_id_kind: 'cf',
+        mode,
         note,
       }));
       await refreshNotes();
       await load();
-      toast.success(`Appended note to ${selectedKeys.length} row${selectedKeys.length === 1 ? '' : 's'}`);
-    } catch (err) { toast.error(err.message); }
+      const verb = mode === 'append' ? 'Appended note to' : mode === 'replace' ? 'Updated notes for' : 'Removed notes from';
+      toast.success(`${verb} ${selectedKeys.length} row${selectedKeys.length === 1 ? '' : 's'}`);
+    } catch (err) {
+      toast.error(err.message);
+      throw err;
+    }
   };
 
   const renderRowTagCell = (type, row, tagIds) => (
@@ -715,39 +722,16 @@ export default function ObservationTab({ projectId, project }) {
         </div>
       )}
 
-      {archiveConfirmOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4" onClick={() => setArchiveConfirmOpen(false)}>
-          <div className="w-full max-w-md rounded-xl bg-ed-surface border border-ed-line shadow-xl" onClick={(e) => e.stopPropagation()}>
-            <div className="px-5 py-4 border-b border-ed-line">
-              <h3 className="text-[15px] font-serif font-medium text-ed-ink">Archive unobserved ad sets?</h3>
-              <p className="text-[12px] text-ed-ink3 mt-1">
-                This only hides them from this list. It does not change anything in Meta.
-              </p>
-            </div>
-            <div className="px-5 py-4 text-[12px] text-ed-ink2">
-              Archive {selectedUnlinkedRows.length} selected Meta ad set{selectedUnlinkedRows.length === 1 ? '' : 's'}?
-            </div>
-            <div className="px-5 py-3 border-t border-ed-line flex justify-end gap-2">
-              <button
-                type="button"
-                onClick={() => setArchiveConfirmOpen(false)}
-                disabled={archivingUnlinked}
-                className="ed-ghost text-[12px] px-3 py-1.5"
-              >
-                Cancel
-              </button>
-              <button
-                type="button"
-                onClick={handleArchiveSelectedUnlinked}
-                disabled={archivingUnlinked || selectedUnlinkedRows.length === 0}
-                className="text-[12px] font-medium px-3 py-1.5 rounded-md bg-amber-600 text-white hover:bg-amber-700 disabled:opacity-50"
-              >
-                {archivingUnlinked ? 'Archiving...' : 'Archive selected'}
-              </button>
-            </div>
-          </div>
-        </div>
-      )}
+      <ConfirmDialog
+        open={archiveConfirmOpen}
+        title="Archive unobserved ad sets?"
+        message={`This only hides them from this list. It does not change anything in Meta. Archive ${selectedUnlinkedRows.length} selected Meta ad set${selectedUnlinkedRows.length === 1 ? '' : 's'}?`}
+        confirmLabel="Archive selected"
+        tone="default"
+        busy={archivingUnlinked}
+        onCancel={() => setArchiveConfirmOpen(false)}
+        onConfirm={handleArchiveSelectedUnlinked}
+      />
 
       {/* Link picker modal */}
       {linkTarget && (
@@ -1019,7 +1003,7 @@ export default function ObservationTab({ projectId, project }) {
         onTagChange={setBulkTagId}
         onApplyTag={handleBulkApplyTag}
         onRemoveTag={handleBulkRemoveTag}
-        onAppendNote={handleBulkAppendNote}
+        onUpdateNote={handleBulkUpdateNote}
         onClear={() => setSelectedKeys([])}
       />
 

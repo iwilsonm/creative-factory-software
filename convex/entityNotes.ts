@@ -60,11 +60,13 @@ export const appendMany = mutation({
     entity_ids: v.array(v.string()),
     entity_id_kind: v.string(),
     entry: v.string(),
+    mode: v.optional(v.union(v.literal("append"), v.literal("replace"), v.literal("clear"))),
     updated_by: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
     const now = new Date().toISOString();
     const changed: string[] = [];
+    const mode = args.mode || "append";
 
     for (let i = 0; i < args.entity_ids.length; i += 1) {
       const entityId = args.entity_ids[i];
@@ -78,16 +80,16 @@ export const appendMany = mutation({
         .first();
 
       if (existing) {
-        const nextNote = existing.note?.trim()
-          ? `${existing.note.trim()}\n\n${args.entry}`
-          : args.entry;
+        const nextNote = mode === "append"
+          ? (existing.note?.trim() ? `${existing.note.trim()}\n\n${args.entry}` : args.entry)
+          : (mode === "clear" ? "" : args.entry);
         await ctx.db.patch(existing._id, {
           note: nextNote,
           updated_by: args.updated_by,
           updated_at: now,
         });
         changed.push(existing.externalId);
-      } else {
+      } else if (mode !== "clear") {
         const externalId = args.externalIds[i];
         await ctx.db.insert("entity_notes", {
           externalId,

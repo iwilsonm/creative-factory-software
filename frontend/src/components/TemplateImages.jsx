@@ -403,10 +403,10 @@ export default function TemplateImages({ projectId }) {
                       ))}
                     </div>
                   )}
-                  <div className="flex gap-2 mt-1.5">
+                  <div className="grid grid-cols-2 gap-1.5 mt-2">
                     <button
                       onClick={(e) => { e.stopPropagation(); handleAddTag(tmpl); }}
-                      className="action-link"
+                      className="action-link text-center justify-center rounded-md border border-ed-line/70 px-2 py-1"
                     >
                       Tag
                     </button>
@@ -416,19 +416,19 @@ export default function TemplateImages({ projectId }) {
                         setEditingDesc(tmpl.id);
                         setDescValue(tmpl.description || '');
                       }}
-                      className="action-link"
+                      className="action-link text-center justify-center rounded-md border border-ed-line/70 px-2 py-1"
                     >
                       Edit
                     </button>
                     <button
                       onClick={(e) => { e.stopPropagation(); handleArchive(tmpl); }}
-                      className="action-link"
+                      className="action-link text-center justify-center rounded-md border border-ed-line/70 px-2 py-1"
                     >
                       Archive
                     </button>
                     <button
                       onClick={(e) => { e.stopPropagation(); setPendingDeleteImage(tmpl); }}
-                      className="action-link-danger"
+                      className="action-link-danger text-center justify-center rounded-md border border-ed-rust/20 px-2 py-1"
                     >
                       Delete
                     </button>
@@ -459,12 +459,14 @@ export default function TemplateImages({ projectId }) {
                   <p className="text-[10px] text-ed-ink3 mt-0.5">
                     Archived {tmpl.archived_at ? new Date(tmpl.archived_at).toLocaleDateString() : ''}
                   </p>
-                  <button
-                    onClick={(e) => { e.stopPropagation(); handleUnarchive(tmpl); }}
-                    className="action-link mt-1.5"
-                  >
-                    Unarchive
-                  </button>
+                  <div className="mt-2">
+                    <button
+                      onClick={(e) => { e.stopPropagation(); handleUnarchive(tmpl); }}
+                      className="action-link text-center justify-center rounded-md border border-ed-line/70 px-2 py-1 w-full"
+                    >
+                      Unarchive
+                    </button>
+                  </div>
                 </div>
               </div>
             ))}

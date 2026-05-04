@@ -434,14 +434,19 @@ router.post('/:projectId/entity-notes/bulk', requireRole('admin', 'manager'), as
       entity_type,
       entity_ids,
       entity_id_kind = 'meta',
+      mode = 'append',
       note,
     } = req.body || {};
     const ids = Array.isArray(entity_ids) ? [...new Set(entity_ids.map(String).filter(Boolean))] : [];
-    if (!entity_type || ids.length === 0 || !String(note || '').trim()) {
-      return res.status(400).json({ error: 'entity_type + entity_ids + note required' });
+    const normalizedMode = ['append', 'replace', 'clear'].includes(mode) ? mode : 'append';
+    if (!entity_type || ids.length === 0) {
+      return res.status(400).json({ error: 'entity_type + entity_ids required' });
+    }
+    if (normalizedMode !== 'clear' && !String(note || '').trim()) {
+      return res.status(400).json({ error: 'note required' });
     }
 
-    const entry = formatNoteEntry(note);
+    const entry = normalizedMode === 'clear' ? '' : formatNoteEntry(note);
     const externalIds = ids.map(() => uuidv4());
     const result = await convexClient.mutation(api.entityNotes.appendMany, {
       externalIds,
@@ -450,16 +455,21 @@ router.post('/:projectId/entity-notes/bulk', requireRole('admin', 'manager'), as
       entity_ids: ids,
       entity_id_kind,
       entry,
+      mode: normalizedMode,
       updated_by: req.session?.userId ? String(req.session.userId) : undefined,
     });
 
     if (entity_type === 'ad' && entity_id_kind === 'cf') {
       for (const entityId of ids) {
-        await appendDeploymentNote(entityId, entry);
+        if (normalizedMode === 'append') {
+          await appendDeploymentNote(entityId, entry);
+        } else {
+          await syncDeploymentNote(entityId, normalizedMode === 'clear' ? '' : entry);
+        }
       }
     }
 
-    res.json({ success: true, count: ids.length, changed: result?.changed || [] });
+    res.json({ success: true, mode: normalizedMode, count: ids.length, changed: result?.changed || [] });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
