@@ -722,7 +722,7 @@ export default function AnalyticsTab({ projectId, project }) {
 
   return (
     <div>
-      <div className="max-w-7xl mx-auto">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="-mx-4 sm:-mx-6 lg:-mx-8 -mt-8 mb-2">
           <EditorialPageHeader
             eyebrow={`${(project?.brand || project?.name || 'PROJECT').toUpperCase()} · ANALYTICS`}

@@ -1,0 +1,7 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512" role="img" aria-label="Creative Factory mark">
+  <circle cx="256" cy="256" r="225" fill="none" stroke="#050505" stroke-width="12"/>
+  <path d="M78 187c0-8 4-12 12-12l70 3 29-58c3-7 9-9 16-6l134 63 84 3c8 0 12 4 12 12v60c0 8-4 12-12 12l-98-4L169 186l-33 68-49-2c-7 0-11-4-11-12l2-53z" fill="#050505"/>
+  <path d="M74 276c0-8 4-12 12-12l101 3 151 72c7 3 9 9 6 16l-30 63c-3 7-9 9-16 6L177 367l-92-3c-8 0-12-4-12-12l1-76z" fill="#050505"/>
+  <path d="M333 273l89 4c8 0 12 4 12 12v60c0 8-4 12-12 12l-107-4 18-84z" fill="#050505"/>
+  <path d="M166 190l168 79-28 62-170-81 30-60z" fill="#ffffff"/>
+</svg>

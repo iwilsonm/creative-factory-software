@@ -212,9 +212,9 @@ function SidebarContent({
         className={`flex items-center no-underline ${collapsed ? 'justify-center' : 'px-2 pb-1'}`}
       >
         <img
-          src="/logo.png"
+          src={collapsed ? '/logo-mark.svg' : '/logo.png'}
           alt="Creative Factory"
-          className={`flex-shrink-0 ${collapsed ? 'h-7' : 'h-10'}`}
+          className={`flex-shrink-0 ${collapsed ? 'h-8 w-8' : 'h-10'}`}
         />
       </Link>
 
