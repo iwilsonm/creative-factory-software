@@ -37,7 +37,7 @@ import { withHeavyLLMLimit } from './rateLimiter.js';
 import {
   getProject, getLatestDoc, uploadBuffer, downloadToBuffer,
   getInspirationImages, getAllInspirationImages, getInspirationImageUrl,
-  getTemplateImagesByProject,
+  getTemplateImagesByProject, getAllTemplateImages,
   getAdImageUrl, getSetting, convexClient, api
 } from '../convexClient.js';
 import sharp from 'sharp';
@@ -72,6 +72,46 @@ const EXT_TO_MIME = {
   '.bmp': 'image/bmp',
   '.svg': 'image/svg+xml'
 };
+
+export function normalizeTemplateTag(tag) {
+  return String(tag || '').trim();
+}
+
+function normalizeTemplateTags(tags) {
+  if (Array.isArray(tags)) return tags.map(normalizeTemplateTag).filter(Boolean);
+  if (typeof tags === 'string') return tags.split(',').map(normalizeTemplateTag).filter(Boolean);
+  return [];
+}
+
+function templateMatchesTag(template, tag) {
+  const normalized = normalizeTemplateTag(tag).toLowerCase();
+  if (!normalized) return true;
+  return normalizeTemplateTags(template?.tags).some(t => t.toLowerCase() === normalized);
+}
+
+function activeStoredTemplates(templates, tag = '') {
+  return (templates || [])
+    .filter(t => t?.storageId && !t.archived_at)
+    .filter(t => templateMatchesTag(t, tag));
+}
+
+export async function getActiveTemplatePoolForTag(projectId, templateTag = '') {
+  const normalizedTag = normalizeTemplateTag(templateTag);
+  const templates = normalizedTag
+    ? await getAllTemplateImages()
+    : await getTemplateImagesByProject(projectId);
+  return activeStoredTemplates(templates, normalizedTag);
+}
+
+export async function assertTemplateTagHasActiveTemplates(projectId, templateTag = '') {
+  const normalizedTag = normalizeTemplateTag(templateTag);
+  if (!normalizedTag) return { tag: '', count: 0 };
+  const pool = await getActiveTemplatePoolForTag(projectId, normalizedTag);
+  if (pool.length === 0) {
+    throw new Error(`No active templates are tagged "${normalizedTag}". Add that tag to a template or choose Any active template before starting generation.`);
+  }
+  return { tag: normalizedTag, count: pool.length };
+}
 
 /**
  * Extract headline and body copy from a freeform image generation prompt.
@@ -304,7 +344,12 @@ export function buildImageRequestText(angle, aspectRatio, hasProductImage = fals
  * @param {string|null} inspirationImageId - Specific Drive file ID to use, or null for random
  * @returns {{ tmpPath: string, mimeType: string, fileId: string }}
  */
-export async function selectInspirationImage(projectId, inspirationImageId, excludeIds = []) {
+export async function selectInspirationImage(projectId, inspirationImageId, optionsOrExcludeIds = []) {
+  const options = Array.isArray(optionsOrExcludeIds)
+    ? { excludeIds: optionsOrExcludeIds }
+    : (optionsOrExcludeIds || {});
+  const excludeIds = Array.isArray(options.excludeIds) ? options.excludeIds : [];
+  const templateTag = normalizeTemplateTag(options.templateTag);
   // Scope to current project's inspiration images and deduplicate by drive_file_id
   const inspirationImages = await getInspirationImages(projectId);
   const seen = new Set();
@@ -323,16 +368,23 @@ export async function selectInspirationImage(projectId, inspirationImageId, excl
     return await loadInspirationFromStorage(selected, selected.drive_file_id);
   }
 
-  // Random selection — try inspiration_images first, fall back to uploaded templates.
+  // Tagged random selection uses uploaded Template Library images only. This
+  // keeps tag behavior explicit and prevents a tagged Director run from
+  // silently falling back to unrelated Drive inspiration images.
   let candidates = dedupedInspiration;
   let usingTemplates = false;
-  if (!candidates.length) {
+  if (templateTag) {
+    candidates = await getActiveTemplatePoolForTag(projectId, templateTag);
+    usingTemplates = true;
+  } else if (!candidates.length) {
     const templates = await getTemplateImagesByProject(projectId);
-    candidates = templates.filter(t => t.storageId);
+    candidates = activeStoredTemplates(templates);
     usingTemplates = true;
   }
   if (!candidates.length) {
-    throw new Error('No templates available. Upload templates in the Template Library first.');
+    throw new Error(templateTag
+      ? `No active templates are tagged "${templateTag}". Add that tag to a template or choose Any active template.`
+      : 'No templates available. Upload templates in the Template Library first.');
   }
 
   let pool = candidates;
@@ -447,7 +499,7 @@ export async function selectTemplateImage(templateImageId) {
  * @returns {Promise<object>} The completed ad creative record
  */
 export async function generateAd(projectId, options = {}) {
-  const { angle, aspectRatio = '1:1', imageModel, inspirationImageId, uploadedImageBase64, uploadedImageMimeType, productImageBase64, productImageMimeType, headline, bodyCopy, onEvent } = options;
+  const { angle, aspectRatio = '1:1', imageModel, inspirationImageId, templateTag, uploadedImageBase64, uploadedImageMimeType, productImageBase64, productImageMimeType, headline, bodyCopy, onEvent } = options;
 
   const emit = (event) => {
     if (onEvent) {
@@ -483,7 +535,7 @@ export async function generateAd(projectId, options = {}) {
       getLatestDoc(projectId, 'necessary_beliefs'),
       useUploadedImage
         ? Promise.resolve({ base64: uploadedImageBase64, mimeType: uploadedImageMimeType, fileId: 'uploaded' })
-        : selectInspirationImage(projectId, inspirationImageId),
+        : selectInspirationImage(projectId, inspirationImageId, { templateTag }),
     ]);
     if (!project) throw new Error('Project not found');
 

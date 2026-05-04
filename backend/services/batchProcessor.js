@@ -9,6 +9,7 @@ import {
   isSceneLockedAngle,
   selectInspirationImage,
   selectTemplateImage,
+  assertTemplateTagHasActiveTemplates,
   reviewPromptWithGuidelines,
   readImageBase64,
   cleanupImageData,
@@ -397,6 +398,10 @@ async function generateBatchPrompts(batch, project, docs, onProgress, options = 
   const angle = batch.angle || null;
   const throwIfCancelled = typeof options.throwIfCancelled === 'function' ? options.throwIfCancelled : async () => {};
 
+  if (batch.template_tag) {
+    await assertTemplateTagHasActiveTemplates(batch.project_id, batch.template_tag);
+  }
+
   // Parse structured angle brief if available (set by Director from conductor_angles)
   let angleBrief = null;
   if (batch.angle_brief) {
@@ -678,8 +683,11 @@ async function generateBatchPrompts(batch, project, docs, onProgress, options = 
           visualReferenceType = 'drive';
           visualReferenceId = batch.inspiration_image_id;
         } else {
-          imageData = await selectInspirationImage(batch.project_id, null, allExcluded);
-          visualReferenceType = 'drive';
+          imageData = await selectInspirationImage(batch.project_id, null, {
+            excludeIds: allExcluded,
+            templateTag: batch.template_tag || '',
+          });
+          visualReferenceType = batch.template_tag ? 'uploaded' : 'drive';
           visualReferenceId = imageData.fileId || null;
         }
 

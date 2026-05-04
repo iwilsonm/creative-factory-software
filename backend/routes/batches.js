@@ -6,6 +6,7 @@ import {
   updateBatchJob, deleteBatchJob, uploadBuffer
 } from '../convexClient.js';
 import { copyStorageBlob } from '../utils/adImages.js';
+import { assertTemplateTagHasActiveTemplates, normalizeTemplateTag } from '../services/adGenerator.js';
 
 // Durable batch execution is handled by the cron-backed scheduler. These hooks
 // are retained for route compatibility; the scheduler reads Convex directly.
@@ -30,6 +31,7 @@ router.post('/:projectId/batches', async (req, res) => {
     aspect_ratio = '1:1',
     template_image_id,
     template_image_ids,        // JSON string array of uploaded template IDs (multi-select)
+    template_tag,
     inspiration_image_id,
     inspiration_image_ids,     // JSON string array of drive template IDs (multi-select)
     product_image,
@@ -49,6 +51,14 @@ router.post('/:projectId/batches', async (req, res) => {
     return res.status(400).json({ error: 'template_image_id or template_image_ids is required for mode2.' });
   }
   const size = Math.max(1, Math.min(50, parseInt(batch_size) || 5));
+  const normalizedTemplateTag = normalizeTemplateTag(template_tag);
+  if (normalizedTemplateTag && !template_image_id && !template_image_ids && !inspiration_image_id && !inspiration_image_ids) {
+    try {
+      await assertTemplateTagHasActiveTemplates(req.params.projectId, normalizedTemplateTag);
+    } catch (err) {
+      return res.status(400).json({ error: err.message });
+    }
+  }
 
   const id = uuidv4();
 
@@ -84,6 +94,7 @@ router.post('/:projectId/batches', async (req, res) => {
       aspect_ratio,
       template_image_id: template_image_id || null,
       template_image_ids: template_image_ids || null,
+      template_tag: normalizedTemplateTag || null,
       inspiration_image_id: inspiration_image_id || null,
       inspiration_image_ids: inspiration_image_ids || null,
       product_image_storageId: productImageStorageId,

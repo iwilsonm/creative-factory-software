@@ -360,8 +360,7 @@ router.delete('/:projectId/tags/assignments/bulk', requireRole('admin', 'manager
 // ────────────────────────────────────────────────
 
 function formatNoteEntry(note) {
-  const stamp = new Date().toISOString().replace('T', ' ').slice(0, 16);
-  return `[${stamp}] ${String(note || '').trim()}`;
+  return String(note || '').trim();
 }
 
 async function syncDeploymentNote(entityId, note) {

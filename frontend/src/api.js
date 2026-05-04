@@ -292,8 +292,10 @@ export const api = {
   syncInspiration: (projectId) => request(`/projects/${projectId}/inspiration/sync`, { method: 'POST' }),
 
   // Template Images
-  getTemplates: (projectId) =>
-    request(`/projects/${projectId}/templates`).then(data => normalizeArrayResponse(data, 'templates', 'api.getTemplates.templates')),
+  getTemplates: (projectId, options = {}) => {
+    const qs = options.includeArchived ? '?include_archived=true' : '';
+    return request(`/projects/${projectId}/templates${qs}`).then(data => normalizeArrayResponse(data, 'templates', 'api.getTemplates.templates'));
+  },
   uploadTemplate: async (projectId, file, descriptionOrOptions = '') => {
     // Backwards-compatible: 3rd arg may be a string (legacy `description`) or an options object `{ description, signal }`.
     const opts = typeof descriptionOrOptions === 'string'
@@ -321,8 +323,12 @@ export const api = {
     if (!res.ok) throw new Error(data.error || `Upload failed with ${res.status}`);
     return data;
   },
-  updateTemplate: (projectId, imageId, description) =>
-    request(`/projects/${projectId}/templates/${imageId}`, { method: 'PUT', body: JSON.stringify({ description }) }),
+  updateTemplate: (projectId, imageId, descriptionOrFields) => {
+    const body = typeof descriptionOrFields === 'object' && descriptionOrFields !== null
+      ? descriptionOrFields
+      : { description: descriptionOrFields };
+    return request(`/projects/${projectId}/templates/${imageId}`, { method: 'PUT', body: JSON.stringify(body) });
+  },
   deleteTemplate: (projectId, imageId) =>
     request(`/projects/${projectId}/templates/${imageId}`, { method: 'DELETE' }),
   analyzeTemplate: (projectId, templateId, force = false) =>

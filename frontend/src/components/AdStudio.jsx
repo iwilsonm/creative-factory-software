@@ -41,6 +41,15 @@ const TEMPLATE_UPLOAD = 'upload';      // Upload one-off image
 const TEMPLATE_SELECT = 'select';      // Pick from uploaded templates
 const TEMPLATE_PICKER_BATCH_SIZE = 24;
 
+function getTemplateTags(templates = []) {
+  return [...new Set((templates || [])
+    .filter(t => !t.archived_at)
+    .flatMap(t => Array.isArray(t.tags) ? t.tags : [])
+    .map(tag => String(tag || '').trim())
+    .filter(Boolean))]
+    .sort((a, b) => a.localeCompare(b));
+}
+
 // Normalize date strings — handles ISO with/without Z, Convex _creationTime numbers, etc.
 function parseDate(dateStr) {
   if (!dateStr) return null;
@@ -234,6 +243,7 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
 
   // Template source
   const [templateSource, setTemplateSource] = useState(TEMPLATE_RANDOM);
+  const [templateTag, setTemplateTag] = useState('');
 
   // Upload one-off image
   const [uploadedFile, setUploadedFile] = useState(null);
@@ -1126,6 +1136,9 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
         skip_product_image: skipProductImage || undefined,
         save_as_project_default: saveProductAsDefault || undefined
       };
+      if (templateSource === TEMPLATE_RANDOM && templateTag) {
+        options.template_tag = templateTag;
+      }
 
       if (templateSource === TEMPLATE_UPLOAD && uploadedFile) {
         const sourceUploaded = uploadedFile;
@@ -1824,6 +1837,7 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
   const sortedUploadedTemplates = useMemo(() => {
     return [...uploadedTemplates].sort((a, b) => (templateUsageCounts[b.id] || 0) - (templateUsageCounts[a.id] || 0));
   }, [uploadedTemplates, templateUsageCounts]);
+  const templateTags = useMemo(() => getTemplateTags(uploadedTemplates), [uploadedTemplates]);
 
   const totalTemplateCount = sortedDriveImages.length + sortedUploadedTemplates.length;
   const visibleDriveImages = sortedDriveImages.slice(0, visibleTemplateCount);
@@ -1961,6 +1975,20 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
                 <p className="text-[11px] text-ed-ink3">
                   The system will randomly pick a template from your uploaded templates.
                 </p>
+                <div className="mt-3">
+                  <label className="text-[10px] uppercase tracking-[0.08em] text-ed-ink3 font-medium">Template Tag</label>
+                  <select
+                    value={templateTag}
+                    onChange={e => setTemplateTag(e.target.value)}
+                    className="mt-1 text-[12px] text-ed-ink bg-ed-surface border border-ed-line rounded-lg px-2 py-1.5 w-full"
+                  >
+                    <option value="">Any active template</option>
+                    {templateTags.map(tag => <option key={tag} value={tag}>{tag}</option>)}
+                  </select>
+                  <p className="text-[10px] text-ed-ink3 mt-1">
+                    Optional. Choose a tag to make random generation use only matching active templates.
+                  </p>
+                </div>
               </div>
             )}
 
@@ -2235,48 +2263,6 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
                   </div>
                 )}
 
-                {/* Template analysis card — visible whenever there's a selection,
-                    regardless of collapsed state, since the layout/style/product-image
-                    info is relevant to the rest of the form. */}
-                {selectedTemplate && analyzingTemplate && (
-                  <div className="mt-2 flex items-center gap-2 p-2.5 bg-ed-accent/5 border border-ed-accent/15 rounded-xl">
-                    <svg className="w-3.5 h-3.5 text-ed-accent animate-spin flex-shrink-0" fill="none" viewBox="0 0 24 24">
-                      <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                      <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
-                    </svg>
-                    <span className="text-[11px] text-ed-accent">Analyzing template layout...</span>
-                  </div>
-                )}
-
-                {selectedTemplate && templateAnalysis && !analyzingTemplate && selectedTemplate.source === 'uploaded' && (
-                  <div className="mt-2 p-2.5 bg-ed-accent/5 border border-ed-accent/15 rounded-xl space-y-1">
-                    <p className="text-[11px] text-ed-accent font-medium flex items-center gap-1.5">
-                      <svg className="w-3 h-3 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                      </svg>
-                      Template Analysis
-                    </p>
-                    <p className="text-[10px] text-ed-accent/70">{templateAnalysis.layout_description}</p>
-                    <div className="flex flex-wrap gap-1.5 mt-1">
-                      <span className="text-[9px] px-1.5 py-0.5 bg-ed-accent/10 text-ed-accent rounded-full">
-                        Style: {templateAnalysis.recommended_style}
-                      </span>
-                      <span className="text-[9px] px-1.5 py-0.5 bg-ed-accent/10 text-ed-accent rounded-full">
-                        Text space: {templateAnalysis.text_space}
-                      </span>
-                      <span className="text-[9px] px-1.5 py-0.5 bg-ed-accent/10 text-ed-accent rounded-full">
-                        {templateAnalysis.visual_tone}
-                      </span>
-                      <span className={`text-[9px] px-1.5 py-0.5 rounded-full ${
-                        templateAnalysis.needs_product_image
-                          ? 'bg-ed-green/10 text-ed-green'
-                          : 'bg-ed-accent/10 text-ed-accent'
-                      }`}>
-                        Product image: {templateAnalysis.needs_product_image ? 'recommended' : 'not needed'}
-                      </span>
-                    </div>
-                  </div>
-                )}
               </div>
             )}
           </div>
@@ -2319,7 +2305,7 @@ export default function AdStudio({ projectId, project, onOpenPipeline }) {
                 </p>
                 <p className={`text-[10px] ${skipProductImage ? 'text-ed-accent' : 'text-ed-green'}`}>
                   {skipProductImage
-                    ? (templateAnalysis ? 'Template analysis: not needed for this layout' : 'Toggle on to include product image')
+                    ? 'Toggle on to include product image'
                     : 'Toggle off to exclude for this ad'
                   }
                 </p>

@@ -12,6 +12,7 @@ export const create = mutation({
     aspect_ratio: v.optional(v.string()),
     template_image_id: v.optional(v.string()),
     template_image_ids: v.optional(v.string()),
+    template_tag: v.optional(v.string()),
     inspiration_image_id: v.optional(v.string()),
     inspiration_image_ids: v.optional(v.string()),
     product_image_storageId: v.optional(v.id("_storage")),
@@ -145,6 +146,7 @@ export const update = mutation({
     batch_size: v.optional(v.number()),
     aspect_ratio: v.optional(v.string()),
     used_template_ids: v.optional(v.string()),
+    template_tag: v.optional(v.string()),
     pipeline_state: v.optional(v.string()),
     failed_count: v.optional(v.number()),
     run_count: v.optional(v.number()),
@@ -442,6 +444,7 @@ export const getCompletedDirectorBatchStats = query({
         batch_size: b.batch_size,
         completed_at: b.completed_at,
         used_template_ids: b.used_template_ids || null,
+        template_tag: b.template_tag || null,
       }));
   },
 });

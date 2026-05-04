@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { api } from '../api';
 import InfoTooltip from './InfoTooltip';
 import { useToast } from './Toast';
@@ -18,6 +18,15 @@ const TEMPLATE_SELECT = 'select';
 
 const ACTIVE_BATCH_STATUSES = new Set(['queued', 'generating_prompts', 'submitting', 'processing', 'saving_results']);
 const LOCAL_BATCH_PROTECT_MS = 2 * 60 * 1000;
+
+function getTemplateTags(templates = []) {
+  return [...new Set((templates || [])
+    .filter(t => !t.archived_at)
+    .flatMap(t => Array.isArray(t.tags) ? t.tags : [])
+    .map(tag => String(tag || '').trim())
+    .filter(Boolean))]
+    .sort((a, b) => a.localeCompare(b));
+}
 
 function batchTimestamp(batch) {
   const candidates = [
@@ -77,10 +86,12 @@ export default function BatchManager({ projectId, project, onBatchComplete }) {
 
   // Template source
   const [templateSource, setTemplateSource] = useState(TEMPLATE_RANDOM);
+  const [templateTag, setTemplateTag] = useState('');
   const [driveImages, setDriveImages] = useState([]);
   const [uploadedTemplates, setUploadedTemplates] = useState([]);
   const [loadingTemplates, setLoadingTemplates] = useState(false);
   const [selectedTemplates, setSelectedTemplates] = useState([]); // [{ id, source }, ...]
+  const templateTags = useMemo(() => getTemplateTags(uploadedTemplates), [uploadedTemplates]);
 
   // Upload one-off template
   const [uploadedFile, setUploadedFile] = useState(null);
@@ -127,9 +138,9 @@ export default function BatchManager({ projectId, project, onBatchComplete }) {
     previousBatchesRef.current = batches;
   }, [batches, onBatchComplete]);
 
-  // Load templates when "Pick Template" is selected
+  // Load templates when template tags or picker choices are needed
   useEffect(() => {
-    if (templateSource === TEMPLATE_SELECT && driveImages.length === 0 && uploadedTemplates.length === 0) {
+    if ((templateSource === TEMPLATE_SELECT || templateSource === TEMPLATE_RANDOM) && driveImages.length === 0 && uploadedTemplates.length === 0) {
       loadTemplates();
     }
   }, [templateSource]);
@@ -260,6 +271,9 @@ export default function BatchManager({ projectId, project, onBatchComplete }) {
       }
     } else {
       config.generation_mode = 'mode1';
+      if (templateSource === TEMPLATE_RANDOM && templateTag) {
+        config.template_tag = templateTag;
+      }
     }
 
     return config;
@@ -479,6 +493,7 @@ export default function BatchManager({ projectId, project, onBatchComplete }) {
       schedule_cron: isScheduled ? cronExpression : undefined,
       templateSource,
       templateLabel: getTemplateLabel(),
+      templateTag,
       selectedTemplates: selectedTemplates.length > 0 ? [...selectedTemplates] : [],
       uploadedFile: templateSource === TEMPLATE_UPLOAD ? uploadedFile : null
     };
@@ -520,6 +535,7 @@ export default function BatchManager({ projectId, project, onBatchComplete }) {
     }
 
     if (item.templateSource) setTemplateSource(item.templateSource);
+    setTemplateTag(item.templateTag || '');
     if (item.selectedTemplate) setSelectedTemplates(Array.isArray(item.selectedTemplate) ? item.selectedTemplate : [item.selectedTemplate]);
 
     // Remove from queue
@@ -559,6 +575,9 @@ export default function BatchManager({ projectId, project, onBatchComplete }) {
           batchConfig.template_image_id = uploaded.template?.id || uploaded.id;
         } else {
           batchConfig.generation_mode = 'mode1';
+          if (config.templateSource === TEMPLATE_RANDOM && config.templateTag) {
+            batchConfig.template_tag = config.templateTag;
+          }
         }
 
         const createdBatch = await api.createBatch(projectId, batchConfig);
@@ -729,6 +748,21 @@ export default function BatchManager({ projectId, project, onBatchComplete }) {
                   <p className="text-[11px] text-ed-ink2">
                     Each ad in the batch will use a <strong>different random template</strong> from your uploaded templates.
                   </p>
+                  <div className="mt-3">
+                    <label className="text-[10px] uppercase tracking-[0.08em] text-ed-ink3 font-medium">Template Tag</label>
+                    <select
+                      value={templateTag}
+                      onChange={e => setTemplateTag(e.target.value)}
+                      disabled={creating}
+                      className="mt-1 text-[12px] text-ed-ink bg-ed-surface border border-ed-line rounded-lg px-2 py-1.5 w-full"
+                    >
+                      <option value="">Any active template</option>
+                      {templateTags.map(tag => <option key={tag} value={tag}>{tag}</option>)}
+                    </select>
+                    <p className="text-[10px] text-ed-ink3 mt-1">
+                      Optional. Choose a tag to limit random templates for this batch.
+                    </p>
+                  </div>
                 </div>
               )}
 

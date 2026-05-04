@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { api } from '../api';
 import PipelineProgress from './PipelineProgress';
@@ -24,6 +24,15 @@ const STATUS_CONFIG = {
   offline: { color: 'text-ed-rust',   dot: 'bg-ed-rust',   label: 'Offline', pulse: false },
   paused:  { color: 'text-ed-ink3', dot: 'bg-ed-ink3', label: 'Paused',  pulse: false },
 };
+
+function getTemplateTags(templates = []) {
+  return [...new Set((templates || [])
+    .filter(t => !t.archived_at)
+    .flatMap(t => Array.isArray(t.tags) ? t.tags : [])
+    .map(tag => String(tag || '').trim())
+    .filter(Boolean))]
+    .sort((a, b) => a.localeCompare(b));
+}
 
 function timeAgo(dateStr) {
   if (!dateStr) return 'never';
@@ -1416,10 +1425,13 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
   const [lpDetailsLoadingByBatchId, setLpDetailsLoadingByBatchId] = useState({});
 
   const [campaigns, setCampaigns] = useState([]);
+  const [templates, setTemplates] = useState([]);
+  const [templatesLoadedFor, setTemplatesLoadedFor] = useState('');
 
   // Angle selection for test runs
   const [selectedAngleId, setSelectedAngleId] = useState('');
   const [testAdSetTargetDraft, setTestAdSetTargetDraft] = useState('');
+  const [testTemplateTag, setTestTemplateTag] = useState('');
 
   // Test run queue — persisted per project so restored runs cannot bleed across projects.
   const queueStorageKey = selectedProject ? `dacia_testRunQueue:${selectedProject}` : 'dacia_testRunQueue';
@@ -1546,6 +1558,7 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
     if (debounceRef.current) clearTimeout(debounceRef.current);
     setSelectedAngleId('');
     setTestAdSetTargetDraft('');
+    setTestTemplateTag('');
     let cancelled = false;
     setBaseLoading(true);
     setAnglesLoading(false);
@@ -1559,11 +1572,13 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
     setRuns([]);
     setPlaybooks([]);
     setCampaigns([]);
+    setTemplates([]);
     setAnglesLoadedFor('');
     setAngleOptionsLoadedFor('');
     setRunsLoadedFor('');
     setPlaybooksLoadedFor('');
     setCampaignsLoadedFor('');
+    setTemplatesLoadedFor('');
     setAdsPerAdSetDraft(null);
     (async () => {
       try {
@@ -1652,10 +1667,21 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
     }
   }, [campaignsLoadedFor, campaignsLoading]);
 
+  const loadTemplates = useCallback(async (projectId = selectedProjectRef.current) => {
+    if (!projectId || templatesLoadedFor === projectId) return;
+    try {
+      const templateRes = await api.getTemplates(projectId);
+      if (selectedProjectRef.current !== projectId) return;
+      setTemplates(ensureArray(templateRes?.templates, 'AgentMonitor.director.templates'));
+      setTemplatesLoadedFor(projectId);
+    } catch { /* ignore */ }
+  }, [templatesLoadedFor]);
+
   useEffect(() => {
     if (!selectedProject) return;
     loadAngleOptions(selectedProject);
-  }, [loadAngleOptions, selectedProject]);
+    loadTemplates(selectedProject);
+  }, [loadAngleOptions, loadTemplates, selectedProject]);
 
   useEffect(() => {
     if (!selectedProject) return;
@@ -1739,6 +1765,11 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
     }
   }, [embedded, handleSaveConfig, onProjectRefresh, selectedProject, toast]);
 
+  useEffect(() => {
+    if (testTemplateTag || !config?.template_tag) return;
+    setTestTemplateTag(config.template_tag);
+  }, [config?.template_tag, testTemplateTag]);
+
   const STEP_PROGRESS = {
     // Compatibility fallback only. Backend progressValue is the source of truth.
     'initializing': 1,
@@ -1775,6 +1806,7 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
       result: null,
       angleId: selectedAngleId || null,
       adsPerAdSetTarget: testAdSetTargetValue,
+      templateTag: testTemplateTag || '',
       sseConnected: false,
       serverRunId: null,
     };
@@ -1899,6 +1931,7 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
     const body = {
       ...(nextQueued.angleId ? { angle_id: nextQueued.angleId } : {}),
       ads_per_ad_set: nextQueued.adsPerAdSetTarget || 5,
+      ...(nextQueued.templateTag ? { template_tag: nextQueued.templateTag } : {}),
     };
 
     let sawEvent = false;
@@ -2365,6 +2398,7 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
   const safeRuns = ensureArray(runs, 'AgentMonitor.director.runsState');
   const safePlaybooks = ensureArray(playbooks, 'AgentMonitor.director.playbooksState');
   const safeCampaigns = ensureArray(campaigns, 'AgentMonitor.director.campaignsState');
+  const templateTags = useMemo(() => getTemplateTags(templates), [templates]);
   const adsPerAdSetValue = adsPerAdSetDraft ?? (
     embedded && externalProject?.ads_per_ad_set != null
       ? externalProject.ads_per_ad_set
@@ -2433,7 +2467,7 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
           Enabled
         </label>
 
-        <div className="ml-auto grid grid-cols-1 sm:grid-cols-[minmax(180px,260px)_130px_auto] items-end gap-2">
+        <div className="ml-auto grid grid-cols-1 sm:grid-cols-[minmax(180px,260px)_130px_minmax(160px,220px)_auto] items-end gap-2">
           <div>
             <label className="block text-[10px] font-semibold uppercase tracking-[0.08em] text-ed-ink3 mb-1">Test Angle</label>
             <select
@@ -2475,6 +2509,19 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
               className="text-[11px] text-ed-ink bg-ed-bg border border-black/10 rounded-lg px-2 py-1.5 w-full"
               title="Target number of QA-approved ads in this test ad set."
             />
+          </div>
+          <div>
+            <label className="block text-[10px] font-semibold uppercase tracking-[0.08em] text-ed-ink3 mb-1">Template Tag</label>
+            <select
+              value={testTemplateTag}
+              onChange={e => setTestTemplateTag(e.target.value)}
+              onFocus={() => loadTemplates(selectedProject)}
+              className="text-[11px] text-ed-ink bg-ed-bg border border-black/10 rounded-lg px-2 py-1.5 cursor-pointer w-full"
+              title="Optional. Limit this test run to active templates with the selected tag."
+            >
+              <option value="">Any active template</option>
+              {templateTags.map(tag => <option key={tag} value={tag}>{tag}</option>)}
+            </select>
           </div>
           <button
             onClick={handleTestRun}
@@ -3105,6 +3152,23 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
           </SettingsSection>
 
           <SettingsSection title="Prompt Guidance" description="Optional copy direction added to Creative Director prompts. Leave blank when you want the angle brief to lead.">
+            <div>
+              <FieldLabel tooltip="Optional. Scheduled Creative Director runs will randomly use only active uploaded templates with this tag. Leave blank for the normal random template pool.">Template Tag</FieldLabel>
+              <select
+                value={config.template_tag || ''}
+                onChange={e => {
+                  const next = e.target.value;
+                  handleSaveConfig({ template_tag: next });
+                  setTestTemplateTag(prev => prev || next);
+                }}
+                onFocus={() => loadTemplates(selectedProject)}
+                className="text-[12px] text-ed-ink bg-ed-bg border border-black/10 rounded-lg px-3 py-1.5 cursor-pointer"
+              >
+                <option value="">Any active template</option>
+                {templateTags.map(tag => <option key={tag} value={tag}>{tag}</option>)}
+              </select>
+              <p className="text-[9px] text-ed-ink3 mt-0.5">Blocks before paid generation if the selected tag has no active templates.</p>
+            </div>
             <div>
               <FieldLabel>Headline Style</FieldLabel>
               <input

@@ -90,6 +90,32 @@ function CredentialRemoveButton({ settingKey, settings, onRemove }) {
   );
 }
 
+function PasswordInput({ className = '', ...props }) {
+  const [visible, setVisible] = useState(false);
+  return (
+    <div className="relative flex-1 min-w-0">
+      <input
+        {...props}
+        type={visible ? 'text' : 'password'}
+        className={`${className} pr-10`}
+      />
+      <button
+        type="button"
+        onClick={() => setVisible(v => !v)}
+        className="absolute inset-y-0 right-2 my-auto h-7 w-7 rounded-md flex items-center justify-center text-ed-ink3 hover:text-ed-ink2 hover:bg-black/5 transition-colors"
+        aria-label={visible ? 'Hide password' : 'Show password'}
+        title={visible ? 'Hide' : 'Show'}
+      >
+        {visible ? (
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M3.98 8.223A10.477 10.477 0 001.934 12C3.226 16.338 7.244 19.5 12 19.5c1.72 0 3.344-.414 4.777-1.148M6.228 6.228A10.45 10.45 0 0112 4.5c4.756 0 8.773 3.162 10.065 7.498a10.523 10.523 0 01-4.293 5.774M6.228 6.228L3 3m3.228 3.228l12.544 12.544M9.879 9.879a3 3 0 104.243 4.243" /></svg>
+        ) : (
+          <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M2.036 12.322a1.012 1.012 0 010-.644C3.423 7.51 7.36 4.5 12 4.5c4.638 0 8.573 3.007 9.963 7.178.07.207.07.437 0 .644C20.577 16.49 16.64 19.5 12 19.5c-4.638 0-8.573-3.007-9.964-7.178z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.8} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+        )}
+      </button>
+    </div>
+  );
+}
+
 // ─── User Management Card ─────────────────────────────────────────────
 const ROLE_OPTIONS = [
   { value: 'admin', label: 'Admin', description: 'Full access to everything' },
@@ -255,8 +281,7 @@ function UserManagementCard({ currentUserId, currentUsername }) {
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-[11px] font-medium text-ed-ink2 mb-1">Password</label>
-              <input
-                type="password"
+              <PasswordInput
                 value={createForm.password}
                 onChange={e => setCreateForm(prev => ({ ...prev, password: e.target.value }))}
                 className="input-apple !border-ed-line focus:!ring-ed-accent/20 focus:!border-ed-accent text-[12px]"
@@ -335,8 +360,7 @@ function UserManagementCard({ currentUserId, currentUsername }) {
                     <span className="text-[12px] font-medium text-ed-ink">Reset password for {rowUser.username}</span>
                   </div>
                   <div className="flex items-center gap-2">
-                    <input
-                      type="password"
+                    <PasswordInput
                       value={newPassword}
                       onChange={e => setNewPassword(e.target.value)}
                       placeholder="New password (min 12 chars)"
@@ -676,7 +700,7 @@ export default function Settings() {
             <InfoTooltip text="This name is used for the dashboard greeting and the account label in the navigation." position="right" />
           </h2>
           <p className="text-[12px] text-ed-ink3 mb-4">
-            Choose the name Creative Factory should use when it greets you.
+            Choose the name your dashboard should use when it greets you.
           </p>
           {profileMsg && (
             <div className={`text-[13px] rounded-xl p-3 mb-4 ${
@@ -726,8 +750,7 @@ export default function Settings() {
           <form onSubmit={handlePasswordChange} className="space-y-4">
             <div>
               <label className="block text-[13px] font-medium text-ed-ink2 mb-1.5">Current Password</label>
-              <input
-                type="password"
+              <PasswordInput
                 value={passwordForm.currentPassword}
                 onChange={e => setPasswordForm(p => ({ ...p, currentPassword: e.target.value }))}
                 className="input-apple !border-ed-line focus:!ring-ed-accent/20 focus:!border-ed-accent"
@@ -737,8 +760,7 @@ export default function Settings() {
             </div>
             <div>
               <label className="block text-[13px] font-medium text-ed-ink2 mb-1.5">New Password</label>
-              <input
-                type="password"
+              <PasswordInput
                 value={passwordForm.newPassword}
                 onChange={e => setPasswordForm(p => ({ ...p, newPassword: e.target.value }))}
                 className="input-apple !border-ed-line focus:!ring-ed-accent/20 focus:!border-ed-accent"
@@ -752,8 +774,7 @@ export default function Settings() {
             </div>
             <div>
               <label className="block text-[13px] font-medium text-ed-ink2 mb-1.5">Confirm New Password</label>
-              <input
-                type="password"
+              <PasswordInput
                 value={passwordForm.confirmPassword}
                 onChange={e => setPasswordForm(p => ({ ...p, confirmPassword: e.target.value }))}
                 className="input-apple !border-ed-line focus:!ring-ed-accent/20 focus:!border-ed-accent"
@@ -793,8 +814,7 @@ export default function Settings() {
                 <InfoTooltip text="Used for copywriting, Creative Director reasoning, GPT Image 2 image generation, and quality checks. GPT Image 2 also requires image-model access on the key's OpenAI organization." position="right" />
               </label>
               <div className="flex flex-wrap gap-2">
-                <input
-                  type="password"
+                <PasswordInput
                   value={form.openai_api_key}
                   onChange={e => setForm(p => ({ ...p, openai_api_key: e.target.value }))}
                   className="input-apple !border-ed-line focus:!ring-ed-accent/20 focus:!border-ed-accent flex-1 min-w-[220px]"
@@ -838,8 +858,7 @@ export default function Settings() {
                 <InfoTooltip text="Used for Gemini image generation and batch generation. Gemini costs are tracked with the image rates below." position="right" />
               </label>
               <div className="flex gap-2">
-                <input
-                  type="password"
+                <PasswordInput
                   value={form.gemini_api_key}
                   onChange={e => setForm(p => ({ ...p, gemini_api_key: e.target.value }))}
                   className="input-apple !border-ed-line focus:!ring-ed-accent/20 focus:!border-ed-accent flex-1"
@@ -869,8 +888,7 @@ export default function Settings() {
                 <InfoTooltip text="Required for Creative Filter QA and Ready-to-Post copy generation. Test runs will stop before image generation if Anthropic is missing or invalid." position="right" />
               </label>
               <div className="flex gap-2">
-                <input
-                  type="password"
+                <PasswordInput
                   value={form.anthropic_api_key}
                   onChange={e => setForm(p => ({ ...p, anthropic_api_key: e.target.value }))}
                   className="input-apple !border-ed-line focus:!ring-ed-accent/20 focus:!border-ed-accent flex-1"
@@ -933,8 +951,7 @@ export default function Settings() {
                 <InfoTooltip text="The private secret for the Facebook App. Required for Meta OAuth and kept hidden after saving." position="right" />
               </label>
               <div className="flex gap-2">
-                <input
-                  type="password"
+                <PasswordInput
                   value={form.meta_app_secret}
                   onChange={e => setForm(p => ({ ...p, meta_app_secret: e.target.value }))}
                   className="input-apple !border-ed-line focus:!ring-ed-accent/20 focus:!border-ed-accent flex-1"

@@ -191,7 +191,7 @@ router.put('/config/:projectId', async (req, res) => {
       'enabled', 'daily_flex_target', 'ads_per_batch', 'angle_mode',
       'angle_rotation', 'explore_ratio', 'run_schedule', 'run_schedule_days', 'run_schedule_hour', 'posting_days',
       'score_threshold', 'auto_learn',
-      'headline_style', 'primary_text_style', 'default_campaign_id',
+      'headline_style', 'primary_text_style', 'template_tag', 'default_campaign_id',
       // Phase 4 — sub-angle derivation + health-biased Director
       'health_bias',
       'sub_angle_derivation_enabled',
@@ -486,7 +486,7 @@ router.post('/run/:projectId', async (req, res) => {
 
 // POST /api/conductor/test-run/:projectId — full pipeline: Director → batch → Gemini → Filter → Ready to Post
 router.post('/test-run/:projectId', async (req, res) => {
-  const { angle_id, ads_per_ad_set } = req.body || {};
+  const { angle_id, ads_per_ad_set, template_tag } = req.body || {};
   const selectedAngleId = typeof angle_id === 'string' ? angle_id.trim() : '';
   if (!selectedAngleId) {
     return res.status(400).json({ error: 'Choose a test angle before starting a Creative Director test run.' });
@@ -505,6 +505,7 @@ router.post('/test-run/:projectId', async (req, res) => {
     const result = await runFullTestPipeline(req.params.projectId, sendEvent, {
       angleOverride: selectedAngleId,
       adsPerAdSetTarget: selectedTarget,
+      templateTag: template_tag || '',
     });
     if (result.pipeline_failed) {
       sendEvent({ type: 'error', message: result.failure_reason, ...result });

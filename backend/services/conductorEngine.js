@@ -30,6 +30,8 @@ import {
   repairBodyCopy,
   selectInspirationImage,
   selectTemplateImage,
+  assertTemplateTagHasActiveTemplates,
+  normalizeTemplateTag,
 } from './adGenerator.js';
 import { copyStorageBlob } from '../utils/adImages.js';
 
@@ -285,6 +287,7 @@ export async function runDirectorForProject(projectId, runType = 'manual') {
           angle_name: angleInfo.name,
           angle_prompt: anglePrompt,
           angle_brief: angleBriefJSON,
+          template_tag: normalizeTemplateTag(config?.template_tag) || undefined,
         });
 
         // Update angle usage stats (skip for fallback angles with no DB record)
@@ -1057,7 +1060,7 @@ function getTestRoundBatchSize(roundNumber, totalAdsPassed, requiredPasses = TES
   return Math.max(2, Math.min(target, remaining * TEST_RUN_REFILL_MULTIPLIER));
 }
 
-async function assertTestRunProviderPreflight(projectId) {
+async function assertTestRunProviderPreflight(projectId, { templateTag = '' } = {}) {
   const [openAIKey, geminiKey, anthropicKey, project] = await Promise.all([
     getSetting('openai_api_key'),
     getSetting('gemini_api_key'),
@@ -1081,6 +1084,15 @@ async function assertTestRunProviderPreflight(projectId) {
     await ensureDefaultCampaign(project);
   } catch (err) {
     throw new Error(`Creative Director test run is blocked before generation: could not resolve an automation campaign. ${err.message || 'Choose or create a campaign in Ad Automation settings.'}`);
+  }
+
+  const normalizedTemplateTag = normalizeTemplateTag(templateTag);
+  if (normalizedTemplateTag) {
+    try {
+      await assertTemplateTagHasActiveTemplates(projectId, normalizedTemplateTag);
+    } catch (err) {
+      throw new Error(`Creative Director test run is blocked before generation: ${err.message}`);
+    }
   }
 
   try {
@@ -1434,6 +1446,7 @@ async function createTestBatchRound({
   emit,
   updateAngleUsage = false,
   queueForScheduler = false,
+  templateTag = '',
 }) {
   const batchId = uuidv4();
   const queuedAt = queueForScheduler ? new Date().toISOString() : undefined;
@@ -1459,6 +1472,7 @@ async function createTestBatchRound({
     angle_name: angleInfo.name,
     angle_prompt: anglePrompt,
     angle_brief: angleBriefJSON,
+    template_tag: normalizeTemplateTag(templateTag) || undefined,
     status: queueForScheduler ? 'queued' : undefined,
     queued_at: queuedAt,
     last_heartbeat_at: queuedAt,
@@ -1477,6 +1491,7 @@ async function createTestBatchRound({
     ad_count: batchSize,
     posting_day: 'test',
     round: roundNumber,
+    template_tag: normalizeTemplateTag(templateTag) || '',
   };
 }
 
@@ -3036,6 +3051,7 @@ async function continueBackgroundTestRun(run) {
       emit: () => {},
       updateAngleUsage: false,
       queueForScheduler: true,
+      templateTag: run.template_tag || batch.template_tag || '',
     });
 
     batchInfos.push(nextBatchInfo);
@@ -3047,6 +3063,7 @@ async function continueBackgroundTestRun(run) {
       error: '',
       failure_reason: '',
       error_stage: '',
+      template_tag: run.template_tag || batch.template_tag || undefined,
       posting_days: getTestPostingDays(angleName),
       batches_created: stringifyJSON(batchInfos),
       rounds_json: stringifyJSON(roundDetails),
@@ -3362,12 +3379,13 @@ export async function cancelTestRun(projectId) {
  *
  * @param {string} projectId
  * @param {(event: object) => void} sendEvent - SSE event emitter
- * @param {{ angleOverride?: string, adsPerAdSetTarget?: number }} options
+ * @param {{ angleOverride?: string, adsPerAdSetTarget?: number, templateTag?: string }} options
  * @returns {object} Combined result from Director + Filter phases
  */
-export async function runFullTestPipeline(projectId, sendEvent, { angleOverride = null, adsPerAdSetTarget = TEST_RUN_DEFAULT_TARGET } = {}) {
+export async function runFullTestPipeline(projectId, sendEvent, { angleOverride = null, adsPerAdSetTarget = TEST_RUN_DEFAULT_TARGET, templateTag = '' } = {}) {
   const rawEmit = sendEvent || (() => {});
   const requiredPasses = normalizeTestRunAdTarget(adsPerAdSetTarget);
+  const normalizedTemplateTag = normalizeTemplateTag(templateTag);
 
   if (findTrackedTestRun(projectId) || await hasDurableActiveTestRun(projectId)) {
     throw new Error('A test run is already in progress for this project. Cancel it or wait for it to finish before starting another.');
@@ -3448,7 +3466,7 @@ export async function runFullTestPipeline(projectId, sendEvent, { angleOverride 
       message: `Checking project settings. Target: ${requiredPasses} approved ads.`,
       targetCount: requiredPasses,
     });
-    await assertTestRunProviderPreflight(projectId);
+    await assertTestRunProviderPreflight(projectId, { templateTag: normalizedTemplateTag });
     runId = uuidv4();
     runProgress.runId = runId;
 
@@ -3460,6 +3478,7 @@ export async function runFullTestPipeline(projectId, sendEvent, { angleOverride 
       status: 'running',
       required_passes: requiredPasses,
       ads_per_round: getTestRoundBatchSize(1, 0, requiredPasses),
+      template_tag: normalizedTemplateTag || undefined,
       max_rounds: TEST_RUN_MAX_ROUNDS,
     });
 
@@ -3500,6 +3519,7 @@ export async function runFullTestPipeline(projectId, sendEvent, { angleOverride 
         roundNumber,
         emit,
         updateAngleUsage: roundNumber === 1,
+        templateTag: normalizedTemplateTag,
       });
 
       batchInfos.push(batchInfo);

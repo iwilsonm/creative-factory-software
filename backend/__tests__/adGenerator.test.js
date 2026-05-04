@@ -10,6 +10,7 @@ vi.mock('../convexClient.js', () => ({
   getAllInspirationImages: vi.fn(),
   getInspirationImageUrl: vi.fn(),
   getTemplateImagesByProject: vi.fn(),
+  getAllTemplateImages: vi.fn(),
   getAdImageUrl: vi.fn(),
   getSetting: vi.fn(),
   convexClient: { query: vi.fn(), mutation: vi.fn() },
@@ -51,11 +52,13 @@ vi.mock('sharp', () => ({
 }));
 
 import { chatWithImage } from '../services/openai.js';
+import { getAllTemplateImages } from '../convexClient.js';
 import {
   repairJSON,
   buildCreativeDirectorPrompt,
   buildImageRequestText,
   generateImagePromptsBatch,
+  assertTemplateTagHasActiveTemplates,
 } from '../services/adGenerator.js';
 
 // ── repairJSON ──────────────────────────────────────────────────────────────
@@ -103,6 +106,29 @@ describe('repairJSON', () => {
 
   it('throws on completely invalid JSON', () => {
     expect(() => repairJSON('not json at all')).toThrow();
+  });
+});
+
+describe('template tag preflight', () => {
+  it('passes when an active template has the requested tag', async () => {
+    getAllTemplateImages.mockResolvedValue([
+      { externalId: 'archived', storageId: 's1', tags: ['sleep'], archived_at: '2026-05-01T00:00:00Z' },
+      { externalId: 'active', storageId: 's2', tags: ['Sleep'], archived_at: null },
+    ]);
+
+    await expect(assertTemplateTagHasActiveTemplates('proj-1', 'sleep')).resolves.toMatchObject({
+      tag: 'sleep',
+      count: 1,
+    });
+  });
+
+  it('blocks before generation when no active template matches the requested tag', async () => {
+    getAllTemplateImages.mockResolvedValue([
+      { externalId: 'other', storageId: 's1', tags: ['testimonial'], archived_at: null },
+      { externalId: 'archived', storageId: 's2', tags: ['sleep'], archived_at: '2026-05-01T00:00:00Z' },
+    ]);
+
+    await expect(assertTemplateTagHasActiveTemplates('proj-1', 'sleep')).rejects.toThrow('No active templates are tagged "sleep"');
   });
 });
 

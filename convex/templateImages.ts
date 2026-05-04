@@ -56,12 +56,15 @@ export const create = mutation({
     filename: v.string(),
     storageId: v.optional(v.id("_storage")),
     description: v.optional(v.string()),
+    tags: v.optional(v.array(v.string())),
   },
   handler: async (ctx, args) => {
     const now = new Date().toISOString();
     await ctx.db.insert("template_images", {
       ...args,
+      tags: args.tags || [],
       created_at: now,
+      updated_at: now,
     });
   },
 });
@@ -70,6 +73,8 @@ export const update = mutation({
   args: {
     externalId: v.string(),
     description: v.optional(v.string()),
+    tags: v.optional(v.array(v.string())),
+    archived_at: v.optional(v.union(v.string(), v.null())),
     storageId: v.optional(v.id("_storage")),
     analysis: v.optional(v.string()),
   },
@@ -85,6 +90,7 @@ export const update = mutation({
     for (const [key, value] of Object.entries(updates)) {
       if (value !== undefined) filtered[key] = value;
     }
+    filtered.updated_at = new Date().toISOString();
     await ctx.db.patch(img._id, filtered);
   },
 });

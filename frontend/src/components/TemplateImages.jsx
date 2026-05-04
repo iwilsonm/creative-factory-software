@@ -1,4 +1,4 @@
-import { useState, useRef, useCallback } from 'react';
+import { useState, useRef, useCallback, useMemo } from 'react';
 import { api } from '../api';
 import InfoTooltip from './InfoTooltip';
 import ConfirmDialog from './ConfirmDialog';
@@ -9,6 +9,11 @@ const MAX_FILE_BYTES = 20 * 1024 * 1024; // matches multer's 20 MB limit on the 
 const HARD_CAP_FILES = 1000;             // defensive ceiling against a stray "select all" of a Pictures folder
 const UPLOAD_CONCURRENCY = 5;            // sliding-window: 5 in flight at any time
 
+function normalizeTemplateTags(value) {
+  const raw = Array.isArray(value) ? value : String(value || '').split(',');
+  return [...new Set(raw.map(t => String(t || '').trim()).filter(Boolean))];
+}
+
 /**
  * Templates tab — direct multi-file upload (no Google Drive sync).
  * Up to 500 files at a time (HARD_CAP_FILES is the absolute ceiling), 5 in parallel.
@@ -16,7 +21,7 @@ const UPLOAD_CONCURRENCY = 5;            // sliding-window: 5 in flight at any t
 export default function TemplateImages({ projectId }) {
   // Uploaded templates (the only source — Drive sync was dropped)
   const { data: templates, setData: setTemplates, loading: loadingTemplates } = useAsyncData(
-    () => api.getTemplates(projectId).then(d => d.templates || []),
+    () => api.getTemplates(projectId, { includeArchived: true }).then(d => d.templates || []),
     [projectId]
   );
 
@@ -35,6 +40,8 @@ export default function TemplateImages({ projectId }) {
   const fileInputRef = useRef(null);
 
   const uploading = !!batch && batch.completed < batch.total;
+  const activeTemplates = useMemo(() => (templates || []).filter(t => !t.archived_at), [templates]);
+  const archivedTemplates = useMemo(() => (templates || []).filter(t => t.archived_at), [templates]);
 
   const handleBatchUpload = useCallback(async (rawFiles) => {
     setError('');
@@ -134,7 +141,7 @@ export default function TemplateImages({ projectId }) {
     if (!pendingDeleteImage) return;
     try {
       await api.deleteTemplate(projectId, pendingDeleteImage.id);
-      setTemplates(prev => prev.filter(t => t.id !== pendingDeleteImage.id));
+      setTemplates(prev => (prev || []).filter(t => t.id !== pendingDeleteImage.id));
       if (viewImage?.id === pendingDeleteImage.id) setViewImage(null);
       setPendingDeleteImage(null);
     } catch (err) {
@@ -146,12 +153,57 @@ export default function TemplateImages({ projectId }) {
     setSavingDescId(imageId);
     try {
       await api.updateTemplate(projectId, imageId, descValue);
-      setTemplates(prev => prev.map(t => t.id === imageId ? { ...t, description: descValue } : t));
+      setTemplates(prev => (prev || []).map(t => t.id === imageId ? { ...t, description: descValue } : t));
       setEditingDesc(null);
     } catch (err) {
       setError(err.message);
     } finally {
       setSavingDescId(null);
+    }
+  };
+
+  const updateTemplateLocal = (imageId, fields) => {
+    setTemplates(prev => (prev || []).map(t => t.id === imageId ? { ...t, ...fields } : t));
+  };
+
+  const handleAddTag = async (tmpl) => {
+    const tag = window.prompt('Add template tag');
+    const nextTags = normalizeTemplateTags([...(tmpl.tags || []), tag]);
+    if (!tag || nextTags.length === (tmpl.tags || []).length) return;
+    try {
+      const updated = await api.updateTemplate(projectId, tmpl.id, { tags: nextTags });
+      updateTemplateLocal(tmpl.id, updated);
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  const handleRemoveTag = async (tmpl, tag) => {
+    const nextTags = normalizeTemplateTags(tmpl.tags || []).filter(t => t !== tag);
+    try {
+      const updated = await api.updateTemplate(projectId, tmpl.id, { tags: nextTags });
+      updateTemplateLocal(tmpl.id, updated);
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  const handleArchive = async (tmpl) => {
+    try {
+      const updated = await api.updateTemplate(projectId, tmpl.id, { archived_at: new Date().toISOString() });
+      updateTemplateLocal(tmpl.id, updated);
+      if (viewImage?.id === tmpl.id) setViewImage(null);
+    } catch (err) {
+      setError(err.message);
+    }
+  };
+
+  const handleUnarchive = async (tmpl) => {
+    try {
+      const updated = await api.updateTemplate(projectId, tmpl.id, { archived_at: null });
+      updateTemplateLocal(tmpl.id, updated);
+    } catch (err) {
+      setError(err.message);
     }
   };
 
@@ -179,7 +231,8 @@ export default function TemplateImages({ projectId }) {
             <InfoTooltip text="Reference ad images used as style guides for AI ad generation. Upload up to 500 at a time." position="right" />
           </h3>
           <p className="text-[12px] text-ed-ink3">
-            {templates.length} template{templates.length !== 1 ? 's' : ''} uploaded
+            {activeTemplates.length} active template{activeTemplates.length !== 1 ? 's' : ''} uploaded
+            {archivedTemplates.length > 0 ? ` · ${archivedTemplates.length} archived` : ''}
           </p>
         </div>
 
@@ -263,7 +316,7 @@ export default function TemplateImages({ projectId }) {
         />
 
         {/* Templates grid */}
-        {templates.length === 0 ? (
+        {activeTemplates.length === 0 ? (
           <div className="text-center py-2">
             <p className="text-[11px] text-ed-ink3">
               Upload reference ads you want the AI to use as style guides.
@@ -271,7 +324,7 @@ export default function TemplateImages({ projectId }) {
           </div>
         ) : (
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
-            {templates.map(tmpl => (
+            {activeTemplates.map(tmpl => (
               <div
                 key={tmpl.id}
                 className="group ed-card overflow-hidden transition-all duration-300"
@@ -333,7 +386,30 @@ export default function TemplateImages({ projectId }) {
                       {tmpl.description || 'Click to add description...'}
                     </p>
                   )}
+                  {normalizeTemplateTags(tmpl.tags).length > 0 && (
+                    <div className="flex flex-wrap gap-1 mt-2">
+                      {normalizeTemplateTags(tmpl.tags).map(tag => (
+                        <span key={tag} className="inline-flex items-center gap-1 px-1.5 py-0.5 rounded-full bg-ed-accent/10 text-ed-accent text-[9px] font-medium">
+                          {tag}
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); handleRemoveTag(tmpl, tag); }}
+                            className="text-ed-accent/70 hover:text-ed-accent"
+                            aria-label={`Remove ${tag} tag`}
+                          >
+                            ×
+                          </button>
+                        </span>
+                      ))}
+                    </div>
+                  )}
                   <div className="flex gap-2 mt-1.5">
+                    <button
+                      onClick={(e) => { e.stopPropagation(); handleAddTag(tmpl); }}
+                      className="action-link"
+                    >
+                      Tag
+                    </button>
                     <button
                       onClick={(e) => {
                         e.stopPropagation();
@@ -343,6 +419,12 @@ export default function TemplateImages({ projectId }) {
                       className="action-link"
                     >
                       Edit
+                    </button>
+                    <button
+                      onClick={(e) => { e.stopPropagation(); handleArchive(tmpl); }}
+                      className="action-link"
+                    >
+                      Archive
                     </button>
                     <button
                       onClick={(e) => { e.stopPropagation(); setPendingDeleteImage(tmpl); }}
@@ -357,6 +439,38 @@ export default function TemplateImages({ projectId }) {
           </div>
         )}
       </div>
+
+      {archivedTemplates.length > 0 && (
+        <details className="ed-card p-6">
+          <summary className="cursor-pointer text-[14px] font-serif font-[420] text-ed-ink">
+            Archived Templates ({archivedTemplates.length})
+          </summary>
+          <p className="text-[11px] text-ed-ink3 mt-1 mb-4">
+            Archived templates are hidden from new generation until restored.
+          </p>
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+            {archivedTemplates.map(tmpl => (
+              <div key={tmpl.id} className="ed-card overflow-hidden opacity-80">
+                <div className="aspect-square bg-ed-bg cursor-pointer" onClick={() => setViewImage(tmpl)}>
+                  <img src={tmpl.thumbnailUrl} alt={tmpl.filename} className="w-full h-full object-cover" loading="lazy" />
+                </div>
+                <div className="p-2.5">
+                  <p className="text-[11px] text-ed-ink font-medium truncate" title={tmpl.filename}>{tmpl.filename}</p>
+                  <p className="text-[10px] text-ed-ink3 mt-0.5">
+                    Archived {tmpl.archived_at ? new Date(tmpl.archived_at).toLocaleDateString() : ''}
+                  </p>
+                  <button
+                    onClick={(e) => { e.stopPropagation(); handleUnarchive(tmpl); }}
+                    className="action-link mt-1.5"
+                  >
+                    Unarchive
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        </details>
+      )}
 
       {/* Full-size image modal */}
       {viewImage && (

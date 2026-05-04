@@ -115,6 +115,7 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
   const [bulkMarking, setBulkMarking] = useState(false);
   const [bulkDeleteConfirm, setBulkDeleteConfirm] = useState(false);
   const [bulkDeleting, setBulkDeleting] = useState(false);
+  const [previewImage, setPreviewImage] = useState(null);
 
   const toggleCardSelection = (cardKey, cardType) => {
     setSelectedCards(prev => {
@@ -1760,7 +1761,14 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
               </div>
             </div>
             {thumbUrl && (
-              <img src={thumbUrl} alt="" className="w-14 h-14 object-cover rounded-xl bg-ed-bg flex-shrink-0" loading="lazy" />
+              <button
+                type="button"
+                onClick={(e) => { e.stopPropagation(); setPreviewImage(dep); }}
+                className="w-14 h-14 rounded-xl bg-ed-bg flex-shrink-0 overflow-hidden cursor-zoom-in"
+                title="Preview image"
+              >
+                <img src={thumbUrl} alt="" className="w-full h-full object-cover" loading="lazy" />
+              </button>
             )}
           </div>
 
@@ -1830,7 +1838,14 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
                     {downloadingSingle.has(dep.id) ? 'Downloading...' : 'Download Image'}
                   </button>
                 </div>
-                <img src={thumbUrl} alt="" className="w-full max-w-[150px] rounded-xl bg-ed-bg" loading="lazy" />
+                <button
+                  type="button"
+                  onClick={() => setPreviewImage(dep)}
+                  className="block w-full max-w-[150px] rounded-xl bg-ed-bg overflow-hidden cursor-zoom-in"
+                  title="Preview image"
+                >
+                  <img src={thumbUrl} alt="" className="w-full rounded-xl bg-ed-bg" loading="lazy" />
+                </button>
               </div>
             )}
 
@@ -2076,9 +2091,16 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
                         </label>
                       )}
                       {d.imageUrl ? (
-                        <img src={d.imageUrl} alt=""
-                          className={`w-full aspect-square object-cover rounded-xl bg-ed-bg transition-all ${isSelected ? 'ring-2 ring-ed-accent ring-offset-2' : ''}`}
-                          loading="lazy" />
+                        <button
+                          type="button"
+                          onClick={() => setPreviewImage(d)}
+                          className={`w-full aspect-square rounded-xl bg-ed-bg overflow-hidden cursor-zoom-in transition-all ${isSelected ? 'ring-2 ring-ed-accent ring-offset-2' : ''}`}
+                          title="Preview image"
+                        >
+                          <img src={d.imageUrl} alt=""
+                            className="w-full h-full object-cover"
+                            loading="lazy" />
+                        </button>
                       ) : (
                         <div className="w-full aspect-square rounded-xl bg-ed-bg" />
                       )}
@@ -2429,6 +2451,54 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
         }}
         onCancel={() => setBulkDeleteConfirm(false)}
       />
+
+      {previewImage && createPortal(
+        <div
+          className="fixed inset-0 z-[95] bg-black/70 backdrop-blur-sm flex items-center justify-center p-4"
+          onClick={() => setPreviewImage(null)}
+        >
+          <div
+            className="bg-ed-surface rounded-2xl shadow-card-hover max-w-5xl w-full max-h-[92vh] overflow-hidden"
+            onClick={e => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between gap-3 px-4 py-3 border-b border-ed-line">
+              <div className="min-w-0">
+                <p className="text-[13px] font-medium text-ed-ink truncate">
+                  {previewImage.ad_name || previewImage.ad?.headline || 'Ready to Post image'}
+                </p>
+                <p className="text-[11px] text-ed-ink3">Preview</p>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => downloadSingleImage(previewImage)}
+                  disabled={downloadingSingle.has(previewImage.id)}
+                  className="inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-ed-accent text-white text-[12px] font-bold hover:bg-ed-accent/90 transition-colors disabled:opacity-50"
+                >
+                  {downloadingSingle.has(previewImage.id) ? 'Downloading...' : 'Download'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPreviewImage(null)}
+                  className="w-8 h-8 rounded-lg bg-black/5 flex items-center justify-center text-ed-ink3 hover:text-ed-ink2 hover:bg-black/10 transition-all"
+                  aria-label="Close preview"
+                >
+                  <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" /></svg>
+                </button>
+              </div>
+            </div>
+            <div className="bg-ed-bg p-3 flex items-center justify-center" style={{ maxHeight: 'calc(92vh - 64px)' }}>
+              <img
+                src={previewImage.imageUrl}
+                alt={previewImage.ad_name || previewImage.ad?.headline || 'Ready to Post image'}
+                className="max-w-full object-contain rounded-xl"
+                style={{ maxHeight: 'calc(92vh - 96px)' }}
+              />
+            </div>
+          </div>
+        </div>,
+        document.body
+      )}
 
       {/* Phase 6.20a — Mark as Posted backdate modal. Opens when user clicks
           "Pick date…" on a flex/ad_set; on save, calls handleMarkFlexPosted

@@ -5,7 +5,7 @@ import { getProject, getLatestDoc, getAdsByProject, getInProgressAdsByProject, g
 // Vercel function maxDuration is 60s. Anything older is definitively a zombie.
 // Allow 4-min buffer for cold starts and clock skew. Update if vercel.json maxDuration changes.
 const STUCK_ADS_THRESHOLD_MIN = 5;
-import { generateAd, generateAdMode2, regenerateImageOnly, applyPromptEdit } from '../services/adGenerator.js';
+import { generateAd, generateAdMode2, regenerateImageOnly, applyPromptEdit, assertTemplateTagHasActiveTemplates, normalizeTemplateTag } from '../services/adGenerator.js';
 import { generateBodyCopy } from '../services/bodyCopyGenerator.js';
 import { chat } from '../services/openai.js';
 
@@ -54,7 +54,8 @@ router.post('/:projectId/generate-ad', async (req, res) => {
   const project = await getProject(req.params.projectId);
   if (!project) return res.status(404).json({ error: 'Project not found' });
 
-  let { mode = 'mode1', aspect_ratio, angle, inspiration_image_id, uploaded_image, uploaded_image_mime, product_image, product_image_mime, headline, body_copy, template_image_id, skip_product_image, image_model, save_as_project_default } = req.body;
+  let { mode = 'mode1', aspect_ratio, angle, inspiration_image_id, uploaded_image, uploaded_image_mime, product_image, product_image_mime, headline, body_copy, template_image_id, template_tag, skip_product_image, image_model, save_as_project_default } = req.body;
+  template_tag = normalizeTemplateTag(template_tag);
 
   // If user opted to save the per-ad product image as the project default,
   // persist it BEFORE generation so the image is saved even if generation fails.
@@ -99,6 +100,14 @@ router.post('/:projectId/generate-ad', async (req, res) => {
     return res.status(400).json({ error: 'template_image_id is required for Mode 2 generation.' });
   }
 
+  if (mode === 'mode1' && template_tag && !inspiration_image_id && !uploaded_image) {
+    try {
+      await assertTemplateTagHasActiveTemplates(req.params.projectId, template_tag);
+    } catch (err) {
+      return res.status(400).json({ error: err.message });
+    }
+  }
+
   streamService(req, res, async (sendEvent) => {
     if (productImageWarning) {
       sendEvent({ type: 'warning', tag: 'product_image_fetch_failed', message: productImageWarning });
@@ -121,6 +130,7 @@ router.post('/:projectId/generate-ad', async (req, res) => {
         aspectRatio: aspect_ratio || '1:1',
         imageModel: image_model || undefined,
         inspirationImageId: inspiration_image_id,
+        templateTag: template_tag || undefined,
         uploadedImageBase64: uploaded_image || undefined,
         uploadedImageMimeType: uploaded_image_mime || undefined,
         productImageBase64: product_image || undefined,

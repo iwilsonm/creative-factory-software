@@ -79,8 +79,11 @@ export default defineSchema({
     filename: v.string(),
     storageId: v.optional(v.id("_storage")),
     description: v.optional(v.string()),
+    tags: v.optional(v.array(v.string())),
+    archived_at: v.optional(v.union(v.string(), v.null())),
     analysis: v.optional(v.string()),
     created_at: v.string(),
+    updated_at: v.optional(v.string()),
   })
     .index("by_externalId", ["externalId"])
     .index("by_project", ["project_id"]),
@@ -174,6 +177,7 @@ export default defineSchema({
     aspect_ratio: v.optional(v.string()),
     template_image_id: v.optional(v.string()),
     template_image_ids: v.optional(v.string()),      // JSON array of uploaded template IDs (multi-select)
+    template_tag: v.optional(v.string()),
     inspiration_image_id: v.optional(v.string()),
     inspiration_image_ids: v.optional(v.string()),    // JSON array of drive template IDs (multi-select)
     product_image_storageId: v.optional(v.id("_storage")),
@@ -424,6 +428,7 @@ export default defineSchema({
     angle_rotation: v.string(),         // "round_robin" | "weighted" | "random"
     headline_style: v.optional(v.string()),      // freeform prompt guidance
     primary_text_style: v.optional(v.string()),  // freeform prompt guidance
+    template_tag: v.optional(v.string()),         // optional uploaded-template tag for Director random template selection
     default_campaign_id: v.optional(v.string()),  // → campaigns.externalId for auto-deployed ad sets
     run_schedule: v.string(),           // "daily" | "weekdays" | "weekly_monday" | "custom" | "manual_only"
     run_schedule_days: v.optional(v.string()),   // JSON array of day numbers (0=Sun...6=Sat) for custom schedule
@@ -528,6 +533,7 @@ export default defineSchema({
     failure_reason: v.optional(v.string()),
     required_passes: v.optional(v.number()),
     ads_per_round: v.optional(v.number()),
+    template_tag: v.optional(v.string()),
     max_rounds: v.optional(v.number()),
     total_rounds: v.optional(v.number()),
     total_ads_generated: v.optional(v.number()),

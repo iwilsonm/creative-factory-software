@@ -36,6 +36,7 @@ const mockBuildAngleBriefJSON = vi.fn();
 const mockGenerateImagePrompt = vi.fn();
 const mockRegenerateImageOnly = vi.fn();
 const mockRepairBodyCopy = vi.fn();
+const mockAssertTemplateTagHasActiveTemplates = vi.fn();
 const mockAnthropicChat = vi.fn();
 
 vi.mock('uuid', () => ({
@@ -101,6 +102,8 @@ vi.mock('../services/adGenerator.js', () => ({
   generateImagePrompt: (...args) => mockGenerateImagePrompt(...args),
   regenerateImageOnly: (...args) => mockRegenerateImageOnly(...args),
   repairBodyCopy: (...args) => mockRepairBodyCopy(...args),
+  normalizeTemplateTag: (tag) => String(tag || '').trim(),
+  assertTemplateTagHasActiveTemplates: (...args) => mockAssertTemplateTagHasActiveTemplates(...args),
 }));
 
 vi.mock('../services/anthropic.js', () => ({
@@ -261,6 +264,7 @@ describe('conductorEngine test-run pipeline', () => {
     mockGenerateImagePrompt.mockResolvedValue('documentary image prompt');
     mockRegenerateImageOnly.mockResolvedValue({ id: 'repaired-image-ad' });
     mockRepairBodyCopy.mockResolvedValue({ body_copy: 'Repaired body copy with clear CTA.' });
+    mockAssertTemplateTagHasActiveTemplates.mockResolvedValue({ tag: 'sleep', count: 2 });
     mockScoreAd.mockResolvedValue({
       ad_id: 'repair-score',
       overall_score: 45,
@@ -309,6 +313,26 @@ describe('conductorEngine test-run pipeline', () => {
     expect(mockCreateBatchJob.mock.calls[0][0].batch_size).toBe(3);
     expect(mockFinalizePassingAds).toHaveBeenCalledWith(expect.objectContaining({
       targetCount: 3,
+    }));
+  });
+
+  it('preflights and persists the selected template tag for test-run batches', async () => {
+    mockScoreBatchForInlineFilter.mockResolvedValueOnce(makeScoreResult(1, 1, 1));
+
+    const { runFullTestPipeline } = await importConductorEngine();
+    const result = await runFullTestPipeline('proj-1', () => {}, {
+      angleOverride: 'angle-1',
+      adsPerAdSetTarget: 1,
+      templateTag: ' sleep ',
+    });
+
+    expect(result.terminal_status).toBe('deployed');
+    expect(mockAssertTemplateTagHasActiveTemplates).toHaveBeenCalledWith('proj-1', 'sleep');
+    expect(mockCreateConductorRun).toHaveBeenCalledWith(expect.objectContaining({
+      template_tag: 'sleep',
+    }));
+    expect(mockCreateBatchJob).toHaveBeenCalledWith(expect.objectContaining({
+      template_tag: 'sleep',
     }));
   });
 
@@ -479,6 +503,21 @@ describe('conductorEngine test-run pipeline', () => {
     expect(result.pipeline_failed).toBe(true);
     expect(result.failure_reason).toContain('could not resolve an automation campaign');
     expect(mockCreateConductorRun).not.toHaveBeenCalled();
+    expect(mockCreateBatchJob).not.toHaveBeenCalled();
+  });
+
+  it('blocks before generation when the selected template tag has no active templates', async () => {
+    mockAssertTemplateTagHasActiveTemplates.mockRejectedValueOnce(new Error('No active templates are tagged "sleep".'));
+
+    const { runFullTestPipeline } = await importConductorEngine();
+    const result = await runFullTestPipeline('proj-1', () => {}, {
+      angleOverride: 'angle-1',
+      adsPerAdSetTarget: 1,
+      templateTag: 'sleep',
+    });
+
+    expect(result.terminal_status).toBe('generation_failed');
+    expect(result.failure_reason).toContain('No active templates are tagged "sleep"');
     expect(mockCreateBatchJob).not.toHaveBeenCalled();
   });
 

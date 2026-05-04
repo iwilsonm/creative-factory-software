@@ -36,6 +36,33 @@ const EXT_TO_MIME = {
   '.gif': 'image/gif',
 };
 
+function normalizeTemplateTags(value) {
+  const raw = Array.isArray(value)
+    ? value
+    : String(value || '').split(',');
+  return [...new Set(raw
+    .map(tag => String(tag || '').trim())
+    .filter(Boolean)
+    .slice(0, 20))]
+    .map(tag => tag.slice(0, 40));
+}
+
+function templateResponse(req, template) {
+  return {
+    id: template.externalId,
+    project_id: template.project_id,
+    filename: template.filename,
+    description: template.description || '',
+    tags: Array.isArray(template.tags) ? template.tags : [],
+    archived_at: template.archived_at || null,
+    analysis: template.analysis || null,
+    created_at: template.created_at,
+    updated_at: template.updated_at || null,
+    imageUrl: template.imageUrl || null,
+    thumbnailUrl: template.imageUrl || `/api/projects/${req.params.projectId}/templates/${template.externalId}/file`
+  };
+}
+
 // List all template images for a project
 router.get('/:projectId/templates', async (req, res) => {
   try {
@@ -44,17 +71,10 @@ router.get('/:projectId/templates', async (req, res) => {
 
     const templates = await getAllTemplateImagesWithUrls();
 
-    // Add thumbnail URLs + analysis cache
-    const withUrls = templates.map(t => ({
-      id: t.externalId,
-      project_id: t.project_id,
-      filename: t.filename,
-      description: t.description || '',
-      analysis: t.analysis || null,
-      created_at: t.created_at,
-      imageUrl: t.imageUrl || null,
-      thumbnailUrl: t.imageUrl || `/api/projects/${req.params.projectId}/templates/${t.externalId}/file`
-    }));
+    const includeArchived = req.query.include_archived === 'true';
+    const withUrls = templates
+      .filter(t => includeArchived || !t.archived_at)
+      .map(t => templateResponse(req, t));
 
     res.json({ templates: withUrls, total: withUrls.length });
   } catch (err) {
@@ -83,6 +103,7 @@ router.post('/:projectId/templates', upload.single('image'), async (req, res) =>
     fs.unlinkSync(req.file.path);
 
     const description = req.body.description || '';
+    const tags = normalizeTemplateTags(req.body.tags);
 
     await convexClient.mutation(api.templateImages.create, {
       externalId: id,
@@ -90,6 +111,7 @@ router.post('/:projectId/templates', upload.single('image'), async (req, res) =>
       filename: req.file.originalname,
       storageId,
       description,
+      tags,
     });
 
     res.json({
@@ -97,6 +119,8 @@ router.post('/:projectId/templates', upload.single('image'), async (req, res) =>
       project_id: req.params.projectId,
       filename: req.file.originalname,
       description,
+      tags,
+      archived_at: null,
       thumbnailUrl: `/api/projects/${req.params.projectId}/templates/${id}/file`
     });
   } catch (err) {
@@ -118,22 +142,25 @@ router.put('/:projectId/templates/:imageId', async (req, res) => {
       return res.status(404).json({ error: 'Template not found' });
     }
 
-    const { description } = req.body;
-    if (description === undefined) return res.status(400).json({ error: 'Description is required' });
+    const { description, tags, archived_at } = req.body;
+    if (description === undefined && tags === undefined && archived_at === undefined) {
+      return res.status(400).json({ error: 'Template update requires description, tags, or archive state.' });
+    }
 
-    await convexClient.mutation(api.templateImages.update, {
+    const updates = {
       externalId: req.params.imageId,
-      description,
+    };
+    if (description !== undefined) updates.description = description;
+    if (tags !== undefined) updates.tags = normalizeTemplateTags(tags);
+    if (archived_at !== undefined) updates.archived_at = archived_at || null;
+
+    await convexClient.mutation(api.templateImages.update, updates);
+
+    const updated = await convexClient.query(api.templateImages.getByExternalId, {
+      externalId: req.params.imageId,
     });
 
-    res.json({
-      id: template.externalId,
-      project_id: template.project_id,
-      filename: template.filename,
-      description,
-      created_at: template.created_at,
-      thumbnailUrl: `/api/projects/${req.params.projectId}/templates/${template.externalId}/file`
-    });
+    res.json(templateResponse(req, { ...updated, imageUrl: null }));
   } catch (err) {
     console.error('[Templates] Update error:', err.message);
     res.status(500).json({ error: err.message });
