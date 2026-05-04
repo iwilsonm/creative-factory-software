@@ -131,7 +131,7 @@ function ProtectedRoute({ children, roles }) {
 
   if (loading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
+      <div className="min-h-screen flex items-center justify-center bg-ed-bg">
         <div className="text-ed-ink3">Loading...</div>
       </div>
     );
@@ -151,7 +151,7 @@ function ProtectedRoute({ children, roles }) {
 // Page loading fallback
 function PageLoader() {
   return (
-    <div className="min-h-screen flex items-center justify-center">
+    <div className="min-h-screen flex items-center justify-center bg-ed-bg">
       <div className="text-ed-ink3 text-sm">Loading page...</div>
     </div>
   );

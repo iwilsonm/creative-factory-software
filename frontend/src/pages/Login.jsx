@@ -56,48 +56,47 @@ export default function Login() {
 
   if (checkingSession) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-offwhite">
-        <div className="text-textlight text-sm">Loading...</div>
+      <div className="min-h-screen flex items-center justify-center bg-ed-bg">
+        <div className="text-ed-ink3 text-sm">Loading...</div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-offwhite">
+    <div className="min-h-screen flex items-center justify-center bg-ed-bg font-geist">
       <div className="w-full max-w-sm fade-in">
-        <div className="card p-8">
-          {/* App icon */}
+        <div className="ed-card p-8">
           <div className="text-center mb-6">
             <img src="/logo.png" alt="Creative Factory" className="h-14 mx-auto mb-4" />
-            <p className="text-[13px] text-textmid mt-1">
+            <p className="text-[13px] text-ed-ink2 mt-1">
               {isSetup ? 'Create your admin account to get started' : 'Sign in to continue'}
             </p>
           </div>
 
           {error && (
-            <div className="bg-red-50/80 border border-red-200/60 text-red-600 text-[13px] rounded-xl p-3 mb-4">
+            <div className="bg-ed-rust/5 border border-ed-rust/15 text-ed-rust text-[13px] rounded-xl p-3 mb-4">
               {error}
             </div>
           )}
 
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
-              <label className="block text-[13px] font-medium text-textmid mb-1.5">Username</label>
+              <label className="block text-[13px] font-medium text-ed-ink2 mb-1.5">Username</label>
               <input
                 type="text"
                 value={username}
                 onChange={e => setUsername(e.target.value)}
-                className="input-apple"
+                className="input-apple !border-ed-line focus:!ring-ed-accent/20 focus:!border-ed-accent"
                 required
               />
             </div>
             <div>
-              <label className="block text-[13px] font-medium text-textmid mb-1.5">Password</label>
+              <label className="block text-[13px] font-medium text-ed-ink2 mb-1.5">Password</label>
               <input
                 type="password"
                 value={password}
                 onChange={e => setPassword(e.target.value)}
-                className="input-apple"
+                className="input-apple !border-ed-line focus:!ring-ed-accent/20 focus:!border-ed-accent"
                 required
                 minLength={6}
               />
@@ -105,7 +104,7 @@ export default function Login() {
             <button
               type="submit"
               disabled={loading}
-              className="btn-primary w-full py-2.5"
+              className="ed-cta w-full py-2.5"
             >
               {loading ? 'Please wait...' : isSetup ? 'Create Admin Account' : 'Sign In'}
             </button>

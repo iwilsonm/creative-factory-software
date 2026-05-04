@@ -36,18 +36,11 @@
     -moz-osx-font-smoothing: grayscale;
     text-rendering: optimizeLegibility;
     @apply text-[#111827] min-h-screen relative overflow-x-hidden;
-    /* Soft Mesh Gradient Background */
-    background-color: #FAFAF8;
-    background-image: 
-      radial-gradient(at 0% 0%, hsla(169, 58%, 88%, 0.6) 0px, transparent 50%),
-      radial-gradient(at 100% 0%, hsla(38, 47%, 88%, 0.7) 0px, transparent 50%),
-      radial-gradient(at 100% 100%, hsla(215, 68%, 90%, 0.5) 0px, transparent 50%),
-      radial-gradient(at 0% 100%, hsla(220, 30%, 96%, 1) 0px, transparent 50%);
-    background-attachment: fixed;
+    background-color: #f6f3ec;
   }
 
   ::selection {
-    @apply bg-gold/20 text-navy;
+    @apply bg-ed-accent/20 text-ed-ink;
   }
 
   /* Mobile tap target baseline — every <button> gets a 44px min hit area
