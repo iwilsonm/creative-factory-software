@@ -50,9 +50,12 @@ export default function CombineIntoAdSetModal({
             // Silently swallow refresh errors; surface only on explicit save
           });
         }, LOCK_REFRESH_MS);
-      } catch (err) {
+      } catch {
         if (cancelled) return;
-        setLockError(err.message || 'Could not lock deployments — another session may be editing them.');
+        // Soft-locks are only advisory. They prevent accidental concurrent
+        // edits, but a stale lock should not show a scary Convex server error
+        // or block the normal create flow.
+        setLockError(null);
       }
     })();
 
@@ -198,10 +201,10 @@ export default function CombineIntoAdSetModal({
             )}
           </div>
 
-          {/* Lock error */}
+          {/* Save error */}
           {lockError && (
             <div className="text-[12px] text-ed-rust bg-ed-rust/10 border border-ed-rust/30 rounded-lg p-2.5">
-              {lockError} You can still try creating the ad set; if one of the selected ads changed, the save will fail safely.
+              {lockError}
             </div>
           )}
         </div>
