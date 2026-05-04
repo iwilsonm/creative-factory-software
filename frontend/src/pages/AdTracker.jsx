@@ -29,7 +29,7 @@ const VALID_VIEWS = ['campaigns', 'status', 'ready_to_post'];
 export default function AdTracker({ projectId, project, userRole, searchParams, setSearchParams }) {
   const isPoster = userRole === 'poster';
   const { data: deployments, setData: setDeployments, loading, error: deploymentsError, refetch: loadDeployments } = useAsyncData(
-    () => api.getProjectDeployments(projectId).then(d => d.deployments || []),
+    () => api.getProjectDeployments(projectId, { force: true }).then(d => d.deployments || []),
     [projectId]
   );
   // Persist activeView in URL search params so it survives page refresh

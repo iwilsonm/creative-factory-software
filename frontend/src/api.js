@@ -177,6 +177,21 @@ function invalidateCache(...paths) {
   for (const p of paths) _requestCache.delete(p);
 }
 
+function invalidateCacheWhere(predicate) {
+  for (const key of _requestCache.keys()) {
+    if (predicate(key)) _requestCache.delete(key);
+  }
+}
+
+function invalidateDeploymentCache(projectId = null) {
+  invalidateCache('/deployments');
+  if (projectId) {
+    invalidateCache(`/deployments?projectId=${projectId}`);
+  } else {
+    invalidateCacheWhere(key => key.startsWith('/deployments?projectId='));
+  }
+}
+
 // Exported for use by components after SSE completions (e.g., doc generation)
 export function invalidateProjectCache(projectId) {
   invalidateCache('/projects', `/projects/${projectId}`, `/projects/${projectId}/stats`);
@@ -499,11 +514,11 @@ export const api = {
       return r;
     });
   },
-  updateDeployment: (id, fields) => request(`/deployments/${id}`, { method: 'PUT', body: JSON.stringify(fields) }),
-  updateDeploymentStatus: (id, status) => request(`/deployments/${id}/status`, { method: 'PUT', body: JSON.stringify({ status }) }),
-  updateDeploymentPostedBy: (id, posted_by) => request(`/deployments/${id}/posted-by`, { method: 'PUT', body: JSON.stringify({ posted_by }) }),
-  deleteDeployment: (id) => request(`/deployments/${id}`, { method: 'DELETE' }),
-  restoreDeployment: (id) => request(`/deployments/${id}/restore`, { method: 'POST' }),
+  updateDeployment: (id, fields) => request(`/deployments/${id}`, { method: 'PUT', body: JSON.stringify(fields) }).then(r => { invalidateDeploymentCache(); return r; }),
+  updateDeploymentStatus: (id, status) => request(`/deployments/${id}/status`, { method: 'PUT', body: JSON.stringify({ status }) }).then(r => { invalidateDeploymentCache(); return r; }),
+  updateDeploymentPostedBy: (id, posted_by) => request(`/deployments/${id}/posted-by`, { method: 'PUT', body: JSON.stringify({ posted_by }) }).then(r => { invalidateDeploymentCache(); return r; }),
+  deleteDeployment: (id) => request(`/deployments/${id}`, { method: 'DELETE' }).then(r => { invalidateDeploymentCache(); return r; }),
+  restoreDeployment: (id) => request(`/deployments/${id}/restore`, { method: 'POST' }).then(r => { invalidateDeploymentCache(); return r; }),
   getDeletedDeployments: (projectId) => request(`/deployments/deleted${projectId ? `?projectId=${projectId}` : ''}`),
   renameAllDeployments: () => request('/deployments/rename-all', { method: 'POST' }),
   backfillHeadlines: () => request('/deployments/backfill-headlines', { method: 'POST' }),
@@ -615,7 +630,7 @@ export const api = {
         name: name || `Manual Ad Set — ${new Date().toISOString().slice(0, 10)}`,
         deployment_ids: deploymentIds,
       }),
-    }).then((r) => ({ success: true, id: r.adSetId }));
+    }).then((r) => { invalidateDeploymentCache(projectId); return { success: true, id: r.adSetId }; });
   },
   // Phase 6 — Update flex_ad → update ad_set. Maps flex-ad-shape fields to
   // ad_set-compatible fields (name, campaign, lifecycle). Copy/CTA fields go
@@ -636,13 +651,13 @@ export const api = {
     // pointer. In unified model, the ad_set IS the wrapper, so this mapping
     // doesn't apply directly. Skip unless explicitly relevant.
     if (Object.keys(adSetFields).length === 0) return Promise.resolve({ success: true });
-    return request(`/ad-sets/${id}`, { method: 'PUT', body: JSON.stringify(adSetFields) }).catch((err) => {
+    return request(`/ad-sets/${id}`, { method: 'PUT', body: JSON.stringify(adSetFields) }).then(r => { invalidateDeploymentCache(); return r; }).catch((err) => {
       console.warn('[Phase 6] updateFlexAd legacy path:', err.message);
       return { success: true };
     });
   },
   updateFlexAdPostedBy: (deploymentId, posted_by) =>
-    request(`/deployments/${deploymentId}/posted-by`, { method: 'PUT', body: JSON.stringify({ posted_by }) }),
+    request(`/deployments/${deploymentId}/posted-by`, { method: 'PUT', body: JSON.stringify({ posted_by }) }).then(r => { invalidateDeploymentCache(); return r; }),
   // Phase 6 — Delete flex_ad → ungroup ad_set (deletes ad_set, detaches deployments).
   // The legacy call signature is just (id), with no projectId. We route through
   // a wildcard projectId since the backend validates membership.
@@ -652,7 +667,7 @@ export const api = {
       const caller = (new Error().stack || '').split('\n')[2]?.trim() || '?';
       console.warn(`[DEPRECATED] api.deleteFlexAd — use api.ungroupAdSet in new code. Called from: ${caller}`);
     }
-    return request(`/ad-sets/${id}/ungroup`, { method: 'POST' }).catch((err) => {
+    return request(`/ad-sets/${id}/ungroup`, { method: 'POST' }).then(r => { invalidateDeploymentCache(); return r; }).catch((err) => {
       console.warn('[Phase 6] deleteFlexAd legacy path:', err.message);
       return { success: true };
     });
@@ -682,11 +697,11 @@ export const api = {
       return result;
     }),
   updateAdSetUnified: (projectId, adSetId, fields) =>
-    request(`/projects/${projectId}/ad-sets/${adSetId}`, { method: 'PUT', body: JSON.stringify(fields) }),
+    request(`/projects/${projectId}/ad-sets/${adSetId}`, { method: 'PUT', body: JSON.stringify(fields) }).then(r => { invalidateDeploymentCache(projectId); return r; }),
   moveAdSetToReady: (projectId, adSetId) =>
-    request(`/projects/${projectId}/ad-sets/${adSetId}/move-to-ready`, { method: 'POST' }),
+    request(`/projects/${projectId}/ad-sets/${adSetId}/move-to-ready`, { method: 'POST' }).then(r => { invalidateDeploymentCache(projectId); return r; }),
   ungroupAdSet: (projectId, adSetId) =>
-    request(`/projects/${projectId}/ad-sets/${adSetId}/ungroup`, { method: 'POST' }),
+    request(`/projects/${projectId}/ad-sets/${adSetId}/ungroup`, { method: 'POST' }).then(r => { invalidateDeploymentCache(projectId); return r; }),
   lockDeployments: (projectId, deployment_ids, ttlMs) =>
     request(`/projects/${projectId}/lock-deployments`, {
       method: 'POST',

@@ -251,6 +251,23 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
     return { singleIds, flexIds, flexChildIds, deploymentIds };
   };
 
+  const removeSelectedReadyCardsFromView = ({ singleIds = new Set(), flexIds = new Set(), flexChildIds = new Set(), status = 'posted', postedAt = null } = {}) => {
+    setFlexAds(prev => ensureArray(prev, 'ReadyToPostView.flexAdsState').filter(f => !flexIds.has(f.id)));
+    setDeployments(prev => ensureArray(prev, 'ReadyToPostView.deploymentsState')
+      .filter(d => !singleIds.has(d.id))
+      .map(d => {
+        if (flexChildIds.has(d.id)) {
+          if (status === 'posted') {
+            return { ...d, status: 'posted', posted_date: postedAt || new Date().toISOString() };
+          }
+          return { ...d, status, local_adset_id: '', flex_ad_id: '' };
+        }
+        return d;
+      })
+    );
+    setSelectedCards(new Map());
+  };
+
   const copyToClipboard = async (text, label) => {
     try { await navigator.clipboard.writeText(text); addToast(`${label} copied`, 'success'); }
     catch { addToast('Failed to copy', 'error'); }
@@ -2276,7 +2293,7 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
               e.stopPropagation();
               setBulkMarking(true);
               try {
-                const { deploymentIds, flexIds } = resolveSelectedReadyCards();
+                const { singleIds, flexIds, flexChildIds, deploymentIds } = resolveSelectedReadyCards();
                 if (deploymentIds.size === 0) {
                   addToast('Selected ads are no longer available. Refreshing...', 'error');
                   await loadDeployments();
@@ -2290,11 +2307,15 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
                     posted_at: postedAt,
                   }).catch(() => {})),
                 ]);
-                setDeployments(prev => prev.map(d => deploymentIds.has(d.id) ? { ...d, status: 'posted', posted_date: postedAt } : d));
-                setFlexAds(prev => prev.filter(f => !flexIds.has(f.id)));
+                removeSelectedReadyCardsFromView({
+                  singleIds,
+                  flexIds,
+                  flexChildIds,
+                  status: 'posted',
+                  postedAt,
+                });
                 addToast(`Marked ${selectedCards.size} ad${selectedCards.size !== 1 ? 's' : ''} as posted`, 'success');
-                setSelectedCards(new Map());
-                await loadDeployments();
+                loadDeployments();
               } catch {
                 addToast('Failed to mark as posted', 'error');
               } finally {
@@ -2359,15 +2380,14 @@ export default function ReadyToPostView({ projectId, deployments, setDeployments
               return;
             }
             await Promise.all(deletes);
-            // Optimistic UI removal
-            setFlexAds(prev => prev.filter(f => !flexIds.has(f.id)));
-            setDeployments(prev => prev
-              .filter(d => !singleIds.has(d.id))
-              .map(d => flexChildIds.has(d.id) ? { ...d, status: 'selected', local_adset_id: '' } : d)
-            );
+            removeSelectedReadyCardsFromView({
+              singleIds,
+              flexIds,
+              flexChildIds,
+              status: 'selected',
+            });
             addToast(`Deleted ${selectedCards.size} ad${selectedCards.size !== 1 ? 's' : ''}`, 'success');
-            setSelectedCards(new Map());
-            await loadDeployments();
+            loadDeployments();
           } catch {
             addToast('Failed to delete some ads', 'error');
           } finally {
