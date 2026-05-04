@@ -1194,29 +1194,32 @@ export default function CampaignsView({ projectId, deployments, setDeployments, 
 
   // ─── Mark as Ready to Post ─────────────────────────────────────────────
   const handleMarkReadyToPost = async (ids) => {
-    // Resolve flex ad IDs to their child deployment IDs
+    // Resolve grouped ad-set IDs to their child deployment IDs. Ready to Post
+    // renders grouped cards from ad_sets with lifecycle='ready', so grouped
+    // promotions must update both the parent ad_set and child deployments.
     const standaloneDepIds = ids.filter(id => deployments.some(d => d.id === id));
     const flexAdIds = ids.filter(id => flexAds.some(f => f.id === id));
     const flexChildDepIds = [];
     for (const fid of flexAdIds) {
       const flex = flexAds.find(f => f.id === fid);
       if (flex) {
-        try { flexChildDepIds.push(...JSON.parse(flex.child_deployment_ids || '[]')); } catch { /* ignore */ }
+        flexChildDepIds.push(...resolveGroupedChildIds(flex.id, parseFlexChildIds(flex)));
       }
     }
     const allDepIds = [...new Set([...standaloneDepIds, ...flexChildDepIds])];
     if (allDepIds.length === 0) { addToast('Select ads to mark as ready', 'info'); return; }
 
-    // Optimistic UI update — immediate feedback
-    setDeployments(prev => prev.map(d => allDepIds.includes(d.id) ? { ...d, status: 'ready_to_post' } : d));
-    setSelectedInStaging(new Set());
-    addToast(`${allDepIds.length} ad${allDepIds.length !== 1 ? 's' : ''} ready to post`, 'success');
-
     try {
-      await Promise.all(allDepIds.map(id => api.updateDeploymentStatus(id, 'ready_to_post')));
-    } catch {
-      addToast('Failed to update status — refreshing...', 'error');
-      loadDeployments();
+      await Promise.all([
+        ...flexAdIds.map(id => api.moveAdSetToReady(projectId, id)),
+        ...allDepIds.map(id => api.updateDeploymentStatus(id, 'ready_to_post')),
+      ]);
+      setSelectedInStaging(new Set());
+      addToast(`${flexAdIds.length > 0 ? 'Ad set' : 'Ad'} moved to Ready to Post`, 'success');
+      await refreshPlannerData();
+    } catch (err) {
+      addToast(err.message || 'Failed to move to Ready to Post — refreshing...', 'error');
+      await refreshPlannerData().catch(() => Promise.all([loadCampaignData(true), loadDeployments()]));
     }
   };
 
