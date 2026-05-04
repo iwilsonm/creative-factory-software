@@ -24,6 +24,7 @@ export const upsertConfig = mutation({
     angle_mode: v.optional(v.string()),
     explore_ratio: v.optional(v.number()),
     angle_rotation: v.optional(v.string()),
+    angle_tag_filter: v.optional(v.string()),
     headline_style: v.optional(v.string()),
     primary_text_style: v.optional(v.string()),
     template_tag: v.optional(v.string()),
@@ -83,6 +84,7 @@ export const upsertConfig = mutation({
         angle_mode: args.angle_mode ?? "manual",
         explore_ratio: args.explore_ratio ?? 0.2,
         angle_rotation: args.angle_rotation ?? "round_robin",
+        angle_tag_filter: args.angle_tag_filter,
         headline_style: args.headline_style,
         primary_text_style: args.primary_text_style,
         template_tag: args.template_tag,
@@ -222,6 +224,7 @@ export const createAngle = mutation({
     desired_belief_shift: v.optional(v.string()),
     tone: v.optional(v.string()),
     avoid_list: v.optional(v.string()),
+    tags: v.optional(v.array(v.string())),
     is_system_default: v.optional(v.boolean()),
     // Phase 4 — sub-angle derivation fields on creation
     parent_angle_id: v.optional(v.string()),
@@ -261,6 +264,7 @@ export const updateAngle = mutation({
     desired_belief_shift: v.optional(v.string()),
     tone: v.optional(v.string()),
     avoid_list: v.optional(v.string()),
+    tags: v.optional(v.array(v.string())),
     destination_urls: v.optional(v.string()),
     is_system_default: v.optional(v.boolean()),
     // Operational

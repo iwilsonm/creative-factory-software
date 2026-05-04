@@ -5,6 +5,8 @@ const mockUuid = vi.fn();
 const mockGetConductorConfig = vi.fn();
 const mockUpsertConductorConfig = vi.fn();
 const mockGetActiveConductorAngles = vi.fn();
+const mockGetSystemDefaultAngle = vi.fn();
+const mockCreateConductorAngle = vi.fn();
 const mockUpdateConductorAngle = vi.fn();
 const mockGetConductorPlaybook = vi.fn();
 const mockCreateConductorRun = vi.fn();
@@ -47,6 +49,8 @@ vi.mock('../convexClient.js', () => ({
   getConductorConfig: (...args) => mockGetConductorConfig(...args),
   upsertConductorConfig: (...args) => mockUpsertConductorConfig(...args),
   getActiveConductorAngles: (...args) => mockGetActiveConductorAngles(...args),
+  getSystemDefaultAngle: (...args) => mockGetSystemDefaultAngle(...args),
+  createConductorAngle: (...args) => mockCreateConductorAngle(...args),
   updateConductorAngle: (...args) => mockUpdateConductorAngle(...args),
   getConductorPlaybook: (...args) => mockGetConductorPlaybook(...args),
   createConductorRun: (...args) => mockCreateConductorRun(...args),
@@ -220,6 +224,8 @@ describe('conductorEngine test-run pipeline', () => {
     mockGetConductorConfig.mockResolvedValue({ enabled: true });
     mockGetProject.mockResolvedValue(makeProject());
     mockGetActiveConductorAngles.mockResolvedValue([makeAngle()]);
+    mockGetSystemDefaultAngle.mockResolvedValue(makeAngle({ is_system_default: true }));
+    mockCreateConductorAngle.mockResolvedValue();
     mockGetConductorPlaybook.mockResolvedValue(null);
     mockUpdateConductorAngle.mockResolvedValue();
     mockCreateConductorRun.mockResolvedValue();
@@ -334,6 +340,37 @@ describe('conductorEngine test-run pipeline', () => {
     expect(mockCreateBatchJob).toHaveBeenCalledWith(expect.objectContaining({
       template_tag: 'sleep',
     }));
+  });
+
+  it('uses only active angles matching the configured angle tag filter', async () => {
+    mockGetConductorConfig.mockResolvedValue({ enabled: true, angle_tag_filter: 'Sleep' });
+    mockGetActiveConductorAngles.mockResolvedValue([
+      makeAngle({ externalId: 'angle-1', name: 'Wrong Angle', tags: ['Awareness'] }),
+      makeAngle({ externalId: 'angle-2', name: 'Tagged Sleep Angle', tags: ['Sleep'] }),
+    ]);
+    mockScoreBatchForInlineFilter.mockResolvedValueOnce(makeScoreResult(1, 1, 1));
+
+    const { runFullTestPipeline } = await importConductorEngine();
+    const result = await runFullTestPipeline('proj-1', () => {}, { adsPerAdSetTarget: 1 });
+
+    expect(result.terminal_status).toBe('deployed');
+    expect(mockCreateBatchJob).toHaveBeenCalledWith(expect.objectContaining({
+      angle_name: 'Tagged Sleep Angle',
+    }));
+  });
+
+  it('blocks before paid generation when the configured angle tag has no active angles', async () => {
+    mockGetConductorConfig.mockResolvedValue({ enabled: true, angle_tag_filter: 'Sleep' });
+    mockGetActiveConductorAngles.mockResolvedValue([
+      makeAngle({ externalId: 'angle-1', name: 'Wrong Angle', tags: ['Awareness'] }),
+    ]);
+
+    const { runFullTestPipeline } = await importConductorEngine();
+    const result = await runFullTestPipeline('proj-1', () => {}, { adsPerAdSetTarget: 1 });
+
+    expect(result.pipeline_failed).toBe(true);
+    expect(result.failure_reason).toContain('No active angles are tagged "Sleep"');
+    expect(mockCreateBatchJob).not.toHaveBeenCalled();
   });
 
   it('resolves an automation campaign before paid test-run generation starts', async () => {

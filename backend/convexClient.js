@@ -2355,7 +2355,7 @@ export async function getSystemDefaultAngle(projectId) {
 
 export async function createConductorAngle({ id, project_id, name, description, prompt_hints, source, status,
   priority, frame, core_buyer, symptom_pattern, failed_solutions, current_belief,
-  objection, emotional_state, scene, desired_belief_shift, tone, avoid_list, is_system_default }) {
+  objection, emotional_state, scene, desired_belief_shift, tone, avoid_list, tags, is_system_default }) {
   await mutationWithRetry(api.conductor.createAngle, {
     externalId: id,
     project_id,
@@ -2376,6 +2376,7 @@ export async function createConductorAngle({ id, project_id, name, description, 
     desired_belief_shift: desired_belief_shift || undefined,
     tone: tone || undefined,
     avoid_list: avoid_list || undefined,
+    tags: Array.isArray(tags) ? tags : undefined,
     is_system_default: is_system_default || undefined,
   });
   invalidateQueryCache('conductor');

@@ -43,6 +43,14 @@ function resetPipelineStatusCache() {
   };
 }
 
+function normalizeTags(value) {
+  if (!Array.isArray(value)) return [];
+  return [...new Set(value
+    .map(tag => String(tag || '').trim())
+    .filter(Boolean)
+    .map(tag => tag.slice(0, 40)))];
+}
+
 async function computePipelineStatus() {
   const [configs, projects] = await Promise.all([
     getAllConductorConfigs(),
@@ -191,7 +199,7 @@ router.put('/config/:projectId', async (req, res) => {
       'enabled', 'daily_flex_target', 'ads_per_batch', 'angle_mode',
       'angle_rotation', 'explore_ratio', 'run_schedule', 'run_schedule_days', 'run_schedule_hour', 'posting_days',
       'score_threshold', 'auto_learn',
-      'headline_style', 'primary_text_style', 'template_tag', 'default_campaign_id',
+      'headline_style', 'primary_text_style', 'template_tag', 'angle_tag_filter', 'default_campaign_id',
       // Phase 4 — sub-angle derivation + health-biased Director
       'health_bias',
       'sub_angle_derivation_enabled',
@@ -210,6 +218,9 @@ router.put('/config/:projectId', async (req, res) => {
     const fields = {};
     for (const key of allowedConfigFields) {
       if (req.body[key] !== undefined) fields[key] = req.body[key];
+    }
+    if (fields.angle_tag_filter !== undefined) {
+      fields.angle_tag_filter = String(fields.angle_tag_filter || '').trim().slice(0, 40);
     }
     await upsertConductorConfig(req.params.projectId, fields);
     resetPipelineStatusCache();
@@ -264,7 +275,7 @@ router.post('/angles/:projectId', async (req, res) => {
     const { name, description, prompt_hints, source, status,
       priority, frame, core_buyer, symptom_pattern, failed_solutions,
       current_belief, objection, emotional_state, scene,
-      desired_belief_shift, tone, avoid_list } = req.body;
+      desired_belief_shift, tone, avoid_list, tags } = req.body;
     if (!name) {
       return res.status(400).json({ error: 'Name is required' });
     }
@@ -297,6 +308,7 @@ router.post('/angles/:projectId', async (req, res) => {
       desired_belief_shift: desired_belief_shift || parsedFields.desired_belief_shift,
       tone: tone || parsedFields.tone,
       avoid_list: avoid_list || parsedFields.avoid_list,
+      tags: normalizeTags(tags),
     });
     res.json({ success: true, id });
   } catch (err) {
@@ -313,12 +325,13 @@ router.put('/angles/:projectId/:angleId', async (req, res) => {
       'name', 'description', 'prompt_hints', 'status', 'source', 'focused',
       'priority', 'frame', 'core_buyer', 'symptom_pattern', 'failed_solutions',
       'current_belief', 'objection', 'emotional_state', 'scene',
-      'desired_belief_shift', 'tone', 'avoid_list', 'destination_urls',
+      'desired_belief_shift', 'tone', 'avoid_list', 'destination_urls', 'tags',
     ];
     const fields = {};
     for (const key of allowedAngleFields) {
       if (req.body[key] !== undefined) fields[key] = req.body[key];
     }
+    if (req.body.tags !== undefined) fields.tags = normalizeTags(req.body.tags);
     await updateConductorAngle(req.params.angleId, fields);
     res.json({ success: true });
   } catch (err) {

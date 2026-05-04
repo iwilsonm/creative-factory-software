@@ -133,7 +133,10 @@ export default function CreativeDirectorSettings({ project, onSaved, embedded = 
       )}
 
       {showDefaultCampaign && (
-        <Field label="Default Meta campaign" hint="Every new ad set inherits this campaign unless overridden in Ad Automation or the Ad Pipeline.">
+        <Field
+          label="Meta Campaign for Automated Ad Sets"
+          hint="This is the campaign in your connected Meta ad account where Creative Director/Creative Filter ad sets will be prepared. It does not post ads by itself."
+        >
           <select
             value={defaultCampaignId}
             onChange={(e) => setDefaultCampaignId(e.target.value)}

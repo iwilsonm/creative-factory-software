@@ -426,6 +426,7 @@ export default defineSchema({
     angle_mode: v.string(),             // "manual" | "auto" | "mixed"
     explore_ratio: v.number(),           // for mixed mode, % testing new angles (0.0-1.0)
     angle_rotation: v.string(),         // "round_robin" | "weighted" | "random"
+    angle_tag_filter: v.optional(v.string()),    // optional active-angle tag filter for Director selection
     headline_style: v.optional(v.string()),      // freeform prompt guidance
     primary_text_style: v.optional(v.string()),  // freeform prompt guidance
     template_tag: v.optional(v.string()),         // optional uploaded-template tag for Director random template selection
@@ -475,6 +476,7 @@ export default defineSchema({
     source: v.string(),                  // "manual" | "imported" | "auto_generated"
     status: v.string(),                  // "active" | "testing" | "archived"
     focused: v.optional(v.boolean()),    // When true + active, Director only uses focused angles
+    tags: v.optional(v.array(v.string())),
     // Structured creative brief fields
     priority: v.optional(v.string()),    // "highest" | "high" | "medium" | "test"
     frame: v.optional(v.string()),       // "symptom-first" | "scam" | "objection-first" | "identity-first" | "MAHA" | "news-first" | "consequence-first"

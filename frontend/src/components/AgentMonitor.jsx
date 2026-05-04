@@ -34,6 +34,22 @@ function getTemplateTags(templates = []) {
     .sort((a, b) => a.localeCompare(b));
 }
 
+function getAngleTags(angles = []) {
+  return [...new Set((angles || [])
+    .filter(angle => angle.status === 'active' || angle.status === 'testing')
+    .flatMap(angle => Array.isArray(angle.tags) ? angle.tags : [])
+    .map(tag => String(tag || '').trim())
+    .filter(Boolean))]
+    .sort((a, b) => a.localeCompare(b));
+}
+
+function angleHasTag(angle, tag) {
+  const normalized = String(tag || '').trim().toLowerCase();
+  if (!normalized) return true;
+  return Array.isArray(angle?.tags)
+    && angle.tags.some(value => String(value || '').trim().toLowerCase() === normalized);
+}
+
 function timeAgo(dateStr) {
   if (!dateStr) return 'never';
   const diff = Math.floor((Date.now() - new Date(dateStr).getTime()) / 1000);
@@ -1404,6 +1420,7 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
   const [playbooks, setPlaybooks] = useState([]);
   const [subTab, setSubTab] = useState('settings');
   const [archivedOpen, setArchivedOpen] = useState(false);
+  const [selectedAngleIds, setSelectedAngleIds] = useState([]);
   const [projectLoading, setProjectLoading] = useState(!externalProjectId);
   const [baseLoading, setBaseLoading] = useState(false);
   const [anglesLoading, setAnglesLoading] = useState(false);
@@ -1568,6 +1585,7 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
     setCampaignsLoading(false);
     setConfig(null);
     setAngles([]);
+    setSelectedAngleIds([]);
     setAngleOptions([]);
     setRuns([]);
     setPlaybooks([]);
@@ -1687,9 +1705,6 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
     if (!selectedProject) return;
     if (subTab === 'angles') {
       loadAngles(selectedProject);
-      loadPlaybooks(selectedProject);
-    }
-    if (subTab === 'playbooks') {
       loadPlaybooks(selectedProject);
     }
     if (subTab === 'history') {
@@ -2177,6 +2192,28 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
     setAngleOptions(prev => ensureArray(prev, 'AgentMonitor.director.angleOptionsState').map(a => a.externalId === angleId ? { ...a, ...updates } : a));
   };
 
+  const toggleAngleSelected = useCallback((angleId) => {
+    setSelectedAngleIds(prev => prev.includes(angleId)
+      ? prev.filter(id => id !== angleId)
+      : [...prev, angleId]);
+  }, []);
+
+  const handleArchiveSelectedAngles = useCallback(async () => {
+    const ids = selectedAngleIds.filter(Boolean);
+    if (!ids.length) return;
+    try {
+      await Promise.all(ids.map(id => api.updateConductorAngle(selectedProject, id, { status: 'archived' })));
+      setAngles(prev => ensureArray(prev, 'AgentMonitor.director.anglesState').map(angle => (
+        ids.includes(angle.externalId) ? { ...angle, status: 'archived' } : angle
+      )));
+      setAngleOptions(prev => ensureArray(prev, 'AgentMonitor.director.angleOptionsState').filter(angle => !ids.includes(angle.externalId)));
+      setSelectedAngleIds([]);
+      toast.success(`${ids.length} angle${ids.length !== 1 ? 's' : ''} archived`);
+    } catch (err) {
+      toast.error(err?.message || 'Failed to archive selected angles');
+    }
+  }, [selectedAngleIds, selectedProject, toast]);
+
   // --- Copy LLM prompt for generating a new angle list ---
   // Builds a detailed prompt, embedding the project's brand/product context, that the user
   // can paste into ChatGPT/Claude to get back markdown that pastes directly into Import.
@@ -2396,9 +2433,15 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
   const safeAngles = ensureArray(angles, 'AgentMonitor.director.anglesState');
   const safeAngleOptions = ensureArray(angleOptions, 'AgentMonitor.director.angleOptionsState');
   const safeRuns = ensureArray(runs, 'AgentMonitor.director.runsState');
-  const safePlaybooks = ensureArray(playbooks, 'AgentMonitor.director.playbooksState');
   const safeCampaigns = ensureArray(campaigns, 'AgentMonitor.director.campaignsState');
   const templateTags = useMemo(() => getTemplateTags(templates), [templates]);
+  const angleTags = useMemo(() => getAngleTags(safeAngles), [safeAngles]);
+  const angleTagFilter = config?.angle_tag_filter || '';
+  const filteredAngleOptions = useMemo(() => (
+    angleTagFilter
+      ? safeAngleOptions.filter(angle => angleHasTag(angle, angleTagFilter))
+      : safeAngleOptions
+  ), [angleTagFilter, safeAngleOptions]);
   const adsPerAdSetValue = adsPerAdSetDraft ?? (
     embedded && externalProject?.ads_per_ad_set != null
       ? externalProject.ads_per_ad_set
@@ -2414,15 +2457,10 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
     ? Math.max(1, Math.min(20, parsedTestAdSetTarget))
     : defaultTestAdSetTarget;
 
-  if (projectLoading) return <div className="text-[11px] text-ed-ink3 py-4">{embedded ? 'Loading Director...' : 'Loading projects...'}</div>;
-  if (!embedded && safeProjects.length === 0) return <div className="text-[11px] text-ed-ink3 py-4">No projects found.</div>;
-  if (!selectedProject) return <div className="text-[11px] text-ed-ink3 py-4">{embedded ? 'Loading Director...' : 'Select a project to load Director settings.'}</div>;
-
   const subTabs = [
     { id: 'settings', label: 'Settings' },
     { id: 'history', label: 'Run History' },
     { id: 'angles', label: 'Angles' },
-    { id: 'playbooks', label: 'Playbooks' },
   ];
 
   const pinSystemFirst = (list) => list.sort((a, b) => (b.is_system_default ? 1 : 0) - (a.is_system_default ? 1 : 0));
@@ -2435,6 +2473,20 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
   const archivedAngles = subTab === 'angles' || anglesLoadedFor === selectedProject
     ? pinSystemFirst(safeAngles.filter(a => a.status === 'archived' || a.status === 'retired'))
     : [];
+  const selectableAnglesForBulk = [...activeAngles, ...testingAngles];
+  const selectedVisibleAngleCount = selectableAnglesForBulk.filter(angle => selectedAngleIds.includes(angle.externalId)).length;
+  const allVisibleAnglesSelected = selectableAnglesForBulk.length > 0 && selectedVisibleAngleCount === selectableAnglesForBulk.length;
+
+  useEffect(() => {
+    if (!selectedAngleId) return;
+    if (filteredAngleOptions.some(angle => angle.externalId === selectedAngleId)) return;
+    setSelectedAngleId('');
+  }, [filteredAngleOptions, selectedAngleId]);
+
+  if (projectLoading) return <div className="text-[11px] text-ed-ink3 py-4">{embedded ? 'Loading Director...' : 'Loading projects...'}</div>;
+  if (!embedded && safeProjects.length === 0) return <div className="text-[11px] text-ed-ink3 py-4">No projects found.</div>;
+  if (!selectedProject) return <div className="text-[11px] text-ed-ink3 py-4">{embedded ? 'Loading Director...' : 'Select a project to load Director settings.'}</div>;
+
   const canChooseAngle = !angleOptionsLoading;
   const canTriggerTestRun = !baseLoading && !!config && !!selectedAngleId && testAdSetTargetValue >= 1 && testAdSetTargetValue <= 20;
 
@@ -2482,9 +2534,13 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
               className="text-[11px] text-ed-ink bg-ed-bg border border-black/10 rounded-lg px-2 py-1.5 cursor-pointer w-full"
             >
               <option value="">
-                {angleOptionsLoading ? 'Loading angles...' : 'Select an angle...'}
+                {angleOptionsLoading
+                  ? 'Loading angles...'
+                  : angleTagFilter && filteredAngleOptions.length === 0
+                    ? `No active angles tagged "${angleTagFilter}"`
+                    : 'Select an angle...'}
               </option>
-              {[...safeAngleOptions].sort((a, b) => (b.is_system_default ? 1 : 0) - (a.is_system_default ? 1 : 0)).map(a => (
+              {[...filteredAngleOptions].sort((a, b) => (b.is_system_default ? 1 : 0) - (a.is_system_default ? 1 : 0)).map(a => (
                 <option key={a.externalId} value={a.externalId}>{a.name}</option>
               ))}
             </select>
@@ -2697,7 +2753,7 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
         <div>
           {anglesLoading && anglesLoadedFor !== selectedProject && (
             <div className="rounded-xl bg-black/[0.02] border border-black/5 px-3 py-3 mb-3">
-              <p className="text-[11px] text-ed-ink2">Loading angles and playbook notes...</p>
+              <p className="text-[11px] text-ed-ink2">Loading angles...</p>
             </div>
           )}
 
@@ -2713,6 +2769,40 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
 
           {/* Export / Import toolbar */}
           <div className="flex items-center gap-2 mb-3 flex-wrap">
+            <button
+              onClick={() => {
+                if (allVisibleAnglesSelected) {
+                  setSelectedAngleIds([]);
+                } else {
+                  setSelectedAngleIds(selectableAnglesForBulk.map(angle => angle.externalId));
+                }
+              }}
+              disabled={selectableAnglesForBulk.length === 0}
+              className="ed-ghost text-[11px] px-3 py-1.5 flex items-center gap-1.5 disabled:opacity-40"
+            >
+              <span className={`w-3.5 h-3.5 rounded border flex items-center justify-center text-[9px] ${
+                allVisibleAnglesSelected ? 'bg-ed-accent border-ed-accent text-white' : selectedVisibleAngleCount > 0 ? 'border-ed-accent text-ed-accent' : 'border-ed-line text-transparent'
+              }`}>
+                {allVisibleAnglesSelected ? '✓' : selectedVisibleAngleCount > 0 ? '–' : '✓'}
+              </span>
+              Select All
+            </button>
+            {selectedAngleIds.length > 0 && (
+              <>
+                <button
+                  onClick={handleArchiveSelectedAngles}
+                  className="px-3 py-1.5 rounded-[7px] text-[11px] bg-ed-rust text-white hover:bg-ed-rust/90 transition-colors"
+                >
+                  Archive selected ({selectedAngleIds.length})
+                </button>
+                <button
+                  onClick={() => setSelectedAngleIds([])}
+                  className="ed-ghost text-[11px] px-3 py-1.5"
+                >
+                  Clear
+                </button>
+              </>
+            )}
             <button
               onClick={handleDownloadAngles}
               disabled={safeAngles.length === 0}
@@ -2742,10 +2832,6 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
               {copyingPrompt ? 'Copying...' : 'Copy LLM Prompt'}
             </button>
           </div>
-
-          {playbooksLoading && playbooksLoadedFor !== selectedProject && (
-            <p className="text-[10px] text-ed-ink3 mb-3">Loading playbook notes...</p>
-          )}
 
           {/* Import panel */}
           {showImport && (
@@ -2825,7 +2911,7 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
               <p className="text-[10px] text-ed-ink3 font-medium uppercase tracking-wider mb-2">Active</p>
               <div className="space-y-2">
                 {activeAngles.map(a => (
-                  <AngleCard key={a.externalId} angle={a} playbooks={playbooks} onStatusChange={handleAngleStatusChange} onUpdate={handleUpdateAngle} />
+                  <AngleCard key={a.externalId} angle={a} playbooks={playbooks} onStatusChange={handleAngleStatusChange} onUpdate={handleUpdateAngle} selected={selectedAngleIds.includes(a.externalId)} onSelectToggle={toggleAngleSelected} />
                 ))}
               </div>
             </div>
@@ -2837,7 +2923,7 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
               <p className="text-[10px] text-ed-ink3 font-medium uppercase tracking-wider mb-2">Testing (auto-generated)</p>
               <div className="space-y-2">
                 {testingAngles.map(a => (
-                  <AngleCard key={a.externalId} angle={a} playbooks={playbooks} onStatusChange={handleAngleStatusChange} onUpdate={handleUpdateAngle} showActions />
+                  <AngleCard key={a.externalId} angle={a} playbooks={playbooks} onStatusChange={handleAngleStatusChange} onUpdate={handleUpdateAngle} showActions selected={selectedAngleIds.includes(a.externalId)} onSelectToggle={toggleAngleSelected} />
                 ))}
               </div>
             </div>
@@ -2925,55 +3011,6 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
             >
               + Add Angle
             </button>
-          )}
-        </div>
-      )}
-
-      {subTab === 'playbooks' && (
-        <div>
-          {playbooksLoading && playbooksLoadedFor !== selectedProject ? (
-            <p className="text-[11px] text-ed-ink3 py-4">Loading playbooks...</p>
-          ) : safePlaybooks.length === 0 ? (
-            <p className="text-[11px] text-ed-ink3 py-4">No playbooks yet. Playbooks are created automatically after the Creative Filter scores generated ads for each angle.</p>
-          ) : (
-            <div className="space-y-3">
-              {safePlaybooks.map(pb => (
-                <div key={pb.angle_name} className="rounded-xl bg-black/[0.02] border border-black/5 p-4">
-                  <div className="flex items-center justify-between mb-2">
-                    <p className="text-[13px] font-medium text-ed-ink">{pb.angle_name}</p>
-                    <span className="text-[10px] text-ed-ink2">v{pb.version} {'\u2022'} {Math.round((pb.pass_rate || 0) * 100)}% pass rate</span>
-                  </div>
-                  <div className="grid grid-cols-2 gap-2 mb-2">
-                    <StatCell value={pb.total_scored || 0} label="Scored" color="text-ed-ink" />
-                    <StatCell value={pb.total_passed || 0} label="Passed" color="text-ed-green" />
-                  </div>
-                  {pb.visual_patterns && (
-                    <div className="mb-1.5">
-                      <p className="text-[10px] text-ed-ink2 font-medium">Visual Patterns</p>
-                      <p className="text-[11px] text-ed-ink leading-relaxed">{pb.visual_patterns}</p>
-                    </div>
-                  )}
-                  {pb.copy_patterns && (
-                    <div className="mb-1.5">
-                      <p className="text-[10px] text-ed-ink2 font-medium">Copy Patterns</p>
-                      <p className="text-[11px] text-ed-ink leading-relaxed">{pb.copy_patterns}</p>
-                    </div>
-                  )}
-                  {pb.avoid_patterns && (
-                    <div className="mb-1.5">
-                      <p className="text-[10px] text-ed-accent font-medium">Avoid</p>
-                      <p className="text-[11px] text-ed-ink leading-relaxed">{pb.avoid_patterns}</p>
-                    </div>
-                  )}
-                  {pb.generation_hints && (
-                    <div>
-                      <p className="text-[10px] text-ed-green font-medium">Generation Hints</p>
-                      <p className="text-[11px] text-ed-ink leading-relaxed">{pb.generation_hints}</p>
-                    </div>
-                  )}
-                </div>
-              ))}
-            </div>
           )}
         </div>
       )}
@@ -3076,7 +3113,7 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
             </div>
 
             <div>
-              <FieldLabel tooltip="The campaign used when the Director and Filter create Ready-to-Post ad sets. If this is left blank, automation will create or reuse a [Default] project campaign before generation starts.">Automation Campaign</FieldLabel>
+              <FieldLabel tooltip="This is the campaign in your connected Meta ad account where Creative Director and Creative Filter ad sets will be prepared. It does not post ads by itself.">Meta Campaign for Automated Ad Sets</FieldLabel>
               {campaignsLoading && campaignsLoadedFor !== selectedProject ? (
                 <p className="text-[11px] text-ed-ink3">Loading campaigns...</p>
               ) : safeCampaigns.length > 0 ? (
@@ -3095,7 +3132,7 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
               ) : (
                 <p className="text-[11px] text-ed-ink3">No campaigns found — create one in the Ad Pipeline tab first.</p>
               )}
-              <p className="text-[9px] text-ed-ink3 mt-0.5">Automated ad sets from the Director pipeline will use this campaign by default.</p>
+              <p className="text-[9px] text-ed-ink3 mt-0.5">Creative Director and Creative Filter will prepare Ready-to-Post ad sets under this Meta campaign by default.</p>
             </div>
           </SettingsSection>
 
@@ -3148,6 +3185,26 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
                 <option value="weighted">Weighted (favor least-used)</option>
                 <option value="random">Random (weighted)</option>
               </select>
+            </div>
+
+            <div>
+              <FieldLabel tooltip="Optional. When set, Creative Director will only select active angles with this tag. Leave blank to use all active angles.">Only Use Angles Tagged</FieldLabel>
+              <select
+                value={angleTagFilter}
+                onChange={e => {
+                  const next = e.target.value;
+                  handleSaveConfig({ angle_tag_filter: next });
+                  setSelectedAngleId('');
+                }}
+                onFocus={() => loadAngles(selectedProject)}
+                className="text-[12px] text-ed-ink bg-ed-bg border border-black/10 rounded-lg px-3 py-1.5 cursor-pointer"
+              >
+                <option value="">Any active angle</option>
+                {angleTags.map(tag => <option key={tag} value={tag}>{tag}</option>)}
+              </select>
+              <p className="text-[9px] text-ed-ink3 mt-0.5">
+                If the selected tag has no active angles, the Director blocks before paid generation starts.
+              </p>
             </div>
           </SettingsSection>
 
@@ -3395,13 +3452,14 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
 const PRIORITY_OPTIONS = ['highest', 'high', 'medium', 'test'];
 const FRAME_OPTIONS = ['symptom-first', 'scam', 'objection-first', 'identity-first', 'MAHA', 'news-first', 'consequence-first'];
 
-function AngleCard({ angle, playbooks, onStatusChange, onUpdate, showActions }) {
+function AngleCard({ angle, playbooks, onStatusChange, onUpdate, showActions, selected = false, onSelectToggle }) {
   const pb = ensureArray(playbooks, 'AgentMonitor.angleCard.playbooks').find(p => p.angle_name === angle.name);
   const [expanded, setExpanded] = useState(false);
   const [editingField, setEditingField] = useState(null);
   const [fieldValue, setFieldValue] = useState('');
   const [urlInput, setUrlInput] = useState('');
   const destUrls = (() => { try { return angle.destination_urls ? JSON.parse(angle.destination_urls) : []; } catch { return []; } })();
+  const angleTags = Array.isArray(angle.tags) ? angle.tags : [];
 
   const PRIORITY_COLORS = { highest: 'bg-ed-rust/10 text-ed-rust', high: 'bg-ed-accent/15 text-ed-accent', medium: 'bg-ed-accent/10 text-ed-accent', test: 'bg-ed-bg text-ed-ink2' };
   const FRAME_COLORS = { 'symptom-first': 'bg-ed-green/10 text-ed-green', 'scam': 'bg-ed-rust/10 text-ed-rust', 'objection-first': 'bg-amber-50 text-amber-700', 'identity-first': 'bg-purple-50 text-purple-600', 'MAHA': 'bg-blue-50 text-blue-600', 'news-first': 'bg-indigo-50 text-indigo-600', 'consequence-first': 'bg-orange-50 text-orange-600' };
@@ -3421,6 +3479,20 @@ function AngleCard({ angle, playbooks, onStatusChange, onUpdate, showActions }) 
   const fieldKeyDown = (e, field) => {
     if (e.key === 'Escape') { setEditingField(null); return; }
     if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); saveField(field, fieldValue); }
+  };
+
+  const addTag = async () => {
+    if (!onUpdate) return;
+    const tag = window.prompt('Add angle tag');
+    const trimmed = String(tag || '').trim();
+    if (!trimmed) return;
+    if (angleTags.some(value => value.toLowerCase() === trimmed.toLowerCase())) return;
+    await onUpdate(angle.externalId, { tags: [...angleTags, trimmed] });
+  };
+
+  const removeTag = async (tag) => {
+    if (!onUpdate) return;
+    await onUpdate(angle.externalId, { tags: angleTags.filter(value => value !== tag) });
   };
 
   // Inline editable text field
@@ -3461,11 +3533,56 @@ function AngleCard({ angle, playbooks, onStatusChange, onUpdate, showActions }) 
         onClick={() => setExpanded(!expanded)}
       >
         <div className="flex items-center gap-2 flex-wrap min-w-0">
+          {onSelectToggle && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onSelectToggle(angle.externalId);
+              }}
+              className={`w-4 h-4 rounded border flex items-center justify-center text-[10px] ${
+                selected ? 'bg-ed-accent border-ed-accent text-white' : 'border-ed-line text-transparent hover:border-ed-accent'
+              }`}
+              title={selected ? 'Deselect angle' : 'Select angle'}
+            >
+              ✓
+            </button>
+          )}
           <span className={`text-[11px] text-ed-ink3 flex-shrink-0 transition-transform ${expanded ? 'rotate-90' : ''}`}>&#9656;</span>
           <span className="text-[13px] font-medium text-ed-ink">{angle.name}</span>
           {angle.is_system_default && <span className="text-[9px] font-medium px-1.5 py-0.5 rounded bg-ed-accent/10 text-ed-accent">System</span>}
           {angle.priority && <span className={`text-[9px] font-medium px-1.5 py-0.5 rounded ${PRIORITY_COLORS[angle.priority] || 'bg-ed-bg text-gray-600'}`}>{angle.priority}</span>}
           {angle.frame && <span className={`text-[9px] font-medium px-1.5 py-0.5 rounded ${FRAME_COLORS[angle.frame] || 'bg-ed-bg text-gray-600'}`}>{angle.frame}</span>}
+          {angleTags.map(tag => (
+            <span key={tag} className="inline-flex items-center gap-1 text-[9px] font-medium px-1.5 py-0.5 rounded bg-ed-accent/10 text-ed-accent">
+              {tag}
+              {onUpdate && (
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    removeTag(tag);
+                  }}
+                  className="text-ed-accent/60 hover:text-ed-rust"
+                  title={`Remove ${tag}`}
+                >
+                  ×
+                </button>
+              )}
+            </span>
+          ))}
+          {onUpdate && (
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                addTag();
+              }}
+              className="text-[9px] font-medium px-1.5 py-0.5 rounded bg-black/5 text-ed-ink2 hover:text-ed-accent"
+            >
+              + tag
+            </button>
+          )}
           <span className="text-[10px] text-ed-ink3">used {angle.times_used || 0}x</span>
           {pb && (
             <span className="text-[10px] text-ed-ink2">
@@ -3542,11 +3659,6 @@ function AngleCard({ angle, playbooks, onStatusChange, onUpdate, showActions }) 
         </div>
       )}
 
-      {pb && pb.generation_hints && (
-        <p className="text-[10px] text-ed-green mt-1 leading-relaxed px-3">
-          Playbook v{pb.version}: "{pb.generation_hints.slice(0, 120)}{pb.generation_hints.length > 120 ? '...' : ''}"
-        </p>
-      )}
       {/* Destination URLs section */}
       {expanded && angle.status === 'active' && onUpdate && (
         <div className="px-3 pb-2 pt-1 border-t border-black/5">

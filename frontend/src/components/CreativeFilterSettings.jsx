@@ -188,14 +188,8 @@ export default function CreativeFilterSettings({ projectId, project, onSave, emb
   const [form, setForm] = useState({
     scout_enabled: true,
     scout_default_campaign: '',
-    scout_cta: '',
-    scout_display_link: '',
-    scout_facebook_page: '',
-    scout_destination_urls: [],
-    scout_duplicate_adset_name: '',
   });
   const [saving, setSaving] = useState(false);
-  const [urlInput, setUrlInput] = useState('');
   const [showAddCampaign, setShowAddCampaign] = useState(false);
   const [newCampaignName, setNewCampaignName] = useState('');
   const [addingCampaign, setAddingCampaign] = useState(false);
@@ -216,16 +210,6 @@ export default function CreativeFilterSettings({ projectId, project, onSave, emb
     setForm({
       scout_enabled: project.scout_enabled !== false, // default true
       scout_default_campaign: project.scout_default_campaign || project.default_campaign_id || '',
-      scout_cta: project.scout_cta || '',
-      scout_display_link: project.scout_display_link || '',
-      scout_facebook_page: project.scout_facebook_page || '',
-      scout_destination_urls: (() => {
-        if (project.scout_destination_urls) {
-          try { return JSON.parse(project.scout_destination_urls); } catch {}
-        }
-        return project.scout_destination_url ? [project.scout_destination_url] : [];
-      })(),
-      scout_duplicate_adset_name: project.scout_duplicate_adset_name || '',
     });
   }, [project]);
 
@@ -242,12 +226,6 @@ export default function CreativeFilterSettings({ projectId, project, onSave, emb
         ...(!embedded ? { scout_enabled: form.scout_enabled } : {}),
         scout_default_campaign: automationCampaignId,
         default_campaign_id: automationCampaignId,
-        scout_cta: form.scout_cta || '',
-        scout_display_link: form.scout_display_link || '',
-        scout_facebook_page: form.scout_facebook_page || '',
-        scout_destination_urls: form.scout_destination_urls.length > 0 ? JSON.stringify(form.scout_destination_urls) : '',
-        scout_destination_url: form.scout_destination_urls[0] || '',
-        scout_duplicate_adset_name: form.scout_duplicate_adset_name || '',
       };
       await api.updateProject(projectId, updates);
       if (onSave) await onSave();
@@ -312,7 +290,7 @@ export default function CreativeFilterSettings({ projectId, project, onSave, emb
 
         {/* Automation Campaign */}
         <div>
-          <FieldLabel tooltip="The campaign used when the Director and Filter create Ready-to-Post ad sets. If this is left blank, automation will create or reuse a [Default] project campaign before generation starts.">Automation Campaign</FieldLabel>
+          <FieldLabel tooltip="This is the campaign in your connected Meta ad account where Creative Director and Creative Filter ad sets will be prepared. It does not post ads by itself.">Meta Campaign for Automated Ad Sets</FieldLabel>
           {campaigns.length > 0 ? (
             <div className="flex items-center gap-2">
               <select
@@ -389,98 +367,7 @@ export default function CreativeFilterSettings({ projectId, project, onSave, emb
               >Cancel</button>
             </div>
           )}
-        </div>
-
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-          {/* CTA */}
-          <div>
-            <FieldLabel tooltip="The default Meta call-to-action used on deployments created from approved ads.">CTA Button Text</FieldLabel>
-            <input
-              value={form.scout_cta}
-              onChange={e => setForm(p => ({ ...p, scout_cta: e.target.value }))}
-              className="w-full text-[13.5px] text-ed-ink px-3 py-[9px] border border-ed-line rounded-[7px] bg-ed-surface outline-none focus:border-ed-accent focus:ring-[3px] focus:ring-ed-accent/[0.08] text-[13px]"
-              placeholder='e.g., "Shop Now"'
-            />
-          </div>
-
-          {/* Display Link */}
-          <div>
-            <FieldLabel tooltip="The display domain text Meta can show on ads. This is visual label text, not the destination URL.">Display Link</FieldLabel>
-            <input
-              value={form.scout_display_link}
-              onChange={e => setForm(p => ({ ...p, scout_display_link: e.target.value }))}
-              className="w-full text-[13.5px] text-ed-ink px-3 py-[9px] border border-ed-line rounded-[7px] bg-ed-surface outline-none focus:border-ed-accent focus:ring-[3px] focus:ring-ed-accent/[0.08] text-[13px]"
-              placeholder='e.g., "healnaturally.com"'
-            />
-          </div>
-        </div>
-
-        {/* Facebook Page */}
-        <div>
-          <FieldLabel tooltip="The Facebook Page identity used when these Ready-to-Post ads are eventually posted to Meta.">Facebook Page ID</FieldLabel>
-          <input
-            value={form.scout_facebook_page}
-            onChange={e => setForm(p => ({ ...p, scout_facebook_page: e.target.value }))}
-            className="w-full text-[13.5px] text-ed-ink px-3 py-[9px] border border-ed-line rounded-[7px] bg-ed-surface outline-none focus:border-ed-accent focus:ring-[3px] focus:ring-ed-accent/[0.08] text-[13px]"
-            placeholder="Facebook Page ID"
-          />
-        </div>
-
-        {/* Default Destination URLs */}
-        <div>
-          <FieldLabel tooltip="Fallback landing page URLs for approved ads. Angle-specific URLs override these defaults when an angle has its own destination URLs.">Default Destination URLs</FieldLabel>
-          {form.scout_destination_urls.length > 0 && (
-            <div className="space-y-1.5 mb-2">
-              {form.scout_destination_urls.map((url, i) => (
-                <div key={i} className="flex items-center gap-2 group">
-                  <span className="text-[12px] text-ed-ink2 truncate flex-1" title={url}>{url}</span>
-                  <button
-                    onClick={() => setForm(p => ({ ...p, scout_destination_urls: p.scout_destination_urls.filter((_, idx) => idx !== i) }))}
-                    className="text-[11px] text-ed-ink3 hover:text-ed-rust opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0"
-                    title="Remove URL"
-                  >&times;</button>
-                </div>
-              ))}
-            </div>
-          )}
-          <div className="flex gap-2">
-            <input
-              value={urlInput}
-              onChange={e => setUrlInput(e.target.value)}
-              onKeyDown={e => {
-                if (e.key === 'Enter' && urlInput.trim()) {
-                  e.preventDefault();
-                  setForm(p => ({ ...p, scout_destination_urls: [...p.scout_destination_urls, urlInput.trim()] }));
-                  setUrlInput('');
-                }
-              }}
-              className="w-full text-[13.5px] text-ed-ink px-3 py-[9px] border border-ed-line rounded-[7px] bg-ed-surface outline-none focus:border-ed-accent focus:ring-[3px] focus:ring-ed-accent/[0.08] text-[13px] flex-1"
-              placeholder='Paste URL and press Enter...'
-            />
-            <button
-              onClick={() => {
-                if (urlInput.trim()) {
-                  setForm(p => ({ ...p, scout_destination_urls: [...p.scout_destination_urls, urlInput.trim()] }));
-                  setUrlInput('');
-                }
-              }}
-              disabled={!urlInput.trim()}
-              className="text-[11px] font-medium text-ed-accent hover:text-ed-accent disabled:text-ed-ink3 disabled:cursor-not-allowed px-3 py-1.5 flex-shrink-0"
-            >Add</button>
-          </div>
-          <p className="text-[10px] text-ed-ink3 mt-1">Used as the fallback landing page for Ready-to-Post deployments. Add multiple URLs only when you want rotation; angle-specific URLs win.</p>
-        </div>
-
-        {/* Duplicate Ad Set Name */}
-        <div>
-          <FieldLabel tooltip="Optional reference name for teams that duplicate an existing Meta ad set as their posting template. Leave blank if your workflow does not use a source ad set.">Duplicate Source Ad Set Name</FieldLabel>
-          <input
-            value={form.scout_duplicate_adset_name}
-            onChange={e => setForm(p => ({ ...p, scout_duplicate_adset_name: e.target.value }))}
-            className="w-full text-[13.5px] text-ed-ink px-3 py-[9px] border border-ed-line rounded-[7px] bg-ed-surface outline-none focus:border-ed-accent focus:ring-[3px] focus:ring-ed-accent/[0.08] text-[13px]"
-            placeholder='e.g., "Broad - LP - Scam 002"'
-          />
-          <p className="text-[10px] text-ed-ink3 mt-1">Optional Meta Ads Manager source/template name for duplication workflows.</p>
+          <p className="text-[10px] text-ed-ink3 mt-1.5">Creative Director and Creative Filter prepare Ready-to-Post ad sets under this Meta campaign by default.</p>
         </div>
 
         {/* Save button */}

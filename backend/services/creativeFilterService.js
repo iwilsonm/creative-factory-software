@@ -12,7 +12,7 @@ import sharp from 'sharp';
 import {
   getProject, getLatestDoc, getBatchJob, updateBatchJob,
   getAdsByBatchId, getAd, downloadToBuffer,
-  createAdSet, createDeploymentDuplicate, updateDeployment,
+  createAdSet, createDeploymentDuplicate,
   convexClient, api,
   updateAdSet, getAdSetsByProject, getConductorConfig, getActiveConductorAngles,
   ensureDefaultCampaign,
@@ -915,20 +915,13 @@ export async function deployFlexAd(flexAdDef, projectId, projectConfig, batchId,
   const campaignId = await resolveAutomationCampaign(projectConfig);
 
   const effectiveAngle = angleName || flexAdDef.angle_theme || 'Unassigned';
-  const cta = projectConfig.scout_cta || '';
-  const displayLink = projectConfig.scout_display_link || '';
-  const facebookPage = projectConfig.scout_facebook_page || '';
-  const duplicateAdsetName = projectConfig.scout_duplicate_adset_name || '';
+  const cta = 'LEARN_MORE';
 
-  // Build default destination URLs from project config
+  // Only angle-specific destination URLs are applied for new Director output.
+  // Legacy project-level URL/display/page/duplicate settings stay in storage for
+  // compatibility, but hidden stale values should not leak into new ad sets.
   let resolvedUrls = [];
-  if (projectConfig.scout_destination_urls) {
-    try { resolvedUrls = JSON.parse(projectConfig.scout_destination_urls); } catch {}
-  }
-  if (!resolvedUrls.length && projectConfig.scout_destination_url) {
-    resolvedUrls = [projectConfig.scout_destination_url];
-  }
-  let destinationUrl = resolvedUrls[0] || '';
+  let destinationUrl = '';
 
   // Per-angle URLs override project defaults entirely
   try {
@@ -1011,14 +1004,6 @@ export async function deployFlexAd(flexAdDef, projectId, projectConfig, batchId,
       destination_url: destinationUrl,
       cta_button: cta,
     });
-
-    const extraFields = {};
-    if (displayLink) extraFields.display_link = displayLink;
-    if (facebookPage) extraFields.facebook_page = facebookPage;
-    if (duplicateAdsetName) extraFields.duplicate_adset_name = duplicateAdsetName;
-    if (Object.keys(extraFields).length > 0) {
-      await updateDeployment(depId, extraFields);
-    }
 
     deploymentIds.push(depId);
   }

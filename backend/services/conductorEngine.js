@@ -823,8 +823,14 @@ async function selectAngles(projectId, config, count, excludedAngleNames = []) {
   await ensureBofAngle(projectId);
 
   const activeAngles = await getActiveConductorAngles(projectId);
+  const filtered = filterAnglesByConfiguredTag(activeAngles, config);
+  const selectableAngles = filtered.angles;
 
-  if (activeAngles.length === 0) {
+  if (filtered.tag && selectableAngles.length === 0) {
+    throw new Error(`No active angles are tagged "${filtered.tag}". Update the Angle Tag Filter or tag at least one active angle before running Creative Director.`);
+  }
+
+  if (selectableAngles.length === 0) {
     // No angles configured — create a "General" angle as fallback
     return Array(count).fill({
       externalId: 'fallback',
@@ -837,7 +843,7 @@ async function selectAngles(projectId, config, count, excludedAngleNames = []) {
 
   const excluded = new Set((excludedAngleNames || []).filter(Boolean));
 
-  let anglesToUse = activeAngles;
+  let anglesToUse = selectableAngles;
   const filteredAngles = anglesToUse.filter(angle => !excluded.has(angle.name));
   if (filteredAngles.length > 0) {
     anglesToUse = filteredAngles;
@@ -856,6 +862,26 @@ async function selectAngles(projectId, config, count, excludedAngleNames = []) {
 
 // Priority weights for angle selection — higher = more likely to be selected
 const PRIORITY_WEIGHTS = { highest: 4, high: 2, medium: 1, test: 0.25 };
+
+function normalizeAngleTag(tag) {
+  return String(tag || '').trim();
+}
+
+function angleMatchesTag(angle, tag) {
+  const normalized = normalizeAngleTag(tag).toLowerCase();
+  if (!normalized) return true;
+  return Array.isArray(angle?.tags)
+    && angle.tags.some(value => normalizeAngleTag(value).toLowerCase() === normalized);
+}
+
+function filterAnglesByConfiguredTag(angles, config) {
+  const tag = normalizeAngleTag(config?.angle_tag_filter);
+  if (!tag) return { tag: '', angles };
+  return {
+    tag,
+    angles: angles.filter(angle => angleMatchesTag(angle, tag)),
+  };
+}
 
 function getPriorityWeight(angle) {
   return PRIORITY_WEIGHTS[angle.priority] || PRIORITY_WEIGHTS.medium;
@@ -1407,7 +1433,11 @@ async function loadTestRunContext(projectId, angleOverride) {
   let angleInfo;
   if (angleOverride) {
     const allAngles = await getActiveConductorAngles(projectId);
-    angleInfo = allAngles.find(a => a.externalId === angleOverride);
+    const filtered = filterAnglesByConfiguredTag(allAngles, config);
+    if (filtered.tag && filtered.angles.length === 0) {
+      throw new Error(`No active angles are tagged "${filtered.tag}". Update the Angle Tag Filter or tag at least one active angle before running Creative Director.`);
+    }
+    angleInfo = filtered.angles.find(a => a.externalId === angleOverride);
     if (!angleInfo) throw new Error('Selected angle not found or not active');
   } else {
     const angles = await selectAngles(projectId, config, 1);
