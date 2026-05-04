@@ -734,7 +734,7 @@ export default function AnalyticsTab({ projectId, project }) {
           meta={analyticsMeta}
         />
       </div>
-      <div className="px-[36px] py-[28px]">
+      <div className="max-w-7xl px-[36px] py-[28px]">
       {/* ─── KPI Cards ─── */}
       {!loading && filteredSortedRows.length > 0 && (
         <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
@@ -764,7 +764,9 @@ export default function AnalyticsTab({ projectId, project }) {
           campaignNames={campaignNames}
         />
       )}
+      </div>
 
+      <div className="px-[36px] pb-[28px]">
       {/* ─── Controls Row ─── */}
       <div className="flex flex-wrap items-center gap-3 mb-4">
         {/* Level switcher */}
