@@ -720,22 +720,17 @@ export default function AnalyticsTab({ projectId, project }) {
     });
   };
 
-  const analyticsMeta = [
-    project?.brand,
-    filteredSortedRows?.length > 0 && `${filteredSortedRows.length} ${level === 'ads' ? 'ad' : level === 'adsets' ? 'ad set' : 'campaign'}${filteredSortedRows.length === 1 ? '' : 's'}`,
-  ].filter(Boolean).join(' · ');
-
   return (
     <div>
-      <div className="max-w-7xl mx-auto">
-        <div className="-mx-4 sm:-mx-6 lg:-mx-8 -mt-8">
-          <EditorialPageHeader
-            eyebrow={`${(project?.brand || project?.name || 'PROJECT').toUpperCase()} · ANALYTICS`}
-            title="Analytics"
-            meta={analyticsMeta}
-          />
-        </div>
-        <div className="px-[36px] py-[28px]">
+      <div className="-mx-4 sm:-mx-6 lg:-mx-8 -mt-8 mb-2">
+        <EditorialPageHeader
+          eyebrow={`${(project?.brand || project?.name || 'PROJECT').toUpperCase()} · ANALYTICS`}
+          title="Analytics"
+          meta="Track Meta campaign, ad set, and ad performance with filters, tags, and notes."
+        />
+      </div>
+
+      <div className="px-[36px] py-[28px]">
         {/* ─── KPI Cards ─── */}
         {!loading && filteredSortedRows.length > 0 && (
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3 mb-6">
@@ -765,7 +760,6 @@ export default function AnalyticsTab({ projectId, project }) {
             campaignNames={campaignNames}
           />
         )}
-        </div>
       </div>
 
       <div className="px-[36px] pb-[28px]">

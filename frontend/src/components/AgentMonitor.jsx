@@ -7,6 +7,7 @@ import { ensureArray } from '../utils/collections';
 import CreativeDirectorSettings from './CreativeDirectorSettings';
 import CreativeFilterSettings from './CreativeFilterSettings';
 import InfoTooltip from './InfoTooltip';
+import EditorialPageHeader from './editorial/EditorialPageHeader';
 
 const LEVEL_CONFIG = {
   OK:        { color: 'text-ed-green',       icon: '\u2713', bg: 'bg-ed-green/10' },
@@ -2387,9 +2388,21 @@ function DirectorTab({ onRefresh, externalProjectId, externalProject, onProjectR
     : [];
   const canChooseAngle = !angleOptionsLoading;
   const canTriggerTestRun = !baseLoading && !!config && !!selectedAngleId && testAdSetTargetValue >= 1 && testAdSetTargetValue <= 20;
+  const headerProject = externalProject || safeProjects.find((p) => p.id === selectedProject);
+  const headerName = headerProject?.brand || headerProject?.brand_name || headerProject?.displayName || headerProject?.name || 'PROJECT';
 
   return (
     <div>
+      {embedded && (
+        <div className="-mx-4 sm:-mx-6 lg:-mx-8 -mt-8 mb-2">
+          <EditorialPageHeader
+            eyebrow={`${headerName.toUpperCase()} · AUTOMATION`}
+            title="Automation"
+            meta="Creative Director creates ad sets, Creative Filter checks quality, and approved ads move toward Ready to Post."
+          />
+        </div>
+      )}
+
       {/* Project selector + controls */}
       <div className="flex items-center gap-3 mb-4">
         {!embedded && (
